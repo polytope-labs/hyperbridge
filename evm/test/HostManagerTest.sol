@@ -25,7 +25,7 @@ import {HostParams} from "../src/hosts/EvmHost.sol";
 contract HostManagerTest is BaseTest {
     function HostManagerWithdraw(PostRequest memory request) public {
         // add balance to the host
-        feeToken.mint(address(host), 1000e18, "");
+        feeToken.mint(address(host), 1000e18);
 
         require(feeToken.balanceOf(address(host)) == 1000e18, "Failed to mint user tokens");
 

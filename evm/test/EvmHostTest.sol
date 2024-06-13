@@ -104,7 +104,7 @@ contract EvmHostTest is BaseTest {
         host.fundRequest(keccak256(hex"dead"), 10 * 1e18);
 
         // another person can fund your request
-        feeToken.mint(address(this), 10 * 1e18, "");
+        feeToken.mint(address(this), 10 * 1e18);
         host.fundRequest(commitment, 10 * 1e18);
     }
 

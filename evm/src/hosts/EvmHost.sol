@@ -205,10 +205,18 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 timeoutTimestamp
     );
 
+    error UnauthorizedAccount();
+    error InvalidAddressLength();
+    error UnknownRequest();
+    error UnknownResponse();
+    error UnauthorizedAction();
+    error UnauthorizedResponse();
+    error DuplicateResponse();
+
     // only permits fishermen
     modifier onlyFishermen() {
         if (!_fishermen[_msgSender()]) {
-            revert("EvmHost: Account is not in the fishermen set");
+            revert UnauthorizedAccount();
         }
         _;
     }
@@ -216,7 +224,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // only permits the admin
     modifier onlyAdmin() {
         if (_msgSender() != _hostParams.admin) {
-            revert("EvmHost: Account is not the admin");
+            revert UnauthorizedAccount();
         }
         _;
     }
@@ -224,7 +232,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // only permits the IHandler contract
     modifier onlyHandler() {
         if (_msgSender() != address(_hostParams.handler)) {
-            revert("EvmHost: Account is not the handler");
+            revert UnauthorizedAccount();
         }
         _;
     }
@@ -232,7 +240,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // only permits the HostManager contract
     modifier onlyManager() {
         if (_msgSender() != _hostParams.hostManager) {
-            revert("EvmHost: Account is not the Manager contract");
+            revert UnauthorizedAccount();
         }
         _;
     }
@@ -406,7 +414,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function setHostParamsAdmin(HostParams memory params) public onlyAdmin {
         if (chainId() == block.chainid) {
-            revert("Cannot set params on mainnet");
+            revert UnauthorizedAction();
         }
 
         uint256 whitelistLength = params.stateMachineWhitelist.length;
@@ -800,17 +808,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // known request?
         if (_requestReceipts[receipt] == address(0)) {
-            revert("EvmHost: Unknown request");
+            revert UnknownRequest();
         }
 
         // check that the authorized application is issuing this response
         if (_bytesToAddress(post.request.to) != _msgSender()) {
-            revert("EvmHost: Unauthorized Response");
+            revert UnauthorizedResponse();
         }
 
         // check that request has not already been responed to
         if (_responded[receipt]) {
-            revert("EvmHost: Duplicate Response");
+            revert DuplicateResponse();
         }
 
         // collect fees
@@ -856,7 +864,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         if (metadata.sender == address(0)) {
-            revert("Unknown request");
+            revert UnknownRequest();
         }
         IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
@@ -876,7 +884,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory metadata = _responseCommitments[commitment];
 
         if (metadata.sender == address(0)) {
-            revert("Unknown request");
+            revert UnknownResponse();
         }
         IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
@@ -904,7 +912,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function _bytesToAddress(bytes memory _bytes) private pure returns (address addr) {
         if (_bytes.length != 20) {
-            revert("Invalid address length");
+            revert InvalidAddressLength();
         }
         assembly {
             addr := mload(add(_bytes, 20))

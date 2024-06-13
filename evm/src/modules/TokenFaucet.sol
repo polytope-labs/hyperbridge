@@ -35,6 +35,6 @@ contract TokenFaucet {
         }
 
         consumers[msg.sender] = block.timestamp;
-        IERC6160Ext20(token).mint(msg.sender, 1000 * 1e18, "");
+        IERC6160Ext20(token).mint(msg.sender, 1000 * 1e18);
     }
 }

@@ -36,7 +36,7 @@ contract TokenGatewayTest is BaseTest {
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
         uint256 totalFee = 1_000 * 1e18 + messagingFee;
-        feeToken.mint(address(this), totalFee, "");
+        feeToken.mint(address(this), totalFee);
 
         assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18 + messagingFee);
         assert(feeToken.balanceOf(address(host)) == 0);
@@ -64,7 +64,7 @@ contract TokenGatewayTest is BaseTest {
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (321 * host.perByteFee());
         uint256 totalFee = 1_000 * 1e18 + messagingFee;
-        feeToken.mint(address(this), totalFee, "");
+        feeToken.mint(address(this), totalFee);
 
         assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18 + messagingFee);
         assert(feeToken.balanceOf(address(host)) == 0);
@@ -486,7 +486,7 @@ contract TokenGatewayTest is BaseTest {
         bytes memory hyperbridge = StateMachine.kusama(2000);
         TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
-        feeToken.mint(address(this), 1_000 * 1e18, "");
+        feeToken.mint(address(this), 1_000 * 1e18);
         mockUSDC.mint(address(this), 1_000_000 * 1e18);
 
         vm.prank(address(host));
@@ -563,7 +563,7 @@ contract TokenGatewayTest is BaseTest {
 
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
-        feeToken.mint(address(this), 1_000 * 1e18 + messagingFee, "");
+        feeToken.mint(address(this), 1_000 * 1e18 + messagingFee);
 
         vm.prank(address(host));
         gateway.onAccept(

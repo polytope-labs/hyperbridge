@@ -117,7 +117,7 @@ contract HandlerV1 is IHandler, Context {
         uint256 requestsLen = request.requests.length;
         MmrLeaf[] memory leaves = new MmrLeaf[](requestsLen);
 
-        for (uint256 i = 0; i < requestsLen; i++) {
+        for (uint256 i = 0; i < requestsLen; ++i) {
             PostRequestLeaf memory leaf = request.requests[i];
             // check destination
             if (!leaf.request.dest.equals(host.host())) {
@@ -144,7 +144,7 @@ contract HandlerV1 is IHandler, Context {
             revert InvalidProof();
         }
 
-        for (uint256 i = 0; i < requestsLen; i++) {
+        for (uint256 i = 0; i < requestsLen; ++i) {
             PostRequestLeaf memory leaf = request.requests[i];
             host.dispatchIncoming(leaf.request, _msgSender());
         }
@@ -167,7 +167,7 @@ contract HandlerV1 is IHandler, Context {
         uint256 responsesLength = response.responses.length;
         MmrLeaf[] memory leaves = new MmrLeaf[](responsesLength);
 
-        for (uint256 i = 0; i < responsesLength; i++) {
+        for (uint256 i = 0; i < responsesLength; ++i) {
             PostResponseLeaf memory leaf = response.responses[i];
             // check time-out
             if (timestamp > leaf.response.timeout()) {
@@ -195,7 +195,7 @@ contract HandlerV1 is IHandler, Context {
             revert InvalidProof();
         }
 
-        for (uint256 i = 0; i < responsesLength; i++) {
+        for (uint256 i = 0; i < responsesLength; ++i) {
             PostResponseLeaf memory leaf = response.responses[i];
             host.dispatchIncoming(leaf.response, _msgSender());
         }
@@ -223,7 +223,7 @@ contract HandlerV1 is IHandler, Context {
         }
         uint256 timeoutsLength = message.timeouts.length;
 
-        for (uint256 i = 0; i < timeoutsLength; i++) {
+        for (uint256 i = 0; i < timeoutsLength; ++i) {
             PostRequest memory request = message.timeouts[i];
             // timed-out?
             if (request.timeout() > state.timestamp) {
@@ -270,7 +270,7 @@ contract HandlerV1 is IHandler, Context {
         }
         uint256 timeoutsLength = message.timeouts.length;
 
-        for (uint256 i = 0; i < timeoutsLength; i++) {
+        for (uint256 i = 0; i < timeoutsLength; ++i) {
             PostResponse memory response = message.timeouts[i];
             // timed-out?
             if (response.timeout() > state.timestamp) {
@@ -318,7 +318,7 @@ contract HandlerV1 is IHandler, Context {
         uint256 responsesLength = message.requests.length;
         bytes[] memory proof = message.proof;
 
-        for (uint256 i = 0; i < responsesLength; i++) {
+        for (uint256 i = 0; i < responsesLength; ++i) {
             GetRequest memory request = message.requests[i];
             // timed-out?
             if (timestamp > request.timeout()) {
@@ -353,7 +353,7 @@ contract HandlerV1 is IHandler, Context {
         uint256 timeoutsLength = message.timeouts.length;
         uint256 timestamp = block.timestamp;
 
-        for (uint256 i = 0; i < timeoutsLength; i++) {
+        for (uint256 i = 0; i < timeoutsLength; ++i) {
             GetRequest memory request = message.timeouts[i];
             bytes32 requestCommitment = request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);

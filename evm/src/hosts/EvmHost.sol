@@ -419,7 +419,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         uint256 whitelistLength = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < whitelistLength; i++) {
+        for (uint256 i = 0; i < whitelistLength; ++i) {
             delete _latestStateMachineHeight[params.stateMachineWhitelist[i]];
         }
         updateHostParamsInternal(params);
@@ -432,20 +432,20 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function updateHostParamsInternal(HostParams memory params) private {
         // delete old fishermen
         uint256 fishermenLength = _hostParams.fishermen.length;
-        for (uint256 i = 0; i < fishermenLength; i++) {
+        for (uint256 i = 0; i < fishermenLength; ++i) {
             delete _fishermen[_hostParams.fishermen[i]];
         }
         _hostParams = params;
 
         // add new fishermen if any
         uint256 newFishermenLength = params.fishermen.length;
-        for (uint256 i = 0; i < newFishermenLength; i++) {
+        for (uint256 i = 0; i < newFishermenLength; ++i) {
             _fishermen[params.fishermen[i]] = true;
         }
 
         // add whitelisted state machines
         uint256 whitelistLength = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < whitelistLength; i++) {
+        for (uint256 i = 0; i < whitelistLength; ++i) {
             // create if it doesn't already exist
             if (_latestStateMachineHeight[params.stateMachineWhitelist[i]] == 0) {
                 _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;

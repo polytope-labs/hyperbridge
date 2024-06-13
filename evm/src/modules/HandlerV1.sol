@@ -47,8 +47,30 @@ contract HandlerV1 is IHandler, Context {
     using Message for GetRequest;
     //    using Message for GetResponse;
 
+    // The cosensus client has now expired to mitigate
+    // long fork attacks, this is unrecoverable.
+    error ConsensusClientExpired();
+    // The IsmpHost has been frozen by the admin
+    error HostFrozen();
+    // Challenge period has not yet elapsed
+    error ChallengePeriodNotElapsed();
+    // The requested state commitment does not exist
+    error StateCommitmentNotFound();
+    // The message destination is not intended for this host
+    error InvalidMessageDestination();
+    // The provided message has now timed-out
+    error MessageTimedOut();
+    // The provided message has not timed-out
+    error MessageNotTimedOut();
+    // The message has been previously processed
+    error DuplicateMessage();
+    // The provided message is unknown to the host
+    error UnknownMessage();
+    // The provided proof is invalid
+    error InvalidProof();
+
     modifier notFrozen(IIsmpHost host) {
-        require(!host.frozen(), "IHandler: frozen");
+        if (host.frozen()) revert HostFrozen();
         _;
     }
 
@@ -63,7 +85,7 @@ contract HandlerV1 is IHandler, Context {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
 
         if (delay >= host.unStakingPeriod()) {
-            revert("IHandler: consensus client is now expired");
+            revert ConsensusClientExpired();
         }
 
         (bytes memory verifiedState, IntermediateState memory intermediate) =
@@ -89,26 +111,26 @@ contract HandlerV1 is IHandler, Context {
         uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(request.proof.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) {
-            revert("IHandler: still in challenge period");
+            revert ChallengePeriodNotElapsed();
         }
 
         uint256 requestsLen = request.requests.length;
         MmrLeaf[] memory leaves = new MmrLeaf[](requestsLen);
 
-        for (uint256 i = 0; i < requestsLen; i++) {
+        for (uint256 i = 0; i < requestsLen; ++i) {
             PostRequestLeaf memory leaf = request.requests[i];
             // check destination
             if (!leaf.request.dest.equals(host.host())) {
-                revert("IHandler: Invalid request destination");
+                revert InvalidMessageDestination();
             }
             // check time-out
             if (timestamp > leaf.request.timeout()) {
-                revert("IHandler: Request timed out");
+                revert MessageTimedOut();
             }
             // duplicate request?
             bytes32 commitment = leaf.request.hash();
             if (host.requestReceipts(commitment) != address(0)) {
-                revert("IHandler: Duplicate request");
+                revert DuplicateMessage();
             }
 
             leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, commitment);
@@ -116,13 +138,13 @@ contract HandlerV1 is IHandler, Context {
 
         bytes32 root = host.stateMachineCommitment(request.proof.height).overlayRoot;
         if (root == bytes32(0)) {
-            revert("IHandler: Proof height not found!");
+            revert StateCommitmentNotFound();
         }
         if (!MerkleMountainRange.VerifyProof(root, request.proof.multiproof, leaves, request.proof.leafCount)) {
-            revert("IHandler: Invalid request proofs");
+            revert InvalidProof();
         }
 
-        for (uint256 i = 0; i < requestsLen; i++) {
+        for (uint256 i = 0; i < requestsLen; ++i) {
             PostRequestLeaf memory leaf = request.requests[i];
             host.dispatchIncoming(leaf.request, _msgSender());
         }
@@ -139,41 +161,41 @@ contract HandlerV1 is IHandler, Context {
         uint256 challengePeriod = host.challengePeriod();
 
         if (challengePeriod != 0 && challengePeriod > delay) {
-            revert("IHandler: still in challenge period");
+            revert ChallengePeriodNotElapsed();
         }
 
         uint256 responsesLength = response.responses.length;
         MmrLeaf[] memory leaves = new MmrLeaf[](responsesLength);
 
-        for (uint256 i = 0; i < responsesLength; i++) {
+        for (uint256 i = 0; i < responsesLength; ++i) {
             PostResponseLeaf memory leaf = response.responses[i];
             // check time-out
             if (timestamp > leaf.response.timeout()) {
-                revert("IHandler: Response timed out");
+                revert MessageTimedOut();
             }
             // known request? also serves as a source check
             bytes32 requestCommitment = leaf.response.request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
             if (meta.sender == address(0)) {
-                revert("IHandler: Unknown request");
+                revert InvalidProof();
             }
 
             // duplicate response?
             if (host.responseReceipts(leaf.response.hash()).relayer != address(0)) {
-                revert("IHandler: Duplicate Post response");
+                revert DuplicateMessage();
             }
             leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, leaf.response.hash());
         }
 
         bytes32 root = host.stateMachineCommitment(response.proof.height).overlayRoot;
         if (root == bytes32(0)) {
-            revert("IHandler: Proof height not found!");
+            revert StateCommitmentNotFound();
         }
         if (!MerkleMountainRange.VerifyProof(root, response.proof.multiproof, leaves, response.proof.leafCount)) {
-            revert("IHandler: Invalid response proofs");
+            revert InvalidProof();
         }
 
-        for (uint256 i = 0; i < responsesLength; i++) {
+        for (uint256 i = 0; i < responsesLength; ++i) {
             PostResponseLeaf memory leaf = response.responses[i];
             host.dispatchIncoming(leaf.response, _msgSender());
         }
@@ -191,27 +213,27 @@ contract HandlerV1 is IHandler, Context {
         uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) {
-            revert("IHandler: still in challenge period");
+            revert ChallengePeriodNotElapsed();
         }
 
         // fetch the state commitment
         StateCommitment memory state = host.stateMachineCommitment(message.height);
         if (state.stateRoot == bytes32(0)) {
-            revert("IHandler: State Commitment doesn't exist");
+            revert StateCommitmentNotFound();
         }
         uint256 timeoutsLength = message.timeouts.length;
 
-        for (uint256 i = 0; i < timeoutsLength; i++) {
+        for (uint256 i = 0; i < timeoutsLength; ++i) {
             PostRequest memory request = message.timeouts[i];
             // timed-out?
             if (request.timeout() > state.timestamp) {
-                revert("Request not timed out");
+                revert MessageNotTimedOut();
             }
 
             // known request? also serves as source check
             bytes32 requestCommitment = request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
-            require(meta.sender != address(0), "IHandler: Unknown request");
+            if (meta.sender == address(0)) revert UnknownMessage();
 
             bytes[] memory keys = new bytes[](1);
             keys[i] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(requestCommitment));
@@ -219,7 +241,7 @@ contract HandlerV1 is IHandler, Context {
             // verify state trie non-membership proofs
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) {
-                revert("IHandler: Invalid non-membership proof");
+                revert InvalidProof();
             }
 
             host.dispatchIncoming(request, meta, requestCommitment);
@@ -238,28 +260,28 @@ contract HandlerV1 is IHandler, Context {
         uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) {
-            revert("IHandler: still in challenge period");
+            revert ChallengePeriodNotElapsed();
         }
 
         // fetch the state commitment
         StateCommitment memory state = host.stateMachineCommitment(message.height);
         if (state.stateRoot == bytes32(0)) {
-            revert("IHandler: State Commitment doesn't exist");
+            revert StateCommitmentNotFound();
         }
         uint256 timeoutsLength = message.timeouts.length;
 
-        for (uint256 i = 0; i < timeoutsLength; i++) {
+        for (uint256 i = 0; i < timeoutsLength; ++i) {
             PostResponse memory response = message.timeouts[i];
             // timed-out?
             if (response.timeout() > state.timestamp) {
-                revert("IHandler: Response not timed out");
+                revert MessageNotTimedOut();
             }
 
             // known response? also serves as source check
             bytes32 responseCommitment = response.hash();
             FeeMetadata memory meta = host.responseCommitments(responseCommitment);
             if (meta.sender == address(0)) {
-                revert("IHandler: Unknown response");
+                revert UnknownMessage();
             }
 
             bytes[] memory keys = new bytes[](1);
@@ -268,7 +290,7 @@ contract HandlerV1 is IHandler, Context {
             // verify state trie non-membership proofs
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) {
-                revert("IHandler: Invalid non-membership proof");
+                revert InvalidProof();
             }
 
             host.dispatchIncoming(response, meta, responseCommitment);
@@ -285,34 +307,34 @@ contract HandlerV1 is IHandler, Context {
         uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) {
-            revert("IHandler: still in challenge period");
+            revert ChallengePeriodNotElapsed();
         }
 
         bytes32 root = host.stateMachineCommitment(message.height).stateRoot;
         if (root == bytes32(0)) {
-            revert("IHandler: Proof height not found!");
+            revert StateCommitmentNotFound();
         }
 
         uint256 responsesLength = message.requests.length;
         bytes[] memory proof = message.proof;
 
-        for (uint256 i = 0; i < responsesLength; i++) {
+        for (uint256 i = 0; i < responsesLength; ++i) {
             GetRequest memory request = message.requests[i];
             // timed-out?
             if (timestamp > request.timeout()) {
-                revert("IHandler: GET request timed out");
+                revert MessageTimedOut();
             }
 
             // known request? also serves as source check
             bytes32 requestCommitment = request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
             if (meta.sender == address(0)) {
-                revert("IHandler: Unknown GET request");
+                revert UnknownMessage();
             }
 
             // duplicate response?
             if (host.responseReceipts(requestCommitment).relayer != address(0)) {
-                revert("IHandler: Duplicate GET response");
+                revert DuplicateMessage();
             }
             StorageValue[] memory values =
                 MerklePatricia.ReadChildProofCheck(root, proof, request.keys, bytes.concat(requestCommitment));
@@ -331,16 +353,16 @@ contract HandlerV1 is IHandler, Context {
         uint256 timeoutsLength = message.timeouts.length;
         uint256 timestamp = block.timestamp;
 
-        for (uint256 i = 0; i < timeoutsLength; i++) {
+        for (uint256 i = 0; i < timeoutsLength; ++i) {
             GetRequest memory request = message.timeouts[i];
             bytes32 requestCommitment = request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
             if (meta.sender == address(0)) {
-                revert("IHandler: Unknown request");
+                revert InvalidProof();
             }
 
             if (request.timeout() > timestamp) {
-                revert("IHandler: GET request not timed out");
+                revert MessageNotTimedOut();
             }
             host.dispatchIncoming(request, meta, requestCommitment);
         }

@@ -28,7 +28,7 @@ contract CallDispatcher is ICallDispatcher {
 
         if (size > 0) {
             (success, result) = target.call(params.data);
-            require(success, string(result));
+            if (!success) revert(string(result));
             return (result, success);
         }
     }

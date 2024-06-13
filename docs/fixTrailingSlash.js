@@ -18,6 +18,7 @@ import { glob } from "glob";
       if (await fs.pathExists(filePathCopy)) {
       } else {
         await fs.copyFile(filePath, filePathCopy);
+        await fs.rm(filePath);
       }
     }),
   );

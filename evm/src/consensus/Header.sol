@@ -51,6 +51,10 @@ library HeaderImpl {
     /// Slot duration in milliseconds
     uint256 public constant SLOT_DURATION = 12000;
 
+    error TimestampNotFound();
+    error ChildTrieRootNotFound();
+    error MmrRootHashNotFound();
+
     // Extracts the `StateCommitment` from the provided header.
     function stateCommitment(Header calldata self) public pure returns (StateCommitment memory) {
         bytes32 mmrRoot;
@@ -70,9 +74,9 @@ library HeaderImpl {
         }
 
         // sanity check
-        require(timestamp != 0, "timestamp not found!");
-        require(childTrieRoot != bytes32(0), "Child trie commitment not found");
-        require(mmrRoot != bytes32(0), "Mmr root commitment not found");
+        if (timestamp == 0) revert TimestampNotFound();
+        if (childTrieRoot == bytes32(0)) revert ChildTrieRootNotFound();
+        if (mmrRoot == bytes32(0)) revert MmrRootHashNotFound();
 
         return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
     }

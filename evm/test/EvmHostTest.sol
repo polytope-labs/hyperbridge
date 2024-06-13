@@ -74,7 +74,7 @@ contract EvmHostTest is BaseTest {
         // can't set on mainnet
         vm.chainId(host.chainId());
         vm.prank(host.hostParams().admin);
-        vm.expectRevert("Cannot set params on mainnet");
+        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
         host.setHostParamsAdmin(params);
     }
 
@@ -99,12 +99,12 @@ contract EvmHostTest is BaseTest {
         assert(host.requestCommitments(commitment).fee == 10 * 1e18);
 
         // can't fund unknown requests
-        vm.expectRevert("Unknown request");
+        vm.expectRevert(EvmHost.UnknownRequest.selector);
         vm.prank(tx.origin);
         host.fundRequest(keccak256(hex"dead"), 10 * 1e18);
 
         // another person can fund your request
-        feeToken.mint(address(this), 10 * 1e18, "");
+        feeToken.mint(address(this), 10 * 1e18);
         host.fundRequest(commitment, 10 * 1e18);
     }
 
@@ -126,7 +126,7 @@ contract EvmHostTest is BaseTest {
         assert(host.stateMachineCommitment(height).timestamp == 200);
 
         // can't veto if not in fishermen set
-        vm.expectRevert("EvmHost: Account is not in the fishermen set");
+        vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
 
         // veto with fisherman
@@ -206,13 +206,13 @@ contract EvmHostTest is BaseTest {
         assert(host.stateMachineCommitment(height).timestamp == 200);
 
         // cannot veto
-        vm.expectRevert("EvmHost: Account is not in the fishermen set");
+        vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
         assert(host.stateMachineCommitment(height).timestamp == 200);
 
         // cannot veto
         vm.prank(tx.origin);
-        vm.expectRevert("EvmHost: Account is not in the fishermen set");
+        vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
         assert(host.stateMachineCommitment(height).timestamp == 200);
     }

@@ -60,6 +60,8 @@ contract ZkBeefyV1 is IConsensusClient {
     // Authorized paraId.
     uint256 private _paraId;
 
+    error UnknownParaId();
+
     constructor(uint256 paraId, IVerifier verifier) {
         _paraId = paraId;
         _verifier = verifier;
@@ -181,7 +183,7 @@ contract ZkBeefyV1 is IConsensusClient {
         Node[] memory leaves = new Node[](1);
         Parachain memory para = proof.parachain;
         if (para.id != _paraId) {
-            revert("Unknown paraId");
+            revert UnknownParaId();
         }
 
         Header memory header = Codec.DecodeHeader(para.header);

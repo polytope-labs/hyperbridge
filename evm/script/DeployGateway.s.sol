@@ -60,7 +60,7 @@ contract DeployScript is Script {
         uint256 paraId = vm.envUint("PARA_ID");
 
         ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge USD", "USD.h");
-        feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18, "");
+        feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18);
 
         // grant the token faucet
         TokenFaucet faucet = new TokenFaucet{salt: salt}(address(feeToken));

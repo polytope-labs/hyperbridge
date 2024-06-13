@@ -6,7 +6,7 @@ pragma solidity >=0.8.4;
 import {IVerifier} from "./IVerifier.sol";
 
 library UltraVerificationKey {
-    function verificationKeyHash() internal pure returns(bytes32) {
+    function verificationKeyHash() internal pure returns (bytes32) {
         return 0xf757c19b393ceb134ad37434ebf3b0b75316871ab05edfca7f48ee708404900a;
     }
 
@@ -854,7 +854,6 @@ abstract contract BaseUltraVerifier is IVerifier {
                      * root_1 *= ω
                      * root_2 *= ω
                      */
-
                     let input := calldataload(public_inputs_ptr)
                     valid_inputs := and(valid_inputs, lt(input, p_clone))
                     let temp := addmod(input, gamma, p_clone)
@@ -920,7 +919,6 @@ abstract contract BaseUltraVerifier is IVerifier {
                  * l_end_denominator = accumulating_root^2 * work_root * zeta - 1
                  * Note: l_end_denominator term contains a term \omega^5 to cut out 5 roots of unity from vanishing poly
                  */
-
                 let zeta := mload(C_ZETA_LOC)
 
                 // compute zeta^n, where n is a power of 2
@@ -1254,7 +1252,6 @@ abstract contract BaseUltraVerifier is IVerifier {
                  * the next gate. Then we can treat (q_arith - 1) as a simulated q_6 selector and scale q_m to handle (q_arith - 3) at
                  * product.
                  */
-
                 let w1q1 := mulmod(mload(W1_EVAL_LOC), mload(Q1_EVAL_LOC), p)
                 let w2q2 := mulmod(mload(W2_EVAL_LOC), mload(Q2_EVAL_LOC), p)
                 let w3q3 := mulmod(mload(W3_EVAL_LOC), mload(Q3_EVAL_LOC), p)
@@ -1447,37 +1444,14 @@ abstract contract BaseUltraVerifier is IVerifier {
                             mulmod(x_diff, x_diff, p),
                             p
                         ),
-                        addmod(
-                            sub(
-                                p,
-                                addmod(y2_sqr, y1_sqr, p)
-                            ),
-                            addmod(y1y2, y1y2, p),
-                            p
-                        ),
+                        addmod(sub(p, addmod(y2_sqr, y1_sqr, p)), addmod(y1y2, y1y2, p), p),
                         p
                     )
                 x_add_identity :=
-                    mulmod(
-                        mulmod(
-                            x_add_identity,
-                            addmod(
-                                1,
-                                sub(p, mload(QM_EVAL_LOC)),
-                                p
-                            ),
-                            p
-                        ),
-                        mload(C_ALPHA_BASE_LOC),
-                        p
-                    )
+                    mulmod(mulmod(x_add_identity, addmod(1, sub(p, mload(QM_EVAL_LOC)), p), p), mload(C_ALPHA_BASE_LOC), p)
 
                 // q_elliptic * (x3 + x2 + x1)(x2 - x1)(x2 - x1) - y2^2 - y1^2 + 2(y2y1)*q_sign = 0
-                let y1_plus_y3 := addmod(
-                    mload(Y1_EVAL_LOC),
-                    mload(Y3_EVAL_LOC),
-                    p
-                )
+                let y1_plus_y3 := addmod(mload(Y1_EVAL_LOC), mload(Y3_EVAL_LOC), p)
                 let y_diff := addmod(mulmod(mload(Y2_EVAL_LOC), mload(QSIGN_LOC), p), sub(p, mload(Y1_EVAL_LOC)), p)
                 let y_add_identity :=
                     addmod(
@@ -1585,7 +1559,6 @@ abstract contract BaseUltraVerifier is IVerifier {
                      * non_native_field_gate_3 = (limb_subproduct + w_4 - (w_3_omega + w_4_omega)) * q_m
                      * non_native_field_identity = (non_native_field_gate_1 + non_native_field_gate_2 + non_native_field_gate_3) * q_2
                      */
-
                     let limb_subproduct :=
                         addmod(
                             mulmod(mload(W1_EVAL_LOC), mload(W2_OMEGA_EVAL_LOC), p),
@@ -1705,7 +1678,6 @@ abstract contract BaseUltraVerifier is IVerifier {
                      *
                      * memory_record_check -= w_4;
                      */
-
                     let memory_record_check := mulmod(mload(W3_EVAL_LOC), mload(C_ETA_LOC), p)
                     memory_record_check := addmod(memory_record_check, mload(W2_EVAL_LOC), p)
                     memory_record_check := mulmod(memory_record_check, mload(C_ETA_LOC), p)
@@ -1789,7 +1761,6 @@ abstract contract BaseUltraVerifier is IVerifier {
                          * RAM_consistency_check_identity *= alpha;
                          * RAM_consistency_check_identity += access_check;
                          */
-
                         let access_type := addmod(mload(W4_EVAL_LOC), sub(p, partial_record_check), p)
                         let access_check := mulmod(access_type, addmod(access_type, sub(p, 1), p), p)
                         let next_gate_access_type_is_boolean :=
@@ -2773,7 +2744,12 @@ contract PolkadotVerifier is BaseUltraVerifier {
         return UltraVerificationKey.verificationKeyHash();
     }
 
-    function loadVerificationKey(uint256 vk, uint256 _omegaInverseLoc) internal pure virtual override(BaseUltraVerifier) {
+    function loadVerificationKey(uint256 vk, uint256 _omegaInverseLoc)
+        internal
+        pure
+        virtual
+        override(BaseUltraVerifier)
+    {
         UltraVerificationKey.loadVerificationKey(vk, _omegaInverseLoc);
     }
 }

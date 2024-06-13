@@ -1487,6 +1487,93 @@ pub mod evm_host {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("HostFrozen"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("HostFrozen"),
+                            inputs: ::std::vec![],
+                            anonymous: false,
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("HostParamsUpdated"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("HostParamsUpdated"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("oldParams"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Address,
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                        ],
+                                    ),
+                                    indexed: false,
+                                },
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("newParams"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Address,
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                        ],
+                                    ),
+                                    indexed: false,
+                                },
+                            ],
+                            anonymous: false,
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("HostUnfrozen"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("HostUnfrozen"),
+                            inputs: ::std::vec![],
+                            anonymous: false,
+                        },
+                    ],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("PostRequestEvent"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Event {
@@ -1663,6 +1750,31 @@ pub mod evm_host {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("PostResponseFunded"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("PostResponseFunded"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("commitment"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    indexed: false,
+                                },
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("newFee"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
+                                    indexed: false,
+                                },
+                            ],
+                            anonymous: false,
+                        },
+                    ],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("PostResponseHandled"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Event {
@@ -1705,6 +1817,31 @@ pub mod evm_host {
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    indexed: false,
+                                },
+                            ],
+                            anonymous: false,
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("RequestFunded"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("RequestFunded"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("commitment"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    indexed: false,
+                                },
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("newFee"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
                                     indexed: false,
                                 },
                             ],
@@ -1779,7 +1916,109 @@ pub mod evm_host {
                     ],
                 ),
             ]),
-            errors: ::std::collections::BTreeMap::new(),
+            errors: ::core::convert::From::from([
+                (
+                    ::std::borrow::ToOwned::to_owned("DuplicateResponse"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("DuplicateResponse"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidAddressLength"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "InvalidAddressLength",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidHostManagerAddress"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "InvalidHostManagerAddress",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("MaxFishermanCountExceeded"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "MaxFishermanCountExceeded",
+                            ),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("provided"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("uint256"),
+                                    ),
+                                },
+                            ],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("UnauthorizedAccount"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "UnauthorizedAccount",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("UnauthorizedAction"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("UnauthorizedAction"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("UnauthorizedResponse"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "UnauthorizedResponse",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("UnknownRequest"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("UnknownRequest"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("UnknownResponse"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("UnknownResponse"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+            ]),
             receive: false,
             fallback: false,
         }
@@ -2215,6 +2454,24 @@ pub mod evm_host {
 		> {
 			self.0.event()
 		}
+		///Gets the contract's `HostFrozen` event
+		pub fn host_frozen_filter(
+			&self,
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostFrozenFilter> {
+			self.0.event()
+		}
+		///Gets the contract's `HostParamsUpdated` event
+		pub fn host_params_updated_filter(
+			&self,
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostParamsUpdatedFilter> {
+			self.0.event()
+		}
+		///Gets the contract's `HostUnfrozen` event
+		pub fn host_unfrozen_filter(
+			&self,
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostUnfrozenFilter> {
+			self.0.event()
+		}
 		///Gets the contract's `PostRequestEvent` event
 		pub fn post_request_event_filter(
 			&self,
@@ -2243,6 +2500,12 @@ pub mod evm_host {
 		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseEventFilter> {
 			self.0.event()
 		}
+		///Gets the contract's `PostResponseFunded` event
+		pub fn post_response_funded_filter(
+			&self,
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseFundedFilter> {
+			self.0.event()
+		}
 		///Gets the contract's `PostResponseHandled` event
 		pub fn post_response_handled_filter(
 			&self,
@@ -2258,6 +2521,12 @@ pub mod evm_host {
 			M,
 			PostResponseTimeoutHandledFilter,
 		> {
+			self.0.event()
+		}
+		///Gets the contract's `RequestFunded` event
+		pub fn request_funded_filter(
+			&self,
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, RequestFundedFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `StateCommitmentVetoed` event
@@ -2284,6 +2553,324 @@ pub mod evm_host {
 	impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>> for EvmHost<M> {
 		fn from(contract: ::ethers::contract::Contract<M>) -> Self {
 			Self::new(contract.address(), contract.client())
+		}
+	}
+	///Custom Error type `DuplicateResponse` with signature `DuplicateResponse()` and selector
+	/// `0x276d57d8`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "DuplicateResponse", abi = "DuplicateResponse()")]
+	pub struct DuplicateResponse;
+	///Custom Error type `InvalidAddressLength` with signature `InvalidAddressLength()` and
+	/// selector `0xcc2cec02`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidAddressLength", abi = "InvalidAddressLength()")]
+	pub struct InvalidAddressLength;
+	///Custom Error type `InvalidHostManagerAddress` with signature `InvalidHostManagerAddress()`
+	/// and selector `0x5168b54e`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidHostManagerAddress", abi = "InvalidHostManagerAddress()")]
+	pub struct InvalidHostManagerAddress;
+	///Custom Error type `MaxFishermanCountExceeded` with signature
+	/// `MaxFishermanCountExceeded(uint256)` and selector `0x67797238`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "MaxFishermanCountExceeded", abi = "MaxFishermanCountExceeded(uint256)")]
+	pub struct MaxFishermanCountExceeded {
+		pub provided: ::ethers::core::types::U256,
+	}
+	///Custom Error type `UnauthorizedAccount` with signature `UnauthorizedAccount()` and selector
+	/// `0xa97ff08a`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "UnauthorizedAccount", abi = "UnauthorizedAccount()")]
+	pub struct UnauthorizedAccount;
+	///Custom Error type `UnauthorizedAction` with signature `UnauthorizedAction()` and selector
+	/// `0x843800fa`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "UnauthorizedAction", abi = "UnauthorizedAction()")]
+	pub struct UnauthorizedAction;
+	///Custom Error type `UnauthorizedResponse` with signature `UnauthorizedResponse()` and
+	/// selector `0x850dc39c`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "UnauthorizedResponse", abi = "UnauthorizedResponse()")]
+	pub struct UnauthorizedResponse;
+	///Custom Error type `UnknownRequest` with signature `UnknownRequest()` and selector
+	/// `0x6d080297`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "UnknownRequest", abi = "UnknownRequest()")]
+	pub struct UnknownRequest;
+	///Custom Error type `UnknownResponse` with signature `UnknownResponse()` and selector
+	/// `0x950a5b24`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "UnknownResponse", abi = "UnknownResponse()")]
+	pub struct UnknownResponse;
+	///Container type for all of the contract's custom errors
+	#[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
+	pub enum EvmHostErrors {
+		DuplicateResponse(DuplicateResponse),
+		InvalidAddressLength(InvalidAddressLength),
+		InvalidHostManagerAddress(InvalidHostManagerAddress),
+		MaxFishermanCountExceeded(MaxFishermanCountExceeded),
+		UnauthorizedAccount(UnauthorizedAccount),
+		UnauthorizedAction(UnauthorizedAction),
+		UnauthorizedResponse(UnauthorizedResponse),
+		UnknownRequest(UnknownRequest),
+		UnknownResponse(UnknownResponse),
+		/// The standard solidity revert string, with selector
+		/// Error(string) -- 0x08c379a0
+		RevertString(::std::string::String),
+	}
+	impl ::ethers::core::abi::AbiDecode for EvmHostErrors {
+		fn decode(
+			data: impl AsRef<[u8]>,
+		) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
+			let data = data.as_ref();
+			if let Ok(decoded) =
+				<::std::string::String as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::RevertString(decoded));
+			}
+			if let Ok(decoded) = <DuplicateResponse as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::DuplicateResponse(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidAddressLength as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidAddressLength(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidHostManagerAddress as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidHostManagerAddress(decoded));
+			}
+			if let Ok(decoded) =
+				<MaxFishermanCountExceeded as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::MaxFishermanCountExceeded(decoded));
+			}
+			if let Ok(decoded) =
+				<UnauthorizedAccount as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::UnauthorizedAccount(decoded));
+			}
+			if let Ok(decoded) =
+				<UnauthorizedAction as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::UnauthorizedAction(decoded));
+			}
+			if let Ok(decoded) =
+				<UnauthorizedResponse as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::UnauthorizedResponse(decoded));
+			}
+			if let Ok(decoded) = <UnknownRequest as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::UnknownRequest(decoded));
+			}
+			if let Ok(decoded) = <UnknownResponse as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::UnknownResponse(decoded));
+			}
+			Err(::ethers::core::abi::Error::InvalidData.into())
+		}
+	}
+	impl ::ethers::core::abi::AbiEncode for EvmHostErrors {
+		fn encode(self) -> ::std::vec::Vec<u8> {
+			match self {
+				Self::DuplicateResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidAddressLength(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidHostManagerAddress(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::MaxFishermanCountExceeded(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::UnauthorizedAccount(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::UnauthorizedAction(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::UnauthorizedResponse(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::UnknownRequest(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::UnknownResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::RevertString(s) => ::ethers::core::abi::AbiEncode::encode(s),
+			}
+		}
+	}
+	impl ::ethers::contract::ContractRevert for EvmHostErrors {
+		fn valid_selector(selector: [u8; 4]) -> bool {
+			match selector {
+				[0x08, 0xc3, 0x79, 0xa0] => true,
+				_ if selector ==
+					<DuplicateResponse as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<InvalidAddressLength as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<InvalidHostManagerAddress as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<MaxFishermanCountExceeded as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<UnauthorizedAccount as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<UnauthorizedAction as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<UnauthorizedResponse as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <UnknownRequest as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <UnknownResponse as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ => false,
+			}
+		}
+	}
+	impl ::core::fmt::Display for EvmHostErrors {
+		fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+			match self {
+				Self::DuplicateResponse(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidAddressLength(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidHostManagerAddress(element) => ::core::fmt::Display::fmt(element, f),
+				Self::MaxFishermanCountExceeded(element) => ::core::fmt::Display::fmt(element, f),
+				Self::UnauthorizedAccount(element) => ::core::fmt::Display::fmt(element, f),
+				Self::UnauthorizedAction(element) => ::core::fmt::Display::fmt(element, f),
+				Self::UnauthorizedResponse(element) => ::core::fmt::Display::fmt(element, f),
+				Self::UnknownRequest(element) => ::core::fmt::Display::fmt(element, f),
+				Self::UnknownResponse(element) => ::core::fmt::Display::fmt(element, f),
+				Self::RevertString(s) => ::core::fmt::Display::fmt(s, f),
+			}
+		}
+	}
+	impl ::core::convert::From<::std::string::String> for EvmHostErrors {
+		fn from(value: String) -> Self {
+			Self::RevertString(value)
+		}
+	}
+	impl ::core::convert::From<DuplicateResponse> for EvmHostErrors {
+		fn from(value: DuplicateResponse) -> Self {
+			Self::DuplicateResponse(value)
+		}
+	}
+	impl ::core::convert::From<InvalidAddressLength> for EvmHostErrors {
+		fn from(value: InvalidAddressLength) -> Self {
+			Self::InvalidAddressLength(value)
+		}
+	}
+	impl ::core::convert::From<InvalidHostManagerAddress> for EvmHostErrors {
+		fn from(value: InvalidHostManagerAddress) -> Self {
+			Self::InvalidHostManagerAddress(value)
+		}
+	}
+	impl ::core::convert::From<MaxFishermanCountExceeded> for EvmHostErrors {
+		fn from(value: MaxFishermanCountExceeded) -> Self {
+			Self::MaxFishermanCountExceeded(value)
+		}
+	}
+	impl ::core::convert::From<UnauthorizedAccount> for EvmHostErrors {
+		fn from(value: UnauthorizedAccount) -> Self {
+			Self::UnauthorizedAccount(value)
+		}
+	}
+	impl ::core::convert::From<UnauthorizedAction> for EvmHostErrors {
+		fn from(value: UnauthorizedAction) -> Self {
+			Self::UnauthorizedAction(value)
+		}
+	}
+	impl ::core::convert::From<UnauthorizedResponse> for EvmHostErrors {
+		fn from(value: UnauthorizedResponse) -> Self {
+			Self::UnauthorizedResponse(value)
+		}
+	}
+	impl ::core::convert::From<UnknownRequest> for EvmHostErrors {
+		fn from(value: UnknownRequest) -> Self {
+			Self::UnknownRequest(value)
+		}
+	}
+	impl ::core::convert::From<UnknownResponse> for EvmHostErrors {
+		fn from(value: UnknownResponse) -> Self {
+			Self::UnknownResponse(value)
 		}
 	}
 	#[derive(
@@ -2340,6 +2927,48 @@ pub mod evm_host {
 		pub commitment: [u8; 32],
 		pub dest: ::ethers::core::types::Bytes,
 	}
+	#[derive(
+		Clone,
+		::ethers::contract::EthEvent,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[ethevent(name = "HostFrozen", abi = "HostFrozen()")]
+	pub struct HostFrozenFilter;
+	#[derive(
+		Clone,
+		::ethers::contract::EthEvent,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[ethevent(
+		name = "HostParamsUpdated",
+		abi = "HostParamsUpdated((uint256,uint256,address,address,address,address,uint256,uint256,address,uint256[],address[],bytes),(uint256,uint256,address,address,address,address,uint256,uint256,address,uint256[],address[],bytes))"
+	)]
+	pub struct HostParamsUpdatedFilter {
+		pub old_params: HostParams,
+		pub new_params: HostParams,
+	}
+	#[derive(
+		Clone,
+		::ethers::contract::EthEvent,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[ethevent(name = "HostUnfrozen", abi = "HostUnfrozen()")]
+	pub struct HostUnfrozenFilter;
 	#[derive(
 		Clone,
 		::ethers::contract::EthEvent,
@@ -2435,6 +3064,21 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
+	#[ethevent(name = "PostResponseFunded", abi = "PostResponseFunded(bytes32,uint256)")]
+	pub struct PostResponseFundedFilter {
+		pub commitment: [u8; 32],
+		pub new_fee: ::ethers::core::types::U256,
+	}
+	#[derive(
+		Clone,
+		::ethers::contract::EthEvent,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
 	#[ethevent(name = "PostResponseHandled", abi = "PostResponseHandled(bytes32,address)")]
 	pub struct PostResponseHandledFilter {
 		pub commitment: [u8; 32],
@@ -2457,6 +3101,21 @@ pub mod evm_host {
 	pub struct PostResponseTimeoutHandledFilter {
 		pub commitment: [u8; 32],
 		pub dest: ::ethers::core::types::Bytes,
+	}
+	#[derive(
+		Clone,
+		::ethers::contract::EthEvent,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[ethevent(name = "RequestFunded", abi = "RequestFunded(bytes32,uint256)")]
+	pub struct RequestFundedFilter {
+		pub commitment: [u8; 32],
+		pub new_fee: ::ethers::core::types::U256,
 	}
 	#[derive(
 		Clone,
@@ -2499,12 +3158,17 @@ pub mod evm_host {
 		GetRequestEventFilter(GetRequestEventFilter),
 		GetRequestHandledFilter(GetRequestHandledFilter),
 		GetRequestTimeoutHandledFilter(GetRequestTimeoutHandledFilter),
+		HostFrozenFilter(HostFrozenFilter),
+		HostParamsUpdatedFilter(HostParamsUpdatedFilter),
+		HostUnfrozenFilter(HostUnfrozenFilter),
 		PostRequestEventFilter(PostRequestEventFilter),
 		PostRequestHandledFilter(PostRequestHandledFilter),
 		PostRequestTimeoutHandledFilter(PostRequestTimeoutHandledFilter),
 		PostResponseEventFilter(PostResponseEventFilter),
+		PostResponseFundedFilter(PostResponseFundedFilter),
 		PostResponseHandledFilter(PostResponseHandledFilter),
 		PostResponseTimeoutHandledFilter(PostResponseTimeoutHandledFilter),
+		RequestFundedFilter(RequestFundedFilter),
 		StateCommitmentVetoedFilter(StateCommitmentVetoedFilter),
 		StateMachineUpdatedFilter(StateMachineUpdatedFilter),
 	}
@@ -2521,6 +3185,15 @@ pub mod evm_host {
 			if let Ok(decoded) = GetRequestTimeoutHandledFilter::decode_log(log) {
 				return Ok(EvmHostEvents::GetRequestTimeoutHandledFilter(decoded));
 			}
+			if let Ok(decoded) = HostFrozenFilter::decode_log(log) {
+				return Ok(EvmHostEvents::HostFrozenFilter(decoded));
+			}
+			if let Ok(decoded) = HostParamsUpdatedFilter::decode_log(log) {
+				return Ok(EvmHostEvents::HostParamsUpdatedFilter(decoded));
+			}
+			if let Ok(decoded) = HostUnfrozenFilter::decode_log(log) {
+				return Ok(EvmHostEvents::HostUnfrozenFilter(decoded));
+			}
 			if let Ok(decoded) = PostRequestEventFilter::decode_log(log) {
 				return Ok(EvmHostEvents::PostRequestEventFilter(decoded));
 			}
@@ -2533,11 +3206,17 @@ pub mod evm_host {
 			if let Ok(decoded) = PostResponseEventFilter::decode_log(log) {
 				return Ok(EvmHostEvents::PostResponseEventFilter(decoded));
 			}
+			if let Ok(decoded) = PostResponseFundedFilter::decode_log(log) {
+				return Ok(EvmHostEvents::PostResponseFundedFilter(decoded));
+			}
 			if let Ok(decoded) = PostResponseHandledFilter::decode_log(log) {
 				return Ok(EvmHostEvents::PostResponseHandledFilter(decoded));
 			}
 			if let Ok(decoded) = PostResponseTimeoutHandledFilter::decode_log(log) {
 				return Ok(EvmHostEvents::PostResponseTimeoutHandledFilter(decoded));
+			}
+			if let Ok(decoded) = RequestFundedFilter::decode_log(log) {
+				return Ok(EvmHostEvents::RequestFundedFilter(decoded));
 			}
 			if let Ok(decoded) = StateCommitmentVetoedFilter::decode_log(log) {
 				return Ok(EvmHostEvents::StateCommitmentVetoedFilter(decoded));
@@ -2555,14 +3234,19 @@ pub mod evm_host {
 				Self::GetRequestHandledFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::GetRequestTimeoutHandledFilter(element) =>
 					::core::fmt::Display::fmt(element, f),
+				Self::HostFrozenFilter(element) => ::core::fmt::Display::fmt(element, f),
+				Self::HostParamsUpdatedFilter(element) => ::core::fmt::Display::fmt(element, f),
+				Self::HostUnfrozenFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestEventFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestHandledFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestTimeoutHandledFilter(element) =>
 					::core::fmt::Display::fmt(element, f),
 				Self::PostResponseEventFilter(element) => ::core::fmt::Display::fmt(element, f),
+				Self::PostResponseFundedFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostResponseHandledFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostResponseTimeoutHandledFilter(element) =>
 					::core::fmt::Display::fmt(element, f),
+				Self::RequestFundedFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::StateCommitmentVetoedFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::StateMachineUpdatedFilter(element) => ::core::fmt::Display::fmt(element, f),
 			}
@@ -2581,6 +3265,21 @@ pub mod evm_host {
 	impl ::core::convert::From<GetRequestTimeoutHandledFilter> for EvmHostEvents {
 		fn from(value: GetRequestTimeoutHandledFilter) -> Self {
 			Self::GetRequestTimeoutHandledFilter(value)
+		}
+	}
+	impl ::core::convert::From<HostFrozenFilter> for EvmHostEvents {
+		fn from(value: HostFrozenFilter) -> Self {
+			Self::HostFrozenFilter(value)
+		}
+	}
+	impl ::core::convert::From<HostParamsUpdatedFilter> for EvmHostEvents {
+		fn from(value: HostParamsUpdatedFilter) -> Self {
+			Self::HostParamsUpdatedFilter(value)
+		}
+	}
+	impl ::core::convert::From<HostUnfrozenFilter> for EvmHostEvents {
+		fn from(value: HostUnfrozenFilter) -> Self {
+			Self::HostUnfrozenFilter(value)
 		}
 	}
 	impl ::core::convert::From<PostRequestEventFilter> for EvmHostEvents {
@@ -2603,6 +3302,11 @@ pub mod evm_host {
 			Self::PostResponseEventFilter(value)
 		}
 	}
+	impl ::core::convert::From<PostResponseFundedFilter> for EvmHostEvents {
+		fn from(value: PostResponseFundedFilter) -> Self {
+			Self::PostResponseFundedFilter(value)
+		}
+	}
 	impl ::core::convert::From<PostResponseHandledFilter> for EvmHostEvents {
 		fn from(value: PostResponseHandledFilter) -> Self {
 			Self::PostResponseHandledFilter(value)
@@ -2611,6 +3315,11 @@ pub mod evm_host {
 	impl ::core::convert::From<PostResponseTimeoutHandledFilter> for EvmHostEvents {
 		fn from(value: PostResponseTimeoutHandledFilter) -> Self {
 			Self::PostResponseTimeoutHandledFilter(value)
+		}
+	}
+	impl ::core::convert::From<RequestFundedFilter> for EvmHostEvents {
+		fn from(value: RequestFundedFilter) -> Self {
+			Self::RequestFundedFilter(value)
 		}
 	}
 	impl ::core::convert::From<StateCommitmentVetoedFilter> for EvmHostEvents {

@@ -366,6 +366,11 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 					},
 					fisherman: vetoed.fisherman.as_bytes().to_vec(),
 				})),
+			EvmHostEvents::HostFrozenFilter(_) |
+			EvmHostEvents::HostUnfrozenFilter(_) |
+			EvmHostEvents::HostParamsUpdatedFilter(_) |
+			EvmHostEvents::PostResponseFundedFilter(_) |
+			EvmHostEvents::RequestFundedFilter(_) => Err(anyhow!("Unsupported Event!"))?,
 		}
 	}
 }

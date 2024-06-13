@@ -18,6 +18,7 @@ import {Context} from "openzeppelin/utils/Context.sol";
 import {Math} from "openzeppelin/utils/math/Math.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
 import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "ismp/IIsmpModule.sol";
@@ -205,10 +206,44 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 timeoutTimestamp
     );
 
+    // Emitted when a POST or GET request is funded
+    event RequestFunded(bytes32 commitment, uint256 newFee);
+
+    // Emitted when a POST response is funded
+    event PostResponseFunded(bytes32 commitment, uint256 newFee);
+
+    // Emitted when the host has now been frozen
+    event HostFrozen();
+
+    // Emitted when the host is unfrozen
+    event HostUnfrozen();
+
+    // Emitted when the host params is updated
+    event HostParamsUpdated(HostParams oldParams, HostParams newParams);
+
+    // Account is unauthorized to perform requested action
+    error UnauthorizedAccount();
+    // Provided address didn't fit address type size
+    error InvalidAddressLength();
+    // Provided request was unknown
+    error UnknownRequest();
+    // Provided response was unknown
+    error UnknownResponse();
+    // Action breaks protocol invariants and is therefore unauthorized
+    error UnauthorizedAction();
+    // Application is attempting to respond to a request it did not receive
+    error UnauthorizedResponse();
+    // Response has already been provided for this request
+    error DuplicateResponse();
+    // Cannot exceed max fishermen count
+    error MaxFishermanCountExceeded(uint256 provided);
+    // Host manager address was zero or not a contract
+    error InvalidHostManagerAddress();
+
     // only permits fishermen
     modifier onlyFishermen() {
         if (!_fishermen[_msgSender()]) {
-            revert("EvmHost: Account is not in the fishermen set");
+            revert UnauthorizedAccount();
         }
         _;
     }
@@ -216,7 +251,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // only permits the admin
     modifier onlyAdmin() {
         if (_msgSender() != _hostParams.admin) {
-            revert("EvmHost: Account is not the admin");
+            revert UnauthorizedAccount();
         }
         _;
     }
@@ -224,7 +259,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // only permits the IHandler contract
     modifier onlyHandler() {
         if (_msgSender() != address(_hostParams.handler)) {
-            revert("EvmHost: Account is not the handler");
+            revert UnauthorizedAccount();
         }
         _;
     }
@@ -232,7 +267,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // only permits the HostManager contract
     modifier onlyManager() {
         if (_msgSender() != _hostParams.hostManager) {
-            revert("EvmHost: Account is not the Manager contract");
+            revert UnauthorizedAccount();
         }
         _;
     }
@@ -406,11 +441,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function setHostParamsAdmin(HostParams memory params) public onlyAdmin {
         if (chainId() == block.chainid) {
-            revert("Cannot set params on mainnet");
+            revert UnauthorizedAction();
         }
 
         uint256 whitelistLength = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < whitelistLength; i++) {
+        for (uint256 i = 0; i < whitelistLength; ++i) {
             delete _latestStateMachineHeight[params.stateMachineWhitelist[i]];
         }
         updateHostParamsInternal(params);
@@ -421,22 +456,37 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params.
      */
     function updateHostParamsInternal(HostParams memory params) private {
+        // check if the provided host manager is a contract
+        if (params.hostManager == address(0) || address(params.hostManager).code.length == 0) {
+            revert InvalidHostManagerAddress();
+        }
+
+        // we can only have a maximum of 100 fishermen
+        uint256 newFishermenLength = params.fishermen.length;
+        if (newFishermenLength > 100) {
+            revert MaxFishermanCountExceeded(newFishermenLength);
+        }
+
         // delete old fishermen
         uint256 fishermenLength = _hostParams.fishermen.length;
-        for (uint256 i = 0; i < fishermenLength; i++) {
+        for (uint256 i = 0; i < fishermenLength; ++i) {
             delete _fishermen[_hostParams.fishermen[i]];
         }
+
+        // safe to emit here because invariants have already been checked
+        // and don't want to store a temp variable for the old params
+        emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
+
         _hostParams = params;
 
         // add new fishermen if any
-        uint256 newFishermenLength = params.fishermen.length;
-        for (uint256 i = 0; i < newFishermenLength; i++) {
+        for (uint256 i = 0; i < newFishermenLength; ++i) {
             _fishermen[params.fishermen[i]] = true;
         }
 
         // add whitelisted state machines
         uint256 whitelistLength = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < whitelistLength; i++) {
+        for (uint256 i = 0; i < whitelistLength; ++i) {
             // create if it doesn't already exist
             if (_latestStateMachineHeight[params.stateMachineWhitelist[i]] == 0) {
                 _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
@@ -449,9 +499,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the parameters for withdrawal
      */
     function withdraw(WithdrawParams memory params) external onlyManager {
-        if (!IERC20(feeToken()).transfer(params.beneficiary, params.amount)) {
-            revert("Host has an insufficient balance");
-        }
+        SafeERC20.safeTransfer(IERC20(feeToken()), params.beneficiary, params.amount);
     }
 
     /**
@@ -532,6 +580,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function setFrozenState(bool newState) public onlyAdmin {
         _frozen = newState;
+
+        if (newState) {
+            emit HostFrozen();
+        } else {
+            emit HostUnfrozen();
+        }
     }
 
     /**
@@ -542,8 +596,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         public
         onlyAdmin
     {
-        // if we're on mainnet, then consensus state can only be initialized once.
-        // and updated subsequently by either consensus proofs or cross-chain governance
+        // if we're on mainnet, then consensus state can only be initialized once
+        // and updated subsequently through consensus proofs
         require(chainId() == block.chainid ? _consensusState.equals(new bytes(0)) : true, "Unauthorized action");
 
         _consensusState = state;
@@ -679,9 +733,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        if (meta.fee > 0) {
-            // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+        if (meta.fee != 0) {
+            SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
         emit PostRequestTimeoutHandled({commitment: commitment, dest: request.dest});
     }
@@ -710,9 +763,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        if (meta.fee > 0) {
+        if (meta.fee != 0) {
             // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
         emit PostResponseTimeoutHandled({commitment: commitment, dest: response.request.source});
     }
@@ -723,7 +776,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchPost memory post) external returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -759,8 +812,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param get - get request
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
-        if (get.fee > 0) {
-            IERC20(feeToken()).transferFrom(_msgSender(), address(this), get.fee);
+        if (get.fee != 0) {
+            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), get.fee);
         }
 
         // adjust the timeout
@@ -800,22 +853,22 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // known request?
         if (_requestReceipts[receipt] == address(0)) {
-            revert("EvmHost: Unknown request");
+            revert UnknownRequest();
         }
 
         // check that the authorized application is issuing this response
         if (_bytesToAddress(post.request.to) != _msgSender()) {
-            revert("EvmHost: Unauthorized Response");
+            revert UnauthorizedResponse();
         }
 
         // check that request has not already been responed to
         if (_responded[receipt]) {
-            revert("EvmHost: Duplicate Response");
+            revert DuplicateResponse();
         }
 
         // collect fees
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -856,12 +909,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         if (metadata.sender == address(0)) {
-            revert("Unknown request");
+            revert UnknownRequest();
         }
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
 
         metadata.fee += amount;
         _requestCommitments[commitment] = metadata;
+
+        emit RequestFunded({commitment: commitment, newFee: metadata.fee});
     }
 
     /**
@@ -876,12 +931,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory metadata = _responseCommitments[commitment];
 
         if (metadata.sender == address(0)) {
-            revert("Unknown request");
+            revert UnknownResponse();
         }
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
 
         metadata.fee += amount;
         _responseCommitments[commitment] = metadata;
+
+        emit PostResponseFunded({commitment: commitment, newFee: metadata.fee});
     }
 
     /**
@@ -904,7 +961,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function _bytesToAddress(bytes memory _bytes) private pure returns (address addr) {
         if (_bytes.length != 20) {
-            revert("Invalid address length");
+            revert InvalidAddressLength();
         }
         assembly {
             addr := mload(add(_bytes, 20))

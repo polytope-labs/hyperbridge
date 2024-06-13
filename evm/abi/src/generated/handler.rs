@@ -430,7 +430,106 @@ pub mod handler {
                 ),
             ]),
             events: ::std::collections::BTreeMap::new(),
-            errors: ::std::collections::BTreeMap::new(),
+            errors: ::core::convert::From::from([
+                (
+                    ::std::borrow::ToOwned::to_owned("ChallengePeriodNotElapsed"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "ChallengePeriodNotElapsed",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("ConsensusClientExpired"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "ConsensusClientExpired",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("DuplicateMessage"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("DuplicateMessage"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("HostFrozen"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("HostFrozen"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidMessageDestination"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "InvalidMessageDestination",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidProof"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("InvalidProof"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("MessageNotTimedOut"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("MessageNotTimedOut"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("MessageTimedOut"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("MessageTimedOut"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("StateCommitmentNotFound"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "StateCommitmentNotFound",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("UnknownMessage"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("UnknownMessage"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+            ]),
             receive: false,
             fallback: false,
         }
@@ -543,6 +642,340 @@ pub mod handler {
 	impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>> for Handler<M> {
 		fn from(contract: ::ethers::contract::Contract<M>) -> Self {
 			Self::new(contract.address(), contract.client())
+		}
+	}
+	///Custom Error type `ChallengePeriodNotElapsed` with signature `ChallengePeriodNotElapsed()`
+	/// and selector `0x048c9699`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "ChallengePeriodNotElapsed", abi = "ChallengePeriodNotElapsed()")]
+	pub struct ChallengePeriodNotElapsed;
+	///Custom Error type `ConsensusClientExpired` with signature `ConsensusClientExpired()` and
+	/// selector `0x40dc5c30`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "ConsensusClientExpired", abi = "ConsensusClientExpired()")]
+	pub struct ConsensusClientExpired;
+	///Custom Error type `DuplicateMessage` with signature `DuplicateMessage()` and selector
+	/// `0x2ad4ae2e`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "DuplicateMessage", abi = "DuplicateMessage()")]
+	pub struct DuplicateMessage;
+	///Custom Error type `HostFrozen` with signature `HostFrozen()` and selector `0xe36afbb8`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "HostFrozen", abi = "HostFrozen()")]
+	pub struct HostFrozen;
+	///Custom Error type `InvalidMessageDestination` with signature `InvalidMessageDestination()`
+	/// and selector `0x90d4c209`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidMessageDestination", abi = "InvalidMessageDestination()")]
+	pub struct InvalidMessageDestination;
+	///Custom Error type `InvalidProof` with signature `InvalidProof()` and selector `0x09bde339`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidProof", abi = "InvalidProof()")]
+	pub struct InvalidProof;
+	///Custom Error type `MessageNotTimedOut` with signature `MessageNotTimedOut()` and selector
+	/// `0x91d1ba5e`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "MessageNotTimedOut", abi = "MessageNotTimedOut()")]
+	pub struct MessageNotTimedOut;
+	///Custom Error type `MessageTimedOut` with signature `MessageTimedOut()` and selector
+	/// `0x1676f4b3`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "MessageTimedOut", abi = "MessageTimedOut()")]
+	pub struct MessageTimedOut;
+	///Custom Error type `StateCommitmentNotFound` with signature `StateCommitmentNotFound()` and
+	/// selector `0xa75caa56`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "StateCommitmentNotFound", abi = "StateCommitmentNotFound()")]
+	pub struct StateCommitmentNotFound;
+	///Custom Error type `UnknownMessage` with signature `UnknownMessage()` and selector
+	/// `0xf058bfd9`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "UnknownMessage", abi = "UnknownMessage()")]
+	pub struct UnknownMessage;
+	///Container type for all of the contract's custom errors
+	#[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
+	pub enum HandlerErrors {
+		ChallengePeriodNotElapsed(ChallengePeriodNotElapsed),
+		ConsensusClientExpired(ConsensusClientExpired),
+		DuplicateMessage(DuplicateMessage),
+		HostFrozen(HostFrozen),
+		InvalidMessageDestination(InvalidMessageDestination),
+		InvalidProof(InvalidProof),
+		MessageNotTimedOut(MessageNotTimedOut),
+		MessageTimedOut(MessageTimedOut),
+		StateCommitmentNotFound(StateCommitmentNotFound),
+		UnknownMessage(UnknownMessage),
+		/// The standard solidity revert string, with selector
+		/// Error(string) -- 0x08c379a0
+		RevertString(::std::string::String),
+	}
+	impl ::ethers::core::abi::AbiDecode for HandlerErrors {
+		fn decode(
+			data: impl AsRef<[u8]>,
+		) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
+			let data = data.as_ref();
+			if let Ok(decoded) =
+				<::std::string::String as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::RevertString(decoded));
+			}
+			if let Ok(decoded) =
+				<ChallengePeriodNotElapsed as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::ChallengePeriodNotElapsed(decoded));
+			}
+			if let Ok(decoded) =
+				<ConsensusClientExpired as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::ConsensusClientExpired(decoded));
+			}
+			if let Ok(decoded) = <DuplicateMessage as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::DuplicateMessage(decoded));
+			}
+			if let Ok(decoded) = <HostFrozen as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::HostFrozen(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidMessageDestination as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidMessageDestination(decoded));
+			}
+			if let Ok(decoded) = <InvalidProof as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::InvalidProof(decoded));
+			}
+			if let Ok(decoded) =
+				<MessageNotTimedOut as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::MessageNotTimedOut(decoded));
+			}
+			if let Ok(decoded) = <MessageTimedOut as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::MessageTimedOut(decoded));
+			}
+			if let Ok(decoded) =
+				<StateCommitmentNotFound as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::StateCommitmentNotFound(decoded));
+			}
+			if let Ok(decoded) = <UnknownMessage as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::UnknownMessage(decoded));
+			}
+			Err(::ethers::core::abi::Error::InvalidData.into())
+		}
+	}
+	impl ::ethers::core::abi::AbiEncode for HandlerErrors {
+		fn encode(self) -> ::std::vec::Vec<u8> {
+			match self {
+				Self::ChallengePeriodNotElapsed(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::ConsensusClientExpired(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::DuplicateMessage(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::HostFrozen(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidMessageDestination(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidProof(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::MessageNotTimedOut(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::MessageTimedOut(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::StateCommitmentNotFound(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::UnknownMessage(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::RevertString(s) => ::ethers::core::abi::AbiEncode::encode(s),
+			}
+		}
+	}
+	impl ::ethers::contract::ContractRevert for HandlerErrors {
+		fn valid_selector(selector: [u8; 4]) -> bool {
+			match selector {
+				[0x08, 0xc3, 0x79, 0xa0] => true,
+				_ if selector ==
+					<ChallengePeriodNotElapsed as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<ConsensusClientExpired as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <DuplicateMessage as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <HostFrozen as ::ethers::contract::EthError>::selector() => true,
+				_ if selector ==
+					<InvalidMessageDestination as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <InvalidProof as ::ethers::contract::EthError>::selector() => true,
+				_ if selector ==
+					<MessageNotTimedOut as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <MessageTimedOut as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<StateCommitmentNotFound as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <UnknownMessage as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ => false,
+			}
+		}
+	}
+	impl ::core::fmt::Display for HandlerErrors {
+		fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+			match self {
+				Self::ChallengePeriodNotElapsed(element) => ::core::fmt::Display::fmt(element, f),
+				Self::ConsensusClientExpired(element) => ::core::fmt::Display::fmt(element, f),
+				Self::DuplicateMessage(element) => ::core::fmt::Display::fmt(element, f),
+				Self::HostFrozen(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidMessageDestination(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidProof(element) => ::core::fmt::Display::fmt(element, f),
+				Self::MessageNotTimedOut(element) => ::core::fmt::Display::fmt(element, f),
+				Self::MessageTimedOut(element) => ::core::fmt::Display::fmt(element, f),
+				Self::StateCommitmentNotFound(element) => ::core::fmt::Display::fmt(element, f),
+				Self::UnknownMessage(element) => ::core::fmt::Display::fmt(element, f),
+				Self::RevertString(s) => ::core::fmt::Display::fmt(s, f),
+			}
+		}
+	}
+	impl ::core::convert::From<::std::string::String> for HandlerErrors {
+		fn from(value: String) -> Self {
+			Self::RevertString(value)
+		}
+	}
+	impl ::core::convert::From<ChallengePeriodNotElapsed> for HandlerErrors {
+		fn from(value: ChallengePeriodNotElapsed) -> Self {
+			Self::ChallengePeriodNotElapsed(value)
+		}
+	}
+	impl ::core::convert::From<ConsensusClientExpired> for HandlerErrors {
+		fn from(value: ConsensusClientExpired) -> Self {
+			Self::ConsensusClientExpired(value)
+		}
+	}
+	impl ::core::convert::From<DuplicateMessage> for HandlerErrors {
+		fn from(value: DuplicateMessage) -> Self {
+			Self::DuplicateMessage(value)
+		}
+	}
+	impl ::core::convert::From<HostFrozen> for HandlerErrors {
+		fn from(value: HostFrozen) -> Self {
+			Self::HostFrozen(value)
+		}
+	}
+	impl ::core::convert::From<InvalidMessageDestination> for HandlerErrors {
+		fn from(value: InvalidMessageDestination) -> Self {
+			Self::InvalidMessageDestination(value)
+		}
+	}
+	impl ::core::convert::From<InvalidProof> for HandlerErrors {
+		fn from(value: InvalidProof) -> Self {
+			Self::InvalidProof(value)
+		}
+	}
+	impl ::core::convert::From<MessageNotTimedOut> for HandlerErrors {
+		fn from(value: MessageNotTimedOut) -> Self {
+			Self::MessageNotTimedOut(value)
+		}
+	}
+	impl ::core::convert::From<MessageTimedOut> for HandlerErrors {
+		fn from(value: MessageTimedOut) -> Self {
+			Self::MessageTimedOut(value)
+		}
+	}
+	impl ::core::convert::From<StateCommitmentNotFound> for HandlerErrors {
+		fn from(value: StateCommitmentNotFound) -> Self {
+			Self::StateCommitmentNotFound(value)
+		}
+	}
+	impl ::core::convert::From<UnknownMessage> for HandlerErrors {
+		fn from(value: UnknownMessage) -> Self {
+			Self::UnknownMessage(value)
 		}
 	}
 	///Container type for all input parameters for the `handleConsensus` function with signature

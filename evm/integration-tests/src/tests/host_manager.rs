@@ -126,9 +126,11 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
 	let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
 	let mut runner = Runner::new(PathBuf::from(&base_dir));
 	let mut contract = runner.deploy("HostManagerTest").await;
+	let destination = contract.call::<_, H160>("module", ()).await?;
 
 	let params = EvmHostParamsAbi {
 		challengePeriod: U256::from(5_000_000u128).into(),
+		hostManager: destination.0.into(),
 		..Default::default()
 	};
 

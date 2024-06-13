@@ -45,7 +45,7 @@ interface IConfig {
     // confuration object for hyperbridge
     hyperbridge: IHyperbridgeConfig;
 	// Indexer url
-	indexer: string
+	indexer: string;
 }
 
 interface IChainConfig {
@@ -400,7 +400,7 @@ impl HyperClient {
 	}
 
 	pub fn get_indexer_url(&self) -> Option<String> {
-		self.indexer.clone().map(|url| url.to_string())
+		self.indexer.clone()
 	}
 }
 

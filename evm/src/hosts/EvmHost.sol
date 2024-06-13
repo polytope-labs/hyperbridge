@@ -141,32 +141,32 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     uint256 private _consensusUpdateTimestamp;
 
     // Emitted when an incoming POST request is handled
-    event PostRequestHandled(bytes32 indexed commitment, address relayer);
+    event PostRequestHandled(bytes32 commitment, address relayer);
 
     // Emitted when an outgoing POST request timeout is handled, `dest` refers
     // to the destination for the request
-    event PostRequestTimeoutHandled(bytes32 indexed commitment, bytes dest);
+    event PostRequestTimeoutHandled(bytes32 commitment, bytes dest);
 
     // Emitted when an incoming POST response is handled
-    event PostResponseHandled(bytes32 indexed commitment, address relayer);
+    event PostResponseHandled(bytes32 commitment, address relayer);
 
     // Emitted when an outgoing POST response timeout is handled, `dest` refers
     // to the destination for the response
-    event PostResponseTimeoutHandled(bytes32 indexed commitment, bytes dest);
+    event PostResponseTimeoutHandled(bytes32 commitment, bytes dest);
 
     // Emitted when an outgoing GET request is handled
-    event GetRequestHandled(bytes32 indexed commitment, address relayer);
+    event GetRequestHandled(bytes32 commitment, address relayer);
 
     // Emitted when an outgoing GET request timeout is handled, `dest` refers
     // to the destination for the request
-    event GetRequestTimeoutHandled(bytes32 indexed commitment, bytes dest);
+    event GetRequestTimeoutHandled(bytes32 commitment, bytes dest);
 
     // Emitted when new heights are finalized
     event StateMachineUpdated(bytes stateMachineId, uint256 height);
 
     // Emitted when a state commitment is vetoed by a fisherman
     event StateCommitmentVetoed(
-        bytes stateMachineId, uint256 height, StateCommitment stateCommitment, address indexed fisherman
+        bytes stateMachineId, uint256 height, StateCommitment stateCommitment, address fisherman
     );
 
     // Emitted when a new POST request is dispatched
@@ -214,6 +214,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when the host has now been frozen
     event HostFrozen();
+
     // Emitted when the host is unfrozen
     event HostUnfrozen();
 

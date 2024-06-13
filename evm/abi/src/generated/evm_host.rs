@@ -1449,7 +1449,7 @@ pub mod evm_host {
                                     kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
                                         32usize,
                                     ),
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("relayer"),
@@ -1474,7 +1474,7 @@ pub mod evm_host {
                                     kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
                                         32usize,
                                     ),
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
@@ -1641,7 +1641,7 @@ pub mod evm_host {
                                     kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
                                         32usize,
                                     ),
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("relayer"),
@@ -1666,7 +1666,7 @@ pub mod evm_host {
                                     kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
                                         32usize,
                                     ),
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
@@ -1787,7 +1787,7 @@ pub mod evm_host {
                                     kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
                                         32usize,
                                     ),
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("relayer"),
@@ -1812,7 +1812,7 @@ pub mod evm_host {
                                     kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
                                         32usize,
                                     ),
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
@@ -1883,7 +1883,7 @@ pub mod evm_host {
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("fisherman"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Address,
-                                    indexed: true,
+                                    indexed: false,
                                 },
                             ],
                             anonymous: false,
@@ -2909,7 +2909,6 @@ pub mod evm_host {
 	)]
 	#[ethevent(name = "GetRequestHandled", abi = "GetRequestHandled(bytes32,address)")]
 	pub struct GetRequestHandledFilter {
-		#[ethevent(indexed)]
 		pub commitment: [u8; 32],
 		pub relayer: ::ethers::core::types::Address,
 	}
@@ -2925,7 +2924,6 @@ pub mod evm_host {
 	)]
 	#[ethevent(name = "GetRequestTimeoutHandled", abi = "GetRequestTimeoutHandled(bytes32,bytes)")]
 	pub struct GetRequestTimeoutHandledFilter {
-		#[ethevent(indexed)]
 		pub commitment: [u8; 32],
 		pub dest: ::ethers::core::types::Bytes,
 	}
@@ -3008,7 +3006,6 @@ pub mod evm_host {
 	)]
 	#[ethevent(name = "PostRequestHandled", abi = "PostRequestHandled(bytes32,address)")]
 	pub struct PostRequestHandledFilter {
-		#[ethevent(indexed)]
 		pub commitment: [u8; 32],
 		pub relayer: ::ethers::core::types::Address,
 	}
@@ -3027,7 +3024,6 @@ pub mod evm_host {
 		abi = "PostRequestTimeoutHandled(bytes32,bytes)"
 	)]
 	pub struct PostRequestTimeoutHandledFilter {
-		#[ethevent(indexed)]
 		pub commitment: [u8; 32],
 		pub dest: ::ethers::core::types::Bytes,
 	}
@@ -3085,7 +3081,6 @@ pub mod evm_host {
 	)]
 	#[ethevent(name = "PostResponseHandled", abi = "PostResponseHandled(bytes32,address)")]
 	pub struct PostResponseHandledFilter {
-		#[ethevent(indexed)]
 		pub commitment: [u8; 32],
 		pub relayer: ::ethers::core::types::Address,
 	}
@@ -3104,7 +3099,6 @@ pub mod evm_host {
 		abi = "PostResponseTimeoutHandled(bytes32,bytes)"
 	)]
 	pub struct PostResponseTimeoutHandledFilter {
-		#[ethevent(indexed)]
 		pub commitment: [u8; 32],
 		pub dest: ::ethers::core::types::Bytes,
 	}
@@ -3141,7 +3135,6 @@ pub mod evm_host {
 		pub state_machine_id: ::ethers::core::types::Bytes,
 		pub height: ::ethers::core::types::U256,
 		pub state_commitment: StateCommitment,
-		#[ethevent(indexed)]
 		pub fisherman: ::ethers::core::types::Address,
 	}
 	#[derive(

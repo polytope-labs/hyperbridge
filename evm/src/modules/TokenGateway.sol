@@ -21,6 +21,7 @@ import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {ICallDispatcher, CallDispatcherParams} from "./CallDispatcher.sol";
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
@@ -105,7 +106,13 @@ enum OnAcceptActions {
     // Incoming asset from a chain
     IncomingAsset,
     // Governance action to update protocol parameters
-    GovernanceAction
+    GovernanceAction,
+    // Create a new asset, registering it's token identifier
+    CreateAsset,
+    // Registers a pre-existing asset
+    RegisterAsset,
+    // Change the admin of an asset
+    ChangeAssetAdmin
 }
 
 // Abi-encoded size of Body struct
@@ -149,10 +156,18 @@ contract TokenGateway is BaseIsmpModule {
     // User assets could not be delivered and have been refunded.
     event AssetRefunded(address beneficiary, uint256 amount, bytes32 assetId, bytes dest, uint256 nonce);
 
+    // Action is unauthorized
+    error UnauthorizedAction();
+    error ZeroAddress();
+    error InvalidAmount();
+    error InvalidFeeToken();
+    error UnknownToken();
+    error InconsistentState();
+
     // restricts call to `IIsmpHost`
     modifier onlyIsmpHost() {
         if (msg.sender != _params.host) {
-            revert("TokenGateway: Unauthorized action");
+            revert UnauthorizedAction();
         }
         _;
     }
@@ -160,7 +175,7 @@ contract TokenGateway is BaseIsmpModule {
     // restricts call to `admin`
     modifier onlyAdmin() {
         if (msg.sender != _admin) {
-            revert("TokenGateway: Unauthorized action");
+            revert UnauthorizedAction();
         }
         _;
     }
@@ -197,13 +212,13 @@ contract TokenGateway is BaseIsmpModule {
 
     function teleport(TeleportParams memory teleportParams) public {
         if (teleportParams.to == bytes32(0)) {
-            revert("Cannot send tokens to the zero address");
+            revert ZeroAddress();
         }
         if (teleportParams.amount == 0) {
-            revert("Cannot teleport zero funds");
+            revert InvalidAmount();
         }
         if (teleportParams.feeToken == address(0)) {
-            revert("Fee token must be selected");
+            revert InvalidFeeToken();
         }
 
         address from = msg.sender;
@@ -235,13 +250,11 @@ contract TokenGateway is BaseIsmpModule {
         data = bytes.concat(hex"00", data); // add enum variant for body
 
         if (_erc20 != address(0) && !teleportParams.redeem) {
-            if (!IERC20(_erc20).transferFrom(from, address(this), teleportParams.amount)) {
-                revert("Insufficient user balance");
-            }
+            SafeERC20.safeTransferFrom(IERC20(_erc20), from, address(this), teleportParams.amount);
         } else if (_erc6160 != address(0)) {
             IERC6160Ext20(_erc6160).burn(from, teleportParams.amount);
         } else {
-            revert("Unknown Token Identifier");
+            revert UnknownToken();
         }
 
         uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.fee;
@@ -251,25 +264,18 @@ contract TokenGateway is BaseIsmpModule {
             path[0] = teleportParams.feeToken;
             path[1] = feeToken;
 
-            if (!IERC20(teleportParams.feeToken).transferFrom(from, address(this), teleportParams.amountInMax)) {
-                revert("insufficient funds for intended fee token");
-            }
-            if (!IERC20(teleportParams.feeToken).approve(_params.uniswapV2, teleportParams.amountInMax)) {
-                revert("approve failed");
-            }
+            SafeERC20.safeTransferFrom(IERC20(teleportParams.feeToken), from, address(this), teleportParams.amountInMax);
+            SafeERC20.safeIncreaseAllowance(IERC20(teleportParams.feeToken), _params.uniswapV2, teleportParams.amountInMax);
+
             IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
                 fee, teleportParams.amountInMax, path, address(this), block.timestamp
             );
         } else {
-            if (!IERC20(feeToken).transferFrom(from, address(this), fee)) {
-                revert("user has insufficient funds");
-            }
+            SafeERC20.safeTransferFrom(IERC20(_erc20), from, address(this), fee);
         }
 
         // approve the host with the exact amount
-        if (!IERC20(feeToken).approve(_params.host, fee)) {
-            revert("Token Approval failed");
-        }
+        SafeERC20.safeIncreaseAllowance(IERC20(feeToken), _params.host, fee);
         DispatchPost memory request = DispatchPost({
             dest: teleportParams.dest,
             to: abi.encodePacked(address(this)),
@@ -290,8 +296,6 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function registerMultiChainNativeAsset() public {}
-
     function onAccept(IncomingPostRequest calldata incoming) external override onlyIsmpHost {
         OnAcceptActions action = OnAcceptActions(uint8(incoming.request.body[0]));
 
@@ -303,8 +307,6 @@ contract TokenGateway is BaseIsmpModule {
             }
         } else if (action == OnAcceptActions.GovernanceAction) {
             handleGovernance(incoming.request);
-        } else {
-            revert("Unknown Action");
         }
     }
 
@@ -330,13 +332,11 @@ contract TokenGateway is BaseIsmpModule {
         address from = bytes32ToAddress(body.from);
 
         if (_erc20 != address(0) && !body.redeem) {
-            if (!IERC20(_erc20).transfer(from, body.amount)) {
-                revert("Gateway: Insufficient Balance");
-            }
+            SafeERC20.safeTransfer(IERC20(_erc20), from, body.amount);
         } else if (_erc6160 != address(0)) {
             IERC6160Ext20(_erc6160).mint(from, body.amount);
         } else {
-            revert("Gateway: Inconsistent State");
+            revert InconsistentState();
         }
 
         emit AssetRefunded({
@@ -352,7 +352,7 @@ contract TokenGateway is BaseIsmpModule {
         PostRequest calldata request = incoming.request;
         // TokenGateway only accepts incoming assets from it's instances on other chains.
         if (!request.from.equals(abi.encodePacked(address(this)))) {
-            revert("Unauthorized request");
+            revert UnauthorizedAction();
         }
         Body memory body = abi.decode(request.body[1:], (Body));
         address to = bytes32ToAddress(body.to);
@@ -371,7 +371,7 @@ contract TokenGateway is BaseIsmpModule {
         PostRequest calldata request = incoming.request;
         // TokenGateway only accepts incoming assets from it's instances on other chains.
         if (!request.from.equals(abi.encodePacked(address(this)))) {
-            revert("Unauthorized request");
+            revert UnauthorizedAction();
         }
         BodyWithCall memory body = abi.decode(request.body[1:], (BodyWithCall));
         address to = bytes32ToAddress(body.to);
@@ -397,30 +397,25 @@ contract TokenGateway is BaseIsmpModule {
         if (_erc20 != address(0) && redeem) {
             // a relayer/user is redeeming the native asset
             uint256 transferredAmount = amount - protocolFee(assetId, amount);
-            if (!IERC20(_erc20).transfer(to, transferredAmount)) {
-                revert("Gateway: Insufficient Balance");
-            }
+            SafeERC20.safeTransfer(IERC20(_erc20), to, transferredAmount);
         } else if (_erc20 != address(0) && _erc6160 != address(0) && !redeem) {
             // user is swapping, relayers should double as liquidity providers.
-            uint256 transferredAmount = amount - relayerLiquidityFee(assetId, amount);
-            if (!IERC20(_erc20).transferFrom(relayer, to, transferredAmount)) {
-                revert("Gateway: Insufficient relayer balance");
-            }
+            uint256 toTransfer = amount - relayerLiquidityFee(assetId, amount);
+            SafeERC20.safeTransferFrom(IERC20(_erc20), relayer, to, toTransfer);
             // hand the relayer the erc6160, so they can redeem on the source chain
             IERC6160Ext20(_erc6160).mint(relayer, amount);
-
-            emit LiquidityProvided({relayer: relayer, amount: transferredAmount, assetId: assetId});
+            emit LiquidityProvided({relayer: relayer, amount: toTransfer, assetId: assetId});
         } else if (_erc6160 != address(0)) {
             IERC6160Ext20(_erc6160).mint(to, amount);
         } else {
-            revert("Gateway: Unknown Token Identifier");
+            revert UnknownToken();
         }
     }
 
     function handleGovernance(PostRequest calldata request) private {
         // only hyperbridge can do this
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) {
-            revert("Unauthorized request");
+            revert UnauthorizedAction();
         }
         TokenGatewayParamsExt memory teleportParams = abi.decode(request.body[1:], (TokenGatewayParamsExt));
 

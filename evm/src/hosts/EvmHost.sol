@@ -686,7 +686,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        if (meta.fee > 0) {
+        if (meta.fee != 0) {
             SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
         emit PostRequestTimeoutHandled({commitment: commitment, dest: request.dest});
@@ -716,7 +716,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        if (meta.fee > 0) {
+        if (meta.fee != 0) {
             // refund relayer fee
             SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
@@ -765,7 +765,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param get - get request
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
-        if (get.fee > 0) {
+        if (get.fee != 0) {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), get.fee);
         }
 

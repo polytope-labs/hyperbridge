@@ -526,8 +526,7 @@ pub mod api {
 				pub fn pending_rewards(
 					&self,
 					who: ::subxt::utils::AccountId32,
-				) -> ::subxt::runtime_api::Payload<types::PendingRewards, ::core::primitive::u128>
-				{
+				) -> ::subxt::runtime_api::Payload<types::PendingRewards, ::core::primitive::u128> {
 					::subxt::runtime_api::Payload::new_static(
 						"NominationPoolsApi",
 						"pending_rewards",
@@ -2247,8 +2246,7 @@ pub mod api {
 				#[doc = " Get current GRANDPA authority set id."]
 				pub fn current_set_id(
 					&self,
-				) -> ::subxt::runtime_api::Payload<types::CurrentSetId, ::core::primitive::u64>
-				{
+				) -> ::subxt::runtime_api::Payload<types::CurrentSetId, ::core::primitive::u64> {
 					::subxt::runtime_api::Payload::new_static(
 						"GrandpaApi",
 						"current_set_id",
@@ -2685,8 +2683,7 @@ pub mod api {
 				pub fn account_nonce(
 					&self,
 					account: ::subxt::utils::AccountId32,
-				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32>
-				{
+				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32> {
 					::subxt::runtime_api::Payload::new_static(
 						"AccountNonceApi",
 						"account_nonce",
@@ -4398,8 +4395,7 @@ pub mod api {
 				#[doc = " The maximum length of a block (in bytes)."]
 				pub fn block_length(
 					&self,
-				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength>
-				{
+				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength> {
 					::subxt::constants::Address::new_static(
 						"System",
 						"BlockLength",
@@ -12689,8 +12685,7 @@ pub mod api {
 				#[doc = " Maximum amount of funds that should be placed in a deposit for making a proposal."]
 				pub fn proposal_bond_maximum(
 					&self,
-				) -> ::subxt::constants::Address<::core::option::Option<::core::primitive::u128>>
-				{
+				) -> ::subxt::constants::Address<::core::option::Option<::core::primitive::u128>> {
 					::subxt::constants::Address::new_static(
 						"Treasury",
 						"ProposalBondMaximum",
@@ -18654,8 +18649,7 @@ pub mod api {
 				#[doc = " Maximum amount of funds that should be placed in a deposit for making a proposal."]
 				pub fn curator_deposit_max(
 					&self,
-				) -> ::subxt::constants::Address<::core::option::Option<::core::primitive::u128>>
-				{
+				) -> ::subxt::constants::Address<::core::option::Option<::core::primitive::u128>> {
 					::subxt::constants::Address::new_static(
 						"Bounties",
 						"CuratorDepositMax",
@@ -18670,8 +18664,7 @@ pub mod api {
 				#[doc = " Minimum amount of funds that should be placed in a deposit for making a proposal."]
 				pub fn curator_deposit_min(
 					&self,
-				) -> ::subxt::constants::Address<::core::option::Option<::core::primitive::u128>>
-				{
+				) -> ::subxt::constants::Address<::core::option::Option<::core::primitive::u128>> {
 					::subxt::constants::Address::new_static(
 						"Bounties",
 						"CuratorDepositMin",

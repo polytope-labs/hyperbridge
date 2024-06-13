@@ -141,32 +141,32 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     uint256 private _consensusUpdateTimestamp;
 
     // Emitted when an incoming POST request is handled
-    event PostRequestHandled(bytes32 commitment, address relayer);
+    event PostRequestHandled(bytes32 indexed commitment, address relayer);
 
     // Emitted when an outgoing POST request timeout is handled, `dest` refers
     // to the destination for the request
-    event PostRequestTimeoutHandled(bytes32 commitment, bytes dest);
+    event PostRequestTimeoutHandled(bytes32 indexed commitment, bytes dest);
 
     // Emitted when an incoming POST response is handled
-    event PostResponseHandled(bytes32 commitment, address relayer);
+    event PostResponseHandled(bytes32 indexed commitment, address relayer);
 
     // Emitted when an outgoing POST response timeout is handled, `dest` refers
     // to the destination for the response
-    event PostResponseTimeoutHandled(bytes32 commitment, bytes dest);
+    event PostResponseTimeoutHandled(bytes32 indexed commitment, bytes dest);
 
     // Emitted when an outgoing GET request is handled
-    event GetRequestHandled(bytes32 commitment, address relayer);
+    event GetRequestHandled(bytes32 indexed commitment, address relayer);
 
     // Emitted when an outgoing GET request timeout is handled, `dest` refers
     // to the destination for the request
-    event GetRequestTimeoutHandled(bytes32 commitment, bytes dest);
+    event GetRequestTimeoutHandled(bytes32 indexed commitment, bytes dest);
 
     // Emitted when new heights are finalized
     event StateMachineUpdated(bytes stateMachineId, uint256 height);
 
     // Emitted when a state commitment is vetoed by a fisherman
     event StateCommitmentVetoed(
-        bytes stateMachineId, uint256 height, StateCommitment stateCommitment, address fisherman
+        bytes stateMachineId, uint256 height, StateCommitment stateCommitment, address indexed fisherman
     );
 
     // Emitted when a new POST request is dispatched
@@ -206,14 +206,37 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 timeoutTimestamp
     );
 
+    // Emitted when a POST or GET request is funded
+    event RequestFunded(bytes32 commitment, uint256 newFee);
+
+    // Emitted when a POST response is funded
+    event PostResponseFunded(bytes32 commitment, uint256 newFee);
+
+    // Emitted when the host has now been frozen
+    event HostFrozen();
+    // Emitted when the host is unfrozen
+    event HostUnfrozen();
+
+    // Emitted when the host params is updated
+    event HostParamsUpdated(HostParams oldParams, HostParams newParams);
+
+    // Account is unauthorized to perform requested action
     error UnauthorizedAccount();
+    // Provided address didn't fit address type size
     error InvalidAddressLength();
+    // Provided request was unknown
     error UnknownRequest();
+    // Provided response was unknown
     error UnknownResponse();
+    // Action breaks protocol invariants and is therefore unauthorized
     error UnauthorizedAction();
+    // Application is attempting to respond to a request it did not receive
     error UnauthorizedResponse();
+    // Response has already been provided for this request
     error DuplicateResponse();
+    // Cannot exceed max fishermen count
     error MaxFishermanCountExceeded(uint256 provided);
+    // Host manager address was zero or not a contract
     error InvalidHostManagerAddress();
 
     // only permits fishermen
@@ -437,17 +460,25 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             revert InvalidHostManagerAddress();
         }
 
+        // we can only have a maximum of 100 fishermen
+        uint256 newFishermenLength = params.fishermen.length;
+        if (newFishermenLength > 100) {
+            revert MaxFishermanCountExceeded(newFishermenLength);
+        }
+
         // delete old fishermen
         uint256 fishermenLength = _hostParams.fishermen.length;
         for (uint256 i = 0; i < fishermenLength; ++i) {
             delete _fishermen[_hostParams.fishermen[i]];
         }
 
+        // safe to emit here because invariants have already been checked
+        // and don't want to store a temp variable for the old params
+        emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
+
         _hostParams = params;
 
-        // add new fishermen if any, we can only have a maximum of 100 fishermen
-        uint256 newFishermenLength = params.fishermen.length;
-        if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
+        // add new fishermen if any
         for (uint256 i = 0; i < newFishermenLength; ++i) {
             _fishermen[params.fishermen[i]] = true;
         }
@@ -548,6 +579,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function setFrozenState(bool newState) public onlyAdmin {
         _frozen = newState;
+
+        if (newState) {
+            emit HostFrozen();
+        } else {
+            emit HostUnfrozen();
+        }
     }
 
     /**
@@ -877,6 +914,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         metadata.fee += amount;
         _requestCommitments[commitment] = metadata;
+
+        emit RequestFunded({commitment: commitment, newFee: metadata.fee});
     }
 
     /**
@@ -897,6 +936,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         metadata.fee += amount;
         _responseCommitments[commitment] = metadata;
+
+        emit PostResponseFunded({commitment: commitment, newFee: metadata.fee});
     }
 
     /**

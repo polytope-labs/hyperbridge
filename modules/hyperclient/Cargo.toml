@@ -31,6 +31,7 @@ wasm-timer = { package = "fluvio-wasm-timer", version = "0.2.5" }
 hashbrown = { version = "0.14.3", features = ["serde"] }
 primitive-types = { version = "0.12.2", default-features = false, features = ["serde"] }
 tracing = { version = "0.1.40", default-features = false }
+url = "2.5.1"
 
 tracing-wasm = "0.2.1"
 console_error_panic_hook = "0.1.7"
@@ -45,6 +46,8 @@ substrate-state-machine = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 ethereum-triedb = { workspace = true }
 subxt-utils = { workspace = true }
+mmr-primitives = { workspace = true }
+sp-mmr-primitives = { workspace = true }
 hex = "0.4.3"
 gql_client = "=1.0.7"
 

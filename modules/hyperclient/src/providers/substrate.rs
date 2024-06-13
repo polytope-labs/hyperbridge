@@ -17,14 +17,32 @@ use ismp::{
 	messaging::Message,
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
-use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, ResponseReceipt};
+use pallet_ismp::{
+	child_trie::{
+		request_commitment_storage_key, response_commitment_storage_key, CHILD_TRIE_PREFIX,
+	},
+	mmr::ProofKeys,
+	ResponseReceipt,
+};
 use serde::{Deserialize, Serialize};
 use sp_core::storage::ChildInfo;
 use std::ops::RangeInclusive;
 use substrate_state_machine::StateMachineProof;
 use subxt::{
-	config::Header, rpc::types::StorageData, rpc_params, storage::StorageKey, OnlineClient,
+	config::Header, rpc::types::StorageData, rpc_params, storage::StorageKey, tx::TxPayload,
+	OnlineClient,
 };
+
+use super::interface::Query;
+
+/// Contains a scale encoded Mmr Proof or Trie proof
+#[derive(Serialize, Deserialize)]
+pub struct Proof {
+	/// Scale encoded `MmrProof` or state trie proof `Vec<Vec<u8>>`
+	pub proof: Vec<u8>,
+	/// Height at which proof was recovered
+	pub height: u32,
+}
 
 #[derive(Debug, Clone)]
 pub struct SubstrateClient<C: subxt::Config + Clone> {
@@ -152,6 +170,87 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 			storage_proof,
 		});
 		Ok(proof.encode())
+	}
+
+	async fn query_requests_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		if keys.is_empty() {
+			Err(anyhow!("No queries provided"))?
+		}
+		match keys[0].dest_chain {
+			// Use mmr proofs for queries going to EVM chains
+			StateMachine::Ethereum(_) | StateMachine::Bsc | StateMachine::Polygon => {
+				let keys =
+					ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
+				let params = rpc_params![at, keys];
+				let response: Proof =
+					self.client.rpc().request("ismp_queryMmrProof", params).await?;
+				Ok(response.proof)
+			},
+			// Use child trie proofs for queries going to substrate chains
+			StateMachine::Polkadot(_) |
+			StateMachine::Kusama(_) |
+			StateMachine::Grandpa(_) |
+			StateMachine::Beefy(_) => {
+				let keys: Vec<_> = keys
+					.into_iter()
+					.map(|key| request_commitment_storage_key(key.commitment))
+					.collect();
+				let params = rpc_params![at, keys];
+				let response: Proof =
+					self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
+				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
+				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+					hasher: self.hashing.clone(),
+					storage_proof,
+				});
+				Ok(proof.encode())
+			},
+		}
+	}
+
+	async fn query_responses_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		if keys.is_empty() {
+			Err(anyhow!("No queries provided"))?
+		}
+
+		match keys[0].dest_chain {
+			// Use mmr proofs for queries going to EVM chains
+			StateMachine::Ethereum(_) | StateMachine::Bsc | StateMachine::Polygon => {
+				let keys =
+					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
+				let params = rpc_params![at, keys];
+				let response: Proof =
+					self.client.rpc().request("ismp_queryMmrProof", params).await?;
+				Ok(response.proof)
+			},
+			// Use child trie proofs for queries going to substrate chains
+			StateMachine::Polkadot(_) |
+			StateMachine::Kusama(_) |
+			StateMachine::Grandpa(_) |
+			StateMachine::Beefy(_) => {
+				let keys: Vec<_> = keys
+					.into_iter()
+					.map(|key| response_commitment_storage_key(key.commitment))
+					.collect();
+				let params = rpc_params![at, keys];
+				let response: Proof =
+					self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
+				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
+				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+					hasher: self.hashing.clone(),
+					storage_proof,
+				});
+				Ok(proof.encode())
+			},
+		}
 	}
 
 	async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {
@@ -362,9 +461,17 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 	fn encode(&self, msg: Message) -> Result<Vec<u8>, Error> {
 		let call = vec![msg].encode();
-		let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
-		let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
-		Ok(ext.into_encoded())
+		if let Some(_) =
+			self.client.metadata().pallet_by_name_err("Ismp")?.call_hash("handle_unsigned")
+		{
+			let extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
+			let ext = self.client.tx().create_unsigned(&extrinsic)?;
+			Ok(ext.into_encoded())
+		} else {
+			let extrinsic = Extrinsic::new("Ismp", "handle", call);
+			let call_data = extrinsic.encode_call_data(&self.client.metadata())?;
+			Ok(call_data)
+		}
 	}
 
 	async fn query_ismp_event(
@@ -376,7 +483,9 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 	async fn submit(&self, msg: Message) -> Result<EventMetadata, Error> {
 		let call = vec![msg].encode();
+
 		let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
+
 		let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
 		let in_block = ext.submit_and_watch().await?.wait_for_finalized_success().await?;
 

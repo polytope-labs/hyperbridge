@@ -32,4 +32,5 @@ std = [
     "reconnecting-jsonrpsee-ws-client/native",
     "pallet-hyperbridge/std",
     "pallet-ismp-host-executive/std",
+    "subxt/substrate-compat"
 ]

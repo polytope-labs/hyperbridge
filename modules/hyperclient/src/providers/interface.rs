@@ -6,6 +6,7 @@ use ethers::{prelude::H256, types::H160};
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
+	host::StateMachine,
 	messaging::Message,
 	router::{Post, PostResponse},
 };
@@ -17,6 +18,16 @@ use std::ops::RangeInclusive;
 pub enum RequestOrResponse {
 	Request(Post),
 	Response(PostResponse),
+}
+
+/// Provides an interface for accessing new events and ISMP data on the chain which must be
+/// relayed to the counterparty chain.
+
+#[derive(Copy, Clone, Debug)]
+pub struct Query {
+	pub source_chain: StateMachine,
+	pub dest_chain: StateMachine,
+	pub commitment: H256,
 }
 
 /// Holds an event along with relevant metadata about the event
@@ -44,6 +55,22 @@ pub trait Client: Clone + Send + Sync + 'static {
 	// Queries state proof for some keys
 	async fn query_state_proof(&self, at: u64, key: Vec<Vec<u8>>)
 		-> Result<Vec<u8>, anyhow::Error>;
+
+	/// Query a requests proof
+	/// Return the scale encoded proof
+	async fn query_requests_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+	) -> Result<Vec<u8>, anyhow::Error>;
+
+	/// Query a responses proof
+	/// Return the scale encoded proof
+	async fn query_responses_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+	) -> Result<Vec<u8>, anyhow::Error>;
 
 	// Query the response receipt from the ISMP host on the destination chain
 	async fn query_response_receipt(&self, request_commitment: H256)

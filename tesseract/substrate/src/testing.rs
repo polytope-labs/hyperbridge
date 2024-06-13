@@ -16,7 +16,7 @@
 //! Testing utilities
 
 use crate::{
-	extrinsic::{send_extrinsic, Extrinsic, InMemorySigner},
+	extrinsic::{Extrinsic, InMemorySigner},
 	SubstrateClient,
 };
 use codec::Encode;
@@ -30,6 +30,8 @@ use subxt::{
 	ext::{sp_core::crypto, sp_runtime::MultiSignature},
 	tx::TxPayload,
 };
+
+use subxt_utils::send_extrinsic;
 
 impl<C> SubstrateClient<C>
 where

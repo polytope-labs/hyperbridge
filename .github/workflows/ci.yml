@@ -70,7 +70,7 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly
+          rustup update nightly-2024-05-20 
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
@@ -129,7 +129,7 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly
+          rustup update nightly-2024-05-20 
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
@@ -150,7 +150,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
+          toolchain: nightly-2024-05-20
           components: rustfmt
 
       - name: Cargo fmt
@@ -198,7 +198,7 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly
+          rustup update nightly-2024-05-20 
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
@@ -247,7 +247,7 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly
+          rustup update nightly-2024-05-20 
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src

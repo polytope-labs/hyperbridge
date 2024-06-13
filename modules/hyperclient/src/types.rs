@@ -1,6 +1,8 @@
-use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
+use crate::{
+	any_client::AnyClient,
+	providers::{evm::EvmClient, substrate::SubstrateClient},
+};
 use anyhow::anyhow;
-use codec::Encode;
 use core::pin::Pin;
 use ethers::types::H160;
 pub use evm_common::types::EvmStateProof;
@@ -8,8 +10,9 @@ use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 pub use substrate_state_machine::{HashAlgorithm, SubstrateStateProof};
-use subxt::{tx::TxPayload, utils::H256, Config, Metadata};
-use subxt_utils::Hyperbridge;
+use subxt::{utils::H256, Config};
+pub use subxt_utils::Extrinsic;
+use subxt_utils::{BlakeSubstrateChain, Hyperbridge};
 
 // ========================================
 // TYPES
@@ -71,6 +74,7 @@ pub struct ClientConfig {
 	pub source: ChainConfig,
 	pub dest: ChainConfig,
 	pub hyperbridge: ChainConfig,
+	pub indexer: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Default, Copy)]
@@ -124,6 +128,8 @@ pub enum MessageStatusWithMetadata {
 		/// Metadata about the event on the destination chain
 		#[serde(flatten)]
 		meta: EventMetadata,
+		/// Calldata that encodes the proof for the message to be sent to the destination.
+		calldata: Vec<u8>,
 	},
 	/// Delivered to destination
 	DestinationDelivered {
@@ -191,66 +197,42 @@ pub enum TimeoutStatus {
 	},
 }
 
-/// Implements [`TxPayload`] for extrinsic encoding
-pub struct Extrinsic {
-	/// The pallet name, used to query the metadata
-	pallet_name: String,
-	/// The call name
-	call_name: String,
-	/// The encoded pallet call. Note that this should be the pallet call. Not runtime call
-	encoded: Vec<u8>,
-}
-
-// =======================================
-// IMPLs                            =
-// =======================================
-impl Extrinsic {
-	/// Creates a new extrinsic ready to be sent with subxt.
-	pub fn new(
-		pallet_name: impl Into<String>,
-		call_name: impl Into<String>,
-		encoded_call: Vec<u8>,
-	) -> Self {
-		Extrinsic {
-			pallet_name: pallet_name.into(),
-			call_name: call_name.into(),
-			encoded: encoded_call,
-		}
-	}
-}
-
-impl TxPayload for Extrinsic {
-	fn encode_call_data_to(
-		&self,
-		metadata: &Metadata,
-		out: &mut Vec<u8>,
-	) -> Result<(), subxt::Error> {
-		// encode the pallet index
-		let pallet = metadata.pallet_by_name_err(&self.pallet_name).unwrap();
-		let call_index = pallet.call_variant_by_name(&self.call_name).unwrap().index;
-		let pallet_index = pallet.index();
-		pallet_index.encode_to(out);
-		call_index.encode_to(out);
-
-		// copy the encoded call to out
-		out.extend_from_slice(&self.encoded);
-
-		Ok(())
-	}
-}
-
 impl ClientConfig {
-	pub async fn dest_chain(&self) -> Result<impl Client, anyhow::Error> {
+	pub async fn dest_chain(&self) -> Result<AnyClient, anyhow::Error> {
 		match &self.dest {
-			ChainConfig::Evm(config) => config.into_client().await,
-			_ => Err(anyhow!("Support for substrate coming: requires an AnyClient implementation")),
+			ChainConfig::Evm(config) => {
+				let client = config.into_client().await?;
+				Ok(AnyClient::Evm(client))
+			},
+			ChainConfig::Substrate(config) => match config.hash_algo {
+				HashAlgorithm::Keccak => {
+					let client = config.into_client::<Hyperbridge>().await?;
+					Ok(AnyClient::KeccakSubstrateChain(client))
+				},
+				HashAlgorithm::Blake2 => {
+					let client = config.into_client::<BlakeSubstrateChain>().await?;
+					Ok(AnyClient::BlakeSubstrateChain(client))
+				},
+			},
 		}
 	}
 
-	pub async fn source_chain(&self) -> Result<impl Client, anyhow::Error> {
+	pub async fn source_chain(&self) -> Result<AnyClient, anyhow::Error> {
 		match &self.source {
-			ChainConfig::Evm(config) => config.into_client().await,
-			_ => Err(anyhow!("Support for substrate coming: requires an AnyClient implementation")),
+			ChainConfig::Evm(config) => {
+				let client = config.into_client().await?;
+				Ok(AnyClient::Evm(client))
+			},
+			ChainConfig::Substrate(config) => match config.hash_algo {
+				HashAlgorithm::Keccak => {
+					let client = config.into_client::<Hyperbridge>().await?;
+					Ok(AnyClient::KeccakSubstrateChain(client))
+				},
+				HashAlgorithm::Blake2 => {
+					let client = config.into_client::<BlakeSubstrateChain>().await?;
+					Ok(AnyClient::BlakeSubstrateChain(client))
+				},
+			},
 		}
 	}
 

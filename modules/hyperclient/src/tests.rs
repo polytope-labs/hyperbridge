@@ -2,14 +2,16 @@
 use std::str::FromStr;
 
 use ismp::{
-	host::StateMachine,
+	host::{Ethereum, StateMachine},
 	router::{PostResponse, Request},
 };
+use substrate_state_machine::HashAlgorithm;
 
 use crate::{
 	indexing::{query_request_status_from_indexer, query_response_status_from_indexer},
 	testing::{subscribe_to_request_status, test_timeout_request},
-	types::MessageStatusWithMetadata,
+	types::{ChainConfig, ClientConfig, EvmConfig, MessageStatusWithMetadata, SubstrateConfig},
+	HyperClient,
 };
 
 pub fn setup_logging() {
@@ -57,7 +59,38 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 
 	let request = Request::Post(post);
 
-	let status = query_request_status_from_indexer(request).await?.unwrap();
+	let source_chain = EvmConfig {
+		rpc_url: "https://bsc-testnet.blockpi.network/v1/rpc/public".to_string(),
+		state_machine: StateMachine::Bsc,
+		host_address: Default::default(),
+		handler_address: Default::default(),
+		consensus_state_id: *b"BSC0",
+	};
+
+	let dest_chain = EvmConfig {
+		rpc_url: "https://optimism-sepolia.blockpi.network/v1/rpc/public".to_string(),
+		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
+		host_address: Default::default(),
+		handler_address: Default::default(),
+		consensus_state_id: *b"ETH0",
+	};
+
+	let hyperbrige_config = SubstrateConfig {
+		rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+		consensus_state_id: *b"PARA",
+		hash_algo: HashAlgorithm::Keccak,
+	};
+
+	let config = ClientConfig {
+		source: ChainConfig::Evm(source_chain.clone()),
+		dest: ChainConfig::Evm(dest_chain.clone()),
+		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
+		indexer: Some("http://localhost:3000".to_string()),
+	};
+
+	let hyperclient = HyperClient::new(config).await.unwrap();
+
+	let status = query_request_status_from_indexer(request, &hyperclient).await?.unwrap();
 
 	dbg!(&status);
 	assert!(matches!(status, MessageStatusWithMetadata::DestinationDelivered { .. }));
@@ -106,9 +139,41 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 		timeout_timestamp: 3432417653,
 	};
 
-	let status = query_response_status_from_indexer(ismp::router::Response::Post(response))
-		.await?
-		.unwrap();
+	let source_chain = EvmConfig {
+		rpc_url: "https://bsc-testnet.blockpi.network/v1/rpc/public".to_string(),
+		state_machine: StateMachine::Bsc,
+		host_address: Default::default(),
+		handler_address: Default::default(),
+		consensus_state_id: *b"BSC0",
+	};
+
+	let dest_chain = EvmConfig {
+		rpc_url: "https://optimism-sepolia.blockpi.network/v1/rpc/public".to_string(),
+		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
+		host_address: Default::default(),
+		handler_address: Default::default(),
+		consensus_state_id: *b"ETH0",
+	};
+
+	let hyperbrige_config = SubstrateConfig {
+		rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+		consensus_state_id: *b"PARA",
+		hash_algo: HashAlgorithm::Keccak,
+	};
+
+	let config = ClientConfig {
+		source: ChainConfig::Evm(source_chain.clone()),
+		dest: ChainConfig::Evm(dest_chain.clone()),
+		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
+		indexer: Some("http://localhost:3000".to_string()),
+	};
+
+	let hyperclient = HyperClient::new(config).await.unwrap();
+
+	let status =
+		query_response_status_from_indexer(ismp::router::Response::Post(response), &hyperclient)
+			.await?
+			.unwrap();
 
 	dbg!(&status);
 	assert!(matches!(status, MessageStatusWithMetadata::DestinationDelivered { .. }));

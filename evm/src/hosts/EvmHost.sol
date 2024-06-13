@@ -18,6 +18,7 @@ import {Context} from "openzeppelin/utils/Context.sol";
 import {Math} from "openzeppelin/utils/math/Math.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
 import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "ismp/IIsmpModule.sol";
@@ -457,9 +458,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the parameters for withdrawal
      */
     function withdraw(WithdrawParams memory params) external onlyManager {
-        if (!IERC20(feeToken()).transfer(params.beneficiary, params.amount)) {
-            revert("Host has an insufficient balance");
-        }
+        SafeERC20.safeTransfer(IERC20(feeToken()), params.beneficiary, params.amount);
     }
 
     /**
@@ -688,8 +687,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         if (meta.fee > 0) {
-            // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
         emit PostRequestTimeoutHandled({commitment: commitment, dest: request.dest});
     }
@@ -720,7 +718,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (meta.fee > 0) {
             // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
         emit PostResponseTimeoutHandled({commitment: commitment, dest: response.request.source});
     }
@@ -731,7 +729,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchPost memory post) external returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -768,7 +766,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
         if (get.fee > 0) {
-            IERC20(feeToken()).transferFrom(_msgSender(), address(this), get.fee);
+            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), get.fee);
         }
 
         // adjust the timeout
@@ -823,7 +821,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // collect fees
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -866,7 +864,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         if (metadata.sender == address(0)) {
             revert UnknownRequest();
         }
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
 
         metadata.fee += amount;
         _requestCommitments[commitment] = metadata;
@@ -886,7 +884,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         if (metadata.sender == address(0)) {
             revert UnknownResponse();
         }
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
 
         metadata.fee += amount;
         _responseCommitments[commitment] = metadata;

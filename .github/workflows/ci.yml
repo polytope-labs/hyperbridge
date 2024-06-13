@@ -6,9 +6,9 @@ on:
       - main
   pull_request_target:
     types: [opened, synchronize]
-#  pull_request:
-#    branches:
-#      - main
+  # pull_request:
+  #   branches:
+  #     - main
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
@@ -70,7 +70,7 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly-2024-05-20 
+          rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
@@ -129,7 +129,7 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly-2024-05-20 
+          rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
@@ -154,7 +154,7 @@ jobs:
           components: rustfmt
 
       - name: Cargo fmt
-        run: cargo +nightly fmt --all --check
+        run: cargo +nightly-2024-05-20 fmt --all --check
 
   unit-tests:
     name: Unit Tests
@@ -198,7 +198,7 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly-2024-05-20 
+          rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
@@ -247,7 +247,7 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly-2024-05-20 
+          rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src

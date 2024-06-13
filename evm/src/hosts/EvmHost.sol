@@ -213,6 +213,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     error UnauthorizedAction();
     error UnauthorizedResponse();
     error DuplicateResponse();
+    error MaxFishermanCountExceeded(uint256 provided);
 
     // only permits fishermen
     modifier onlyFishermen() {
@@ -437,8 +438,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
         _hostParams = params;
 
-        // add new fishermen if any
+        // add new fishermen if any, we can only have a maximum of 100 fishermen
         uint256 newFishermenLength = params.fishermen.length;
+        if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
         for (uint256 i = 0; i < newFishermenLength; ++i) {
             _fishermen[params.fishermen[i]] = true;
         }

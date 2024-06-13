@@ -44,6 +44,8 @@ interface IConfig {
     dest: IChainConfig;
     // confuration object for hyperbridge
     hyperbridge: IHyperbridgeConfig;
+	// Indexer url
+	indexer: string
 }
 
 interface IChainConfig {
@@ -256,6 +258,8 @@ pub struct HyperClient {
 	pub dest: AnyClient,
 	#[wasm_bindgen(skip)]
 	pub hyperbridge: SubstrateClient<Hyperbridge>,
+	#[wasm_bindgen(skip)]
+	pub indexer: Option<String>,
 }
 
 impl HyperClient {
@@ -267,6 +271,7 @@ impl HyperClient {
 			source: config.source_chain().await?,
 			dest: config.dest_chain().await?,
 			hyperbridge,
+			indexer: config.indexer.clone(),
 		})
 	}
 }
@@ -392,6 +397,10 @@ impl HyperClient {
 		lambda().await.map_err(|err: anyhow::Error| {
 			JsError::new(&format!("Failed to create post request timeout stream: {err:?}"))
 		})
+	}
+
+	pub fn get_indexer_url(&self) -> Option<String> {
+		self.indexer.clone().map(|url| url.to_string())
 	}
 }
 

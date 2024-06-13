@@ -34,11 +34,10 @@ pub async fn query_request_status_internal(
 	let req = Request::Post(post.clone());
 	let hash = hash_request::<Keccak256>(&req);
 	let relayer_address = client.dest.query_request_receipt(hash).await?;
-	if let Some(ref status) =
-		query_request_status_from_indexer(Request::Post(post.clone()), Some(client))
-			.await
-			.ok()
-			.flatten()
+	if let Some(ref status) = query_request_status_from_indexer(Request::Post(post.clone()), client)
+		.await
+		.ok()
+		.flatten()
 	{
 		return Ok(status.clone())
 	}
@@ -78,7 +77,7 @@ pub async fn query_response_status_internal(
 	let req_hash = hash_request::<Keccak256>(&res.request());
 	let response_receipt_relayer = hyperclient.dest.query_response_receipt(req_hash).await?;
 	if let Some(ref status) =
-		query_response_status_from_indexer(Response::Post(post_response.clone()), Some(hyperclient))
+		query_response_status_from_indexer(Response::Post(post_response.clone()), hyperclient)
 			.await
 			.ok()
 			.flatten()
@@ -389,7 +388,7 @@ pub async fn request_status_stream(
 						let relayer_address = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone(), Some(&hyperclient_clone))
+							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
 								.await
 								.ok()
 								.flatten()
@@ -534,7 +533,7 @@ pub async fn request_status_stream(
 						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone(), Some(&hyperclient_clone))
+							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
 								.await
 								.ok()
 								.flatten()
@@ -631,7 +630,7 @@ pub async fn request_status_stream(
 						let res = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone(), Some(&hyperclient_clone))
+							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
 								.await
 								.ok()
 								.flatten()
@@ -778,7 +777,7 @@ pub async fn request_status_stream(
 						let res = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(msg_status) =
-							query_request_status_from_indexer(req.clone(), Some(&hyperclient_clone))
+							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
 								.await
 								.ok()
 								.flatten()

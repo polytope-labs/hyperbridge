@@ -27,6 +27,7 @@ pub struct JsClientConfig {
 	pub source: JsChainConfig,
 	pub dest: JsChainConfig,
 	pub hyperbridge: JsHyperbridgeConfig,
+	pub indexer: String,
 }
 
 impl TryFrom<JsClientConfig> for ClientConfig {
@@ -80,6 +81,12 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 			}
 		};
 
+		let indexer = if value.indexer.is_empty() {
+			None
+		} else {
+			Some(url::Url::parse(&value.indexer)?.to_string())
+		};
+
 		let to_hyperbridge_config = |val: &JsHyperbridgeConfig| {
 			let conf = SubstrateConfig {
 				rpc_url: val.rpc_url.clone(),
@@ -94,7 +101,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 		let dest_config = to_config(&value.dest)?;
 		let hyperbridge = to_hyperbridge_config(&value.hyperbridge)?;
 
-		Ok(ClientConfig { source: source_config, dest: dest_config, hyperbridge })
+		Ok(ClientConfig { source: source_config, dest: dest_config, hyperbridge, indexer })
 	}
 }
 
@@ -202,6 +209,7 @@ mod tests {
 			source: ChainConfig::Evm(source_chain.clone()),
 			dest: ChainConfig::Evm(dest_chain.clone()),
 			hyperbridge: ChainConfig::Substrate(hyperbrige_config),
+			indexer: Some("http://localhost:3000".to_string()),
 		};
 
 		let js_source = JsChainConfig {
@@ -222,8 +230,12 @@ mod tests {
 
 		let js_hyperbridge = JsHyperbridgeConfig { rpc_url: "ws://127.0.0.1:9990".to_string() };
 
-		let js_client_conf =
-			JsClientConfig { source: js_source, dest: js_dest, hyperbridge: js_hyperbridge };
+		let js_client_conf = JsClientConfig {
+			source: js_source,
+			dest: js_dest,
+			hyperbridge: js_hyperbridge,
+			indexer: "http://localhost:3000".to_string(),
+		};
 
 		assert_eq!(config, js_client_conf.try_into().unwrap());
 	}

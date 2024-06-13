@@ -79,6 +79,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		source: ChainConfig::Evm(source_chain.clone()),
 		dest: ChainConfig::Evm(dest_chain.clone()),
 		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
+		indexer: None,
 	};
 	let hyperclient = HyperClient::new(config).await?;
 
@@ -178,6 +179,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		source: ChainConfig::Evm(source_chain.clone()),
 		dest: ChainConfig::Evm(dest_chain.clone()),
 		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
+		indexer: None,
 	};
 	let hyperclient = HyperClient::new(config).await?;
 

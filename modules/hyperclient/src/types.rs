@@ -74,6 +74,7 @@ pub struct ClientConfig {
 	pub source: ChainConfig,
 	pub dest: ChainConfig,
 	pub hyperbridge: ChainConfig,
+	pub indexer: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Default, Copy)]

@@ -214,6 +214,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     error UnauthorizedResponse();
     error DuplicateResponse();
     error MaxFishermanCountExceeded(uint256 provided);
+    error InvalidHostManagerAddress();
 
     // only permits fishermen
     modifier onlyFishermen() {
@@ -431,11 +432,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params.
      */
     function updateHostParamsInternal(HostParams memory params) private {
+        // check if the provided host manager is a contract
+        if (params.hostManager == address(0) || address(params.hostManager).code.length == 0) {
+            revert InvalidHostManagerAddress();
+        }
+
         // delete old fishermen
         uint256 fishermenLength = _hostParams.fishermen.length;
         for (uint256 i = 0; i < fishermenLength; ++i) {
             delete _fishermen[_hostParams.fishermen[i]];
         }
+
         _hostParams = params;
 
         // add new fishermen if any, we can only have a maximum of 100 fishermen
@@ -551,8 +558,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         public
         onlyAdmin
     {
-        // if we're on mainnet, then consensus state can only be initialized once.
-        // and updated subsequently by either consensus proofs or cross-chain governance
+        // if we're on mainnet, then consensus state can only be initialized once
+        // and updated subsequently through consensus proofs
         require(chainId() == block.chainid ? _consensusState.equals(new bytes(0)) : true, "Unauthorized action");
 
         _consensusState = state;

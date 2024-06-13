@@ -20,7 +20,7 @@ import {BaseTest} from "./BaseTest.sol";
 import {PostRequest} from "ismp/Message.sol";
 import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
-import {HostParams} from "../src/hosts/EvmHost.sol";
+import {HostParams, EvmHost} from "../src/hosts/EvmHost.sol";
 
 contract HostManagerTest is BaseTest {
     function HostManagerWithdraw(PostRequest memory request) public {
@@ -43,6 +43,20 @@ contract HostManagerTest is BaseTest {
         console.logUint(host.hostParams().challengePeriod);
 
         require(host.hostParams().challengePeriod == params.challengePeriod, "Failed to process request");
+    }
+
+    function testCannotSetInvalidHostManagerAddress() public {
+        HostParams memory params = host.hostParams();
+        address manager = params.hostManager;
+        params.hostManager = address(0);
+
+        vm.startPrank(manager);
+        vm.expectRevert(EvmHost.InvalidHostManagerAddress.selector);
+        host.updateHostParams(params);
+
+        params.hostManager = msg.sender;
+        vm.expectRevert(EvmHost.InvalidHostManagerAddress.selector);
+        host.updateHostParams(params);
     }
 
     function HostManagerOnAccept(PostRequest calldata request) public {

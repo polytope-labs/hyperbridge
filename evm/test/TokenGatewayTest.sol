@@ -26,6 +26,8 @@ import {
     Asset,
     BodyWithCall,
     AssetFees,
+    TokenGatewayParams,
+    ChangeAssetAdmin,
     TokenGatewayParamsExt,
     CallDispatcherParams,
     TokenGateway,
@@ -612,6 +614,58 @@ contract TokenGatewayTest is BaseTest {
 
         assert(hyperInu.balanceOf(user_vault) == 1_000 * 1e18 - liquidityFee); // user should have the ERC20 token - fee
         assert((relayerBalanceAfter - relayerBalanceBefore) == 1_000 * 1e18); // relayer should have the ERC6160 token
+    }
+
+    function testCanModifyProtocolParams() public {
+        TokenGatewayParams memory params = gateway.params();
+
+        params.uniswapV2 = msg.sender;
+
+        vm.prank(address(host));
+
+        gateway.onAccept(
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"01", abi.encode(params)),
+                    nonce: 0,
+                    source: StateMachine.kusama(2000),
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
+            })
+        );
+
+        assert(gateway.params().uniswapV2 == msg.sender);
+    }
+
+    function testCanChangeAssetOwner() public {
+        // set gateway as the admin
+        feeToken.changeAdmin(address(gateway));
+
+        ChangeAssetAdmin[] memory changeAssets = new ChangeAssetAdmin[](1);
+        changeAssets[0] = ChangeAssetAdmin({erc6160: address(feeToken), newAdmin: address(this)});
+
+        vm.prank(address(host));
+        gateway.onAccept(
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"04", abi.encode(changeAssets)),
+                    nonce: 0,
+                    source: StateMachine.kusama(2000),
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
+            })
+        );
+
+        // we're the new owner, so we can change the owner as well
+        feeToken.changeAdmin(msg.sender);
     }
 }
 

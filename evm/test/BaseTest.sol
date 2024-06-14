@@ -25,7 +25,12 @@ import {MockUSCDC} from "./MockUSDC.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 import {
-    TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetFees
+    TokenGateway,
+    Asset,
+    TokenGatewayParamsExt,
+    TokenGatewayParams,
+    AssetFees,
+    SetAsset
 } from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
@@ -95,11 +100,12 @@ contract BaseTest is Test {
 
         mockUSDC.superApprove(tx.origin, address(host));
         mockUSDC.superApprove(address(this), address(host));
-        Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({
-            identifier: keccak256("USD.h"),
+        SetAsset[] memory assets = new SetAsset[](1);
+        assets[0] = SetAsset({
             erc20: address(0),
             erc6160: address(feeToken),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3

@@ -27,7 +27,9 @@ import {
     BodyWithCall,
     AssetFees,
     TokenGatewayParamsExt,
-    CallDispatcherParams
+    CallDispatcherParams,
+    TokenGateway,
+    SetAsset
 } from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
@@ -225,21 +227,21 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testAddAssetOnAccept() public {
-        Asset memory asset = Asset({
+        SetAsset memory asset = SetAsset({
             erc20: address(mockUSDC),
             erc6160: address(feeToken),
-            identifier: keccak256("USD.h"),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3
             })
         });
 
-        Asset[] memory assets = new Asset[](1);
+        SetAsset[] memory assets = new SetAsset[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
-        TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         vm.prank(address(host));
         gateway.onAccept(
@@ -248,7 +250,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"01", abi.encode(params)),
+                    body: bytes.concat(hex"02", abi.encode(assets)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -268,22 +270,23 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testToRevertOnAddAssetOnAcceptForUnauthorizedRequest() public {
-        Asset memory asset = Asset({
+        SetAsset memory asset = SetAsset({
             erc20: address(mockUSDC),
             erc6160: address(feeToken),
-            identifier: keccak256("USD.h"),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3
             })
         });
 
-        Asset[] memory assets = new Asset[](1);
+        SetAsset[] memory assets = new SetAsset[](1);
         assets[0] = asset;
 
         vm.prank(address(host));
 
-        vm.expectRevert(bytes("Unauthorized request"));
+        vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
 
         gateway.onAccept(
             IncomingPostRequest({
@@ -291,7 +294,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"0100", abi.encode(assets)),
+                    body: bytes.concat(hex"03", abi.encode(assets)),
                     nonce: 0,
                     source: new bytes(0),
                     timeoutTimestamp: 0
@@ -302,21 +305,10 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testRemoveAssetOnAccept() public {
-        Asset memory asset = Asset({
-            erc20: address(0),
-            erc6160: address(0),
-            identifier: keccak256("USD.h"),
-            fees: AssetFees({
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300 // 0.3
-            })
-        });
-
-        Asset[] memory assets = new Asset[](1);
-        assets[0] = asset;
+        bytes32[] memory assets = new bytes32[](1);
+        assets[0] = keccak256(bytes("USD.h"));
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
-        TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         vm.prank(address(host));
         gateway.onAccept(
@@ -325,7 +317,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"01", abi.encode(params)),
+                    body: bytes.concat(hex"03", abi.encode(assets)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -344,21 +336,21 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testChangeRelayerFeeOnAccept() public {
-        Asset memory asset = Asset({
+        SetAsset memory asset = SetAsset({
             erc20: address(0),
-            erc6160: address(0),
-            identifier: keccak256("USD.h"),
+            erc6160: address(feeToken),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 400 // 0.4
             })
         });
 
-        Asset[] memory assets = new Asset[](1);
+        SetAsset[] memory assets = new SetAsset[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
-        TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         vm.prank(address(host));
 
@@ -368,7 +360,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"01", abi.encode(params)),
+                    body: bytes.concat(hex"02", abi.encode(assets)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -381,21 +373,21 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function test_ChangeProtocolFeeOnAccept() public {
-        Asset memory asset = Asset({
+        SetAsset memory asset = SetAsset({
             erc20: address(0),
-            erc6160: address(0),
-            identifier: keccak256("USD.h"),
+            erc6160: address(feeToken),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
             fees: AssetFees({
                 protocolFeePercentage: 500, // 0.1
                 relayerFeePercentage: 300 // 0.4
             })
         });
 
-        Asset[] memory assets = new Asset[](1);
+        SetAsset[] memory assets = new SetAsset[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
-        TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         vm.prank(address(host));
 
@@ -405,7 +397,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"01", abi.encode(params)),
+                    body: bytes.concat(hex"02", abi.encode(assets)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -425,7 +417,7 @@ contract TokenGatewayTest is BaseTest {
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this))
         });
-        vm.expectRevert(bytes("TokenGateway: Unauthorized action"));
+        vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
         gateway.onAccept(
             IncomingPostRequest({
                 request: PostRequest({
@@ -451,7 +443,7 @@ contract TokenGatewayTest is BaseTest {
             from: addressToBytes32(address(this))
         });
         vm.startPrank(address(host));
-        vm.expectRevert(bytes("Unauthorized request"));
+        vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
         gateway.onAccept(
             IncomingPostRequest({
                 request: PostRequest({
@@ -470,21 +462,21 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testRelayerRedeemLiquidity() public {
-        Asset memory asset = Asset({
+        SetAsset memory asset = SetAsset({
             erc20: address(mockUSDC),
             erc6160: address(feeToken),
-            identifier: keccak256("USD.h"),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3
             })
         });
 
-        Asset[] memory assets = new Asset[](1);
+        SetAsset[] memory assets = new SetAsset[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
-        TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         feeToken.mint(address(this), 1_000 * 1e18);
         mockUSDC.mint(address(this), 1_000_000 * 1e18);
@@ -498,7 +490,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"01", abi.encode(params)),
+                    body: bytes.concat(hex"02", abi.encode(assets)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -545,21 +537,21 @@ contract TokenGatewayTest is BaseTest {
 
     function testHandleIncomingAssetWithSwap() public {
         // Adding new Asset to the gateway
-        Asset memory asset = Asset({
+        SetAsset memory asset = SetAsset({
             erc20: address(hyperInu),
             erc6160: address(hyperInu_h),
-            identifier: keccak256("HyperInu.h"),
+            name: "HyperInu",
+            symbol: "HINU.h",
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3
             })
         });
 
-        Asset[] memory assets = new Asset[](1);
+        SetAsset[] memory assets = new SetAsset[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
-        TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
@@ -572,7 +564,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"01", abi.encode(params)),
+                    body: bytes.concat(hex"02", abi.encode(assets)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -588,7 +580,7 @@ contract TokenGatewayTest is BaseTest {
         hyperInu.superApprove(relayer_address, address(gateway));
 
         Body memory body = Body({
-            assetId: keccak256("HyperInu.h"),
+            assetId: keccak256("HINU.h"),
             to: addressToBytes32(user_vault),
             redeem: false,
             amount: 1_000 * 1e18,

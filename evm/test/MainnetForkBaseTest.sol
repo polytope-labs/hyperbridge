@@ -92,7 +92,7 @@ contract MainnetForkBaseTest is Test {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            perByteFee: 1000000000000000000, // 1FTK
+            perByteFee: 3 * 1e15, // $0.003/byte
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
             stateMachineWhitelist: stateMachineWhitelist
@@ -121,7 +121,8 @@ contract MainnetForkBaseTest is Test {
                 params: TokenGatewayParams({
                     host: address(host),
                     uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
-                    dispatcher: address(dispatcher)
+                    dispatcher: address(dispatcher),
+                    erc20NativeToken: address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2)
                 }),
                 assets: assets
             })

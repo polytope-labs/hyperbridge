@@ -62,7 +62,7 @@ contract DeployScript is Script {
     }
 
     function deployGateway(address host, address admin, address uniRouter, address callDispatcher) public {
-        uint256 paraId = vm.envUint("PARA_ID");
+        uint256 _paraId = vm.envUint("PARA_ID");
 
         ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge USD", "USD.h");
         feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18);
@@ -89,7 +89,12 @@ contract DeployScript is Script {
 
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: host, uniswapV2: uniRouter, dispatcher: callDispatcher}),
+                params: TokenGatewayParams({
+                    host: host,
+                    uniswapV2: uniRouter,
+                    dispatcher: callDispatcher,
+                    erc20NativeToken: address(0)
+                }),
                 assets: assets
             })
         );

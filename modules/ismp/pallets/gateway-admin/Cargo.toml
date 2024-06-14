@@ -1,5 +1,5 @@
 [package]
-name = "pallet-token-registry"
+name = "pallet-token-gateway-admin"
 version = "0.1.0"
 edition = "2021"
 description = "The token registry tracks multi-chain native tokens across all connected chains"

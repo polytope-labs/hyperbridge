@@ -11691,7 +11691,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-token-registry"
+name = "pallet-token-gateway-admin"
 version = "0.1.0"
 dependencies = [
  "anyhow",

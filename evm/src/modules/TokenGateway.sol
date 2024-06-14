@@ -86,11 +86,11 @@ struct TokenGatewayParamsExt {
 }
 
 struct Asset {
-    /// ERC20 token contract address for the asset
+    // ERC20 token contract address for the asset
     address erc20;
-    /// ERC6160 token contract address for the asset
+    // ERC6160 token contract address for the asset
     address erc6160;
-    /// Asset's identifier
+    // Asset's identifier
     bytes32 identifier;
     // Associated fees for this asset
     AssetFees fees;
@@ -146,10 +146,12 @@ struct TokenGatewayParams {
     address uniswapV2;
     // dispatcher for delegating external calls
     address dispatcher;
+    // Wrapped ERC20 contract address for native token
+    address erc20NativeToken;
 }
 
-/// The TokenGateway allows users send either ERC20 or ERC6160 tokens
-/// using Hyperbridge as a message-passing layer.
+// The TokenGateway allows users send either ERC20 or ERC6160 tokens
+// using Hyperbridge as a message-passing layer.
 contract TokenGateway is BaseIsmpModule {
     using Bytes for bytes;
 
@@ -167,15 +169,19 @@ contract TokenGateway is BaseIsmpModule {
     mapping(bytes32 => AssetFees) private _fees;
 
     // Relayer provided some liquidity
-    event LiquidityProvided(address relayer, uint256 amount, bytes32 assetId);
+    event LiquidityProvided(address indexed relayer, uint256 amount, bytes32 indexed assetId);
     // User has received some assets
-    event AssetReceived(bytes source, uint256 nonce, address beneficiary, uint256 amount, bytes32 assetId);
+    event AssetReceived(
+        bytes indexed source, uint256 nonce, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
+    );
     // User has sent some assets
     event AssetTeleported(
         address from, bytes32 to, uint256 amount, bytes32 assetId, bool redeem, bytes32 requestCommitment
     );
     // User assets could not be delivered and have been refunded.
-    event AssetRefunded(address beneficiary, uint256 amount, bytes32 assetId, bytes dest, uint256 nonce);
+    event AssetRefunded(
+        address beneficiary, uint256 amount, bytes32 indexed assetId, bytes dest, uint256 indexed nonce
+    );
 
     // Action is unauthorized
     error UnauthorizedAction();
@@ -230,16 +236,14 @@ contract TokenGateway is BaseIsmpModule {
         return _fees[assetId];
     }
 
-    // Teleport a given asset to the destination chain
-    function teleport(TeleportParams memory teleportParams) public {
+    // Teleport a given asset to the destination chain. Allows users to pay
+    // the Hyperbridge fees in any token or the native asset.
+    function teleport(TeleportParams memory teleportParams) public payable {
         if (teleportParams.to == bytes32(0)) {
             revert ZeroAddress();
         }
         if (teleportParams.amount == 0) {
             revert InvalidAmount();
-        }
-        if (teleportParams.feeToken == address(0)) {
-            revert InvalidFeeToken();
         }
 
         address from = msg.sender;
@@ -281,14 +285,25 @@ contract TokenGateway is BaseIsmpModule {
         uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.fee;
         // only swap if the feeToken is not the token intended for fee
         if (feeToken != teleportParams.feeToken) {
-            address[] memory path = new address[](2);
-            path[0] = teleportParams.feeToken;
-            path[1] = feeToken;
+            if (msg.value != 0) {
+                // user has opted to pay with the native asset, wrap it in ERC20
+                (bool sent,) = _params.erc20NativeToken.call{value: msg.value}("");
+                if (!sent) revert InconsistentState();
+                teleportParams.feeToken = _params.erc20NativeToken;
+                teleportParams.amountInMax = msg.value;
+            } else {
+                SafeERC20.safeTransferFrom(
+                    IERC20(teleportParams.feeToken), from, address(this), teleportParams.amountInMax
+                );
+            }
 
-            SafeERC20.safeTransferFrom(IERC20(teleportParams.feeToken), from, address(this), teleportParams.amountInMax);
             SafeERC20.safeIncreaseAllowance(
                 IERC20(teleportParams.feeToken), _params.uniswapV2, teleportParams.amountInMax
             );
+
+            address[] memory path = new address[](2);
+            path[0] = teleportParams.feeToken;
+            path[1] = feeToken;
 
             IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
                 fee, teleportParams.amountInMax, path, address(this), block.timestamp
@@ -475,6 +490,7 @@ contract TokenGateway is BaseIsmpModule {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; ++i) {
             ChangeAssetAdmin memory asset = assets[i];
+            if (asset.newAdmin == address(0)) revert ZeroAddress();
             IERC6160Ext20(asset.erc6160).changeAdmin(asset.newAdmin);
         }
     }

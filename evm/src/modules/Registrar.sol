@@ -12,10 +12,17 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+pragma solidity 0.8.17;
 
-//! The token registry tracks multi-chain native tokens across all connected chains
+import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule.sol";
 
-#![cfg_attr(not(feature = "std"), no_std)]
+contract TokenGatewayRegistrar is BaseIsmpModule {
+    // Serves as gas abstraction for registering assets on the Hyperbridge chain
+    // by collecting fees here and depositing to the host.
+    function beginAssetRegistration(bytes32 assetId) public payable {
+        // either the user supplies the native asset or they should have approved
+        // the required amount in feeToken() here
 
-// #[frame_support::pallet]
-pub mod pallet {}
+        // dispatches a request to hyperbridge that allows hyperbridge permit unsigned transactions.
+    }
+}

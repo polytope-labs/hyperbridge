@@ -331,7 +331,7 @@ contract TokenGateway is BaseIsmpModule {
         } else if (action == OnAcceptActions.GovernanceAction) {
             handleGovernance(incoming.request);
         } else if (action == OnAcceptActions.SetAssets) {
-            registerAssets(incoming.request);
+            handleSetAssets(incoming.request);
         } else if (action == OnAcceptActions.DeregisterAsset) {
             deregisterAssets(incoming.request);
         } else if (action == OnAcceptActions.ChangeAssetAdmin) {
@@ -446,7 +446,7 @@ contract TokenGateway is BaseIsmpModule {
         _params = abi.decode(request.body[1:], (TokenGatewayParams));
     }
 
-    function registerAssets(PostRequest calldata request) private {
+    function handleSetAssets(PostRequest calldata request) private {
         // only hyperbridge can do this
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -479,14 +479,6 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function relayerLiquidityFee(bytes32 assetId, uint256 amount) private view returns (uint256 liquidityFee) {
-        liquidityFee = (amount * _fees[assetId].relayerFeePercentage) / 100_000;
-    }
-
-    function protocolFee(bytes32 assetId, uint256 amount) private view returns (uint256 redeemFee) {
-        redeemFee = (amount * _fees[assetId].protocolFeePercentage) / 100_000;
-    }
-
     function setAssets(SetAsset[] memory assets) private {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; ++i) {
@@ -500,6 +492,14 @@ contract TokenGateway is BaseIsmpModule {
             _erc6160s[identifier] = asset.erc6160;
             _fees[identifier] = asset.fees;
         }
+    }
+
+    function relayerLiquidityFee(bytes32 assetId, uint256 amount) private view returns (uint256 liquidityFee) {
+        liquidityFee = (amount * _fees[assetId].relayerFeePercentage) / 100_000;
+    }
+
+    function protocolFee(bytes32 assetId, uint256 amount) private view returns (uint256 redeemFee) {
+        redeemFee = (amount * _fees[assetId].protocolFeePercentage) / 100_000;
     }
 
     function addressToBytes32(address _address) internal pure returns (bytes32) {

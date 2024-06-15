@@ -185,10 +185,13 @@ contract TokenGateway is BaseIsmpModule {
 
     // Action is unauthorized
     error UnauthorizedAction();
+    // Unexpected zero address
     error ZeroAddress();
+    // Provided amount was invalid
     error InvalidAmount();
-    error InvalidFeeToken();
+    // Provided token was unknown
     error UnknownToken();
+    // Protocol invariant violated
     error InconsistentState();
 
     // restricts call to the provided `caller`

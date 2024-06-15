@@ -597,10 +597,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST request to destination module
      * @param request - post request
      */
-    function dispatchIncoming(PostRequest memory request, address relayer)
-        external
-        restrict(_hostParams.handler)
-    {
+    function dispatchIncoming(PostRequest memory request, address relayer) external restrict(_hostParams.handler) {
         address destination = _bytesToAddress(request.to);
         uint256 size;
         assembly {
@@ -631,10 +628,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST response to source module
      * @param response - post response
      */
-    function dispatchIncoming(PostResponse memory response, address relayer)
-        external
-        restrict(_hostParams.handler)
-    {
+    function dispatchIncoming(PostResponse memory response, address relayer) external restrict(_hostParams.handler) {
         address origin = _bytesToAddress(response.request.from);
 
         // replay protection
@@ -659,10 +653,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming GET response to source module
      * @param response - get response
      */
-    function dispatchIncoming(GetResponse memory response, address relayer)
-        external
-        restrict(_hostParams.handler)
-    {
+    function dispatchIncoming(GetResponse memory response, address relayer) external restrict(_hostParams.handler) {
         address origin = _bytesToAddress(response.request.from);
 
         // replay protection

@@ -61,7 +61,7 @@ contract TokenGatewayRegistrar is BaseIsmpModule {
     error UnauthorizedAction();
 
     // A user has initiated the asset registration process
-    event RegistrationBegun(bytes32 assetId, address owner);
+    event RegistrationBegun(bytes32 indexed assetId, address indexed owner);
 
     // restricts call to the provided `caller`
     modifier restrict(address caller) {
@@ -83,11 +83,9 @@ contract TokenGatewayRegistrar is BaseIsmpModule {
         return _params;
     }
 
-    // Serves as gas abstraction for registering assets on the Hyperbridge chain
-    // by collecting fees here and depositing to the host.
+    // This serves as gas abstraction for registering assets on Hyperbridge
+    // by collecting fees here and depositing them to the host.
     function registerAsset(AssetRegistration memory registration) public payable {
-        // either the user supplies the native asset or they should have approved
-        // the required amount in feeToken
         address feeToken = IIsmpHost(_params.host).feeToken();
         uint256 fee = _params.baseFee + (96 * IIsmpHost(_params.host).perByteFee());
 
@@ -124,8 +122,9 @@ contract TokenGatewayRegistrar is BaseIsmpModule {
             dest: IIsmpHost(_params.host).hyperbridge(),
             to: abi.encodePacked(address(this)),
             body: data,
-            timeout: 3 * 60 * 60, // 3hrs
-            fee: 0, // no relayer fees for delivery to hyperbridge
+            timeout: 3 * 60 * 60,
+            // requests to hyperbridge must be self-relayed
+            fee: 0,
             payer: msg.sender
         });
         IDispatcher(_params.host).dispatch(request);

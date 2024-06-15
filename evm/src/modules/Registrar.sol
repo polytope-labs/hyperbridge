@@ -15,14 +15,136 @@
 pragma solidity 0.8.17;
 
 import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule.sol";
+import {IDispatcher, DispatchPost} from "ismp/IDispatcher.sol";
+import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
+import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
+
+struct AssetRegistration {
+    // The asset identifier intended for registration
+    bytes32 assetId;
+    // The feetoken to use for fees
+    address feeToken;
+    // How much of the feeToken to swap for the hyperbridge feeToken
+    uint256 amountToSwap;
+}
+
+struct RequestBody {
+    // The asset owner
+    address owner;
+    // The assetId to create
+    bytes32 assetId;
+    // The base fee paid for registration, used in timeouts
+    uint256 baseFee;
+}
+
+struct RegistrarParams {
+    address erc20NativeToken;
+    address host;
+    address uniswapV2;
+    uint256 baseFee;
+}
 
 contract TokenGatewayRegistrar is BaseIsmpModule {
+    using Bytes for bytes;
+
+    RegistrarParams private _params;
+
+    // admin account
+    address private _admin;
+
+    // Unexpected state
+    error InconsistentState();
+    // Requested action is unauthorized
+    error UnauthorizedAction();
+
+    // A user has initiated the asset registration process
+    event RegistrationBegun(bytes32 assetId, address owner);
+
+    // restricts call to the provided `caller`
+    modifier restrict(address caller) {
+        if (msg.sender != caller) revert UnauthorizedAction();
+        _;
+    }
+
+    constructor(address admin) {
+        _admin = admin;
+    }
+
+    function init(RegistrarParams memory p) public restrict(_admin) {
+        _params = p;
+        _admin = address(0);
+    }
+
+    // Returns the set params
+    function params() public view returns (RegistrarParams memory) {
+        return _params;
+    }
+
     // Serves as gas abstraction for registering assets on the Hyperbridge chain
     // by collecting fees here and depositing to the host.
-    function beginAssetRegistration(bytes32 assetId) public payable {
+    function registerAsset(AssetRegistration memory registration) public payable {
         // either the user supplies the native asset or they should have approved
-        // the required amount in feeToken() here
+        // the required amount in feeToken
+        address feeToken = IIsmpHost(_params.host).feeToken();
+        uint256 fee = _params.baseFee + (96 * IIsmpHost(_params.host).perByteFee());
 
-        // dispatches a request to hyperbridge that allows hyperbridge permit unsigned transactions.
+        if (feeToken != registration.feeToken) {
+            if (msg.value != 0) {
+                (bool sent,) = _params.erc20NativeToken.call{value: msg.value}("");
+                if (!sent) revert InconsistentState();
+                registration.feeToken = _params.erc20NativeToken;
+                registration.amountToSwap = msg.value;
+            } else {
+                SafeERC20.safeTransferFrom(
+                    IERC20(registration.feeToken), msg.sender, address(this), registration.amountToSwap
+                );
+            }
+
+            SafeERC20.safeIncreaseAllowance(IERC20(registration.feeToken), _params.uniswapV2, registration.amountToSwap);
+
+            address[] memory path = new address[](2);
+            path[0] = registration.feeToken;
+            path[1] = feeToken;
+
+            IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
+                fee, registration.amountToSwap, path, address(this), block.timestamp
+            );
+        } else {
+            SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), fee);
+        }
+        bytes memory data =
+            abi.encode(RequestBody({owner: msg.sender, assetId: registration.assetId, baseFee: _params.baseFee}));
+
+        // approve the host with the exact amount
+        SafeERC20.safeIncreaseAllowance(IERC20(feeToken), _params.host, fee);
+        DispatchPost memory request = DispatchPost({
+            dest: IIsmpHost(_params.host).hyperbridge(),
+            to: abi.encodePacked(address(this)),
+            body: data,
+            timeout: 3 * 60 * 60, // 3hrs
+            fee: 0, // no relayer fees for delivery to hyperbridge
+            payer: msg.sender
+        });
+        IDispatcher(_params.host).dispatch(request);
+
+        emit RegistrationBegun({assetId: registration.assetId, owner: msg.sender});
+    }
+
+    // Refund the registration fee
+    function onPostRequestTimeout(PostRequest calldata request) external override restrict(_params.host) {
+        address feeToken = IIsmpHost(_params.host).feeToken();
+        RequestBody memory body = abi.decode(request.body, (RequestBody));
+        SafeERC20.safeTransfer(IERC20(feeToken), body.owner, body.baseFee);
+    }
+
+    // Governance parameter updates
+    function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
+        // only hyperbridge can do this
+        if (!incoming.request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
+
+        _params = abi.decode(incoming.request.body, (RegistrarParams));
     }
 }

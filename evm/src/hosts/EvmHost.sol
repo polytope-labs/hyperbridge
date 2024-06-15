@@ -248,27 +248,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         _;
     }
 
-    // only permits the admin
-    modifier onlyAdmin() {
-        if (_msgSender() != _hostParams.admin) {
-            revert UnauthorizedAccount();
-        }
-        _;
-    }
-
-    // only permits the IHandler contract
-    modifier onlyHandler() {
-        if (_msgSender() != address(_hostParams.handler)) {
-            revert UnauthorizedAccount();
-        }
-        _;
-    }
-
-    // only permits the HostManager contract
-    modifier onlyManager() {
-        if (_msgSender() != _hostParams.hostManager) {
-            revert UnauthorizedAccount();
-        }
+    // restricts call to the provided `caller`
+    modifier restrict(address caller) {
+        if (_msgSender() != caller) revert UnauthorizedAction();
         _;
     }
 
@@ -431,7 +413,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Updates the HostParams, can only be called by cross-chain governance
      * @param params, the new host params.
      */
-    function updateHostParams(HostParams memory params) external onlyManager {
+    function updateHostParams(HostParams memory params) external restrict(_hostParams.hostManager) {
         updateHostParamsInternal(params);
     }
 
@@ -439,7 +421,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Updates the HostParams
      * @param params, the new host params. Can only be called by admin on testnets.
      */
-    function setHostParamsAdmin(HostParams memory params) public onlyAdmin {
+    function setHostParamsAdmin(HostParams memory params) public restrict(_hostParams.admin) {
         if (chainId() == block.chainid) {
             revert UnauthorizedAction();
         }
@@ -498,14 +480,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev withdraws host revenue to the given address, can only be called by cross-chain governance
      * @param params, the parameters for withdrawal
      */
-    function withdraw(WithdrawParams memory params) external onlyManager {
+    function withdraw(WithdrawParams memory params) external restrict(_hostParams.hostManager) {
         SafeERC20.safeTransfer(IERC20(feeToken()), params.beneficiary, params.amount);
     }
 
     /**
      * @dev Store the serialized consensus state, alongside relevant metadata
      */
-    function storeConsensusState(bytes memory state) external onlyHandler {
+    function storeConsensusState(bytes memory state) external restrict(_hostParams.handler) {
         _consensusState = state;
         _consensusUpdateTimestamp = block.timestamp;
     }
@@ -515,7 +497,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function storeStateMachineCommitment(StateMachineHeight memory height, StateCommitment memory commitment)
         external
-        onlyHandler
+        restrict(_hostParams.handler)
     {
         _stateCommitments[height.stateMachineId][height.height] = commitment;
         _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
@@ -527,7 +509,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @dev Delete the state commitment at given state height.
      */
-    function deleteStateMachineCommitment(StateMachineHeight memory height, address fisherman) external onlyHandler {
+    function deleteStateMachineCommitment(StateMachineHeight memory height, address fisherman)
+        external
+        restrict(_hostParams.handler)
+    {
         deleteStateMachineCommitmentInternal(height, fisherman);
     }
 
@@ -578,7 +563,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev set the new state of the bridge
      * @param newState new state
      */
-    function setFrozenState(bool newState) public onlyAdmin {
+    function setFrozenState(bool newState) public restrict(_hostParams.admin) {
         _frozen = newState;
 
         if (newState) {
@@ -594,7 +579,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function setConsensusState(bytes memory state, StateMachineHeight memory height, StateCommitment memory commitment)
         public
-        onlyAdmin
+        restrict(_hostParams.admin)
     {
         // if we're on mainnet, then consensus state can only be initialized once
         // and updated subsequently through consensus proofs
@@ -612,7 +597,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST request to destination module
      * @param request - post request
      */
-    function dispatchIncoming(PostRequest memory request, address relayer) external onlyHandler {
+    function dispatchIncoming(PostRequest memory request, address relayer)
+        external
+        restrict(_hostParams.handler)
+    {
         address destination = _bytesToAddress(request.to);
         uint256 size;
         assembly {
@@ -643,7 +631,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST response to source module
      * @param response - post response
      */
-    function dispatchIncoming(PostResponse memory response, address relayer) external onlyHandler {
+    function dispatchIncoming(PostResponse memory response, address relayer)
+        external
+        restrict(_hostParams.handler)
+    {
         address origin = _bytesToAddress(response.request.from);
 
         // replay protection
@@ -668,7 +659,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming GET response to source module
      * @param response - get response
      */
-    function dispatchIncoming(GetResponse memory response, address relayer) external onlyHandler {
+    function dispatchIncoming(GetResponse memory response, address relayer)
+        external
+        restrict(_hostParams.handler)
+    {
         address origin = _bytesToAddress(response.request.from);
 
         // replay protection
@@ -695,7 +689,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
         external
-        onlyHandler
+        restrict(_hostParams.handler)
     {
         address origin = _bytesToAddress(request.from);
 
@@ -718,7 +712,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
         external
-        onlyHandler
+        restrict(_hostParams.handler)
     {
         address origin = _bytesToAddress(request.from);
 
@@ -745,7 +739,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostResponse memory response, FeeMetadata memory meta, bytes32 commitment)
         external
-        onlyHandler
+        restrict(_hostParams.handler)
     {
         address origin = _bytesToAddress(response.request.to);
 

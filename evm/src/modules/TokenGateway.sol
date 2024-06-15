@@ -191,15 +191,9 @@ contract TokenGateway is BaseIsmpModule {
     error UnknownToken();
     error InconsistentState();
 
-    // restricts call to `IIsmpHost`
-    modifier onlyIsmpHost() {
-        if (msg.sender != _params.host) revert UnauthorizedAction();
-        _;
-    }
-
-    // restricts call to `admin`
-    modifier onlyAdmin() {
-        if (msg.sender != _admin) revert UnauthorizedAction();
+    // restricts call to the provided `caller`
+    modifier restrict(address caller) {
+        if (msg.sender != caller) revert UnauthorizedAction();
         _;
     }
 
@@ -208,7 +202,7 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     // initialize required parameters
-    function init(TokenGatewayParamsExt memory teleportParams) public onlyAdmin {
+    function init(TokenGatewayParamsExt memory teleportParams) public restrict(_admin) {
         _params = teleportParams.params;
         setAssets(teleportParams.assets);
 
@@ -236,7 +230,7 @@ contract TokenGateway is BaseIsmpModule {
         return _fees[assetId];
     }
 
-    // Teleport a given asset to the destination chain. Allows users to pay
+    // Teleports a given asset to the destination chain. Allows users to pay
     // the Hyperbridge fees in any token or the native asset.
     function teleport(TeleportParams memory teleportParams) public payable {
         if (teleportParams.to == bytes32(0)) {
@@ -334,7 +328,7 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function onAccept(IncomingPostRequest calldata incoming) external override onlyIsmpHost {
+    function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
         OnAcceptActions action = OnAcceptActions(uint8(incoming.request.body[0]));
 
         if (action == OnAcceptActions.IncomingAsset) {
@@ -356,7 +350,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // Triggered when a previously sent out request is confirmed to be timed-out by the IsmpHost.
     // This means the funds could not be sent, we simply refund the user's assets here.
-    function onPostRequestTimeout(PostRequest calldata request) external override onlyIsmpHost {
+    function onPostRequestTimeout(PostRequest calldata request) external override restrict(_params.host) {
         Body memory body;
         if (request.body.length > BODY_BYTES_SIZE) {
             BodyWithCall memory bodyWithCall = abi.decode(request.body[1:], (BodyWithCall));

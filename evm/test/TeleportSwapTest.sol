@@ -83,12 +83,10 @@ contract TeleportSwapTest is MainnetForkBaseTest {
         uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(messagingFee, path)[0];
 
         // Handling Slippage Implementation
-        uint256 _slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10000; // Adjusted for percentage times 100
+        uint256 _slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10_000; // Adjusted for percentage times 100
         uint256 _amountInMax = _fromTokenAmountIn + _slippageAmount;
 
-        // mainnet forking - impersonation
         vm.startPrank(mainnetEthHolder);
-
         dai.approve(address(gateway), 10000 * 1e18);
 
         gateway.teleport{value: _amountInMax}(

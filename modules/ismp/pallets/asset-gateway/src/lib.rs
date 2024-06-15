@@ -63,6 +63,9 @@ pub mod pallet {
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
+	/// ISMP module identifier
+	pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"hostexec"));
+
 	/// The config trait
 	#[pallet::config]
 	pub trait Config: frame_system::Config + pallet_ismp::Config + pallet_xcm::Config {

@@ -145,6 +145,8 @@ contract DeployScript is Script {
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
             symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3

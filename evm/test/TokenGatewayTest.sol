@@ -234,6 +234,8 @@ contract TokenGatewayTest is BaseTest {
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
             symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3
@@ -277,6 +279,8 @@ contract TokenGatewayTest is BaseTest {
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
             symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3
@@ -343,6 +347,8 @@ contract TokenGatewayTest is BaseTest {
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
             symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 400 // 0.4
@@ -380,6 +386,8 @@ contract TokenGatewayTest is BaseTest {
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
             symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 500, // 0.1
                 relayerFeePercentage: 300 // 0.4
@@ -469,6 +477,8 @@ contract TokenGatewayTest is BaseTest {
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
             symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3
@@ -532,7 +542,7 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-        uint256 protocolFee = 1_000 * 1e18 / 1000; // 0.1% of the total amount
+        uint256 protocolFee = (1_000 * 1e18) / 1000; // 0.1% of the total amount
         assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the protocol fee
         assert(mockUSDC.balanceOf(address(relayer_vault)) == 1_000 * 1e18 - protocolFee); // this should be the remaining amount
     }
@@ -544,6 +554,8 @@ contract TokenGatewayTest is BaseTest {
             erc6160: address(hyperInu_h),
             name: "HyperInu",
             symbol: "HINU.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3

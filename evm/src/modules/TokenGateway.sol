@@ -118,6 +118,10 @@ struct SetAsset {
     string name;
     // Asset's symbol
     string symbol;
+    // The initial supply of asset
+    uint256 initialSupply;
+    // Initial beneficiary of the total supply
+    address beneficiary;
     // Associated fees for this asset
     AssetFees fees;
 }
@@ -499,7 +503,10 @@ contract TokenGateway is BaseIsmpModule {
             bytes32 identifier = keccak256(bytes(asset.symbol));
             if (asset.erc6160 == address(0)) {
                 ERC6160Ext20 erc6160Asset = new ERC6160Ext20{salt: identifier}(address(this), asset.name, asset.symbol);
-                asset.erc6160 = address(erc6160Asset);
+                if (asset.beneficiary != address(0) && asset.initialSupply != 0) {
+                    erc6160Asset.mint(asset.beneficiary, asset.initialSupply);
+                    asset.erc6160 = address(erc6160Asset);
+                }
             }
             _erc20s[identifier] = asset.erc20;
             _erc6160s[identifier] = asset.erc6160;

@@ -120,7 +120,7 @@ contract TokenGatewayRegistrar is BaseIsmpModule {
         SafeERC20.safeIncreaseAllowance(IERC20(feeToken), _params.host, fee);
         DispatchPost memory request = DispatchPost({
             dest: IIsmpHost(_params.host).hyperbridge(),
-            to: abi.encodePacked(address(this)),
+            to: bytes("registrar"),
             body: data,
             timeout: 3 * 60 * 60,
             // requests to hyperbridge must be self-relayed

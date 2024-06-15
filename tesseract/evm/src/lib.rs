@@ -22,7 +22,7 @@ use evm_common::presets::{
 use ismp_solidity_abi::shared_types::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tesseract_primitives::IsmpProvider;
 
 pub mod abi;
@@ -127,6 +127,7 @@ impl EvmClient {
 
 		let http_client = Http::new_client_with_chain_middleware(
 			config.rpc_urls.into_iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+			Some(Duration::from_secs(180)),
 		);
 		let provider = Provider::new(http_client);
 		let client = Arc::new(provider.clone());

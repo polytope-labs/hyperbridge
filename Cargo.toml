@@ -304,21 +304,21 @@ features = [
 
 [workspace.dependencies.ethers]
 git = "https://github.com/polytope-labs/ethers-rs"
-rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+rev = "45239225c50247e049892125d281442c084a2a92"
 features = ["ethers-solc"]
 default-features = false
 
 [workspace.dependencies.ethers-contract-abigen]
 git = "https://github.com/polytope-labs/ethers-rs"
-rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+rev = "45239225c50247e049892125d281442c084a2a92"
 
 [workspace.dependencies.forge-testsuite]
 git = "https://github.com/polytope-labs/forge-testsuite"
-rev = "9a4e82498e60b6c90c09be1685dfc80bca057fc2"
+rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
 
 [workspace.dependencies.foundry-evm]
 git = "https://github.com/polytope-labs/foundry"
-rev = "521813b3ebaf1aa05055d1780b555f9001071514"
+rev = "1db7f747d7033a760c747fabbeef706576c88e34"
 
 [workspace.dependencies.merkle-mountain-range]
 package = "ckb-merkle-mountain-range"

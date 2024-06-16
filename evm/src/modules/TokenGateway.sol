@@ -82,7 +82,7 @@ struct TokenGatewayParamsExt {
     // Initial params for TokenGateway
     TokenGatewayParams params;
     // List of initial assets
-    SetAsset[] assets;
+    AssetMetadata[] assets;
 }
 
 struct Asset {
@@ -109,7 +109,7 @@ enum OnAcceptActions {
     ChangeAssetAdmin
 }
 
-struct SetAsset {
+struct AssetMetadata {
     // ERC20 token contract address for the asset
     address erc20;
     // ERC6160 token contract address for the asset
@@ -184,7 +184,7 @@ contract TokenGateway is BaseIsmpModule {
     );
     // User assets could not be delivered and have been refunded.
     event AssetRefunded(
-        address beneficiary, uint256 amount, bytes32 indexed assetId, bytes dest, uint256 indexed nonce
+        address indexed beneficiary, uint256 amount, bytes32 indexed assetId, bytes dest, uint256 indexed nonce
     );
 
     // Action is unauthorized
@@ -211,7 +211,7 @@ contract TokenGateway is BaseIsmpModule {
     // initialize required parameters
     function init(TokenGatewayParamsExt memory teleportParams) public restrict(_admin) {
         _params = teleportParams.params;
-        setAssets(teleportParams.assets);
+        AssetMetadatas(teleportParams.assets);
 
         // admin can only call this once
         _admin = address(0);
@@ -238,7 +238,8 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     // Teleports a given asset to the destination chain. Allows users to pay
-    // the Hyperbridge fees in any token or the native asset.
+    // the Hyperbridge fees in any ERC20 token that can be swapped for the swapped for the
+    // IIsmpHost.feeToken using the local UniswapV2 router.
     function teleport(TeleportParams memory teleportParams) public payable {
         if (teleportParams.to == bytes32(0)) {
             revert ZeroAddress();
@@ -286,18 +287,7 @@ contract TokenGateway is BaseIsmpModule {
         uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.fee;
         // only swap if the feeToken is not the token intended for fee
         if (feeToken != teleportParams.feeToken) {
-            if (msg.value != 0) {
-                // user has opted to pay with the native asset, wrap it in ERC20
-                (bool sent,) = _params.erc20NativeToken.call{value: msg.value}("");
-                if (!sent) revert InconsistentState();
-                teleportParams.feeToken = _params.erc20NativeToken;
-                teleportParams.amountInMax = msg.value;
-            } else {
-                SafeERC20.safeTransferFrom(
-                    IERC20(teleportParams.feeToken), from, address(this), teleportParams.amountInMax
-                );
-            }
-
+            SafeERC20.safeTransferFrom(IERC20(teleportParams.feeToken), from, address(this), teleportParams.amountInMax);
             SafeERC20.safeIncreaseAllowance(
                 IERC20(teleportParams.feeToken), _params.uniswapV2, teleportParams.amountInMax
             );
@@ -445,7 +435,7 @@ contract TokenGateway is BaseIsmpModule {
             // user is swapping, relayers should double as liquidity providers.
             uint256 toTransfer = amount - relayerLiquidityFee(assetId, amount);
             SafeERC20.safeTransferFrom(IERC20(_erc20), relayer, to, toTransfer);
-            // hand the relayer the erc6160, so they can redeem on the source chain
+            // hand the relayer the receipt so they can redeem the bridged asset on the source chain
             IERC6160Ext20(_erc6160).mint(relayer, amount);
             emit LiquidityProvided({relayer: relayer, amount: toTransfer, assetId: assetId});
         } else if (_erc6160 != address(0)) {
@@ -456,22 +446,19 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     function handleGovernance(PostRequest calldata request) private {
-        // only hyperbridge can do this
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         _params = abi.decode(request.body[1:], (TokenGatewayParams));
     }
 
     function handleSetAssets(PostRequest calldata request) private {
-        // only hyperbridge can do this
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        SetAsset[] memory assets = abi.decode(request.body[1:], (SetAsset[]));
-        setAssets(assets);
+        AssetMetadata[] memory assets = abi.decode(request.body[1:], (AssetMetadata[]));
+        AssetMetadatas(assets);
     }
 
     function deregisterAssets(PostRequest calldata request) private {
-        // only hyperbridge can do this
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         bytes32[] memory identifiers = abi.decode(request.body[1:], (bytes32[]));
@@ -484,7 +471,6 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     function changeAssetAdmin(PostRequest calldata request) private {
-        // only hyperbridge can do this
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         ChangeAssetAdmin[] memory assets = abi.decode(request.body[1:], (ChangeAssetAdmin[]));
@@ -496,10 +482,10 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function setAssets(SetAsset[] memory assets) private {
+    function AssetMetadatas(AssetMetadata[] memory assets) private {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; ++i) {
-            SetAsset memory asset = assets[i];
+            AssetMetadata memory asset = assets[i];
             bytes32 identifier = keccak256(bytes(asset.symbol));
             if (asset.erc6160 == address(0)) {
                 ERC6160Ext20 erc6160Asset = new ERC6160Ext20{salt: identifier}(address(this), asset.name, asset.symbol);

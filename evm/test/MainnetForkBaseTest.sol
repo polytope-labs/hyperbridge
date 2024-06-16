@@ -30,7 +30,7 @@ import {
     TokenGatewayParams,
     TokenGatewayParamsExt,
     AssetFees,
-    SetAsset
+    AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
@@ -106,8 +106,8 @@ contract MainnetForkBaseTest is Test {
         testModule.setIsmpHost(address(host));
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
-        SetAsset[] memory assets = new SetAsset[](1);
-        assets[0] = SetAsset({
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        assets[0] = AssetMetadata({
             erc20: address(feeToken),
             erc6160: address(0),
             name: "Hyperbridge USD",

@@ -31,7 +31,7 @@ import {
     TokenGatewayParamsExt,
     CallDispatcherParams,
     TokenGateway,
-    SetAsset
+    AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
@@ -229,7 +229,7 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testAddAssetOnAccept() public {
-        SetAsset memory asset = SetAsset({
+        AssetMetadata memory asset = AssetMetadata({
             erc20: address(mockUSDC),
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
@@ -242,7 +242,7 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        SetAsset[] memory assets = new SetAsset[](1);
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
@@ -274,7 +274,7 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testToRevertOnAddAssetOnAcceptForUnauthorizedRequest() public {
-        SetAsset memory asset = SetAsset({
+        AssetMetadata memory asset = AssetMetadata({
             erc20: address(mockUSDC),
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
@@ -287,7 +287,7 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        SetAsset[] memory assets = new SetAsset[](1);
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = asset;
 
         vm.prank(address(host));
@@ -342,7 +342,7 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testChangeRelayerFeeOnAccept() public {
-        SetAsset memory asset = SetAsset({
+        AssetMetadata memory asset = AssetMetadata({
             erc20: address(0),
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
@@ -355,7 +355,7 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        SetAsset[] memory assets = new SetAsset[](1);
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
@@ -381,7 +381,7 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function test_ChangeProtocolFeeOnAccept() public {
-        SetAsset memory asset = SetAsset({
+        AssetMetadata memory asset = AssetMetadata({
             erc20: address(0),
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
@@ -394,7 +394,7 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        SetAsset[] memory assets = new SetAsset[](1);
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
@@ -472,7 +472,7 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testRelayerRedeemLiquidity() public {
-        SetAsset memory asset = SetAsset({
+        AssetMetadata memory asset = AssetMetadata({
             erc20: address(mockUSDC),
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
@@ -485,7 +485,7 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        SetAsset[] memory assets = new SetAsset[](1);
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
@@ -549,7 +549,7 @@ contract TokenGatewayTest is BaseTest {
 
     function testHandleIncomingAssetWithSwap() public {
         // Adding new Asset to the gateway
-        SetAsset memory asset = SetAsset({
+        AssetMetadata memory asset = AssetMetadata({
             erc20: address(hyperInu),
             erc6160: address(hyperInu_h),
             name: "HyperInu",
@@ -562,7 +562,7 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        SetAsset[] memory assets = new SetAsset[](1);
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = asset;
 
         bytes memory hyperbridge = StateMachine.kusama(2000);

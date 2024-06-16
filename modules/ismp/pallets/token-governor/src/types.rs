@@ -12,7 +12,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//! Pallet types
+
 use alloc::vec::Vec;
+use anyhow::anyhow;
 use frame_support::pallet_prelude::*;
 use ismp::host::StateMachine;
 use primitive_types::{H160, U256};
@@ -35,9 +39,9 @@ const MEGABYTE: u32 = 1024;
 )]
 pub struct AssetFees {
 	/// Associated fee percentage for liquidity providers
-	pub relayer_fee: u128,
+	pub relayer_fee: U256,
 	/// Associated fee percentage for the gateway protocol
-	pub protocol_fee: u128,
+	pub protocol_fee: U256,
 }
 
 /// Holds metadata relevant to a multi-chain native asset
@@ -89,11 +93,11 @@ pub struct ChainWithSupply {
 /// Protocol parameters
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
 pub struct Params<Balance> {
-	/// The chain to set the initial suuply
+	/// The address of the token gateway contract across all chains
 	pub token_gateway_address: H160,
-	/// The chain to set the initial suuply
+	/// The address of the token registrar contract across all chains
 	pub token_registrar_address: H160,
-	/// The beneficiary for the initial supply
+	/// The asset registration fee in native tokens, collected by the treasury
 	pub registration_fee: Balance,
 }
 
@@ -114,14 +118,14 @@ pub struct ERC6160AssetRegistration {
 alloy_sol_macro::sol! {
 	#![sol(all_derives)]
 
-	struct Fees {
+	struct SolAssetFees {
 		// Fee percentage paid to relayers for this asset
 		uint256 relayerFee;
 		// Fee percentage paid to the protocol for this asset
 		uint256 protocolFee;
 	}
 
-	struct SetAsset {
+	struct SolAssetMetadata {
 	   // ERC20 token contract address for the asset
 	   address erc20;
 	   // ERC6160 token contract address for the asset
@@ -135,10 +139,10 @@ alloy_sol_macro::sol! {
 	   // Initial beneficiary of the total supply
 	   address beneficiary;
 	   // Associated fees for this asset
-	   Fees fees;
+	   SolAssetFees fees;
 	}
 
-	struct RequestBody {
+	struct SolRequestBody {
 		// The asset owner
 		address owner;
 		// The assetId to create
@@ -148,13 +152,41 @@ alloy_sol_macro::sol! {
 	}
 }
 
-impl SetAsset {
+impl From<AssetFees> for SolAssetFees {
+	fn from(value: AssetFees) -> Self {
+		SolAssetFees {
+			protocolFee: alloy_primitives::U256::from_limbs(value.protocol_fee.0),
+			relayerFee: alloy_primitives::U256::from_limbs(value.relayer_fee.0),
+		}
+	}
+}
+
+// This is used for updating the asset metadata on the EVM chains
+impl TryFrom<AssetMetadata> for SolAssetMetadata {
+	type Error = anyhow::Error;
+	fn try_from(value: AssetMetadata) -> Result<Self, anyhow::Error> {
+		let set_asset = SolAssetMetadata {
+			erc20: value.erc20.0.into(),
+			erc6160: value.erc6160.0.into(),
+			name: String::from_utf8(value.name.as_slice().to_vec())
+				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
+			symbol: String::from_utf8(value.symbol.as_slice().to_vec())
+				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
+			fees: value.fees.into(),
+			..Default::default()
+		};
+
+		Ok(set_asset)
+	}
+}
+
+impl SolAssetMetadata {
 	/// Encodes the SetAsste alongside the enum variant for the TokenGateway request
 	pub fn encode(&self) -> Vec<u8> {
 		use alloy_sol_types::SolType;
 
 		let variant = vec![2u8]; // enum variant on token gateway
-		let encoded = SetAsset::abi_encode(self);
+		let encoded = SolAssetMetadata::abi_encode(self);
 
 		[variant, encoded].concat()
 	}

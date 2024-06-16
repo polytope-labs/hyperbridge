@@ -30,7 +30,7 @@ import {
     TokenGatewayParamsExt,
     TokenGatewayParams,
     AssetFees,
-    SetAsset
+    AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
@@ -100,8 +100,8 @@ contract BaseTest is Test {
 
         mockUSDC.superApprove(tx.origin, address(host));
         mockUSDC.superApprove(address(this), address(host));
-        SetAsset[] memory assets = new SetAsset[](1);
-        assets[0] = SetAsset({
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        assets[0] = AssetMetadata({
             erc20: address(0),
             erc6160: address(feeToken),
             name: "Hyperbridge USD",

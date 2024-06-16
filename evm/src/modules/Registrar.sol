@@ -84,23 +84,22 @@ contract TokenGatewayRegistrar is BaseIsmpModule {
     }
 
     // This serves as gas abstraction for registering assets on Hyperbridge
-    // by collecting fees here and depositing them to the host.
-    function registerAsset(AssetRegistration memory registration) public payable {
+    // by collecting fees here. The asset metadata still needs to be provided
+    // on Hyperbridge, but by paying here. It can be provided as an unsigned
+    // extrinsic.
+    //
+    // Collects the registration fees in any token that can be swapped for the
+    // IIsmpHost.feeToken using the local UniswapV2 router. Any request must be
+    // relayed to Hyperbridge as this module provides no refunds.
+    function registerAsset(AssetRegistration memory registration) public {
         address feeToken = IIsmpHost(_params.host).feeToken();
-        uint256 fee = _params.baseFee + (96 * IIsmpHost(_params.host).perByteFee());
+        uint256 messagingFee = 96 * IIsmpHost(_params.host).perByteFee();
+        uint256 fee = _params.baseFee + messagingFee;
 
         if (feeToken != registration.feeToken) {
-            if (msg.value != 0) {
-                (bool sent,) = _params.erc20NativeToken.call{value: msg.value}("");
-                if (!sent) revert InconsistentState();
-                registration.feeToken = _params.erc20NativeToken;
-                registration.amountToSwap = msg.value;
-            } else {
-                SafeERC20.safeTransferFrom(
-                    IERC20(registration.feeToken), msg.sender, address(this), registration.amountToSwap
-                );
-            }
-
+            SafeERC20.safeTransferFrom(
+                IERC20(registration.feeToken), msg.sender, address(this), registration.amountToSwap
+            );
             SafeERC20.safeIncreaseAllowance(IERC20(registration.feeToken), _params.uniswapV2, registration.amountToSwap);
 
             address[] memory path = new address[](2);
@@ -110,8 +109,10 @@ contract TokenGatewayRegistrar is BaseIsmpModule {
             IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
                 fee, registration.amountToSwap, path, address(this), block.timestamp
             );
+            SafeERC20.safeTransfer(IERC20(feeToken), _params.host, _params.baseFee);
         } else {
-            SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), fee);
+            SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, _params.host, _params.baseFee);
+            SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), messagingFee);
         }
         bytes memory data =
             abi.encode(RequestBody({owner: msg.sender, assetId: registration.assetId, baseFee: _params.baseFee}));
@@ -122,21 +123,13 @@ contract TokenGatewayRegistrar is BaseIsmpModule {
             dest: IIsmpHost(_params.host).hyperbridge(),
             to: bytes("registrar"),
             body: data,
-            timeout: 3 * 60 * 60,
-            // requests to hyperbridge must be self-relayed
+            timeout: 0,
             fee: 0,
             payer: msg.sender
         });
         IDispatcher(_params.host).dispatch(request);
 
         emit RegistrationBegun({assetId: registration.assetId, owner: msg.sender});
-    }
-
-    // Refund the registration fee
-    function onPostRequestTimeout(PostRequest calldata request) external override restrict(_params.host) {
-        address feeToken = IIsmpHost(_params.host).feeToken();
-        RequestBody memory body = abi.decode(request.body, (RequestBody));
-        SafeERC20.safeTransfer(IERC20(feeToken), body.owner, body.baseFee);
     }
 
     // Governance parameter updates

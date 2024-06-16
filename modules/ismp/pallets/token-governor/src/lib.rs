@@ -13,20 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The token governor handles asset registration as well as tracks multi-chain native tokens across
-//! all connected chains
+//! The token governor handles asset registration as well as tracks the metadata of multi-chain
+//! native tokens across all connected chains
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
+mod impls;
 mod types;
 use alloy_sol_types::SolValue;
 use ismp::router::{Post, Response, Timeout};
 pub use types::*;
 
-use frame_support::{pallet_prelude::*, PalletId};
-use frame_system::pallet_prelude::*;
-use ismp::{host::StateMachine, module::IsmpModule};
+use ismp::module::IsmpModule;
 use primitive_types::{H160, H256};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -39,8 +38,16 @@ pub const PALLET_ID: [u8; 8] = *b"registry";
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::traits::{fungible::Mutate, tokens::Preservation};
-	use ismp::dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher};
+	use frame_support::{
+		pallet_prelude::*,
+		traits::{fungible::Mutate, tokens::Preservation},
+		PalletId,
+	};
+	use frame_system::pallet_prelude::*;
+	use ismp::{
+		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
+		host::StateMachine,
+	};
 	use sp_runtime::traits::AccountIdConversion;
 
 	#[pallet::pallet]
@@ -60,22 +67,23 @@ pub mod pallet {
 		type TreasuryAccount: Get<PalletId>;
 	}
 
-	/// Maps a pending asset to it's owner. Provides a single use execution ticket for asset
-	/// creation through an unsigned transaction.
+	/// Maps a pending asset to it's owner. Enables asset registration without the native token by
+	/// prviding a single-use execution ticket for asset creation through an unsigned transaction.
 	#[pallet::storage]
 	pub type PendingAsset<T: Config> = StorageMap<_, Identity, H256, H160, OptionQuery>;
 
-	/// Mapping of AssetIds to a chain to their metadata
+	/// Mapping of AssetIds and supported chain to their metadata. Can only be updated by the asset
+	/// owner
 	#[pallet::storage]
 	pub type Assets<T: Config> =
 		StorageDoubleMap<_, Identity, H256, Twox64Concat, StateMachine, AssetMetadata, OptionQuery>;
 
-	/// Mapping of AssetIds to a chain to their owners
+	/// Mapping of AssetIds to their owners
 	#[pallet::storage]
 	pub type AssetOwners<T: Config> =
 		StorageMap<_, Identity, H256, <T as frame_system::Config>::AccountId, OptionQuery>;
 
-	/// Mapping of AssetIds to a chain to their owners
+	/// TokenGovernor protocol parameters.
 	#[pallet::storage]
 	pub type ProtocolParams<T: Config> =
 		StorageValue<_, Params<<T as pallet_ismp::Config>::Balance>, OptionQuery>;
@@ -147,7 +155,7 @@ pub mod pallet {
 				};
 				Assets::<T>::insert(asset_id, chain, metadata);
 
-				let mut body = SetAsset {
+				let mut body = SolAssetMetadata {
 					name: String::from_utf8(asset.name.as_slice().to_vec())
 						.map_err(|_| Error::<T>::InvalidUtf8)?,
 					symbol: String::from_utf8(asset.symbol.as_slice().to_vec())
@@ -168,7 +176,6 @@ pub mod pallet {
 							dest: chain,
 							from: PALLET_ID.to_vec(),
 							to: token_gateway_address.as_bytes().to_vec(),
-							// No point in timeouts
 							timeout: 0,
 							body: body.encode(),
 						}),
@@ -184,24 +191,28 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// An example dispatchable that may throw a custom error.
 		#[pallet::call_index(1)]
 		#[pallet::weight(1_000_000_000)]
-		pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
-			let _who = ensure_signed(origin)?;
+		pub fn register_erc6160_asset_unsigned(
+			origin: OriginFor<T>,
+			asset: ERC6160AssetRegistration,
+		) -> DispatchResult {
+			ensure_none(origin)?;
 
 			Ok(())
 		}
 
-		// updates protocol params
+		// todo: unsigned extrinsic
 
-		// ERC20 asset registration
+		// todo: updates to protocol params
 
-		// updates
-		// 1. token metadata
+		// todo: ERC20 asset registration
+
+		// todo: updates to mult-chain asset
+		// 1. token logo, erc6160 asset?
 		// 2. supported chains
 		// 3. changeAdmins
-		// 4. deregister asset
+		// 4. deregister asset from TokenGateway
 	}
 
 	/// This allows users to create assets from any chain using the TokenGatewayRegistrar.
@@ -253,7 +264,7 @@ impl<T: Config> IsmpModule for Pallet<T> {
 		if from != token_registrar_address.as_bytes().to_vec() {
 			Err(ismp::error::Error::Custom(format!("Unauthorized action")))?
 		}
-		let body = RequestBody::abi_decode(&data[..], true)
+		let body = SolRequestBody::abi_decode(&data[..], true)
 			.map_err(|err| ismp::error::Error::Custom(format!("Decode error: {err}")))?;
 		let asset_id: H256 = body.assetId.0.into();
 		let owner: H160 = body.owner.0 .0.into();
@@ -275,6 +286,8 @@ impl<T: Config> IsmpModule for Pallet<T> {
 	}
 
 	fn on_timeout(&self, _request: Timeout) -> Result<(), ismp::error::Error> {
+		// The request lives forever, it's not exactly time-sensitive.
+		// There are no refunds for asset registration fees
 		Err(ismp::error::Error::Custom(format!("Module does not expect timeouts")))
 	}
 }

@@ -22,7 +22,7 @@ import {
     TokenGatewayParamsExt,
     TokenGatewayParams,
     AssetFees,
-    SetAsset
+    AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 
@@ -139,8 +139,8 @@ contract DeployScript is Script {
         TokenFaucet faucet = new TokenFaucet{salt: salt}(address(feeToken));
         feeToken.grantRole(MINTER_ROLE, address(faucet));
 
-        SetAsset[] memory assets = new SetAsset[](1);
-        assets[0] = SetAsset({
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        assets[0] = AssetMetadata({
             erc20: address(0),
             erc6160: address(feeToken),
             name: "Hyperbridge USD",

@@ -34,7 +34,6 @@ pub use pallet::*;
 /// The module id for this pallet
 pub const PALLET_ID: [u8; 8] = *b"registry";
 
-// All pallet logic is defined in its own module and must be annotated by the `pallet` attribute.
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -168,22 +167,16 @@ pub mod pallet {
 			)?;
 
 			for ChainWithSupply { chain, supply } in asset.chains.clone() {
-				// todo: hash bytecode with CREATE2 to get address
 				let metadata = AssetMetadata {
 					name: asset.name.clone(),
 					symbol: asset.symbol.clone(),
 					logo: asset.logo.clone(),
 					..Default::default()
 				};
-				Assets::<T>::insert(asset_id, chain, metadata);
+				Assets::<T>::insert(asset_id, chain, metadata.clone());
 
-				let mut body = SolAssetMetadata {
-					name: String::from_utf8(asset.name.as_slice().to_vec())
-						.map_err(|_| Error::<T>::InvalidUtf8)?,
-					symbol: String::from_utf8(asset.symbol.as_slice().to_vec())
-						.map_err(|_| Error::<T>::InvalidUtf8)?,
-					..Default::default()
-				};
+				let mut body: SolAssetMetadata =
+					metadata.try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
 
 				if let Some(supply) = supply {
 					body.beneficiary = supply.beneficiary.0.into();
@@ -213,9 +206,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Updates the TokenRegistrar parameters for a given state machine, this will dispatch a
-		/// request to the token registrar contract to update its params only if the params already
-		/// exists in storage.
+		/// Updates the TokenGovernror pallet parameters.
 		#[pallet::call_index(1)]
 		#[pallet::weight(1_000_000_000)]
 		pub fn update_registrar_params(
@@ -277,13 +268,13 @@ pub mod pallet {
 
 		// todo: unsigned extrinsic
 
-		// todo: ERC20 asset registration
+		// todo: root ERC20 asset registration
 
 		// todo: updates to mult-chain asset
-		// 1. token logo, erc6160 asset?
-		// 2. supported chains
-		// 3. changeAdmins
-		// 4. deregister asset from TokenGateway
+
+		// 1. asset owner: token logo, supported chains, changeAdmins, deregister
+
+		// 2. root:  update erc20 asset fees
 	}
 
 	/// This allows users to create assets from any chain using the TokenRegistrar.
@@ -303,6 +294,7 @@ pub mod pallet {
 			_source: TransactionSource,
 			_call: &Self::Call,
 		) -> TransactionValidity {
+			// validate unsigned tx
 			Ok(ValidTransaction {
 				// they should all have the same priority so they can be rejected
 				priority: 100,

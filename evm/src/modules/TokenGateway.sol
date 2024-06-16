@@ -101,8 +101,10 @@ enum OnAcceptActions {
     IncomingAsset,
     // Governance action to update protocol parameters
     GovernanceAction,
-    // Either register a new asset or update an existing asset
-    SetAssets,
+    // Request from hyperbridge to create a new asset
+    CreateAsset,
+    // Request to update the protocol fees for a given asset
+    UpdateAssetFees,
     // Remove an asset from the registry
     DeregisterAsset,
     // Change the admin of an asset
@@ -126,9 +128,15 @@ struct AssetMetadata {
     AssetFees fees;
 }
 
+struct AssetFeeUpdate {
+    bytes32 assetId;
+    // Associated fees for this asset
+    AssetFees fees;
+}
+
 struct ChangeAssetAdmin {
     // Address of the asset
-    address erc6160;
+    bytes32 assetId;
     // The address of the new admin
     address newAdmin;
 }
@@ -189,12 +197,16 @@ contract TokenGateway is BaseIsmpModule {
 
     // Action is unauthorized
     error UnauthorizedAction();
+
     // Unexpected zero address
     error ZeroAddress();
+
     // Provided amount was invalid
     error InvalidAmount();
+
     // Provided token was unknown
-    error UnknownToken();
+    error UnknownAsset();
+
     // Protocol invariant violated
     error InconsistentState();
 
@@ -211,7 +223,7 @@ contract TokenGateway is BaseIsmpModule {
     // initialize required parameters
     function init(TokenGatewayParamsExt memory teleportParams) public restrict(_admin) {
         _params = teleportParams.params;
-        AssetMetadatas(teleportParams.assets);
+        createAssets(teleportParams.assets);
 
         // admin can only call this once
         _admin = address(0);
@@ -281,7 +293,7 @@ contract TokenGateway is BaseIsmpModule {
         } else if (_erc6160 != address(0)) {
             IERC6160Ext20(_erc6160).burn(from, teleportParams.amount);
         } else {
-            revert UnknownToken();
+            revert UnknownAsset();
         }
 
         uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.fee;
@@ -336,8 +348,10 @@ contract TokenGateway is BaseIsmpModule {
             }
         } else if (action == OnAcceptActions.GovernanceAction) {
             handleGovernance(incoming.request);
-        } else if (action == OnAcceptActions.SetAssets) {
-            handleSetAssets(incoming.request);
+        } else if (action == OnAcceptActions.CreateAsset) {
+            handleCreateAsset(incoming.request);
+        } else if (action == OnAcceptActions.UpdateAssetFees) {
+            handleUpdateAssetFees(incoming.request);
         } else if (action == OnAcceptActions.DeregisterAsset) {
             deregisterAssets(incoming.request);
         } else if (action == OnAcceptActions.ChangeAssetAdmin) {
@@ -441,7 +455,7 @@ contract TokenGateway is BaseIsmpModule {
         } else if (_erc6160 != address(0)) {
             IERC6160Ext20(_erc6160).mint(to, amount);
         } else {
-            revert UnknownToken();
+            revert UnknownAsset();
         }
     }
 
@@ -451,11 +465,19 @@ contract TokenGateway is BaseIsmpModule {
         _params = abi.decode(request.body[1:], (TokenGatewayParams));
     }
 
-    function handleSetAssets(PostRequest calldata request) private {
+    function handleCreateAsset(PostRequest calldata request) private {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        AssetMetadata[] memory assets = abi.decode(request.body[1:], (AssetMetadata[]));
-        AssetMetadatas(assets);
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        assets[0] = abi.decode(request.body[1:], (AssetMetadata));
+        createAssets(assets);
+    }
+
+    function handleUpdateAssetFees(PostRequest calldata request) private {
+        if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
+
+        AssetFeeUpdate memory update = abi.decode(request.body[1:], (AssetFeeUpdate));
+        _fees[update.assetId] = update.fees;
     }
 
     function deregisterAssets(PostRequest calldata request) private {
@@ -473,16 +495,18 @@ contract TokenGateway is BaseIsmpModule {
     function changeAssetAdmin(PostRequest calldata request) private {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        ChangeAssetAdmin[] memory assets = abi.decode(request.body[1:], (ChangeAssetAdmin[]));
-        uint256 length = assets.length;
-        for (uint256 i = 0; i < length; ++i) {
-            ChangeAssetAdmin memory asset = assets[i];
-            if (asset.newAdmin == address(0)) revert ZeroAddress();
-            IERC6160Ext20(asset.erc6160).changeAdmin(asset.newAdmin);
-        }
+        ChangeAssetAdmin memory asset = abi.decode(request.body[1:], (ChangeAssetAdmin));
+        address erc6160Address = _erc6160s[asset.assetId];
+
+        if (asset.newAdmin == address(0)) revert ZeroAddress();
+        if (erc6160Address == address(0)) revert UnknownAsset();
+
+        IERC6160Ext20(erc6160Address).changeAdmin(asset.newAdmin);
     }
 
-    function AssetMetadatas(AssetMetadata[] memory assets) private {
+    // Creates a new entry for the provided asset in the mappings. If there's no existing
+    // ERC6160 address provided, then a contract for the asset is created.
+    function createAssets(AssetMetadata[] memory assets) private {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; ++i) {
             AssetMetadata memory asset = assets[i];

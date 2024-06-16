@@ -242,9 +242,6 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = asset;
-
         bytes memory hyperbridge = StateMachine.kusama(2000);
 
         vm.prank(address(host));
@@ -254,7 +251,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(assets)),
+                    body: bytes.concat(hex"02", abi.encode(asset)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -287,9 +284,6 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = asset;
-
         vm.prank(address(host));
 
         vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
@@ -300,7 +294,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"03", abi.encode(assets)),
+                    body: bytes.concat(hex"04", abi.encode(asset)),
                     nonce: 0,
                     source: new bytes(0),
                     timeoutTimestamp: 0
@@ -323,7 +317,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"03", abi.encode(assets)),
+                    body: bytes.concat(hex"04", abi.encode(assets)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -355,9 +349,6 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = asset;
-
         bytes memory hyperbridge = StateMachine.kusama(2000);
 
         vm.prank(address(host));
@@ -368,7 +359,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(assets)),
+                    body: bytes.concat(hex"02", abi.encode(asset)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -394,9 +385,6 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = asset;
-
         bytes memory hyperbridge = StateMachine.kusama(2000);
 
         vm.prank(address(host));
@@ -407,7 +395,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(assets)),
+                    body: bytes.concat(hex"02", abi.encode(asset)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -485,9 +473,6 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = asset;
-
         bytes memory hyperbridge = StateMachine.kusama(2000);
 
         feeToken.mint(address(this), 1_000 * 1e18);
@@ -502,7 +487,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(assets)),
+                    body: bytes.concat(hex"02", abi.encode(asset)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -562,9 +547,6 @@ contract TokenGatewayTest is BaseTest {
             })
         });
 
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = asset;
-
         bytes memory hyperbridge = StateMachine.kusama(2000);
 
         // relayer fee + per-byte fee
@@ -578,7 +560,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(assets)),
+                    body: bytes.concat(hex"02", abi.encode(asset)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -657,8 +639,8 @@ contract TokenGatewayTest is BaseTest {
         // set gateway as the admin
         feeToken.changeAdmin(address(gateway));
 
-        ChangeAssetAdmin[] memory changeAssets = new ChangeAssetAdmin[](1);
-        changeAssets[0] = ChangeAssetAdmin({erc6160: address(feeToken), newAdmin: address(this)});
+        ChangeAssetAdmin memory changeAsset =
+            ChangeAssetAdmin({assetId: keccak256(bytes(feeToken.symbol())), newAdmin: address(this)});
 
         vm.prank(address(host));
         gateway.onAccept(
@@ -667,7 +649,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"04", abi.encode(changeAssets)),
+                    body: bytes.concat(hex"05", abi.encode(changeAsset)),
                     nonce: 0,
                     source: StateMachine.kusama(2000),
                     timeoutTimestamp: 0

@@ -19,7 +19,7 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use frame_support::pallet_prelude::*;
 use ismp::host::StateMachine;
-use primitive_types::{H160, U256};
+use primitive_types::{H160, H256, U256};
 
 /// Number of bytes in a megabyte (MB)
 const MEGABYTE: u32 = 1024;
@@ -66,10 +66,21 @@ pub struct AssetMetadata {
 	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
 	/// Associated protocol fees
 	pub fees: AssetFees,
-	/// The Associated ERC20 token contract
-	pub erc20: H160,
-	/// The Associated ERC6160 token contract
-	pub erc6160: H160,
+}
+
+/// Allows a user to update their multi-chain native token potentially on multiple chains
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+pub struct ERC6160AssetUpdate {
+	/// The asset identifier
+	pub asset_id: H256,
+	/// The asset logo
+	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
+	/// Chains to add support for the asset on
+	pub add_chains: BoundedVec<StateMachine, ConstU32<100>>,
+	/// Chains to delist the asset from
+	pub remove_chains: BoundedVec<StateMachine, ConstU32<100>>,
+	/// Chains to change the asset admin on
+	pub new_admin: BoundedVec<(StateMachine, H160), ConstU32<100>>,
 }
 
 /// Initial supply options on a per-chain basis
@@ -268,8 +279,6 @@ impl TryFrom<AssetMetadata> for SolAssetMetadata {
 	type Error = anyhow::Error;
 	fn try_from(value: AssetMetadata) -> Result<Self, anyhow::Error> {
 		let set_asset = SolAssetMetadata {
-			erc20: value.erc20.0.into(),
-			erc6160: value.erc6160.0.into(),
 			name: String::from_utf8(value.name.as_slice().to_vec())
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
 			symbol: String::from_utf8(value.symbol.as_slice().to_vec())

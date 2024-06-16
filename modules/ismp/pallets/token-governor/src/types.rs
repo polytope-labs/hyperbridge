@@ -91,7 +91,7 @@ pub struct ChainWithSupply {
 }
 
 /// Protocol parameters
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
 pub struct Params<Balance> {
 	/// The address of the token gateway contract across all chains
 	pub token_gateway_address: H160,

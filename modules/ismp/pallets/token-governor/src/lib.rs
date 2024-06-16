@@ -115,6 +115,13 @@ pub mod pallet {
 			/// The state machine it was updated for
 			state_machine: StateMachine,
 		},
+		/// The TokenGovernor parameters have been updated
+		ParamsUpdated {
+			/// The old parameters
+			old: Params<<T as pallet_ismp::Config>::Balance>,
+			/// The new parameters
+			new: Params<<T as pallet_ismp::Config>::Balance>,
+		},
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -134,6 +141,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T>
 	where
 		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+		<T as pallet_ismp::Config>::Balance: Default,
 	{
 		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
 		///
@@ -250,9 +258,24 @@ pub mod pallet {
 			Ok(())
 		}
 
-		// todo: unsigned extrinsic
+		#[pallet::call_index(2)]
+		#[pallet::weight(1_000_000_000)]
+		pub fn update_params(
+			origin: OriginFor<T>,
+			update: ParamsUpdate<<T as pallet_ismp::Config>::Balance>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+			let stored_params = ProtocolParams::<T>::get();
 
-		// todo: updates to the governor protocol params
+			let old_params = stored_params.unwrap_or_default();
+			let new_params = old_params.update(update);
+
+			ProtocolParams::<T>::set(Some(new_params));
+
+			Ok(())
+		}
+
+		// todo: unsigned extrinsic
 
 		// todo: ERC20 asset registration
 

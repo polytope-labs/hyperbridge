@@ -101,6 +101,17 @@ pub struct Params<Balance> {
 	pub registration_fee: Balance,
 }
 
+/// Struct for updating the protocol parameters for the TokenGovernor
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+pub struct ParamsUpdate<Balance> {
+	/// The address of the token gateway contract across all chains
+	pub token_gateway_address: Option<H160>,
+	/// The address of the token registrar contract across all chains
+	pub token_registrar_address: Option<H160>,
+	/// The asset registration fee in native tokens, collected by the treasury
+	pub registration_fee: Option<Balance>,
+}
+
 /// Holds data required for multi-chain native asset registration
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
 pub struct ERC6160AssetRegistration {
@@ -128,7 +139,7 @@ pub struct RegistrarParams {
 	pub base_fee: U256,
 }
 
-/// Protocol Parameters for the TokenRegistrar
+/// Struct for updating the protocol parameters for a TokenRegistrar
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
 pub struct RegistrarParamsUpdate {
 	// The ERC20 contract address for the wrapped version of the local native token
@@ -141,24 +152,46 @@ pub struct RegistrarParamsUpdate {
 	pub base_fee: Option<U256>,
 }
 
+impl<B: Clone> Params<B> {
+	pub fn update(&self, update: ParamsUpdate<B>) -> Params<B> {
+		let mut params = self.clone();
+		if let Some(token_gateway_address) = update.token_gateway_address {
+			params.token_gateway_address = token_gateway_address;
+		}
+
+		if let Some(token_registrar_address) = update.token_registrar_address {
+			params.token_registrar_address = token_registrar_address;
+		}
+
+		if let Some(registration_fee) = update.registration_fee {
+			params.registration_fee = registration_fee;
+		}
+
+		params
+	}
+}
+
 impl RegistrarParams {
 	/// Convenience method for updating protocol params
-	pub fn update(&mut self, update: RegistrarParamsUpdate) {
+	pub fn update(&self, update: RegistrarParamsUpdate) -> RegistrarParams {
+		let mut params = self.clone();
 		if let Some(erc20_native_token) = update.erc20_native_token {
-			self.erc20_native_token = erc20_native_token;
+			params.erc20_native_token = erc20_native_token;
 		}
 
 		if let Some(host) = update.host {
-			self.host = host;
+			params.host = host;
 		}
 
 		if let Some(uniswap_v2) = update.uniswap_v2 {
-			self.uniswap_v2 = uniswap_v2;
+			params.uniswap_v2 = uniswap_v2;
 		}
 
 		if let Some(base_fee) = update.base_fee {
-			self.base_fee = base_fee;
+			params.base_fee = base_fee;
 		}
+
+		params
 	}
 }
 

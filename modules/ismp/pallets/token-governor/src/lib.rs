@@ -217,11 +217,10 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 			let stored_params = TokenRegistrarParams::<T>::get(&state_machine);
-			let mut params = stored_params.clone().unwrap_or_default();
+			let old_params = stored_params.clone().unwrap_or_default();
+			let new_params = old_params.update(update);
 
-			params.update(update);
-
-			TokenRegistrarParams::<T>::insert(state_machine.clone(), params.clone());
+			TokenRegistrarParams::<T>::insert(state_machine.clone(), new_params.clone());
 
 			// if the params already exists then we dispatch a request to update it
 			if let Some(_) = stored_params {
@@ -235,7 +234,7 @@ pub mod pallet {
 							from: PALLET_ID.to_vec(),
 							to: token_registrar_address.as_bytes().to_vec(),
 							timeout: 0,
-							body: SolRegistrarParams::from(params.clone()).abi_encode(),
+							body: SolRegistrarParams::from(new_params.clone()).abi_encode(),
 						}),
 						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 					)
@@ -243,8 +242,8 @@ pub mod pallet {
 			}
 
 			Self::deposit_event(Event::<T>::RegistrarParamsUpdated {
-				old: stored_params.unwrap_or_default(),
-				new: params,
+				old: old_params,
+				new: new_params,
 				state_machine,
 			});
 

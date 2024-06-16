@@ -88,6 +88,11 @@ pub mod pallet {
 	pub type ProtocolParams<T: Config> =
 		StorageValue<_, Params<<T as pallet_ismp::Config>::Balance>, OptionQuery>;
 
+	/// TokenRegistrar protocol parameters.
+	#[pallet::storage]
+	pub type TokenRegistrarParams<T: Config> =
+		StorageMap<_, Twox64Concat, StateMachine, RegistrarParams, OptionQuery>;
+
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -100,6 +105,15 @@ pub mod pallet {
 			asset_id: H256,
 			/// Owner of the asset
 			owner: H160,
+		},
+		/// The TokenRegistrar params have been updated for a state machine
+		RegistrarParamsUpdated {
+			/// The old params
+			old: RegistrarParams,
+			/// The new params
+			new: RegistrarParams,
+			/// The state machine it was updated for
+			state_machine: StateMachine,
 		},
 	}
 
@@ -191,20 +205,55 @@ pub mod pallet {
 			Ok(())
 		}
 
+		/// Updates the TokenRegistrar parameters for a given state machine, this will dispatch a
+		/// request to the token registrar contract to update its params only if the params already
+		/// exists in storage.
 		#[pallet::call_index(1)]
 		#[pallet::weight(1_000_000_000)]
-		pub fn register_erc6160_asset_unsigned(
+		pub fn update_registrar_params(
 			origin: OriginFor<T>,
-			asset: ERC6160AssetRegistration,
+			update: RegistrarParamsUpdate,
+			state_machine: StateMachine,
 		) -> DispatchResult {
-			ensure_none(origin)?;
+			T::AdminOrigin::ensure_origin(origin)?;
+			let stored_params = TokenRegistrarParams::<T>::get(&state_machine);
+			let mut params = stored_params.clone().unwrap_or_default();
+
+			params.update(update);
+
+			TokenRegistrarParams::<T>::insert(state_machine.clone(), params.clone());
+
+			// if the params already exists then we dispatch a request to update it
+			if let Some(_) = stored_params {
+				let Params { token_registrar_address, .. } =
+					ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
+				let dispatcher = T::Dispatcher::default();
+				dispatcher
+					.dispatch_request(
+						DispatchRequest::Post(DispatchPost {
+							dest: state_machine.clone(),
+							from: PALLET_ID.to_vec(),
+							to: token_registrar_address.as_bytes().to_vec(),
+							timeout: 0,
+							body: SolRegistrarParams::from(params.clone()).abi_encode(),
+						}),
+						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+					)
+					.map_err(|_| Error::<T>::DispatchFailed)?;
+			}
+
+			Self::deposit_event(Event::<T>::RegistrarParamsUpdated {
+				old: stored_params.unwrap_or_default(),
+				new: params,
+				state_machine,
+			});
 
 			Ok(())
 		}
 
 		// todo: unsigned extrinsic
 
-		// todo: updates to protocol params
+		// todo: updates to the governor protocol params
 
 		// todo: ERC20 asset registration
 
@@ -215,7 +264,7 @@ pub mod pallet {
 		// 4. deregister asset from TokenGateway
 	}
 
-	/// This allows users to create assets from any chain using the TokenGatewayRegistrar.
+	/// This allows users to create assets from any chain using the TokenRegistrar.
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T>
 	where

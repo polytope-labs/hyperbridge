@@ -22,9 +22,9 @@ import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message}
 import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
 import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
-import {AssetRegistration, RequestBody, RegistrarParams, TokenGatewayRegistrar} from "../src/modules/Registrar.sol";
+import {AssetRegistration, RequestBody, RegistrarParams, TokenRegistrar} from "../src/modules/Registrar.sol";
 
-contract TokenGatewayRegistrarTest is MainnetForkBaseTest {
+contract TokenRegistrarTest is MainnetForkBaseTest {
     // Maximum slippage of 0.5%
     uint256 maxSlippagePercentage = 50; // 0.5 * 100
 
@@ -59,6 +59,35 @@ contract TokenGatewayRegistrarTest is MainnetForkBaseTest {
         assert(feeToken.balanceOf(address(_registrar)) == 0);
     }
 
+    function testCanRegisterAssetsUsingNativeTokenForFee() public {
+        // mainnet address holding eth
+        address mainnetEthHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
+
+        // relayer fee + per-byte fee
+        uint256 messagingFee = 96 * host.perByteFee();
+        uint256 registrationFee = _registrar.params().baseFee + messagingFee;
+
+        address[] memory path = new address[](2);
+        path[0] = _registrar.params().erc20NativeToken;
+        path[1] = address(feeToken);
+
+        uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(registrationFee, path)[0];
+
+        // Handling Slippage Implementation
+        uint256 _slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10_000; // Adjusted for percentage times 100
+        uint256 _amountInMax = _fromTokenAmountIn + _slippageAmount;
+
+        vm.startPrank(mainnetEthHolder);
+        dai.approve(address(_registrar), registrationFee);
+
+        _registrar.registerAsset{value: _amountInMax}(
+            AssetRegistration({feeToken: address(0), assetId: keccak256("USD.h"), amountToSwap: _amountInMax})
+        );
+
+        assert(feeToken.balanceOf(address(this)) == 0);
+        assert(feeToken.balanceOf(address(host)) == _registrar.params().baseFee + messagingFee);
+    }
+
     function testGovernanceParameterUpdate() public {
         assert(_registrar.params().baseFee == 100 * 1e18);
 
@@ -67,7 +96,7 @@ contract TokenGatewayRegistrarTest is MainnetForkBaseTest {
         params.baseFee = 200 * 1e18;
         bytes memory body = abi.encode(params);
 
-        vm.expectRevert(TokenGatewayRegistrar.UnauthorizedAction.selector);
+        vm.expectRevert(TokenRegistrar.UnauthorizedAction.selector);
         _registrar.onAccept(
             IncomingPostRequest({
                 request: PostRequest({

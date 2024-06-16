@@ -23,7 +23,7 @@ import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
-import {TokenGatewayRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
+import {TokenRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
 import {
     TokenGateway,
     Asset,
@@ -56,7 +56,7 @@ contract MainnetForkBaseTest is Test {
     IERC20 internal dai;
     IERC20 internal feeToken;
     IUniswapV2Router internal _uniswapV2Router;
-    TokenGatewayRegistrar internal _registrar;
+    TokenRegistrar internal _registrar;
 
     uint256 internal mainnetFork;
 
@@ -132,7 +132,7 @@ contract MainnetForkBaseTest is Test {
             })
         );
 
-        _registrar = new TokenGatewayRegistrar(address(this));
+        _registrar = new TokenRegistrar(address(this));
         _registrar.init(
             RegistrarParams({
                 host: address(host),

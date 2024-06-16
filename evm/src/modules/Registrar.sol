@@ -41,13 +41,17 @@ struct RequestBody {
 }
 
 struct RegistrarParams {
+    // The ERC20 contract address for the wrapped version of the local native token
     address erc20NativeToken;
+    // Ismp host
     address host;
+    // Local UniswapV2 contract address
     address uniswapV2;
+    // registration base fee
     uint256 baseFee;
 }
 
-contract TokenGatewayRegistrar is BaseIsmpModule {
+contract TokenRegistrar is BaseIsmpModule {
     using Bytes for bytes;
 
     RegistrarParams private _params;
@@ -91,15 +95,22 @@ contract TokenGatewayRegistrar is BaseIsmpModule {
     // Collects the registration fees in any token that can be swapped for the
     // IIsmpHost.feeToken using the local UniswapV2 router. Any request must be
     // relayed to Hyperbridge as this module provides no refunds.
-    function registerAsset(AssetRegistration memory registration) public {
+    function registerAsset(AssetRegistration memory registration) public payable {
         address feeToken = IIsmpHost(_params.host).feeToken();
         uint256 messagingFee = 96 * IIsmpHost(_params.host).perByteFee();
         uint256 fee = _params.baseFee + messagingFee;
 
         if (feeToken != registration.feeToken) {
-            SafeERC20.safeTransferFrom(
-                IERC20(registration.feeToken), msg.sender, address(this), registration.amountToSwap
-            );
+            if (msg.value != 0) {
+                (bool sent,) = _params.erc20NativeToken.call{value: msg.value}("");
+                if (!sent) revert InconsistentState();
+                registration.feeToken = _params.erc20NativeToken;
+                registration.amountToSwap = msg.value;
+            } else {
+                SafeERC20.safeTransferFrom(
+                    IERC20(registration.feeToken), msg.sender, address(this), registration.amountToSwap
+                );
+            }
             SafeERC20.safeIncreaseAllowance(IERC20(registration.feeToken), _params.uniswapV2, registration.amountToSwap);
 
             address[] memory path = new address[](2);

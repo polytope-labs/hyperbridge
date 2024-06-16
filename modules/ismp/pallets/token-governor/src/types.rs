@@ -115,6 +115,53 @@ pub struct ERC6160AssetRegistration {
 	pub chains: Vec<ChainWithSupply>,
 }
 
+/// Protocol Parameters for the TokenRegistrar
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+pub struct RegistrarParams {
+	// The ERC20 contract address for the wrapped version of the local native token
+	pub erc20_native_token: H160,
+	// Ismp host
+	pub host: H160,
+	// Local UniswapV2 contract address
+	pub uniswap_v2: H160,
+	// registration base fee
+	pub base_fee: U256,
+}
+
+/// Protocol Parameters for the TokenRegistrar
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+pub struct RegistrarParamsUpdate {
+	// The ERC20 contract address for the wrapped version of the local native token
+	pub erc20_native_token: Option<H160>,
+	// Ismp host
+	pub host: Option<H160>,
+	// Local UniswapV2 contract address
+	pub uniswap_v2: Option<H160>,
+	// registration base fee
+	pub base_fee: Option<U256>,
+}
+
+impl RegistrarParams {
+	/// Convenience method for updating protocol params
+	pub fn update(&mut self, update: RegistrarParamsUpdate) {
+		if let Some(erc20_native_token) = update.erc20_native_token {
+			self.erc20_native_token = erc20_native_token;
+		}
+
+		if let Some(host) = update.host {
+			self.host = host;
+		}
+
+		if let Some(uniswap_v2) = update.uniswap_v2 {
+			self.uniswap_v2 = uniswap_v2;
+		}
+
+		if let Some(base_fee) = update.base_fee {
+			self.base_fee = base_fee;
+		}
+	}
+}
+
 alloy_sol_macro::sol! {
 	#![sol(all_derives)]
 
@@ -149,6 +196,28 @@ alloy_sol_macro::sol! {
 		bytes32 assetId;
 		// The base fee paid for registration, used in timeouts
 		uint256 baseFee;
+	}
+
+	struct SolRegistrarParams {
+		// The ERC20 contract address for the wrapped version of the local native token
+		address erc20NativeToken;
+		// Ismp host
+		address host;
+		// Local UniswapV2 contract address
+		address uniswapV2;
+		// registration base fee
+		uint256 baseFee;
+	}
+}
+
+impl From<RegistrarParams> for SolRegistrarParams {
+	fn from(value: RegistrarParams) -> Self {
+		SolRegistrarParams {
+			erc20NativeToken: value.erc20_native_token.0.into(),
+			host: value.host.0.into(),
+			uniswapV2: value.uniswap_v2.0.into(),
+			baseFee: alloy_primitives::U256::from_limbs(value.base_fee.0),
+		}
 	}
 }
 

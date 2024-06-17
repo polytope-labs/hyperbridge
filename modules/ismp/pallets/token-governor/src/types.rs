@@ -51,8 +51,6 @@ pub struct AssetMetadata {
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The asset logo
 	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
-	/// The associated ERC20 asset contract address
-	pub erc20: H160,
 }
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
@@ -122,6 +120,30 @@ pub struct ERC6160AssetRegistration {
 	/// The list of chains to create the asset on along with their the initial supply on the
 	/// provided chains
 	pub chains: Vec<ChainWithSupply>,
+}
+
+/// Holds data required for multi-chain native asset registration (unsigned)
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+pub struct UnsignedERC6160AssetRegistration<AccountId> {
+	/// Registration information
+	pub asset: ERC6160AssetRegistration,
+	/// Proof of payment
+	pub signature: BoundedVec<u8, ConstU32<65>>,
+	/// Substrate account which owns this asset and is able to update it
+	pub owner: AccountId,
+}
+
+/// Registration parameters for existing ERC20 tokens
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+pub struct ERC20AssetRegistration {
+	/// The asset name
+	pub name: BoundedVec<u8, ConstU32<20>>,
+	/// The asset symbol
+	pub symbol: BoundedVec<u8, ConstU32<20>>,
+	/// The asset logo
+	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
+	/// Chains to support as well as the current ERC20 address on that chain
+	pub chains: Vec<(StateMachine, Option<H160>)>,
 }
 
 /// Protocol Parameters for the TokenRegistrar contract
@@ -377,7 +399,6 @@ impl TryFrom<AssetMetadata> for SolAssetMetadata {
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
 			symbol: String::from_utf8(value.symbol.as_slice().to_vec())
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
-			erc20: value.erc20.0.into(),
 			..Default::default()
 		};
 

@@ -105,7 +105,10 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// A new asset has been registered
-		AssetRegistered(ERC6160AssetRegistration),
+		AssetRegistered {
+			/// The asset identifier
+			asset_id: H256,
+		},
 		/// A new pending asset has been registered
 		NewPendingAsset {
 			/// The pending asset identifier
@@ -193,19 +196,18 @@ pub mod pallet {
 
 		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
 		///
-		/// Registration fees are paid through the token registrar. The pallet must have
+		/// Registration fees are paid through the TokenRegistrar. The pallet must have
 		/// previously received the asset to be created as a request from a TokenRegistrar otherwise
 		/// this will fail
 		#[pallet::call_index(1)]
 		#[pallet::weight(1_000_000_000)]
 		pub fn create_erc6160_asset_unsigned(
 			origin: OriginFor<T>,
-			asset: ERC6160AssetRegistration,
-			signature: BoundedVec<u8, ConstU32<65>>,
+			registration: UnsignedERC6160AssetRegistration<T::AccountId>,
 		) -> DispatchResult {
 			ensure_none(origin)?;
 
-			Self::register_asset_unsigned(asset, signature)?;
+			Self::register_asset_unsigned(registration)?;
 
 			Ok(())
 		}
@@ -289,7 +291,7 @@ pub mod pallet {
 		/// This allows the asset owner to update their Multi-chain native asset.
 		/// They are allowed to:
 		/// 1. Change the logo
-		/// 2. Dispatch a request to add the asset to any new chains
+		/// 2. Dispatch a request to create the asset to any new chains
 		/// 3. Dispatch a request to delist the asset from the TokenGateway contract on any
 		///    previously supported chain (Should be used with caution)
 		/// 4. Dispatch a request to change the asset admin to another address.
@@ -325,7 +327,19 @@ pub mod pallet {
 			Ok(())
 		}
 
-		// todo: root ERC20 asset registration
+		/// Dispatches a request to update the Asset fees on the provided chain
+		#[pallet::call_index(7)]
+		#[pallet::weight(1_000_000_000)]
+		pub fn create_erc20_asset(
+			origin: OriginFor<T>,
+			asset: ERC20AssetRegistration,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			Self::create_erc20_asset_impl(asset)?;
+
+			Ok(())
+		}
 	}
 
 	/// This allows users to create assets from any chain using the TokenRegistrar.
@@ -343,10 +357,11 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			let (res, asset_id) = match call {
-				Call::create_erc6160_asset_unsigned { asset, signature } => {
-					let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
+				Call::create_erc6160_asset_unsigned { registration } => {
+					let asset_id: H256 =
+						sp_io::hashing::keccak_256(registration.asset.symbol.as_ref()).into();
 
-					(Self::register_asset_unsigned(asset.clone(), signature.clone()), asset_id)
+					(Self::register_asset_unsigned(registration.clone()), asset_id)
 				},
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};

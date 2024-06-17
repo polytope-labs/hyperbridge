@@ -15,19 +15,21 @@
 
 // Pallet Implementations
 
+use frame_support::PalletId;
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
 };
-use sp_core::{ConstU32, H160, H256};
-use sp_runtime::BoundedVec;
+use sp_core::{H160, H256};
+use sp_runtime::traits::AccountIdConversion;
 
 use crate::{
 	AssetFee, AssetFeeUpdate, AssetFees, AssetMetadata, AssetMetadatas, AssetOwners,
-	ChainWithSupply, Config, ERC6160AssetRegistration, ERC6160AssetUpdate, Error, Event, Pallet,
-	Params, PendingAsset, ProtocolParams, SolAssetFeeUpdate, SolAssetFees, SolAssetMetadata,
-	SolChangeAssetAdmin, SolDeregsiterAsset, SolTokenGatewayParams, TokenGatewayParams,
-	TokenGatewayParamsUpdate, TokenGatewayRequest, PALLET_ID,
+	ChainWithSupply, Config, ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate,
+	Error, Event, Pallet, Params, PendingAsset, ProtocolParams, SolAssetFeeUpdate,
+	SolAssetMetadata, SolChangeAssetAdmin, SolDeregsiterAsset, SolTokenGatewayParams,
+	TokenGatewayParams, TokenGatewayParamsUpdate, TokenGatewayRequest,
+	UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
 impl<T: Config> Pallet<T>
@@ -81,7 +83,7 @@ where
 
 		AssetMetadatas::<T>::insert(asset_id, metadata);
 		AssetOwners::<T>::insert(asset_id, who);
-		Self::deposit_event(Event::<T>::AssetRegistered(asset));
+		Self::deposit_event(Event::<T>::AssetRegistered { asset_id });
 
 		Ok(())
 	}
@@ -90,9 +92,9 @@ where
 	/// previously received the asset to be created as a request from a TokenRegistrar otherwise
 	/// this will fail
 	pub fn register_asset_unsigned(
-		asset: ERC6160AssetRegistration,
-		signature: BoundedVec<u8, ConstU32<65>>,
+		registration: UnsignedERC6160AssetRegistration<T::AccountId>,
 	) -> Result<(), Error<T>> {
+		let UnsignedERC6160AssetRegistration { asset, signature, owner } = registration;
 		let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
 
 		let mut sig = [0u8; 65];
@@ -108,9 +110,8 @@ where
 			Err(Error::<T>::NotAssetOwner)?;
 		}
 
-		Self::register_asset(asset, pub_key_hash.into())?;
+		Self::register_asset(asset, owner)?;
 
-		// remove the pending asset
 		PendingAsset::<T>::remove(&asset_id);
 
 		Ok(())
@@ -279,6 +280,55 @@ where
 			)
 			.map_err(|_| Error::<T>::DispatchFailed)?;
 
+		Ok(())
+	}
+
+	/// Dispatches a request to create list an ERC20 asset on TokenGateway
+	pub fn create_erc20_asset_impl(asset: ERC20AssetRegistration) -> Result<(), Error<T>> {
+		let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
+		if AssetOwners::<T>::contains_key(&asset_id) {
+			Err(Error::<T>::AssetAlreadyExists)?
+		}
+		let Params { token_gateway_address, .. } =
+			ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
+
+		let metadata = AssetMetadata {
+			name: asset.name.clone(),
+			symbol: asset.symbol.clone(),
+			logo: asset.logo.clone(),
+			..Default::default()
+		};
+
+		for (chain, erc20_address) in asset.chains {
+			let mut body: SolAssetMetadata =
+				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
+
+			if let Some(erc20_address) = erc20_address {
+				body.erc20 = erc20_address.0.into();
+			}
+
+			let dispatcher = T::Dispatcher::default();
+			dispatcher
+				.dispatch_request(
+					DispatchRequest::Post(DispatchPost {
+						dest: chain.clone(),
+						from: PALLET_ID.to_vec(),
+						to: token_gateway_address.as_bytes().to_vec(),
+						timeout: 0,
+						body: body.encode_request(),
+					}),
+					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+				)
+				.map_err(|_| Error::<T>::DispatchFailed)?;
+			// tracks which chains the asset is deployed on
+			AssetFees::<T>::insert(asset_id, chain, AssetFee::default());
+		}
+
+		AssetMetadatas::<T>::insert(asset_id, metadata);
+
+		let who: T::AccountId = PalletId(PALLET_ID).into_account_truncating();
+		AssetOwners::<T>::insert(asset_id, who);
+		Self::deposit_event(Event::<T>::AssetRegistered { asset_id });
 		Ok(())
 	}
 }

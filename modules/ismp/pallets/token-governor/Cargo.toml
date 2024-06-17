@@ -17,6 +17,7 @@ primitive-types = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 
+log = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
 anyhow = { workspace = true }
@@ -36,6 +37,7 @@ std = [
     "primitive-types/std",
     "ismp/std",
     "pallet-ismp/std",
+    "log/std",
     "scale-info/std",
     "anyhow/std",
     "alloy-primitives/std",

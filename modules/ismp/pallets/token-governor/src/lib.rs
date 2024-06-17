@@ -71,11 +71,14 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type PendingAsset<T: Config> = StorageMap<_, Identity, H256, H160, OptionQuery>;
 
-	/// Mapping of AssetIds and supported chain to their metadata. Can only be updated by the asset
-	/// owner
+	/// Mapping of AssetIds and supported chain to their fees. Can only be updated by root.
 	#[pallet::storage]
-	pub type Assets<T: Config> =
-		StorageDoubleMap<_, Identity, H256, Twox64Concat, StateMachine, AssetMetadata, OptionQuery>;
+	pub type AssetFees<T: Config> =
+		StorageDoubleMap<_, Identity, H256, Twox64Concat, StateMachine, AssetFee, OptionQuery>;
+
+	/// Mapping of AssetId to their metadata
+	#[pallet::storage]
+	pub type AssetMetadatas<T: Config> = StorageMap<_, Identity, H256, AssetMetadata, OptionQuery>;
 
 	/// Mapping of AssetIds to their owners
 	#[pallet::storage]
@@ -91,6 +94,11 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type TokenRegistrarParams<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, RegistrarParams, OptionQuery>;
+
+	/// TokenGateway protocol parameters.
+	#[pallet::storage]
+	pub type TokenGatewayParams<T: Config> =
+		StorageMap<_, Twox64Concat, StateMachine, GatewayParams, OptionQuery>;
 
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
@@ -114,6 +122,15 @@ pub mod pallet {
 			/// The state machine it was updated for
 			state_machine: StateMachine,
 		},
+		/// The TokenGateway params have been updated for a state machine
+		GatewayParamsUpdated {
+			/// The old params
+			old: GatewayParams,
+			/// The new params
+			new: GatewayParams,
+			/// The state machine it was updated for
+			state_machine: StateMachine,
+		},
 		/// The TokenGovernor parameters have been updated
 		ParamsUpdated {
 			/// The old parameters
@@ -134,6 +151,12 @@ pub mod pallet {
 		DispatchFailed,
 		/// Provided name or symbol isn't valid utf-8
 		InvalidUtf8,
+		/// Provided asset identifier was unknown
+		UnknownAsset,
+		/// The account signer is not authorized to perform this action
+		NotAssetOwner,
+		/// Provided signature was invalid
+		InvalidSignature,
 	}
 
 	#[pallet::call]
@@ -148,16 +171,13 @@ pub mod pallet {
 		/// to create the asset.
 		#[pallet::call_index(0)]
 		#[pallet::weight(1_000_000_000)]
-		pub fn register_erc6160_asset(
+		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: ERC6160AssetRegistration,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
-			let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
-			ensure!(!AssetOwners::<T>::contains_key(&asset_id), Error::<T>::AssetAlreadyExists);
-
-			let Params { registration_fee, token_gateway_address, .. } =
+			let Params { registration_fee, .. } =
 				ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
 			T::Currency::transfer(
 				&who,
@@ -166,48 +186,32 @@ pub mod pallet {
 				Preservation::Preserve,
 			)?;
 
-			for ChainWithSupply { chain, supply } in asset.chains.clone() {
-				let metadata = AssetMetadata {
-					name: asset.name.clone(),
-					symbol: asset.symbol.clone(),
-					logo: asset.logo.clone(),
-					..Default::default()
-				};
-				Assets::<T>::insert(asset_id, chain, metadata.clone());
-
-				let mut body: SolAssetMetadata =
-					metadata.try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
-
-				if let Some(supply) = supply {
-					body.beneficiary = supply.beneficiary.0.into();
-					body.initialSupply =
-						alloy_primitives::U256::from_limbs(supply.initial_supply.0);
-				}
-
-				let dispatcher = T::Dispatcher::default();
-				dispatcher
-					.dispatch_request(
-						DispatchRequest::Post(DispatchPost {
-							dest: chain,
-							from: PALLET_ID.to_vec(),
-							to: token_gateway_address.as_bytes().to_vec(),
-							timeout: 0,
-							body: body.encode(),
-						}),
-						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-					)
-					.map_err(|_| Error::<T>::DispatchFailed)?;
-			}
-
-			AssetOwners::<T>::insert(asset_id, who);
-
-			Self::deposit_event(Event::<T>::AssetRegistered(asset));
+			Self::register_asset(asset, who)?;
 
 			Ok(())
 		}
 
-		/// Updates the TokenGovernror pallet parameters.
+		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
+		///
+		/// Registration fees are paid through the token registrar. The pallet must have
+		/// previously received the asset to be created as a request from a TokenRegistrar otherwise
+		/// this will fail
 		#[pallet::call_index(1)]
+		#[pallet::weight(1_000_000_000)]
+		pub fn create_erc6160_asset_unsigned(
+			origin: OriginFor<T>,
+			asset: ERC6160AssetRegistration,
+			signature: BoundedVec<u8, ConstU32<65>>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			Self::register_asset_unsigned(asset, signature)?;
+
+			Ok(())
+		}
+
+		/// Dispatches a request to update the TokenRegistrar contract parameters
+		#[pallet::call_index(2)]
 		#[pallet::weight(1_000_000_000)]
 		pub fn update_registrar_params(
 			origin: OriginFor<T>,
@@ -249,7 +253,23 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::call_index(2)]
+		/// Dispatches a request to update the TokenRegistrar contract parameters
+		#[pallet::call_index(3)]
+		#[pallet::weight(1_000_000_000)]
+		pub fn update_gateway_params(
+			origin: OriginFor<T>,
+			update: TokenGatewayParamsUpdate,
+			state_machine: StateMachine,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			Self::update_gateway_params_impl(update, state_machine)?;
+
+			Ok(())
+		}
+
+		/// Updates the TokenGovernor pallet parameters.
+		#[pallet::call_index(4)]
 		#[pallet::weight(1_000_000_000)]
 		pub fn update_params(
 			origin: OriginFor<T>,
@@ -266,15 +286,46 @@ pub mod pallet {
 			Ok(())
 		}
 
-		// todo: unsigned extrinsic
+		/// This allows the asset owner to update their Multi-chain native asset.
+		/// They are allowed to:
+		/// 1. Change the logo
+		/// 2. Dispatch a request to add the asset to any new chains
+		/// 3. Dispatch a request to delist the asset from the TokenGateway contract on any
+		///    previously supported chain (Should be used with caution)
+		/// 4. Dispatch a request to change the asset admin to another address.
+		#[pallet::call_index(5)]
+		#[pallet::weight(1_000_000_000)]
+		pub fn update_erc6160_asset(
+			origin: OriginFor<T>,
+			update: ERC6160AssetUpdate,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let owner =
+				AssetOwners::<T>::get(&update.asset_id).ok_or_else(|| Error::<T>::UnknownAsset)?;
+
+			ensure!(who == owner, Error::<T>::NotAssetOwner);
+
+			Self::update_erc6160_asset_impl(update)?;
+
+			Ok(())
+		}
+
+		/// Dispatches a request to update the Asset fees on the provided chain
+		#[pallet::call_index(6)]
+		#[pallet::weight(1_000_000_000)]
+		pub fn update_asset_fees(
+			origin: OriginFor<T>,
+			update: AssetFeeUpdate,
+			state_machine: StateMachine,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			Self::update_asset_fees_impl(update, state_machine)?;
+
+			Ok(())
+		}
 
 		// todo: root ERC20 asset registration
-
-		// todo: updates to mult-chain asset
-
-		// 1. asset owner: token logo, supported chains, changeAdmins, deregister
-
-		// 2. root:  update erc20 asset fees
 	}
 
 	/// This allows users to create assets from any chain using the TokenRegistrar.
@@ -290,18 +341,28 @@ pub mod pallet {
 			Ok(())
 		}
 
-		fn validate_unsigned(
-			_source: TransactionSource,
-			_call: &Self::Call,
-		) -> TransactionValidity {
-			// validate unsigned tx
+		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			let (res, asset_id) = match call {
+				Call::create_erc6160_asset_unsigned { asset, signature } => {
+					let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
+
+					(Self::register_asset_unsigned(asset.clone(), signature.clone()), asset_id)
+				},
+				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
+			};
+
+			if let Err(err) = res {
+				log::error!(target: "ismp", "TokenGovernor Validation error {err:?}");
+				Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?
+			}
+
 			Ok(ValidTransaction {
 				// they should all have the same priority so they can be rejected
-				priority: 100,
+				priority: 1,
 				// they are all self-contained batches that have no dependencies
 				requires: vec![],
 				// provides this unique hash of transactions
-				provides: vec![], // use asset_id here
+				provides: vec![asset_id.0.to_vec()],
 				// should only live for at most 10 blocks
 				longevity: 25,
 				// always propagate

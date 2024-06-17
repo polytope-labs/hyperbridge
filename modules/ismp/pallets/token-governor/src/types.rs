@@ -25,38 +25,25 @@ use primitive_types::{H160, H256, U256};
 const MEGABYTE: u32 = 1024;
 
 /// Holds metadata relevant to a multi-chain native asset
-#[derive(
-	Debug,
-	Clone,
-	Encode,
-	Decode,
-	scale_info::TypeInfo,
-	PartialEq,
-	Hash,
-	Eq,
-	codec::MaxEncodedLen,
-	Default,
-)]
-pub struct AssetFees {
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+pub struct AssetFee {
 	/// Associated fee percentage for liquidity providers
 	pub relayer_fee: U256,
 	/// Associated fee percentage for the gateway protocol
 	pub protocol_fee: U256,
 }
 
+/// Struct for updating the asset fees on a specific chain
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+pub struct AssetFeesUpdate {
+	/// Associated fee percentage for liquidity providers
+	pub relayer_fee: Option<U256>,
+	/// Associated fee percentage for the gateway protocol
+	pub protocol_fee: Option<U256>,
+}
+
 /// Holds metadata relevant to a multi-chain native asset
-#[derive(
-	Debug,
-	Clone,
-	Encode,
-	Decode,
-	scale_info::TypeInfo,
-	PartialEq,
-	Hash,
-	Eq,
-	codec::MaxEncodedLen,
-	Default,
-)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
 pub struct AssetMetadata {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<20>>,
@@ -64,8 +51,8 @@ pub struct AssetMetadata {
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The asset logo
 	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
-	/// Associated protocol fees
-	pub fees: AssetFees,
+	/// The associated ERC20 asset contract address
+	pub erc20: H160,
 }
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
@@ -74,13 +61,13 @@ pub struct ERC6160AssetUpdate {
 	/// The asset identifier
 	pub asset_id: H256,
 	/// The asset logo
-	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
+	pub logo: Option<BoundedVec<u8, ConstU32<MEGABYTE>>>,
 	/// Chains to add support for the asset on
-	pub add_chains: BoundedVec<StateMachine, ConstU32<100>>,
+	pub add_chains: BoundedVec<ChainWithSupply, ConstU32<100>>,
 	/// Chains to delist the asset from
 	pub remove_chains: BoundedVec<StateMachine, ConstU32<100>>,
 	/// Chains to change the asset admin on
-	pub new_admin: BoundedVec<(StateMachine, H160), ConstU32<100>>,
+	pub new_admins: BoundedVec<(StateMachine, H160), ConstU32<100>>,
 }
 
 /// Initial supply options on a per-chain basis
@@ -137,7 +124,7 @@ pub struct ERC6160AssetRegistration {
 	pub chains: Vec<ChainWithSupply>,
 }
 
-/// Protocol Parameters for the TokenRegistrar
+/// Protocol Parameters for the TokenRegistrar contract
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
 pub struct RegistrarParams {
 	// The ERC20 contract address for the wrapped version of the local native token
@@ -161,6 +148,53 @@ pub struct RegistrarParamsUpdate {
 	pub uniswap_v2: Option<H160>,
 	// registration base fee
 	pub base_fee: Option<U256>,
+}
+
+/// Protocol Parameters for the TokenGateway contract
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+pub struct GatewayParams {
+	/// The Ismp host address
+	pub host: H160,
+	// Local UniswapV2 contract address
+	pub uniswap_v2: H160,
+	/// Contract for dispatching calls in `AssetWithCall`
+	pub call_dispatcher: H160,
+}
+
+/// Struct for updating the protocol parameters for a TokenGateway
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+pub struct TokenGatewayParamsUpdate {
+	/// The Ismp host address
+	pub host: Option<H160>,
+	// Local UniswapV2 contract address
+	pub uniswap_v2: Option<H160>,
+	/// Contract for dispatching calls in `AssetWithCall`
+	pub call_dispatcher: Option<H160>,
+}
+
+/// Struct for updating the associated fees for an asset
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+pub struct AssetFeeUpdate {
+	/// Asset to update
+	pub asset_id: H256,
+	/// Updated fees
+	pub fee_update: AssetFeesUpdate,
+}
+
+impl AssetFee {
+	pub fn update(&self, update: AssetFeesUpdate) -> AssetFee {
+		let mut fees = self.clone();
+
+		if let Some(protocol_fee) = update.protocol_fee {
+			fees.protocol_fee = protocol_fee;
+		}
+
+		if let Some(relayer_fee) = update.relayer_fee {
+			fees.relayer_fee = relayer_fee;
+		}
+
+		fees
+	}
 }
 
 impl<B: Clone> Params<B> {
@@ -200,6 +234,27 @@ impl RegistrarParams {
 
 		if let Some(base_fee) = update.base_fee {
 			params.base_fee = base_fee;
+		}
+
+		params
+	}
+}
+
+impl GatewayParams {
+	/// Convenience method for updating protocol params
+	pub fn update(&self, update: TokenGatewayParamsUpdate) -> GatewayParams {
+		let mut params = self.clone();
+
+		if let Some(host) = update.host {
+			params.host = host;
+		}
+
+		if let Some(uniswap_v2) = update.uniswap_v2 {
+			params.uniswap_v2 = uniswap_v2;
+		}
+
+		if let Some(call_dispatcher) = update.call_dispatcher {
+			params.call_dispatcher = call_dispatcher;
 		}
 
 		params
@@ -252,6 +307,45 @@ alloy_sol_macro::sol! {
 		// registration base fee
 		uint256 baseFee;
 	}
+
+	struct SolDeregsiterAsset {
+	   // List of assets to deregister
+		bytes32[] assetIds;
+	}
+
+
+	struct SolAssetFeeUpdate {
+		// The asset whose fee to be updated
+		bytes32 assetId;
+		// Associated fees for this asset
+		SolAssetFees fees;
+	}
+
+	struct SolChangeAssetAdmin {
+		// Address of the asset
+		bytes32 assetId;
+		// The address of the new admin
+		address newAdmin;
+	}
+
+	struct SolTokenGatewayParams {
+		// address of the IsmpHost contract on this chain
+		address host;
+		// local uniswap router
+		address uniswapV2;
+		// dispatcher for delegating external calls
+		address dispatcher;
+	}
+}
+
+impl From<GatewayParams> for SolTokenGatewayParams {
+	fn from(value: GatewayParams) -> Self {
+		SolTokenGatewayParams {
+			host: value.host.0.into(),
+			uniswapV2: value.uniswap_v2.0.into(),
+			dispatcher: value.call_dispatcher.0.into(),
+		}
+	}
 }
 
 impl From<RegistrarParams> for SolRegistrarParams {
@@ -265,8 +359,8 @@ impl From<RegistrarParams> for SolRegistrarParams {
 	}
 }
 
-impl From<AssetFees> for SolAssetFees {
-	fn from(value: AssetFees) -> Self {
+impl From<AssetFee> for SolAssetFees {
+	fn from(value: AssetFee) -> Self {
 		SolAssetFees {
 			protocolFee: alloy_primitives::U256::from_limbs(value.protocol_fee.0),
 			relayerFee: alloy_primitives::U256::from_limbs(value.relayer_fee.0),
@@ -283,7 +377,7 @@ impl TryFrom<AssetMetadata> for SolAssetMetadata {
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
 			symbol: String::from_utf8(value.symbol.as_slice().to_vec())
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
-			fees: value.fees.into(),
+			erc20: value.erc20.0.into(),
 			..Default::default()
 		};
 
@@ -291,13 +385,64 @@ impl TryFrom<AssetMetadata> for SolAssetMetadata {
 	}
 }
 
-impl SolAssetMetadata {
+/// Provides a way to encode the request body intended for the `TokenGateway` contract
+pub trait TokenGatewayRequest {
+	/// Should encode a request to be processed by the `TokenGateway` contract
+	fn encode_request(&self) -> Vec<u8>;
+}
+
+impl TokenGatewayRequest for SolTokenGatewayParams {
 	/// Encodes the SetAsste alongside the enum variant for the TokenGateway request
-	pub fn encode(&self) -> Vec<u8> {
+	fn encode_request(&self) -> Vec<u8> {
+		use alloy_sol_types::SolType;
+
+		let variant = vec![1u8]; // enum variant on token gateway
+		let encoded = SolTokenGatewayParams::abi_encode(self);
+
+		[variant, encoded].concat()
+	}
+}
+
+impl TokenGatewayRequest for SolAssetMetadata {
+	/// Encodes the SetAsste alongside the enum variant for the TokenGateway request
+	fn encode_request(&self) -> Vec<u8> {
 		use alloy_sol_types::SolType;
 
 		let variant = vec![2u8]; // enum variant on token gateway
 		let encoded = SolAssetMetadata::abi_encode(self);
+
+		[variant, encoded].concat()
+	}
+}
+
+impl TokenGatewayRequest for SolAssetFeeUpdate {
+	fn encode_request(&self) -> Vec<u8> {
+		use alloy_sol_types::SolType;
+
+		let variant = vec![3u8]; // enum variant on token gateway
+		let encoded = SolAssetFeeUpdate::abi_encode(self);
+
+		[variant, encoded].concat()
+	}
+}
+
+impl TokenGatewayRequest for SolDeregsiterAsset {
+	fn encode_request(&self) -> Vec<u8> {
+		use alloy_sol_types::SolType;
+
+		let variant = vec![4u8]; // enum variant on token gateway
+		let encoded = SolDeregsiterAsset::abi_encode(self);
+
+		[variant, encoded].concat()
+	}
+}
+
+impl TokenGatewayRequest for SolChangeAssetAdmin {
+	fn encode_request(&self) -> Vec<u8> {
+		use alloy_sol_types::SolType;
+
+		let variant = vec![5u8]; // enum variant on token gateway
+		let encoded = SolChangeAssetAdmin::abi_encode(self);
 
 		[variant, encoded].concat()
 	}

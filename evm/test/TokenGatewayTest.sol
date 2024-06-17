@@ -31,6 +31,7 @@ import {
     TokenGatewayParamsExt,
     CallDispatcherParams,
     TokenGateway,
+    DeregsiterAsset,
     AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
@@ -317,7 +318,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"04", abi.encode(assets)),
+                    body: bytes.concat(hex"04", abi.encode(DeregsiterAsset({assetIds: assets}))),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0

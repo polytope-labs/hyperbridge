@@ -116,12 +116,7 @@ contract BaseTest is Test {
 
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({
-                    host: address(host),
-                    uniswapV2: address(1),
-                    dispatcher: address(dispatcher),
-                    erc20NativeToken: address(0)
-                }),
+                params: TokenGatewayParams({host: address(host), uniswapV2: address(1), dispatcher: address(dispatcher)}),
                 assets: assets
             })
         );

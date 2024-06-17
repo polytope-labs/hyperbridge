@@ -156,12 +156,7 @@ contract DeployScript is Script {
         // initialize gateway
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({
-                    host: hostAddress,
-                    uniswapV2: address(1),
-                    dispatcher: dispatcher,
-                    erc20NativeToken: address(0)
-                }),
+                params: TokenGatewayParams({host: hostAddress, uniswapV2: address(1), dispatcher: dispatcher}),
                 assets: assets
             })
         );

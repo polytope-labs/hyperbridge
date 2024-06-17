@@ -129,6 +129,7 @@ struct AssetMetadata {
 }
 
 struct AssetFeeUpdate {
+    // The asset whose fee to be updated
     bytes32 assetId;
     // Associated fees for this asset
     AssetFees fees;
@@ -139,6 +140,11 @@ struct ChangeAssetAdmin {
     bytes32 assetId;
     // The address of the new admin
     address newAdmin;
+}
+
+struct DeregsiterAsset {
+    // List of assets to deregister
+    bytes32[] assetIds;
 }
 
 struct AssetFees {
@@ -158,8 +164,6 @@ struct TokenGatewayParams {
     address uniswapV2;
     // dispatcher for delegating external calls
     address dispatcher;
-    // Wrapped ERC20 contract address for native token
-    address erc20NativeToken;
 }
 
 // The TokenGateway allows users send either ERC20 or ERC6160 tokens
@@ -483,12 +487,12 @@ contract TokenGateway is BaseIsmpModule {
     function deregisterAssets(PostRequest calldata request) private {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        bytes32[] memory identifiers = abi.decode(request.body[1:], (bytes32[]));
-        uint256 length = identifiers.length;
+        DeregsiterAsset memory deregister = abi.decode(request.body[1:], (DeregsiterAsset));
+        uint256 length = deregister.assetIds.length;
         for (uint256 i = 0; i < length; ++i) {
-            delete _erc20s[identifiers[i]];
-            delete _erc6160s[identifiers[i]];
-            delete _fees[identifiers[i]];
+            delete _erc20s[deregister.assetIds[i]];
+            delete _erc6160s[deregister.assetIds[i]];
+            delete _fees[deregister.assetIds[i]];
         }
     }
 

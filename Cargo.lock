@@ -11701,6 +11701,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "ismp",
+ "log",
  "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",

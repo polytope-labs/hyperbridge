@@ -405,11 +405,10 @@ where
 		)?;
 		let mut total_fee = hashbrown::HashMap::<Vec<u8>, U256>::new();
 		for (address, fee) in result.clone().into_iter() {
-			let _ = Fees::<T>::try_mutate(state_machine, address.clone(), |inner| {
-				*inner += fee;
+			Fees::<T>::mutate(state_machine, address.clone(), |inner| {
+				*inner = inner.saturating_add(fee);
 				let inner_fee = total_fee.entry(address).or_insert(U256::zero());
-				*inner_fee += fee;
-				Ok::<(), ()>(())
+				*inner_fee = inner_fee.saturating_add(fee);
 			});
 		}
 

@@ -1,0 +1,434 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! The token governor handles asset registration as well as tracks the metadata of multi-chain
+//! native tokens across all connected chains
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+mod impls;
+mod types;
+use alloy_sol_types::SolValue;
+use frame_support::pallet_prelude::Weight;
+use ismp::router::{Post, Response, Timeout};
+pub use types::*;
+
+use ismp::module::IsmpModule;
+use primitive_types::{H160, H256};
+
+// Re-export pallet items so that they can be accessed from the crate namespace.
+pub use pallet::*;
+
+/// The module id for this pallet
+pub const PALLET_ID: [u8; 8] = *b"registry";
+
+#[frame_support::pallet]
+pub mod pallet {
+	use super::*;
+	use frame_support::{
+		pallet_prelude::*,
+		traits::{fungible::Mutate, tokens::Preservation},
+		PalletId,
+	};
+	use frame_system::pallet_prelude::*;
+	use ismp::{
+		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
+		host::StateMachine,
+	};
+	use sp_runtime::traits::AccountIdConversion;
+
+	#[pallet::pallet]
+	#[pallet::without_storage_info]
+	pub struct Pallet<T>(_);
+
+	/// The pallet's configuration trait.
+	#[pallet::config]
+	pub trait Config: frame_system::Config + pallet_ismp::Config {
+		/// The overarching runtime event type.
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+		/// The [`IsmpDispatcher`] for dispatching cross-chain requests
+		type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
+
+		/// The account id for the treasury
+		type TreasuryAccount: Get<PalletId>;
+	}
+
+	/// Maps a pending asset to it's owner. Enables asset registration without the native token by
+	/// prviding a single-use execution ticket for asset creation through an unsigned transaction.
+	#[pallet::storage]
+	pub type PendingAsset<T: Config> = StorageMap<_, Identity, H256, H160, OptionQuery>;
+
+	/// Mapping of AssetIds and supported chain to their fees. Can only be updated by root.
+	#[pallet::storage]
+	pub type AssetFees<T: Config> =
+		StorageDoubleMap<_, Identity, H256, Twox64Concat, StateMachine, AssetFee, OptionQuery>;
+
+	/// Mapping of AssetId to their metadata
+	#[pallet::storage]
+	pub type AssetMetadatas<T: Config> = StorageMap<_, Identity, H256, AssetMetadata, OptionQuery>;
+
+	/// Mapping of AssetIds to their owners
+	#[pallet::storage]
+	pub type AssetOwners<T: Config> =
+		StorageMap<_, Identity, H256, <T as frame_system::Config>::AccountId, OptionQuery>;
+
+	/// TokenGovernor protocol parameters.
+	#[pallet::storage]
+	pub type ProtocolParams<T: Config> =
+		StorageValue<_, Params<<T as pallet_ismp::Config>::Balance>, OptionQuery>;
+
+	/// TokenRegistrar protocol parameters.
+	#[pallet::storage]
+	pub type TokenRegistrarParams<T: Config> =
+		StorageMap<_, Twox64Concat, StateMachine, RegistrarParams, OptionQuery>;
+
+	/// TokenGateway protocol parameters.
+	#[pallet::storage]
+	pub type TokenGatewayParams<T: Config> =
+		StorageMap<_, Twox64Concat, StateMachine, GatewayParams, OptionQuery>;
+
+	/// Pallet events that functions in this pallet can emit.
+	#[pallet::event]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	pub enum Event<T: Config> {
+		/// A new asset has been registered
+		AssetRegistered {
+			/// The asset identifier
+			asset_id: H256,
+		},
+		/// A new pending asset has been registered
+		NewPendingAsset {
+			/// The pending asset identifier
+			asset_id: H256,
+			/// Owner of the asset
+			owner: H160,
+		},
+		/// The TokenRegistrar params have been updated for a state machine
+		RegistrarParamsUpdated {
+			/// The old params
+			old: RegistrarParams,
+			/// The new params
+			new: RegistrarParams,
+			/// The state machine it was updated for
+			state_machine: StateMachine,
+		},
+		/// The TokenGateway params have been updated for a state machine
+		GatewayParamsUpdated {
+			/// The old params
+			old: GatewayParams,
+			/// The new params
+			new: GatewayParams,
+			/// The state machine it was updated for
+			state_machine: StateMachine,
+		},
+		/// The TokenGovernor parameters have been updated
+		ParamsUpdated {
+			/// The old parameters
+			old: Params<<T as pallet_ismp::Config>::Balance>,
+			/// The new parameters
+			new: Params<<T as pallet_ismp::Config>::Balance>,
+		},
+	}
+
+	/// Errors that can be returned by this pallet.
+	#[pallet::error]
+	pub enum Error<T> {
+		/// An asset with the same identifier already exists
+		AssetAlreadyExists,
+		/// The pallet has not yet been initialized
+		NotInitialized,
+		/// Failed to dispatch a request
+		DispatchFailed,
+		/// Provided name or symbol isn't valid utf-8
+		InvalidUtf8,
+		/// Provided asset identifier was unknown
+		UnknownAsset,
+		/// The account signer is not authorized to perform this action
+		NotAssetOwner,
+		/// Provided signature was invalid
+		InvalidSignature,
+	}
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T>
+	where
+		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+		<T as pallet_ismp::Config>::Balance: Default,
+	{
+		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
+		///
+		/// This works by dispatching a request to the TokenGateway module on each requested chain
+		/// to create the asset.
+		#[pallet::call_index(0)]
+		#[pallet::weight(weight())]
+		pub fn create_erc6160_asset(
+			origin: OriginFor<T>,
+			asset: ERC6160AssetRegistration,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			let Params { registration_fee, .. } =
+				ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
+			T::Currency::transfer(
+				&who,
+				&T::TreasuryAccount::get().into_account_truncating(),
+				registration_fee,
+				Preservation::Preserve,
+			)?;
+
+			Self::register_asset(asset, who)?;
+
+			Ok(())
+		}
+
+		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
+		///
+		/// Registration fees are paid through the TokenRegistrar. The pallet must have
+		/// previously received the asset to be created as a request from a TokenRegistrar otherwise
+		/// this will fail
+		#[pallet::call_index(1)]
+		#[pallet::weight(weight())]
+		pub fn create_erc6160_asset_unsigned(
+			origin: OriginFor<T>,
+			registration: UnsignedERC6160AssetRegistration<T::AccountId>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			Self::register_asset_unsigned(registration)?;
+
+			Ok(())
+		}
+
+		/// Dispatches a request to update the TokenRegistrar contract parameters
+		#[pallet::call_index(2)]
+		#[pallet::weight(weight())]
+		pub fn update_registrar_params(
+			origin: OriginFor<T>,
+			update: RegistrarParamsUpdate,
+			state_machine: StateMachine,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+			let stored_params = TokenRegistrarParams::<T>::get(&state_machine);
+			let old_params = stored_params.clone().unwrap_or_default();
+			let new_params = old_params.update(update);
+
+			TokenRegistrarParams::<T>::insert(state_machine.clone(), new_params.clone());
+
+			// if the params already exists then we dispatch a request to update it
+			if let Some(_) = stored_params {
+				let Params { token_registrar_address, .. } =
+					ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
+				let dispatcher = T::Dispatcher::default();
+				dispatcher
+					.dispatch_request(
+						DispatchRequest::Post(DispatchPost {
+							dest: state_machine.clone(),
+							from: PALLET_ID.to_vec(),
+							to: token_registrar_address.as_bytes().to_vec(),
+							timeout: 0,
+							body: SolRegistrarParams::from(new_params.clone()).abi_encode(),
+						}),
+						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+					)
+					.map_err(|_| Error::<T>::DispatchFailed)?;
+			}
+
+			Self::deposit_event(Event::<T>::RegistrarParamsUpdated {
+				old: old_params,
+				new: new_params,
+				state_machine,
+			});
+
+			Ok(())
+		}
+
+		/// Dispatches a request to update the TokenRegistrar contract parameters
+		#[pallet::call_index(3)]
+		#[pallet::weight(weight())]
+		pub fn update_gateway_params(
+			origin: OriginFor<T>,
+			update: TokenGatewayParamsUpdate,
+			state_machine: StateMachine,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+
+			Self::update_gateway_params_impl(update, state_machine)?;
+
+			Ok(())
+		}
+
+		/// Updates the TokenGovernor pallet parameters.
+		#[pallet::call_index(4)]
+		#[pallet::weight(weight())]
+		pub fn update_params(
+			origin: OriginFor<T>,
+			update: ParamsUpdate<<T as pallet_ismp::Config>::Balance>,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+			let stored_params = ProtocolParams::<T>::get();
+
+			let old_params = stored_params.unwrap_or_default();
+			let new_params = old_params.update(update);
+
+			ProtocolParams::<T>::set(Some(new_params));
+
+			Ok(())
+		}
+
+		/// This allows the asset owner to update their Multi-chain native asset.
+		/// They are allowed to:
+		/// 1. Change the logo
+		/// 2. Dispatch a request to create the asset to any new chains
+		/// 3. Dispatch a request to delist the asset from the TokenGateway contract on any
+		///    previously supported chain (Should be used with caution)
+		/// 4. Dispatch a request to change the asset admin to another address.
+		#[pallet::call_index(5)]
+		#[pallet::weight(weight())]
+		pub fn update_erc6160_asset(
+			origin: OriginFor<T>,
+			update: ERC6160AssetUpdate,
+		) -> DispatchResult {
+			Self::ensure_root_or_owner(origin, update.asset_id)?;
+
+			Self::update_erc6160_asset_impl(update)?;
+
+			Ok(())
+		}
+
+		/// Dispatches a request to update the Asset fees on the provided chain
+		#[pallet::call_index(6)]
+		#[pallet::weight(weight())]
+		pub fn update_asset_fees(
+			origin: OriginFor<T>,
+			update: AssetFeeUpdate,
+			state_machine: StateMachine,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+
+			Self::update_asset_fees_impl(update, state_machine)?;
+
+			Ok(())
+		}
+
+		/// Dispatches a request to update the Asset fees on the provided chain
+		#[pallet::call_index(7)]
+		#[pallet::weight(weight())]
+		pub fn create_erc20_asset(
+			origin: OriginFor<T>,
+			asset: ERC20AssetRegistration,
+		) -> DispatchResult {
+			ensure_root(origin)?;
+
+			Self::create_erc20_asset_impl(asset)?;
+
+			Ok(())
+		}
+	}
+
+	/// This allows users to create assets from any chain using the TokenRegistrar.
+	#[pallet::validate_unsigned]
+	impl<T: Config> ValidateUnsigned for Pallet<T>
+	where
+		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+	{
+		type Call = Call<T>;
+
+		// empty pre-dispatch do we don't modify storage
+		fn pre_dispatch(_call: &Self::Call) -> Result<(), TransactionValidityError> {
+			Ok(())
+		}
+
+		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			let (res, asset_id) = match call {
+				Call::create_erc6160_asset_unsigned { registration } => {
+					let asset_id: H256 =
+						sp_io::hashing::keccak_256(registration.asset.symbol.as_ref()).into();
+
+					(Self::register_asset_unsigned(registration.clone()), asset_id)
+				},
+				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
+			};
+
+			if let Err(err) = res {
+				log::error!(target: "ismp", "TokenGovernor Validation error {err:?}");
+				Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?
+			}
+
+			Ok(ValidTransaction {
+				// they should all have the same priority so they can be rejected
+				priority: 1,
+				// they are all self-contained batches that have no dependencies
+				requires: vec![],
+				// provides this unique hash of transactions
+				provides: vec![asset_id.0.to_vec()],
+				// should only live for at most 10 blocks
+				longevity: 25,
+				// always propagate
+				propagate: true,
+			})
+		}
+	}
+
+	// Hack for implementing the [`Default`] bound needed for
+	// [`IsmpDispatcher`](ismp::dispatcher::IsmpDispatcher) and
+	// [`IsmpModule`](ismp::module::IsmpModule)
+	impl<T> Default for Pallet<T> {
+		fn default() -> Self {
+			Self(PhantomData)
+		}
+	}
+}
+
+impl<T: Config> IsmpModule for Pallet<T> {
+	fn on_accept(&self, Post { data, from, .. }: Post) -> Result<(), ismp::error::Error> {
+		let Params { token_registrar_address, .. } = ProtocolParams::<T>::get()
+			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
+		if from != token_registrar_address.as_bytes().to_vec() {
+			Err(ismp::error::Error::Custom(format!("Unauthorized action")))?
+		}
+		let body = SolRequestBody::abi_decode(&data[..], true)
+			.map_err(|err| ismp::error::Error::Custom(format!("Decode error: {err}")))?;
+		let asset_id: H256 = body.assetId.0.into();
+		let owner: H160 = body.owner.0 .0.into();
+
+		// asset must not already exist
+		if AssetOwners::<T>::contains_key(&asset_id) || PendingAsset::<T>::contains_key(&asset_id) {
+			Err(ismp::error::Error::Custom(format!("Asset already exists")))?
+		}
+
+		PendingAsset::<T>::insert(asset_id, owner);
+
+		Self::deposit_event(Event::<T>::NewPendingAsset { asset_id, owner });
+
+		Ok(())
+	}
+
+	fn on_response(&self, _response: Response) -> Result<(), ismp::error::Error> {
+		Err(ismp::error::Error::Custom(format!("Module does not expect responses")))
+	}
+
+	fn on_timeout(&self, _request: Timeout) -> Result<(), ismp::error::Error> {
+		// The request lives forever, it's not exactly time-sensitive.
+		// There are no refunds for asset registration fees
+		Err(ismp::error::Error::Custom(format!("Module does not expect timeouts")))
+	}
+}
+
+/// Static weights because benchmarks suck, and we'll be getting PolkaVM soon anyways
+fn weight() -> Weight {
+	Weight::from_parts(300_000_000, 0)
+}

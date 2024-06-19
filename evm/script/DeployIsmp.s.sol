@@ -17,7 +17,12 @@ import "../src/hosts/Base.sol";
 
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {
-    TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetFees
+    TokenGateway,
+    Asset,
+    TokenGatewayParamsExt,
+    TokenGatewayParams,
+    AssetFees,
+    AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 
@@ -134,11 +139,14 @@ contract DeployScript is Script {
         TokenFaucet faucet = new TokenFaucet{salt: salt}(address(feeToken));
         feeToken.grantRole(MINTER_ROLE, address(faucet));
 
-        Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({
-            identifier: keccak256("USD.h"),
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        assets[0] = AssetMetadata({
             erc20: address(0),
             erc6160: address(feeToken),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3

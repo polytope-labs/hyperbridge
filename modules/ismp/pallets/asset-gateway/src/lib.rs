@@ -53,15 +53,18 @@ pub mod xcm_utilities;
 pub mod pallet {
 	use alloc::vec;
 
+	use super::*;
 	use frame_support::{pallet_prelude::*, traits::fungibles, PalletId};
 	use frame_system::pallet_prelude::OriginFor;
+	use pallet_ismp::ModuleId;
 	use sp_runtime::Percent;
-
-	use super::*;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
+
+	/// ISMP module identifier
+	pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"assetgtw"));
 
 	/// The config trait
 	#[pallet::config]

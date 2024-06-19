@@ -6,7 +6,12 @@ import "openzeppelin/utils/Strings.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 
 import {
-    TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetFees
+    TokenGateway,
+    Asset,
+    TokenGatewayParamsExt,
+    TokenGatewayParams,
+    AssetFees,
+    AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {PingModule} from "../examples/PingModule.sol";
@@ -57,7 +62,7 @@ contract DeployScript is Script {
     }
 
     function deployGateway(address host, address admin, address uniRouter, address callDispatcher) public {
-        uint256 paraId = vm.envUint("PARA_ID");
+        uint256 _paraId = vm.envUint("PARA_ID");
 
         ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge USD", "USD.h");
         feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18);
@@ -70,11 +75,14 @@ contract DeployScript is Script {
         feeToken.grantRole(MINTER_ROLE, address(gateway));
         feeToken.grantRole(BURNER_ROLE, address(gateway));
 
-        Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({
-            identifier: keccak256("USD.h"),
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        assets[0] = AssetMetadata({
             erc20: address(0),
             erc6160: address(feeToken),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3

@@ -23,8 +23,14 @@ import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
+import {TokenRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
 import {
-    TokenGateway, Asset, TokenGatewayParams, TokenGatewayParamsExt, AssetFees
+    TokenGateway,
+    Asset,
+    TokenGatewayParams,
+    TokenGatewayParamsExt,
+    AssetFees,
+    AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
@@ -50,6 +56,7 @@ contract MainnetForkBaseTest is Test {
     IERC20 internal dai;
     IERC20 internal feeToken;
     IUniswapV2Router internal _uniswapV2Router;
+    TokenRegistrar internal _registrar;
 
     uint256 internal mainnetFork;
 
@@ -87,7 +94,7 @@ contract MainnetForkBaseTest is Test {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            perByteFee: 1000000000000000000, // 1FTK
+            perByteFee: 3 * 1e15, // $0.003/byte
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
             stateMachineWhitelist: stateMachineWhitelist
@@ -99,11 +106,14 @@ contract MainnetForkBaseTest is Test {
         testModule.setIsmpHost(address(host));
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
-        Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({
-            identifier: keccak256("USD.h"),
+        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        assets[0] = AssetMetadata({
             erc20: address(feeToken),
             erc6160: address(0),
+            name: "Hyperbridge USD",
+            symbol: "USD.h",
+            beneficiary: address(0),
+            initialSupply: 0,
             fees: AssetFees({
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300 // 0.3
@@ -118,6 +128,16 @@ contract MainnetForkBaseTest is Test {
                     dispatcher: address(dispatcher)
                 }),
                 assets: assets
+            })
+        );
+
+        _registrar = new TokenRegistrar(address(this));
+        _registrar.init(
+            RegistrarParams({
+                host: address(host),
+                uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
+                erc20NativeToken: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,
+                baseFee: 100 * 1e18
             })
         );
     }

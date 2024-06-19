@@ -2,7 +2,7 @@
 name = "pallet-token-governor"
 version = "0.1.0"
 edition = "2021"
-description = "The token governor tracks multi-chain native tokens across all connected chains"
+description = "The token governor tracks and governs multi-chain native tokens across all connected chains"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 

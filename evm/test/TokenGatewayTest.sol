@@ -31,10 +31,12 @@ import {
     TokenGatewayParamsExt,
     CallDispatcherParams,
     TokenGateway,
+    AssetFeeUpdate,
     DeregsiterAsset,
     AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
+import {NotRoleAdmin} from "ERC6160/tokens/ERC6160Ext20.sol";
 
 contract TokenGatewayTest is BaseTest {
     function testCanTeleportAssets() public {
@@ -295,7 +297,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"04", abi.encode(asset)),
+                    body: bytes.concat(hex"02", abi.encode(asset)),
                     nonce: 0,
                     source: new bytes(0),
                     timeoutTimestamp: 0
@@ -372,14 +374,12 @@ contract TokenGatewayTest is BaseTest {
         assert(gateway.fees(keccak256("USD.h")).relayerFeePercentage == 400);
     }
 
-    function test_ChangeProtocolFeeOnAccept() public {
-        AssetMetadata memory asset = AssetMetadata({
-            erc20: address(0),
-            erc6160: address(feeToken),
-            name: "Hyperbridge USD",
-            symbol: "USD.h",
-            beneficiary: address(0),
-            initialSupply: 0,
+    function testChangeProtocolFeeOnAccept() public {
+        bytes32 assetId = keccak256("USD.h");
+        assert(gateway.fees(assetId).protocolFeePercentage == 100);
+
+        AssetFeeUpdate memory asset = AssetFeeUpdate({
+            assetId: keccak256("USD.h"),
             fees: AssetFees({
                 protocolFeePercentage: 500, // 0.1
                 relayerFeePercentage: 300 // 0.4
@@ -396,7 +396,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(asset)),
+                    body: bytes.concat(hex"03", abi.encode(asset)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -405,7 +405,7 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-        assert(gateway.fees(keccak256("USD.h")).protocolFeePercentage == 500);
+        assert(gateway.fees(assetId).protocolFeePercentage == 500);
     }
 
     function testOnlyHostCanCallOnAccept() public {
@@ -660,6 +660,8 @@ contract TokenGatewayTest is BaseTest {
         );
 
         // we're the new owner, so we can change the owner as well
+        feeToken.changeAdmin(msg.sender);
+        vm.expectRevert(NotRoleAdmin.selector);
         feeToken.changeAdmin(msg.sender);
     }
 }

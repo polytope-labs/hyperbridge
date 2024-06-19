@@ -15,7 +15,8 @@
 
 // Pallet Implementations
 
-use frame_support::PalletId;
+use frame_support::{ensure, PalletId};
+use frame_system::{pallet_prelude::OriginFor, RawOrigin};
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
@@ -36,6 +37,22 @@ impl<T: Config> Pallet<T>
 where
 	T::AccountId: From<[u8; 32]>,
 {
+	/// Ensure the signer is the root account or asset owner
+	pub fn ensure_root_or_owner(origin: OriginFor<T>, asset_id: H256) -> Result<(), Error<T>> {
+		let raw_origin = origin.into().map_err(|_| Error::<T>::UnknownAsset)?;
+		match raw_origin {
+			RawOrigin::Signed(who) => {
+				let owner =
+					AssetOwners::<T>::get(&asset_id).ok_or_else(|| Error::<T>::UnknownAsset)?;
+
+				ensure!(who == owner, Error::<T>::NotAssetOwner);
+			},
+			RawOrigin::Root => {},
+			_ => Err(Error::<T>::UnknownAsset)?,
+		};
+		Ok(())
+	}
+
 	/// Registers the provided ERC6160 asset. Will check that the asset doesn't already exist
 	pub fn register_asset(
 		asset: ERC6160AssetRegistration,

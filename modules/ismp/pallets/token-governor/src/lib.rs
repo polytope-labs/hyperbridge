@@ -22,6 +22,7 @@ extern crate alloc;
 mod impls;
 mod types;
 use alloy_sol_types::SolValue;
+use frame_support::pallet_prelude::Weight;
 use ismp::router::{Post, Response, Timeout};
 pub use types::*;
 
@@ -173,7 +174,7 @@ pub mod pallet {
 		/// This works by dispatching a request to the TokenGateway module on each requested chain
 		/// to create the asset.
 		#[pallet::call_index(0)]
-		#[pallet::weight(1_000_000_000)]
+		#[pallet::weight(weight())]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: ERC6160AssetRegistration,
@@ -200,7 +201,7 @@ pub mod pallet {
 		/// previously received the asset to be created as a request from a TokenRegistrar otherwise
 		/// this will fail
 		#[pallet::call_index(1)]
-		#[pallet::weight(1_000_000_000)]
+		#[pallet::weight(weight())]
 		pub fn create_erc6160_asset_unsigned(
 			origin: OriginFor<T>,
 			registration: UnsignedERC6160AssetRegistration<T::AccountId>,
@@ -214,13 +215,13 @@ pub mod pallet {
 
 		/// Dispatches a request to update the TokenRegistrar contract parameters
 		#[pallet::call_index(2)]
-		#[pallet::weight(1_000_000_000)]
+		#[pallet::weight(weight())]
 		pub fn update_registrar_params(
 			origin: OriginFor<T>,
 			update: RegistrarParamsUpdate,
 			state_machine: StateMachine,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			ensure_root(origin)?;
 			let stored_params = TokenRegistrarParams::<T>::get(&state_machine);
 			let old_params = stored_params.clone().unwrap_or_default();
 			let new_params = old_params.update(update);
@@ -257,13 +258,13 @@ pub mod pallet {
 
 		/// Dispatches a request to update the TokenRegistrar contract parameters
 		#[pallet::call_index(3)]
-		#[pallet::weight(1_000_000_000)]
+		#[pallet::weight(weight())]
 		pub fn update_gateway_params(
 			origin: OriginFor<T>,
 			update: TokenGatewayParamsUpdate,
 			state_machine: StateMachine,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			ensure_root(origin)?;
 
 			Self::update_gateway_params_impl(update, state_machine)?;
 
@@ -272,12 +273,12 @@ pub mod pallet {
 
 		/// Updates the TokenGovernor pallet parameters.
 		#[pallet::call_index(4)]
-		#[pallet::weight(1_000_000_000)]
+		#[pallet::weight(weight())]
 		pub fn update_params(
 			origin: OriginFor<T>,
 			update: ParamsUpdate<<T as pallet_ismp::Config>::Balance>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			ensure_root(origin)?;
 			let stored_params = ProtocolParams::<T>::get();
 
 			let old_params = stored_params.unwrap_or_default();
@@ -296,16 +297,12 @@ pub mod pallet {
 		///    previously supported chain (Should be used with caution)
 		/// 4. Dispatch a request to change the asset admin to another address.
 		#[pallet::call_index(5)]
-		#[pallet::weight(1_000_000_000)]
+		#[pallet::weight(weight())]
 		pub fn update_erc6160_asset(
 			origin: OriginFor<T>,
 			update: ERC6160AssetUpdate,
 		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			let owner =
-				AssetOwners::<T>::get(&update.asset_id).ok_or_else(|| Error::<T>::UnknownAsset)?;
-
-			ensure!(who == owner, Error::<T>::NotAssetOwner);
+			Self::ensure_root_or_owner(origin, update.asset_id)?;
 
 			Self::update_erc6160_asset_impl(update)?;
 
@@ -314,13 +311,13 @@ pub mod pallet {
 
 		/// Dispatches a request to update the Asset fees on the provided chain
 		#[pallet::call_index(6)]
-		#[pallet::weight(1_000_000_000)]
+		#[pallet::weight(weight())]
 		pub fn update_asset_fees(
 			origin: OriginFor<T>,
 			update: AssetFeeUpdate,
 			state_machine: StateMachine,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			ensure_root(origin)?;
 
 			Self::update_asset_fees_impl(update, state_machine)?;
 
@@ -329,12 +326,12 @@ pub mod pallet {
 
 		/// Dispatches a request to update the Asset fees on the provided chain
 		#[pallet::call_index(7)]
-		#[pallet::weight(1_000_000_000)]
+		#[pallet::weight(weight())]
 		pub fn create_erc20_asset(
 			origin: OriginFor<T>,
 			asset: ERC20AssetRegistration,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			ensure_root(origin)?;
 
 			Self::create_erc20_asset_impl(asset)?;
 
@@ -429,4 +426,9 @@ impl<T: Config> IsmpModule for Pallet<T> {
 		// There are no refunds for asset registration fees
 		Err(ismp::error::Error::Custom(format!("Module does not expect timeouts")))
 	}
+}
+
+/// Static weights because benchmarks suck, and we'll be getting PolkaVM soon anyways
+fn weight() -> Weight {
+	Weight::from_parts(300_000_000, 0)
 }

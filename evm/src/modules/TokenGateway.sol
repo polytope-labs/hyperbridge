@@ -54,34 +54,34 @@ struct TeleportParams {
 }
 
 struct Body {
-    // amount to be sent
+    // Amount of the asset to be sent
     uint256 amount;
     // Maximum amount to pay for liquidity fees
     uint256 maxFee;
-    // The token identifier
+    // The asset identifier
     bytes32 assetId;
-    // flag to redeem the erc20 asset on the destination
+    // Flag to redeem the erc20 asset on the destination
     bool redeem;
-    // sender address
+    // Sender address
     bytes32 from;
-    // recipient address
+    // Recipient address
     bytes32 to;
 }
 
 struct BodyWithCall {
-    // amount to be sent
+    // Amount of the asset to be sent
     uint256 amount;
     // Maximum amount to pay for liquidity fees
     uint256 maxFee;
-    // The token identifier
+    // The asset identifier
     bytes32 assetId;
-    // flag to redeem the erc20 asset on the destination
+    // Flag to redeem the erc20 asset on the destination
     bool redeem;
-    // sender address
+    // Sender address
     bytes32 from;
-    // recipient address
+    // Recipient address
     bytes32 to;
-    // calldata to be sent to the destination contract along aside with the asset
+    // Calldata to be passed to the asset destination
     bytes data;
 }
 
@@ -184,21 +184,26 @@ contract TokenGateway is BaseIsmpModule {
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
+
     // mapping of token identifier to erc20 contracts
     mapping(bytes32 => address) private _erc20s;
+
     // mapping of a request commitment to a corresponding bid
     mapping(bytes32 => LiquidityBid) private _bids;
 
     // Relayer provided some liquidity
     event LiquidityProvided(address indexed relayer, uint256 amount, bytes32 indexed assetId);
+
     // User has received some assets
     event AssetReceived(
         bytes indexed source, uint256 nonce, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
     );
+
     // User has sent some assets
     event AssetTeleported(
         address from, bytes32 to, uint256 amount, bytes32 assetId, bool redeem, bytes32 requestCommitment
     );
+
     // User assets could not be delivered and have been refunded.
     event AssetRefunded(
         address indexed beneficiary, uint256 amount, bytes32 indexed assetId, bytes dest, uint256 indexed nonce
@@ -207,7 +212,7 @@ contract TokenGateway is BaseIsmpModule {
     // A filler has just placed a bid to fulfil some request
     event BidPlaced(bytes32 commitment, bytes32 indexed assetId, uint256 bid, address indexed bidder);
 
-    // A filler has just placed a bid to fulfil some request
+    // The request associated with a bid has timed out and the bid refunded
     event BidRefunded(bytes32 commitment, bytes32 indexed assetId, address indexed bidder);
 
     // Action is unauthorized

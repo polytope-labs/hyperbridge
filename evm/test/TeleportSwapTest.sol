@@ -28,7 +28,7 @@ contract TeleportSwapTest is MainnetForkBaseTest {
 
     function testCanTeleportAssetsUsingUsdcForFee() public {
         // mainnet address holding usdc and dai
-        address mainnetUsdcHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
+        address mainnetUsdcHolder = address(0x4B16c5dE96EB2117bBE5fd171E4d203624B014aa);
 
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
@@ -37,26 +37,22 @@ contract TeleportSwapTest is MainnetForkBaseTest {
         path[0] = address(usdc);
         path[1] = address(feeToken);
 
-        uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(messagingFee, path)[0];
-
         // Handling Slippage Implementation
-        uint256 _slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10000; // Adjusted for percentage times 100
-        uint256 _amountInMax = _fromTokenAmountIn + _slippageAmount;
+        uint256 _slippageAmount = (messagingFee * maxSlippagePercentage) / 10_000; // Adjusted for percentage times 100
+        uint256 _amountInMax = (messagingFee + _slippageAmount) / 1e12; // convert to 6 decimals
 
         // mainnet forking - impersonation
         vm.startPrank(mainnetUsdcHolder);
-
-        dai.approve(address(gateway), 10000 * 1e18);
-        dai.approve(address(host), messagingFee);
-        usdc.approve(address(gateway), 10000 * 1e18);
+        usdc.approve(address(gateway), 10_000 * 1e6);
 
         gateway.teleport(
             TeleportParams({
                 feeToken: address(usdc),
-                amount: 1000 * 1e18, // $1000
+                maxFee: 1 * 1e6,
+                amount: 1_000 * 1e6, // $1000
                 redeem: false,
                 dest: StateMachine.bsc(),
-                fee: 9 * 1e17, // $0.9
+                relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),

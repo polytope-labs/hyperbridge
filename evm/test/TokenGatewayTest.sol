@@ -18,6 +18,7 @@ import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
+import {Message} from "ismp/Message.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
 import {
     TeleportParams,
@@ -31,7 +32,6 @@ import {
     TokenGatewayParamsExt,
     CallDispatcherParams,
     TokenGateway,
-    AssetFeeUpdate,
     DeregsiterAsset,
     AssetMetadata
 } from "../src/modules/TokenGateway.sol";
@@ -39,6 +39,8 @@ import {StateMachine} from "ismp/StateMachine.sol";
 import {NotRoleAdmin} from "ERC6160/tokens/ERC6160Ext20.sol";
 
 contract TokenGatewayTest is BaseTest {
+    using Message for PostRequest;
+
     function testCanTeleportAssets() public {
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
@@ -53,8 +55,9 @@ contract TokenGatewayTest is BaseTest {
                 feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
+                maxFee: 1 * 1e18,
                 dest: StateMachine.bsc(),
-                fee: 9 * 1e17, // $0.9
+                relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
@@ -69,7 +72,7 @@ contract TokenGatewayTest is BaseTest {
 
     function testCanTeleportAssetsWithCall() public {
         // relayer fee + per-byte fee
-        uint256 messagingFee = (9 * 1e17) + (321 * host.perByteFee());
+        uint256 messagingFee = (9 * 1e17) + (353 * host.perByteFee());
         uint256 totalFee = 1_000 * 1e18 + messagingFee;
         feeToken.mint(address(this), totalFee);
 
@@ -83,8 +86,9 @@ contract TokenGatewayTest is BaseTest {
                 feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
+                maxFee: 1 * 1e18,
                 dest: StateMachine.bsc(),
-                fee: 9 * 1e17, // $0.9
+                relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(miniStaking)),
                 assetId: keccak256("USD.h"),
@@ -106,8 +110,9 @@ contract TokenGatewayTest is BaseTest {
                 feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
+                maxFee: 1 * 1e18,
                 dest: StateMachine.bsc(),
-                fee: 9 * 1e17, // $0.9
+                relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
@@ -124,6 +129,7 @@ contract TokenGatewayTest is BaseTest {
             assetId: keccak256("USD.h"),
             to: addressToBytes32(address(this)),
             redeem: false,
+            maxFee: 1 * 1e18,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this))
         });
@@ -159,6 +165,7 @@ contract TokenGatewayTest is BaseTest {
             assetId: keccak256("USD.h"),
             to: addressToBytes32(address(miniStaking)),
             redeem: false,
+            maxFee: 1 * 1e18,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this)),
             data: abi.encode(dispatchParams)
@@ -190,6 +197,7 @@ contract TokenGatewayTest is BaseTest {
             assetId: keccak256("USD.h"),
             to: addressToBytes32(address(this)),
             redeem: false,
+            maxFee: 1 * 1e18,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this))
         });
@@ -214,6 +222,7 @@ contract TokenGatewayTest is BaseTest {
             to: addressToBytes32(address(miniStaking)),
             redeem: false,
             amount: 1_000 * 1e18,
+            maxFee: 1 * 1e18,
             from: addressToBytes32(address(this)),
             data: stakeCalldata
         });
@@ -238,11 +247,7 @@ contract TokenGatewayTest is BaseTest {
             name: "Hyperbridge USD",
             symbol: "USD.h",
             beneficiary: address(0),
-            initialSupply: 0,
-            fees: AssetFees({
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300 // 0.3
-            })
+            initialSupply: 0
         });
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
@@ -280,11 +285,7 @@ contract TokenGatewayTest is BaseTest {
             name: "Hyperbridge USD",
             symbol: "USD.h",
             beneficiary: address(0),
-            initialSupply: 0,
-            fees: AssetFees({
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300 // 0.3
-            })
+            initialSupply: 0
         });
 
         vm.prank(address(host));
@@ -320,7 +321,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"04", abi.encode(DeregsiterAsset({assetIds: assets}))),
+                    body: bytes.concat(hex"03", abi.encode(DeregsiterAsset({assetIds: assets}))),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -338,82 +339,13 @@ contract TokenGatewayTest is BaseTest {
         assert(erc20Asset == address(0));
     }
 
-    function testChangeRelayerFeeOnAccept() public {
-        AssetMetadata memory asset = AssetMetadata({
-            erc20: address(0),
-            erc6160: address(feeToken),
-            name: "Hyperbridge USD",
-            symbol: "USD.h",
-            beneficiary: address(0),
-            initialSupply: 0,
-            fees: AssetFees({
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 400 // 0.4
-            })
-        });
-
-        bytes memory hyperbridge = StateMachine.kusama(2000);
-
-        vm.prank(address(host));
-
-        gateway.onAccept(
-            IncomingPostRequest({
-                request: PostRequest({
-                    to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
-                    dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(asset)),
-                    nonce: 0,
-                    source: hyperbridge,
-                    timeoutTimestamp: 0
-                }),
-                relayer: address(0)
-            })
-        );
-
-        assert(gateway.fees(keccak256("USD.h")).relayerFeePercentage == 400);
-    }
-
-    function testChangeProtocolFeeOnAccept() public {
-        bytes32 assetId = keccak256("USD.h");
-        assert(gateway.fees(assetId).protocolFeePercentage == 100);
-
-        AssetFeeUpdate memory asset = AssetFeeUpdate({
-            assetId: keccak256("USD.h"),
-            fees: AssetFees({
-                protocolFeePercentage: 500, // 0.1
-                relayerFeePercentage: 300 // 0.4
-            })
-        });
-
-        bytes memory hyperbridge = StateMachine.kusama(2000);
-
-        vm.prank(address(host));
-
-        gateway.onAccept(
-            IncomingPostRequest({
-                request: PostRequest({
-                    to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
-                    dest: new bytes(0),
-                    body: bytes.concat(hex"03", abi.encode(asset)),
-                    nonce: 0,
-                    source: hyperbridge,
-                    timeoutTimestamp: 0
-                }),
-                relayer: address(0)
-            })
-        );
-
-        assert(gateway.fees(assetId).protocolFeePercentage == 500);
-    }
-
     function testOnlyHostCanCallOnAccept() public {
         Body memory body = Body({
             assetId: keccak256("USD.h"),
             to: addressToBytes32(address(this)),
             redeem: false,
             amount: 1_000 * 1e18,
+            maxFee: 1 * 1e18,
             from: addressToBytes32(address(this))
         });
         vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
@@ -439,6 +371,7 @@ contract TokenGatewayTest is BaseTest {
             to: addressToBytes32(address(this)),
             redeem: false,
             amount: 1_000 * 1e18,
+            maxFee: 1 * 1e18,
             from: addressToBytes32(address(this))
         });
         vm.startPrank(address(host));
@@ -460,79 +393,6 @@ contract TokenGatewayTest is BaseTest {
         );
     }
 
-    function testRelayerRedeemLiquidity() public {
-        AssetMetadata memory asset = AssetMetadata({
-            erc20: address(mockUSDC),
-            erc6160: address(feeToken),
-            name: "Hyperbridge USD",
-            symbol: "USD.h",
-            beneficiary: address(0),
-            initialSupply: 0,
-            fees: AssetFees({
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300 // 0.3
-            })
-        });
-
-        bytes memory hyperbridge = StateMachine.kusama(2000);
-
-        feeToken.mint(address(this), 1_000 * 1e18);
-        mockUSDC.mint(address(this), 1_000_000 * 1e18);
-
-        vm.prank(address(host));
-
-        // Adding Erc20 token to the existing `USD.h` asset using governance action
-        gateway.onAccept(
-            IncomingPostRequest({
-                request: PostRequest({
-                    to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
-                    dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(asset)),
-                    nonce: 0,
-                    source: hyperbridge,
-                    timeoutTimestamp: 0
-                }),
-                relayer: address(0)
-            })
-        );
-
-        // Send in ERC20assets to gateway contract, this is mimicking a user who locked there asset on this chain,
-        // now the relayer is bringing the ERC6160 asset obatined from the other chain for providing this liquidity.
-        mockUSDC.mint(address(gateway), 1_000 * 1e18);
-
-        // Relayer USDC receiving address
-        address relayer_vault = address(1);
-
-        Body memory redeemBody = Body({
-            assetId: keccak256("USD.h"),
-            to: addressToBytes32(relayer_vault),
-            redeem: true,
-            amount: 1_000 * 1e18,
-            from: addressToBytes32(address(this))
-        });
-
-        vm.prank(address(host));
-        gateway.onAccept(
-            IncomingPostRequest({
-                request: PostRequest({
-                    to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
-                    dest: new bytes(0),
-                    body: bytes.concat(hex"00", abi.encode(redeemBody)),
-                    nonce: 0,
-                    source: new bytes(0),
-                    timeoutTimestamp: 0
-                }),
-                relayer: address(0)
-            })
-        );
-
-        uint256 protocolFee = (1_000 * 1e18) / 1000; // 0.1% of the total amount
-        assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the protocol fee
-        assert(mockUSDC.balanceOf(address(relayer_vault)) == 1_000 * 1e18 - protocolFee); // this should be the remaining amount
-    }
-
     function testHandleIncomingAssetWithSwap() public {
         // Adding new Asset to the gateway
         AssetMetadata memory asset = AssetMetadata({
@@ -541,11 +401,7 @@ contract TokenGatewayTest is BaseTest {
             name: "HyperInu",
             symbol: "HINU.h",
             beneficiary: address(0),
-            initialSupply: 0,
-            fees: AssetFees({
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300 // 0.3
-            })
+            initialSupply: 0
         });
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
@@ -575,40 +431,142 @@ contract TokenGatewayTest is BaseTest {
 
         hyperInu.mint(relayer_address, 1_000 * 1e18);
         hyperInu.superApprove(relayer_address, address(gateway));
+        uint256 liquidityFee = 3 * 1e18; // 0.3% of the total amount (997000000000000000000)
 
         Body memory body = Body({
             assetId: keccak256("HINU.h"),
             to: addressToBytes32(user_vault),
             redeem: false,
             amount: 1_000 * 1e18,
+            maxFee: liquidityFee,
             from: addressToBytes32(address(this))
         });
 
         uint256 relayerBalanceBefore = hyperInu_h.balanceOf(relayer_address);
 
+        PostRequest memory request = PostRequest({
+            to: abi.encodePacked(address(0)),
+            from: abi.encodePacked(address(gateway)),
+            dest: host.host(),
+            body: bytes.concat(hex"00", abi.encode(body)),
+            nonce: 0,
+            source: new bytes(0),
+            timeoutTimestamp: 0
+        });
+
+        vm.prank(address(relayer_address));
+        gateway.bid(request, liquidityFee);
+
         // hitting the gateway with the incoming asset
         vm.prank(address(host));
-        gateway.onAccept(
-            IncomingPostRequest({
-                request: PostRequest({
-                    to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
-                    dest: new bytes(0),
-                    body: bytes.concat(hex"00", abi.encode(body)),
-                    nonce: 0,
-                    source: new bytes(0),
-                    timeoutTimestamp: 0
-                }),
-                relayer: relayer_address
-            })
-        );
+        gateway.onAccept(IncomingPostRequest({request: request, relayer: relayer_address}));
 
         uint256 relayerBalanceAfter = hyperInu_h.balanceOf(relayer_address);
 
-        uint256 liquidityFee = 3000000000000000000; // 0.3% of the total amount (997000000000000000000)
-
         assert(hyperInu.balanceOf(user_vault) == 1_000 * 1e18 - liquidityFee); // user should have the ERC20 token - fee
         assert((relayerBalanceAfter - relayerBalanceBefore) == 1_000 * 1e18); // relayer should have the ERC6160 token
+    }
+
+    function testBidInvariants() public {
+        // create the asset
+        testHandleIncomingAssetWithSwap();
+
+        Body memory body = Body({
+            assetId: keccak256("HINU.h"),
+            to: addressToBytes32(address(this)),
+            redeem: false,
+            maxFee: 1e18,
+            amount: 1_000 * 1e18,
+            from: addressToBytes32(address(this))
+        });
+
+        PostRequest memory request = PostRequest({
+            to: abi.encodePacked(address(0)),
+            from: new bytes(0),
+            dest: new bytes(0),
+            body: bytes.concat(hex"00", abi.encode(body)),
+            nonce: 0,
+            source: new bytes(0),
+            timeoutTimestamp: 0
+        });
+
+        vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
+        gateway.bid(request, 1e18);
+
+        request.from = abi.encodePacked(address(gateway));
+        vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
+        gateway.bid(request, 1e18);
+
+        request.dest = host.host();
+        vm.expectRevert(TokenGateway.BidTooHigh.selector);
+        gateway.bid(request, 10e18);
+
+        // ok bid for real this time
+        hyperInu.mint(address(this), 1_000 * 1e18);
+        hyperInu.superApprove(address(this), address(gateway));
+        gateway.bid(request, 1e18);
+
+        // can't usurp bids with the same price
+        vm.expectRevert(TokenGateway.BidTooHigh.selector);
+        gateway.bid(request, 1e18);
+
+        // usurp bid with less
+        hyperInu.mint(address(11111), 1_000 * 1e18);
+        hyperInu.superApprove(address(11111), address(gateway));
+        vm.prank(address(11111));
+        gateway.bid(request, 9e17);
+
+        // bid refunded
+        assert(hyperInu.balanceOf(address(this)) == 1_000 * 1e18);
+        assert(hyperInu.balanceOf(address(11111)) == 9e17);
+    }
+
+    function testRefundBid() public {
+        // create the asset
+        testHandleIncomingAssetWithSwap();
+
+        Body memory body = Body({
+            assetId: keccak256("HINU.h"),
+            to: addressToBytes32(address(this)),
+            redeem: false,
+            maxFee: 1e18,
+            amount: 1_000 * 1e18,
+            from: addressToBytes32(address(this))
+        });
+
+        PostRequest memory request = PostRequest({
+            to: abi.encodePacked(address(gateway)),
+            from: abi.encodePacked(address(gateway)),
+            dest: host.host(),
+            body: bytes.concat(hex"00", abi.encode(body)),
+            nonce: 0,
+            source: new bytes(0),
+            timeoutTimestamp: 1_000
+        });
+
+        hyperInu.mint(address(this), 1_000 * 1e18);
+        hyperInu.superApprove(address(this), address(gateway));
+        gateway.bid(request, 1e18);
+        assert(hyperInu.balanceOf(address(this)) == 1e18);
+
+        vm.expectRevert(TokenGateway.RequestNotTimedOut.selector);
+        gateway.refundBid(request);
+
+        // advance the time so that refunds can pass
+        vm.warp(1_001);
+        gateway.refundBid(request);
+        assert(hyperInu.balanceOf(address(this)) == 1_000 * 1e18);
+
+        // bid again and dispatch the request
+        vm.warp(1);
+        gateway.bid(request, 1e18);
+        vm.prank(address(handler));
+        host.dispatchIncoming(request, address(1111111));
+
+        // then try to ask for a refund
+        vm.warp(1_001);
+        vm.expectRevert(TokenGateway.RequestAlreadyFulfilled.selector);
+        gateway.refundBid(request);
     }
 
     function testCanModifyProtocolParams() public {
@@ -650,7 +608,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"05", abi.encode(changeAsset)),
+                    body: bytes.concat(hex"04", abi.encode(changeAsset)),
                     nonce: 0,
                     source: StateMachine.kusama(2000),
                     timeoutTimestamp: 0

@@ -26,24 +26,6 @@ const MEGABYTE: u32 = 1024;
 
 /// Holds metadata relevant to a multi-chain native asset
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
-pub struct AssetFee {
-	/// Associated fee percentage for liquidity providers
-	pub relayer_fee: U256,
-	/// Associated fee percentage for the gateway protocol
-	pub protocol_fee: U256,
-}
-
-/// Struct for updating the asset fees on a specific chain
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
-pub struct AssetFeesUpdate {
-	/// Associated fee percentage for liquidity providers
-	pub relayer_fee: Option<U256>,
-	/// Associated fee percentage for the gateway protocol
-	pub protocol_fee: Option<U256>,
-}
-
-/// Holds metadata relevant to a multi-chain native asset
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
 pub struct AssetMetadata {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<20>>,
@@ -194,31 +176,6 @@ pub struct TokenGatewayParamsUpdate {
 	pub call_dispatcher: Option<H160>,
 }
 
-/// Struct for updating the associated fees for an asset
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
-pub struct AssetFeeUpdate {
-	/// Asset to update
-	pub asset_id: H256,
-	/// Updated fees
-	pub fee_update: AssetFeesUpdate,
-}
-
-impl AssetFee {
-	pub fn update(&self, update: AssetFeesUpdate) -> AssetFee {
-		let mut fees = self.clone();
-
-		if let Some(protocol_fee) = update.protocol_fee {
-			fees.protocol_fee = protocol_fee;
-		}
-
-		if let Some(relayer_fee) = update.relayer_fee {
-			fees.relayer_fee = relayer_fee;
-		}
-
-		fees
-	}
-}
-
 impl<B: Clone> Params<B> {
 	pub fn update(&self, update: ParamsUpdate<B>) -> Params<B> {
 		let mut params = self.clone();
@@ -286,13 +243,6 @@ impl GatewayParams {
 alloy_sol_macro::sol! {
 	#![sol(all_derives)]
 
-	struct SolAssetFees {
-		// Fee percentage paid to relayers for this asset
-		uint256 relayerFee;
-		// Fee percentage paid to the protocol for this asset
-		uint256 protocolFee;
-	}
-
 	struct SolAssetMetadata {
 	   // ERC20 token contract address for the asset
 	   address erc20;
@@ -306,8 +256,6 @@ alloy_sol_macro::sol! {
 	   uint256 initialSupply;
 	   // Initial beneficiary of the total supply
 	   address beneficiary;
-	   // Associated fees for this asset
-	   SolAssetFees fees;
 	}
 
 	struct SolRequestBody {
@@ -333,14 +281,6 @@ alloy_sol_macro::sol! {
 	struct SolDeregsiterAsset {
 	   // List of assets to deregister
 		bytes32[] assetIds;
-	}
-
-
-	struct SolAssetFeeUpdate {
-		// The asset whose fee to be updated
-		bytes32 assetId;
-		// Associated fees for this asset
-		SolAssetFees fees;
 	}
 
 	struct SolChangeAssetAdmin {
@@ -377,15 +317,6 @@ impl From<RegistrarParams> for SolRegistrarParams {
 			host: value.host.0.into(),
 			uniswapV2: value.uniswap_v2.0.into(),
 			baseFee: alloy_primitives::U256::from_limbs(value.base_fee.0),
-		}
-	}
-}
-
-impl From<AssetFee> for SolAssetFees {
-	fn from(value: AssetFee) -> Self {
-		SolAssetFees {
-			protocolFee: alloy_primitives::U256::from_limbs(value.protocol_fee.0),
-			relayerFee: alloy_primitives::U256::from_limbs(value.relayer_fee.0),
 		}
 	}
 }
@@ -436,22 +367,11 @@ impl TokenGatewayRequest for SolAssetMetadata {
 	}
 }
 
-impl TokenGatewayRequest for SolAssetFeeUpdate {
-	fn encode_request(&self) -> Vec<u8> {
-		use alloy_sol_types::SolType;
-
-		let variant = vec![3u8]; // enum variant on token gateway
-		let encoded = SolAssetFeeUpdate::abi_encode(self);
-
-		[variant, encoded].concat()
-	}
-}
-
 impl TokenGatewayRequest for SolDeregsiterAsset {
 	fn encode_request(&self) -> Vec<u8> {
 		use alloy_sol_types::SolType;
 
-		let variant = vec![4u8]; // enum variant on token gateway
+		let variant = vec![3u8]; // enum variant on token gateway
 		let encoded = SolDeregsiterAsset::abi_encode(self);
 
 		[variant, encoded].concat()
@@ -462,7 +382,7 @@ impl TokenGatewayRequest for SolChangeAssetAdmin {
 	fn encode_request(&self) -> Vec<u8> {
 		use alloy_sol_types::SolType;
 
-		let variant = vec![5u8]; // enum variant on token gateway
+		let variant = vec![4u8]; // enum variant on token gateway
 		let encoded = SolChangeAssetAdmin::abi_encode(self);
 
 		[variant, encoded].concat()

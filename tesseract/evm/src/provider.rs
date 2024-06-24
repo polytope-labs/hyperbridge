@@ -308,10 +308,16 @@ impl IsmpProvider for EvmClient {
 		Ok(events)
 	}
 
-	async fn query_request_receipt(&self, hash: H256) -> Result<H160, anyhow::Error> {
+	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
 		let address = host_contract.request_receipts(hash.into()).call().await?;
-		Ok(address)
+		Ok(address.0.to_vec())
+	}
+
+	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
+		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
+		let address = host_contract.response_receipts(hash.into()).call().await?.relayer;
+		Ok(address.0.to_vec())
 	}
 
 	fn name(&self) -> String {
@@ -777,9 +783,9 @@ pub fn check_trace_for_event(call_frame: CallFrame, event_in: CheckTraceForEvent
 				},
 			};
 		}
+	} else {
+		log::error!("Debug trace frame not found!");
 	}
-
-	log::error!("Debug trace frame not found!");
 
 	false
 }

@@ -25,12 +25,11 @@ use sp_core::{H160, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use crate::{
-	AssetFee, AssetFeeUpdate, AssetFees, AssetMetadata, AssetMetadatas, AssetOwners,
-	ChainWithSupply, Config, ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate,
-	Error, Event, Pallet, Params, PendingAsset, ProtocolParams, SolAssetFeeUpdate,
-	SolAssetMetadata, SolChangeAssetAdmin, SolDeregsiterAsset, SolTokenGatewayParams,
-	TokenGatewayParams, TokenGatewayParamsUpdate, TokenGatewayRequest,
-	UnsignedERC6160AssetRegistration, PALLET_ID,
+	AssetMetadata, AssetMetadatas, AssetOwners, ChainWithSupply, Config, ERC20AssetRegistration,
+	ERC6160AssetRegistration, ERC6160AssetUpdate, Error, Event, Pallet, Params, PendingAsset,
+	ProtocolParams, SolAssetMetadata, SolChangeAssetAdmin, SolDeregsiterAsset,
+	SolTokenGatewayParams, SupportedChains, TokenGatewayParams, TokenGatewayParamsUpdate,
+	TokenGatewayRequest, UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
 impl<T: Config> Pallet<T>
@@ -95,7 +94,7 @@ where
 				)
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 			// tracks which chains the asset is deployed on
-			AssetFees::<T>::insert(asset_id, chain, AssetFee::default());
+			SupportedChains::<T>::insert(asset_id, chain, true);
 		}
 
 		AssetMetadatas::<T>::insert(asset_id, metadata);
@@ -158,7 +157,7 @@ where
 
 		for ChainWithSupply { chain, supply } in update.add_chains {
 			// skip if it already was dispatched to the provided chain
-			if AssetFees::<T>::get(&update.asset_id, &chain).is_some() {
+			if SupportedChains::<T>::get(&update.asset_id, &chain).is_some() {
 				continue;
 			}
 			let mut body: SolAssetMetadata =
@@ -182,12 +181,12 @@ where
 				)
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 			// tracks which chains the asset is deployed on
-			AssetFees::<T>::insert(update.asset_id, chain, AssetFee::default());
+			SupportedChains::<T>::insert(update.asset_id, chain, true);
 		}
 
 		for chain in update.remove_chains {
 			// skip if it already was dispatched to the provided chain
-			if AssetFees::<T>::get(&update.asset_id, &chain).is_none() {
+			if SupportedChains::<T>::get(&update.asset_id, &chain).is_none() {
 				continue;
 			}
 
@@ -208,7 +207,7 @@ where
 
 		for (chain, admin) in update.new_admins {
 			// skip if it doesn't exist on the provided chain
-			if AssetFees::<T>::get(&update.asset_id, &chain).is_none() {
+			if SupportedChains::<T>::get(&update.asset_id, &chain).is_none() {
 				continue;
 			}
 
@@ -271,35 +270,6 @@ where
 		Ok(())
 	}
 
-	/// Dispatches a request to update the Asset fees on the provided chain
-	pub fn update_asset_fees_impl(
-		update: AssetFeeUpdate,
-		state_machine: StateMachine,
-	) -> Result<(), Error<T>> {
-		let Params { token_gateway_address, .. } =
-			ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
-		let fees = AssetFees::<T>::get(&update.asset_id, &state_machine)
-			.ok_or_else(|| Error::<T>::UnknownAsset)?;
-
-		let updated = fees.update(update.fee_update);
-		let body = SolAssetFeeUpdate { assetId: update.asset_id.0.into(), fees: updated.into() };
-		let dispatcher = T::Dispatcher::default();
-		dispatcher
-			.dispatch_request(
-				DispatchRequest::Post(DispatchPost {
-					dest: state_machine,
-					from: PALLET_ID.to_vec(),
-					to: token_gateway_address.as_bytes().to_vec(),
-					timeout: 0,
-					body: body.encode_request(),
-				}),
-				FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-			)
-			.map_err(|_| Error::<T>::DispatchFailed)?;
-
-		Ok(())
-	}
-
 	/// Dispatches a request to create list an ERC20 asset on TokenGateway
 	pub fn create_erc20_asset_impl(asset: ERC20AssetRegistration) -> Result<(), Error<T>> {
 		let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
@@ -338,7 +308,7 @@ where
 				)
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 			// tracks which chains the asset is deployed on
-			AssetFees::<T>::insert(asset_id, chain, AssetFee::default());
+			SupportedChains::<T>::insert(asset_id, chain, true);
 		}
 
 		AssetMetadatas::<T>::insert(asset_id, metadata);

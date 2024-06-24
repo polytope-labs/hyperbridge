@@ -108,16 +108,12 @@ contract MainnetForkBaseTest is Test {
         gateway = new TokenGateway(address(this));
         AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = AssetMetadata({
-            erc20: address(feeToken),
+            erc20: address(usdc),
             erc6160: address(0),
             name: "Hyperbridge USD",
             symbol: "USD.h",
             beneficiary: address(0),
-            initialSupply: 0,
-            fees: AssetFees({
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300 // 0.3
-            })
+            initialSupply: 0
         });
 
         gateway.init(

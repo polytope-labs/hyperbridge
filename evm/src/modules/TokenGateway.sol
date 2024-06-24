@@ -16,6 +16,7 @@ pragma solidity 0.8.17;
 
 import {IDispatcher, DispatchPost} from "ismp/IDispatcher.sol";
 import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {Message} from "ismp/Message.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
@@ -29,8 +30,10 @@ import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 struct TeleportParams {
     // amount to be sent
     uint256 amount;
+    // Maximum amount to pay for liquidity fees
+    uint256 maxFee;
     // Relayer fee
-    uint256 fee;
+    uint256 relayerFee;
     // The token identifier
     bytes32 assetId;
     // Redeem Erc20 on the destination?
@@ -53,6 +56,8 @@ struct TeleportParams {
 struct Body {
     // amount to be sent
     uint256 amount;
+    // Maximum amount to pay for liquidity fees
+    uint256 maxFee;
     // The token identifier
     bytes32 assetId;
     // flag to redeem the erc20 asset on the destination
@@ -66,6 +71,8 @@ struct Body {
 struct BodyWithCall {
     // amount to be sent
     uint256 amount;
+    // Maximum amount to pay for liquidity fees
+    uint256 maxFee;
     // The token identifier
     bytes32 assetId;
     // flag to redeem the erc20 asset on the destination
@@ -103,8 +110,6 @@ enum OnAcceptActions {
     GovernanceAction,
     // Request from hyperbridge to create a new asset
     CreateAsset,
-    // Request to update the protocol fees for a given asset
-    UpdateAssetFees,
     // Remove an asset from the registry
     DeregisterAsset,
     // Change the admin of an asset
@@ -124,15 +129,6 @@ struct AssetMetadata {
     uint256 initialSupply;
     // Initial beneficiary of the total supply
     address beneficiary;
-    // Associated fees for this asset
-    AssetFees fees;
-}
-
-struct AssetFeeUpdate {
-    // The asset whose fee to be updated
-    bytes32 assetId;
-    // Associated fees for this asset
-    AssetFees fees;
 }
 
 struct ChangeAssetAdmin {
@@ -155,8 +151,9 @@ struct AssetFees {
 }
 
 // Abi-encoded size of Body struct
-uint256 constant BODY_BYTES_SIZE = 161;
+uint256 constant BODY_BYTES_SIZE = 193;
 
+// Params for the TokenGateway contract
 struct TokenGatewayParams {
     // address of the IsmpHost contract on this chain
     address host;
@@ -166,10 +163,18 @@ struct TokenGatewayParams {
     address dispatcher;
 }
 
+struct LiquidityBid {
+    // Bidder in question
+    address bidder;
+    // Proposed fee
+    uint256 fee;
+}
+
 // The TokenGateway allows users send either ERC20 or ERC6160 tokens
 // using Hyperbridge as a message-passing layer.
 contract TokenGateway is BaseIsmpModule {
     using Bytes for bytes;
+    using Message for PostRequest;
 
     // TokenGateway protocol parameters
     TokenGatewayParams private _params;
@@ -181,8 +186,8 @@ contract TokenGateway is BaseIsmpModule {
     mapping(bytes32 => address) private _erc6160s;
     // mapping of token identifier to erc20 contracts
     mapping(bytes32 => address) private _erc20s;
-    // mapping of token identifier to it's associated fees
-    mapping(bytes32 => AssetFees) private _fees;
+    // mapping of a request commitment to a corresponding bid
+    mapping(bytes32 => LiquidityBid) private _bids;
 
     // Relayer provided some liquidity
     event LiquidityProvided(address indexed relayer, uint256 amount, bytes32 indexed assetId);
@@ -199,8 +204,32 @@ contract TokenGateway is BaseIsmpModule {
         address indexed beneficiary, uint256 amount, bytes32 indexed assetId, bytes dest, uint256 indexed nonce
     );
 
+    // A filler has just placed a bid to fulfil some request
+    event BidPlaced(bytes32 commitment, bytes32 indexed assetId, uint256 bid, address indexed bidder);
+
+    // A filler has just placed a bid to fulfil some request
+    event BidRefunded(bytes32 commitment, bytes32 indexed assetId, address indexed bidder);
+
     // Action is unauthorized
     error UnauthorizedAction();
+
+    // Request is not intended for this host
+    error InvalidDestination();
+
+    // Provided request has timed out
+    error RequestTimedOut();
+
+    // Provided request has not timed out
+    error RequestNotTimedOut();
+
+    // Provided bid cannot usurp the existing bid
+    error BidTooHigh();
+
+    // Unfortunately no one has bid to fulfil this request
+    error NoExistingBid();
+
+    // Provided request already fulfilled
+    error RequestAlreadyFulfilled();
 
     // Unexpected zero address
     error ZeroAddress();
@@ -248,21 +277,12 @@ contract TokenGateway is BaseIsmpModule {
         return _erc6160s[assetId];
     }
 
-    // Fetch the fees for a given asset id
-    function fees(bytes32 assetId) external view returns (AssetFees memory) {
-        return _fees[assetId];
-    }
-
     // Teleports a given asset to the destination chain. Allows users to pay
     // the Hyperbridge fees in any ERC20 token that can be swapped for the swapped for the
     // IIsmpHost.feeToken using the local UniswapV2 router.
     function teleport(TeleportParams memory teleportParams) public payable {
-        if (teleportParams.to == bytes32(0)) {
-            revert ZeroAddress();
-        }
-        if (teleportParams.amount == 0) {
-            revert InvalidAmount();
-        }
+        if (teleportParams.to == bytes32(0)) revert ZeroAddress();
+        if (teleportParams.amount == 0) revert InvalidAmount();
 
         address from = msg.sender;
         bytes32 fromBytes32 = addressToBytes32(msg.sender);
@@ -276,6 +296,7 @@ contract TokenGateway is BaseIsmpModule {
                     from: fromBytes32,
                     to: teleportParams.to,
                     amount: teleportParams.amount,
+                    maxFee: teleportParams.maxFee,
                     assetId: teleportParams.assetId,
                     redeem: teleportParams.redeem,
                     data: teleportParams.data
@@ -285,6 +306,7 @@ contract TokenGateway is BaseIsmpModule {
                 Body({
                     from: fromBytes32,
                     to: teleportParams.to,
+                    maxFee: teleportParams.maxFee,
                     amount: teleportParams.amount,
                     assetId: teleportParams.assetId,
                     redeem: teleportParams.redeem
@@ -300,7 +322,7 @@ contract TokenGateway is BaseIsmpModule {
             revert UnknownAsset();
         }
 
-        uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.fee;
+        uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.relayerFee;
         // only swap if the feeToken is not the token intended for fee
         if (feeToken != teleportParams.feeToken) {
             SafeERC20.safeTransferFrom(IERC20(teleportParams.feeToken), from, address(this), teleportParams.amountInMax);
@@ -326,7 +348,7 @@ contract TokenGateway is BaseIsmpModule {
             to: abi.encodePacked(address(this)),
             body: data,
             timeout: teleportParams.timeout,
-            fee: teleportParams.fee,
+            fee: teleportParams.relayerFee,
             payer: msg.sender
         });
         bytes32 commitment = IDispatcher(_params.host).dispatch(request);
@@ -339,6 +361,109 @@ contract TokenGateway is BaseIsmpModule {
             redeem: teleportParams.redeem,
             requestCommitment: commitment
         });
+    }
+
+    // Bid to fulfil an incoming asset. This will displace any pre-existing bid
+    // if the liquidity fee is lower than said bid. This effectively creates a
+    // race to the bottom for fees.
+    //
+    // The request must not have expired, and must not have already been fulfilled.
+    function bid(PostRequest calldata request, uint256 fee) public {
+        // TokenGateway only accepts incoming assets from it's instances on other chains.
+        if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        // Not sure why anyone would do this
+        if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
+        // cannot bid on timed-out requests
+        if (block.timestamp > request.timeout()) revert RequestTimedOut();
+
+        bytes32 commitment = request.hash();
+        // cannot bid on fulfilled requests
+        if (IIsmpHost(_params.host).requestReceipts(commitment) != address(0)) revert RequestAlreadyFulfilled();
+
+        Body memory body;
+        if (request.body.length > BODY_BYTES_SIZE) {
+            BodyWithCall memory bodyWithCall = abi.decode(request.body[1:], (BodyWithCall));
+            body = Body({
+                amount: bodyWithCall.amount,
+                maxFee: bodyWithCall.maxFee,
+                assetId: bodyWithCall.assetId,
+                redeem: bodyWithCall.redeem,
+                from: bodyWithCall.from,
+                to: bodyWithCall.to
+            });
+        } else {
+            body = abi.decode(request.body[1:], (Body));
+        }
+
+        address erc20Address = _erc20s[body.assetId];
+        if (erc20Address == address(0)) revert UnknownAsset();
+
+        LiquidityBid memory liquidityBid = _bids[commitment];
+
+        // no existing bids
+        if (liquidityBid.bidder == address(0)) {
+            if (fee > body.maxFee) revert BidTooHigh();
+
+            // transfer from bidder to this
+            SafeERC20.safeTransferFrom(IERC20(erc20Address), msg.sender, address(this), body.amount - fee);
+        } else {
+            if (fee >= liquidityBid.fee) revert BidTooHigh();
+            // refund previous bidder
+            SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
+
+            // transfer from new bidder to this
+            SafeERC20.safeTransferFrom(IERC20(erc20Address), msg.sender, address(this), body.amount - fee);
+        }
+
+        _bids[commitment] = LiquidityBid({bidder: msg.sender, fee: fee});
+
+        // emit event
+        emit BidPlaced({commitment: commitment, assetId: body.assetId, bid: fee, bidder: msg.sender});
+    }
+
+    // This allows the bidder to refund their bids in the event that the request timed-out before
+    // the bid could be fulfilled.
+    function refundBid(PostRequest calldata request) public {
+        // TokenGateway only accepts incoming assets from it's instances on other chains.
+        if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        // Not sure why anyone would do this
+        if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
+        // Cannot refund bids on requests which have not timed out, sorry.
+        if (request.timeout() > block.timestamp) revert RequestNotTimedOut();
+
+        bytes32 commitment = request.hash();
+        // cannot refund bids for fulfilled requests
+        if (IIsmpHost(_params.host).requestReceipts(commitment) != address(0)) revert RequestAlreadyFulfilled();
+
+        LiquidityBid memory liquidityBid = _bids[commitment];
+        if (liquidityBid.bidder == address(0)) revert NoExistingBid();
+
+        Body memory body;
+        if (request.body.length > BODY_BYTES_SIZE) {
+            BodyWithCall memory bodyWithCall = abi.decode(request.body[1:], (BodyWithCall));
+            body = Body({
+                amount: bodyWithCall.amount,
+                maxFee: bodyWithCall.maxFee,
+                assetId: bodyWithCall.assetId,
+                redeem: bodyWithCall.redeem,
+                from: bodyWithCall.from,
+                to: bodyWithCall.to
+            });
+        } else {
+            body = abi.decode(request.body[1:], (Body));
+        }
+
+        address erc20Address = _erc20s[body.assetId];
+
+        // can only happen if someone bids on an asset right before it was deregistered.
+        // In this case, the asset will need to be re-registered
+        if (erc20Address == address(0)) revert UnknownAsset();
+
+        SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
+
+        delete _bids[commitment];
+
+        emit BidRefunded({commitment: commitment, assetId: body.assetId, bidder: msg.sender});
     }
 
     function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
@@ -354,8 +479,6 @@ contract TokenGateway is BaseIsmpModule {
             handleGovernance(incoming.request);
         } else if (action == OnAcceptActions.CreateAsset) {
             handleCreateAsset(incoming.request);
-        } else if (action == OnAcceptActions.UpdateAssetFees) {
-            handleUpdateAssetFees(incoming.request);
         } else if (action == OnAcceptActions.DeregisterAsset) {
             deregisterAssets(incoming.request);
         } else if (action == OnAcceptActions.ChangeAssetAdmin) {
@@ -372,6 +495,7 @@ contract TokenGateway is BaseIsmpModule {
             body = Body({
                 amount: bodyWithCall.amount,
                 assetId: bodyWithCall.assetId,
+                maxFee: bodyWithCall.maxFee,
                 redeem: bodyWithCall.redeem,
                 from: bodyWithCall.from,
                 to: bodyWithCall.to
@@ -408,7 +532,7 @@ contract TokenGateway is BaseIsmpModule {
 
         Body memory body = abi.decode(request.body[1:], (Body));
         address to = bytes32ToAddress(body.to);
-        handleIncomingAsset(body.assetId, body.redeem, body.amount, to, incoming.relayer);
+        handleIncomingAsset(body, incoming.request.hash());
 
         emit AssetReceived({
             source: request.source,
@@ -425,8 +549,17 @@ contract TokenGateway is BaseIsmpModule {
         if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
 
         BodyWithCall memory body = abi.decode(request.body[1:], (BodyWithCall));
-        address to = bytes32ToAddress(body.to);
-        handleIncomingAsset(body.assetId, body.redeem, body.amount, to, incoming.relayer);
+        handleIncomingAsset(
+            Body({
+                amount: body.amount,
+                maxFee: body.maxFee,
+                assetId: body.assetId,
+                redeem: body.redeem,
+                from: body.from,
+                to: body.to
+            }),
+            incoming.request.hash()
+        );
 
         // dispatching low level call
         CallDispatcherParams memory dispatcherParams = abi.decode(body.data, (CallDispatcherParams));
@@ -435,29 +568,31 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetReceived({
             source: request.source,
             nonce: request.nonce,
-            beneficiary: to,
+            beneficiary: bytes32ToAddress(body.to),
             amount: body.amount,
             assetId: body.assetId
         });
     }
 
-    function handleIncomingAsset(bytes32 assetId, bool redeem, uint256 amount, address to, address relayer) private {
-        address _erc20 = _erc20s[assetId];
-        address _erc6160 = _erc6160s[assetId];
+    function handleIncomingAsset(Body memory body, bytes32 commitment) private {
+        address _erc20 = _erc20s[body.assetId];
+        address _erc6160 = _erc6160s[body.assetId];
 
-        if (_erc20 != address(0) && redeem) {
+        if (_erc20 != address(0) && body.redeem) {
             // a relayer/user is redeeming the native asset
-            uint256 transferredAmount = amount - protocolFee(assetId, amount);
-            SafeERC20.safeTransfer(IERC20(_erc20), to, transferredAmount);
-        } else if (_erc20 != address(0) && _erc6160 != address(0) && !redeem) {
-            // user is swapping, relayers should double as liquidity providers.
-            uint256 toTransfer = amount - relayerLiquidityFee(assetId, amount);
-            SafeERC20.safeTransferFrom(IERC20(_erc20), relayer, to, toTransfer);
-            // hand the relayer the receipt so they can redeem the bridged asset on the source chain
-            IERC6160Ext20(_erc6160).mint(relayer, amount);
-            emit LiquidityProvided({relayer: relayer, amount: toTransfer, assetId: assetId});
+            SafeERC20.safeTransfer(IERC20(_erc20), bytes32ToAddress(body.to), body.amount);
+        } else if (_erc20 != address(0) && _erc6160 != address(0) && !body.redeem) {
+            // user is swapping, fetch the bid
+            LiquidityBid memory liquidityBid = _bids[commitment];
+            if (liquidityBid.bidder == address(0)) revert NoExistingBid();
+
+            uint256 value = body.amount - liquidityBid.fee;
+            SafeERC20.safeTransfer(IERC20(_erc20), bytes32ToAddress(body.to), value);
+            // hand the bidder the receipt so they can redeem the asset on the source chain
+            IERC6160Ext20(_erc6160).mint(liquidityBid.bidder, body.amount);
+            emit LiquidityProvided({relayer: liquidityBid.bidder, amount: value, assetId: body.assetId});
         } else if (_erc6160 != address(0)) {
-            IERC6160Ext20(_erc6160).mint(to, amount);
+            IERC6160Ext20(_erc6160).mint(bytes32ToAddress(body.to), body.amount);
         } else {
             revert UnknownAsset();
         }
@@ -477,13 +612,8 @@ contract TokenGateway is BaseIsmpModule {
         createAssets(assets);
     }
 
-    function handleUpdateAssetFees(PostRequest calldata request) private {
-        if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
-
-        AssetFeeUpdate memory update = abi.decode(request.body[1:], (AssetFeeUpdate));
-        _fees[update.assetId] = update.fees;
-    }
-
+    // Deregisters the asset from TokenGateway. Users will be unable to bridge the asset
+    // through TokenGateway once they are deregistered
     function deregisterAssets(PostRequest calldata request) private {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -492,10 +622,11 @@ contract TokenGateway is BaseIsmpModule {
         for (uint256 i = 0; i < length; ++i) {
             delete _erc20s[deregister.assetIds[i]];
             delete _erc6160s[deregister.assetIds[i]];
-            delete _fees[deregister.assetIds[i]];
         }
     }
 
+    // Changes the asset admin from this contract to some other address. Changing the admin to a
+    // zero address is disallowed for safety reasons
     function changeAssetAdmin(PostRequest calldata request) private {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -524,16 +655,7 @@ contract TokenGateway is BaseIsmpModule {
             }
             _erc20s[identifier] = asset.erc20;
             _erc6160s[identifier] = asset.erc6160;
-            _fees[identifier] = asset.fees;
         }
-    }
-
-    function relayerLiquidityFee(bytes32 assetId, uint256 amount) private view returns (uint256 liquidityFee) {
-        liquidityFee = (amount * _fees[assetId].relayerFeePercentage) / 100_000;
-    }
-
-    function protocolFee(bytes32 assetId, uint256 amount) private view returns (uint256 redeemFee) {
-        redeemFee = (amount * _fees[assetId].protocolFeePercentage) / 100_000;
     }
 
     function addressToBytes32(address _address) internal pure returns (bytes32) {

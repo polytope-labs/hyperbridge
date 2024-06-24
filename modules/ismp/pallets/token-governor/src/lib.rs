@@ -72,10 +72,11 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type PendingAsset<T: Config> = StorageMap<_, Identity, H256, H160, OptionQuery>;
 
-	/// Mapping of AssetIds and supported chain to their fees. Can only be updated by root.
+	/// Tracks which assets have been deployed to which chains. Uses bool to ensure its persisted to
+	/// the underlying trie
 	#[pallet::storage]
-	pub type AssetFees<T: Config> =
-		StorageDoubleMap<_, Identity, H256, Twox64Concat, StateMachine, AssetFee, OptionQuery>;
+	pub type SupportedChains<T: Config> =
+		StorageDoubleMap<_, Identity, H256, Twox64Concat, StateMachine, bool, OptionQuery>;
 
 	/// Mapping of AssetId to their metadata
 	#[pallet::storage]
@@ -311,21 +312,6 @@ pub mod pallet {
 
 		/// Dispatches a request to update the Asset fees on the provided chain
 		#[pallet::call_index(6)]
-		#[pallet::weight(weight())]
-		pub fn update_asset_fees(
-			origin: OriginFor<T>,
-			update: AssetFeeUpdate,
-			state_machine: StateMachine,
-		) -> DispatchResult {
-			ensure_root(origin)?;
-
-			Self::update_asset_fees_impl(update, state_machine)?;
-
-			Ok(())
-		}
-
-		/// Dispatches a request to update the Asset fees on the provided chain
-		#[pallet::call_index(7)]
 		#[pallet::weight(weight())]
 		pub fn create_erc20_asset(
 			origin: OriginFor<T>,

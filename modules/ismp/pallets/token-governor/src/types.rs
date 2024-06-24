@@ -371,7 +371,7 @@ impl TokenGatewayRequest for SolDeregsiterAsset {
 	fn encode_request(&self) -> Vec<u8> {
 		use alloy_sol_types::SolType;
 
-		let variant = vec![4u8]; // enum variant on token gateway
+		let variant = vec![3u8]; // enum variant on token gateway
 		let encoded = SolDeregsiterAsset::abi_encode(self);
 
 		[variant, encoded].concat()
@@ -382,7 +382,7 @@ impl TokenGatewayRequest for SolChangeAssetAdmin {
 	fn encode_request(&self) -> Vec<u8> {
 		use alloy_sol_types::SolType;
 
-		let variant = vec![5u8]; // enum variant on token gateway
+		let variant = vec![4u8]; // enum variant on token gateway
 		let encoded = SolChangeAssetAdmin::abi_encode(self);
 
 		[variant, encoded].concat()

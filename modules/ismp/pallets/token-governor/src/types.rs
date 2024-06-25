@@ -15,7 +15,7 @@
 
 //! Pallet types
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec, vec::Vec};
 use anyhow::anyhow;
 use frame_support::pallet_prelude::*;
 use ismp::host::StateMachine;
@@ -25,7 +25,7 @@ use primitive_types::{H160, H256, U256};
 const MEGABYTE: u32 = 1024;
 
 /// Holds metadata relevant to a multi-chain native asset
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct AssetMetadata {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<20>>,
@@ -36,7 +36,7 @@ pub struct AssetMetadata {
 }
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct ERC6160AssetUpdate {
 	/// The asset identifier
 	pub asset_id: H256,
@@ -51,7 +51,7 @@ pub struct ERC6160AssetUpdate {
 }
 
 /// Initial supply options on a per-chain basis
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct InitialSupply {
 	/// The beneficiary for the initial supply
 	pub beneficiary: H160,
@@ -60,7 +60,7 @@ pub struct InitialSupply {
 }
 
 /// Initial supply options on a per-chain basis
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ChainWithSupply {
 	/// The supported chain
 	pub chain: StateMachine,
@@ -69,7 +69,7 @@ pub struct ChainWithSupply {
 }
 
 /// Protocol parameters
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct Params<Balance> {
 	/// The address of the token gateway contract across all chains
 	pub token_gateway_address: H160,
@@ -80,7 +80,7 @@ pub struct Params<Balance> {
 }
 
 /// Struct for updating the protocol parameters for the TokenGovernor
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ParamsUpdate<Balance> {
 	/// The address of the token gateway contract across all chains
 	pub token_gateway_address: Option<H160>,
@@ -91,7 +91,7 @@ pub struct ParamsUpdate<Balance> {
 }
 
 /// Holds data required for multi-chain native asset registration
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ERC6160AssetRegistration {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<20>>,
@@ -105,7 +105,7 @@ pub struct ERC6160AssetRegistration {
 }
 
 /// Holds data required for multi-chain native asset registration (unsigned)
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct UnsignedERC6160AssetRegistration<AccountId> {
 	/// Registration information
 	pub asset: ERC6160AssetRegistration,
@@ -116,7 +116,7 @@ pub struct UnsignedERC6160AssetRegistration<AccountId> {
 }
 
 /// Registration parameters for existing ERC20 tokens
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ERC20AssetRegistration {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<20>>,
@@ -129,7 +129,7 @@ pub struct ERC20AssetRegistration {
 }
 
 /// Protocol Parameters for the TokenRegistrar contract
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct RegistrarParams {
 	// The ERC20 contract address for the wrapped version of the local native token
 	pub erc20_native_token: H160,
@@ -142,7 +142,7 @@ pub struct RegistrarParams {
 }
 
 /// Struct for updating the protocol parameters for a TokenRegistrar
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct RegistrarParamsUpdate {
 	// The ERC20 contract address for the wrapped version of the local native token
 	pub erc20_native_token: Option<H160>,
@@ -155,7 +155,7 @@ pub struct RegistrarParamsUpdate {
 }
 
 /// Protocol Parameters for the TokenGateway contract
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct GatewayParams {
 	/// The Ismp host address
 	pub host: H160,
@@ -166,7 +166,7 @@ pub struct GatewayParams {
 }
 
 /// Struct for updating the protocol parameters for a TokenGateway
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq, Default)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct TokenGatewayParamsUpdate {
 	/// The Ismp host address
 	pub host: Option<H160>,

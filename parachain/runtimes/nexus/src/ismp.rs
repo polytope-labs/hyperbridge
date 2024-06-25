@@ -35,12 +35,12 @@ use ismp::{
 use pallet_asset_gateway::TokenGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
-use sp_core::{crypto::AccountId32, H160, H256};
-use sp_runtime::Percent;
+use sp_core::crypto::AccountId32;
 
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::mainnet::Mainnet;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
+use sp_runtime::Permill;
 use sp_std::prelude::*;
 use staging_xcm::latest::MultiLocation;
 
@@ -119,10 +119,15 @@ parameter_types! {
 impl pallet_asset_gateway::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
-	type ProtocolAccount = ProtocolAccount;
 	type Params = TransferParams;
 	type IsmpHost = Ismp;
 	type Assets = Assets;
+}
+
+impl pallet_token_governor::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Dispatcher = Ismp;
+	type TreasuryAccount = ProtocolAccount;
 }
 
 #[cfg(feature = "runtime-benchmarks")]

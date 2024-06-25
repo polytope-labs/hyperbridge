@@ -81,10 +81,6 @@ pub mod pallet {
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
 
-		/// Protocol fees will be custodied by this account
-		#[pallet::constant]
-		type ProtocolAccount: Get<PalletId>;
-
 		/// Pallet parameters
 		#[pallet::constant]
 		type Params: Get<TokenGatewayParams>;
@@ -198,7 +194,7 @@ where
 	}
 
 	pub fn protocol_account_id() -> T::AccountId {
-		T::ProtocolAccount::get().into_account_truncating()
+		T::TreasuryAccount::get().into_account_truncating()
 	}
 
 	pub fn token_gateway_address() -> H160 {

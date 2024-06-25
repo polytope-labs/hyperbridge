@@ -34,8 +34,8 @@ use ismp::{
 use pallet_asset_gateway::TokenGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
-use sp_core::{crypto::AccountId32, H160, H256};
-use sp_runtime::Percent;
+use sp_core::crypto::AccountId32;
+use sp_runtime::Permill;
 
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
@@ -89,6 +89,12 @@ impl pallet_ismp::Config for Runtime {
 	type WeightProvider = ();
 }
 
+impl pallet_token_governor::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Dispatcher = Ismp;
+	type TreasuryAccount = ProtocolAccount;
+}
+
 impl pallet_ismp_demo::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
@@ -125,7 +131,6 @@ parameter_types! {
 impl pallet_asset_gateway::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
-	type ProtocolAccount = ProtocolAccount;
 	type Params = TransferParams;
 	type Assets = Assets;
 	type IsmpHost = Ismp;

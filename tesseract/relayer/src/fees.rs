@@ -590,7 +590,7 @@ mod tests {
 						.query_request_receipt(commitment)
 						.await?;
 
-					if relayer != H160::default() {
+					if relayer != H160::default().0.to_vec() {
 						tracing::info!(
 							"Skipping already delivered withdraw event: {:?}",
 							withdraw_event.event

@@ -125,33 +125,35 @@ where
 		);
 	}
 
-	// Spawn retries for unprofitable messages
 	{
-		let hyperbridge = Arc::new(chain_a.clone());
-		let dest = chain_b.clone();
-		let client_map = client_map.clone();
-		let tx_payment = tx_payment.clone();
-		let config = config.clone();
-		let sender = sender.clone();
-		let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
-		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
-			"messaging",
-			async move {
-				let res = retry_unprofitable_messages(
-					dest,
-					hyperbridge,
-					client_map,
-					tx_payment,
-					config,
-					coprocessor,
-					sender,
-				)
-				.await;
-				tracing::error!("{name} terminated with result {res:?}");
-			}
-			.boxed(),
-		);
+		// Spawn retries for unprofitable messages
+		if config.unprofitable_retry_frequency.is_some() {
+			let hyperbridge = Arc::new(chain_a.clone());
+			let dest = chain_b.clone();
+			let client_map = client_map.clone();
+			let tx_payment = tx_payment.clone();
+			let config = config.clone();
+			let sender = sender.clone();
+			let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name.clone())),
+				"messaging",
+				async move {
+					let res = retry_unprofitable_messages(
+						dest,
+						hyperbridge,
+						client_map,
+						tx_payment,
+						config,
+						coprocessor,
+						sender,
+					)
+					.await;
+					tracing::error!("{name} terminated with result {res:?}");
+				}
+				.boxed(),
+			);
+		}
 	}
 
 	Ok(())

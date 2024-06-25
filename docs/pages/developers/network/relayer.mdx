@@ -171,6 +171,9 @@ module_filter = []
 withdrawal_frequency = 86400
 # Minimum amount to withdraw when auto-withdrawing, defaults to $100
 minimum_withdrawal_amount = 100
+# (Optional) How frequently to retry unprofitable or failed messages in seconds.
+# If this is value not supplied retries will not be enabled.
+unprofitable_retry_frequency = 600
 # (Optional) If not empty, tesseract will only deliver requests to the specified state-machines
 delivery_endpoints = [
     { Ethereum = "ExecutionLayer" },

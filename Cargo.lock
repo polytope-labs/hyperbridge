@@ -10345,6 +10345,7 @@ dependencies = [
  "alloy-rlp-derive",
  "alloy-sol-macro",
  "alloy-sol-types",
+ "anyhow",
  "frame-support",
  "frame-system",
  "ismp",

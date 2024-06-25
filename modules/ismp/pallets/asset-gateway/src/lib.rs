@@ -364,7 +364,15 @@ where
 			}
 		);
 
-		let amount = convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()));
+		let amount = convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
+			.map_err(|_| ismp::error::Error::ModuleDispatchError {
+				msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+				meta: Meta {
+					source: request.source_chain(),
+					dest: request.dest_chain(),
+					nonce: request.nonce(),
+				},
+			})?;
 
 		let asset_id = MultiLocation::parent();
 
@@ -450,7 +458,15 @@ where
 				// Send xcm back to relaychain
 
 				let amount =
-					convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()));
+					convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
+						.map_err(|_| ismp::error::Error::ModuleDispatchError {
+							msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+							meta: Meta {
+								source: request.source_chain(),
+								dest: request.dest_chain(),
+								nonce: request.nonce(),
+							},
+						})?;
 				// We do an xcm limited reserve transfer from the pallet custody account to the user
 				// on the relaychain;
 				let xcm_beneficiary: MultiLocation =
@@ -508,8 +524,9 @@ where
 }
 
 /// Converts an ERC20 U256 to a DOT u128
-pub fn convert_to_balance(value: U256) -> u128 {
-	(value / U256::from(100_000_000u128)).low_u128()
+pub fn convert_to_balance(value: U256) -> Result<u128, anyhow::Error> {
+	let dec_str = (value / U256::from(100_000_000u128)).to_string();
+	dec_str.parse().map_err(|e| anyhow::anyhow!("{e:?}"))
 }
 
 /// Converts a DOT u128 to an Erc20 denomination
@@ -535,7 +552,7 @@ mod tests {
 	fn balance_conversions() {
 		let supposedly_small_u256 = U256::from_dec_str("1000000000000000000").unwrap();
 		// convert erc20 value to dot value
-		let converted_balance = convert_to_balance(supposedly_small_u256);
+		let converted_balance = convert_to_balance(supposedly_small_u256).unwrap();
 		println!("{}", converted_balance);
 
 		let dot = 10_000_000_000u128;
@@ -547,5 +564,21 @@ mod tests {
 		let dot = 10_000_000_000u128;
 		let erc_20_val = convert_to_erc20(dot);
 		assert_eq!(erc_20_val, U256::from_dec_str("1000000000000000000").unwrap());
+	}
+
+	#[test]
+	fn max_value_check() {
+		let max = U256::MAX;
+
+		let converted_balance = convert_to_balance(max);
+		assert!(converted_balance.is_err())
+	}
+
+	#[test]
+	fn min_value_check() {
+		let min = U256::from(1u128);
+
+		let converted_balance = convert_to_balance(min).unwrap();
+		assert_eq!(converted_balance, 0);
 	}
 }

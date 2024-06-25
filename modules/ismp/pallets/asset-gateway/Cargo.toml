@@ -23,6 +23,7 @@ pallet-token-governor = { workspace = true }
 
 # crates.io
 codec = { workspace = true }
+anyhow = { workspace = true }
 scale-info = { workspace = true }
 
 alloy-primitives = { workspace = true }
@@ -54,5 +55,6 @@ std = [
     "staging-xcm-executor/std",
     "pallet-token-governor/std",
     "alloy-sol-types/std",
-    "alloy-primitives/std"
+    "alloy-primitives/std",
+    "anyhow/std"
 ]

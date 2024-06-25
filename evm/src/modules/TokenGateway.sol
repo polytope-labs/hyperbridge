@@ -400,6 +400,8 @@ contract TokenGateway is BaseIsmpModule {
             body = abi.decode(request.body[1:], (Body));
         }
 
+        if (body.redeem) revert UnauthorizedAction();
+
         address erc20Address = _erc20s[body.assetId];
         if (erc20Address == address(0)) revert UnknownAsset();
 
@@ -651,11 +653,15 @@ contract TokenGateway is BaseIsmpModule {
         for (uint256 i = 0; i < length; ++i) {
             AssetMetadata memory asset = assets[i];
             bytes32 identifier = keccak256(bytes(asset.symbol));
+            string memory symbol = asset.symbol;
+            if (asset.erc20 != address(0)) {
+                symbol = string.concat(symbol, ".h");
+            }
             if (asset.erc6160 == address(0)) {
-                ERC6160Ext20 erc6160Asset = new ERC6160Ext20{salt: identifier}(address(this), asset.name, asset.symbol);
+                ERC6160Ext20 erc6160Asset = new ERC6160Ext20{salt: identifier}(address(this), asset.name, symbol);
+                asset.erc6160 = address(erc6160Asset);
                 if (asset.beneficiary != address(0) && asset.initialSupply != 0) {
                     erc6160Asset.mint(asset.beneficiary, asset.initialSupply);
-                    asset.erc6160 = address(erc6160Asset);
                 }
             }
             _erc20s[identifier] = asset.erc20;

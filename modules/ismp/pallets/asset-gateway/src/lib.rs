@@ -19,6 +19,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, string::ToString, vec};
 use core::marker::PhantomData;
+use pallet_token_governor::ProtocolParams;
 
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{
@@ -29,13 +30,6 @@ use frame_support::{
 		Get,
 	},
 };
-use sp_core::{H160, H256, U256};
-use sp_runtime::{traits::AccountIdConversion, Percent};
-use staging_xcm::{
-	v3::{AssetId, Fungibility, Junction, MultiAsset, MultiAssets, MultiLocation, WeightLimit},
-	VersionedMultiAssets, VersionedMultiLocation,
-};
-
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	events::Meta,
@@ -45,6 +39,12 @@ use ismp::{
 	router::{Request, Timeout},
 };
 pub use pallet::*;
+use sp_core::{H160, H256, U256};
+use sp_runtime::{traits::AccountIdConversion, Permill};
+use staging_xcm::{
+	v3::{AssetId, Fungibility, Junction, MultiAsset, MultiAssets, MultiLocation, WeightLimit},
+	VersionedMultiAssets, VersionedMultiLocation,
+};
 use xcm_utilities::MultiAccount;
 
 pub mod xcm_utilities;
@@ -57,7 +57,6 @@ pub mod pallet {
 	use frame_support::{pallet_prelude::*, traits::fungibles, PalletId};
 	use frame_system::pallet_prelude::OriginFor;
 	use pallet_ismp::ModuleId;
-	use sp_runtime::Percent;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -68,7 +67,12 @@ pub mod pallet {
 
 	/// The config trait
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config + pallet_xcm::Config {
+	pub trait Config:
+		frame_system::Config
+		+ pallet_ismp::Config
+		+ pallet_xcm::Config
+		+ pallet_token_governor::Config
+	{
 		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -100,6 +104,8 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Error encountered while dispatching post request
 		DispatchPostError,
+		/// Pallet has not been initialized
+		NotInitialized,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -144,28 +150,18 @@ pub mod pallet {
 	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
 	pub struct TokenGatewayParams {
 		/// Percentage to be taken as protocol fees
-		pub protocol_fee_percentage: Percent,
-		/// TokenGateWay address on evm chains
-		pub token_gateway_address: H160,
-		/// The 32 bytes Asset Id used to identify the DOT token on Token Gateway deployments
-		pub dot_asset_id: H256,
+		pub protocol_fee_percentage: Permill,
 	}
 
 	impl TokenGatewayParams {
-		pub const fn from_parts(
-			protocol_fee_percentage: Percent,
-			token_gateway_address: H160,
-			dot_asset_id: H256,
-		) -> Self {
-			Self { protocol_fee_percentage, token_gateway_address, dot_asset_id }
+		pub const fn from_parts(protocol_fee_percentage: Permill) -> Self {
+			Self { protocol_fee_percentage }
 		}
 	}
 
 	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
 	pub struct TokenGatewayParamsUpdate {
-		pub protocol_fee_percentage: Option<Percent>,
-		pub token_gateway_address: Option<H160>,
-		pub dot_asset_id: Option<H256>,
+		pub protocol_fee_percentage: Option<Permill>,
 	}
 
 	#[pallet::call]
@@ -182,16 +178,8 @@ pub mod pallet {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
 			let mut current_params = Params::<T>::get().unwrap_or(T::Params::get());
 
-			if let Some(address) = update.token_gateway_address {
-				current_params.token_gateway_address = address;
-			}
-
 			if let Some(protocol_fee_percentage) = update.protocol_fee_percentage {
 				current_params.protocol_fee_percentage = protocol_fee_percentage;
-			}
-
-			if let Some(dot_asset_id) = update.dot_asset_id {
-				current_params.dot_asset_id = dot_asset_id;
 			}
 
 			Params::<T>::put(current_params);
@@ -214,17 +202,17 @@ where
 	}
 
 	pub fn token_gateway_address() -> H160 {
-		Params::<T>::get().unwrap_or(<T as Config>::Params::get()).token_gateway_address
+		ProtocolParams::<T>::get().map(|p| p.token_gateway_address).unwrap_or_default()
 	}
 
-	pub fn protocol_fee_percentage() -> Percent {
+	pub fn protocol_fee_percentage() -> Permill {
 		Params::<T>::get()
 			.unwrap_or(<T as Config>::Params::get())
 			.protocol_fee_percentage
 	}
 
 	pub fn dot_asset_id() -> H256 {
-		Params::<T>::get().unwrap_or(<T as Config>::Params::get()).dot_asset_id
+		sp_io::hashing::keccak_256(b"DOT").into()
 	}
 
 	/// Dispatch ismp request to token gateway on destination chain
@@ -251,10 +239,12 @@ where
 			to: to.into(),
 		};
 
+		let token_gateway_address = Self::token_gateway_address();
+
 		let dispatch_post = DispatchPost {
 			dest: multi_account.dest_state_machine,
-			from: Self::token_gateway_address().0.to_vec(),
-			to: Self::token_gateway_address().0.to_vec(),
+			from: token_gateway_address.0.to_vec(),
+			to: token_gateway_address.0.to_vec(),
 			timeout: multi_account.timeout,
 			body: {
 				// Prefix with the handleIncomingAsset enum variant
@@ -375,10 +365,6 @@ where
 
 		let protocol_account = Pallet::<T>::protocol_account_id();
 		let pallet_account = Pallet::<T>::account_id();
-		let protocol_percentage = Pallet::<T>::protocol_fee_percentage();
-
-		let protocol_fees = protocol_percentage * amount;
-		let amount = amount - protocol_fees;
 
 		T::Assets::transfer(
 			asset_id.clone().into(),
@@ -532,5 +518,17 @@ where
 				},
 			}),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use sp_runtime::{PerThing, Percent, Permill};
+	use std::ops::Mul;
+	#[test]
+	fn test_per_mill() {
+		let per_mill = Permill::from_parts(1_000);
+
+		println!("{}", per_mill.mul(20_000_000u128));
 	}
 }

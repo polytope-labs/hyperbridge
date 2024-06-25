@@ -331,7 +331,7 @@ impl pallet_xcm::Config for Test {
 parameter_types! {
 	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
 	pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
-	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Percent::from_percent(1), H160::zero(), H256::zero());
+	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
 }
 
 impl pallet_asset_gateway::Config for Test {

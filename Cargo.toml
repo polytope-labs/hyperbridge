@@ -272,6 +272,7 @@ pallet-ismp-relayer = { path = "modules/ismp/pallets/relayer", default-features 
 pallet-ismp-host-executive = { path = "modules/ismp/pallets/host-executive", default-features = false }
 pallet-call-decompressor = { path = "modules/ismp/pallets/call-decompressor", default-features = false }
 pallet-asset-gateway = { path = "modules/ismp/pallets/asset-gateway", default-features = false }
+pallet-token-governor = { path = "modules/ismp/pallets/token-governor", default-features = false }
 pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 
 # merkle trees

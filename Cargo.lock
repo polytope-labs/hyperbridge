@@ -127,28 +127,9 @@ checksum = "5c6cb57a04249c6480766f7f7cef5467412af1490f8d1e243141daddada3264f"
 
 [[package]]
 name = "alloy-primitives"
-version = "0.3.3"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e416903084d3392ebd32d94735c395d6709415b76c7728e594d3f996f2b03e65"
-dependencies = [
- "alloy-rlp",
- "bytes",
- "cfg-if",
- "const-hex",
- "derive_more",
- "hex-literal 0.4.1",
- "itoa",
- "proptest",
- "ruint",
- "serde",
- "tiny-keccak",
-]
-
-[[package]]
-name = "alloy-primitives"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "600d34d8de81e23b6d909c094e23b3d357e01ca36b78a8c5424c501eedbe86f0"
+checksum = "db8aa973e647ec336810a9356af8aea787249c9d00b1525359f3db29a68d231b"
 dependencies = [
  "alloy-rlp",
  "bytes",
@@ -163,22 +144,6 @@ dependencies = [
  "rand 0.8.5",
  "ruint",
  "serde",
- "tiny-keccak",
-]
-
-[[package]]
-name = "alloy-primitives"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db8aa973e647ec336810a9356af8aea787249c9d00b1525359f3db29a68d231b"
-dependencies = [
- "bytes",
- "cfg-if",
- "const-hex",
- "derive_more",
- "hex-literal 0.4.1",
- "itoa",
- "ruint",
  "tiny-keccak",
 ]
 
@@ -256,9 +221,10 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40a64d2d2395c1ac636b62419a7b17ec39031d6b2367e66e9acbf566e6055e9c"
 dependencies = [
- "alloy-primitives 0.7.4",
+ "alloy-primitives",
  "alloy-sol-macro",
  "const-hex",
+ "serde",
 ]
 
 [[package]]
@@ -378,7 +344,7 @@ checksum = "7d5a26814d8dcb93b0e5a0ff3c6d80a8843bafb21b39e8e18a6f05471870e110"
 name = "arbitrum-verifier"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -1599,7 +1565,7 @@ dependencies = [
 name = "bsc-verifier"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -4658,7 +4624,7 @@ dependencies = [
 name = "evm-common"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -5919,7 +5885,7 @@ dependencies = [
 name = "geth-primitives"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -7277,7 +7243,7 @@ dependencies = [
 name = "ismp-solidity-tests"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "anyhow",
  "beefy-prover",
  "beefy-verifier-primitives",
@@ -10103,7 +10069,7 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 name = "op-verifier"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -10375,9 +10341,10 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 name = "pallet-asset-gateway"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
- "alloy-rlp",
+ "alloy-primitives",
  "alloy-rlp-derive",
+ "alloy-sol-macro",
+ "alloy-sol-types",
  "frame-support",
  "frame-system",
  "ismp",
@@ -10994,7 +10961,7 @@ dependencies = [
 name = "pallet-ismp-host-executive"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",
@@ -11013,7 +10980,7 @@ dependencies = [
 name = "pallet-ismp-relayer"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -11089,8 +11056,8 @@ dependencies = [
 name = "pallet-ismp-testsuite"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.6.4",
- "alloy-rlp",
+ "alloy-primitives",
+ "alloy-sol-types",
  "anyhow",
  "ckb-merkle-mountain-range",
  "cumulus-pallet-parachain-system",
@@ -11124,6 +11091,7 @@ dependencies = [
  "pallet-message-queue",
  "pallet-mmr 0.1.1",
  "pallet-timestamp",
+ "pallet-token-governor",
  "pallet-xcm",
  "parachains-common",
  "parity-scale-codec",
@@ -11696,7 +11664,7 @@ dependencies = [
 name = "pallet-token-governor"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",
@@ -20464,7 +20432,7 @@ dependencies = [
 name = "tesseract-evm"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.3.3",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",

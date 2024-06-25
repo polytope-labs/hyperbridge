@@ -27,8 +27,7 @@ use pallet_asset_gateway::{xcm_utilities::HyperbridgeAssetTransactor, TokenGatew
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
-use sp_core::{H160, H256};
-use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Percent};
+use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Permill};
 use staging_xcm::{latest::prelude::*, VersionedXcm};
 use staging_xcm_builder::{
 	AccountId32Aliases, AllowUnpaidExecutionFrom, ConvertedConcreteId, EnsureXcmOrigin,

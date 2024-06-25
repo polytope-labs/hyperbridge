@@ -25,9 +25,10 @@ pallet-token-governor = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
 
-alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive.workspace = true
+alloy-sol-macro.workspace = true
+alloy-sol-types.workspace = true
 
 pallet-xcm = { workspace = true }
 staging-xcm = { workspace = true }
@@ -52,4 +53,6 @@ std = [
     "staging-xcm-builder/std",
     "staging-xcm-executor/std",
     "pallet-token-governor/std",
+    "alloy-sol-types/std",
+    "alloy-primitives/std"
 ]

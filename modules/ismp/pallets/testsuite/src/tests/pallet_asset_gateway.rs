@@ -5,20 +5,20 @@ use crate::{
 	runtime::Test,
 	xcm::{MockNet, ParaA, Relay},
 };
-use alloy_primitives::private::alloy_rlp;
+use alloy_sol_types::SolValue;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
 use ismp::{
 	host::{Ethereum, StateMachine},
 	module::IsmpModule,
 	router::{Post, Request, Timeout},
 };
-use pallet_asset_gateway::{Body, Module};
-use sp_core::{ByteArray, H160, H256, U256};
+use pallet_asset_gateway::{convert_to_erc20, Body, Module};
+use sp_core::{ByteArray, H160};
 use staging_xcm::v3::{Junction, Junctions, MultiLocation, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
 use xcm_simulator_example::ALICE;
 
-const SEND_AMOUNT: u128 = 1000;
+const SEND_AMOUNT: u128 = 1000_000_000_0000;
 const PARA_ID: u32 = 100;
 pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 #[test]
@@ -136,15 +136,18 @@ fn should_process_on_accept_module_callback_correctly() {
 
 	// Process on accept call back
 	let transferred = ParaA::execute_with(|| {
-		let amount = 990u128;
+		let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 		let body = Body {
 			amount: {
 				let mut bytes = [0u8; 32];
-				U256::from(amount).to_big_endian(&mut bytes);
+				// Module callback will convert to ten decimals
+				convert_to_erc20(amount).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
-			asset_id: H256::zero().0.into(),
+			asset_id: pallet_asset_gateway::Pallet::<Test>::dot_asset_id().0.into(),
 			redeem: false,
+			max_fee: Default::default(),
 			from: alloy_primitives::B256::from_slice(ALICE.as_slice()),
 			to: alloy_primitives::B256::from_slice(ALICE.as_slice()),
 		};
@@ -156,7 +159,7 @@ fn should_process_on_accept_module_callback_correctly() {
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 0,
 			data: {
-				let mut encoded = alloy_rlp::encode(body);
+				let mut encoded = Body::abi_encode(&body);
 				// Prefix with zero
 				encoded.insert(0, 0);
 				encoded
@@ -172,8 +175,6 @@ fn should_process_on_accept_module_callback_correctly() {
 		let total_issuance_after = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
 		>>::total_issuance(asset_id);
-		let amount =
-			amount - (pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage() * amount);
 		// Total issuance should have dropped
 		assert_eq!(initial_total_issuance - amount, total_issuance_after);
 		amount
@@ -244,17 +245,21 @@ fn should_process_on_timeout_module_callback_correctly() {
 
 	// Process on timeout call back
 	let transferred = ParaA::execute_with(|| {
-		let amount = 990u128;
+		let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
+		println!("Refund {amount}");
 		let body = Body {
 			amount: {
 				let mut bytes = [0u8; 32];
-				U256::from(amount).to_big_endian(&mut bytes);
+				// Module callback will convert to 10 decimals
+				convert_to_erc20(amount).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
-			asset_id: H256::zero().0.into(),
+			asset_id: pallet_asset_gateway::Pallet::<Test>::dot_asset_id().0.into(),
 			redeem: false,
-			from: alloy_primitives::B256::from_slice(ALICE.as_slice()),
-			to: alloy_primitives::B256::from_slice(ALICE.as_slice()),
+			max_fee: Default::default(),
+			from: alloy_primitives::FixedBytes::<32>::from_slice(ALICE.as_slice()),
+			to: alloy_primitives::FixedBytes::<32>::from_slice(ALICE.as_slice()),
 		};
 		let post = Post {
 			source: StateMachine::Kusama(100),
@@ -264,7 +269,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000 + (60 * 60),
 			data: {
-				let mut encoded = alloy_rlp::encode(body);
+				let mut encoded = Body::abi_encode(&body);
 				// Prefix with zero
 				encoded.insert(0, 0);
 				encoded

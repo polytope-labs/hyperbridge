@@ -336,7 +336,6 @@ parameter_types! {
 impl pallet_asset_gateway::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
-	type ProtocolAccount = ProtocolAccount;
 	type Params = TransferParams;
 	type Assets = Assets;
 	type IsmpHost = Ismp;

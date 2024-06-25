@@ -594,6 +594,7 @@ construct_runtime!(
 		CallDecompressor: pallet_call_decompressor = 56,
 		Gateway: pallet_asset_gateway = 57,
 		Assets: pallet_assets = 58,
+		TokenGovernor: pallet_token_governor = 59,
 	}
 );
 

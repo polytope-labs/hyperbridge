@@ -32,7 +32,7 @@ use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Key;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use parity_scale_codec::{Decode, Encode};
-use primitive_types::{H160, H256, U256};
+use primitive_types::{H256, U256};
 use sp_core::keccak_256;
 use std::{
 	fmt::{Debug, Display, Formatter},
@@ -254,7 +254,11 @@ pub trait IsmpProvider: Send + Sync {
 
 	/// Should return the relayer delivered this request
 	/// if it has been delivered
-	async fn query_request_receipt(&self, _hash: H256) -> Result<H160, anyhow::Error>;
+	async fn query_request_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error>;
+
+	/// Should return the relayer delivered this response
+	/// if it has been delivered
+	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error>;
 
 	/// Should return fee relayer would be recieving to relay a responce mesage giving a hash
 	/// (message commiment)

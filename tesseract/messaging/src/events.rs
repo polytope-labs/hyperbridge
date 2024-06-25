@@ -9,7 +9,7 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{Post, Request, RequestResponse, Response},
 };
-use sp_core::U256;
+use sp_core::{H160, U256};
 use std::{collections::HashMap, sync::Arc};
 use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpProvider, Query};
 use tokio_stream::StreamExt;
@@ -250,7 +250,7 @@ pub async fn translate_events_to_messages(
 		)
 		.await?;
 
-		unprofitable.extend(post_request_queries_to_push_with_option.unprofitable_msgs);
+		unprofitable.extend(post_request_queries_to_push_with_option.retriable_messages);
 
 		let post_request_to_push: Vec<Post> = post_requests
 			.into_iter()
@@ -283,7 +283,7 @@ pub async fn translate_events_to_messages(
 		)
 		.await?;
 
-		unprofitable.extend(post_response_successful_query.unprofitable_msgs);
+		unprofitable.extend(post_response_successful_query.retriable_messages);
 
 		let post_response_to_push: Vec<Response> = post_responses
 			.into_iter()
@@ -363,8 +363,10 @@ pub fn filter_events(
 	// Is the counterparty the routing chain?
 	let is_router = router_id == counterparty;
 
-	let allow_module =
-		|module: &[u8]| config.module_filter.is_some() && is_allowed_module(config, module);
+	let allow_module = |module: &[u8]| {
+		config.module_filter.as_ref().is_some_and(|inner| !inner.is_empty()) &&
+			is_allowed_module(config, module)
+	};
 	match ev {
 		// We filter out events whose origin is the coprocessor unless the source module is
 		// explicitly allowed in the module filter
@@ -393,7 +395,7 @@ pub fn chunk_size(state_machine: StateMachine) -> usize {
 #[derive(Default)]
 pub struct ProfitabilityResult {
 	pub queries: Vec<Option<Query>>,
-	pub unprofitable_msgs: Vec<Message>,
+	pub retriable_messages: Vec<Message>,
 }
 
 pub async fn return_successful_queries(
@@ -410,7 +412,7 @@ pub async fn return_successful_queries(
 	}
 
 	let mut queries_to_be_relayed = Vec::new();
-	let mut unprofitable_msgs = Vec::new();
+	let mut retriable_messages = Vec::new();
 	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
 
 	// We'll be querying from possibly multiple chains, Let's take the average tracing batch size
@@ -438,7 +440,22 @@ pub async fn return_successful_queries(
 				async move {
 					if !est.successful_execution && !deliver_failed {
 						tracing::info!("Skipping Failed tx");
-						return Ok((None, None))
+						// if msg has not been delivered return the message as retriable
+						let relayer = match &msg {
+							Message::Request(_) => {
+								sink.query_request_receipt(query.commitment).await?
+							}
+							Message::Response(_) => {
+								sink.query_response_receipt(query.commitment).await?
+							}
+							_ => unreachable!("Relayer should only ever debug trace request or response messages")
+						};
+
+						if relayer == H160::zero().0.to_vec() {
+							return Ok((None, Some(msg)))
+						} else {
+							return Ok((None, None))
+						}
 					}
 
 					let value = if coprocessor != sink.state_machine_id().state_id {
@@ -475,11 +492,11 @@ pub async fn return_successful_queries(
 							(Some(query), None)
 						}
 
-						} else {
-							// We only deliver sucessful messages to hyperbridge
-							tracing::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
-							(Some(query), None)
-						};
+					} else {
+						// We only deliver sucessful messages to hyperbridge
+						tracing::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
+						(Some(query), None)
+					};
 
 					return Ok::<_, anyhow::Error>(value)
 				}
@@ -491,12 +508,12 @@ pub async fn return_successful_queries(
 		for (query, unprofitable_msg) in results {
 			queries_to_be_relayed.push(query);
 			if let Some(msg) = unprofitable_msg {
-				unprofitable_msgs.push(msg);
+				retriable_messages.push(msg);
 			}
 		}
 	}
 
-	Ok(ProfitabilityResult { queries: queries_to_be_relayed, unprofitable_msgs })
+	Ok(ProfitabilityResult { queries: queries_to_be_relayed, retriable_messages })
 }
 
 fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {

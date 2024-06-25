@@ -42,7 +42,7 @@ use pallet_ismp::{mmr::Leaf, ModuleId};
 use sp_core::{
 	crypto::AccountId32,
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H256,
+	H160, H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
@@ -72,6 +72,7 @@ frame_support::construct_runtime!(
 		PalletXcm: pallet_xcm,
 		Assets: pallet_assets,
 		Gateway: pallet_asset_gateway,
+		TokenGovernor: pallet_token_governor,
 	}
 );
 
@@ -193,6 +194,16 @@ impl pallet_ismp::Config for Test {
 impl pallet_hyperbridge::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
+}
+
+parameter_types! {
+	pub const TreasuryAccount: PalletId = PalletId(*b"treasury");
+}
+
+impl pallet_token_governor::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Dispatcher = Ismp;
+	type TreasuryAccount = TreasuryAccount;
 }
 
 impl pallet_mmr::Config for Test {
@@ -406,7 +417,16 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut ext = sp_io::TestExternalities::new(storage);
 	register_offchain_ext(&mut ext);
 
-	ext.execute_with(|| System::set_block_number(1));
+	ext.execute_with(|| {
+		System::set_block_number(1);
+		let protocol_params = pallet_token_governor::Params::<Balance> {
+			token_gateway_address: H160::zero(),
+			token_registrar_address: H160::zero(),
+			registration_fee: Default::default(),
+		};
+
+		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
+	});
 	ext
 }
 

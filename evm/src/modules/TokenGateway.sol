@@ -191,29 +191,29 @@ contract TokenGateway is BaseIsmpModule {
     // mapping of a request commitment to a corresponding bid
     mapping(bytes32 => LiquidityBid) private _bids;
 
-    // Relayer provided some liquidity
-    event LiquidityProvided(address indexed relayer, uint256 amount, bytes32 indexed assetId);
-
-    // User has received some assets
-    event AssetReceived(
-        bytes indexed source, uint256 nonce, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
-    );
-
-    // User has sent some assets
-    event AssetTeleported(
-        address from, bytes32 to, uint256 amount, bytes32 assetId, bool redeem, bytes32 requestCommitment
-    );
-
-    // User assets could not be delivered and have been refunded.
-    event AssetRefunded(
-        address indexed beneficiary, uint256 amount, bytes32 indexed assetId, bytes dest, uint256 indexed nonce
-    );
-
     // A filler has just placed a bid to fulfil some request
     event BidPlaced(bytes32 commitment, bytes32 indexed assetId, uint256 bid, address indexed bidder);
 
     // The request associated with a bid has timed out and the bid refunded
     event BidRefunded(bytes32 commitment, bytes32 indexed assetId, address indexed bidder);
+
+    // Filler fulfilled some liquidity request
+    event RequestFulfilled(address indexed bidder, uint256 amount, bytes32 indexed assetId);
+
+    // User has received some assets
+    event AssetReceived(
+        bytes32 commitment, address indexed from, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
+    );
+
+    // User has sent some assets
+    event AssetTeleported(
+        bytes32 commitment, address indexed from, bytes32 to, uint256 amount, bytes32 indexed assetId, bool redeem
+    );
+
+    // User assets could not be delivered and have been refunded.
+    event AssetRefunded(
+        bytes32 commitment, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
+    );
 
     // Action is unauthorized
     error UnauthorizedAction();
@@ -364,7 +364,7 @@ contract TokenGateway is BaseIsmpModule {
             assetId: teleportParams.assetId,
             amount: teleportParams.amount,
             redeem: teleportParams.redeem,
-            requestCommitment: commitment
+            commitment: commitment
         });
     }
 
@@ -399,6 +399,8 @@ contract TokenGateway is BaseIsmpModule {
         } else {
             body = abi.decode(request.body[1:], (Body));
         }
+
+        if (body.redeem) revert UnauthorizedAction();
 
         address erc20Address = _erc20s[body.assetId];
         if (erc20Address == address(0)) revert UnknownAsset();
@@ -522,38 +524,36 @@ contract TokenGateway is BaseIsmpModule {
         }
 
         emit AssetRefunded({
+            commitment: request.hash(),
             beneficiary: from,
             amount: body.amount,
-            assetId: body.assetId,
-            dest: request.dest,
-            nonce: request.nonce
+            assetId: body.assetId
         });
     }
 
     function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) private {
-        PostRequest calldata request = incoming.request;
         // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
 
-        Body memory body = abi.decode(request.body[1:], (Body));
-        address to = bytes32ToAddress(body.to);
-        handleIncomingAsset(body, incoming.request.hash());
+        Body memory body = abi.decode(incoming.request.body[1:], (Body));
+        bytes32 commitment = incoming.request.hash();
+        handleIncomingAsset(body, commitment);
 
         emit AssetReceived({
-            source: request.source,
-            nonce: request.nonce,
-            beneficiary: to,
+            commitment: commitment,
+            beneficiary: bytes32ToAddress(body.to),
+            from: bytes32ToAddress(body.from),
             amount: body.amount,
             assetId: body.assetId
         });
     }
 
     function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) private {
-        PostRequest calldata request = incoming.request;
         // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
 
-        BodyWithCall memory body = abi.decode(request.body[1:], (BodyWithCall));
+        BodyWithCall memory body = abi.decode(incoming.request.body[1:], (BodyWithCall));
+        bytes32 commitment = incoming.request.hash();
         handleIncomingAsset(
             Body({
                 amount: body.amount,
@@ -563,7 +563,7 @@ contract TokenGateway is BaseIsmpModule {
                 from: body.from,
                 to: body.to
             }),
-            incoming.request.hash()
+            commitment
         );
 
         // dispatching low level call
@@ -571,9 +571,9 @@ contract TokenGateway is BaseIsmpModule {
         ICallDispatcher(_params.dispatcher).dispatch(dispatcherParams);
 
         emit AssetReceived({
-            source: request.source,
-            nonce: request.nonce,
+            commitment: commitment,
             beneficiary: bytes32ToAddress(body.to),
+            from: bytes32ToAddress(body.from),
             amount: body.amount,
             assetId: body.assetId
         });
@@ -595,7 +595,7 @@ contract TokenGateway is BaseIsmpModule {
             SafeERC20.safeTransfer(IERC20(_erc20), bytes32ToAddress(body.to), value);
             // hand the bidder the receipt so they can redeem the asset on the source chain
             IERC6160Ext20(_erc6160).mint(liquidityBid.bidder, body.amount);
-            emit LiquidityProvided({relayer: liquidityBid.bidder, amount: value, assetId: body.assetId});
+            emit RequestFulfilled({bidder: liquidityBid.bidder, amount: value, assetId: body.assetId});
         } else if (_erc6160 != address(0)) {
             IERC6160Ext20(_erc6160).mint(bytes32ToAddress(body.to), body.amount);
         } else {
@@ -651,11 +651,15 @@ contract TokenGateway is BaseIsmpModule {
         for (uint256 i = 0; i < length; ++i) {
             AssetMetadata memory asset = assets[i];
             bytes32 identifier = keccak256(bytes(asset.symbol));
+            string memory symbol = asset.symbol;
+            if (asset.erc20 != address(0)) {
+                symbol = string.concat(symbol, ".h");
+            }
             if (asset.erc6160 == address(0)) {
-                ERC6160Ext20 erc6160Asset = new ERC6160Ext20{salt: identifier}(address(this), asset.name, asset.symbol);
+                ERC6160Ext20 erc6160Asset = new ERC6160Ext20{salt: identifier}(address(this), asset.name, symbol);
+                asset.erc6160 = address(erc6160Asset);
                 if (asset.beneficiary != address(0) && asset.initialSupply != 0) {
                     erc6160Asset.mint(asset.beneficiary, asset.initialSupply);
-                    asset.erc6160 = address(erc6160Asset);
                 }
             }
             _erc20s[identifier] = asset.erc20;

@@ -107,7 +107,7 @@ impl pallet_call_decompressor::Config for Runtime {
 parameter_types! {
 	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
 	pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
-	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Permill::from_parts(1_000));
+	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
 }
 
 impl pallet_asset_gateway::Config for Runtime {

@@ -40,7 +40,7 @@ struct TeleportParams {
     bool redeem;
     // recipient address
     bytes32 to;
-    // The Erc20 token to be used to swap for a fee
+    // The ERC20 token to be used to swap for a fee
     address feeToken;
     // recipient state machine
     bytes dest;
@@ -99,8 +99,6 @@ struct Asset {
     address erc6160;
     // Asset's identifier
     bytes32 identifier;
-    // Associated fees for this asset
-    AssetFees fees;
 }
 
 enum OnAcceptActions {
@@ -141,13 +139,6 @@ struct ChangeAssetAdmin {
 struct DeregsiterAsset {
     // List of assets to deregister
     bytes32[] assetIds;
-}
-
-struct AssetFees {
-    // Fee percentage paid to relayers for this asset
-    uint256 relayerFeePercentage;
-    // Fee percentage paid to the protocol for this asset
-    uint256 protocolFeePercentage;
 }
 
 // Abi-encoded size of Body struct
@@ -211,9 +202,7 @@ contract TokenGateway is BaseIsmpModule {
     );
 
     // User assets could not be delivered and have been refunded.
-    event AssetRefunded(
-        bytes32 commitment, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
-    );
+    event AssetRefunded(bytes32 commitment, address indexed beneficiary, uint256 amount, bytes32 indexed assetId);
 
     // Action is unauthorized
     error UnauthorizedAction();
@@ -263,6 +252,11 @@ contract TokenGateway is BaseIsmpModule {
         _params = teleportParams.params;
         createAssets(teleportParams.assets);
 
+        // infinite approval to save on gas
+        SafeERC20.safeIncreaseAllowance(
+            IERC20(IIsmpHost(_params.host).feeToken()), teleportParams.params.host, type(uint256).max
+        );
+
         // admin can only call this once
         _admin = address(0);
     }
@@ -282,10 +276,13 @@ contract TokenGateway is BaseIsmpModule {
         return _erc6160s[assetId];
     }
 
-    // Teleports a given asset to the destination chain. Allows users to pay
+    // Teleports a local ERC20/ERC6160 asset to the destination chain. Allows users to pay
     // the Hyperbridge fees in any ERC20 token that can be swapped for the swapped for the
-    // IIsmpHost.feeToken using the local UniswapV2 router.
-    function teleport(TeleportParams memory teleportParams) public payable {
+    // `IIsmpHost.feeToken` using the local UniswapV2 router.
+    //
+    // If a request times out, users can request a refund permissionlessly through
+    // `HandlerV1.handlePostRequestTimeouts`.
+    function teleport(TeleportParams memory teleportParams) public {
         if (teleportParams.to == bytes32(0)) revert ZeroAddress();
         if (teleportParams.amount == 0) revert InvalidAmount();
 
@@ -346,8 +343,6 @@ contract TokenGateway is BaseIsmpModule {
             SafeERC20.safeTransferFrom(IERC20(feeToken), from, address(this), fee);
         }
 
-        // approve the host with the exact amount
-        SafeERC20.safeIncreaseAllowance(IERC20(feeToken), _params.host, fee);
         DispatchPost memory request = DispatchPost({
             dest: teleportParams.dest,
             to: abi.encodePacked(address(this)),
@@ -523,12 +518,7 @@ contract TokenGateway is BaseIsmpModule {
             revert InconsistentState();
         }
 
-        emit AssetRefunded({
-            commitment: request.hash(),
-            beneficiary: from,
-            amount: body.amount,
-            assetId: body.assetId
-        });
+        emit AssetRefunded({commitment: request.hash(), beneficiary: from, amount: body.amount, assetId: body.assetId});
     }
 
     function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) private {

@@ -21,7 +21,6 @@ import {
     Asset,
     TokenGatewayParamsExt,
     TokenGatewayParams,
-    AssetFees,
     AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";

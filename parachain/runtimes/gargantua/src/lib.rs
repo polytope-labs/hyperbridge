@@ -214,7 +214,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("gargantua"),
 	impl_name: create_runtime_str!("gargantua"),
 	authoring_version: 1,
-	spec_version: 280,
+	spec_version: 300,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -813,7 +813,7 @@ impl_runtime_apis! {
 		}
 
 		/// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.
-		fn block_events_with_metadata() -> Vec<(::ismp::events::Event, u32)> {
+		fn block_events_with_metadata() -> Vec<(::ismp::events::Event, Option<u32>)> {
 			Ismp::block_events_with_metadata()
 		}
 

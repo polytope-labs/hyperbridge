@@ -193,7 +193,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // User has received some assets
     event AssetReceived(
-        bytes32 commitment, address indexed from, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
+        bytes32 commitment, bytes32 indexed from, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
     );
 
     // User has sent some assets
@@ -532,7 +532,7 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetReceived({
             commitment: commitment,
             beneficiary: bytes32ToAddress(body.to),
-            from: bytes32ToAddress(body.from),
+            from: body.from,
             amount: body.amount,
             assetId: body.assetId
         });
@@ -563,7 +563,7 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetReceived({
             commitment: commitment,
             beneficiary: bytes32ToAddress(body.to),
-            from: bytes32ToAddress(body.from),
+            from: body.from,
             amount: body.amount,
             assetId: body.assetId
         });

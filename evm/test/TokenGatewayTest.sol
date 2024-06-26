@@ -26,7 +26,6 @@ import {
     BODY_BYTES_SIZE,
     Asset,
     BodyWithCall,
-    AssetFees,
     TokenGatewayParams,
     ChangeAssetAdmin,
     TokenGatewayParamsExt,
@@ -270,7 +269,6 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-
         bytes32 key = keccak256("USD");
         address erc6160Asset = gateway.erc6160(key);
         address erc20Asset = gateway.erc20(key);
@@ -287,7 +285,6 @@ contract TokenGatewayTest is BaseTest {
             beneficiary: address(0),
             initialSupply: 0
         });
-
 
         vm.prank(address(host));
         gateway.onAccept(

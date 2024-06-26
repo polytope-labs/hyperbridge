@@ -219,7 +219,7 @@ where
 		let dispatcher = <T as Config>::IsmpHost::default();
 
 		let mut to = [0u8; 32];
-		to[..20].copy_from_slice(&multi_account.evm_account.0);
+		to[12..].copy_from_slice(&multi_account.evm_account.0);
 		let from: [u8; 32] = multi_account.substrate_account.clone().into();
 		let asset_id = Self::dot_asset_id().0.into();
 		let body = Body {

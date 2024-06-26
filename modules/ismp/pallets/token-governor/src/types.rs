@@ -21,8 +21,8 @@ use frame_support::pallet_prelude::*;
 use ismp::host::StateMachine;
 use primitive_types::{H160, H256, U256};
 
-/// Number of bytes in a megabyte (MB)
-const MEGABYTE: u32 = 1024;
+/// Maximum size for logos to be stored onchain
+const MAX_LOGO_SIZE: u32 = 100 * 1024; // 100kb
 
 /// Holds metadata relevant to a multi-chain native asset
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
@@ -32,7 +32,7 @@ pub struct AssetMetadata {
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The asset logo
-	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
+	pub logo: BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>,
 }
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
@@ -41,7 +41,7 @@ pub struct ERC6160AssetUpdate {
 	/// The asset identifier
 	pub asset_id: H256,
 	/// The asset logo
-	pub logo: Option<BoundedVec<u8, ConstU32<MEGABYTE>>>,
+	pub logo: Option<BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>>,
 	/// Chains to add support for the asset on
 	pub add_chains: BoundedVec<ChainWithSupply, ConstU32<100>>,
 	/// Chains to delist the asset from
@@ -98,7 +98,7 @@ pub struct ERC6160AssetRegistration {
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The asset logo
-	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
+	pub logo: BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>,
 	/// The list of chains to create the asset on along with their the initial supply on the
 	/// provided chains
 	pub chains: Vec<ChainWithSupply>,
@@ -123,7 +123,7 @@ pub struct ERC20AssetRegistration {
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The asset logo
-	pub logo: BoundedVec<u8, ConstU32<MEGABYTE>>,
+	pub logo: BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>,
 	/// Chains to support as well as the current ERC20 address on that chain
 	pub chains: Vec<(StateMachine, Option<H160>)>,
 }

@@ -491,32 +491,40 @@ where
 			let mut temp = vec![];
 
 			for (event, index) in block_events {
-				// get the block extrinsics
-				let extrinsic = self
-					.client
-					.block_body(at)
-					.map_err(|err| {
+				let extrinsic_hash = if let Some(index) = index {
+					let extrinsic = self
+						.client
+						.block_body(at)
+						.map_err(|err| {
+							runtime_error_into_rpc_error(format!(
+								"Error fetching extrinsic for block {at:?}: {err:?}"
+							))
+						})?
+						.ok_or_else(|| {
+							runtime_error_into_rpc_error(format!(
+								"No extrinsics found for block {at:?}"
+							))
+						})?
+						// using swap remove should be fine unless the node is in an inconsistent
+						// state
+						.swap_remove(index as usize);
+					let ext_bytes = serde_json::to_string(&extrinsic).map_err(|err| {
 						runtime_error_into_rpc_error(format!(
-							"Error fetching extrinsic for block {at:?}: {err:?}"
+							"Failed to serialize extrinsic: {err:?}"
 						))
-					})?
-					.ok_or_else(|| {
-						runtime_error_into_rpc_error(format!(
-							"No extrinsics found for block {at:?}"
-						))
-					})?
-					// using swap remove should be fine unless the node is in an inconsistent
-					// state
-					.swap_remove(index as usize);
-				let ext_bytes = serde_json::to_string(&extrinsic).map_err(|err| {
-					runtime_error_into_rpc_error(format!("Failed to serialize extrinsic: {err:?}"))
-				})?;
-				let len = ext_bytes.as_bytes().len() - 1;
-				let extrinsic =
-					hex::decode(ext_bytes.as_bytes()[3..len].to_vec()).map_err(|err| {
-						runtime_error_into_rpc_error(format!("Failed to decode extrinsic: {err:?}"))
 					})?;
-				let extrinsic_hash = <Block::Header as Header>::Hashing::hash(extrinsic.as_slice());
+					let len = ext_bytes.as_bytes().len() - 1;
+					let extrinsic =
+						hex::decode(ext_bytes.as_bytes()[3..len].to_vec()).map_err(|err| {
+							runtime_error_into_rpc_error(format!(
+								"Failed to decode extrinsic: {err:?}"
+							))
+						})?;
+					<Block::Header as Header>::Hashing::hash(extrinsic.as_slice())
+				} else {
+					Default::default()
+				};
+
 				temp.push(EventWithMetadata {
 					meta: EventMetadata {
 						block_hash: at.into(),

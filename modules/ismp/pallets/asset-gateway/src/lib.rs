@@ -118,6 +118,8 @@ pub mod pallet {
 			amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
 			/// Destination chain
 			dest: StateMachine,
+			/// Request commitment
+			commitment: H256,
 		},
 
 		/// An asset has been received and transferred to the beneficiary's account on the
@@ -253,7 +255,7 @@ where
 
 		let metadata =
 			FeeMetadata { payer: multi_account.substrate_account.clone(), fee: Default::default() };
-		dispatcher
+		let commitment = dispatcher
 			.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
 			.map_err(|_| Error::<T>::DispatchPostError)?;
 
@@ -262,6 +264,7 @@ where
 			to: multi_account.evm_account,
 			dest: multi_account.dest_state_machine,
 			amount,
+			commitment,
 		});
 
 		Ok(())

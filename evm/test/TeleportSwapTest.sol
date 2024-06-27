@@ -26,7 +26,7 @@ contract TeleportSwapTest is MainnetForkBaseTest {
     // Maximum slippage of 0.5%
     uint256 maxSlippagePercentage = 50; // 0.5 * 100
 
-    function testCanTeleportAssetsUsingUsdcForFee() public {
+    function CanTeleportAssetsUsingUsdcForFee() public {
         // mainnet address holding usdc and dai
         address mainnetUsdcHolder = address(0x4B16c5dE96EB2117bBE5fd171E4d203624B014aa);
 

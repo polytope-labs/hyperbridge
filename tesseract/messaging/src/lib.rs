@@ -328,7 +328,7 @@ async fn handle_update(
 	}
 
 	// Store currently unprofitable in messages in db
-	if !unprofitable.is_empty() {
+	if !unprofitable.is_empty() && config.unprofitable_retry_frequency.is_some() {
 		tracing::trace!(target: "tesseract", "Persisting {} unprofitable messages going to {} to the db", unprofitable.len(), chain_a.name());
 		if let Err(err) = tx_payment
 			.store_unprofitable_messages(unprofitable, chain_a.state_machine_id().state_id)

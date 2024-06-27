@@ -81,7 +81,7 @@ pub mod pallet {
 	{
 		/// Adds a new fisherman to the set
 		#[pallet::call_index(0)]
-		#[pallet::weight({1_000_000})]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn add(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
@@ -94,7 +94,7 @@ pub mod pallet {
 
 		/// Removes a fisherman from the set
 		#[pallet::call_index(1)]
-		#[pallet::weight({1_000_000})]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn remove(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
@@ -110,7 +110,7 @@ pub mod pallet {
 		/// changes at the provided height. This allows them to veto the state commitment.
 		/// They aren't required to provide any proofs for this.
 		#[pallet::call_index(2)]
-		#[pallet::weight({1_000_000})]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(2, 3))]
 		pub fn veto_state_commitment(
 			origin: OriginFor<T>,
 			height: StateMachineHeight,

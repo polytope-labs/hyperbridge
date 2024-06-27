@@ -91,12 +91,12 @@ pub mod pallet {
 	pub type Nonce<T: Config> =
 		StorageDoubleMap<_, Twox64Concat, Vec<u8>, Twox64Concat, StateMachine, u64, ValueQuery>;
 
-	/// Default minimum withdrawal is $100
+	/// Default minimum withdrawal is $10
 	pub struct MinWithdrawal;
 
 	impl Get<U256> for MinWithdrawal {
 		fn get() -> U256 {
-			U256::from(100u128 * 1_000_000_000_000_000_000)
+			U256::from(10u128 * 1_000_000_000_000_000_000)
 		}
 	}
 

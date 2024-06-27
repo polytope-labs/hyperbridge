@@ -249,7 +249,7 @@ impl AccumulateFees {
 
 						let amount = hyperbridge.available_amount(client.clone(), &chain).await?;
 
-						if amount < U256::from(100u128 * 10u128.pow(18)) {
+						if amount < U256::from(10u128 * 10u128.pow(18)) {
 							log::info!("Unclaimed balance on {chain} is less than $100, exiting");
 							return Ok::<_, anyhow::Error>(());
 						}
@@ -309,7 +309,7 @@ where
 	// default to $100
 	let min_amount: U256 = (config
 		.minimum_withdrawal_amount
-		.map(|val| std::cmp::max(val, 100))
+		.map(|val| std::cmp::max(val, 10))
 		.unwrap_or(100) as u128 *
 		10u128.pow(18))
 	.into();

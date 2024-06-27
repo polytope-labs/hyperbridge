@@ -301,15 +301,14 @@ fn test_withdrawal_fees() {
 		pallet_ismp_relayer::Fees::<Test>::insert(
 			StateMachine::Kusama(2000),
 			public_key.clone(),
-			U256::from(5000u128),
+			U256::from(250_000_000_000_000_000_000u128),
 		);
-		let message = message(0, StateMachine::Kusama(2000), 2000u128.into());
+		let message = message(0, StateMachine::Kusama(2000));
 		let signature = pair.sign(&message).0.to_vec();
 
 		let withdrawal_input = WithdrawalInputData {
 			signature: Signature::Sr25519 { public_key: public_key.clone(), signature },
 			dest_chain: StateMachine::Kusama(2000),
-			amount: U256::from(2000u128),
 		};
 
 		pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(
@@ -319,7 +318,7 @@ fn test_withdrawal_fees() {
 		.unwrap();
 		assert_eq!(
 			pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), public_key.clone()),
-			3_000u128.into()
+			U256::zero()
 		);
 
 		assert_eq!(
@@ -349,15 +348,14 @@ fn test_withdrawal_fees_evm() {
 		pallet_ismp_relayer::Fees::<Test>::insert(
 			StateMachine::Ethereum(Ethereum::Base),
 			address.to_vec(),
-			U256::from(5000u128),
+			U256::from(250_000_000_000_000_000_000u128),
 		);
-		let message = message(0, StateMachine::Ethereum(Ethereum::Base), 2000u128.into());
+		let message = message(0, StateMachine::Ethereum(Ethereum::Base));
 		let signature = pair.sign_prehashed(&message).0.to_vec();
 
 		let withdrawal_input = WithdrawalInputData {
 			signature: Signature::Ethereum { address: address.to_vec(), signature },
 			dest_chain: StateMachine::Ethereum(Ethereum::Base),
-			amount: U256::from(2000u128),
 		};
 
 		pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(
@@ -370,7 +368,7 @@ fn test_withdrawal_fees_evm() {
 				StateMachine::Ethereum(Ethereum::Base),
 				address.to_vec()
 			),
-			3_000u128.into()
+			U256::zero()
 		);
 
 		assert_eq!(

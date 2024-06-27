@@ -73,6 +73,7 @@ frame_support::construct_runtime!(
 		Assets: pallet_assets,
 		Gateway: pallet_asset_gateway,
 		TokenGovernor: pallet_token_governor,
+		Sudo: pallet_sudo,
 	}
 );
 
@@ -132,6 +133,12 @@ impl pallet_balances::Config for Test {
 impl pallet_fishermen::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
+}
+
+impl pallet_sudo::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type WeightInfo = ();
 }
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]

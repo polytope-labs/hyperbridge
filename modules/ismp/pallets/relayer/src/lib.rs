@@ -61,7 +61,7 @@ pub mod pallet {
 
 	use crate::withdrawal::{WithdrawalInputData, WithdrawalProof};
 	use codec::Encode;
-	use sp_core::H256;
+	use sp_core::{Get, H256};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -91,6 +91,20 @@ pub mod pallet {
 	pub type Nonce<T: Config> =
 		StorageDoubleMap<_, Twox64Concat, Vec<u8>, Twox64Concat, StateMachine, u64, ValueQuery>;
 
+	/// Default minimum withdrawal is $10
+	pub struct MinWithdrawal;
+
+	impl Get<U256> for MinWithdrawal {
+		fn get() -> U256 {
+			U256::from(10u128 * 1_000_000_000_000_000_000)
+		}
+	}
+
+	/// Minimum withdrawal amount
+	#[pallet::storage]
+	#[pallet::getter(fn min_withdrawal_amount)]
+	pub type MinimumWithdrawalAmount<T: Config> = StorageValue<_, U256, ValueQuery, MinWithdrawal>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Withdrawal Proof Validation Error
@@ -102,7 +116,7 @@ pub mod pallet {
 		/// Empty balance
 		EmptyBalance,
 		/// Invalid Amount
-		InvalidAmount,
+		NotEnoughBalance,
 		/// Encountered a mis-match in the requested state machine
 		MismatchedStateMachine,
 		/// Relayer Manager Address on Dest chain not set
@@ -165,6 +179,15 @@ pub mod pallet {
 			ensure_none(origin)?;
 			Self::withdraw(withdrawal_data)
 		}
+
+		/// Sets the minimum withdrawal amount in dollars
+		#[pallet::call_index(2)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(0, 1))]
+		pub fn set_minimum_withdrawal(origin: OriginFor<T>, amount: u128) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+			MinimumWithdrawalAmount::<T>::put(U256::from(amount * 1_000_000_000_000_000_000));
+			Ok(())
+		}
 	}
 
 	#[pallet::validate_unsigned]
@@ -226,7 +249,7 @@ where
 					Err(Error::<T>::InvalidSignature)?
 				}
 				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
+				let msg = message(nonce, withdrawal_data.dest_chain);
 				let mut sig = [0u8; 65];
 				sig.copy_from_slice(&signature);
 				let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
@@ -246,7 +269,7 @@ where
 					Err(Error::<T>::InvalidPublicKey)?
 				}
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
+				let msg = message(nonce, withdrawal_data.dest_chain);
 				let signature = signature.as_slice().try_into().expect("Infallible");
 				let pub_key = public_key.as_slice().try_into().expect("Infallible");
 				if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
@@ -263,7 +286,7 @@ where
 					Err(Error::<T>::InvalidPublicKey)?
 				}
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
+				let msg = message(nonce, withdrawal_data.dest_chain);
 				let signature = signature.as_slice().try_into().expect("Infallible");
 				let pub_key = public_key.as_slice().try_into().expect("Infallible");
 				if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
@@ -274,9 +297,10 @@ where
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
-		if available_amount < withdrawal_data.amount {
-			Err(Error::<T>::InvalidAmount)?
+		if available_amount < Self::min_withdrawal_amount() {
+			Err(Error::<T>::NotEnoughBalance)?
 		}
+
 		let dispatcher = <T as Config>::IsmpHost::default();
 		let relayer_manager_address = match withdrawal_data.dest_chain {
 			StateMachine::Beefy(_) |
@@ -301,7 +325,7 @@ where
 		.map_err(|_| Error::<T>::ErrorCompletingCall)?;
 		let params = WithdrawalParams {
 			beneficiary_address: address.clone(),
-			amount: withdrawal_data.amount.into(),
+			amount: available_amount.into(),
 		};
 
 		let data = match withdrawal_data.dest_chain {
@@ -331,16 +355,12 @@ where
 			)
 			.map_err(|_| Error::<T>::DispatchFailed)?;
 
-		Fees::<T>::insert(
-			withdrawal_data.dest_chain,
-			address.clone(),
-			available_amount.saturating_sub(withdrawal_data.amount),
-		);
+		Fees::<T>::insert(withdrawal_data.dest_chain, address.clone(), U256::zero());
 
 		Self::deposit_event(Event::<T>::Withdraw {
 			address: sp_runtime::BoundedVec::truncate_from(address),
 			state_machine: withdrawal_data.dest_chain,
-			amount: withdrawal_data.amount,
+			amount: available_amount,
 		});
 
 		Ok(())
@@ -733,6 +753,6 @@ where
 	}
 }
 
-pub fn message(nonce: u64, dest_chain: StateMachine, amount: U256) -> [u8; 32] {
-	sp_io::hashing::keccak_256(&(nonce, dest_chain, amount).encode())
+pub fn message(nonce: u64, dest_chain: StateMachine) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
 }

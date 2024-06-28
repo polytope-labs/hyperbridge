@@ -132,7 +132,7 @@ contract TokenRegistrar is BaseIsmpModule {
         SafeERC20.safeIncreaseAllowance(IERC20(feeToken), _params.host, fee);
         DispatchPost memory request = DispatchPost({
             dest: IIsmpHost(_params.host).hyperbridge(),
-            to: bytes("registrar"),
+            to: bytes("registry"),
             body: data,
             timeout: 0,
             fee: 0,

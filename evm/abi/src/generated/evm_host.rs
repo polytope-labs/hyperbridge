@@ -1491,7 +1491,13 @@ pub mod evm_host {
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Event {
                             name: ::std::borrow::ToOwned::to_owned("HostFrozen"),
-                            inputs: ::std::vec![],
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("frozen"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                                    indexed: false,
+                                },
+                            ],
                             anonymous: false,
                         },
                     ],
@@ -1559,16 +1565,6 @@ pub mod evm_host {
                                     indexed: false,
                                 },
                             ],
-                            anonymous: false,
-                        },
-                    ],
-                ),
-                (
-                    ::std::borrow::ToOwned::to_owned("HostUnfrozen"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Event {
-                            name: ::std::borrow::ToOwned::to_owned("HostUnfrozen"),
-                            inputs: ::std::vec![],
                             anonymous: false,
                         },
                     ],
@@ -2466,12 +2462,6 @@ pub mod evm_host {
 		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostParamsUpdatedFilter> {
 			self.0.event()
 		}
-		///Gets the contract's `HostUnfrozen` event
-		pub fn host_unfrozen_filter(
-			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostUnfrozenFilter> {
-			self.0.event()
-		}
 		///Gets the contract's `PostRequestEvent` event
 		pub fn post_request_event_filter(
 			&self,
@@ -2937,8 +2927,10 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
-	#[ethevent(name = "HostFrozen", abi = "HostFrozen()")]
-	pub struct HostFrozenFilter;
+	#[ethevent(name = "HostFrozen", abi = "HostFrozen(bool)")]
+	pub struct HostFrozenFilter {
+		pub frozen: bool,
+	}
 	#[derive(
 		Clone,
 		::ethers::contract::EthEvent,
@@ -2957,18 +2949,6 @@ pub mod evm_host {
 		pub old_params: HostParams,
 		pub new_params: HostParams,
 	}
-	#[derive(
-		Clone,
-		::ethers::contract::EthEvent,
-		::ethers::contract::EthDisplay,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	#[ethevent(name = "HostUnfrozen", abi = "HostUnfrozen()")]
-	pub struct HostUnfrozenFilter;
 	#[derive(
 		Clone,
 		::ethers::contract::EthEvent,
@@ -3160,7 +3140,6 @@ pub mod evm_host {
 		GetRequestTimeoutHandledFilter(GetRequestTimeoutHandledFilter),
 		HostFrozenFilter(HostFrozenFilter),
 		HostParamsUpdatedFilter(HostParamsUpdatedFilter),
-		HostUnfrozenFilter(HostUnfrozenFilter),
 		PostRequestEventFilter(PostRequestEventFilter),
 		PostRequestHandledFilter(PostRequestHandledFilter),
 		PostRequestTimeoutHandledFilter(PostRequestTimeoutHandledFilter),
@@ -3190,9 +3169,6 @@ pub mod evm_host {
 			}
 			if let Ok(decoded) = HostParamsUpdatedFilter::decode_log(log) {
 				return Ok(EvmHostEvents::HostParamsUpdatedFilter(decoded));
-			}
-			if let Ok(decoded) = HostUnfrozenFilter::decode_log(log) {
-				return Ok(EvmHostEvents::HostUnfrozenFilter(decoded));
 			}
 			if let Ok(decoded) = PostRequestEventFilter::decode_log(log) {
 				return Ok(EvmHostEvents::PostRequestEventFilter(decoded));
@@ -3236,7 +3212,6 @@ pub mod evm_host {
 					::core::fmt::Display::fmt(element, f),
 				Self::HostFrozenFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::HostParamsUpdatedFilter(element) => ::core::fmt::Display::fmt(element, f),
-				Self::HostUnfrozenFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestEventFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestHandledFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestTimeoutHandledFilter(element) =>
@@ -3275,11 +3250,6 @@ pub mod evm_host {
 	impl ::core::convert::From<HostParamsUpdatedFilter> for EvmHostEvents {
 		fn from(value: HostParamsUpdatedFilter) -> Self {
 			Self::HostParamsUpdatedFilter(value)
-		}
-	}
-	impl ::core::convert::From<HostUnfrozenFilter> for EvmHostEvents {
-		fn from(value: HostUnfrozenFilter) -> Self {
-			Self::HostUnfrozenFilter(value)
 		}
 	}
 	impl ::core::convert::From<PostRequestEventFilter> for EvmHostEvents {

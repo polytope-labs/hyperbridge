@@ -212,11 +212,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Emitted when a POST response is funded
     event PostResponseFunded(bytes32 commitment, uint256 newFee);
 
-    // Emitted when the host has now been frozen
-    event HostFrozen();
-
-    // Emitted when the host is unfrozen
-    event HostUnfrozen();
+    // Emitted when the host has either been frozen or unfrozen
+    event HostFrozen(bool frozen);
 
     // Emitted when the host params is updated
     event HostParamsUpdated(HostParams oldParams, HostParams newParams);
@@ -563,14 +560,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev set the new state of the bridge
      * @param newState new state
      */
-    function setFrozenState(bool newState) public restrict(_hostParams.admin) {
+    function setFrozenState(bool newState) public {
+        if (_msgSender() != _hostParams.admin || _msgSender() != _hostParams.handler) revert UnauthorizedAction();
+
         _frozen = newState;
 
-        if (newState) {
-            emit HostFrozen();
-        } else {
-            emit HostUnfrozen();
-        }
+        emit HostFrozen({frozen: newState});
     }
 
     /**

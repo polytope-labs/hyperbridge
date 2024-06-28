@@ -204,6 +204,33 @@ contract TokenGateway is BaseIsmpModule {
     // User assets could not be delivered and have been refunded.
     event AssetRefunded(bytes32 commitment, address indexed beneficiary, uint256 amount, bytes32 indexed assetId);
 
+    // A new asset has been registered
+    event AssetRegistered(
+        // ERC20 token contract address for the asset
+        address erc20,
+        // ERC6160 token contract address for the asset
+        address erc6160,
+        // Asset's name
+        string name,
+        // Asset's symbol
+        string symbol,
+        // Registered asset identifier
+        bytes32 assetId,
+        // The initial supply of asset
+        uint256 initialSupply,
+        // Initial beneficiary of the total supply
+        address beneficiary
+    );
+
+    // Contract parameters have been updated by Hyperbridge governance
+    event ParamsUpdated(TokenGatewayParams oldParams, TokenGatewayParams newParams);
+
+    // An asset has been deregistered
+    event AssetRemoved(bytes32 assetId);
+
+    // An asset owner has requested to change the admin of their asset
+    event AssetAdminChanged(address asset, address newAdmin);
+
     // Action is unauthorized
     error UnauthorizedAction();
 
@@ -596,7 +623,11 @@ contract TokenGateway is BaseIsmpModule {
     function handleGovernance(PostRequest calldata request) private {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        _params = abi.decode(request.body[1:], (TokenGatewayParams));
+        TokenGatewayParams memory params = abi.decode(request.body[1:], (TokenGatewayParams));
+
+        emit ParamsUpdated({oldParams: _params, newParams: params});
+
+        _params = params;
     }
 
     function handleCreateAsset(PostRequest calldata request) private {
@@ -617,6 +648,8 @@ contract TokenGateway is BaseIsmpModule {
         for (uint256 i = 0; i < length; ++i) {
             delete _erc20s[deregister.assetIds[i]];
             delete _erc6160s[deregister.assetIds[i]];
+
+            emit AssetRemoved({assetId: deregister.assetIds[i]});
         }
     }
 
@@ -632,6 +665,8 @@ contract TokenGateway is BaseIsmpModule {
         if (erc6160Address == address(0)) revert UnknownAsset();
 
         IERC6160Ext20(erc6160Address).changeAdmin(asset.newAdmin);
+
+        emit AssetAdminChanged({asset: erc6160Address, newAdmin: asset.newAdmin});
     }
 
     // Creates a new entry for the provided asset in the mappings. If there's no existing
@@ -654,6 +689,16 @@ contract TokenGateway is BaseIsmpModule {
             }
             _erc20s[identifier] = asset.erc20;
             _erc6160s[identifier] = asset.erc6160;
+
+            emit AssetRegistered({
+                erc20: asset.erc20,
+                erc6160: asset.erc6160,
+                name: asset.name,
+                symbol: asset.symbol,
+                assetId: identifier,
+                beneficiary: asset.beneficiary,
+                initialSupply: asset.initialSupply
+            });
         }
     }
 

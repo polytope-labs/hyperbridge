@@ -50,6 +50,7 @@ mmr-primitives = { workspace = true }
 sp-mmr-primitives = { workspace = true }
 hex = "0.4.3"
 gql_client = "=1.0.7"
+hex_fmt = {version = "0.3.0", default-features = false }
 
 [features]
 default = ["std"]
@@ -66,7 +67,6 @@ testing = []
 [dev-dependencies]
 json = { package = "serde_json", version = "1.0.114", default-features = false }
 wasm-bindgen-test = "0.3.24"
-hex = { version = "0.4.3", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ethers = { workspace = true, features = ["ws"], default-features = true }

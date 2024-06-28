@@ -125,7 +125,17 @@ pub struct ERC20AssetRegistration {
 	/// The asset logo
 	pub logo: BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>,
 	/// Chains to support as well as the current ERC20 address on that chain
-	pub chains: Vec<(StateMachine, Option<H160>)>,
+	pub chains: Vec<AssetRegistration>,
+}
+
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct AssetRegistration {
+	/// Chain to register this asset on
+	pub chain: StateMachine,
+	/// Optional ERC20 address
+	pub erc20: Option<H160>,
+	/// Optional ERC6160 address
+	pub erc6160: Option<H160>,
 }
 
 /// Protocol Parameters for the TokenRegistrar contract

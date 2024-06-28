@@ -177,7 +177,8 @@ where
 	/// Runs the proving task. Will internally notify the appropriate channels of new epoch
 	/// justifications as well as new proofs for ISMP messages.
 	pub async fn run(&mut self) {
-		let para_id = extract_para_id(self.client.state_machine_id().state_id)
+		let hyperbridge = self.client.state_machine_id().state_id;
+		let para_id = extract_para_id(hyperbridge)
 			.expect("StateMachine should be either one of Polkadot or Kusama");
 		let relay_client = self.prover.inner().relay.clone();
 
@@ -266,6 +267,10 @@ where
 						self.latest_ismp_message_events(latest_beefy_header.hash()).await?;
 
 					if messages.is_empty() {
+						self.consensus_state.finalized_parachain_height = latest_parachain_height;
+						self.connection
+							.set(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())
+							.await?;
 						continue;
 					}
 
@@ -326,8 +331,16 @@ where
 							let event = match &e.event {
 								Event::PostRequest(req) => req.dest,
 								Event::PostResponse(res) => res.dest_chain(),
-								Event::PostRequestTimeoutHandled(req) => req.dest,
-								Event::PostResponseTimeoutHandled(res) => res.dest,
+								Event::PostRequestTimeoutHandled(req)
+									if req.source != hyperbridge =>
+								{
+									req.source
+								},
+								Event::PostResponseTimeoutHandled(res)
+									if res.source != hyperbridge =>
+								{
+									res.source
+								},
 								_ => None?,
 							};
 							Some(event)
@@ -480,9 +493,9 @@ where
 			.filter_map(|event| {
 				if matches!(
 					event.event,
-					Event::PostRequest(_) |
-						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
-						Event::PostResponseTimeoutHandled(_)
+					Event::PostRequest(_)
+						| Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_)
+						| Event::PostResponseTimeoutHandled(_)
 				) {
 					return Some(event);
 				}

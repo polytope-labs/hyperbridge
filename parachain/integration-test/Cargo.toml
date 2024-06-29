@@ -1,0 +1,33 @@
+[package]
+name = "integration-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+tesseract-messaging = { path = "../../tesseract/messaging"}
+tesseract-primitives = { path = "../../tesseract/primitives"}
+tesseract-config = { path = "../../tesseract/config"}
+tesseract-substrate = { path = "../../tesseract/substrate"}
+tesseract = { path = "../../tesseract/relayer"}
+
+sc-consensus-manual-seal = { workspace = true }
+anyhow = "1.0.75"
+tracing = "0.1.40"
+percentage = "0.1.0"
+futures = "0.3.28"
+tokio = { workspace = true, features = ["full"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+hex = "0.4.3"
+tokio-stream = { workspace = true }
+toml = "0.7.4"
+ismp = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
+subxt-signer = "0.30.1"
+subxt-utils = { workspace = true, default-features = true }
+sc-service = { workspace = true }
+transaction-fees = {path = "../../tesseract/fees"}
+log = "0.4.19"
+sp-keyring = { workspace = true }

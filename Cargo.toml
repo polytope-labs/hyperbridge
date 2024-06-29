@@ -75,6 +75,9 @@ members = [
     "tesseract/fees/prisma-cli",
     "tesseract/telemetry",
     "tesseract/config",
+
+    # integration tests
+    "parachain/integration-test",
 ]
 
 # Config for 'cargo dist'

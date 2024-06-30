@@ -150,6 +150,12 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 		chain_b_sub_client.state_machine_id().state_id
 	);
 
+	// Accounts & keys
+	let alice_signer = PairSigner::<Hyperbridge, _>::new(
+		Pair::from_string("//Alice", None).expect("Unable to create ALice account"),
+	);
+	let alice_key = api::storage().system().account(AccountId32(dev::alice().public_key().0));
+
 	// initiate message relaying task
 	relay(
 		chain_a_sub_client,
@@ -165,7 +171,7 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 	// and starting to fetch events
 	tokio::time::sleep(Duration::from_secs(10)).await;
 
-	let amount = 100_000;
+	let amount = 100_000_000000000000;
 	let transfer_call = api::tx().ismp_demo().transfer(TransferParams {
 		to: AccountId32(dev::alice().public_key().0),
 		amount,
@@ -173,7 +179,6 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 		timeout: 70,
 	});
 
-	let alice_key = api::storage().system().account(AccountId32(dev::alice().public_key().0));
 	let alice_chain_a_initial_balance = client_a
 		.storage()
 		.at_latest()
@@ -195,10 +200,6 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 		.unwrap()
 		.data
 		.free;
-
-	let alice_signer = PairSigner::<Hyperbridge, _>::new(
-		Pair::from_string("//Alice", None).expect("Unable to create ALice account"),
-	);
 
 	let result = client_a
 		.tx()
@@ -244,13 +245,13 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 	// diving by 10000000000 for better assertion as the rem balance = initial - amount - fees
 	// in chain A
 	assert_eq!(
-		(alice_chain_a_initial_balance - amount) / 10000000000,
-		alice_chain_a_new_balance / 10000000000
+		(alice_chain_a_initial_balance - amount) / 100000000000,
+		alice_chain_a_new_balance / 100000000000
 	);
 	// in chain B
 	assert_eq!(
-		(alice_chain_b_initial_balance + amount) / 10000000000,
-		alice_chain_b_new_balance / 10000000000
+		(alice_chain_b_initial_balance + amount) / 100000000000,
+		alice_chain_b_new_balance / 100000000000
 	);
 
 	Ok(())

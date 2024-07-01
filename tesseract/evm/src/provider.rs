@@ -708,8 +708,8 @@ impl IsmpProvider for EvmClient {
 			un_staking_period: params.un_staking_period.low_u128(),
 			challenge_period: params.challenge_period.low_u128(),
 			consensus_client: params.consensus_client,
-			state_machine_whitelist: params
-				.state_machine_whitelist
+			state_machines: params
+				.state_machines
 				.into_iter()
 				.map(|id| id.low_u32())
 				.collect::<Vec<_>>()

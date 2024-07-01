@@ -50,7 +50,7 @@ pub struct EvmHostParam {
 	/// The consensus client contract
 	pub consensus_client: H160,
 	/// The state machine identifier for hyperbridge
-	pub state_machine_whitelist: BoundedVec<u32, ConstU32<1_000>>,
+	pub state_machines: BoundedVec<u32, ConstU32<1_000>>,
 	/// List of fishermen
 	pub fishermen: BoundedVec<H160, ConstU32<1_000>>,
 	/// The state machine identifier for hyperbridge
@@ -96,8 +96,8 @@ impl EvmHostParam {
 			self.consensus_client = consensus_client;
 		}
 
-		if let Some(state_machine_whitelist) = update.state_machine_whitelist {
-			self.state_machine_whitelist = state_machine_whitelist;
+		if let Some(state_machine_whitelist) = update.state_machines {
+			self.state_machines = state_machine_whitelist;
 		}
 
 		if let Some(fishermen) = update.fishermen {
@@ -134,7 +134,7 @@ pub struct EvmHostParamUpdate {
 	/// The consensus client contract
 	pub consensus_client: Option<H160>,
 	/// The state machine identifier for hyperbridge
-	pub state_machine_whitelist: Option<BoundedVec<u32, ConstU32<1_000>>>,
+	pub state_machines: Option<BoundedVec<u32, ConstU32<1_000>>>,
 	/// List of fishermen
 	pub fishermen: Option<BoundedVec<H160, ConstU32<1_000>>>,
 	/// The state machine identifier for hyperbridge
@@ -166,7 +166,7 @@ alloy_sol_macro::sol! {
 		// consensus client contract
 		address consensusClient;
 		// whitelisted state machines
-		uint256[] stateMachineWhitelist;
+		uint256[] stateMachines;
 		// white list of fishermen accounts
 		address[] fishermen;
 		// state machine identifier for hyperbridge
@@ -200,8 +200,8 @@ impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 			unStakingPeriod: value.un_staking_period.try_into().map_err(anyhow::Error::msg)?,
 			challengePeriod: value.challenge_period.try_into().map_err(anyhow::Error::msg)?,
 			consensusClient: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,
-			stateMachineWhitelist: value
-				.state_machine_whitelist
+			stateMachines: value
+				.state_machines
 				.into_iter()
 				.map(|id| id.try_into().map_err(anyhow::Error::msg))
 				.collect::<Result<Vec<_>, anyhow::Error>>()?,

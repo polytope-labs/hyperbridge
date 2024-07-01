@@ -80,8 +80,8 @@ contract MainnetForkBaseTest is Test {
         uint256 paraId = 2000;
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         HostManager manager = new HostManager(gParams);
-        uint256[] memory stateMachineWhitelist = new uint256[](1);
-        stateMachineWhitelist[0] = paraId;
+        uint256[] memory stateMachines = new uint256[](1);
+        stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
             fishermen: fishermen,
@@ -96,7 +96,7 @@ contract MainnetForkBaseTest is Test {
             perByteFee: 3 * 1e15, // $0.003/byte
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
-            stateMachineWhitelist: stateMachineWhitelist
+            stateMachines: stateMachines
         });
 
         host = new TestHost(params);

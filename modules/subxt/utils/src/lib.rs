@@ -157,7 +157,7 @@ mod gargantua_conversion {
                         un_staking_period: params.un_staking_period,
                         challenge_period: params.challenge_period,
                         consensus_client: params.consensus_client,
-                        state_machine_whitelist: params
+                        state_machines: params
                             .state_machine_whitelist
                             .0
                             .try_into()

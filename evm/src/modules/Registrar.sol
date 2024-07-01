@@ -51,6 +51,11 @@ struct RegistrarParams {
     uint256 baseFee;
 }
 
+/**
+ * @title The Token Registrar. Serves as a form of gas abstraction for token
+ * registration. By collecting fees on any chain and permitting token creation on the 
+ * Hyperbridge chain.
+ */
 contract TokenRegistrar is BaseIsmpModule {
     using Bytes for bytes;
 
@@ -61,11 +66,15 @@ contract TokenRegistrar is BaseIsmpModule {
 
     // Unexpected state
     error InconsistentState();
+
     // Requested action is unauthorized
     error UnauthorizedAction();
 
     // A user has initiated the asset registration process
     event RegistrationBegun(bytes32 indexed assetId, address indexed owner);
+
+    // Governance has updated the registrar parameters
+    event ParamsUpdated(RegistrarParams oldParams, RegistrarParams newParams);
 
     // restricts call to the provided `caller`
     modifier restrict(address caller) {
@@ -148,6 +157,10 @@ contract TokenRegistrar is BaseIsmpModule {
         // only hyperbridge can do this
         if (!incoming.request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        _params = abi.decode(incoming.request.body, (RegistrarParams));
+        RegistrarParams memory update = abi.decode(incoming.request.body, (RegistrarParams));
+
+        emit ParamsUpdated({oldParams: _params, newParams: update});
+
+        _params = update;
     }
 }

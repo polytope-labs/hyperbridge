@@ -1570,6 +1570,29 @@ pub mod evm_host {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("HostWithdrawal"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("HostWithdrawal"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("amount"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
+                                    indexed: false,
+                                },
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("beneficiary"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
+                                    indexed: false,
+                                },
+                            ],
+                            anonymous: false,
+                        },
+                    ],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("PostRequestEvent"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Event {
@@ -2462,6 +2485,12 @@ pub mod evm_host {
 		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostParamsUpdatedFilter> {
 			self.0.event()
 		}
+		///Gets the contract's `HostWithdrawal` event
+		pub fn host_withdrawal_filter(
+			&self,
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostWithdrawalFilter> {
+			self.0.event()
+		}
 		///Gets the contract's `PostRequestEvent` event
 		pub fn post_request_event_filter(
 			&self,
@@ -2959,6 +2988,21 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
+	#[ethevent(name = "HostWithdrawal", abi = "HostWithdrawal(uint256,address)")]
+	pub struct HostWithdrawalFilter {
+		pub amount: ::ethers::core::types::U256,
+		pub beneficiary: ::ethers::core::types::Address,
+	}
+	#[derive(
+		Clone,
+		::ethers::contract::EthEvent,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
 	#[ethevent(
 		name = "PostRequestEvent",
 		abi = "PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256)"
@@ -3140,6 +3184,7 @@ pub mod evm_host {
 		GetRequestTimeoutHandledFilter(GetRequestTimeoutHandledFilter),
 		HostFrozenFilter(HostFrozenFilter),
 		HostParamsUpdatedFilter(HostParamsUpdatedFilter),
+		HostWithdrawalFilter(HostWithdrawalFilter),
 		PostRequestEventFilter(PostRequestEventFilter),
 		PostRequestHandledFilter(PostRequestHandledFilter),
 		PostRequestTimeoutHandledFilter(PostRequestTimeoutHandledFilter),
@@ -3169,6 +3214,9 @@ pub mod evm_host {
 			}
 			if let Ok(decoded) = HostParamsUpdatedFilter::decode_log(log) {
 				return Ok(EvmHostEvents::HostParamsUpdatedFilter(decoded));
+			}
+			if let Ok(decoded) = HostWithdrawalFilter::decode_log(log) {
+				return Ok(EvmHostEvents::HostWithdrawalFilter(decoded));
 			}
 			if let Ok(decoded) = PostRequestEventFilter::decode_log(log) {
 				return Ok(EvmHostEvents::PostRequestEventFilter(decoded));
@@ -3212,6 +3260,7 @@ pub mod evm_host {
 					::core::fmt::Display::fmt(element, f),
 				Self::HostFrozenFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::HostParamsUpdatedFilter(element) => ::core::fmt::Display::fmt(element, f),
+				Self::HostWithdrawalFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestEventFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestHandledFilter(element) => ::core::fmt::Display::fmt(element, f),
 				Self::PostRequestTimeoutHandledFilter(element) =>
@@ -3250,6 +3299,11 @@ pub mod evm_host {
 	impl ::core::convert::From<HostParamsUpdatedFilter> for EvmHostEvents {
 		fn from(value: HostParamsUpdatedFilter) -> Self {
 			Self::HostParamsUpdatedFilter(value)
+		}
+	}
+	impl ::core::convert::From<HostWithdrawalFilter> for EvmHostEvents {
+		fn from(value: HostWithdrawalFilter) -> Self {
+			Self::HostWithdrawalFilter(value)
 		}
 	}
 	impl ::core::convert::From<PostRequestEventFilter> for EvmHostEvents {
@@ -4999,7 +5053,7 @@ pub mod evm_host {
 		pub un_staking_period: ::ethers::core::types::U256,
 		pub challenge_period: ::ethers::core::types::U256,
 		pub consensus_client: ::ethers::core::types::Address,
-		pub state_machine_whitelist: ::std::vec::Vec<::ethers::core::types::U256>,
+		pub state_machines: ::std::vec::Vec<::ethers::core::types::U256>,
 		pub fishermen: ::std::vec::Vec<::ethers::core::types::Address>,
 		pub hyperbridge: ::ethers::core::types::Bytes,
 	}

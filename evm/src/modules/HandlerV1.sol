@@ -39,7 +39,10 @@ bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"526571756573745265636569707
 // Storage prefix for request receipts in the pallet-ismp child trie
 bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"526573706f6e73655265636569707473";
 
-/// Entry point for the hyperbridge. Implementation of the ISMP handler protocol
+/**
+ * @title The ISMP Message Handler. Responsible for verifying the cryptographic proofs
+ * needed to confirm the validity of incoming requests/responses.
+ */
 contract HandlerV1 is IHandler, Context {
     using Bytes for bytes;
     using Message for PostResponse;
@@ -50,22 +53,31 @@ contract HandlerV1 is IHandler, Context {
     // The cosensus client has now expired to mitigate
     // long fork attacks, this is unrecoverable.
     error ConsensusClientExpired();
+
     // The IsmpHost has been frozen by the admin
     error HostFrozen();
+
     // Challenge period has not yet elapsed
     error ChallengePeriodNotElapsed();
+
     // The requested state commitment does not exist
     error StateCommitmentNotFound();
+
     // The message destination is not intended for this host
     error InvalidMessageDestination();
+
     // The provided message has now timed-out
     error MessageTimedOut();
+
     // The provided message has not timed-out
     error MessageNotTimedOut();
+
     // The message has been previously processed
     error DuplicateMessage();
+
     // The provided message is unknown to the host
     error UnknownMessage();
+
     // The provided proof is invalid
     error InvalidProof();
 

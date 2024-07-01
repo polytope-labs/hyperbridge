@@ -28,37 +28,46 @@ import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
 
-// The IsmpHost parameters
+// The EvmHost protocol parameters
 struct HostParams {
-    // default timeout in seconds for requests.
+    // The default timeout in seconds for requests. If requests are dispatched
+    // with a timeout value lower than this this value will be used instead
     uint256 defaultTimeout;
-    // cost of cross-chain requests in the fee token per byte
+    // The cost of cross-chain requests in the feetoken per-byte,
+    // this is charged to the application initiating a request or response
     uint256 perByteFee;
-    // The fee token contract. This will typically be DAI.
+    // The fee token contract address. This will typically be DAI.
     // but we allow it to be configurable to prevent future regrets.
     address feeToken;
-    // admin account, this only has the rights to freeze, or unfreeze the bridge
+    // The admin account, this only has the rights to freeze, or unfreeze the bridge
     address admin;
-    // Ismp request/response handler
+    // Ismp message handler contract. This performs all verification logic
+    // needed to validate cross-chain messages before they are dispatched to local modules
     address handler;
-    // the authorized host manager contract
+    // The authorized host manager contract, is itself an `IIsmpModule`
+    // which receives governance requests from the Hyperbridge chain to either
+    // withdraw revenue from the host or update its protocol parameters
     address hostManager;
-    // unstaking period
+    // The unstaking period of Polkadot's validators. In order to prevent long-range attacks
     uint256 unStakingPeriod;
-    // minimum challenge period in seconds;
+    // Minimum challenge period for state commitments in seconds;
     uint256 challengePeriod;
-    // consensus client contract
+    // The consensus client contract which handles consensus proof verification
     address consensusClient;
-    // whitelisted state machines
-    uint256[] stateMachineWhitelist;
-    // white list of fishermen accounts
+    // State machines whose state commitments are accepted
+    uint256[] stateMachines;
+    // Priviledged set of fishermen accounts
     address[] fishermen;
-    // state machine identifier for hyperbridge
+    // The state machine identifier for hyperbridge
     bytes hyperbridge;
 }
 
-// The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
-// Can only be called used by the HostManager module.
+/**
+ * @title The Host Manager Interface. This provides methods for
+ * modifying the host's params or withdrawing bridge revenue.
+ *
+ * @dev Can only be called used by the HostManager module.
+ */
 interface IHostManager {
     /**
      * @dev Updates IsmpHost params
@@ -81,8 +90,16 @@ struct WithdrawParams {
     uint256 amount;
 }
 
-/// IsmpHost implementation for Evm hosts. Refer to the official ISMP specification.
-/// https://docs.hyperbridge.network/protocol/ismp
+/**
+ * @title EvmHost. IsmpHost and IsmpDispatcher implementation for EVM-compatible chains
+ * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
+ *
+ * @dev The IsmpHost provides the neccessary storage interface for the ISMP handlers to process
+ * ISMP messages, the IsmpDispatcher provides the interfaces applications use for dispatching requests
+ * and responses. This host implementation delegates all verification logic to the IHandler contract.
+ * It is only responsible for dispatching incoming & outgoing requests/responses. As well as managing
+ * the state of the ISMP protocol.
+ */
 abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     using Bytes for bytes;
     using Message for PostResponse;
@@ -218,22 +235,33 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Emitted when the host params is updated
     event HostParamsUpdated(HostParams oldParams, HostParams newParams);
 
+    // Emitted when the host processes a withdrawal
+    event HostWithdrawal(uint256 amount, address beneficiary);
+
     // Account is unauthorized to perform requested action
     error UnauthorizedAccount();
+
     // Provided address didn't fit address type size
     error InvalidAddressLength();
+
     // Provided request was unknown
     error UnknownRequest();
+
     // Provided response was unknown
     error UnknownResponse();
+
     // Action breaks protocol invariants and is therefore unauthorized
     error UnauthorizedAction();
+
     // Application is attempting to respond to a request it did not receive
     error UnauthorizedResponse();
+
     // Response has already been provided for this request
     error DuplicateResponse();
+
     // Cannot exceed max fishermen count
     error MaxFishermanCountExceeded(uint256 provided);
+
     // Host manager address was zero or not a contract
     error InvalidHostManagerAddress();
 
@@ -423,9 +451,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             revert UnauthorizedAction();
         }
 
-        uint256 whitelistLength = params.stateMachineWhitelist.length;
+        uint256 whitelistLength = params.stateMachines.length;
         for (uint256 i = 0; i < whitelistLength; ++i) {
-            delete _latestStateMachineHeight[params.stateMachineWhitelist[i]];
+            delete _latestStateMachineHeight[params.stateMachines[i]];
         }
         updateHostParamsInternal(params);
     }
@@ -464,11 +492,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // add whitelisted state machines
-        uint256 whitelistLength = params.stateMachineWhitelist.length;
+        uint256 whitelistLength = params.stateMachines.length;
         for (uint256 i = 0; i < whitelistLength; ++i) {
             // create if it doesn't already exist
-            if (_latestStateMachineHeight[params.stateMachineWhitelist[i]] == 0) {
-                _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
+            if (_latestStateMachineHeight[params.stateMachines[i]] == 0) {
+                _latestStateMachineHeight[params.stateMachines[i]] = 1;
             }
         }
     }
@@ -479,6 +507,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function withdraw(WithdrawParams memory params) external restrict(_hostParams.hostManager) {
         SafeERC20.safeTransfer(IERC20(feeToken()), params.beneficiary, params.amount);
+        emit HostWithdrawal({beneficiary: params.beneficiary, amount: params.amount});
     }
 
     /**

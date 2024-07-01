@@ -166,7 +166,7 @@ alloy_sol_macro::sol! {
 		// consensus client contract
 		address consensusClient;
 		// whitelisted state machines
-		uint256[] stateMachineWhitelist;
+		uint256[] stateMachines;
 		// white list of fishermen accounts
 		address[] fishermen;
 		// state machine identifier for hyperbridge
@@ -200,7 +200,7 @@ impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 			unStakingPeriod: value.un_staking_period.try_into().map_err(anyhow::Error::msg)?,
 			challengePeriod: value.challenge_period.try_into().map_err(anyhow::Error::msg)?,
 			consensusClient: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,
-			stateMachineWhitelist: value
+			stateMachines: value
 				.state_machine_whitelist
 				.into_iter()
 				.map(|id| id.try_into().map_err(anyhow::Error::msg))

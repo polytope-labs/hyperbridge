@@ -56,6 +56,7 @@ use subxt::{
 	rpc_params,
 	tx::TxPayload,
 };
+use subxt::error::DispatchError;
 
 use subxt_utils::send_extrinsic;
 use tesseract_primitives::{

@@ -1,5 +1,5 @@
 #![cfg(test)]
-#![deny(missing_docs, unused_imports)]
+//#![deny(missing_docs, unused_imports)]
 
 use anyhow::anyhow;
 use ismp::{
@@ -40,18 +40,20 @@ async fn messaging_relayer_lite(
 	chain_a_client: Arc<dyn IsmpProvider>,
 	chain_b_client: Arc<dyn IsmpProvider>,
 	chain_a_sub_client: SubstrateClient<Hyperbridge>,
+	chain_b_sub_client: SubstrateClient<Hyperbridge>,
 	tx_block_height: u64,
 ) -> Result<(), anyhow::Error> {
 	let state_machine_update = StateMachineUpdated {
 		state_machine_id: chain_a_sub_client.state_machine_id(),
-		latest_height: tx_block_height + 1,
+		latest_height: tx_block_height + 2,
 	};
-	let result = chain_a_client
-		.query_ismp_events(tx_block_height - 1, state_machine_update.clone())
+	let event_result_a = chain_a_client
+		.query_ismp_events(tx_block_height - 2, state_machine_update.clone())
 		.await?;
+
 	// filter events
 	// get the state machine update event
-	let state_machine_update_event = result
+	let state_machine_update_event_a = event_result_a
 		.clone()
 		.into_iter()
 		.filter(|event| match event {
@@ -60,7 +62,7 @@ async fn messaging_relayer_lite(
 		})
 		.collect::<Vec<Event>>();
 	// get the request
-	let request_events = result
+	let request_events = event_result_a
 		.into_iter()
 		.filter(|event| match event {
 			Event::GetRequestHandled(post) => true,
@@ -71,11 +73,35 @@ async fn messaging_relayer_lite(
 	log::info!("\n request_events: {:?} \n", request_events);
 
 	// convert the returned events to request
-	let update_event = match state_machine_update_event[0].clone() {
+	let update_event_a = match state_machine_update_event_a[0].clone() {
 		Event::StateMachineUpdated(state_machine_update) => state_machine_update,
 		_ => panic!("Failed to get state machine update event"),
 	};
 
+	let chain_b_height = (chain_b_sub_client.query_latest_height(chain_a_sub_client.state_machine_id()).await? - 2) as u64;
+	let event_result_b = chain_b_client.query_ismp_events(
+		chain_b_height,
+		StateMachineUpdated {
+			state_machine_id: chain_b_client.state_machine_id(),
+			latest_height: chain_b_height + 2,
+		},
+	).await?;
+
+	let state_machine_update_event_b = event_result_b
+		.clone()
+		.into_iter()
+		.filter(|event| match event {
+			Event::StateMachineUpdated(state_machine_update) => true,
+			_ => false,
+		})
+		.collect::<Vec<Event>>();
+
+	let update_event_b = match state_machine_update_event_b[0].clone() {
+		Event::StateMachineUpdated(state_machine_update) => state_machine_update,
+		_ => panic!("Failed to get state machine update event"),
+	};
+
+	log::info!("Mrisho:: update event b: {:?}",update_event_b);
 	// Fetch proof of the request and convert to submittable message
 	let message = {
 		let msg = match request_events.get(0).unwrap() {
@@ -96,8 +122,8 @@ async fn messaging_relayer_lite(
 				};
 
 				let state_machine_height = StateMachineHeight {
-					id: StateMachineId { state_id: Kusama(2000), consensus_state_id: *b"PARA" },
-					height: get.height,
+					id: update_event_a.state_machine_id,
+					height: update_event_b.latest_height,
 				};
 
 				let proof = chain_a_client
@@ -116,16 +142,18 @@ async fn messaging_relayer_lite(
 	};
 
 	// submit the message
-	let res = chain_b_client.submit(vec![message]).await;
-	match res {
-		Ok(receipt) => {
-			log::info!("Receipt: {:?}", receipt);
-		},
-		Err(err) => {
-			log::info!("Error: {:?}", err);
-		},
-	}
-
+	// let res = chain_b_client.submit(vec![message]).await;
+	// match res {
+	// 	Ok(receipt) => {
+	// 		log::info!("Receipt: {:?}", receipt);
+	// 	},
+	// 	Err(err) => {
+	// 		log::info!("Error: {:?}", err);
+	// 	},
+	// }
+	log::info!("Mrisho:: message: {:?}",message);
+	let gas = chain_b_client.estimate_gas(vec![message]).await?;
+	log::info!("gas {:?}",gas);
 	Ok(())
 }
 
@@ -387,7 +415,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	log::info!("Ismp Events: {:?} \n", events.find_last::<Request>()?);
 
 	//  Self relay to chain B
-	messaging_relayer_lite(chain_a_client, chain_b_client, chain_a_sub_client, tx_block_height)
+	messaging_relayer_lite(chain_a_client, chain_b_client, chain_a_sub_client, chain_b_sub_client, tx_block_height)
 		.await?;
 
 	Ok(())

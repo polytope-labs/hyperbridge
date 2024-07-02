@@ -1,6 +1,6 @@
 mod cli;
 mod config;
-mod logging;
+pub mod logging;
 
 pub mod fees;
 

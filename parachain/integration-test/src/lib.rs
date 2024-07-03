@@ -52,7 +52,7 @@ async fn messaging_relayer_lite(
 		.await?;
 
 	// filter events
-	// get the state machine update event
+	// returns events for statemachine update of chain B
 	let state_machine_update_event_a = event_result_a
 		.clone()
 		.into_iter()
@@ -87,6 +87,7 @@ async fn messaging_relayer_lite(
 		},
 	).await?;
 
+	// returns events for statemachine update of chain A
 	let state_machine_update_event_b = event_result_b
 		.clone()
 		.into_iter()
@@ -101,6 +102,7 @@ async fn messaging_relayer_lite(
 		_ => panic!("Failed to get state machine update event"),
 	};
 
+	log::info!("Mrisho:: update event a: {:?}",update_event_a);
 	log::info!("Mrisho:: update event b: {:?}",update_event_b);
 	// Fetch proof of the request and convert to submittable message
 	let message = {
@@ -123,11 +125,11 @@ async fn messaging_relayer_lite(
 
 				let state_machine_height = StateMachineHeight {
 					id: update_event_a.state_machine_id,
-					height: update_event_b.latest_height,
+					height: get.height
 				};
 
 				let proof = chain_a_client
-					.query_requests_proof(state_machine_height.height, vec![query])
+					.query_requests_proof(get.height, vec![query])
 					.await?;
 				let msg = ResponseMessage {
 					datagram: RequestResponse::Request(vec![Get(get.clone())]),
@@ -142,18 +144,15 @@ async fn messaging_relayer_lite(
 	};
 
 	// submit the message
-	// let res = chain_b_client.submit(vec![message]).await;
-	// match res {
-	// 	Ok(receipt) => {
-	// 		log::info!("Receipt: {:?}", receipt);
-	// 	},
-	// 	Err(err) => {
-	// 		log::info!("Error: {:?}", err);
-	// 	},
-	// }
-	log::info!("Mrisho:: message: {:?}",message);
-	let gas = chain_b_client.estimate_gas(vec![message]).await?;
-	log::info!("gas {:?}",gas);
+	let res = chain_a_client.submit(vec![message]).await;
+	match res {
+		Ok(receipt) => {
+			log::info!("Receipt: {:?}", receipt);
+		},
+		Err(err) => {
+			log::info!("Error: {:?}", err);
+		},
+	}
 	Ok(())
 }
 
@@ -394,6 +393,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	// Chain A fetch Alice balance from chain B
 	let latest_height_b =
 		chain_a_client.query_latest_height(chain_b_client.state_machine_id()).await?;
+
 	let get_request = api::tx().ismp_demo().get_request(GetRequest {
 		para_id: 2001,
 		height: latest_height_b,

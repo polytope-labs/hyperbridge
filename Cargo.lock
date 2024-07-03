@@ -7222,6 +7222,7 @@ dependencies = [
  "sc-service",
  "sp-core 21.0.0",
  "sp-keyring",
+ "substrate-state-machine",
  "subxt",
  "subxt-signer",
  "subxt-utils",

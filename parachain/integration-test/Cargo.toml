@@ -10,6 +10,7 @@ tesseract-primitives = { path = "../../tesseract/primitives"}
 tesseract-config = { path = "../../tesseract/config"}
 tesseract-substrate = { path = "../../tesseract/substrate"}
 tesseract = { path = "../../tesseract/relayer"}
+substrate-state-machine = { workspace = true }
 
 sc-consensus-manual-seal = { workspace = true }
 anyhow = "1.0.75"

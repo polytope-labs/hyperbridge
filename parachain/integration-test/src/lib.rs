@@ -11,8 +11,12 @@ use ismp::{
 };
 use sc_service::TaskManager;
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt::{
-	ext::sp_core::{sr25519::Pair, Pair as PairT},
+	ext::{
+		codec::Encode,
+		sp_core::{sr25519::Pair, Pair as PairT},
+	},
 	tx::PairSigner,
 	utils::AccountId32,
 	OnlineClient,
@@ -35,12 +39,13 @@ use tesseract_primitives::{config::RelayerConfig, Hasher, IsmpProvider, Query};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient, SubstrateConfig};
 use transaction_fees::TransactionPayment;
 
-/// This function is used to construct request( get request) and submit to chain B
+/// This function is used to fetch get request and construct get response and submit to chain
+/// A(source chain)
 async fn messaging_relayer_lite(
+	client_b: OnlineClient<Hyperbridge>,
 	chain_a_client: Arc<dyn IsmpProvider>,
 	chain_b_client: Arc<dyn IsmpProvider>,
 	chain_a_sub_client: SubstrateClient<Hyperbridge>,
-	chain_b_sub_client: SubstrateClient<Hyperbridge>,
 	tx_block_height: u64,
 ) -> Result<(), anyhow::Error> {
 	let state_machine_update = StateMachineUpdated {
@@ -61,7 +66,8 @@ async fn messaging_relayer_lite(
 			_ => false,
 		})
 		.collect::<Vec<Event>>();
-	// get the request
+
+	// ====================== get the GET_REQUEST ===============================
 	let request_events = event_result_a
 		.into_iter()
 		.filter(|event| match event {
@@ -72,79 +78,43 @@ async fn messaging_relayer_lite(
 		.collect::<Vec<Event>>();
 	log::info!("\n request_events: {:?} \n", request_events);
 
-	// convert the returned events to request
-	let update_event_a = match state_machine_update_event_a[0].clone() {
-		Event::StateMachineUpdated(state_machine_update) => state_machine_update,
-		_ => panic!("Failed to get state machine update event"),
-	};
+	// ======== process the request offchain ( 1. Make the response ) =============
+	let get_request = request_events.get(0).unwrap();
 
-	let chain_b_height = (chain_b_sub_client.query_latest_height(chain_a_sub_client.state_machine_id()).await? - 2) as u64;
-	let event_result_b = chain_b_client.query_ismp_events(
-		chain_b_height,
-		StateMachineUpdated {
-			state_machine_id: chain_b_client.state_machine_id(),
-			latest_height: chain_b_height + 2,
-		},
-	).await?;
-
-	// returns events for statemachine update of chain A
-	let state_machine_update_event_b = event_result_b
-		.clone()
-		.into_iter()
-		.filter(|event| match event {
-			Event::StateMachineUpdated(state_machine_update) => true,
-			_ => false,
-		})
-		.collect::<Vec<Event>>();
-
-	let update_event_b = match state_machine_update_event_b[0].clone() {
-		Event::StateMachineUpdated(state_machine_update) => state_machine_update,
-		_ => panic!("Failed to get state machine update event"),
-	};
-
-	log::info!("Mrisho:: update event a: {:?}",update_event_a);
-	log::info!("Mrisho:: update event b: {:?}",update_event_b);
-	// Fetch proof of the request and convert to submittable message
-	let message = {
-		let msg = match request_events.get(0).unwrap() {
-			Event::GetRequest(get) => {
-				// check timestamp
-				let chain_b_current_time = chain_b_client.query_timestamp().await?.as_secs();
-				if get.timeout_timestamp == 0 && chain_b_current_time > get.timeout_timestamp {
-					panic!("request will timeout")
-				}
-
-				let req = Get(get.clone());
-				let hash = hash_request::<Hasher>(&req);
-				let query = Query {
-					source_chain: get.source,
-					dest_chain: get.dest,
-					nonce: get.nonce,
-					commitment: hash,
-				};
-
-				let state_machine_height = StateMachineHeight {
-					id: update_event_a.state_machine_id,
-					height: get.height
-				};
-
-				let proof = chain_a_client
-					.query_requests_proof(get.height, vec![query])
-					.await?;
-				let msg = ResponseMessage {
-					datagram: RequestResponse::Request(vec![Get(get.clone())]),
-					proof: Proof { height: state_machine_height, proof },
-					signer: chain_b_client.address(),
-				};
-				msg
-			},
-			_ => panic!("Failed to get request event"),
+	let response = {
+		let get = match get_request {
+			Event::GetRequest(get) => get,
+			_ => panic!("Not supported"),
 		};
-		Message::Response(msg)
-	};
+		let dest_chain_block_hash = client_b.rpc().block_hash(Some(get.height.into())).await?;
+		let keys = get.keys.iter().map(|key| &key[..]).collect::<Vec<&[u8]>>();
+		let value_proof = client_b.rpc().read_proof(keys, dest_chain_block_hash).await?;
+		let proof = value_proof.proof.into_iter().map(|bytes| bytes.0).collect::<Vec<Vec<u8>>>();
 
-	// submit the message
-	let res = chain_a_client.submit(vec![message]).await;
+		let proof_of_value = SubstrateStateProof::StateProof(StateMachineProof {
+			hasher: HashAlgorithm::Keccak,
+			storage_proof: proof,
+		});
+
+		let response = ResponseMessage {
+			datagram: RequestResponse::Request(vec![Get(get.clone())]),
+			proof: Proof {
+				height: StateMachineHeight {
+					id: chain_b_client.state_machine_id(),
+					height: get.height,
+				},
+				proof: proof_of_value.encode(),
+			},
+			signer: chain_b_client.address(),
+		};
+
+		Message::Response(response)
+	};
+	// =================== send to the source chain ================================
+	let nn = chain_a_client.estimate_gas(vec![response.clone()]).await?;
+	log::info!("Gas estimate: {:?}", nn);
+
+	let res = chain_a_client.submit(vec![response]).await;
 	match res {
 		Ok(receipt) => {
 			log::info!("Receipt: {:?}", receipt);
@@ -415,8 +385,14 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	log::info!("Ismp Events: {:?} \n", events.find_last::<Request>()?);
 
 	//  Self relay to chain B
-	messaging_relayer_lite(chain_a_client, chain_b_client, chain_a_sub_client, chain_b_sub_client, tx_block_height)
-		.await?;
+	messaging_relayer_lite(
+		client_b,
+		chain_a_client,
+		chain_b_client,
+		chain_a_sub_client,
+		tx_block_height,
+	)
+	.await?;
 
 	Ok(())
 }

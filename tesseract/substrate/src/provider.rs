@@ -48,6 +48,7 @@ use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
+	error::DispatchError,
 	ext::{
 		sp_core::crypto::AccountId32,
 		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
@@ -56,7 +57,6 @@ use subxt::{
 	rpc_params,
 	tx::TxPayload,
 };
-use subxt::error::DispatchError;
 
 use subxt_utils::send_extrinsic;
 use tesseract_primitives::{

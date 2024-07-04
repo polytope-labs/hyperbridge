@@ -1,12 +1,12 @@
 #![cfg(test)]
-//#![deny(missing_docs, unused_imports)]
+#![deny(missing_docs, unused_imports)]
 
 use anyhow::anyhow;
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
+	consensus::StateMachineHeight,
 	events::{Event, StateMachineUpdated},
 	host::{StateMachine, StateMachine::Kusama},
-	messaging::{hash_request, Message, Proof, ResponseMessage},
+	messaging::{Message, Proof, ResponseMessage},
 	router::{Request::Get, RequestResponse},
 };
 use sc_service::TaskManager;
@@ -14,7 +14,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt::{
 	ext::{
-		codec::Encode,
+		codec::{Decode, Encode},
 		sp_core::{sr25519::Pair, Pair as PairT},
 	},
 	tx::PairSigner,
@@ -27,6 +27,7 @@ use subxt_utils::{
 		api,
 		api::{
 			ismp::events::Request,
+			ismp_demo::events::GetResponse,
 			runtime_types::pallet_ismp_demo::pallet::{GetRequest, TransferParams},
 		},
 	},
@@ -35,19 +36,20 @@ use subxt_utils::{
 use tesseract::logging::setup as log_setup;
 use tesseract_config::AnyConfig;
 use tesseract_messaging::relay;
-use tesseract_primitives::{config::RelayerConfig, Hasher, IsmpProvider, Query};
+use tesseract_primitives::{config::RelayerConfig, IsmpProvider};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient, SubstrateConfig};
 use transaction_fees::TransactionPayment;
 
 /// This function is used to fetch get request and construct get response and submit to chain
 /// A(source chain)
 async fn messaging_relayer_lite(
+	client_a: OnlineClient<Hyperbridge>,
 	client_b: OnlineClient<Hyperbridge>,
 	chain_a_client: Arc<dyn IsmpProvider>,
 	chain_b_client: Arc<dyn IsmpProvider>,
 	chain_a_sub_client: SubstrateClient<Hyperbridge>,
 	tx_block_height: u64,
-) -> Result<(), anyhow::Error> {
+) -> Result<Vec<u8>, anyhow::Error> {
 	let state_machine_update = StateMachineUpdated {
 		state_machine_id: chain_a_sub_client.state_machine_id(),
 		latest_height: tx_block_height + 2,
@@ -56,27 +58,14 @@ async fn messaging_relayer_lite(
 		.query_ismp_events(tx_block_height - 2, state_machine_update.clone())
 		.await?;
 
-	// filter events
-	// returns events for statemachine update of chain B
-	let state_machine_update_event_a = event_result_a
-		.clone()
-		.into_iter()
-		.filter(|event| match event {
-			Event::StateMachineUpdated(state_machine_update) => true,
-			_ => false,
-		})
-		.collect::<Vec<Event>>();
-
 	// ====================== get the GET_REQUEST ===============================
 	let request_events = event_result_a
 		.into_iter()
 		.filter(|event| match event {
-			Event::GetRequestHandled(post) => true,
-			Event::GetRequest(get) => true,
+			Event::GetRequest(_) => true,
 			_ => false,
 		})
 		.collect::<Vec<Event>>();
-	log::info!("\n request_events: {:?} \n", request_events);
 
 	// ======== process the request offchain ( 1. Make the response ) =============
 	let get_request = request_events.get(0).unwrap();
@@ -95,35 +84,52 @@ async fn messaging_relayer_lite(
 			hasher: HashAlgorithm::Keccak,
 			storage_proof: proof,
 		});
-
+		let proof = Proof {
+			height: StateMachineHeight {
+				id: chain_b_client.state_machine_id(),
+				height: get.height,
+			},
+			proof: proof_of_value.encode(),
+		};
 		let response = ResponseMessage {
 			datagram: RequestResponse::Request(vec![Get(get.clone())]),
-			proof: Proof {
-				height: StateMachineHeight {
-					id: chain_b_client.state_machine_id(),
-					height: get.height,
-				},
-				proof: proof_of_value.encode(),
-			},
+			proof,
 			signer: chain_b_client.address(),
 		};
 
 		Message::Response(response)
 	};
 	// =================== send to the source chain ================================
-	let nn = chain_a_client.estimate_gas(vec![response.clone()]).await?;
-	log::info!("Gas estimate: {:?}", nn);
+	let _res = chain_a_client.submit(vec![response]).await?;
+	//==================== after approx 8-9 blocks the request event is emitted ===
+	// =================== fetch the returned value ================================
+	let mut height_to_fetch = tx_block_height + 8;
+	let mut block_hash = client_a.rpc().block_hash(Some(height_to_fetch.into())).await?.unwrap();
+	let mut response_event: Option<GetResponse> = None;
 
-	let res = chain_a_client.submit(vec![response]).await;
-	match res {
-		Ok(receipt) => {
-			log::info!("Receipt: {:?}", receipt);
-		},
-		Err(err) => {
-			log::info!("Error: {:?}", err);
-		},
+	while height_to_fetch <= (tx_block_height + 10) {
+		let fetched_events = client_a.events().at(block_hash).await?.find_first::<GetResponse>()?;
+		match fetched_events {
+			Some(res_event) => {
+				response_event = Some(res_event.clone());
+				break
+			},
+			None => {
+				height_to_fetch += 1;
+				block_hash =
+					client_a.rpc().block_hash(Some(height_to_fetch.into())).await?.unwrap();
+			},
+		}
 	}
-	Ok(())
+
+	let encoded_value = match response_event.unwrap().0[0].clone() {
+		Some(value) => value,
+		None => {
+			panic!("Value not found")
+		},
+	};
+
+	Ok(encoded_value)
 }
 
 /// Configure the state machines and relayer
@@ -343,7 +349,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		(client_a, client_b),
 		(chain_a_sub_client, chain_b_sub_client),
 		(chain_a_client, chain_b_client),
-		(_, relayer_config, client_map, _),
+		_,
 	) = initial_setup().await?;
 
 	log::info!(
@@ -356,7 +362,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let alice_signer = PairSigner::<Hyperbridge, _>::new(
 		Pair::from_string("//Alice", None).expect("Unable to create ALice account"),
 	);
-	let alice_key = api::storage().system().account(AccountId32(dev::alice().public_key().0));
+	// parachain info pallet fetching para id
 	let encoded_chain_b_id_storage_key =
 		"0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f";
 
@@ -368,7 +374,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		para_id: 2001,
 		height: latest_height_b,
 		timeout: 70,
-		keys: vec![encoded_chain_b_id_storage_key.as_bytes().to_vec()],
+		keys: vec![hex::decode(encoded_chain_b_id_storage_key.strip_prefix("0x").unwrap()).unwrap()],
 	});
 	let tx_result = client_a
 		.tx()
@@ -384,15 +390,28 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let events = client_a.events().at(tx_block_hash).await?;
 	log::info!("Ismp Events: {:?} \n", events.find_last::<Request>()?);
 
-	//  Self relay to chain B
-	messaging_relayer_lite(
-		client_b,
+	tokio::time::sleep(Duration::from_secs(20)).await;
+	// ======================= Self relay to chain B =====================================
+	let value_returned_encoded = messaging_relayer_lite(
+		client_a,
+		client_b.clone(),
 		chain_a_client,
 		chain_b_client,
 		chain_a_sub_client,
 		tx_block_height,
 	)
 	.await?;
+	let para_id_chain_b: u32 = Decode::decode(&mut &value_returned_encoded[..])?;
+	let fetched_para_id_chain_b = client_b
+		.storage()
+		.at_latest()
+		.await?
+		.fetch(&api::storage().parachain_info().parachain_id())
+		.await?
+		.unwrap()
+		.0;
+
+	assert_eq!(para_id_chain_b, fetched_para_id_chain_b);
 
 	Ok(())
 }

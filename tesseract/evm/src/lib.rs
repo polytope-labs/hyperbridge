@@ -34,6 +34,27 @@ mod test;
 pub mod tx;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClientType {
+	Geth,
+	Erigon
+}
+
+impl Default for ClientType {
+	fn default() -> Self {
+		Self::Geth
+	}
+}
+
+impl ClientType {
+	pub fn erigon(&self) -> bool {
+		match &self {
+			ClientType::Erigon => true,
+			_ => false
+		}
+	}
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvmConfig {
 	/// RPC urls for the execution client
 	pub rpc_urls: Vec<String>,
@@ -58,6 +79,8 @@ pub struct EvmConfig {
 	/// An optional buffer to add to gas price as a percentage of the current gas price
 	/// to increase likelihood of the transactions going through e.g 1%, 2%
 	pub gas_price_buffer: Option<u32>,
+	/// The client type the rpc is running, defaults to Geth
+	pub client_type: Option<ClientType>
 }
 
 impl EvmConfig {
@@ -87,6 +110,7 @@ impl Default for EvmConfig {
 			query_batch_size: Default::default(),
 			poll_interval: Default::default(),
 			gas_price_buffer: Default::default(),
+			client_type: Default::default()
 		}
 	}
 }
@@ -109,6 +133,8 @@ pub struct EvmClient {
 	config: EvmConfig,
 	/// EVM chain Id.
 	pub chain_id: u64,
+	/// Client type
+	pub client_type: ClientType
 }
 
 impl EvmClient {
@@ -151,6 +177,7 @@ impl EvmClient {
 			initial_height: latest_height,
 			config: config_clone,
 			chain_id,
+			client_type: config.client_type.unwrap_or_default()
 		})
 	}
 
@@ -267,6 +294,7 @@ impl Clone for EvmClient {
 			initial_height: self.initial_height,
 			config: self.config.clone(),
 			chain_id: self.chain_id.clone(),
+			client_type: self.client_type.clone()
 		}
 	}
 }

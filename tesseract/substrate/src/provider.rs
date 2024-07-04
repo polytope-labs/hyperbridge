@@ -48,7 +48,6 @@ use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
-	error::DispatchError,
 	ext::{
 		sp_core::crypto::AccountId32,
 		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},

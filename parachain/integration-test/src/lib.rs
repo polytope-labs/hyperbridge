@@ -52,23 +52,21 @@ async fn messaging_relayer_lite(
 ) -> Result<Vec<u8>, anyhow::Error> {
 	let state_machine_update = StateMachineUpdated {
 		state_machine_id: chain_a_sub_client.state_machine_id(),
-		latest_height: tx_block_height + 2,
+		latest_height: tx_block_height,
 	};
 	let event_result_a = chain_a_client
-		.query_ismp_events(tx_block_height - 2, state_machine_update.clone())
+		.query_ismp_events(tx_block_height - 1, state_machine_update.clone())
 		.await?;
 
 	// ====================== get the GET_REQUEST ===============================
-	let request_events = event_result_a
+	let get_request = event_result_a
 		.into_iter()
-		.filter(|event| match event {
-			Event::GetRequest(_) => true,
-			_ => false,
+		.find_map(|event| match event {
+			Event::GetRequest(_) => Some(event),
+			_ => None,
 		})
-		.collect::<Vec<Event>>();
-
+		.expect("Expected at least one GetRequest event");
 	// ======== process the request offchain ( 1. Make the response ) =============
-	let get_request = request_events.get(0).unwrap();
 
 	let response = {
 		let get = match get_request {
@@ -101,8 +99,9 @@ async fn messaging_relayer_lite(
 	};
 	// =================== send to the source chain ================================
 	let _res = chain_a_client.submit(vec![response]).await?;
-	//==================== after approx 8-9 blocks the request event is emitted ===
+	//==================== after approx 7-9 blocks the response event is emitted ===
 	// =================== fetch the returned value ================================
+	tokio::time::sleep(Duration::from_secs(30)).await;
 	let mut height_to_fetch = tx_block_height + 8;
 	let mut block_hash = client_a.rpc().block_hash(Some(height_to_fetch.into())).await?.unwrap();
 	let mut response_event: Option<GetResponse> = None;
@@ -133,7 +132,7 @@ async fn messaging_relayer_lite(
 }
 
 /// Configure the state machines and relayer
-async fn initial_setup() -> Result<
+async fn create_clients() -> Result<
 	(
 		(OnlineClient<Hyperbridge>, OnlineClient<Hyperbridge>),
 		(SubstrateClient<Hyperbridge>, SubstrateClient<Hyperbridge>),
@@ -200,7 +199,7 @@ async fn initial_setup() -> Result<
 	client_map.insert(chain_b_config.state_machine, chain_b_client.clone());
 
 	let tx_payment = Arc::new(
-		TransactionPayment::initialize(&"../../../dev.db") // out of hyperbridge directory
+		TransactionPayment::initialize(&"/tmp/dev.db") // out of hyperbridge directory
 			.await
 			.map_err(|err| anyhow!("Error initializing database: {err:?}"))?,
 	);
@@ -226,7 +225,7 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 		(chain_a_sub_client, chain_b_sub_client),
 		(_chain_a_client, chain_b_client),
 		(tx_payment, relayer_config, client_map, task_manager),
-	) = initial_setup().await?;
+	) = create_clients().await?;
 
 	log::info!(
 		"🧊integration test for para: {} to para {}: fund transfer",
@@ -245,7 +244,7 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 		chain_a_sub_client,
 		chain_b_client.clone(),
 		relayer_config.clone(),
-		Kusama(2001),
+		Kusama(3000),// random coprocessor id
 		tx_payment,
 		client_map.clone(),
 		&task_manager,
@@ -350,7 +349,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		(chain_a_sub_client, chain_b_sub_client),
 		(chain_a_client, chain_b_client),
 		_,
-	) = initial_setup().await?;
+	) = create_clients().await?;
 
 	log::info!(
 		"🧊integration test for para: {} to para {}: get request",
@@ -373,7 +372,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let get_request = api::tx().ismp_demo().get_request(GetRequest {
 		para_id: 2001,
 		height: latest_height_b,
-		timeout: 70,
+		timeout: 0,
 		keys: vec![hex::decode(encoded_chain_b_id_storage_key.strip_prefix("0x").unwrap()).unwrap()],
 	});
 	let tx_result = client_a
@@ -389,8 +388,6 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let tx_block_height = client_a.blocks().at(tx_block_hash).await?.number() as u64;
 	let events = client_a.events().at(tx_block_hash).await?;
 	log::info!("Ismp Events: {:?} \n", events.find_last::<Request>()?);
-
-	tokio::time::sleep(Duration::from_secs(20)).await;
 	// ======================= Self relay to chain B =====================================
 	let value_returned_encoded = messaging_relayer_lite(
 		client_a,

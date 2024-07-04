@@ -30,7 +30,6 @@ use crate::{
 };
 use futures::{FutureExt, StreamExt};
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
-use tracing::log;
 
 use tesseract_primitives::{
 	config::RelayerConfig, observe_challenge_period, wait_for_challenge_period,

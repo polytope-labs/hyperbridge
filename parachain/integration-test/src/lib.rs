@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use ismp::{
 	consensus::StateMachineHeight,
 	events::{Event, StateMachineUpdated},
-	host::{StateMachine, StateMachine::Kusama},
+	host::StateMachine::Kusama,
 	messaging::{Message, Proof, ResponseMessage},
 	router::{Request::Get, RequestResponse},
 };
@@ -19,7 +19,6 @@ use subxt::{
 	},
 	tx::PairSigner,
 	utils::AccountId32,
-	OnlineClient,
 };
 use subxt_signer::sr25519::dev::{self};
 use subxt_utils::{
@@ -34,7 +33,6 @@ use subxt_utils::{
 	Hyperbridge,
 };
 use tesseract::logging::setup as log_setup;
-use tesseract_config::AnyConfig;
 use tesseract_messaging::relay;
 use tesseract_primitives::{config::RelayerConfig, IsmpProvider};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient, SubstrateConfig};
@@ -43,15 +41,20 @@ use transaction_fees::TransactionPayment;
 /// This function is used to fetch get request and construct get response and submit to chain
 /// A(source chain)
 async fn messaging_relayer_lite(
-	client_a: OnlineClient<Hyperbridge>,
-	client_b: OnlineClient<Hyperbridge>,
-	chain_a_client: Arc<dyn IsmpProvider>,
-	chain_b_client: Arc<dyn IsmpProvider>,
 	chain_a_sub_client: SubstrateClient<Hyperbridge>,
+	chain_b_sub_client: SubstrateClient<Hyperbridge>,
 	tx_block_height: u64,
 ) -> Result<Vec<u8>, anyhow::Error> {
+	let (client_a, client_b) =
+		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
+
+	let (chain_a_client, chain_b_client) = (
+		Arc::new(chain_a_sub_client) as Arc<dyn IsmpProvider>,
+		Arc::new(chain_b_sub_client) as Arc<dyn IsmpProvider>,
+	);
+
 	let state_machine_update = StateMachineUpdated {
-		state_machine_id: chain_a_sub_client.state_machine_id(),
+		state_machine_id: chain_a_client.state_machine_id(),
 		latest_height: tx_block_height,
 	};
 	let event_result_a = chain_a_client
@@ -92,7 +95,7 @@ async fn messaging_relayer_lite(
 		let response = ResponseMessage {
 			datagram: RequestResponse::Request(vec![Get(get.clone())]),
 			proof,
-			signer: chain_b_client.address(),
+			signer: chain_a_client.address(), // both A&B have same relayer address
 		};
 
 		Message::Response(response)
@@ -131,21 +134,9 @@ async fn messaging_relayer_lite(
 	Ok(encoded_value)
 }
 
-/// Configure the state machines and relayer
-async fn create_clients() -> Result<
-	(
-		(OnlineClient<Hyperbridge>, OnlineClient<Hyperbridge>),
-		(SubstrateClient<Hyperbridge>, SubstrateClient<Hyperbridge>),
-		(Arc<dyn IsmpProvider>, Arc<dyn IsmpProvider>),
-		(
-			Arc<TransactionPayment>,
-			RelayerConfig,
-			HashMap<StateMachine, Arc<dyn IsmpProvider>>,
-			TaskManager,
-		),
-	),
-	anyhow::Error,
-> {
+/// Configure the state machines and spawn the messaging relayer
+async fn create_clients(
+) -> Result<(SubstrateClient<Hyperbridge>, SubstrateClient<Hyperbridge>), anyhow::Error> {
 	let chain_a_config = SubstrateConfig {
 		state_machine: Kusama(2000),
 		hashing: None,
@@ -168,36 +159,29 @@ async fn create_clients() -> Result<
 		max_concurent_queries: None,
 	};
 
-	let (url_a, url_b) = (&chain_a_config.rpc_ws, &chain_b_config.rpc_ws);
-
-	let client_a = subxt_utils::client::ws_client::<Hyperbridge>(url_a.as_str(), u32::MAX).await?;
-	let client_b = subxt_utils::client::ws_client::<Hyperbridge>(url_b.as_str(), u32::MAX).await?;
-
-	let relayer_config = RelayerConfig::default();
-
 	// setup state machines
 	let chain_a_sub_client =
 		SubstrateClient::<KeccakSubstrateChain>::new(chain_a_config.clone()).await?;
 	let chain_b_sub_client =
 		SubstrateClient::<KeccakSubstrateChain>::new(chain_b_config.clone()).await?;
 
-	let (chain_a_any_config, chain_b_any_config) = (
-		AnyConfig::Substrate(chain_a_config.clone()),
-		AnyConfig::Substrate(chain_b_config.clone()),
+	Ok((chain_a_sub_client, chain_b_sub_client))
+}
+
+/// Assertion is on ismp related events, and state changes on source and destination chain
+/// Alice in chain A sends 100_000 tokens to Alice in chain B
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
+	log_setup()?;
+	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
+
+	log::info!(
+		"🧊integration test for para:{} to para {}: fund transfer",
+		chain_a_sub_client.clone().state_machine_id().state_id,
+		chain_b_sub_client.clone().state_machine_id().state_id
 	);
-	let chain_a_client = chain_a_any_config
-		.clone()
-		.into_client(Arc::new(chain_b_sub_client.clone()))
-		.await?;
-	let chain_b_client = chain_b_any_config
-		.clone()
-		.into_client(Arc::new(chain_a_sub_client.clone()))
-		.await?;
 
-	let mut client_map = HashMap::new();
-	client_map.insert(chain_a_config.state_machine, chain_a_client.clone());
-	client_map.insert(chain_b_config.state_machine, chain_b_client.clone());
-
+	// initiate message relaying task
 	let tx_payment = Arc::new(
 		TransactionPayment::initialize(&"/tmp/dev.db") // out of hyperbridge directory
 			.await
@@ -206,53 +190,37 @@ async fn create_clients() -> Result<
 
 	let tokio_handle = tokio::runtime::Handle::current();
 	let task_manager = TaskManager::new(tokio_handle, None)?;
+	let relayer_config = RelayerConfig::default();
 
-	Ok((
-		(client_a, client_b),
-		(chain_a_sub_client, chain_b_sub_client),
-		(chain_a_client, chain_b_client),
-		(tx_payment, relayer_config, client_map, task_manager),
-	))
-}
-
-/// Assertion is on ismp related events, and state changes on source and destination chain
-/// Alice in chain A sends 100_000 tokens to Alice in chain B
-#[tokio::test(flavor = "multi_thread")]
-async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
-	log_setup()?;
-	let (
-		(client_a, client_b),
-		(chain_a_sub_client, chain_b_sub_client),
-		(_chain_a_client, chain_b_client),
-		(tx_payment, relayer_config, client_map, task_manager),
-	) = create_clients().await?;
-
-	log::info!(
-		"🧊integration test for para: {} to para {}: fund transfer",
-		chain_a_sub_client.state_machine_id().state_id,
-		chain_b_sub_client.state_machine_id().state_id
+	let (chain_a_client, chain_b_client) = (
+		Arc::new(chain_a_sub_client.clone()) as Arc<dyn IsmpProvider>,
+		Arc::new(chain_b_sub_client.clone()) as Arc<dyn IsmpProvider>,
 	);
+
+	let mut client_map = HashMap::new();
+	client_map
+		.insert(chain_a_sub_client.clone().state_machine_id().state_id, chain_a_client.clone());
+	client_map
+		.insert(chain_b_sub_client.clone().state_machine_id().state_id, chain_b_client.clone());
+
+	let (client_a, client_b) = (chain_a_sub_client.clone().client, chain_b_sub_client.client);
+
+	relay(
+		chain_a_sub_client,
+		chain_b_client.clone(),
+		relayer_config.clone(),
+		Kusama(3000), // random coprocessor id
+		tx_payment,
+		client_map.clone(),
+		&task_manager,
+	)
+	.await?;
 
 	// Accounts & keys
 	let alice_signer = PairSigner::<Hyperbridge, _>::new(
 		Pair::from_string("//Alice", None).expect("Unable to create ALice account"),
 	);
 	let alice_key = api::storage().system().account(AccountId32(dev::alice().public_key().0));
-
-	// initiate message relaying task
-	relay(
-		chain_a_sub_client,
-		chain_b_client.clone(),
-		relayer_config.clone(),
-		Kusama(3000),// random coprocessor id
-		tx_payment,
-		client_map.clone(),
-		&task_manager,
-	)
-	.await?;
-	// time delay is not fixed as it gives time for relayer to initiate and do all necessary setup
-	// and starting to fetch events
-	tokio::time::sleep(Duration::from_secs(10)).await;
 
 	let amount = 100_000_000000000000;
 	let transfer_call = api::tx().ismp_demo().transfer(TransferParams {
@@ -310,6 +278,7 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 		.data
 		.free;
 
+	// Time delay for the relayer to submit the request to the dest chain
 	tokio::time::sleep(Duration::from_secs(40)).await;
 
 	// The relayer should finish sending the request message to chain B
@@ -344,18 +313,18 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn get_request_works() -> Result<(), anyhow::Error> {
 	log_setup()?;
-	let (
-		(client_a, client_b),
-		(chain_a_sub_client, chain_b_sub_client),
-		(chain_a_client, chain_b_client),
-		_,
-	) = create_clients().await?;
+	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 
-	log::info!(
-		"🧊integration test for para: {} to para {}: get request",
-		chain_a_sub_client.state_machine_id().state_id,
-		chain_b_sub_client.state_machine_id().state_id
+	log::info!("🧊integration test for para: 2000 to para 2001: get request");
+
+	// =======================================================================
+	let (chain_a_client, chain_b_client) = (
+		Arc::new(chain_a_sub_client.clone()) as Arc<dyn IsmpProvider>,
+		Arc::new(chain_b_sub_client.clone()) as Arc<dyn IsmpProvider>,
 	);
+
+	let (client_a, client_b) =
+		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
 
 	// Accounts & keys
 	let alice_signer = PairSigner::<Hyperbridge, _>::new(
@@ -388,17 +357,13 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let tx_block_height = client_a.blocks().at(tx_block_hash).await?.number() as u64;
 	let events = client_a.events().at(tx_block_hash).await?;
 	log::info!("Ismp Events: {:?} \n", events.find_last::<Request>()?);
+
 	// ======================= Self relay to chain B =====================================
-	let value_returned_encoded = messaging_relayer_lite(
-		client_a,
-		client_b.clone(),
-		chain_a_client,
-		chain_b_client,
-		chain_a_sub_client,
-		tx_block_height,
-	)
-	.await?;
+	let value_returned_encoded =
+		messaging_relayer_lite(chain_a_sub_client, chain_b_sub_client, tx_block_height).await?;
+
 	let para_id_chain_b: u32 = Decode::decode(&mut &value_returned_encoded[..])?;
+
 	let fetched_para_id_chain_b = client_b
 		.storage()
 		.at_latest()

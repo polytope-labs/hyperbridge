@@ -344,6 +344,7 @@ impl IsmpProvider for EvmClient {
 		use tokio_stream::StreamExt;
 		let messages = _msg.clone();
 
+		// The clients we support(erigon and geth) both use Geth style tracing
 		let debug_trace_call_options = GethDebugTracingCallOptions {
 			tracing_options: GethDebugTracingOptions {
 				disable_storage: Some(true),

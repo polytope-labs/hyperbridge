@@ -38,6 +38,7 @@ pub mod pallet {
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use ismp::{
+		consensus::ParachainData,
 		host::IsmpHost,
 		messaging::{ConsensusMessage, Message},
 	};
@@ -71,7 +72,7 @@ pub mod pallet {
 
 	/// List of parachains that this state machine is interested in.
 	#[pallet::storage]
-	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ()>;
+	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ParachainData>;
 
 	/// Events emitted by this pallet
 	#[pallet::event]
@@ -80,7 +81,7 @@ pub mod pallet {
 		/// Parachains with the `para_ids` have been added to the whitelist
 		ParachainsAdded {
 			/// The parachains in question
-			para_ids: Vec<u32>,
+			para_ids: Vec<ParachainData>,
 		},
 		/// Parachains with the `para_ids` have been removed from the whitelist
 		ParachainsRemoved {
@@ -118,10 +119,10 @@ pub mod pallet {
 		/// Add some new parachains to the parachains whitelist
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(para_ids.len() as u64))]
-		pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
+		pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<ParachainData>) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
-			for id in &para_ids {
-				Parachains::<T>::insert(*id, ());
+			for para in &para_ids {
+				Parachains::<T>::insert(para.id, para);
 			}
 
 			Self::deposit_event(Event::ParachainsAdded { para_ids });
@@ -192,7 +193,7 @@ pub mod pallet {
 	#[derive(frame_support::DefaultNoBound)]
 	pub struct GenesisConfig<T> {
 		/// List of parachains to track at genesis
-		pub parachains: Vec<u32>,
+		pub parachains: Vec<ParachainData>,
 		/// phantom data
 		#[serde(skip)]
 		pub _marker: PhantomData<T>,
@@ -204,8 +205,8 @@ pub mod pallet {
 			Pallet::<T>::initialize();
 
 			// insert the parachain ids
-			for id in &self.parachains {
-				Parachains::<T>::insert(id, ());
+			for para in &self.parachains {
+				Parachains::<T>::insert(para.id, para);
 			}
 		}
 	}

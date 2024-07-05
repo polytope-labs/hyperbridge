@@ -23,7 +23,7 @@ use crate::{
 	router::RequestResponse,
 };
 use alloc::{boxed::Box, collections::BTreeMap};
-use codec::{Decode, Encode};
+use codec::{Decode, Encode, MaxEncodedLen};
 use core::time::Duration;
 use primitive_types::H256;
 
@@ -120,6 +120,53 @@ pub struct StateMachineHeight {
 	pub id: StateMachineId,
 	/// the corresponding block height
 	pub height: u64,
+}
+
+/// 6s slot or 12s slot duration based on current parablock progression by the relaychain mechanism
+#[derive(
+	Debug,
+	Clone,
+	Copy,
+	Encode,
+	Decode,
+	scale_info::TypeInfo,
+	MaxEncodedLen,
+	PartialEq,
+	Eq,
+	Hash,
+	Ord,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+pub enum ParaSlotDuration {
+	/// synchronous backed
+	Sync,
+	/// asynchronous backed
+	Async,
+}
+/// Data provided when registering a parachain to be tracked by hyperbridge consensus client
+#[derive(
+	Debug,
+	Clone,
+	Copy,
+	Encode,
+	Decode,
+	scale_info::TypeInfo,
+	MaxEncodedLen,
+	PartialEq,
+	Eq,
+	Hash,
+	Ord,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+pub struct ParachainData {
+	/// parachain id
+	pub id: u32,
+	/// parachain slot duration type
+	pub slot_duration_type: ParaSlotDuration,
 }
 
 /// A map of state machine to verified state commitments

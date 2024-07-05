@@ -16,6 +16,17 @@ enum SupportedChain {
 }
 
 """
+Assets currently supported by hyperbridge
+"""
+enum SupportedAssets {
+    WETH
+    WBTC
+    USDT
+    USDC
+    DAI
+}
+
+"""
 Supported Event Types
 """
 enum EventType {
@@ -36,6 +47,23 @@ enum Status {
     MESSAGE_RELAYED
     DEST
     TIMED_OUT
+}
+
+"""
+Types of participants in the Hyperbridge Protocol
+"""
+enum ProtocolParticipant {
+    RELAYER
+    FILLER
+    USER
+}
+
+"""
+System activity types related to reward points
+"""
+enum RewardPointsActivityType {
+    REWARD_POINTS_EARNED
+    REWARD_POINTS_SLASHED
 }
 
 """
@@ -363,4 +391,86 @@ type ResponseStatusMetadata @entity {
     blockHash: String!
     transactionHash: String!
     response: Response!
+}
+
+"""
+Bids placed by fillers to fulfill requests
+"""
+type Bid @entity {
+    id: ID!
+    assetId: String!
+    bid: BigInt!
+    bidder: String!
+    commitment: String!
+    chain: SupportedChain!
+}
+
+"""
+Bids that have been refunded after the associated request has timed out
+"""
+type BidRefund @entity {
+    id: ID!
+    assetId: String!
+    bidder: String!
+    commitment: String!
+    chain: SupportedChain!
+}
+
+"""
+Liquidity requests fulfilled by a filler
+"""
+type FulfilledRequest @entity {
+    id: ID!
+    assetId: String!
+    bidder: String!
+    amount: BigInt!
+    chain: SupportedChain!
+}
+
+"""
+Asset received by a user
+"""
+type AssetReceived @entity {
+    id: ID!
+    amount: BigInt!
+    assetId: String!
+    beneficiary: String!
+    chain: SupportedChain!
+    commitment: String!
+    from: String!
+}
+
+"""
+Asset sent by a user
+"""
+type AssetTeleported @entity {
+    id: ID!
+    amount: BigInt!
+    assetId: String!
+    chain: SupportedChain!
+    commitment: String!
+    from: String!
+    to: String!
+    redeem: Boolean!
+}
+
+"""
+Reward points earned by participants in the hyperbridge protocol
+"""
+type RewardPoints @entity {
+    id: ID!
+    address: String!
+    chain: SupportedChain!
+    points: BigInt!
+    earnerType: ProtocolParticipant!
+}
+
+type RewardPointsActivityLog {
+    id: ID!
+    chain: SupportedChain!
+    points: BigInt!
+    earnerType: ProtocolParticipant!
+    activityType: RewardPointsActivityType!
+    description: String!
+    createdAt: Date!
 }

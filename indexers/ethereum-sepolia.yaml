@@ -19,102 +19,140 @@ network:
     - "https://rpc2.sepolia.org"
 dataSources:
   # EthereumHost contract
-  - kind: ethereum/Runtime
-    startBlock: 5940848
-    options:
-      abi: ethereumHost
-      address: "0xbDFa473d7E483e088348e071480B624A248b2fC4"
-    assets:
-      ethereumHost:
-        file: ./abis/EthereumHost.abi.json
-      chainLinkAggregatorV3:
-        file: ./abis/ChainLinkAggregatorV3.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - kind: ethereum/LogHandler
-          handler: handlePostRequestEvent
-          filter:
-            topics:
-              - PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256)
-        - kind: ethereum/LogHandler
-          handler: handlePostResponseEvent
-          filter:
-            topics:
-              - PostResponseEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,bytes,uint256,uint256)
-        - kind: ethereum/LogHandler
-          handler: handlePostRequestHandledEvent
-          filter:
-            topics:
-              - "PostRequestHandled(bytes32, address)"
-        - kind: ethereum/LogHandler
-          handler: handlePostResponseHandledEvent
-          filter:
-            topics:
-              - "PostResponseHandled(bytes32,address)"
-        - kind: ethereum/LogHandler
-          handler: handlePostRequestTimeoutHandledEvent
-          filter:
-            topics:
-              - "PostRequestTimeoutHandled(bytes32)"
-        - kind: ethereum/LogHandler
-          handler: handlePostResponseTimeoutHandledEvent
-          filter:
-            topics:
-              - "PostResponseTimeoutHandled(bytes32)"
-        - kind: ethereum/LogHandler
-          handler: handleGetRequestHandledEvent
-          filter:
-            topics:
-              - "GetRequestHandled(bytes32,address)"
-        - kind: ethereum/LogHandler
-          handler: handleGetRequestTimeoutHandledEvent
-          filter:
-            topics:
-              - "GetRequestTimeoutHandled(bytes32)"
-        - kind: ethereum/LogHandler
-          handler: handleStateMachineUpdatedEvent
-          filter:
-            topics:
-              - "StateMachineUpdated(bytes,uint256)"
+  # - kind: ethereum/Runtime
+  #   startBlock: 5940848
+  #   options:
+  #     abi: ethereumHost
+  #     address: "0xbDFa473d7E483e088348e071480B624A248b2fC4"
+  #   assets:
+  #     ethereumHost:
+  #       file: ./abis/EthereumHost.abi.json
+  #     chainLinkAggregatorV3:
+  #       file: ./abis/ChainLinkAggregatorV3.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - kind: ethereum/LogHandler
+  #         handler: handlePostRequestEvent
+  #         filter:
+  #           topics:
+  #             - PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256)
+  #       - kind: ethereum/LogHandler
+  #         handler: handlePostResponseEvent
+  #         filter:
+  #           topics:
+  #             - PostResponseEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,bytes,uint256,uint256)
+  #       - kind: ethereum/LogHandler
+  #         handler: handlePostRequestHandledEvent
+  #         filter:
+  #           topics:
+  #             - "PostRequestHandled(bytes32, address)"
+  #       - kind: ethereum/LogHandler
+  #         handler: handlePostResponseHandledEvent
+  #         filter:
+  #           topics:
+  #             - "PostResponseHandled(bytes32,address)"
+  #       - kind: ethereum/LogHandler
+  #         handler: handlePostRequestTimeoutHandledEvent
+  #         filter:
+  #           topics:
+  #             - "PostRequestTimeoutHandled(bytes32)"
+  #       - kind: ethereum/LogHandler
+  #         handler: handlePostResponseTimeoutHandledEvent
+  #         filter:
+  #           topics:
+  #             - "PostResponseTimeoutHandled(bytes32)"
+  #       - kind: ethereum/LogHandler
+  #         handler: handleGetRequestHandledEvent
+  #         filter:
+  #           topics:
+  #             - "GetRequestHandled(bytes32,address)"
+  #       - kind: ethereum/LogHandler
+  #         handler: handleGetRequestTimeoutHandledEvent
+  #         filter:
+  #           topics:
+  #             - "GetRequestTimeoutHandled(bytes32)"
+  #       - kind: ethereum/LogHandler
+  #         handler: handleStateMachineUpdatedEvent
+  #         filter:
+  #           topics:
+  #             - "StateMachineUpdated(bytes,uint256)"
 
-  # Protocol Fee Token
+  # # Protocol Fee Token
+  # - kind: ethereum/Runtime
+  #   startBlock: 5940848
+  #   options:
+  #     abi: erc6160ext20
+  #     address: "0x6B0e814557b15D67db6F0F147702d209DBEd8D1A"
+  #   assets:
+  #     erc6160ext20:
+  #       file: ./abis/ERC6160Ext20.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - kind: ethereum/LogHandler
+  #         handler: handleTransferEvent
+  #         filter:
+  #           topics:
+  #             - "Transfer(address indexed from, address indexed to, uint256 amount)"
+
+  # # Handler Contract
+  # - kind: ethereum/Runtime
+  #   startBlock: 5940848
+  #   options:
+  #     abi: handlerV1
+  #     address: "0x7fa6f643A1a522D35058FEE753DA027d25Ea601f"
+  #   assets:
+  #     handlerV1:
+  #       file: ./abis/HandlerV1.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - handler: handlePostRequestTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         filter:
+  #           function: "0x9d38eb35"
+  #       - handler: handlePostResponseTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         filter:
+  #           function: "0x72becccd"
+
+  # TokenGateway Contract
   - kind: ethereum/Runtime
-    startBlock: 5940848
+    startBlock: 6189735
     options:
-      abi: erc6160ext20
-      address: "0x6B0e814557b15D67db6F0F147702d209DBEd8D1A"
+      abi: tokenGateway
+      address: "0xF6990e20a0Fd606960D86CdF7F40Cd729Cb0C6F8"
     assets:
-      erc6160ext20:
-        file: ./abis/ERC6160Ext20.abi.json
+      tokenGateway:
+        file: ./abis/TokenGateway.abi.json
     mapping:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleTransferEvent
+          handler: handleBidPlacedEvent
           filter:
             topics:
-              - "Transfer(address indexed from, address indexed to, uint256 amount)"
-
-  # Handler Contract
-  - kind: ethereum/Runtime
-    startBlock: 5940848
-    options:
-      abi: handlerV1
-      address: "0x7fa6f643A1a522D35058FEE753DA027d25Ea601f"
-    assets:
-      handlerV1:
-        file: ./abis/HandlerV1.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - handler: handlePostRequestTransactionHandler
-          kind: ethereum/TransactionHandler
+              - "BidPlaced(bytes32,bytes32,uint256,address)"
+        - kind: ethereum/LogHandler
+          handler: handleBidRefundedEvent
           filter:
-            function: "0x9d38eb35"
-        - handler: handlePostResponseTransactionHandler
-          kind: ethereum/TransactionHandler
+            topics:
+              - "BidRefunded(bytes32,bytes32,address)"
+        - kind: ethereum/LogHandler
+          handler: handleRequestFulfilledEvent
           filter:
-            function: "0x72becccd"
+            topics:
+              - "RequestFulfilled(address,uint256,bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleAssetReceivedEvent
+          filter:
+            topics:
+              - "AssetReceived(bytes32,address,address,uint256,bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleAssetTeleportedEvent
+          filter:
+            topics:
+              - "AssetTeleported(bytes32,address,bytes32,uint256,bytes32,bool)"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

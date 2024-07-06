@@ -2,15 +2,22 @@
 #![deny(missing_docs, unused_imports)]
 
 use anyhow::anyhow;
+use futures::StreamExt;
 use ismp::{
 	consensus::StateMachineHeight,
 	events::{Event, StateMachineUpdated},
-	host::StateMachine::Kusama,
+	host::StateMachine,
 	messaging::{Message, Proof, ResponseMessage},
-	router::{Request::Get, RequestResponse},
+	router::{Request, RequestResponse},
 };
+
+use pallet_hyperbridge::VersionedHostParams;
+use pallet_ismp_host_executive::HostParam;
 use sc_service::TaskManager;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+	collections::{BTreeMap, HashMap},
+	sync::Arc,
+};
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt::{
 	ext::{
@@ -25,7 +32,7 @@ use subxt_utils::{
 	gargantua::{
 		api,
 		api::{
-			ismp::events::Request,
+			ismp::events::{PostRequestHandled, Request as RequestEvent},
 			ismp_demo::events::GetResponse,
 			runtime_types::pallet_ismp_demo::pallet::{GetRequest, TransferParams},
 		},
@@ -40,7 +47,7 @@ use transaction_fees::TransactionPayment;
 
 /// This function is used to fetch get request and construct get response and submit to chain
 /// A(source chain)
-async fn messaging_relayer_lite(
+async fn get_response_relayer(
 	chain_a_sub_client: SubstrateClient<Hyperbridge>,
 	chain_b_sub_client: SubstrateClient<Hyperbridge>,
 	tx_block_height: u64,
@@ -48,10 +55,8 @@ async fn messaging_relayer_lite(
 	let (client_a, client_b) =
 		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
 
-	let (chain_a_client, chain_b_client) = (
-		Arc::new(chain_a_sub_client) as Arc<dyn IsmpProvider>,
-		Arc::new(chain_b_sub_client) as Arc<dyn IsmpProvider>,
-	);
+	let (chain_a_client, chain_b_client) =
+		(Arc::new(chain_a_sub_client), Arc::new(chain_b_sub_client));
 
 	let state_machine_update = StateMachineUpdated {
 		state_machine_id: chain_a_client.state_machine_id(),
@@ -93,7 +98,7 @@ async fn messaging_relayer_lite(
 			proof: proof_of_value.encode(),
 		};
 		let response = ResponseMessage {
-			datagram: RequestResponse::Request(vec![Get(get.clone())]),
+			datagram: RequestResponse::Request(vec![Request::Get(get.clone())]),
 			proof,
 			signer: chain_a_client.address(), // both A&B have same relayer address
 		};
@@ -104,22 +109,45 @@ async fn messaging_relayer_lite(
 	let _res = chain_a_client.submit(vec![response]).await?;
 	//==================== after approx 7-9 blocks the response event is emitted ===
 	// =================== fetch the returned value ================================
-	tokio::time::sleep(Duration::from_secs(30)).await;
-	let mut height_to_fetch = tx_block_height + 8;
-	let mut block_hash = client_a.rpc().block_hash(Some(height_to_fetch.into())).await?.unwrap();
+
 	let mut response_event: Option<GetResponse> = None;
 
-	while height_to_fetch <= (tx_block_height + 10) {
-		let fetched_events = client_a.events().at(block_hash).await?.find_first::<GetResponse>()?;
-		match fetched_events {
-			Some(res_event) => {
-				response_event = Some(res_event.clone());
-				break
+	let mut state_machine_a_update_stream = chain_b_client
+		.state_machine_update_notification(chain_a_client.state_machine_id())
+		.await
+		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
+
+	let mut block_height_correction = chain_a_client.query_finalized_height().await?;
+	while let Some(update_event_a) = state_machine_a_update_stream.next().await {
+		match update_event_a {
+			Ok(event_a) => {
+				// As it tracks finalized height some blocks will be skipped in the stream and they
+				// may contain the response
+				block_height_correction = block_height_correction
+					.checked_sub(event_a.latest_height)
+					.map_or(event_a.latest_height, |rem| {
+						if rem > 0 {
+							block_height_correction + 1
+						} else {
+							event_a.latest_height
+						}
+					});
+
+				let block_hash =
+					client_a.rpc().block_hash(Some(block_height_correction.into())).await?.unwrap();
+				let fetched_events =
+					client_a.events().at(block_hash).await?.find_first::<GetResponse>()?;
+
+				match fetched_events {
+					Some(res_event) => {
+						response_event = Some(res_event.clone());
+						break
+					},
+					None => continue,
+				}
 			},
-			None => {
-				height_to_fetch += 1;
-				block_hash =
-					client_a.rpc().block_hash(Some(height_to_fetch.into())).await?.unwrap();
+			Err(err) => {
+				panic!("Error in state machine update stream: {err:?}")
 			},
 		}
 	}
@@ -138,23 +166,27 @@ async fn messaging_relayer_lite(
 async fn create_clients(
 ) -> Result<(SubstrateClient<Hyperbridge>, SubstrateClient<Hyperbridge>), anyhow::Error> {
 	let chain_a_config = SubstrateConfig {
-		state_machine: Kusama(2000),
+		state_machine: StateMachine::Kusama(2000),
 		hashing: None,
 		consensus_state_id: Some("PARA".to_string()),
 		rpc_ws: "ws://127.0.0.1:9990".to_string(), // url from local-testnet zombienet config
 		max_rpc_payload_size: None,
-		signer: Some("e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0".to_string()),
+		signer: Some(
+			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+		),
 		latest_height: None,
 		max_concurent_queries: None,
 	};
 
 	let chain_b_config = SubstrateConfig {
-		state_machine: Kusama(2001),
+		state_machine: StateMachine::Kusama(2001),
 		hashing: None,
 		consensus_state_id: Some("PARA".to_string()),
 		rpc_ws: "ws://127.0.0.1:9991".to_string(),
 		max_rpc_payload_size: None,
-		signer: Some("e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0".to_string()),
+		signer: Some(
+			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+		),
 		latest_height: None,
 		max_concurent_queries: None,
 	};
@@ -171,6 +203,7 @@ async fn create_clients(
 /// Assertion is on ismp related events, and state changes on source and destination chain
 /// Alice in chain A sends 100_000 tokens to Alice in chain B
 #[tokio::test(flavor = "multi_thread")]
+#[ignore]
 async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 	log_setup()?;
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
@@ -203,20 +236,39 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 	client_map
 		.insert(chain_b_sub_client.clone().state_machine_id().state_id, chain_b_client.clone());
 
-	let (client_a, client_b) = (chain_a_sub_client.clone().client, chain_b_sub_client.client);
+	let (client_a, client_b) =
+		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
 
 	relay(
-		chain_a_sub_client,
+		chain_a_sub_client.clone(),
 		chain_b_client.clone(),
 		relayer_config.clone(),
-		Kusama(3000), // random coprocessor id
+		StateMachine::Kusama(3000), // random coprocessor id
 		tx_payment,
 		client_map.clone(),
 		&task_manager,
 	)
 	.await?;
 
-	// Accounts & keys
+	//======================= run only once ( set host executives ) ====================
+
+	chain_a_sub_client
+		.clone()
+		.set_host_params(BTreeMap::from([(
+			StateMachine::Kusama(2001),
+			HostParam::SubstrateHostParam(VersionedHostParams::V1(0)),
+		)]))
+		.await?;
+
+	chain_b_sub_client
+		.clone()
+		.set_host_params(BTreeMap::from([(
+			StateMachine::Kusama(2000),
+			HostParam::SubstrateHostParam(VersionedHostParams::V1(0)),
+		)]))
+		.await?;
+
+	// =========================== Accounts & keys =====================================
 	let alice_signer = PairSigner::<Hyperbridge, _>::new(
 		Pair::from_string("//Alice", None).expect("Unable to create ALice account"),
 	);
@@ -264,7 +316,7 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 	let tx_block_hash = result.block_hash();
 
 	let events = client_a.events().at(tx_block_hash).await?;
-	log::info!("Ismp Events: {:?} \n", events.find_last::<Request>()?);
+	log::info!("Ismp Events: {:?} \n", events.find_last::<RequestEvent>()?);
 
 	// Assert burnt & transferred tokens in chain A
 	let alice_chain_a_new_balance = client_a
@@ -278,9 +330,48 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 		.data
 		.free;
 
-	// Time delay for the relayer to submit the request to the dest chain
-	tokio::time::sleep(Duration::from_secs(40)).await;
+	//==================== watch for PostRequestHandled event in chain b ===============
+	let mut post_request_handled_event = None;
+	let mut state_machine_b_update_stream = chain_a_client
+		.state_machine_update_notification(chain_b_client.state_machine_id())
+		.await
+		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
 
+	let mut block_height_correction = chain_b_client.query_finalized_height().await?;
+	while let Some(update_event_b) = state_machine_b_update_stream.next().await {
+		match update_event_b {
+			Ok(event_b) => {
+				// As it tracks finalized height some blocks will be skipped in the stream and they
+				// may contain the response
+				block_height_correction = block_height_correction
+					.checked_sub(event_b.latest_height)
+					.map_or(event_b.latest_height, |rem| {
+						if rem > 0 {
+							block_height_correction + 1
+						} else {
+							event_b.latest_height
+						}
+					});
+
+				let block_hash =
+					client_b.rpc().block_hash(Some(block_height_correction.into())).await?.unwrap();
+				let fetched_events =
+					client_b.events().at(block_hash).await?.find_first::<PostRequestHandled>()?;
+
+				match fetched_events {
+					Some(res_event) => {
+						post_request_handled_event = Some(res_event.clone());
+						break
+					},
+					None => continue,
+				}
+			},
+			Err(err) => {
+				panic!("Error in state machine update stream: {err:?}")
+			},
+		}
+	}
+	log::info!("Chain B Event: {:?}", post_request_handled_event);
 	// The relayer should finish sending the request message to chain B
 
 	let alice_chain_b_new_balance = client_b
@@ -311,6 +402,7 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 
 /// fetch a foreign storage item from a given key
 #[tokio::test(flavor = "multi_thread")]
+#[ignore]
 async fn get_request_works() -> Result<(), anyhow::Error> {
 	log_setup()?;
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
@@ -318,10 +410,8 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	log::info!("🧊integration test for para: 2000 to para 2001: get request");
 
 	// =======================================================================
-	let (chain_a_client, chain_b_client) = (
-		Arc::new(chain_a_sub_client.clone()) as Arc<dyn IsmpProvider>,
-		Arc::new(chain_b_sub_client.clone()) as Arc<dyn IsmpProvider>,
-	);
+	let (chain_a_client, chain_b_client) =
+		(Arc::new(chain_a_sub_client.clone()), Arc::new(chain_b_sub_client.clone()));
 
 	let (client_a, client_b) =
 		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
@@ -356,11 +446,11 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let tx_block_hash = tx_result.block_hash();
 	let tx_block_height = client_a.blocks().at(tx_block_hash).await?.number() as u64;
 	let events = client_a.events().at(tx_block_hash).await?;
-	log::info!("Ismp Events: {:?} \n", events.find_last::<Request>()?);
+	log::info!("Ismp Events: {:?} \n", events.find_last::<RequestEvent>()?);
 
 	// ======================= Self relay to chain B =====================================
 	let value_returned_encoded =
-		messaging_relayer_lite(chain_a_sub_client, chain_b_sub_client, tx_block_height).await?;
+		get_response_relayer(chain_a_sub_client, chain_b_sub_client, tx_block_height).await?;
 
 	let para_id_chain_b: u32 = Decode::decode(&mut &value_returned_encoded[..])?;
 

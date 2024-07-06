@@ -330,7 +330,7 @@ async fn submit_transfer_function_works() -> Result<(), anyhow::Error> {
 		.data
 		.free;
 
-	//==================== watch for PostRequestHandled event in chain b ===============
+	// watch for PostRequestHandled event in chain b
 	let mut post_request_handled_event = None;
 	let mut state_machine_b_update_stream = chain_a_client
 		.state_machine_update_notification(chain_b_client.state_machine_id())

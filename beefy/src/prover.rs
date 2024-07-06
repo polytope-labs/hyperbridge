@@ -394,17 +394,23 @@ where
 			if let Err(err) = future.await {
 				tracing::info!("Prover error: {err:?}");
 				if let Some(RsmqError::RedisError(redis_error)) = err.downcast_ref::<RsmqError>() {
-					tracing::info!("Recreating rsmq client");
 					if redis_error.is_connection_dropped() {
+						tracing::info!("Recreating rsmq client");
+
 						self.rsmq = redis_utils::rsmq_client(&self.config.redis)
 							.await
 							.expect("Failed to reconnect to redis");
+
+						tracing::info!("Recreated rsmq client");
+					} else {
+						tracing::error!("Unhandled error {redis_error:?}")
 					}
 				}
 
 				if let Some(redis_error) = err.downcast_ref::<RedisError>() {
-					tracing::info!("Recreating redis client");
 					if redis_error.is_connection_dropped() {
+						tracing::info!("Recreating redis client");
+
 						self.connection = redis::Client::open(redis::ConnectionInfo {
 							addr: self.config.redis.clone().into(),
 							redis: redis::RedisConnectionInfo {
@@ -417,6 +423,10 @@ where
 						.get_connection_manager()
 						.await
 						.expect("Failed to reconnect to redis");
+
+						tracing::info!("Recreated redis client");
+					} else {
+						tracing::error!("Unhandled error {redis_error:?}")
 					}
 				}
 			}

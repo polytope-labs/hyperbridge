@@ -306,8 +306,8 @@ jobs:
 
       - name: Parachain to Parachain ismp relayer messaging integration tests
         run: |
-          sudo chmod +x ./scripts/run_parachain_ismp_relayer_messaging_integration_tests.sh
-          ./scripts/run_parachain_ismp_relayer_messaging_integration_tests.sh
+          sudo chmod +x ./scripts/run_tesseract_messaging_integration_tests.sh
+          ./scripts/run_tesseract_messaging_integration_tests.sh
           
 
   check-solidity:

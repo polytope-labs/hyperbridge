@@ -77,7 +77,7 @@ members = [
     "tesseract/config",
 
     # integration tests
-    "parachain/integration-test",
+    "tesseract/integration-test",
 ]
 
 # Config for 'cargo dist'

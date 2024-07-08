@@ -1,15 +1,15 @@
 [package]
-name = "integration-test"
+name = "tesseract-integration-test"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 
-tesseract-messaging = { path = "../../tesseract/messaging"}
-tesseract-primitives = { path = "../../tesseract/primitives"}
-tesseract-config = { path = "../../tesseract/config"}
-tesseract-substrate = { path = "../../tesseract/substrate"}
-tesseract = { path = "../../tesseract/relayer"}
+tesseract-messaging = { path = "../messaging" }
+tesseract-primitives = { path = "../primitives" }
+tesseract-config = { path = "../config" }
+tesseract-substrate = { path = "../substrate" }
+tesseract = { path = "../relayer" }
 substrate-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
@@ -31,6 +31,6 @@ subxt = { version = "0.30.1", features = ["substrate-compat"] }
 subxt-signer = "0.30.1"
 subxt-utils = { workspace = true, default-features = true }
 sc-service = { workspace = true }
-transaction-fees = {path = "../../tesseract/fees"}
+transaction-fees = {path = "../fees" }
 log = "0.4.19"
 sp-keyring = { workspace = true }

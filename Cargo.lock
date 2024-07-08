@@ -7208,40 +7208,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "integration-test"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "futures",
- "hex",
- "ismp",
- "log",
- "pallet-hyperbridge",
- "pallet-ismp",
- "pallet-ismp-host-executive",
- "percentage",
- "sc-consensus-manual-seal",
- "sc-service",
- "sp-core 21.0.0",
- "sp-keyring",
- "substrate-state-machine",
- "subxt",
- "subxt-signer",
- "subxt-utils",
- "tesseract",
- "tesseract-config",
- "tesseract-messaging",
- "tesseract-primitives",
- "tesseract-substrate",
- "tokio",
- "tokio-stream",
- "toml 0.7.8",
- "tracing",
- "tracing-subscriber 0.3.18",
- "transaction-fees",
-]
-
-[[package]]
 name = "introspection-connector"
 version = "0.1.0"
 source = "git+https://github.com/Brendonovich/prisma-engines?tag=pcr-0.6.10#c4aeef82dbae310e974d6122160c7e3b5fb6df53"
@@ -20719,6 +20685,40 @@ dependencies = [
  "tesseract-primitives",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "tesseract-integration-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "hex",
+ "ismp",
+ "log",
+ "pallet-hyperbridge",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "percentage",
+ "sc-consensus-manual-seal",
+ "sc-service",
+ "sp-core 21.0.0",
+ "sp-keyring",
+ "substrate-state-machine",
+ "subxt",
+ "subxt-signer",
+ "subxt-utils",
+ "tesseract",
+ "tesseract-config",
+ "tesseract-messaging",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
+ "tokio-stream",
+ "toml 0.7.8",
+ "tracing",
+ "tracing-subscriber 0.3.18",
+ "transaction-fees",
 ]
 
 [[package]]

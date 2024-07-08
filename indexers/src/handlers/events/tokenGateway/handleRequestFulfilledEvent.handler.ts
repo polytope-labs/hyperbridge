@@ -51,6 +51,7 @@ export async function handleRequestFulfilledEvent(
       amount: BigInt(amount.toString()),
       asset_id: assetId,
       contract_address,
+      transaction_hash: transactionHash,
     });
   }
 }

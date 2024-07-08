@@ -24,6 +24,7 @@ enum SupportedAssets {
     USDT
     USDC
     DAI
+    DOT
 }
 
 """
@@ -63,7 +64,6 @@ System activity types related to reward points
 """
 enum RewardPointsActivityType {
     REWARD_POINTS_EARNED
-    REWARD_POINTS_SLASHED
 }
 
 """
@@ -465,10 +465,12 @@ type RewardPoints @entity {
     earnerType: ProtocolParticipant!
 }
 
-type RewardPointsActivityLog {
+type RewardPointsActivityLog @entity {
     id: ID!
     chain: SupportedChain!
     points: BigInt!
+    transactionHash: String!
+    earnerAddress: String!
     earnerType: ProtocolParticipant!
     activityType: RewardPointsActivityType!
     description: String!

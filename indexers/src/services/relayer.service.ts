@@ -56,7 +56,7 @@ export class RelayerService {
     chain: SupportedChain,
     transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
   ): Promise<void> {
-    const { from: relayer_id } = transaction;
+    const { from: relayer_id, hash: transaction_hash } = transaction;
     const receipt = await transaction.receipt();
     const { status, gasUsed, effectiveGasPrice } = receipt;
 
@@ -94,6 +94,7 @@ export class RelayerService {
         is_success: true,
         earnerType: ProtocolParticipant.RELAYER,
         relayer_address: relayer_id,
+        transaction_hash,
       });
     } else {
       relayer_chain_stats.numberOfFailedMessagesDelivered += BigInt(1);
@@ -105,6 +106,7 @@ export class RelayerService {
         is_success: false,
         earnerType: ProtocolParticipant.RELAYER,
         relayer_address: relayer_id,
+        transaction_hash,
       });
     }
 

@@ -219,12 +219,11 @@ pub async fn generate_contract_calls(
 	let ismp_host = client.config.ismp_host;
 	let mut calls = Vec::new();
 	// If debug trace is false or the client type is erigon, then the gas price must be set
-	// Geth does not require gas price to be set when debug tracing, but the erigon implementation does
-	// https://github.com/ledgerwatch/erigon/blob/cfb55a3cd44736ac092003be41659cc89061d1be/core/state_transition.go#L246
-	// Erigon does not support block overrides when tracing so we don't have the option of omiting the gas price by overriding the base fee
-	let set_gas_price = || {
-		!debug_trace || client.client_type.erigon()
-	};
+	// Geth does not require gas price to be set when debug tracing, but the erigon implementation
+	// does https://github.com/ledgerwatch/erigon/blob/cfb55a3cd44736ac092003be41659cc89061d1be/core/state_transition.go#L246
+	// Erigon does not support block overrides when tracing so we don't have the option of omiting
+	// the gas price by overriding the base fee
+	let set_gas_price = || !debug_trace || client.client_type.erigon();
 	let gas_price = if set_gas_price() {
 		get_current_gas_cost_in_usd(
 			client.chain_id,

@@ -275,10 +275,10 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 	}
 
 	// =========================== Accounts & keys =====================================
-	let alice_signer = PairSigner::<Hyperbridge, _>::new(
-		Pair::from_string("//Alice", None).expect("Unable to create ALice account"),
+	let bob_signer = PairSigner::<Hyperbridge, _>::new(
+		Pair::from_string("//Bob", None).expect("Unable to create ALice account"),
 	);
-	let alice_key = api::storage().system().account(AccountId32(dev::alice().public_key().0));
+	let bob_key = api::storage().system().account(AccountId32(dev::bob().public_key().0));
 
 	let amount = 100_000_000000000000;
 	let transfer_call = api::tx().ismp_demo().transfer(TransferParams {
@@ -288,22 +288,22 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		timeout: 70,
 	});
 
-	let alice_chain_a_initial_balance = client_a
+	let bob_chain_a_initial_balance = client_a
 		.storage()
 		.at_latest()
 		.await?
-		.fetch(&alice_key)
+		.fetch(&bob_key)
 		.await?
 		.ok_or("Failed to fetch")
 		.unwrap()
 		.data
 		.free;
 
-	let alice_chain_b_initial_balance = client_b
+	let bob_chain_b_initial_balance = client_b
 		.storage()
 		.at_latest()
 		.await?
-		.fetch(&alice_key)
+		.fetch(&bob_key)
 		.await?
 		.ok_or("Failed to fetch")
 		.unwrap()
@@ -312,7 +312,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 
 	let result = client_a
 		.tx()
-		.sign_and_submit_then_watch_default(&transfer_call, &alice_signer)
+		.sign_and_submit_then_watch_default(&transfer_call, &bob_signer)
 		.await?
 		.wait_for_finalized_success()
 		.await?
@@ -325,11 +325,11 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 	log::info!("Ismp Events: {:?} \n", events.find_last::<RequestEvent>()?);
 
 	// Assert burnt & transferred tokens in chain A
-	let alice_chain_a_new_balance = client_a
+	let bob_chain_a_new_balance = client_a
 		.storage()
 		.at_latest()
 		.await?
-		.fetch(&alice_key)
+		.fetch(&bob_key)
 		.await?
 		.ok_or("Failed to fetch")
 		.unwrap()
@@ -362,27 +362,27 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 	log::info!("Chain B Event: {:?}", post_request_handled_event);
 	// The relayer should finish sending the request message to chain B
 
-	let alice_chain_b_new_balance = client_b
+	let bob_chain_b_new_balance = client_b
 		.storage()
 		.at_latest()
 		.await?
-		.fetch(&alice_key)
+		.fetch(&bob_key)
 		.await?
 		.ok_or("Failed to fetch")
 		.unwrap()
 		.data
 		.free;
 
-	// diving by 10000000000 for better assertion as the rem balance = initial - amount - fees
+	// diving by 100000000000 for better assertion as the rem balance = initial - amount - fees
 	// in chain A
 	assert_eq!(
-		(alice_chain_a_initial_balance - amount) / 100000000000,
-		alice_chain_a_new_balance / 100000000000
+		(bob_chain_a_initial_balance - amount) / 1000000000000,
+		bob_chain_a_new_balance / 1000000000000
 	);
 	// in chain B
 	assert_eq!(
-		(alice_chain_b_initial_balance + amount) / 100000000000,
-		alice_chain_b_new_balance / 100000000000
+		(bob_chain_b_initial_balance + amount) / 1000000000000,
+		bob_chain_b_new_balance / 1000000000000
 	);
 
 	Ok(())
@@ -405,8 +405,8 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
 
 	// Accounts & keys
-	let alice_signer = PairSigner::<Hyperbridge, _>::new(
-		Pair::from_string("//Alice", None).expect("Unable to create ALice account"),
+	let dave_signer = PairSigner::<Hyperbridge, _>::new(
+		Pair::from_string("//Dave", None).expect("Unable to create ALice account"),
 	);
 	// parachain info pallet fetching para id
 	let encoded_chain_b_id_storage_key =
@@ -424,7 +424,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	});
 	let tx_result = client_a
 		.tx()
-		.sign_and_submit_then_watch_default(&get_request, &alice_signer)
+		.sign_and_submit_then_watch_default(&get_request, &dave_signer)
 		.await?
 		.wait_for_finalized_success()
 		.await?

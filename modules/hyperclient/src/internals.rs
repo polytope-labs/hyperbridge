@@ -864,7 +864,7 @@ pub async fn request_timeout_stream(
 				Ok(true)
 			} else {
 				let sleep_time = timeout - current_timestamp;
-				let _ = wasm_timer::Delay::new(Duration::from_secs(sleep_time)).await;
+				let _ = wasmtimer::tokio::sleep(Duration::from_secs(sleep_time)).await;
 				Ok::<_, anyhow::Error>(false)
 			};
 		};

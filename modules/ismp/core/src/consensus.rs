@@ -23,7 +23,7 @@ use crate::{
 	router::RequestResponse,
 };
 use alloc::{boxed::Box, collections::BTreeMap};
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, Encode};
 use core::time::Duration;
 use primitive_types::H256;
 

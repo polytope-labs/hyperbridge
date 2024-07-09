@@ -42,7 +42,7 @@ use sp_runtime::{
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check, SubstrateStateMachine};
 
-use crate::{ParaSlotDuration, ParachainData, Parachains, RelayChainOracle};
+use crate::{ParachainData, Parachains, RelayChainOracle};
 
 /// The parachain consensus client implementation for ISMP.
 pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>>(PhantomData<(T, R, S)>);
@@ -131,15 +131,8 @@ where
 					{
 						let slot = Slot::decode(&mut &value[..])
 							.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
-
-						match para_value.slot_duration_type {
-							ParaSlotDuration::Sync(duration) => {
-								timestamp = Duration::from_millis(*slot * duration).as_secs();
-							},
-							ParaSlotDuration::Async(duration) => {
-								timestamp = Duration::from_millis(*slot * duration).as_secs();
-							},
-						}
+						timestamp =
+							Duration::from_millis(*slot * para_value.slot_duration).as_secs();
 					},
 					DigestItem::Consensus(consensus_engine_id, value)
 						if *consensus_engine_id == ISMP_ID =>

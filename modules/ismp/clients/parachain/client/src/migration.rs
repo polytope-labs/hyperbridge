@@ -32,17 +32,7 @@ pub mod storage_v0 {
 				// track reads and write to be made
 				let storage_count = Parachains::<T>::iter_keys().count() as u64;
 				Parachains::<T>::translate(|key: u32, _old_value: ()| {
-					if key == 1000 {
-						Some(ParachainData {
-							id: key,
-							slot_duration_type: ParaSlotDuration::Async(6000),
-						})
-					} else {
-						Some(ParachainData {
-							id: key,
-							slot_duration_type: ParaSlotDuration::Sync(12000),
-						})
-					}
+					Some(ParachainData { id: key, slot_duration: 12000 })
 				});
 				log::info!(target: "ismp_parachain", "Migrated Parachain storage on {} keys", storage_count);
 				StorageVersion::new(1).put::<Pallet<T>>();

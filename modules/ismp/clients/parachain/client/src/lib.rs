@@ -264,29 +264,6 @@ impl<T: Config> RelayChainOracle for Pallet<T> {
 	}
 }
 
-/// 6s slot or 12s slot duration based on current parablock progression by the relaychain mechanism
-#[derive(
-	Debug,
-	Clone,
-	Copy,
-	Encode,
-	Decode,
-	scale_info::TypeInfo,
-	MaxEncodedLen,
-	PartialEq,
-	Eq,
-	Hash,
-	Ord,
-	PartialOrd,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-pub enum ParaSlotDuration {
-	/// synchronous backed with slot duration in milliseconds
-	Sync(u64),
-	/// asynchronous backed with slot duration in milliseconds
-	Async(u64),
-}
 /// Data provided when registering a parachain to be tracked by hyperbridge consensus client
 #[derive(
 	Debug,
@@ -308,5 +285,5 @@ pub struct ParachainData {
 	/// parachain id
 	pub id: u32,
 	/// parachain slot duration type
-	pub slot_duration_type: ParaSlotDuration,
+	pub slot_duration: u64,
 }

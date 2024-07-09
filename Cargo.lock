@@ -6592,7 +6592,7 @@ dependencies = [
  "frame-system",
  "futures",
  "gargantua-runtime",
- "ismp",
+ "ismp-parachain",
  "ismp-parachain-inherent",
  "ismp-parachain-runtime-api",
  "jsonrpsee 0.16.3",

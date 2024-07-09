@@ -23,8 +23,8 @@ use core::fmt::Debug;
 use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 use ismp::{
 	consensus::{
-		ConsensusClient, ConsensusClientId, ConsensusStateId, ParaSlotDuration, ParachainData,
-		StateCommitment, StateMachineClient, VerifiedCommitments,
+		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+		VerifiedCommitments,
 	},
 	error::Error,
 	host::{IsmpHost, StateMachine},
@@ -42,7 +42,7 @@ use sp_runtime::{
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check, SubstrateStateMachine};
 
-use crate::{Parachains, RelayChainOracle};
+use crate::{ParaSlotDuration, ParachainData, Parachains, RelayChainOracle};
 
 /// The parachain consensus client implementation for ISMP.
 pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>>(PhantomData<(T, R, S)>);
@@ -65,10 +65,6 @@ pub struct ParachainConsensusProof {
 
 /// [`ConsensusClientId`] for [`ParachainConsensusClient`]
 pub const PARACHAIN_CONSENSUS_ID: ConsensusClientId = *b"PARA";
-
-/// Slot duration in milliseconds
-const ASYNC_SLOT_DURATION: u64 = 6_000;
-const SYNC_SLOT_DURATION: u64 = 12_000;
 
 impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
 where
@@ -136,11 +132,13 @@ where
 						let slot = Slot::decode(&mut &value[..])
 							.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
 
-						if para_value.slot_duration_type == ParaSlotDuration::Sync {
-							timestamp = Duration::from_millis(*slot * SYNC_SLOT_DURATION).as_secs();
-						} else if para_value.slot_duration_type == ParaSlotDuration::Async {
-							timestamp =
-								Duration::from_millis(*slot * ASYNC_SLOT_DURATION).as_secs();
+						match para_value.slot_duration_type {
+							ParaSlotDuration::Sync(duration) => {
+								timestamp = Duration::from_millis(*slot * duration).as_secs();
+							},
+							ParaSlotDuration::Async(duration) => {
+								timestamp = Duration::from_millis(*slot * duration).as_secs();
+							},
 						}
 					},
 					DigestItem::Consensus(consensus_engine_id, value)

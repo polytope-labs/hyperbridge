@@ -21,9 +21,12 @@ extern crate alloc;
 extern crate core;
 
 pub mod consensus;
+mod migration;
+
 pub use consensus::*;
 
 use alloc::{vec, vec::Vec};
+use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::{
 	RelayChainState, RelaychainDataProvider, RelaychainStateProvider,
 };
@@ -38,12 +41,14 @@ pub mod pallet {
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		consensus::ParachainData,
 		host::IsmpHost,
 		messaging::{ConsensusMessage, Message},
 	};
+	use migration::StorageV0;
 
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	/// The config trait
@@ -165,6 +170,10 @@ pub mod pallet {
 
 			Weight::from_parts(0, 0)
 		}
+
+		fn on_runtime_upgrade() -> Weight {
+			StorageV0::migrate_to_v1::<T>()
+		}
 	}
 
 	/// The identifier for the parachain consensus update inherent.
@@ -253,4 +262,51 @@ impl<T: Config> RelayChainOracle for Pallet<T> {
 	fn state_root(height: relay_chain::BlockNumber) -> Option<relay_chain::Hash> {
 		RelayChainStateCommitments::<T>::get(height)
 	}
+}
+
+/// 6s slot or 12s slot duration based on current parablock progression by the relaychain mechanism
+#[derive(
+	Debug,
+	Clone,
+	Copy,
+	Encode,
+	Decode,
+	scale_info::TypeInfo,
+	MaxEncodedLen,
+	PartialEq,
+	Eq,
+	Hash,
+	Ord,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+pub enum ParaSlotDuration {
+	/// synchronous backed with slot duration in milliseconds
+	Sync(u64),
+	/// asynchronous backed with slot duration in milliseconds
+	Async(u64),
+}
+/// Data provided when registering a parachain to be tracked by hyperbridge consensus client
+#[derive(
+	Debug,
+	Clone,
+	Copy,
+	Encode,
+	Decode,
+	scale_info::TypeInfo,
+	MaxEncodedLen,
+	PartialEq,
+	Eq,
+	Hash,
+	Ord,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+pub struct ParachainData {
+	/// parachain id
+	pub id: u32,
+	/// parachain slot duration type
+	pub slot_duration_type: ParaSlotDuration,
 }

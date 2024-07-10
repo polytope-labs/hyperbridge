@@ -72,13 +72,13 @@ interface IPostRequest {
     // The destination state machine of this request.
     dest: string;
     // Module Id of the sending module
-    from: Uint8Array;
+    from: string;
     // Module ID of the receiving module
-    to: Uint8Array;
+    to: string;
     // The nonce of this request on the source chain
     nonce: bigint;
     // Encoded request body.
-    data: Uint8Array;
+    data: string;
     // Timestamp which this request expires in seconds.
     timeout_timestamp: bigint;
     // Height at which this request was emitted on the source
@@ -265,14 +265,17 @@ pub struct HyperClient {
 impl HyperClient {
 	/// Initialize the Hyperclient
 	pub async fn new(config: ClientConfig) -> Result<Self, anyhow::Error> {
+		tracing::info!("Connecting to source");
+		let source = config.source_chain().await?;
+
+		tracing::info!("Connecting to dest");
+		let dest = config.dest_chain().await?;
+
+		tracing::info!("Connecting to hyperbridge");
 		let hyperbridge = config.hyperbridge_client().await?;
 
-		Ok(Self {
-			source: config.source_chain().await?,
-			dest: config.dest_chain().await?,
-			hyperbridge,
-			indexer: config.indexer.clone(),
-		})
+		tracing::info!("Connected to hyperbridge");
+		Ok(Self { source, dest, hyperbridge, indexer: config.indexer.clone() })
 	}
 }
 
@@ -402,6 +405,30 @@ impl HyperClient {
 	pub fn get_indexer_url(&self) -> Option<String> {
 		self.indexer.clone()
 	}
+}
+
+#[wasm_bindgen(start)]
+pub fn start() -> Result<(), JsValue> {
+	// print pretty errors in wasm https://github.com/rustwasm/console_error_panic_hook
+	// This is not needed for tracing_wasm to work, but it is a common tool for getting proper error
+	// line numbers for panics.
+	console_error_panic_hook::set_once();
+
+	use tracing_subscriber_wasm::MakeConsoleWriter;
+
+	tracing_subscriber::fmt()
+		.with_max_level(tracing::Level::INFO)
+		.with_writer(
+			// To avoide trace events in the browser from showing their
+			// JS backtrace, which is very annoying, in my opinion
+			MakeConsoleWriter::default().map_trace_level_to(tracing::Level::INFO),
+		)
+		// For some reason, if we don't do this in the browser, we get
+		// a runtime error.
+		.without_time()
+		.init();
+
+	Ok(())
 }
 
 #[derive(Clone, Default)]

@@ -322,8 +322,9 @@ async fn handle_update(
 					}
 				}
 			},
-			Err(err) =>
-				tracing::error!("Failed to submit transaction to {}: {err:?}", chain_a.name()),
+			Err(err) => {
+				tracing::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
+			},
 		}
 	}
 

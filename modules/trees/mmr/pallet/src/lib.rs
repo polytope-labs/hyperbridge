@@ -212,7 +212,7 @@ where
 		let buffer_len = IntermediateLeaves::<T, I>::count() as u64;
 		// no new leaves? early return
 		if buffer_len == 0 {
-			return Ok(RootHash::<T, I>::get().into())
+			return Ok(RootHash::<T, I>::get().into());
 		}
 
 		let leaves = NumberOfLeaves::<T, I>::get();
@@ -349,7 +349,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 			(proof.items.len().saturating_add(leaves.len())) as u64 > proof.leaf_count
 		{
 			return Err(primitives::Error::Verify
-				.log_debug("The proof has incorrect number of leaves or proof items."))
+				.log_debug("The proof has incorrect number of leaves or proof items."));
 		}
 
 		let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(proof.leaf_count);

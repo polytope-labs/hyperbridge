@@ -152,12 +152,12 @@ pub async fn wait_for_challenge_period<C: Client>(
 	last_consensus_update: Duration,
 	challenge_period: Duration,
 ) -> anyhow::Result<()> {
-	wasm_timer::Delay::new(challenge_period).await?;
+	wasmtimer::tokio::sleep(challenge_period).await;
 	let current_timestamp = client.query_timestamp().await?;
 	let mut delay = current_timestamp.saturating_sub(last_consensus_update);
 
 	while delay <= challenge_period {
-		wasm_timer::Delay::new(challenge_period.saturating_sub(delay)).await?;
+		wasmtimer::tokio::sleep(challenge_period.saturating_sub(delay)).await;
 		let current_timestamp = client.query_timestamp().await?;
 		delay = current_timestamp.saturating_sub(last_consensus_update);
 	}

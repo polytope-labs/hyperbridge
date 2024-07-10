@@ -15,9 +15,9 @@ jobs:
       # Setup .npmrc file to publish to npm
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
-          registry-url: 'https://registry.npmjs.org'
-          scope: '@polytope-labs'
+          node-version: "20.x"
+          registry-url: "https://registry.npmjs.org"
+          scope: "@polytope-labs"
 
       - name: Install wasm-pack
         run: |
@@ -29,7 +29,5 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          wasm-pack build --release --no-default-features --features=wasm
-          cd pkg
-          npx --yes change-package-name @polytope-labs/hyperclient
+          yarn build
           npm publish --access public

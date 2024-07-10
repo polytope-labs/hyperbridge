@@ -138,7 +138,7 @@ where
 			Ok(Ok(leaf_count)) => leaf_count,
 			_ => {
 				debug!(target: LOG_TARGET, "Failed to fetch mmr leaf count for {:?}", parent_hash);
-				return
+				return;
 			},
 		};
 
@@ -146,7 +146,7 @@ where
 			Ok(Ok(leaf_count)) => leaf_count,
 			_ => {
 				debug!(target: LOG_TARGET, "Failed to fetch mmr leaf count for {:?}", header.hash);
-				return
+				return;
 			},
 		};
 
@@ -154,7 +154,7 @@ where
 			Ok(Ok(fork_identifier)) => fork_identifier,
 			_ => {
 				debug!(target: LOG_TARGET, "Failed to fetch  fork_identifier at {:?}", header.hash);
-				return
+				return;
 			},
 		};
 
@@ -191,7 +191,7 @@ where
 		// wasn't yet initialized.
 		// Or headers less than the best canonicalized
 		if header.number < self.first_mmr_block || header.number <= self.best_canonicalized {
-			return
+			return;
 		}
 
 		let parent_hash = header.parent;
@@ -199,7 +199,7 @@ where
 			Ok(Ok(leaf_count)) => leaf_count,
 			_ => {
 				debug!(target: LOG_TARGET, "Failed to fetch mmr leaf count for {:?}", parent_hash);
-				return
+				return;
 			},
 		};
 
@@ -207,7 +207,7 @@ where
 			Ok(Ok(leaf_count)) => leaf_count,
 			_ => {
 				debug!(target: LOG_TARGET, "Failed to fetch mmr leaf count for {:?}", header.hash);
-				return
+				return;
 			},
 		};
 
@@ -215,7 +215,7 @@ where
 			Ok(Ok(fork_identifier)) => fork_identifier,
 			_ => {
 				debug!(target: LOG_TARGET, "Failed to fetch  fork_identifier at {:?}", header.hash);
-				return
+				return;
 			},
 		};
 
@@ -276,7 +276,7 @@ where
 					_ => break,
 				};
 				if header.number <= self.best_canonicalized {
-					break
+					break;
 				}
 				to_canon.push_front(header.hash);
 			}

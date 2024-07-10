@@ -171,6 +171,9 @@ module_filter = []
 withdrawal_frequency = 86400
 # Minimum amount to withdraw when auto-withdrawing, defaults to $100
 minimum_withdrawal_amount = 100
+# (Optional) How frequently to retry unprofitable or failed messages in seconds.
+# If this is value not supplied retries will not be enabled.
+unprofitable_retry_frequency = 600
 # (Optional) If not empty, tesseract will only deliver requests to the specified state-machines
 delivery_endpoints = [
     { Ethereum = "ExecutionLayer" },
@@ -229,6 +232,13 @@ tracing_batch_size = 5 # 5 transactions would be traced concurrently on this cli
 # Buffer to add to gas price as a percentage of the current gas price
 # to increase likelihood of the transactions going through e.g 1%, 2%
 gas_price_buffer = 1
+# (Optional)
+# The execution client implementation only Geth or Erigon are fully supported
+# The possible values:
+# client_type = Geth
+# client_type = Erigon
+# If this field is not set, the default is Geth
+client_type = Erigon
 
 [substrate]
 type = "substrate"

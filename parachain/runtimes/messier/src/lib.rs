@@ -597,6 +597,7 @@ construct_runtime!(
 		CallDecompressor: pallet_call_decompressor = 44,
 		Gateway: pallet_asset_gateway = 45,
 		Assets: pallet_assets = 46,
+		TokenGovernor: pallet_token_governor = 47,
 	}
 );
 
@@ -817,7 +818,7 @@ impl_runtime_apis! {
 		}
 
 		/// Fetch all ISMP events and their extrinsic metadata
-		fn block_events_with_metadata() -> Vec<(::ismp::events::Event, u32)> {
+		fn block_events_with_metadata() -> Vec<(::ismp::events::Event, Option<u32>)> {
 			Ismp::block_events_with_metadata()
 		}
 

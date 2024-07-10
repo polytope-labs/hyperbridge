@@ -176,14 +176,9 @@ where
 	) -> XcmResult {
 		// Check we handle this asset.
 		let (asset_id, amount) = Matcher::matches_fungibles(what)?;
-		// Regular XCM transaction
-		if let Some(who) = AccountIdConverter::convert_location(who) {
-			T::Assets::mint_into(asset_id, &who, amount)
-				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
-		}
+
 		// Ismp xcm transaction
-		else if let Some(who) = MultilocationToMultiAccount::<T::AccountId>::convert_location(who)
-		{
+		if let Some(who) = MultilocationToMultiAccount::<T::AccountId>::convert_location(who) {
 			// We would remove the protocol fee at this point
 
 			let protocol_account = Pallet::<T>::protocol_account_id();

@@ -31,7 +31,7 @@ sp_api::impl_runtime_apis! {
         }
 
         /// Fetch all ISMP events and their extrinsic metadata
-        fn block_events_with_metadata() -> Vec<(ismp::events::Event, u32)> {
+        fn block_events_with_metadata() -> Vec<(ismp::events::Event, Option<u32>)> {
             pallet_ismp::Pallet::<Runtime>::block_events_with_metadata()
         }
 

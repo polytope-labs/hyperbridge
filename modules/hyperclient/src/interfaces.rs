@@ -7,6 +7,7 @@ use ismp::{
 };
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
+use sp_core::bytes::from_hex;
 
 #[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsChainConfig {
@@ -114,13 +115,13 @@ pub struct JsPost {
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
 	/// Module Id of the sending module
-	pub from: Vec<u8>,
+	pub from: String,
 	/// Module ID of the receiving module
-	pub to: Vec<u8>,
+	pub to: String,
 	/// Timestamp which this request expires in seconds.
 	pub timeout_timestamp: u64,
 	/// Encoded Request.
-	pub data: Vec<u8>,
+	pub data: String,
 	/// Height at which this request was emitted on the source chain
 	pub height: u64,
 }
@@ -133,10 +134,10 @@ impl TryFrom<JsPost> for Post {
 			source: StateMachine::from_str(&value.source).map_err(|e| anyhow!("{e:?}"))?,
 			dest: StateMachine::from_str(&value.dest).map_err(|e| anyhow!("{e:?}"))?,
 			nonce: value.nonce,
-			from: value.from,
-			to: value.to,
+			from: from_hex(&value.from)?,
+			to: from_hex(&value.to)?,
 			timeout_timestamp: value.timeout_timestamp,
-			data: value.data,
+			data: from_hex(&value.data)?,
 		};
 		Ok(post)
 	}
@@ -261,10 +262,10 @@ mod tests {
 				source: "BSC".to_string(),
 				dest: "KUSAMA-2000".to_string(),
 				nonce: 100,
-				from: vec![30; 20],
-				to: vec![15; 20],
+				from: hex::encode(vec![30; 20]),
+				to: hex::encode(vec![15; 20]),
 				timeout_timestamp: 1_600_000,
-				data: vec![40; 256],
+				data: hex::encode(vec![40; 256]),
 				height: 0,
 			},
 			response: vec![80; 256],

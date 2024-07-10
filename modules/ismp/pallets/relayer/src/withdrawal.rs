@@ -41,8 +41,6 @@ pub struct WithdrawalInputData {
 	pub signature: Signature,
 	/// Chain to withdraw funds from
 	pub dest_chain: StateMachine,
-	/// Amount to withdraw
-	pub amount: U256,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]

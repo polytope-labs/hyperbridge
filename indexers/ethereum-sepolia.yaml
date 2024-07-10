@@ -56,12 +56,12 @@ dataSources:
           handler: handlePostRequestTimeoutHandledEvent
           filter:
             topics:
-              - "PostRequestTimeoutHandled(bytes32)"
+              - "PostRequestTimeoutHandled(bytes32, bytes)"
         - kind: ethereum/LogHandler
           handler: handlePostResponseTimeoutHandledEvent
           filter:
             topics:
-              - "PostResponseTimeoutHandled(bytes32)"
+              - "PostResponseTimeoutHandled(bytes32, bytes)"
         - kind: ethereum/LogHandler
           handler: handleGetRequestHandledEvent
           filter:
@@ -71,7 +71,7 @@ dataSources:
           handler: handleGetRequestTimeoutHandledEvent
           filter:
             topics:
-              - "GetRequestTimeoutHandled(bytes32)"
+              - "GetRequestTimeoutHandled(bytes32, bytes)"
         - kind: ethereum/LogHandler
           handler: handleStateMachineUpdatedEvent
           filter:

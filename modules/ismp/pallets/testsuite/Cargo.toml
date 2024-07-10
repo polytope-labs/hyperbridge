@@ -11,13 +11,14 @@ publish = false
 env_logger = "0.11.3"
 codec = { workspace = true, default-features = true }
 scale-info = { workspace = true, default-features = true }
-alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }
-alloy-rlp = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
 
 frame-support = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }
 pallet-balances = { workspace = true, default-features = true }
 pallet-timestamp = { workspace = true, default-features = true }
+pallet-sudo = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
 sp-std = { workspace = true, default-features = true }
@@ -47,6 +48,7 @@ pallet-asset-gateway = { workspace = true, default-features = true }
 sp-state-machine = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr = { workspace = true, default-features = true }
+pallet-token-governor = { workspace = true, default-features = true }
 
 # Polkadot
 pallet-xcm = { workspace = true, default-features = true }

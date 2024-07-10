@@ -13,7 +13,6 @@ use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
 use parity_scale_codec::Codec;
 use primitive_types::{H256, U256};
-use sp_core::H160;
 use std::{
 	sync::{Arc, Mutex},
 	time::Duration,
@@ -235,7 +234,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn query_request_receipt(&self, _hash: H256) -> Result<H160, anyhow::Error> {
+	async fn query_request_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
+		todo!()
+	}
+
+	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		todo!()
 	}
 }

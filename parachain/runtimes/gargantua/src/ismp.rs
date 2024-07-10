@@ -34,8 +34,8 @@ use ismp::{
 use pallet_asset_gateway::TokenGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
-use sp_core::{crypto::AccountId32, H160, H256};
-use sp_runtime::Percent;
+use sp_core::crypto::AccountId32;
+use sp_runtime::Permill;
 
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
@@ -89,6 +89,12 @@ impl pallet_ismp::Config for Runtime {
 	type WeightProvider = ();
 }
 
+impl pallet_token_governor::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Dispatcher = Ismp;
+	type TreasuryAccount = ProtocolAccount;
+}
+
 impl pallet_ismp_demo::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
@@ -119,13 +125,12 @@ impl ismp_parachain::Config for Runtime {
 parameter_types! {
 	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
 	pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
-	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Percent::from_percent(1), H160::zero(), H256::zero());
+	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
 }
 
 impl pallet_asset_gateway::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
-	type ProtocolAccount = ProtocolAccount;
 	type Params = TransferParams;
 	type Assets = Assets;
 	type IsmpHost = Ismp;

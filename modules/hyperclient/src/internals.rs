@@ -39,7 +39,7 @@ pub async fn query_request_status_internal(
 		.ok()
 		.flatten()
 	{
-		return Ok(status.clone())
+		return Ok(status.clone());
 	}
 	if relayer_address != H160::zero() {
 		// This means the message has gotten the destination chain
@@ -82,7 +82,7 @@ pub async fn query_response_status_internal(
 			.ok()
 			.flatten()
 	{
-		return Ok(status.clone())
+		return Ok(status.clone());
 	}
 	if response_receipt_relayer != H160::zero() {
 		return Ok(MessageStatusWithMetadata::DestinationDelivered { meta: Default::default() });
@@ -341,7 +341,7 @@ pub async fn timeout_request_stream(
 						let calldata = source_client.encode(message)?;
 
 						Ok(Some((
-							Ok(TimeoutStatus::TimeoutMessage { calldata }),
+							Ok(TimeoutStatus::TimeoutMessage { calldata: calldata.into() }),
 							TimeoutStreamState::End,
 						)))
 					},
@@ -703,7 +703,7 @@ pub async fn request_status_stream(
 									Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
 										finalized_height: height,
 										meta: Default::default(),
-										calldata,
+										calldata: calldata.into(),
 									}),
 									PostStreamState::HyperbridgeFinalized(latest_height),
 								)));
@@ -722,7 +722,7 @@ pub async fn request_status_stream(
 								Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
 									finalized_height: update.latest_height,
 									meta: meta.clone(),
-									calldata,
+									calldata: calldata.into(),
 								}),
 								PostStreamState::HyperbridgeFinalized(meta.block_number),
 							)));
@@ -750,7 +750,7 @@ pub async fn request_status_stream(
 											Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
 												finalized_height: event.event.latest_height,
 												meta: event.meta,
-												calldata,
+												calldata: calldata.into(),
 											}),
 											PostStreamState::HyperbridgeFinalized(
 												event.meta.block_number,
@@ -864,7 +864,7 @@ pub async fn request_timeout_stream(
 				Ok(true)
 			} else {
 				let sleep_time = timeout - current_timestamp;
-				let _ = wasm_timer::Delay::new(Duration::from_secs(sleep_time)).await;
+				let _ = wasmtimer::tokio::sleep(Duration::from_secs(sleep_time)).await;
 				Ok::<_, anyhow::Error>(false)
 			};
 		};

@@ -38,6 +38,11 @@ use sp_runtime::{
 };
 
 const ONE_MB: u32 = 1_000_000;
+/// This is the maximum nesting level required to decode
+/// the supported ismp messages and pallet_ismp_relayer calls
+/// All suported call types require a recursion depth of 2 except calls containing Ismp Get requests
+/// Ismp Get requests have a nested vector of keys requiring an extra recursion depth
+const MAX_EXTRINSIC_DECODE_DEPTH_LIMIT: u32 = 4;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -133,7 +138,7 @@ pub mod pallet {
 				.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
 			let runtime_call = T::RuntimeCall::decode_with_depth_limit(
-				sp_api::MAX_EXTRINSIC_DEPTH,
+				MAX_EXTRINSIC_DECODE_DEPTH_LIMIT,
 				&mut &decompressed[..],
 			)
 			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
@@ -174,7 +179,7 @@ pub mod pallet {
 				priority: 100,
 				requires: vec![],
 				provides,
-				longevity: TransactionLongevity::MAX,
+				longevity: 25,
 				propagate: true,
 			})
 		}
@@ -210,7 +215,7 @@ where
 	/// - `call_bytes`: the uncompressed encoded runtime call.
 	pub fn decode_and_execute(call_bytes: Vec<u8>) -> DispatchResult {
 		let runtime_call = <T as frame_system::Config>::RuntimeCall::decode_with_depth_limit(
-			sp_api::MAX_EXTRINSIC_DEPTH,
+			MAX_EXTRINSIC_DECODE_DEPTH_LIMIT,
 			&mut &call_bytes[..],
 		)
 		.map_err(|_| Error::<T>::ErrorDecodingCall)?;

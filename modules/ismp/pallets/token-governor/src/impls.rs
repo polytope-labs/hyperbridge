@@ -15,6 +15,7 @@
 
 // Pallet Implementations
 
+use alloc::vec;
 use frame_support::{ensure, PalletId};
 use frame_system::{pallet_prelude::OriginFor, RawOrigin};
 use ismp::{
@@ -25,11 +26,11 @@ use sp_core::{H160, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use crate::{
-	AssetMetadata, AssetMetadatas, AssetOwners, ChainWithSupply, Config, ERC20AssetRegistration,
-	ERC6160AssetRegistration, ERC6160AssetUpdate, Error, Event, Pallet, Params, PendingAsset,
-	ProtocolParams, SolAssetMetadata, SolChangeAssetAdmin, SolDeregsiterAsset,
-	SolTokenGatewayParams, SupportedChains, TokenGatewayParams, TokenGatewayParamsUpdate,
-	TokenGatewayRequest, UnsignedERC6160AssetRegistration, PALLET_ID,
+	AssetMetadata, AssetMetadatas, AssetOwners, AssetRegistration, ChainWithSupply, Config,
+	ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate, Error, Event, Pallet,
+	Params, PendingAsset, ProtocolParams, SolAssetMetadata, SolChangeAssetAdmin,
+	SolDeregsiterAsset, SolTokenGatewayParams, SupportedChains, TokenGatewayParams,
+	TokenGatewayParamsUpdate, TokenGatewayRequest, UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
 impl<T: Config> Pallet<T>
@@ -286,12 +287,16 @@ where
 			..Default::default()
 		};
 
-		for (chain, erc20_address) in asset.chains {
+		for AssetRegistration { chain, erc20, erc6160 } in asset.chains {
 			let mut body: SolAssetMetadata =
 				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
 
-			if let Some(erc20_address) = erc20_address {
-				body.erc20 = erc20_address.0.into();
+			if let Some(erc20) = erc20 {
+				body.erc20 = erc20.0.into();
+			}
+
+			if let Some(erc6160) = erc6160 {
+				body.erc6160 = erc6160.0.into();
 			}
 
 			let dispatcher = T::Dispatcher::default();

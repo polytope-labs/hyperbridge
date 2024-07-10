@@ -27,8 +27,7 @@ use pallet_asset_gateway::{xcm_utilities::HyperbridgeAssetTransactor, TokenGatew
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
-use sp_core::{H160, H256};
-use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Percent};
+use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Permill};
 use staging_xcm::{latest::prelude::*, VersionedXcm};
 use staging_xcm_builder::{
 	AccountId32Aliases, AllowUnpaidExecutionFrom, ConvertedConcreteId, EnsureXcmOrigin,
@@ -331,13 +330,12 @@ impl pallet_xcm::Config for Test {
 parameter_types! {
 	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
 	pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
-	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Percent::from_percent(1), H160::zero(), H256::zero());
+	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
 }
 
 impl pallet_asset_gateway::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
-	type ProtocolAccount = ProtocolAccount;
 	type Params = TransferParams;
 	type Assets = Assets;
 	type IsmpHost = Ismp;

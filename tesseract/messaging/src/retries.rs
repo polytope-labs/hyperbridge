@@ -14,7 +14,7 @@ use crate::{
 	FeeAccSender,
 };
 
-/// Pull unprofitable messages from the database periodically and retry them.
+/// Pull retriable messages from the database periodically and retry them.
 pub async fn retry_unprofitable_messages(
 	dest: Arc<dyn IsmpProvider>,
 	hyperbridge: Arc<dyn IsmpProvider>,
@@ -39,7 +39,7 @@ pub async fn retry_unprofitable_messages(
 			};
 
 		if !unprofitables.is_empty() {
-			tracing::trace!("Starting retries of previously unprofitable messages");
+			tracing::trace!("Starting retries of previously unprofitable or failed messages");
 			let mut request_messages = vec![];
 			let mut response_messages = vec![];
 			let mut ids = vec![];
@@ -180,7 +180,7 @@ pub async fn retry_unprofitable_messages(
 						}
 					}
 
-					new_unprofitable_messages.extend(request_profitablility.unprofitable_msgs);
+					new_unprofitable_messages.extend(request_profitablility.retriable_messages);
 				},
 				Err(err) => {
 					tracing::error!("Unprofitable Messages Retries: Debug tracing failed: {err:?}")
@@ -253,7 +253,7 @@ pub async fn retry_unprofitable_messages(
 						}
 					}
 
-					new_unprofitable_messages.extend(response_profitablility.unprofitable_msgs);
+					new_unprofitable_messages.extend(response_profitablility.retriable_messages);
 				},
 				Err(err) => {
 					tracing::error!("Unprofitable Messages Retries: Debug tracing failed: {err:?}")
@@ -294,12 +294,39 @@ pub async fn retry_unprofitable_messages(
 			}
 			// Store the new batch
 			if !new_unprofitable_messages.is_empty() {
-				tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", new_unprofitable_messages.len(), dest.name());
+				// remove timedout messages from the list
+				let dest_timestamp = dest.query_timestamp().await?;
+				let retriable_msgs = new_unprofitable_messages
+					.into_iter()
+					.filter_map(|msg| match &msg {
+						Message::Request(req_msg) => {
+							let req = Request::Post(req_msg.requests[0].clone());
+							if req.timed_out(dest_timestamp) {
+								None
+							} else {
+								Some(msg.clone())
+							}
+						},
+						Message::Response(res_msg) => {
+							let res = match &res_msg.datagram {
+								RequestResponse::Request(_) => unreachable!(
+									"Relayer only ever processes post requests and post responses"
+								),
+								RequestResponse::Response(responses) => responses[0].clone(),
+							};
+							if res.timed_out(dest_timestamp) {
+								None
+							} else {
+								Some(msg.clone())
+							}
+						},
+						_ => None,
+					})
+					.collect::<Vec<_>>();
+
+				tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", retriable_msgs.len(), dest.name());
 				let _ = tx_payment
-					.store_unprofitable_messages(
-						new_unprofitable_messages,
-						dest.state_machine_id().state_id,
-					)
+					.store_unprofitable_messages(retriable_msgs, dest.state_machine_id().state_id)
 					.await;
 			}
 		}

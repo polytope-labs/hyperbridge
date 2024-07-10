@@ -26,7 +26,6 @@ import {
     BODY_BYTES_SIZE,
     Asset,
     BodyWithCall,
-    AssetFees,
     TokenGatewayParams,
     ChangeAssetAdmin,
     TokenGatewayParamsExt,
@@ -37,6 +36,8 @@ import {
 } from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {NotRoleAdmin} from "ERC6160/tokens/ERC6160Ext20.sol";
+import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 
 contract TokenGatewayTest is BaseTest {
     using Message for PostRequest;
@@ -241,11 +242,11 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testAddAssetOnAccept() public {
-        AssetMetadata memory asset = AssetMetadata({
+        AssetMetadata memory asset1 = AssetMetadata({
             erc20: address(mockUSDC),
             erc6160: address(feeToken),
             name: "Hyperbridge USD",
-            symbol: "USD.h",
+            symbol: "USD",
             beneficiary: address(0),
             initialSupply: 0
         });
@@ -259,7 +260,7 @@ contract TokenGatewayTest is BaseTest {
                     to: abi.encodePacked(address(0)),
                     from: abi.encodePacked(address(gateway)),
                     dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(asset)),
+                    body: bytes.concat(hex"02", abi.encode(asset1)),
                     nonce: 0,
                     source: hyperbridge,
                     timeoutTimestamp: 0
@@ -268,14 +269,41 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-        console.log("Finished onAccept");
-
-        bytes32 key = keccak256("USD.h");
+        bytes32 key = keccak256("USD");
         address erc6160Asset = gateway.erc6160(key);
         address erc20Asset = gateway.erc20(key);
 
         assert(erc6160Asset == address(feeToken));
         assert(erc20Asset == address(mockUSDC));
+        assert(keccak256(bytes(ERC6160Ext20(erc6160Asset).symbol())) == keccak256(bytes(string("USD.h")))); // should add suffix
+
+        AssetMetadata memory asset2 = AssetMetadata({
+            erc20: address(0),
+            erc6160: address(0),
+            name: "Hyperbridge USD",
+            symbol: "USDH",
+            beneficiary: address(0),
+            initialSupply: 0
+        });
+
+        vm.prank(address(host));
+        gateway.onAccept(
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"02", abi.encode(asset2)),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
+            })
+        );
+
+        address usdh = gateway.erc6160(keccak256("USDH"));
+        assert(keccak256(bytes(ERC6160Ext20(usdh).symbol())) == keccak256(bytes(string("USDH")))); // no suffix
     }
 
     function testToRevertOnAddAssetOnAcceptForUnauthorizedRequest() public {

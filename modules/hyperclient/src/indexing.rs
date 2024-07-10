@@ -292,7 +292,7 @@ pub async fn query_request_status_from_indexer(
 						MessageStatusWithMetadata::HyperbridgeFinalized {
 							finalized_height: data.height.low_u64(),
 							meta,
-							calldata,
+							calldata: calldata.into(),
 						}
 					} else {
 						MessageStatusWithMetadata::HyperbridgeDelivered {
@@ -314,7 +314,7 @@ pub async fn query_request_status_from_indexer(
 				Status::TIMED_OUT => MessageStatusWithMetadata::Timeout,
 				Status::Other(_) => MessageStatusWithMetadata::Pending,
 			};
-			return Ok(Some(status))
+			return Ok(Some(status));
 		}
 	}
 
@@ -448,7 +448,7 @@ pub async fn query_response_status_from_indexer(
 						MessageStatusWithMetadata::HyperbridgeFinalized {
 							finalized_height: data.height.low_u64(),
 							meta,
-							calldata,
+							calldata: calldata.into(),
 						}
 					} else {
 						MessageStatusWithMetadata::HyperbridgeDelivered {
@@ -470,7 +470,7 @@ pub async fn query_response_status_from_indexer(
 				Status::TIMED_OUT => MessageStatusWithMetadata::Timeout,
 				Status::Other(_) => MessageStatusWithMetadata::Pending,
 			};
-			return Ok(Some(status))
+			return Ok(Some(status));
 		}
 	};
 

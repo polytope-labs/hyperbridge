@@ -294,7 +294,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 								TypedTransaction::Legacy(TransactionRequest {
 									to: Some(NameOrAddress::Address(source_chain.handler_address)),
 									gas_price: Some(gas_price * 5), // experiment with higher?
-									data: Some(calldata.into()),
+									data: Some(calldata.0.into()),
 									..Default::default()
 								}),
 								None,

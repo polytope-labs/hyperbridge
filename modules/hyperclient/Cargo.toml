@@ -1,43 +1,24 @@
 [package]
 name = "hyperclient"
-version = "0.3.18"
+version = "0.3.19"
 edition = "2021"
 description = "The hyperclient is a library for managing (in-flight) ISMP requests"
 repository = "https://github.com/polytope-labs/hyperbridge"
 license = "Apache-2.0"
 publish = false
 
-
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-
 [dependencies]
+# workspace
 wasm-bindgen = { version = "0.2.90" }
 subxt = { workspace = true }
-getrandom = { version = "0.2", default-features = false, features = ["js"] }
-anyhow.workspace = true
-hex-literal = { version = "0.4.1" }
-serde-wasm-bindgen = { version = "0.6.3", default-features = false }
-serde = { version = "1.0.196", features = ["derive"], default-features = false }
-wasm-bindgen-futures = "0.4.40"
-codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
-futures = "0.3.30"
-wasm-streams = "0.4.0"
+anyhow = { workspace = true }
+codec = { workspace = true }
 tokio = { workspace = true, features = ["macros"]  }
-js-sys = "0.3.68"
-web-sys = "0.3.68"
-wasm-timer = { package = "fluvio-wasm-timer", version = "0.2.5" }
-hashbrown = { version = "0.14.3", features = ["serde"] }
-primitive-types = { version = "0.12.2", default-features = false, features = ["serde"] }
-tracing = { version = "0.1.40", default-features = false }
-url = "2.5.1"
-
-tracing-wasm = "0.2.1"
-console_error_panic_hook = "0.1.7"
-
-ethers = { workspace = true, features = ["ws"] }
-
+primitive-types = { workspace = true, features = ["serde"] }
+ethers = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true, features = ["disable-panic-handler"] }
 evm-common = { workspace = true }
@@ -48,8 +29,28 @@ ethereum-triedb = { workspace = true }
 subxt-utils = { workspace = true }
 mmr-primitives = { workspace = true }
 sp-mmr-primitives = { workspace = true }
-hex = "0.4.3"
+
+# crates.io
+getrandom = { version = "0.2", default-features = false, features = ["js"] }
+serde = { version = "1.0.196", features = ["derive"], default-features = false }
+serde-wasm-bindgen = { version = "0.6.3", default-features = false }
+futures = "0.3.30"
+wasm-bindgen-futures = "0.4.40"
+wasm-streams = "0.4.0"
+js-sys = "0.3.68"
+web-sys = "0.3.68"
+wasmtimer = "0.2.0"
+hashbrown = { version = "0.14.3", features = ["serde"] }
+url = "2.5.1"
 gql_client = "=1.0.7"
+console_error_panic_hook = "0.1.7"
+hex = "0.4.3"
+hex-literal = { version = "0.4.1" }
+hex_fmt = { version = "0.3.0", default-features = false }
+tracing = { version = "0.1.40", default-features = false }
+tracing-wasm = "0.2.1"
+tracing-subscriber = { version = "0.3", features = ["registry"], default-features = false }
+tracing-subscriber-wasm = "0.1.0"
 
 [features]
 default = ["std"]
@@ -66,7 +67,6 @@ testing = []
 [dev-dependencies]
 json = { package = "serde_json", version = "1.0.114", default-features = false }
 wasm-bindgen-test = "0.3.24"
-hex = { version = "0.4.3", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ethers = { workspace = true, features = ["ws"], default-features = true }

@@ -144,13 +144,12 @@ where
 		let nonce =
 			self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default();
 
-		let amount = relayer_account_balance(&self.client, chain, counterparty.address()).await?;
 		let signature = {
-			let message = message(nonce, chain, amount);
+			let message = message(nonce, chain);
 			counterparty.sign(&message)
 		};
 
-		let input_data = WithdrawalInputData { signature, dest_chain: chain, amount };
+		let input_data = WithdrawalInputData { signature, dest_chain: chain };
 
 		let tx = Extrinsic::new("Relayer", "withdraw_fees", input_data.encode());
 		// Wait for finalization so we still get the correct block with the post request event even

@@ -3,10 +3,11 @@ use crate::{
 	providers::{evm::EvmClient, substrate::SubstrateClient},
 };
 use anyhow::anyhow;
-use core::pin::Pin;
+use core::{fmt, pin::Pin};
 use ethers::types::H160;
 pub use evm_common::types::EvmStateProof;
 use futures::Stream;
+use hex_fmt::HexFmt;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 pub use substrate_state_machine::{HashAlgorithm, SubstrateStateProof};
@@ -129,7 +130,7 @@ pub enum MessageStatusWithMetadata {
 		#[serde(flatten)]
 		meta: EventMetadata,
 		/// Calldata that encodes the proof for the message to be sent to the destination.
-		calldata: Vec<u8>,
+		calldata: Bytes,
 	},
 	/// Delivered to destination
 	DestinationDelivered {
@@ -144,6 +145,27 @@ pub enum MessageStatusWithMetadata {
 	},
 	/// Message has timed out
 	Timeout,
+}
+
+#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct Bytes(pub Vec<u8>);
+
+impl From<Vec<u8>> for Bytes {
+	fn from(value: Vec<u8>) -> Bytes {
+		Bytes(value)
+	}
+}
+
+impl From<Bytes> for Vec<u8> {
+	fn from(value: Bytes) -> Vec<u8> {
+		value.0
+	}
+}
+
+impl fmt::Debug for Bytes {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_tuple("Bytes").field(&HexFmt(self.0.clone())).finish()
+	}
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -193,7 +215,7 @@ pub enum TimeoutStatus {
 	/// Encoded call data to be submitted to source chain
 	TimeoutMessage {
 		/// Calldata that encodes the proof for the timeout message on the source.
-		calldata: Vec<u8>,
+		calldata: Bytes,
 	},
 }
 

@@ -18,22 +18,16 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, string::ToString, vec};
+use alloy_sol_types::SolType;
 use core::marker::PhantomData;
+use pallet_token_governor::ProtocolParams;
 
-use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{
 	ensure,
 	traits::{
-		fungibles::{self, Mutate},
-		tokens::Preservation,
+		fungibles::{self},
 		Get,
 	},
-};
-use sp_core::{H160, H256, U256};
-use sp_runtime::{traits::AccountIdConversion, Percent};
-use staging_xcm::{
-	v3::{AssetId, Fungibility, Junction, MultiAsset, MultiAssets, MultiLocation, WeightLimit},
-	VersionedMultiAssets, VersionedMultiLocation,
 };
 
 use ismp::{
@@ -45,6 +39,12 @@ use ismp::{
 	router::{Request, Timeout},
 };
 pub use pallet::*;
+use sp_core::{H160, H256, U256};
+use sp_runtime::{traits::AccountIdConversion, Permill};
+use staging_xcm::{
+	v3::{AssetId, Fungibility, Junction, MultiAsset, MultiAssets, MultiLocation, WeightLimit},
+	VersionedMultiAssets, VersionedMultiLocation,
+};
 use xcm_utilities::MultiAccount;
 
 pub mod xcm_utilities;
@@ -57,7 +57,6 @@ pub mod pallet {
 	use frame_support::{pallet_prelude::*, traits::fungibles, PalletId};
 	use frame_system::pallet_prelude::OriginFor;
 	use pallet_ismp::ModuleId;
-	use sp_runtime::Percent;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -68,7 +67,12 @@ pub mod pallet {
 
 	/// The config trait
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config + pallet_xcm::Config {
+	pub trait Config:
+		frame_system::Config
+		+ pallet_ismp::Config
+		+ pallet_xcm::Config
+		+ pallet_token_governor::Config
+	{
 		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -76,10 +80,6 @@ pub mod pallet {
 		/// All escrowed funds will be custodied by this account
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
-
-		/// Protocol fees will be custodied by this account
-		#[pallet::constant]
-		type ProtocolAccount: Get<PalletId>;
 
 		/// Pallet parameters
 		#[pallet::constant]
@@ -100,6 +100,8 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Error encountered while dispatching post request
 		DispatchPostError,
+		/// Pallet has not been initialized
+		NotInitialized,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -116,6 +118,8 @@ pub mod pallet {
 			amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
 			/// Destination chain
 			dest: StateMachine,
+			/// Request commitment
+			commitment: H256,
 		},
 
 		/// An asset has been received and transferred to the beneficiary's account on the
@@ -144,28 +148,18 @@ pub mod pallet {
 	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
 	pub struct TokenGatewayParams {
 		/// Percentage to be taken as protocol fees
-		pub protocol_fee_percentage: Percent,
-		/// TokenGateWay address on evm chains
-		pub token_gateway_address: H160,
-		/// The 32 bytes Asset Id used to identify the DOT token on Token Gateway deployments
-		pub dot_asset_id: H256,
+		pub protocol_fee_percentage: Permill,
 	}
 
 	impl TokenGatewayParams {
-		pub const fn from_parts(
-			protocol_fee_percentage: Percent,
-			token_gateway_address: H160,
-			dot_asset_id: H256,
-		) -> Self {
-			Self { protocol_fee_percentage, token_gateway_address, dot_asset_id }
+		pub const fn from_parts(protocol_fee_percentage: Permill) -> Self {
+			Self { protocol_fee_percentage }
 		}
 	}
 
 	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
 	pub struct TokenGatewayParamsUpdate {
-		pub protocol_fee_percentage: Option<Percent>,
-		pub token_gateway_address: Option<H160>,
-		pub dot_asset_id: Option<H256>,
+		pub protocol_fee_percentage: Option<Permill>,
 	}
 
 	#[pallet::call]
@@ -182,16 +176,8 @@ pub mod pallet {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
 			let mut current_params = Params::<T>::get().unwrap_or(T::Params::get());
 
-			if let Some(address) = update.token_gateway_address {
-				current_params.token_gateway_address = address;
-			}
-
 			if let Some(protocol_fee_percentage) = update.protocol_fee_percentage {
 				current_params.protocol_fee_percentage = protocol_fee_percentage;
-			}
-
-			if let Some(dot_asset_id) = update.dot_asset_id {
-				current_params.dot_asset_id = dot_asset_id;
 			}
 
 			Params::<T>::put(current_params);
@@ -210,21 +196,21 @@ where
 	}
 
 	pub fn protocol_account_id() -> T::AccountId {
-		T::ProtocolAccount::get().into_account_truncating()
+		T::TreasuryAccount::get().into_account_truncating()
 	}
 
 	pub fn token_gateway_address() -> H160 {
-		Params::<T>::get().unwrap_or(<T as Config>::Params::get()).token_gateway_address
+		ProtocolParams::<T>::get().map(|p| p.token_gateway_address).unwrap_or_default()
 	}
 
-	pub fn protocol_fee_percentage() -> Percent {
+	pub fn protocol_fee_percentage() -> Permill {
 		Params::<T>::get()
 			.unwrap_or(<T as Config>::Params::get())
 			.protocol_fee_percentage
 	}
 
 	pub fn dot_asset_id() -> H256 {
-		Params::<T>::get().unwrap_or(<T as Config>::Params::get()).dot_asset_id
+		sp_io::hashing::keccak_256(b"DOT").into()
 	}
 
 	/// Dispatch ismp request to token gateway on destination chain
@@ -235,38 +221,41 @@ where
 		let dispatcher = <T as Config>::IsmpHost::default();
 
 		let mut to = [0u8; 32];
-		to[..20].copy_from_slice(&multi_account.evm_account.0);
+		to[12..].copy_from_slice(&multi_account.evm_account.0);
 		let from: [u8; 32] = multi_account.substrate_account.clone().into();
 		let asset_id = Self::dot_asset_id().0.into();
 		let body = Body {
 			amount: {
 				let amount: u128 = amount.into();
 				let mut bytes = [0u8; 32];
-				U256::from(amount).to_big_endian(&mut bytes);
+				convert_to_erc20(amount).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
+			max_fee: Default::default(),
 			asset_id,
 			redeem: false,
 			from: from.into(),
 			to: to.into(),
 		};
 
+		let token_gateway_address = Self::token_gateway_address();
+
 		let dispatch_post = DispatchPost {
 			dest: multi_account.dest_state_machine,
-			from: Self::token_gateway_address().0.to_vec(),
-			to: Self::token_gateway_address().0.to_vec(),
+			from: token_gateway_address.0.to_vec(),
+			to: token_gateway_address.0.to_vec(),
 			timeout: multi_account.timeout,
 			body: {
 				// Prefix with the handleIncomingAsset enum variant
 				let mut encoded = vec![0];
-				encoded.extend_from_slice(&alloy_rlp::encode(body));
+				encoded.extend_from_slice(&Body::abi_encode(&body));
 				encoded
 			},
 		};
 
 		let metadata =
 			FeeMetadata { payer: multi_account.substrate_account.clone(), fee: Default::default() };
-		dispatcher
+		let commitment = dispatcher
 			.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
 			.map_err(|_| Error::<T>::DispatchPostError)?;
 
@@ -275,24 +264,29 @@ where
 			to: multi_account.evm_account,
 			dest: multi_account.dest_state_machine,
 			amount,
+			commitment,
 		});
 
 		Ok(())
 	}
 }
 
-#[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
-pub struct Body {
-	// amount to be sent
-	pub amount: alloy_primitives::U256,
-	// The token identifier
-	pub asset_id: alloy_primitives::B256,
-	// flag to redeem the erc20 asset on the destination
-	pub redeem: bool,
-	// sender address
-	pub from: alloy_primitives::B256,
-	// recipient address
-	pub to: alloy_primitives::B256,
+alloy_sol_macro::sol! {
+	#![sol(all_derives)]
+	struct Body {
+		// Amount of the asset to be sent
+		uint256 amount;
+		// Maximum amount to pay for liquidity fees
+		uint256 max_fee;
+		// The asset identifier
+		bytes32 asset_id;
+		// Flag to redeem the erc20 asset on the destination
+		bool redeem;
+		// Sender address
+		bytes32 from;
+		// Recipient address
+		bytes32 to;
+	}
 }
 
 #[derive(Clone)]
@@ -345,7 +339,7 @@ where
 			}
 		);
 
-		let body: Body = alloy_rlp::Decodable::decode(&mut &post.data[1..]).map_err(|_| {
+		let body = Body::abi_decode(&mut &post.data[1..], true).map_err(|_| {
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Failed to decode request body".to_string(),
 				meta: Meta {
@@ -369,32 +363,17 @@ where
 			}
 		);
 
-		let amount = { U256::from_big_endian(&body.amount.to_be_bytes::<32>()).low_u128() };
+		let amount = convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
+			.map_err(|_| ismp::error::Error::ModuleDispatchError {
+				msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+				meta: Meta {
+					source: request.source_chain(),
+					dest: request.dest_chain(),
+					nonce: request.nonce(),
+				},
+			})?;
 
 		let asset_id = MultiLocation::parent();
-
-		let protocol_account = Pallet::<T>::protocol_account_id();
-		let pallet_account = Pallet::<T>::account_id();
-		let protocol_percentage = Pallet::<T>::protocol_fee_percentage();
-
-		let protocol_fees = protocol_percentage * amount;
-		let amount = amount - protocol_fees;
-
-		T::Assets::transfer(
-			asset_id.clone().into(),
-			&pallet_account,
-			&protocol_account,
-			protocol_fees.into(),
-			Preservation::Preserve,
-		)
-		.map_err(|_| ismp::error::Error::ModuleDispatchError {
-			msg: "Token Gateway: Error collecting protocol fees".to_string(),
-			meta: Meta {
-				source: request.source_chain(),
-				dest: request.dest_chain(),
-				nonce: request.nonce(),
-			},
-		})?;
 
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
 		let xcm_beneficiary: MultiLocation =
@@ -465,20 +444,28 @@ where
 					},
 				})?;
 				let beneficiary = fee_metadata.fee.payer;
-				let body: Body =
-					alloy_rlp::Decodable::decode(&mut &post.data[1..]).map_err(|_| {
-						ismp::error::Error::ModuleDispatchError {
-							msg: "Token Gateway: Failed to decode request body".to_string(),
+				let body = Body::abi_decode(&mut &post.data[1..], true).map_err(|_| {
+					ismp::error::Error::ModuleDispatchError {
+						msg: "Token Gateway: Failed to decode request body".to_string(),
+						meta: Meta {
+							source: request.source_chain(),
+							dest: request.dest_chain(),
+							nonce: request.nonce(),
+						},
+					}
+				})?;
+				// Send xcm back to relaychain
+
+				let amount =
+					convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
+						.map_err(|_| ismp::error::Error::ModuleDispatchError {
+							msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
 							meta: Meta {
 								source: request.source_chain(),
 								dest: request.dest_chain(),
 								nonce: request.nonce(),
 							},
-						}
-					})?;
-				// Send xcm back to relaychain
-
-				let amount = { U256::from_big_endian(&body.amount.to_be_bytes::<32>()).low_u128() };
+						})?;
 				// We do an xcm limited reserve transfer from the pallet custody account to the user
 				// on the relaychain;
 				let xcm_beneficiary: MultiLocation =
@@ -502,7 +489,7 @@ where
 					weight_limit,
 				)
 				.map_err(|_| ismp::error::Error::ModuleDispatchError {
-					msg: "Token Gateway: Failed execute xcm to relay chain".to_string(),
+					msg: "Token Gateway: Failed to execute xcm to relay chain".to_string(),
 					meta: Meta {
 						source: request.source_chain(),
 						dest: request.dest_chain(),
@@ -532,5 +519,65 @@ where
 				},
 			}),
 		}
+	}
+}
+
+/// Converts an ERC20 U256 to a DOT u128
+pub fn convert_to_balance(value: U256) -> Result<u128, anyhow::Error> {
+	let dec_str = (value / U256::from(100_000_000u128)).to_string();
+	dec_str.parse().map_err(|e| anyhow::anyhow!("{e:?}"))
+}
+
+/// Converts a DOT u128 to an Erc20 denomination
+pub fn convert_to_erc20(value: u128) -> U256 {
+	U256::from(value) * U256::from(100_000_000u128)
+}
+
+#[cfg(test)]
+mod tests {
+	use sp_core::U256;
+	use sp_runtime::Permill;
+	use std::ops::Mul;
+
+	use crate::{convert_to_balance, convert_to_erc20};
+	#[test]
+	fn test_per_mill() {
+		let per_mill = Permill::from_parts(1_000);
+
+		println!("{}", per_mill.mul(20_000_000u128));
+	}
+
+	#[test]
+	fn balance_conversions() {
+		let supposedly_small_u256 = U256::from_dec_str("1000000000000000000").unwrap();
+		// convert erc20 value to dot value
+		let converted_balance = convert_to_balance(supposedly_small_u256).unwrap();
+		println!("{}", converted_balance);
+
+		let dot = 10_000_000_000u128;
+
+		assert_eq!(converted_balance, dot);
+
+		// Convert 1 dot to erc20
+
+		let dot = 10_000_000_000u128;
+		let erc_20_val = convert_to_erc20(dot);
+		assert_eq!(erc_20_val, U256::from_dec_str("1000000000000000000").unwrap());
+	}
+
+	#[test]
+	fn max_value_check() {
+		let max = U256::MAX;
+
+		let converted_balance = convert_to_balance(max);
+		assert!(converted_balance.is_err())
+	}
+
+	#[test]
+	fn min_value_check() {
+		let min = U256::from(1u128);
+
+		let converted_balance = convert_to_balance(min).unwrap();
+		assert_eq!(converted_balance, 0);
 	}
 }

@@ -23,7 +23,8 @@ use staging_xcm_builder::{
 	IsConcrete, SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation,
 };
 use staging_xcm_executor::{Config, XcmExecutor};
-use xcm_simulator_example::{ALICE, INITIAL_BALANCE};
+use xcm_simulator_example::ALICE;
+pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
 pub type AccountId = AccountId32;
 pub type Balance = u128;

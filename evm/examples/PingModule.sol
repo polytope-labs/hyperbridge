@@ -134,11 +134,8 @@ contract PingModule is IIsmpModule {
             DispatchPost memory post = DispatchPost({
                 body: bytes.concat("hello from ", IIsmpHost(_host).host()),
                 dest: pingMessage.dest,
-                // one hour
                 timeout: pingMessage.timeout,
-                // instance of this pallet on another chain.
                 to: abi.encodePacked(address(pingMessage.module)),
-                // unused for now
                 fee: pingMessage.fee,
                 payer: tx.origin
             });
@@ -151,7 +148,6 @@ contract PingModule is IIsmpModule {
             body: bytes("hello from evm"),
             dest: StateMachine.kusama(_paraId),
             timeout: 0,
-            // timeout: 60 * 60, // one hour
             to: bytes("ismp-ast"), // ismp demo pallet
             fee: 0,
             payer: tx.origin

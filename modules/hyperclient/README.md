@@ -1,6 +1,5 @@
 # `hyperclient`
 
-[Deployments](https://github.com/polytope-labs/hyperclient/actions/workflows/hyperclient.yml/badge.svg)
 [![NPM](https://img.shields.io/npm/v/@polytope-labs/hyperclient?label=%40polytope-labs%2Fhyperclient)](https://www.npmjs.com/package/@polytope-labs/hyperclient)
 
 Allows clients of hyperbridge manage their in-flight ISMP requests.
@@ -9,4 +8,34 @@ Allows clients of hyperbridge manage their in-flight ISMP requests.
 
 ```
 npm install @polytope-labs/hyperclient
+```
+
+## Usage
+
+This library is designed to portable for use across various Js environments.
+
+### NodeJs
+
+```ts
+import { HyperClient } from "@polytope-labs/hyperclient";
+```
+
+### Bundler (eg Webpack)
+
+```ts
+import { HyperClient } from "@polytope-labs/hyperclient/bundler";
+```
+
+### Web
+
+```html
+<html>
+  <head>
+    <script type="module">
+    import { HyperClient } from "@polytope-labs/hyperclient/web"
+    </script>
+  </head>
+
+  <body></body>
+</html>
 ```

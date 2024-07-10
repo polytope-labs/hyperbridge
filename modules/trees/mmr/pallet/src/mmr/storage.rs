@@ -79,7 +79,7 @@ where
 		);
 		// Try to retrieve the element from Off-chain DB.
 		if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-			return Ok(codec::Decode::decode(&mut &*elem).ok())
+			return Ok(codec::Decode::decode(&mut &*elem).ok());
 		} else {
 			// alas the store hasn't been canonicalized yet
 			Err(merkle_mountain_range::Error::InconsistentStore)?
@@ -111,7 +111,7 @@ where
 		elems: Vec<NodeOf<T, I, L>>,
 	) -> merkle_mountain_range::Result<()> {
 		if elems.is_empty() {
-			return Ok(())
+			return Ok(());
 		}
 
 		trace!(
@@ -123,7 +123,7 @@ where
 		let size = NodesUtils::new(leaves).size();
 
 		if pos != size {
-			return Err(merkle_mountain_range::Error::InconsistentStore)
+			return Err(merkle_mountain_range::Error::InconsistentStore);
 		}
 
 		let new_size = size + elems.len() as NodeIndex;

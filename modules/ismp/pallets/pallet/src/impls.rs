@@ -256,14 +256,17 @@ impl<T: Config> Pallet<T> {
 
 	/// Fetch all ISMP handler events and their extrinsic metadata, should only be called from
 	/// runtime-api.
-	pub fn block_events_with_metadata() -> Vec<(ismp::events::Event, u32)>
+	pub fn block_events_with_metadata() -> Vec<(ismp::events::Event, Option<u32>)>
 	where
 		<T as frame_system::Config>::RuntimeEvent: TryInto<Event<T>>,
 	{
 		frame_system::Pallet::<T>::read_events_no_consensus()
 			.filter_map(|e| {
 				let frame_system::EventRecord { event, phase, .. } = *e;
-				let Phase::ApplyExtrinsic(index) = phase else { None? };
+				let index = match phase {
+					Phase::ApplyExtrinsic(index) => Some(index),
+					_ => None,
+				};
 				let pallet_event: Event<T> = event.try_into().ok()?;
 				let event = pallet_event.try_into().ok()?;
 

@@ -270,7 +270,7 @@ pub async fn get_l2_data_cost(
 
 async fn make_request<T: DeserializeOwned>(url: &str, header_map: HeaderMap) -> anyhow::Result<T> {
 	// Retry a request twice in case the response does not deserialize correctly the first time
-	for _ in 0..2 {
+	for _ in 0..3 {
 		// Retry up to 3 times with increasing intervals between attempts.
 		let mut retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
 		retry_policy.max_retry_interval = Duration::from_secs(3 * 60);
@@ -280,7 +280,7 @@ async fn make_request<T: DeserializeOwned>(url: &str, header_map: HeaderMap) -> 
 
 		let res = client.get(url).headers(header_map.clone()).send().await?;
 		if let Ok(response) = res.json().await {
-			return Ok(response)
+			return Ok(response);
 		}
 	}
 

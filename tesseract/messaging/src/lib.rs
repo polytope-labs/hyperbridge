@@ -125,33 +125,35 @@ where
 		);
 	}
 
-	// Spawn retries for unprofitable messages
 	{
-		let hyperbridge = Arc::new(chain_a.clone());
-		let dest = chain_b.clone();
-		let client_map = client_map.clone();
-		let tx_payment = tx_payment.clone();
-		let config = config.clone();
-		let sender = sender.clone();
-		let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
-		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
-			"messaging",
-			async move {
-				let res = retry_unprofitable_messages(
-					dest,
-					hyperbridge,
-					client_map,
-					tx_payment,
-					config,
-					coprocessor,
-					sender,
-				)
-				.await;
-				tracing::error!("{name} terminated with result {res:?}");
-			}
-			.boxed(),
-		);
+		// Spawn retries for unprofitable messages
+		if config.unprofitable_retry_frequency.is_some() {
+			let hyperbridge = Arc::new(chain_a.clone());
+			let dest = chain_b.clone();
+			let client_map = client_map.clone();
+			let tx_payment = tx_payment.clone();
+			let config = config.clone();
+			let sender = sender.clone();
+			let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name.clone())),
+				"messaging",
+				async move {
+					let res = retry_unprofitable_messages(
+						dest,
+						hyperbridge,
+						client_map,
+						tx_payment,
+						config,
+						coprocessor,
+						sender,
+					)
+					.await;
+					tracing::error!("{name} terminated with result {res:?}");
+				}
+				.boxed(),
+			);
+		}
 	}
 
 	Ok(())
@@ -320,13 +322,14 @@ async fn handle_update(
 					}
 				}
 			},
-			Err(err) =>
-				tracing::error!("Failed to submit transaction to {}: {err:?}", chain_a.name()),
+			Err(err) => {
+				tracing::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
+			},
 		}
 	}
 
 	// Store currently unprofitable in messages in db
-	if !unprofitable.is_empty() {
+	if !unprofitable.is_empty() && config.unprofitable_retry_frequency.is_some() {
 		tracing::trace!(target: "tesseract", "Persisting {} unprofitable messages going to {} to the db", unprofitable.len(), chain_a.name());
 		if let Err(err) = tx_payment
 			.store_unprofitable_messages(unprofitable, chain_a.state_machine_id().state_id)

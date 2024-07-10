@@ -14,18 +14,22 @@ frame-system = { workspace = true }
 sp-runtime = { workspace = true }
 sp-core = { workspace = true }
 sp-std = { workspace = true }
+sp-io = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
+pallet-token-governor = { workspace = true }
 
 # crates.io
 codec = { workspace = true }
+anyhow = { workspace = true }
 scale-info = { workspace = true }
 
-alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive.workspace = true
+alloy-sol-macro.workspace = true
+alloy-sol-types.workspace = true
 
 pallet-xcm = { workspace = true }
 staging-xcm = { workspace = true }
@@ -41,11 +45,16 @@ std = [
     "scale-info/std",
     "sp-runtime/std",
     "sp-std/std",
+    "sp-io/std",
     "sp-core/std",
     "ismp/std",
     "pallet-ismp/std",
     "pallet-xcm/std",
     "staging-xcm/std",
     "staging-xcm-builder/std",
-    "staging-xcm-executor/std"
+    "staging-xcm-executor/std",
+    "pallet-token-governor/std",
+    "alloy-sol-types/std",
+    "alloy-primitives/std",
+    "anyhow/std"
 ]

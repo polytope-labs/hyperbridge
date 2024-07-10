@@ -329,7 +329,7 @@ where
 		Ok(leaf_meta.meta.fee.into())
 	}
 
-	async fn query_request_receipt(&self, _hash: H256) -> Result<H160, anyhow::Error> {
+	async fn query_request_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		let key = self.req_receipts_key(_hash);
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 		let storage_key = StorageKey(key);
@@ -337,9 +337,28 @@ where
 
 		let response: Option<StorageData> =
 			self.client.rpc().request("childstate_getStorage", params).await?;
-		let data = response.ok_or_else(|| anyhow!("Request fee metadata query returned None"))?;
-		let relayer = Vec::<u8>::decode(&mut &*data.0)?;
-		Ok(H160::from_slice(&relayer[..20]))
+		if let Some(data) = response {
+			let relayer = Vec::<u8>::decode(&mut &*data.0)?;
+			Ok(relayer)
+		} else {
+			Ok(H160::zero().0.to_vec())
+		}
+	}
+
+	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
+		let key = self.res_receipt_key(_hash);
+		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+		let storage_key = StorageKey(key);
+		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+
+		let response: Option<StorageData> =
+			self.client.rpc().request("childstate_getStorage", params).await?;
+		if let Some(data) = response {
+			let relayer = pallet_ismp::ResponseReceipt::decode(&mut &*data.0)?.relayer;
+			Ok(relayer)
+		} else {
+			Ok(H160::zero().0.to_vec())
+		}
 	}
 
 	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
@@ -455,7 +474,7 @@ where
 			// We don't compress consensus messages
 			if is_consensus_message {
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false));
-				continue
+				continue;
 			}
 			let encoded_call = extrinsic.encode_call_data(&self.client.metadata())?;
 			let uncompressed_len = encoded_call.len();

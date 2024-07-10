@@ -78,7 +78,7 @@ dataSources:
             topics:
               - "StateMachineUpdated(bytes,uint256)"
 
-  # Protocol Fee Token
+  # # Protocol Fee Token
   - kind: ethereum/Runtime
     startBlock: 5940848
     options:
@@ -96,7 +96,7 @@ dataSources:
             topics:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"
 
-  # Handler Contract
+  # # Handler Contract
   - kind: ethereum/Runtime
     startBlock: 5940848
     options:
@@ -116,5 +116,43 @@ dataSources:
           kind: ethereum/TransactionHandler
           filter:
             function: "0x72becccd"
+
+  # TokenGateway Contract
+  - kind: ethereum/Runtime
+    startBlock: 6189735
+    options:
+      abi: tokenGateway
+      address: "0xF6990e20a0Fd606960D86CdF7F40Cd729Cb0C6F8"
+    assets:
+      tokenGateway:
+        file: ./abis/TokenGateway.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleBidPlacedEvent
+          filter:
+            topics:
+              - "BidPlaced(bytes32,bytes32,uint256,address)"
+        - kind: ethereum/LogHandler
+          handler: handleBidRefundedEvent
+          filter:
+            topics:
+              - "BidRefunded(bytes32,bytes32,address)"
+        - kind: ethereum/LogHandler
+          handler: handleRequestFulfilledEvent
+          filter:
+            topics:
+              - "RequestFulfilled(address,uint256,bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleAssetReceivedEvent
+          filter:
+            topics:
+              - "AssetReceived(bytes32,address,address,uint256,bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleAssetTeleportedEvent
+          filter:
+            topics:
+              - "AssetTeleported(bytes32,address,bytes32,uint256,bytes32,bool)"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

@@ -276,13 +276,13 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 
 	// =========================== Accounts & keys =====================================
 	let bob_signer = PairSigner::<Hyperbridge, _>::new(
-		Pair::from_string("//Bob", None).expect("Unable to create ALice account"),
+		Pair::from_string("//Bob", None).expect("Unable to create Bob account"),
 	);
 	let bob_key = api::storage().system().account(AccountId32(dev::bob().public_key().0));
 
 	let amount = 100_000_000000000000;
 	let transfer_call = api::tx().ismp_demo().transfer(TransferParams {
-		to: AccountId32(dev::alice().public_key().0),
+		to: AccountId32(dev::bob().public_key().0),
 		amount,
 		para_id: 2001,
 		timeout: 70,

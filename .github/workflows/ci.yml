@@ -306,9 +306,10 @@ jobs:
 
       - name: Parachain to Parachain ismp relayer messaging integration tests
         run: |
-          cargo test --package tesseract-integration-test --lib -- --ignored --nocapture --test-threads=1
+          cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
   
-
+  
+  
 
   check-solidity:
     name: Check ismp-solidity

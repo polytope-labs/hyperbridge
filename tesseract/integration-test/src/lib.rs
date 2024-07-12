@@ -16,7 +16,7 @@ use pallet_ismp_host_executive::HostParam;
 use sc_service::TaskManager;
 use std::{
 	collections::{BTreeMap, HashMap},
-	sync::{Arc, Once},
+	sync::Arc,
 };
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt::{
@@ -42,27 +42,13 @@ use subxt_utils::{
 	},
 	Hyperbridge,
 };
+//use subxt_utils::gargantua::api::host_executive::events::HostParamsSet;
 use tesseract::logging::setup as log_setup;
 use tesseract_messaging::relay;
 use tesseract_primitives::{config::RelayerConfig, IsmpProvider};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient, SubstrateConfig};
 use transaction_fees::TransactionPayment;
 
-// A static `Once` to ensure the initialization code runs only once
-// static INIT: Once = Once::new();
-//
-// // A static `OnceLock` to hold the result of the initialization
-// static INIT_RESULT: OnceLock<Result<(), anyhow::Error>> = OnceLock::new();
-
-static INIT: Once = Once::new();
-
-fn initialize_tracing() -> Result<(), anyhow::Error> {
-	let mut result: Result<(), anyhow::Error> = Ok(());
-	INIT.call_once(|| {
-		result = log_setup();
-	});
-	result
-}
 /// This function is used to fetch get request and construct get response and submit to chain
 /// A(source chain)
 async fn relay_get_response_message(
@@ -74,28 +60,43 @@ async fn relay_get_response_message(
 		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
 
 	let (chain_a_client, chain_b_client) =
-		(Arc::new(chain_a_sub_client), Arc::new(chain_b_sub_client));
-
-	let state_machine_update = StateMachineUpdated {
-		state_machine_id: chain_a_client.state_machine_id(),
-		latest_height: tx_block_height,
-	};
-	let event_result_a = chain_a_client
-		.query_ismp_events(tx_block_height - 1, state_machine_update.clone())
-		.await?;
+		(Arc::new(chain_a_sub_client.clone()), Arc::new(chain_b_sub_client));
 
 	// ====================== get the GET_REQUEST ===============================
-	let get_request = event_result_a
-		.into_iter()
-		.find_map(|event| match event {
-			Event::GetRequest(_) => Some(event),
-			_ => None,
-		})
-		.expect("Expected at least one GetRequest event");
-	// ======== process the request offchain ( 1. Make the response ) =============
+	let mut get_request = None;
+	let mut finalized_blocks_b_stream = client_a.blocks().subscribe_finalized().await?;
 
+	while let Some(block_stream) = finalized_blocks_b_stream.next().await {
+		match block_stream {
+			Ok(block) => {
+				let state_machine_update = StateMachineUpdated {
+					state_machine_id: chain_a_client.state_machine_id(),
+					latest_height: (block.number() as u64) + 1,
+				};
+
+				if let Ok(events) = chain_a_client
+					.query_ismp_events(tx_block_height - 1, state_machine_update)
+					.await
+				{
+					if let Some(event) = events.into_iter().find_map(|event| match event {
+						Event::GetRequest(_) => Some(event),
+						_ => None,
+					}) {
+						get_request = Some(event.clone());
+						break
+					} else {
+						continue
+					}
+				} else {
+					continue
+				}
+			},
+			Err(err) => panic!("No next block in the stream {:?}", err),
+		}
+	}
+	// ======== process the request offchain ( 1. Make the response ) =============
 	let response = {
-		let get = match get_request {
+		let get = match get_request.unwrap() {
 			Event::GetRequest(get) => get,
 			_ => panic!("Not supported"),
 		};
@@ -146,7 +147,7 @@ async fn relay_get_response_message(
 				}
 			},
 			Err(err) => {
-				panic!("Error in finalized block stream: {err:?}")
+				panic!("Error in finalized block stream: {:?}", err)
 			},
 		}
 	}
@@ -199,12 +200,36 @@ async fn create_clients(
 	Ok((chain_a_sub_client, chain_b_sub_client))
 }
 
+/// A function to set host params when the network is spawned for ismp messages execution to work
+async fn set_host_params(
+	chain_sub_client: SubstrateClient<Hyperbridge>,
+) -> Result<(), anyhow::Error> {
+	// set host params for the original chain 2000 of dest chain 2001
+	if chain_sub_client.state_machine_id().state_id == StateMachine::Kusama(2000) {
+		chain_sub_client
+			.clone()
+			.set_host_params(BTreeMap::from([(
+				StateMachine::Kusama(2001),
+				HostParam::SubstrateHostParam(VersionedHostParams::V1(0)),
+			)]))
+			.await?;
+	} else {
+		// set host params for the original chain 2001 of dest chain 2000
+		chain_sub_client
+			.clone()
+			.set_host_params(BTreeMap::from([(
+				StateMachine::Kusama(2000),
+				HostParam::SubstrateHostParam(VersionedHostParams::V1(0)),
+			)]))
+			.await?;
+	}
+	Ok(())
+}
+
 /// Assertion is on ismp related events, and state changes on source and destination chain
 /// Alice in chain A sends 100_000 tokens to Alice in chain B
-#[tokio::test(flavor = "multi_thread")]
-#[ignore]
 async fn parachain_messaging() -> Result<(), anyhow::Error> {
-	initialize_tracing()?;
+	let _= log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 	log::info!(
 		"🧊integration test for para:{} to para {}: fund transfer",
@@ -248,44 +273,18 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 	)
 	.await?;
 
-	//======================= run only once ( set host executives ) ====================
-	// check if the host params are set
-	let host_param = client_a
-		.storage()
-		.at_latest()
-		.await?
-		.fetch(&api::storage().host_executive().host_params(&StateMachineType::Kusama(2001)))
-		.await?;
-	if host_param.is_none() {
-		chain_a_sub_client
-			.clone()
-			.set_host_params(BTreeMap::from([(
-				StateMachine::Kusama(2001),
-				HostParam::SubstrateHostParam(VersionedHostParams::V1(0)),
-			)]))
-			.await?;
-
-		chain_b_sub_client
-			.clone()
-			.set_host_params(BTreeMap::from([(
-				StateMachine::Kusama(2000),
-				HostParam::SubstrateHostParam(VersionedHostParams::V1(0)),
-			)]))
-			.await?;
-	}
-
 	// =========================== Accounts & keys =====================================
 	let bob_signer = PairSigner::<Hyperbridge, _>::new(
 		Pair::from_string("//Bob", None).expect("Unable to create Bob account"),
 	);
 	let bob_key = api::storage().system().account(AccountId32(dev::bob().public_key().0));
 
-	let amount = 100_000_000000000000;
+	let amount = 100_000 * 1000000000000;
 	let transfer_call = api::tx().ismp_demo().transfer(TransferParams {
 		to: AccountId32(dev::bob().public_key().0),
 		amount,
 		para_id: 2001,
-		timeout: 70,
+		timeout: 80,
 	});
 
 	let bob_chain_a_initial_balance = client_a
@@ -355,7 +354,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 				}
 			},
 			Err(err) => {
-				panic!("Error in finalized block stream: {err:?}")
+				panic!("Error in finalized block stream: {:?}", err)
 			},
 		}
 	}
@@ -389,13 +388,11 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 }
 
 /// fetch a foreign storage item from a given key
-#[tokio::test(flavor = "multi_thread")]
-#[ignore]
 async fn get_request_works() -> Result<(), anyhow::Error> {
-	initialize_tracing()?;
+	let _ =log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 
-	log::info!("🧊integration test for para: 2000 to para 2001: get request");
+	log::info!(" \n 🧊integration test for para: 2000 to para 2001: get request \n");
 
 	// =======================================================================
 	let (chain_a_client, chain_b_client) =
@@ -406,15 +403,14 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 
 	// Accounts & keys
 	let dave_signer = PairSigner::<Hyperbridge, _>::new(
-		Pair::from_string("//Dave", None).expect("Unable to create ALice account"),
+		Pair::from_string("//Dave", None).expect("Unable to create Dave account"),
 	);
 	// parachain info pallet fetching para id
 	let encoded_chain_b_id_storage_key =
 		"0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f";
 
-	// Chain A fetch Alice balance from chain B
 	let latest_height_b =
-		chain_a_client.query_latest_height(chain_b_client.state_machine_id()).await?;
+		chain_a_client.query_latest_height(chain_b_client.state_machine_id()).await? - 5;
 
 	let get_request = api::tx().ismp_demo().get_request(GetRequest {
 		para_id: 2001,
@@ -422,6 +418,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		timeout: 0,
 		keys: vec![hex::decode(encoded_chain_b_id_storage_key.strip_prefix("0x").unwrap()).unwrap()],
 	});
+
 	let tx_result = client_a
 		.tx()
 		.sign_and_submit_then_watch_default(&get_request, &dave_signer)
@@ -434,9 +431,12 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let tx_block_hash = tx_result.block_hash();
 	let tx_block_height = client_a.blocks().at(tx_block_hash).await?.number() as u64;
 	let events = client_a.events().at(tx_block_hash).await?;
-	log::info!("Ismp Events: {:?} \n", events.find_last::<RequestEvent>()?);
+	let event = events.find_last::<RequestEvent>()?.unwrap();
+	log::info!("Ismp Events: {:?} \n", event);
 
-	// ======================= Self relay to chain B =====================================
+	// ======================= handle the get request and resubmit to chain A (origin chain)
+	// =====================================
+
 	let value_returned_encoded =
 		relay_get_response_message(chain_a_sub_client, chain_b_sub_client, tx_block_height).await?;
 
@@ -453,5 +453,30 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 
 	assert_eq!(para_id_chain_b, fetched_para_id_chain_b);
 
+	Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn run_integration_tests() -> Result<(), anyhow::Error> {
+	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
+	let (client_a, _client_b) =
+		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
+
+	//======================= run only once ( set host executives ) ====================
+	// check if the host params are set
+	let host_param = client_a
+		.storage()
+		.at_latest()
+		.await?
+		.fetch(&api::storage().host_executive().host_params(&StateMachineType::Kusama(2001)))
+		.await?;
+	if host_param.is_none() {
+		set_host_params(chain_a_sub_client.clone()).await?;
+		set_host_params(chain_b_sub_client.clone()).await?;
+	}
+
+	parachain_messaging().await?;
+	get_request_works().await?;
 	Ok(())
 }

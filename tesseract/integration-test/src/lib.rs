@@ -229,7 +229,7 @@ async fn set_host_params(
 /// Assertion is on ismp related events, and state changes on source and destination chain
 /// Alice in chain A sends 100_000 tokens to Alice in chain B
 async fn parachain_messaging() -> Result<(), anyhow::Error> {
-	let _= log_setup();
+	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 	log::info!(
 		"🧊integration test for para:{} to para {}: fund transfer",
@@ -389,7 +389,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 
 /// fetch a foreign storage item from a given key
 async fn get_request_works() -> Result<(), anyhow::Error> {
-	let _ =log_setup();
+	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 
 	log::info!(" \n 🧊integration test for para: 2000 to para 2001: get request \n");

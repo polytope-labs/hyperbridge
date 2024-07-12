@@ -238,8 +238,8 @@ fn testnet_genesis(
 
 	// sibling parachain for tests
 	let sibling = match id {
-		2000 => ParachainData { id: 2001, slot_duration: 12000 },
-		2001 => ParachainData { id: 2000, slot_duration: 12000 },
+		2000 => ParachainData { id: 2001, slot_duration: 6000 },
+		2001 => ParachainData { id: 2000, slot_duration: 6000 },
 		_ => ParachainData { id: 1000, slot_duration: 6000 }, /* default to assethub */
 	};
 

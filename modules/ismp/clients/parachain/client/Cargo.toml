@@ -13,7 +13,7 @@ readme = "./README.md"
 
 [dependencies]
 # crates.io
-serde = { workspace = true, features = ["derive"], optional = true }
+serde = { workspace = true, features = ["derive"], optional = false }
 codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 hex-literal = "0.4.1"
@@ -56,7 +56,6 @@ std = [
     "sp-inherents/std",
     "primitive-types/std",
     "pallet-ismp/std",
-    "serde",
     "substrate-state-machine/std"
 ]
 try-runtime = [

@@ -147,7 +147,7 @@ impl TryFrom<JsPost> for PostRequest {
 			StateMachine::from_str(&value.dest).map_err(|e| anyhow!("{e:?}"))?
 		};
 
-		let post = Post {
+		let post = PostRequest {
 			source,
 			dest,
 			nonce: value.nonce,

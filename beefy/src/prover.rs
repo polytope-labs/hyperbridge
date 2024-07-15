@@ -333,14 +333,10 @@ where
 								Event::PostResponse(res) => res.dest_chain(),
 								Event::PostRequestTimeoutHandled(req)
 									if req.source != hyperbridge =>
-								{
-									req.source
-								},
+									req.source,
 								Event::PostResponseTimeoutHandled(res)
 									if res.source != hyperbridge =>
-								{
-									res.source
-								},
+									res.source,
 								_ => None?,
 							};
 							Some(event)
@@ -503,9 +499,9 @@ where
 			.filter_map(|event| {
 				if matches!(
 					event.event,
-					Event::PostRequest(_)
-						| Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_)
-						| Event::PostResponseTimeoutHandled(_)
+					Event::PostRequest(_) |
+						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
+						Event::PostResponseTimeoutHandled(_)
 				) {
 					return Some(event);
 				}

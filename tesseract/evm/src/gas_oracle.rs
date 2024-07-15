@@ -97,7 +97,7 @@ pub async fn get_current_gas_cost_in_usd(
 					unit_wei = get_cost_of_one_wei(eth_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
-				Ethereum::Optimism | Ethereum::Base => {
+				Ethereum::Optimism | Ethereum::Base | Ethereum::Blast | Ethereum::Mantle => {
 					let node_gas_price: U256 = client.get_gas_price().await?;
 					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
 					let ovm_gas_price = ovm_gas_price_oracle.gas_price().await?;
@@ -254,7 +254,7 @@ pub async fn get_l2_data_cost(
 	match chain {
 		StateMachine::Ethereum(inner_evm) => {
 			match inner_evm {
-				Ethereum::Optimism | Ethereum::Base => {
+				Ethereum::Optimism | Ethereum::Base | Ethereum::Blast | Ethereum::Mantle => {
 					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
 					let data_cost_bytes = ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?; // this is in wei
 					data_cost = data_cost_bytes * unit_wei_cost

@@ -68,6 +68,14 @@ mod gargantua_conversion {
 						StateMachine::Ethereum(Ethereum::Arbitrum),
 					runtime_types::ismp::host::Ethereum::Base =>
 						StateMachine::Ethereum(Ethereum::Base),
+					runtime_types::ismp::host::Ethereum::Blast =>
+						StateMachine::Ethereum(Ethereum::Blast),
+					runtime_types::ismp::host::Ethereum::Mantle =>
+						StateMachine::Ethereum(Ethereum::Mantle),
+					runtime_types::ismp::host::Ethereum::Manta =>
+						StateMachine::Ethereum(Ethereum::Manta),
+					runtime_types::ismp::host::Ethereum::Bob =>
+						StateMachine::Ethereum(Ethereum::Bob),
 				},
 				runtime_types::ismp::host::StateMachine::Polkadot(id) => StateMachine::Polkadot(id),
 				runtime_types::ismp::host::StateMachine::Kusama(id) => StateMachine::Kusama(id),
@@ -115,6 +123,18 @@ mod gargantua_conversion {
 					Ethereum::Base => runtime_types::ismp::host::StateMachine::Ethereum(
 						runtime_types::ismp::host::Ethereum::Base,
 					),
+					Ethereum::Blast => runtime_types::ismp::host::StateMachine::Ethereum(
+						runtime_types::ismp::host::Ethereum::Blast,
+					),
+					Ethereum::Mantle => runtime_types::ismp::host::StateMachine::Ethereum(
+						runtime_types::ismp::host::Ethereum::Mantle,
+					),
+					Ethereum::Manta => runtime_types::ismp::host::StateMachine::Ethereum(
+						runtime_types::ismp::host::Ethereum::Manta,
+					),
+					Ethereum::Bob => runtime_types::ismp::host::StateMachine::Ethereum(
+						runtime_types::ismp::host::Ethereum::Bob,
+					),
 				},
 				StateMachine::Polkadot(id) => runtime_types::ismp::host::StateMachine::Polkadot(id),
 				StateMachine::Kusama(id) => runtime_types::ismp::host::StateMachine::Kusama(id),
@@ -158,7 +178,7 @@ mod gargantua_conversion {
                         challenge_period: params.challenge_period,
                         consensus_client: params.consensus_client,
                         state_machines: params
-                            .state_machine_whitelist
+                            .state_machines
                             .0
                             .try_into()
                             .expect("Runtime will always provide bounded vec"),

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use anyhow::anyhow;
 use futures::stream::FuturesOrdered;
 use ismp::{

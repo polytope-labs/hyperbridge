@@ -47,7 +47,7 @@ interface IPostRequest {
   // Encoded request body.
   data: string;
   // Timestamp which this request expires in seconds.
-  timeout_timestamp: bigint;
+  timeoutTimestamp: bigint;
   // Height at which this request was emitted on the source
   height: bigint;
 }
@@ -58,7 +58,7 @@ interface IPostResponse {
   // The response message.
   response: Uint8Array;
   // Timestamp at which this response expires in seconds.
-  timeout_timestamp: bigint;
+  timeoutTimestamp: bigint;
 }
 
 type MessageStatus =

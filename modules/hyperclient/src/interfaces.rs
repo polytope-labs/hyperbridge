@@ -122,9 +122,10 @@ pub struct JsPost {
 	/// Module ID of the receiving module
 	pub to: String,
 	/// Timestamp which this request expires in seconds.
+	#[serde(rename = "timeoutTimestamp")]
 	pub timeout_timestamp: u64,
 	/// Encoded Request.
-	pub data: String,
+	pub body: String,
 	/// Height at which this request was emitted on the source chain
 	pub height: u64,
 }
@@ -154,7 +155,7 @@ impl TryFrom<JsPost> for PostRequest {
 			from: from_hex(&value.from)?,
 			to: from_hex(&value.to)?,
 			timeout_timestamp: value.timeout_timestamp,
-			body: from_hex(&value.data)?,
+			body: from_hex(&value.body)?,
 		};
 		Ok(post)
 	}
@@ -167,6 +168,7 @@ pub struct JsPostResponse {
 	/// The response message.
 	pub response: Vec<u8>,
 	/// Timestamp at which this response expires in seconds.
+	#[serde(rename = "timeoutTimestamp")]
 	pub timeout_timestamp: u64,
 }
 
@@ -282,7 +284,7 @@ mod tests {
 				from: hex::encode(vec![30; 20]),
 				to: hex::encode(vec![15; 20]),
 				timeout_timestamp: 1_600_000,
-				data: hex::encode(vec![40; 256]),
+				body: hex::encode(vec![40; 256]),
 				height: 0,
 			},
 			response: vec![80; 256],

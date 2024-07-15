@@ -7,7 +7,7 @@ use forge_testsuite::Runner;
 use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::hash_request,
-	router::{Get, Request},
+	router::{self, Request},
 };
 use ismp_solidity_abi::{
 	beefy::{IntermediateState, StateCommitment, StateMachineHeight},
@@ -30,7 +30,7 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
 	let key = H256::random().as_bytes().to_vec();
 
 	// create post request object
-	let get = Get {
+	let get = router::GetRequest {
 		dest: StateMachine::Polkadot(2000),
 		source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		nonce: 0,

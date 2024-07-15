@@ -10,7 +10,7 @@ use frame_support::{assert_ok, traits::fungibles::Inspect};
 use ismp::{
 	host::{Ethereum, StateMachine},
 	module::IsmpModule,
-	router::{Post, Request, Timeout},
+	router::{PostRequest, Request, Timeout},
 };
 use pallet_asset_gateway::{convert_to_erc20, Body, Module};
 use sp_core::{ByteArray, H160};
@@ -151,14 +151,14 @@ fn should_process_on_accept_module_callback_correctly() {
 			from: alloy_primitives::B256::from_slice(ALICE.as_slice()),
 			to: alloy_primitives::B256::from_slice(ALICE.as_slice()),
 		};
-		let post = Post {
+		let post = PostRequest {
 			source: StateMachine::Bsc,
 			dest: StateMachine::Kusama(100),
 			nonce: 0,
 			from: H160::zero().0.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 0,
-			data: {
+			body: {
 				let mut encoded = Body::abi_encode(&body);
 				// Prefix with zero
 				encoded.insert(0, 0);
@@ -261,14 +261,14 @@ fn should_process_on_timeout_module_callback_correctly() {
 			from: alloy_primitives::FixedBytes::<32>::from_slice(ALICE.as_slice()),
 			to: alloy_primitives::FixedBytes::<32>::from_slice(ALICE.as_slice()),
 		};
-		let post = Post {
+		let post = PostRequest {
 			source: StateMachine::Kusama(100),
 			dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 			nonce: 0,
 			from: H160::zero().0.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000 + (60 * 60),
-			data: {
+			body: {
 				let mut encoded = Body::abi_encode(&body);
 				// Prefix with zero
 				encoded.insert(0, 0);

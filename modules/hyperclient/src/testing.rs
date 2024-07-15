@@ -121,7 +121,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		.context(format!("Error in {chain:?}"))?
 		.unwrap();
 
-	let post: router::Post = receipt
+	let post: router::PostRequest = receipt
 		.logs
 		.into_iter()
 		.find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
@@ -245,7 +245,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let block = receipt.block_number.unwrap();
 	tracing::info!("\n\nTx block: {block}\n\n");
 
-	let post: router::Post = receipt
+	let post: router::PostRequest = receipt
 		.logs
 		.into_iter()
 		.find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())

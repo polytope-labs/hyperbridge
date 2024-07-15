@@ -18,7 +18,7 @@
 use crate::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Get, Post, PostResponse, Request, Response},
+	router::{GetRequest, PostRequest, PostResponse, Request, Response},
 };
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
@@ -78,11 +78,11 @@ pub enum Event {
 	/// a fisherman.
 	StateCommitmentVetoed(StateCommitmentVetoed),
 	/// An event that is emitted when a post request is dispatched
-	PostRequest(Post),
+	PostRequest(PostRequest),
 	/// An event that is emitted when a post response is dispatched
 	PostResponse(PostResponse),
 	/// An event that is emitted when a get request is dispatched
-	GetRequest(Get),
+	GetRequest(GetRequest),
 	/// Emitted when a post request is handled
 	PostRequestHandled(RequestResponseHandled),
 	/// Emitted when a post response is handled

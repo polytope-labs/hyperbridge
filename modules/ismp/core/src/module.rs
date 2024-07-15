@@ -18,7 +18,7 @@
 use crate::{
 	error::Error,
 	events::Event,
-	router::{Post as PostRequest, Response, Timeout},
+	router::{PostRequest, Response, Timeout},
 };
 
 /// A type alias for dispatch results

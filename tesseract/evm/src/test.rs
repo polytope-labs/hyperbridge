@@ -9,7 +9,7 @@ use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::{Ethereum, StateMachine},
 	messaging::{hash_request, Proof},
-	router::{Post, RequestResponse},
+	router::{PostRequest, RequestResponse},
 };
 use ismp_solidity_abi::evm_host::EvmHost;
 use ismp_testsuite::mocks::{Host, Keccak256Hasher};
@@ -52,7 +52,7 @@ async fn test_ismp_state_proof() {
 
 	let client = EvmClient::new(config).await.expect("Host creation failed");
 
-	let post = Post {
+	let post = PostRequest {
 		source: StateMachine::from_str(
 			&String::from_utf8(hex::decode("45544845").unwrap()).unwrap(),
 		)
@@ -63,7 +63,7 @@ async fn test_ismp_state_proof() {
 		from: hex::decode("D21C7893BD7A96732E65CEB2B9E6DD9CA95846C9").unwrap(),
 		to: hex::decode("66819E1BBB03760D227745C71FE76C5783A5F810").unwrap(),
 		timeout_timestamp: 1707167196,
-		data: hex::decode("68656C6C6F2066726F6D2045544845").unwrap(),
+		body: hex::decode("68656C6C6F2066726F6D2045544845").unwrap(),
 	};
 
 	let req = ismp::router::Request::Post(post.clone());

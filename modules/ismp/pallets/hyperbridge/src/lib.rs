@@ -67,7 +67,7 @@ use frame_support::{
 use ismp::{
 	dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
 	module::IsmpModule,
-	router::{Post, PostResponse, Response, Timeout},
+	router::{PostRequest, PostResponse, Response, Timeout},
 };
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
 use primitive_types::H256;
@@ -267,7 +267,7 @@ where
 	T: Config,
 	T::Balance: Into<u128> + From<u128>,
 {
-	fn on_accept(&self, request: Post) -> Result<(), ismp::Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), ismp::Error> {
 		// this of course assumes that hyperbridge is configured as the coprocessor.
 		let source = request.source;
 		if Some(source) != T::Coprocessor::get() {
@@ -275,7 +275,7 @@ where
 		}
 
 		let message =
-			Message::<T::AccountId, T::Balance>::decode(&mut &request.data[..]).map_err(|err| {
+			Message::<T::AccountId, T::Balance>::decode(&mut &request.body[..]).map_err(|err| {
 				ismp::Error::Custom(format!("Failed to decode per-byte fee: {err:?}"))
 			})?;
 

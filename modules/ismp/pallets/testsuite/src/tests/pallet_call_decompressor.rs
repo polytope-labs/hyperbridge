@@ -103,7 +103,7 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 		let requests = (0..100)
 			.into_iter()
 			.map(|i| {
-				let get = ismp::router::Get {
+				let get = ismp::router::GetRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 					nonce: i,
@@ -168,7 +168,7 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 		let requests = (0..100)
 			.into_iter()
 			.map(|i| {
-				let get = ismp::router::Get {
+				let get = ismp::router::GetRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 					nonce: i,
@@ -220,7 +220,7 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 		let requests = (0..1000)
 			.into_iter()
 			.map(|i| {
-				let post = ismp::router::Post {
+				let post = ismp::router::PostRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 					nonce: i,
@@ -228,7 +228,7 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 					to: H256::random().0.to_vec(),
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
 						2_000_000_000,
-					data: H512::random().0.to_vec(),
+					body: H512::random().0.to_vec(),
 				};
 				post
 			})
@@ -285,7 +285,7 @@ fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
 		let responses = (0..1000)
 			.into_iter()
 			.map(|i| {
-				let post = ismp::router::Post {
+				let post = ismp::router::PostRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 					nonce: i,
@@ -293,7 +293,7 @@ fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
 					to: H256::random().0.to_vec(),
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
 						2_000_000_000,
-					data: H512::random().0.to_vec(),
+					body: H512::random().0.to_vec(),
 				};
 				ismp::router::Response::Post(PostResponse {
 					post,

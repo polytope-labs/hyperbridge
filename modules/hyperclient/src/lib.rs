@@ -22,7 +22,7 @@ use crate::{
 };
 use ethers::{types::H256, utils::keccak256};
 use futures::StreamExt;
-use ismp::router::{Post, PostResponse};
+use ismp::router::{PostRequest, PostResponse};
 use subxt_utils::Hyperbridge;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
@@ -299,7 +299,7 @@ impl HyperClient {
 	pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
-			let post: Post = post.try_into()?;
+			let post: PostRequest = post.try_into()?;
 			let status = internals::query_request_status_internal(&self, post).await?;
 			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
 		};
@@ -340,7 +340,7 @@ impl HyperClient {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
 			let height = post.height;
-			let post: Post = post.try_into()?;
+			let post: PostRequest = post.try_into()?;
 
 			// Obtaining the request stream and the timeout stream
 			let timed_out =
@@ -380,7 +380,7 @@ impl HyperClient {
 	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
-			let post: Post = post.try_into()?;
+			let post: PostRequest = post.try_into()?;
 
 			let stream = internals::timeout_request_stream(&self, post).await?.map(|value| {
 				value

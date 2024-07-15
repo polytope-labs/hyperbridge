@@ -8,7 +8,7 @@ use ismp::{
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 	messaging::Message,
-	router::{Post, PostResponse},
+	router::{PostRequest, PostResponse},
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use std::ops::RangeInclusive;
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum RequestOrResponse {
-	Request(Post),
+	Request(PostRequest),
 	Response(PostResponse),
 }
 

@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use core::str::FromStr;
 use ismp::{
 	host::StateMachine,
-	router::{Post, PostResponse},
+	router::{PostRequest, PostResponse},
 };
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
@@ -129,7 +129,7 @@ pub struct JsPost {
 	pub height: u64,
 }
 
-impl TryFrom<JsPost> for Post {
+impl TryFrom<JsPost> for PostRequest {
 	type Error = anyhow::Error;
 
 	fn try_from(value: JsPost) -> Result<Self, Self::Error> {
@@ -154,7 +154,7 @@ impl TryFrom<JsPost> for Post {
 			from: from_hex(&value.from)?,
 			to: from_hex(&value.to)?,
 			timeout_timestamp: value.timeout_timestamp,
-			data: from_hex(&value.data)?,
+			body: from_hex(&value.data)?,
 		};
 		Ok(post)
 	}
@@ -194,7 +194,7 @@ mod tests {
 	use hex_literal::hex;
 	use ismp::{
 		host::{Ethereum, StateMachine},
-		router::{Post, PostResponse},
+		router::{PostRequest, PostResponse},
 	};
 	const OP_HOST: H160 = H160(hex!("1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95"));
 	const BSC_HOST: H160 = H160(hex!("022DDE07A21d8c553978b006D93CDe68ac83e677"));
@@ -261,14 +261,14 @@ mod tests {
 	#[test]
 	fn test_post_conversion() {
 		let post_response = PostResponse {
-			post: Post {
+			post: PostRequest {
 				source: StateMachine::Bsc,
 				dest: StateMachine::Kusama(2000),
 				nonce: 100,
 				from: vec![30; 20],
 				to: vec![15; 20],
 				timeout_timestamp: 1_600_000,
-				data: vec![40; 256],
+				body: vec![40; 256],
 			},
 			response: vec![80; 256],
 			timeout_timestamp: 4_500_000,

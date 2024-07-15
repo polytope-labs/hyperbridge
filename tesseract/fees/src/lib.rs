@@ -14,7 +14,7 @@ use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Keccak256, Message, Proof},
-	router::{Post, Request, RequestResponse},
+	router::{PostRequest, Request, RequestResponse},
 };
 use itertools::Itertools;
 use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};

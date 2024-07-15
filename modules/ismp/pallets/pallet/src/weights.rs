@@ -20,14 +20,14 @@ use alloc::boxed::Box;
 use frame_support::weights::Weight;
 use ismp::{
 	messaging::{Message, TimeoutMessage},
-	router::{GetResponse, Post, Request, RequestResponse, Response, Timeout},
+	router::{GetResponse, PostRequest, Request, RequestResponse, Response, Timeout},
 };
 
 /// Interface for providing the weight information about [`IsmpModule`](ismp::module::IsmpModule)
 /// callbacks
 pub trait IsmpModuleWeight {
 	/// Should return the weight used in processing this request
-	fn on_accept(&self, request: &Post) -> Weight;
+	fn on_accept(&self, request: &PostRequest) -> Weight;
 	/// Should return the weight used in processing this timeout
 	fn on_timeout(&self, request: &Timeout) -> Weight;
 	/// Should return the weight used in processing this response
@@ -35,7 +35,7 @@ pub trait IsmpModuleWeight {
 }
 
 impl IsmpModuleWeight for () {
-	fn on_accept(&self, _request: &Post) -> Weight {
+	fn on_accept(&self, _request: &PostRequest) -> Weight {
 		Weight::zero()
 	}
 	fn on_timeout(&self, _request: &Timeout) -> Weight {

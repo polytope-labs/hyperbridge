@@ -305,7 +305,7 @@ where
 	<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<MultiLocation>,
 	T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
 {
-	fn on_accept(&self, post: ismp::router::Post) -> Result<(), ismp::error::Error> {
+	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), ismp::error::Error> {
 		let request = Request::Post(post.clone());
 		// Check that source module is equal to the known token gateway deployment address
 		ensure!(
@@ -339,7 +339,7 @@ where
 			}
 		);
 
-		let body = Body::abi_decode(&mut &post.data[1..], true).map_err(|_| {
+		let body = Body::abi_decode(&mut &post.body[1..], true).map_err(|_| {
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Failed to decode request body".to_string(),
 				meta: Meta {
@@ -444,7 +444,7 @@ where
 					},
 				})?;
 				let beneficiary = fee_metadata.fee.payer;
-				let body = Body::abi_decode(&mut &post.data[1..], true).map_err(|_| {
+				let body = Body::abi_decode(&mut &post.body[1..], true).map_err(|_| {
 					ismp::error::Error::ModuleDispatchError {
 						msg: "Token Gateway: Failed to decode request body".to_string(),
 						meta: Meta {

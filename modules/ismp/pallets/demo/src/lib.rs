@@ -29,7 +29,7 @@ use ismp::{
 	error::Error as IsmpError,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{Post, Request, Response, Timeout},
+	router::{PostRequest, Request, Response, Timeout},
 };
 pub use pallet::*;
 use pallet_ismp::ModuleId;
@@ -312,18 +312,18 @@ impl<T: Config> Default for IsmpModuleCallback<T> {
 }
 
 impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
-	fn on_accept(&self, request: Post) -> Result<(), IsmpError> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), IsmpError> {
 		let source_chain = request.source;
 
 		match source_chain {
 			StateMachine::Ethereum(_) => Pallet::<T>::deposit_event(Event::Request {
 				source: source_chain,
-				data: unsafe { String::from_utf8_unchecked(request.data) },
+				data: unsafe { String::from_utf8_unchecked(request.body) },
 			}),
 			StateMachine::Polkadot(_) | StateMachine::Kusama(_) => {
 				let payload =
 					<Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
-						&mut &*request.data,
+						&mut &*request.body,
 					)
 					.map_err(|_| IsmpError::Custom("Failed to decode request data".to_string()))?;
 				<T::NativeCurrency as Mutate<T::AccountId>>::mint_into(

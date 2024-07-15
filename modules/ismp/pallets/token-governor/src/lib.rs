@@ -23,7 +23,7 @@ mod impls;
 mod types;
 use alloy_sol_types::SolValue;
 use frame_support::pallet_prelude::Weight;
-use ismp::router::{Post, Response, Timeout};
+use ismp::router::{PostRequest, Response, Timeout};
 pub use types::*;
 
 use alloc::{format, vec};
@@ -381,7 +381,10 @@ pub mod pallet {
 }
 
 impl<T: Config> IsmpModule for Pallet<T> {
-	fn on_accept(&self, Post { data, from, .. }: Post) -> Result<(), ismp::error::Error> {
+	fn on_accept(
+		&self,
+		PostRequest { body: data, from, .. }: PostRequest,
+	) -> Result<(), ismp::error::Error> {
 		let Params { token_registrar_address, .. } = ProtocolParams::<T>::get()
 			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
 		if from != token_registrar_address.as_bytes().to_vec() {

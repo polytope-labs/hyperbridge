@@ -6,7 +6,7 @@ use ethers::{
 use forge_testsuite::Runner;
 use ismp::{
 	host::{Ethereum, StateMachine},
-	router::{Post, Request},
+	router::{PostRequest, Request},
 };
 use ismp_solidity_abi::{
 	beefy::IntermediateState,
@@ -25,14 +25,14 @@ async fn test_post_request_proof() -> Result<(), anyhow::Error> {
 	let destination = contract.call::<_, Address>("module", ()).await?;
 
 	// create post request object
-	let post = Post {
+	let post = PostRequest {
 		source: StateMachine::Polkadot(2000),
 		dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: destination.as_bytes().to_vec(),
 		timeout_timestamp: 100,
-		data: vec![],
+		body: vec![],
 	};
 	let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
 	let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 10)?;

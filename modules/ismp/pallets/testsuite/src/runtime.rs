@@ -34,7 +34,7 @@ use ismp::{
 	host::{Ethereum, IsmpHost, StateMachine},
 	messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
 	module::IsmpModule,
-	router::{IsmpRouter, Post, RequestResponse, Response, Timeout},
+	router::{IsmpRouter, PostRequest, RequestResponse, Response, Timeout},
 	Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
@@ -238,7 +238,7 @@ impl pallet_call_decompressor::Config for Test {
 pub struct ErrorModule;
 
 impl IsmpModule for ErrorModule {
-	fn on_accept(&self, _request: Post) -> Result<(), Error> {
+	fn on_accept(&self, _request: PostRequest) -> Result<(), Error> {
 		Err(Error::InsufficientProofHeight)
 	}
 
@@ -285,7 +285,7 @@ where
 pub struct MockModule;
 
 impl IsmpModule for MockModule {
-	fn on_accept(&self, _request: Post) -> Result<(), ismp::error::Error> {
+	fn on_accept(&self, _request: PostRequest) -> Result<(), ismp::error::Error> {
 		Ok(())
 	}
 

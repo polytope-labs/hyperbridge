@@ -23,7 +23,7 @@ use crate::{
 		ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
-	router::{Post, PostResponse, Request, RequestResponse, Response},
+	router::{PostRequest, PostResponse, Request, RequestResponse, Response},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -82,7 +82,7 @@ pub struct CreateConsensusState {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct RequestMessage {
 	/// Requests from source chain
-	pub requests: Vec<Post>,
+	pub requests: Vec<PostRequest>,
 	/// Membership batch proof for these requests
 	pub proof: Proof,
 	/// Signer information. Ideally should be their account identifier

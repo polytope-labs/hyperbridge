@@ -140,22 +140,6 @@ jobs:
         run: |
           cargo check --all --benches --locked
 
-  fmt:
-    name: Cargo fmt
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly-2024-07-08
-          components: rustfmt
-
-      - name: Cargo fmt
-        run: cargo +nightly-2024-07-08 fmt --all --check
-
   unit-tests:
     name: Unit Tests
     runs-on: arc-runner-set

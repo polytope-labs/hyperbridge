@@ -21,11 +21,11 @@ interface IChainConfig {
   // state machine identifier as a string
   state_machine: string;
   // contract address of the `IsmpHost` on this chain
-  host_address: Uint8Array;
+  host_address: string;
   // contract address of the `IHandler` on this chain
-  handler_address: Uint8Array;
+  handler_address: string;
   // consensus state identifier of this chain on hyperbridge
-  consensus_state_id: Uint8Array;
+  consensus_state_id: string;
 }
 
 interface IHyperbridgeConfig {
@@ -166,6 +166,8 @@ interface HyperbridgeFinalizedWithMetadata {
   transaction_hash: `0x{string}`;
   // The block number where the event was emitted
   block_number: bigint;
+  // The transaction calldata which can be used for self-relay
+  calldata: Uint8Array;
 }
 
 // This event is emitted on hyperbridge

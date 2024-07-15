@@ -1390,12 +1390,12 @@ pub mod evm_host {
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("source"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
@@ -1478,7 +1478,7 @@ pub mod evm_host {
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                             ],
@@ -1600,12 +1600,12 @@ pub mod evm_host {
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("source"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
@@ -1633,7 +1633,7 @@ pub mod evm_host {
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
-                                    name: ::std::borrow::ToOwned::to_owned("data"),
+                                    name: ::std::borrow::ToOwned::to_owned("body"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
                                     indexed: false,
                                 },
@@ -1689,7 +1689,7 @@ pub mod evm_host {
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                             ],
@@ -1705,12 +1705,12 @@ pub mod evm_host {
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("source"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
@@ -1738,7 +1738,7 @@ pub mod evm_host {
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
-                                    name: ::std::borrow::ToOwned::to_owned("data"),
+                                    name: ::std::borrow::ToOwned::to_owned("body"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
                                     indexed: false,
                                 },
@@ -1835,7 +1835,7 @@ pub mod evm_host {
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("dest"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
                                     indexed: false,
                                 },
                             ],
@@ -2909,11 +2909,11 @@ pub mod evm_host {
 	)]
 	#[ethevent(
 		name = "GetRequestEvent",
-		abi = "GetRequestEvent(bytes,bytes,bytes,bytes[],uint256,uint256,uint256)"
+		abi = "GetRequestEvent(string,string,bytes,bytes[],uint256,uint256,uint256)"
 	)]
 	pub struct GetRequestEventFilter {
-		pub source: ::ethers::core::types::Bytes,
-		pub dest: ::ethers::core::types::Bytes,
+		pub source: ::std::string::String,
+		pub dest: ::std::string::String,
 		pub from: ::ethers::core::types::Bytes,
 		pub keys: ::std::vec::Vec<::ethers::core::types::Bytes>,
 		#[ethevent(indexed)]
@@ -2946,10 +2946,10 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
-	#[ethevent(name = "GetRequestTimeoutHandled", abi = "GetRequestTimeoutHandled(bytes32,bytes)")]
+	#[ethevent(name = "GetRequestTimeoutHandled", abi = "GetRequestTimeoutHandled(bytes32,string)")]
 	pub struct GetRequestTimeoutHandledFilter {
 		pub commitment: [u8; 32],
-		pub dest: ::ethers::core::types::Bytes,
+		pub dest: ::std::string::String,
 	}
 	#[derive(
 		Clone,
@@ -3010,17 +3010,17 @@ pub mod evm_host {
 	)]
 	#[ethevent(
 		name = "PostRequestEvent",
-		abi = "PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256)"
+		abi = "PostRequestEvent(string,string,bytes,bytes,uint256,uint256,bytes,uint256)"
 	)]
 	pub struct PostRequestEventFilter {
-		pub source: ::ethers::core::types::Bytes,
-		pub dest: ::ethers::core::types::Bytes,
+		pub source: ::std::string::String,
+		pub dest: ::std::string::String,
 		pub from: ::ethers::core::types::Bytes,
 		pub to: ::ethers::core::types::Bytes,
 		#[ethevent(indexed)]
 		pub nonce: ::ethers::core::types::U256,
 		pub timeout_timestamp: ::ethers::core::types::U256,
-		pub data: ::ethers::core::types::Bytes,
+		pub body: ::ethers::core::types::Bytes,
 		pub fee: ::ethers::core::types::U256,
 	}
 	#[derive(
@@ -3050,11 +3050,11 @@ pub mod evm_host {
 	)]
 	#[ethevent(
 		name = "PostRequestTimeoutHandled",
-		abi = "PostRequestTimeoutHandled(bytes32,bytes)"
+		abi = "PostRequestTimeoutHandled(bytes32,string)"
 	)]
 	pub struct PostRequestTimeoutHandledFilter {
 		pub commitment: [u8; 32],
-		pub dest: ::ethers::core::types::Bytes,
+		pub dest: ::std::string::String,
 	}
 	#[derive(
 		Clone,
@@ -3068,17 +3068,17 @@ pub mod evm_host {
 	)]
 	#[ethevent(
 		name = "PostResponseEvent",
-		abi = "PostResponseEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,bytes,uint256,uint256)"
+		abi = "PostResponseEvent(string,string,bytes,bytes,uint256,uint256,bytes,bytes,uint256,uint256)"
 	)]
 	pub struct PostResponseEventFilter {
-		pub source: ::ethers::core::types::Bytes,
-		pub dest: ::ethers::core::types::Bytes,
+		pub source: ::std::string::String,
+		pub dest: ::std::string::String,
 		pub from: ::ethers::core::types::Bytes,
 		pub to: ::ethers::core::types::Bytes,
 		#[ethevent(indexed)]
 		pub nonce: ::ethers::core::types::U256,
 		pub timeout_timestamp: ::ethers::core::types::U256,
-		pub data: ::ethers::core::types::Bytes,
+		pub body: ::ethers::core::types::Bytes,
 		pub response: ::ethers::core::types::Bytes,
 		pub res_timeout_timestamp: ::ethers::core::types::U256,
 		pub fee: ::ethers::core::types::U256,
@@ -3125,11 +3125,11 @@ pub mod evm_host {
 	)]
 	#[ethevent(
 		name = "PostResponseTimeoutHandled",
-		abi = "PostResponseTimeoutHandled(bytes32,bytes)"
+		abi = "PostResponseTimeoutHandled(bytes32,string)"
 	)]
 	pub struct PostResponseTimeoutHandledFilter {
 		pub commitment: [u8; 32],
-		pub dest: ::ethers::core::types::Bytes,
+		pub dest: ::std::string::String,
 	}
 	#[derive(
 		Clone,

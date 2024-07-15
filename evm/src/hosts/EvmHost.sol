@@ -162,21 +162,21 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when an outgoing POST request timeout is handled, `dest` refers
     // to the destination for the request
-    event PostRequestTimeoutHandled(bytes32 commitment, bytes dest);
+    event PostRequestTimeoutHandled(bytes32 commitment, string dest);
 
     // Emitted when an incoming POST response is handled
     event PostResponseHandled(bytes32 commitment, address relayer);
 
     // Emitted when an outgoing POST response timeout is handled, `dest` refers
     // to the destination for the response
-    event PostResponseTimeoutHandled(bytes32 commitment, bytes dest);
+    event PostResponseTimeoutHandled(bytes32 commitment, string dest);
 
     // Emitted when an outgoing GET request is handled
     event GetRequestHandled(bytes32 commitment, address relayer);
 
     // Emitted when an outgoing GET request timeout is handled, `dest` refers
     // to the destination for the request
-    event GetRequestTimeoutHandled(bytes32 commitment, bytes dest);
+    event GetRequestTimeoutHandled(bytes32 commitment, string dest);
 
     // Emitted when new heights are finalized
     event StateMachineUpdated(bytes stateMachineId, uint256 height);
@@ -718,7 +718,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        emit GetRequestTimeoutHandled({commitment: commitment, dest: request.dest});
+        emit GetRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
     }
 
     /**
@@ -745,7 +745,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         if (meta.fee != 0) {
             SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
-        emit PostRequestTimeoutHandled({commitment: commitment, dest: request.dest});
+        emit PostRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
     }
 
     /**
@@ -776,7 +776,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // refund relayer fee
             SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
-        emit PostResponseTimeoutHandled({commitment: commitment, dest: response.request.source});
+        emit PostResponseTimeoutHandled({commitment: commitment, dest: string(response.request.source)});
     }
 
     /**

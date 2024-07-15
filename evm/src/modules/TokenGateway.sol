@@ -101,6 +101,13 @@ struct Asset {
     bytes32 identifier;
 }
 
+struct ContractInstance {
+    // The state machine identifier for this chain
+    bytes chain;
+    // The token gateway contract address on this chain
+    address moduleId;
+}
+
 enum OnAcceptActions {
     // Incoming asset from a chain
     IncomingAsset,
@@ -111,7 +118,9 @@ enum OnAcceptActions {
     // Remove an asset from the registry
     DeregisterAsset,
     // Change the admin of an asset
-    ChangeAssetAdmin
+    ChangeAssetAdmin,
+    // Add a new pre-approved address
+    NewContractInstance
 }
 
 struct AssetMetadata {
@@ -161,7 +170,6 @@ struct LiquidityBid {
     uint256 fee;
 }
 
-
 /**
  * @title The TokenGateway. Allows users send either ERC20 or ERC6160 tokens
  * using Hyperbridge as a message-passing layer.
@@ -188,6 +196,9 @@ contract TokenGateway is BaseIsmpModule {
     // mapping of a request commitment to a corresponding bid
     mapping(bytes32 => LiquidityBid) private _bids;
 
+    // mapping of keccak256(source chain) to the token gateway contract address
+    mapping(bytes32 => address) private _instances;
+
     // A filler has just placed a bid to fulfil some request
     event BidPlaced(bytes32 commitment, bytes32 indexed assetId, uint256 bid, address indexed bidder);
 
@@ -212,8 +223,8 @@ contract TokenGateway is BaseIsmpModule {
 
     // A new asset has been registered
     event AssetRegistered(
-        // ERC20 token contract address for the asset
-        address erc20,
+   		// ERC20 token contract address for the asset
+   		address erc20,
         // ERC6160 token contract address for the asset
         address erc6160,
         // Asset's name
@@ -226,6 +237,14 @@ contract TokenGateway is BaseIsmpModule {
         uint256 initialSupply,
         // Initial beneficiary of the total supply
         address beneficiary
+    );
+
+    // A new contract instance has been registered
+    event NewContractInstance(
+    	// The chain for this new contract instance
+        bytes chain,
+        // The address for token gateway on this chain
+        address moduleId
     );
 
     // Contract parameters have been updated by Hyperbridge governance
@@ -269,6 +288,9 @@ contract TokenGateway is BaseIsmpModule {
 
     // Protocol invariant violated
     error InconsistentState();
+
+    // Provided address didn't fit address type size
+    error InvalidAddressLength();
 
     // restricts call to the provided `caller`
     modifier restrict(address caller) {
@@ -518,6 +540,8 @@ contract TokenGateway is BaseIsmpModule {
             deregisterAssets(incoming.request);
         } else if (action == OnAcceptActions.ChangeAssetAdmin) {
             changeAssetAdmin(incoming.request);
+        } else if (action == OnAcceptActions.NewContractInstance) {
+            handleNewContractInstance(incoming.request);
         }
     }
 
@@ -556,7 +580,12 @@ contract TokenGateway is BaseIsmpModule {
 
     function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) private {
         // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) {
+            // Check if known address
+            if (_instances[keccak256(incoming.request.source)] != bytesToAddress(incoming.request.from)) {
+                revert UnauthorizedAction();
+            }
+        }
 
         Body memory body = abi.decode(incoming.request.body[1:], (Body));
         bytes32 commitment = incoming.request.hash();
@@ -573,7 +602,12 @@ contract TokenGateway is BaseIsmpModule {
 
     function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) private {
         // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) {
+            // Check if known address
+            if (_instances[keccak256(incoming.request.source)] != bytesToAddress(incoming.request.from)) {
+                revert UnauthorizedAction();
+            }
+        }
 
         BodyWithCall memory body = abi.decode(incoming.request.body[1:], (BodyWithCall));
         bytes32 commitment = incoming.request.hash();
@@ -675,6 +709,16 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetAdminChanged({asset: erc6160Address, newAdmin: asset.newAdmin});
     }
 
+    function handleNewContractInstance(PostRequest calldata request) private {
+        if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
+
+        ContractInstance memory instance = abi.decode(request.body[1:], (ContractInstance));
+
+        _instances[keccak256(instance.chain)] = instance.moduleId;
+
+        emit NewContractInstance({chain: instance.chain, moduleId: instance.moduleId});
+    }
+
     // Creates a new entry for the provided asset in the mappings. If there's no existing
     // ERC6160 address provided, then a contract for the asset is created.
     function createAssets(AssetMetadata[] memory assets) private {
@@ -714,5 +758,14 @@ contract TokenGateway is BaseIsmpModule {
 
     function bytes32ToAddress(bytes32 _bytes) internal pure returns (address) {
         return address(uint160(uint256(_bytes)));
+    }
+
+    function bytesToAddress(bytes memory _bytes) internal pure returns (address addr) {
+        if (_bytes.length != 20) {
+            revert InvalidAddressLength();
+        }
+        assembly {
+            addr := mload(add(_bytes, 20))
+        }
     }
 }

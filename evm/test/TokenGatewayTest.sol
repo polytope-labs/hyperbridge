@@ -32,6 +32,7 @@ import {
     CallDispatcherParams,
     TokenGateway,
     DeregsiterAsset,
+    ContractInstance,
     AssetMetadata
 } from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
@@ -649,6 +650,62 @@ contract TokenGatewayTest is BaseTest {
         feeToken.changeAdmin(msg.sender);
         vm.expectRevert(NotRoleAdmin.selector);
         feeToken.changeAdmin(msg.sender);
+    }
+
+    function testCanAddNewContractInstance() public {
+        // set gateway as the admin
+        feeToken.changeAdmin(address(gateway));
+
+        bytes memory chain = bytes("MNTL");
+        ContractInstance memory instance = ContractInstance({chain: chain, moduleId: address(this)});
+
+        bytes memory hyperbridge = host.hyperbridge();
+        vm.prank(address(host));
+        gateway.onAccept(
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"05", abi.encode(instance)),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
+            })
+        );
+
+        // can now receive assets from new instance
+
+        assert(feeToken.balanceOf(address(this)) == 0);
+
+        Body memory body = Body({
+            assetId: keccak256("USD.h"),
+            to: addressToBytes32(address(this)),
+            redeem: false,
+            maxFee: 0,
+            amount: 1_000 * 1e18,
+            from: addressToBytes32(address(this))
+        });
+
+        vm.prank(address(host));
+        gateway.onAccept(
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(this)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"00", abi.encode(body)),
+                    nonce: 0,
+                    source: chain,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
+            })
+        );
+
+        assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18);
     }
 }
 

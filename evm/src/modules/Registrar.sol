@@ -53,7 +53,7 @@ struct RegistrarParams {
 
 /**
  * @title The Token Registrar. Serves as a form of gas abstraction for token
- * registration. By collecting fees on any chain and permitting token creation on the 
+ * registration. By collecting fees on any chain and permitting token creation on the
  * Hyperbridge chain.
  */
 contract TokenRegistrar is BaseIsmpModule {

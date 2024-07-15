@@ -188,25 +188,25 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when a new POST request is dispatched
     event PostRequestEvent(
-        bytes source,
-        bytes dest,
+        string source,
+        string dest,
         bytes from,
         bytes to,
         uint256 indexed nonce,
         uint256 timeoutTimestamp,
-        bytes data,
+        bytes body,
         uint256 fee
     );
 
     // Emitted when a new POST response is dispatched
     event PostResponseEvent(
-        bytes source,
-        bytes dest,
+        string source,
+        string dest,
         bytes from,
         bytes to,
         uint256 indexed nonce,
         uint256 timeoutTimestamp,
-        bytes data,
+        bytes body,
         bytes response,
         uint256 resTimeoutTimestamp,
         uint256 fee
@@ -214,8 +214,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when a new GET request is dispatched
     event GetRequestEvent(
-        bytes source,
-        bytes dest,
+        string source,
+        string dest,
         bytes from,
         bytes[] keys,
         uint256 indexed nonce,
@@ -804,16 +804,16 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // make the commitment
         commitment = request.hash();
         _requestCommitments[commitment] = FeeMetadata({sender: post.payer, fee: post.fee});
-        emit PostRequestEvent(
-            request.source,
-            request.dest,
-            request.from,
-            abi.encodePacked(request.to),
-            request.nonce,
-            request.timeoutTimestamp,
-            request.body,
-            post.fee
-        );
+        emit PostRequestEvent({
+            source: string(request.source),
+            dest: string(request.dest),
+            from: request.from,
+            to: abi.encodePacked(request.to),
+            nonce: request.nonce,
+            timeoutTimestamp: request.timeoutTimestamp,
+            body: request.body,
+            fee: post.fee
+        });
     }
 
     /**
@@ -842,15 +842,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // make the commitment
         commitment = request.hash();
         _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: get.fee});
-        emit GetRequestEvent(
-            request.source,
-            request.dest,
-            request.from,
-            request.keys,
-            request.nonce,
-            request.height,
-            request.timeoutTimestamp
-        );
+        emit GetRequestEvent({
+            source: string(request.source),
+            dest: string(request.dest),
+            from: request.from,
+            keys: request.keys,
+            nonce: request.nonce,
+            height: request.height,
+            timeoutTimestamp: request.timeoutTimestamp
+        });
     }
 
     /**
@@ -892,18 +892,19 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         _responseCommitments[commitment] = meta;
         _responded[receipt] = true;
 
-        emit PostResponseEvent(
-            response.request.source,
-            response.request.dest,
-            response.request.from,
-            abi.encodePacked(response.request.to),
-            response.request.nonce,
-            response.request.timeoutTimestamp,
-            response.request.body,
-            response.response,
-            response.timeoutTimestamp,
-            meta.fee // sigh solidity
-        );
+        // note the swapped fields
+        emit PostResponseEvent({
+            source: string(response.request.dest),
+            dest: string(response.request.source),
+            from: abi.encodePacked(response.request.to),
+            to: response.request.from,
+            nonce: response.request.nonce,
+            timeoutTimestamp: response.request.timeoutTimestamp,
+            body: response.request.body,
+            response: response.response,
+            resTimeoutTimestamp: response.timeoutTimestamp,
+            fee: meta.fee // sigh solidity
+        });
     }
 
     /**
@@ -917,9 +918,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function fundRequest(bytes32 commitment, uint256 amount) public {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
-        if (metadata.sender == address(0)) {
-            revert UnknownRequest();
-        }
+        if (metadata.sender == address(0)) revert UnknownRequest();
+
         SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
 
         metadata.fee += amount;
@@ -939,9 +939,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function fundResponse(bytes32 commitment, uint256 amount) public {
         FeeMetadata memory metadata = _responseCommitments[commitment];
 
-        if (metadata.sender == address(0)) {
-            revert UnknownResponse();
-        }
+        if (metadata.sender == address(0)) revert UnknownResponse();
+
         SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
 
         metadata.fee += amount;

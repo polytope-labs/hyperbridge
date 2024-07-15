@@ -1,9 +1,11 @@
-use codec::Decode;
+use codec::{Decode, Encode};
+use ismp::messaging::{ConsensusMessage, Message};
 use ismp_bsc::ConsensusState;
 
 use bsc_verifier::primitives::{compute_epoch, BscClientUpdate};
 use ethers::types::Block;
 use primitive_types::H256;
+use sp_core::H160;
 
 use std::sync::Arc;
 use tesseract_primitives::IsmpProvider;
@@ -40,7 +42,19 @@ pub async fn consensus_notification(
 			false,
 		)
 		.await?;
+	// Dry run the update so we know it will succeed, this ensures client does not get stalled
 	// If the update is a None value, we want to try again in the next tick
-	let cs_state = bsc_client_update.as_ref().map(|_| consensus_state);
+	let dry_run_result = if let Some(update) = bsc_client_update.as_ref() {
+		let msg = ConsensusMessage {
+			consensus_proof: update.encode(),
+			consensus_state_id: client.consensus_state_id,
+			signer: H160::random().0.to_vec(),
+		};
+		let res = counterparty.estimate_gas(vec![Message::Consensus(msg)]).await?[0];
+		res.successful_execution
+	} else {
+		false
+	};
+	let cs_state = dry_run_result.then(|| consensus_state);
 	return Ok((bsc_client_update, cs_state));
 }

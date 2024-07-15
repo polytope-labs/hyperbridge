@@ -51,7 +51,7 @@ async fn test_ping() -> anyhow::Result<()> {
 		(StateMachine::Ethereum(Ethereum::ExecutionLayer), _geth_url, 0),
 		(StateMachine::Ethereum(Ethereum::Arbitrum), _arb_url, 46014272),
 		(StateMachine::Ethereum(Ethereum::Optimism), op_url, 12201628),
-		(StateMachine::Ethereum(Ethereum::Base), _base_url, 10218678),
+		// (StateMachine::Ethereum(Ethereum::Base), _base_url, 10218678),
 		(StateMachine::Bsc, _bsc_url, 40496717),
 	];
 

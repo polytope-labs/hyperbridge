@@ -36,7 +36,7 @@ import {
 // Storage prefix for request receipts in the pallet-ismp child trie
 bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"526571756573745265636569707473";
 
-// Storage prefix for request receipts in the pallet-ismp child trie
+// Storage prefix for response receipts in the pallet-ismp child trie
 bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"526573706f6e73655265636569707473";
 
 /**

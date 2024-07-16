@@ -23,3 +23,10 @@ export { handleHyperbridgeRequestEvent } from "../handlers/events/hyperbridge/ha
 export { handleHyperbridgeResponseEvent } from "../handlers/events/hyperbridge/handleResponseEvent.handler";
 export { handleHyperbridgePostRequestTimeoutHandledEvent } from "../handlers/events/hyperbridge/handlePostRequestTimeoutHandledEvent.handler";
 export { handleHyperbridgePostResponseTimeoutHandledEvent } from "../handlers/events/hyperbridge/handlePostResponseTimeoutHandledEvent.handler";
+
+// TokenGateway Handlers
+export { handleBidPlacedEvent } from "../handlers/events/tokenGateway/handleBidPlacedEvent.handler";
+export { handleBidRefundedEvent } from "../handlers/events/tokenGateway/handleBidRefundedEvent.handler";
+export { handleRequestFulfilledEvent } from "../handlers/events/tokenGateway/handleRequestFulfilledEvent.handler";
+export { handleAssetReceivedEvent } from "../handlers/events/tokenGateway/handleAssetReceivedEvent.handler";
+export { handleAssetTeleportedEvent } from "../handlers/events/tokenGateway/handleAssetTeleportedEvent.handler";

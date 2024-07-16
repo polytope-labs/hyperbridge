@@ -1,6 +1,6 @@
 [package]
 name = "tesseract"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 description = "Chain agnostic relayer implementation for Hyperbridge"
 authors = ["Polytope Labs <hello@polytope.technology>"]

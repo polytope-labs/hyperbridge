@@ -7,14 +7,15 @@ use ismp::{
 };
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
+use sp_core::bytes::from_hex;
 
 #[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsChainConfig {
 	pub rpc_url: String,
 	pub state_machine: String,
-	pub host_address: Vec<u8>,
-	pub handler_address: Vec<u8>,
-	pub consensus_state_id: Vec<u8>,
+	pub host_address: String,
+	pub handler_address: String,
+	pub consensus_state_id: String,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
@@ -41,23 +42,26 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 					state_machine: StateMachine::from_str(&val.state_machine)
 						.map_err(|e| anyhow!("{e:?}"))?,
 					host_address: {
-						if val.host_address.len() != 20 {
+						let address = from_hex(&val.host_address)?;
+						if address.len() != 20 {
 							Err(anyhow!("Invalid host address"))?
 						}
-						H160::from_slice(&val.host_address)
+						H160::from_slice(&address)
 					},
 					handler_address: {
-						if val.handler_address.len() != 20 {
+						let address = from_hex(&val.handler_address)?;
+
+						if address.len() != 20 {
 							Err(anyhow!("Invalid handler address"))?
 						}
-						H160::from_slice(&val.handler_address)
+						H160::from_slice(&address)
 					},
 					consensus_state_id: {
 						if val.consensus_state_id.len() != 4 {
 							Err(anyhow!("Invalid consensus state id"))?
 						}
 						let mut dest = [0u8; 4];
-						dest.copy_from_slice(&val.consensus_state_id);
+						dest.copy_from_slice(&val.consensus_state_id.as_bytes());
 						dest
 					},
 				};
@@ -71,7 +75,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 							Err(anyhow!("Invalid consensus state id"))?
 						}
 						let mut dest = [0u8; 4];
-						dest.copy_from_slice(&val.consensus_state_id);
+						dest.copy_from_slice(&val.consensus_state_id.as_bytes());
 						dest
 					},
 					hash_algo: HashAlgorithm::Keccak,
@@ -114,13 +118,13 @@ pub struct JsPost {
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
 	/// Module Id of the sending module
-	pub from: Vec<u8>,
+	pub from: String,
 	/// Module ID of the receiving module
-	pub to: Vec<u8>,
+	pub to: String,
 	/// Timestamp which this request expires in seconds.
 	pub timeout_timestamp: u64,
 	/// Encoded Request.
-	pub data: Vec<u8>,
+	pub data: String,
 	/// Height at which this request was emitted on the source chain
 	pub height: u64,
 }
@@ -129,14 +133,28 @@ impl TryFrom<JsPost> for Post {
 	type Error = anyhow::Error;
 
 	fn try_from(value: JsPost) -> Result<Self, Self::Error> {
+		let source = if value.source.starts_with("0x") {
+			let string = String::from_utf8(from_hex(&value.source)?)?;
+			StateMachine::from_str(&string).map_err(|e| anyhow!("{e:?}"))?
+		} else {
+			StateMachine::from_str(&value.source).map_err(|e| anyhow!("{e:?}"))?
+		};
+
+		let dest = if value.dest.starts_with("0x") {
+			let string = String::from_utf8(from_hex(&value.dest)?)?;
+			StateMachine::from_str(&string).map_err(|e| anyhow!("{e:?}"))?
+		} else {
+			StateMachine::from_str(&value.dest).map_err(|e| anyhow!("{e:?}"))?
+		};
+
 		let post = Post {
-			source: StateMachine::from_str(&value.source).map_err(|e| anyhow!("{e:?}"))?,
-			dest: StateMachine::from_str(&value.dest).map_err(|e| anyhow!("{e:?}"))?,
+			source,
+			dest,
 			nonce: value.nonce,
-			from: value.from,
-			to: value.to,
+			from: from_hex(&value.from)?,
+			to: from_hex(&value.to)?,
 			timeout_timestamp: value.timeout_timestamp,
-			data: value.data,
+			data: from_hex(&value.data)?,
 		};
 		Ok(post)
 	}
@@ -215,17 +233,17 @@ mod tests {
 		let js_source = JsChainConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: "BSC".to_string(),
-			host_address: BSC_HOST.0.to_vec(),
-			handler_address: BSC_HANDLER.0.to_vec(),
-			consensus_state_id: b"BSC0".to_vec(),
+			host_address: hex::encode(&BSC_HOST.0),
+			handler_address: hex::encode(&BSC_HANDLER.0),
+			consensus_state_id: "BSC0".to_string(),
 		};
 
 		let js_dest = JsChainConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: "OPTI".to_string(),
-			host_address: OP_HOST.0.to_vec(),
-			handler_address: OP_HANDLER.0.to_vec(),
-			consensus_state_id: b"ETH0".to_vec(),
+			host_address: hex::encode(&OP_HOST.0),
+			handler_address: hex::encode(&OP_HANDLER.0),
+			consensus_state_id: "ETH0".to_string(),
 		};
 
 		let js_hyperbridge = JsHyperbridgeConfig { rpc_url: "ws://127.0.0.1:9990".to_string() };
@@ -261,10 +279,10 @@ mod tests {
 				source: "BSC".to_string(),
 				dest: "KUSAMA-2000".to_string(),
 				nonce: 100,
-				from: vec![30; 20],
-				to: vec![15; 20],
+				from: hex::encode(vec![30; 20]),
+				to: hex::encode(vec![15; 20]),
 				timeout_timestamp: 1_600_000,
-				data: vec![40; 256],
+				data: hex::encode(vec![40; 256]),
 				height: 0,
 			},
 			response: vec![80; 256],

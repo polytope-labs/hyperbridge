@@ -241,6 +241,9 @@ pub trait IsmpHost: Keccak256 {
 }
 
 /// Currently supported ethereum state machines.
+///
+/// # IMPORTANT
+/// DO NOT REMOVE OR CHANGE THE ORDER OF ANY VARIANTS, THIS WILL BREAK SCALE ENCODING
 #[derive(
 	Clone,
 	Debug,
@@ -265,6 +268,14 @@ pub enum Ethereum {
 	Arbitrum,
 	/// The Base state machine
 	Base,
+	/// The Blast state machine
+	Blast,
+	/// The Mantle state machine
+	Mantle,
+	/// The Manta state machine
+	Manta,
+	/// The Build on Bitcoin state machine
+	Bob,
 }
 
 /// Currently supported state machines.
@@ -315,6 +326,10 @@ impl Display for StateMachine {
 				Ethereum::Arbitrum => "ARBI".to_string(),
 				Ethereum::Optimism => "OPTI".to_string(),
 				Ethereum::Base => "BASE".to_string(),
+				Ethereum::Blast => "BLST".to_string(),
+				Ethereum::Mantle => "MNTL".to_string(),
+				Ethereum::Manta => "MNTA".to_string(),
+				Ethereum::Bob => "BOB".to_string(),
 			},
 			StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
 			StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
@@ -336,6 +351,10 @@ impl FromStr for StateMachine {
 			"ARBI" => StateMachine::Ethereum(Ethereum::Arbitrum),
 			"OPTI" => StateMachine::Ethereum(Ethereum::Optimism),
 			"BASE" => StateMachine::Ethereum(Ethereum::Base),
+			"BLST" => StateMachine::Ethereum(Ethereum::Blast),
+			"MNTL" => StateMachine::Ethereum(Ethereum::Mantle),
+			"MNTA" => StateMachine::Ethereum(Ethereum::Manta),
+			"BOB" => StateMachine::Ethereum(Ethereum::Bob),
 			"POLY" => StateMachine::Polygon,
 			"BSC" => StateMachine::Bsc,
 			name if name.starts_with("POLKADOT-") => {

@@ -38,7 +38,7 @@
           },
           {
             "internalType": "uint256[]",
-            "name": "stateMachineWhitelist",
+            "name": "stateMachines",
             "type": "uint256[]"
           },
           {
@@ -592,7 +592,7 @@
           },
           {
             "internalType": "uint256[]",
-            "name": "stateMachineWhitelist",
+            "name": "stateMachines",
             "type": "uint256[]"
           },
           {
@@ -783,7 +783,7 @@
           },
           {
             "internalType": "uint256[]",
-            "name": "stateMachineWhitelist",
+            "name": "stateMachines",
             "type": "uint256[]"
           },
           {
@@ -962,7 +962,7 @@
           },
           {
             "internalType": "uint256[]",
-            "name": "stateMachineWhitelist",
+            "name": "stateMachines",
             "type": "uint256[]"
           },
           {

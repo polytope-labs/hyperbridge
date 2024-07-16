@@ -1,5 +1,5 @@
 import { EthereumResult, EthereumTransaction } from "@subql/types-ethereum";
-import { SupportedChain } from "../types/enums";
+import { ProtocolParticipant, SupportedChain } from "../types/enums";
 import { Relayer, Transfer } from "../types/models";
 import { RelayerChainStatsService } from "./relayerChainStats.service";
 import { getNativeCurrencyPrice } from "../utils/price.helpers";
@@ -8,6 +8,7 @@ import {
   HandlePostResponsesTransaction,
 } from "../types/abi-interfaces/HandlerV1Abi";
 import { ETHEREUM_L2_SUPPORTED_CHAINS } from "../constants";
+import { RewardPointsService } from "./reward-points.service";
 
 export class RelayerService {
   /**
@@ -55,7 +56,7 @@ export class RelayerService {
     chain: SupportedChain,
     transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
   ): Promise<void> {
-    const { from: relayer_id } = transaction;
+    const { from: relayer_id, hash: transaction_hash } = transaction;
     const receipt = await transaction.receipt();
     const { status, gasUsed, effectiveGasPrice } = receipt;
 
@@ -88,11 +89,25 @@ export class RelayerService {
       relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed);
       relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
       relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee;
+      await RewardPointsService.assignRewardToRelayer({
+        chain,
+        is_success: true,
+        earnerType: ProtocolParticipant.RELAYER,
+        relayer_address: relayer_id,
+        transaction_hash,
+      });
     } else {
       relayer_chain_stats.numberOfFailedMessagesDelivered += BigInt(1);
       relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed);
       relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee);
       relayer_chain_stats.usdGasFeeForFailedMessages += usdFee;
+      await RewardPointsService.assignRewardToRelayer({
+        chain,
+        is_success: false,
+        earnerType: ProtocolParticipant.RELAYER,
+        relayer_address: relayer_id,
+        transaction_hash,
+      });
     }
 
     Promise.all([await relayer_chain_stats.save(), await relayer.save()]);

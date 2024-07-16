@@ -65,8 +65,8 @@ contract DeployScript is Script {
 
         // Host manager
         HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));
-        uint256[] memory stateMachineWhitelist = new uint256[](1);
-        stateMachineWhitelist[0] = paraId;
+        uint256[] memory stateMachines = new uint256[](1);
+        stateMachines[0] = paraId;
 
         // EvmHost
         address[] memory fishermen = new address[](0);
@@ -85,7 +85,7 @@ contract DeployScript is Script {
             perByteFee: 3 * 1e15, // $0.003/byte
             hyperbridge: StateMachine.kusama(paraId),
             feeToken: address(feeToken),
-            stateMachineWhitelist: stateMachineWhitelist
+            stateMachines: stateMachines
         });
 
         address hostAddress = initHost(params);

@@ -161,8 +161,14 @@ struct LiquidityBid {
     uint256 fee;
 }
 
-// The TokenGateway allows users send either ERC20 or ERC6160 tokens
-// using Hyperbridge as a message-passing layer.
+
+/**
+ * @title The TokenGateway. Allows users send either ERC20 or ERC6160 tokens
+ * using Hyperbridge as a message-passing layer.
+ *
+ * If ERC20 tokens are sent then fillers step in to provide the ERC20 token on the destination chain.
+ * Otherwise if ERC6160 tokens are sent, then it simply performs a burn-and-mint.
+ */
 contract TokenGateway is BaseIsmpModule {
     using Bytes for bytes;
     using Message for PostRequest;

@@ -137,10 +137,10 @@ contract EvmHostTest is BaseTest {
 
     function testCanAddwhitelistedStateMachines() public {
         HostParams memory params = host.hostParams();
-        uint256[] memory stateMachineWhitelist = new uint256[](2);
-        stateMachineWhitelist[0] = 2000;
-        stateMachineWhitelist[1] = 2001;
-        params.stateMachineWhitelist = stateMachineWhitelist;
+        uint256[] memory stateMachines = new uint256[](2);
+        stateMachines[0] = 2000;
+        stateMachines[1] = 2001;
+        params.stateMachines = stateMachines;
 
         // create a state commitment
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});

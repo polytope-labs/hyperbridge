@@ -25,13 +25,13 @@ import "solidity-merkle-trees/trie/Bytes.sol";
 import {IVerifier} from "./verifiers/IVerifier.sol";
 
 struct UltraPlonkConsensusProof {
-    /// Commitment message
+    // Commitment message
     Commitment commitment;
-    /// Latest leaf added to mmr
+    // Latest leaf added to mmr
     BeefyMmrLeaf latestMmrLeaf;
-    /// Proof for the latest mmr leaf
+    // Proof for the latest mmr leaf
     bytes32[] mmrProof;
-    /// UltraPlonk proof for BEEFY consensus
+    // UltraPlonk proof for BEEFY consensus
     bytes proof;
 }
 
@@ -52,16 +52,16 @@ struct BeefyConsensusProof {
 contract UltraPlonkBeefy is IConsensusClient {
     using HeaderImpl for Header;
 
-    /// Slot duration in milliseconds
+    // Slot duration in milliseconds
     uint256 public constant SLOT_DURATION = 12_000;
 
-    /// The PayloadId for the mmr root.
+    // The PayloadId for the mmr root.
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
 
-    /// Digest Item ID
+    // Digest Item ID
     bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
 
-    /// ConsensusID for aura
+    // ConsensusID for aura
     bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
 
     // Plonk verifier contract
@@ -111,8 +111,8 @@ contract UltraPlonkBeefy is IConsensusClient {
         return (abi.encode(newState), intermediate);
     }
 
-    /// Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized
-    /// by this consensus proof.
+    // @dev Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized
+    // by this consensus proof.
     function verifyConsensus(BeefyConsensusState memory trustedState, BeefyConsensusProof memory proof)
         internal
         view
@@ -127,10 +127,10 @@ contract UltraPlonkBeefy is IConsensusClient {
         return (state, intermediate);
     }
 
-    /// Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
-    /// which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
-    /// the relay chain authority set and we can verify the membership of the authorities who signed this new root
-    /// using a merkle multi proof and a merkle commitment to the total authorities.
+    // @dev Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
+    // which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
+    // the relay chain authority set and we can verify the membership of the authorities who signed this new root
+    // using a merkle multi proof and a merkle commitment to the total authorities.
     function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, UltraPlonkConsensusProof memory relayProof)
         internal
         view
@@ -184,7 +184,7 @@ contract UltraPlonkBeefy is IConsensusClient {
         return (trustedState, relayProof.latestMmrLeaf.extra);
     }
 
-    /// Stack too deep, sigh solidity
+    // @dev Stack too deep, sigh solidity
     function verifyMmrLeaf(BeefyConsensusState memory trustedState, UltraPlonkConsensusProof memory relay, bytes32 mmrRoot)
         internal
         pure
@@ -199,7 +199,7 @@ contract UltraPlonkBeefy is IConsensusClient {
         if (!valid) revert InvalidMmrProof();
     }
 
-    /// Verifies that some parachain header has been finalized, given the current trusted consensus state.
+    // @dev Verifies that some parachain header has been finalized, given the current trusted consensus state.
     function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof)
         internal
         view
@@ -226,7 +226,7 @@ contract UltraPlonkBeefy is IConsensusClient {
         return IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
     }
 
-    // Calculates the mmr leaf index for a block whose parent number is given.
+    // @dev Calculates the mmr leaf index for a block whose parent number is given.
     function leafIndex(uint256 activationBlock, uint256 parentNumber) internal pure returns (uint256) {
         if (activationBlock == 0) {
             return parentNumber;

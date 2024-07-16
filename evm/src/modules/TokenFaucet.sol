@@ -17,8 +17,8 @@ pragma solidity 0.8.17;
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 
 /**
- * @title The Token Faucte.
- * @author Polytope Labs
+ * @title The TokenFaucet.
+ * @author Polytope Labs (hello@polytope.technology)
  *
  * @notice Allows access to a fixed amount of tokens to users on a daily basis
  */

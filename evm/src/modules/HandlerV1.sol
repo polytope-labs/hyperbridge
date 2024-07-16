@@ -41,8 +41,8 @@ bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"526573706f6e73655265636569
 
 /**
  * @title The ISMP Message Handler.
- * @author Polytope Labs
-
+ * @author Polytope Labs (hello@polytope.technology)
+ *
  * @notice The Handler is responsible for verifying the cryptographic proofs needed
  * to confirm the validity of incoming requests/responses.
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp

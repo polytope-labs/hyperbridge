@@ -171,11 +171,12 @@ struct LiquidityBid {
 }
 
 /**
- * @title The TokenGateway. Allows users send either ERC20 or ERC6160 tokens
- * using Hyperbridge as a message-passing layer.
- * @author Polytope Labs
+ * @title The TokenGateway.
+ * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice If ERC20 tokens are sent then fillers step in to provide the ERC20 token on the destination chain.
+ * @notice Allows users send either ERC20 or ERC6160 tokens using Hyperbridge as a message-passing layer.
+ *
+ * @dev If ERC20 tokens are sent then fillers step in to provide the ERC20 token on the destination chain.
  * Otherwise if ERC6160 tokens are sent, then it simply performs a burn-and-mint.
  */
 contract TokenGateway is BaseIsmpModule {
@@ -201,26 +202,78 @@ contract TokenGateway is BaseIsmpModule {
     mapping(bytes32 => address) private _instances;
 
     // A filler has just placed a bid to fulfil some request
-    event BidPlaced(bytes32 commitment, bytes32 indexed assetId, uint256 bid, address indexed bidder);
+    event BidPlaced(
+    	// The associated request commitment
+    	bytes32 commitment,
+    	// The liquidity fee for the bid
+     	uint256 bid,
+     	// The assetId for the bid
+     	bytes32 indexed assetId,
+       	// The bidder's address
+       	address indexed bidder
+    );
 
     // The request associated with a bid has timed out and the bid refunded
-    event BidRefunded(bytes32 commitment, bytes32 indexed assetId, address indexed bidder);
+    event BidRefunded(
+    	// The associated request commitment
+    	bytes32 commitment,
+     	// The assetId for the bid
+     	bytes32 indexed assetId,
+     	// The bidder's address
+      	address indexed bidder
+    );
 
     // Filler fulfilled some liquidity request
-    event RequestFulfilled(address indexed bidder, uint256 amount, bytes32 indexed assetId);
+    event RequestFulfilled(
+   		// The amount that was provided to the user
+    	uint256 amount,
+   		// The bidder's address
+    	address indexed bidder,
+     	// The provided assetId
+      	bytes32 indexed assetId
+    );
 
     // User has received some assets
     event AssetReceived(
-        bytes32 commitment, bytes32 indexed from, address indexed beneficiary, uint256 amount, bytes32 indexed assetId
+   		// The amount that was provided to the user
+     	uint256 amount,
+   		// The associated request commitment
+        bytes32 commitment,
+       	// The source of the funds
+        bytes32 indexed from,
+       	// The beneficiary of the funds
+        address indexed beneficiary,
+       	// The provided assetId
+        bytes32 indexed assetId
     );
 
     // User has sent some assets
     event AssetTeleported(
-        bytes32 commitment, address indexed from, bytes32 to, uint256 amount, bytes32 indexed assetId, bool redeem
+   		// The beneficiary of the funds
+     	bytes32 to,
+     	// The amount that was requested to be sent
+      	uint256 amount,
+  		// The associated request commitment
+        bytes32 commitment,
+       	// The source of the funds
+        address indexed from,
+       	// The provided assetId
+        bytes32 indexed assetId,
+       	// Flag to redeem funds from the TokenGateway
+        bool redeem
     );
 
     // User assets could not be delivered and have been refunded.
-    event AssetRefunded(bytes32 commitment, address indexed beneficiary, uint256 amount, bytes32 indexed assetId);
+    event AssetRefunded(
+   		// The amount that was requested to be sent
+    	uint256 amount,
+  		// The associated request commitment
+    	bytes32 commitment,
+    	// The beneficiary of the funds
+     	address indexed beneficiary,
+      	// The provided assetId
+       	bytes32 indexed assetId
+    );
 
     // A new asset has been registered
     event AssetRegistered(
@@ -249,13 +302,23 @@ contract TokenGateway is BaseIsmpModule {
     );
 
     // Contract parameters have been updated by Hyperbridge governance
-    event ParamsUpdated(TokenGatewayParams oldParams, TokenGatewayParams newParams);
+    event ParamsUpdated(
+    	// The old token gateway params
+    	TokenGatewayParams oldParams,
+    	// The new token gateway params
+     	TokenGatewayParams newParams
+    );
 
     // An asset has been deregistered
     event AssetRemoved(bytes32 assetId);
 
     // An asset owner has requested to change the admin of their asset
-    event AssetAdminChanged(address asset, address newAdmin);
+    event AssetAdminChanged(
+   		// The ERC6160 token contract address
+    	address asset,
+    	// The new admin
+     	address newAdmin
+    );
 
     // Action is unauthorized
     error UnauthorizedAction();

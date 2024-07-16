@@ -52,8 +52,8 @@ struct RegistrarParams {
 }
 
 /**
- * @title The Token Registrar.
- * @author Polytope Labs
+ * @title The TokenRegistrar.
+ * @author Polytope Labs (hello@polytope.technology)
  *
  * @notice Serves as a form of gas abstraction for token
  * registration. By collecting fees on any chain and permitting token creation on the

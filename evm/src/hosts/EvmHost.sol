@@ -82,7 +82,7 @@ interface IHostManager {
     function withdraw(WithdrawParams memory params) external;
 }
 
-// Withdraw parameters
+// FeeToken withdrawal parameters
 struct WithdrawParams {
     // The beneficiary address
     address beneficiary;
@@ -91,11 +91,13 @@ struct WithdrawParams {
 }
 
 /**
- * @title EvmHost. The IsmpHost and IsmpDispatcher implementation for EVM-compatible chains
- * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
- * @author Polytope Labs
+ * @title The EvmHost
+ * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice The IsmpHost provides the neccessary storage interface for the ISMP handlers to process
+ * @notice The IsmpHost and IsmpDispatcher implementation for EVM-compatible chains
+ * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
+ *
+ * @dev The IsmpHost provides the neccessary storage interface for the ISMP handlers to process
  * ISMP messages, the IsmpDispatcher provides the interfaces applications use for dispatching requests
  * and responses. This host implementation delegates all verification logic to the IHandler contract.
  * It is only responsible for dispatching incoming & outgoing requests/responses. As well as managing
@@ -607,7 +609,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Store the state commitment at given state height alongside relevant metadata. Assumes the state commitment is of the latest height.
+     * @dev Store the state commitment at given state height alongside relevant metadata.
+     * Assumes the state commitment is of the latest height.
      */
     function storeStateMachineCommitment(StateMachineHeight memory height, StateCommitment memory commitment)
         external

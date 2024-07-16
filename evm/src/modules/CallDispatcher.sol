@@ -17,8 +17,9 @@ pragma solidity 0.8.17;
 import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatcher.sol";
 
 /**
- * @title The Call Dispatcher
- * @author Polytope Labs
+ * @title The CallDispatcher
+ * @author Polytope Labs (hello@polytope.technology)
+ *
  * @notice This contract is used to dispatch calls to other contracts.
 */
 contract CallDispatcher is ICallDispatcher {

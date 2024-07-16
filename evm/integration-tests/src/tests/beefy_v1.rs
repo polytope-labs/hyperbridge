@@ -243,7 +243,3 @@ async fn test_decode_encode() -> Result<(), anyhow::Error> {
 
 	Ok(())
 }
-
-// RELAY_WS_URL=wss://hyperbridge-paseo-relay.blockops.network:443 PARA_WS_URL=ws://127.0.0.1:9001
-// cargo test -p ismp-solidity-tests --lib tests::beefy_v1::beefy_consensus_client_test --
-// --nocapture

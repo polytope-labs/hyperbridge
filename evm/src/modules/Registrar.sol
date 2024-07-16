@@ -55,8 +55,8 @@ struct RegistrarParams {
  * @title The TokenRegistrar.
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice Serves as a form of gas abstraction for token
- * registration. By collecting fees on any chain and permitting token creation on the
+ * @notice Serves as a form of gas abstraction for token registration.
+ * By collecting fees on any chain and permitting token creation on the
  * Hyperbridge chain.
  */
 contract TokenRegistrar is BaseIsmpModule {
@@ -73,13 +73,13 @@ contract TokenRegistrar is BaseIsmpModule {
     // Requested action is unauthorized
     error UnauthorizedAction();
 
-    // A user has initiated the asset registration process
+    // @notice A user has initiated the asset registration process
     event RegistrationBegun(bytes32 indexed assetId, address indexed owner);
 
-    // Governance has updated the registrar parameters
+    // @notice Governance has updated the registrar parameters
     event ParamsUpdated(RegistrarParams oldParams, RegistrarParams newParams);
 
-    // restricts call to the provided `caller`
+    // @dev restricts call to the provided `caller`
     modifier restrict(address caller) {
         if (msg.sender != caller) revert UnauthorizedAction();
         _;
@@ -89,22 +89,23 @@ contract TokenRegistrar is BaseIsmpModule {
         _admin = admin;
     }
 
+    // @notice Initializes the registrar. Can only be called by the admin
     function init(RegistrarParams memory p) public restrict(_admin) {
         _params = p;
         _admin = address(0);
     }
 
-    // Returns the set params
+    // @notice Returns the set params
     function params() public view returns (RegistrarParams memory) {
         return _params;
     }
 
-    // This serves as gas abstraction for registering assets on Hyperbridge
+    // @notice This serves as gas abstraction for registering assets on Hyperbridge
     // by collecting fees here. The asset metadata still needs to be provided
     // on Hyperbridge, but by paying here. It can be provided as an unsigned
     // extrinsic.
     //
-    // Collects the registration fees in any token that can be swapped for the
+    // @dev Collects the registration fees in any token that can be swapped for the
     // IIsmpHost.feeToken using the local UniswapV2 router. Any request must be
     // relayed to Hyperbridge as this module provides no refunds.
     function registerAsset(AssetRegistration memory registration) public payable {
@@ -155,7 +156,7 @@ contract TokenRegistrar is BaseIsmpModule {
         emit RegistrationBegun({assetId: registration.assetId, owner: msg.sender});
     }
 
-    // Governance parameter updates
+    // @notice Governance parameter updates
     function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
         // only hyperbridge can do this
         if (!incoming.request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();

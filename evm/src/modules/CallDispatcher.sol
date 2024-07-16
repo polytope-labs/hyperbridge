@@ -32,6 +32,7 @@ contract CallDispatcher is ICallDispatcher {
         }
 
         if (size > 0) {
+        	// unchecked call, this is safe because this contract does not control any funds
             (success, result) = target.call(params.data);
             if (!success) revert(string(result));
             return (result, success);

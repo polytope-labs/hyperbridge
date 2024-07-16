@@ -62,7 +62,7 @@ struct BeefyConsensusProof {
 
 /**
  * @title The BEEFY Consensus Client.
- * @author Polytope Labs
+ * @author Polytope Labs (hello@polytope.technology)
  *
  * @notice This verifies secp256k1 signatures and authority set membership merkle proofs
  * in order to confirm newly finalized states of the Hyperbridge blockchain.

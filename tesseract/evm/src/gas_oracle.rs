@@ -23,6 +23,7 @@ use tesseract_primitives::Cost;
 #[serde(rename_all = "PascalCase")]
 pub struct GasResult {
 	pub safe_gas_price: String,
+	#[allow(dead_code)]
 	pub fast_gas_price: String,
 	pub usd_price: String,
 }

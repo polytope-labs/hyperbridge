@@ -30,10 +30,10 @@ import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message
 
 // The EvmHost protocol parameters
 struct HostParams {
-    // The default timeout in seconds for requests. If requests are dispatched
+    // The default timeout in seconds for messages. If messages are dispatched
     // with a timeout value lower than this this value will be used instead
     uint256 defaultTimeout;
-    // The cost of cross-chain requests in the feetoken per-byte,
+    // The cost of cross-chain requests in the feeToken per byte,
     // this is charged to the application initiating a request or response
     uint256 perByteFee;
     // The fee token contract address. This will typically be DAI.
@@ -91,7 +91,7 @@ struct WithdrawParams {
 }
 
 /**
- * @title EvmHost. IsmpHost and IsmpDispatcher implementation for EVM-compatible chains
+ * @title EvmHost. The IsmpHost and IsmpDispatcher implementation for EVM-compatible chains
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
  *
  * @dev The IsmpHost provides the neccessary storage interface for the ISMP handlers to process
@@ -145,98 +145,189 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Parameters for the host
     HostParams private _hostParams;
 
-    // monotonically increasing nonce for outgoing requests
+    // Monotonically increasing nonce for outgoing requests
     uint256 private _nonce;
 
-    // emergency shutdown button, only the admin can do this
+    // Emergency shutdown button, only the admin or handler can push this.
     bool private _frozen;
 
-    // current verified state of the consensus client;
+    // Current verified state of the consensus client;
     bytes private _consensusState;
 
-    // timestamp for when the consensus was most recently updated
+    // Timestamp for when the consensus was most recently updated
     uint256 private _consensusUpdateTimestamp;
 
     // Emitted when an incoming POST request is handled
-    event PostRequestHandled(bytes32 commitment, address relayer);
+    event PostRequestHandled(
+    	// Commitment of the incoming request
+    	bytes32 indexed commitment,
+     	// Relayer responsible for the delivery
+     	address relayer
+    );
 
     // Emitted when an outgoing POST request timeout is handled, `dest` refers
     // to the destination for the request
-    event PostRequestTimeoutHandled(bytes32 commitment, string dest);
+    event PostRequestTimeoutHandled(
+   		// Commitment of the timed out request
+    	bytes32 indexed commitment,
+     	// Destination chain for this request
+     	string dest
+    );
 
     // Emitted when an incoming POST response is handled
-    event PostResponseHandled(bytes32 commitment, address relayer);
+    event PostResponseHandled(
+   		// Commitment of the incoming response
+    	bytes32 indexed commitment,
+    	// Relayer responsible for the delivery
+     	address relayer
+    );
 
     // Emitted when an outgoing POST response timeout is handled, `dest` refers
     // to the destination for the response
-    event PostResponseTimeoutHandled(bytes32 commitment, string dest);
+    event PostResponseTimeoutHandled(
+  		// Commitment of the timed out response
+    	bytes32 indexed commitment,
+    	// Destination chain for this response
+     	string dest
+    );
 
     // Emitted when an outgoing GET request is handled
-    event GetRequestHandled(bytes32 commitment, address relayer);
+    event GetRequestHandled(
+   		// Commitment of the GET request
+    	bytes32 indexed commitment,
+    	// Relayer responsible for the delivery
+     	address relayer
+    );
 
     // Emitted when an outgoing GET request timeout is handled, `dest` refers
     // to the destination for the request
-    event GetRequestTimeoutHandled(bytes32 commitment, string dest);
+    event GetRequestTimeoutHandled(
+  		// Commitment of the GET request
+    	bytes32 indexed commitment,
+    	// Destination chain for this request
+     	string dest
+    );
 
     // Emitted when new heights are finalized
-    event StateMachineUpdated(bytes stateMachineId, uint256 height);
+    event StateMachineUpdated(
+   		// The state machine that was just updated
+    	string stateMachineId,
+     	// The newly updated height
+     	uint256 height
+    );
 
     // Emitted when a state commitment is vetoed by a fisherman
     event StateCommitmentVetoed(
-        bytes stateMachineId, uint256 height, StateCommitment stateCommitment, address fisherman
+    	// The state machine identifier for the vetoed state commitment
+        string stateMachineId,
+        // The height that was vetoed
+        uint256 height,
+        // The state commitment that was vetoed
+        StateCommitment stateCommitment,
+        // The fisherman responsible for the veto
+        address indexed fisherman
     );
 
     // Emitted when a new POST request is dispatched
     event PostRequestEvent(
+    	// Source of this request, included for convenience sake
         string source,
+        // The destination chain for this request
         string dest,
-        bytes from,
-        bytes to,
-        uint256 indexed nonce,
+        // The contract that initiated this request
+        address indexed from,
+        // The intended recipient module of this request
+        bytes indexed to,
+        // Monotonically increasing nonce
+        uint256 nonce,
+        // The timestamp at which this request will be considered as
+        // timed out
         uint256 timeoutTimestamp,
+        // The serialized request body
         bytes body,
+        // The associated relayer fee
         uint256 fee
     );
 
     // Emitted when a new POST response is dispatched
     event PostResponseEvent(
+   		// Source of this response, included for convenience sake
         string source,
+        // The destination chain for this response
         string dest,
-        bytes from,
-        bytes to,
-        uint256 indexed nonce,
+        // The contract that initiated this response
+        address indexed from,
+        // The intended recipient module of this response
+        bytes indexed to,
+        // Monotonically increasing nonce
+        uint256 nonce,
+        // The timestamp at which this request will be considered as
+        // timed out
         uint256 timeoutTimestamp,
+        // The serialized request body
         bytes body,
+        // The serialized response body
         bytes response,
-        uint256 resTimeoutTimestamp,
+        // The timestamp at which this response will be considered as
+        // timed out
+        uint256 responseTimeoutTimestamp,
+        // The associated relayer fee
         uint256 fee
     );
 
     // Emitted when a new GET request is dispatched
     event GetRequestEvent(
+  		// Source of this response, included for convenience sake
         string source,
+        // The destination chain for this response
         string dest,
-        bytes from,
+        // The contract that initiated this response
+        address indexed from,
+        // The requested storage keys
         bytes[] keys,
-        uint256 indexed nonce,
+        // The height for the requested keys
         uint256 height,
+        // Monotonically increasing nonce
+        uint256 nonce,
+        // The timestamp at which this response will be considered as
+        // timed out
         uint256 timeoutTimestamp
     );
 
     // Emitted when a POST or GET request is funded
-    event RequestFunded(bytes32 commitment, uint256 newFee);
+    event RequestFunded(
+  		// Commitment of the request
+    	bytes32 commitment,
+     	// The updated fee available for relayers
+     	uint256 newFee
+    );
 
     // Emitted when a POST response is funded
-    event PostResponseFunded(bytes32 commitment, uint256 newFee);
+    event PostResponseFunded(
+  		// Commitment of the response
+    	bytes32 commitment,
+    	// The updated fee available for relayers
+     	uint256 newFee
+    );
 
     // Emitted when the host has either been frozen or unfrozen
     event HostFrozen(bool frozen);
 
     // Emitted when the host params is updated
-    event HostParamsUpdated(HostParams oldParams, HostParams newParams);
+    event HostParamsUpdated(
+    	// The old host parameters
+    	HostParams oldParams,
+    	// The new host parameters
+     	HostParams newParams
+    );
 
     // Emitted when the host processes a withdrawal
-    event HostWithdrawal(uint256 amount, address beneficiary);
+    event HostWithdrawal(
+    	// Amount that was withdrawn from the host's feeToken balance
+    	uint256 amount,
+     	// The beneficiary address for this withdrawal
+     	address beneficiary
+    );
 
     // Account is unauthorized to perform requested action
     error UnauthorizedAccount();
@@ -447,9 +538,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params. Can only be called by admin on testnets.
      */
     function setHostParamsAdmin(HostParams memory params) public restrict(_hostParams.admin) {
-        if (chainId() == block.chainid) {
-            revert UnauthorizedAction();
-        }
+        if (chainId() == block.chainid) revert UnauthorizedAction();
 
         uint256 whitelistLength = params.stateMachines.length;
         for (uint256 i = 0; i < whitelistLength; ++i) {
@@ -470,9 +559,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // we can only have a maximum of 100 fishermen
         uint256 newFishermenLength = params.fishermen.length;
-        if (newFishermenLength > 100) {
-            revert MaxFishermanCountExceeded(newFishermenLength);
-        }
+        if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
 
         // delete old fishermen
         uint256 fishermenLength = _hostParams.fishermen.length;
@@ -579,10 +666,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @dev Get the state machine id for a parachain
      */
-    function stateMachineId(uint256 id) public view returns (bytes memory) {
+    function stateMachineId(uint256 id) public view returns (string memory) {
         bytes memory hyperbridgeId = _hostParams.hyperbridge;
         uint256 offset = hyperbridgeId.length - 4;
-        return bytes.concat(hyperbridgeId.substr(0, offset), bytes(Strings.toString(id)));
+        return string.concat(string(hyperbridgeId.substr(0, offset)), Strings.toString(id));
     }
 
     /**
@@ -790,7 +877,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // adjust the timeout
         uint64 timeout = post.timeout == 0
             ? 0
-            : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
+            : uint64(block.timestamp) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
         PostRequest memory request = PostRequest({
             source: host(),
             dest: post.dest,
@@ -807,7 +894,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         emit PostRequestEvent({
             source: string(request.source),
             dest: string(request.dest),
-            from: request.from,
+            from: _msgSender(),
             to: abi.encodePacked(request.to),
             nonce: request.nonce,
             timeoutTimestamp: request.timeoutTimestamp,
@@ -827,7 +914,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // adjust the timeout
         uint64 timeout =
-            get.timeout == 0 ? 0 : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
+            get.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
 
         GetRequest memory request = GetRequest({
             source: host(),
@@ -845,7 +932,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         emit GetRequestEvent({
             source: string(request.source),
             dest: string(request.dest),
-            from: request.from,
+            from: _msgSender(),
             keys: request.keys,
             nonce: request.nonce,
             height: request.height,
@@ -859,21 +946,16 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchPostResponse memory post) external returns (bytes32 commitment) {
         bytes32 receipt = post.request.hash();
+        address caller = _msgSender();
 
         // known request?
-        if (_requestReceipts[receipt] == address(0)) {
-            revert UnknownRequest();
-        }
+        if (_requestReceipts[receipt] == address(0)) revert UnknownRequest();
 
         // check that the authorized application is issuing this response
-        if (_bytesToAddress(post.request.to) != _msgSender()) {
-            revert UnauthorizedResponse();
-        }
+        if (_bytesToAddress(post.request.to) != caller) revert UnauthorizedResponse();
 
         // check that request has not already been responed to
-        if (_responded[receipt]) {
-            revert DuplicateResponse();
-        }
+        if (_responded[receipt]) revert DuplicateResponse();
 
         // collect fees
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
@@ -882,7 +964,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // adjust the timeout
         uint64 timeout = post.timeout == 0
             ? 0
-            : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
+            : uint64(block.timestamp) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
 
         PostResponse memory response =
             PostResponse({request: post.request, response: post.response, timeoutTimestamp: timeout});
@@ -896,13 +978,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         emit PostResponseEvent({
             source: string(response.request.dest),
             dest: string(response.request.source),
-            from: abi.encodePacked(response.request.to),
+            from: caller,
             to: response.request.from,
             nonce: response.request.nonce,
             timeoutTimestamp: response.request.timeoutTimestamp,
             body: response.request.body,
             response: response.response,
-            resTimeoutTimestamp: response.timeoutTimestamp,
+            responseTimeoutTimestamp: response.timeoutTimestamp,
             fee: meta.fee // sigh solidity
         });
     }
@@ -968,9 +1050,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return addr returns the address
      */
     function _bytesToAddress(bytes memory _bytes) private pure returns (address addr) {
-        if (_bytes.length != 20) {
-            revert InvalidAddressLength();
-        }
+        if (_bytes.length != 20) revert InvalidAddressLength();
+
         assembly {
             addr := mload(add(_bytes, 20))
         }

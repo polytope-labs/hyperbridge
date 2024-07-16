@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {IDispatcher, DispatchPost} from "ismp/IDispatcher.sol";
+import {DispatchPost} from "ismp/IDispatcher.sol";
 import {IIsmpHost} from "ismp/IIsmpHost.sol";
 import {Message} from "ismp/Message.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
@@ -406,7 +406,7 @@ contract TokenGateway is BaseIsmpModule {
             fee: teleportParams.relayerFee,
             payer: msg.sender
         });
-        bytes32 commitment = IDispatcher(_params.host).dispatch(request);
+        bytes32 commitment = IIsmpHost(_params.host).dispatch(request);
 
         emit AssetTeleported({
             from: from,

@@ -29,7 +29,7 @@ import {PingModule} from "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {PolkadotVerifier} from "../src/consensus/verifiers/PolkadotVerifier.sol";
-import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
+import {UltraPlonkBeefy} from "../src/consensus/UltraPlonkBeefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
@@ -57,7 +57,7 @@ contract DeployScript is Script {
 
         // consensus client
         //        PolkadotVerifier verifier = new PolkadotVerifier();
-        //        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+        //        UltraPlonkBeefy consensusClient = new UltraPlonkBeefy{salt: salt}(paraId, verifier);
         BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
 
         // handler

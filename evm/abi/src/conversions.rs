@@ -292,7 +292,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 						body: resp.body.0.into(),
 					},
 					response: resp.response.0.into(),
-					timeout_timestamp: resp.res_timeout_timestamp.low_u64(),
+					timeout_timestamp: resp.response_timeout_timestamp.low_u64(),
 				})),
 			EvmHostEvents::PostRequestHandledFilter(handled) =>
 				Ok(ismp::events::Event::PostRequestHandled(ismp::events::RequestResponseHandled {
@@ -313,10 +313,8 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 			EvmHostEvents::StateMachineUpdatedFilter(filter) =>
 				Ok(ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
 					state_machine_id: ismp::consensus::StateMachineId {
-						state_id: StateMachine::from_str(&String::from_utf8(
-							filter.state_machine_id.to_vec(),
-						)?)
-						.map_err(|e| anyhow!("{}", e))?,
+						state_id: StateMachine::from_str(&filter.state_machine_id)
+							.map_err(|e| anyhow!("{}", e))?,
 						consensus_state_id: Default::default(),
 					},
 					latest_height: filter.height.low_u64(),
@@ -349,10 +347,8 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 				Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
 					height: ismp::consensus::StateMachineHeight {
 						id: StateMachineId {
-							state_id: StateMachine::from_str(&String::from_utf8(
-								vetoed.state_machine_id.to_vec(),
-							)?)
-							.map_err(|e| anyhow!("{}", e))?,
+							state_id: StateMachine::from_str(&vetoed.state_machine_id)
+								.map_err(|e| anyhow!("{}", e))?,
 							consensus_state_id: Default::default(),
 						},
 						height: vetoed.height.low_u64(),

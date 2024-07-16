@@ -135,7 +135,7 @@ contract DeployScript is Script {
         feeToken.grantRole(BURNER_ROLE, address(gateway));
 
         // and token faucet
-        TokenFaucet faucet = new TokenFaucet{salt: salt}(address(feeToken));
+        TokenFaucet faucet = new TokenFaucet{salt: salt}();
         feeToken.grantRole(MINTER_ROLE, address(faucet));
 
         AssetMetadata[] memory assets = new AssetMetadata[](1);

@@ -24,14 +24,9 @@ import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
  */
 contract TokenFaucet {
     mapping(address => uint256) private consumers;
-    address private token;
-
-    constructor(address _token) {
-        token = _token;
-    }
 
     // @dev Will only drip tokens, once per day
-    function drip() public {
+    function drip(address token) public {
         uint256 lastDrip = consumers[msg.sender];
         uint256 delay = block.timestamp - lastDrip;
 

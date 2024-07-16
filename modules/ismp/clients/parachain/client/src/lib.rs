@@ -21,9 +21,12 @@ extern crate alloc;
 extern crate core;
 
 pub mod consensus;
+mod migration;
+
 pub use consensus::*;
 
 use alloc::{vec, vec::Vec};
+use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::{
 	RelayChainState, RelaychainDataProvider, RelaychainStateProvider,
 };
@@ -41,8 +44,11 @@ pub mod pallet {
 		host::IsmpHost,
 		messaging::{ConsensusMessage, Message},
 	};
+	use migration::StorageV0;
 
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	/// The config trait
@@ -71,7 +77,7 @@ pub mod pallet {
 
 	/// List of parachains that this state machine is interested in.
 	#[pallet::storage]
-	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ()>;
+	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ParachainData>;
 
 	/// Events emitted by this pallet
 	#[pallet::event]
@@ -80,7 +86,7 @@ pub mod pallet {
 		/// Parachains with the `para_ids` have been added to the whitelist
 		ParachainsAdded {
 			/// The parachains in question
-			para_ids: Vec<u32>,
+			para_ids: Vec<ParachainData>,
 		},
 		/// Parachains with the `para_ids` have been removed from the whitelist
 		ParachainsRemoved {
@@ -118,10 +124,10 @@ pub mod pallet {
 		/// Add some new parachains to the parachains whitelist
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(para_ids.len() as u64))]
-		pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
+		pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<ParachainData>) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
-			for id in &para_ids {
-				Parachains::<T>::insert(*id, ());
+			for para in &para_ids {
+				Parachains::<T>::insert(para.id, para);
 			}
 
 			Self::deposit_event(Event::ParachainsAdded { para_ids });
@@ -164,6 +170,10 @@ pub mod pallet {
 
 			Weight::from_parts(0, 0)
 		}
+
+		fn on_runtime_upgrade() -> Weight {
+			StorageV0::migrate_to_v1::<T>()
+		}
 	}
 
 	/// The identifier for the parachain consensus update inherent.
@@ -192,7 +202,7 @@ pub mod pallet {
 	#[derive(frame_support::DefaultNoBound)]
 	pub struct GenesisConfig<T> {
 		/// List of parachains to track at genesis
-		pub parachains: Vec<u32>,
+		pub parachains: Vec<ParachainData>,
 		/// phantom data
 		#[serde(skip)]
 		pub _marker: PhantomData<T>,
@@ -204,8 +214,8 @@ pub mod pallet {
 			Pallet::<T>::initialize();
 
 			// insert the parachain ids
-			for id in &self.parachains {
-				Parachains::<T>::insert(id, ());
+			for para in &self.parachains {
+				Parachains::<T>::insert(para.id, para);
 			}
 		}
 	}
@@ -252,4 +262,26 @@ impl<T: Config> RelayChainOracle for Pallet<T> {
 	fn state_root(height: relay_chain::BlockNumber) -> Option<relay_chain::Hash> {
 		RelayChainStateCommitments::<T>::get(height)
 	}
+}
+
+/// Data provided when registering a parachain to be tracked by hyperbridge consensus client
+#[derive(
+	Debug,
+	Clone,
+	Copy,
+	Encode,
+	Decode,
+	scale_info::TypeInfo,
+	PartialEq,
+	Hash,
+	Eq,
+	MaxEncodedLen,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+pub struct ParachainData {
+	/// parachain id
+	pub id: u32,
+	/// parachain slot duration type
+	pub slot_duration: u64,
 }

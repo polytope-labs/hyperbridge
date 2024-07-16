@@ -15,6 +15,7 @@
 
 use cumulus_primitives_core::ParaId;
 use gargantua_runtime::{AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT, MICROUNIT};
+use ismp_parachain::ParachainData;
 use sc_chain_spec::{ChainSpecExtension, ChainSpecGroup};
 use sc_service::ChainType;
 use serde::{Deserialize, Serialize};
@@ -237,9 +238,9 @@ fn testnet_genesis(
 
 	// sibling parachain for tests
 	let sibling = match id {
-		2000 => 2001u32,
-		2001 => 2000u32,
-		_ => 1000, // default to assethub
+		2000 => ParachainData { id: 2001, slot_duration: 6000 },
+		2001 => ParachainData { id: 2000, slot_duration: 6000 },
+		_ => ParachainData { id: 1000, slot_duration: 6000 }, /* default to assethub */
 	};
 
 	serde_json::json!({

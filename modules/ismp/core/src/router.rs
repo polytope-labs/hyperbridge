@@ -184,7 +184,7 @@ impl Request {
 	}
 
 	/// Get the POST request data
-	pub fn data(&self) -> Option<Vec<u8>> {
+	pub fn body(&self) -> Option<Vec<u8>> {
 		match self {
 			Request::Get(_) => None,
 			Request::Post(post) => Some(post.body.clone()),

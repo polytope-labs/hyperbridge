@@ -91,7 +91,7 @@ where
 					(
 						RequestCommitments::<T>::storage_key(commitment),
 						RequestPayments::storage_key(commitment),
-						request.data().unwrap_or_default().len() as u128,
+						request.body().unwrap_or_default().len() as u128,
 					)
 				})
 				.collect::<Vec<_>>(),

@@ -365,7 +365,7 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 		let source_chain = request.source_chain();
 
 		let payload = <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
-			&mut &*request.data().expect("Request has been checked; qed"),
+			&mut &*request.body().expect("Request has been checked; qed"),
 		)
 		.map_err(|_| IsmpError::Custom("Failed to decode request data".to_string()))?;
 		<T::NativeCurrency as Mutate<T::AccountId>>::mint_into(

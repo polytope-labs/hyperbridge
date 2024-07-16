@@ -133,7 +133,7 @@ contract HandlerV1 is IHandler, Context {
             // check destination
             if (!leaf.request.dest.equals(host.host())) revert InvalidMessageDestination();
             // check time-out
-            if (timestamp > leaf.request.timeout()) revert MessageTimedOut();
+            if (timestamp >= leaf.request.timeout()) revert MessageTimedOut();
             // duplicate request?
             bytes32 commitment = leaf.request.hash();
             if (host.requestReceipts(commitment) != address(0)) revert DuplicateMessage();
@@ -171,7 +171,7 @@ contract HandlerV1 is IHandler, Context {
         for (uint256 i = 0; i < responsesLength; ++i) {
             PostResponseLeaf memory leaf = response.responses[i];
             // check time-out
-            if (timestamp > leaf.response.timeout()) revert MessageTimedOut();
+            if (timestamp >= leaf.response.timeout()) revert MessageTimedOut();
             // known request? also serves as a source check
             bytes32 requestCommitment = leaf.response.request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
@@ -292,7 +292,7 @@ contract HandlerV1 is IHandler, Context {
         for (uint256 i = 0; i < responsesLength; ++i) {
             GetRequest memory request = message.requests[i];
             // timed-out?
-            if (timestamp > request.timeout()) revert MessageTimedOut();
+            if (timestamp >= request.timeout()) revert MessageTimedOut();
 
             // known request? also serves as source check
             bytes32 requestCommitment = request.hash();

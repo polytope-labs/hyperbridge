@@ -56,7 +56,7 @@ struct HostParams {
     address consensusClient;
     // State machines whose state commitments are accepted
     uint256[] stateMachines;
-    // Priviledged set of fishermen accounts
+    // Privileged set of fishermen accounts
     address[] fishermen;
     // The state machine identifier for hyperbridge
     bytes hyperbridge;
@@ -97,7 +97,7 @@ struct WithdrawParams {
  * @notice The IsmpHost and IsmpDispatcher implementation for EVM-compatible chains
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
  *
- * @dev The IsmpHost provides the neccessary storage interface for the ISMP handlers to process
+ * @dev The IsmpHost provides the necessary storage interface for the ISMP handlers to process
  * ISMP messages, the IsmpDispatcher provides the interfaces applications use for dispatching requests
  * and responses. This host implementation delegates all verification logic to the IHandler contract.
  * It is only responsible for dispatching incoming & outgoing requests/responses. As well as managing
@@ -958,7 +958,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // check that the authorized application is issuing this response
         if (_bytesToAddress(post.request.to) != caller) revert UnauthorizedResponse();
 
-        // check that request has not already been responed to
+        // check that request has not already been respond to
         if (_responded[receipt]) revert DuplicateResponse();
 
         // collect fees

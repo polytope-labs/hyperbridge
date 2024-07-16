@@ -23,7 +23,7 @@ import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatch
  * @notice This contract is used to dispatch calls to other contracts.
 */
 contract CallDispatcher is ICallDispatcher {
-    // @dev funtion returns `success = false` if the target is not a contract and reverts if the call to the target contract fails.
+    // @dev function returns `success = false` if the target is not a contract and reverts if the call to the target contract fails.
     function dispatch(CallDispatcherParams memory params) external returns (bytes memory result, bool success) {
         uint32 size;
         address target = params.target;

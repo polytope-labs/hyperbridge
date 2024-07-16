@@ -245,8 +245,7 @@ pub mod api {
 					&self,
 					included_hash: ::subxt::utils::H256,
 					slot: runtime_types::sp_consensus_slots::Slot,
-				) -> ::subxt::runtime_api::Payload<types::CanBuildUpon, ::core::primitive::bool>
-				{
+				) -> ::subxt::runtime_api::Payload<types::CanBuildUpon, ::core::primitive::bool> {
 					::subxt::runtime_api::Payload::new_static(
 						"AuraUnincludedSegmentApi",
 						"can_build_upon",
@@ -854,8 +853,7 @@ pub mod api {
 				pub fn account_nonce(
 					&self,
 					account: ::subxt::utils::AccountId32,
-				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32>
-				{
+				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32> {
 					::subxt::runtime_api::Payload::new_static(
 						"AccountNonceApi",
 						"account_nonce",
@@ -1056,9 +1054,10 @@ pub mod api {
 						"query_call_info",
 						types::QueryCallInfo { call, len },
 						[
-							241u8, 154u8, 233u8, 250u8, 58u8, 218u8, 200u8, 219u8, 82u8, 8u8,
-							122u8, 116u8, 35u8, 77u8, 72u8, 159u8, 69u8, 22u8, 150u8, 68u8, 89u8,
-							141u8, 242u8, 188u8, 182u8, 4u8, 90u8, 178u8, 11u8, 232u8, 38u8, 19u8,
+							144u8, 96u8, 80u8, 104u8, 119u8, 76u8, 155u8, 142u8, 104u8, 157u8,
+							228u8, 64u8, 127u8, 181u8, 82u8, 220u8, 67u8, 62u8, 86u8, 254u8, 142u8,
+							243u8, 167u8, 254u8, 215u8, 183u8, 61u8, 194u8, 24u8, 142u8, 204u8,
+							121u8,
 						],
 					)
 				}
@@ -1078,9 +1077,9 @@ pub mod api {
 						"query_call_fee_details",
 						types::QueryCallFeeDetails { call, len },
 						[
-							19u8, 39u8, 173u8, 249u8, 53u8, 169u8, 31u8, 72u8, 192u8, 117u8, 187u8,
-							74u8, 209u8, 10u8, 55u8, 201u8, 42u8, 12u8, 144u8, 214u8, 190u8, 62u8,
-							167u8, 82u8, 148u8, 195u8, 183u8, 124u8, 149u8, 221u8, 240u8, 244u8,
+							99u8, 245u8, 14u8, 121u8, 197u8, 66u8, 66u8, 195u8, 126u8, 91u8, 139u8,
+							144u8, 144u8, 220u8, 93u8, 126u8, 20u8, 157u8, 91u8, 9u8, 186u8, 78u8,
+							68u8, 97u8, 35u8, 242u8, 45u8, 87u8, 121u8, 168u8, 238u8, 52u8,
 						],
 					)
 				}
@@ -1938,9 +1937,9 @@ pub mod api {
 						"create_transaction",
 						types::CreateTransaction { account, call },
 						[
-							231u8, 30u8, 49u8, 24u8, 42u8, 167u8, 179u8, 116u8, 45u8, 88u8, 42u8,
-							238u8, 93u8, 54u8, 170u8, 153u8, 46u8, 247u8, 34u8, 10u8, 179u8, 151u8,
-							53u8, 31u8, 25u8, 31u8, 60u8, 85u8, 238u8, 125u8, 92u8, 200u8,
+							97u8, 82u8, 52u8, 42u8, 107u8, 240u8, 4u8, 113u8, 127u8, 188u8, 66u8,
+							204u8, 129u8, 70u8, 54u8, 181u8, 120u8, 223u8, 178u8, 17u8, 135u8,
+							38u8, 167u8, 95u8, 0u8, 80u8, 163u8, 41u8, 46u8, 215u8, 98u8, 169u8,
 						],
 					)
 				}
@@ -2147,9 +2146,9 @@ pub mod api {
 			.hash();
 		runtime_metadata_hash ==
 			[
-				63u8, 40u8, 114u8, 160u8, 124u8, 180u8, 103u8, 174u8, 143u8, 8u8, 211u8, 210u8,
-				80u8, 55u8, 75u8, 138u8, 246u8, 2u8, 6u8, 194u8, 165u8, 220u8, 215u8, 246u8, 193u8,
-				178u8, 175u8, 1u8, 46u8, 67u8, 112u8, 123u8,
+				88u8, 211u8, 43u8, 185u8, 52u8, 81u8, 20u8, 222u8, 37u8, 128u8, 143u8, 3u8, 237u8,
+				182u8, 19u8, 123u8, 57u8, 233u8, 219u8, 227u8, 34u8, 229u8, 180u8, 126u8, 166u8,
+				248u8, 197u8, 167u8, 77u8, 227u8, 238u8, 239u8,
 			]
 	}
 	pub mod system {
@@ -3031,10 +3030,10 @@ pub mod api {
 						"Events",
 						vec![],
 						[
-							90u8, 68u8, 34u8, 80u8, 43u8, 124u8, 9u8, 193u8, 65u8, 56u8, 50u8,
-							191u8, 132u8, 177u8, 211u8, 168u8, 38u8, 39u8, 153u8, 176u8, 78u8,
-							210u8, 115u8, 11u8, 47u8, 127u8, 37u8, 139u8, 143u8, 119u8, 202u8,
-							123u8,
+							114u8, 224u8, 171u8, 192u8, 203u8, 86u8, 20u8, 97u8, 86u8, 141u8,
+							195u8, 99u8, 1u8, 10u8, 94u8, 132u8, 7u8, 8u8, 210u8, 151u8, 148u8,
+							203u8, 205u8, 154u8, 111u8, 154u8, 205u8, 18u8, 84u8, 106u8, 242u8,
+							195u8,
 						],
 					)
 				}
@@ -3252,8 +3251,7 @@ pub mod api {
 				#[doc = " The maximum length of a block (in bytes)."]
 				pub fn block_length(
 					&self,
-				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength>
-				{
+				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength> {
 					::subxt::constants::Address::new_static(
 						"System",
 						"BlockLength",
@@ -4509,9 +4507,9 @@ pub mod api {
 						"batch",
 						types::Batch { calls },
 						[
-							46u8, 205u8, 197u8, 46u8, 0u8, 244u8, 82u8, 54u8, 47u8, 166u8, 96u8,
-							74u8, 9u8, 113u8, 172u8, 150u8, 154u8, 60u8, 209u8, 28u8, 61u8, 22u8,
-							60u8, 207u8, 79u8, 173u8, 222u8, 38u8, 71u8, 175u8, 78u8, 157u8,
+							255u8, 35u8, 12u8, 149u8, 48u8, 170u8, 206u8, 26u8, 49u8, 25u8, 103u8,
+							61u8, 38u8, 171u8, 113u8, 17u8, 93u8, 179u8, 129u8, 242u8, 198u8,
+							185u8, 9u8, 55u8, 232u8, 136u8, 130u8, 28u8, 87u8, 1u8, 154u8, 206u8,
 						],
 					)
 				}
@@ -4526,10 +4524,10 @@ pub mod api {
 						"as_derivative",
 						types::AsDerivative { index, call: ::std::boxed::Box::new(call) },
 						[
-							166u8, 8u8, 156u8, 218u8, 50u8, 207u8, 206u8, 123u8, 103u8, 241u8,
-							188u8, 193u8, 106u8, 104u8, 157u8, 208u8, 130u8, 133u8, 248u8, 52u8,
-							50u8, 249u8, 165u8, 32u8, 235u8, 225u8, 95u8, 99u8, 154u8, 103u8,
-							211u8, 177u8,
+							76u8, 85u8, 59u8, 189u8, 51u8, 252u8, 254u8, 156u8, 183u8, 76u8, 184u8,
+							204u8, 204u8, 16u8, 215u8, 250u8, 134u8, 234u8, 131u8, 19u8, 226u8,
+							11u8, 237u8, 234u8, 204u8, 254u8, 163u8, 73u8, 35u8, 139u8, 137u8,
+							51u8,
 						],
 					)
 				}
@@ -4543,9 +4541,10 @@ pub mod api {
 						"batch_all",
 						types::BatchAll { calls },
 						[
-							28u8, 35u8, 244u8, 30u8, 24u8, 131u8, 254u8, 53u8, 120u8, 134u8, 253u8,
-							227u8, 241u8, 39u8, 176u8, 252u8, 77u8, 11u8, 123u8, 47u8, 24u8, 91u8,
-							116u8, 190u8, 255u8, 187u8, 232u8, 44u8, 54u8, 58u8, 126u8, 104u8,
+							211u8, 23u8, 61u8, 109u8, 28u8, 211u8, 10u8, 198u8, 222u8, 151u8,
+							178u8, 1u8, 56u8, 39u8, 219u8, 121u8, 164u8, 39u8, 135u8, 242u8, 29u8,
+							94u8, 67u8, 216u8, 180u8, 128u8, 165u8, 74u8, 170u8, 177u8, 193u8,
+							208u8,
 						],
 					)
 				}
@@ -4563,9 +4562,9 @@ pub mod api {
 							call: ::std::boxed::Box::new(call),
 						},
 						[
-							252u8, 113u8, 28u8, 3u8, 206u8, 167u8, 41u8, 24u8, 179u8, 221u8, 90u8,
-							255u8, 186u8, 19u8, 246u8, 135u8, 95u8, 163u8, 215u8, 162u8, 246u8,
-							80u8, 61u8, 215u8, 239u8, 134u8, 57u8, 79u8, 4u8, 250u8, 205u8, 204u8,
+							237u8, 100u8, 33u8, 137u8, 68u8, 246u8, 27u8, 180u8, 22u8, 184u8, 7u8,
+							160u8, 144u8, 70u8, 170u8, 63u8, 63u8, 102u8, 36u8, 234u8, 107u8, 71u8,
+							110u8, 7u8, 174u8, 175u8, 61u8, 63u8, 244u8, 109u8, 150u8, 233u8,
 						],
 					)
 				}
@@ -4579,9 +4578,9 @@ pub mod api {
 						"force_batch",
 						types::ForceBatch { calls },
 						[
-							19u8, 10u8, 120u8, 209u8, 40u8, 25u8, 61u8, 130u8, 14u8, 241u8, 31u8,
-							194u8, 34u8, 92u8, 195u8, 80u8, 113u8, 3u8, 10u8, 212u8, 121u8, 105u8,
-							70u8, 130u8, 139u8, 153u8, 45u8, 69u8, 59u8, 86u8, 212u8, 92u8,
+							179u8, 100u8, 46u8, 110u8, 57u8, 184u8, 153u8, 15u8, 118u8, 196u8,
+							37u8, 249u8, 213u8, 104u8, 42u8, 254u8, 172u8, 37u8, 43u8, 119u8, 8u8,
+							193u8, 78u8, 150u8, 229u8, 113u8, 221u8, 236u8, 98u8, 94u8, 82u8, 90u8,
 						],
 					)
 				}
@@ -4596,9 +4595,10 @@ pub mod api {
 						"with_weight",
 						types::WithWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							126u8, 131u8, 192u8, 104u8, 95u8, 12u8, 29u8, 140u8, 241u8, 146u8,
-							55u8, 148u8, 51u8, 207u8, 213u8, 20u8, 237u8, 56u8, 135u8, 87u8, 158u8,
-							118u8, 59u8, 253u8, 92u8, 184u8, 236u8, 77u8, 101u8, 10u8, 151u8, 83u8,
+							6u8, 75u8, 32u8, 225u8, 9u8, 30u8, 251u8, 15u8, 95u8, 37u8, 122u8,
+							130u8, 119u8, 24u8, 71u8, 109u8, 239u8, 221u8, 33u8, 127u8, 40u8,
+							229u8, 255u8, 140u8, 238u8, 114u8, 71u8, 39u8, 102u8, 147u8, 177u8,
+							133u8,
 						],
 					)
 				}
@@ -7376,9 +7376,9 @@ pub mod api {
 						"sudo",
 						types::Sudo { call: ::std::boxed::Box::new(call) },
 						[
-							97u8, 219u8, 89u8, 14u8, 117u8, 81u8, 135u8, 248u8, 97u8, 180u8, 145u8,
-							79u8, 172u8, 168u8, 25u8, 223u8, 134u8, 136u8, 44u8, 217u8, 95u8, 96u8,
-							148u8, 76u8, 237u8, 130u8, 47u8, 156u8, 52u8, 169u8, 86u8, 159u8,
+							93u8, 34u8, 53u8, 147u8, 141u8, 165u8, 14u8, 23u8, 191u8, 42u8, 29u8,
+							160u8, 208u8, 154u8, 217u8, 177u8, 148u8, 162u8, 149u8, 45u8, 17u8,
+							35u8, 34u8, 144u8, 162u8, 33u8, 212u8, 84u8, 33u8, 127u8, 169u8, 14u8,
 						],
 					)
 				}
@@ -7393,10 +7393,10 @@ pub mod api {
 						"sudo_unchecked_weight",
 						types::SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							221u8, 117u8, 209u8, 19u8, 168u8, 167u8, 7u8, 148u8, 249u8, 215u8,
-							129u8, 220u8, 43u8, 56u8, 135u8, 210u8, 115u8, 47u8, 13u8, 72u8, 188u8,
-							247u8, 168u8, 106u8, 197u8, 99u8, 69u8, 188u8, 231u8, 67u8, 29u8,
-							151u8,
+							203u8, 172u8, 2u8, 36u8, 119u8, 222u8, 143u8, 187u8, 165u8, 38u8,
+							153u8, 115u8, 253u8, 126u8, 154u8, 155u8, 90u8, 90u8, 255u8, 114u8,
+							0u8, 135u8, 2u8, 25u8, 80u8, 10u8, 55u8, 23u8, 172u8, 113u8, 220u8,
+							21u8,
 						],
 					)
 				}
@@ -7427,10 +7427,9 @@ pub mod api {
 						"sudo_as",
 						types::SudoAs { who, call: ::std::boxed::Box::new(call) },
 						[
-							46u8, 83u8, 108u8, 14u8, 220u8, 198u8, 74u8, 137u8, 182u8, 104u8,
-							148u8, 76u8, 68u8, 170u8, 251u8, 103u8, 24u8, 234u8, 170u8, 226u8,
-							135u8, 119u8, 52u8, 71u8, 26u8, 196u8, 18u8, 7u8, 253u8, 161u8, 230u8,
-							127u8,
+							27u8, 32u8, 111u8, 117u8, 158u8, 56u8, 144u8, 38u8, 16u8, 189u8, 236u8,
+							108u8, 46u8, 50u8, 151u8, 231u8, 221u8, 60u8, 230u8, 123u8, 101u8,
+							50u8, 114u8, 181u8, 230u8, 68u8, 89u8, 229u8, 9u8, 214u8, 154u8, 161u8,
 						],
 					)
 				}
@@ -11272,7 +11271,7 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct AddParachain {
-					pub para_ids: ::std::vec::Vec<::core::primitive::u32>,
+					pub para_ids: ::std::vec::Vec<runtime_types::ismp_parachain::ParachainData>,
 				}
 				impl ::subxt::blocks::StaticExtrinsic for AddParachain {
 					const PALLET: &'static str = "IsmpParachain";
@@ -11321,16 +11320,16 @@ pub mod api {
 				#[doc = "See [`Pallet::add_parachain`]."]
 				pub fn add_parachain(
 					&self,
-					para_ids: ::std::vec::Vec<::core::primitive::u32>,
+					para_ids: ::std::vec::Vec<runtime_types::ismp_parachain::ParachainData>,
 				) -> ::subxt::tx::Payload<types::AddParachain> {
 					::subxt::tx::Payload::new_static(
 						"IsmpParachain",
 						"add_parachain",
 						types::AddParachain { para_ids },
 						[
-							138u8, 89u8, 43u8, 47u8, 113u8, 236u8, 188u8, 11u8, 118u8, 63u8, 161u8,
-							75u8, 39u8, 49u8, 0u8, 96u8, 30u8, 56u8, 146u8, 40u8, 251u8, 22u8,
-							253u8, 42u8, 62u8, 230u8, 228u8, 6u8, 8u8, 235u8, 46u8, 215u8,
+							145u8, 240u8, 18u8, 43u8, 64u8, 18u8, 105u8, 2u8, 17u8, 60u8, 198u8,
+							25u8, 236u8, 175u8, 203u8, 53u8, 11u8, 99u8, 16u8, 67u8, 108u8, 106u8,
+							145u8, 32u8, 194u8, 206u8, 221u8, 122u8, 19u8, 121u8, 60u8, 227u8,
 						],
 					)
 				}
@@ -11371,7 +11370,7 @@ pub mod api {
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 			#[doc = "Parachains with the `para_ids` have been added to the whitelist"]
 			pub struct ParachainsAdded {
-				pub para_ids: ::std::vec::Vec<::core::primitive::u32>,
+				pub para_ids: ::std::vec::Vec<runtime_types::ismp_parachain::ParachainData>,
 			}
 			impl ::subxt::events::StaticEvent for ParachainsAdded {
 				const PALLET: &'static str = "IsmpParachain";
@@ -11477,7 +11476,7 @@ pub mod api {
 					_0: impl ::std::borrow::Borrow<::core::primitive::u32>,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
-					(),
+					runtime_types::ismp_parachain::ParachainData,
 					::subxt::storage::address::Yes,
 					(),
 					::subxt::storage::address::Yes,
@@ -11487,10 +11486,9 @@ pub mod api {
 						"Parachains",
 						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
 						[
-							53u8, 29u8, 23u8, 130u8, 150u8, 8u8, 242u8, 167u8, 185u8, 60u8, 240u8,
-							250u8, 119u8, 120u8, 227u8, 171u8, 191u8, 238u8, 224u8, 74u8, 66u8,
-							20u8, 54u8, 213u8, 185u8, 108u8, 106u8, 194u8, 50u8, 195u8, 189u8,
-							83u8,
+							49u8, 183u8, 232u8, 105u8, 52u8, 240u8, 181u8, 18u8, 94u8, 149u8,
+							170u8, 118u8, 80u8, 104u8, 113u8, 137u8, 5u8, 47u8, 1u8, 69u8, 70u8,
+							175u8, 18u8, 206u8, 148u8, 172u8, 30u8, 0u8, 251u8, 65u8, 224u8, 0u8,
 						],
 					)
 				}
@@ -11499,7 +11497,7 @@ pub mod api {
 					&self,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
-					(),
+					runtime_types::ismp_parachain::ParachainData,
 					(),
 					(),
 					::subxt::storage::address::Yes,
@@ -11509,10 +11507,9 @@ pub mod api {
 						"Parachains",
 						Vec::new(),
 						[
-							53u8, 29u8, 23u8, 130u8, 150u8, 8u8, 242u8, 167u8, 185u8, 60u8, 240u8,
-							250u8, 119u8, 120u8, 227u8, 171u8, 191u8, 238u8, 224u8, 74u8, 66u8,
-							20u8, 54u8, 213u8, 185u8, 108u8, 106u8, 194u8, 50u8, 195u8, 189u8,
-							83u8,
+							49u8, 183u8, 232u8, 105u8, 52u8, 240u8, 181u8, 18u8, 94u8, 149u8,
+							170u8, 118u8, 80u8, 104u8, 113u8, 137u8, 5u8, 47u8, 1u8, 69u8, 70u8,
+							175u8, 18u8, 206u8, 148u8, 172u8, 30u8, 0u8, 251u8, 65u8, 224u8, 0u8,
 						],
 					)
 				}
@@ -17523,7 +17520,9 @@ pub mod api {
 					},
 					#[codec(index = 1)]
 					#[doc = "See [`Pallet::add_parachain`]."]
-					add_parachain { para_ids: ::std::vec::Vec<::core::primitive::u32> },
+					add_parachain {
+						para_ids: ::std::vec::Vec<runtime_types::ismp_parachain::ParachainData>,
+					},
 					#[codec(index = 2)]
 					#[doc = "See [`Pallet::remove_parachain`]."]
 					remove_parachain { para_ids: ::std::vec::Vec<::core::primitive::u32> },
@@ -17545,11 +17544,30 @@ pub mod api {
 				pub enum Event {
 					#[codec(index = 0)]
 					#[doc = "Parachains with the `para_ids` have been added to the whitelist"]
-					ParachainsAdded { para_ids: ::std::vec::Vec<::core::primitive::u32> },
+					ParachainsAdded {
+						para_ids: ::std::vec::Vec<runtime_types::ismp_parachain::ParachainData>,
+					},
 					#[codec(index = 1)]
 					#[doc = "Parachains with the `para_ids` have been removed from the whitelist"]
 					ParachainsRemoved { para_ids: ::std::vec::Vec<::core::primitive::u32> },
 				}
+			}
+			#[derive(
+				:: subxt :: ext :: codec :: Decode,
+				:: subxt :: ext :: codec :: Encode,
+				:: subxt :: ext :: scale_decode :: DecodeAsType,
+				:: subxt :: ext :: scale_encode :: EncodeAsType,
+				Clone,
+				Debug,
+				Eq,
+				PartialEq,
+			)]
+			# [codec (crate = :: subxt :: ext :: codec)]
+			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+			pub struct ParachainData {
+				pub id: ::core::primitive::u32,
+				pub slot_duration: ::core::primitive::u64,
 			}
 		}
 		pub mod ismp_sync_committee {

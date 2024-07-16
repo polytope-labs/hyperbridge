@@ -44,7 +44,7 @@ struct BeefyConsensusProof {
 
 /**
  * @title The UltraPlonk BEEFY Consensus Client.
- * @author Polytope Labs
+ * @author Polytope Labs (hello@polytope.technology)
  *
  * @notice Similar to the BeefyV1 client but delegates secp256k1 signature verification
  * and authority set membership proof checks to an ultraplonk circuit.

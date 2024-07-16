@@ -34,6 +34,7 @@ use subxt_utils::{
 					consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 					messaging::{Message, Proof, RequestMessage},
 				},
+				ismp_parachain::ParachainData,
 			},
 		},
 	},
@@ -63,11 +64,18 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	.await?;
 
 	let para_id = 3000u32;
+	let slot_duration = 6000u64;
+
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
 		let calls = vec![
             RuntimeCall::IsmpParachain(
-                runtime_types::ismp_parachain::pallet::Call::add_parachain { para_ids: vec![para_id] },
+				runtime_types::ismp_parachain::pallet::Call::add_parachain {
+					para_ids: vec![ParachainData{
+						id: para_id,
+						slot_duration,
+					}],
+				},
             ),
             // init the host executive
             RuntimeCall::HostExecutive(

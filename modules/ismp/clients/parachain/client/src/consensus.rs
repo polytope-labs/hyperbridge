@@ -42,7 +42,7 @@ use sp_runtime::{
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check, SubstrateStateMachine};
 
-use crate::{Parachains, RelayChainOracle};
+use crate::{ParachainData, Parachains, RelayChainOracle};
 
 /// The parachain consensus client implementation for ISMP.
 pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>>(PhantomData<(T, R, S)>);
@@ -65,9 +65,6 @@ pub struct ParachainConsensusProof {
 
 /// [`ConsensusClientId`] for [`ParachainConsensusClient`]
 pub const PARACHAIN_CONSENSUS_ID: ConsensusClientId = *b"PARA";
-
-/// Slot duration in milliseconds
-const SLOT_DURATION: u64 = 12_000;
 
 impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
 where
@@ -107,11 +104,14 @@ where
 		let storage_proof = StorageProof::new(update.storage_proof);
 		let mut intermediates = BTreeMap::new();
 
-		let keys = Parachains::<T>::iter_keys().map(|id| parachain_header_storage_key(id).0);
-		let headers = read_proof_check::<BlakeTwo256, _>(&root, storage_proof, keys)
+		let (para_header_keys, parachain_data_values): (Vec<Vec<u8>>, Vec<ParachainData>) =
+			Parachains::<T>::iter()
+				.map(|(id, para_value)| (parachain_header_storage_key(id).0, para_value))
+				.unzip();
+		let headers = read_proof_check::<BlakeTwo256, _>(&root, storage_proof, para_header_keys)
 			.map_err(|e| Error::Custom(format!("Error verifying parachain header {e:?}",)))?;
 
-		for (key, header) in headers {
+		for ((key, header), para_value) in headers.into_iter().zip(parachain_data_values) {
 			let Some(header) = header else { continue };
 
 			let mut state_commitments_vec = Vec::new();
@@ -131,7 +131,8 @@ where
 					{
 						let slot = Slot::decode(&mut &value[..])
 							.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
-						timestamp = Duration::from_millis(*slot * SLOT_DURATION).as_secs();
+						timestamp =
+							Duration::from_millis(*slot * para_value.slot_duration).as_secs();
 					},
 					DigestItem::Consensus(consensus_engine_id, value)
 						if *consensus_engine_id == ISMP_ID =>

@@ -31,6 +31,7 @@ use subxt_utils::{
 					consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 					messaging::{Message, Proof, RequestMessage},
 				},
+				ismp_parachain::ParachainData,
 			},
 		},
 	},
@@ -51,12 +52,13 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	let unit = 1_000_000_000_000u128;
 	let per_byte_fee = 10 * unit;
 	let para_id = 3000u32;
+	let slot_duration = 6000u64;
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
 		let calls = vec![
 			RuntimeCall::IsmpParachain(
 				runtime_types::ismp_parachain::pallet::Call::add_parachain {
-					para_ids: vec![para_id],
+					para_ids: vec![ParachainData { id: para_id, slot_duration }],
 				},
 			),
 			// init the host executive
@@ -83,7 +85,9 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 				// author an extrinsic from alice, the sudo account
 				rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
 			)
-			.await?;
+			.await
+			.map_err(|err| println!("{:?}", err))
+			.expect("REASON");
 		let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
 		let progress = submittable.submit_and_watch().await?;
 		let block = client
@@ -241,12 +245,13 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 	let unit = 1_000_000_000_000u128;
 	let per_byte_fee = 10 * unit;
 	let para_id = 3000u32;
+	let slot_duration = 6000u64;
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
 		let calls = vec![
 			RuntimeCall::IsmpParachain(
 				runtime_types::ismp_parachain::pallet::Call::add_parachain {
-					para_ids: vec![para_id],
+					para_ids: vec![ParachainData { id: para_id, slot_duration }],
 				},
 			),
 			// init the host executive
@@ -425,12 +430,13 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	let unit = 1_000_000_000_000u128;
 	let per_byte_fee = 10 * unit;
 	let para_id = 3000u32;
+	let slot_duration = 6000u64;
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
 		let calls = vec![
 			RuntimeCall::IsmpParachain(
 				runtime_types::ismp_parachain::pallet::Call::add_parachain {
-					para_ids: vec![para_id],
+					para_ids: vec![ParachainData { id: para_id, slot_duration }],
 				},
 			),
 			// init the host executive

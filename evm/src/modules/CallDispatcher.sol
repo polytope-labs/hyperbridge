@@ -16,9 +16,13 @@ pragma solidity 0.8.17;
 
 import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatcher.sol";
 
-/// @notice This contract is used to dispatch calls to other contracts.
+/**
+ * @title The Call Dispatcher
+ * @author Polytope Labs
+ * @notice This contract is used to dispatch calls to other contracts.
+*/
 contract CallDispatcher is ICallDispatcher {
-    /// @dev funtion returns `success = false` if the target is not a contract and reverts if the call to the target contract fails.
+    // @dev funtion returns `success = false` if the target is not a contract and reverts if the call to the target contract fails.
     function dispatch(CallDispatcherParams memory params) external returns (bytes memory result, bool success) {
         uint32 size;
         address target = params.target;

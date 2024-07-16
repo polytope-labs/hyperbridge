@@ -173,8 +173,9 @@ struct LiquidityBid {
 /**
  * @title The TokenGateway. Allows users send either ERC20 or ERC6160 tokens
  * using Hyperbridge as a message-passing layer.
+ * @author Polytope Labs
  *
- * If ERC20 tokens are sent then fillers step in to provide the ERC20 token on the destination chain.
+ * @notice If ERC20 tokens are sent then fillers step in to provide the ERC20 token on the destination chain.
  * Otherwise if ERC6160 tokens are sent, then it simply performs a burn-and-mint.
  */
 contract TokenGateway is BaseIsmpModule {
@@ -242,7 +243,7 @@ contract TokenGateway is BaseIsmpModule {
     // A new contract instance has been registered
     event NewContractInstance(
     	// The chain for this new contract instance
-        bytes chain,
+        string chain,
         // The address for token gateway on this chain
         address moduleId
     );
@@ -302,7 +303,7 @@ contract TokenGateway is BaseIsmpModule {
         _admin = admin;
     }
 
-    // initialize required parameters
+    // @dev initialize required parameters
     function init(TokenGatewayParamsExt memory teleportParams) public restrict(_admin) {
         _params = teleportParams.params;
         createAssets(teleportParams.assets);
@@ -316,26 +317,26 @@ contract TokenGateway is BaseIsmpModule {
         _admin = address(0);
     }
 
-    // Read the protocol parameters
+    // @dev Read the protocol parameters
     function params() external view returns (TokenGatewayParams memory) {
         return _params;
     }
 
-    // Fetch the address for an ERC20 asset
+    // @dev Fetch the address for an ERC20 asset
     function erc20(bytes32 assetId) external view returns (address) {
         return _erc20s[assetId];
     }
 
-    // Fetch the address for an ERC6160 asset
+    // @dev Fetch the address for an ERC6160 asset
     function erc6160(bytes32 assetId) external view returns (address) {
         return _erc6160s[assetId];
     }
 
-    // Teleports a local ERC20/ERC6160 asset to the destination chain. Allows users to pay
+    // @dev Teleports a local ERC20/ERC6160 asset to the destination chain. Allows users to pay
     // the Hyperbridge fees in any ERC20 token that can be swapped for the swapped for the
     // `IIsmpHost.feeToken` using the local UniswapV2 router.
     //
-    // If a request times out, users can request a refund permissionlessly through
+    // @notice If a request times out, users can request a refund permissionlessly through
     // `HandlerV1.handlePostRequestTimeouts`.
     function teleport(TeleportParams memory teleportParams) public {
         if (teleportParams.to == bytes32(0)) revert ZeroAddress();
@@ -418,11 +419,11 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    // Bid to fulfil an incoming asset. This will displace any pre-existing bid
+    // @dev Bid to fulfil an incoming asset. This will displace any pre-existing bid
     // if the liquidity fee is lower than said bid. This effectively creates a
     // race to the bottom for fees.
     //
-    // The request must not have expired, and must not have already been fulfilled.
+    // @notice The request must not have expired, and must not have already been fulfilled.
     function bid(PostRequest calldata request, uint256 fee) public {
         // TokenGateway only accepts incoming assets from it's instances on other chains.
         if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
@@ -478,7 +479,7 @@ contract TokenGateway is BaseIsmpModule {
         emit BidPlaced({commitment: commitment, assetId: body.assetId, bid: fee, bidder: msg.sender});
     }
 
-    // This allows the bidder to refund their bids in the event that the request timed-out before
+    // @dev This allows the bidder to refund their bids in the event that the request timed-out before
     // the bid could be fulfilled.
     function refundBid(PostRequest calldata request) public {
         // TokenGateway only accepts incoming assets from it's instances on other chains.
@@ -545,8 +546,8 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    // Triggered when a previously sent out request is confirmed to be timed-out by the IsmpHost.
-    // This means the funds could not be sent, we simply refund the user's assets here.
+    // @dev Triggered when a previously sent out request is confirmed to be timed-out by the IsmpHost.
+    // @notice This means the funds could not be sent, we simply refund the user's assets here.
     function onPostRequestTimeout(PostRequest calldata request) external override restrict(_params.host) {
         Body memory body;
         if (request.body.length > BODY_BYTES_SIZE) {
@@ -716,7 +717,7 @@ contract TokenGateway is BaseIsmpModule {
 
         _instances[keccak256(instance.chain)] = instance.moduleId;
 
-        emit NewContractInstance({chain: instance.chain, moduleId: instance.moduleId});
+        emit NewContractInstance({chain: string(instance.chain), moduleId: instance.moduleId});
     }
 
     // Creates a new entry for the provided asset in the mappings. If there's no existing

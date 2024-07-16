@@ -44,7 +44,9 @@ struct BeefyConsensusProof {
 
 /**
  * @title The UltraPlonk BEEFY Consensus Client.
- * Similar to the BeefyV1 client but delegates secp256k1 signature verification
+ * @author Polytope Labs
+ *
+ * @notice Similar to the BeefyV1 client but delegates secp256k1 signature verification
  * and authority set membership proof checks to an ultraplonk circuit.
  */
 contract UltraPlonkBeefy is IConsensusClient {
@@ -141,7 +143,8 @@ contract UltraPlonkBeefy is IConsensusClient {
         Commitment memory commitment = relayProof.commitment;
 
         if (commitment.validatorSetId != trustedState.currentAuthoritySet.id
-            && commitment.validatorSetId != trustedState.nextAuthoritySet.id) {
+            && commitment.validatorSetId != trustedState.nextAuthoritySet.id)
+        {
         	revert UnknownAuthoritySet();
         }
 
@@ -224,7 +227,7 @@ contract UltraPlonkBeefy is IConsensusClient {
     }
 
     // Calculates the mmr leaf index for a block whose parent number is given.
-    function leafIndex(uint256 activationBlock, uint256 parentNumber) private pure returns (uint256) {
+    function leafIndex(uint256 activationBlock, uint256 parentNumber) internal pure returns (uint256) {
         if (activationBlock == 0) {
             return parentNumber;
         } else {

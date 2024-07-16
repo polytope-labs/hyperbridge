@@ -93,8 +93,9 @@ struct WithdrawParams {
 /**
  * @title EvmHost. The IsmpHost and IsmpDispatcher implementation for EVM-compatible chains
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
+ * @author Polytope Labs
  *
- * @dev The IsmpHost provides the neccessary storage interface for the ISMP handlers to process
+ * @notice The IsmpHost provides the neccessary storage interface for the ISMP handlers to process
  * ISMP messages, the IsmpDispatcher provides the interfaces applications use for dispatching requests
  * and responses. This host implementation delegates all verification logic to the IHandler contract.
  * It is only responsible for dispatching incoming & outgoing requests/responses. As well as managing
@@ -551,7 +552,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Updates the HostParams
      * @param params, the new host params.
      */
-    function updateHostParamsInternal(HostParams memory params) private {
+    function updateHostParamsInternal(HostParams memory params) internal {
         // check if the provided host manager is a contract
         if (params.hostManager == address(0) || address(params.hostManager).code.length == 0) {
             revert InvalidHostManagerAddress();
@@ -643,7 +644,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @dev Delete the state commitment at given state height.
      */
-    function deleteStateMachineCommitmentInternal(StateMachineHeight memory height, address fisherman) private {
+    function deleteStateMachineCommitmentInternal(StateMachineHeight memory height, address fisherman) internal {
         StateCommitment memory stateCommitment = _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
@@ -1034,7 +1035,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @dev Get next available nonce for outgoing requests.
      */
-    function _nextNonce() private returns (uint256) {
+    function _nextNonce() internal returns (uint256) {
         uint256 _nonce_copy = _nonce;
 
         unchecked {
@@ -1049,7 +1050,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param _bytes bytes value to be converted
      * @return addr returns the address
      */
-    function _bytesToAddress(bytes memory _bytes) private pure returns (address addr) {
+    function _bytesToAddress(bytes memory _bytes) internal pure returns (address addr) {
         if (_bytes.length != 20) revert InvalidAddressLength();
 
         assembly {

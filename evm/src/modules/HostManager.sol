@@ -31,7 +31,10 @@ struct HostManagerParams {
 }
 
 /**
- * @title The ISMP Host Manager. Allows cross-chain governance actions
+ * @title The ISMP Host Manager.
+ * @author Polytope Labs
+ *
+ * @notice Allows cross-chain governance actions
  * for updating the ISMP Host parameters or withdrawing bridge revenue.
  */
 contract HostManager is BaseIsmpModule {

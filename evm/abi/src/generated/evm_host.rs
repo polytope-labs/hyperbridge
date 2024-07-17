@@ -1616,7 +1616,7 @@ pub mod evm_host {
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("to"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("nonce"),
@@ -1721,7 +1721,7 @@ pub mod evm_host {
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("to"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("nonce"),
@@ -3019,8 +3019,7 @@ pub mod evm_host {
 		pub dest: ::std::string::String,
 		#[ethevent(indexed)]
 		pub from: ::ethers::core::types::Address,
-		#[ethevent(indexed)]
-		pub to: ::ethers::core::types::H256,
+		pub to: ::ethers::core::types::Bytes,
 		pub nonce: ::ethers::core::types::U256,
 		pub timeout_timestamp: ::ethers::core::types::U256,
 		pub body: ::ethers::core::types::Bytes,
@@ -3080,8 +3079,7 @@ pub mod evm_host {
 		pub dest: ::std::string::String,
 		#[ethevent(indexed)]
 		pub from: ::ethers::core::types::Address,
-		#[ethevent(indexed)]
-		pub to: ::ethers::core::types::H256,
+		pub to: ::ethers::core::types::Bytes,
 		pub nonce: ::ethers::core::types::U256,
 		pub timeout_timestamp: ::ethers::core::types::U256,
 		pub body: ::ethers::core::types::Bytes,

@@ -50,14 +50,11 @@ use ismp_solidity_abi::{
 };
 use std::sync::Arc;
 
-const OP_HOST: H160 = H160(hex!("897aEA53c83Eb203D4708608ccDB5943b9b63c4e"));
-
-const SEPOLIA_HOST: H160 = H160(hex!("49642E844E3D141915B10505260B263a92f82972"));
-
-const BSC_HOST: H160 = H160(hex!("22B3D91651aF817EBFb99937EF396bDaBFbbC559"));
-const BSC_HANDLER: H160 = H160(hex!("cF894fd41a114A872cFe0AF945cdAa91cbB182B8"));
-
-const PING_MODULE: H160 = H160(hex!("4256A39026ccbf9a13b68f22Cb05DE03976C34F3"));
+const OP_HOST: H160 = H160(hex!("265FafEb401ac6491da7344F01E724c38bC68FED"));
+const SEPOLIA_HOST: H160 = H160(hex!("4175a96bd787a2C196e732a1244630650607fdC2"));
+const BSC_HOST: H160 = H160(hex!("9494400D1A8285F81604AC04ACFD839385B3b843"));
+const BSC_HANDLER: H160 = H160(hex!("698Ea102d14dF1F9a4C3A76fE5DCEEeFcfd27f85"));
+const PING_MODULE: H160 = H160(hex!("0x8E4Ca395cfAa033A71fC618792Fce99106633B90"));
 
 pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");

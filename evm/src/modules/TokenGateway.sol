@@ -323,9 +323,6 @@ contract TokenGateway is BaseIsmpModule {
     // Action is unauthorized
     error UnauthorizedAction();
 
-    // Request is not intended for this host
-    error InvalidDestination();
-
     // Provided request has timed out
     error RequestTimedOut();
 

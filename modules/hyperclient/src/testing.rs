@@ -54,7 +54,7 @@ const OP_HOST: H160 = H160(hex!("265FafEb401ac6491da7344F01E724c38bC68FED"));
 const SEPOLIA_HOST: H160 = H160(hex!("4175a96bd787a2C196e732a1244630650607fdC2"));
 const BSC_HOST: H160 = H160(hex!("9494400D1A8285F81604AC04ACFD839385B3b843"));
 const BSC_HANDLER: H160 = H160(hex!("698Ea102d14dF1F9a4C3A76fE5DCEEeFcfd27f85"));
-const PING_MODULE: H160 = H160(hex!("0x8E4Ca395cfAa033A71fC618792Fce99106633B90"));
+const PING_MODULE: H160 = H160(hex!("8E4Ca395cfAa033A71fC618792Fce99106633B90"));
 
 pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");

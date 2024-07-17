@@ -452,7 +452,7 @@ pub async fn return_successful_queries(
 							_ => unreachable!("Relayer should only ever debug trace request or response messages")
 						};
 
-						if relayer == H160::zero().0.to_vec() {
+						if relayer == H160::zero().0.to_vec() && coprocessor != sink.state_machine_id().state_id {
 							return Ok((None, Some(msg)))
 						} else {
 							return Ok((None, None))

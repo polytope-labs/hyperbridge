@@ -215,7 +215,8 @@ pub async fn generate_contract_calls(
 	messages: Vec<Message>,
 	debug_trace: bool,
 ) -> anyhow::Result<Vec<SolidityFunctionCall>> {
-	let contract = IsmpHandler::new(client.config.handler, client.signer.clone());
+	let handler = client.handler().await?;
+	let contract = IsmpHandler::new(handler, client.signer.clone());
 	let ismp_host = client.config.ismp_host;
 	let mut calls = Vec::new();
 	// If debug trace is false or the client type is erigon, then the gas price must be set

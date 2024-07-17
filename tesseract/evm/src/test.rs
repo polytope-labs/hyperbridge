@@ -45,7 +45,6 @@ async fn test_ismp_state_proof() {
 		state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		consensus_state_id: "SYNC".to_string(),
 		ismp_host: ISMP_HOST,
-		handler: H160::from(hex!("139722d03a6f449048D732cdd05628F4D8cE536d")),
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
 		..Default::default()
 	};

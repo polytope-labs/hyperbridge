@@ -88,43 +88,58 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		call.encode(),
 	);
 
-	send_extrinsic(&client, signer, ext).await?;
-
-	let sub = para_client.rpc().subscribe_finalized_block_headers().await?;
-	// Give enough time for the message to be processed
-	let block = sub
-		.take(8)
-		.collect::<Vec<_>>()
-		.await
-		.into_iter()
-		.collect::<Result<Vec<_>, _>>()?;
-	let current_block = block
-		.last()
-		.cloned()
-		.ok_or_else(|| anyhow!("Finalized heads missing"))?
+	let init_block = para_client
+		.rpc()
+		.header(None)
+		.await?
+		.ok_or_else(|| anyhow!("Failed to fetch latest header"))?
 		.number();
 
-	let params = rpc_params![
-		BlockNumberOrHash::<H256>::Number(1),
-		BlockNumberOrHash::<H256>::Number(current_block)
-	];
-	let response: HashMap<String, Vec<ismp::events::Event>> =
-		para_client.rpc().request("ismp_queryEvents", params).await?;
+	send_extrinsic(&client, signer, ext).await?;
 
-	let events = response.values().into_iter().cloned().flatten().collect::<Vec<_>>();
-	let post = events
-		.into_iter()
-		.find_map(|ev| match ev {
-			ismp::events::Event::PostRequest(post) => Some(post),
-			_ => None,
-		})
-		.ok_or_else(|| anyhow!("Ismp Event should exist"))?;
+	let mut sub = para_client.rpc().subscribe_finalized_block_headers().await?;
 
-	dbg!(&post);
+	let mut prev_block = init_block;
+	while let Some(res) = sub.next().await {
+		match res {
+			Ok(header) => {
+				// Break if we've waited too long
+				if header.number().saturating_sub(init_block) >= 500 {
+					Err(anyhow!("XCM Integration test failed: Post request event was not found"))?
+				}
 
-	// Assert that this is the post we sent
-	assert_eq!(post.nonce, 0);
-	assert_eq!(post.dest, StateMachine::Ethereum(ismp::host::Ethereum::ExecutionLayer));
-	assert_eq!(post.source, StateMachine::Kusama(2000));
-	Ok(())
+				let params = rpc_params![
+					BlockNumberOrHash::<H256>::Number(prev_block),
+					BlockNumberOrHash::<H256>::Number(header.number())
+				];
+
+				let response: HashMap<String, Vec<ismp::events::Event>> =
+					para_client.rpc().request("ismp_queryEvents", params).await?;
+
+				let events = response.values().into_iter().cloned().flatten().collect::<Vec<_>>();
+				if let Some(post) = events.into_iter().find_map(|ev| match ev {
+					ismp::events::Event::PostRequest(post) => Some(post),
+					_ => None,
+				}) {
+					dbg!(&post);
+
+					// Assert that this is the post we sent
+					assert_eq!(post.nonce, 0);
+					assert_eq!(
+						post.dest,
+						StateMachine::Ethereum(ismp::host::Ethereum::ExecutionLayer)
+					);
+					assert_eq!(post.source, StateMachine::Kusama(2000));
+					return Ok(())
+				}
+				prev_block = header.number().saturating_sub(1);
+			},
+
+			Err(err) => {
+				println!("{err:?}")
+			},
+		}
+	}
+
+	Err(anyhow!("XCM Integration test failed"))
 }

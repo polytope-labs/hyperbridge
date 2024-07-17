@@ -109,7 +109,13 @@ interface IPostResponse {
     timeout_timestamp: bigint;
 }
 
-type MessageStatus =  Pending | SourceFinalized | HyperbridgeDelivered | HyperbridgeFinalized | DestinationDelivered | Timeout;
+type MessageStatus =
+ | Pending
+ | SourceFinalized
+ | HyperbridgeDelivered
+ | HyperbridgeFinalized
+ | DestinationDelivered
+ | Timeout;
 
 // This transaction is still pending on the source chain
 interface Pending {
@@ -158,10 +164,21 @@ interface HyperbridgeTimedout {
 }
 
 // The possible states of an inflight request
-type MessageStatusWithMeta =  SourceFinalizedWithMetadata | HyperbridgeDeliveredWithMetadata | HyperbridgeFinalizedWithMetadata | DestinationDeliveredWithMetadata | Timeout | ErrorWithMetadata;
+type MessageStatusWithMeta =
+  | SourceFinalizedWithMetadata
+  | HyperbridgeDeliveredWithMetadata
+  | HyperbridgeFinalizedWithMetadata
+  | DestinationDeliveredWithMetadata
+  | Timeout
+  | ErrorWithMetadata;
 
 // The possible states of a timed-out request
-type TimeoutStatusWithMeta =  DestinationFinalizedWithMetadata | HyperbridgeTimedoutWithMetadata | HyperbridgeFinalizedWithMetadata | TimeoutMessage | ErrorWithMetadata;
+type TimeoutStatusWithMeta =
+  | DestinationFinalizedWithMetadata
+  | HyperbridgeTimedoutWithMetadata
+  | HyperbridgeFinalizedWithMetadata
+  | TimeoutMessage
+  | ErrorWithMetadata;
 
 
 // This event is emitted on hyperbridge

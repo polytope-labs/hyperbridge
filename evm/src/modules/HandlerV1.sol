@@ -101,15 +101,17 @@ contract HandlerV1 is IHandler, Context {
 
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
-        (bytes memory verifiedState, IntermediateState memory intermediate) =
-            IConsensusClient(host.consensusClient()).verifyConsensus(host.consensusState(), proof);
+        (bytes memory verifiedState, IntermediateState memory intermediate) = IConsensusClient(host.consensusClient())
+            .verifyConsensus(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
         // check that we know this state machine and it's a new update
         uint256 latestHeight = host.latestStateMachineHeight(intermediate.stateMachineId);
         if (latestHeight != 0 && intermediate.height > latestHeight) {
-            StateMachineHeight memory stateMachineHeight =
-                StateMachineHeight({stateMachineId: intermediate.stateMachineId, height: intermediate.height});
+            StateMachineHeight memory stateMachineHeight = StateMachineHeight({
+                stateMachineId: intermediate.stateMachineId,
+                height: intermediate.height
+            });
             host.storeStateMachineCommitment(stateMachineHeight, intermediate.commitment);
         }
     }
@@ -199,10 +201,10 @@ contract HandlerV1 is IHandler, Context {
      * @param host - IsmpHost
      * @param message - batch post request timeouts
      */
-    function handlePostRequestTimeouts(IIsmpHost host, PostRequestTimeoutMessage calldata message)
-        external
-        notFrozen(host)
-    {
+    function handlePostRequestTimeouts(
+        IIsmpHost host,
+        PostRequestTimeoutMessage calldata message
+    ) external notFrozen(host) {
         uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
@@ -238,10 +240,10 @@ contract HandlerV1 is IHandler, Context {
      * @param host - Ismp host
      * @param message - batch post response timeouts
      */
-    function handlePostResponseTimeouts(IIsmpHost host, PostResponseTimeoutMessage calldata message)
-        external
-        notFrozen(host)
-    {
+    function handlePostResponseTimeouts(
+        IIsmpHost host,
+        PostResponseTimeoutMessage calldata message
+    ) external notFrozen(host) {
         uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
@@ -301,8 +303,12 @@ contract HandlerV1 is IHandler, Context {
 
             // duplicate response?
             if (host.responseReceipts(requestCommitment).relayer != address(0)) revert DuplicateMessage();
-            StorageValue[] memory values =
-                MerklePatricia.ReadChildProofCheck(root, proof, request.keys, bytes.concat(requestCommitment));
+            StorageValue[] memory values = MerklePatricia.ReadChildProofCheck(
+                root,
+                proof,
+                request.keys,
+                bytes.concat(requestCommitment)
+            );
             GetResponse memory response = GetResponse({request: request, values: values});
 
             host.dispatchIncoming(response, _msgSender());

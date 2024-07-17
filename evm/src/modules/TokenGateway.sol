@@ -203,82 +203,82 @@ contract TokenGateway is BaseIsmpModule {
 
     // A filler has just placed a bid to fulfil some request
     event BidPlaced(
-    	// The associated request commitment
-    	bytes32 commitment,
-    	// The liquidity fee for the bid
-     	uint256 bid,
-     	// The assetId for the bid
-     	bytes32 indexed assetId,
-       	// The bidder's address
-       	address indexed bidder
+        // The associated request commitment
+        bytes32 commitment,
+        // The liquidity fee for the bid
+        uint256 bid,
+        // The assetId for the bid
+        bytes32 indexed assetId,
+        // The bidder's address
+        address indexed bidder
     );
 
     // The request associated with a bid has timed out and the bid refunded
     event BidRefunded(
-    	// The associated request commitment
-    	bytes32 commitment,
-     	// The assetId for the bid
-     	bytes32 indexed assetId,
-     	// The bidder's address
-      	address indexed bidder
+        // The associated request commitment
+        bytes32 commitment,
+        // The assetId for the bid
+        bytes32 indexed assetId,
+        // The bidder's address
+        address indexed bidder
     );
 
     // Filler fulfilled some liquidity request
     event RequestFulfilled(
-   		// The amount that was provided to the user
-    	uint256 amount,
-   		// The bidder's address
-    	address indexed bidder,
-     	// The provided assetId
-      	bytes32 indexed assetId
+        // The amount that was provided to the user
+        uint256 amount,
+        // The bidder's address
+        address indexed bidder,
+        // The provided assetId
+        bytes32 indexed assetId
     );
 
     // User has received some assets
     event AssetReceived(
-   		// The amount that was provided to the user
-     	uint256 amount,
-   		// The associated request commitment
+        // The amount that was provided to the user
+        uint256 amount,
+        // The associated request commitment
         bytes32 commitment,
-       	// The source of the funds
+        // The source of the funds
         bytes32 indexed from,
-       	// The beneficiary of the funds
+        // The beneficiary of the funds
         address indexed beneficiary,
-       	// The provided assetId
+        // The provided assetId
         bytes32 indexed assetId
     );
 
     // User has sent some assets
     event AssetTeleported(
-   		// The beneficiary of the funds
-     	bytes32 to,
-     	// The amount that was requested to be sent
-      	uint256 amount,
-  		// The associated request commitment
+        // The beneficiary of the funds
+        bytes32 to,
+        // The amount that was requested to be sent
+        uint256 amount,
+        // The associated request commitment
         bytes32 commitment,
-       	// The source of the funds
+        // The source of the funds
         address indexed from,
-       	// The provided assetId
+        // The provided assetId
         bytes32 indexed assetId,
-       	// Flag to redeem funds from the TokenGateway
+        // Flag to redeem funds from the TokenGateway
         bool redeem
     );
 
     // User assets could not be delivered and have been refunded.
     event AssetRefunded(
-   		// The amount that was requested to be sent
-    	uint256 amount,
-  		// The associated request commitment
-    	bytes32 commitment,
-    	// The beneficiary of the funds
-     	address indexed beneficiary,
-      	// The provided assetId
-       	bytes32 indexed assetId
+        // The amount that was requested to be sent
+        uint256 amount,
+        // The associated request commitment
+        bytes32 commitment,
+        // The beneficiary of the funds
+        address indexed beneficiary,
+        // The provided assetId
+        bytes32 indexed assetId
     );
 
     // A new asset has been registered
     event AssetRegistered(
-   		// ERC20 token contract address for the asset
-   		address erc20,
+        // ERC20 token contract address for the asset
+        address erc20,
         // ERC6160 token contract address for the asset
         address erc6160,
         // Asset's name
@@ -295,7 +295,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // A new contract instance has been registered
     event NewContractInstance(
-    	// The chain for this new contract instance
+        // The chain for this new contract instance
         string chain,
         // The address for token gateway on this chain
         address moduleId
@@ -303,10 +303,10 @@ contract TokenGateway is BaseIsmpModule {
 
     // Contract parameters have been updated by Hyperbridge governance
     event ParamsUpdated(
-    	// The old token gateway params
-    	TokenGatewayParams oldParams,
-    	// The new token gateway params
-     	TokenGatewayParams newParams
+        // The old token gateway params
+        TokenGatewayParams oldParams,
+        // The new token gateway params
+        TokenGatewayParams newParams
     );
 
     // An asset has been deregistered
@@ -314,10 +314,10 @@ contract TokenGateway is BaseIsmpModule {
 
     // An asset owner has requested to change the admin of their asset
     event AssetAdminChanged(
-   		// The ERC6160 token contract address
-    	address asset,
-    	// The new admin
-     	address newAdmin
+        // The ERC6160 token contract address
+        address asset,
+        // The new admin
+        address newAdmin
     );
 
     // Action is unauthorized
@@ -373,7 +373,9 @@ contract TokenGateway is BaseIsmpModule {
 
         // infinite approval to save on gas
         SafeERC20.safeIncreaseAllowance(
-            IERC20(IIsmpHost(_params.host).feeToken()), teleportParams.params.host, type(uint256).max
+            IERC20(IIsmpHost(_params.host).feeToken()),
+            teleportParams.params.host,
+            type(uint256).max
         );
 
         // admin can only call this once
@@ -446,9 +448,16 @@ contract TokenGateway is BaseIsmpModule {
         uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.relayerFee;
         // only swap if the feeToken is not the token intended for fee
         if (feeToken != teleportParams.feeToken) {
-            SafeERC20.safeTransferFrom(IERC20(teleportParams.feeToken), from, address(this), teleportParams.amountInMax);
+            SafeERC20.safeTransferFrom(
+                IERC20(teleportParams.feeToken),
+                from,
+                address(this),
+                teleportParams.amountInMax
+            );
             SafeERC20.safeIncreaseAllowance(
-                IERC20(teleportParams.feeToken), _params.uniswapV2, teleportParams.amountInMax
+                IERC20(teleportParams.feeToken),
+                _params.uniswapV2,
+                teleportParams.amountInMax
             );
 
             address[] memory path = new address[](2);
@@ -456,7 +465,11 @@ contract TokenGateway is BaseIsmpModule {
             path[1] = feeToken;
 
             IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
-                fee, teleportParams.amountInMax, path, address(this), block.timestamp
+                fee,
+                teleportParams.amountInMax,
+                path,
+                address(this),
+                block.timestamp
             );
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken), from, address(this), fee);

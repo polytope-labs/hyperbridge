@@ -36,7 +36,7 @@ struct UltraPlonkConsensusProof {
 }
 
 struct BeefyConsensusProof {
-	// The proof items for the relay chain consensus
+    // The proof items for the relay chain consensus
     UltraPlonkConsensusProof relay;
     // Proof items for parachain headers
     ParachainProof parachain;
@@ -96,28 +96,30 @@ contract UltraPlonkBeefy is IConsensusClient {
         _verifier = verifier;
     }
 
-    function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
-        external
-        view
-        returns (bytes memory, IntermediateState memory)
-    {
+    function verifyConsensus(
+        bytes memory encodedState,
+        bytes memory encodedProof
+    ) external view returns (bytes memory, IntermediateState memory) {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
-        (UltraPlonkConsensusProof memory relay, ParachainProof memory parachain) =
-            abi.decode(encodedProof, (UltraPlonkConsensusProof, ParachainProof));
+        (UltraPlonkConsensusProof memory relay, ParachainProof memory parachain) = abi.decode(
+            encodedProof,
+            (UltraPlonkConsensusProof, ParachainProof)
+        );
 
-        (BeefyConsensusState memory newState, IntermediateState memory intermediate) =
-            verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
+        (BeefyConsensusState memory newState, IntermediateState memory intermediate) = verifyConsensus(
+            consensusState,
+            BeefyConsensusProof(relay, parachain)
+        );
 
         return (abi.encode(newState), intermediate);
     }
 
     // @dev Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized
     // by this consensus proof.
-    function verifyConsensus(BeefyConsensusState memory trustedState, BeefyConsensusProof memory proof)
-        internal
-        view
-        returns (BeefyConsensusState memory, IntermediateState memory)
-    {
+    function verifyConsensus(
+        BeefyConsensusState memory trustedState,
+        BeefyConsensusProof memory proof
+    ) internal view returns (BeefyConsensusState memory, IntermediateState memory) {
         // verify mmr root proofs
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, proof.relay);
 
@@ -127,25 +129,26 @@ contract UltraPlonkBeefy is IConsensusClient {
         return (state, intermediate);
     }
 
-    // @dev Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
-    // which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
-    // the relay chain authority set and we can verify the membership of the authorities who signed this new root
-    // using a merkle multi proof and a merkle commitment to the total authorities.
-    function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, UltraPlonkConsensusProof memory relayProof)
-        internal
-        view
-        returns (BeefyConsensusState memory, bytes32)
-    {
+    /** @dev Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
+    * which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
+    * the relay chain authority set and we can verify the membership of the authorities who signed this new root
+    * using a merkle multi proof and a merkle commitment to the total authorities.
+    */
+    function verifyMmrUpdateProof(
+        BeefyConsensusState memory trustedState,
+        UltraPlonkConsensusProof memory relayProof
+    ) internal view returns (BeefyConsensusState memory, bytes32) {
         uint256 latestHeight = relayProof.commitment.blockNumber;
 
         if (trustedState.latestHeight >= latestHeight) revert StaleHeight();
 
         Commitment memory commitment = relayProof.commitment;
 
-        if (commitment.validatorSetId != trustedState.currentAuthoritySet.id
-            && commitment.validatorSetId != trustedState.nextAuthoritySet.id)
-        {
-        	revert UnknownAuthoritySet();
+        if (
+            commitment.validatorSetId != trustedState.currentAuthoritySet.id &&
+            commitment.validatorSetId != trustedState.nextAuthoritySet.id
+        ) {
+            revert UnknownAuthoritySet();
         }
 
         bool is_current_authorities = commitment.validatorSetId == trustedState.currentAuthoritySet.id;
@@ -185,10 +188,11 @@ contract UltraPlonkBeefy is IConsensusClient {
     }
 
     // @dev Stack too deep, sigh solidity
-    function verifyMmrLeaf(BeefyConsensusState memory trustedState, UltraPlonkConsensusProof memory relay, bytes32 mmrRoot)
-        internal
-        pure
-    {
+    function verifyMmrLeaf(
+        BeefyConsensusState memory trustedState,
+        UltraPlonkConsensusProof memory relay,
+        bytes32 mmrRoot
+    ) internal pure {
         bytes32 hash = keccak256(Codec.Encode(relay.latestMmrLeaf));
         uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;
 
@@ -200,11 +204,10 @@ contract UltraPlonkBeefy is IConsensusClient {
     }
 
     // @dev Verifies that some parachain header has been finalized, given the current trusted consensus state.
-    function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof)
-        internal
-        view
-        returns (IntermediateState memory)
-    {
+    function verifyParachainHeaderProof(
+        bytes32 headsRoot,
+        ParachainProof memory proof
+    ) internal view returns (IntermediateState memory) {
         Node[] memory leaves = new Node[](1);
         Parachain memory para = proof.parachain;
         if (para.id != _paraId) revert UnknownParaId();

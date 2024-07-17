@@ -162,66 +162,66 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(
-    	// Commitment of the incoming request
-    	bytes32 indexed commitment,
-     	// Relayer responsible for the delivery
-     	address relayer
+        // Commitment of the incoming request
+        bytes32 indexed commitment,
+        // Relayer responsible for the delivery
+        address relayer
     );
 
     // Emitted when an outgoing POST request timeout is handled, `dest` refers
     // to the destination for the request
     event PostRequestTimeoutHandled(
-   		// Commitment of the timed out request
-    	bytes32 indexed commitment,
-     	// Destination chain for this request
-     	string dest
+        // Commitment of the timed out request
+        bytes32 indexed commitment,
+        // Destination chain for this request
+        string dest
     );
 
     // Emitted when an incoming POST response is handled
     event PostResponseHandled(
-   		// Commitment of the incoming response
-    	bytes32 indexed commitment,
-    	// Relayer responsible for the delivery
-     	address relayer
+        // Commitment of the incoming response
+        bytes32 indexed commitment,
+        // Relayer responsible for the delivery
+        address relayer
     );
 
     // Emitted when an outgoing POST response timeout is handled, `dest` refers
     // to the destination for the response
     event PostResponseTimeoutHandled(
-  		// Commitment of the timed out response
-    	bytes32 indexed commitment,
-    	// Destination chain for this response
-     	string dest
+        // Commitment of the timed out response
+        bytes32 indexed commitment,
+        // Destination chain for this response
+        string dest
     );
 
     // Emitted when an outgoing GET request is handled
     event GetRequestHandled(
-   		// Commitment of the GET request
-    	bytes32 indexed commitment,
-    	// Relayer responsible for the delivery
-     	address relayer
+        // Commitment of the GET request
+        bytes32 indexed commitment,
+        // Relayer responsible for the delivery
+        address relayer
     );
 
     // Emitted when an outgoing GET request timeout is handled, `dest` refers
     // to the destination for the request
     event GetRequestTimeoutHandled(
-  		// Commitment of the GET request
-    	bytes32 indexed commitment,
-    	// Destination chain for this request
-     	string dest
+        // Commitment of the GET request
+        bytes32 indexed commitment,
+        // Destination chain for this request
+        string dest
     );
 
     // Emitted when new heights are finalized
     event StateMachineUpdated(
-   		// The state machine that was just updated
-    	string stateMachineId,
-     	// The newly updated height
-     	uint256 height
+        // The state machine that was just updated
+        string stateMachineId,
+        // The newly updated height
+        uint256 height
     );
 
     // Emitted when a state commitment is vetoed by a fisherman
     event StateCommitmentVetoed(
-    	// The state machine identifier for the vetoed state commitment
+        // The state machine identifier for the vetoed state commitment
         string stateMachineId,
         // The height that was vetoed
         uint256 height,
@@ -233,7 +233,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when a new POST request is dispatched
     event PostRequestEvent(
-    	// Source of this request, included for convenience sake
+        // Source of this request, included for convenience sake
         string source,
         // The destination chain for this request
         string dest,
@@ -254,7 +254,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when a new POST response is dispatched
     event PostResponseEvent(
-   		// Source of this response, included for convenience sake
+        // Source of this response, included for convenience sake
         string source,
         // The destination chain for this response
         string dest,
@@ -280,7 +280,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when a new GET request is dispatched
     event GetRequestEvent(
-  		// Source of this response, included for convenience sake
+        // Source of this response, included for convenience sake
         string source,
         // The destination chain for this response
         string dest,
@@ -299,18 +299,18 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when a POST or GET request is funded
     event RequestFunded(
-  		// Commitment of the request
-    	bytes32 commitment,
-     	// The updated fee available for relayers
-     	uint256 newFee
+        // Commitment of the request
+        bytes32 commitment,
+        // The updated fee available for relayers
+        uint256 newFee
     );
 
     // Emitted when a POST response is funded
     event PostResponseFunded(
-  		// Commitment of the response
-    	bytes32 commitment,
-    	// The updated fee available for relayers
-     	uint256 newFee
+        // Commitment of the response
+        bytes32 commitment,
+        // The updated fee available for relayers
+        uint256 newFee
     );
 
     // Emitted when the host has either been frozen or unfrozen
@@ -318,18 +318,18 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when the host params is updated
     event HostParamsUpdated(
-    	// The old host parameters
-    	HostParams oldParams,
-    	// The new host parameters
-     	HostParams newParams
+        // The old host parameters
+        HostParams oldParams,
+        // The new host parameters
+        HostParams newParams
     );
 
     // Emitted when the host processes a withdrawal
     event HostWithdrawal(
-    	// Amount that was withdrawn from the host's feeToken balance
-    	uint256 amount,
-     	// The beneficiary address for this withdrawal
-     	address beneficiary
+        // Amount that was withdrawn from the host's feeToken balance
+        uint256 amount,
+        // The beneficiary address for this withdrawal
+        address beneficiary
     );
 
     // Account is unauthorized to perform requested action
@@ -612,10 +612,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Store the state commitment at given state height alongside relevant metadata.
      * Assumes the state commitment is of the latest height.
      */
-    function storeStateMachineCommitment(StateMachineHeight memory height, StateCommitment memory commitment)
-        external
-        restrict(_hostParams.handler)
-    {
+    function storeStateMachineCommitment(
+        StateMachineHeight memory height,
+        StateCommitment memory commitment
+    ) external restrict(_hostParams.handler) {
         _stateCommitments[height.stateMachineId][height.height] = commitment;
         _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
         _latestStateMachineHeight[height.stateMachineId] = height.height;
@@ -626,10 +626,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @dev Delete the state commitment at given state height.
      */
-    function deleteStateMachineCommitment(StateMachineHeight memory height, address fisherman)
-        external
-        restrict(_hostParams.handler)
-    {
+    function deleteStateMachineCommitment(
+        StateMachineHeight memory height,
+        address fisherman
+    ) external restrict(_hostParams.handler) {
         deleteStateMachineCommitmentInternal(height, fisherman);
     }
 
@@ -692,10 +692,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev sets the initial consensus state
      * @param state initial consensus state
      */
-    function setConsensusState(bytes memory state, StateMachineHeight memory height, StateCommitment memory commitment)
-        public
-        restrict(_hostParams.admin)
-    {
+    function setConsensusState(
+        bytes memory state,
+        StateMachineHeight memory height,
+        StateCommitment memory commitment
+    ) public restrict(_hostParams.admin) {
         // if we're on mainnet, then consensus state can only be initialized once
         // and updated subsequently through consensus proofs
         require(chainId() == block.chainid ? _consensusState.equals(new bytes(0)) : true, "Unauthorized action");
@@ -727,7 +728,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes32 commitment = request.hash();
         _requestReceipts[commitment] = relayer;
 
-        (bool success,) = address(destination).call(
+        (bool success, ) = address(destination).call(
             abi.encodeWithSelector(IIsmpModule.onAccept.selector, IncomingPostRequest(request, relayer))
         );
 
@@ -749,10 +750,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // replay protection
         bytes32 requestCommitment = response.request.hash();
         bytes32 responseCommitment = response.hash();
-        _responseReceipts[requestCommitment] =
-            ResponseReceipt({relayer: relayer, responseCommitment: responseCommitment});
+        _responseReceipts[requestCommitment] = ResponseReceipt({
+            relayer: relayer,
+            responseCommitment: responseCommitment
+        });
 
-        (bool success,) = address(origin).call(
+        (bool success, ) = address(origin).call(
             abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, IncomingPostResponse(response, relayer))
         );
 
@@ -776,7 +779,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // don't commit the full response object, it's unused.
         _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
 
-        (bool success,) = address(origin).call(
+        (bool success, ) = address(origin).call(
             abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, IncomingGetResponse(response, relayer))
         );
 
@@ -786,22 +789,24 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        emit PostResponseHandled({commitment: commitment, relayer: relayer});
+        emit GetRequestHandled({commitment: commitment, relayer: relayer});
     }
 
     /**
-     * @dev Dispatch an incoming GET timeout to the source module
+     * @dev Dispatch an incoming GET timeout to the source module.
+     * @notice Does not refund any protocol fees.
      * @param request - get request
      */
-    function dispatchIncoming(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
-        external
-        restrict(_hostParams.handler)
-    {
+    function dispatchIncoming(
+        GetRequest memory request,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external restrict(_hostParams.handler) {
         address origin = _bytesToAddress(request.from);
 
         // replay protection, delete memory of this request
         delete _requestCommitments[commitment];
-        (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
+        (bool success, ) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -816,16 +821,18 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST timeout to the source module
      * @param request - post timeout
      */
-    function dispatchIncoming(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
-        external
-        restrict(_hostParams.handler)
-    {
+    function dispatchIncoming(
+        PostRequest memory request,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external restrict(_hostParams.handler) {
         address origin = _bytesToAddress(request.from);
 
         // replay protection, delete memory of this request
         delete _requestCommitments[commitment];
-        (bool success,) =
-            address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request));
+        (bool success, ) = address(origin).call(
+            abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request)
+        );
 
         if (!success) {
             // so that it can be retried
@@ -843,18 +850,20 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST response timeout to the source module
      * @param response - timed-out post response
      */
-    function dispatchIncoming(PostResponse memory response, FeeMetadata memory meta, bytes32 commitment)
-        external
-        restrict(_hostParams.handler)
-    {
+    function dispatchIncoming(
+        PostResponse memory response,
+        FeeMetadata memory meta,
+        bytes32 commitment
+    ) external restrict(_hostParams.handler) {
         address origin = _bytesToAddress(response.request.to);
 
         // replay protection, delete memory of this response
         bytes32 reqCommitment = response.request.hash();
         delete _responseCommitments[commitment];
         delete _responded[reqCommitment];
-        (bool success,) =
-            address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponseTimeout.selector, response));
+        (bool success, ) = address(origin).call(
+            abi.encodeWithSelector(IIsmpModule.onPostResponseTimeout.selector, response)
+        );
 
         if (!success) {
             // so that it can be retried
@@ -917,8 +926,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // adjust the timeout
-        uint64 timeout =
-            get.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
+        uint64 timeout = get.timeout == 0
+            ? 0
+            : uint64(block.timestamp) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
 
         GetRequest memory request = GetRequest({
             source: host(),
@@ -970,8 +980,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             ? 0
             : uint64(block.timestamp) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
 
-        PostResponse memory response =
-            PostResponse({request: post.request, response: post.response, timeoutTimestamp: timeout});
+        PostResponse memory response = PostResponse({
+            request: post.request,
+            response: post.response,
+            timeoutTimestamp: timeout
+        });
         commitment = response.hash();
 
         FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: post.payer});

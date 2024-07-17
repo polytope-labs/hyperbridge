@@ -115,31 +115,43 @@ contract TokenRegistrar is BaseIsmpModule {
 
         if (feeToken != registration.feeToken) {
             if (msg.value != 0) {
-                (bool sent,) = _params.erc20NativeToken.call{value: msg.value}("");
+                (bool sent, ) = _params.erc20NativeToken.call{value: msg.value}("");
                 if (!sent) revert InconsistentState();
                 registration.feeToken = _params.erc20NativeToken;
                 registration.amountToSwap = msg.value;
             } else {
                 SafeERC20.safeTransferFrom(
-                    IERC20(registration.feeToken), msg.sender, address(this), registration.amountToSwap
+                    IERC20(registration.feeToken),
+                    msg.sender,
+                    address(this),
+                    registration.amountToSwap
                 );
             }
-            SafeERC20.safeIncreaseAllowance(IERC20(registration.feeToken), _params.uniswapV2, registration.amountToSwap);
+            SafeERC20.safeIncreaseAllowance(
+                IERC20(registration.feeToken),
+                _params.uniswapV2,
+                registration.amountToSwap
+            );
 
             address[] memory path = new address[](2);
             path[0] = registration.feeToken;
             path[1] = feeToken;
 
             IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
-                fee, registration.amountToSwap, path, address(this), block.timestamp
+                fee,
+                registration.amountToSwap,
+                path,
+                address(this),
+                block.timestamp
             );
             SafeERC20.safeTransfer(IERC20(feeToken), _params.host, _params.baseFee);
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, _params.host, _params.baseFee);
             SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), messagingFee);
         }
-        bytes memory data =
-            abi.encode(RequestBody({owner: msg.sender, assetId: registration.assetId, baseFee: _params.baseFee}));
+        bytes memory data = abi.encode(
+            RequestBody({owner: msg.sender, assetId: registration.assetId, baseFee: _params.baseFee})
+        );
 
         // approve the host with the exact amount
         SafeERC20.safeIncreaseAllowance(IERC20(feeToken), _params.host, fee);

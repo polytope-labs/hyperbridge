@@ -243,8 +243,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes to,
         // Monotonically increasing nonce
         uint256 nonce,
-        // The timestamp at which this request will be considered as
-        // timed out
+        // The timestamp at which this request will be considered as timed out
         uint256 timeoutTimestamp,
         // The serialized request body
         bytes body,
@@ -264,15 +263,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes to,
         // Monotonically increasing nonce
         uint256 nonce,
-        // The timestamp at which this request will be considered as
-        // timed out
+        // The timestamp at which this request will be considered as timed out
         uint256 timeoutTimestamp,
         // The serialized request body
         bytes body,
         // The serialized response body
         bytes response,
-        // The timestamp at which this response will be considered as
-        // timed out
+        // The timestamp at which this response will be considered as timed out
         uint256 responseTimeoutTimestamp,
         // The associated relayer fee
         uint256 fee
@@ -292,8 +289,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 height,
         // Monotonically increasing nonce
         uint256 nonce,
-        // The timestamp at which this response will be considered as
-        // timed out
+        // The timestamp at which this response will be considered as timed out
         uint256 timeoutTimestamp
     );
 

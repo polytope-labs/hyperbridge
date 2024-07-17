@@ -51,10 +51,8 @@ use ismp_solidity_abi::{
 use std::sync::Arc;
 
 const OP_HOST: H160 = H160(hex!("897aEA53c83Eb203D4708608ccDB5943b9b63c4e"));
-const OP_HANDLER: H160 = H160(hex!("2Fc7eA2991E013B91BE87E56a809D1e101BC5b5A"));
 
 const SEPOLIA_HOST: H160 = H160(hex!("49642E844E3D141915B10505260B263a92f82972"));
-const SEPOLIA_HANDLER: H160 = H160(hex!("89391d66CB38946286DE31ee0F3758347C0f1464"));
 
 const BSC_HOST: H160 = H160(hex!("22B3D91651aF817EBFb99937EF396bDaBFbbC559"));
 const BSC_HANDLER: H160 = H160(hex!("cF894fd41a114A872cFe0AF945cdAa91cbB182B8"));
@@ -72,7 +70,6 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		rpc_url: bsc_url.clone(),
 		state_machine: StateMachine::Bsc,
 		host_address: BSC_HOST,
-		handler_address: BSC_HANDLER,
 		consensus_state_id: *b"BSC0",
 	};
 
@@ -80,7 +77,6 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		rpc_url: op_url,
 		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 		host_address: OP_HOST,
-		handler_address: OP_HANDLER,
 		consensus_state_id: *b"ETH0",
 	};
 
@@ -172,7 +168,6 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		rpc_url: bsc_url.clone(),
 		state_machine: StateMachine::Bsc,
 		host_address: BSC_HOST,
-		handler_address: BSC_HANDLER,
 		consensus_state_id: *b"BSC0",
 	};
 
@@ -180,7 +175,6 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		rpc_url: sepolia_url,
 		state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		host_address: SEPOLIA_HOST,
-		handler_address: SEPOLIA_HANDLER,
 		consensus_state_id: *b"ETH0",
 	};
 
@@ -307,7 +301,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 						let pending = client
 							.send_transaction(
 								TypedTransaction::Legacy(TransactionRequest {
-									to: Some(NameOrAddress::Address(source_chain.handler_address)),
+									to: Some(NameOrAddress::Address(BSC_HANDLER)),
 									gas_price: Some(gas_price * 5), // experiment with higher?
 									data: Some(calldata.0.into()),
 									..Default::default()

@@ -80,10 +80,12 @@ impl EvmClient {
 		rpc_url: String,
 		consensus_state_id: ConsensusStateId,
 		host_address: H160,
-		handler_address: H160,
 		state_machine: StateMachine,
 	) -> Result<Self, anyhow::Error> {
 		let client = Arc::new(Provider::<Http>::connect(&rpc_url.clone()).await);
+		let host = EvmHost::new(host_address, client.clone());
+		let handler_address = host.host_params().await?.handler;
+
 		Ok(Self {
 			rpc_url,
 			client,

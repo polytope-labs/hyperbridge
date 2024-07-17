@@ -78,7 +78,6 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 		rpc_url: "https://bsc-testnet.blockpi.network/v1/rpc/public".to_string(),
 		state_machine: StateMachine::Bsc,
 		host_address: Default::default(),
-		handler_address: Default::default(),
 		consensus_state_id: *b"BSC0",
 	};
 
@@ -86,7 +85,6 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 		rpc_url: "https://optimism-sepolia.blockpi.network/v1/rpc/public".to_string(),
 		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 		host_address: Default::default(),
-		handler_address: Default::default(),
 		consensus_state_id: *b"ETH0",
 	};
 
@@ -158,7 +156,6 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 		rpc_url: "https://bsc-testnet.blockpi.network/v1/rpc/public".to_string(),
 		state_machine: StateMachine::Bsc,
 		host_address: Default::default(),
-		handler_address: Default::default(),
 		consensus_state_id: *b"BSC0",
 	};
 
@@ -166,7 +163,6 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 		rpc_url: "https://optimism-sepolia.blockpi.network/v1/rpc/public".to_string(),
 		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 		host_address: Default::default(),
-		handler_address: Default::default(),
 		consensus_state_id: *b"ETH0",
 	};
 

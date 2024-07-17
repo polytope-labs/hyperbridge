@@ -240,7 +240,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // The contract that initiated this request
         address indexed from,
         // The intended recipient module of this request
-        bytes indexed to,
+        bytes to,
         // Monotonically increasing nonce
         uint256 nonce,
         // The timestamp at which this request will be considered as
@@ -261,7 +261,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // The contract that initiated this response
         address indexed from,
         // The intended recipient module of this response
-        bytes indexed to,
+        bytes to,
         // Monotonically increasing nonce
         uint256 nonce,
         // The timestamp at which this request will be considered as

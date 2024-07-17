@@ -41,7 +41,6 @@ pub struct EvmConfig {
 	pub rpc_url: String,
 	pub state_machine: StateMachine,
 	pub host_address: H160,
-	pub handler_address: H160,
 	pub consensus_state_id: ConsensusStateId,
 }
 
@@ -51,7 +50,6 @@ impl EvmConfig {
 			self.rpc_url.clone(),
 			self.consensus_state_id,
 			self.host_address,
-			self.handler_address,
 			self.state_machine,
 		)
 		.await?;

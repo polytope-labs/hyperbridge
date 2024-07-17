@@ -29,7 +29,6 @@ pub struct JsChainConfig {
 	pub rpc_url: String,
 	pub state_machine: String,
 	pub host_address: String,
-	pub handler_address: String,
 	pub consensus_state_id: String,
 }
 
@@ -51,7 +50,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 
 	fn try_from(value: JsClientConfig) -> Result<Self, Self::Error> {
 		let to_config = |val: &JsChainConfig| {
-			if !val.host_address.is_empty() && !val.handler_address.is_empty() {
+			if !val.host_address.is_empty() {
 				let conf = EvmConfig {
 					rpc_url: val.rpc_url.clone(),
 					state_machine: StateMachine::from_str(&val.state_machine)
@@ -60,14 +59,6 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 						let address = from_hex(&val.host_address)?;
 						if address.len() != 20 {
 							Err(anyhow!("Invalid host address"))?
-						}
-						H160::from_slice(&address)
-					},
-					handler_address: {
-						let address = from_hex(&val.handler_address)?;
-
-						if address.len() != 20 {
-							Err(anyhow!("Invalid handler address"))?
 						}
 						H160::from_slice(&address)
 					},
@@ -215,15 +206,13 @@ mod tests {
 	};
 	const OP_HOST: H160 = H160(hex!("1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95"));
 	const BSC_HOST: H160 = H160(hex!("022DDE07A21d8c553978b006D93CDe68ac83e677"));
-	const OP_HANDLER: H160 = H160(hex!("a25151598Dc180fc03635858f37bDF8427f47845"));
-	const BSC_HANDLER: H160 = H160(hex!("43a0BcC347894303f93905cE137CB3b804bE990d"));
+
 	#[test]
 	fn test_chain_config_conversion() {
 		let source_chain = EvmConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: StateMachine::Bsc,
 			host_address: BSC_HOST,
-			handler_address: BSC_HANDLER,
 			consensus_state_id: *b"BSC0",
 		};
 
@@ -231,7 +220,6 @@ mod tests {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 			host_address: OP_HOST,
-			handler_address: OP_HANDLER,
 			consensus_state_id: *b"ETH0",
 		};
 
@@ -251,7 +239,6 @@ mod tests {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: "BSC".to_string(),
 			host_address: hex::encode(&BSC_HOST.0),
-			handler_address: hex::encode(&BSC_HANDLER.0),
 			consensus_state_id: "BSC0".to_string(),
 		};
 
@@ -259,7 +246,6 @@ mod tests {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: "OPTI".to_string(),
 			host_address: hex::encode(&OP_HOST.0),
-			handler_address: hex::encode(&OP_HANDLER.0),
 			consensus_state_id: "ETH0".to_string(),
 		};
 

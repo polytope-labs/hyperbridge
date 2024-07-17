@@ -6,7 +6,7 @@ use hex_literal::hex;
 use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::{hash_request, Keccak256},
-	router::{Post, Request},
+	router::{PostRequest, Request},
 };
 use ismp_solidity_abi::handler::HandlePostRequestsCall;
 use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos, util::MemMMR, MerkleProof};
@@ -113,7 +113,7 @@ async fn extract_mmr_leaves() {
 			value => panic!("Unexpected value {value:?}"),
 		};
 		actual_leaves.push(hyerbridge_leaf);
-		let evm_leaf: Post = l.request.try_into().unwrap();
+		let evm_leaf: PostRequest = l.request.try_into().unwrap();
 
 		evm_leaves.push(evm_leaf);
 		claimed_indices.push(l.index.low_u64() as usize);

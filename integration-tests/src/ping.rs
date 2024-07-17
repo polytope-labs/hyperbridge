@@ -35,7 +35,7 @@ use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 #[ignore]
 async fn test_ping() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
-	let op_url = std::env::var("OP_URL").expect("OP_URL was missing in env variables");
+	let _op_url = std::env::var("OP_URL").expect("OP_URL was missing in env variables");
 	let _base_url = std::env::var("BASE_URL").expect("BASE_URL was missing in env variables");
 	let _arb_url = std::env::var("ARB_URL").expect("ARB_URL was missing in env variables");
 	let _geth_url = std::env::var("GETH_URL").expect("GETH_URL was missing in env variables");
@@ -45,14 +45,14 @@ async fn test_ping() -> anyhow::Result<()> {
 	let signing_key =
 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
-	let ping_addr = H160(hex!("9Cc29770F3d643F4094Ee591f3D2E3c98C349761"));
+	let ping_addr = H160(hex!("8E4Ca395cfAa033A71fC618792Fce99106633B90"));
 
 	let chains = vec![
-		(StateMachine::Ethereum(Ethereum::ExecutionLayer), _geth_url, 0),
-		(StateMachine::Ethereum(Ethereum::Arbitrum), _arb_url, 46014272),
-		(StateMachine::Ethereum(Ethereum::Optimism), op_url, 12201628),
+		(StateMachine::Ethereum(Ethereum::ExecutionLayer), _geth_url, 6328728),
+		// (StateMachine::Ethereum(Ethereum::Arbitrum), _arb_url, 64565289),
+		// (StateMachine::Ethereum(Ethereum::Optimism), _op_url, 14717202),
 		// (StateMachine::Ethereum(Ethereum::Base), _base_url, 10218678),
-		(StateMachine::Bsc, _bsc_url, 40496717),
+		(StateMachine::Bsc, _bsc_url, 42173080),
 	];
 
 	let stream = futures::stream::iter(chains.clone().into_iter().map(Ok::<_, anyhow::Error>));
@@ -61,14 +61,16 @@ async fn test_ping() -> anyhow::Result<()> {
 		max_rpc_payload_size: None,
 		hashing: Some(HashAlgorithm::Keccak),
 		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
+		// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+		rpc_ws: "ws://127.0.0.1:9001".to_string(),
 		signer: None,
 		latest_height: None,
 		max_concurent_queries: None,
 	};
 
+	println!("Connecting .. ");
 	let hyperbridge = SubstrateClient::<Hyperbridge>::new(hyperbridge_config).await?;
+	println!("Connected .. ");
 
 	stream
 		.try_for_each_concurrent(None, |(chain, url, _previous_height)| {
@@ -101,6 +103,7 @@ async fn test_ping() -> anyhow::Result<()> {
 						query_batch_size: Default::default(),
 						poll_interval: Default::default(),
 						gas_price_buffer: Default::default(),
+						client_type: None,
 					};
 					let client = config.into_client().await?;
 					let latest_height = StateMachineUpdated {

@@ -53,7 +53,7 @@ contract DeployScript is Script {
 
         ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyper USD", "USD.h");
         // mint $1b to the dispatcher for tests
-        feeToken.mint(pingDispatcher, 1000000000 * 1e18);
+        feeToken.mint(pingDispatcher, 1_000_000_000 * 1e18);
 
         // consensus client
         //        PolkadotVerifier verifier = new PolkadotVerifier();

@@ -243,8 +243,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes to,
         // Monotonically increasing nonce
         uint256 nonce,
-        // The timestamp at which this request will be considered as
-        // timed out
+        // The timestamp at which this request will be considered as timed out
         uint256 timeoutTimestamp,
         // The serialized request body
         bytes body,
@@ -264,15 +263,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes to,
         // Monotonically increasing nonce
         uint256 nonce,
-        // The timestamp at which this request will be considered as
-        // timed out
+        // The timestamp at which this request will be considered as timed out
         uint256 timeoutTimestamp,
         // The serialized request body
         bytes body,
         // The serialized response body
         bytes response,
-        // The timestamp at which this response will be considered as
-        // timed out
+        // The timestamp at which this response will be considered as timed out
         uint256 responseTimeoutTimestamp,
         // The associated relayer fee
         uint256 fee
@@ -292,8 +289,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 height,
         // Monotonically increasing nonce
         uint256 nonce,
-        // The timestamp at which this response will be considered as
-        // timed out
+        // The timestamp at which this response will be considered as timed out
         uint256 timeoutTimestamp
     );
 
@@ -396,14 +392,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function chainId() public virtual returns (uint256);
 
     /**
-     * @return the address of the fee token ERC-20 contract on this state machine
+     * @return the address of the ERC-20 fee token contract on this state machine
      */
     function feeToken() public view returns (address) {
         return _hostParams.feeToken;
     }
 
     /**
-     * @return the per-byte fee for outgoing requests.
+     * @return the per-byte fee for outgoing requests/responses.
      */
     function perByteFee() external view returns (uint256) {
         return _hostParams.perByteFee;
@@ -551,7 +547,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Updates the HostParams
+     * @dev Updates the HostParams. Will reset all fishermen accounts and initialize any new state machines.
      * @param params, the new host params.
      */
     function updateHostParamsInternal(HostParams memory params) internal {
@@ -564,7 +560,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 newFishermenLength = params.fishermen.length;
         if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
 
-        // delete old fishermen
+        // reset old fishermen
         uint256 fishermenLength = _hostParams.fishermen.length;
         for (uint256 i = 0; i < fishermenLength; ++i) {
             delete _fishermen[_hostParams.fishermen[i]];

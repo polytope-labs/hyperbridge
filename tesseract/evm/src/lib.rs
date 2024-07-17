@@ -64,8 +64,6 @@ pub struct EvmConfig {
 	pub consensus_state_id: String,
 	/// Ismp Host contract address
 	pub ismp_host: H160,
-	/// Ismp Handler contract address
-	pub handler: H160,
 	/// Relayer account private key
 	pub signer: String,
 	/// Etherscan API key
@@ -103,7 +101,6 @@ impl Default for EvmConfig {
 			state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 			consensus_state_id: Default::default(),
 			ismp_host: Default::default(),
-			handler: Default::default(),
 			signer: Default::default(),
 			etherscan_api_key: Default::default(),
 			tracing_batch_size: Default::default(),
@@ -273,6 +270,12 @@ impl EvmClient {
 		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
 		let params = contract.host_params().call().await?;
 		Ok(params.host_manager)
+	}
+
+	pub async fn handler(&self) -> Result<H160, anyhow::Error> {
+		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let params = contract.host_params().call().await?;
+		Ok(params.handler)
 	}
 }
 

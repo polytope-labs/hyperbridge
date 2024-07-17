@@ -1616,7 +1616,7 @@ pub mod evm_host {
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("to"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("nonce"),
@@ -1721,7 +1721,7 @@ pub mod evm_host {
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("to"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    indexed: true,
+                                    indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("nonce"),
@@ -2460,8 +2460,7 @@ pub mod evm_host {
 		///Gets the contract's `GetRequestHandled` event
 		pub fn get_request_handled_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetRequestHandledFilter>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetRequestHandledFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `GetRequestTimeoutHandled` event
@@ -2483,8 +2482,7 @@ pub mod evm_host {
 		///Gets the contract's `HostParamsUpdated` event
 		pub fn host_params_updated_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostParamsUpdatedFilter>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostParamsUpdatedFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `HostWithdrawal` event
@@ -2502,8 +2500,7 @@ pub mod evm_host {
 		///Gets the contract's `PostRequestHandled` event
 		pub fn post_request_handled_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostRequestHandledFilter>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostRequestHandledFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `PostRequestTimeoutHandled` event
@@ -2519,15 +2516,13 @@ pub mod evm_host {
 		///Gets the contract's `PostResponseEvent` event
 		pub fn post_response_event_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseEventFilter>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseEventFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `PostResponseFunded` event
 		pub fn post_response_funded_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseFundedFilter>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseFundedFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `PostResponseHandled` event
@@ -3019,8 +3014,7 @@ pub mod evm_host {
 		pub dest: ::std::string::String,
 		#[ethevent(indexed)]
 		pub from: ::ethers::core::types::Address,
-		#[ethevent(indexed)]
-		pub to: ::ethers::core::types::H256,
+		pub to: ::ethers::core::types::Bytes,
 		pub nonce: ::ethers::core::types::U256,
 		pub timeout_timestamp: ::ethers::core::types::U256,
 		pub body: ::ethers::core::types::Bytes,
@@ -3080,8 +3074,7 @@ pub mod evm_host {
 		pub dest: ::std::string::String,
 		#[ethevent(indexed)]
 		pub from: ::ethers::core::types::Address,
-		#[ethevent(indexed)]
-		pub to: ::ethers::core::types::H256,
+		pub to: ::ethers::core::types::Bytes,
 		pub nonce: ::ethers::core::types::U256,
 		pub timeout_timestamp: ::ethers::core::types::U256,
 		pub body: ::ethers::core::types::Bytes,

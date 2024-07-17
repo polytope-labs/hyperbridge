@@ -219,9 +219,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "0.6.4"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "600d34d8de81e23b6d909c094e23b3d357e01ca36b78a8c5424c501eedbe86f0"
+checksum = "db8aa973e647ec336810a9356af8aea787249c9d00b1525359f3db29a68d231b"
 dependencies = [
  "alloy-rlp",
  "bytes",
@@ -236,22 +236,6 @@ dependencies = [
  "rand 0.8.5",
  "ruint",
  "serde",
- "tiny-keccak",
-]
-
-[[package]]
-name = "alloy-primitives"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db8aa973e647ec336810a9356af8aea787249c9d00b1525359f3db29a68d231b"
-dependencies = [
- "bytes",
- "cfg-if",
- "const-hex",
- "derive_more 0.99.17",
- "hex-literal 0.4.1",
- "itoa",
- "ruint",
  "tiny-keccak",
 ]
 
@@ -465,9 +449,9 @@ dependencies = [
 [[package]]
 name = "arbitrum-verifier"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives 0.7.4",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -1215,7 +1199,7 @@ dependencies = [
 [[package]]
 name = "beefy-prover"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
@@ -1240,7 +1224,7 @@ dependencies = [
 [[package]]
 name = "beefy-verifier-primitives"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "derive_more 0.99.17",
  "parity-scale-codec",
@@ -1624,7 +1608,7 @@ dependencies = [
 [[package]]
 name = "bsc-prover"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "bsc-verifier",
@@ -1640,9 +1624,9 @@ dependencies = [
 [[package]]
 name = "bsc-verifier"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives 0.7.4",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -3796,7 +3780,7 @@ dependencies = [
 [[package]]
 name = "ethereum-triedb"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "hash-db",
  "hash256-std-hasher",
@@ -3827,7 +3811,7 @@ dependencies = [
 [[package]]
 name = "ethers"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "ethers-addressbook",
  "ethers-contract",
@@ -3842,7 +3826,7 @@ dependencies = [
 [[package]]
 name = "ethers-addressbook"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "ethers-core",
  "once_cell",
@@ -3853,7 +3837,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "ethers-contract-abigen",
  "ethers-contract-derive",
@@ -3872,7 +3856,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract-abigen"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "Inflector",
  "dunce",
@@ -3895,7 +3879,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract-derive"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "Inflector",
  "ethers-contract-abigen",
@@ -3910,7 +3894,7 @@ dependencies = [
 [[package]]
 name = "ethers-core"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "arrayvec 0.7.4",
  "bytes",
@@ -3939,7 +3923,7 @@ dependencies = [
 [[package]]
 name = "ethers-etherscan"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "ethers-core",
  "ethers-solc",
@@ -3954,7 +3938,7 @@ dependencies = [
 [[package]]
 name = "ethers-middleware"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "async-trait",
  "auto_impl",
@@ -3980,7 +3964,7 @@ dependencies = [
 [[package]]
 name = "ethers-providers"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4019,7 +4003,7 @@ dependencies = [
 [[package]]
 name = "ethers-signers"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "async-trait",
  "coins-bip32",
@@ -4037,7 +4021,7 @@ dependencies = [
 [[package]]
 name = "ethers-solc"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=45239225c50247e049892125d281442c084a2a92#45239225c50247e049892125d281442c084a2a92"
 dependencies = [
  "cfg-if",
  "dirs 5.0.1",
@@ -4146,9 +4130,9 @@ dependencies = [
 [[package]]
 name = "evm-common"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives 0.7.4",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -4433,7 +4417,7 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 [[package]]
 name = "forge"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "comfy-table",
  "ethers",
@@ -4462,7 +4446,7 @@ dependencies = [
 [[package]]
 name = "forge-fmt"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "ariadne",
  "ethers-core",
@@ -4477,7 +4461,7 @@ dependencies = [
 [[package]]
 name = "forge-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/forge-testsuite?rev=9a4e82498e60b6c90c09be1685dfc80bca057fc2#9a4e82498e60b6c90c09be1685dfc80bca057fc2"
+source = "git+https://github.com/polytope-labs/forge-testsuite?rev=ff9fdc69c0200e3bb471198aa44ba933e043b78d#ff9fdc69c0200e3bb471198aa44ba933e043b78d"
 dependencies = [
  "ethers",
  "ethers-solc",
@@ -4520,7 +4504,7 @@ dependencies = [
 [[package]]
 name = "foundry-abi"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "ethers-contract",
  "ethers-contract-abigen",
@@ -4534,7 +4518,7 @@ dependencies = [
 [[package]]
 name = "foundry-common"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "auto_impl",
  "clap",
@@ -4565,7 +4549,7 @@ dependencies = [
 [[package]]
 name = "foundry-config"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "Inflector",
  "dirs-next",
@@ -4595,7 +4579,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "auto_impl",
  "bytes",
@@ -4630,7 +4614,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "ethers-core",
  "foundry-macros-impl",
@@ -4641,7 +4625,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros-impl"
 version = "0.0.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4651,7 +4635,7 @@ dependencies = [
 [[package]]
 name = "foundry-utils"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+source = "git+https://github.com/polytope-labs/foundry?rev=1db7f747d7033a760c747fabbeef706576c88e34#1db7f747d7033a760c747fabbeef706576c88e34"
 dependencies = [
  "dunce",
  "ethers-addressbook",
@@ -5102,9 +5086,9 @@ dependencies = [
 [[package]]
 name = "geth-primitives"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives 0.7.4",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -5898,7 +5882,7 @@ checksum = "f8478577c03552c21db0e2724ffb8986a5ce7af88107e6be5d2ee6e158c12800"
 [[package]]
 name = "ismp"
 version = "0.1.2"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "derive_more 0.99.17",
  "hex",
@@ -5912,7 +5896,7 @@ dependencies = [
 [[package]]
 name = "ismp-bsc"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "bsc-verifier",
@@ -5929,7 +5913,7 @@ dependencies = [
 [[package]]
 name = "ismp-solidity-abi"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
@@ -5946,7 +5930,7 @@ dependencies = [
 [[package]]
 name = "ismp-sync-committee"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "arbitrum-verifier",
  "ethabi",
@@ -5973,7 +5957,7 @@ dependencies = [
 [[package]]
 name = "ismp-testsuite"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "ismp",
  "once_cell",
@@ -7664,7 +7648,7 @@ dependencies = [
 [[package]]
 name = "mmr-primitives"
 version = "1.6.2"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
@@ -8627,9 +8611,9 @@ dependencies = [
 [[package]]
 name = "op-verifier"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives 0.7.4",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -8895,7 +8879,7 @@ dependencies = [
 [[package]]
 name = "pallet-hyperbridge"
 version = "1.6.2"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -8910,7 +8894,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "1.6.2"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "fortuples",
  "frame-benchmarking",
@@ -8933,7 +8917,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-demo"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -8949,9 +8933,9 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-host-executive"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives 0.7.4",
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",
@@ -8969,9 +8953,9 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-relayer"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
- "alloy-primitives 0.6.4",
+ "alloy-primitives 0.7.4",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -8995,7 +8979,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-rpc"
 version = "1.6.2"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -9024,7 +9008,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-runtime-api"
 version = "1.6.2"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -9038,7 +9022,7 @@ dependencies = [
 [[package]]
 name = "pallet-mmr"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-benchmarking",
@@ -15473,7 +15457,7 @@ dependencies = [
 [[package]]
 name = "substrate-state-machine"
 version = "1.6.2"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "frame-support",
  "hash-db",
@@ -15605,7 +15589,7 @@ dependencies = [
 [[package]]
 name = "subxt-utils"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "futures",
@@ -15700,7 +15684,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-primitives"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -15717,7 +15701,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-prover"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -15745,7 +15729,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-verifier"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -15991,7 +15975,7 @@ dependencies = [
 [[package]]
 name = "tesseract-config"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "ismp",
@@ -16008,7 +15992,7 @@ dependencies = [
 [[package]]
 name = "tesseract-evm"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -16115,7 +16099,7 @@ dependencies = [
 [[package]]
 name = "tesseract-messaging"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "futures",
@@ -16136,7 +16120,7 @@ dependencies = [
 [[package]]
 name = "tesseract-primitives"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -16157,7 +16141,7 @@ dependencies = [
 [[package]]
 name = "tesseract-substrate"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -16843,7 +16827,7 @@ dependencies = [
 [[package]]
 name = "transaction-fees"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=e056f69a47adddb404589cfdd9051dfa0dd3d2cf#e056f69a47adddb404589cfdd9051dfa0dd3d2cf"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a#bc38a4d720d133e0b1852ee342b4f5cc95fa2f1a"
 dependencies = [
  "anyhow",
  "async-trait",

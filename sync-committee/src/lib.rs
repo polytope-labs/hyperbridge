@@ -116,6 +116,7 @@ impl<C: Config> SyncCommitteeHost<C> {
 		let prover = SyncCommitteeProver::new(host.beacon_http_urls.clone());
 		let el = Provider::new(Http::new_client_with_chain_middleware(
 			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+			None,
 		));
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);

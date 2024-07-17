@@ -344,7 +344,8 @@ where
 					tracing::info!(
 						"Submitted mandatory proof to {counterparty_state_machine:?} for {set_id}"
 					);
-					self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
+					self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal
+					                                                      // error
 				}
 			}
 
@@ -425,7 +426,8 @@ where
 					continue;
 				};
 
-				self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
+				self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal
+				                                                         // error
 			}
 		}
 

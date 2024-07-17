@@ -103,9 +103,11 @@ impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let el = Provider::new(Http::new_client_with_chain_middleware(
 			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+			None,
 		));
 		let beacon_client = Provider::new(Http::new_client_with_chain_middleware(
 			host.beacon_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+			None,
 		));
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);

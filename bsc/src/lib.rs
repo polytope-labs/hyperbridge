@@ -78,6 +78,7 @@ impl BscPosHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let provider = Provider::new(Http::new_client_with_chain_middleware(
 			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+			None,
 		));
 		let prover = BscPosProver::new(provider);
 		let ismp_provider = EvmClient::new(evm.clone()).await?;

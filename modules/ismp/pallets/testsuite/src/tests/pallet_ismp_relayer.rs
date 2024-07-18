@@ -24,7 +24,7 @@ use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_post_response, hash_request, Proof},
-	router::{Post, Request},
+	router::{PostRequest, Request},
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
@@ -59,14 +59,14 @@ fn test_withdrawal_proof() {
 		let requests = (0u64..10)
 			.into_iter()
 			.map(|nonce| {
-				let post = Post {
+				let post = PostRequest {
 					source: StateMachine::Kusama(2000),
 					dest: StateMachine::Kusama(2001),
 					nonce,
 					from: vec![],
 					to: vec![],
 					timeout_timestamp: 0,
-					data: vec![],
+					body: vec![],
 				};
 				hash_request::<Ismp>(&Request::Post(post))
 			})
@@ -75,14 +75,14 @@ fn test_withdrawal_proof() {
 		let responses = (0u64..10)
 			.into_iter()
 			.map(|nonce| {
-				let post = Post {
+				let post = PostRequest {
 					source: StateMachine::Kusama(2001),
 					dest: StateMachine::Kusama(2000),
 					nonce,
 					from: vec![],
 					to: vec![],
 					timeout_timestamp: 0,
-					data: vec![],
+					body: vec![],
 				};
 				let response = ismp::router::PostResponse {
 					post: post.clone(),

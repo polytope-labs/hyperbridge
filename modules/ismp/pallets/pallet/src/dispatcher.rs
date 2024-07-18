@@ -31,7 +31,7 @@ use ismp::{
 	host::IsmpHost,
 	messaging::{hash_post_response, hash_request},
 	module::IsmpModule,
-	router::{Get, IsmpRouter, Post, PostResponse, Request, Response, Timeout},
+	router::{GetRequest, IsmpRouter, PostRequest, PostResponse, Request, Response, Timeout},
 };
 use sp_core::H256;
 use sp_runtime::traits::{AccountIdConversion, Zero};
@@ -83,7 +83,7 @@ where
 
 		let request = match request {
 			DispatchRequest::Get(dispatch_get) => {
-				let get = Get {
+				let get = GetRequest {
 					source: self.host_state_machine(),
 					dest: dispatch_get.dest,
 					nonce: self.next_nonce(),
@@ -99,7 +99,7 @@ where
 				Request::Get(get)
 			},
 			DispatchRequest::Post(dispatch_post) => {
-				let post = Post {
+				let post = PostRequest {
 					source: self.host_state_machine(),
 					dest: dispatch_post.dest,
 					nonce: self.next_nonce(),
@@ -112,7 +112,7 @@ where
 							.as_secs()
 							.saturating_add(dispatch_post.timeout)
 					},
-					data: dispatch_post.body,
+					body: dispatch_post.body,
 				};
 				Request::Post(post)
 			},
@@ -198,7 +198,7 @@ impl<T: Config> RefundingModule<T> {
 }
 
 impl<T: Config> IsmpModule for RefundingModule<T> {
-	fn on_accept(&self, request: Post) -> Result<(), IsmpError> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), IsmpError> {
 		self.inner.on_accept(request)
 	}
 

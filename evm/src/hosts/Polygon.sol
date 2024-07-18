@@ -17,6 +17,13 @@ pragma solidity 0.8.17;
 import "./EvmHost.sol";
 import "ismp/StateMachine.sol";
 
+/**
+ * @title The PolygonHost
+ * @author Polytope Labs (hello@polytope.technology)
+ *
+ * @notice The IsmpHost and IsmpDispatcher implementation for the Polygon state machine.
+ * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
+ */
 contract PolygonHost is EvmHost {
     constructor(HostParams memory params) EvmHost(params) {}
 

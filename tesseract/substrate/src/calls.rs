@@ -182,7 +182,7 @@ where
 						StateMachine::Polkadot(_) |
 						StateMachine::Grandpa(_) |
 						StateMachine::Beefy(_) => {
-							if let Ok(decoded_data) = WithdrawalParams::decode(&mut &*post.data) {
+							if let Ok(decoded_data) = WithdrawalParams::decode(&mut &*post.body) {
 								decoded_data.beneficiary_address == counterparty.address() &&
 									condition
 							} else {
@@ -190,7 +190,7 @@ where
 							}
 						},
 						StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
-							let address = &post.data[1..33].to_vec();
+							let address = &post.body[1..33].to_vec();
 							// abi encoding will pad address with 12 bytes
 							address.ends_with(&counterparty.address()) && condition
 						},

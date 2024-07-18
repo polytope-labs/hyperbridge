@@ -1,9 +1,24 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::types::{ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, SubstrateConfig};
 use anyhow::anyhow;
 use core::str::FromStr;
 use ismp::{
 	host::StateMachine,
-	router::{Post, PostResponse},
+	router::{PostRequest, PostResponse},
 };
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
@@ -14,7 +29,6 @@ pub struct JsChainConfig {
 	pub rpc_url: String,
 	pub state_machine: String,
 	pub host_address: String,
-	pub handler_address: String,
 	pub consensus_state_id: String,
 }
 
@@ -36,7 +50,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 
 	fn try_from(value: JsClientConfig) -> Result<Self, Self::Error> {
 		let to_config = |val: &JsChainConfig| {
-			if !val.host_address.is_empty() && !val.handler_address.is_empty() {
+			if !val.host_address.is_empty() {
 				let conf = EvmConfig {
 					rpc_url: val.rpc_url.clone(),
 					state_machine: StateMachine::from_str(&val.state_machine)
@@ -45,14 +59,6 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 						let address = from_hex(&val.host_address)?;
 						if address.len() != 20 {
 							Err(anyhow!("Invalid host address"))?
-						}
-						H160::from_slice(&address)
-					},
-					handler_address: {
-						let address = from_hex(&val.handler_address)?;
-
-						if address.len() != 20 {
-							Err(anyhow!("Invalid handler address"))?
 						}
 						H160::from_slice(&address)
 					},
@@ -122,14 +128,15 @@ pub struct JsPost {
 	/// Module ID of the receiving module
 	pub to: String,
 	/// Timestamp which this request expires in seconds.
+	#[serde(rename = "timeoutTimestamp")]
 	pub timeout_timestamp: u64,
 	/// Encoded Request.
-	pub data: String,
+	pub body: String,
 	/// Height at which this request was emitted on the source chain
 	pub height: u64,
 }
 
-impl TryFrom<JsPost> for Post {
+impl TryFrom<JsPost> for PostRequest {
 	type Error = anyhow::Error;
 
 	fn try_from(value: JsPost) -> Result<Self, Self::Error> {
@@ -147,14 +154,14 @@ impl TryFrom<JsPost> for Post {
 			StateMachine::from_str(&value.dest).map_err(|e| anyhow!("{e:?}"))?
 		};
 
-		let post = Post {
+		let post = PostRequest {
 			source,
 			dest,
 			nonce: value.nonce,
 			from: from_hex(&value.from)?,
 			to: from_hex(&value.to)?,
 			timeout_timestamp: value.timeout_timestamp,
-			data: from_hex(&value.data)?,
+			body: from_hex(&value.body)?,
 		};
 		Ok(post)
 	}
@@ -167,6 +174,7 @@ pub struct JsPostResponse {
 	/// The response message.
 	pub response: Vec<u8>,
 	/// Timestamp at which this response expires in seconds.
+	#[serde(rename = "timeoutTimestamp")]
 	pub timeout_timestamp: u64,
 }
 
@@ -194,19 +202,17 @@ mod tests {
 	use hex_literal::hex;
 	use ismp::{
 		host::{Ethereum, StateMachine},
-		router::{Post, PostResponse},
+		router::{PostRequest, PostResponse},
 	};
 	const OP_HOST: H160 = H160(hex!("1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95"));
 	const BSC_HOST: H160 = H160(hex!("022DDE07A21d8c553978b006D93CDe68ac83e677"));
-	const OP_HANDLER: H160 = H160(hex!("a25151598Dc180fc03635858f37bDF8427f47845"));
-	const BSC_HANDLER: H160 = H160(hex!("43a0BcC347894303f93905cE137CB3b804bE990d"));
+
 	#[test]
 	fn test_chain_config_conversion() {
 		let source_chain = EvmConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: StateMachine::Bsc,
 			host_address: BSC_HOST,
-			handler_address: BSC_HANDLER,
 			consensus_state_id: *b"BSC0",
 		};
 
@@ -214,7 +220,6 @@ mod tests {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 			host_address: OP_HOST,
-			handler_address: OP_HANDLER,
 			consensus_state_id: *b"ETH0",
 		};
 
@@ -234,7 +239,6 @@ mod tests {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: "BSC".to_string(),
 			host_address: hex::encode(&BSC_HOST.0),
-			handler_address: hex::encode(&BSC_HANDLER.0),
 			consensus_state_id: "BSC0".to_string(),
 		};
 
@@ -242,7 +246,6 @@ mod tests {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: "OPTI".to_string(),
 			host_address: hex::encode(&OP_HOST.0),
-			handler_address: hex::encode(&OP_HANDLER.0),
 			consensus_state_id: "ETH0".to_string(),
 		};
 
@@ -261,14 +264,14 @@ mod tests {
 	#[test]
 	fn test_post_conversion() {
 		let post_response = PostResponse {
-			post: Post {
+			post: PostRequest {
 				source: StateMachine::Bsc,
 				dest: StateMachine::Kusama(2000),
 				nonce: 100,
 				from: vec![30; 20],
 				to: vec![15; 20],
 				timeout_timestamp: 1_600_000,
-				data: vec![40; 256],
+				body: vec![40; 256],
 			},
 			response: vec![80; 256],
 			timeout_timestamp: 4_500_000,
@@ -282,7 +285,7 @@ mod tests {
 				from: hex::encode(vec![30; 20]),
 				to: hex::encode(vec![15; 20]),
 				timeout_timestamp: 1_600_000,
-				data: hex::encode(vec![40; 256]),
+				body: hex::encode(vec![40; 256]),
 				height: 0,
 			},
 			response: vec![80; 256],

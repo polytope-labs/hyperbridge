@@ -29,7 +29,7 @@ use ismp::{
 		hash_post_response, hash_request, ConsensusMessage, FraudProofMessage, Message, Proof,
 		RequestMessage, ResponseMessage, TimeoutMessage,
 	},
-	router::{Post, PostResponse, Request, RequestResponse, Response},
+	router::{PostRequest, PostResponse, Request, RequestResponse, Response},
 };
 
 use crate::mocks::{Host, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
@@ -112,14 +112,14 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 	host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
 		.unwrap();
 
-	let post = Post {
+	let post = PostRequest {
 		source: intermediate_state.height.id.state_id,
 		dest: host.host_state_machine(),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 	let request = Request::Post(post.clone());
 	// Request message handling check
@@ -189,14 +189,14 @@ pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
 		.unwrap();
 	host.freeze_consensus_client(mock_consensus_state_id()).unwrap();
 
-	let post = Post {
+	let post = PostRequest {
 		source: intermediate_state.height.id.state_id,
 		dest: host.host_state_machine(),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 	// Request message handling check
 	let request_message = Message::Request(RequestMessage {
@@ -223,14 +223,14 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 		.unwrap();
 	host.delete_state_commitment(intermediate_state.height).unwrap();
 
-	let post = Post {
+	let post = PostRequest {
 		source: intermediate_state.height.id.state_id,
 		dest: host.host_state_machine(),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 	let request = Request::Post(post.clone());
 	// Request message handling check
@@ -291,14 +291,14 @@ where
 		timeout: intermediate_state.commitment.timestamp,
 		body: vec![0u8; 64],
 	};
-	let post = Post {
+	let post = PostRequest {
 		source: host.host_state_machine(),
 		dest: intermediate_state.height.id.state_id,
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: intermediate_state.commitment.timestamp,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 	let request = Request::Post(post);
 	let dispatch_request = DispatchRequest::Post(dispatch_post);
@@ -358,14 +358,14 @@ where
 	host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
 		.unwrap();
 
-	let request = Post {
+	let request = PostRequest {
 		source: intermediate_state.height.id.state_id,
 		dest: host.host_state_machine(),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 
 	let request_message = Message::Request(RequestMessage {
@@ -426,27 +426,27 @@ where
 	)
 	.map_err(|_| "Dispatcher failed to dispatch request")?;
 	// Fetch commitment from storage
-	let post = Post {
+	let post = PostRequest {
 		source: host.host_state_machine(),
 		dest: StateMachine::Kusama(2000),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 	let request = Request::Post(post);
 	let commitment = hash_request::<H>(&request);
 	host.request_commitment(commitment)
 		.map_err(|_| "Expected Request commitment to be found in storage")?;
-	let post = Post {
+	let post = PostRequest {
 		source: StateMachine::Kusama(2000),
 		dest: host.host_state_machine(),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 	let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
 	// Dispatch the outgoing response for the first time
@@ -521,14 +521,14 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 		body: vec![0u8; 64],
 	};
 
-	let post = Post {
+	let post = PostRequest {
 		source: host.host_state_machine(),
 		dest: direct_conn_state_machine,
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: proxy.commitment.timestamp,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 
 	let request = Request::Post(post.clone());
@@ -601,14 +601,14 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
 
 	assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
 
-	let request = Post {
+	let request = PostRequest {
 		source: direct_conn_state_machine,
 		dest: host.host_state_machine(),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 
 	let request_message = Message::Request(RequestMessage {
@@ -683,14 +683,14 @@ pub fn prevent_request_processing_on_proxy_with_known_state_machine(
 
 	assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
 
-	let request = Post {
+	let request = PostRequest {
 		source: direct_conn_state_machine,
 		dest: host.host_state_machine(),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 
 	let request_message = Message::Request(RequestMessage {
@@ -721,14 +721,14 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
 	//  Assert that No proxy is configured
 	assert!(host.allowed_proxy().is_none());
 
-	let request = Post {
+	let request = PostRequest {
 		source: StateMachine::Kusama(13000),
 		dest: host.host_state_machine(),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 
 	let request_message = Message::Request(RequestMessage {
@@ -759,14 +759,14 @@ pub fn check_response_source() -> Result<(), &'static str> {
 	// We assert that no proxy is configured
 	assert!(host.allowed_proxy().is_none());
 
-	let post = Post {
+	let post = PostRequest {
 		source: host.host_state_machine(),
 		dest: StateMachine::Polkadot(900),
 		nonce: 0,
 		from: vec![0u8; 32],
 		to: vec![0u8; 32],
 		timeout_timestamp: 0,
-		data: vec![0u8; 64],
+		body: vec![0u8; 64],
 	};
 
 	let dispatch_post = DispatchPost {

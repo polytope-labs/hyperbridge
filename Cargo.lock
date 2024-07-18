@@ -6707,7 +6707,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -7286,12 +7286,14 @@ dependencies = [
 name = "ismp"
 version = "0.1.2"
 dependencies = [
+ "anyhow",
  "derive_more",
  "hex",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
  "serde",
+ "serde-utils",
  "serde_json",
 ]
 
@@ -7418,6 +7420,7 @@ dependencies = [
  "sp-runtime 31.0.1",
  "sp-trie 29.0.0",
  "subxt",
+ "subxt-utils",
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.18",
@@ -17535,6 +17538,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "ismp",
+ "primitive-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "serde-value"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -20320,6 +20335,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types",
  "serde",
+ "serde-utils",
  "ssz-rs",
 ]
 
@@ -20531,7 +20547,7 @@ checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
 name = "tesseract"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "async-trait",

@@ -363,7 +363,99 @@ pub mod beefy {
                 ),
             ]),
             events: ::std::collections::BTreeMap::new(),
-            errors: ::std::collections::BTreeMap::new(),
+            errors: ::core::convert::From::from([
+                (
+                    ::std::borrow::ToOwned::to_owned("IllegalGenesisBlock"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "IllegalGenesisBlock",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidAuthoritiesProof"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "InvalidAuthoritiesProof",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidMmrProof"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("InvalidMmrProof"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidUltraPlonkProof"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "InvalidUltraPlonkProof",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("MmrRootHashMissing"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("MmrRootHashMissing"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("StaleHeight"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("StaleHeight"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("SuperMajorityRequired"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "SuperMajorityRequired",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("UnknownAuthoritySet"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "UnknownAuthoritySet",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("UnknownParaId"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("UnknownParaId"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+            ]),
             receive: false,
             fallback: false,
         }
@@ -468,6 +560,317 @@ pub mod beefy {
 	impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>> for Beefy<M> {
 		fn from(contract: ::ethers::contract::Contract<M>) -> Self {
 			Self::new(contract.address(), contract.client())
+		}
+	}
+	///Custom Error type `IllegalGenesisBlock` with signature `IllegalGenesisBlock()` and selector
+	/// `0xb4eb9e51`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "IllegalGenesisBlock", abi = "IllegalGenesisBlock()")]
+	pub struct IllegalGenesisBlock;
+	///Custom Error type `InvalidAuthoritiesProof` with signature `InvalidAuthoritiesProof()` and
+	/// selector `0x528bd3ef`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidAuthoritiesProof", abi = "InvalidAuthoritiesProof()")]
+	pub struct InvalidAuthoritiesProof;
+	///Custom Error type `InvalidMmrProof` with signature `InvalidMmrProof()` and selector
+	/// `0x5c90c348`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidMmrProof", abi = "InvalidMmrProof()")]
+	pub struct InvalidMmrProof;
+	///Custom Error type `InvalidUltraPlonkProof` with signature `InvalidUltraPlonkProof()` and
+	/// selector `0x866dc22c`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidUltraPlonkProof", abi = "InvalidUltraPlonkProof()")]
+	pub struct InvalidUltraPlonkProof;
+	///Custom Error type `MmrRootHashMissing` with signature `MmrRootHashMissing()` and selector
+	/// `0x8c6238e4`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "MmrRootHashMissing", abi = "MmrRootHashMissing()")]
+	pub struct MmrRootHashMissing;
+	///Custom Error type `StaleHeight` with signature `StaleHeight()` and selector `0xbeda4fc3`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "StaleHeight", abi = "StaleHeight()")]
+	pub struct StaleHeight;
+	///Custom Error type `SuperMajorityRequired` with signature `SuperMajorityRequired()` and
+	/// selector `0xeaa43dfc`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "SuperMajorityRequired", abi = "SuperMajorityRequired()")]
+	pub struct SuperMajorityRequired;
+	///Custom Error type `UnknownAuthoritySet` with signature `UnknownAuthoritySet()` and selector
+	/// `0xe405cd0a`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "UnknownAuthoritySet", abi = "UnknownAuthoritySet()")]
+	pub struct UnknownAuthoritySet;
+	///Custom Error type `UnknownParaId` with signature `UnknownParaId()` and selector `0xdbb2cc09`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "UnknownParaId", abi = "UnknownParaId()")]
+	pub struct UnknownParaId;
+	///Container type for all of the contract's custom errors
+	#[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
+	pub enum BeefyErrors {
+		IllegalGenesisBlock(IllegalGenesisBlock),
+		InvalidAuthoritiesProof(InvalidAuthoritiesProof),
+		InvalidMmrProof(InvalidMmrProof),
+		InvalidUltraPlonkProof(InvalidUltraPlonkProof),
+		MmrRootHashMissing(MmrRootHashMissing),
+		StaleHeight(StaleHeight),
+		SuperMajorityRequired(SuperMajorityRequired),
+		UnknownAuthoritySet(UnknownAuthoritySet),
+		UnknownParaId(UnknownParaId),
+		/// The standard solidity revert string, with selector
+		/// Error(string) -- 0x08c379a0
+		RevertString(::std::string::String),
+	}
+	impl ::ethers::core::abi::AbiDecode for BeefyErrors {
+		fn decode(
+			data: impl AsRef<[u8]>,
+		) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
+			let data = data.as_ref();
+			if let Ok(decoded) =
+				<::std::string::String as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::RevertString(decoded));
+			}
+			if let Ok(decoded) =
+				<IllegalGenesisBlock as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::IllegalGenesisBlock(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidAuthoritiesProof as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidAuthoritiesProof(decoded));
+			}
+			if let Ok(decoded) = <InvalidMmrProof as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::InvalidMmrProof(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidUltraPlonkProof as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidUltraPlonkProof(decoded));
+			}
+			if let Ok(decoded) =
+				<MmrRootHashMissing as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::MmrRootHashMissing(decoded));
+			}
+			if let Ok(decoded) = <StaleHeight as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::StaleHeight(decoded));
+			}
+			if let Ok(decoded) =
+				<SuperMajorityRequired as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::SuperMajorityRequired(decoded));
+			}
+			if let Ok(decoded) =
+				<UnknownAuthoritySet as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::UnknownAuthoritySet(decoded));
+			}
+			if let Ok(decoded) = <UnknownParaId as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::UnknownParaId(decoded));
+			}
+			Err(::ethers::core::abi::Error::InvalidData.into())
+		}
+	}
+	impl ::ethers::core::abi::AbiEncode for BeefyErrors {
+		fn encode(self) -> ::std::vec::Vec<u8> {
+			match self {
+				Self::IllegalGenesisBlock(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidAuthoritiesProof(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidMmrProof(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidUltraPlonkProof(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::MmrRootHashMissing(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::StaleHeight(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::SuperMajorityRequired(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::UnknownAuthoritySet(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::UnknownParaId(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::RevertString(s) => ::ethers::core::abi::AbiEncode::encode(s),
+			}
+		}
+	}
+	impl ::ethers::contract::ContractRevert for BeefyErrors {
+		fn valid_selector(selector: [u8; 4]) -> bool {
+			match selector {
+				[0x08, 0xc3, 0x79, 0xa0] => true,
+				_ if selector ==
+					<IllegalGenesisBlock as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<InvalidAuthoritiesProof as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <InvalidMmrProof as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<InvalidUltraPlonkProof as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<MmrRootHashMissing as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <StaleHeight as ::ethers::contract::EthError>::selector() => true,
+				_ if selector ==
+					<SuperMajorityRequired as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<UnknownAuthoritySet as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <UnknownParaId as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ => false,
+			}
+		}
+	}
+	impl ::core::fmt::Display for BeefyErrors {
+		fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+			match self {
+				Self::IllegalGenesisBlock(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidAuthoritiesProof(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidMmrProof(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidUltraPlonkProof(element) => ::core::fmt::Display::fmt(element, f),
+				Self::MmrRootHashMissing(element) => ::core::fmt::Display::fmt(element, f),
+				Self::StaleHeight(element) => ::core::fmt::Display::fmt(element, f),
+				Self::SuperMajorityRequired(element) => ::core::fmt::Display::fmt(element, f),
+				Self::UnknownAuthoritySet(element) => ::core::fmt::Display::fmt(element, f),
+				Self::UnknownParaId(element) => ::core::fmt::Display::fmt(element, f),
+				Self::RevertString(s) => ::core::fmt::Display::fmt(s, f),
+			}
+		}
+	}
+	impl ::core::convert::From<::std::string::String> for BeefyErrors {
+		fn from(value: String) -> Self {
+			Self::RevertString(value)
+		}
+	}
+	impl ::core::convert::From<IllegalGenesisBlock> for BeefyErrors {
+		fn from(value: IllegalGenesisBlock) -> Self {
+			Self::IllegalGenesisBlock(value)
+		}
+	}
+	impl ::core::convert::From<InvalidAuthoritiesProof> for BeefyErrors {
+		fn from(value: InvalidAuthoritiesProof) -> Self {
+			Self::InvalidAuthoritiesProof(value)
+		}
+	}
+	impl ::core::convert::From<InvalidMmrProof> for BeefyErrors {
+		fn from(value: InvalidMmrProof) -> Self {
+			Self::InvalidMmrProof(value)
+		}
+	}
+	impl ::core::convert::From<InvalidUltraPlonkProof> for BeefyErrors {
+		fn from(value: InvalidUltraPlonkProof) -> Self {
+			Self::InvalidUltraPlonkProof(value)
+		}
+	}
+	impl ::core::convert::From<MmrRootHashMissing> for BeefyErrors {
+		fn from(value: MmrRootHashMissing) -> Self {
+			Self::MmrRootHashMissing(value)
+		}
+	}
+	impl ::core::convert::From<StaleHeight> for BeefyErrors {
+		fn from(value: StaleHeight) -> Self {
+			Self::StaleHeight(value)
+		}
+	}
+	impl ::core::convert::From<SuperMajorityRequired> for BeefyErrors {
+		fn from(value: SuperMajorityRequired) -> Self {
+			Self::SuperMajorityRequired(value)
+		}
+	}
+	impl ::core::convert::From<UnknownAuthoritySet> for BeefyErrors {
+		fn from(value: UnknownAuthoritySet) -> Self {
+			Self::UnknownAuthoritySet(value)
+		}
+	}
+	impl ::core::convert::From<UnknownParaId> for BeefyErrors {
+		fn from(value: UnknownParaId) -> Self {
+			Self::UnknownParaId(value)
 		}
 	}
 	///Container type for all input parameters for the `AURA_CONSENSUS_ID` function with signature

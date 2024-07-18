@@ -19,7 +19,10 @@ use ismp::{
 	host::{Ethereum, IsmpHost, StateMachine},
 	messaging::{hash_post_response, hash_request, hash_response, Keccak256, Proof},
 	module::IsmpModule,
-	router::{Get, IsmpRouter, Post, PostResponse, Request, RequestResponse, Response, Timeout},
+	router::{
+		GetRequest, IsmpRouter, PostRequest, PostResponse, Request, RequestResponse, Response,
+		Timeout,
+	},
 };
 
 #[derive(Default)]
@@ -402,7 +405,7 @@ impl Keccak256 for Host {
 pub struct MockModule;
 
 impl IsmpModule for MockModule {
-	fn on_accept(&self, _request: Post) -> Result<(), Error> {
+	fn on_accept(&self, _request: PostRequest) -> Result<(), Error> {
 		Ok(())
 	}
 
@@ -437,7 +440,7 @@ impl IsmpDispatcher for Host {
 		let host = self.clone();
 		let request = match request {
 			DispatchRequest::Get(dispatch_get) => {
-				let get = Get {
+				let get = GetRequest {
 					source: host.host_state_machine(),
 					dest: dispatch_get.dest,
 					nonce: host.next_nonce(),
@@ -449,14 +452,14 @@ impl IsmpDispatcher for Host {
 				Request::Get(get)
 			},
 			DispatchRequest::Post(dispatch_post) => {
-				let post = Post {
+				let post = PostRequest {
 					source: host.host_state_machine(),
 					dest: dispatch_post.dest,
 					nonce: host.next_nonce(),
 					from: dispatch_post.from,
 					to: dispatch_post.to,
 					timeout_timestamp: dispatch_post.timeout,
-					data: dispatch_post.body,
+					body: dispatch_post.body,
 				};
 				Request::Post(post)
 			},

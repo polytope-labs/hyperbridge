@@ -23,7 +23,7 @@ use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{Ethereum, StateMachine},
 	module::IsmpModule,
-	router::Post,
+	router::PostRequest,
 };
 use pallet_hyperbridge::{Message, VersionedHostParams, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
@@ -38,7 +38,7 @@ fn test_dispatch_fees() {
 
 	ext.execute_with(|| {
 		hyperbridge
-			.on_accept(Post {
+			.on_accept(PostRequest {
 				// not the coprocessor so this should fail
 				source: StateMachine::Polkadot(3368),
 				dest: StateMachine::Polkadot(2001),
@@ -46,7 +46,7 @@ fn test_dispatch_fees() {
 				from: vec![],
 				to: vec![],
 				timeout_timestamp: 0,
-				data: vec![],
+				body: vec![],
 			})
 			.unwrap_err();
 
@@ -54,7 +54,7 @@ fn test_dispatch_fees() {
 		let params = VersionedHostParams::V1(10 * UNIT);
 		let data = Message::<AccountId32, u128>::UpdateHostParams(params.clone()).encode();
 		hyperbridge
-			.on_accept(Post {
+			.on_accept(PostRequest {
 				//
 				source: Coprocessor::get().unwrap(),
 				dest: StateMachine::Polkadot(2001),
@@ -62,7 +62,7 @@ fn test_dispatch_fees() {
 				from: vec![],
 				to: vec![],
 				timeout_timestamp: 0,
-				data,
+				body: data,
 			})
 			.unwrap();
 
@@ -118,14 +118,14 @@ fn test_can_withdraw_relayer_and_protocol_revenue() {
 
 		let data = Message::<AccountId32, u128>::WithdrawProtocolFees(withdrawal.clone()).encode();
 		hyperbridge
-			.on_accept(Post {
+			.on_accept(PostRequest {
 				source: Coprocessor::get().unwrap(),
 				dest: StateMachine::Polkadot(2001),
 				nonce: 0,
 				from: vec![],
 				to: vec![],
 				timeout_timestamp: 0,
-				data,
+				body: data,
 			})
 			.unwrap();
 
@@ -134,14 +134,14 @@ fn test_can_withdraw_relayer_and_protocol_revenue() {
 
 		let data = Message::<AccountId32, u128>::WithdrawRelayerFees(withdrawal.clone()).encode();
 		hyperbridge
-			.on_accept(Post {
+			.on_accept(PostRequest {
 				source: Coprocessor::get().unwrap(),
 				dest: StateMachine::Polkadot(2001),
 				nonce: 0,
 				from: vec![],
 				to: vec![],
 				timeout_timestamp: 0,
-				data,
+				body: data,
 			})
 			.unwrap();
 

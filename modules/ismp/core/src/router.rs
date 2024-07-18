@@ -32,24 +32,29 @@ use core::{fmt::Formatter, time::Duration};
 	serde::Deserialize,
 	serde::Serialize,
 )]
-pub struct Post {
+pub struct PostRequest {
 	/// The source state machine of this request.
+	#[serde(with = "serde_utils::as_string")]
 	pub source: StateMachine,
 	/// The destination state machine of this request.
+	#[serde(with = "serde_utils::as_string")]
 	pub dest: StateMachine,
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
 	/// Module identifier of the sending module
+	#[serde(with = "serde_utils::as_hex")]
 	pub from: Vec<u8>,
 	/// Module identifier of the receiving module
+	#[serde(with = "serde_utils::as_hex")]
 	pub to: Vec<u8>,
 	/// Timestamp which this request expires in seconds.
 	pub timeout_timestamp: u64,
 	/// Encoded request body
-	pub data: Vec<u8>,
+	#[serde(with = "serde_utils::as_hex")]
+	pub body: Vec<u8>,
 }
 
-impl core::fmt::Display for Post {
+impl core::fmt::Display for PostRequest {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		writeln!(f, "Post {{")?;
 		writeln!(f, "   source: {:?}", self.source)?;
@@ -58,7 +63,7 @@ impl core::fmt::Display for Post {
 		writeln!(f, "   from: {}", hex::encode(&self.from))?;
 		writeln!(f, "   to: {}", hex::encode(&self.to))?;
 		writeln!(f, "   timeout_timestamp: {}", self.timeout_timestamp)?;
-		writeln!(f, "   data: {}", hex::encode(&self.data))?;
+		writeln!(f, "   data: {}", hex::encode(&self.body))?;
 		writeln!(f, "}}")?;
 		Ok(())
 	}
@@ -76,14 +81,17 @@ impl core::fmt::Display for Post {
 	serde::Deserialize,
 	serde::Serialize,
 )]
-pub struct Get {
+pub struct GetRequest {
 	/// The source state machine of this request.
+	#[serde(with = "serde_utils::as_string")]
 	pub source: StateMachine,
 	/// The destination state machine of this request.
+	#[serde(with = "serde_utils::as_string")]
 	pub dest: StateMachine,
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
 	/// Module identifier of the sending module
+	#[serde(with = "serde_utils::as_hex")]
 	pub from: Vec<u8>,
 	/// Raw Storage keys that would be used to fetch the values from the counterparty
 	/// For deriving storage keys for ink contract fields follow the guide in the link below
@@ -96,6 +104,7 @@ pub struct Get {
 	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
 	/// For fetching keys from EVM contracts each key should be 52 bytes
 	/// This should be a concatenation of contract address and slot hash
+	#[serde(with = "serde_utils::seq_of_hex")]
 	pub keys: Vec<Vec<u8>>,
 	/// Height at which to read the state machine.
 	pub height: u64,
@@ -103,7 +112,7 @@ pub struct Get {
 	pub timeout_timestamp: u64,
 }
 
-impl Get {
+impl GetRequest {
 	/// Get the timeout for this request
 	pub fn timeout(&self) -> Duration {
 		get_timeout(self.timeout_timestamp)
@@ -136,10 +145,10 @@ fn get_timeout(timeout_timestamp: u64) -> Duration {
 pub enum Request {
 	/// A post request allows a module on a state machine to send arbitrary bytes to another module
 	/// living in another state machine.
-	Post(Post),
+	Post(PostRequest),
 	/// A get request allows a module on a state machine to read the storage of another module
 	/// living in another state machine.
-	Get(Get),
+	Get(GetRequest),
 }
 
 impl Request {
@@ -184,10 +193,10 @@ impl Request {
 	}
 
 	/// Get the POST request data
-	pub fn data(&self) -> Option<Vec<u8>> {
+	pub fn body(&self) -> Option<Vec<u8>> {
 		match self {
 			Request::Get(_) => None,
-			Request::Post(post) => Some(post.data.clone()),
+			Request::Post(post) => Some(post.body.clone()),
 		}
 	}
 
@@ -214,7 +223,7 @@ impl Request {
 	}
 
 	/// Returns a get request or an error
-	pub fn get_request(&self) -> Result<Get, Error> {
+	pub fn get_request(&self) -> Result<GetRequest, Error> {
 		match self {
 			Request::Post(_) => Err(Error::Custom("Expected Get request".to_string())),
 			Request::Get(get) => Ok(get.clone()),
@@ -232,7 +241,7 @@ impl Request {
 				buf.extend_from_slice(&post.timeout_timestamp.to_be_bytes());
 				buf.extend_from_slice(&post.from);
 				buf.extend_from_slice(&post.to);
-				buf.extend_from_slice(&post.data);
+				buf.extend_from_slice(&post.body);
 				buf
 			},
 			Request::Get(get) => {
@@ -264,8 +273,9 @@ impl Request {
 )]
 pub struct PostResponse {
 	/// The request that triggered this response.
-	pub post: Post,
+	pub post: PostRequest,
 	/// The response message.
+	#[serde(with = "serde_utils::as_hex")]
 	pub response: Vec<u8>,
 	/// Timestamp at which this response expires in seconds.
 	pub timeout_timestamp: u64,
@@ -322,7 +332,7 @@ impl PostResponse {
 		buf.extend_from_slice(&req.timeout_timestamp.to_be_bytes());
 		buf.extend_from_slice(&req.from);
 		buf.extend_from_slice(&req.to);
-		buf.extend_from_slice(&req.data);
+		buf.extend_from_slice(&req.body);
 		buf.extend_from_slice(&self.response);
 		buf.extend_from_slice(&self.timeout_timestamp.to_be_bytes());
 		buf
@@ -343,7 +353,7 @@ impl PostResponse {
 )]
 pub struct GetResponse {
 	/// The Get request that triggered this response.
-	pub get: Get,
+	pub get: GetRequest,
 	/// Values derived from the state proof
 	pub values: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
 }

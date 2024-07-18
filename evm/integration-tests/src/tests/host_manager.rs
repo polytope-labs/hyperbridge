@@ -3,7 +3,7 @@ use forge_testsuite::Runner;
 use foundry_evm::executor::EvmError;
 use ismp::{
 	host::{Ethereum, StateMachine},
-	router::Post,
+	router,
 };
 use ismp_solidity_abi::shared_types::PostRequest;
 use pallet_ismp_host_executive::EvmHostParamsAbi;
@@ -21,17 +21,17 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: U256::from(500_000_000_000_000_000_000u128),
 	};
-	let data = params.abi_encode();
+	let body = params.abi_encode();
 
 	// create post request object
-	let post = Post {
+	let post = router::PostRequest {
 		source: StateMachine::Kusama(2000),
 		dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],
 		timeout_timestamp: 100,
-		data,
+		body,
 	};
 
 	let request: PostRequest = post.into();
@@ -52,10 +52,10 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: U256::from(500_000_000_000_000_000_000u128),
 	};
-	let data = params.abi_encode();
+	let body = params.abi_encode();
 
 	// create post request object
-	let post = Post {
+	let post = router::PostRequest {
 		// wrong source
 		source: StateMachine::Polkadot(1000),
 		dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
@@ -63,7 +63,7 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],
 		timeout_timestamp: 100,
-		data,
+		body,
 	};
 
 	let request: PostRequest = post.into();
@@ -92,17 +92,17 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: U256::from(500_000_000_000_000_000_000u128),
 	};
-	let data = params.abi_encode();
+	let body = params.abi_encode();
 
 	// create post request object
-	let post = Post {
+	let post = router::PostRequest {
 		source: StateMachine::Kusama(2000),
 		dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],
 		timeout_timestamp: 100,
-		data,
+		body,
 	};
 
 	let request: PostRequest = post.into();
@@ -135,14 +135,14 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
 	};
 
 	// create post request object
-	let post = Post {
+	let post = router::PostRequest {
 		source: StateMachine::Kusama(2000),
 		dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],
 		timeout_timestamp: 100,
-		data: params.encode(),
+		body: params.encode(),
 	};
 
 	let request: PostRequest = post.into();

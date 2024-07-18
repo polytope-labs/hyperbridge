@@ -14,12 +14,14 @@ readme = "./README.md"
 [dependencies]
 # crates.io
 codec = { workspace = true }
-primitive-types = { workspace = true, features = ["codec", "scale-info"] }
+primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
 serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
 serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
+anyhow = {workspace = true, default-features = false}
+serde-utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -29,6 +31,8 @@ std = [
     "primitive-types/serde",
     "scale-info/std",
     "serde/std",
+    "anyhow/std",
     "hex/std",
-    "serde_json/std"
+    "serde_json/std",
+    "serde-utils/std"
 ]

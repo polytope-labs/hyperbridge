@@ -218,13 +218,13 @@ contract EvmHostTest is BaseTest {
     }
 
     function testHostStateMachineId() public {
-        assert(StateMachine.kusama(3000).equals(host.stateMachineId(3000)));
+        assert(StateMachine.kusama(3000).equals(bytes(host.stateMachineId(3000))));
 
         HostParams memory params = host.hostParams();
         params.hyperbridge = StateMachine.polkadot(3367);
         vm.prank(params.admin);
         host.setHostParamsAdmin(params);
 
-        assert(StateMachine.polkadot(3000).equals(host.stateMachineId(3000)));
+        assert(StateMachine.polkadot(3000).equals(bytes(host.stateMachineId(3000))));
     }
 }

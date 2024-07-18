@@ -1,0 +1,23 @@
+[package]
+name = "serde-utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# crates.io
+serde = { workspace = true, features = ["derive"] }
+hex = { version = "0.4.3", features = ["alloc"], default-features = false }
+anyhow = {workspace = true, default-features = false}
+
+[features]
+default = ["std"]
+std = [
+    "serde/std",
+    "anyhow/std",
+    "hex/std"
+]
+
+[dev-dependencies]
+ismp = { workspace = true, default-features = true }
+primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
+serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }

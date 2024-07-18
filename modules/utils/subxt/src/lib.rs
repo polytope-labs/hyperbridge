@@ -149,8 +149,8 @@ mod gargantua_conversion {
 		}
 	}
 
-	impl From<ismp::router::Post> for runtime_types::ismp::router::Post {
-		fn from(post: ismp::router::Post) -> Self {
+	impl From<ismp::router::PostRequest> for runtime_types::ismp::router::PostRequest {
+		fn from(post: ismp::router::PostRequest) -> Self {
 			Self {
 				source: post.source.into(),
 				dest: post.dest.into(),
@@ -158,7 +158,7 @@ mod gargantua_conversion {
 				from: post.from,
 				to: post.to,
 				timeout_timestamp: post.timeout_timestamp,
-				data: post.data,
+				body: post.body,
 			}
 		}
 	}

@@ -29,7 +29,7 @@ import {PingModule} from "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {PolkadotVerifier} from "../src/consensus/verifiers/PolkadotVerifier.sol";
-import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
+import {UltraPlonkBeefy} from "../src/consensus/UltraPlonkBeefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
@@ -53,11 +53,11 @@ contract DeployScript is Script {
 
         ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyper USD", "USD.h");
         // mint $1b to the dispatcher for tests
-        feeToken.mint(pingDispatcher, 1000000000 * 1e18);
+        feeToken.mint(pingDispatcher, 1_000_000_000 * 1e18);
 
         // consensus client
         //        PolkadotVerifier verifier = new PolkadotVerifier();
-        //        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+        //        UltraPlonkBeefy consensusClient = new UltraPlonkBeefy{salt: salt}(paraId, verifier);
         BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
 
         // handler
@@ -135,7 +135,7 @@ contract DeployScript is Script {
         feeToken.grantRole(BURNER_ROLE, address(gateway));
 
         // and token faucet
-        TokenFaucet faucet = new TokenFaucet{salt: salt}(address(feeToken));
+        TokenFaucet faucet = new TokenFaucet{salt: salt}();
         feeToken.grantRole(MINTER_ROLE, address(faucet));
 
         AssetMetadata[] memory assets = new AssetMetadata[](1);

@@ -18,7 +18,7 @@ use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 use ismp::{
 	host::StateMachine,
 	messaging::hash_request,
-	router::{Post, Request},
+	router::{PostRequest, Request},
 };
 use pallet_ismp::child_trie;
 use primitive_types::H256;
@@ -117,14 +117,14 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		progress.wait_for_finalized_success().await?;
 	}
 
-	let post = Post {
+	let post = PostRequest {
 		source: StateMachine::Polkadot(para_id),
 		dest: StateMachine::Polygon,
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
 		to: H256::random().as_bytes().to_vec(),
 		timeout_timestamp: 0,
-		data: H256::random().as_bytes().to_vec(),
+		body: H256::random().as_bytes().to_vec(),
 	};
 	let request = Request::Post(post.clone());
 

@@ -192,6 +192,15 @@ impl<T: Config> IsmpHost for Pallet<T> {
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
 		StateCommitments::<T>::remove(height);
+
+		// technically any state commitment can be vetoed,
+		// safety check that it's the latest before resetting it.
+		if let Some(latest) = LatestStateMachineHeight::<T>::get(height.id) {
+			if latest == height.height {
+				// Reset back to the initial height to allow for honest updates
+				LatestStateMachineHeight::<T>::insert(height.id, 1);
+			}
+		}
 		Ok(())
 	}
 

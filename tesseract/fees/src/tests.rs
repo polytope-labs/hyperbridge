@@ -3,7 +3,7 @@ use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::{Ethereum, StateMachine},
 	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
-	router::{Post, PostResponse, Request, RequestResponse, Response},
+	router::{PostRequest, PostResponse, Request, RequestResponse, Response},
 };
 use std::sync::Arc;
 use tesseract_primitives::{mocks::MockHost, Hasher, Query, TxReceipt};
@@ -12,14 +12,14 @@ use tesseract_primitives::{mocks::MockHost, Hasher, Query, TxReceipt};
 async fn transaction_payments_flow() {
 	let tx_payment = TransactionPayment::initialize("./dev.db").await.unwrap();
 	let receipts = (0..500).into_iter().map(|i| {
-		let post = Post {
+		let post = PostRequest {
 			source: StateMachine::Bsc,
 			dest: StateMachine::Polygon,
 			nonce: i,
 			from: vec![],
 			to: vec![],
 			timeout_timestamp: 0,
-			data: vec![],
+			body: vec![],
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -36,14 +36,14 @@ async fn transaction_payments_flow() {
 
 	let response_receipts = (0..500).into_iter().map(|i| {
 		let resp = Response::Post(PostResponse {
-			post: Post {
+			post: PostRequest {
 				source: StateMachine::Polygon,
 				dest: StateMachine::Bsc,
 				nonce: i,
 				from: vec![],
 				to: vec![],
 				timeout_timestamp: 0,
-				data: vec![],
+				body: vec![],
 			},
 			response: vec![0u8; 64],
 			timeout_timestamp: i,
@@ -96,14 +96,14 @@ async fn transaction_payments_flow() {
 async fn test_unique_deliveries() -> anyhow::Result<()> {
 	let tx_payment = TransactionPayment::initialize("./dev2.db").await.unwrap();
 	let receipts = (0..5).into_iter().map(|i| {
-		let post = Post {
+		let post = PostRequest {
 			source: StateMachine::Bsc,
 			dest: StateMachine::Polygon,
 			nonce: i,
 			from: vec![],
 			to: vec![],
 			timeout_timestamp: 0,
-			data: vec![],
+			body: vec![],
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -120,14 +120,14 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let response_receipts = (0..5).into_iter().map(|i| {
 		let resp = Response::Post(PostResponse {
-			post: Post {
+			post: PostRequest {
 				source: StateMachine::Polygon,
 				dest: StateMachine::Bsc,
 				nonce: i,
 				from: vec![],
 				to: vec![],
 				timeout_timestamp: 0,
-				data: vec![],
+				body: vec![],
 			},
 			response: vec![0u8; 64],
 			timeout_timestamp: i,
@@ -149,14 +149,14 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 	});
 
 	let receipts2 = (0..5).into_iter().map(|i| {
-		let post = Post {
+		let post = PostRequest {
 			source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 			dest: StateMachine::Polygon,
 			nonce: i,
 			from: vec![],
 			to: vec![],
 			timeout_timestamp: 0,
-			data: vec![],
+			body: vec![],
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -172,14 +172,14 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 	});
 
 	let receipts3 = (0..5).into_iter().map(|i| {
-		let post = Post {
+		let post = PostRequest {
 			dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 			source: StateMachine::Polygon,
 			nonce: i,
 			from: vec![],
 			to: vec![],
 			timeout_timestamp: 0,
-			data: vec![],
+			body: vec![],
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -195,14 +195,14 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 	});
 
 	let receipts4 = (0..5).into_iter().map(|i| {
-		let post = Post {
+		let post = PostRequest {
 			dest: StateMachine::Ethereum(Ethereum::Optimism),
 			source: StateMachine::Ethereum(Ethereum::Base),
 			nonce: i,
 			from: vec![],
 			to: vec![],
 			timeout_timestamp: 0,
-			data: vec![],
+			body: vec![],
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -218,14 +218,14 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 	});
 
 	let receipts5 = (0..5).into_iter().map(|i| {
-		let post = Post {
+		let post = PostRequest {
 			source: StateMachine::Ethereum(Ethereum::Optimism),
 			dest: StateMachine::Ethereum(Ethereum::Base),
 			nonce: i,
 			from: vec![],
 			to: vec![],
 			timeout_timestamp: 0,
-			data: vec![],
+			body: vec![],
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -265,14 +265,14 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 async fn highest_delivery_height() {
 	let tx_payment = TransactionPayment::initialize("./dev_2.db").await.unwrap();
 	let receipts = (0..500).into_iter().map(|i| {
-		let post = Post {
+		let post = PostRequest {
 			source: StateMachine::Bsc,
 			dest: StateMachine::Polygon,
 			nonce: i,
 			from: vec![],
 			to: vec![],
 			timeout_timestamp: 0,
-			data: vec![],
+			body: vec![],
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -289,14 +289,14 @@ async fn highest_delivery_height() {
 
 	let response_receipts = (0..500).into_iter().map(|i| {
 		let resp = Response::Post(PostResponse {
-			post: Post {
+			post: PostRequest {
 				source: StateMachine::Polygon,
 				dest: StateMachine::Bsc,
 				nonce: i,
 				from: vec![],
 				to: vec![],
 				timeout_timestamp: 0,
-				data: vec![],
+				body: vec![],
 			},
 			response: vec![0u8; 64],
 			timeout_timestamp: i,

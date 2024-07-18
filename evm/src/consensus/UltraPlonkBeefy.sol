@@ -20,54 +20,36 @@ import "ismp/IConsensusClient.sol";
 
 import "solidity-merkle-trees/MerkleMultiProof.sol";
 import "solidity-merkle-trees/MerkleMountainRange.sol";
-import "solidity-merkle-trees/MerklePatricia.sol";
 import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 import "solidity-merkle-trees/trie/Bytes.sol";
-import "openzeppelin/utils/cryptography/ECDSA.sol";
+import {IVerifier} from "./verifiers/IVerifier.sol";
 
-struct Vote {
-    // secp256k1 signature from a member of the authority set
-    bytes signature;
-    // This member's index in the set
-    uint256 authorityIndex;
-}
-
-// The signed commitment holds a commitment to the latest
-// finalized state as well as votes from a supermajority
-// of the authority set which confirms this state
-struct SignedCommitment {
-    // A commitment to the finalized state
+struct UltraPlonkConsensusProof {
+    // Commitment message
     Commitment commitment;
-    // The confirming votes
-    Vote[] votes;
-}
-
-struct RelayChainProof {
-    // Signed commitment
-    SignedCommitment signedCommitment;
     // Latest leaf added to mmr
     BeefyMmrLeaf latestMmrLeaf;
     // Proof for the latest mmr leaf
     bytes32[] mmrProof;
-    // Proof for authorities in current/next session
-    Node[][] proof;
+    // UltraPlonk proof for BEEFY consensus
+    bytes proof;
 }
 
 struct BeefyConsensusProof {
     // The proof items for the relay chain consensus
-    RelayChainProof relay;
+    UltraPlonkConsensusProof relay;
     // Proof items for parachain headers
     ParachainProof parachain;
 }
 
 /**
- * @title The BEEFY Consensus Client.
+ * @title The UltraPlonk BEEFY Consensus Client.
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice This verifies secp256k1 signatures and authority set membership merkle proofs
- * in order to confirm newly finalized states of the Hyperbridge blockchain.
+ * @notice Similar to the BeefyV1 client but delegates secp256k1 signature verification
+ * and authority set membership proof checks to an ultraplonk circuit.
  */
-contract BeefyV1 is IConsensusClient {
+contract UltraPlonkBeefy is IConsensusClient {
     using HeaderImpl for Header;
 
     // Slot duration in milliseconds
@@ -76,11 +58,17 @@ contract BeefyV1 is IConsensusClient {
     // The PayloadId for the mmr root.
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
 
-    // ChainId for ethereum
+    // Digest Item ID
     bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
 
     // ConsensusID for aura
     bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
+
+    // Plonk verifier contract
+    IVerifier internal _verifier;
+
+    // Authorized paraId.
+    uint256 private _paraId;
 
     // Provided paraId was unknown
     error UnknownParaId();
@@ -103,17 +91,9 @@ contract BeefyV1 is IConsensusClient {
     // Genesis block should not be provided
     error IllegalGenesisBlock();
 
-    // Supermajority not reached
-    error SuperMajorityRequired();
-
-    // Provided authorities proof was invalid
-    error InvalidAuthoritiesProof();
-
-    // Authorized paraId.
-    uint256 private _paraId;
-
-    constructor(uint256 paraId) {
+    constructor(uint256 paraId, IVerifier verifier) {
         _paraId = paraId;
+        _verifier = verifier;
     }
 
     function verifyConsensus(
@@ -121,12 +101,12 @@ contract BeefyV1 is IConsensusClient {
         bytes memory encodedProof
     ) external view returns (bytes memory, IntermediateState memory) {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
-        (RelayChainProof memory relay, ParachainProof memory parachain) = abi.decode(
+        (UltraPlonkConsensusProof memory relay, ParachainProof memory parachain) = abi.decode(
             encodedProof,
-            (RelayChainProof, ParachainProof)
+            (UltraPlonkConsensusProof, ParachainProof)
         );
 
-        (BeefyConsensusState memory newState, IntermediateState memory intermediate) = this.verifyConsensus(
+        (BeefyConsensusState memory newState, IntermediateState memory intermediate) = verifyConsensus(
             consensusState,
             BeefyConsensusProof(relay, parachain)
         );
@@ -139,7 +119,7 @@ contract BeefyV1 is IConsensusClient {
     function verifyConsensus(
         BeefyConsensusState memory trustedState,
         BeefyConsensusProof memory proof
-    ) external view returns (BeefyConsensusState memory, IntermediateState memory) {
+    ) internal view returns (BeefyConsensusState memory, IntermediateState memory) {
         // verify mmr root proofs
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, proof.relay);
 
@@ -156,21 +136,13 @@ contract BeefyV1 is IConsensusClient {
     */
     function verifyMmrUpdateProof(
         BeefyConsensusState memory trustedState,
-        RelayChainProof memory relayProof
-    ) internal pure returns (BeefyConsensusState memory, bytes32) {
-        uint256 signatures_length = relayProof.signedCommitment.votes.length;
-        uint256 latestHeight = relayProof.signedCommitment.commitment.blockNumber;
+        UltraPlonkConsensusProof memory relayProof
+    ) internal view returns (BeefyConsensusState memory, bytes32) {
+        uint256 latestHeight = relayProof.commitment.blockNumber;
 
         if (trustedState.latestHeight >= latestHeight) revert StaleHeight();
 
-        if (
-            !checkParticipationThreshold(signatures_length, trustedState.currentAuthoritySet.len) &&
-            !checkParticipationThreshold(signatures_length, trustedState.nextAuthoritySet.len)
-        ) {
-            revert SuperMajorityRequired();
-        }
-
-        Commitment memory commitment = relayProof.signedCommitment.commitment;
+        Commitment memory commitment = relayProof.commitment;
 
         if (
             commitment.validatorSetId != trustedState.currentAuthoritySet.id &&
@@ -180,7 +152,6 @@ contract BeefyV1 is IConsensusClient {
         }
 
         bool is_current_authorities = commitment.validatorSetId == trustedState.currentAuthoritySet.id;
-
         uint256 payload_len = commitment.payload.length;
         bytes32 mmrRoot;
 
@@ -189,27 +160,20 @@ contract BeefyV1 is IConsensusClient {
                 mmrRoot = Bytes.toBytes32(commitment.payload[i].data);
             }
         }
-
         if (mmrRoot == bytes32(0)) revert MmrRootHashMissing();
 
         bytes32 commitment_hash = keccak256(Codec.Encode(commitment));
-        Node[] memory authorities = new Node[](signatures_length);
+        bytes32[] memory inputs = new bytes32[](4);
 
-        // verify authorities' votes
-        for (uint256 i = 0; i < signatures_length; i++) {
-            Vote memory vote = relayProof.signedCommitment.votes[i];
-            address authority = ECDSA.recover(commitment_hash, vote.signature);
-            authorities[i] = Node(vote.authorityIndex, keccak256(abi.encodePacked(authority)));
-        }
-
-        bool valid;
-        // check authorities proof
+        (inputs[0], inputs[1]) = Codec.toFieldElements(commitment_hash);
         if (is_current_authorities) {
-            valid = MerkleMultiProof.VerifyProof(trustedState.currentAuthoritySet.root, relayProof.proof, authorities);
+            (inputs[2], inputs[3]) = Codec.toFieldElements(trustedState.currentAuthoritySet.root);
         } else {
-            valid = MerkleMultiProof.VerifyProof(trustedState.nextAuthoritySet.root, relayProof.proof, authorities);
+            (inputs[2], inputs[3]) = Codec.toFieldElements(trustedState.nextAuthoritySet.root);
         }
-        if (!valid) revert InvalidAuthoritiesProof();
+
+        // check ultraplonk proof
+        if (!_verifier.verify(relayProof.proof, inputs)) revert InvalidUltraPlonkProof();
 
         verifyMmrLeaf(trustedState, relayProof, mmrRoot);
 
@@ -226,7 +190,7 @@ contract BeefyV1 is IConsensusClient {
     // @dev Stack too deep, sigh solidity
     function verifyMmrLeaf(
         BeefyConsensusState memory trustedState,
-        RelayChainProof memory relay,
+        UltraPlonkConsensusProof memory relay,
         bytes32 mmrRoot
     ) internal pure {
         bytes32 hash = keccak256(Codec.Encode(relay.latestMmrLeaf));
@@ -234,7 +198,6 @@ contract BeefyV1 is IConsensusClient {
 
         MmrLeaf[] memory leaves = new MmrLeaf[](1);
         leaves[0] = MmrLeaf(relay.latestMmrLeaf.kIndex, relay.latestMmrLeaf.leafIndex, hash);
-
         bool valid = MerkleMountainRange.VerifyProof(mmrRoot, relay.mmrProof, leaves, leafCount);
 
         if (!valid) revert InvalidMmrProof();
@@ -247,13 +210,12 @@ contract BeefyV1 is IConsensusClient {
     ) internal view returns (IntermediateState memory) {
         Node[] memory leaves = new Node[](1);
         Parachain memory para = proof.parachain;
-
         if (para.id != _paraId) revert UnknownParaId();
 
         Header memory header = Codec.DecodeHeader(para.header);
+
         if (header.number == 0) revert IllegalGenesisBlock();
 
-        // verify header
         leaves[0] = Node(
             para.index,
             keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
@@ -261,15 +223,10 @@ contract BeefyV1 is IConsensusClient {
 
         bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves);
         if (!valid) revert InvalidMmrProof();
-        // extract the state commitment
-        StateCommitment memory commitment = header.stateCommitment();
-        IntermediateState memory intermediate = IntermediateState({
-            stateMachineId: para.id,
-            height: header.number,
-            commitment: commitment
-        });
 
-        return intermediate;
+        StateCommitment memory commitment = header.stateCommitment();
+
+        return IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
     }
 
     // @dev Calculates the mmr leaf index for a block whose parent number is given.
@@ -279,10 +236,5 @@ contract BeefyV1 is IConsensusClient {
         } else {
             return parentNumber - activationBlock;
         }
-    }
-
-    // @dev Check for supermajority participation.
-    function checkParticipationThreshold(uint256 len, uint256 total) internal pure returns (bool) {
-        return len >= ((2 * total) / 3) + 1;
     }
 }

@@ -60,8 +60,10 @@ members = [
 
     # simnode
     "parachain/simtests",
-    # subxt subxt-utils
-    "modules/subxt/utils",
+
+    # Utilities
+    "modules/utils/subxt",
+    "modules/utils/serde",
 
     # tesseract
     "tesseract/primitives",
@@ -234,8 +236,9 @@ ismp = { version = "0.1.2", path = "./modules/ismp/core", default-features = fal
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
 ismp-solidity-abi = { path = "./evm/abi", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
-subxt-utils = { path = "modules/subxt/utils", default-features = false }
 hyperclient = { path = "modules/hyperclient", default-features = false }
+subxt-utils = { path = "modules/utils/subxt", default-features = false }
+serde-utils = { path = "modules/utils/serde", default-features = false }
 
 # consensus provers & verifiers
 beefy-verifier-primitives = { path = "./modules/consensus/beefy/primitives", default-features = false }

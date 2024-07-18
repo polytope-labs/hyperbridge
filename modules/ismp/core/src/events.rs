@@ -18,7 +18,7 @@
 use crate::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Get, Post, PostResponse, Request, Response},
+	router::{GetRequest, PostRequest, PostResponse, Request, Response},
 };
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
@@ -41,6 +41,7 @@ pub struct StateCommitmentVetoed {
 	/// The state commitment identifier
 	pub height: StateMachineHeight,
 	/// The account responsible
+	#[serde(with = "serde_utils::as_hex")]
 	pub fisherman: Vec<u8>,
 }
 
@@ -52,6 +53,7 @@ pub struct RequestResponseHandled {
 	/// The commitment to the request or response
 	pub commitment: H256,
 	/// The address of the relayer responsible for relaying the request
+	#[serde(with = "serde_utils::as_hex")]
 	pub relayer: Vec<u8>,
 }
 
@@ -63,8 +65,10 @@ pub struct TimeoutHandled {
 	/// The commitment to the request or response
 	pub commitment: H256,
 	/// The source chain of the message
+	#[serde(with = "serde_utils::as_string")]
 	pub source: StateMachine,
 	/// The destination chain of the message
+	#[serde(with = "serde_utils::as_string")]
 	pub dest: StateMachine,
 }
 
@@ -78,11 +82,11 @@ pub enum Event {
 	/// a fisherman.
 	StateCommitmentVetoed(StateCommitmentVetoed),
 	/// An event that is emitted when a post request is dispatched
-	PostRequest(Post),
+	PostRequest(PostRequest),
 	/// An event that is emitted when a post response is dispatched
 	PostResponse(PostResponse),
 	/// An event that is emitted when a get request is dispatched
-	GetRequest(Get),
+	GetRequest(GetRequest),
 	/// Emitted when a post request is handled
 	PostRequestHandled(RequestResponseHandled),
 	/// Emitted when a post response is handled

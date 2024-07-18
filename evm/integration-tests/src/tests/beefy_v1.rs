@@ -54,7 +54,7 @@ impl subxt::Config for HyperbridgeConfig {
 }
 
 fn default_para_id() -> u32 {
-	2000
+	4009
 }
 fn activation_block() -> u32 {
 	0
@@ -87,8 +87,8 @@ async fn beefy_consensus_client_test() -> Result<(), anyhow::Error> {
 	let config = envy::from_env::<Config>()?;
 
 	let Config { relay_ws_url, para_ws_url, para_id, activation_block } = config;
-	let relay = subxt::client::OnlineClient::<PolkadotConfig>::from_url(relay_ws_url).await?;
-	let para = subxt::client::OnlineClient::<Hyperbridge>::from_url(para_ws_url).await?;
+	let relay = subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, u32::MAX).await?;
+	let para = subxt_utils::client::ws_client::<Hyperbridge>(&para_ws_url, u32::MAX).await?;
 
 	para.blocks()
 		.subscribe_best()

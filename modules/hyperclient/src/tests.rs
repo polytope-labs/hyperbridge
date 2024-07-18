@@ -1,3 +1,18 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #![cfg(not(target_arch = "wasm32"))]
 use std::str::FromStr;
 
@@ -41,7 +56,7 @@ async fn hyperclient_integration_tests() -> Result<(), anyhow::Error> {
 #[tokio::test]
 #[ignore]
 async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
-	let post = ismp::router::Post {
+	let post = ismp::router::PostRequest {
 		source: StateMachine::from_str(
 			&String::from_utf8(hex::decode("42415345".to_string()).unwrap()).unwrap(),
 		)
@@ -54,7 +69,7 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 		from: hex::decode("9cc29770f3d643f4094ee591f3d2e3c98c349761".to_string()).unwrap(),
 		to: hex::decode("9cc29770f3d643f4094ee591f3d2e3c98c349761".to_string()).unwrap(),
 		timeout_timestamp: 1716240884,
-		data: hex::decode("68656c6c6f2066726f6d2042415345".to_string()).unwrap(),
+		body: hex::decode("68656c6c6f2066726f6d2042415345".to_string()).unwrap(),
 	};
 
 	let request = Request::Post(post);
@@ -63,7 +78,6 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 		rpc_url: "https://bsc-testnet.blockpi.network/v1/rpc/public".to_string(),
 		state_machine: StateMachine::Bsc,
 		host_address: Default::default(),
-		handler_address: Default::default(),
 		consensus_state_id: *b"BSC0",
 	};
 
@@ -71,7 +85,6 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 		rpc_url: "https://optimism-sepolia.blockpi.network/v1/rpc/public".to_string(),
 		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 		host_address: Default::default(),
-		handler_address: Default::default(),
 		consensus_state_id: *b"ETH0",
 	};
 
@@ -117,7 +130,7 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 #[tokio::test]
 #[ignore]
 async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> {
-	let post = ismp::router::Post {
+	let post = ismp::router::PostRequest {
 		source: StateMachine::from_str(
 			&String::from_utf8(hex::decode("425343".to_string()).unwrap()).unwrap(),
 		)
@@ -130,7 +143,7 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 		from: hex::decode("9cc29770f3d643f4094ee591f3d2e3c98c349761".to_string()).unwrap(),
 		to: hex::decode("9cc29770f3d643f4094ee591f3d2e3c98c349761".to_string()).unwrap(),
 		timeout_timestamp: 1716240473,
-		data: hex::decode("68656c6c6f2066726f6d20425343".to_string()).unwrap(),
+		body: hex::decode("68656c6c6f2066726f6d20425343".to_string()).unwrap(),
 	};
 
 	let response = PostResponse {
@@ -143,7 +156,6 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 		rpc_url: "https://bsc-testnet.blockpi.network/v1/rpc/public".to_string(),
 		state_machine: StateMachine::Bsc,
 		host_address: Default::default(),
-		handler_address: Default::default(),
 		consensus_state_id: *b"BSC0",
 	};
 
@@ -151,7 +163,6 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 		rpc_url: "https://optimism-sepolia.blockpi.network/v1/rpc/public".to_string(),
 		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 		host_address: Default::default(),
-		handler_address: Default::default(),
 		consensus_state_id: *b"ETH0",
 	};
 

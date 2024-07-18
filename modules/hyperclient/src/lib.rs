@@ -1,3 +1,18 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! The hyperclient. Allows clients of hyperbridge manage their in-flight ISMP requests.
 
 pub mod internals;
@@ -22,7 +37,7 @@ use crate::{
 };
 use ethers::{types::H256, utils::keccak256};
 use futures::StreamExt;
-use ismp::router::{Post, PostResponse};
+use ismp::router::{PostRequest, PostResponse};
 use subxt_utils::Hyperbridge;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
@@ -94,7 +109,13 @@ interface IPostResponse {
     timeout_timestamp: bigint;
 }
 
-type MessageStatus =  Pending | SourceFinalized | HyperbridgeDelivered | HyperbridgeFinalized | DestinationDelivered | Timeout;
+type MessageStatus =
+ | Pending
+ | SourceFinalized
+ | HyperbridgeDelivered
+ | HyperbridgeFinalized
+ | DestinationDelivered
+ | Timeout;
 
 // This transaction is still pending on the source chain
 interface Pending {
@@ -143,10 +164,21 @@ interface HyperbridgeTimedout {
 }
 
 // The possible states of an inflight request
-type MessageStatusWithMeta =  SourceFinalizedWithMetadata | HyperbridgeDeliveredWithMetadata | HyperbridgeFinalizedWithMetadata | DestinationDeliveredWithMetadata | Timeout | ErrorWithMetadata;
+type MessageStatusWithMeta =
+  | SourceFinalizedWithMetadata
+  | HyperbridgeDeliveredWithMetadata
+  | HyperbridgeFinalizedWithMetadata
+  | DestinationDeliveredWithMetadata
+  | Timeout
+  | ErrorWithMetadata;
 
 // The possible states of a timed-out request
-type TimeoutStatusWithMeta =  DestinationFinalizedWithMetadata | HyperbridgeTimedoutWithMetadata | HyperbridgeFinalizedWithMetadata | TimeoutMessage | ErrorWithMetadata;
+type TimeoutStatusWithMeta =
+  | DestinationFinalizedWithMetadata
+  | HyperbridgeTimedoutWithMetadata
+  | HyperbridgeFinalizedWithMetadata
+  | TimeoutMessage
+  | ErrorWithMetadata;
 
 
 // This event is emitted on hyperbridge
@@ -299,7 +331,7 @@ impl HyperClient {
 	pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
-			let post: Post = post.try_into()?;
+			let post: PostRequest = post.try_into()?;
 			let status = internals::query_request_status_internal(&self, post).await?;
 			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
 		};
@@ -340,7 +372,7 @@ impl HyperClient {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
 			let height = post.height;
-			let post: Post = post.try_into()?;
+			let post: PostRequest = post.try_into()?;
 
 			// Obtaining the request stream and the timeout stream
 			let timed_out =
@@ -380,7 +412,7 @@ impl HyperClient {
 	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
-			let post: Post = post.try_into()?;
+			let post: PostRequest = post.try_into()?;
 
 			let stream = internals::timeout_request_stream(&self, post).await?.map(|value| {
 				value

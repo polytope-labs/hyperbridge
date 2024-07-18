@@ -11,8 +11,7 @@ use hex_literal::hex;
 use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::hash_response,
-	router,
-	router::{Post, Request, Response},
+	router::{self, Request, Response},
 };
 use ismp_solidity_abi::{
 	beefy::IntermediateState,
@@ -37,14 +36,14 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
 	let module = contract.call::<_, Address>("module", ()).await?;
 
 	// create post request object
-	let post = Post {
+	let post = router::PostRequest {
 		source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		dest: StateMachine::Polkadot(2000),
 		nonce: 0,
 		from: module.as_bytes().to_vec(),
 		to: module.as_bytes().to_vec(),
 		timeout_timestamp: 30,
-		data: vec![2u8; 32],
+		body: vec![2u8; 32],
 	};
 
 	let post_response =
@@ -113,14 +112,14 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
 	let destination = contract.call::<_, Address>("module", ()).await?;
 
 	// create post request object
-	let post = Post {
+	let post = router::PostRequest {
 		source: StateMachine::Polkadot(2000),
 		dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: destination.as_bytes().to_vec(),
 		timeout_timestamp: 100,
-		data: vec![],
+		body: vec![],
 	};
 	let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
 	let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 10)?;
@@ -201,14 +200,14 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
 	let destination = contract.call::<_, Address>("module", ()).await?;
 
 	// create post request object
-	let post = Post {
+	let post = router::PostRequest {
 		source: StateMachine::Polkadot(2000),
 		dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: destination.as_bytes().to_vec(),
 		timeout_timestamp: 100,
-		data: vec![],
+		body: vec![],
 	};
 	let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
 	let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 10)?;

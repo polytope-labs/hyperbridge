@@ -30,7 +30,7 @@ use ismp::{
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{IsmpRouter, Post, Request, Response},
+	router::{IsmpRouter, PostRequest, Request, Response},
 };
 use pallet_asset_gateway::TokenGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
@@ -172,7 +172,7 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl IsmpModule for ProxyModule {
-	fn on_accept(&self, request: Post) -> Result<(), Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
 		if request.dest != HostStateMachine::get() {
 			let meta = FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
 			Ismp::dispatch_request(Request::Post(request), meta)?;

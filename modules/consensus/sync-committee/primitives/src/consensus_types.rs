@@ -13,9 +13,9 @@ use ssz_rs::{prelude::*, Deserialize, List, Vector};
 #[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BeaconBlockHeader {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub slot: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub proposer_index: u64,
 	pub parent_root: Root,
 	pub state_root: Root,
@@ -25,7 +25,7 @@ pub struct BeaconBlockHeader {
 #[derive(Default, Clone, Debug, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Checkpoint {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub epoch: u64,
 	pub root: Root,
 }
@@ -34,7 +34,7 @@ pub struct Checkpoint {
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Eth1Data {
 	pub deposit_root: Root,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub deposit_count: u64,
 	pub block_hash: Hash32,
 }
@@ -45,17 +45,17 @@ pub struct Validator {
 	#[cfg_attr(feature = "std", serde(rename = "pubkey"))]
 	pub public_key: BlsPublicKey,
 	pub withdrawal_credentials: Bytes32,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub effective_balance: Gwei,
 	pub slashed: bool,
 	// Status epochs
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub activation_eligibility_epoch: Epoch,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub activation_epoch: Epoch,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub exit_epoch: Epoch,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub withdrawable_epoch: Epoch,
 }
 
@@ -76,7 +76,7 @@ pub struct SignedBeaconBlockHeader {
 #[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct IndexedAttestation<const MAX_VALIDATORS_PER_COMMITTEE: usize> {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::seq_of_str"))]
 	pub attesting_indices: List<u64, MAX_VALIDATORS_PER_COMMITTEE>,
 	pub data: AttestationData,
 	pub signature: BlsSignature,
@@ -85,9 +85,9 @@ pub struct IndexedAttestation<const MAX_VALIDATORS_PER_COMMITTEE: usize> {
 #[derive(Default, Clone, Debug, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct AttestationData {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub slot: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub index: u64,
 	pub beacon_block_root: Root,
 	pub source: Checkpoint,
@@ -122,7 +122,7 @@ pub struct DepositData {
 	#[cfg_attr(feature = "std", serde(rename = "pubkey"))]
 	pub public_key: BlsPublicKey,
 	pub withdrawal_credentials: Hash32,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub amount: u64,
 	pub signature: BlsSignature,
 }
@@ -130,9 +130,9 @@ pub struct DepositData {
 #[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct VoluntaryExit {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub epoch: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub validator_index: u64,
 }
 
@@ -162,19 +162,19 @@ pub struct SyncCommittee<const SYNC_COMMITTEE_SIZE: usize> {
 #[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Withdrawal {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub index: WithdrawalIndex,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub validator_index: ValidatorIndex,
 	pub address: ExecutionAddress,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub amount: Gwei,
 }
 
 #[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BlsToExecutionChange {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub validator_index: ValidatorIndex,
 	#[cfg_attr(feature = "std", serde(rename = "from_bls_pubkey"))]
 	pub from_bls_public_key: BlsPublicKey,
@@ -205,22 +205,22 @@ pub struct ExecutionPayload<
 	pub receipts_root: Bytes32,
 	pub logs_bloom: ByteVector<BYTES_PER_LOGS_BLOOM>,
 	pub prev_randao: Bytes32,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub block_number: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub gas_limit: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub gas_used: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub timestamp: u64,
 	pub extra_data: ByteList<MAX_EXTRA_DATA_BYTES>,
 	pub base_fee_per_gas: U256,
 	pub block_hash: Hash32,
 	pub transactions: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TRANSACTIONS_PER_PAYLOAD>,
 	pub withdrawals: List<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub blob_gas_used: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub excess_blob_gas: u64,
 }
 
@@ -236,22 +236,22 @@ pub struct ExecutionPayloadHeader<
 	pub receipts_root: Bytes32,
 	pub logs_bloom: ByteVector<BYTES_PER_LOGS_BLOOM>,
 	pub prev_randao: Bytes32,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub block_number: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub gas_limit: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub gas_used: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub timestamp: u64,
 	pub extra_data: ByteList<MAX_EXTRA_DATA_BYTES>,
 	pub base_fee_per_gas: U256,
 	pub block_hash: Hash32,
 	pub transactions_root: Root,
 	pub withdrawals_root: Root,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub blob_gas_used: u64,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub excess_blob_gas: u64,
 }
 
@@ -312,9 +312,9 @@ pub struct BeaconBlock<
 	const MAX_BLS_TO_EXECUTION_CHANGES: usize,
 	const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize,
 > {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub slot: Slot,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub proposer_index: ValidatorIndex,
 	pub parent_root: Root,
 	pub state_root: Root,
@@ -338,18 +338,18 @@ pub struct BeaconBlock<
 #[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Fork {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_hex"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_hex"))]
 	pub previous_version: Version,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_hex"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_hex"))]
 	pub current_version: Version,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub epoch: Epoch,
 }
 
 #[derive(Default, Debug, SimpleSerialize, Clone, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ForkData {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_hex"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_hex"))]
 	pub current_version: Version,
 	pub genesis_validators_root: Root,
 }
@@ -375,10 +375,10 @@ pub struct BeaconState<
 	const BYTES_PER_LOGS_BLOOM: usize,
 	const MAX_EXTRA_DATA_BYTES: usize,
 > {
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub genesis_time: u64,
 	pub genesis_validators_root: Root,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub slot: Slot,
 	pub fork: Fork,
 	pub latest_block_header: BeaconBlockHeader,
@@ -387,31 +387,31 @@ pub struct BeaconState<
 	pub historical_roots: List<Root, HISTORICAL_ROOTS_LIMIT>,
 	pub eth1_data: Eth1Data,
 	pub eth1_data_votes: List<Eth1Data, ETH1_DATA_VOTES_BOUND>,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub eth1_deposit_index: u64,
 	pub validators: List<Validator, VALIDATOR_REGISTRY_LIMIT>,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::seq_of_str"))]
 	pub balances: List<Gwei, VALIDATOR_REGISTRY_LIMIT>,
 	pub randao_mixes: Vector<Bytes32, EPOCHS_PER_HISTORICAL_VECTOR>,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::seq_of_str"))]
 	pub slashings: Vector<Gwei, EPOCHS_PER_SLASHINGS_VECTOR>,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::seq_of_str"))]
 	pub previous_epoch_participation: List<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::seq_of_str"))]
 	pub current_epoch_participation: List<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
 	pub justification_bits: Bitvector<JUSTIFICATION_BITS_LENGTH>,
 	pub previous_justified_checkpoint: Checkpoint,
 	pub current_justified_checkpoint: Checkpoint,
 	pub finalized_checkpoint: Checkpoint,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::seq_of_str"))]
 	pub inactivity_scores: List<u64, VALIDATOR_REGISTRY_LIMIT>,
 	pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 	pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 	pub latest_execution_payload_header:
 		ExecutionPayloadHeader<BYTES_PER_LOGS_BLOOM, MAX_EXTRA_DATA_BYTES>,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub next_withdrawal_index: WithdrawalIndex,
-	#[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_utils::as_string"))]
 	pub next_withdrawal_validator_index: ValidatorIndex,
 	pub historical_summaries: List<HistoricalSummary, HISTORICAL_ROOTS_LIMIT>,
 }

@@ -1,3 +1,18 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use anyhow::Context;
 use ethers::{
 	contract::parse_log,
@@ -35,16 +50,11 @@ use ismp_solidity_abi::{
 };
 use std::sync::Arc;
 
-const OP_HOST: H160 = H160(hex!("0D811D581D615AA44A36aa638825403F9b434E18"));
-const OP_HANDLER: H160 = H160(hex!("6DbcA7CAEBd47D377E230ec3EFaBDdf0A7afA395"));
-
-const SEPOLIA_HOST: H160 = H160(hex!("bDFa473d7E483e088348e071480B624A248b2fC4"));
-const SEPOLIA_HANDLER: H160 = H160(hex!("7fa6f643A1a522D35058FEE753DA027d25Ea601f"));
-
-const BSC_HOST: H160 = H160(hex!("E6bd95737DD35Fd0e5f134771A832405671f06e9"));
-const BSC_HANDLER: H160 = H160(hex!("BA82A7c413BfbE26ee025DA221088319b895A8E6"));
-
-const PING_MODULE: H160 = H160(hex!("9Cc29770F3d643F4094Ee591f3D2E3c98C349761"));
+const OP_HOST: H160 = H160(hex!("265FafEb401ac6491da7344F01E724c38bC68FED"));
+const SEPOLIA_HOST: H160 = H160(hex!("4175a96bd787a2C196e732a1244630650607fdC2"));
+const BSC_HOST: H160 = H160(hex!("9494400D1A8285F81604AC04ACFD839385B3b843"));
+const BSC_HANDLER: H160 = H160(hex!("698Ea102d14dF1F9a4C3A76fE5DCEEeFcfd27f85"));
+const PING_MODULE: H160 = H160(hex!("8E4Ca395cfAa033A71fC618792Fce99106633B90"));
 
 pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");
@@ -57,7 +67,6 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		rpc_url: bsc_url.clone(),
 		state_machine: StateMachine::Bsc,
 		host_address: BSC_HOST,
-		handler_address: BSC_HANDLER,
 		consensus_state_id: *b"BSC0",
 	};
 
@@ -65,7 +74,6 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		rpc_url: op_url,
 		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 		host_address: OP_HOST,
-		handler_address: OP_HANDLER,
 		consensus_state_id: *b"ETH0",
 	};
 
@@ -121,7 +129,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		.context(format!("Error in {chain:?}"))?
 		.unwrap();
 
-	let post: router::Post = receipt
+	let post: router::PostRequest = receipt
 		.logs
 		.into_iter()
 		.find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
@@ -157,7 +165,6 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		rpc_url: bsc_url.clone(),
 		state_machine: StateMachine::Bsc,
 		host_address: BSC_HOST,
-		handler_address: BSC_HANDLER,
 		consensus_state_id: *b"BSC0",
 	};
 
@@ -165,7 +172,6 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		rpc_url: sepolia_url,
 		state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		host_address: SEPOLIA_HOST,
-		handler_address: SEPOLIA_HANDLER,
 		consensus_state_id: *b"ETH0",
 	};
 
@@ -245,7 +251,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let block = receipt.block_number.unwrap();
 	tracing::info!("\n\nTx block: {block}\n\n");
 
-	let post: router::Post = receipt
+	let post: router::PostRequest = receipt
 		.logs
 		.into_iter()
 		.find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
@@ -292,7 +298,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 						let pending = client
 							.send_transaction(
 								TypedTransaction::Legacy(TransactionRequest {
-									to: Some(NameOrAddress::Address(source_chain.handler_address)),
+									to: Some(NameOrAddress::Address(BSC_HANDLER)),
 									gas_price: Some(gas_price * 5), // experiment with higher?
 									data: Some(calldata.0.into()),
 									..Default::default()

@@ -26,7 +26,7 @@ use ismp::{
 	events::Event,
 	host::StateMachine,
 	messaging::{CreateConsensusState, Keccak256, Message},
-	router::Post,
+	router::PostRequest,
 };
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Key;
@@ -383,7 +383,7 @@ pub trait HyperbridgeClaim {
 #[derive(Encode, Decode, Clone)]
 pub struct WithdrawFundsResult {
 	/// Post request emitted by the withdraw request
-	pub post: Post,
+	pub post: PostRequest,
 	/// Block height at which the post request was emitted
 	pub block: u64,
 }

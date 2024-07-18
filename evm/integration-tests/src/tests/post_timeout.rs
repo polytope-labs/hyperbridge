@@ -9,7 +9,7 @@ use hex_literal::hex;
 use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::hash_request,
-	router::{Post, Request},
+	router::{self, Request},
 };
 use ismp_solidity_abi::{
 	beefy::IntermediateState,
@@ -29,14 +29,14 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
 	let storage_prefix = hex!("526571756573745265636569707473").to_vec();
 
 	// create post request object
-	let post = Post {
+	let post = router::PostRequest {
 		source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		dest: StateMachine::Polkadot(2000),
 		nonce: 0,
 		from: module.as_bytes().to_vec(),
 		to: module.as_bytes().to_vec(),
 		timeout_timestamp: 10_000,
-		data: storage_prefix.clone(),
+		body: storage_prefix.clone(),
 	};
 	let commitment = hash_request::<Keccak256>(&Request::Post(post.clone()));
 

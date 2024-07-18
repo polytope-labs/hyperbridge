@@ -8,7 +8,7 @@ use ismp::{
 	},
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
-	router::{Post, Request, RequestResponse, Response},
+	router::{PostRequest, Request, RequestResponse, Response},
 };
 use sp_core::{H160, U256};
 use std::{collections::HashMap, sync::Arc};
@@ -253,7 +253,7 @@ pub async fn translate_events_to_messages(
 
 		unprofitable.extend(post_request_queries_to_push_with_option.retriable_messages);
 
-		let post_request_to_push: Vec<Post> = post_requests
+		let post_request_to_push: Vec<PostRequest> = post_requests
 			.into_iter()
 			.zip(post_request_queries_to_push_with_option.queries.iter())
 			.filter_map(
@@ -452,7 +452,7 @@ pub async fn return_successful_queries(
 							_ => unreachable!("Relayer should only ever debug trace request or response messages")
 						};
 
-						if relayer == H160::zero().0.to_vec() {
+						if relayer == H160::zero().0.to_vec() && coprocessor != sink.state_machine_id().state_id {
 							return Ok((None, Some(msg)))
 						} else {
 							return Ok((None, None))

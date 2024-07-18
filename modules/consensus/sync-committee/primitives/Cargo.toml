@@ -20,6 +20,7 @@ anyhow = {workspace = true, default-features = false}
 ark-ec = { version = "0.4.2", default-features = false }
 ark-bls12-381 = { version = "0.4.0", default-features = false }
 bls_on_arkworks = { version = "0.2.2", default-features = false }
+serde-utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -33,6 +34,7 @@ std = [
     "bls_on_arkworks/std",
     "ark-bls12-381/std",
     "primitive-types/std",
-    "serde"
+    "serde",
+    "serde-utils/std"
 ]
 

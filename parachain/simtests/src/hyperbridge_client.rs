@@ -6,7 +6,7 @@ use codec::Encode;
 use ismp::{
 	host::StateMachine,
 	messaging::hash_request,
-	router::{Post, Request},
+	router::{PostRequest, Request},
 };
 use primitive_types::H256;
 use sc_consensus_manual_seal::CreatedBlock;
@@ -103,14 +103,14 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 		progress.wait_for_finalized_success().await?;
 	}
 
-	let post = Post {
+	let post = PostRequest {
 		source: StateMachine::Polkadot(para_id),
 		dest: StateMachine::Polygon,
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
 		to: H256::random().as_bytes().to_vec(),
 		timeout_timestamp: 0,
-		data: H256::random().as_bytes().to_vec(),
+		body: H256::random().as_bytes().to_vec(),
 	};
 	let request = Request::Post(post.clone());
 
@@ -121,7 +121,7 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	let commitment_key = pallet_ismp::child_trie::request_commitment_storage_key(commitment);
 	let payment_key = pallet_hyperbridge::child_trie::request_payment_storage_key(commitment);
 	let commitment_value = H256::random().as_bytes().to_vec();
-	let payment_value = (post.data.len() as u128 * per_byte_fee).encode();
+	let payment_value = (post.body.len() as u128 * per_byte_fee).encode();
 
 	trie.insert(&commitment_key, &commitment_value).unwrap();
 	trie.insert(&payment_key, &payment_value).unwrap();
@@ -294,14 +294,14 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 		progress.wait_for_finalized_success().await?;
 	}
 
-	let post = Post {
+	let post = PostRequest {
 		source: StateMachine::Polkadot(para_id),
 		dest: StateMachine::Polygon,
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
 		to: H256::random().as_bytes().to_vec(),
 		timeout_timestamp: 0,
-		data: H256::random().as_bytes().to_vec(),
+		body: H256::random().as_bytes().to_vec(),
 	};
 	let request = Request::Post(post.clone());
 
@@ -479,14 +479,14 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 		progress.wait_for_finalized_success().await?;
 	}
 
-	let post = Post {
+	let post = PostRequest {
 		source: StateMachine::Polkadot(para_id),
 		dest: StateMachine::Polygon,
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
 		to: H256::random().as_bytes().to_vec(),
 		timeout_timestamp: 0,
-		data: H256::random().as_bytes().to_vec(),
+		body: H256::random().as_bytes().to_vec(),
 	};
 	let request = Request::Post(post.clone());
 
@@ -496,7 +496,7 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	let commitment_key = pallet_ismp::child_trie::request_commitment_storage_key(commitment);
 	let payment_key = pallet_hyperbridge::child_trie::request_payment_storage_key(commitment);
 	let commitment_value = H256::random().as_bytes().to_vec();
-	let len = post.data.len() as u128 / 2;
+	let len = post.body.len() as u128 / 2;
 	let payment_value = (len * per_byte_fee).encode();
 	{
 		let mut trie = TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut db, &mut root).build();

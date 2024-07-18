@@ -1,3 +1,18 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 ///! This module contains the internal implementation of HyperClient.
 use crate::{
 	any_client::AnyClient,
@@ -15,7 +30,7 @@ use futures::{stream, StreamExt};
 use ismp::{
 	consensus::StateMachineHeight,
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
-	router::{Post, PostResponse, Request, Response},
+	router::{PostRequest, PostResponse, Request, Response},
 };
 use sp_core::H256;
 use subxt_utils::Hyperbridge;
@@ -28,7 +43,7 @@ use std::time::Duration;
 /// checks the status of a message
 pub async fn query_request_status_internal(
 	client: &HyperClient,
-	post: Post,
+	post: PostRequest,
 ) -> Result<MessageStatusWithMetadata, anyhow::Error> {
 	let destination_current_timestamp = client.dest.query_timestamp().await?;
 	let req = Request::Post(post.clone());
@@ -127,7 +142,7 @@ pub enum TimeoutStreamState {
 /// you have confirmed the request timeout status using `query_request_status`
 pub async fn timeout_request_stream(
 	hyperclient: &HyperClient,
-	post: Post,
+	post: PostRequest,
 ) -> Result<BoxStream<TimeoutStatus>, anyhow::Error> {
 	let dest_client = hyperclient.dest.clone();
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
@@ -364,7 +379,7 @@ pub async fn timeout_request_stream(
 /// returns the query stream for a post
 pub async fn request_status_stream(
 	hyperclient: &HyperClient,
-	post: Post,
+	post: PostRequest,
 	post_request_height: u64,
 ) -> BoxStream<MessageStatusWithMetadata> {
 	let source_client = hyperclient.source.clone();
@@ -894,7 +909,7 @@ pub async fn request_timeout_stream(
 pub async fn encode_request_call_data(
 	hyperbridge: &SubstrateClient<Hyperbridge>,
 	dest_client: &AnyClient,
-	post: Post,
+	post: PostRequest,
 	commitment: H256,
 	height: u64,
 ) -> Result<Vec<u8>, anyhow::Error> {
@@ -946,7 +961,7 @@ pub async fn encode_response_call_data(
 pub async fn encode_request_message_and_wait_for_challenge_period(
 	hyperbridge: &SubstrateClient<Hyperbridge>,
 	dest_client: &AnyClient,
-	post: Post,
+	post: PostRequest,
 	commitment: H256,
 	height: u64,
 ) -> Result<Vec<u8>, anyhow::Error> {

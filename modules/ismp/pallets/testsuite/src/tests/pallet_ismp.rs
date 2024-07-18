@@ -27,7 +27,7 @@ use ismp::{
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{Ethereum, IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, ResponseMessage, TimeoutMessage},
-	router::{GetResponse, Post, Request, RequestResponse, Response, Timeout},
+	router::{GetResponse, PostRequest, Request, RequestResponse, Response, Timeout},
 };
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, missing_state_commitment_check,
@@ -54,14 +54,14 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
 	ext.execute_with(|| {
 		set_timestamp(Some(1));
 		let host = Ismp::default();
-		let post = Post {
+		let post = PostRequest {
 			source: StateMachine::Kusama(2000),
 			dest: host.host_state_machine(),
 			nonce: 0,
 			from: vec![0u8; 32],
 			to: vec![0u8; 32],
 			timeout_timestamp: 0,
-			data: vec![0u8; 64],
+			body: vec![0u8; 64],
 		};
 
 		let request_commitment = hash_request::<Ismp>(&Request::Post(post.clone()));
@@ -154,7 +154,7 @@ fn should_handle_get_request_timeouts_correctly() {
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
 				.unwrap();
-				let get = ismp::router::Get {
+				let get = ismp::router::GetRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 					nonce: i,
@@ -203,7 +203,7 @@ fn should_handle_get_request_responses_correctly() {
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
 				.unwrap();
-				let get = ismp::router::Get {
+				let get = ismp::router::GetRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 					nonce: i,

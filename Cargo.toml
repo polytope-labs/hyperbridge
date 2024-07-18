@@ -36,6 +36,10 @@ members = [
     "modules/ismp/clients/sync-committee/evm-common",
     "modules/ismp/clients/bsc",
 
+    # serde 
+    
+    "modules/serde-utils",
+
     # cryptography
     "modules/consensus/sync-committee/prover",
     "modules/consensus/sync-committee/verifier",
@@ -72,7 +76,7 @@ members = [
     "tesseract/fees",
     "tesseract/fees/prisma-cli",
     "tesseract/telemetry",
-    "tesseract/config", "modules/serde-utils",
+    "tesseract/config", 
 ]
 
 # Config for 'cargo dist'

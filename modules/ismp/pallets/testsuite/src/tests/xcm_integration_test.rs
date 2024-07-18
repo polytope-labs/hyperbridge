@@ -132,7 +132,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 					assert_eq!(post.source, StateMachine::Kusama(2000));
 					return Ok(());
 				}
-				prev_block = header.number().saturating_sub(1);
+				prev_block = header.number() + 1;
 			},
 
 			Err(err) => {

@@ -1,19 +1,10 @@
 [package]
-name = "ismp"
-version = "0.1.2"
+name = "serde-utils"
+version = "0.1.0"
 edition = "2021"
-description = "Rust implementation of the interoperable state machine protocol"
-authors = ["Polytope Labs <hello@polytope.technology>"]
-license = "Apache-2.0"
-repository = "https://github.com/polytope-labs/hyperbridge"
-homepage = "https://docs.hyperbridge.network/protocol/ismp"
-documentation = "https://docs.rs/ismp"
-keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
-readme = "./README.md"
 
 [dependencies]
 # crates.io
-codec = { workspace = true }
 primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
 serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
@@ -21,18 +12,18 @@ derive_more = { version = "0.99.17", default-features = false, features = ["from
 serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
 anyhow = {workspace = true, default-features = false}
-serde-utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
 std = [
-    "codec/std",
     "primitive-types/std",
     "primitive-types/serde",
     "scale-info/std",
     "serde/std",
     "anyhow/std",
     "hex/std",
-    "serde_json/std",
-    "serde-utils/std"
+    "serde_json/std"
 ]
+
+[dev-dependencies]
+ismp = { workspace = true, default-features = true }

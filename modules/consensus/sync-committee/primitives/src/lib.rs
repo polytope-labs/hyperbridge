@@ -10,8 +10,6 @@ pub mod constants;
 pub mod deneb;
 pub mod domains;
 pub mod error;
-#[cfg(feature = "std")]
-pub mod serde;
 mod ssz;
 pub mod types;
 pub mod util;

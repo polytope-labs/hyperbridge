@@ -40,12 +40,15 @@ pub struct PostRequest {
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
 	/// Module identifier of the sending module
+	#[serde(with = "serde_utils::as_hex")]
 	pub from: Vec<u8>,
 	/// Module identifier of the receiving module
+	#[serde(with = "serde_utils::as_hex")]
 	pub to: Vec<u8>,
 	/// Timestamp which this request expires in seconds.
 	pub timeout_timestamp: u64,
 	/// Encoded request body
+	#[serde(with = "serde_utils::as_hex")]
 	pub body: Vec<u8>,
 }
 
@@ -84,6 +87,7 @@ pub struct GetRequest {
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
 	/// Module identifier of the sending module
+	#[serde(with = "serde_utils::as_hex")]
 	pub from: Vec<u8>,
 	/// Raw Storage keys that would be used to fetch the values from the counterparty
 	/// For deriving storage keys for ink contract fields follow the guide in the link below
@@ -96,6 +100,7 @@ pub struct GetRequest {
 	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
 	/// For fetching keys from EVM contracts each key should be 52 bytes
 	/// This should be a concatenation of contract address and slot hash
+	#[serde(with = "serde_utils::seq_of_hex")]
 	pub keys: Vec<Vec<u8>>,
 	/// Height at which to read the state machine.
 	pub height: u64,
@@ -266,6 +271,7 @@ pub struct PostResponse {
 	/// The request that triggered this response.
 	pub post: PostRequest,
 	/// The response message.
+	#[serde(with = "serde_utils::as_hex")]
 	pub response: Vec<u8>,
 	/// Timestamp at which this response expires in seconds.
 	pub timeout_timestamp: u64,

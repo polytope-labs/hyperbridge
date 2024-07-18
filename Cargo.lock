@@ -17542,11 +17542,9 @@ name = "serde-utils"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "derive_more",
  "hex",
  "ismp",
  "primitive-types",
- "scale-info",
  "serde",
  "serde_json",
 ]

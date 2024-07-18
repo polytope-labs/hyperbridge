@@ -228,14 +228,13 @@ pub async fn timeout_request_stream(
 											break;
 										}
 									},
-									Err(e) => {
+									Err(e) =>
 										return Ok(Some((
 											Err(anyhow!(
 												"Encountered error in time out stream {e:?}"
 											)),
 											state,
-										)))
-									},
+										))),
 								}
 							}
 							Ok(valid_proof_height.map(|ev| {
@@ -301,9 +300,7 @@ pub async fn timeout_request_stream(
 								.find_map(|event| match event.event {
 									Event::StateMachineUpdated(updated)
 										if updated.latest_height >= hyperbridge_height =>
-									{
-										Some(event.meta)
-									},
+										Some(event.meta),
 									_ => None,
 								});
 
@@ -339,19 +336,18 @@ pub async fn timeout_request_stream(
 									let commitment = source_client
 										.query_state_machine_commitment(state_machine_height)
 										.await?;
-									if commitment.timestamp > post.timeout_timestamp
-										&& ev.event.latest_height >= hyperbridge_height
+									if commitment.timestamp > post.timeout_timestamp &&
+										ev.event.latest_height >= hyperbridge_height
 									{
 										valid_proof_height = Some(ev);
 										break;
 									}
 								},
-								Err(e) => {
+								Err(e) =>
 									return Ok(Some((
 										Err(anyhow!("Encountered error in time out stream {e:?}")),
 										state,
-									)))
-								},
+									))),
 							}
 						}
 
@@ -553,8 +549,8 @@ pub async fn request_status_stream(
 						while let Some(item) = state_machine_updated_stream.next().await {
 							match item {
 								Ok(state_machine_update) => {
-									if state_machine_update.event.latest_height
-										>= post_request_height && state_machine_update
+									if state_machine_update.event.latest_height >=
+										post_request_height && state_machine_update
 										.event
 										.state_machine_id
 										.state_id == post.source
@@ -572,7 +568,7 @@ pub async fn request_status_stream(
 										)));
 									}
 								},
-								Err(e) => {
+								Err(e) =>
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
@@ -580,8 +576,7 @@ pub async fn request_status_stream(
 											e
 										)),
 										post_request_status,
-									)))
-								},
+									))),
 							};
 						}
 
@@ -642,11 +637,9 @@ pub async fn request_status_stream(
 								.into_iter()
 								.find_map(|event| match event.event {
 									Event::PostRequest(post_event)
-										if post.source == post_event.source
-											&& post.nonce == post_event.nonce =>
-									{
-										Some(event.meta)
-									},
+										if post.source == post_event.source &&
+											post.nonce == post_event.nonce =>
+										Some(event.meta),
 									_ => None,
 								});
 
@@ -746,9 +739,7 @@ pub async fn request_status_stream(
 								.find_map(|event| match event.event {
 									Event::StateMachineUpdated(updated)
 										if updated.latest_height >= height =>
-									{
-										Some((event.meta, updated))
-									},
+										Some((event.meta, updated)),
 									_ => None,
 								});
 
@@ -798,7 +789,7 @@ pub async fn request_status_stream(
 							.await?;
 						while let Some(update) = stream.next().await {
 							match update {
-								Ok(event) => {
+								Ok(event) =>
 									if event.event.latest_height >= height {
 										let calldata =
 											encode_request_message_and_wait_for_challenge_period(
@@ -821,9 +812,8 @@ pub async fn request_status_stream(
 										)));
 									} else {
 										continue;
-									}
-								},
-								Err(e) => {
+									},
+								Err(e) =>
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
@@ -831,8 +821,7 @@ pub async fn request_status_stream(
 											e
 										)),
 										post_request_status,
-									)))
-								},
+									))),
 							}
 						}
 						Ok(None)
@@ -871,9 +860,7 @@ pub async fn request_status_stream(
 								.find_map(|event| match event.event {
 									Event::PostRequestHandled(handled)
 										if handled.commitment == request_commitment =>
-									{
-										Some(event.meta)
-									},
+										Some(event.meta),
 									_ => None,
 								})
 								.unwrap_or_default();
@@ -902,9 +889,8 @@ pub async fn request_status_stream(
 						Ok(None)
 					},
 
-					PostStreamState::DestinationDelivered | PostStreamState::End => {
-						Ok::<Option<(Result<_, _>, PostStreamState)>, anyhow::Error>(None)
-					},
+					PostStreamState::DestinationDelivered | PostStreamState::End =>
+						Ok::<Option<(Result<_, _>, PostStreamState)>, anyhow::Error>(None),
 				}
 			};
 
@@ -942,9 +928,8 @@ pub async fn request_timeout_stream(
 		let value = match response {
 			Ok(true) => Some((Ok(Some(MessageStatusWithMetadata::Timeout)), client)),
 			Ok(false) => Some((Ok(None), client)),
-			Err(e) => {
-				Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client))
-			},
+			Err(e) =>
+				Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client)),
 		};
 
 		return value;

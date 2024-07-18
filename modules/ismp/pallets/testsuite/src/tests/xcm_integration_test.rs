@@ -99,7 +99,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 
 	let mut sub = para_client.rpc().subscribe_finalized_block_headers().await?;
 
-	let mut prev_block = init_block;
 	while let Some(res) = sub.next().await {
 		match res {
 			Ok(header) => {
@@ -109,7 +108,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 				}
 
 				let params = rpc_params![
-					BlockNumberOrHash::<H256>::Number(prev_block),
+					BlockNumberOrHash::<H256>::Number(init_block),
 					BlockNumberOrHash::<H256>::Number(header.number())
 				];
 
@@ -132,7 +131,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 					assert_eq!(post.source, StateMachine::Kusama(2000));
 					return Ok(());
 				}
-				prev_block = header.number() + 1;
 			},
 
 			Err(err) => {

@@ -26,7 +26,7 @@ const HEX_ENCODING_PREFIX: &str = "0x";
 
 /// Vec from Hex string
 pub fn try_bytes_from_hex_str(s: &str) -> Result<Vec<u8>, anyhow::Error> {
-	let target = s.strip_prefix(HEX_ENCODING_PREFIX).ok_or_else(|| anyhow!("Mixing Ox prefix"))?;
+	let target = s.replace(HEX_ENCODING_PREFIX, "");
 	let data = hex::decode(target).map_err(|e| anyhow!("{e:?}"))?;
 	Ok(data)
 }
@@ -60,6 +60,36 @@ pub mod as_hex {
 		let inner = T::try_from(data)
 			.map_err(|_| serde::de::Error::custom("type failed to parse bytes from hex data"))?;
 		Ok(inner)
+	}
+}
+
+/// Hex serializer and Deserializer for utf8 bytes
+pub mod as_utf8_string {
+	use super::*;
+	use alloc::string::String;
+	use serde::de::Deserialize;
+
+	/// Serialize [u8;4] into a utf8 string
+	pub fn serialize<S, T: AsRef<[u8]>>(data: T, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		let output =
+			String::from_utf8(data.as_ref().to_vec()).map_err(serde::ser::Error::custom)?;
+		serializer.collect_str(&output)
+	}
+
+	/// Deserialize a string into utf8 bytes
+	pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+		T: From<[u8; 4]>,
+	{
+		let s = <String>::deserialize(deserializer)?;
+
+		let mut bytes = [0u8; 4];
+		bytes.copy_from_slice(s.as_bytes());
+		Ok(bytes.into())
 	}
 }
 
@@ -227,7 +257,7 @@ mod test {
 
 		let serialized = serde_json::to_string(&post).unwrap();
 
-		println!("{serialized:?}");
+		println!("{serialized:?}\n");
 
 		let deserialized: PostRequest = serde_json::from_str(&serialized).unwrap();
 
@@ -251,7 +281,7 @@ mod test {
 
 		let serialized = serde_json::to_string(&response).unwrap();
 
-		println!("{serialized:?}");
+		println!("{serialized:?}\n");
 
 		let deserialized: PostResponse = serde_json::from_str(&serialized).unwrap();
 
@@ -276,10 +306,29 @@ mod test {
 
 		let serialized = serde_json::to_string(&get).unwrap();
 
-		println!("{serialized:?}");
+		println!("{serialized:?}\n");
 
 		let deserialized: GetRequest = serde_json::from_str(&serialized).unwrap();
 
 		assert_eq!(get, deserialized);
+	}
+
+	#[test]
+	fn serialize_state_machine_id() {
+		use ismp::{
+			consensus::StateMachineId,
+			host::{Ethereum, StateMachine},
+		};
+		let state_machine_updated = StateMachineId {
+			state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			consensus_state_id: *b"ETH0",
+		};
+		let serialized = serde_json::to_string(&state_machine_updated).unwrap();
+
+		println!("{serialized:?}\n");
+
+		let deserialized: StateMachineId = serde_json::from_str(&serialized).unwrap();
+
+		assert_eq!(state_machine_updated, deserialized);
 	}
 }

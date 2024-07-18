@@ -34,8 +34,10 @@ use core::{fmt::Formatter, time::Duration};
 )]
 pub struct PostRequest {
 	/// The source state machine of this request.
+	#[serde(with = "serde_utils::as_string")]
 	pub source: StateMachine,
 	/// The destination state machine of this request.
+	#[serde(with = "serde_utils::as_string")]
 	pub dest: StateMachine,
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
@@ -81,8 +83,10 @@ impl core::fmt::Display for PostRequest {
 )]
 pub struct GetRequest {
 	/// The source state machine of this request.
+	#[serde(with = "serde_utils::as_string")]
 	pub source: StateMachine,
 	/// The destination state machine of this request.
+	#[serde(with = "serde_utils::as_string")]
 	pub dest: StateMachine,
 	/// The nonce of this request on the source chain
 	pub nonce: u64,

@@ -94,8 +94,10 @@ pub struct IntermediateState {
 )]
 pub struct StateMachineId {
 	/// The state machine identifier
+	#[serde(with = "serde_utils::as_string")]
 	pub state_id: StateMachine,
 	/// It's consensus state identifier
+	#[serde(with = "serde_utils::as_utf8_string")]
 	pub consensus_state_id: ConsensusStateId,
 }
 

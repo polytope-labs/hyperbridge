@@ -45,10 +45,17 @@ pub async fn query_request_status_internal(
 	client: &HyperClient,
 	post: PostRequest,
 ) -> Result<MessageStatusWithMetadata, anyhow::Error> {
-	let destination_current_timestamp = client.dest.query_timestamp().await?;
+	let dest_client = if post.dest == client.dest.state_machine_id().state_id {
+		&client.dest
+	} else if post.dest == client.source.state_machine_id().state_id {
+		&client.source
+	} else {
+		Err(anyhow!("Unknown client for {}", post.source))?
+	};
+	let destination_current_timestamp = dest_client.query_timestamp().await?;
 	let req = Request::Post(post.clone());
 	let hash = hash_request::<Keccak256>(&req);
-	let relayer_address = client.dest.query_request_receipt(hash).await?;
+	let relayer_address = dest_client.query_request_receipt(hash).await?;
 	if let Some(ref status) = query_request_status_from_indexer(Request::Post(post.clone()), client)
 		.await
 		.ok()
@@ -87,10 +94,18 @@ pub async fn query_response_status_internal(
 	hyperclient: &HyperClient,
 	post_response: PostResponse,
 ) -> Result<MessageStatusWithMetadata, anyhow::Error> {
-	let response_destination_timeout = hyperclient.dest.query_timestamp().await?;
+	let dest_client = if post_response.dest_chain() == hyperclient.dest.state_machine_id().state_id
+	{
+		&hyperclient.dest
+	} else if post_response.dest_chain() == hyperclient.source.state_machine_id().state_id {
+		&hyperclient.source
+	} else {
+		Err(anyhow!("Unknown client for {}", post_response.dest_chain()))?
+	};
+	let response_destination_timeout = dest_client.query_timestamp().await?;
 	let res = Response::Post(post_response.clone());
 	let req_hash = hash_request::<Keccak256>(&res.request());
-	let response_receipt_relayer = hyperclient.dest.query_response_receipt(req_hash).await?;
+	let response_receipt_relayer = dest_client.query_response_receipt(req_hash).await?;
 	if let Some(ref status) =
 		query_response_status_from_indexer(Response::Post(post_response.clone()), hyperclient)
 			.await
@@ -144,9 +159,21 @@ pub async fn timeout_request_stream(
 	hyperclient: &HyperClient,
 	post: PostRequest,
 ) -> Result<BoxStream<TimeoutStatus>, anyhow::Error> {
-	let dest_client = hyperclient.dest.clone();
+	let source_client = if post.source == hyperclient.dest.state_machine_id().state_id {
+		hyperclient.dest.clone()
+	} else if post.source == hyperclient.source.state_machine_id().state_id {
+		hyperclient.source.clone()
+	} else {
+		Err(anyhow!("Unknown client for source: {}", post.source))?
+	};
+	let dest_client = if post.dest == hyperclient.dest.state_machine_id().state_id {
+		hyperclient.dest.clone()
+	} else if post.dest == hyperclient.source.state_machine_id().state_id {
+		hyperclient.source.clone()
+	} else {
+		Err(anyhow!("Unknown client for dest: {}", post.dest))?
+	};
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
-	let source_client = hyperclient.source.clone();
 
 	let stream = stream::unfold(TimeoutStreamState::Pending, move |state| {
 		let dest_client = dest_client.clone();
@@ -201,13 +228,14 @@ pub async fn timeout_request_stream(
 											break;
 										}
 									},
-									Err(e) =>
+									Err(e) => {
 										return Ok(Some((
 											Err(anyhow!(
 												"Encountered error in time out stream {e:?}"
 											)),
 											state,
-										))),
+										)))
+									},
 								}
 							}
 							Ok(valid_proof_height.map(|ev| {
@@ -273,7 +301,9 @@ pub async fn timeout_request_stream(
 								.find_map(|event| match event.event {
 									Event::StateMachineUpdated(updated)
 										if updated.latest_height >= hyperbridge_height =>
-										Some(event.meta),
+									{
+										Some(event.meta)
+									},
 									_ => None,
 								});
 
@@ -309,18 +339,19 @@ pub async fn timeout_request_stream(
 									let commitment = source_client
 										.query_state_machine_commitment(state_machine_height)
 										.await?;
-									if commitment.timestamp > post.timeout_timestamp &&
-										ev.event.latest_height >= hyperbridge_height
+									if commitment.timestamp > post.timeout_timestamp
+										&& ev.event.latest_height >= hyperbridge_height
 									{
 										valid_proof_height = Some(ev);
 										break;
 									}
 								},
-								Err(e) =>
+								Err(e) => {
 									return Ok(Some((
 										Err(anyhow!("Encountered error in time out stream {e:?}")),
 										state,
-									))),
+									)))
+								},
 							}
 						}
 
@@ -381,9 +412,21 @@ pub async fn request_status_stream(
 	hyperclient: &HyperClient,
 	post: PostRequest,
 	post_request_height: u64,
-) -> BoxStream<MessageStatusWithMetadata> {
-	let source_client = hyperclient.source.clone();
-	let dest_client = hyperclient.dest.clone();
+) -> Result<BoxStream<MessageStatusWithMetadata>, anyhow::Error> {
+	let source_client = if post.source == hyperclient.dest.state_machine_id().state_id {
+		hyperclient.dest.clone()
+	} else if post.source == hyperclient.source.state_machine_id().state_id {
+		hyperclient.source.clone()
+	} else {
+		Err(anyhow!("Unknown client for source: {}", post.source))?
+	};
+	let dest_client = if post.dest == hyperclient.dest.state_machine_id().state_id {
+		hyperclient.dest.clone()
+	} else if post.dest == hyperclient.source.state_machine_id().state_id {
+		hyperclient.source.clone()
+	} else {
+		Err(anyhow!("Unknown client for dest: {}", post.dest))?
+	};
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
 	let hyperclient_clone = hyperclient.clone();
 
@@ -510,8 +553,8 @@ pub async fn request_status_stream(
 						while let Some(item) = state_machine_updated_stream.next().await {
 							match item {
 								Ok(state_machine_update) => {
-									if state_machine_update.event.latest_height >=
-										post_request_height && state_machine_update
+									if state_machine_update.event.latest_height
+										>= post_request_height && state_machine_update
 										.event
 										.state_machine_id
 										.state_id == post.source
@@ -529,7 +572,7 @@ pub async fn request_status_stream(
 										)));
 									}
 								},
-								Err(e) =>
+								Err(e) => {
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
@@ -537,7 +580,8 @@ pub async fn request_status_stream(
 											e
 										)),
 										post_request_status,
-									))),
+									)))
+								},
 							};
 						}
 
@@ -598,9 +642,11 @@ pub async fn request_status_stream(
 								.into_iter()
 								.find_map(|event| match event.event {
 									Event::PostRequest(post_event)
-										if post.source == post_event.source &&
-											post.nonce == post_event.nonce =>
-										Some(event.meta),
+										if post.source == post_event.source
+											&& post.nonce == post_event.nonce =>
+									{
+										Some(event.meta)
+									},
 									_ => None,
 								});
 
@@ -700,7 +746,9 @@ pub async fn request_status_stream(
 								.find_map(|event| match event.event {
 									Event::StateMachineUpdated(updated)
 										if updated.latest_height >= height =>
-										Some((event.meta, updated)),
+									{
+										Some((event.meta, updated))
+									},
 									_ => None,
 								});
 
@@ -750,7 +798,7 @@ pub async fn request_status_stream(
 							.await?;
 						while let Some(update) = stream.next().await {
 							match update {
-								Ok(event) =>
+								Ok(event) => {
 									if event.event.latest_height >= height {
 										let calldata =
 											encode_request_message_and_wait_for_challenge_period(
@@ -773,8 +821,9 @@ pub async fn request_status_stream(
 										)));
 									} else {
 										continue;
-									},
-								Err(e) =>
+									}
+								},
+								Err(e) => {
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
@@ -782,7 +831,8 @@ pub async fn request_status_stream(
 											e
 										)),
 										post_request_status,
-									))),
+									)))
+								},
 							}
 						}
 						Ok(None)
@@ -821,7 +871,9 @@ pub async fn request_status_stream(
 								.find_map(|event| match event.event {
 									Event::PostRequestHandled(handled)
 										if handled.commitment == request_commitment =>
-										Some(event.meta),
+									{
+										Some(event.meta)
+									},
 									_ => None,
 								})
 								.unwrap_or_default();
@@ -850,8 +902,9 @@ pub async fn request_status_stream(
 						Ok(None)
 					},
 
-					PostStreamState::DestinationDelivered | PostStreamState::End =>
-						Ok::<Option<(Result<_, _>, PostStreamState)>, anyhow::Error>(None),
+					PostStreamState::DestinationDelivered | PostStreamState::End => {
+						Ok::<Option<(Result<_, _>, PostStreamState)>, anyhow::Error>(None)
+					},
 				}
 			};
 
@@ -862,7 +915,7 @@ pub async fn request_status_stream(
 		}
 	});
 
-	Box::pin(stream)
+	Ok(Box::pin(stream))
 }
 
 /// This returns a stream that yields when the provided timeout value is reached on the chain for
@@ -889,8 +942,9 @@ pub async fn request_timeout_stream(
 		let value = match response {
 			Ok(true) => Some((Ok(Some(MessageStatusWithMetadata::Timeout)), client)),
 			Ok(false) => Some((Ok(None), client)),
-			Err(e) =>
-				Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client)),
+			Err(e) => {
+				Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client))
+			},
 		};
 
 		return value;

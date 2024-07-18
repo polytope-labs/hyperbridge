@@ -143,6 +143,7 @@ pub enum MessageStatusWithMetadata {
 		#[serde(flatten)]
 		meta: EventMetadata,
 		/// Calldata that encodes the proof for the message to be sent to the destination.
+		#[serde(with = "serde_utils::as_hex")]
 		calldata: Bytes,
 	},
 	/// Delivered to destination
@@ -162,6 +163,12 @@ pub enum MessageStatusWithMetadata {
 
 #[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Bytes(pub Vec<u8>);
+
+impl AsRef<[u8]> for Bytes {
+	fn as_ref(&self) -> &[u8] {
+		&self.0
+	}
+}
 
 impl From<Vec<u8>> for Bytes {
 	fn from(value: Vec<u8>) -> Bytes {
@@ -228,6 +235,7 @@ pub enum TimeoutStatus {
 	/// Encoded call data to be submitted to source chain
 	TimeoutMessage {
 		/// Calldata that encodes the proof for the timeout message on the source.
+		#[serde(with = "serde_utils::as_hex")]
 		calldata: Bytes,
 	},
 }

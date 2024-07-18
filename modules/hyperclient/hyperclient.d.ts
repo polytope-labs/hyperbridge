@@ -37,8 +37,6 @@ interface IChainConfig {
   state_machine: string;
   // contract address of the `IsmpHost` on this chain
   host_address: string;
-  // contract address of the `IHandler` on this chain
-  handler_address: string;
   // consensus state identifier of this chain on hyperbridge
   consensus_state_id: string;
 }
@@ -60,7 +58,7 @@ interface IPostRequest {
   // The nonce of this request on the source chain
   nonce: bigint;
   // Encoded request body.
-  data: string;
+  body: string;
   // Timestamp which this request expires in seconds.
   timeoutTimestamp: bigint;
   // Height at which this request was emitted on the source
@@ -71,7 +69,7 @@ interface IPostResponse {
   // The request that triggered this response.
   post: IPostRequest;
   // The response message.
-  response: Uint8Array;
+  response: string;
   // Timestamp at which this response expires in seconds.
   timeoutTimestamp: bigint;
 }
@@ -182,7 +180,7 @@ interface HyperbridgeFinalizedWithMetadata {
   // The block number where the event was emitted
   block_number: bigint;
   // The transaction calldata which can be used for self-relay
-  calldata: Uint8Array;
+  calldata: `0x{string}`;
 }
 
 // This event is emitted on hyperbridge
@@ -211,7 +209,7 @@ interface DestinationDeliveredWithMetadata {
 interface TimeoutMessage {
   kind: "TimeoutMessage";
   // encoded call for HandlerV1.handlePostRequestTimeouts
-  calldata: Uint8Array;
+  calldata: `0x{string}`;
 }
 
 // This event is emitted on hyperbridge

@@ -938,7 +938,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: get.fee});
+        _requestCommitments[commitment] = FeeMetadata({sender: msg.sender, fee: get.fee});
         emit GetRequestEvent({
             source: string(request.source),
             dest: string(request.dest),

@@ -25,17 +25,3 @@ import { HyperClient } from "@polytope-labs/hyperclient";
 ```ts
 import { HyperClient } from "@polytope-labs/hyperclient/bundler";
 ```
-
-### Web
-
-```html
-<html>
-  <head>
-    <script type="module">
-    import { HyperClient } from "@polytope-labs/hyperclient/web"
-    </script>
-  </head>
-
-  <body></body>
-</html>
-```

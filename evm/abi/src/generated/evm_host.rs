@@ -277,7 +277,6 @@ pub mod evm_host {
                                                 ),
                                             ),
                                             ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Address,
                                             ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
                                         ],
                                     ),
@@ -2152,13 +2151,13 @@ pub mod evm_host {
 				.method_hash([184, 243, 232, 245], (post,))
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `dispatch` (0xdab0feae) function
+		///Calls the contract's `dispatch` (0xfdd104c5) function
 		pub fn dispatch_with_get(
 			&self,
 			get: DispatchGet,
 		) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
 			self.0
-				.method_hash([218, 176, 254, 174], (get,))
+				.method_hash([253, 209, 4, 197], (get,))
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `dispatchIncoming` (0x4e9b74ec) function
@@ -3510,7 +3509,7 @@ pub mod evm_host {
 		pub post: DispatchPost,
 	}
 	///Container type for all input parameters for the `dispatch` function with signature
-	/// `dispatch((bytes,uint64,bytes[],uint64,address,uint256))` and selector `0xdab0feae`
+	/// `dispatch((bytes,uint64,bytes[],uint64,uint256))` and selector `0xfdd104c5`
 	#[derive(
 		Clone,
 		::ethers::contract::EthCall,
@@ -3521,7 +3520,7 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
-	#[ethcall(name = "dispatch", abi = "dispatch((bytes,uint64,bytes[],uint64,address,uint256))")]
+	#[ethcall(name = "dispatch", abi = "dispatch((bytes,uint64,bytes[],uint64,uint256))")]
 	pub struct DispatchWithGetCall {
 		pub get: DispatchGet,
 	}
@@ -4748,7 +4747,7 @@ pub mod evm_host {
 		pub commitment: [u8; 32],
 	}
 	///Container type for all return fields from the `dispatch` function with signature
-	/// `dispatch((bytes,uint64,bytes[],uint64,address,uint256))` and selector `0xdab0feae`
+	/// `dispatch((bytes,uint64,bytes[],uint64,uint256))` and selector `0xfdd104c5`
 	#[derive(
 		Clone,
 		::ethers::contract::EthAbiType,
@@ -4971,7 +4970,7 @@ pub mod evm_host {
 		Hash,
 	)]
 	pub struct UnStakingPeriodReturn(pub ::ethers::core::types::U256);
-	///`DispatchGet(bytes,uint64,bytes[],uint64,address,uint256)`
+	///`DispatchGet(bytes,uint64,bytes[],uint64,uint256)`
 	#[derive(
 		Clone,
 		::ethers::contract::EthAbiType,
@@ -4987,7 +4986,6 @@ pub mod evm_host {
 		pub height: u64,
 		pub keys: ::std::vec::Vec<::ethers::core::types::Bytes>,
 		pub timeout: u64,
-		pub sender: ::ethers::core::types::Address,
 		pub fee: ::ethers::core::types::U256,
 	}
 	///`DispatchPost(bytes,bytes,bytes,uint64,uint256,address)`

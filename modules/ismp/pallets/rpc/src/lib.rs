@@ -431,7 +431,7 @@ where
 				runtime_error_into_rpc_error(format!("failed to read block events {:?}", e))
 			})?;
 
-			events.insert(header.hash().to_string(), temp);
+			events.insert(format!("{:?}", header.hash()), temp);
 			header = self
 				.client
 				.header(*header.parent_hash())
@@ -535,7 +535,8 @@ where
 				});
 			}
 
-			events.insert(header.hash().to_string(), temp);
+			// Display is truncated for H256
+			events.insert(format!("{:?}", header.hash()), temp);
 			header = self
 				.client
 				.header(*header.parent_hash())

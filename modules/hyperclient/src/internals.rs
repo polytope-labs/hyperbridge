@@ -45,10 +45,17 @@ pub async fn query_request_status_internal(
 	client: &HyperClient,
 	post: PostRequest,
 ) -> Result<MessageStatusWithMetadata, anyhow::Error> {
-	let destination_current_timestamp = client.dest.query_timestamp().await?;
+	let dest_client = if post.dest == client.dest.state_machine_id().state_id {
+		&client.dest
+	} else if post.dest == client.source.state_machine_id().state_id {
+		&client.source
+	} else {
+		Err(anyhow!("Unknown client for {}", post.source))?
+	};
+	let destination_current_timestamp = dest_client.query_timestamp().await?;
 	let req = Request::Post(post.clone());
 	let hash = hash_request::<Keccak256>(&req);
-	let relayer_address = client.dest.query_request_receipt(hash).await?;
+	let relayer_address = dest_client.query_request_receipt(hash).await?;
 	if let Some(ref status) = query_request_status_from_indexer(Request::Post(post.clone()), client)
 		.await
 		.ok()
@@ -87,10 +94,18 @@ pub async fn query_response_status_internal(
 	hyperclient: &HyperClient,
 	post_response: PostResponse,
 ) -> Result<MessageStatusWithMetadata, anyhow::Error> {
-	let response_destination_timeout = hyperclient.dest.query_timestamp().await?;
+	let dest_client = if post_response.dest_chain() == hyperclient.dest.state_machine_id().state_id
+	{
+		&hyperclient.dest
+	} else if post_response.dest_chain() == hyperclient.source.state_machine_id().state_id {
+		&hyperclient.source
+	} else {
+		Err(anyhow!("Unknown client for {}", post_response.dest_chain()))?
+	};
+	let response_destination_timeout = dest_client.query_timestamp().await?;
 	let res = Response::Post(post_response.clone());
 	let req_hash = hash_request::<Keccak256>(&res.request());
-	let response_receipt_relayer = hyperclient.dest.query_response_receipt(req_hash).await?;
+	let response_receipt_relayer = dest_client.query_response_receipt(req_hash).await?;
 	if let Some(ref status) =
 		query_response_status_from_indexer(Response::Post(post_response.clone()), hyperclient)
 			.await
@@ -144,9 +159,21 @@ pub async fn timeout_request_stream(
 	hyperclient: &HyperClient,
 	post: PostRequest,
 ) -> Result<BoxStream<TimeoutStatus>, anyhow::Error> {
-	let dest_client = hyperclient.dest.clone();
+	let source_client = if post.source == hyperclient.dest.state_machine_id().state_id {
+		hyperclient.dest.clone()
+	} else if post.source == hyperclient.source.state_machine_id().state_id {
+		hyperclient.source.clone()
+	} else {
+		Err(anyhow!("Unknown client for source: {}", post.source))?
+	};
+	let dest_client = if post.dest == hyperclient.dest.state_machine_id().state_id {
+		hyperclient.dest.clone()
+	} else if post.dest == hyperclient.source.state_machine_id().state_id {
+		hyperclient.source.clone()
+	} else {
+		Err(anyhow!("Unknown client for dest: {}", post.dest))?
+	};
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
-	let source_client = hyperclient.source.clone();
 
 	let stream = stream::unfold(TimeoutStreamState::Pending, move |state| {
 		let dest_client = dest_client.clone();
@@ -381,9 +408,21 @@ pub async fn request_status_stream(
 	hyperclient: &HyperClient,
 	post: PostRequest,
 	post_request_height: u64,
-) -> BoxStream<MessageStatusWithMetadata> {
-	let source_client = hyperclient.source.clone();
-	let dest_client = hyperclient.dest.clone();
+) -> Result<BoxStream<MessageStatusWithMetadata>, anyhow::Error> {
+	let source_client = if post.source == hyperclient.dest.state_machine_id().state_id {
+		hyperclient.dest.clone()
+	} else if post.source == hyperclient.source.state_machine_id().state_id {
+		hyperclient.source.clone()
+	} else {
+		Err(anyhow!("Unknown client for source: {}", post.source))?
+	};
+	let dest_client = if post.dest == hyperclient.dest.state_machine_id().state_id {
+		hyperclient.dest.clone()
+	} else if post.dest == hyperclient.source.state_machine_id().state_id {
+		hyperclient.source.clone()
+	} else {
+		Err(anyhow!("Unknown client for dest: {}", post.dest))?
+	};
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
 	let hyperclient_clone = hyperclient.clone();
 
@@ -862,7 +901,7 @@ pub async fn request_status_stream(
 		}
 	});
 
-	Box::pin(stream)
+	Ok(Box::pin(stream))
 }
 
 /// This returns a stream that yields when the provided timeout value is reached on the chain for

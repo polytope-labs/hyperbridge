@@ -6803,7 +6803,7 @@ dependencies = [
 
 [[package]]
 name = "hyperclient"
-version = "0.3.23"
+version = "0.3.25"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -6825,6 +6825,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types",
  "serde",
+ "serde-utils",
  "serde-wasm-bindgen 0.6.5",
  "serde_json",
  "sp-core 28.0.0",

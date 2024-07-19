@@ -172,6 +172,7 @@ pub struct JsPostResponse {
 	/// The request that triggered this response.
 	pub post: JsPost,
 	/// The response message.
+	#[serde(with = "serde_utils::as_hex")]
 	pub response: Vec<u8>,
 	/// Timestamp at which this response expires in seconds.
 	#[serde(rename = "timeoutTimestamp")]

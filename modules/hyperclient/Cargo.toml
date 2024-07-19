@@ -1,6 +1,6 @@
 [package]
 name = "hyperclient"
-version = "0.3.23"
+version = "0.3.25"
 edition = "2021"
 description = "The hyperclient is a library for managing (in-flight) ISMP requests"
 repository = "https://github.com/polytope-labs/hyperbridge"
@@ -29,6 +29,7 @@ ethereum-triedb = { workspace = true }
 subxt-utils = { workspace = true }
 mmr-primitives = { workspace = true }
 sp-mmr-primitives = { workspace = true }
+serde-utils = { workspace = true }
 
 # crates.io
 getrandom = { version = "0.2", default-features = false, features = ["js"] }
@@ -60,6 +61,7 @@ std = [
     "subxt/jsonrpsee",
     "subxt-utils/std",
     "sp-core/std",
+    "serde-utils/std",
     "substrate-state-machine/std",
 ]
 testing = []

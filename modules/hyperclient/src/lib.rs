@@ -379,7 +379,7 @@ impl HyperClient {
 				internals::request_timeout_stream(post.timeout_timestamp, self.source.clone())
 					.await;
 
-			let request_status = internals::request_status_stream(&self, post, height).await;
+			let request_status = internals::request_status_stream(&self, post, height).await?;
 
 			let stream = futures::stream::select(request_status, timed_out).map(|res| {
 				res.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))

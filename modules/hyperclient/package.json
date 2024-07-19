@@ -1,7 +1,7 @@
 {
   "name": "@polytope-labs/hyperclient",
   "description": "The hyperclient is a library for managing (in-flight) ISMP requests",
-  "version": "0.3.33",
+  "version": "0.3.34",
   "author": "Polytope Labs (hello@polytope.technology)",
   "license": "Apache-2.0",
   "bugs": {
@@ -24,6 +24,6 @@
     "build": "./build.sh"
   },
   "main": "dist/node/hyperclient.js",
-  "browser": "dist/web/hyperclient.js",
+  "browser": "dist/bundler/hyperclient.js",
   "types": "hyperclient.d.ts"
 }

@@ -94,6 +94,7 @@ impl<T: Config> StateCommitments<T> {
 	/// child tree reads are more pov-efficient
 	pub fn get(key: StateMachineHeight) -> Option<StateCommitment> {
 		child::get(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key))
+			.or(crate::StateCommitments::<T>::get(&key))
 	}
 
 	/// Insert the key and value into the child trie

@@ -166,39 +166,46 @@ mod gargantua_conversion {
 	impl From<runtime_types::pallet_ismp_host_executive::params::HostParam<u128>> for HostParam<u128> {
 		fn from(value: runtime_types::pallet_ismp_host_executive::params::HostParam<u128>) -> Self {
 			match value {
-                runtime_types::pallet_ismp_host_executive::params::HostParam::EvmHostParam(params) => {
-                    let evm = EvmHostParam {
-                        default_timeout: params.default_timeout,
-                        per_byte_fee: params.per_byte_fee,
-                        fee_token: params.fee_token,
-                        admin: params.admin,
-                        handler: params.handler,
-                        host_manager: params.host_manager,
-                        un_staking_period: params.un_staking_period,
-                        challenge_period: params.challenge_period,
-                        consensus_client: params.consensus_client,
-                        state_machines: params
-                            .state_machines
-                            .0
-                            .try_into()
-                            .expect("Runtime will always provide bounded vec"),
-                        fishermen: params
-                            .fishermen
-                            .0
-                            .try_into()
-                            .expect("Runtime will always provide bounded vec"),
-                        hyperbridge: params
-                            .hyperbridge
-                            .0
-                            .try_into()
-                            .expect("Runtime will always provide bounded vec"),
-                    };
-                    HostParam::EvmHostParam(evm)
-                }
-                runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(VersionedHostParams::V1(value)) => {
-                    HostParam::SubstrateHostParam(pallet_hyperbridge::VersionedHostParams::V1(value))
-                }
-            }
+	               runtime_types::pallet_ismp_host_executive::params::HostParam::EvmHostParam(params) => {
+	                   let evm = EvmHostParam {
+	                       default_timeout: params.default_timeout,
+	                       per_byte_fee: {
+								let alloy_value = alloy_primitives::U256::from_limbs(params.per_byte_fee.0);
+								primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
+							},
+       						state_commitment_fee: {
+                   				let alloy_value = alloy_primitives::U256::from_limbs(params.state_commitment_fee.0);
+                        		primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
+             				},
+	                       fee_token: params.fee_token,
+	                       admin: params.admin,
+	                       handler: params.handler,
+	                       host_manager: params.host_manager,
+	                       un_staking_period: params.un_staking_period,
+	                       challenge_period: params.challenge_period,
+	                       consensus_client: params.consensus_client,
+	                       state_machines: params
+	                           .state_machines
+	                           .0
+	                           .try_into()
+	                           .expect("Runtime will always provide bounded vec"),
+	                       fishermen: params
+	                           .fishermen
+	                           .0
+	                           .try_into()
+	                           .expect("Runtime will always provide bounded vec"),
+	                       hyperbridge: params
+	                           .hyperbridge
+	                           .0
+	                           .try_into()
+	                           .expect("Runtime will always provide bounded vec"),
+	                   };
+	                   HostParam::EvmHostParam(evm)
+	               }
+	               runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(VersionedHostParams::V1(value)) => {
+	                   HostParam::SubstrateHostParam(pallet_hyperbridge::VersionedHostParams::V1(value))
+	               }
+	           }
 		}
 	}
 }

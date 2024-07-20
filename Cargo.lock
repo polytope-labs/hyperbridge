@@ -7493,6 +7493,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -20233,12 +20242,14 @@ dependencies = [
 name = "subxt-utils"
 version = "0.1.1"
 dependencies = [
+ "alloy-primitives",
  "anyhow",
  "futures",
  "ismp",
  "pallet-hyperbridge",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
+ "primitive-types",
  "reconnecting-jsonrpsee-ws-client",
  "sp-core-hashing 15.0.0",
  "subxt",
@@ -20548,7 +20559,7 @@ checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
 name = "tesseract"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -20663,6 +20674,7 @@ dependencies = [
  "hex",
  "ismp",
  "ismp-solidity-abi",
+ "itertools 0.13.0",
  "pallet-ismp",
  "percentage",
  "sc-service",

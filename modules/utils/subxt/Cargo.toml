@@ -12,7 +12,8 @@ codec = { workspace = true }
 anyhow = { workspace = true }
 futures = "0.3.30"
 reconnecting-jsonrpsee-ws-client = { workspace = true }
-
+primitive-types = { workspace = true }
+alloy-primitives = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
 
@@ -29,6 +30,8 @@ std = [
     "ismp/std",
     "sp-core-hashing/std",
     "codec/std",
+    "primitive-types/std",
+    "alloy-primitives/std",
     "reconnecting-jsonrpsee-ws-client/native",
     "pallet-hyperbridge/std",
     "pallet-ismp-host-executive/std",

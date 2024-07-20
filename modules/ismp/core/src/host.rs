@@ -261,20 +261,28 @@ pub trait IsmpHost: Keccak256 {
 )]
 pub enum Ethereum {
 	/// Ethereum Execution layer
+	#[codec(index = 0)]
 	ExecutionLayer,
 	/// The optimism state machine
+	#[codec(index = 1)]
 	Optimism,
 	/// The Arbitrum state machine
+	#[codec(index = 2)]
 	Arbitrum,
 	/// The Base state machine
+	#[codec(index = 3)]
 	Base,
 	/// The Blast state machine
+	#[codec(index = 4)]
 	Blast,
 	/// The Mantle state machine
+	#[codec(index = 5)]
 	Mantle,
 	/// The Manta state machine
+	#[codec(index = 6)]
 	Manta,
 	/// The Build on Bitcoin state machine
+	#[codec(index = 7)]
 	Bob,
 }
 

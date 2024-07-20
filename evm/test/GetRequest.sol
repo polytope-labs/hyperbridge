@@ -29,7 +29,7 @@ contract GetRequestTest is BaseTest {
         GetResponseMessage memory message
     ) public {
         bytes32 commitment = testModule.dispatch(request);
-        assert(host.requestCommitments(commitment).sender == address(this));
+        assert(host.requestCommitments(commitment).sender == address(testModule));
 
         handler.handleConsensus(host, consensusProof);
         vm.warp(10);

@@ -36,6 +36,11 @@ struct HostParams {
     // The cost of cross-chain requests in the feeToken per byte,
     // this is charged to the application initiating a request or response
     uint256 perByteFee;
+    // The cost for applications to access the hyperbridge state commitment.
+    // They might do so because the hyperbridge state contains the verified state commitments
+    // for all chains and they want to directly read the state of these chains state bypassing
+    // the ISMP protocol entirely.
+    uint256 stateCommitmentFee;
     // The fee token contract address. This will typically be DAI.
     // but we allow it to be configurable to prevent future regrets.
     address feeToken;
@@ -296,7 +301,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Emitted when a POST or GET request is funded
     event RequestFunded(
         // Commitment of the request
-        bytes32 commitment,
+        bytes32 indexed commitment,
         // The updated fee available for relayers
         uint256 newFee
     );
@@ -304,13 +309,26 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Emitted when a POST response is funded
     event PostResponseFunded(
         // Commitment of the response
-        bytes32 commitment,
+        bytes32 indexed commitment,
         // The updated fee available for relayers
         uint256 newFee
     );
 
-    // Emitted when the host has either been frozen or unfrozen
-    event HostFrozen(bool frozen);
+    // An application has accessed the Hyperbridge state commitment
+    event StateCommitmentRead(
+    	// the application responsible
+    	address indexed caller,
+     	// The fee that was paid
+     	uint256 fee
+    );
+
+    // Emitted when the host has either been frozen or unfrozen.
+    // A frozen host does not permit any new messages or
+    // state commitments.
+    event HostFrozen(
+    	// Frozen status
+    	bool frozen
+    );
 
     // Emitted when the host params is updated
     event HostParamsUpdated(
@@ -434,10 +452,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @notice Charges the `_hostParams.stateCommitmentFee` to 3rd party applications.
      * @param height - state machine height
      * @return the state commitment at `height`
      */
-    function stateMachineCommitment(StateMachineHeight memory height) external view returns (StateCommitment memory) {
+    function stateMachineCommitment(StateMachineHeight memory height) external returns (StateCommitment memory) {
+    	address caller = _msgSender();
+    	if (caller != _hostParams.handler) {
+     		uint256 fee = _hostParams.stateCommitmentFee;
+     		SafeERC20.safeTransferFrom(IERC20(feeToken()), caller, address(this), fee);
+       		emit StateCommitmentRead({ caller: caller, fee: fee });
+     	}
         return _stateCommitments[height.stateMachineId][height.height];
     }
 
@@ -938,7 +963,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: get.fee});
+        _requestCommitments[commitment] = FeeMetadata({sender: msg.sender, fee: get.fee});
         emit GetRequestEvent({
             source: string(request.source),
             dest: string(request.dest),

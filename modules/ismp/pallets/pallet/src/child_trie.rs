@@ -21,8 +21,10 @@
 
 use crate::{dispatcher::RequestMetadata, utils::ResponseReceipt, Config};
 use alloc::vec::Vec;
+use codec::Encode;
 use core::marker::PhantomData;
 use frame_support::storage::child;
+use ismp::consensus::{StateCommitment, StateMachineHeight};
 use sp_core::{storage::ChildInfo, H256};
 
 /// Commitments for outgoing requests
@@ -41,8 +43,16 @@ pub struct ResponseCommitments<T: Config>(PhantomData<T>);
 /// The key is the request commitment
 pub struct ResponseReceipts<T: Config>(PhantomData<T>);
 
+/// State commitments are inserted into the child trie
+/// for more efficient state reads of these aggregated states
+/// by 3rd party applications
+pub struct StateCommitments<T: Config>(PhantomData<T>);
+
 /// Child trie prefix for all substrate chains
 pub const CHILD_TRIE_PREFIX: &'static [u8] = b"ISMP";
+
+/// Key for the state commitments in the child trie
+pub const STATE_COMMITMENTS_KEY: &'static [u8] = b"state";
 
 /// Returns the storage key for a request commitment in the child trie
 pub fn request_commitment_storage_key(key: H256) -> Vec<u8> {
@@ -71,6 +81,38 @@ pub fn response_receipt_storage_key(key: H256) -> Vec<u8> {
 	let mut full_key = "ResponseReceipts".as_bytes().to_vec();
 	full_key.extend_from_slice(&key.0);
 	full_key
+}
+
+impl<T: Config> StateCommitments<T> {
+	/// Returns the hashed storage key
+	pub fn storage_key(key: StateMachineHeight) -> Vec<u8> {
+		[STATE_COMMITMENTS_KEY.to_vec(), sp_io::hashing::keccak_256(&key.encode()).to_vec()]
+			.concat()
+	}
+
+	/// Get the provided key from the child trie
+	/// child tree reads are more pov-efficient
+	pub fn get(key: StateMachineHeight) -> Option<StateCommitment> {
+		child::get(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key))
+			.or(crate::StateCommitments::<T>::get(&key))
+	}
+
+	/// Insert the key and value into the child trie
+	pub fn insert(key: StateMachineHeight, meta: StateCommitment) {
+		crate::StateCommitments::<T>::insert(key.clone(), meta.clone());
+		child::put(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key), &meta);
+	}
+
+	/// Remove the key from the child trie
+	pub fn remove(key: StateMachineHeight) {
+		crate::StateCommitments::<T>::remove(&key);
+		child::kill(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key))
+	}
+
+	/// Return true if key is contained in child trie
+	pub fn contains_key(key: StateMachineHeight) -> bool {
+		child::exists(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key))
+	}
 }
 
 impl<T: Config> RequestCommitments<T> {

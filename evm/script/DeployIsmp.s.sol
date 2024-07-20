@@ -71,6 +71,7 @@ contract DeployScript is Script {
         // EvmHost
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
+       		stateCommitmentFee: 10 * 1e18, // $10
             fishermen: fishermen,
             admin: admin,
             hostManager: address(manager),

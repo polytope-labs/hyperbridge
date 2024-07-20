@@ -114,7 +114,6 @@ contract PingModule is IIsmpModule {
             height: request.height,
             keys: request.keys,
             timeout: request.timeoutTimestamp,
-            sender: msg.sender,
             fee: 0
         });
 

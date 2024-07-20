@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use frame_support::{pallet_prelude::ConstU32, BoundedVec};
 use pallet_hyperbridge::VersionedHostParams;
-use sp_core::H160;
+use sp_core::{H160, U256};
 use sp_runtime::RuntimeDebug;
 
 /// The host parameters of all connected chains
@@ -34,7 +34,12 @@ pub struct EvmHostParam {
 	/// the minimum default timeout in seconds
 	pub default_timeout: u128,
 	/// The fee to charge per byte
-	pub per_byte_fee: u128,
+	pub per_byte_fee: U256,
+	/// The cost for applications to access the hyperbridge state commitment.
+	// They might do so because the hyperbridge state contains the verified state commitments
+	// for all chains and they want to directly read the state of these chains state bypassing
+	// the ISMP protocol entirely.
+	pub state_commitment_fee: U256,
 	/// The address of the fee token contract
 	pub fee_token: H160,
 	/// The admin account
@@ -66,6 +71,10 @@ impl EvmHostParam {
 
 		if let Some(per_byte_fee) = update.per_byte_fee {
 			self.per_byte_fee = per_byte_fee;
+		}
+
+		if let Some(state_commitment_fee) = update.state_commitment_fee {
+			self.state_commitment_fee = state_commitment_fee;
 		}
 
 		if let Some(fee_token_address) = update.fee_token {
@@ -118,7 +127,12 @@ pub struct EvmHostParamUpdate {
 	/// the minimum default timeout in seconds
 	pub default_timeout: Option<u128>,
 	/// The fee to charge per byte
-	pub per_byte_fee: Option<u128>,
+	pub per_byte_fee: Option<U256>,
+	/// The cost for applications to access the hyperbridge state commitment.
+	// They might do so because the hyperbridge state contains the verified state commitments
+	// for all chains and they want to directly read the state of these chains state bypassing
+	// the ISMP protocol entirely.
+	pub state_commitment_fee: Option<U256>,
 	/// The address of the fee token contract
 	pub fee_token: Option<H160>,
 	/// The admin account
@@ -150,6 +164,11 @@ alloy_sol_macro::sol! {
 		uint256 defaultTimeout;
 		// cost of cross-chain requests in the fee token per byte
 		uint256 perByteFee;
+		// The cost for applications to access the hyperbridge state commitment.
+		// They might do so because the hyperbridge state contains the verified state commitments
+		// for all chains and they want to directly read the state of these chains state bypassing
+		// the ISMP protocol entirely.
+		uint256 stateCommitmentFee;
 		// The fee token contract. This will typically be DAI.
 		// but we allow it to be configurable to prevent future regrets.
 		address feeToken;
@@ -192,7 +211,16 @@ impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 	fn try_from(value: EvmHostParam) -> Result<Self, anyhow::Error> {
 		Ok(EvmHostParamsAbi {
 			defaultTimeout: value.default_timeout.try_into().map_err(anyhow::Error::msg)?,
-			perByteFee: value.per_byte_fee.try_into().map_err(anyhow::Error::msg)?,
+			perByteFee: {
+				let mut buf = [0u8; 32];
+				value.per_byte_fee.to_little_endian(&mut buf);
+				alloy_primitives::U256::from_le_bytes(buf)
+			},
+			stateCommitmentFee: {
+				let mut buf = [0u8; 32];
+				value.state_commitment_fee.to_little_endian(&mut buf);
+				alloy_primitives::U256::from_le_bytes(buf)
+			},
 			feeToken: value.fee_token.0.try_into().map_err(anyhow::Error::msg)?,
 			admin: value.admin.0.try_into().map_err(anyhow::Error::msg)?,
 			handler: value.handler.0.try_into().map_err(anyhow::Error::msg)?,

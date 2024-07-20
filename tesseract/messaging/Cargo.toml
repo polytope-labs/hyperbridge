@@ -14,6 +14,7 @@ futures = "0.3.28"
 tokio = { workspace = true, features = ["full"] }
 sp-core = { version = "21.0.0", features = ["full_crypto"] }
 hex = "0.4.3"
+itertools = "0.13.0"
 tokio-stream = { workspace = true }
 
 ismp = { workspace = true, default-features = true }

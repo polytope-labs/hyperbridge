@@ -322,7 +322,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      	uint256 fee
     );
 
-    // Emitted when the host has either been frozen or unfrozen
+    // Emitted when the host has either been frozen or unfrozen.
+    // A frozen host does not permit any new messages or
+    // state commitments.
     event HostFrozen(
     	// Frozen status
     	bool frozen

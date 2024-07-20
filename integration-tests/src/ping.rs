@@ -45,13 +45,13 @@ async fn test_ping() -> anyhow::Result<()> {
 	let signing_key =
 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
-	let ping_addr = H160(hex!("8E4Ca395cfAa033A71fC618792Fce99106633B90"));
+	let ping_addr = H160(hex!("76Af4528383200CD7456E3Db967Bec309FAc583a"));
 
 	let chains = vec![
 		(StateMachine::Ethereum(Ethereum::ExecutionLayer), _geth_url, 6328728),
-		// (StateMachine::Ethereum(Ethereum::Arbitrum), _arb_url, 64565289),
-		// (StateMachine::Ethereum(Ethereum::Optimism), _op_url, 14717202),
-		// (StateMachine::Ethereum(Ethereum::Base), _base_url, 10218678),
+		(StateMachine::Ethereum(Ethereum::Arbitrum), _arb_url, 64565289),
+		(StateMachine::Ethereum(Ethereum::Optimism), _op_url, 14717202),
+		(StateMachine::Ethereum(Ethereum::Base), _base_url, 10218678),
 		(StateMachine::Bsc, _bsc_url, 42173080),
 	];
 
@@ -96,7 +96,6 @@ async fn test_ping() -> anyhow::Result<()> {
 						ismp_host: host_addr.clone(),
 						state_machine: chain.clone(),
 						consensus_state_id: "PARA".to_string(),
-						handler: Default::default(),
 						signer: signing_key.clone(),
 						etherscan_api_key: Default::default(),
 						tracing_batch_size: Default::default(),

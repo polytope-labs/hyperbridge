@@ -33,3 +33,4 @@ tesseract/*
 
 prover.toml
 relayer.toml
+messaging.toml

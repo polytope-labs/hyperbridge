@@ -123,7 +123,9 @@ contract EvmHostTest is BaseTest {
         host.storeStateMachineCommitment(
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+        	vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
+
 
         // can't veto if not in fishermen set
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
@@ -132,7 +134,9 @@ contract EvmHostTest is BaseTest {
         // veto with fisherman
         vm.prank(tx.origin);
         host.vetoStateCommitment(height);
+        vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 0);
+
     }
 
     function testCanAddwhitelistedStateMachines() public {
@@ -148,7 +152,9 @@ contract EvmHostTest is BaseTest {
         host.storeStateMachineCommitment(
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+        vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
+
         assert(host.latestStateMachineHeight(height.stateMachineId) == 100);
 
         // add the new state machine
@@ -176,21 +182,29 @@ contract EvmHostTest is BaseTest {
         host.storeStateMachineCommitment(
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+        vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
+
         // veto with fisherman
         vm.prank(tx.origin);
         host.vetoStateCommitment(height);
+        	vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 0);
+
 
         // create a state commitment
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+        vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
+
         // veto with fisherman
         host.vetoStateCommitment(height);
+        	vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 0);
+
 
         // remove fishermen
         address[] memory newFishermen = new address[](0);
@@ -203,18 +217,24 @@ contract EvmHostTest is BaseTest {
         host.storeStateMachineCommitment(
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+        	vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
+
 
         // cannot veto
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
+        	vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
+
 
         // cannot veto
         vm.prank(tx.origin);
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
+        vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
+
     }
 
     function testHostStateMachineId() public {

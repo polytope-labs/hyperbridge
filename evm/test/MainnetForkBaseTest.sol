@@ -84,6 +84,7 @@ contract MainnetForkBaseTest is Test {
         stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
+       		stateCommitmentFee: 0,
             fishermen: fishermen,
             admin: address(0),
             hostManager: address(manager),

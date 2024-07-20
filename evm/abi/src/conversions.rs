@@ -355,6 +355,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 					},
 					fisherman: vetoed.fisherman.as_bytes().to_vec(),
 				})),
+			EvmHostEvents::StateCommitmentReadFilter(_) |
 			EvmHostEvents::HostFrozenFilter(_) |
 			EvmHostEvents::HostWithdrawalFilter(_) |
 			EvmHostEvents::HostParamsUpdatedFilter(_) |

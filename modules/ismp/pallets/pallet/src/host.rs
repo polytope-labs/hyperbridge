@@ -16,11 +16,11 @@
 //! [`IsmpHost`] implementation for pallet-ismp
 
 use crate::{
-	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
+	child_trie,
 	dispatcher::{RefundingRouter, RequestMetadata},
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, Responded, StateCommitments,
+	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, Responded,
 	StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
@@ -54,7 +54,8 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		StateCommitments::<T>::get(height).ok_or_else(|| Error::StateCommitmentNotFound { height })
+		child_trie::StateCommitments::<T>::get(height)
+			.ok_or_else(|| Error::StateCommitmentNotFound { height })
 	}
 
 	fn consensus_update_time(&self, id: ConsensusClientId) -> Result<Duration, Error> {
@@ -98,14 +99,14 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	}
 
 	fn request_commitment(&self, commitment: H256) -> Result<(), Error> {
-		let _ = RequestCommitments::<T>::get(commitment)
+		let _ = child_trie::RequestCommitments::<T>::get(commitment)
 			.ok_or_else(|| Error::Custom("Request commitment not found".to_string()))?;
 
 		Ok(())
 	}
 
 	fn response_commitment(&self, commitment: H256) -> Result<(), Error> {
-		let _ = ResponseCommitments::<T>::get(commitment)
+		let _ = child_trie::ResponseCommitments::<T>::get(commitment)
 			.ok_or_else(|| Error::Custom("Response commitment not found".to_string()))?;
 
 		Ok(())
@@ -120,7 +121,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	fn request_receipt(&self, req: &Request) -> Option<()> {
 		let commitment = hash_request::<Self>(req);
 
-		let _ = RequestReceipts::<T>::get(commitment)
+		let _ = child_trie::RequestReceipts::<T>::get(commitment)
 			.ok_or_else(|| Error::RequestCommitmentNotFound { meta: req.into() })
 			.ok()?;
 
@@ -130,7 +131,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	fn response_receipt(&self, res: &Response) -> Option<()> {
 		let commitment = hash_request::<Self>(&res.request());
 
-		let _ = ResponseReceipts::<T>::get(commitment)
+		let _ = child_trie::ResponseReceipts::<T>::get(commitment)
 			.ok_or_else(|| Error::Custom("Response receipt not found".to_string()))
 			.ok()?;
 
@@ -186,12 +187,12 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		height: StateMachineHeight,
 		state: StateCommitment,
 	) -> Result<(), Error> {
-		StateCommitments::<T>::insert(height, state);
+		child_trie::StateCommitments::<T>::insert(height, state);
 		Ok(())
 	}
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
-		StateCommitments::<T>::remove(height);
+		child_trie::StateCommitments::<T>::remove(height);
 
 		// technically any state commitment can be vetoed,
 		// safety check that it's the latest before resetting it.
@@ -217,49 +218,52 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	fn delete_request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(req);
 		// We can't delete actual leaves in the mmr so this serves as a replacement for that
-		let meta = RequestCommitments::<T>::get(hash)
+		let meta = child_trie::RequestCommitments::<T>::get(hash)
 			.ok_or_else(|| Error::Custom("Request Commitment not found".to_string()))?;
-		RequestCommitments::<T>::remove(hash);
+		child_trie::RequestCommitments::<T>::remove(hash);
 		Ok(meta.encode())
 	}
 
 	fn delete_response_commitment(&self, res: &PostResponse) -> Result<Vec<u8>, Error> {
 		let req_commitment = hash_request::<Self>(&res.request());
 		let hash = hash_post_response::<Self>(res);
-		let meta = ResponseCommitments::<T>::get(hash)
+		let meta = child_trie::ResponseCommitments::<T>::get(hash)
 			.ok_or_else(|| Error::Custom("Response Commitment not found".to_string()))?;
 		// We can't delete actual leaves in the mmr so this serves as a replacement for that
-		ResponseCommitments::<T>::remove(hash);
+		child_trie::ResponseCommitments::<T>::remove(hash);
 		Responded::<T>::remove(req_commitment);
 		Ok(meta.encode())
 	}
 
 	fn delete_request_receipt(&self, req: &Request) -> Result<Vec<u8>, Error> {
 		let req_commitment = hash_request::<Self>(req);
-		let relayer = RequestReceipts::<T>::get(req_commitment)
+		let relayer = child_trie::RequestReceipts::<T>::get(req_commitment)
 			.ok_or_else(|| Error::Custom("Request receipt not found".to_string()))?;
-		RequestReceipts::<T>::remove(req_commitment);
+		child_trie::RequestReceipts::<T>::remove(req_commitment);
 		Ok(relayer)
 	}
 
 	fn delete_response_receipt(&self, res: &Response) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(&res.request());
-		let meta = ResponseReceipts::<T>::get(hash)
+		let meta = child_trie::ResponseReceipts::<T>::get(hash)
 			.ok_or_else(|| Error::Custom("Response receipt not found".to_string()))?;
-		ResponseReceipts::<T>::remove(hash);
+		child_trie::ResponseReceipts::<T>::remove(hash);
 		Ok(meta.relayer)
 	}
 
 	fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
 		let hash = hash_request::<Self>(req);
-		RequestReceipts::<T>::insert(hash, signer);
+		child_trie::RequestReceipts::<T>::insert(hash, signer);
 		Ok(())
 	}
 
 	fn store_response_receipt(&self, res: &Response, signer: &Vec<u8>) -> Result<(), Error> {
 		let hash = hash_request::<Self>(&res.request());
 		let response = hash_response::<Self>(&res);
-		ResponseReceipts::<T>::insert(hash, ResponseReceipt { response, relayer: signer.clone() });
+		child_trie::ResponseReceipts::<T>::insert(
+			hash,
+			ResponseReceipt { response, relayer: signer.clone() },
+		);
 		Ok(())
 	}
 
@@ -296,7 +300,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		let hash = hash_request::<Self>(req);
 		let leaf_meta = RequestMetadata::<T>::decode(&mut &*meta)
 			.map_err(|_| Error::Custom("Failed to decode leaf metadata".to_string()))?;
-		RequestCommitments::<T>::insert(hash, leaf_meta);
+		child_trie::RequestCommitments::<T>::insert(hash, leaf_meta);
 		Ok(())
 	}
 
@@ -305,7 +309,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		let req_commitment = hash_request::<Self>(&res.request());
 		let leaf_meta = RequestMetadata::<T>::decode(&mut &*meta)
 			.map_err(|_| Error::Custom("Failed to decode leaf metadata".to_string()))?;
-		ResponseCommitments::<T>::insert(hash, leaf_meta);
+		child_trie::ResponseCommitments::<T>::insert(hash, leaf_meta);
 		Responded::<T>::insert(req_commitment, true);
 		Ok(())
 	}

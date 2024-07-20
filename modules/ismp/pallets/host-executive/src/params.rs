@@ -164,14 +164,14 @@ alloy_sol_macro::sol! {
 		uint256 defaultTimeout;
 		// cost of cross-chain requests in the fee token per byte
 		uint256 perByteFee;
-		// The fee token contract. This will typically be DAI.
-		// but we allow it to be configurable to prevent future regrets.
-		address feeToken;
 		// The cost for applications to access the hyperbridge state commitment.
 		// They might do so because the hyperbridge state contains the verified state commitments
 		// for all chains and they want to directly read the state of these chains state bypassing
 		// the ISMP protocol entirely.
 		uint256 stateCommitmentFee;
+		// The fee token contract. This will typically be DAI.
+		// but we allow it to be configurable to prevent future regrets.
+		address feeToken;
 		// admin account, this only has the rights to freeze, or unfreeze the bridge
 		address admin;
 		// Ismp request/response handler

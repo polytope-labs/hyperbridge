@@ -19,12 +19,13 @@ mod events;
 mod retries;
 
 use anyhow::anyhow;
+use itertools::Itertools;
 use sc_service::TaskManager;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{
-	events::{filter_events, translate_events_to_messages, Event},
+	events::{filter_events, translate_events_to_messages},
 	retries::retry_unprofitable_messages,
 };
 use futures::{FutureExt, StreamExt};
@@ -257,12 +258,20 @@ async fn handle_update(
 	}
 	// Advance latest known height by relayer
 	*previous_height = state_machine_update.latest_height;
-	let log_events = events.clone().into_iter().map(Into::into).collect::<Vec<Event>>();
-	tracing::info!(
-	   target: "tesseract",
-	   "Events from {} {:#?}", chain_b.name(),
-	   log_events // event names
-	);
+	let log_events = events
+		.iter()
+		.chunk_by(|event| match event {
+			ismp::events::Event::PostRequest(req) => req.dest,
+			ismp::events::Event::PostResponse(res) => res.dest_chain(),
+			event => {
+				unreachable!("Only application messages filtered; qed. Unexpected event: {event:?}")
+			},
+		})
+		.into_iter()
+		.fold(String::default(), |acc, (state_machine, items)| {
+			format!("{acc}{}->{:?}: {} messages, ", chain_b.name(), state_machine, items.count())
+		});
+	tracing::info!(target: "tesseract", "{log_events}");
 	let state_machine_height = StateMachineHeight {
 		id: state_machine_update.state_machine_id,
 		height: state_machine_update.latest_height,

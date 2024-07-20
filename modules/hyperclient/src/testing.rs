@@ -238,7 +238,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		fee: U256::from(0u128),
 		count: U256::from(1),
 	});
-	let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
+	let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
 	let receipt = call
 		.gas(gas)
 		.send()

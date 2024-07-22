@@ -392,7 +392,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 
-	log::info!("\n 🧊integration test for para: 2000 to para 2001: get request \n");
+	log::info!(" \n 🧊integration test for para: 2000 to para 2001: get request \n");
 
 	// =======================================================================
 	let (chain_a_client, chain_b_client) =

@@ -124,7 +124,7 @@ contract EvmHostTest is BaseTest {
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
         	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
+        assert(host.stateCommitment(height).timestamp == 200);
 
 
         // can't veto if not in fishermen set
@@ -135,7 +135,7 @@ contract EvmHostTest is BaseTest {
         vm.prank(tx.origin);
         host.vetoStateCommitment(height);
         vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 0);
+        assert(host.stateCommitment(height).timestamp == 0);
 
     }
 
@@ -153,7 +153,7 @@ contract EvmHostTest is BaseTest {
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
         vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
+        assert(host.stateCommitment(height).timestamp == 200);
 
         assert(host.latestStateMachineHeight(height.stateMachineId) == 100);
 
@@ -183,13 +183,13 @@ contract EvmHostTest is BaseTest {
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
         vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
+        assert(host.stateCommitment(height).timestamp == 200);
 
         // veto with fisherman
         vm.prank(tx.origin);
         host.vetoStateCommitment(height);
         	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 0);
+        assert(host.stateCommitment(height).timestamp == 0);
 
 
         // create a state commitment
@@ -198,12 +198,12 @@ contract EvmHostTest is BaseTest {
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
         vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
+        assert(host.stateCommitment(height).timestamp == 200);
 
         // veto with fisherman
         host.vetoStateCommitment(height);
         	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 0);
+        assert(host.stateCommitment(height).timestamp == 0);
 
 
         // remove fishermen
@@ -218,14 +218,14 @@ contract EvmHostTest is BaseTest {
             height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
         	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
+        assert(host.stateCommitment(height).timestamp == 200);
 
 
         // cannot veto
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
         	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
+        assert(host.stateCommitment(height).timestamp == 200);
 
 
         // cannot veto
@@ -233,7 +233,7 @@ contract EvmHostTest is BaseTest {
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
         vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
+        assert(host.stateCommitment(height).timestamp == 200);
 
     }
 

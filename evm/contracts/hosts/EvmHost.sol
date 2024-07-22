@@ -474,13 +474,37 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 	 * @param height - state machine height
 	 * @return the state commitment at `height`
 	 */
-	function stateMachineCommitment(StateMachineHeight memory height) external returns (StateCommitment memory) {
+	function stateCommitment(StateMachineHeight memory height) external returns (StateCommitment memory) {
 		address caller = _msgSender();
 		if (caller != _hostParams.handler) {
 			uint256 fee = _hostParams.stateCommitmentFee;
 			SafeERC20.safeTransferFrom(IERC20(feeToken()), caller, address(this), fee);
 			emit StateCommitmentRead({caller: caller, fee: fee});
 		}
+		return _stateCommitments[height.stateMachineId][height.height];
+	}
+
+	/**
+	 * @notice Charges the `_hostParams.stateCommitmentFee` to 3rd party applications.
+	 * Collects the state commitment fee in the native tokens.
+	 * @param height - state machine height
+	 * @return the state commitment at `height`
+	 */
+	function stateCommitmentWithNative(
+		StateMachineHeight memory height
+	) external payable returns (StateCommitment memory) {
+		address caller = _msgSender();
+		uint256 fee = _hostParams.stateCommitmentFee;
+		address[] memory path = new address[](2);
+		path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+		path[1] = feeToken();
+		IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+			fee,
+			path,
+			address(this),
+			block.timestamp
+		);
+		emit StateCommitmentRead({caller: caller, fee: fee});
 		return _stateCommitments[height.stateMachineId][height.height];
 	}
 

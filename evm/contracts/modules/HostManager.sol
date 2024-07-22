@@ -23,7 +23,6 @@ import {BaseIsmpModule, IncomingPostRequest} from "ismp/IIsmpModule.sol";
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
 import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatcher.sol";
 
-
 /// Host manager params
 struct HostManagerParams {
 	/// admin for setting the host address

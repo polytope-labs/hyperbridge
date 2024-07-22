@@ -813,15 +813,13 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     // @dev Checks that the request originates from a known instance of the TokenGateway.
+    // will revert if it isn't
     function checkSourceApplication(PostRequest memory request) internal {
         // TokenGateway only accepts incoming assets from it's instances on other chains.
         // or known instances
-        if (
-            !request.from.equals(abi.encodePacked(address(this))) &&
-            _instances[keccak256(request.source)] != bytesToAddress(request.from)
-        ) {
-            revert UnauthorizedAction();
-        }
+        bool unknown = !request.from.equals(abi.encodePacked(address(this))) &&
+            _instances[keccak256(request.source)] != bytesToAddress(request.from);
+        if (unknown) revert UnauthorizedAction();
     }
 
     function addressToBytes32(address _address) internal pure returns (bytes32) {

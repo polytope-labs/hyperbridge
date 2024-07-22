@@ -451,6 +451,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         return _hostParams.hyperbridge;
     }
 
+
+    /**
+	 * @return the fee for accessing hyperbridge state commitments charged in `feeToken()`
+	 */
+	function stateCommitmentFee() external view returns (uint256) {
+		return _hostParams.stateCommitmentFee;
+	}
+
     /**
      * @notice Charges the `_hostParams.stateCommitmentFee` to 3rd party applications.
      * @param height - state machine height
@@ -818,14 +826,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @notice Does not refund any protocol fees.
      * @param request - get request
      */
-    function dispatchIncoming(
+    function dispatchTimeOut(
         GetRequest memory request,
         FeeMetadata memory meta,
         bytes32 commitment
     ) external restrict(_hostParams.handler) {
         address origin = _bytesToAddress(request.from);
 
-        // replay protection, delete memory of this request
+        // replay protection
         delete _requestCommitments[commitment];
         (bool success, ) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
@@ -842,14 +850,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST timeout to the source module
      * @param request - post timeout
      */
-    function dispatchIncoming(
+    function dispatchTimeOut(
         PostRequest memory request,
         FeeMetadata memory meta,
         bytes32 commitment
     ) external restrict(_hostParams.handler) {
         address origin = _bytesToAddress(request.from);
 
-        // replay protection, delete memory of this request
+        // replay protection
         delete _requestCommitments[commitment];
         (bool success, ) = address(origin).call(
             abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request)
@@ -871,14 +879,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST response timeout to the source module
      * @param response - timed-out post response
      */
-    function dispatchIncoming(
+    function dispatchTimeOut(
         PostResponse memory response,
         FeeMetadata memory meta,
         bytes32 commitment
     ) external restrict(_hostParams.handler) {
         address origin = _bytesToAddress(response.request.to);
 
-        // replay protection, delete memory of this response
+        // replay protection
         bytes32 reqCommitment = response.request.hash();
         delete _responseCommitments[commitment];
         delete _responded[reqCommitment];

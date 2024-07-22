@@ -231,7 +231,7 @@ contract HandlerV1 is IHandler, Context {
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
-            host.dispatchIncoming(request, meta, requestCommitment);
+            host.dispatchTimeOut(request, meta, requestCommitment);
         }
     }
 
@@ -270,7 +270,7 @@ contract HandlerV1 is IHandler, Context {
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
-            host.dispatchIncoming(response, meta, responseCommitment);
+            host.dispatchTimeOut(response, meta, responseCommitment);
         }
     }
 
@@ -331,7 +331,7 @@ contract HandlerV1 is IHandler, Context {
             if (meta.sender == address(0)) revert InvalidProof();
 
             if (request.timeout() > timestamp) revert MessageNotTimedOut();
-            host.dispatchIncoming(request, meta, requestCommitment);
+            host.dispatchTimeOut(request, meta, requestCommitment);
         }
     }
 }

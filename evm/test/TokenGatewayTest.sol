@@ -511,7 +511,7 @@ contract TokenGatewayTest is BaseTest {
 
         PostRequest memory request = PostRequest({
             to: abi.encodePacked(address(0)),
-            from: new bytes(0),
+            from: abi.encodePacked(address(0)),
             dest: new bytes(0),
             body: bytes.concat(hex"00", abi.encode(body)),
             nonce: 0,

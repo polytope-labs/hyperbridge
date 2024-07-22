@@ -498,7 +498,7 @@ contract TokenGateway is BaseIsmpModule {
     //
     // @notice The request must not have expired, and must not have already been fulfilled.
     function bid(PostRequest calldata request, uint256 fee) public {
-        checkOrigin(request);
+        checkSourceApplication(request);
         // Not sure why anyone would do this
         if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
         // cannot bid on timed-out requests
@@ -554,7 +554,7 @@ contract TokenGateway is BaseIsmpModule {
     // @dev This allows the bidder to refund their bids in the event that the request timed-out before
     // the bid could be fulfilled.
     function refundBid(PostRequest calldata request) public {
-        checkOrigin(request);
+        checkSourceApplication(request);
         // Not sure why anyone would do this
         if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
         // Cannot refund bids on requests which have not timed out, sorry.
@@ -650,8 +650,8 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetRefunded({commitment: request.hash(), beneficiary: from, amount: body.amount, assetId: body.assetId});
     }
 
-    function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) private {
-        checkOrigin(request);
+    function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) internal {
+        checkSourceApplication(incoming.request);
 
         Body memory body = abi.decode(incoming.request.body[1:], (Body));
         bytes32 commitment = incoming.request.hash();
@@ -666,8 +666,8 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) private {
-        checkOrigin(request);
+    function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) internal {
+        checkSourceApplication(incoming.request);
 
         BodyWithCall memory body = abi.decode(incoming.request.body[1:], (BodyWithCall));
         bytes32 commitment = incoming.request.hash();
@@ -696,7 +696,7 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function handleIncomingAsset(Body memory body, bytes32 commitment) private {
+    function handleIncomingAsset(Body memory body, bytes32 commitment) internal {
         address _erc20 = _erc20s[body.assetId];
         address _erc6160 = _erc6160s[body.assetId];
 
@@ -720,7 +720,7 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function handleGovernance(PostRequest calldata request) private {
+    function handleGovernance(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         TokenGatewayParams memory params = abi.decode(request.body[1:], (TokenGatewayParams));
@@ -730,7 +730,7 @@ contract TokenGateway is BaseIsmpModule {
         _params = params;
     }
 
-    function handleCreateAsset(PostRequest calldata request) private {
+    function handleCreateAsset(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         AssetMetadata[] memory assets = new AssetMetadata[](1);
@@ -740,7 +740,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // Deregisters the asset from TokenGateway. Users will be unable to bridge the asset
     // through TokenGateway once they are deregistered
-    function deregisterAssets(PostRequest calldata request) private {
+    function deregisterAssets(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         DeregsiterAsset memory deregister = abi.decode(request.body[1:], (DeregsiterAsset));
@@ -755,7 +755,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // Changes the asset admin from this contract to some other address. Changing the admin to a
     // zero address is disallowed for safety reasons
-    function changeAssetAdmin(PostRequest calldata request) private {
+    function changeAssetAdmin(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         ChangeAssetAdmin memory asset = abi.decode(request.body[1:], (ChangeAssetAdmin));
@@ -769,7 +769,7 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetAdminChanged({asset: erc6160Address, newAdmin: asset.newAdmin});
     }
 
-    function handleNewContractInstance(PostRequest calldata request) private {
+    function handleNewContractInstance(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         ContractInstance memory instance = abi.decode(request.body[1:], (ContractInstance));
@@ -781,7 +781,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // Creates a new entry for the provided asset in the mappings. If there's no existing
     // ERC6160 address provided, then a contract for the asset is created.
-    function createAssets(AssetMetadata[] memory assets) private {
+    function createAssets(AssetMetadata[] memory assets) internal {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; ++i) {
             AssetMetadata memory asset = assets[i];
@@ -813,13 +813,14 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     // @dev Checks that the request originates from a known instance of the TokenGateway.
-    function checkOrigin(PostRequest memory request) internal {
+    function checkSourceApplication(PostRequest memory request) internal {
         // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!request.from.equals(abi.encodePacked(address(this)))) {
-            // or known instances
-            if (_instances[keccak256(request.source)] != bytesToAddress(request.from)) {
-                revert UnauthorizedAction();
-            }
+        // or known instances
+        if (
+            !request.from.equals(abi.encodePacked(address(this))) &&
+            _instances[keccak256(request.source)] != bytesToAddress(request.from)
+        ) {
+            revert UnauthorizedAction();
         }
     }
 

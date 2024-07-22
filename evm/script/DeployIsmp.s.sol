@@ -5,15 +5,15 @@ import "forge-std/Script.sol";
 import "openzeppelin/utils/Strings.sol";
 import "stringutils/strings.sol";
 
-import "../src/modules/HandlerV1.sol";
-import "../src/hosts/EvmHost.sol";
-import "../src/modules/HostManager.sol";
+import "../contracts/modules/HandlerV1.sol";
+import "../contracts/hosts/EvmHost.sol";
+import "../contracts/modules/HostManager.sol";
 
-import "../src/consensus/BeefyV1.sol";
-import "../src/hosts/Ethereum.sol";
-import "../src/hosts/Arbitrum.sol";
-import "../src/hosts/Optimism.sol";
-import "../src/hosts/Base.sol";
+import "../contracts/consensus/BeefyV1.sol";
+import "../contracts/hosts/Ethereum.sol";
+import "../contracts/hosts/Arbitrum.sol";
+import "../contracts/hosts/Optimism.sol";
+import "../contracts/hosts/Base.sol";
 
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {
@@ -22,18 +22,18 @@ import {
     TokenGatewayParamsExt,
     TokenGatewayParams,
     AssetMetadata
-} from "../src/modules/TokenGateway.sol";
-import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
+} from "../contracts/modules/TokenGateway.sol";
+import {TokenFaucet} from "../contracts/modules/TokenFaucet.sol";
 
 import {PingModule} from "../examples/PingModule.sol";
-import {BscHost} from "../src/hosts/Bsc.sol";
-import {PolygonHost} from "../src/hosts/Polygon.sol";
-import {PolkadotVerifier} from "../src/consensus/verifiers/PolkadotVerifier.sol";
-import {UltraPlonkBeefy} from "../src/consensus/UltraPlonkBeefy.sol";
-import {BeefyV1} from "../src/consensus/BeefyV1.sol";
+import {BscHost} from "../contracts/hosts/Bsc.sol";
+import {PolygonHost} from "../contracts/hosts/Polygon.sol";
+import {PolkadotVerifier} from "../contracts/consensus/verifiers/PolkadotVerifier.sol";
+import {UltraPlonkBeefy} from "../contracts/consensus/UltraPlonkBeefy.sol";
+import {BeefyV1} from "../contracts/consensus/BeefyV1.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
-import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
+import {CallDispatcher} from "../contracts/modules/CallDispatcher.sol";
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
 bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -72,6 +72,7 @@ contract DeployScript is Script {
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
        		stateCommitmentFee: 10 * 1e18, // $10
+         	uniswapV2: address(0),
             fishermen: fishermen,
             admin: admin,
             hostManager: address(manager),

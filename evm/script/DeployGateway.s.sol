@@ -11,8 +11,8 @@ import {
     TokenGatewayParamsExt,
     TokenGatewayParams,
     AssetMetadata
-} from "../src/modules/TokenGateway.sol";
-import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
+} from "../contracts/modules/TokenGateway.sol";
+import {TokenFaucet} from "../contracts/modules/TokenFaucet.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
 
 contract DeployScript is Script {

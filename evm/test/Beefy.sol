@@ -16,9 +16,9 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 import "ismp/IConsensusClient.sol";
-import {BeefyV1} from "../src/consensus/BeefyV1.sol";
-import {Header} from "../src/consensus/Header.sol";
-import {BeefyMmrLeaf, Commitment, Codec} from "../src/consensus/Codec.sol";
+import {BeefyV1} from "../contracts/consensus/BeefyV1.sol";
+import {Header} from "../contracts/consensus/Header.sol";
+import {BeefyMmrLeaf, Commitment, Codec} from "../contracts/consensus/Codec.sol";
 
 contract BeefyConsensusClientTest is Test {
     BeefyV1 internal beefy;

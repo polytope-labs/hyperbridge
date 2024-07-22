@@ -3,3 +3,4 @@ openzeppelin/=lib/openzeppelin-contracts/contracts/
 solidity-merkle-trees/=lib/solidity-merkle-trees/src/
 ERC6160/=lib/ERC6160/src/
 stringutils/=lib/solidity-stringutils/src/
+@uniswap/v2-periphery/=node_modules/@uniswap/v2-periphery

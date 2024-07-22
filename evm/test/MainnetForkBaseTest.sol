@@ -18,23 +18,23 @@ import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../examples/PingModule.sol";
-import {HandlerV1} from "../src/modules/HandlerV1.sol";
-import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
+import {HandlerV1} from "../contracts/modules/HandlerV1.sol";
+import {CallDispatcher} from "../contracts/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
-import {HostParams} from "../src/hosts/EvmHost.sol";
-import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
-import {TokenRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
+import {HostParams} from "../contracts/hosts/EvmHost.sol";
+import {HostManagerParams, HostManager} from "../contracts/modules/HostManager.sol";
+import {TokenRegistrar, RegistrarParams} from "../contracts/modules/Registrar.sol";
 import {
     TokenGateway,
     Asset,
     TokenGatewayParams,
     TokenGatewayParamsExt,
     AssetMetadata
-} from "../src/modules/TokenGateway.sol";
+} from "../contracts/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {IUniswapV2Router} from "../src/interfaces/IUniswapV2Router.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 contract MainnetForkBaseTest is Test {
     /// @notice The Id of Role required to mint token
@@ -54,7 +54,7 @@ contract MainnetForkBaseTest is Test {
     IERC20 internal usdc;
     IERC20 internal dai;
     IERC20 internal feeToken;
-    IUniswapV2Router internal _uniswapV2Router;
+    IUniswapV2Router02 internal _uniswapV2Router;
     TokenRegistrar internal _registrar;
 
     uint256 internal mainnetFork;
@@ -63,7 +63,7 @@ contract MainnetForkBaseTest is Test {
         usdc = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
         dai = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
         feeToken = dai;
-        _uniswapV2Router = IUniswapV2Router(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
+        _uniswapV2Router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
         string memory fork_url = vm.envString("MAINNET_FORK_URL");
 
@@ -85,6 +85,7 @@ contract MainnetForkBaseTest is Test {
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
        		stateCommitmentFee: 0,
+         	uniswapV2: address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D),
             fishermen: fishermen,
             admin: address(0),
             hostManager: address(manager),

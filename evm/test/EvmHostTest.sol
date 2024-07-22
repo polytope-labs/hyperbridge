@@ -17,7 +17,7 @@ pragma solidity 0.8.17;
 import {BaseTest} from "./BaseTest.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import "forge-std/Test.sol";
-import "../src/hosts/EvmHost.sol";
+import "../contracts/hosts/EvmHost.sol";
 import {DispatchPost} from "ismp/IDispatcher.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 

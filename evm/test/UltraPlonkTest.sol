@@ -15,8 +15,8 @@
 pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
-import {KusamaVerifier} from "../src/consensus/verifiers/KusamaVerifier.sol";
-import {PolkadotVerifier} from "../src/consensus/verifiers/PolkadotVerifier.sol";
+import {KusamaVerifier} from "../contracts/consensus/verifiers/KusamaVerifier.sol";
+import {PolkadotVerifier} from "../contracts/consensus/verifiers/PolkadotVerifier.sol";
 
 contract UltraPlonkTest is Test {
     KusamaVerifier internal kusama;

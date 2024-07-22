@@ -18,23 +18,23 @@ import "./EvmHost.sol";
 import "ismp/StateMachine.sol";
 
 /**
- * @title The OptimismHost
+ * @title The BaseHost
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice The IsmpHost and IsmpDispatcher implementation for the Optimism state machine.
+ * @notice The IsmpHost and IsmpDispatcher implementation for the Base state machine.
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
  */
-contract OptimismHost is EvmHost {
-    constructor(HostParams memory params) EvmHost(params) {}
+contract BaseHost is EvmHost {
+	constructor(HostParams memory params) EvmHost(params) {}
 
-    /// chainId for the optimism mainnet
-    uint256 public constant CHAIN_ID = 10;
+	/// chainId for the base mainnet
+	uint256 public constant CHAIN_ID = 8453;
 
-    function chainId() public pure override returns (uint256) {
-        return CHAIN_ID;
-    }
+	function chainId() public pure override returns (uint256) {
+		return CHAIN_ID;
+	}
 
-    function host() public pure override returns (bytes memory) {
-        return StateMachine.optimism();
-    }
+	function host() public pure override returns (bytes memory) {
+		return StateMachine.base();
+	}
 }

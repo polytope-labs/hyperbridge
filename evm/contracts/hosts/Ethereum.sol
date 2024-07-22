@@ -18,23 +18,23 @@ import "./EvmHost.sol";
 import "ismp/StateMachine.sol";
 
 /**
- * @title The BscHost
+ * @title The EthereumHost
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice The IsmpHost and IsmpDispatcher implementation for the Binance state machine.
+ * @notice The IsmpHost and IsmpDispatcher implementation for the Ethereum state machine.
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
  */
-contract BscHost is EvmHost {
-    constructor(HostParams memory params) EvmHost(params) {}
+contract EthereumHost is EvmHost {
+	constructor(HostParams memory params) EvmHost(params) {}
 
-    /// chainId for the bsc mainnet
-    uint256 public constant CHAIN_ID = 56;
+	/// chainId for the ethereum mainnet
+	uint256 public constant CHAIN_ID = 1;
 
-    function chainId() public pure override returns (uint256) {
-        return CHAIN_ID;
-    }
+	function chainId() public pure override returns (uint256) {
+		return CHAIN_ID;
+	}
 
-    function host() public pure override returns (bytes memory) {
-        return StateMachine.bsc();
-    }
+	function host() public pure override returns (bytes memory) {
+		return StateMachine.ethereum();
+	}
 }

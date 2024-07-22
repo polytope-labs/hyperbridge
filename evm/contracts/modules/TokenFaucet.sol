@@ -23,18 +23,18 @@ import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
  * @notice Allows access to a fixed amount of tokens to users on a daily basis
  */
 contract TokenFaucet {
-    mapping(address => uint256) private consumers;
+	mapping(address => uint256) private consumers;
 
-    // @dev Will only drip tokens, once per day
-    function drip(address token) public {
-        uint256 lastDrip = consumers[msg.sender];
-        uint256 delay = block.timestamp - lastDrip;
+	// @dev Will only drip tokens, once per day
+	function drip(address token) public {
+		uint256 lastDrip = consumers[msg.sender];
+		uint256 delay = block.timestamp - lastDrip;
 
-        if (delay < 86400) {
-            revert("Can only request tokens once daily");
-        }
+		if (delay < 86400) {
+			revert("Can only request tokens once daily");
+		}
 
-        consumers[msg.sender] = block.timestamp;
-        IERC6160Ext20(token).mint(msg.sender, 1000 * 1e18);
-    }
+		consumers[msg.sender] = block.timestamp;
+		IERC6160Ext20(token).mint(msg.sender, 1000 * 1e18);
+	}
 }

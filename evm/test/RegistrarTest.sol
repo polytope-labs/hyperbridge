@@ -20,9 +20,9 @@ import "forge-std/console.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
 import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE} from "../contracts/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
-import {AssetRegistration, RequestBody, RegistrarParams, TokenRegistrar} from "../src/modules/Registrar.sol";
+import {AssetRegistration, RequestBody, RegistrarParams, TokenRegistrar} from "../contracts/modules/Registrar.sol";
 
 contract TokenRegistrarTest is MainnetForkBaseTest {
     // Maximum slippage of 0.5%

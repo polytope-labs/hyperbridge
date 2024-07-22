@@ -34,7 +34,7 @@ import {
     DeregsiterAsset,
     ContractInstance,
     AssetMetadata
-} from "../src/modules/TokenGateway.sol";
+} from "../contracts/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {NotRoleAdmin} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
@@ -161,7 +161,8 @@ contract TokenGatewayTest is BaseTest {
         address calldataTarget = address(miniStaking);
         bytes memory stakeCalldata = abi.encodeWithSignature("recordStake(address)", address(this));
 
-        CallDispatcherParams memory dispatchParams = CallDispatcherParams({target: calldataTarget, data: stakeCalldata});
+        CallDispatcherParams[] memory calls = new CallDispatcherParams[](1);
+        calls[0] = CallDispatcherParams({target: calldataTarget, data: stakeCalldata});
 
         BodyWithCall memory body = BodyWithCall({
             assetId: keccak256("USD.h"),
@@ -170,7 +171,7 @@ contract TokenGatewayTest is BaseTest {
             maxFee: 1 * 1e18,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this)),
-            data: abi.encode(dispatchParams)
+            data: abi.encode(calls)
         });
 
         vm.prank(address(host));

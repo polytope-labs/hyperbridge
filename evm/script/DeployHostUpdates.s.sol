@@ -5,19 +5,19 @@ import "forge-std/Script.sol";
 import "openzeppelin/utils/Strings.sol";
 import "stringutils/strings.sol";
 
-import {EvmHost, HostParams} from "../src/hosts/EvmHost.sol";
-import {BeefyV1} from "../src/consensus/BeefyV1.sol";
+import {EvmHost, HostParams} from "../contracts/hosts/EvmHost.sol";
+import {BeefyV1} from "../contracts/consensus/BeefyV1.sol";
 
 contract DeployScript is Script {
     using strings for *;
 
     bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
 
-    address public SEPOLIA_HOST = vm.envAddress("SEPOLIA_HOST");
-    address public ARB_SEPOLIA_HOST = vm.envAddress("ARB_SEPOLIA_HOST");
-    address public OP_SEPOLIA_HOST = vm.envAddress("OP_SEPOLIA_HOST");
-    address public BASE_SEPOLIA_HOST = vm.envAddress("BASE_SEPOLIA_HOST");
-    address public BSC_TESTNET_HOST = vm.envAddress("BSC_TESTNET_HOST");
+    address payable public SEPOLIA_HOST = payable(vm.envAddress("SEPOLIA_HOST"));
+    address payable public ARB_SEPOLIA_HOST = payable(vm.envAddress("ARB_SEPOLIA_HOST"));
+    address payable public OP_SEPOLIA_HOST = payable(vm.envAddress("OP_SEPOLIA_HOST"));
+    address payable public BASE_SEPOLIA_HOST = payable(vm.envAddress("BASE_SEPOLIA_HOST"));
+    address payable public BSC_TESTNET_HOST = payable(vm.envAddress("BSC_TESTNET_HOST"));
 
     uint256 public paraId = vm.envUint("PARA_ID");
     string private host = vm.envString("HOST");

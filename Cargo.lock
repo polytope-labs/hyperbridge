@@ -17296,6 +17296,7 @@ dependencies = [
  "curve25519-dalek-ng",
  "merlin 3.0.0",
  "rand_core 0.6.4",
+ "serde_bytes",
  "sha2 0.9.9",
  "subtle-ng",
  "zeroize",
@@ -20239,6 +20240,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "subxt-signer"
+version = "0.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8829de70ce3df90bfeccee1d80a29d554bc0219d7031ed67c11679e3ddc95b7d"
+dependencies = [
+ "bip39",
+ "hex",
+ "hmac 0.12.1",
+ "parity-scale-codec",
+ "pbkdf2 0.12.2",
+ "regex",
+ "schnorrkel 0.10.2",
+ "secp256k1 0.27.0",
+ "secrecy",
+ "sha2 0.10.8",
+ "sp-core-hashing 9.0.0",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
 name = "subxt-utils"
 version = "0.1.1"
 dependencies = [
@@ -20663,6 +20685,40 @@ dependencies = [
  "tesseract-primitives",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "tesseract-integration-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "hex",
+ "ismp",
+ "log",
+ "pallet-hyperbridge",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "percentage",
+ "sc-consensus-manual-seal",
+ "sc-service",
+ "sp-core 21.0.0",
+ "sp-keyring",
+ "substrate-state-machine",
+ "subxt",
+ "subxt-signer",
+ "subxt-utils",
+ "tesseract",
+ "tesseract-config",
+ "tesseract-messaging",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
+ "tokio-stream",
+ "toml 0.7.8",
+ "tracing",
+ "tracing-subscriber 0.3.18",
+ "transaction-fees",
 ]
 
 [[package]]

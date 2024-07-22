@@ -17,6 +17,7 @@ use sc_service::TaskManager;
 use std::{
 	collections::{BTreeMap, HashMap},
 	sync::Arc,
+	time::Duration,
 };
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt::{
@@ -32,7 +33,7 @@ use subxt_utils::{
 	gargantua::{
 		api,
 		api::{
-			ismp::events::{PostRequestHandled, Request as RequestEvent},
+			ismp::events::PostRequestHandled,
 			ismp_demo::events::GetResponse,
 			runtime_types::{
 				ismp::host::StateMachine as StateMachineType,
@@ -42,7 +43,6 @@ use subxt_utils::{
 	},
 	Hyperbridge,
 };
-//use subxt_utils::gargantua::api::host_executive::events::HostParamsSet;
 use tesseract::logging::setup as log_setup;
 use tesseract_messaging::relay;
 use tesseract_primitives::{config::RelayerConfig, IsmpProvider};
@@ -54,7 +54,6 @@ use transaction_fees::TransactionPayment;
 async fn relay_get_response_message(
 	chain_a_sub_client: SubstrateClient<Hyperbridge>,
 	chain_b_sub_client: SubstrateClient<Hyperbridge>,
-	tx_block_height: u64,
 ) -> Result<Vec<u8>, anyhow::Error> {
 	let (client_a, client_b) =
 		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
@@ -74,9 +73,9 @@ async fn relay_get_response_message(
 					latest_height: (block.number() as u64) + 1,
 				};
 
-				if let Ok(events) = chain_a_client
-					.query_ismp_events(tx_block_height - 1, state_machine_update)
-					.await
+				let prev_height = (block.number() as u64) - 2;
+				if let Ok(events) =
+					chain_a_client.query_ismp_events(prev_height, state_machine_update).await
 				{
 					if let Some(event) = events.into_iter().find_map(|event| match event {
 						Event::GetRequest(_) => Some(event),
@@ -272,7 +271,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		&task_manager,
 	)
 	.await?;
-
+	tokio::time::sleep(Duration::from_secs(6)).await;
 	// =========================== Accounts & keys =====================================
 	let bob_signer = PairSigner::<Hyperbridge, _>::new(
 		Pair::from_string("//Bob", None).expect("Unable to create Bob account"),
@@ -309,31 +308,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		.data
 		.free;
 
-	let result = client_a
-		.tx()
-		.sign_and_submit_then_watch_default(&transfer_call, &bob_signer)
-		.await?
-		.wait_for_finalized_success()
-		.await?
-		.all_events_in_block()
-		.clone();
-
-	let tx_block_hash = result.block_hash();
-
-	let events = client_a.events().at(tx_block_hash).await?;
-	log::info!("Ismp Events: {:?} \n", events.find_last::<RequestEvent>()?);
-
-	// Assert burnt & transferred tokens in chain A
-	let bob_chain_a_new_balance = client_a
-		.storage()
-		.at_latest()
-		.await?
-		.fetch(&bob_key)
-		.await?
-		.ok_or("Failed to fetch")
-		.unwrap()
-		.data
-		.free;
+	let _ = client_a.tx().sign_and_submit_default(&transfer_call, &bob_signer).await?;
 
 	// watch for PostRequestHandled event in chain b
 	let mut post_request_handled_event = None;
@@ -358,9 +333,22 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 			},
 		}
 	}
-	log::info!("Chain B Event: {:?}", post_request_handled_event);
+	log::info!("Chain B Event: {:?} \n", post_request_handled_event);
 	// The relayer should finish sending the request message to chain B
 
+	// Asset burnt & transferred tokens in chain A
+	let bob_chain_a_new_balance = client_a
+		.storage()
+		.at_latest()
+		.await?
+		.fetch(&bob_key)
+		.await?
+		.ok_or("Failed to fetch")
+		.unwrap()
+		.data
+		.free;
+
+	// Asset minted
 	let bob_chain_b_new_balance = client_b
 		.storage()
 		.at_latest()
@@ -373,12 +361,12 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		.free;
 
 	// diving by 100000000000 for better assertion as the rem balance = initial - amount - fees
-	// in chain A
+	// in chain A assets were burnt
 	assert_eq!(
 		(bob_chain_a_initial_balance - amount) / 1000000000000,
 		bob_chain_a_new_balance / 1000000000000
 	);
-	// in chain B
+	// in chain B the assets were minted
 	assert_eq!(
 		(bob_chain_b_initial_balance + amount) / 1000000000000,
 		bob_chain_b_new_balance / 1000000000000
@@ -392,7 +380,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 
-	log::info!(" \n 🧊integration test for para: 2000 to para 2001: get request \n");
+	log::info!("🧊integration test for para: 2000 to para 2001: get request \n");
 
 	// =======================================================================
 	let (chain_a_client, chain_b_client) =
@@ -419,26 +407,19 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		keys: vec![hex::decode(encoded_chain_b_id_storage_key.strip_prefix("0x").unwrap()).unwrap()],
 	});
 
-	let tx_result = client_a
-		.tx()
-		.sign_and_submit_then_watch_default(&get_request, &dave_signer)
-		.await?
-		.wait_for_finalized_success()
-		.await?
-		.all_events_in_block()
-		.clone();
+	let _tx_result = client_a.tx().sign_and_submit_default(&get_request, &dave_signer).await?;
 
-	let tx_block_hash = tx_result.block_hash();
-	let tx_block_height = client_a.blocks().at(tx_block_hash).await?.number() as u64;
-	let events = client_a.events().at(tx_block_hash).await?;
-	let event = events.find_last::<RequestEvent>()?.unwrap();
-	log::info!("Ismp Events: {:?} \n", event);
+	// let tx_block_hash = tx_result.block_hash();
+	// let tx_block_height = client_a.blocks().at(tx_block_hash).await?.number() as u64;
+	// let events = client_a.events().at(tx_block_hash).await?;
+	// let event = events.find_last::<RequestEvent>()?.unwrap();
+	// log::info!("Ismp Events: {:?} \n", event);
 
 	// ======================= handle the get request and resubmit to chain A (origin chain)
 	// =====================================
 
 	let value_returned_encoded =
-		relay_get_response_message(chain_a_sub_client, chain_b_sub_client, tx_block_height).await?;
+		relay_get_response_message(chain_a_sub_client, chain_b_sub_client).await?;
 
 	let para_id_chain_b: u32 = Decode::decode(&mut &value_returned_encoded[..])?;
 

@@ -498,8 +498,7 @@ contract TokenGateway is BaseIsmpModule {
     //
     // @notice The request must not have expired, and must not have already been fulfilled.
     function bid(PostRequest calldata request, uint256 fee) public {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        checkOrigin(request);
         // Not sure why anyone would do this
         if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
         // cannot bid on timed-out requests
@@ -555,8 +554,7 @@ contract TokenGateway is BaseIsmpModule {
     // @dev This allows the bidder to refund their bids in the event that the request timed-out before
     // the bid could be fulfilled.
     function refundBid(PostRequest calldata request) public {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        checkOrigin(request);
         // Not sure why anyone would do this
         if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
         // Cannot refund bids on requests which have not timed out, sorry.
@@ -590,9 +588,9 @@ contract TokenGateway is BaseIsmpModule {
         // In this case, the asset will need to be re-registered
         if (erc20Address == address(0)) revert UnknownAsset();
 
-        SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
-
         delete _bids[commitment];
+
+        SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
 
         emit BidRefunded({commitment: commitment, assetId: body.assetId, bidder: msg.sender});
     }
@@ -653,13 +651,7 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) private {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) {
-            // Check if known address
-            if (_instances[keccak256(incoming.request.source)] != bytesToAddress(incoming.request.from)) {
-                revert UnauthorizedAction();
-            }
-        }
+        checkOrigin(request);
 
         Body memory body = abi.decode(incoming.request.body[1:], (Body));
         bytes32 commitment = incoming.request.hash();
@@ -675,13 +667,7 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) private {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) {
-            // Check if known address
-            if (_instances[keccak256(incoming.request.source)] != bytesToAddress(incoming.request.from)) {
-                revert UnauthorizedAction();
-            }
-        }
+        checkOrigin(request);
 
         BodyWithCall memory body = abi.decode(incoming.request.body[1:], (BodyWithCall));
         bytes32 commitment = incoming.request.hash();
@@ -823,6 +809,17 @@ contract TokenGateway is BaseIsmpModule {
                 beneficiary: asset.beneficiary,
                 initialSupply: asset.initialSupply
             });
+        }
+    }
+
+    // @dev Checks that the request originates from a known instance of the TokenGateway.
+    function checkOrigin(PostRequest memory request) internal {
+        // TokenGateway only accepts incoming assets from it's instances on other chains.
+        if (!request.from.equals(abi.encodePacked(address(this)))) {
+            // or known instances
+            if (_instances[keccak256(request.source)] != bytesToAddress(request.from)) {
+                revert UnauthorizedAction();
+            }
         }
     }
 

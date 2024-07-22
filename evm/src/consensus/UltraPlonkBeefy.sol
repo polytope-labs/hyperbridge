@@ -130,10 +130,10 @@ contract UltraPlonkBeefy is IConsensusClient {
     }
 
     /** @dev Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
-    * which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
-    * the relay chain authority set and we can verify the membership of the authorities who signed this new root
-    * using a merkle multi proof and a merkle commitment to the total authorities.
-    */
+     * which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
+     * the relay chain authority set and we can verify the membership of the authorities who signed this new root
+     * using a merkle multi proof and a merkle commitment to the total authorities.
+     */
     function verifyMmrUpdateProof(
         BeefyConsensusState memory trustedState,
         UltraPlonkConsensusProof memory relayProof

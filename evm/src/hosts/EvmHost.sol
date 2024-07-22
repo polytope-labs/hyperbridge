@@ -316,18 +316,18 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // An application has accessed the Hyperbridge state commitment
     event StateCommitmentRead(
-    	// the application responsible
-    	address indexed caller,
-     	// The fee that was paid
-     	uint256 fee
+        // the application responsible
+        address indexed caller,
+        // The fee that was paid
+        uint256 fee
     );
 
     // Emitted when the host has either been frozen or unfrozen.
     // A frozen host does not permit any new messages or
     // state commitments.
     event HostFrozen(
-    	// Frozen status
-    	bool frozen
+        // Frozen status
+        bool frozen
     );
 
     // Emitted when the host params is updated
@@ -451,13 +451,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         return _hostParams.hyperbridge;
     }
 
-
     /**
-	 * @return the fee for accessing hyperbridge state commitments charged in `feeToken()`
-	 */
-	function stateCommitmentFee() external view returns (uint256) {
-		return _hostParams.stateCommitmentFee;
-	}
+     * @return the fee for accessing hyperbridge state commitments charged in `feeToken()`
+     */
+    function stateCommitmentFee() external view returns (uint256) {
+        return _hostParams.stateCommitmentFee;
+    }
 
     /**
      * @notice Charges the `_hostParams.stateCommitmentFee` to 3rd party applications.
@@ -465,12 +464,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the state commitment at `height`
      */
     function stateMachineCommitment(StateMachineHeight memory height) external returns (StateCommitment memory) {
-    	address caller = _msgSender();
-    	if (caller != _hostParams.handler) {
-     		uint256 fee = _hostParams.stateCommitmentFee;
-     		SafeERC20.safeTransferFrom(IERC20(feeToken()), caller, address(this), fee);
-       		emit StateCommitmentRead({ caller: caller, fee: fee });
-     	}
+        address caller = _msgSender();
+        if (caller != _hostParams.handler) {
+            uint256 fee = _hostParams.stateCommitmentFee;
+            SafeERC20.safeTransferFrom(IERC20(feeToken()), caller, address(this), fee);
+            emit StateCommitmentRead({caller: caller, fee: fee});
+        }
         return _stateCommitments[height.stateMachineId][height.height];
     }
 

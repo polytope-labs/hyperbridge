@@ -245,7 +245,8 @@ pub mod api {
 					&self,
 					included_hash: ::subxt::utils::H256,
 					slot: runtime_types::sp_consensus_slots::Slot,
-				) -> ::subxt::runtime_api::Payload<types::CanBuildUpon, ::core::primitive::bool> {
+				) -> ::subxt::runtime_api::Payload<types::CanBuildUpon, ::core::primitive::bool>
+				{
 					::subxt::runtime_api::Payload::new_static(
 						"AuraUnincludedSegmentApi",
 						"can_build_upon",
@@ -853,7 +854,8 @@ pub mod api {
 				pub fn account_nonce(
 					&self,
 					account: ::subxt::utils::AccountId32,
-				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32> {
+				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32>
+				{
 					::subxt::runtime_api::Payload::new_static(
 						"AccountNonceApi",
 						"account_nonce",
@@ -3254,7 +3256,8 @@ pub mod api {
 				#[doc = " The maximum length of a block (in bytes)."]
 				pub fn block_length(
 					&self,
-				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength> {
+				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength>
+				{
 					::subxt::constants::Address::new_static(
 						"System",
 						"BlockLength",

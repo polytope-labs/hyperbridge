@@ -1,6 +1,3 @@
-[submodule "evm/lib/ismp-solidity"]
-	path = evm/lib/ismp-solidity
-	url = https://github.com/polytope-labs/ismp-solidity
 [submodule "evm/lib/forge-std"]
 	path = evm/lib/forge-std
 	url = git@github.com:foundry-rs/forge-std

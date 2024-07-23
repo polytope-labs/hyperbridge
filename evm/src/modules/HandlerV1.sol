@@ -19,9 +19,9 @@ import {MerklePatricia, StorageValue} from "@polytope-labs/solidity-merkle-trees
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import {Context} from "openzeppelin/utils/Context.sol";
 
-import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "ismp/IConsensusClient.sol";
-import {IIsmpHost, FeeMetadata} from "ismp/IIsmpHost.sol";
-import {IHandler} from "ismp/IHandler.sol";
+import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {IIsmpHost, FeeMetadata} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {
     Message,
     PostResponse,
@@ -36,7 +36,7 @@ import {
     GetTimeoutMessage,
     PostRequestLeaf,
     PostResponseLeaf
-} from "ismp/Message.sol";
+} from "@polytope-labs/ismp-solidity/Message.sol";
 
 // Storage prefix for request receipts in the pallet-ismp child trie
 bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"526571756573745265636569707473";

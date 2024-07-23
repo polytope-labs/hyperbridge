@@ -19,12 +19,12 @@ import {Strings} from "openzeppelin/utils/Strings.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 
-import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "ismp/IIsmpModule.sol";
-import {DispatchPost, DispatchPostResponse, DispatchGet} from "ismp/IDispatcher.sol";
-import {IIsmpHost, FeeMetadata, ResponseReceipt} from "ismp/IIsmpHost.sol";
-import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
-import {IHandler} from "ismp/IHandler.sol";
-import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
+import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import {DispatchPost, DispatchPostResponse, DispatchGet} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {IIsmpHost, FeeMetadata, ResponseReceipt} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {StateCommitment, StateMachineHeight} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "@polytope-labs/ismp-solidity/Message.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 // The EvmHost protocol parameters

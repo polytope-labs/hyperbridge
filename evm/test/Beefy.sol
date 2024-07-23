@@ -15,7 +15,7 @@
 pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
-import "ismp/IConsensusClient.sol";
+import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {Header} from "../src/consensus/Header.sol";
 import {BeefyMmrLeaf, Commitment, Codec} from "../src/consensus/Codec.sol";

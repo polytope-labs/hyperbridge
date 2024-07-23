@@ -18,10 +18,10 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
+import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "@polytope-labs/ismp-solidity/Message.sol";
 import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
-import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 contract TeleportForkTest is MainnetForkBaseTest {

@@ -14,9 +14,9 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule.sol";
-import {IDispatcher, DispatchPost} from "ismp/IDispatcher.sol";
-import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import {IDispatcher, DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";

@@ -18,8 +18,8 @@ import {BaseTest} from "./BaseTest.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import "forge-std/Test.sol";
 import "../src/hosts/EvmHost.sol";
-import {DispatchPost} from "ismp/IDispatcher.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
+import {DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 contract EvmHostTest is BaseTest {
     using Bytes for bytes;

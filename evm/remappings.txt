@@ -1,4 +1,4 @@
-ismp/=lib/ismp-solidity/interfaces/
+@polytope-labs/ismp-solidity/=node_modules/@polytope-labs/ismp-solidity/interfaces/
 openzeppelin/=node_modules/openzeppelin-solidity/contracts/
 @polytope-labs/solidity-merkle-trees/=node_modules/@polytope-labs/solidity-merkle-trees/src/
 ERC6160/=lib/ERC6160/src/

@@ -3,10 +3,10 @@
 
 pragma solidity 0.8.17;
 
-import "ismp/IIsmpModule.sol";
-import "ismp/IIsmpHost.sol";
-import "ismp/Message.sol";
-import "ismp/IDispatcher.sol";
+import "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import "@polytope-labs/ismp-solidity/Message.sol";
+import "@polytope-labs/ismp-solidity/IDispatcher.sol";
 
 struct CrossChainMessage {
     bytes dest;

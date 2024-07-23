@@ -15,8 +15,8 @@
 pragma solidity 0.8.17;
 
 import "./Codec.sol";
-import "ismp/StateMachine.sol";
-import "ismp/IConsensusClient.sol";
+import "@polytope-labs/ismp-solidity/StateMachine.sol";
+import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 
 import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/MerkleMultiProof.sol";
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";

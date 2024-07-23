@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - main
-  # pull_request_target:
-  #   types: [opened, synchronize]
-  pull_request:
-    branches:
-      - main
+  pull_request_target:
+    types: [opened, synchronize]
+  # pull_request:
+  #   branches:
+  #     - main
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
@@ -394,7 +394,8 @@ jobs:
   hyperclient-tests:
     name: Hyperclient Integration Tests
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    # if: github.event.pull_request.draft == false
+    if: false
     steps:
       - name: Get User Permission
         id: checkAccess

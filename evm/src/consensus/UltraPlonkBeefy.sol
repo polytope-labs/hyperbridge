@@ -14,8 +14,8 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import "ismp/StateMachine.sol";
-import "ismp/IConsensusClient.sol";
+import "@polytope-labs/ismp-solidity/StateMachine.sol";
+import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 
 import "@polytope-labs/solidity-merkle-trees/MerkleMultiProof.sol";
 import "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";

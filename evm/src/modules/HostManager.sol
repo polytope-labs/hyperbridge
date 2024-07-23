@@ -15,10 +15,10 @@
 pragma solidity ^0.8.17;
 
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
-import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/Message.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
-import {IIsmpHost} from "ismp/IIsmpHost.sol";
-import {BaseIsmpModule, IncomingPostRequest} from "ismp/IIsmpModule.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "@polytope-labs/ismp-solidity/Message.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {BaseIsmpModule, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
 import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatcher.sol";

@@ -18,13 +18,13 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
-import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
+import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "@polytope-labs/ismp-solidity/Message.sol";
+import {IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {RequestBody, RegistrarParams, TokenRegistrar} from "../src/modules/Registrar.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 
 contract TokenRegistrarTest is MainnetForkBaseTest {
     // Maximum slippage of 0.5%

@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {IConsensusClient, IntermediateState} from "ismp/IConsensusClient.sol";
+import {IConsensusClient, IntermediateState} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 
 /// Test consensus client, performs no verification
 contract TestConsensusClient is IConsensusClient {

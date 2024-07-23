@@ -16,7 +16,7 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 
-import {PostRequestMessage, PostRequestTimeoutMessage, PostRequest, Message} from "ismp/Message.sol";
+import {PostRequestMessage, PostRequestTimeoutMessage, PostRequest, Message} from "@polytope-labs/ismp-solidity/Message.sol";
 import {BaseTest} from "./BaseTest.sol";
 
 contract PostRequestTest is BaseTest {

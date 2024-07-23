@@ -25,7 +25,7 @@ import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 import {TokenRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "../src/modules/TokenGateway.sol";

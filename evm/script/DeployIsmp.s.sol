@@ -24,7 +24,7 @@ import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {PolkadotVerifier} from "../src/consensus/verifiers/PolkadotVerifier.sol";
 import {UltraPlonkBeefy} from "../src/consensus/UltraPlonkBeefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
 import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";

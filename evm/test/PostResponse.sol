@@ -16,9 +16,9 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 
-import {PostRequest, PostResponse, PostRequestMessage, PostResponseMessage, Message, PostResponseTimeoutMessage} from "ismp/Message.sol";
-import {StateMachineHeight} from "ismp/IConsensusClient.sol";
-import {IHandler} from "ismp/IHandler.sol";
+import {PostRequest, PostResponse, PostRequestMessage, PostResponseMessage, Message, PostResponseTimeoutMessage} from "@polytope-labs/ismp-solidity/Message.sol";
+import {StateMachineHeight} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {BaseTest} from "./BaseTest.sol";
 
 contract PostResponseTest is BaseTest {

@@ -15,7 +15,7 @@
 pragma solidity 0.8.17;
 
 import "../src/hosts/EvmHost.sol";
-import "ismp/StateMachine.sol";
+import "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 contract TestHost is EvmHost {
     constructor(HostParams memory params) EvmHost(params) {}

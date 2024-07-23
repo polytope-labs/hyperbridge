@@ -311,14 +311,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 newFee
     );
 
-    // An application has accessed the Hyperbridge state commitment
-    event StateCommitmentRead(
-        // the application responsible
-        address indexed caller,
-        // The fee that was paid
-        uint256 fee
-    );
-
     // Emitted when the host has either been frozen or unfrozen.
     // A frozen host does not permit any new messages or
     // state commitments.

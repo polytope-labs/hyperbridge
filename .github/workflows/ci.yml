@@ -125,7 +125,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v3
         with:
-          node-version: 20
+          node-version: 22
+          cache-dependency-path: "evm/yarn.lock"
           cache: "yarn"
 
       - name: Install npm dependencies
@@ -197,7 +198,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v3
         with:
-          node-version: 20
+          node-version: 22
+          cache-dependency-path: "evm/yarn.lock"
           cache: "yarn"
 
       - name: Install npm dependencies
@@ -267,7 +269,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v3
         with:
-          node-version: 20
+          node-version: 22
+          cache-dependency-path: "evm/yarn.lock"
           cache: "yarn"
 
       - name: Install npm dependencies

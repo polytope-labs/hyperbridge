@@ -311,14 +311,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 newFee
     );
 
-    // An application has accessed the Hyperbridge state commitment
-    event StateCommitmentRead(
-        // the application responsible
-        address indexed caller,
-        // The fee that was paid
-        uint256 fee
-    );
-
     // Emitted when the host has either been frozen or unfrozen.
     // A frozen host does not permit any new messages or
     // state commitments.
@@ -928,45 +920,34 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch a POST request to the hyperbridge
-     * @param post - post request
-     */
-    function dispatch(DispatchPost memory post) external notFrozen returns (bytes32) {
+	 * @dev Dispatch a POST request to Hyperbridge
+	 *
+	 * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
+	 * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
+	 * Will revert if enough native tokens are not provided.
+	 *
+	 * If no native tokens are provided then it will try to collect payment from the calling contract in
+	 * the IIsmpHost.feeToken.
+	 *
+	 * @param post - post request
+	 * @return commitment - the request commitment
+	 */
+    function dispatch(DispatchPost memory post) external payable notFrozen returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
-        return dispatchPostRequest(post);
-    }
 
-    /**
-     * @dev Dispatch a POST request to Hyperbridge and pay for it with the native token.
-     * Performs a swap under the hood using the local uniswap router. Will revert if enough
-     * native tokens are not provided.
-     *
-     * @param post - post request
-     * @return commitment - the request commitment
-     */
-    function dispatchWithNative(DispatchPost memory post) external payable notFrozen returns (bytes32) {
-        uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-        address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
-        path[1] = feeToken();
-        IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
-            fee,
-            path,
-            address(this),
-            block.timestamp
-        );
-        return dispatchPostRequest(post);
-    }
-
-    /**
-     * @dev Internal implementation for dispatching POST requests. Simply commits the request to storage
-     * and emits an event.
-     *
-     * @param post - post request
-     * @return commitment - the request commitment
-     */
-    function dispatchPostRequest(DispatchPost memory post) internal returns (bytes32 commitment) {
+        if (msg.value > 0) {
+            address[] memory path = new address[](2);
+            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            path[1] = feeToken();
+            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                fee,
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else {
+            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
+        }
         // adjust the timeout
         uint256 timeout = _hostParams.defaultTimeout > post.timeout ? _hostParams.defaultTimeout : post.timeout;
         uint64 timeoutTimestamp = post.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(timeout);
@@ -995,48 +976,35 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
     }
 
-    /**
-     * @dev Dispatch a GET request to the hyperbridge
-     * @param get - get request
-     */
-    function dispatch(DispatchGet memory get) external notFrozen returns (bytes32) {
+	/**
+	 * @dev Dispatch a GET request to Hyperbridge
+	 *
+	 * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
+	 * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
+	 * Will revert if enough native tokens are not provided.
+	 *
+	 * If no native tokens are provided then it will try to collect payment from the calling contract in
+	 * the IIsmpHost.feeToken.
+	 *
+	 * @param get - get request
+	 * @return commitment - the request commitment
+	 */
+    function dispatch(DispatchGet memory get) external payable notFrozen returns (bytes32 commitment) {
         if (get.fee != 0) {
-            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), get.fee);
+            if (msg.value > 0) {
+                address[] memory path = new address[](2);
+                path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+                path[1] = feeToken();
+                IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                    get.fee,
+                    path,
+                    address(this),
+                    block.timestamp
+                );
+            } else {
+                SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), get.fee);
+            }
         }
-        return dispatchGetRequest(get);
-    }
-
-    /**
-     * @dev Dispatch a GET request to Hyperbridge and pay for it with the native token.
-     * Performs a swap under the hood using the local uniswap router. Will revert if enough
-     * native tokens are not provided.
-     *
-     * @param get - get request
-     * @return commitment - the request commitment
-     */
-    function dispatchWithNative(DispatchGet memory get) external payable notFrozen returns (bytes32) {
-        if (get.fee != 0) {
-            address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
-            path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
-                get.fee,
-                path,
-                address(this),
-                block.timestamp
-            );
-        }
-        return dispatchGetRequest(get);
-    }
-
-    /**
-     * @dev Internal implementation for dispatching GET requests. Simply commits the request to storage
-     * and emits an event.
-     *
-     * @param get - GET request
-     * @return commitment - the request commitment
-     */
-    function dispatchGetRequest(DispatchGet memory get) internal returns (bytes32 commitment) {
         // adjust the timeout
         uint256 timeout = _hostParams.defaultTimeout > get.timeout ? _hostParams.defaultTimeout : get.timeout;
         uint64 timeoutTimestamp = get.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(timeout);
@@ -1065,47 +1033,35 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
     }
 
-    /**
-     * @dev Dispatch a POST response to the hyperbridge
-     * @param post - post response
-     */
-    function dispatch(DispatchPostResponse memory post) external notFrozen returns (bytes32) {
-        // collect fees
+	/**
+	 * @dev Dispatch a POST response to Hyperbridge
+	 *
+	 * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
+	 * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
+	 * Will revert if enough native tokens are not provided.
+	 *
+	 * If no native tokens are provided then it will try to collect payment from the calling contract in
+	 * the IIsmpHost.feeToken.
+	 *
+	 * @param post - post response
+	 * @return commitment - the request commitment
+	 */
+    function dispatch(DispatchPostResponse memory post) external payable notFrozen returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
-        return dispatchPostResponse(post);
-    }
+        if (msg.value > 0) {
+            address[] memory path = new address[](2);
+            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            path[1] = feeToken();
+            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                fee,
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else {
+            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
+        }
 
-    /**
-     * @dev Dispatch a POST response to Hyperbridge and pay for it with the native token.
-     * Performs a swap under the hood using the local uniswap router. Will revert if enough
-     * native tokens are not provided.
-     *
-     * @param post - post response
-     * @return commitment - the request commitment
-     */
-    function dispatchWithNative(DispatchPostResponse memory post) external payable notFrozen returns (bytes32) {
-        uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-        address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
-        path[1] = feeToken();
-        IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
-            fee,
-            path,
-            address(this),
-            block.timestamp
-        );
-        return dispatchPostResponse(post);
-    }
-
-    /**
-     * @dev Internal implementation for dispatching POST responses. Simply commits the response to storage
-     * and emits an event.
-     *
-     * @param post - POST response
-     * @return commitment - the request commitment
-     */
-    function dispatchPostResponse(DispatchPostResponse memory post) internal returns (bytes32 commitment) {
         bytes32 receipt = post.request.hash();
         address caller = _msgSender();
 
@@ -1153,46 +1109,31 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * This is provided for use only on pending requests, such that when they timeout,
      * the user can recover the entire relayer fee.
      *
-     * @notice If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
-     * @param commitment - The request commitment
-     * @param amount - The amount to be provided in `IIsmpHost.feeToken()`
-     */
-    function fundRequest(bytes32 commitment, uint256 amount) external {
-        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
-        fundRequestInternal(commitment, amount);
-    }
-
-    /**
-     * @dev Increase the relayer fee for a previously dispatched request using the native token.
-     * This is provided for use only on pending requests, such that when they timeout,
-     * the user can recover the entire relayer fee.
+     * @notice Payment can be made with either the native token or the IIsmpHost.feeToken.
+     * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
+     * Will revert if enough native tokens are not provided.
      *
-     * @notice If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
-     * @param commitment - The request commitment
-     * @param amount - The amount to be provided in `IIsmpHost.feeToken()`
-     */
-    function fundRequestWithNative(bytes32 commitment, uint256 amount) external payable {
-        address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
-        path[1] = feeToken();
-        IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
-            amount,
-            path,
-            address(this),
-            block.timestamp
-        );
-        fundRequestInternal(commitment, amount);
-    }
-
-    /**
-     * @dev Increase the relayer fee for a previously dispatched request.
-     * @notice Simply updates the FeeMetadata in storage and emits an event,
-     * assumes payment has been made somehow.
+     * If no native tokens are provided then it will try to collect payment from the calling contract in
+     * the IIsmpHost.feeToken.
      *
+     * If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
      * @param commitment - The request commitment
-     * @param amount - The amount to be provided in `IIsmpHost.feeToken()`
+     * @param amount - The amount provided in `IIsmpHost.feeToken()`
      */
-    function fundRequestInternal(bytes32 commitment, uint256 amount) internal {
+    function fundRequest(bytes32 commitment, uint256 amount) external payable {
+        if (msg.value > 0) {
+            address[] memory path = new address[](2);
+            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            path[1] = feeToken();
+            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                amount,
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else {
+            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
+        }
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         if (metadata.sender == address(0)) revert UnknownRequest();
@@ -1208,46 +1149,32 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * This is provided for use only on pending responses, such that when they timeout,
      * the user can recover the entire relayer fee.
      *
-     * If called on an already delivered response, these funds will be seen as a donation to the hyperbridge protocol.
-     * @param commitment - The response commitment
-     * @param amount - The amount to be provided in `IIsmpHost.feeToken()`
-     */
-    function fundResponse(bytes32 commitment, uint256 amount) external {
-        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
-        fundResponseInternal(commitment, amount);
-    }
-
-    /**
-     * @dev Increase the relayer fee for a previously dispatched response using the native token
-     * This is provided for use only on pending responses, such that when they timeout,
-     * the user can recover the entire relayer fee.
+     * @notice Payment can be made with either the native token or the IIsmpHost.feeToken.
+     * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
+     * Will revert if enough native tokens are not provided.
+     *
+     * If no native tokens are provided then it will try to collect payment from the calling contract in
+     * the IIsmpHost.feeToken.
      *
      * If called on an already delivered response, these funds will be seen as a donation to the hyperbridge protocol.
      * @param commitment - The response commitment
      * @param amount - The amount to be provided in `IIsmpHost.feeToken()`
      */
-    function fundResponseWithNative(bytes32 commitment, uint256 amount) external payable {
-        address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
-        path[1] = feeToken();
-        IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
-            amount,
-            path,
-            address(this),
-            block.timestamp
-        );
-        fundResponseInternal(commitment, amount);
-    }
+    function fundResponse(bytes32 commitment, uint256 amount) external payable {
+        if (msg.value > 0) {
+            address[] memory path = new address[](2);
+            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            path[1] = feeToken();
+            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                amount,
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else {
+            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
+        }
 
-    /**
-     * @dev Increase the relayer fee for a previously dispatched response.
-     * @notice Simply updates the FeeMetadata in storage and emits an event,
-     * assumes payment has been made somehow.
-     *
-     * @param commitment - The response commitment
-     * @param amount - The amount to be provided in `IIsmpHost.feeToken()`
-     */
-    function fundResponseInternal(bytes32 commitment, uint256 amount) internal {
         FeeMetadata memory metadata = _responseCommitments[commitment];
 
         if (metadata.sender == address(0)) revert UnknownResponse();

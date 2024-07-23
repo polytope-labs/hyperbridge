@@ -114,7 +114,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config nodejs
 
       - uses: webfactory/ssh-agent@v0.7.0
         with:
@@ -129,6 +129,10 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
+          npm install --global yarn
+          cd ./evm
+          yarn
+          cd ../
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
@@ -169,7 +173,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config nodejs
 
       - uses: webfactory/ssh-agent@v0.7.0
         with:
@@ -182,6 +186,10 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
+          npm install --global yarn
+          cd ./evm
+          yarn
+          cd ../
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
@@ -222,7 +230,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config nodejs
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -231,6 +239,11 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
+
+          npm install --global yarn
+          cd ./evm
+          yarn
+          cd ../
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown

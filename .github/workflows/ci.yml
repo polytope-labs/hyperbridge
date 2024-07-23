@@ -116,6 +116,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
+      - name: Install yarn
+        run: |
+          curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
+          chmod +x $HOME/bin/yarn
+          echo "$HOME/bin" >> $GITHUB_PATH
+
       - name: Set up Node
         uses: actions/setup-node@v3
         with:
@@ -182,6 +188,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
+      - name: Install yarn
+        run: |
+          curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
+          chmod +x $HOME/bin/yarn
+          echo "$HOME/bin" >> $GITHUB_PATH
+
       - name: Set up Node
         uses: actions/setup-node@v3
         with:
@@ -245,6 +257,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+      - name: Install yarn
+        run: |
+          curl -fsSL --create-dirs -o $HOME/bin/yarn  https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
+          chmod +x $HOME/bin/yarn
+          echo "$HOME/bin" >> $GITHUB_PATH
 
       - name: Set up Node
         uses: actions/setup-node@v3

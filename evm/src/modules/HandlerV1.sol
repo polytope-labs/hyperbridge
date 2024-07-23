@@ -14,15 +14,20 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {MerkleMountainRange, MmrLeaf} from "solidity-merkle-trees/MerkleMountainRange.sol";
-import {MerklePatricia, StorageValue} from "solidity-merkle-trees/MerklePatricia.sol";
+import {MerkleMountainRange, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";
+import {MerklePatricia, StorageValue} from "@polytope-labs/solidity-merkle-trees/MerklePatricia.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import {Context} from "openzeppelin/utils/Context.sol";
-import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
-import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "ismp/IConsensusClient.sol";
-import {IHandler} from "ismp/IHandler.sol";
-import {IIsmpHost, PostResponse, PostRequest, GetRequest, GetResponse, FeeMetadata} from "ismp/IIsmpHost.sol";
+
+import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {IIsmpHost, FeeMetadata} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {
     Message,
+    PostResponse,
+    PostRequest,
+    GetRequest,
+    GetResponse,
     PostRequestMessage,
     PostResponseMessage,
     GetResponseMessage,
@@ -31,7 +36,7 @@ import {
     GetTimeoutMessage,
     PostRequestLeaf,
     PostResponseLeaf
-} from "ismp/Message.sol";
+} from "@polytope-labs/ismp-solidity/Message.sol";
 
 // Storage prefix for request receipts in the pallet-ismp child trie
 bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"526571756573745265636569707473";
@@ -231,7 +236,7 @@ contract HandlerV1 is IHandler, Context {
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
-            host.dispatchIncoming(request, meta, requestCommitment);
+            host.dispatchTimeOut(request, meta, requestCommitment);
         }
     }
 
@@ -270,7 +275,7 @@ contract HandlerV1 is IHandler, Context {
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
-            host.dispatchIncoming(response, meta, responseCommitment);
+            host.dispatchTimeOut(response, meta, responseCommitment);
         }
     }
 
@@ -331,7 +336,7 @@ contract HandlerV1 is IHandler, Context {
             if (meta.sender == address(0)) revert InvalidProof();
 
             if (request.timeout() > timestamp) revert MessageNotTimedOut();
-            host.dispatchIncoming(request, meta, requestCommitment);
+            host.dispatchTimeOut(request, meta, requestCommitment);
         }
     }
 }

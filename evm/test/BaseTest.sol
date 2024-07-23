@@ -24,15 +24,9 @@ import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
-import {
-    TokenGateway,
-    Asset,
-    TokenGatewayParamsExt,
-    TokenGatewayParams,
-    AssetMetadata
-} from "../src/modules/TokenGateway.sol";
+import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {ERC20Token} from "./mocks/ERC20Token.sol";
 import {MiniStaking} from "./mocks/MiniStakingContract.sol";
 
@@ -76,9 +70,9 @@ contract BaseTest is Test {
         stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
-        	stateCommitmentFee: 0,
+            uniswapV2: address(0),
             fishermen: fishermen,
-            admin: address(0),
+            admin: address(this),
             hostManager: address(manager),
             handler: address(handler),
             defaultTimeout: 0,
@@ -87,6 +81,7 @@ contract BaseTest is Test {
             challengePeriod: 0,
             consensusClient: address(consensusClient),
             perByteFee: 1000000000000000000, // 1FTK
+            stateCommitmentFee: 10 * 1e18, // $10
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
             stateMachines: stateMachines
@@ -112,7 +107,7 @@ contract BaseTest is Test {
 
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: address(host), uniswapV2: address(1), dispatcher: address(dispatcher)}),
+                params: TokenGatewayParams({host: address(host), dispatcher: address(dispatcher)}),
                 assets: assets
             })
         );

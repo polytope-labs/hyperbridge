@@ -14,9 +14,9 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {StateCommitment} from "ismp/IConsensusClient.sol";
-import "solidity-merkle-trees/trie/Bytes.sol";
-import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
+import {StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import "@polytope-labs/solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 
 struct DigestItem {
     bytes4 consensusId;

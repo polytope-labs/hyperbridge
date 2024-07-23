@@ -17,28 +17,13 @@ pragma solidity 0.8.17;
 import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
-import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
-import {Message} from "ismp/Message.sol";
-import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
-import {
-    TeleportParams,
-    Body,
-    BODY_BYTES_SIZE,
-    Asset,
-    BodyWithCall,
-    TokenGatewayParams,
-    ChangeAssetAdmin,
-    TokenGatewayParamsExt,
-    CallDispatcherParams,
-    TokenGateway,
-    DeregsiterAsset,
-    ContractInstance,
-    AssetMetadata
-} from "../src/modules/TokenGateway.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
+import {IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import "@polytope-labs/ismp-solidity/Message.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {NotRoleAdmin} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
+import "../src/modules/TokenGateway.sol";
 
 contract TokenGatewayTest is BaseTest {
     using Message for PostRequest;
@@ -54,7 +39,6 @@ contract TokenGatewayTest is BaseTest {
 
         gateway.teleport(
             TeleportParams({
-                feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
@@ -64,7 +48,7 @@ contract TokenGatewayTest is BaseTest {
                 to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
                 data: new bytes(0),
-                amountInMax: 0
+                nativeCost: 0
             })
         );
 
@@ -85,7 +69,6 @@ contract TokenGatewayTest is BaseTest {
 
         gateway.teleport(
             TeleportParams({
-                feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
@@ -95,7 +78,7 @@ contract TokenGatewayTest is BaseTest {
                 to: addressToBytes32(address(miniStaking)),
                 assetId: keccak256("USD.h"),
                 data: stakeCalldata,
-                amountInMax: 0
+                nativeCost: 0
             })
         );
 
@@ -109,7 +92,6 @@ contract TokenGatewayTest is BaseTest {
         vm.expectRevert(bytes("ERC20: burn amount exceeds balance"));
         gateway.teleport(
             TeleportParams({
-                feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
@@ -119,7 +101,7 @@ contract TokenGatewayTest is BaseTest {
                 to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
                 data: new bytes(0),
-                amountInMax: 0
+                nativeCost: 0
             })
         );
     }
@@ -161,7 +143,8 @@ contract TokenGatewayTest is BaseTest {
         address calldataTarget = address(miniStaking);
         bytes memory stakeCalldata = abi.encodeWithSignature("recordStake(address)", address(this));
 
-        CallDispatcherParams memory dispatchParams = CallDispatcherParams({target: calldataTarget, data: stakeCalldata});
+        CallDispatcherParams[] memory calls = new CallDispatcherParams[](1);
+        calls[0] = CallDispatcherParams({target: calldataTarget, data: stakeCalldata});
 
         BodyWithCall memory body = BodyWithCall({
             assetId: keccak256("USD.h"),
@@ -170,7 +153,7 @@ contract TokenGatewayTest is BaseTest {
             maxFee: 1 * 1e18,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this)),
-            data: abi.encode(dispatchParams)
+            data: abi.encode(calls)
         });
 
         vm.prank(address(host));
@@ -511,7 +494,7 @@ contract TokenGatewayTest is BaseTest {
 
         PostRequest memory request = PostRequest({
             to: abi.encodePacked(address(0)),
-            from: new bytes(0),
+            from: abi.encodePacked(address(0)),
             dest: new bytes(0),
             body: bytes.concat(hex"00", abi.encode(body)),
             nonce: 0,
@@ -601,7 +584,7 @@ contract TokenGatewayTest is BaseTest {
     function testCanModifyProtocolParams() public {
         TokenGatewayParams memory params = gateway.params();
 
-        params.uniswapV2 = msg.sender;
+        params.dispatcher = msg.sender;
 
         vm.prank(address(host));
 
@@ -620,15 +603,17 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-        assert(gateway.params().uniswapV2 == msg.sender);
+        assert(gateway.params().dispatcher == msg.sender);
     }
 
     function testCanChangeAssetOwner() public {
         // set gateway as the admin
         feeToken.changeAdmin(address(gateway));
 
-        ChangeAssetAdmin memory changeAsset =
-            ChangeAssetAdmin({assetId: keccak256(bytes(feeToken.symbol())), newAdmin: address(this)});
+        ChangeAssetAdmin memory changeAsset = ChangeAssetAdmin({
+            assetId: keccak256(bytes(feeToken.symbol())),
+            newAdmin: address(this)
+        });
 
         vm.prank(address(host));
         gateway.onAccept(
@@ -706,6 +691,33 @@ contract TokenGatewayTest is BaseTest {
         );
 
         assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18);
+    }
+
+    function testCanWithdrawNativeTokens() public {
+        uint256 oldBalance = tx.origin.balance;
+        uint256 amount = 1 * 1e18;
+
+        (bool ok, ) = address(gateway).call{value: amount}("");
+        if (!ok) revert("Failed to send");
+
+        bytes memory hyperbridge = host.hyperbridge();
+        vm.prank(address(host));
+        gateway.onAccept(
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"06", abi.encode(Withdrawal({beneficiary: tx.origin, amount: amount}))),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
+            })
+        );
+
+        assert(tx.origin.balance == oldBalance + amount);
     }
 }
 

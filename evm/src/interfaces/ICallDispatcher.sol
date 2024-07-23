@@ -15,10 +15,12 @@
 pragma solidity 0.8.17;
 
 struct CallDispatcherParams {
+    // contract to call
     address target;
+    // target contract calldata
     bytes data;
 }
 
 interface ICallDispatcher {
-    function dispatch(CallDispatcherParams memory params) external returns (bytes memory result, bool success);
+    function dispatch(CallDispatcherParams[] memory params) external returns (bool success);
 }

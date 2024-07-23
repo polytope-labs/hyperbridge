@@ -57,6 +57,7 @@ pub enum Signature {
 pub struct WithdrawalParams {
 	pub beneficiary_address: Vec<u8>,
 	pub amount: U256,
+	pub native: bool,
 }
 
 impl WithdrawalParams {
@@ -65,6 +66,7 @@ impl WithdrawalParams {
 		let tokens = [
 			ethabi::Token::Address(H160::from_slice(&self.beneficiary_address)),
 			ethabi::Token::Uint(self.amount),
+			ethabi::Token::Bool(self.native),
 		];
 		let params = ethabi::encode(&tokens);
 		data.extend_from_slice(&params);
@@ -82,10 +84,11 @@ mod test {
 		let params = WithdrawalParams {
 			beneficiary_address: H160::random().0.to_vec(),
 			amount: U256::from(500_00_000_000u128),
+			native: false,
 		};
 
 		let encoding = params.abi_encode();
 
-		assert_eq!(encoding.len(), 65);
+		assert_eq!(encoding.len(), 97);
 	}
 }

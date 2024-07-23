@@ -14,15 +14,15 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import "./Codec.sol";
-import "ismp/StateMachine.sol";
-import "ismp/IConsensusClient.sol";
+import "@polytope-labs/ismp-solidity/StateMachine.sol";
+import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 
-import "solidity-merkle-trees/MerkleMultiProof.sol";
-import "solidity-merkle-trees/MerkleMountainRange.sol";
-import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
-import "solidity-merkle-trees/trie/Bytes.sol";
-import {IVerifier} from "./verifiers/IVerifier.sol";
+import "@polytope-labs/solidity-merkle-trees/MerkleMultiProof.sol";
+import "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";
+import "@polytope-labs/solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
+import "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import "./verifiers/IVerifier.sol";
+import "./Codec.sol";
 
 struct UltraPlonkConsensusProof {
     // Commitment message
@@ -130,10 +130,10 @@ contract UltraPlonkBeefy is IConsensusClient {
     }
 
     /** @dev Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
-    * which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
-    * the relay chain authority set and we can verify the membership of the authorities who signed this new root
-    * using a merkle multi proof and a merkle commitment to the total authorities.
-    */
+     * which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
+     * the relay chain authority set and we can verify the membership of the authorities who signed this new root
+     * using a merkle multi proof and a merkle commitment to the total authorities.
+     */
     function verifyMmrUpdateProof(
         BeefyConsensusState memory trustedState,
         UltraPlonkConsensusProof memory relayProof

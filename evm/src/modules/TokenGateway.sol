@@ -14,18 +14,18 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {DispatchPost} from "ismp/IDispatcher.sol";
-import {IIsmpHost} from "ismp/IIsmpHost.sol";
-import {Message} from "ismp/Message.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
-import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule.sol";
-import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
+import {DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {Message} from "@polytope-labs/ismp-solidity/Message.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import {ICallDispatcher, CallDispatcherParams} from "./CallDispatcher.sol";
-import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
 struct TeleportParams {
     // amount to be sent
@@ -40,17 +40,15 @@ struct TeleportParams {
     bool redeem;
     // recipient address
     bytes32 to;
-    // The ERC20 token to be used to swap for a fee
-    address feeToken;
     // recipient state machine
     bytes dest;
     // timeout in seconds
     uint64 timeout;
     // destination contract call data
     bytes data;
-    // calculated amountInMax:
-    // used if selected fee token is not expected fee token
-    uint256 amountInMax;
+    // Amount of native token to pay for dispatching the request
+    // if 0 will use the `IIsmpHost.feeToken`
+    uint256 nativeCost;
 }
 
 struct Body {
@@ -108,6 +106,13 @@ struct ContractInstance {
     address moduleId;
 }
 
+struct Withdrawal {
+    // beneficiary of the withdrawal
+    address beneficiary;
+    // amount of the native token to withdraw
+    uint256 amount;
+}
+
 enum OnAcceptActions {
     // Incoming asset from a chain
     IncomingAsset,
@@ -120,7 +125,9 @@ enum OnAcceptActions {
     // Change the admin of an asset
     ChangeAssetAdmin,
     // Add a new pre-approved address
-    NewContractInstance
+    NewContractInstance,
+    // Withdraw accrued native assets
+    WithdrawNative
 }
 
 struct AssetMetadata {
@@ -157,8 +164,6 @@ uint256 constant BODY_BYTES_SIZE = 193;
 struct TokenGatewayParams {
     // address of the IsmpHost contract on this chain
     address host;
-    // local uniswap router
-    address uniswapV2;
     // dispatcher for delegating external calls
     address dispatcher;
 }
@@ -320,6 +325,14 @@ contract TokenGateway is BaseIsmpModule {
         address newAdmin
     );
 
+    // Some native tokens have been withdrawn
+    event NativeTokenWithdrawal(
+        // beneficiary of the withdrawal
+        address beneficiary,
+        // amount of the native token to withdraw
+        uint256 amount
+    );
+
     // Action is unauthorized
     error UnauthorizedAction();
 
@@ -400,16 +413,35 @@ contract TokenGateway is BaseIsmpModule {
     //
     // @notice If a request times out, users can request a refund permissionlessly through
     // `HandlerV1.handlePostRequestTimeouts`.
-    function teleport(TeleportParams memory teleportParams) public {
+    function teleport(TeleportParams memory teleportParams) public payable {
         if (teleportParams.to == bytes32(0)) revert ZeroAddress();
         if (teleportParams.amount == 0) revert InvalidAmount();
 
-        address from = msg.sender;
+        uint256 msgValue = msg.value;
         bytes32 fromBytes32 = addressToBytes32(msg.sender);
         address _erc20 = _erc20s[teleportParams.assetId];
         address _erc6160 = _erc6160s[teleportParams.assetId];
         address feeToken = IIsmpHost(_params.host).feeToken();
 
+        // custody or burn funds to be bridged
+        if (_erc20 != address(0) && !teleportParams.redeem) {
+            address uniswapV2 = IIsmpHost(_params.host).uniswapV2Router();
+            address WETH = IUniswapV2Router02(uniswapV2).WETH();
+            if (msgValue >= teleportParams.amount && _erc20 == WETH) {
+                // wrap native token
+                (bool sent, ) = WETH.call{value: teleportParams.amount}("");
+                if (!sent) revert InconsistentState();
+                msgValue = msgValue - teleportParams.amount;
+            } else {
+                SafeERC20.safeTransferFrom(IERC20(_erc20), msg.sender, address(this), teleportParams.amount);
+            }
+        } else if (_erc6160 != address(0)) {
+            IERC6160Ext20(_erc6160).burn(msg.sender, teleportParams.amount);
+        } else {
+            revert UnknownAsset();
+        }
+
+        // dispatch request
         bytes memory data = teleportParams.data.length > 0
             ? abi.encode(
                 BodyWithCall({
@@ -433,45 +465,6 @@ contract TokenGateway is BaseIsmpModule {
                 })
             );
         data = bytes.concat(hex"00", data); // add enum variant for body
-
-        if (_erc20 != address(0) && !teleportParams.redeem) {
-            SafeERC20.safeTransferFrom(IERC20(_erc20), from, address(this), teleportParams.amount);
-        } else if (_erc6160 != address(0)) {
-            IERC6160Ext20(_erc6160).burn(from, teleportParams.amount);
-        } else {
-            revert UnknownAsset();
-        }
-
-        uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.relayerFee;
-        // only swap if the feeToken is not the token intended for fee
-        if (feeToken != teleportParams.feeToken) {
-            SafeERC20.safeTransferFrom(
-                IERC20(teleportParams.feeToken),
-                from,
-                address(this),
-                teleportParams.amountInMax
-            );
-            SafeERC20.safeIncreaseAllowance(
-                IERC20(teleportParams.feeToken),
-                _params.uniswapV2,
-                teleportParams.amountInMax
-            );
-
-            address[] memory path = new address[](2);
-            path[0] = teleportParams.feeToken;
-            path[1] = feeToken;
-
-            IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
-                fee,
-                teleportParams.amountInMax,
-                path,
-                address(this),
-                block.timestamp
-            );
-        } else {
-            SafeERC20.safeTransferFrom(IERC20(feeToken), from, address(this), fee);
-        }
-
         DispatchPost memory request = DispatchPost({
             dest: teleportParams.dest,
             to: abi.encodePacked(address(this)),
@@ -480,10 +473,19 @@ contract TokenGateway is BaseIsmpModule {
             fee: teleportParams.relayerFee,
             payer: msg.sender
         });
-        bytes32 commitment = IIsmpHost(_params.host).dispatch(request);
+        bytes32 commitment = bytes32(0);
+        if (msgValue >= teleportParams.nativeCost && teleportParams.nativeCost > 0) {
+            // there's some native tokens left to pay for request dispatch
+            commitment = IIsmpHost(_params.host).dispatch{value: teleportParams.nativeCost}(request);
+        } else {
+            // try to pay for dispatch with fee token
+            uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.relayerFee;
+            SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), fee);
+            commitment = IIsmpHost(_params.host).dispatch(request);
+        }
 
         emit AssetTeleported({
-            from: from,
+            from: msg.sender,
             to: teleportParams.to,
             assetId: teleportParams.assetId,
             amount: teleportParams.amount,
@@ -498,8 +500,7 @@ contract TokenGateway is BaseIsmpModule {
     //
     // @notice The request must not have expired, and must not have already been fulfilled.
     function bid(PostRequest calldata request, uint256 fee) public {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        authenticate(request);
         // Not sure why anyone would do this
         if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
         // cannot bid on timed-out requests
@@ -555,8 +556,7 @@ contract TokenGateway is BaseIsmpModule {
     // @dev This allows the bidder to refund their bids in the event that the request timed-out before
     // the bid could be fulfilled.
     function refundBid(PostRequest calldata request) public {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!request.from.equals(abi.encodePacked(address(this)))) revert UnauthorizedAction();
+        authenticate(request);
         // Not sure why anyone would do this
         if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
         // Cannot refund bids on requests which have not timed out, sorry.
@@ -590,9 +590,9 @@ contract TokenGateway is BaseIsmpModule {
         // In this case, the asset will need to be re-registered
         if (erc20Address == address(0)) revert UnknownAsset();
 
-        SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
-
         delete _bids[commitment];
+
+        SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
 
         emit BidRefunded({commitment: commitment, assetId: body.assetId, bidder: msg.sender});
     }
@@ -611,11 +611,13 @@ contract TokenGateway is BaseIsmpModule {
         } else if (action == OnAcceptActions.CreateAsset) {
             handleCreateAsset(incoming.request);
         } else if (action == OnAcceptActions.DeregisterAsset) {
-            deregisterAssets(incoming.request);
+            handleDeregisterAssets(incoming.request);
         } else if (action == OnAcceptActions.ChangeAssetAdmin) {
-            changeAssetAdmin(incoming.request);
+            handleChangeAssetAdmin(incoming.request);
         } else if (action == OnAcceptActions.NewContractInstance) {
             handleNewContractInstance(incoming.request);
+        } else if (action == OnAcceptActions.WithdrawNative) {
+            handleWithdrawNativeToken(incoming.request);
         }
     }
 
@@ -652,14 +654,9 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetRefunded({commitment: request.hash(), beneficiary: from, amount: body.amount, assetId: body.assetId});
     }
 
-    function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) private {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) {
-            // Check if known address
-            if (_instances[keccak256(incoming.request.source)] != bytesToAddress(incoming.request.from)) {
-                revert UnauthorizedAction();
-            }
-        }
+    // @dev Execute an incoming request with no calldata
+    function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) internal {
+        authenticate(incoming.request);
 
         Body memory body = abi.decode(incoming.request.body[1:], (Body));
         bytes32 commitment = incoming.request.hash();
@@ -674,14 +671,10 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) private {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        if (!incoming.request.from.equals(abi.encodePacked(address(this)))) {
-            // Check if known address
-            if (_instances[keccak256(incoming.request.source)] != bytesToAddress(incoming.request.from)) {
-                revert UnauthorizedAction();
-            }
-        }
+    // @dev Execute an incoming request with calldata, delegates calls to 3rd party contracts to
+    // the `_params.dispatcher` for safety reasons.
+    function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) internal {
+        authenticate(incoming.request);
 
         BodyWithCall memory body = abi.decode(incoming.request.body[1:], (BodyWithCall));
         bytes32 commitment = incoming.request.hash();
@@ -697,8 +690,7 @@ contract TokenGateway is BaseIsmpModule {
             commitment
         );
 
-        // dispatching low level call
-        CallDispatcherParams memory dispatcherParams = abi.decode(body.data, (CallDispatcherParams));
+        CallDispatcherParams[] memory dispatcherParams = abi.decode(body.data, (CallDispatcherParams[]));
         ICallDispatcher(_params.dispatcher).dispatch(dispatcherParams);
 
         emit AssetReceived({
@@ -710,7 +702,8 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function handleIncomingAsset(Body memory body, bytes32 commitment) private {
+    // @dev Executes the asset disbursement for the provided request
+    function handleIncomingAsset(Body memory body, bytes32 commitment) internal {
         address _erc20 = _erc20s[body.assetId];
         address _erc6160 = _erc6160s[body.assetId];
 
@@ -734,17 +727,19 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function handleGovernance(PostRequest calldata request) private {
+    // @dev Handles requests from cross-chain governance
+    function handleGovernance(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        TokenGatewayParams memory params = abi.decode(request.body[1:], (TokenGatewayParams));
+        TokenGatewayParams memory newParams = abi.decode(request.body[1:], (TokenGatewayParams));
 
-        emit ParamsUpdated({oldParams: _params, newParams: params});
+        emit ParamsUpdated({oldParams: _params, newParams: newParams});
 
-        _params = params;
+        _params = newParams;
     }
 
-    function handleCreateAsset(PostRequest calldata request) private {
+    // @dev registers a new asset as requested by cross-chain governance
+    function handleCreateAsset(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         AssetMetadata[] memory assets = new AssetMetadata[](1);
@@ -752,9 +747,9 @@ contract TokenGateway is BaseIsmpModule {
         createAssets(assets);
     }
 
-    // Deregisters the asset from TokenGateway. Users will be unable to bridge the asset
+    // @dev Deregisters the asset from TokenGateway. Users will be unable to bridge the asset
     // through TokenGateway once they are deregistered
-    function deregisterAssets(PostRequest calldata request) private {
+    function handleDeregisterAssets(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         DeregsiterAsset memory deregister = abi.decode(request.body[1:], (DeregsiterAsset));
@@ -767,9 +762,9 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    // Changes the asset admin from this contract to some other address. Changing the admin to a
+    // @dev Changes the asset admin from this contract to some other address. Changing the admin to a
     // zero address is disallowed for safety reasons
-    function changeAssetAdmin(PostRequest calldata request) private {
+    function handleChangeAssetAdmin(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         ChangeAssetAdmin memory asset = abi.decode(request.body[1:], (ChangeAssetAdmin));
@@ -783,7 +778,8 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetAdminChanged({asset: erc6160Address, newAdmin: asset.newAdmin});
     }
 
-    function handleNewContractInstance(PostRequest calldata request) private {
+    // @dev registers a new instance of `TokenGateway` to permit receiving assets
+    function handleNewContractInstance(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         ContractInstance memory instance = abi.decode(request.body[1:], (ContractInstance));
@@ -793,9 +789,23 @@ contract TokenGateway is BaseIsmpModule {
         emit NewContractInstance({chain: string(instance.chain), moduleId: instance.moduleId});
     }
 
-    // Creates a new entry for the provided asset in the mappings. If there's no existing
+    // @dev withdraws any accrued native tokens as requested by cross-chain governance
+    function handleWithdrawNativeToken(PostRequest calldata request) internal {
+        if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
+
+        Withdrawal memory withdrawal = abi.decode(request.body[1:], (Withdrawal));
+        if (withdrawal.beneficiary == address(0)) revert ZeroAddress();
+        if (withdrawal.amount == 0) revert InvalidAmount();
+
+        (bool sent, ) = withdrawal.beneficiary.call{value: withdrawal.amount}("");
+        if (!sent) revert InconsistentState();
+
+        emit NativeTokenWithdrawal({amount: withdrawal.amount, beneficiary: withdrawal.beneficiary});
+    }
+
+    // @dev Creates a new entry for the provided asset in the mappings. If there's no existing
     // ERC6160 address provided, then a contract for the asset is created.
-    function createAssets(AssetMetadata[] memory assets) private {
+    function createAssets(AssetMetadata[] memory assets) internal {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; ++i) {
             AssetMetadata memory asset = assets[i];
@@ -826,14 +836,25 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function addressToBytes32(address _address) internal pure returns (bytes32) {
-        return bytes32(uint256(uint160(_address)));
+    // @dev Checks that the request originates from a known instance of the TokenGateway.
+    // will revert if it isn't
+    function authenticate(PostRequest memory request) internal view {
+        // TokenGateway only accepts incoming assets from it's instances on other chains.
+        // or known instances
+        bool unknown = !request.from.equals(abi.encodePacked(address(this))) &&
+            _instances[keccak256(request.source)] != bytesToAddress(request.from);
+        if (unknown) revert UnauthorizedAction();
     }
 
-    function bytes32ToAddress(bytes32 _bytes) internal pure returns (address) {
-        return address(uint160(uint256(_bytes)));
-    }
-
+    /*
+     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
+     */
+    receive() external payable {}
+    /**
+     * @dev Converts bytes to address.
+     * @param _bytes bytes value to be converted
+     * @return addr returns the address
+     */
     function bytesToAddress(bytes memory _bytes) internal pure returns (address addr) {
         if (_bytes.length != 20) {
             revert InvalidAddressLength();
@@ -841,5 +862,13 @@ contract TokenGateway is BaseIsmpModule {
         assembly {
             addr := mload(add(_bytes, 20))
         }
+    }
+
+    function addressToBytes32(address _address) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(_address)));
+    }
+
+    function bytes32ToAddress(bytes32 _bytes) internal pure returns (address) {
+        return address(uint160(uint256(_bytes)));
     }
 }

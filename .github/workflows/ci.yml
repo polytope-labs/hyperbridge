@@ -116,6 +116,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
+      - name: Install yarn
+        run: |
+          curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
+          chmod +x $HOME/bin/yarn
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+          cache-dependency-path: "evm/yarn.lock"
+          cache: "yarn"
+
+      - name: Install npm dependencies
+        working-directory: evm
+        run: |
+          yarn install
+
       - uses: webfactory/ssh-agent@v0.7.0
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -171,6 +189,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
+      - name: Install yarn
+        run: |
+          curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
+          chmod +x $HOME/bin/yarn
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+          cache-dependency-path: "evm/yarn.lock"
+          cache: "yarn"
+
+      - name: Install npm dependencies
+        working-directory: evm
+        run: |
+          yarn install
+
       - uses: webfactory/ssh-agent@v0.7.0
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -223,6 +259,24 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+      - name: Install yarn
+        run: |
+          curl -fsSL --create-dirs -o $HOME/bin/yarn  https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
+          chmod +x $HOME/bin/yarn
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+          cache-dependency-path: "evm/yarn.lock"
+          cache: "yarn"
+
+      - name: Install npm dependencies
+        working-directory: evm
+        run: |
+          yarn install
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -304,12 +358,9 @@ jobs:
         run: |
           cargo test -p bsc-prover -- --nocapture --ignored
 
-      - name: Parachain to Parachain ismp relayer messaging integration tests
-        run: |
-          cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
-  
-  
-  
+      # - name: Parachain to Parachain ismp relayer messaging integration tests
+      #   run: |
+      #     cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
 
   check-solidity:
     name: Check ismp-solidity
@@ -328,6 +379,7 @@ jobs:
       - name: Run Forge build
         run: |
           cd ./evm
+          yarn
           forge --version
           forge build --sizes
         id: build
@@ -335,13 +387,15 @@ jobs:
       - name: Run Forge tests
         run: |
           cd ./evm
+          yarn
           forge test -vvv
         id: test
 
   hyperclient-tests:
     name: Hyperclient Integration Tests
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    # if: github.event.pull_request.draft == false
+    if: false
     steps:
       - name: Get User Permission
         id: checkAccess

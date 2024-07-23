@@ -2,29 +2,14 @@
 pragma solidity 0.8.17;
 
 import "forge-std/Script.sol";
-import "openzeppelin/utils/Strings.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
-import {
-    TokenGateway,
-    Asset,
-    TokenGatewayParamsExt,
-    TokenGatewayParams,
-    AssetMetadata
-} from "../src/modules/TokenGateway.sol";
+import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
+import {BaseScript} from "./BaseScript.sol";
 
-contract DeployScript is Script {
-    bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
-
-    address public SEPOLIA_HOST = vm.envAddress("SEPOLIA_HOST");
-    address public ARB_SEPOLIA_HOST = vm.envAddress("ARB_SEPOLIA_HOST");
-    address public OP_SEPOLIA_HOST = vm.envAddress("OP_SEPOLIA_HOST");
-    address public BASE_SEPOLIA_HOST = vm.envAddress("BASE_SEPOLIA_HOST");
-    address public BSC_TESTNET_HOST = vm.envAddress("BSC_TESTNET_HOST");
-    address public FEE_TOKEN = vm.envAddress("FEE_TOKEN");
-
+contract DeployScript is BaseScript {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER ROLE");
 
@@ -36,21 +21,21 @@ contract DeployScript is Script {
         address uniRouter = address(1);
         address callDispatcher = address(1);
 
-        if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
+        if (equal(host, "sepolia") || equal(host, "ethereum")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(SEPOLIA_HOST, admin, uniRouter, callDispatcher);
-        } else if (Strings.equal(host, "arbitrum-sepolia")) {
+            deployGateway(SEPOLIA_HOST, admin, callDispatcher);
+        } else if (equal(host, "arbitrum-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(ARB_SEPOLIA_HOST, admin, uniRouter, callDispatcher);
-        } else if (Strings.equal(host, "optimism-sepolia")) {
+            deployGateway(ARB_SEPOLIA_HOST, admin, callDispatcher);
+        } else if (equal(host, "optimism-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(OP_SEPOLIA_HOST, admin, uniRouter, callDispatcher);
-        } else if (Strings.equal(host, "base-sepolia")) {
+            deployGateway(OP_SEPOLIA_HOST, admin, callDispatcher);
+        } else if (equal(host, "base-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(BASE_SEPOLIA_HOST, admin, uniRouter, callDispatcher);
-        } else if (Strings.equal(host, "bsc-testnet")) {
+            deployGateway(BASE_SEPOLIA_HOST, admin, callDispatcher);
+        } else if (equal(host, "bsc-testnet")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(BSC_TESTNET_HOST, admin, uniRouter, callDispatcher);
+            deployGateway(BSC_TESTNET_HOST, admin, callDispatcher);
         }
     }
 
@@ -59,7 +44,7 @@ contract DeployScript is Script {
         c.setIsmpHost(host);
     }
 
-    function deployGateway(address host, address admin, address uniRouter, address callDispatcher) public {
+    function deployGateway(address host, address admin, address callDispatcher) public {
         uint256 _paraId = vm.envUint("PARA_ID");
 
         IERC6160Ext20 feeToken = IERC6160Ext20(FEE_TOKEN);
@@ -80,7 +65,7 @@ contract DeployScript is Script {
 
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: host, uniswapV2: uniRouter, dispatcher: callDispatcher}),
+                params: TokenGatewayParams({host: host, dispatcher: callDispatcher}),
                 assets: assets
             })
         );

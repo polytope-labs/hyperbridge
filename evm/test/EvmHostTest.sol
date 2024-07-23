@@ -15,11 +15,11 @@
 pragma solidity 0.8.17;
 
 import {BaseTest} from "./BaseTest.sol";
-import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import "forge-std/Test.sol";
 import "../src/hosts/EvmHost.sol";
-import {DispatchPost} from "ismp/IDispatcher.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
+import {DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 contract EvmHostTest is BaseTest {
     using Bytes for bytes;
@@ -29,8 +29,11 @@ contract EvmHostTest is BaseTest {
         // set chain Id to testnet
         vm.chainId(host.chainId() + 5);
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
-        StateCommitment memory commitment =
-            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)});
+        StateCommitment memory commitment = StateCommitment({
+            timestamp: 200,
+            overlayRoot: bytes32(0),
+            stateRoot: bytes32(0)
+        });
 
         // we can set consensus state
         vm.prank(host.hostParams().admin);
@@ -56,7 +59,7 @@ contract EvmHostTest is BaseTest {
 
         // but not anymore
         vm.startPrank(host.hostParams().admin);
-        vm.expectRevert("Unauthorized action");
+        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
         host.setConsensusState(hex"feeb", height, commitment);
         assert(host.consensusState().equals(hex"beef"));
     }
@@ -76,6 +79,83 @@ contract EvmHostTest is BaseTest {
         vm.prank(host.hostParams().admin);
         vm.expectRevert(EvmHost.UnauthorizedAction.selector);
         host.setHostParamsAdmin(params);
+    }
+
+    function testSweepFeeTokenBeforeUpdate() public {
+        // set chain Id to testnet
+        vm.chainId(host.chainId() + 5);
+        assert(host.chainId() + 5 == block.chainid);
+
+        feeToken.mint(address(host), 1 * 1e18);
+        HostParams memory params = host.hostParams();
+        params.feeToken = address(this);
+        // we can't set host params
+        vm.prank(host.hostParams().admin);
+        vm.expectRevert(EvmHost.CannotChangeFeeToken.selector);
+        host.setHostParamsAdmin(params);
+
+        feeToken.burn(address(host), 1 * 1e18);
+        // we can't set host params
+        vm.prank(host.hostParams().admin);
+        host.setHostParamsAdmin(params);
+        assert(host.hostParams().feeToken == address(this));
+    }
+
+    function testCannotDispatchWithFrozenHost() public {
+        host.setFrozenState(true);
+        vm.expectRevert(EvmHost.FrozenHost.selector);
+        host.dispatch(
+            DispatchPost({
+                body: abi.encodePacked(bytes32(0)),
+                payer: address(this),
+                fee: 0,
+                dest: StateMachine.arbitrum(),
+                timeout: 0,
+                to: abi.encode(bytes32(0))
+            })
+        );
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: new bytes(0),
+            to: abi.encodePacked(address(this)),
+            timeoutTimestamp: 0,
+            body: bytes.concat(hex"01", abi.encode(host.hostParams()))
+        });
+        vm.expectRevert(EvmHost.FrozenHost.selector);
+        host.dispatch(
+            DispatchPostResponse({
+                request: request,
+                response: abi.encode(bytes32(0)),
+                fee: 0,
+                timeout: 0,
+                payer: address(this)
+            })
+        );
+
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encode(address(this));
+        vm.expectRevert(EvmHost.FrozenHost.selector);
+        host.dispatch(DispatchGet({dest: StateMachine.bsc(), height: 100, keys: keys, timeout: 60 * 60, fee: 0}));
+
+        vm.prank(host.hostParams().handler);
+        host.setFrozenState(false);
+
+        feeToken.mint(address(this), 32 * host.perByteFee());
+        bytes32 commitment = host.dispatch(
+            DispatchPost({
+                body: abi.encodePacked(bytes32(0)),
+                payer: address(this),
+                fee: 0,
+                dest: StateMachine.arbitrum(),
+                timeout: 0,
+                to: abi.encode(bytes32(0))
+            })
+        );
+
+        assert(host.requestCommitments(commitment).sender == address(this));
     }
 
     function testFundRequest() public {
@@ -103,7 +183,7 @@ contract EvmHostTest is BaseTest {
         vm.prank(tx.origin);
         host.fundRequest(keccak256(hex"dead"), 10 * 1e18);
 
-        // another person can fund your request
+        // someone else can fund your request
         feeToken.mint(address(this), 10 * 1e18);
         host.fundRequest(commitment, 10 * 1e18);
     }
@@ -121,11 +201,12 @@ contract EvmHostTest is BaseTest {
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
-        	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
 
+        vm.prank(params.handler);
+        assert(host.stateMachineCommitment(height).timestamp == 200);
 
         // can't veto if not in fishermen set
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
@@ -134,9 +215,9 @@ contract EvmHostTest is BaseTest {
         // veto with fisherman
         vm.prank(tx.origin);
         host.vetoStateCommitment(height);
+
         vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 0);
-
     }
 
     function testCanAddwhitelistedStateMachines() public {
@@ -150,8 +231,10 @@ contract EvmHostTest is BaseTest {
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+
         vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
 
@@ -180,31 +263,35 @@ contract EvmHostTest is BaseTest {
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+
         vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
 
         // veto with fisherman
         vm.prank(tx.origin);
         host.vetoStateCommitment(height);
-        	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 0);
 
+        vm.prank(params.handler);
+        assert(host.stateMachineCommitment(height).timestamp == 0);
 
         // create a state commitment
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+
         vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
 
         // veto with fisherman
         host.vetoStateCommitment(height);
-        	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 0);
 
+        vm.prank(params.handler);
+        assert(host.stateMachineCommitment(height).timestamp == 0);
 
         // remove fishermen
         address[] memory newFishermen = new address[](0);
@@ -215,36 +302,37 @@ contract EvmHostTest is BaseTest {
         // create a state commitment
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
-        	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
 
+        vm.prank(params.handler);
+        assert(host.stateMachineCommitment(height).timestamp == 200);
 
         // cannot veto
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
-        	vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
 
+        vm.prank(params.handler);
+        assert(host.stateMachineCommitment(height).timestamp == 200);
 
         // cannot veto
         vm.prank(tx.origin);
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
+
         vm.prank(params.handler);
         assert(host.stateMachineCommitment(height).timestamp == 200);
-
     }
 
     function testHostStateMachineId() public {
-        assert(StateMachine.kusama(3000).equals(bytes(host.stateMachineId(3000))));
+        assert(StateMachine.kusama(3000).equals(bytes(host.stateMachineId(host.hyperbridge(), 3000))));
 
         HostParams memory params = host.hostParams();
         params.hyperbridge = StateMachine.polkadot(3367);
         vm.prank(params.admin);
         host.setHostParamsAdmin(params);
 
-        assert(StateMachine.polkadot(3000).equals(bytes(host.stateMachineId(3000))));
+        assert(StateMachine.polkadot(3000).equals(bytes(host.stateMachineId(host.hyperbridge(), 3000))));
     }
 }

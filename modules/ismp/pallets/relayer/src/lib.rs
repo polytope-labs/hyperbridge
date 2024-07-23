@@ -326,6 +326,7 @@ where
 		let params = WithdrawalParams {
 			beneficiary_address: address.clone(),
 			amount: available_amount.into(),
+			native: false,
 		};
 
 		let data = match withdrawal_data.dest_chain {

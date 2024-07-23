@@ -36,9 +36,9 @@ pub struct EvmHostParam {
 	/// The fee to charge per byte
 	pub per_byte_fee: U256,
 	/// The cost for applications to access the hyperbridge state commitment.
-	// They might do so because the hyperbridge state contains the verified state commitments
-	// for all chains and they want to directly read the state of these chains state bypassing
-	// the ISMP protocol entirely.
+	/// They might do so because the hyperbridge state contains the verified state commitments
+	/// for all chains and they want to directly read the state of these chains state bypassing
+	/// the ISMP protocol entirely.
 	pub state_commitment_fee: U256,
 	/// The address of the fee token contract
 	pub fee_token: H160,
@@ -48,6 +48,8 @@ pub struct EvmHostParam {
 	pub handler: H160,
 	/// The host manager contract
 	pub host_manager: H160,
+	// The local UniswapV2Router02 contract, used for swapping the native token to the feeToken.
+	pub uniswap_v2: H160,
 	/// The unstaking period in seconds
 	pub un_staking_period: u128,
 	/// The configured challenge period
@@ -75,6 +77,10 @@ impl EvmHostParam {
 
 		if let Some(state_commitment_fee) = update.state_commitment_fee {
 			self.state_commitment_fee = state_commitment_fee;
+		}
+
+		if let Some(uniswap_v2) = update.uniswap_v2 {
+			self.uniswap_v2 = uniswap_v2;
 		}
 
 		if let Some(fee_token_address) = update.fee_token {
@@ -128,19 +134,23 @@ pub struct EvmHostParamUpdate {
 	pub default_timeout: Option<u128>,
 	/// The fee to charge per byte
 	pub per_byte_fee: Option<U256>,
-	/// The cost for applications to access the hyperbridge state commitment.
-	// They might do so because the hyperbridge state contains the verified state commitments
-	// for all chains and they want to directly read the state of these chains state bypassing
-	// the ISMP protocol entirely.
-	pub state_commitment_fee: Option<U256>,
-	/// The address of the fee token contract
+	/// The address of the fee token contract.
+	/// It's important that before changing this parameter,
+	/// that all funds have been drained from the previous feeToken
 	pub fee_token: Option<H160>,
+	/// The cost for applications to access the hyperbridge state commitment.
+	/// They might do so because the hyperbridge state contains the verified state commitments
+	/// for all chains and they want to directly read the state of these chains state bypassing
+	/// the ISMP protocol entirely.
+	pub state_commitment_fee: Option<U256>,
 	/// The admin account
 	pub admin: Option<H160>,
 	/// The handler contract
 	pub handler: Option<H160>,
 	/// The host manager contract
 	pub host_manager: Option<H160>,
+	// The local UniswapV2Router02 contract, used for swapping the native token to the feeToken.
+	pub uniswap_v2: Option<H160>,
 	/// The unstaking period in seconds
 	pub un_staking_period: Option<u128>,
 	/// The configured challenge period
@@ -178,6 +188,8 @@ alloy_sol_macro::sol! {
 		address handler;
 		// the authorized host manager contract
 		address hostManager;
+		// The local UniswapV2Router02 contract, used for swapping the native token to the feeToken.
+		address uniswapV2;
 		// unstaking period
 		uint256 unStakingPeriod;
 		// minimum challenge period in seconds;
@@ -225,6 +237,7 @@ impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 			admin: value.admin.0.try_into().map_err(anyhow::Error::msg)?,
 			handler: value.handler.0.try_into().map_err(anyhow::Error::msg)?,
 			hostManager: value.host_manager.0.try_into().map_err(anyhow::Error::msg)?,
+			uniswapV2: value.uniswap_v2.0.try_into().map_err(anyhow::Error::msg)?,
 			unStakingPeriod: value.un_staking_period.try_into().map_err(anyhow::Error::msg)?,
 			challengePeriod: value.challenge_period.try_into().map_err(anyhow::Error::msg)?,
 			consensusClient: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,

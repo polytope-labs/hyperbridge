@@ -15,7 +15,7 @@
 pragma solidity 0.8.17;
 
 import "./EvmHost.sol";
-import "ismp/StateMachine.sol";
+import "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 /**
  * @title The BaseHost

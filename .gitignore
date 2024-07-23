@@ -58,3 +58,4 @@ evm/subgraph/generated
 /fees/prisma/dev.db-journal
 /
 **/*.db
+package-lock.json

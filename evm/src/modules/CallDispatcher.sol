@@ -24,18 +24,22 @@ import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatch
  */
 contract CallDispatcher is ICallDispatcher {
     // @dev function returns `success = false` if the target is not a contract and reverts if the call to the target contract fails.
-    function dispatch(CallDispatcherParams memory params) external returns (bytes memory result, bool success) {
-        uint32 size;
-        address target = params.target;
-        assembly {
-            size := extcodesize(target)
+    function dispatch(CallDispatcherParams[] memory calls) external returns (bool) {
+        uint256 callsLen = calls.length;
+        for (uint256 i = 0; i < callsLen; ++i) {
+            CallDispatcherParams memory call = calls[i];
+            uint32 size;
+            address target = call.target;
+            assembly {
+                size := extcodesize(target)
+            }
+
+            if (size > 0) {
+                (bool success, bytes memory result) = target.call(call.data);
+                if (!success) revert(string(result));
+            }
         }
 
-        if (size > 0) {
-            // unchecked call, this is safe because this contract does not control any funds
-            (success, result) = target.call(params.data);
-            if (!success) revert(string(result));
-            return (result, success);
-        }
+        return true;
     }
 }

@@ -245,7 +245,8 @@ pub mod api {
 					&self,
 					included_hash: ::subxt::utils::H256,
 					slot: runtime_types::sp_consensus_slots::Slot,
-				) -> ::subxt::runtime_api::Payload<types::CanBuildUpon, ::core::primitive::bool> {
+				) -> ::subxt::runtime_api::Payload<types::CanBuildUpon, ::core::primitive::bool>
+				{
 					::subxt::runtime_api::Payload::new_static(
 						"AuraUnincludedSegmentApi",
 						"can_build_upon",
@@ -853,7 +854,8 @@ pub mod api {
 				pub fn account_nonce(
 					&self,
 					account: ::subxt::utils::AccountId32,
-				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32> {
+				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32>
+				{
 					::subxt::runtime_api::Payload::new_static(
 						"AccountNonceApi",
 						"account_nonce",
@@ -1054,10 +1056,9 @@ pub mod api {
 						"query_call_info",
 						types::QueryCallInfo { call, len },
 						[
-							220u8, 59u8, 17u8, 207u8, 34u8, 8u8, 175u8, 39u8, 240u8, 111u8, 55u8,
-							14u8, 137u8, 127u8, 214u8, 179u8, 154u8, 120u8, 107u8, 126u8, 94u8,
-							243u8, 34u8, 154u8, 112u8, 100u8, 206u8, 89u8, 48u8, 250u8, 159u8,
-							136u8,
+							137u8, 87u8, 212u8, 79u8, 58u8, 18u8, 78u8, 97u8, 158u8, 108u8, 77u8,
+							29u8, 164u8, 142u8, 245u8, 255u8, 194u8, 60u8, 19u8, 179u8, 162u8,
+							99u8, 27u8, 201u8, 146u8, 95u8, 122u8, 111u8, 14u8, 185u8, 194u8, 96u8,
 						],
 					)
 				}
@@ -1077,9 +1078,10 @@ pub mod api {
 						"query_call_fee_details",
 						types::QueryCallFeeDetails { call, len },
 						[
-							0u8, 152u8, 207u8, 19u8, 91u8, 183u8, 116u8, 131u8, 0u8, 14u8, 86u8,
-							49u8, 178u8, 70u8, 7u8, 124u8, 240u8, 132u8, 79u8, 143u8, 213u8, 155u8,
-							197u8, 133u8, 81u8, 17u8, 5u8, 83u8, 168u8, 146u8, 176u8, 177u8,
+							73u8, 108u8, 254u8, 148u8, 179u8, 111u8, 213u8, 118u8, 235u8, 167u8,
+							115u8, 187u8, 116u8, 10u8, 59u8, 167u8, 99u8, 202u8, 143u8, 22u8,
+							194u8, 34u8, 126u8, 141u8, 143u8, 107u8, 116u8, 54u8, 170u8, 176u8,
+							13u8, 196u8,
 						],
 					)
 				}
@@ -1939,10 +1941,9 @@ pub mod api {
 						"create_transaction",
 						types::CreateTransaction { account, call },
 						[
-							138u8, 178u8, 65u8, 241u8, 195u8, 251u8, 188u8, 77u8, 145u8, 214u8,
-							108u8, 10u8, 250u8, 124u8, 181u8, 9u8, 44u8, 226u8, 113u8, 131u8,
-							109u8, 147u8, 144u8, 39u8, 178u8, 159u8, 189u8, 17u8, 79u8, 97u8, 14u8,
-							203u8,
+							169u8, 225u8, 214u8, 241u8, 205u8, 189u8, 122u8, 58u8, 62u8, 8u8, 94u8,
+							46u8, 29u8, 87u8, 221u8, 83u8, 43u8, 164u8, 109u8, 8u8, 245u8, 38u8,
+							27u8, 18u8, 154u8, 140u8, 35u8, 229u8, 213u8, 160u8, 100u8, 253u8,
 						],
 					)
 				}
@@ -2149,9 +2150,9 @@ pub mod api {
 			.hash();
 		runtime_metadata_hash ==
 			[
-				192u8, 136u8, 61u8, 78u8, 100u8, 173u8, 111u8, 148u8, 186u8, 99u8, 70u8, 209u8,
-				207u8, 189u8, 81u8, 16u8, 14u8, 222u8, 119u8, 206u8, 144u8, 140u8, 99u8, 122u8,
-				146u8, 19u8, 190u8, 59u8, 162u8, 177u8, 149u8, 128u8,
+				103u8, 91u8, 197u8, 11u8, 216u8, 140u8, 215u8, 124u8, 220u8, 160u8, 198u8, 216u8,
+				12u8, 134u8, 115u8, 233u8, 12u8, 189u8, 193u8, 177u8, 230u8, 72u8, 169u8, 82u8,
+				122u8, 104u8, 73u8, 165u8, 171u8, 181u8, 250u8, 144u8,
 			]
 	}
 	pub mod system {
@@ -3033,10 +3034,9 @@ pub mod api {
 						"Events",
 						vec![],
 						[
-							171u8, 90u8, 196u8, 103u8, 250u8, 229u8, 76u8, 85u8, 41u8, 111u8,
-							229u8, 196u8, 7u8, 128u8, 176u8, 143u8, 182u8, 15u8, 217u8, 170u8,
-							128u8, 221u8, 100u8, 50u8, 227u8, 239u8, 118u8, 84u8, 112u8, 186u8,
-							56u8, 26u8,
+							154u8, 104u8, 216u8, 120u8, 231u8, 94u8, 151u8, 143u8, 142u8, 12u8,
+							58u8, 125u8, 1u8, 182u8, 80u8, 32u8, 112u8, 11u8, 67u8, 192u8, 234u8,
+							75u8, 77u8, 131u8, 63u8, 136u8, 91u8, 80u8, 255u8, 207u8, 137u8, 118u8,
 						],
 					)
 				}
@@ -3254,7 +3254,8 @@ pub mod api {
 				#[doc = " The maximum length of a block (in bytes)."]
 				pub fn block_length(
 					&self,
-				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength> {
+				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength>
+				{
 					::subxt::constants::Address::new_static(
 						"System",
 						"BlockLength",
@@ -4510,10 +4511,9 @@ pub mod api {
 						"batch",
 						types::Batch { calls },
 						[
-							93u8, 175u8, 209u8, 184u8, 132u8, 238u8, 19u8, 64u8, 250u8, 72u8,
-							185u8, 186u8, 205u8, 185u8, 184u8, 237u8, 177u8, 90u8, 132u8, 210u8,
-							0u8, 37u8, 214u8, 210u8, 39u8, 232u8, 185u8, 239u8, 254u8, 80u8, 162u8,
-							15u8,
+							126u8, 193u8, 255u8, 113u8, 184u8, 221u8, 34u8, 111u8, 237u8, 196u8,
+							106u8, 11u8, 10u8, 92u8, 249u8, 211u8, 10u8, 45u8, 68u8, 254u8, 143u8,
+							69u8, 121u8, 1u8, 176u8, 196u8, 79u8, 169u8, 222u8, 124u8, 71u8, 45u8,
 						],
 					)
 				}
@@ -4528,9 +4528,9 @@ pub mod api {
 						"as_derivative",
 						types::AsDerivative { index, call: ::std::boxed::Box::new(call) },
 						[
-							252u8, 127u8, 210u8, 53u8, 89u8, 50u8, 233u8, 67u8, 227u8, 250u8, 30u8,
-							218u8, 205u8, 212u8, 80u8, 163u8, 222u8, 194u8, 117u8, 29u8, 253u8,
-							83u8, 95u8, 136u8, 82u8, 53u8, 215u8, 134u8, 28u8, 130u8, 138u8, 155u8,
+							17u8, 223u8, 53u8, 201u8, 218u8, 14u8, 76u8, 215u8, 158u8, 224u8,
+							183u8, 75u8, 255u8, 56u8, 245u8, 93u8, 182u8, 226u8, 41u8, 49u8, 172u8,
+							69u8, 81u8, 150u8, 171u8, 185u8, 42u8, 8u8, 177u8, 215u8, 19u8, 55u8,
 						],
 					)
 				}
@@ -4544,9 +4544,9 @@ pub mod api {
 						"batch_all",
 						types::BatchAll { calls },
 						[
-							48u8, 18u8, 232u8, 253u8, 37u8, 145u8, 38u8, 25u8, 237u8, 243u8, 61u8,
-							81u8, 27u8, 233u8, 89u8, 229u8, 96u8, 85u8, 205u8, 244u8, 105u8, 118u8,
-							112u8, 159u8, 111u8, 210u8, 44u8, 26u8, 103u8, 13u8, 28u8, 181u8,
+							205u8, 173u8, 252u8, 210u8, 78u8, 192u8, 99u8, 249u8, 1u8, 73u8, 205u8,
+							204u8, 37u8, 225u8, 73u8, 242u8, 117u8, 177u8, 174u8, 160u8, 162u8,
+							192u8, 121u8, 39u8, 37u8, 155u8, 0u8, 16u8, 236u8, 53u8, 140u8, 90u8,
 						],
 					)
 				}
@@ -4564,9 +4564,9 @@ pub mod api {
 							call: ::std::boxed::Box::new(call),
 						},
 						[
-							46u8, 81u8, 79u8, 182u8, 125u8, 70u8, 130u8, 55u8, 169u8, 54u8, 29u8,
-							15u8, 197u8, 64u8, 77u8, 66u8, 246u8, 8u8, 247u8, 174u8, 125u8, 198u8,
-							78u8, 52u8, 7u8, 134u8, 54u8, 220u8, 10u8, 24u8, 9u8, 85u8,
+							241u8, 132u8, 150u8, 15u8, 226u8, 225u8, 7u8, 77u8, 102u8, 161u8, 91u8,
+							115u8, 117u8, 180u8, 84u8, 151u8, 52u8, 74u8, 117u8, 53u8, 82u8, 98u8,
+							184u8, 93u8, 9u8, 98u8, 161u8, 203u8, 212u8, 253u8, 209u8, 150u8,
 						],
 					)
 				}
@@ -4580,10 +4580,10 @@ pub mod api {
 						"force_batch",
 						types::ForceBatch { calls },
 						[
-							250u8, 153u8, 177u8, 178u8, 117u8, 253u8, 38u8, 145u8, 67u8, 247u8,
-							15u8, 128u8, 51u8, 73u8, 217u8, 135u8, 141u8, 83u8, 182u8, 178u8,
-							248u8, 156u8, 39u8, 72u8, 9u8, 253u8, 31u8, 159u8, 33u8, 123u8, 208u8,
-							251u8,
+							116u8, 69u8, 225u8, 180u8, 107u8, 70u8, 158u8, 174u8, 234u8, 36u8,
+							142u8, 132u8, 120u8, 64u8, 70u8, 68u8, 12u8, 212u8, 7u8, 97u8, 150u8,
+							26u8, 183u8, 216u8, 55u8, 38u8, 221u8, 102u8, 114u8, 249u8, 147u8,
+							203u8,
 						],
 					)
 				}
@@ -4598,9 +4598,9 @@ pub mod api {
 						"with_weight",
 						types::WithWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							61u8, 170u8, 214u8, 0u8, 228u8, 190u8, 95u8, 96u8, 232u8, 30u8, 1u8,
-							211u8, 82u8, 111u8, 177u8, 210u8, 6u8, 142u8, 92u8, 114u8, 42u8, 127u8,
-							237u8, 153u8, 87u8, 22u8, 156u8, 210u8, 88u8, 91u8, 251u8, 68u8,
+							51u8, 30u8, 17u8, 119u8, 69u8, 27u8, 10u8, 248u8, 70u8, 3u8, 1u8,
+							176u8, 218u8, 51u8, 121u8, 41u8, 47u8, 29u8, 229u8, 104u8, 83u8, 65u8,
+							85u8, 225u8, 150u8, 158u8, 75u8, 95u8, 4u8, 26u8, 60u8, 224u8,
 						],
 					)
 				}
@@ -7378,9 +7378,10 @@ pub mod api {
 						"sudo",
 						types::Sudo { call: ::std::boxed::Box::new(call) },
 						[
-							160u8, 65u8, 31u8, 108u8, 97u8, 205u8, 115u8, 4u8, 138u8, 50u8, 114u8,
-							237u8, 16u8, 97u8, 244u8, 40u8, 82u8, 101u8, 81u8, 74u8, 107u8, 171u8,
-							147u8, 149u8, 255u8, 27u8, 5u8, 147u8, 222u8, 110u8, 229u8, 158u8,
+							21u8, 88u8, 254u8, 181u8, 230u8, 205u8, 180u8, 125u8, 152u8, 117u8,
+							71u8, 12u8, 60u8, 89u8, 241u8, 223u8, 33u8, 81u8, 131u8, 71u8, 189u8,
+							246u8, 123u8, 246u8, 176u8, 242u8, 228u8, 124u8, 58u8, 75u8, 83u8,
+							17u8,
 						],
 					)
 				}
@@ -7395,10 +7396,9 @@ pub mod api {
 						"sudo_unchecked_weight",
 						types::SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							227u8, 92u8, 49u8, 124u8, 190u8, 213u8, 53u8, 118u8, 188u8, 114u8,
-							77u8, 224u8, 235u8, 69u8, 149u8, 131u8, 229u8, 19u8, 185u8, 60u8,
-							206u8, 140u8, 131u8, 150u8, 169u8, 149u8, 108u8, 173u8, 123u8, 82u8,
-							134u8, 184u8,
+							156u8, 195u8, 70u8, 159u8, 85u8, 228u8, 175u8, 239u8, 81u8, 180u8,
+							51u8, 105u8, 241u8, 181u8, 25u8, 55u8, 179u8, 85u8, 221u8, 19u8, 92u8,
+							24u8, 227u8, 235u8, 89u8, 212u8, 250u8, 30u8, 127u8, 165u8, 148u8, 7u8,
 						],
 					)
 				}
@@ -7429,9 +7429,9 @@ pub mod api {
 						"sudo_as",
 						types::SudoAs { who, call: ::std::boxed::Box::new(call) },
 						[
-							119u8, 137u8, 94u8, 9u8, 229u8, 85u8, 35u8, 142u8, 141u8, 162u8, 193u8,
-							236u8, 180u8, 57u8, 254u8, 184u8, 200u8, 31u8, 205u8, 5u8, 214u8, 70u8,
-							54u8, 3u8, 72u8, 143u8, 176u8, 161u8, 97u8, 36u8, 230u8, 229u8,
+							78u8, 159u8, 42u8, 92u8, 145u8, 155u8, 216u8, 130u8, 178u8, 94u8, 20u8,
+							199u8, 176u8, 30u8, 135u8, 204u8, 124u8, 255u8, 236u8, 144u8, 222u8,
+							6u8, 70u8, 154u8, 58u8, 64u8, 230u8, 245u8, 173u8, 33u8, 240u8, 21u8,
 						],
 					)
 				}
@@ -12225,9 +12225,10 @@ pub mod api {
 						"set_host_params",
 						types::SetHostParams { params },
 						[
-							91u8, 77u8, 33u8, 15u8, 57u8, 22u8, 80u8, 100u8, 112u8, 201u8, 117u8,
-							179u8, 33u8, 54u8, 138u8, 110u8, 183u8, 96u8, 195u8, 36u8, 110u8,
-							251u8, 107u8, 95u8, 79u8, 133u8, 42u8, 174u8, 88u8, 241u8, 92u8, 31u8,
+							199u8, 134u8, 78u8, 44u8, 34u8, 39u8, 4u8, 62u8, 115u8, 83u8, 5u8,
+							189u8, 195u8, 222u8, 214u8, 234u8, 111u8, 189u8, 159u8, 90u8, 197u8,
+							108u8, 155u8, 245u8, 160u8, 247u8, 105u8, 234u8, 221u8, 30u8, 247u8,
+							51u8,
 						],
 					)
 				}
@@ -12244,9 +12245,9 @@ pub mod api {
 						"update_host_params",
 						types::UpdateHostParams { state_machine, update },
 						[
-							52u8, 1u8, 225u8, 131u8, 83u8, 117u8, 165u8, 75u8, 246u8, 30u8, 87u8,
-							4u8, 200u8, 132u8, 41u8, 102u8, 184u8, 162u8, 216u8, 65u8, 59u8, 123u8,
-							160u8, 161u8, 210u8, 24u8, 29u8, 241u8, 239u8, 171u8, 23u8, 144u8,
+							27u8, 185u8, 128u8, 57u8, 87u8, 228u8, 121u8, 187u8, 113u8, 40u8, 72u8,
+							52u8, 158u8, 202u8, 194u8, 53u8, 55u8, 81u8, 221u8, 243u8, 104u8,
+							131u8, 35u8, 143u8, 75u8, 209u8, 215u8, 99u8, 202u8, 44u8, 66u8, 168u8,
 						],
 					)
 				}
@@ -12332,10 +12333,10 @@ pub mod api {
 						"HostParams",
 						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
 						[
-							244u8, 208u8, 199u8, 246u8, 81u8, 196u8, 138u8, 57u8, 73u8, 61u8,
-							192u8, 123u8, 227u8, 106u8, 237u8, 190u8, 29u8, 240u8, 60u8, 112u8,
-							212u8, 70u8, 182u8, 105u8, 119u8, 89u8, 204u8, 232u8, 205u8, 198u8,
-							157u8, 212u8,
+							167u8, 200u8, 183u8, 75u8, 91u8, 143u8, 80u8, 84u8, 104u8, 44u8, 129u8,
+							169u8, 124u8, 41u8, 211u8, 149u8, 215u8, 248u8, 177u8, 202u8, 83u8,
+							117u8, 233u8, 80u8, 216u8, 214u8, 50u8, 32u8, 230u8, 76u8, 124u8,
+							236u8,
 						],
 					)
 				}
@@ -12356,10 +12357,10 @@ pub mod api {
 						"HostParams",
 						Vec::new(),
 						[
-							244u8, 208u8, 199u8, 246u8, 81u8, 196u8, 138u8, 57u8, 73u8, 61u8,
-							192u8, 123u8, 227u8, 106u8, 237u8, 190u8, 29u8, 240u8, 60u8, 112u8,
-							212u8, 70u8, 182u8, 105u8, 119u8, 89u8, 204u8, 232u8, 205u8, 198u8,
-							157u8, 212u8,
+							167u8, 200u8, 183u8, 75u8, 91u8, 143u8, 80u8, 84u8, 104u8, 44u8, 129u8,
+							169u8, 124u8, 41u8, 211u8, 149u8, 215u8, 248u8, 177u8, 202u8, 83u8,
+							117u8, 233u8, 80u8, 216u8, 214u8, 50u8, 32u8, 230u8, 76u8, 124u8,
+							236u8,
 						],
 					)
 				}
@@ -19698,6 +19699,7 @@ pub mod api {
 					pub admin: ::subxt::utils::H160,
 					pub handler: ::subxt::utils::H160,
 					pub host_manager: ::subxt::utils::H160,
+					pub uniswap_v2: ::subxt::utils::H160,
 					pub un_staking_period: ::core::primitive::u128,
 					pub challenge_period: ::core::primitive::u128,
 					pub consensus_client: ::subxt::utils::H160,
@@ -19727,12 +19729,13 @@ pub mod api {
 				pub struct EvmHostParamUpdate {
 					pub default_timeout: ::core::option::Option<::core::primitive::u128>,
 					pub per_byte_fee: ::core::option::Option<runtime_types::primitive_types::U256>,
+					pub fee_token: ::core::option::Option<::subxt::utils::H160>,
 					pub state_commitment_fee:
 						::core::option::Option<runtime_types::primitive_types::U256>,
-					pub fee_token: ::core::option::Option<::subxt::utils::H160>,
 					pub admin: ::core::option::Option<::subxt::utils::H160>,
 					pub handler: ::core::option::Option<::subxt::utils::H160>,
 					pub host_manager: ::core::option::Option<::subxt::utils::H160>,
+					pub uniswap_v2: ::core::option::Option<::subxt::utils::H160>,
 					pub un_staking_period: ::core::option::Option<::core::primitive::u128>,
 					pub challenge_period: ::core::option::Option<::core::primitive::u128>,
 					pub consensus_client: ::core::option::Option<::subxt::utils::H160>,

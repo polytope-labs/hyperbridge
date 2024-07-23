@@ -15,15 +15,17 @@
 pragma solidity 0.8.17;
 
 import "./Codec.sol";
-import "ismp/StateMachine.sol";
-import "ismp/IConsensusClient.sol";
+import "@polytope-labs/ismp-solidity/StateMachine.sol";
+import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 
-import "solidity-merkle-trees/MerkleMultiProof.sol";
-import "solidity-merkle-trees/MerkleMountainRange.sol";
-import "solidity-merkle-trees/MerklePatricia.sol";
-import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
-import "solidity-merkle-trees/trie/Bytes.sol";
-import "openzeppelin/utils/cryptography/ECDSA.sol";
+import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/MerkleMultiProof.sol";
+import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";
+import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/MerklePatricia.sol";
+import {StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/Types.sol";
+
+import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import {ECDSA} from "openzeppelin/utils/cryptography/ECDSA.sol";
 
 struct Vote {
     // secp256k1 signature from a member of the authority set
@@ -150,10 +152,10 @@ contract BeefyV1 is IConsensusClient {
     }
 
     /** @dev Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
-    * which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
-    * the relay chain authority set and we can verify the membership of the authorities who signed this new root
-    * using a merkle multi proof and a merkle commitment to the total authorities.
-    */
+     * which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
+     * the relay chain authority set and we can verify the membership of the authorities who signed this new root
+     * using a merkle multi proof and a merkle commitment to the total authorities.
+     */
     function verifyMmrUpdateProof(
         BeefyConsensusState memory trustedState,
         RelayChainProof memory relayProof

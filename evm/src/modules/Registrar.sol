@@ -14,39 +14,24 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule.sol";
-import {IDispatcher, DispatchPost} from "ismp/IDispatcher.sol";
-import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import {IDispatcher, DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
-import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
-import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
-
-struct AssetRegistration {
-    // The asset identifier intended for registration
-    bytes32 assetId;
-    // The feetoken to use for fees
-    address feeToken;
-    // How much of the feeToken to swap for the hyperbridge feeToken
-    uint256 amountToSwap;
-}
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 struct RequestBody {
     // The asset owner
     address owner;
     // The assetId to create
     bytes32 assetId;
-    // The base fee paid for registration, used in timeouts
-    uint256 baseFee;
 }
 
 struct RegistrarParams {
-    // The ERC20 contract address for the wrapped version of the local native token
-    address erc20NativeToken;
     // Ismp host
     address host;
-    // Local UniswapV2 contract address
-    address uniswapV2;
     // registration base fee
     uint256 baseFee;
 }
@@ -105,41 +90,21 @@ contract TokenRegistrar is BaseIsmpModule {
     // on Hyperbridge, but by paying here. It can be provided as an unsigned
     // extrinsic.
     //
-    // @dev Collects the registration fees in any token that can be swapped for the
-    // IIsmpHost.feeToken using the local UniswapV2 router. Any request must be
-    // relayed to Hyperbridge as this module provides no refunds.
-    function registerAsset(AssetRegistration memory registration) public payable {
+    // @dev Collects the registration fees in either the native token or IIsmpHost.feeToken.
+    // The resulting request must be relayed to Hyperbridge as this module provides no refunds.
+    function registerAsset(bytes32 assetId) public payable {
         address feeToken = IIsmpHost(_params.host).feeToken();
-        uint256 messagingFee = 96 * IIsmpHost(_params.host).perByteFee();
+        uint256 messagingFee = 64 * IIsmpHost(_params.host).perByteFee();
         uint256 fee = _params.baseFee + messagingFee;
 
-        if (feeToken != registration.feeToken) {
-            if (msg.value != 0) {
-                (bool sent, ) = _params.erc20NativeToken.call{value: msg.value}("");
-                if (!sent) revert InconsistentState();
-                registration.feeToken = _params.erc20NativeToken;
-                registration.amountToSwap = msg.value;
-            } else {
-                SafeERC20.safeTransferFrom(
-                    IERC20(registration.feeToken),
-                    msg.sender,
-                    address(this),
-                    registration.amountToSwap
-                );
-            }
-            SafeERC20.safeIncreaseAllowance(
-                IERC20(registration.feeToken),
-                _params.uniswapV2,
-                registration.amountToSwap
-            );
-
+        // user has provided the native token
+        if (msg.value > 0) {
+            address uniswapV2 = IIsmpHost(_params.host).uniswapV2Router();
             address[] memory path = new address[](2);
-            path[0] = registration.feeToken;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken;
-
-            IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 fee,
-                registration.amountToSwap,
                 path,
                 address(this),
                 block.timestamp
@@ -149,9 +114,7 @@ contract TokenRegistrar is BaseIsmpModule {
             SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, _params.host, _params.baseFee);
             SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), messagingFee);
         }
-        bytes memory data = abi.encode(
-            RequestBody({owner: msg.sender, assetId: registration.assetId, baseFee: _params.baseFee})
-        );
+        bytes memory data = abi.encode(RequestBody({owner: msg.sender, assetId: assetId}));
 
         // approve the host with the exact amount
         SafeERC20.safeIncreaseAllowance(IERC20(feeToken), _params.host, fee);
@@ -165,7 +128,7 @@ contract TokenRegistrar is BaseIsmpModule {
         });
         IDispatcher(_params.host).dispatch(request);
 
-        emit RegistrationBegun({assetId: registration.assetId, owner: msg.sender});
+        emit RegistrationBegun({assetId: assetId, owner: msg.sender});
     }
 
     // @notice Governance parameter updates
@@ -179,4 +142,9 @@ contract TokenRegistrar is BaseIsmpModule {
 
         _params = update;
     }
+
+    /*
+     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
+     */
+    receive() external payable {}
 }

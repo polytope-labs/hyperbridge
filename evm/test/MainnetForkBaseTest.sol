@@ -24,17 +24,11 @@ import {FeeToken} from "./FeeToken.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 import {TokenRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
-import {
-    TokenGateway,
-    Asset,
-    TokenGatewayParams,
-    TokenGatewayParamsExt,
-    AssetMetadata
-} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
-import {StateMachine} from "ismp/StateMachine.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {IUniswapV2Router} from "../src/interfaces/IUniswapV2Router.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import "../src/modules/TokenGateway.sol";
 
 contract MainnetForkBaseTest is Test {
     /// @notice The Id of Role required to mint token
@@ -51,10 +45,11 @@ contract MainnetForkBaseTest is Test {
     HandlerV1 internal handler;
     PingModule internal testModule;
     TokenGateway internal gateway;
+    HostManager internal manager;
     IERC20 internal usdc;
     IERC20 internal dai;
     IERC20 internal feeToken;
-    IUniswapV2Router internal _uniswapV2Router;
+    IUniswapV2Router02 internal _uniswapV2Router;
     TokenRegistrar internal _registrar;
 
     uint256 internal mainnetFork;
@@ -63,7 +58,7 @@ contract MainnetForkBaseTest is Test {
         usdc = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
         dai = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
         feeToken = dai;
-        _uniswapV2Router = IUniswapV2Router(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
+        _uniswapV2Router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
         string memory fork_url = vm.envString("MAINNET_FORK_URL");
 
@@ -79,12 +74,12 @@ contract MainnetForkBaseTest is Test {
 
         uint256 paraId = 2000;
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
-        HostManager manager = new HostManager(gParams);
+        manager = new HostManager(gParams);
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
-       		stateCommitmentFee: 0,
+            uniswapV2: address(_uniswapV2Router),
             fishermen: fishermen,
             admin: address(0),
             hostManager: address(manager),
@@ -95,6 +90,7 @@ contract MainnetForkBaseTest is Test {
             challengePeriod: 0,
             consensusClient: address(consensusClient),
             perByteFee: 3 * 1e15, // $0.003/byte
+            stateCommitmentFee: 10 * 1e18, // $10
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
             stateMachines: stateMachines
@@ -106,9 +102,9 @@ contract MainnetForkBaseTest is Test {
         testModule.setIsmpHost(address(host));
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        AssetMetadata[] memory assets = new AssetMetadata[](2);
         assets[0] = AssetMetadata({
-            erc20: address(usdc),
+            erc20: address(dai),
             erc6160: address(0),
             name: "Hyperbridge USD",
             symbol: "USD.h",
@@ -116,26 +112,24 @@ contract MainnetForkBaseTest is Test {
             initialSupply: 0
         });
 
+        assets[1] = AssetMetadata({
+            erc20: _uniswapV2Router.WETH(),
+            erc6160: address(0),
+            name: "Wrapped ETH",
+            symbol: "WETH",
+            beneficiary: address(0),
+            initialSupply: 0
+        });
+
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({
-                    host: address(host),
-                    uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
-                    dispatcher: address(dispatcher)
-                }),
+                params: TokenGatewayParams({host: address(host), dispatcher: address(dispatcher)}),
                 assets: assets
             })
         );
 
         _registrar = new TokenRegistrar(address(this));
-        _registrar.init(
-            RegistrarParams({
-                host: address(host),
-                uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
-                erc20NativeToken: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,
-                baseFee: 100 * 1e18
-            })
-        );
+        _registrar.init(RegistrarParams({host: address(host), baseFee: 100 * 1e18}));
     }
 
     function module() public view returns (address) {

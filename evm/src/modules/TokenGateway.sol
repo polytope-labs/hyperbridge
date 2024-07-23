@@ -731,11 +731,11 @@ contract TokenGateway is BaseIsmpModule {
     function handleGovernance(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        TokenGatewayParams memory params = abi.decode(request.body[1:], (TokenGatewayParams));
+        TokenGatewayParams memory newParams = abi.decode(request.body[1:], (TokenGatewayParams));
 
-        emit ParamsUpdated({oldParams: _params, newParams: params});
+        emit ParamsUpdated({oldParams: _params, newParams: newParams});
 
-        _params = params;
+        _params = newParams;
     }
 
     // @dev registers a new asset as requested by cross-chain governance

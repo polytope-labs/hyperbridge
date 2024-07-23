@@ -694,7 +694,7 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testCanWithdrawNativeTokens() public {
-    	uint256 oldBalance = tx.origin.balance;
+        uint256 oldBalance = tx.origin.balance;
         uint256 amount = 1 * 1e18;
 
         (bool ok, ) = address(gateway).call{value: amount}("");

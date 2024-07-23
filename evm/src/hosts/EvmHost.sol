@@ -35,6 +35,11 @@ struct HostParams {
     // The cost of cross-chain requests in the feeToken per byte,
     // this is charged to the application initiating a request or response
     uint256 perByteFee;
+    // The cost for applications to access the hyperbridge state commitment.
+    // They might do so because the hyperbridge state contains the verified state commitments
+    // for all chains and they want to directly read the state of these chains state bypassing
+    // the ISMP protocol entirely.
+    uint256 stateCommitmentFee;
     // The fee token contract address. This will typically be DAI.
     // but we allow it to be configurable to prevent future regrets.
     address feeToken;
@@ -337,6 +342,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bool native
     );
 
+    // An application has accessed the Hyperbridge state commitment
+    event StateCommitmentRead(
+        // the application responsible
+        address indexed caller,
+        // The fee that was paid
+        uint256 fee
+    );
+
     // Account is unauthorized to perform requested action
     error UnauthorizedAccount();
 
@@ -465,10 +478,38 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @notice Charges the stateCommitmentFee to 3rd party applications.
+     * If native tokens are provided, will attempt to swap them for the stateCommitmentFee.
+     * If not enough native tokens are supplied, will revert.
+     *
+     * If no native tokens are provided then it will try to collect payment from the calling contract in
+     * the IIsmpHost.feeToken.
+     *
      * @param height - state machine height
      * @return the state commitment at `height`
      */
-    function stateMachineCommitment(StateMachineHeight memory height) external view returns (StateCommitment memory) {
+    function stateMachineCommitment(
+        StateMachineHeight memory height
+    ) external payable returns (StateCommitment memory) {
+        address caller = _msgSender();
+        if (caller != _hostParams.handler) {
+            uint256 fee = _hostParams.stateCommitmentFee;
+            if (msg.value > 0) {
+                address[] memory path = new address[](2);
+                path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+                path[1] = feeToken();
+                IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                    fee,
+                    path,
+                    address(this),
+                    block.timestamp
+                );
+            } else {
+                SafeERC20.safeTransferFrom(IERC20(feeToken()), caller, address(this), fee);
+            }
+            emit StateCommitmentRead({caller: caller, fee: fee});
+        }
+
         return _stateCommitments[height.stateMachineId][height.height];
     }
 
@@ -920,18 +961,18 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-	 * @dev Dispatch a POST request to Hyperbridge
-	 *
-	 * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
-	 * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
-	 * Will revert if enough native tokens are not provided.
-	 *
-	 * If no native tokens are provided then it will try to collect payment from the calling contract in
-	 * the IIsmpHost.feeToken.
-	 *
-	 * @param post - post request
-	 * @return commitment - the request commitment
-	 */
+     * @dev Dispatch a POST request to Hyperbridge
+     *
+     * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
+     * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
+     * Will revert if enough native tokens are not provided.
+     *
+     * If no native tokens are provided then it will try to collect payment from the calling contract in
+     * the IIsmpHost.feeToken.
+     *
+     * @param post - post request
+     * @return commitment - the request commitment
+     */
     function dispatch(DispatchPost memory post) external payable notFrozen returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
 
@@ -948,6 +989,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
         }
+
         // adjust the timeout
         uint256 timeout = _hostParams.defaultTimeout > post.timeout ? _hostParams.defaultTimeout : post.timeout;
         uint64 timeoutTimestamp = post.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(timeout);
@@ -976,19 +1018,19 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
     }
 
-	/**
-	 * @dev Dispatch a GET request to Hyperbridge
-	 *
-	 * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
-	 * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
-	 * Will revert if enough native tokens are not provided.
-	 *
-	 * If no native tokens are provided then it will try to collect payment from the calling contract in
-	 * the IIsmpHost.feeToken.
-	 *
-	 * @param get - get request
-	 * @return commitment - the request commitment
-	 */
+    /**
+     * @dev Dispatch a GET request to Hyperbridge
+     *
+     * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
+     * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
+     * Will revert if enough native tokens are not provided.
+     *
+     * If no native tokens are provided then it will try to collect payment from the calling contract in
+     * the IIsmpHost.feeToken.
+     *
+     * @param get - get request
+     * @return commitment - the request commitment
+     */
     function dispatch(DispatchGet memory get) external payable notFrozen returns (bytes32 commitment) {
         if (get.fee != 0) {
             if (msg.value > 0) {
@@ -1005,6 +1047,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
                 SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), get.fee);
             }
         }
+
         // adjust the timeout
         uint256 timeout = _hostParams.defaultTimeout > get.timeout ? _hostParams.defaultTimeout : get.timeout;
         uint64 timeoutTimestamp = get.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(timeout);
@@ -1033,19 +1076,19 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
     }
 
-	/**
-	 * @dev Dispatch a POST response to Hyperbridge
-	 *
-	 * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
-	 * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
-	 * Will revert if enough native tokens are not provided.
-	 *
-	 * If no native tokens are provided then it will try to collect payment from the calling contract in
-	 * the IIsmpHost.feeToken.
-	 *
-	 * @param post - post response
-	 * @return commitment - the request commitment
-	 */
+    /**
+     * @dev Dispatch a POST response to Hyperbridge
+     *
+     * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
+     * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
+     * Will revert if enough native tokens are not provided.
+     *
+     * If no native tokens are provided then it will try to collect payment from the calling contract in
+     * the IIsmpHost.feeToken.
+     *
+     * @param post - post response
+     * @return commitment - the request commitment
+     */
     function dispatch(DispatchPostResponse memory post) external payable notFrozen returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
         if (msg.value > 0) {
@@ -1134,8 +1177,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
         }
-        FeeMetadata memory metadata = _requestCommitments[commitment];
 
+        FeeMetadata memory metadata = _requestCommitments[commitment];
         if (metadata.sender == address(0)) revert UnknownRequest();
 
         metadata.fee += amount;
@@ -1176,7 +1219,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         FeeMetadata memory metadata = _responseCommitments[commitment];
-
         if (metadata.sender == address(0)) revert UnknownResponse();
 
         metadata.fee += amount;

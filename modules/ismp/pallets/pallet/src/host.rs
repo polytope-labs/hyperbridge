@@ -54,7 +54,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		crate::StateCommitments::<T>::get(height)
+		child_trie::StateCommitments::<T>::get(height)
 			.ok_or_else(|| Error::StateCommitmentNotFound { height })
 	}
 
@@ -187,12 +187,12 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		height: StateMachineHeight,
 		state: StateCommitment,
 	) -> Result<(), Error> {
-		crate::StateCommitments::<T>::insert(height, state);
+		child_trie::StateCommitments::<T>::insert(height, state);
 		Ok(())
 	}
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
-		crate::StateCommitments::<T>::remove(height);
+		child_trie::StateCommitments::<T>::remove(height);
 
 		// technically any state commitment can be vetoed,
 		// safety check that it's the latest before resetting it.

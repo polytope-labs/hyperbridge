@@ -14,7 +14,6 @@ use ismp::{
 use ismp_solidity_abi::evm_host::EvmHost;
 use ismp_testsuite::mocks::{Host, Keccak256Hasher};
 use primitive_types::H160;
-use sp_core::H256;
 use std::str::FromStr;
 use tesseract_primitives::{IsmpProvider, Query};
 

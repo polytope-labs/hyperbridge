@@ -173,6 +173,10 @@ mod gargantua_conversion {
 								let alloy_value = alloy_primitives::U256::from_limbs(params.per_byte_fee.0);
 								primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
 							},
+							state_commitment_fee: {
+                   				let alloy_value = alloy_primitives::U256::from_limbs(params.state_commitment_fee.0);
+                        		primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
+             				},
 	                       fee_token: params.fee_token,
 	                       admin: params.admin,
 	                       handler: params.handler,

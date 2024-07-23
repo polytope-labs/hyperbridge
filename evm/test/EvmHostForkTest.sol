@@ -211,13 +211,36 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         assert(address(manager).balance == amount);
     }
 
-    function tryPay() external payable {
-    	console.log(msg.value);
-    }
+    function testCanPayForStateCommitment() public {
+        HostParams memory params = host.hostParams();
 
-    function testZeroPayable() public {
-    	this.tryPay();
-    	this.tryPay{value: 1 * 1e18}();
+        // create a state commitment
+        StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
+        StateCommitment memory commitment = StateCommitment({
+            timestamp: 200,
+            overlayRoot: bytes32(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff),
+            stateRoot: bytes32(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+        });
+        vm.prank(params.handler);
+        host.storeStateMachineCommitment(height, commitment);
+
+        uint256 cost = quote(params.stateCommitmentFee);
+        StateCommitment memory retrieved = host.stateMachineCommitment{value: cost}(height);
+        assert(commitment.timestamp == retrieved.timestamp);
+        assert(commitment.overlayRoot == retrieved.overlayRoot);
+        assert(commitment.stateRoot == retrieved.stateRoot);
+
+        vm.prank(whaleAccount);
+        feeToken.approve(address(host), type(uint256).max);
+        vm.prank(whaleAccount);
+        StateCommitment memory withFeeToken = host.stateMachineCommitment(height);
+        assert(commitment.timestamp == withFeeToken.timestamp);
+        assert(commitment.overlayRoot == withFeeToken.overlayRoot);
+        assert(commitment.stateRoot == withFeeToken.stateRoot);
+
+        feeToken.approve(address(host), type(uint256).max);
+        vm.expectRevert("Dai/insufficient-balance");
+        host.stateMachineCommitment(height);
     }
 
     function quote(uint256 feeTokenCost) internal view returns (uint256) {

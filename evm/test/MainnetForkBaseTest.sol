@@ -79,7 +79,6 @@ contract MainnetForkBaseTest is Test {
         stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
-            stateCommitmentFee: 0,
             uniswapV2: address(_uniswapV2Router),
             fishermen: fishermen,
             admin: address(0),

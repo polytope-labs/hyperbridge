@@ -1056,10 +1056,9 @@ pub mod api {
 						"query_call_info",
 						types::QueryCallInfo { call, len },
 						[
-							220u8, 59u8, 17u8, 207u8, 34u8, 8u8, 175u8, 39u8, 240u8, 111u8, 55u8,
-							14u8, 137u8, 127u8, 214u8, 179u8, 154u8, 120u8, 107u8, 126u8, 94u8,
-							243u8, 34u8, 154u8, 112u8, 100u8, 206u8, 89u8, 48u8, 250u8, 159u8,
-							136u8,
+							13u8, 92u8, 37u8, 6u8, 61u8, 5u8, 30u8, 251u8, 190u8, 192u8, 75u8,
+							73u8, 77u8, 174u8, 4u8, 214u8, 24u8, 72u8, 195u8, 79u8, 114u8, 67u8,
+							94u8, 105u8, 36u8, 193u8, 61u8, 106u8, 138u8, 103u8, 220u8, 254u8,
 						],
 					)
 				}
@@ -1079,9 +1078,10 @@ pub mod api {
 						"query_call_fee_details",
 						types::QueryCallFeeDetails { call, len },
 						[
-							0u8, 152u8, 207u8, 19u8, 91u8, 183u8, 116u8, 131u8, 0u8, 14u8, 86u8,
-							49u8, 178u8, 70u8, 7u8, 124u8, 240u8, 132u8, 79u8, 143u8, 213u8, 155u8,
-							197u8, 133u8, 81u8, 17u8, 5u8, 83u8, 168u8, 146u8, 176u8, 177u8,
+							160u8, 37u8, 160u8, 247u8, 136u8, 174u8, 166u8, 11u8, 154u8, 251u8,
+							245u8, 114u8, 102u8, 29u8, 133u8, 198u8, 69u8, 159u8, 117u8, 110u8,
+							233u8, 168u8, 195u8, 192u8, 95u8, 43u8, 60u8, 151u8, 118u8, 30u8, 32u8,
+							58u8,
 						],
 					)
 				}
@@ -1941,10 +1941,10 @@ pub mod api {
 						"create_transaction",
 						types::CreateTransaction { account, call },
 						[
-							138u8, 178u8, 65u8, 241u8, 195u8, 251u8, 188u8, 77u8, 145u8, 214u8,
-							108u8, 10u8, 250u8, 124u8, 181u8, 9u8, 44u8, 226u8, 113u8, 131u8,
-							109u8, 147u8, 144u8, 39u8, 178u8, 159u8, 189u8, 17u8, 79u8, 97u8, 14u8,
-							203u8,
+							210u8, 147u8, 167u8, 98u8, 127u8, 31u8, 237u8, 255u8, 145u8, 21u8,
+							230u8, 124u8, 101u8, 185u8, 92u8, 0u8, 225u8, 10u8, 243u8, 251u8,
+							124u8, 215u8, 162u8, 8u8, 123u8, 204u8, 117u8, 183u8, 148u8, 66u8,
+							65u8, 120u8,
 						],
 					)
 				}
@@ -2151,9 +2151,9 @@ pub mod api {
 			.hash();
 		runtime_metadata_hash ==
 			[
-				192u8, 136u8, 61u8, 78u8, 100u8, 173u8, 111u8, 148u8, 186u8, 99u8, 70u8, 209u8,
-				207u8, 189u8, 81u8, 16u8, 14u8, 222u8, 119u8, 206u8, 144u8, 140u8, 99u8, 122u8,
-				146u8, 19u8, 190u8, 59u8, 162u8, 177u8, 149u8, 128u8,
+				15u8, 130u8, 181u8, 33u8, 188u8, 21u8, 67u8, 203u8, 109u8, 92u8, 139u8, 10u8, 71u8,
+				221u8, 215u8, 111u8, 95u8, 2u8, 24u8, 186u8, 24u8, 233u8, 12u8, 65u8, 191u8, 238u8,
+				212u8, 11u8, 255u8, 22u8, 15u8, 50u8,
 			]
 	}
 	pub mod system {
@@ -3035,10 +3035,10 @@ pub mod api {
 						"Events",
 						vec![],
 						[
-							171u8, 90u8, 196u8, 103u8, 250u8, 229u8, 76u8, 85u8, 41u8, 111u8,
-							229u8, 196u8, 7u8, 128u8, 176u8, 143u8, 182u8, 15u8, 217u8, 170u8,
-							128u8, 221u8, 100u8, 50u8, 227u8, 239u8, 118u8, 84u8, 112u8, 186u8,
-							56u8, 26u8,
+							132u8, 225u8, 41u8, 246u8, 67u8, 77u8, 151u8, 225u8, 29u8, 49u8, 204u8,
+							156u8, 155u8, 190u8, 148u8, 66u8, 86u8, 228u8, 183u8, 203u8, 121u8,
+							122u8, 60u8, 153u8, 196u8, 212u8, 97u8, 235u8, 85u8, 237u8, 105u8,
+							133u8,
 						],
 					)
 				}
@@ -4513,10 +4513,10 @@ pub mod api {
 						"batch",
 						types::Batch { calls },
 						[
-							93u8, 175u8, 209u8, 184u8, 132u8, 238u8, 19u8, 64u8, 250u8, 72u8,
-							185u8, 186u8, 205u8, 185u8, 184u8, 237u8, 177u8, 90u8, 132u8, 210u8,
-							0u8, 37u8, 214u8, 210u8, 39u8, 232u8, 185u8, 239u8, 254u8, 80u8, 162u8,
-							15u8,
+							34u8, 233u8, 245u8, 160u8, 54u8, 184u8, 24u8, 235u8, 122u8, 25u8,
+							211u8, 118u8, 231u8, 236u8, 115u8, 10u8, 56u8, 150u8, 178u8, 180u8,
+							113u8, 83u8, 58u8, 226u8, 96u8, 182u8, 69u8, 35u8, 9u8, 183u8, 244u8,
+							75u8,
 						],
 					)
 				}
@@ -4531,9 +4531,9 @@ pub mod api {
 						"as_derivative",
 						types::AsDerivative { index, call: ::std::boxed::Box::new(call) },
 						[
-							252u8, 127u8, 210u8, 53u8, 89u8, 50u8, 233u8, 67u8, 227u8, 250u8, 30u8,
-							218u8, 205u8, 212u8, 80u8, 163u8, 222u8, 194u8, 117u8, 29u8, 253u8,
-							83u8, 95u8, 136u8, 82u8, 53u8, 215u8, 134u8, 28u8, 130u8, 138u8, 155u8,
+							212u8, 183u8, 104u8, 93u8, 50u8, 28u8, 2u8, 75u8, 117u8, 76u8, 104u8,
+							151u8, 125u8, 208u8, 12u8, 158u8, 148u8, 131u8, 10u8, 172u8, 79u8,
+							101u8, 14u8, 75u8, 181u8, 104u8, 117u8, 228u8, 7u8, 44u8, 228u8, 247u8,
 						],
 					)
 				}
@@ -4547,9 +4547,9 @@ pub mod api {
 						"batch_all",
 						types::BatchAll { calls },
 						[
-							48u8, 18u8, 232u8, 253u8, 37u8, 145u8, 38u8, 25u8, 237u8, 243u8, 61u8,
-							81u8, 27u8, 233u8, 89u8, 229u8, 96u8, 85u8, 205u8, 244u8, 105u8, 118u8,
-							112u8, 159u8, 111u8, 210u8, 44u8, 26u8, 103u8, 13u8, 28u8, 181u8,
+							230u8, 5u8, 89u8, 113u8, 194u8, 177u8, 237u8, 206u8, 49u8, 57u8, 90u8,
+							137u8, 76u8, 119u8, 144u8, 146u8, 169u8, 156u8, 242u8, 190u8, 146u8,
+							253u8, 13u8, 99u8, 250u8, 44u8, 104u8, 28u8, 51u8, 80u8, 216u8, 196u8,
 						],
 					)
 				}
@@ -4567,9 +4567,10 @@ pub mod api {
 							call: ::std::boxed::Box::new(call),
 						},
 						[
-							46u8, 81u8, 79u8, 182u8, 125u8, 70u8, 130u8, 55u8, 169u8, 54u8, 29u8,
-							15u8, 197u8, 64u8, 77u8, 66u8, 246u8, 8u8, 247u8, 174u8, 125u8, 198u8,
-							78u8, 52u8, 7u8, 134u8, 54u8, 220u8, 10u8, 24u8, 9u8, 85u8,
+							230u8, 126u8, 209u8, 252u8, 163u8, 157u8, 234u8, 221u8, 158u8, 211u8,
+							48u8, 137u8, 187u8, 210u8, 191u8, 239u8, 250u8, 38u8, 168u8, 26u8,
+							175u8, 146u8, 166u8, 108u8, 218u8, 6u8, 178u8, 216u8, 14u8, 223u8,
+							55u8, 23u8,
 						],
 					)
 				}
@@ -4583,10 +4584,9 @@ pub mod api {
 						"force_batch",
 						types::ForceBatch { calls },
 						[
-							250u8, 153u8, 177u8, 178u8, 117u8, 253u8, 38u8, 145u8, 67u8, 247u8,
-							15u8, 128u8, 51u8, 73u8, 217u8, 135u8, 141u8, 83u8, 182u8, 178u8,
-							248u8, 156u8, 39u8, 72u8, 9u8, 253u8, 31u8, 159u8, 33u8, 123u8, 208u8,
-							251u8,
+							144u8, 52u8, 177u8, 144u8, 243u8, 70u8, 234u8, 15u8, 94u8, 123u8,
+							143u8, 252u8, 229u8, 43u8, 0u8, 57u8, 129u8, 133u8, 208u8, 151u8, 33u8,
+							136u8, 188u8, 94u8, 8u8, 53u8, 192u8, 83u8, 168u8, 194u8, 59u8, 4u8,
 						],
 					)
 				}
@@ -4601,9 +4601,10 @@ pub mod api {
 						"with_weight",
 						types::WithWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							61u8, 170u8, 214u8, 0u8, 228u8, 190u8, 95u8, 96u8, 232u8, 30u8, 1u8,
-							211u8, 82u8, 111u8, 177u8, 210u8, 6u8, 142u8, 92u8, 114u8, 42u8, 127u8,
-							237u8, 153u8, 87u8, 22u8, 156u8, 210u8, 88u8, 91u8, 251u8, 68u8,
+							182u8, 16u8, 39u8, 196u8, 41u8, 248u8, 181u8, 213u8, 199u8, 231u8,
+							156u8, 200u8, 36u8, 55u8, 119u8, 231u8, 127u8, 255u8, 46u8, 121u8,
+							220u8, 21u8, 121u8, 210u8, 2u8, 153u8, 163u8, 94u8, 12u8, 23u8, 247u8,
+							1u8,
 						],
 					)
 				}
@@ -7381,9 +7382,10 @@ pub mod api {
 						"sudo",
 						types::Sudo { call: ::std::boxed::Box::new(call) },
 						[
-							160u8, 65u8, 31u8, 108u8, 97u8, 205u8, 115u8, 4u8, 138u8, 50u8, 114u8,
-							237u8, 16u8, 97u8, 244u8, 40u8, 82u8, 101u8, 81u8, 74u8, 107u8, 171u8,
-							147u8, 149u8, 255u8, 27u8, 5u8, 147u8, 222u8, 110u8, 229u8, 158u8,
+							184u8, 100u8, 110u8, 248u8, 46u8, 168u8, 177u8, 21u8, 146u8, 213u8,
+							229u8, 246u8, 175u8, 237u8, 24u8, 152u8, 206u8, 163u8, 211u8, 13u8,
+							175u8, 249u8, 86u8, 53u8, 243u8, 21u8, 84u8, 242u8, 10u8, 58u8, 185u8,
+							48u8,
 						],
 					)
 				}
@@ -7398,10 +7400,9 @@ pub mod api {
 						"sudo_unchecked_weight",
 						types::SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							227u8, 92u8, 49u8, 124u8, 190u8, 213u8, 53u8, 118u8, 188u8, 114u8,
-							77u8, 224u8, 235u8, 69u8, 149u8, 131u8, 229u8, 19u8, 185u8, 60u8,
-							206u8, 140u8, 131u8, 150u8, 169u8, 149u8, 108u8, 173u8, 123u8, 82u8,
-							134u8, 184u8,
+							81u8, 94u8, 106u8, 18u8, 6u8, 187u8, 128u8, 17u8, 156u8, 195u8, 133u8,
+							21u8, 219u8, 136u8, 176u8, 219u8, 74u8, 118u8, 240u8, 221u8, 43u8,
+							238u8, 242u8, 8u8, 78u8, 184u8, 223u8, 202u8, 46u8, 179u8, 7u8, 239u8,
 						],
 					)
 				}
@@ -7432,9 +7433,9 @@ pub mod api {
 						"sudo_as",
 						types::SudoAs { who, call: ::std::boxed::Box::new(call) },
 						[
-							119u8, 137u8, 94u8, 9u8, 229u8, 85u8, 35u8, 142u8, 141u8, 162u8, 193u8,
-							236u8, 180u8, 57u8, 254u8, 184u8, 200u8, 31u8, 205u8, 5u8, 214u8, 70u8,
-							54u8, 3u8, 72u8, 143u8, 176u8, 161u8, 97u8, 36u8, 230u8, 229u8,
+							173u8, 214u8, 236u8, 208u8, 5u8, 128u8, 77u8, 0u8, 234u8, 233u8, 247u8,
+							31u8, 65u8, 157u8, 24u8, 147u8, 69u8, 110u8, 12u8, 66u8, 139u8, 85u8,
+							126u8, 212u8, 23u8, 1u8, 127u8, 220u8, 157u8, 86u8, 193u8, 113u8,
 						],
 					)
 				}
@@ -12228,9 +12229,10 @@ pub mod api {
 						"set_host_params",
 						types::SetHostParams { params },
 						[
-							91u8, 77u8, 33u8, 15u8, 57u8, 22u8, 80u8, 100u8, 112u8, 201u8, 117u8,
-							179u8, 33u8, 54u8, 138u8, 110u8, 183u8, 96u8, 195u8, 36u8, 110u8,
-							251u8, 107u8, 95u8, 79u8, 133u8, 42u8, 174u8, 88u8, 241u8, 92u8, 31u8,
+							58u8, 228u8, 185u8, 201u8, 180u8, 207u8, 242u8, 26u8, 93u8, 243u8,
+							152u8, 212u8, 19u8, 212u8, 221u8, 218u8, 102u8, 216u8, 78u8, 205u8,
+							110u8, 94u8, 26u8, 30u8, 70u8, 103u8, 17u8, 1u8, 63u8, 191u8, 111u8,
+							61u8,
 						],
 					)
 				}
@@ -12247,9 +12249,10 @@ pub mod api {
 						"update_host_params",
 						types::UpdateHostParams { state_machine, update },
 						[
-							52u8, 1u8, 225u8, 131u8, 83u8, 117u8, 165u8, 75u8, 246u8, 30u8, 87u8,
-							4u8, 200u8, 132u8, 41u8, 102u8, 184u8, 162u8, 216u8, 65u8, 59u8, 123u8,
-							160u8, 161u8, 210u8, 24u8, 29u8, 241u8, 239u8, 171u8, 23u8, 144u8,
+							138u8, 152u8, 253u8, 78u8, 77u8, 34u8, 93u8, 227u8, 153u8, 165u8,
+							205u8, 242u8, 177u8, 164u8, 87u8, 182u8, 97u8, 161u8, 54u8, 117u8,
+							125u8, 203u8, 44u8, 96u8, 98u8, 180u8, 7u8, 86u8, 243u8, 246u8, 86u8,
+							116u8,
 						],
 					)
 				}
@@ -12335,10 +12338,10 @@ pub mod api {
 						"HostParams",
 						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
 						[
-							244u8, 208u8, 199u8, 246u8, 81u8, 196u8, 138u8, 57u8, 73u8, 61u8,
-							192u8, 123u8, 227u8, 106u8, 237u8, 190u8, 29u8, 240u8, 60u8, 112u8,
-							212u8, 70u8, 182u8, 105u8, 119u8, 89u8, 204u8, 232u8, 205u8, 198u8,
-							157u8, 212u8,
+							145u8, 97u8, 56u8, 117u8, 173u8, 108u8, 191u8, 220u8, 30u8, 49u8,
+							127u8, 34u8, 211u8, 124u8, 217u8, 192u8, 153u8, 202u8, 76u8, 192u8,
+							59u8, 197u8, 70u8, 36u8, 75u8, 25u8, 234u8, 20u8, 23u8, 114u8, 147u8,
+							26u8,
 						],
 					)
 				}
@@ -12359,10 +12362,10 @@ pub mod api {
 						"HostParams",
 						Vec::new(),
 						[
-							244u8, 208u8, 199u8, 246u8, 81u8, 196u8, 138u8, 57u8, 73u8, 61u8,
-							192u8, 123u8, 227u8, 106u8, 237u8, 190u8, 29u8, 240u8, 60u8, 112u8,
-							212u8, 70u8, 182u8, 105u8, 119u8, 89u8, 204u8, 232u8, 205u8, 198u8,
-							157u8, 212u8,
+							145u8, 97u8, 56u8, 117u8, 173u8, 108u8, 191u8, 220u8, 30u8, 49u8,
+							127u8, 34u8, 211u8, 124u8, 217u8, 192u8, 153u8, 202u8, 76u8, 192u8,
+							59u8, 197u8, 70u8, 36u8, 75u8, 25u8, 234u8, 20u8, 23u8, 114u8, 147u8,
+							26u8,
 						],
 					)
 				}
@@ -19696,11 +19699,11 @@ pub mod api {
 				pub struct EvmHostParam {
 					pub default_timeout: ::core::primitive::u128,
 					pub per_byte_fee: runtime_types::primitive_types::U256,
-					pub state_commitment_fee: runtime_types::primitive_types::U256,
 					pub fee_token: ::subxt::utils::H160,
 					pub admin: ::subxt::utils::H160,
 					pub handler: ::subxt::utils::H160,
 					pub host_manager: ::subxt::utils::H160,
+					pub uniswap_v2: ::subxt::utils::H160,
 					pub un_staking_period: ::core::primitive::u128,
 					pub challenge_period: ::core::primitive::u128,
 					pub consensus_client: ::subxt::utils::H160,
@@ -19730,12 +19733,11 @@ pub mod api {
 				pub struct EvmHostParamUpdate {
 					pub default_timeout: ::core::option::Option<::core::primitive::u128>,
 					pub per_byte_fee: ::core::option::Option<runtime_types::primitive_types::U256>,
-					pub state_commitment_fee:
-						::core::option::Option<runtime_types::primitive_types::U256>,
 					pub fee_token: ::core::option::Option<::subxt::utils::H160>,
 					pub admin: ::core::option::Option<::subxt::utils::H160>,
 					pub handler: ::core::option::Option<::subxt::utils::H160>,
 					pub host_manager: ::core::option::Option<::subxt::utils::H160>,
+					pub uniswap_v2: ::core::option::Option<::subxt::utils::H160>,
 					pub un_staking_period: ::core::option::Option<::core::primitive::u128>,
 					pub challenge_period: ::core::option::Option<::core::primitive::u128>,
 					pub consensus_client: ::core::option::Option<::subxt::utils::H160>,

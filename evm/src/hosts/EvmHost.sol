@@ -35,11 +35,6 @@ struct HostParams {
     // The cost of cross-chain requests in the feeToken per byte,
     // this is charged to the application initiating a request or response
     uint256 perByteFee;
-    // The cost for applications to access the hyperbridge state commitment.
-    // They might do so because the hyperbridge state contains the verified state commitments
-    // for all chains and they want to directly read the state of these chains state bypassing
-    // the ISMP protocol entirely.
-    uint256 stateCommitmentFee;
     // The fee token contract address. This will typically be DAI.
     // but we allow it to be configurable to prevent future regrets.
     address feeToken;
@@ -478,48 +473,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @return the fee for accessing hyperbridge state commitments charged in `feeToken()`
-     */
-    function stateCommitmentFee() external view returns (uint256) {
-        return _hostParams.stateCommitmentFee;
-    }
-
-    /**
-     * @notice Charges the `_hostParams.stateCommitmentFee` to 3rd party applications.
      * @param height - state machine height
      * @return the state commitment at `height`
      */
-    function stateCommitment(StateMachineHeight memory height) external returns (StateCommitment memory) {
-        address caller = _msgSender();
-        if (caller != _hostParams.handler) {
-            uint256 fee = _hostParams.stateCommitmentFee;
-            SafeERC20.safeTransferFrom(IERC20(feeToken()), caller, address(this), fee);
-            emit StateCommitmentRead({caller: caller, fee: fee});
-        }
-        return _stateCommitments[height.stateMachineId][height.height];
-    }
-
-    /**
-     * @notice Charges the `_hostParams.stateCommitmentFee` to 3rd party applications.
-     * Collects the state commitment fee in the native tokens.
-     * @param height - state machine height
-     * @return the state commitment at `height`
-     */
-    function stateCommitmentWithNative(
-        StateMachineHeight memory height
-    ) external payable returns (StateCommitment memory) {
-        address caller = _msgSender();
-        uint256 fee = _hostParams.stateCommitmentFee;
-        address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
-        path[1] = feeToken();
-        IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
-            fee,
-            path,
-            address(this),
-            block.timestamp
-        );
-        emit StateCommitmentRead({caller: caller, fee: fee});
+    function stateMachineCommitment(StateMachineHeight memory height) external view returns (StateCommitment memory) {
         return _stateCommitments[height.stateMachineId][height.height];
     }
 
@@ -648,14 +605,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             delete _fishermen[_hostParams.fishermen[i]];
         }
 
-        // safe to emit here because invariants have already been checked
-        // and don't want to store a temp variable for the old params
-        emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
-
         if (_hostParams.feeToken != address(0) && _hostParams.feeToken != params.feeToken) {
             uint256 balance = IERC20(_hostParams.feeToken).balanceOf(address(this));
             if (balance != 0) revert CannotChangeFeeToken();
         }
+
+        // safe to emit here because invariants have already been checked
+        // and don't want to store a temp variable for the old params
+        emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
 
         _hostParams = params;
 

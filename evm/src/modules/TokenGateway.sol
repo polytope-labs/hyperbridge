@@ -792,8 +792,9 @@ contract TokenGateway is BaseIsmpModule {
     // @dev withdraws any accrued native tokens as requested by cross-chain governance
     function handleWithdrawNativeToken(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
+
         Withdrawal memory withdrawal = abi.decode(request.body[1:], (Withdrawal));
-        if (withdrawal.beneficiary != address(0)) revert ZeroAddress();
+        if (withdrawal.beneficiary == address(0)) revert ZeroAddress();
         if (withdrawal.amount == 0) revert InvalidAmount();
 
         (bool sent, ) = withdrawal.beneficiary.call{value: withdrawal.amount}("");

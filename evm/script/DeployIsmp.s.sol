@@ -64,7 +64,6 @@ contract DeployScript is BaseScript {
         // EvmHost
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
-            stateCommitmentFee: 10 * 1e18, // $10
             uniswapV2: address(0),
             fishermen: fishermen,
             admin: admin,

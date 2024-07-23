@@ -702,11 +702,11 @@ impl IsmpProvider for EvmClient {
 		let evm_params = EvmHostParam {
 			default_timeout: params.default_timeout.low_u128(),
 			per_byte_fee: params.per_byte_fee,
-			state_commitment_fee: params.state_commitment_fee,
 			fee_token: params.fee_token,
 			admin: params.admin,
 			handler: params.handler,
 			host_manager: params.host_manager,
+			uniswap_v2: params.uniswap_v2,
 			un_staking_period: params.un_staking_period.low_u128(),
 			challenge_period: params.challenge_period.low_u128(),
 			consensus_client: params.consensus_client,

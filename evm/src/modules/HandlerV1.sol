@@ -148,7 +148,7 @@ contract HandlerV1 is IHandler, Context {
             leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, commitment);
         }
 
-        bytes32 root = host.stateCommitment(request.proof.height).overlayRoot;
+        bytes32 root = host.stateMachineCommitment(request.proof.height).overlayRoot;
         if (root == bytes32(0)) revert StateCommitmentNotFound();
         if (!MerkleMountainRange.VerifyProof(root, request.proof.multiproof, leaves, request.proof.leafCount)) {
             revert InvalidProof();
@@ -189,7 +189,7 @@ contract HandlerV1 is IHandler, Context {
             leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, leaf.response.hash());
         }
 
-        bytes32 root = host.stateCommitment(response.proof.height).overlayRoot;
+        bytes32 root = host.stateMachineCommitment(response.proof.height).overlayRoot;
         if (root == bytes32(0)) revert StateCommitmentNotFound();
         if (!MerkleMountainRange.VerifyProof(root, response.proof.multiproof, leaves, response.proof.leafCount)) {
             revert InvalidProof();
@@ -215,7 +215,7 @@ contract HandlerV1 is IHandler, Context {
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
 
         // fetch the state commitment
-        StateCommitment memory state = host.stateCommitment(message.height);
+        StateCommitment memory state = host.stateMachineCommitment(message.height);
         if (state.stateRoot == bytes32(0)) revert StateCommitmentNotFound();
         uint256 timeoutsLength = message.timeouts.length;
 
@@ -254,7 +254,7 @@ contract HandlerV1 is IHandler, Context {
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
 
         // fetch the state commitment
-        StateCommitment memory state = host.stateCommitment(message.height);
+        StateCommitment memory state = host.stateMachineCommitment(message.height);
         if (state.stateRoot == bytes32(0)) revert StateCommitmentNotFound();
         uint256 timeoutsLength = message.timeouts.length;
 
@@ -290,7 +290,7 @@ contract HandlerV1 is IHandler, Context {
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
 
-        bytes32 root = host.stateCommitment(message.height).stateRoot;
+        bytes32 root = host.stateMachineCommitment(message.height).stateRoot;
         if (root == bytes32(0)) revert StateCommitmentNotFound();
 
         uint256 responsesLength = message.requests.length;

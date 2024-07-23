@@ -410,6 +410,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         _consensusUpdateTimestamp = block.timestamp;
     }
 
+    /*
+     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
+     */
+    receive() external payable {}
+
     /**
      * @return the host admin
      */
@@ -1235,11 +1240,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         emit PostResponseFunded({commitment: commitment, newFee: metadata.fee});
     }
-
-    /*
-     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
-     */
-    receive() external payable {}
 
     /**
      * @dev Get next available nonce for outgoing requests.

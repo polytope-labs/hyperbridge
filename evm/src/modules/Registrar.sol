@@ -74,6 +74,11 @@ contract TokenRegistrar is BaseIsmpModule {
         _admin = admin;
     }
 
+    /*
+     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
+     */
+    receive() external payable {}
+
     // @notice Initializes the registrar. Can only be called by the admin
     function init(RegistrarParams memory p) public restrict(_admin) {
         _params = p;
@@ -142,9 +147,4 @@ contract TokenRegistrar is BaseIsmpModule {
 
         _params = update;
     }
-
-    /*
-     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
-     */
-    receive() external payable {}
 }

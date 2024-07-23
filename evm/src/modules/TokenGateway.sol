@@ -376,6 +376,11 @@ contract TokenGateway is BaseIsmpModule {
         _admin = admin;
     }
 
+    /*
+     * @dev fallback function for tests. Do not send any tokens directly to this contract.
+     */
+    receive() external payable {}
+
     // @dev initialize required parameters
     function init(TokenGatewayParamsExt memory teleportParams) public restrict(_admin) {
         _params = teleportParams.params;
@@ -845,11 +850,6 @@ contract TokenGateway is BaseIsmpModule {
             _instances[keccak256(request.source)] != bytesToAddress(request.from);
         if (unknown) revert UnauthorizedAction();
     }
-
-    /*
-     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
-     */
-    receive() external payable {}
 
     /**
      * @dev Converts bytes to address.

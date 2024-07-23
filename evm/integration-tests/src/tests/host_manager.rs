@@ -20,6 +20,7 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
 	let params = WithdrawalParams {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: U256::from(500_000_000_000_000_000_000u128),
+		native: false,
 	};
 	let body = params.abi_encode();
 
@@ -51,6 +52,7 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
 	let params = WithdrawalParams {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: U256::from(500_000_000_000_000_000_000u128),
+		native: false,
 	};
 	let body = params.abi_encode();
 
@@ -91,6 +93,7 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
 	let params = WithdrawalParams {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: U256::from(500_000_000_000_000_000_000u128),
+		native: false,
 	};
 	let body = params.abi_encode();
 

@@ -15,13 +15,7 @@ import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
 
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
-import {
-    TokenGateway,
-    Asset,
-    TokenGatewayParamsExt,
-    TokenGatewayParams,
-    AssetMetadata
-} from "../src/modules/TokenGateway.sol";
+import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 
 import {PingModule} from "../examples/PingModule.sol";
@@ -70,8 +64,8 @@ contract DeployScript is BaseScript {
         // EvmHost
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
-       		stateCommitmentFee: 10 * 1e18, // $10
-         	uniswapV2: address(0),
+            stateCommitmentFee: 10 * 1e18, // $10
+            uniswapV2: address(0),
             fishermen: fishermen,
             admin: admin,
             hostManager: address(manager),

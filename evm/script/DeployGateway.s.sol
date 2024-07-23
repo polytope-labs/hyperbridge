@@ -4,13 +4,7 @@ pragma solidity 0.8.17;
 import "forge-std/Script.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
-import {
-    TokenGateway,
-    Asset,
-    TokenGatewayParamsExt,
-    TokenGatewayParams,
-    AssetMetadata
-} from "../src/modules/TokenGateway.sol";
+import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
 import {BaseScript} from "./BaseScript.sol";

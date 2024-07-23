@@ -970,11 +970,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * If no native tokens are provided then it will try to collect payment from the calling contract in
      * the IIsmpHost.feeToken.
      *
+     * A minimum fee of one word size (32) * _params.perByteFee is enforced, even for empty payloads.
+     *
      * @param post - post request
      * @return commitment - the request commitment
      */
     function dispatch(DispatchPost memory post) external payable notFrozen returns (bytes32 commitment) {
-        uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
+        // minimum charge is the size of one word
+        uint256 length = 32 > post.body.length ? 32 : post.body.length;
+        uint256 fee = (_hostParams.perByteFee * length) + post.fee;
 
         if (msg.value > 0) {
             address[] memory path = new address[](2);
@@ -1086,11 +1090,16 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * If no native tokens are provided then it will try to collect payment from the calling contract in
      * the IIsmpHost.feeToken.
      *
+     * A minimum fee of one word size (32) * _params.perByteFee is enforced, even for empty payloads.
+     *
      * @param post - post response
      * @return commitment - the request commitment
      */
     function dispatch(DispatchPostResponse memory post) external payable notFrozen returns (bytes32 commitment) {
-        uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
+        // minimum charge is the size of one word
+        uint256 length = 32 > post.response.length ? 32 : post.response.length;
+        uint256 fee = (_hostParams.perByteFee * length) + post.fee;
+
         if (msg.value > 0) {
             address[] memory path = new address[](2);
             path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();

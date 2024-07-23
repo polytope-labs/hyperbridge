@@ -850,6 +850,7 @@ contract TokenGateway is BaseIsmpModule {
      * @dev receive function for UniswapV2Router02, collects all dust native tokens.
      */
     receive() external payable {}
+
     /**
      * @dev Converts bytes to address.
      * @param _bytes bytes value to be converted

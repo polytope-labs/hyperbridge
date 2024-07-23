@@ -114,7 +114,18 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config nodejs npm
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: "yarn"
+
+      - name: Install npm dependencies
+        working-directory: evm
+        run: |
+          yarn install
 
       - uses: webfactory/ssh-agent@v0.7.0
         with:
@@ -129,10 +140,6 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          npm install --global yarn
-          cd ./evm
-          yarn
-          cd ../
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
@@ -173,7 +180,18 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config nodejs npm
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: "yarn"
+
+      - name: Install npm dependencies
+        working-directory: evm
+        run: |
+          yarn install
 
       - uses: webfactory/ssh-agent@v0.7.0
         with:
@@ -186,10 +204,6 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          npm install --global yarn
-          cd ./evm
-          yarn
-          cd ../
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown
@@ -230,7 +244,18 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config nodejs npm
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: "yarn"
+
+      - name: Install npm dependencies
+        working-directory: evm
+        run: |
+          yarn install
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -239,11 +264,6 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-
-          npm install --global yarn
-          cd ./evm
-          yarn
-          cd ../
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown

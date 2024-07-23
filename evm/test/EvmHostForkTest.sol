@@ -209,8 +209,6 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         assert(address(manager).balance == amount);
     }
 
-    function testCanWithdrawNonStandardDecimalFeeToken() public {}
-
     function quote(uint256 feeTokenCost) internal view returns (uint256) {
         address[] memory path = new address[](2);
         path[0] = IUniswapV2Router02(IIsmpHost(gateway.params().host).uniswapV2Router()).WETH();

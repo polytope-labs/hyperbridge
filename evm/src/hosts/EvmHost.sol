@@ -99,13 +99,6 @@ struct WithdrawParams {
 }
 
 /**
- * Extension interface for reading a token's decimals
- */
-abstract contract IERC20Ext is IERC20 {
-    function decimals() public view virtual returns (uint8);
-}
-
-/**
  * @title The EvmHost
  * @author Polytope Labs (hello@polytope.technology)
  *
@@ -387,6 +380,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Failed to withdraw the native token
     error WithdrawalFailed();
 
+    // The IsmpHost has been frozen and cannot dispatch requests
+    error FrozenHost();
+
+    // Cannot change the fee token without sweeping all funds from previous one
+    error CannotChangeFeeToken();
+
     // only permits fishermen
     modifier onlyFishermen() {
         if (!_fishermen[_msgSender()]) {
@@ -398,6 +397,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // restricts call to the provided `caller`
     modifier restrict(address caller) {
         if (_msgSender() != caller) revert UnauthorizedAction();
+        _;
+    }
+
+    modifier notFrozen() {
+        if (_frozen) revert FrozenHost();
         _;
     }
 
@@ -648,6 +652,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // and don't want to store a temp variable for the old params
         emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
 
+        if (_hostParams.feeToken != address(0) && _hostParams.feeToken != params.feeToken) {
+            uint256 balance = IERC20(_hostParams.feeToken).balanceOf(address(this));
+            if (balance != 0) revert CannotChangeFeeToken();
+        }
+
         _hostParams = params;
 
         // add new fishermen if any
@@ -670,22 +679,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the parameters for withdrawal
      */
     function withdraw(WithdrawParams memory params) external restrict(_hostParams.hostManager) {
-        uint256 amount = params.amount;
         if (params.native) {
-            (bool sent, ) = params.beneficiary.call{value: amount}("");
+            (bool sent, ) = params.beneficiary.call{value: params.amount}("");
             if (!sent) revert WithdrawalFailed();
         } else {
-            // Hyperbridge always assumes the fee token has 18 decimals. eg DAI
-            // If USDT/USDC or any other fee token with a non-standard decimal is used,
-            // then convert the amount to withdraw appropriately
-            IERC20Ext feeAsset = IERC20Ext(feeToken());
-            uint256 decimals = feeAsset.decimals();
-            if (decimals < 18) {
-                amount = amount / (10 ** (18 - decimals));
-            }
-            SafeERC20.safeTransfer(feeAsset, params.beneficiary, amount);
+            SafeERC20.safeTransfer(IERC20(feeToken()), params.beneficiary, params.amount);
         }
-        emit HostWithdrawal({beneficiary: params.beneficiary, amount: amount, native: params.native});
+        emit HostWithdrawal({beneficiary: params.beneficiary, amount: params.amount, native: params.native});
     }
 
     /**
@@ -770,8 +770,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev set the new state of the bridge
      * @param newState new state
      */
-    function setFrozenState(bool newState) public {
-        if (_msgSender() != _hostParams.admin || _msgSender() != _hostParams.handler) revert UnauthorizedAction();
+    function setFrozenState(bool newState) external {
+        if (_msgSender() != _hostParams.admin && _msgSender() != _hostParams.handler) revert UnauthorizedAction();
 
         _frozen = newState;
 
@@ -974,7 +974,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch a POST request to the hyperbridge
      * @param post - post request
      */
-    function dispatch(DispatchPost memory post) external returns (bytes32) {
+    function dispatch(DispatchPost memory post) external notFrozen returns (bytes32) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
         SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
         return dispatchPostRequest(post);
@@ -988,7 +988,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param post - post request
      * @return commitment - the request commitment
      */
-    function dispatchWithNative(DispatchPost memory post) external payable returns (bytes32) {
+    function dispatchWithNative(DispatchPost memory post) external payable notFrozen returns (bytes32) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
         address[] memory path = new address[](2);
         path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
@@ -1042,7 +1042,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch a GET request to the hyperbridge
      * @param get - get request
      */
-    function dispatch(DispatchGet memory get) external returns (bytes32) {
+    function dispatch(DispatchGet memory get) external notFrozen returns (bytes32) {
         if (get.fee != 0) {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), get.fee);
         }
@@ -1057,7 +1057,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param get - get request
      * @return commitment - the request commitment
      */
-    function dispatchWithNative(DispatchGet memory get) external payable returns (bytes32) {
+    function dispatchWithNative(DispatchGet memory get) external payable notFrozen returns (bytes32) {
         if (get.fee != 0) {
             address[] memory path = new address[](2);
             path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
@@ -1112,7 +1112,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch a POST response to the hyperbridge
      * @param post - post response
      */
-    function dispatch(DispatchPostResponse memory post) external returns (bytes32) {
+    function dispatch(DispatchPostResponse memory post) external notFrozen returns (bytes32) {
         // collect fees
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
         SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
@@ -1127,7 +1127,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param post - post response
      * @return commitment - the request commitment
      */
-    function dispatchWithNative(DispatchPostResponse memory post) external payable returns (bytes32) {
+    function dispatchWithNative(DispatchPostResponse memory post) external payable notFrozen returns (bytes32) {
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
         address[] memory path = new address[](2);
         path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
@@ -1279,7 +1279,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             address(this),
             block.timestamp
         );
-        fundRequestInternal(commitment, amount);
+        fundResponseInternal(commitment, amount);
     }
 
     /**

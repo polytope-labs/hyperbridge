@@ -133,7 +133,9 @@ pub struct EvmHostParamUpdate {
 	// for all chains and they want to directly read the state of these chains state bypassing
 	// the ISMP protocol entirely.
 	pub state_commitment_fee: Option<U256>,
-	/// The address of the fee token contract
+	/// The address of the fee token contract.
+	/// It's important that before changing this parameter,
+	///  that all funds have been drained from the previous feeToken
 	pub fee_token: Option<H160>,
 	/// The admin account
 	pub admin: Option<H160>,

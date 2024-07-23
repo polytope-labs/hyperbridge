@@ -73,7 +73,7 @@ contract BaseTest is Test {
             stateCommitmentFee: 0,
             uniswapV2: address(0),
             fishermen: fishermen,
-            admin: address(0),
+            admin: address(this),
             hostManager: address(manager),
             handler: address(handler),
             defaultTimeout: 0,

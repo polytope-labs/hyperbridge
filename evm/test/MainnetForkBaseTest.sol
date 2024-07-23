@@ -24,11 +24,11 @@ import {FeeToken} from "./FeeToken.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 import {TokenRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
-import {TokenGateway, Asset, TokenGatewayParams, TokenGatewayParamsExt, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import "../src/modules/TokenGateway.sol";
 
 contract MainnetForkBaseTest is Test {
     /// @notice The Id of Role required to mint token
@@ -45,6 +45,7 @@ contract MainnetForkBaseTest is Test {
     HandlerV1 internal handler;
     PingModule internal testModule;
     TokenGateway internal gateway;
+    HostManager internal manager;
     IERC20 internal usdc;
     IERC20 internal dai;
     IERC20 internal feeToken;
@@ -73,7 +74,7 @@ contract MainnetForkBaseTest is Test {
 
         uint256 paraId = 2000;
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
-        HostManager manager = new HostManager(gParams);
+        manager = new HostManager(gParams);
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);

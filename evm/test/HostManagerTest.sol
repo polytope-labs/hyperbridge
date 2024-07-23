@@ -30,7 +30,7 @@ contract HostManagerTest is BaseTest {
         require(feeToken.balanceOf(address(host)) == 1000e18, "Failed to mint user tokens");
 
         vm.startPrank(address(host));
-        HostManager(host.hostParams().hostManager).onAccept(IncomingPostRequest(request, tx.origin));
+        HostManager(payable(host.hostParams().hostManager)).onAccept(IncomingPostRequest(request, tx.origin));
 
         require(feeToken.balanceOf(address(host)) == 500e18, "Failed to process request");
     }
@@ -38,7 +38,7 @@ contract HostManagerTest is BaseTest {
     function HostManagerSetParams(PostRequest calldata request) public {
         vm.startPrank(address(host));
 
-        HostManager(host.hostParams().hostManager).onAccept(IncomingPostRequest(request, tx.origin));
+        HostManager(payable(host.hostParams().hostManager)).onAccept(IncomingPostRequest(request, tx.origin));
         HostParams memory params = abi.decode(request.body[1:], (HostParams));
         console.logUint(host.hostParams().challengePeriod);
 
@@ -62,6 +62,6 @@ contract HostManagerTest is BaseTest {
     function HostManagerOnAccept(PostRequest calldata request) public {
         vm.startPrank(address(host));
 
-        HostManager(host.hostParams().hostManager).onAccept(IncomingPostRequest(request, tx.origin));
+        HostManager(payable(host.hostParams().hostManager)).onAccept(IncomingPostRequest(request, tx.origin));
     }
 }

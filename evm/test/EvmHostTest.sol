@@ -81,6 +81,85 @@ contract EvmHostTest is BaseTest {
         host.setHostParamsAdmin(params);
     }
 
+    function testSweepFeeTokenBeforeUpdate() public {
+        // set chain Id to testnet
+        vm.chainId(host.chainId() + 5);
+        assert(host.chainId() + 5 == block.chainid);
+
+        feeToken.mint(address(host), 1 * 1e18);
+        HostParams memory params = host.hostParams();
+        params.feeToken = address(this);
+        // we can't set host params
+        vm.prank(host.hostParams().admin);
+        vm.expectRevert(EvmHost.CannotChangeFeeToken.selector);
+        host.setHostParamsAdmin(params);
+
+        feeToken.burn(address(host), 1 * 1e18);
+        // we can't set host params
+        vm.prank(host.hostParams().admin);
+        host.setHostParamsAdmin(params);
+        assert(host.hostParams().feeToken == address(this));
+    }
+
+    function testCannotDispatchWithFrozenHost() public {
+        host.setFrozenState(true);
+        vm.expectRevert(EvmHost.FrozenHost.selector);
+        host.dispatch(
+            DispatchPost({
+                body: abi.encodePacked(bytes32(0)),
+                payer: address(this),
+                fee: 0,
+                dest: StateMachine.arbitrum(),
+                timeout: 0,
+                to: abi.encode(bytes32(0))
+            })
+        );
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: new bytes(0),
+            to: abi.encodePacked(address(this)),
+            timeoutTimestamp: 0,
+            body: bytes.concat(hex"01", abi.encode(host.hostParams()))
+        });
+        vm.expectRevert(EvmHost.FrozenHost.selector);
+        host.dispatch(
+            DispatchPostResponse({
+                request: request,
+                response: abi.encode(bytes32(0)),
+                fee: 0,
+                timeout: 0,
+                payer: address(this)
+            })
+        );
+
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = abi.encode(address(this));
+        vm.expectRevert(EvmHost.FrozenHost.selector);
+        host.dispatch(
+            DispatchGet({dest: StateMachine.bsc(), height: 100, keys: keys, timeout: 60 * 60, fee: 0})
+        );
+
+       	vm.prank(host.hostParams().handler);
+        host.setFrozenState(false);
+
+        feeToken.mint(address(this), 32 * host.perByteFee());
+        bytes32 commitment = host.dispatch(
+            DispatchPost({
+                body: abi.encodePacked(bytes32(0)),
+                payer: address(this),
+                fee: 0,
+                dest: StateMachine.arbitrum(),
+                timeout: 0,
+                to: abi.encode(bytes32(0))
+            })
+        );
+
+        assert(host.requestCommitments(commitment).sender ==address(this));
+    }
+
     function testFundRequest() public {
         // dispatch request
         vm.prank(tx.origin);
@@ -106,7 +185,7 @@ contract EvmHostTest is BaseTest {
         vm.prank(tx.origin);
         host.fundRequest(keccak256(hex"dead"), 10 * 1e18);
 
-        // another person can fund your request
+        // someone else can fund your request
         feeToken.mint(address(this), 10 * 1e18);
         host.fundRequest(commitment, 10 * 1e18);
     }

@@ -91,4 +91,9 @@ contract HostManager is BaseIsmpModule {
             revert("Unknown action");
         }
     }
+
+    /*
+     * @dev Do not send tokens to this contract, they cannot be recovered.
+     */
+    receive() external payable {}
 }

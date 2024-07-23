@@ -18,19 +18,13 @@ import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../examples/PingModule.sol";
-import {HandlerV1} from "../contracts/modules/HandlerV1.sol";
-import {CallDispatcher} from "../contracts/modules/CallDispatcher.sol";
+import {HandlerV1} from "../src/modules/HandlerV1.sol";
+import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
-import {HostParams} from "../contracts/hosts/EvmHost.sol";
-import {HostManagerParams, HostManager} from "../contracts/modules/HostManager.sol";
-import {TokenRegistrar, RegistrarParams} from "../contracts/modules/Registrar.sol";
-import {
-    TokenGateway,
-    Asset,
-    TokenGatewayParams,
-    TokenGatewayParamsExt,
-    AssetMetadata
-} from "../contracts/modules/TokenGateway.sol";
+import {HostParams} from "../src/hosts/EvmHost.sol";
+import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
+import {TokenRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
+import {TokenGateway, Asset, TokenGatewayParams, TokenGatewayParamsExt, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
@@ -84,8 +78,8 @@ contract MainnetForkBaseTest is Test {
         stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
-       		stateCommitmentFee: 0,
-         	uniswapV2: address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D),
+            stateCommitmentFee: 0,
+            uniswapV2: address(_uniswapV2Router),
             fishermen: fishermen,
             admin: address(0),
             hostManager: address(manager),
@@ -107,9 +101,9 @@ contract MainnetForkBaseTest is Test {
         testModule.setIsmpHost(address(host));
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
+        AssetMetadata[] memory assets = new AssetMetadata[](2);
         assets[0] = AssetMetadata({
-            erc20: address(usdc),
+            erc20: address(dai),
             erc6160: address(0),
             name: "Hyperbridge USD",
             symbol: "USD.h",
@@ -117,26 +111,24 @@ contract MainnetForkBaseTest is Test {
             initialSupply: 0
         });
 
+        assets[1] = AssetMetadata({
+            erc20: _uniswapV2Router.WETH(),
+            erc6160: address(0),
+            name: "Wrapped ETH",
+            symbol: "WETH",
+            beneficiary: address(0),
+            initialSupply: 0
+        });
+
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({
-                    host: address(host),
-                    uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
-                    dispatcher: address(dispatcher)
-                }),
+                params: TokenGatewayParams({host: address(host), dispatcher: address(dispatcher)}),
                 assets: assets
             })
         );
 
         _registrar = new TokenRegistrar(address(this));
-        _registrar.init(
-            RegistrarParams({
-                host: address(host),
-                uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
-                erc20NativeToken: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,
-                baseFee: 100 * 1e18
-            })
-        );
+        _registrar.init(RegistrarParams({host: address(host), baseFee: 100 * 1e18}));
     }
 
     function module() public view returns (address) {

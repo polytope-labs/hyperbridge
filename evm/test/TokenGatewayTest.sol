@@ -20,21 +20,7 @@ import {BaseTest} from "./BaseTest.sol";
 import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
 import {Message} from "ismp/Message.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
-import {
-    TeleportParams,
-    Body,
-    BODY_BYTES_SIZE,
-    Asset,
-    BodyWithCall,
-    TokenGatewayParams,
-    ChangeAssetAdmin,
-    TokenGatewayParamsExt,
-    CallDispatcherParams,
-    TokenGateway,
-    DeregsiterAsset,
-    ContractInstance,
-    AssetMetadata
-} from "../contracts/modules/TokenGateway.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE, Asset, BodyWithCall, TokenGatewayParams, ChangeAssetAdmin, TokenGatewayParamsExt, CallDispatcherParams, TokenGateway, DeregsiterAsset, ContractInstance, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {NotRoleAdmin} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
@@ -54,7 +40,6 @@ contract TokenGatewayTest is BaseTest {
 
         gateway.teleport(
             TeleportParams({
-                feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
@@ -64,7 +49,7 @@ contract TokenGatewayTest is BaseTest {
                 to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
                 data: new bytes(0),
-                amountInMax: 0
+                nativeCost: 0
             })
         );
 
@@ -85,7 +70,6 @@ contract TokenGatewayTest is BaseTest {
 
         gateway.teleport(
             TeleportParams({
-                feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
@@ -95,7 +79,7 @@ contract TokenGatewayTest is BaseTest {
                 to: addressToBytes32(address(miniStaking)),
                 assetId: keccak256("USD.h"),
                 data: stakeCalldata,
-                amountInMax: 0
+                nativeCost: 0
             })
         );
 
@@ -109,7 +93,6 @@ contract TokenGatewayTest is BaseTest {
         vm.expectRevert(bytes("ERC20: burn amount exceeds balance"));
         gateway.teleport(
             TeleportParams({
-                feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
@@ -119,7 +102,7 @@ contract TokenGatewayTest is BaseTest {
                 to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
                 data: new bytes(0),
-                amountInMax: 0
+                nativeCost: 0
             })
         );
     }
@@ -602,7 +585,7 @@ contract TokenGatewayTest is BaseTest {
     function testCanModifyProtocolParams() public {
         TokenGatewayParams memory params = gateway.params();
 
-        params.uniswapV2 = msg.sender;
+        params.dispatcher = msg.sender;
 
         vm.prank(address(host));
 
@@ -621,15 +604,17 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-        assert(gateway.params().uniswapV2 == msg.sender);
+        assert(gateway.params().dispatcher == msg.sender);
     }
 
     function testCanChangeAssetOwner() public {
         // set gateway as the admin
         feeToken.changeAdmin(address(gateway));
 
-        ChangeAssetAdmin memory changeAsset =
-            ChangeAssetAdmin({assetId: keccak256(bytes(feeToken.symbol())), newAdmin: address(this)});
+        ChangeAssetAdmin memory changeAsset = ChangeAssetAdmin({
+            assetId: keccak256(bytes(feeToken.symbol())),
+            newAdmin: address(this)
+        });
 
         vm.prank(address(host));
         gateway.onAccept(

@@ -19,22 +19,24 @@ import "forge-std/console.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE} from "../contracts/modules/TokenGateway.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
+import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
-contract TeleportSwapTest is MainnetForkBaseTest {
+contract TeleportForkTest is MainnetForkBaseTest {
     // Maximum slippage of 0.5%
-    uint256 maxSlippagePercentage = 50; // 0.5 * 100
+    uint256 maxSlippagePercentage = 5; // 0.5 * 100
 
-    function CanTeleportAssetsUsingUsdcForFee() public {
-        // mainnet address holding usdc and dai
-        address mainnetUsdcHolder = address(0x4B16c5dE96EB2117bBE5fd171E4d203624B014aa);
+    function testCanTeleportAssetsUsingNativeToken() public {
+        // mainnet address holding eth and dai
+        address whaleAccount = address(0xa359Fc83C48277EedF375a5b6DC9Ec7D093aD3f2);
 
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
 
         address[] memory path = new address[](2);
-        path[0] = address(usdc);
+        path[0] = IUniswapV2Router02(IIsmpHost(gateway.params().host).uniswapV2Router()).WETH();
         path[1] = address(feeToken);
 
         uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(messagingFee, path)[0];
@@ -44,12 +46,11 @@ contract TeleportSwapTest is MainnetForkBaseTest {
         uint256 _amountInMax = _fromTokenAmountIn + _slippageAmount;
 
         // mainnet forking - impersonation
-        vm.startPrank(mainnetUsdcHolder);
-        usdc.approve(address(gateway), 10_000 * 1e6);
+        vm.startPrank(whaleAccount);
+        dai.approve(address(gateway), 1_000 * 1e6); // approve amount to spend
 
-        gateway.teleport(
+        gateway.teleport{value: _amountInMax}(
             TeleportParams({
-                feeToken: address(usdc),
                 maxFee: 1 * 1e6,
                 amount: 1_000 * 1e6, // $1000
                 redeem: false,
@@ -59,7 +60,43 @@ contract TeleportSwapTest is MainnetForkBaseTest {
                 to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
                 data: new bytes(0),
-                amountInMax: _amountInMax
+                nativeCost: _amountInMax
+            })
+        );
+
+        assert(feeToken.balanceOf(address(this)) == 0);
+        assert(feeToken.balanceOf(address(host)) == messagingFee);
+    }
+
+    function testCanTeleportNativeToken() public {
+        // mainnet address holding eth and dai
+        address whaleAccount = address(0xa359Fc83C48277EedF375a5b6DC9Ec7D093aD3f2);
+
+        // relayer fee + per-byte fee
+        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
+
+        address[] memory path = new address[](2);
+        path[0] = IUniswapV2Router02(IIsmpHost(gateway.params().host).uniswapV2Router()).WETH();
+        path[1] = address(feeToken);
+
+        uint256 messagingFeeNative = _uniswapV2Router.getAmountsIn(messagingFee, path)[0];
+        uint256 teleportAmount = 1 * 1e18;
+        uint256 total = messagingFeeNative + teleportAmount;
+
+        // mainnet forking - impersonation
+        vm.startPrank(whaleAccount);
+        gateway.teleport{value: total}(
+            TeleportParams({
+                maxFee: 0,
+                amount: teleportAmount, // $1000
+                redeem: false,
+                dest: StateMachine.bsc(),
+                relayerFee: 9 * 1e17, // $0.9
+                timeout: 0,
+                to: addressToBytes32(address(this)),
+                assetId: keccak256("WETH"),
+                data: new bytes(0),
+                nativeCost: messagingFeeNative
             })
         );
 

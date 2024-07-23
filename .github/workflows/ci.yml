@@ -307,9 +307,6 @@ jobs:
       - name: Parachain to Parachain ismp relayer messaging integration tests
         run: |
           cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
-  
-  
-  
 
   check-solidity:
     name: Check ismp-solidity
@@ -328,6 +325,7 @@ jobs:
       - name: Run Forge build
         run: |
           cd ./evm
+          yarn
           forge --version
           forge build --sizes
         id: build
@@ -335,6 +333,7 @@ jobs:
       - name: Run Forge tests
         run: |
           cd ./evm
+          yarn
           forge test -vvv
         id: test
 

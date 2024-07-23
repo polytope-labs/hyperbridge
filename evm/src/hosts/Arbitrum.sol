@@ -18,23 +18,23 @@ import "./EvmHost.sol";
 import "ismp/StateMachine.sol";
 
 /**
- * @title The PolygonHost
+ * @title The ArbitrumHost
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice The IsmpHost and IsmpDispatcher implementation for the Polygon state machine.
+ * @notice The IsmpHost and IsmpDispatcher implementation for the Arbitrum state machine.
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
  */
-contract PolygonHost is EvmHost {
-	constructor(HostParams memory params) EvmHost(params) {}
+contract ArbitrumHost is EvmHost {
+    constructor(HostParams memory params) EvmHost(params) {}
 
-	/// chainId for the polygon mainnet
-	uint256 public constant CHAIN_ID = 137;
+    /// chainId for the arbitrum mainnet
+    uint256 public constant CHAIN_ID = 42161;
 
-	function chainId() public pure override returns (uint256) {
-		return CHAIN_ID;
-	}
+    function chainId() public pure override returns (uint256) {
+        return CHAIN_ID;
+    }
 
-	function host() public pure override returns (bytes memory) {
-		return StateMachine.polygon();
-	}
+    function host() public pure override returns (bytes memory) {
+        return StateMachine.arbitrum();
+    }
 }

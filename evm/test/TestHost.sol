@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import "../contracts/hosts/EvmHost.sol";
+import "../src/hosts/EvmHost.sol";
 import "ismp/StateMachine.sol";
 
 contract TestHost is EvmHost {

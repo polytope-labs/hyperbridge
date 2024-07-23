@@ -12,15 +12,14 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.0;
 
-struct CallDispatcherParams {
-	// contract to call
-	address target;
-	// target contract calldata
-	bytes data;
-}
-
-interface ICallDispatcher {
-	function dispatch(CallDispatcherParams[] memory params) external returns (bool success);
+interface IVerifier {
+    /**
+     * @notice Verify a Ultra Plonk proof
+     * @param _proof - The serialized proof
+     * @param _publicInputs - An array of the public inputs
+     * @return True if proof is valid, reverts otherwise
+     */
+    function verify(bytes calldata _proof, bytes32[] calldata _publicInputs) external view returns (bool);
 }

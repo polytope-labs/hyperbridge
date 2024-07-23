@@ -2,6 +2,11 @@
 # yarn lockfile v1
 
 
+"@polytope-labs/solidity-merkle-trees@^0.2.2":
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/@polytope-labs/solidity-merkle-trees/-/solidity-merkle-trees-0.2.2.tgz#83c3f6ae1bf8d25beb381b34efc1c8de7c45a9fb"
+  integrity sha512-KVuFU5rjAvhIw4QpimbYDlHe8/w0H4eu1uRKQ18ScUs52WCao+niVK22zko25XHPhpmr1eKILoyfObr/DmLPXg==
+
 "@solidity-parser/parser@^0.17.0":
   version "0.17.0"
   resolved "https://registry.yarnpkg.com/@solidity-parser/parser/-/parser-0.17.0.tgz#52a2fcc97ff609f72011014e4c5b485ec52243ef"
@@ -24,6 +29,16 @@
   dependencies:
     "@uniswap/lib" "1.1.1"
     "@uniswap/v2-core" "1.0.0"
+
+add@^2.0.6:
+  version "2.0.6"
+  resolved "https://registry.yarnpkg.com/add/-/add-2.0.6.tgz#248f0a9f6e5a528ef2295dbeec30532130ae2235"
+  integrity sha512-j5QzrmsokwWWp6kUcJQySpbG+xfOBqqKnup3OIk1pz+kB/80SLorZ9V8zHFLO92Lcd+hbvq8bT+zOGoPkmBV0Q==
+
+openzeppelin-solidity@4.8.1:
+  version "4.8.1"
+  resolved "https://registry.yarnpkg.com/openzeppelin-solidity/-/openzeppelin-solidity-4.8.1.tgz#2ab492a5a53a5520401e94df36e43807de7a3b50"
+  integrity sha512-KM0pVpfrCBdifqN2ZeJZFvFuoGz3GmI4Ty/ceKNkcaf7VVWo/rLOfc5EiLh+Ukb5NadNmYo8WMeGhFA8hVWDpg==
 
 prettier-plugin-solidity@^1.3.1:
   version "1.3.1"
@@ -48,3 +63,8 @@ solidity-comments-extractor@^0.0.8:
   version "0.0.8"
   resolved "https://registry.yarnpkg.com/solidity-comments-extractor/-/solidity-comments-extractor-0.0.8.tgz#f6e148ab0c49f30c1abcbecb8b8df01ed8e879f8"
   integrity sha512-htM7Vn6LhHreR+EglVMd2s+sZhcXAirB1Zlyrv5zBuTxieCvjfnRpd7iZk75m/u6NOlEyQ94C6TWbBn2cY7w8g==
+
+yarn@^1.22.22:
+  version "1.22.22"
+  resolved "https://registry.yarnpkg.com/yarn/-/yarn-1.22.22.tgz#ac34549e6aa8e7ead463a7407e1c7390f61a6610"
+  integrity sha512-prL3kGtyG7o9Z9Sv8IPfBNrWTDmXB4Qbes8A9rEzt6wkJV8mUvoirjU0Mp3GGAU06Y0XQyA3/2/RQFVuK7MTfg==

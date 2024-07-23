@@ -20,55 +20,26 @@ import "forge-std/console.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
 import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE} from "../contracts/modules/TokenGateway.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
-import {AssetRegistration, RequestBody, RegistrarParams, TokenRegistrar} from "../contracts/modules/Registrar.sol";
+import {RequestBody, RegistrarParams, TokenRegistrar} from "../src/modules/Registrar.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import {IIsmpHost} from "ismp/IIsmpHost.sol";
 
 contract TokenRegistrarTest is MainnetForkBaseTest {
     // Maximum slippage of 0.5%
     uint256 maxSlippagePercentage = 50; // 0.5 * 100
 
-    function testCanRegisterAssetsUsingUsdcForFee() public {
-        // mainnet address holding usdc and dai
-        address mainnetUsdcHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
-
-        // base fee + per-byte fee
-        uint256 messagingFee = 96 * host.perByteFee();
-        uint256 registrationFee = _registrar.params().baseFee + messagingFee;
-
-        address[] memory path = new address[](2);
-        path[0] = address(usdc);
-        path[1] = address(feeToken);
-
-        uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(registrationFee, path)[0];
-
-        // Handling Slippage Implementation
-        uint256 _slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10000; // Adjusted for percentage times 100
-        uint256 _amountInMax = _fromTokenAmountIn + _slippageAmount;
-
-        // mainnet forking - impersonation
-        vm.startPrank(mainnetUsdcHolder);
-        usdc.approve(address(_registrar), registrationFee);
-
-        _registrar.registerAsset(
-            AssetRegistration({feeToken: address(usdc), assetId: keccak256("USD.h"), amountToSwap: _amountInMax})
-        );
-
-        assert(feeToken.balanceOf(address(this)) == 0);
-        assert(feeToken.balanceOf(address(host)) == _registrar.params().baseFee + messagingFee);
-        assert(feeToken.balanceOf(address(_registrar)) == 0);
-    }
-
-    function testCanRegisterAssetsUsingNativeTokenForFee() public {
+    function testCanRegisterAssetsUsingNativeToken() public {
         // mainnet address holding eth
         address mainnetEthHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
 
         // relayer fee + per-byte fee
-        uint256 messagingFee = 96 * host.perByteFee();
+        uint256 messagingFee = 64 * host.perByteFee();
         uint256 registrationFee = _registrar.params().baseFee + messagingFee;
 
         address[] memory path = new address[](2);
-        path[0] = _registrar.params().erc20NativeToken;
+        path[0] = IUniswapV2Router02(IIsmpHost(_registrar.params().host).uniswapV2Router()).WETH();
         path[1] = address(feeToken);
 
         uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(registrationFee, path)[0];
@@ -78,14 +49,24 @@ contract TokenRegistrarTest is MainnetForkBaseTest {
         uint256 _amountInMax = _fromTokenAmountIn + _slippageAmount;
 
         vm.startPrank(mainnetEthHolder);
+        _registrar.registerAsset{value: _amountInMax}(keccak256("USD.h"));
+
+        assert(feeToken.balanceOf(address(host)) == registrationFee);
+    }
+
+    function testCanRegisterAssetsUsingFeeToken() public {
+        // mainnet address holding eth
+        address mainnetEthHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
+
+        // relayer fee + per-byte fee
+        uint256 messagingFee = 64 * host.perByteFee();
+        uint256 registrationFee = _registrar.params().baseFee + messagingFee;
+
+        vm.startPrank(mainnetEthHolder);
         dai.approve(address(_registrar), registrationFee);
+        _registrar.registerAsset(keccak256("USD.h"));
 
-        _registrar.registerAsset{value: _amountInMax}(
-            AssetRegistration({feeToken: address(0), assetId: keccak256("USD.h"), amountToSwap: _amountInMax})
-        );
-
-        assert(feeToken.balanceOf(address(this)) == 0);
-        assert(feeToken.balanceOf(address(host)) == _registrar.params().baseFee + messagingFee);
+        assert(feeToken.balanceOf(address(host)) == registrationFee);
     }
 
     function testGovernanceParameterUpdate() public {

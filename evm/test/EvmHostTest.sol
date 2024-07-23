@@ -15,9 +15,9 @@
 pragma solidity 0.8.17;
 
 import {BaseTest} from "./BaseTest.sol";
-import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import "forge-std/Test.sol";
-import "../contracts/hosts/EvmHost.sol";
+import "../src/hosts/EvmHost.sol";
 import {DispatchPost} from "ismp/IDispatcher.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
@@ -29,8 +29,11 @@ contract EvmHostTest is BaseTest {
         // set chain Id to testnet
         vm.chainId(host.chainId() + 5);
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
-        StateCommitment memory commitment =
-            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)});
+        StateCommitment memory commitment = StateCommitment({
+            timestamp: 200,
+            overlayRoot: bytes32(0),
+            stateRoot: bytes32(0)
+        });
 
         // we can set consensus state
         vm.prank(host.hostParams().admin);
@@ -56,7 +59,7 @@ contract EvmHostTest is BaseTest {
 
         // but not anymore
         vm.startPrank(host.hostParams().admin);
-        vm.expectRevert("Unauthorized action");
+        vm.expectRevert(EvmHost.UnauthorizedAction.selector);
         host.setConsensusState(hex"feeb", height, commitment);
         assert(host.consensusState().equals(hex"beef"));
     }
@@ -121,11 +124,11 @@ contract EvmHostTest is BaseTest {
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
-        	vm.prank(params.handler);
+        vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 200);
-
 
         // can't veto if not in fishermen set
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
@@ -136,7 +139,6 @@ contract EvmHostTest is BaseTest {
         host.vetoStateCommitment(height);
         vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 0);
-
     }
 
     function testCanAddwhitelistedStateMachines() public {
@@ -150,7 +152,8 @@ contract EvmHostTest is BaseTest {
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
         vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 200);
@@ -180,7 +183,8 @@ contract EvmHostTest is BaseTest {
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
         vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 200);
@@ -188,23 +192,22 @@ contract EvmHostTest is BaseTest {
         // veto with fisherman
         vm.prank(tx.origin);
         host.vetoStateCommitment(height);
-        	vm.prank(params.handler);
+        vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 0);
-
 
         // create a state commitment
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
         vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 200);
 
         // veto with fisherman
         host.vetoStateCommitment(height);
-        	vm.prank(params.handler);
+        vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 0);
-
 
         // remove fishermen
         address[] memory newFishermen = new address[](0);
@@ -215,18 +218,17 @@ contract EvmHostTest is BaseTest {
         // create a state commitment
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height,
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
-        	vm.prank(params.handler);
+        vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 200);
-
 
         // cannot veto
         vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
         host.vetoStateCommitment(height);
-        	vm.prank(params.handler);
+        vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 200);
-
 
         // cannot veto
         vm.prank(tx.origin);
@@ -234,17 +236,16 @@ contract EvmHostTest is BaseTest {
         host.vetoStateCommitment(height);
         vm.prank(params.handler);
         assert(host.stateCommitment(height).timestamp == 200);
-
     }
 
     function testHostStateMachineId() public {
-        assert(StateMachine.kusama(3000).equals(bytes(host.stateMachineId(3000))));
+        assert(StateMachine.kusama(3000).equals(bytes(host.stateMachineId(host.hyperbridge(), 3000))));
 
         HostParams memory params = host.hostParams();
         params.hyperbridge = StateMachine.polkadot(3367);
         vm.prank(params.admin);
         host.setHostParamsAdmin(params);
 
-        assert(StateMachine.polkadot(3000).equals(bytes(host.stateMachineId(3000))));
+        assert(StateMachine.polkadot(3000).equals(bytes(host.stateMachineId(host.hyperbridge(), 3000))));
     }
 }

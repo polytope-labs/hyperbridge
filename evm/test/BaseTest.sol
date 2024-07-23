@@ -18,19 +18,13 @@ import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../examples/PingModule.sol";
-import {HandlerV1} from "../contracts/modules/HandlerV1.sol";
-import {CallDispatcher} from "../contracts/modules/CallDispatcher.sol";
+import {HandlerV1} from "../src/modules/HandlerV1.sol";
+import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
-import {HostParams} from "../contracts/hosts/EvmHost.sol";
-import {HostManagerParams, HostManager} from "../contracts/modules/HostManager.sol";
-import {
-    TokenGateway,
-    Asset,
-    TokenGatewayParamsExt,
-    TokenGatewayParams,
-    AssetMetadata
-} from "../contracts/modules/TokenGateway.sol";
+import {HostParams} from "../src/hosts/EvmHost.sol";
+import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
+import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {ERC20Token} from "./mocks/ERC20Token.sol";
@@ -76,8 +70,8 @@ contract BaseTest is Test {
         stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
-        	stateCommitmentFee: 0,
-         	uniswapV2: address(0),
+            stateCommitmentFee: 0,
+            uniswapV2: address(0),
             fishermen: fishermen,
             admin: address(0),
             hostManager: address(manager),
@@ -113,7 +107,7 @@ contract BaseTest is Test {
 
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: address(host), uniswapV2: address(1), dispatcher: address(dispatcher)}),
+                params: TokenGatewayParams({host: address(host), dispatcher: address(dispatcher)}),
                 assets: assets
             })
         );

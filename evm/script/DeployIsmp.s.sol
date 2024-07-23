@@ -2,18 +2,17 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
-import "openzeppelin/utils/Strings.sol";
 import "stringutils/strings.sol";
 
-import "../contracts/modules/HandlerV1.sol";
-import "../contracts/hosts/EvmHost.sol";
-import "../contracts/modules/HostManager.sol";
+import "../src/modules/HandlerV1.sol";
+import "../src/hosts/EvmHost.sol";
+import "../src/modules/HostManager.sol";
 
-import "../contracts/consensus/BeefyV1.sol";
-import "../contracts/hosts/Ethereum.sol";
-import "../contracts/hosts/Arbitrum.sol";
-import "../contracts/hosts/Optimism.sol";
-import "../contracts/hosts/Base.sol";
+import "../src/consensus/BeefyV1.sol";
+import "../src/hosts/Ethereum.sol";
+import "../src/hosts/Arbitrum.sol";
+import "../src/hosts/Optimism.sol";
+import "../src/hosts/Base.sol";
 
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {
@@ -22,23 +21,24 @@ import {
     TokenGatewayParamsExt,
     TokenGatewayParams,
     AssetMetadata
-} from "../contracts/modules/TokenGateway.sol";
-import {TokenFaucet} from "../contracts/modules/TokenFaucet.sol";
+} from "../src/modules/TokenGateway.sol";
+import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 
 import {PingModule} from "../examples/PingModule.sol";
-import {BscHost} from "../contracts/hosts/Bsc.sol";
-import {PolygonHost} from "../contracts/hosts/Polygon.sol";
-import {PolkadotVerifier} from "../contracts/consensus/verifiers/PolkadotVerifier.sol";
-import {UltraPlonkBeefy} from "../contracts/consensus/UltraPlonkBeefy.sol";
-import {BeefyV1} from "../contracts/consensus/BeefyV1.sol";
+import {BscHost} from "../src/hosts/Bsc.sol";
+import {PolygonHost} from "../src/hosts/Polygon.sol";
+import {PolkadotVerifier} from "../src/consensus/verifiers/PolkadotVerifier.sol";
+import {UltraPlonkBeefy} from "../src/consensus/UltraPlonkBeefy.sol";
+import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
-import {CallDispatcher} from "../contracts/modules/CallDispatcher.sol";
+import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
+import {BaseScript} from "./BaseScript.sol";
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
 bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
 
-contract DeployScript is Script {
+contract DeployScript is BaseScript {
     using strings for *;
 
     address private admin = vm.envAddress("ADMIN");
@@ -46,7 +46,6 @@ contract DeployScript is Script {
     uint256 private paraId = vm.envUint("PARA_ID");
     string private host = vm.envString("HOST");
     bytes32 private privateKey = vm.envBytes32("PRIVATE_KEY");
-    bytes32 private salt = keccak256(bytes(vm.envString("VERSION")));
 
     function run() external {
         vm.startBroadcast(uint256(privateKey));
@@ -107,7 +106,7 @@ contract DeployScript is Script {
     }
 
     function initHost(HostParams memory params) public returns (address) {
-        if (Strings.equal(host, "sepolia") || host.toSlice().startsWith("eth".toSlice())) {
+        if (equal(host, "sepolia") || host.toSlice().startsWith("eth".toSlice())) {
             EthereumHost h = new EthereumHost{salt: salt}(params);
             return address(h);
         } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
@@ -153,7 +152,7 @@ contract DeployScript is Script {
         // initialize gateway
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: hostAddress, uniswapV2: address(1), dispatcher: dispatcher}),
+                params: TokenGatewayParams({host: hostAddress, dispatcher: dispatcher}),
                 assets: assets
             })
         );

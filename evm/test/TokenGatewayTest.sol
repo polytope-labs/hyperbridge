@@ -18,13 +18,12 @@ import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
-import {Message} from "ismp/Message.sol";
-import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE, Asset, BodyWithCall, TokenGatewayParams, ChangeAssetAdmin, TokenGatewayParamsExt, CallDispatcherParams, TokenGateway, DeregsiterAsset, ContractInstance, AssetMetadata} from "../src/modules/TokenGateway.sol";
+import "ismp/Message.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {NotRoleAdmin} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
+import "../src/modules/TokenGateway.sol";
 
 contract TokenGatewayTest is BaseTest {
     using Message for PostRequest;

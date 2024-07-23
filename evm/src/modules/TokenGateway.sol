@@ -476,7 +476,7 @@ contract TokenGateway is BaseIsmpModule {
         bytes32 commitment = bytes32(0);
         if (msgValue >= teleportParams.nativeCost && teleportParams.nativeCost > 0) {
             // there's some native tokens left to pay for request dispatch
-            commitment = IIsmpHost(_params.host).dispatchWithNative{value: teleportParams.nativeCost}(request);
+            commitment = IIsmpHost(_params.host).dispatch{value: teleportParams.nativeCost}(request);
         } else {
             // try to pay for dispatch with fee token
             uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.relayerFee;

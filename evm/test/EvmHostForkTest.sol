@@ -42,7 +42,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
         // dispatch request
         vm.prank(whaleAccount);
-        bytes32 commitment = host.dispatchWithNative{value: quote(messagingFee)}(
+        bytes32 commitment = host.dispatch{value: quote(messagingFee)}(
             DispatchPost({
                 body: abi.encodePacked(bytes32(0)),
                 payer: whaleAccount,
@@ -78,10 +78,11 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         bytes memory response = abi.encode(bytes32(0));
 
         vm.prank(whaleAccount); // send some eth to the manager
-        (bool _ok, ) = address(manager).call{value: cost}("");
+        (bool ok, ) = address(manager).call{value: cost}("");
+        if (!ok) revert("Transfer failed");
 
         vm.prank(address(manager));
-        bytes32 commitment = host.dispatchWithNative{value: cost}(
+        bytes32 commitment = host.dispatch{value: cost}(
             DispatchPostResponse({request: request, response: response, fee: 0, timeout: 0, payer: address(manager)})
         );
         assert(host.responseCommitments(commitment).sender == address(manager));
@@ -97,7 +98,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         // dispatch request
         uint256 cost = quote(messagingFee);
         vm.prank(whaleAccount);
-        bytes32 commitment = host.dispatchWithNative{value: cost}(
+        bytes32 commitment = host.dispatch{value: cost}(
             DispatchGet({dest: StateMachine.bsc(), height: 100, keys: keys, timeout: 60 * 60, fee: messagingFee})
         );
         assert(host.requestCommitments(commitment).sender == whaleAccount);
@@ -109,7 +110,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
         // dispatch request
         vm.prank(whaleAccount);
-        bytes32 commitment = host.dispatchWithNative{value: quote(messagingFee)}(
+        bytes32 commitment = host.dispatch{value: quote(messagingFee)}(
             DispatchPost({
                 body: abi.encode(bytes32(0)),
                 payer: whaleAccount,
@@ -125,14 +126,14 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         // fund request
         vm.prank(whaleAccount);
         uint256 newfee = 10 * 1e18;
-        host.fundRequestWithNative{value: quote(newfee)}(commitment, newfee);
+        host.fundRequest{value: quote(newfee)}(commitment, newfee);
         assert(host.requestCommitments(commitment).fee == newfee);
 
         // can't fund unknown requests
         uint256 cost = quote(newfee);
         vm.expectRevert(EvmHost.UnknownRequest.selector);
         vm.prank(whaleAccount);
-        host.fundRequestWithNative{value: cost}(keccak256(hex"dead"), 10 * 1e18);
+        host.fundRequest{value: cost}(keccak256(hex"dead"), 10 * 1e18);
     }
 
     function testCanDispatchFundResponseWithNative() public {
@@ -158,10 +159,11 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         bytes memory response = abi.encode(bytes32(0));
 
         vm.prank(whaleAccount); // send some eth to the manager
-        (bool _ok, ) = address(manager).call{value: cost}("");
+        (bool ok, ) = address(manager).call{value: cost}("");
+        if (!ok) revert("Transfer failed");
 
         vm.prank(address(manager));
-        bytes32 commitment = host.dispatchWithNative{value: cost}(
+        bytes32 commitment = host.dispatch{value: cost}(
             DispatchPostResponse({request: request, response: response, fee: 0, timeout: 0, payer: address(manager)})
         );
         assert(host.responseCommitments(commitment).sender == address(manager));
@@ -170,19 +172,18 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         // fund request
         vm.prank(whaleAccount);
         uint256 newfee = 10 * 1e18;
-        host.fundResponseWithNative{value: quote(newfee)}(commitment, newfee);
+        host.fundResponse{value: quote(newfee)}(commitment, newfee);
         assert(host.responseCommitments(commitment).fee == newfee);
 
         // can't fund unknown requests
         uint256 newCost = quote(newfee);
         vm.expectRevert(EvmHost.UnknownResponse.selector);
         vm.prank(whaleAccount);
-        host.fundResponseWithNative{value: newCost}(keccak256(hex"dead"), 10 * 1e18);
+        host.fundResponse{value: newCost}(keccak256(hex"dead"), 10 * 1e18);
     }
 
     function testCanWithdrawNativeToken() public {
         // per-byte fee
-        uint256 messagingFee = 32 * host.perByteFee();
         uint256 amount = 1 * 1e18;
 
         PostRequest memory request = PostRequest({
@@ -201,12 +202,22 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         assert(address(manager).balance == 0);
 
         vm.prank(whaleAccount); // send some eth to the manager
-        (bool _ok, ) = address(host).call{value: amount}("");
+        (bool ok, ) = address(host).call{value: amount}("");
+        if (!ok) revert("Transfer failed");
 
         vm.prank(address(handler));
         host.dispatchIncoming(request, address(this));
         assert(host.requestReceipts(request.hash()) == address(this));
         assert(address(manager).balance == amount);
+    }
+
+    function tryPay() external payable {
+    	console.log(msg.value);
+    }
+
+    function testZeroPayable() public {
+    	this.tryPay();
+    	this.tryPay{value: 1 * 1e18}();
     }
 
     function quote(uint256 feeTokenCost) internal view returns (uint256) {

@@ -14,6 +14,7 @@ use ismp::{
 use ismp_solidity_abi::evm_host::EvmHost;
 use ismp_testsuite::mocks::{Host, Keccak256Hasher};
 use primitive_types::H160;
+use sp_core::H256;
 use std::str::FromStr;
 use tesseract_primitives::{IsmpProvider, Query};
 
@@ -39,7 +40,7 @@ const ISMP_HOST: H160 = H160(hex!("7b27ab4C64cdc30d219cEa9aC3Dd442Fd4D00E50"));
 #[ignore]
 async fn test_ismp_state_proof() {
 	dotenv::dotenv().ok();
-	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
+	let geth_url = std::env::var("SEPOLIA_URL").expect("SEPOLIA_URL must be set.");
 	let config = EvmConfig {
 		rpc_urls: vec![geth_url.clone()],
 		state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
@@ -121,4 +122,39 @@ async fn test_ismp_state_proof() {
 		ISMP_HOST,
 	)
 	.unwrap();
+}
+
+const NEW_HOST: H160 = H160(hex!("Bc0fA79725aCD430D507855e77f30C9d9ED4dC24"));
+#[tokio::test]
+async fn fetch_state_commitment() -> anyhow::Result<()> {
+	dotenv::dotenv().ok();
+	let geth_url = std::env::var("SEPOLIA_URL").expect("SEPOLIA_URL must be set.");
+	let config = EvmConfig {
+		rpc_urls: vec![geth_url.clone()],
+		state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+		consensus_state_id: "ETH0".to_string(),
+		ismp_host: NEW_HOST,
+		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+		..Default::default()
+	};
+
+	let client = EvmClient::new(config).await.expect("Host creation failed");
+
+	let state_machine_height = StateMachineHeight {
+		id: StateMachineId { state_id: StateMachine::Kusama(4009), consensus_state_id: *b"PARA" },
+		height: 899092,
+	};
+
+	let state_commitment = client.query_state_machine_commitment(state_machine_height).await?;
+	dbg!(&state_commitment);
+	assert_eq!(
+		state_commitment.overlay_root,
+		Some(hex!("2268395e6c16e773cd60bc3a7593ec885098599d5d648aca21fa556de2838342").into())
+	);
+	assert_eq!(
+		state_commitment.state_root,
+		hex!("f8972a624b169db9b0fa86030921f7ba5ddd5f4af967ee5906a761ea5ded24e0").into()
+	);
+	assert_eq!(state_commitment.timestamp, 3443504784000);
+	Ok(())
 }

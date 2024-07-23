@@ -1,5 +1,6 @@
 use crate::{
 	abi::{beefy::BeefyConsensusState, EvmHost},
+	state_comitment_key,
 	tx::submit_messages,
 	EvmClient,
 };
@@ -89,7 +90,6 @@ impl IsmpProvider for EvmClient {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
 		let id = match height.id.state_id {
 			StateMachine::Polkadot(para_id) => para_id,
 			StateMachine::Kusama(para_id) => para_id,
@@ -98,16 +98,18 @@ impl IsmpProvider for EvmClient {
 				height.id.state_id
 			))?,
 		};
-		let state_machine_height = ismp_solidity_abi::shared_types::StateMachineHeight {
-			state_machine_id: id.into(),
-			height: height.height.into(),
+		let (timestamp_key, overlay_key, state_root_key) =
+			state_comitment_key(id.into(), height.height.into());
+		let timestamp = {
+			let timestamp =
+				self.client.get_storage_at(self.config.ismp_host, timestamp_key, None).await?;
+			U256::from_big_endian(timestamp.as_bytes()).low_u64()
 		};
-		let commitment = contract.state_machine_commitment(state_machine_height).call().await?;
-		Ok(StateCommitment {
-			timestamp: commitment.timestamp.low_u64(),
-			overlay_root: Some(commitment.overlay_root.into()),
-			state_root: commitment.state_root.into(),
-		})
+		let overlay_root =
+			self.client.get_storage_at(self.config.ismp_host, overlay_key, None).await?;
+		let state_root =
+			self.client.get_storage_at(self.config.ismp_host, state_root_key, None).await?;
+		Ok(StateCommitment { timestamp, overlay_root: Some(overlay_root), state_root })
 	}
 
 	async fn query_state_machine_update_time(

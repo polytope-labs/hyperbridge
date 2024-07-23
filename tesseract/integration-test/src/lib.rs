@@ -17,7 +17,6 @@ use sc_service::TaskManager;
 use std::{
 	collections::{BTreeMap, HashMap},
 	sync::Arc,
-	time::Duration,
 };
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt::{
@@ -125,7 +124,6 @@ async fn relay_get_response_message(
 	};
 	// =================== send to the source chain ================================
 	let _res = chain_a_client.submit(vec![response]).await?;
-	//==================== after approx 7-9 blocks the response event is emitted ===
 	// =================== fetch the returned value ================================
 
 	let mut response_event: Option<GetResponse> = None;
@@ -271,7 +269,6 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		&task_manager,
 	)
 	.await?;
-	tokio::time::sleep(Duration::from_secs(6)).await;
 	// =========================== Accounts & keys =====================================
 	let bob_signer = PairSigner::<Hyperbridge, _>::new(
 		Pair::from_string("//Bob", None).expect("Unable to create Bob account"),
@@ -409,14 +406,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 
 	let _tx_result = client_a.tx().sign_and_submit_default(&get_request, &dave_signer).await?;
 
-	// let tx_block_hash = tx_result.block_hash();
-	// let tx_block_height = client_a.blocks().at(tx_block_hash).await?.number() as u64;
-	// let events = client_a.events().at(tx_block_hash).await?;
-	// let event = events.find_last::<RequestEvent>()?.unwrap();
-	// log::info!("Ismp Events: {:?} \n", event);
-
-	// ======================= handle the get request and resubmit to chain A (origin chain)
-	// =====================================
+	// ====== handle the get request and resubmit to chain A (origin chain) ============
 
 	let value_returned_encoded =
 		relay_get_response_message(chain_a_sub_client, chain_b_sub_client).await?;

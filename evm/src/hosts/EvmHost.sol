@@ -377,13 +377,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Cannot exceed max fishermen count
     error MaxFishermanCountExceeded(uint256 provided);
 
-    // Host manager address was zero or not a contract
+    // Host manager address was zero, not a contract or didn't meet it's required ERC165 interface.
     error InvalidHostManager();
 
-    // Host manager address was zero or not a contract
+    // Handler address was zero, not a contract or didn't meet it's required ERC165 interface.
     error InvalidHandler();
 
-    // Host manager address was zero or not a contract
+    // Consensus client address was zero, not a contract or didn't meet it's required ERC165 interface.
     error InvalidConsensusClient();
 
     // Provided an empty Hyperbridge stateMachineId during host params update

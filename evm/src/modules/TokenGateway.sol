@@ -625,7 +625,6 @@ contract TokenGateway is BaseIsmpModule {
         emit BidRefunded({commitment: commitment, assetId: body.assetId, bidder: msg.sender});
     }
 
-    
     /**
      * @dev Entry point for all cross-chain messages.
      */

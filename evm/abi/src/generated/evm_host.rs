@@ -608,9 +608,9 @@ pub mod evm_host {
                             outputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::Param {
                                     name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(8usize),
                                     internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("bool"),
+                                        ::std::borrow::ToOwned::to_owned("enum FrozenStatus"),
                                     ),
                                 },
                             ],
@@ -1066,9 +1066,9 @@ pub mod evm_host {
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::Param {
                                     name: ::std::borrow::ToOwned::to_owned("newState"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(8usize),
                                     internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("bool"),
+                                        ::std::borrow::ToOwned::to_owned("enum FrozenStatus"),
                                     ),
                                 },
                             ],
@@ -1644,8 +1644,8 @@ pub mod evm_host {
                             name: ::std::borrow::ToOwned::to_owned("HostFrozen"),
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::EventParam {
-                                    name: ::std::borrow::ToOwned::to_owned("frozen"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                                    name: ::std::borrow::ToOwned::to_owned("status"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(8usize),
                                     indexed: false,
                                 },
                             ],
@@ -2488,7 +2488,7 @@ pub mod evm_host {
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `frozen` (0x054f7d9c) function
-		pub fn frozen(&self) -> ::ethers::contract::builders::ContractCall<M, bool> {
+		pub fn frozen(&self) -> ::ethers::contract::builders::ContractCall<M, u8> {
 			self.0
 				.method_hash([5, 79, 125, 156], ())
 				.expect("method not found (this should never happen)")
@@ -2616,13 +2616,13 @@ pub mod evm_host {
 				.method_hash([141, 72, 243, 199], (state, height, commitment))
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `setFrozenState` (0x19e8faf1) function
+		///Calls the contract's `setFrozenState` (0x6ac88bad) function
 		pub fn set_frozen_state(
 			&self,
-			new_state: bool,
+			new_state: u8,
 		) -> ::ethers::contract::builders::ContractCall<M, ()> {
 			self.0
-				.method_hash([25, 232, 250, 241], new_state)
+				.method_hash([106, 200, 139, 173], new_state)
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `setHostParamsAdmin` (0x928af6d3) function
@@ -3502,9 +3502,9 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
-	#[ethevent(name = "HostFrozen", abi = "HostFrozen(bool)")]
+	#[ethevent(name = "HostFrozen", abi = "HostFrozen(uint8)")]
 	pub struct HostFrozenFilter {
-		pub frozen: bool,
+		pub status: u8,
 	}
 	#[derive(Clone, ::ethers::contract::EthEvent, ::ethers::contract::EthDisplay)]
 	#[ethevent(
@@ -4464,7 +4464,7 @@ pub mod evm_host {
 		pub commitment: StateCommitment,
 	}
 	///Container type for all input parameters for the `setFrozenState` function with signature
-	/// `setFrozenState(bool)` and selector `0x19e8faf1`
+	/// `setFrozenState(uint8)` and selector `0x6ac88bad`
 	#[derive(
 		Clone,
 		::ethers::contract::EthCall,
@@ -4475,9 +4475,9 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
-	#[ethcall(name = "setFrozenState", abi = "setFrozenState(bool)")]
+	#[ethcall(name = "setFrozenState", abi = "setFrozenState(uint8)")]
 	pub struct SetFrozenStateCall {
-		pub new_state: bool,
+		pub new_state: u8,
 	}
 	///Container type for all input parameters for the `setHostParamsAdmin` function with signature
 	/// `setHostParamsAdmin((uint256,uint256,uint256,address,address,address,address,address,
@@ -5467,7 +5467,7 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
-	pub struct FrozenReturn(pub bool);
+	pub struct FrozenReturn(pub u8);
 	///Container type for all return fields from the `host` function with signature `host()` and
 	/// selector `0xf437bc59`
 	#[derive(

@@ -96,7 +96,6 @@ contract HostManagerTest is BaseTest {
         host.updateHostParams(params);
         params.consensusClient = consensusClient;
 
-        bytes memory hyperbridge = params.hyperbridge;
         params.hyperbridge = new bytes(0);
         vm.expectRevert(EvmHost.InvalidHyperbridgeId.selector);
         host.updateHostParams(params);

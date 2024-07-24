@@ -731,6 +731,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function withdraw(WithdrawParams memory params) external restrict(_hostParams.hostManager) {
         if (params.native) {
+            // this is safe because re-entrancy is mitigated before dispatching requests
             (bool sent, ) = params.beneficiary.call{value: params.amount}("");
             if (!sent) revert WithdrawalFailed();
         } else {

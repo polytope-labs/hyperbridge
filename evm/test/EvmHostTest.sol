@@ -104,7 +104,7 @@ contract EvmHostTest is BaseTest {
     }
 
     function testCannotDispatchWithFrozenHost() public {
-        host.setFrozenState(true);
+        host.setFrozenState(FrozenStatus.Outgoing);
         vm.expectRevert(EvmHost.FrozenHost.selector);
         host.dispatch(
             DispatchPost({
@@ -143,7 +143,7 @@ contract EvmHostTest is BaseTest {
         host.dispatch(DispatchGet({dest: StateMachine.bsc(), height: 100, keys: keys, timeout: 60 * 60, fee: 0}));
 
         vm.prank(host.hostParams().handler);
-        host.setFrozenState(false);
+        host.setFrozenState(FrozenStatus.None);
 
         feeToken.mint(address(this), 32 * host.perByteFee());
         bytes32 commitment = host.dispatch(

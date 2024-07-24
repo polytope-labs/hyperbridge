@@ -22,7 +22,7 @@ import {IERC165} from "openzeppelin/utils/introspection/IERC165.sol";
 
 import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import {DispatchPost, DispatchPostResponse, DispatchGet} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
-import {IIsmpHost, FeeMetadata, ResponseReceipt} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {IIsmpHost, FeeMetadata, ResponseReceipt, FrozenStatus} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {StateCommitment, StateMachineHeight} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "@polytope-labs/ismp-solidity/Message.sol";
@@ -161,8 +161,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Monotonically increasing nonce for outgoing requests
     uint256 private _nonce;
 
-    // Emergency shutdown button, only the admin or handler can push this.
-    bool private _frozen;
+    // Frozen status of the host, only the admin or handler can change this.
+    FrozenStatus private _frozen;
 
     // Current verified state of the consensus client;
     bytes private _consensusState;
@@ -319,12 +319,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 newFee
     );
 
-    // Emitted when the host has either been frozen or unfrozen.
-    // A frozen host does not permit any new messages or
-    // state commitments.
+    // Emitted when the frozen status of the host changes
     event HostFrozen(
         // Frozen status
-        bool frozen
+        FrozenStatus status
     );
 
     // Emitted when the host params is updated
@@ -418,8 +416,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         _;
     }
 
+    /*
+     * @dev Check if outgoing messages are permitted
+     */
     modifier notFrozen() {
-        if (_frozen) revert FrozenHost();
+        if (_frozen == FrozenStatus.Outgoing || _frozen == FrozenStatus.All) revert FrozenHost();
         _;
     }
 
@@ -482,7 +483,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the `frozen` status
      */
-    function frozen() external view returns (bool) {
+    function frozen() external view returns (FrozenStatus) {
         return _frozen;
     }
 
@@ -849,12 +850,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev set the new state of the bridge
      * @param newState new state
      */
-    function setFrozenState(bool newState) external {
-        if (_msgSender() != _hostParams.admin && _msgSender() != _hostParams.handler) revert UnauthorizedAction();
+    function setFrozenState(FrozenStatus newState) external {
+        address caller = _msgSender();
+        if (caller != _hostParams.admin && caller != _hostParams.handler) revert UnauthorizedAction();
 
         _frozen = newState;
 
-        emit HostFrozen({frozen: newState});
+        emit HostFrozen({status: newState});
     }
 
     /**

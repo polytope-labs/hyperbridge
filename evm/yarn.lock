@@ -2,10 +2,10 @@
 # yarn lockfile v1
 
 
-"@polytope-labs/ismp-solidity@^0.2.7":
-  version "0.2.7"
-  resolved "https://registry.yarnpkg.com/@polytope-labs/ismp-solidity/-/ismp-solidity-0.2.7.tgz#377a9f8743060746c98f477e85f75f1009e41f3f"
-  integrity sha512-AqOGnWUFp9r30LFadcY3dQXmWoJs18/vxoqp10M+zlAhb3eSkcoSRbVBiyWNPfILE++tayPH6b2U3+JTLCi5vA==
+"@polytope-labs/ismp-solidity@^0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@polytope-labs/ismp-solidity/-/ismp-solidity-0.3.0.tgz#6064554d958e88494586d3f68d4d53a037cc6506"
+  integrity sha512-mXlfG9zXovVXvziWUMan81uwuvSGaot++YzsV4t3lKdAZqq/rZK2pqoPNW9frtSXHcBfUoXH8GaIxZuqd1D+Kw==
   dependencies:
     "@polytope-labs/solidity-merkle-trees" "^0.2.3"
     openzeppelin-solidity "^4.8.1"

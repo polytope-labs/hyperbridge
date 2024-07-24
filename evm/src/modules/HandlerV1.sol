@@ -19,7 +19,7 @@ import {MerklePatricia, StorageValue} from "@polytope-labs/solidity-merkle-trees
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 
 import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
-import {IIsmpHost, FeeMetadata} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {IIsmpHost, FeeMetadata, FrozenStatus} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {
     Message,
@@ -91,8 +91,12 @@ contract HandlerV1 is IHandler, ERC165, Context {
     // The provided proof is invalid
     error InvalidProof();
 
+    /**
+     * @dev Checks if the host permits incoming datagrams
+     */
     modifier notFrozen(IIsmpHost host) {
-        if (host.frozen()) revert HostFrozen();
+        FrozenStatus state = host.frozen();
+        if (state == FrozenStatus.Incoming || state == FrozenStatus.All) revert HostFrozen();
         _;
     }
 

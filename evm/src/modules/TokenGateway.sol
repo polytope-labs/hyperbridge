@@ -725,8 +725,7 @@ contract TokenGateway is BaseIsmpModule {
             commitment
         );
 
-        CallDispatcherParams[] memory dispatcherParams = abi.decode(body.data, (CallDispatcherParams[]));
-        ICallDispatcher(_params.dispatcher).dispatch(dispatcherParams);
+        ICallDispatcher(_params.dispatcher).dispatch(body.data);
 
         emit AssetReceived({
             commitment: commitment,

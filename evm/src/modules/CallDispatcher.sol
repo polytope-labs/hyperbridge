@@ -14,7 +14,14 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatcher.sol";
+import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
+
+struct CallDispatcherParams {
+    // contract to call
+    address target;
+    // target contract calldata
+    bytes data;
+}
 
 /**
  * @title The CallDispatcher
@@ -23,8 +30,11 @@ import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatch
  * @notice This contract is used to dispatch calls to other contracts.
  */
 contract CallDispatcher is ICallDispatcher {
-    // @dev function returns `success = false` if the target is not a contract and reverts if the call to the target contract fails.
-    function dispatch(CallDispatcherParams[] memory calls) external returns (bool) {
+    /**
+     *  @dev reverts if the target is not a contract or if any of the calls reverts.
+     */
+    function dispatch(bytes memory encoded) external {
+        CallDispatcherParams[] memory calls = abi.decode(encoded, (CallDispatcherParams[]));
         uint256 callsLen = calls.length;
         for (uint256 i = 0; i < callsLen; ++i) {
             CallDispatcherParams memory call = calls[i];
@@ -39,7 +49,5 @@ contract CallDispatcher is ICallDispatcher {
                 if (!success) revert(string(result));
             }
         }
-
-        return true;
     }
 }

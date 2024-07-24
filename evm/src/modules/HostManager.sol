@@ -23,7 +23,6 @@ import {BaseIsmpModule, IncomingPostRequest, IIsmpModule} from "@polytope-labs/i
 import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
 
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
-import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatcher.sol";
 
 /// Host manager params
 struct HostManagerParams {

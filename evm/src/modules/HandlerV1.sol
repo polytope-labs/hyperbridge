@@ -17,7 +17,6 @@ pragma solidity 0.8.17;
 import {MerkleMountainRange, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";
 import {MerklePatricia, StorageValue} from "@polytope-labs/solidity-merkle-trees/MerklePatricia.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
-import {Context} from "openzeppelin/utils/Context.sol";
 
 import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {IIsmpHost, FeeMetadata} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
@@ -38,6 +37,9 @@ import {
     PostResponseLeaf
 } from "@polytope-labs/ismp-solidity/Message.sol";
 
+import {Context} from "openzeppelin/utils/Context.sol";
+import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
+
 // Storage prefix for request receipts in the pallet-ismp child trie
 bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"526571756573745265636569707473";
 
@@ -52,7 +54,7 @@ bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"526573706f6e73655265636569
  * to confirm the validity of incoming requests/responses.
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
  */
-contract HandlerV1 is IHandler, Context {
+contract HandlerV1 is IHandler, ERC165, Context {
     using Bytes for bytes;
     using Message for PostResponse;
     using Message for PostRequest;
@@ -92,6 +94,13 @@ contract HandlerV1 is IHandler, Context {
     modifier notFrozen(IIsmpHost host) {
         if (host.frozen()) revert HostFrozen();
         _;
+    }
+
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(IHandler).interfaceId || super.supportsInterface(interfaceId);
     }
 
     /**

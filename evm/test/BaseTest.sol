@@ -77,7 +77,7 @@ contract BaseTest is Test {
             hostManager: address(manager),
             handler: address(handler),
             defaultTimeout: 0,
-            unStakingPeriod: 5000,
+            unStakingPeriod: 21 * (60 * 60 * 24),
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
@@ -128,6 +128,9 @@ contract BaseTest is Test {
         feeToken.superApprove(address(this), address(host));
 
         miniStaking = new MiniStaking(address(feeToken));
+
+        feeToken.mint(address(this), 1_000_000_000 * 1e18);
+        feeToken.approve(address(testModule), type(uint256).max);
     }
 
     function module() public view returns (address) {

@@ -5,7 +5,7 @@ use ismp::{
 	host::{Ethereum, StateMachine},
 	router,
 };
-use ismp_solidity_abi::shared_types::PostRequest;
+use ismp_solidity_abi::{evm_host::HostParams, shared_types::PostRequest};
 use pallet_ismp_host_executive::EvmHostParamsAbi;
 use pallet_ismp_relayer::withdrawal::WithdrawalParams;
 use primitive_types::{H160, U256};
@@ -129,13 +129,43 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
 	let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
 	let mut runner = Runner::new(PathBuf::from(&base_dir));
 	let mut contract = runner.deploy("HostManagerTest").await;
-	let destination = contract.call::<_, H160>("module", ()).await?;
+	let value = contract.call::<_, HostParams>("hostParamsInternal", ()).await?;
+
+	dbg!(&value);
 
 	let params = EvmHostParamsAbi {
 		challengePeriod: U256::from(5_000_000u128).into(),
-		hostManager: destination.0.into(),
-		..Default::default()
+		defaultTimeout: value.default_timeout.try_into().map_err(anyhow::Error::msg)?,
+		perByteFee: {
+			let mut buf = [0u8; 32];
+			value.per_byte_fee.to_little_endian(&mut buf);
+			alloy_primitives::U256::from_le_bytes(buf)
+		},
+		stateCommitmentFee: {
+			let mut buf = [0u8; 32];
+			value.state_commitment_fee.to_little_endian(&mut buf);
+			alloy_primitives::U256::from_le_bytes(buf)
+		},
+		feeToken: value.fee_token.0.try_into().map_err(anyhow::Error::msg)?,
+		admin: value.admin.0.try_into().map_err(anyhow::Error::msg)?,
+		handler: value.handler.0.try_into().map_err(anyhow::Error::msg)?,
+		hostManager: value.host_manager.0.try_into().map_err(anyhow::Error::msg)?,
+		uniswapV2: value.uniswap_v2.0.try_into().map_err(anyhow::Error::msg)?,
+		unStakingPeriod: value.un_staking_period.try_into().map_err(anyhow::Error::msg)?,
+		consensusClient: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,
+		stateMachines: value
+			.state_machines
+			.into_iter()
+			.map(|id| id.try_into().map_err(anyhow::Error::msg))
+			.collect::<Result<Vec<_>, anyhow::Error>>()?,
+		hyperbridge: value.hyperbridge.to_vec().into(),
+		fishermen: value
+			.fishermen
+			.into_iter()
+			.map(|address| address.0.try_into().map_err(anyhow::Error::msg))
+			.collect::<Result<Vec<_>, _>>()?,
 	};
+	dbg!(&params);
 
 	// create post request object
 	let post = router::PostRequest {

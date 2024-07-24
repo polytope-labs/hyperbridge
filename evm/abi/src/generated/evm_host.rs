@@ -2049,11 +2049,62 @@ pub mod evm_host {
                     ],
                 ),
                 (
-                    ::std::borrow::ToOwned::to_owned("InvalidHostManagerAddress"),
+                    ::std::borrow::ToOwned::to_owned("InvalidConsensusClient"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::AbiError {
                             name: ::std::borrow::ToOwned::to_owned(
-                                "InvalidHostManagerAddress",
+                                "InvalidConsensusClient",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidHandler"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("InvalidHandler"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidHostManager"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("InvalidHostManager"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidHyperbridgeId"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "InvalidHyperbridgeId",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidStateMachinesLength"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "InvalidStateMachinesLength",
+                            ),
+                            inputs: ::std::vec![],
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("InvalidUnstakingPeriod"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "InvalidUnstakingPeriod",
                             ),
                             inputs: ::std::vec![],
                         },
@@ -2751,8 +2802,8 @@ pub mod evm_host {
 	)]
 	#[etherror(name = "InvalidAddressLength", abi = "InvalidAddressLength()")]
 	pub struct InvalidAddressLength;
-	///Custom Error type `InvalidHostManagerAddress` with signature `InvalidHostManagerAddress()`
-	/// and selector `0x5168b54e`
+	///Custom Error type `InvalidConsensusClient` with signature `InvalidConsensusClient()` and
+	/// selector `0x1435c60b`
 	#[derive(
 		Clone,
 		::ethers::contract::EthError,
@@ -2763,8 +2814,78 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
-	#[etherror(name = "InvalidHostManagerAddress", abi = "InvalidHostManagerAddress()")]
-	pub struct InvalidHostManagerAddress;
+	#[etherror(name = "InvalidConsensusClient", abi = "InvalidConsensusClient()")]
+	pub struct InvalidConsensusClient;
+	///Custom Error type `InvalidHandler` with signature `InvalidHandler()` and selector
+	/// `0xd8f59fa5`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidHandler", abi = "InvalidHandler()")]
+	pub struct InvalidHandler;
+	///Custom Error type `InvalidHostManager` with signature `InvalidHostManager()` and selector
+	/// `0xd445bb14`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidHostManager", abi = "InvalidHostManager()")]
+	pub struct InvalidHostManager;
+	///Custom Error type `InvalidHyperbridgeId` with signature `InvalidHyperbridgeId()` and
+	/// selector `0x9ea9869f`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidHyperbridgeId", abi = "InvalidHyperbridgeId()")]
+	pub struct InvalidHyperbridgeId;
+	///Custom Error type `InvalidStateMachinesLength` with signature `InvalidStateMachinesLength()`
+	/// and selector `0x4f450476`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidStateMachinesLength", abi = "InvalidStateMachinesLength()")]
+	pub struct InvalidStateMachinesLength;
+	///Custom Error type `InvalidUnstakingPeriod` with signature `InvalidUnstakingPeriod()` and
+	/// selector `0xd641157e`
+	#[derive(
+		Clone,
+		::ethers::contract::EthError,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[etherror(name = "InvalidUnstakingPeriod", abi = "InvalidUnstakingPeriod()")]
+	pub struct InvalidUnstakingPeriod;
 	///Custom Error type `MaxFishermanCountExceeded` with signature
 	/// `MaxFishermanCountExceeded(uint256)` and selector `0x67797238`
 	#[derive(
@@ -2872,7 +2993,12 @@ pub mod evm_host {
 		DuplicateResponse(DuplicateResponse),
 		FrozenHost(FrozenHost),
 		InvalidAddressLength(InvalidAddressLength),
-		InvalidHostManagerAddress(InvalidHostManagerAddress),
+		InvalidConsensusClient(InvalidConsensusClient),
+		InvalidHandler(InvalidHandler),
+		InvalidHostManager(InvalidHostManager),
+		InvalidHyperbridgeId(InvalidHyperbridgeId),
+		InvalidStateMachinesLength(InvalidStateMachinesLength),
+		InvalidUnstakingPeriod(InvalidUnstakingPeriod),
 		MaxFishermanCountExceeded(MaxFishermanCountExceeded),
 		UnauthorizedAccount(UnauthorizedAccount),
 		UnauthorizedAction(UnauthorizedAction),
@@ -2912,9 +3038,32 @@ pub mod evm_host {
 				return Ok(Self::InvalidAddressLength(decoded));
 			}
 			if let Ok(decoded) =
-				<InvalidHostManagerAddress as ::ethers::core::abi::AbiDecode>::decode(data)
+				<InvalidConsensusClient as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::InvalidHostManagerAddress(decoded));
+				return Ok(Self::InvalidConsensusClient(decoded));
+			}
+			if let Ok(decoded) = <InvalidHandler as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::InvalidHandler(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidHostManager as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidHostManager(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidHyperbridgeId as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidHyperbridgeId(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidStateMachinesLength as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidStateMachinesLength(decoded));
+			}
+			if let Ok(decoded) =
+				<InvalidUnstakingPeriod as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::InvalidUnstakingPeriod(decoded));
 			}
 			if let Ok(decoded) =
 				<MaxFishermanCountExceeded as ::ethers::core::abi::AbiDecode>::decode(data)
@@ -2958,7 +3107,16 @@ pub mod evm_host {
 				Self::FrozenHost(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::InvalidAddressLength(element) =>
 					::ethers::core::abi::AbiEncode::encode(element),
-				Self::InvalidHostManagerAddress(element) =>
+				Self::InvalidConsensusClient(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidHandler(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidHostManager(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidHyperbridgeId(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidStateMachinesLength(element) =>
+					::ethers::core::abi::AbiEncode::encode(element),
+				Self::InvalidUnstakingPeriod(element) =>
 					::ethers::core::abi::AbiEncode::encode(element),
 				Self::MaxFishermanCountExceeded(element) =>
 					::ethers::core::abi::AbiEncode::encode(element),
@@ -2990,7 +3148,21 @@ pub mod evm_host {
 					<InvalidAddressLength as ::ethers::contract::EthError>::selector() =>
 					true,
 				_ if selector ==
-					<InvalidHostManagerAddress as ::ethers::contract::EthError>::selector() =>
+					<InvalidConsensusClient as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector == <InvalidHandler as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<InvalidHostManager as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<InvalidHyperbridgeId as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<InvalidStateMachinesLength as ::ethers::contract::EthError>::selector() =>
+					true,
+				_ if selector ==
+					<InvalidUnstakingPeriod as ::ethers::contract::EthError>::selector() =>
 					true,
 				_ if selector ==
 					<MaxFishermanCountExceeded as ::ethers::contract::EthError>::selector() =>
@@ -3021,7 +3193,12 @@ pub mod evm_host {
 				Self::DuplicateResponse(element) => ::core::fmt::Display::fmt(element, f),
 				Self::FrozenHost(element) => ::core::fmt::Display::fmt(element, f),
 				Self::InvalidAddressLength(element) => ::core::fmt::Display::fmt(element, f),
-				Self::InvalidHostManagerAddress(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidConsensusClient(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidHandler(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidHostManager(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidHyperbridgeId(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidStateMachinesLength(element) => ::core::fmt::Display::fmt(element, f),
+				Self::InvalidUnstakingPeriod(element) => ::core::fmt::Display::fmt(element, f),
 				Self::MaxFishermanCountExceeded(element) => ::core::fmt::Display::fmt(element, f),
 				Self::UnauthorizedAccount(element) => ::core::fmt::Display::fmt(element, f),
 				Self::UnauthorizedAction(element) => ::core::fmt::Display::fmt(element, f),
@@ -3058,9 +3235,34 @@ pub mod evm_host {
 			Self::InvalidAddressLength(value)
 		}
 	}
-	impl ::core::convert::From<InvalidHostManagerAddress> for EvmHostErrors {
-		fn from(value: InvalidHostManagerAddress) -> Self {
-			Self::InvalidHostManagerAddress(value)
+	impl ::core::convert::From<InvalidConsensusClient> for EvmHostErrors {
+		fn from(value: InvalidConsensusClient) -> Self {
+			Self::InvalidConsensusClient(value)
+		}
+	}
+	impl ::core::convert::From<InvalidHandler> for EvmHostErrors {
+		fn from(value: InvalidHandler) -> Self {
+			Self::InvalidHandler(value)
+		}
+	}
+	impl ::core::convert::From<InvalidHostManager> for EvmHostErrors {
+		fn from(value: InvalidHostManager) -> Self {
+			Self::InvalidHostManager(value)
+		}
+	}
+	impl ::core::convert::From<InvalidHyperbridgeId> for EvmHostErrors {
+		fn from(value: InvalidHyperbridgeId) -> Self {
+			Self::InvalidHyperbridgeId(value)
+		}
+	}
+	impl ::core::convert::From<InvalidStateMachinesLength> for EvmHostErrors {
+		fn from(value: InvalidStateMachinesLength) -> Self {
+			Self::InvalidStateMachinesLength(value)
+		}
+	}
+	impl ::core::convert::From<InvalidUnstakingPeriod> for EvmHostErrors {
+		fn from(value: InvalidUnstakingPeriod) -> Self {
+			Self::InvalidUnstakingPeriod(value)
 		}
 	}
 	impl ::core::convert::From<MaxFishermanCountExceeded> for EvmHostErrors {

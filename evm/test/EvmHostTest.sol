@@ -23,7 +23,7 @@ import {DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 contract EvmHostTest is BaseTest {
-	using Message for PostRequest;
+    using Message for PostRequest;
     using Bytes for bytes;
 
     // we should only be able to set consensus state multiple times on testnet
@@ -237,7 +237,13 @@ contract EvmHostTest is BaseTest {
         feeToken.approve(address(host), type(uint256).max);
         vm.prank(address(manager));
         bytes32 resp = host.dispatch(
-            DispatchPostResponse({request: request, response: new bytes(0), fee: 0, timeout: 0, payer: address(manager)})
+            DispatchPostResponse({
+                request: request,
+                response: new bytes(0),
+                fee: 0,
+                timeout: 0,
+                payer: address(manager)
+            })
         );
         assert(host.responseCommitments(resp).sender == address(manager));
         assert(feeToken.balanceOf(address(host)) == host.perByteFee() * 32 * 2);

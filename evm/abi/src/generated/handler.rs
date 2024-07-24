@@ -428,6 +428,36 @@ pub mod handler {
                         },
                     ],
                 ),
+                (
+                    ::std::borrow::ToOwned::to_owned("supportsInterface"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("supportsInterface"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("interfaceId"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        4usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes4"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bool"),
+                                    ),
+                                },
+                            ],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                        },
+                    ],
+                ),
             ]),
             events: ::std::collections::BTreeMap::new(),
             errors: ::core::convert::From::from([
@@ -636,6 +666,15 @@ pub mod handler {
 		) -> ::ethers::contract::builders::ContractCall<M, ()> {
 			self.0
 				.method_hash([114, 190, 204, 205], (host, response))
+				.expect("method not found (this should never happen)")
+		}
+		///Calls the contract's `supportsInterface` (0x01ffc9a7) function
+		pub fn supports_interface(
+			&self,
+			interface_id: [u8; 4],
+		) -> ::ethers::contract::builders::ContractCall<M, bool> {
+			self.0
+				.method_hash([1, 255, 201, 167], interface_id)
 				.expect("method not found (this should never happen)")
 		}
 	}
@@ -1122,6 +1161,22 @@ pub mod handler {
 		pub host: ::ethers::core::types::Address,
 		pub response: PostResponseMessage,
 	}
+	///Container type for all input parameters for the `supportsInterface` function with signature
+	/// `supportsInterface(bytes4)` and selector `0x01ffc9a7`
+	#[derive(
+		Clone,
+		::ethers::contract::EthCall,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[ethcall(name = "supportsInterface", abi = "supportsInterface(bytes4)")]
+	pub struct SupportsInterfaceCall {
+		pub interface_id: [u8; 4],
+	}
 	///Container type for all of the contract's call
 	#[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
 	pub enum HandlerCalls {
@@ -1132,6 +1187,7 @@ pub mod handler {
 		HandlePostRequests(HandlePostRequestsCall),
 		HandlePostResponseTimeouts(HandlePostResponseTimeoutsCall),
 		HandlePostResponses(HandlePostResponsesCall),
+		SupportsInterface(SupportsInterfaceCall),
 	}
 	impl ::ethers::core::abi::AbiDecode for HandlerCalls {
 		fn decode(
@@ -1173,6 +1229,11 @@ pub mod handler {
 			{
 				return Ok(Self::HandlePostResponses(decoded));
 			}
+			if let Ok(decoded) =
+				<SupportsInterfaceCall as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::SupportsInterface(decoded));
+			}
 			Err(::ethers::core::abi::Error::InvalidData.into())
 		}
 	}
@@ -1192,6 +1253,7 @@ pub mod handler {
 					::ethers::core::abi::AbiEncode::encode(element),
 				Self::HandlePostResponses(element) =>
 					::ethers::core::abi::AbiEncode::encode(element),
+				Self::SupportsInterface(element) => ::ethers::core::abi::AbiEncode::encode(element),
 			}
 		}
 	}
@@ -1205,6 +1267,7 @@ pub mod handler {
 				Self::HandlePostRequests(element) => ::core::fmt::Display::fmt(element, f),
 				Self::HandlePostResponseTimeouts(element) => ::core::fmt::Display::fmt(element, f),
 				Self::HandlePostResponses(element) => ::core::fmt::Display::fmt(element, f),
+				Self::SupportsInterface(element) => ::core::fmt::Display::fmt(element, f),
 			}
 		}
 	}
@@ -1243,6 +1306,24 @@ pub mod handler {
 			Self::HandlePostResponses(value)
 		}
 	}
+	impl ::core::convert::From<SupportsInterfaceCall> for HandlerCalls {
+		fn from(value: SupportsInterfaceCall) -> Self {
+			Self::SupportsInterface(value)
+		}
+	}
+	///Container type for all return fields from the `supportsInterface` function with signature
+	/// `supportsInterface(bytes4)` and selector `0x01ffc9a7`
+	#[derive(
+		Clone,
+		::ethers::contract::EthAbiType,
+		::ethers::contract::EthAbiCodec,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	pub struct SupportsInterfaceReturn(pub bool);
 	///`GetResponseMessage(bytes[],(uint256,uint256),(bytes,bytes,uint64,bytes,uint64,bytes[],
 	/// uint64)[])`
 	#[derive(

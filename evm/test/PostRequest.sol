@@ -38,16 +38,15 @@ contract PostRequestTest is BaseTest {
         PostRequest memory request,
         PostRequestTimeoutMessage memory message
     ) public {
-        uint256 fee = host.hostParams().perByteFee * request.body.length;
-        uint256 balanceBefore = feeToken.balanceOf(tx.origin);
+        uint256 fee = host.hostParams().perByteFee * (32 > request.body.length ? 32 : request.body.length);
+        uint256 balanceBefore = feeToken.balanceOf(address(this));
 
-        vm.prank(tx.origin);
         testModule.dispatch(request);
 
         bytes32 commitment = message.timeouts[0].hash();
         assert(host.requestCommitments(commitment).sender != address(0));
 
-        uint256 balanceAfter = feeToken.balanceOf(tx.origin);
+        uint256 balanceAfter = feeToken.balanceOf(address(this));
         uint256 hostBalance = feeToken.balanceOf(address(host));
 
         assert(fee == hostBalance);

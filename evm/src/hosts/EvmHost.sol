@@ -18,6 +18,7 @@ import {Context} from "openzeppelin/utils/Context.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {IERC165} from "openzeppelin/utils/introspection/IERC165.sol";
 
 import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import {DispatchPost, DispatchPostResponse, DispatchGet} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
@@ -25,6 +26,8 @@ import {IIsmpHost, FeeMetadata, ResponseReceipt} from "@polytope-labs/ismp-solid
 import {StateCommitment, StateMachineHeight} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "@polytope-labs/ismp-solidity/Message.sol";
+import {IConsensusClient} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 // The EvmHost protocol parameters
@@ -375,7 +378,22 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     error MaxFishermanCountExceeded(uint256 provided);
 
     // Host manager address was zero or not a contract
-    error InvalidHostManagerAddress();
+    error InvalidHostManager();
+
+    // Host manager address was zero or not a contract
+    error InvalidHandler();
+
+    // Host manager address was zero or not a contract
+    error InvalidConsensusClient();
+
+    // Provided an empty Hyperbridge stateMachineId during host params update
+    error InvalidHyperbridgeId();
+
+    // Provided an empty array of stateMachines during host params update
+    error InvalidStateMachinesLength();
+
+    // Provided an unstaking period less than 24 hours
+    error InvalidUnstakingPeriod();
 
     // Failed to withdraw the native token
     error WithdrawalFailed();
@@ -628,20 +646,45 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params.
      */
     function updateHostParamsInternal(HostParams memory params) internal {
-        // check if the provided host manager is a contract
-        if (params.hostManager == address(0) || address(params.hostManager).code.length == 0) {
-            revert InvalidHostManagerAddress();
+        // check the params to prevent the host from getting bricked.
+        if (
+            params.hostManager == address(0) ||
+            address(params.hostManager).code.length == 0 ||
+            !IERC165(params.hostManager).supportsInterface(type(IIsmpModule).interfaceId)
+        ) {
+            // otherwise cannot process new cross-chain governance requests
+            revert InvalidHostManager();
         }
 
-        // we can only have a maximum of 100 fishermen
+        if (
+            params.handler == address(0) ||
+            address(params.handler).code.length == 0 ||
+            !IERC165(params.handler).supportsInterface(type(IHandler).interfaceId)
+        ) {
+            // otherwise cannot process new datagrams
+            revert InvalidHandler();
+        }
+
+        if (
+            params.consensusClient == address(0) ||
+            address(params.consensusClient).code.length == 0 ||
+            !IERC165(params.consensusClient).supportsInterface(type(IConsensusClient).interfaceId)
+        ) {
+            // otherwise cannot process new datagrams
+            revert InvalidConsensusClient();
+        }
+        uint256 stateMachinesLen = params.stateMachines.length;
         uint256 newFishermenLength = params.fishermen.length;
-        if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
 
-        // reset old fishermen
-        uint256 fishermenLength = _hostParams.fishermen.length;
-        for (uint256 i = 0; i < fishermenLength; ++i) {
-            delete _fishermen[_hostParams.fishermen[i]];
-        }
+        // otherwise cannot process new cross-chain governance requests
+        if (keccak256(params.hyperbridge) == keccak256(bytes(""))) revert InvalidHyperbridgeId();
+        // otherwise cannot process new datagrams
+        if (stateMachinesLen == 0) revert InvalidStateMachinesLength();
+        // otherwise cannot process new datagrams
+        if (86400 > params.unStakingPeriod) revert InvalidUnstakingPeriod();
+
+        // maximum of 100 fishermen
+        if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
 
         if (_hostParams.feeToken != address(0) && _hostParams.feeToken != params.feeToken) {
             uint256 balance = IERC20(_hostParams.feeToken).balanceOf(address(this));
@@ -652,6 +695,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // and don't want to store a temp variable for the old params
         emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
 
+        // reset old fishermen
+        uint256 fishermenLength = _hostParams.fishermen.length;
+        for (uint256 i = 0; i < fishermenLength; ++i) {
+            delete _fishermen[_hostParams.fishermen[i]];
+        }
+
         _hostParams = params;
 
         // add new fishermen if any
@@ -660,8 +709,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // add whitelisted state machines
-        uint256 whitelistLength = params.stateMachines.length;
-        for (uint256 i = 0; i < whitelistLength; ++i) {
+        for (uint256 i = 0; i < stateMachinesLen; ++i) {
             // create if it doesn't already exist
             if (_latestStateMachineHeight[params.stateMachines[i]] == 0) {
                 _latestStateMachineHeight[params.stateMachines[i]] = 1;

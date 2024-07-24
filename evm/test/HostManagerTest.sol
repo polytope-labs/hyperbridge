@@ -45,17 +45,60 @@ contract HostManagerTest is BaseTest {
         require(host.hostParams().challengePeriod == params.challengePeriod, "Failed to process request");
     }
 
-    function testCannotSetInvalidHostManagerAddress() public {
+    function testCannotSetInvalidAddresses() public {
         HostParams memory params = host.hostParams();
+
+        // host manager address
         address manager = params.hostManager;
         params.hostManager = address(0);
 
         vm.startPrank(manager);
-        vm.expectRevert(EvmHost.InvalidHostManagerAddress.selector);
+        vm.expectRevert(EvmHost.InvalidHostManager.selector);
         host.updateHostParams(params);
 
         params.hostManager = msg.sender;
-        vm.expectRevert(EvmHost.InvalidHostManagerAddress.selector);
+        vm.expectRevert(EvmHost.InvalidHostManager.selector);
+        host.updateHostParams(params);
+
+        params.hostManager = address(this);
+        vm.expectRevert();
+        host.updateHostParams(params);
+        params.hostManager = manager;
+
+        // handler address
+        address handler = params.handler;
+        params.handler = address(0);
+        vm.expectRevert(EvmHost.InvalidHandler.selector);
+        host.updateHostParams(params);
+
+        params.handler = msg.sender;
+        vm.expectRevert(EvmHost.InvalidHandler.selector);
+        host.updateHostParams(params);
+
+        params.handler = address(this);
+        vm.expectRevert();
+        host.updateHostParams(params);
+        params.handler = handler;
+
+        // consensusClient address
+        address consensusClient = params.consensusClient;
+        params.consensusClient = address(0);
+
+        vm.expectRevert(EvmHost.InvalidConsensusClient.selector);
+        host.updateHostParams(params);
+
+        params.consensusClient = msg.sender;
+        vm.expectRevert(EvmHost.InvalidConsensusClient.selector);
+        host.updateHostParams(params);
+
+        params.consensusClient = address(this);
+        vm.expectRevert();
+        host.updateHostParams(params);
+        params.consensusClient = consensusClient;
+
+        bytes memory hyperbridge = params.hyperbridge;
+        params.hyperbridge = new bytes(0);
+        vm.expectRevert(EvmHost.InvalidHyperbridgeId.selector);
         host.updateHostParams(params);
     }
 
@@ -63,5 +106,9 @@ contract HostManagerTest is BaseTest {
         vm.startPrank(address(host));
 
         HostManager(payable(host.hostParams().hostManager)).onAccept(IncomingPostRequest(request, tx.origin));
+    }
+
+    function hostParamsInternal() public view returns (HostParams memory) {
+        return host.hostParams();
     }
 }

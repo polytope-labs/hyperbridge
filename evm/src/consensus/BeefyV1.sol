@@ -22,10 +22,11 @@ import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/MerkleMulti
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";
 import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/MerklePatricia.sol";
 import {StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/Types.sol";
-
 import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+
 import {ECDSA} from "openzeppelin/utils/cryptography/ECDSA.sol";
+import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
 
 struct Vote {
     // secp256k1 signature from a member of the authority set
@@ -69,7 +70,7 @@ struct BeefyConsensusProof {
  * @notice This verifies secp256k1 signatures and authority set membership merkle proofs
  * in order to confirm newly finalized states of the Hyperbridge blockchain.
  */
-contract BeefyV1 is IConsensusClient {
+contract BeefyV1 is IConsensusClient, ERC165 {
     using HeaderImpl for Header;
 
     // Slot duration in milliseconds
@@ -116,6 +117,13 @@ contract BeefyV1 is IConsensusClient {
 
     constructor(uint256 paraId) {
         _paraId = paraId;
+    }
+
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(IConsensusClient).interfaceId || super.supportsInterface(interfaceId);
     }
 
     function verifyConsensus(

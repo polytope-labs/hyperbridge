@@ -85,7 +85,7 @@ contract MainnetForkBaseTest is Test {
             hostManager: address(manager),
             handler: address(handler),
             defaultTimeout: 0,
-            unStakingPeriod: 5000,
+            unStakingPeriod: 21 * (60 * 60 * 24),
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),

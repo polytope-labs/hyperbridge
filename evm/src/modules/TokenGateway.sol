@@ -333,42 +333,53 @@ contract TokenGateway is BaseIsmpModule {
         uint256 amount
     );
 
-    // Action is unauthorized
+    // @dev Action is unauthorized
     error UnauthorizedAction();
 
-    // Provided request has timed out
+    // @dev Provided request has timed out
     error RequestTimedOut();
 
-    // Provided request has not timed out
+    // @dev Provided request has not timed out
     error RequestNotTimedOut();
 
-    // Provided bid cannot usurp the existing bid
+    // @dev Provided bid cannot usurp the existing bid
     error BidTooHigh();
 
-    // Unfortunately no one has bid to fulfil this request
+    // @dev Unfortunately no one has bid to fulfil this request
     error NoExistingBid();
 
-    // Provided request already fulfilled
+    // @dev Provided request already fulfilled
     error RequestAlreadyFulfilled();
 
-    // Unexpected zero address
+    // @dev Unexpected zero address
     error ZeroAddress();
 
-    // Provided amount was invalid
+    // @dev Provided amount was invalid
     error InvalidAmount();
 
-    // Provided token was unknown
+    // @dev Provided token was unknown
     error UnknownAsset();
 
-    // Protocol invariant violated
+    // @dev Protocol invariant violated
     error InconsistentState();
 
-    // Provided address didn't fit address type size
+    // @dev Provided address didn't fit address type size
     error InvalidAddressLength();
 
-    // restricts call to the provided `caller`
+    // @dev restricts call to the provided `caller`
     modifier restrict(address caller) {
         if (msg.sender != caller) revert UnauthorizedAction();
+        _;
+    }
+
+    /**
+     * @dev Checks that the request originates from a known instance of the TokenGateway.
+     */
+    modifier authenticate(PostRequest memory request) {
+        // TokenGateway only accepts incoming assets from itself
+        bool unknown = !request.from.equals(abi.encodePacked(address(this))) &&
+            _instances[keccak256(request.source)] != bytesToAddress(request.from);
+        if (unknown) revert UnauthorizedAction();
         _;
     }
 
@@ -376,12 +387,14 @@ contract TokenGateway is BaseIsmpModule {
         _admin = admin;
     }
 
-    /*
+    /**
      * @dev fallback function for tests. Do not send any tokens directly to this contract.
      */
     receive() external payable {}
 
-    // @dev initialize required parameters
+    /**
+     * @dev initialize required parameters
+     */
     function init(TokenGatewayParamsExt memory teleportParams) public restrict(_admin) {
         _params = teleportParams.params;
         createAssets(teleportParams.assets);
@@ -397,27 +410,35 @@ contract TokenGateway is BaseIsmpModule {
         _admin = address(0);
     }
 
-    // @dev Read the protocol parameters
+    /**
+     * @dev Read the protocol parameters
+     */
     function params() external view returns (TokenGatewayParams memory) {
         return _params;
     }
 
-    // @dev Fetch the address for an ERC20 asset
+    /**
+     * @dev Fetch the address for an ERC20 asset
+     */
     function erc20(bytes32 assetId) external view returns (address) {
         return _erc20s[assetId];
     }
 
-    // @dev Fetch the address for an ERC6160 asset
+    /**
+     * @dev Fetch the address for an ERC6160 asset
+     */
     function erc6160(bytes32 assetId) external view returns (address) {
         return _erc6160s[assetId];
     }
 
-    // @dev Teleports a local ERC20/ERC6160 asset to the destination chain. Allows users to pay
-    // the Hyperbridge fees in any ERC20 token that can be swapped for the swapped for the
-    // `IIsmpHost.feeToken` using the local UniswapV2 router.
-    //
-    // @notice If a request times out, users can request a refund permissionlessly through
-    // `HandlerV1.handlePostRequestTimeouts`.
+    /**
+     * @dev Teleports a local ERC20/ERC6160 asset to the destination chain. Allows users to pay
+     * the Hyperbridge fees in any ERC20 token that can be swapped for the swapped for the
+     * `IIsmpHost.feeToken` using the local UniswapV2 router.
+     *
+     * @notice If a request times out, users can request a refund permissionlessly through
+     * `HandlerV1.handlePostRequestTimeouts`.
+     */
     function teleport(TeleportParams memory teleportParams) public payable {
         if (teleportParams.to == bytes32(0)) revert ZeroAddress();
         if (teleportParams.amount == 0) revert InvalidAmount();
@@ -499,13 +520,14 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    // @dev Bid to fulfil an incoming asset. This will displace any pre-existing bid
-    // if the liquidity fee is lower than said bid. This effectively creates a
-    // race to the bottom for fees.
-    //
-    // @notice The request must not have expired, and must not have already been fulfilled.
-    function bid(PostRequest calldata request, uint256 fee) public {
-        authenticate(request);
+    /**
+     * @dev Bid to fulfil an incoming asset. This will displace any pre-existing bid
+     * if the liquidity fee is lower than said bid. This effectively creates a
+     * race to the bottom for fees.
+     *
+     * @notice The request must not have expired, and must not have already been fulfilled.
+     */
+    function bid(PostRequest calldata request, uint256 fee) public authenticate(request) {
         // Not sure why anyone would do this
         if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
         // cannot bid on timed-out requests
@@ -558,10 +580,11 @@ contract TokenGateway is BaseIsmpModule {
         emit BidPlaced({commitment: commitment, assetId: body.assetId, bid: fee, bidder: msg.sender});
     }
 
-    // @dev This allows the bidder to refund their bids in the event that the request timed-out before
-    // the bid could be fulfilled.
-    function refundBid(PostRequest calldata request) public {
-        authenticate(request);
+    /**
+     * @dev This allows the bidder to refund their bids in the event that the request timed-out before
+     * the bid could be fulfilled.
+     */
+    function refundBid(PostRequest calldata request) public authenticate(request) {
         // Not sure why anyone would do this
         if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
         // Cannot refund bids on requests which have not timed out, sorry.
@@ -626,8 +649,10 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    // @dev Triggered when a previously sent out request is confirmed to be timed-out by the IsmpHost.
-    // @notice This means the funds could not be sent, we simply refund the user's assets here.
+    /**
+     * @dev Triggered when a previously sent out request is confirmed to be timed-out by the IsmpHost.
+     * @notice This means the funds could not be sent, we simply refund the user's assets here.
+     */
     function onPostRequestTimeout(PostRequest calldata request) external override restrict(_params.host) {
         Body memory body;
         if (request.body.length > BODY_BYTES_SIZE) {
@@ -659,10 +684,12 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetRefunded({commitment: request.hash(), beneficiary: from, amount: body.amount, assetId: body.assetId});
     }
 
-    // @dev Execute an incoming request with no calldata
-    function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) internal {
-        authenticate(incoming.request);
-
+    /**
+     * @dev Execute an incoming request with no calldata
+     */
+    function handleIncomingAssetWithoutCall(
+        IncomingPostRequest calldata incoming
+    ) internal authenticate(incoming.request) {
         Body memory body = abi.decode(incoming.request.body[1:], (Body));
         bytes32 commitment = incoming.request.hash();
         handleIncomingAsset(body, commitment);
@@ -676,11 +703,13 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    // @dev Execute an incoming request with calldata, delegates calls to 3rd party contracts to
-    // the `_params.dispatcher` for safety reasons.
-    function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) internal {
-        authenticate(incoming.request);
-
+    /**
+     * @dev Execute an incoming request with calldata, delegates calls to 3rd party contracts to
+     * the `_params.dispatcher` for safety reasons.
+     */
+    function handleIncomingAssetWithCall(
+        IncomingPostRequest calldata incoming
+    ) internal authenticate(incoming.request) {
         BodyWithCall memory body = abi.decode(incoming.request.body[1:], (BodyWithCall));
         bytes32 commitment = incoming.request.hash();
         handleIncomingAsset(
@@ -707,7 +736,9 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    // @dev Executes the asset disbursement for the provided request
+    /**
+     * @dev Executes the asset disbursement for the provided request
+     */
     function handleIncomingAsset(Body memory body, bytes32 commitment) internal {
         address _erc20 = _erc20s[body.assetId];
         address _erc6160 = _erc6160s[body.assetId];
@@ -732,7 +763,9 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    // @dev Handles requests from cross-chain governance
+    /**
+     * @dev Handles requests from cross-chain governance
+     */
     function handleGovernance(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -743,7 +776,9 @@ contract TokenGateway is BaseIsmpModule {
         _params = newParams;
     }
 
-    // @dev registers a new asset as requested by cross-chain governance
+    /**
+     * @dev registers a new asset as requested by cross-chain governance
+     */
     function handleCreateAsset(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -752,8 +787,10 @@ contract TokenGateway is BaseIsmpModule {
         createAssets(assets);
     }
 
-    // @dev Deregisters the asset from TokenGateway. Users will be unable to bridge the asset
-    // through TokenGateway once they are deregistered
+    /**
+     * @dev Deregisters the asset from TokenGateway. Users will be unable to bridge the asset
+     * through TokenGateway once they are deregistered
+     */
     function handleDeregisterAssets(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -767,8 +804,10 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    // @dev Changes the asset admin from this contract to some other address. Changing the admin to a
-    // zero address is disallowed for safety reasons
+    /**
+     * @dev Changes the asset admin from this contract to some other address. Changing the admin to a
+     * zero address is disallowed for safety reasons
+     */
     function handleChangeAssetAdmin(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -783,7 +822,9 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetAdminChanged({asset: erc6160Address, newAdmin: asset.newAdmin});
     }
 
-    // @dev registers a new instance of `TokenGateway` to permit receiving assets
+    /**
+     * @dev registers a new instance of `TokenGateway` to permit receiving assets
+     */
     function handleNewContractInstance(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -794,7 +835,9 @@ contract TokenGateway is BaseIsmpModule {
         emit NewContractInstance({chain: string(instance.chain), moduleId: instance.moduleId});
     }
 
-    // @dev withdraws any accrued native tokens as requested by cross-chain governance
+    /**
+     * @dev withdraws any accrued native tokens as requested by cross-chain governance
+     */
     function handleWithdrawNativeToken(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
@@ -808,8 +851,10 @@ contract TokenGateway is BaseIsmpModule {
         emit NativeTokenWithdrawal({amount: withdrawal.amount, beneficiary: withdrawal.beneficiary});
     }
 
-    // @dev Creates a new entry for the provided asset in the mappings. If there's no existing
-    // ERC6160 address provided, then a contract for the asset is created.
+    /**
+     * @dev Creates a new entry for the provided asset in the mappings. If there's no existing
+     * ERC6160 address provided, then a contract for the asset is created.
+     */
     function createAssets(AssetMetadata[] memory assets) internal {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; ++i) {
@@ -839,16 +884,6 @@ contract TokenGateway is BaseIsmpModule {
                 initialSupply: asset.initialSupply
             });
         }
-    }
-
-    // @dev Checks that the request originates from a known instance of the TokenGateway.
-    // will revert if it isn't
-    function authenticate(PostRequest memory request) internal view {
-        // TokenGateway only accepts incoming assets from it's instances on other chains.
-        // or known instances
-        bool unknown = !request.from.equals(abi.encodePacked(address(this))) &&
-            _instances[keccak256(request.source)] != bytesToAddress(request.from);
-        if (unknown) revert UnauthorizedAction();
     }
 
     /**

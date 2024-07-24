@@ -457,7 +457,7 @@ contract TokenGateway is BaseIsmpModule {
                 // wrap native token
                 (bool sent, ) = WETH.call{value: teleportParams.amount}("");
                 if (!sent) revert InconsistentState();
-                msgValue = msgValue - teleportParams.amount;
+                msgValue -= teleportParams.amount;
             } else {
                 SafeERC20.safeTransferFrom(IERC20(_erc20), msg.sender, address(this), teleportParams.amount);
             }

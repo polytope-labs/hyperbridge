@@ -517,6 +517,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @dev Returns the nonce immediately available for requests
+     * @return the `nonce`
+     */
+    function nonce() external view returns (uint256) {
+        return _nonce;
+    }
+
+    /**
      * @notice Charges the stateCommitmentFee to 3rd party applications.
      * If native tokens are provided, will attempt to swap them for the stateCommitmentFee.
      * If not enough native tokens are supplied, will revert.
@@ -592,7 +600,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     /**
      * @dev Check the response status for a given request.
-     * @param commitment - commitment to the response
+     * @param commitment - commitment to the request
      * @return `response` status
      */
     function responded(bytes32 commitment) external view returns (bool) {

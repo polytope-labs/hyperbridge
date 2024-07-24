@@ -375,7 +375,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     error DuplicateResponse();
 
     // Cannot exceed max fishermen count
-    error MaxFishermanCountExceeded(uint256 provided);
+    error MaxFishermanCountExceeded();
 
     // Host manager address was zero, not a contract or didn't meet it's required ERC165 interface.
     error InvalidHostManager();
@@ -509,6 +509,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @dev Returns the fisherman responsible for vetoing the given state machine height.
+     * @return the `fisherman` address
+     */
+    function vetoes(uint256 paraId, uint256 height) external view returns (address) {
+        return _vetoes[paraId][height];
+    }
+
+    /**
      * @notice Charges the stateCommitmentFee to 3rd party applications.
      * If native tokens are provided, will attempt to swap them for the stateCommitmentFee.
      * If not enough native tokens are supplied, will revert.
@@ -580,6 +588,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function challengePeriod() external view returns (uint256) {
         return _hostParams.challengePeriod;
+    }
+
+    /**
+     * @dev Check the response status for a given request.
+     * @param commitment - commitment to the response
+     * @return `response` status
+     */
+    function responded(bytes32 commitment) external view returns (bool) {
+        return _responded[commitment];
     }
 
     /**
@@ -693,7 +710,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         if (86400 > params.unStakingPeriod) revert InvalidUnstakingPeriod();
 
         // maximum of 100 fishermen
-        if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
+        if (newFishermenLength > 100) revert MaxFishermanCountExceeded();
 
         address oldFeeToken = feeToken();
         if (oldFeeToken != address(0) && oldFeeToken != params.feeToken) {

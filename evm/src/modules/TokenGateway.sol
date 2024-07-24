@@ -106,13 +106,6 @@ struct ContractInstance {
     address moduleId;
 }
 
-struct Withdrawal {
-    // beneficiary of the withdrawal
-    address beneficiary;
-    // amount of the native token to withdraw
-    uint256 amount;
-}
-
 enum OnAcceptActions {
     // Incoming asset from a chain
     IncomingAsset,
@@ -125,9 +118,7 @@ enum OnAcceptActions {
     // Change the admin of an asset
     ChangeAssetAdmin,
     // Add a new pre-approved address
-    NewContractInstance,
-    // Withdraw accrued native assets
-    WithdrawNative
+    NewContractInstance
 }
 
 struct AssetMetadata {
@@ -388,11 +379,6 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     /**
-     * @dev fallback function for tests. Do not send any tokens directly to this contract.
-     */
-    receive() external payable {}
-
-    /**
      * @dev initialize required parameters
      */
     function init(TokenGatewayParamsExt memory teleportParams) public restrict(_admin) {
@@ -644,8 +630,6 @@ contract TokenGateway is BaseIsmpModule {
             handleChangeAssetAdmin(incoming.request);
         } else if (action == OnAcceptActions.NewContractInstance) {
             handleNewContractInstance(incoming.request);
-        } else if (action == OnAcceptActions.WithdrawNative) {
-            handleWithdrawNativeToken(incoming.request);
         }
     }
 
@@ -833,22 +817,6 @@ contract TokenGateway is BaseIsmpModule {
         _instances[keccak256(instance.chain)] = instance.moduleId;
 
         emit NewContractInstance({chain: string(instance.chain), moduleId: instance.moduleId});
-    }
-
-    /**
-     * @dev withdraws any accrued native tokens as requested by cross-chain governance
-     */
-    function handleWithdrawNativeToken(PostRequest calldata request) internal {
-        if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
-
-        Withdrawal memory withdrawal = abi.decode(request.body[1:], (Withdrawal));
-        if (withdrawal.beneficiary == address(0)) revert ZeroAddress();
-        if (withdrawal.amount == 0) revert InvalidAmount();
-
-        (bool sent, ) = withdrawal.beneficiary.call{value: withdrawal.amount}("");
-        if (!sent) revert InconsistentState();
-
-        emit NativeTokenWithdrawal({amount: withdrawal.amount, beneficiary: withdrawal.beneficiary});
     }
 
     /**

@@ -50,6 +50,8 @@ contract PostResponseTest is BaseTest {
         PostResponse memory response,
         PostResponseTimeoutMessage memory timeout
     ) public {
+        feeToken.mint(address(this), 1_000_000_000 * 1e18);
+        feeToken.approve(address(testModule), type(uint256).max);
         handler.handleConsensus(host, consensusProof1);
         vm.warp(10);
         handler.handlePostRequests(host, request);
@@ -75,6 +77,8 @@ contract PostResponseTest is BaseTest {
         PostResponse memory response,
         PostResponseTimeoutMessage memory timeout
     ) public {
+        feeToken.mint(address(this), 1_000_000_000 * 1e18);
+        feeToken.approve(address(testModule), type(uint256).max);
         handler.handleConsensus(host, consensusProof1);
         vm.warp(10);
         handler.handlePostRequests(host, request);

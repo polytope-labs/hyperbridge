@@ -38,6 +38,8 @@ contract PostRequestTest is BaseTest {
         PostRequest memory request,
         PostRequestTimeoutMessage memory message
     ) public {
+        feeToken.mint(address(this), 1_000_000_000 * 1e18);
+        feeToken.approve(address(testModule), type(uint256).max);
         uint256 fee = host.hostParams().perByteFee * (32 > request.body.length ? 32 : request.body.length);
         uint256 balanceBefore = feeToken.balanceOf(address(this));
 

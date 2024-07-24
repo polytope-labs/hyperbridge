@@ -692,33 +692,6 @@ contract TokenGatewayTest is BaseTest {
 
         assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18);
     }
-
-    function testCanWithdrawNativeTokens() public {
-        uint256 oldBalance = tx.origin.balance;
-        uint256 amount = 1 * 1e18;
-
-        (bool ok, ) = address(gateway).call{value: amount}("");
-        if (!ok) revert("Failed to send");
-
-        bytes memory hyperbridge = host.hyperbridge();
-        vm.prank(address(host));
-        gateway.onAccept(
-            IncomingPostRequest({
-                request: PostRequest({
-                    to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
-                    dest: new bytes(0),
-                    body: bytes.concat(hex"06", abi.encode(Withdrawal({beneficiary: tx.origin, amount: amount}))),
-                    nonce: 0,
-                    source: hyperbridge,
-                    timeoutTimestamp: 0
-                }),
-                relayer: address(0)
-            })
-        );
-
-        assert(tx.origin.balance == oldBalance + amount);
-    }
 }
 
 function addressToBytes32(address _address) pure returns (bytes32) {

@@ -527,9 +527,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             uint256 fee = _hostParams.stateCommitmentFee;
             if (msg.value > 0) {
                 address[] memory path = new address[](2);
-                path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+                address uniswapV2 = _hostParams.uniswapV2;
+                path[0] = IUniswapV2Router02(uniswapV2).WETH();
                 path[1] = feeToken();
-                IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                     fee,
                     path,
                     address(this),
@@ -1045,9 +1046,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (msg.value > 0) {
             address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 fee,
                 path,
                 address(this),
@@ -1102,9 +1104,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         if (get.fee != 0) {
             if (msg.value > 0) {
                 address[] memory path = new address[](2);
-                path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+                address uniswapV2 = _hostParams.uniswapV2;
+                path[0] = IUniswapV2Router02(uniswapV2).WETH();
                 path[1] = feeToken();
-                IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                     get.fee,
                     path,
                     address(this),
@@ -1165,9 +1168,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (msg.value > 0) {
             address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 fee,
                 path,
                 address(this),
@@ -1238,9 +1242,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function fundRequest(bytes32 commitment, uint256 amount) external payable {
         if (msg.value > 0) {
             address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 amount,
                 path,
                 address(this),
@@ -1278,9 +1283,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function fundResponse(bytes32 commitment, uint256 amount) external payable {
         if (msg.value > 0) {
             address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 amount,
                 path,
                 address(this),

@@ -501,6 +501,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @dev Returns the fee required for 3rd party applications to access hyperbridge state commitments.
+     * @return the `stateCommitmentFee`
+     */
+    function stateCommitmentFee() external view returns (uint256) {
+        return _hostParams.stateCommitmentFee;
+    }
+
+    /**
      * @notice Charges the stateCommitmentFee to 3rd party applications.
      * If native tokens are provided, will attempt to swap them for the stateCommitmentFee.
      * If not enough native tokens are supplied, will revert.

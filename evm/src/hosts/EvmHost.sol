@@ -694,8 +694,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // maximum of 100 fishermen
         if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
 
-        if (_hostParams.feeToken != address(0) && _hostParams.feeToken != params.feeToken) {
-            uint256 balance = IERC20(_hostParams.feeToken).balanceOf(address(this));
+        address oldFeeToken = feeToken();
+        if (oldFeeToken != address(0) && oldFeeToken != params.feeToken) {
+            uint256 balance = IERC20(oldFeeToken).balanceOf(address(this));
             if (balance != 0) revert CannotChangeFeeToken();
         }
 

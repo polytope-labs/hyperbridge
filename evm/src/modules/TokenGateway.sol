@@ -406,15 +406,30 @@ contract TokenGateway is BaseIsmpModule {
     /**
      * @dev Fetch the address for an ERC20 asset
      */
-    function erc20(bytes32 assetId) external view returns (address) {
+    function erc20(bytes32 assetId) public view returns (address) {
         return _erc20s[assetId];
     }
 
     /**
      * @dev Fetch the address for an ERC6160 asset
      */
-    function erc6160(bytes32 assetId) external view returns (address) {
+    function erc6160(bytes32 assetId) public view returns (address) {
         return _erc6160s[assetId];
+    }
+
+    /**
+     * @dev Fetch the bid for a given request commitment
+     */
+    function bid(bytes32 commitment) public view returns (LiquidityBid memory) {
+        return _bids[commitment];
+    }
+
+    /**
+     * @dev Fetch the TokenGateway instance for a destination.
+     */
+    function instance(bytes memory destination) public view returns (address) {
+        address gateway = _instances[keccak256(destination)];
+        return gateway == address(0) ? address(this) : gateway;
     }
 
     /**
@@ -479,7 +494,7 @@ contract TokenGateway is BaseIsmpModule {
         data = bytes.concat(hex"00", data); // add enum variant for body
         DispatchPost memory request = DispatchPost({
             dest: teleportParams.dest,
-            to: abi.encodePacked(address(this)),
+            to: abi.encodePacked(instance(teleportParams.dest)),
             body: data,
             timeout: teleportParams.timeout,
             fee: teleportParams.relayerFee,
@@ -507,7 +522,7 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     /**
-     * @dev Bid to fulfil an incoming asset. This will displace any pre-existing bid
+     * @dev Bid to fulfil an incoming asset. This will displace any pre-existing bids
      * if the liquidity fee is lower than said bid. This effectively creates a
      * race to the bottom for fees.
      *
@@ -812,11 +827,11 @@ contract TokenGateway is BaseIsmpModule {
     function handleNewContractInstance(PostRequest calldata request) internal {
         if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
-        ContractInstance memory instance = abi.decode(request.body[1:], (ContractInstance));
+        ContractInstance memory newInstance = abi.decode(request.body[1:], (ContractInstance));
 
-        _instances[keccak256(instance.chain)] = instance.moduleId;
+        _instances[keccak256(newInstance.chain)] = newInstance.moduleId;
 
-        emit NewContractInstance({chain: string(instance.chain), moduleId: instance.moduleId});
+        emit NewContractInstance({chain: string(newInstance.chain), moduleId: newInstance.moduleId});
     }
 
     /**

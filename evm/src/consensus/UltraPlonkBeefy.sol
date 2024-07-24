@@ -24,6 +24,8 @@ import "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import "./verifiers/IVerifier.sol";
 import "./Codec.sol";
 
+import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
+
 struct UltraPlonkConsensusProof {
     // Commitment message
     Commitment commitment;
@@ -49,7 +51,7 @@ struct BeefyConsensusProof {
  * @notice Similar to the BeefyV1 client but delegates secp256k1 signature verification
  * and authority set membership proof checks to an ultraplonk circuit.
  */
-contract UltraPlonkBeefy is IConsensusClient {
+contract UltraPlonkBeefy is IConsensusClient, ERC165 {
     using HeaderImpl for Header;
 
     // Slot duration in milliseconds
@@ -94,6 +96,13 @@ contract UltraPlonkBeefy is IConsensusClient {
     constructor(uint256 paraId, IVerifier verifier) {
         _paraId = paraId;
         _verifier = verifier;
+    }
+
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(IConsensusClient).interfaceId || super.supportsInterface(interfaceId);
     }
 
     function verifyConsensus(

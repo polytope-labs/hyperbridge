@@ -50,6 +50,8 @@ contract PostResponseTest is BaseTest {
         PostResponse memory response,
         PostResponseTimeoutMessage memory timeout
     ) public {
+        feeToken.mint(address(this), 1_000_000_000 * 1e18);
+        feeToken.approve(address(testModule), type(uint256).max);
         handler.handleConsensus(host, consensusProof1);
         vm.warp(10);
         handler.handlePostRequests(host, request);
@@ -75,16 +77,16 @@ contract PostResponseTest is BaseTest {
         PostResponse memory response,
         PostResponseTimeoutMessage memory timeout
     ) public {
+        feeToken.mint(address(this), 1_000_000_000 * 1e18);
+        feeToken.approve(address(testModule), type(uint256).max);
         handler.handleConsensus(host, consensusProof1);
         vm.warp(10);
         handler.handlePostRequests(host, request);
         response.timeoutTimestamp -= 10;
-        (bool status, ) = address(testModule).call(abi.encodeCall(testModule.dispatchPostResponse, response));
-        assert(status);
+        testModule.dispatchPostResponse(response);
 
-        (bool ok, ) = address(testModule).call(abi.encodeCall(testModule.dispatchPostResponse, response));
-        // attempting to dispatch duplicate response should fail
-        assert(!ok);
+        vm.expectRevert();
+        testModule.dispatchPostResponse(response);
 
         handler.handleConsensus(host, consensusProof2);
         vm.warp(20);

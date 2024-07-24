@@ -46,6 +46,7 @@ contract BaseTest is Test {
     PingModule internal testModule;
     FeeToken internal feeToken;
     MockUSCDC internal mockUSDC;
+    HostManager internal manager;
     TokenGateway internal gateway;
     ERC20Token stakedToken;
     MiniStaking miniStaking;
@@ -65,7 +66,7 @@ contract BaseTest is Test {
         hyperInu_h = new FeeToken(address(this), "HyperInu", "HINU.h");
         uint256 paraId = 2000;
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
-        HostManager manager = new HostManager(gParams);
+        manager = new HostManager(gParams);
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
         address[] memory fishermen = new address[](0);
@@ -76,7 +77,7 @@ contract BaseTest is Test {
             hostManager: address(manager),
             handler: address(handler),
             defaultTimeout: 0,
-            unStakingPeriod: 5000,
+            unStakingPeriod: 21 * (60 * 60 * 24),
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),

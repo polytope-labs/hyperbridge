@@ -14,13 +14,15 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-struct CallDispatcherParams {
-    // contract to call
-    address target;
-    // target contract calldata
-    bytes data;
-}
-
+/**
+ * @title The ICallDispatcher
+ * @author Polytope Labs (hello@polytope.technology)
+ *
+ * @notice This interface is used to dispatch untrusted call(s)
+ */
 interface ICallDispatcher {
-    function dispatch(CallDispatcherParams[] memory params) external returns (bool success);
+    /*
+     * @dev Dispatch the encoded call(s)
+     */
+    function dispatch(bytes memory params) external;
 }

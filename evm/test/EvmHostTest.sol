@@ -14,14 +14,16 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {BaseTest} from "./BaseTest.sol";
-import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import "forge-std/Test.sol";
 import "../src/hosts/EvmHost.sol";
+
+import {BaseTest} from "./BaseTest.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import {DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 contract EvmHostTest is BaseTest {
+    using Message for PostRequest;
     using Bytes for bytes;
 
     // we should only be able to set consensus state multiple times on testnet
@@ -186,6 +188,65 @@ contract EvmHostTest is BaseTest {
         // someone else can fund your request
         feeToken.mint(address(this), 10 * 1e18);
         host.fundRequest(commitment, 10 * 1e18);
+    }
+
+    function testMinimumMessagingFee() public {
+        bytes memory hyperbridge = host.host();
+        // dispatch request
+        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        host.dispatch(
+            DispatchPost({
+                body: new bytes(0), // empty body
+                payer: msg.sender,
+                fee: 0,
+                dest: hyperbridge,
+                timeout: 0,
+                to: abi.encode(address(this))
+            })
+        );
+
+        feeToken.mint(address(this), host.perByteFee() * 32);
+        bytes32 commitment = host.dispatch(
+            DispatchPost({
+                body: new bytes(0), // empty body
+                payer: msg.sender,
+                fee: 0,
+                dest: hyperbridge,
+                timeout: 0,
+                to: abi.encode(address(this))
+            })
+        );
+        // charges minimum fee
+        assert(host.requestCommitments(commitment).sender == msg.sender);
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: new bytes(0),
+            to: abi.encodePacked(address(manager)),
+            timeoutTimestamp: 0,
+            body: bytes.concat(hex"01", abi.encode(host.hostParams()))
+        });
+        vm.prank(address(handler));
+        host.dispatchIncoming(request, address(this));
+        assert(host.requestReceipts(request.hash()) == address(this));
+
+        feeToken.mint(address(manager), host.perByteFee() * 32);
+        vm.prank(address(manager));
+        feeToken.approve(address(host), type(uint256).max);
+        vm.prank(address(manager));
+        bytes32 resp = host.dispatch(
+            DispatchPostResponse({
+                request: request,
+                response: new bytes(0),
+                fee: 0,
+                timeout: 0,
+                payer: address(manager)
+            })
+        );
+        assert(host.responseCommitments(resp).sender == address(manager));
+        assert(feeToken.balanceOf(address(host)) == host.perByteFee() * 32 * 2);
     }
 
     function testVetoStateCommitment() public {

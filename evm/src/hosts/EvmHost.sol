@@ -18,6 +18,7 @@ import {Context} from "openzeppelin/utils/Context.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {IERC165} from "openzeppelin/utils/introspection/IERC165.sol";
 
 import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import {DispatchPost, DispatchPostResponse, DispatchGet} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
@@ -25,6 +26,8 @@ import {IIsmpHost, FeeMetadata, ResponseReceipt} from "@polytope-labs/ismp-solid
 import {StateCommitment, StateMachineHeight} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "@polytope-labs/ismp-solidity/Message.sol";
+import {IConsensusClient} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 // The EvmHost protocol parameters
@@ -372,10 +375,25 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     error DuplicateResponse();
 
     // Cannot exceed max fishermen count
-    error MaxFishermanCountExceeded(uint256 provided);
+    error MaxFishermanCountExceeded();
 
-    // Host manager address was zero or not a contract
-    error InvalidHostManagerAddress();
+    // Host manager address was zero, not a contract or didn't meet it's required ERC165 interface.
+    error InvalidHostManager();
+
+    // Handler address was zero, not a contract or didn't meet it's required ERC165 interface.
+    error InvalidHandler();
+
+    // Consensus client address was zero, not a contract or didn't meet it's required ERC165 interface.
+    error InvalidConsensusClient();
+
+    // Provided an empty Hyperbridge stateMachineId during host params update
+    error InvalidHyperbridgeId();
+
+    // Provided an empty array of stateMachines during host params update
+    error InvalidStateMachinesLength();
+
+    // Provided an unstaking period less than 24 hours
+    error InvalidUnstakingPeriod();
 
     // Failed to withdraw the native token
     error WithdrawalFailed();
@@ -409,6 +427,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         updateHostParamsInternal(params);
         _consensusUpdateTimestamp = block.timestamp;
     }
+
+    /*
+     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
+     */
+    receive() external payable {}
 
     /**
      * @return the host admin
@@ -478,6 +501,30 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @dev Returns the fee required for 3rd party applications to access hyperbridge state commitments.
+     * @return the `stateCommitmentFee`
+     */
+    function stateCommitmentFee() external view returns (uint256) {
+        return _hostParams.stateCommitmentFee;
+    }
+
+    /**
+     * @dev Returns the fisherman responsible for vetoing the given state machine height.
+     * @return the `fisherman` address
+     */
+    function vetoes(uint256 paraId, uint256 height) external view returns (address) {
+        return _vetoes[paraId][height];
+    }
+
+    /**
+     * @dev Returns the nonce immediately available for requests
+     * @return the `nonce`
+     */
+    function nonce() external view returns (uint256) {
+        return _nonce;
+    }
+
+    /**
      * @notice Charges the stateCommitmentFee to 3rd party applications.
      * If native tokens are provided, will attempt to swap them for the stateCommitmentFee.
      * If not enough native tokens are supplied, will revert.
@@ -496,9 +543,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             uint256 fee = _hostParams.stateCommitmentFee;
             if (msg.value > 0) {
                 address[] memory path = new address[](2);
-                path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+                address uniswapV2 = _hostParams.uniswapV2;
+                path[0] = IUniswapV2Router02(uniswapV2).WETH();
                 path[1] = feeToken();
-                IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                     fee,
                     path,
                     address(this),
@@ -548,6 +596,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function challengePeriod() external view returns (uint256) {
         return _hostParams.challengePeriod;
+    }
+
+    /**
+     * @dev Check the response status for a given request.
+     * @param commitment - commitment to the request
+     * @return `response` status
+     */
+    function responded(bytes32 commitment) external view returns (bool) {
+        return _responded[commitment];
     }
 
     /**
@@ -623,29 +680,61 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params.
      */
     function updateHostParamsInternal(HostParams memory params) internal {
-        // check if the provided host manager is a contract
-        if (params.hostManager == address(0) || address(params.hostManager).code.length == 0) {
-            revert InvalidHostManagerAddress();
+        // check the params to prevent the host from getting bricked.
+        if (
+            params.hostManager == address(0) ||
+            address(params.hostManager).code.length == 0 ||
+            !IERC165(params.hostManager).supportsInterface(type(IIsmpModule).interfaceId)
+        ) {
+            // otherwise cannot process new cross-chain governance requests
+            revert InvalidHostManager();
         }
 
-        // we can only have a maximum of 100 fishermen
+        if (
+            params.handler == address(0) ||
+            address(params.handler).code.length == 0 ||
+            !IERC165(params.handler).supportsInterface(type(IHandler).interfaceId)
+        ) {
+            // otherwise cannot process new datagrams
+            revert InvalidHandler();
+        }
+
+        if (
+            params.consensusClient == address(0) ||
+            address(params.consensusClient).code.length == 0 ||
+            !IERC165(params.consensusClient).supportsInterface(type(IConsensusClient).interfaceId)
+        ) {
+            // otherwise cannot process new datagrams
+            revert InvalidConsensusClient();
+        }
+        uint256 stateMachinesLen = params.stateMachines.length;
         uint256 newFishermenLength = params.fishermen.length;
-        if (newFishermenLength > 100) revert MaxFishermanCountExceeded(newFishermenLength);
 
-        // reset old fishermen
-        uint256 fishermenLength = _hostParams.fishermen.length;
-        for (uint256 i = 0; i < fishermenLength; ++i) {
-            delete _fishermen[_hostParams.fishermen[i]];
-        }
+        // otherwise cannot process new cross-chain governance requests
+        if (keccak256(params.hyperbridge) == keccak256(bytes(""))) revert InvalidHyperbridgeId();
+        // otherwise cannot process new datagrams
+        if (stateMachinesLen == 0) revert InvalidStateMachinesLength();
+        // otherwise cannot process new datagrams
+        if (86400 > params.unStakingPeriod) revert InvalidUnstakingPeriod();
 
-        if (_hostParams.feeToken != address(0) && _hostParams.feeToken != params.feeToken) {
-            uint256 balance = IERC20(_hostParams.feeToken).balanceOf(address(this));
+        // maximum of 100 fishermen
+        if (newFishermenLength > 100) revert MaxFishermanCountExceeded();
+
+        address oldFeeToken = feeToken();
+        if (oldFeeToken != address(0) && oldFeeToken != params.feeToken) {
+            uint256 balance = IERC20(oldFeeToken).balanceOf(address(this));
             if (balance != 0) revert CannotChangeFeeToken();
         }
 
         // safe to emit here because invariants have already been checked
         // and don't want to store a temp variable for the old params
         emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
+
+        // reset old fishermen
+        uint256 fishermenLength = _hostParams.fishermen.length;
+        for (uint256 i = 0; i < fishermenLength; ++i) {
+            delete _fishermen[_hostParams.fishermen[i]];
+        }
 
         _hostParams = params;
 
@@ -655,8 +744,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // add whitelisted state machines
-        uint256 whitelistLength = params.stateMachines.length;
-        for (uint256 i = 0; i < whitelistLength; ++i) {
+        for (uint256 i = 0; i < stateMachinesLen; ++i) {
             // create if it doesn't already exist
             if (_latestStateMachineHeight[params.stateMachines[i]] == 0) {
                 _latestStateMachineHeight[params.stateMachines[i]] = 1;
@@ -670,6 +758,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function withdraw(WithdrawParams memory params) external restrict(_hostParams.hostManager) {
         if (params.native) {
+            // this is safe because re-entrancy is mitigated before dispatching requests
             (bool sent, ) = params.beneficiary.call{value: params.amount}("");
             if (!sent) revert WithdrawalFailed();
         } else {
@@ -970,17 +1059,22 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * If no native tokens are provided then it will try to collect payment from the calling contract in
      * the IIsmpHost.feeToken.
      *
+     * A minimum fee of one word size (32) * _params.perByteFee is enforced, even for empty payloads.
+     *
      * @param post - post request
      * @return commitment - the request commitment
      */
     function dispatch(DispatchPost memory post) external payable notFrozen returns (bytes32 commitment) {
-        uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
+        // minimum charge is the size of one word
+        uint256 length = 32 > post.body.length ? 32 : post.body.length;
+        uint256 fee = (_hostParams.perByteFee * length) + post.fee;
 
         if (msg.value > 0) {
             address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 fee,
                 path,
                 address(this),
@@ -1035,9 +1129,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         if (get.fee != 0) {
             if (msg.value > 0) {
                 address[] memory path = new address[](2);
-                path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+                address uniswapV2 = _hostParams.uniswapV2;
+                path[0] = IUniswapV2Router02(uniswapV2).WETH();
                 path[1] = feeToken();
-                IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                     get.fee,
                     path,
                     address(this),
@@ -1086,16 +1181,22 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * If no native tokens are provided then it will try to collect payment from the calling contract in
      * the IIsmpHost.feeToken.
      *
+     * A minimum fee of one word size (32) * _params.perByteFee is enforced, even for empty payloads.
+     *
      * @param post - post response
      * @return commitment - the request commitment
      */
     function dispatch(DispatchPostResponse memory post) external payable notFrozen returns (bytes32 commitment) {
-        uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
+        // minimum charge is the size of one word
+        uint256 length = 32 > post.response.length ? 32 : post.response.length;
+        uint256 fee = (_hostParams.perByteFee * length) + post.fee;
+
         if (msg.value > 0) {
             address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 fee,
                 path,
                 address(this),
@@ -1166,9 +1267,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function fundRequest(bytes32 commitment, uint256 amount) external payable {
         if (msg.value > 0) {
             address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 amount,
                 path,
                 address(this),
@@ -1206,9 +1308,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function fundResponse(bytes32 commitment, uint256 amount) external payable {
         if (msg.value > 0) {
             address[] memory path = new address[](2);
-            path[0] = IUniswapV2Router02(_hostParams.uniswapV2).WETH();
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
-            IUniswapV2Router02(_hostParams.uniswapV2).swapETHForExactTokens{value: msg.value}(
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
                 amount,
                 path,
                 address(this),
@@ -1226,11 +1329,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         emit PostResponseFunded({commitment: commitment, newFee: metadata.fee});
     }
-
-    /*
-     * @dev receive function for UniswapV2Router02, collects all dust native tokens.
-     */
-    receive() external payable {}
 
     /**
      * @dev Get next available nonce for outgoing requests.

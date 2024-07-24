@@ -41,7 +41,6 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         uint256 messagingFee = 32 * host.perByteFee();
 
         // dispatch request
-        vm.prank(whaleAccount);
         bytes32 commitment = host.dispatch{value: quote(messagingFee)}(
             DispatchPost({
                 body: abi.encodePacked(bytes32(0)),

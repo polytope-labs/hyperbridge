@@ -117,6 +117,36 @@ pub mod beefy {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("supportsInterface"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("supportsInterface"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("interfaceId"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        4usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes4"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bool"),
+                                    ),
+                                },
+                            ],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                        },
+                    ],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("verifyConsensus"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
@@ -520,6 +550,15 @@ pub mod beefy {
 		) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::U256> {
 			self.0
 				.method_hash([144, 92, 5, 17], ())
+				.expect("method not found (this should never happen)")
+		}
+		///Calls the contract's `supportsInterface` (0x01ffc9a7) function
+		pub fn supports_interface(
+			&self,
+			interface_id: [u8; 4],
+		) -> ::ethers::contract::builders::ContractCall<M, bool> {
+			self.0
+				.method_hash([1, 255, 201, 167], interface_id)
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `verifyConsensus` (0x5e399aea) function
@@ -929,6 +968,22 @@ pub mod beefy {
 	)]
 	#[ethcall(name = "SLOT_DURATION", abi = "SLOT_DURATION()")]
 	pub struct SlotDurationCall;
+	///Container type for all input parameters for the `supportsInterface` function with signature
+	/// `supportsInterface(bytes4)` and selector `0x01ffc9a7`
+	#[derive(
+		Clone,
+		::ethers::contract::EthCall,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[ethcall(name = "supportsInterface", abi = "supportsInterface(bytes4)")]
+	pub struct SupportsInterfaceCall {
+		pub interface_id: [u8; 4],
+	}
 	///Container type for all input parameters for the `verifyConsensus` function with signature
 	/// `verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),
 	/// (((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,
@@ -976,6 +1031,7 @@ pub mod beefy {
 		IsmpConsensusId(IsmpConsensusIdCall),
 		MmrRootPayloadId(MmrRootPayloadIdCall),
 		SlotDuration(SlotDurationCall),
+		SupportsInterface(SupportsInterfaceCall),
 		VerifyConsensus(VerifyConsensusCall),
 		VerifyConsensusWithEncodedStateAndEncodedProof(
 			VerifyConsensusWithEncodedStateAndEncodedProofCall,
@@ -1006,6 +1062,11 @@ pub mod beefy {
 				return Ok(Self::SlotDuration(decoded));
 			}
 			if let Ok(decoded) =
+				<SupportsInterfaceCall as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::SupportsInterface(decoded));
+			}
+			if let Ok(decoded) =
 				<VerifyConsensusCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
 				return Ok(Self::VerifyConsensus(decoded));
@@ -1025,6 +1086,7 @@ pub mod beefy {
 				Self::IsmpConsensusId(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::MmrRootPayloadId(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::SlotDuration(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::SupportsInterface(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::VerifyConsensus(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::VerifyConsensusWithEncodedStateAndEncodedProof(element) =>
 					::ethers::core::abi::AbiEncode::encode(element),
@@ -1038,6 +1100,7 @@ pub mod beefy {
 				Self::IsmpConsensusId(element) => ::core::fmt::Display::fmt(element, f),
 				Self::MmrRootPayloadId(element) => ::core::fmt::Display::fmt(element, f),
 				Self::SlotDuration(element) => ::core::fmt::Display::fmt(element, f),
+				Self::SupportsInterface(element) => ::core::fmt::Display::fmt(element, f),
 				Self::VerifyConsensus(element) => ::core::fmt::Display::fmt(element, f),
 				Self::VerifyConsensusWithEncodedStateAndEncodedProof(element) =>
 					::core::fmt::Display::fmt(element, f),
@@ -1062,6 +1125,11 @@ pub mod beefy {
 	impl ::core::convert::From<SlotDurationCall> for BeefyCalls {
 		fn from(value: SlotDurationCall) -> Self {
 			Self::SlotDuration(value)
+		}
+	}
+	impl ::core::convert::From<SupportsInterfaceCall> for BeefyCalls {
+		fn from(value: SupportsInterfaceCall) -> Self {
+			Self::SupportsInterface(value)
 		}
 	}
 	impl ::core::convert::From<VerifyConsensusCall> for BeefyCalls {
@@ -1126,6 +1194,19 @@ pub mod beefy {
 		Hash,
 	)]
 	pub struct SlotDurationReturn(pub ::ethers::core::types::U256);
+	///Container type for all return fields from the `supportsInterface` function with signature
+	/// `supportsInterface(bytes4)` and selector `0x01ffc9a7`
+	#[derive(
+		Clone,
+		::ethers::contract::EthAbiType,
+		::ethers::contract::EthAbiCodec,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	pub struct SupportsInterfaceReturn(pub bool);
 	///Container type for all return fields from the `verifyConsensus` function with signature
 	/// `verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),
 	/// (((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,

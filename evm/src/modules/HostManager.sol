@@ -18,10 +18,11 @@ import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "@polytope-labs/ismp-solidity/Message.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
-import {BaseIsmpModule, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import {BaseIsmpModule, IncomingPostRequest, IIsmpModule} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+
+import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
 
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
-import {ICallDispatcher, CallDispatcherParams} from "../interfaces/ICallDispatcher.sol";
 
 /// Host manager params
 struct HostManagerParams {
@@ -38,7 +39,7 @@ struct HostManagerParams {
  * @notice Allows cross-chain governance actions
  * for updating the ISMP Host parameters or withdrawing bridge revenue.
  */
-contract HostManager is BaseIsmpModule {
+contract HostManager is BaseIsmpModule, ERC165 {
     using Bytes for bytes;
 
     enum OnAcceptActions {
@@ -60,6 +61,18 @@ contract HostManager is BaseIsmpModule {
 
     constructor(HostManagerParams memory managerParams) {
         _params = managerParams;
+    }
+
+    /*
+     * @dev fallback function for tests. Do not send any tokens directly to this contract.
+     */
+    receive() external payable {}
+
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(IIsmpModule).interfaceId || super.supportsInterface(interfaceId);
     }
 
     // Getter method for reading the host manager's params
@@ -91,9 +104,4 @@ contract HostManager is BaseIsmpModule {
             revert("Unknown action");
         }
     }
-
-    /*
-     * @dev Do not send tokens to this contract, they cannot be recovered.
-     */
-    receive() external payable {}
 }

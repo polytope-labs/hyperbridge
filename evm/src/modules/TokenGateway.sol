@@ -181,7 +181,7 @@ struct LiquidityBid {
  *
  * @notice Allows users send either ERC20 or ERC6160 tokens using Hyperbridge as a message-passing layer.
  *
- * @dev If ERC20 tokens are sent then fillers step in to provide the ERC20 token on the destination chain.
+ * @dev If ERC20 tokens are sent then fillers bid to provide the ERC20 token on the destination chain.
  * Otherwise if ERC6160 tokens are sent, then it simply performs a burn-and-mint.
  */
 contract TokenGateway is BaseIsmpModule {

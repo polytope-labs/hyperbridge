@@ -434,8 +434,7 @@ contract TokenGateway is BaseIsmpModule {
 
     /**
      * @dev Teleports a local ERC20/ERC6160 asset to the destination chain. Allows users to pay
-     * the Hyperbridge fees in any ERC20 token that can be swapped for the swapped for the
-     * `IIsmpHost.feeToken` using the local UniswapV2 router.
+     * the Hyperbridge fees in the native token or `IIsmpHost.feeToken`
      *
      * @notice If a request times out, users can request a refund permissionlessly through
      * `HandlerV1.handlePostRequestTimeouts`.
@@ -626,6 +625,10 @@ contract TokenGateway is BaseIsmpModule {
         emit BidRefunded({commitment: commitment, assetId: body.assetId, bidder: msg.sender});
     }
 
+    
+    /**
+     * @dev Entry point for all cross-chain messages.
+     */
     function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
         OnAcceptActions action = OnAcceptActions(uint8(incoming.request.body[0]));
 

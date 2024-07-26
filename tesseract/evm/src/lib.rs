@@ -59,6 +59,7 @@ pub struct EvmConfig {
 	/// RPC urls for the execution client
 	pub rpc_urls: Vec<String>,
 	/// State machine Identifier for this client on it's counterparties.
+	#[serde(with = "serde_utils::as_string")]
 	pub state_machine: StateMachine,
 	/// Consensus state id for the consensus client on counterparty chain
 	pub consensus_state_id: String,

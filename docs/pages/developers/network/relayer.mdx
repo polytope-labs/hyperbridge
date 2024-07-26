@@ -155,7 +155,7 @@ The configuration file is a toml file that at the moment, that expects the follo
 ```toml
 # Hyperbridge config, required
 [hyperbridge]
-state_machine = { Kusama = 4009 }
+state_machine = "KUSAMA-4009"
 # Hyperbridge node ws rpc endpoint.
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 # Sets the maximum size of an rpc request or response in bytes defaults to 150mb
@@ -176,11 +176,11 @@ minimum_withdrawal_amount = 100
 unprofitable_retry_frequency = 600
 # (Optional) If not empty, tesseract will only deliver requests to the specified state-machines
 delivery_endpoints = [
-    { Ethereum = "ExecutionLayer" },
-    { Ethereum = "Arbitrum" },
-    { Ethereum = "Optimism" },
-    { Ethereum = "Base" },
-    "Bsc"
+    "ETH-EXEC",
+    "ETH-ARBI",
+    "ETH-OPTI",
+    "ETH-BASE",
+    "BSC"
 ]
 
 # Here you'll declare a new chain entry for every chain you want to support.
@@ -189,12 +189,12 @@ delivery_endpoints = [
 # configuration type can be either "evm" or "substrate"
 type = "evm"
 # State machine identifier for the this evm chain. The possible values:
-# state_machine = { Ethereum = "ExecutionLayer" } # Ethereum L1
-# state_machine = { Ethereum = "Arbitrum" }
-# state_machine = { Ethereum = "Optimism" }
-# state_machine = { Ethereum = "Base" }
-# state_machine = "Bsc" # Binance smart chain
-state_machine = { Ethereum = "ExecutionLayer" }
+# state_machine = "ETH-EXEC" # Ethereum L1
+# state_machine = "ETH-ARBI" # Arbitrum
+# state_machine = "ETH-OPTI" # Optimism
+# state_machine = "ETH-BASE" # Base
+# state_machine = "BSC" # Binance smart chain
+state_machine = "ETH-EXEC"
 # http(s) rpc urls for evm based chains
 # Multiple rpc endpoints supported for increased reliability
 rpc_urls = ["http://127.0.0.1:8545", ""]
@@ -236,15 +236,15 @@ gas_price_buffer = 1
 # client_type = Geth
 # client_type = Erigon
 # If this field is not set, the default is Geth
-client_type = "Erigon"
+client_type = "Geth"
 
 [substrate]
 type = "substrate"
 # The state machine identifier for this substrate based chain.
 # must be one of:
-# - { Polkadot = paraId }
-# - { Kusama = paraId }
-state_machine = { Kusama = 4009 }
+# - "POLKADOT-{paraId}"
+# - "KUSAMA-{paraId}"
+state_machine = "KUSAMA-4009"
 # substrate node ws(s) rpc endpoint.
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 # Configures the maximum size of an rpc request/response in bytes

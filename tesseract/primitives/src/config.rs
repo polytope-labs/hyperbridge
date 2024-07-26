@@ -15,7 +15,6 @@
 
 //! Relayer configuration options
 
-use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 
 /// Configuration options for the relayer.
@@ -33,7 +32,7 @@ pub struct RelayerConfig {
 	/// If this is value not supplied retries will not be enabled
 	pub unprofitable_retry_frequency: Option<u64>,
 	/// Delivery endpoints: chains you intend to deliver messages to
-	pub delivery_endpoints: Vec<StateMachine>,
+	pub delivery_endpoints: Vec<String>,
 	/// Flag to tell the messsaging process to deliver failed transactions
 	pub deliver_failed: Option<bool>,
 }

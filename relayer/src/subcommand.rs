@@ -21,6 +21,7 @@ pub enum Subcommand {
 	subcommand_negates_reqs = true
 )]
 pub struct SetConsensusState {
+    /// State Machine whose consensus state should be generated
 	state_machine: String,
 }
 

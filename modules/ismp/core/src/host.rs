@@ -373,6 +373,15 @@ impl FromStr for StateMachine {
 				id.copy_from_slice(name.as_bytes());
 				StateMachine::Beefy(id)
 			},
+			name if name.starts_with("TNDRMINT-") => {
+				let name = name
+					.split('-')
+					.last()
+					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				let mut id = [0u8; 4];
+				id.copy_from_slice(name.as_bytes());
+				StateMachine::Tendermint(id)
+			},
 			"POLY" => StateMachine::Polygon,
 			"BSC" => StateMachine::Bsc,
 			name => Err(format!("Unknown state machine: {name}"))?,

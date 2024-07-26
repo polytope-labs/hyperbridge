@@ -65,9 +65,8 @@ impl ConsensusClient for MockClient {
 
 	fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match _id {
-			StateMachine::Ethereum(ethereum::EXECUTION_LAYER) => {
-				Ok(Box::new(MockStateMachineClient))
-			},
+			StateMachine::Ethereum(ethereum::EXECUTION_LAYER) =>
+				Ok(Box::new(MockStateMachineClient)),
 			_ => Err(Error::Custom("Invalid state machine".to_string())),
 		}
 	}

@@ -31,6 +31,7 @@ subxt-utils = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 substrate-state-machine = { workspace = true, default-features = true }
 pallet-hyperbridge = { workspace = true, default-features = true }
+serde-utils = { workspace = true, default-features = false }
 
 [features]
 testing = []

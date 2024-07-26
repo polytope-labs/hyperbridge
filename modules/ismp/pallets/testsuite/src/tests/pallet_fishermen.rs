@@ -19,7 +19,7 @@ use crate::runtime::{new_test_ext, Ismp, RuntimeOrigin, Test};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	error::Error,
-	host::{Ethereum, IsmpHost, StateMachine},
+	host::{ethereum, IsmpHost, StateMachine},
 };
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::{DispatchError, ModuleError};
@@ -47,7 +47,7 @@ fn test_can_veto_state_commitments() {
 		let host = Ismp::default();
 		let height = StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Ethereum(Ethereum::Optimism),
+				state_id: StateMachine::Ethereum(ethereum::OPTIMISM),
 				consensus_state_id: *b"ETH0",
 			},
 			height: 225,

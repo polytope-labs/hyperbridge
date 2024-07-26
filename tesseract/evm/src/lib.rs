@@ -11,7 +11,7 @@ use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
 	consensus::ConsensusStateId,
 	events::Event,
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 };
 
 use evm_common::presets::{
@@ -98,7 +98,7 @@ impl Default for EvmConfig {
 	fn default() -> Self {
 		Self {
 			rpc_urls: Default::default(),
-			state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			state_machine: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			consensus_state_id: Default::default(),
 			ismp_host: Default::default(),
 			signer: Default::default(),

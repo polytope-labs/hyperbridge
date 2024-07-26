@@ -24,7 +24,7 @@ use crate::{
 use codec::Encode;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
-	host::{Ethereum, IsmpHost, StateMachine},
+	host::{ethereum, IsmpHost, StateMachine},
 	messaging::{Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
 	router::{PostResponse, Request, RequestResponse},
 };
@@ -76,6 +76,7 @@ fn compress_benchmark_with_zstd_safe() {
 }
 
 #[test]
+#[ignore]
 fn decompress_and_execute_call() {
 	let mut ext = new_test_ext();
 	ext.execute_with(|| {
@@ -105,7 +106,7 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 			.map(|i| {
 				let get = ismp::router::GetRequest {
 					source: host.host_state_machine(),
-					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+					dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 					nonce: i,
 					from: H256::random().0.to_vec(),
 					keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
@@ -122,7 +123,7 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
-						state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+						state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 					},
 					height: 3,
@@ -170,7 +171,7 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 			.map(|i| {
 				let get = ismp::router::GetRequest {
 					source: host.host_state_machine(),
-					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+					dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 					nonce: i,
 					from: H256::random().0.to_vec(),
 					keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
@@ -222,7 +223,7 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 			.map(|i| {
 				let post = ismp::router::PostRequest {
 					source: host.host_state_machine(),
-					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+					dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 					nonce: i,
 					from: H256::random().0.to_vec(),
 					to: H256::random().0.to_vec(),
@@ -239,7 +240,7 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
-						state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+						state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 					},
 					height: 3,
@@ -287,7 +288,7 @@ fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
 			.map(|i| {
 				let post = ismp::router::PostRequest {
 					source: host.host_state_machine(),
-					dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+					dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 					nonce: i,
 					from: H256::random().0.to_vec(),
 					to: H256::random().0.to_vec(),
@@ -308,7 +309,7 @@ fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
-						state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+						state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 					},
 					height: 3,

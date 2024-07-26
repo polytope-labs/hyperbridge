@@ -24,7 +24,7 @@ use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	error::Error,
 	handlers::handle_incoming_message,
-	host::{Ethereum, IsmpHost, StateMachine},
+	host::{IsmpHost, StateMachine},
 	messaging::{
 		hash_post_response, hash_request, ConsensusMessage, FraudProofMessage, Message, Proof,
 		RequestMessage, ResponseMessage, TimeoutMessage,
@@ -50,7 +50,7 @@ fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
 	let intermediate_state = IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+				state_id: StateMachine::Ethereum(*b"EXEC"),
 				consensus_state_id: mock_consensus_state_id(),
 			},
 			height: 1,
@@ -470,7 +470,7 @@ where
 /// The State machine for the proxy is assumed in this test to be ``StateMachine::Kusama(2000);``
 /// the State machine for the host is assumed in this test to be ``StateMachine::Polkadot(1000)``
 /// The destination state machine for the test is assumed to be
-/// ``StateMachine::Ethereum(Ethereum::ExecutionLayer)``
+/// ``StateMachine::Ethereum(*b"EXEC")``
 pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 	direct_conn_state_machine: StateMachine,
 ) -> Result<(), &'static str> {

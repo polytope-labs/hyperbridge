@@ -17,7 +17,7 @@
 use std::str::FromStr;
 
 use ismp::{
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	router::{PostResponse, Request},
 };
 use substrate_state_machine::HashAlgorithm;
@@ -83,7 +83,7 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 
 	let dest_chain = EvmConfig {
 		rpc_url: "https://optimism-sepolia.blockpi.network/v1/rpc/public".to_string(),
-		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
+		state_machine: StateMachine::Ethereum(ethereum::OPTIMISM),
 		host_address: Default::default(),
 		consensus_state_id: *b"ETH0",
 	};
@@ -161,7 +161,7 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 
 	let dest_chain = EvmConfig {
 		rpc_url: "https://optimism-sepolia.blockpi.network/v1/rpc/public".to_string(),
-		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
+		state_machine: StateMachine::Ethereum(ethereum::OPTIMISM),
 		host_address: Default::default(),
 		consensus_state_id: *b"ETH0",
 	};

@@ -51,8 +51,9 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
+		consensus::ConsensusStateId,
 		dispatcher::{DispatchGet, DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
-		host::{Ethereum, StateMachine},
+		host::StateMachine,
 	};
 
 	#[pallet::pallet]
@@ -292,7 +293,7 @@ pub mod pallet {
 		pub module: H160,
 
 		/// Destination EVM host
-		pub destination: Ethereum,
+		pub destination: ConsensusStateId,
 
 		/// Timeout timestamp on destination chain in seconds
 		pub timeout: u64,

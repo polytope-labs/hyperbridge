@@ -8,7 +8,7 @@ use crate::{
 use alloy_sol_types::SolValue;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
 use ismp::{
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	module::IsmpModule,
 	router::{PostRequest, Request, Timeout},
 };
@@ -263,7 +263,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 		};
 		let post = PostRequest {
 			source: StateMachine::Kusama(100),
-			dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			nonce: 0,
 			from: H160::zero().0.to_vec(),
 			to: H160::zero().0.to_vec(),

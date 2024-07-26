@@ -158,7 +158,7 @@ This rpc method accepts a state machine id and returns the latest height of a st
 		.await.unwrap();
    let consensus_state_id = *b"ETH0";
    let state_machine_id = StateMachineId {
-	state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+	state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 	consensus_state_id
    };
    let params = rpc_params![state_machine_id];

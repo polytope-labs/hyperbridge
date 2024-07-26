@@ -27,7 +27,7 @@ use ismp::{
 		VerifiedCommitments,
 	},
 	error::Error,
-	host::{Ethereum, IsmpHost, StateMachine},
+	host::{ethereum, IsmpHost, StateMachine},
 	messaging::{Proof, StateCommitmentHeight},
 	router::RequestResponse,
 };
@@ -76,7 +76,7 @@ impl<
 
 		let state_root = consensus_update.execution_payload.state_root;
 		let intermediate_state = construct_intermediate_state(
-			StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			consensus_state_id.clone(),
 			consensus_update.execution_payload.block_number,
 			consensus_update.execution_payload.timestamp,
@@ -92,7 +92,7 @@ impl<
 		state_commitment_vec.push(ethereum_state_commitment_height);
 
 		state_machine_map
-			.insert(StateMachine::Ethereum(Ethereum::ExecutionLayer), state_commitment_vec);
+			.insert(StateMachine::Ethereum(ethereum::EXECUTION_LAYER), state_commitment_vec);
 
 		let l2_consensus = consensus_state.l2_consensus.clone();
 

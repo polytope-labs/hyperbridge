@@ -13,7 +13,7 @@ use ethers::{
 	types::{TransactionReceipt, TransactionRequest},
 };
 use ismp::{
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	messaging::{Message, ResponseMessage},
 	router::{RequestResponse, Response},
 };
@@ -384,10 +384,9 @@ pub async fn generate_contract_calls(
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
-		StateMachine::Ethereum(Ethereum::ExecutionLayer) => 20_000_000,
-		StateMachine::Ethereum(Ethereum::Arbitrum) => 32_000_000,
-		StateMachine::Ethereum(Ethereum::Optimism) => 20_000_000,
-		StateMachine::Ethereum(Ethereum::Base) => 20_000_000,
+		StateMachine::Ethereum(ethereum::EXECUTION_LAYER) => 20_000_000,
+		StateMachine::Ethereum(ethereum::ARBITRUM) => 32_000_000,
+		StateMachine::Ethereum(_any) => 20_000_000,
 		StateMachine::Polygon => 20_000_000,
 		StateMachine::Bsc => 20_000_000,
 		_ => Default::default(),

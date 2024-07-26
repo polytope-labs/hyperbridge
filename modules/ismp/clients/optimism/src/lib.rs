@@ -30,7 +30,7 @@ use ismp::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
-	host::{Ethereum, IsmpHost, StateMachine},
+	host::{ethereum, IsmpHost, StateMachine},
 	messaging::Keccak256,
 };
 
@@ -141,7 +141,7 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
 	Ok(IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Ethereum(Ethereum::Optimism),
+				state_id: StateMachine::Ethereum(ethereum::OPTIMISM),
 				consensus_state_id,
 			},
 			height: payload.block_number,
@@ -274,7 +274,7 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
 	Ok(IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Ethereum(Ethereum::Optimism),
+				state_id: StateMachine::Ethereum(ethereum::OPTIMISM),
 				consensus_state_id,
 			},
 			height: payload.header.number.low_u64(),

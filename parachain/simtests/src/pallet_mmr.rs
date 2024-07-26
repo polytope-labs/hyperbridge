@@ -3,6 +3,7 @@
 use std::{env, time::Duration};
 
 use codec::Decode;
+use ismp::host::ethereum;
 use merkle_mountain_range::MerkleProof;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
@@ -19,9 +20,7 @@ use mmr_primitives::{DataOrHash, FullLeaf};
 use pallet_ismp::mmr::{Leaf, ProofKeys};
 use pallet_mmr::mmr::Hasher as MmrHasher;
 use subxt_utils::{
-	gargantua,
-	gargantua::api::runtime_types::{ismp::host::Ethereum, pallet_ismp_demo::pallet::EvmParams},
-	Hyperbridge,
+	gargantua, gargantua::api::runtime_types::pallet_ismp_demo::pallet::EvmParams, Hyperbridge,
 };
 
 #[tokio::test]
@@ -48,7 +47,7 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 		// Initialize MMR Pallet by dispatching some leaves and finalizing
 		let params = EvmParams {
 			module: H160::random(),
-			destination: Ethereum::ExecutionLayer,
+			destination: ethereum::EXECUTION_LAYER,
 			timeout: 0,
 			count: 10_000,
 		};
@@ -118,7 +117,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	// Initialize MMR Pallet by dispatching some leaves and finalizing
 	let params = EvmParams {
 		module: H160::random(),
-		destination: Ethereum::ExecutionLayer,
+		destination: ethereum::EXECUTION_LAYER,
 		timeout: 0,
 		count: 10,
 	};
@@ -195,7 +194,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		for _ in 0..3 {
 			let params = EvmParams {
 				module: H160::random(),
-				destination: Ethereum::ExecutionLayer,
+				destination: ethereum::EXECUTION_LAYER,
 				timeout: 0,
 				count: 10,
 			};
@@ -256,7 +255,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		for i in 0..accounts.len() {
 			let params = EvmParams {
 				module: H160::random(),
-				destination: Ethereum::Arbitrum,
+				destination: ethereum::ARBITRUM,
 				timeout: 0,
 				count: 10,
 			};

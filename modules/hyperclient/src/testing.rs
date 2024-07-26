@@ -40,7 +40,7 @@ use futures::StreamExt;
 use hex_literal::hex;
 use ismp::{
 	consensus::StateMachineId,
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	router,
 };
 use ismp_solidity_abi::{
@@ -72,7 +72,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 
 	let dest_chain = EvmConfig {
 		rpc_url: op_url,
-		state_machine: StateMachine::Ethereum(Ethereum::Optimism),
+		state_machine: StateMachine::Ethereum(ethereum::OPTIMISM),
 		host_address: OP_HOST,
 		consensus_state_id: *b"ETH0",
 	};
@@ -170,7 +170,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 
 	let dest_chain = EvmConfig {
 		rpc_url: sepolia_url,
-		state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+		state_machine: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 		host_address: SEPOLIA_HOST,
 		consensus_state_id: *b"ETH0",
 	};

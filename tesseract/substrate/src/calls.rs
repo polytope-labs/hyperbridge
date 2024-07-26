@@ -194,6 +194,7 @@ where
 							// abi encoding will pad address with 12 bytes
 							address.ends_with(&counterparty.address()) && condition
 						},
+						StateMachine::Tendermint(_) => false,
 					}
 				},
 				_ => false,

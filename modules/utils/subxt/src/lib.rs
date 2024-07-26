@@ -24,7 +24,7 @@ mod gargantua_conversion {
 	use super::gargantua::api::runtime_types;
 	use ismp::{
 		consensus::{StateCommitment, StateMachineHeight, StateMachineId},
-		host::{Ethereum, StateMachine},
+		host::StateMachine,
 	};
 	use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 
@@ -59,24 +59,7 @@ mod gargantua_conversion {
 	impl From<runtime_types::ismp::host::StateMachine> for StateMachine {
 		fn from(state_machine_id: runtime_types::ismp::host::StateMachine) -> Self {
 			match state_machine_id {
-				runtime_types::ismp::host::StateMachine::Ethereum(ethereum) => match ethereum {
-					runtime_types::ismp::host::Ethereum::ExecutionLayer =>
-						StateMachine::Ethereum(Ethereum::ExecutionLayer),
-					runtime_types::ismp::host::Ethereum::Optimism =>
-						StateMachine::Ethereum(Ethereum::Optimism),
-					runtime_types::ismp::host::Ethereum::Arbitrum =>
-						StateMachine::Ethereum(Ethereum::Arbitrum),
-					runtime_types::ismp::host::Ethereum::Base =>
-						StateMachine::Ethereum(Ethereum::Base),
-					runtime_types::ismp::host::Ethereum::Blast =>
-						StateMachine::Ethereum(Ethereum::Blast),
-					runtime_types::ismp::host::Ethereum::Mantle =>
-						StateMachine::Ethereum(Ethereum::Mantle),
-					runtime_types::ismp::host::Ethereum::Manta =>
-						StateMachine::Ethereum(Ethereum::Manta),
-					runtime_types::ismp::host::Ethereum::Bob =>
-						StateMachine::Ethereum(Ethereum::Bob),
-				},
+				runtime_types::ismp::host::StateMachine::Ethereum(id) => StateMachine::Ethereum(id),
 				runtime_types::ismp::host::StateMachine::Polkadot(id) => StateMachine::Polkadot(id),
 				runtime_types::ismp::host::StateMachine::Kusama(id) => StateMachine::Kusama(id),
 				runtime_types::ismp::host::StateMachine::Grandpa(consensus_state_id) =>
@@ -85,6 +68,8 @@ mod gargantua_conversion {
 					StateMachine::Beefy(consensus_state_id),
 				runtime_types::ismp::host::StateMachine::Polygon => StateMachine::Polygon,
 				runtime_types::ismp::host::StateMachine::Bsc => StateMachine::Bsc,
+				runtime_types::ismp::host::StateMachine::Tendermint(id) =>
+					StateMachine::Tendermint(id),
 			}
 		}
 	}
@@ -110,41 +95,17 @@ mod gargantua_conversion {
 	impl From<StateMachine> for runtime_types::ismp::host::StateMachine {
 		fn from(state_machine_id: StateMachine) -> Self {
 			match state_machine_id {
-				StateMachine::Ethereum(ethereum) => match ethereum {
-					Ethereum::ExecutionLayer => runtime_types::ismp::host::StateMachine::Ethereum(
-						runtime_types::ismp::host::Ethereum::ExecutionLayer,
-					),
-					Ethereum::Optimism => runtime_types::ismp::host::StateMachine::Ethereum(
-						runtime_types::ismp::host::Ethereum::Optimism,
-					),
-					Ethereum::Arbitrum => runtime_types::ismp::host::StateMachine::Ethereum(
-						runtime_types::ismp::host::Ethereum::Arbitrum,
-					),
-					Ethereum::Base => runtime_types::ismp::host::StateMachine::Ethereum(
-						runtime_types::ismp::host::Ethereum::Base,
-					),
-					Ethereum::Blast => runtime_types::ismp::host::StateMachine::Ethereum(
-						runtime_types::ismp::host::Ethereum::Blast,
-					),
-					Ethereum::Mantle => runtime_types::ismp::host::StateMachine::Ethereum(
-						runtime_types::ismp::host::Ethereum::Mantle,
-					),
-					Ethereum::Manta => runtime_types::ismp::host::StateMachine::Ethereum(
-						runtime_types::ismp::host::Ethereum::Manta,
-					),
-					Ethereum::Bob => runtime_types::ismp::host::StateMachine::Ethereum(
-						runtime_types::ismp::host::Ethereum::Bob,
-					),
-				},
+				StateMachine::Ethereum(id) => runtime_types::ismp::host::StateMachine::Ethereum(id),
 				StateMachine::Polkadot(id) => runtime_types::ismp::host::StateMachine::Polkadot(id),
 				StateMachine::Kusama(id) => runtime_types::ismp::host::StateMachine::Kusama(id),
 				StateMachine::Grandpa(consensus_state_id) =>
 					runtime_types::ismp::host::StateMachine::Grandpa(consensus_state_id),
 				StateMachine::Beefy(consensus_state_id) =>
 					runtime_types::ismp::host::StateMachine::Beefy(consensus_state_id),
-
 				StateMachine::Polygon => runtime_types::ismp::host::StateMachine::Polygon,
 				StateMachine::Bsc => runtime_types::ismp::host::StateMachine::Bsc,
+				StateMachine::Tendermint(id) =>
+					runtime_types::ismp::host::StateMachine::Tendermint(id),
 			}
 		}
 	}

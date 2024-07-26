@@ -65,7 +65,7 @@ where
 			// If block header is not found and node is fully synced, veto the state commitment
 			if !is_syncing {
 				log::info!(
-					"Vetoing state commitment for {:?} on {:?}",
+					"Vetoing state commitment for {} on {}",
 					self.client.state_machine_id().state_id,
 					counterparty.state_machine_id().state_id
 				);
@@ -90,7 +90,7 @@ where
 
 		if finalized_state_commitment.state_root != header.state_root.into() {
 			log::info!(
-				"Vetoing state commitment for {:?} on {:?}",
+				"Vetoing state commitment for {} on {}",
 				self.client.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id
 			);

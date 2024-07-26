@@ -47,7 +47,7 @@ impl ByzantineHandler for BscPosHost {
 			// If block header is not found and node is fully synced, veto the state commitment
 			if !sync_status {
 				log::info!(
-					"Vetoing State Machine Update for {:?} on {:?}",
+					"Vetoing State Machine Update for {} on {}",
 					self.state_machine,
 					counterparty.state_machine_id().state_id
 				);
@@ -61,7 +61,7 @@ impl ByzantineHandler for BscPosHost {
 		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
 		if header.state_root != state_machine_commitment.state_root {
 			log::info!(
-				"Vetoing State Machine Update for {:?} on {:?}",
+				"Vetoing State Machine Update for {} on {}",
 				self.state_machine,
 				counterparty.state_machine_id().state_id
 			);

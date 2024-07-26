@@ -73,7 +73,7 @@ impl Cli {
 		if let Some(ref state_machine_str) = self.base {
 			let state_machine = StateMachine::from_str(state_machine_str.as_str())
 				.map_err(|err| anyhow!("{err}"))?;
-			log::info!("Setting base consensus state from base state machine: {state_machine:?}");
+			log::info!("Setting base consensus state from base state machine: {state_machine}");
 			let client = clients.get(&state_machine).ok_or_else(|| anyhow!("Client not found"))?;
 			let consensus_state_bytes =
 				client.provider().query_consensus_state(None, *b"PARA").await?;
@@ -162,9 +162,9 @@ async fn initialize_consensus_clients(
 		// write this consensus state to redis
 		for (state_machine, chain) in chains {
 			let provider = chain.provider();
-			log::info!("setting consensus state on {state_machine:?}");
+			log::info!("setting consensus state on {state_machine}");
 			if let Err(err) = provider.set_initial_consensus_state(initial_state.clone()).await {
-				log::error!("Failed to set initial consensus state on {state_machine:?}: {err:?}")
+				log::error!("Failed to set initial consensus state on {state_machine}: {err:?}")
 			}
 		}
 	}
@@ -173,7 +173,7 @@ async fn initialize_consensus_clients(
 		let mut params = BTreeMap::new();
 		for (state_machine, client) in chains {
 			let provider = client.provider();
-			log::info!("setting consensus state for {state_machine:?} on hyperbridge");
+			log::info!("setting consensus state for {state_machine} on hyperbridge");
 			let host_param = provider.query_host_params(*state_machine).await?;
 			params.insert(*state_machine, host_param);
 			if let Some(mut consensus_state) = client.query_initial_consensus_state().await? {

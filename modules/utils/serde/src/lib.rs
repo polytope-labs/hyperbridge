@@ -317,10 +317,10 @@ mod test {
 	fn serialize_state_machine_id() {
 		use ismp::{
 			consensus::StateMachineId,
-			host::{Ethereum, StateMachine},
+			host::{ethereum, StateMachine},
 		};
 		let state_machine_updated = StateMachineId {
-			state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			consensus_state_id: *b"ETH0",
 		};
 		let serialized = serde_json::to_string(&state_machine_updated).unwrap();

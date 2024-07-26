@@ -511,6 +511,8 @@ where
 					StateMachine::Kusama(_) |
 					StateMachine::Grandpa(_) |
 					StateMachine::Beefy(_) => keys.push(RequestCommitments::<T>::storage_key(*commitment)),
+					// unsupported
+					StateMachine::Tendermint(_) => {},
 				},
 				Key::Response { response_commitment, .. } => {
 					match proof.source_proof.height.id.state_id {
@@ -529,6 +531,8 @@ where
 						StateMachine::Grandpa(_) |
 						StateMachine::Beefy(_) =>
 							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment)),
+						// unsupported
+						StateMachine::Tendermint(_) => {},
 					}
 				},
 			}
@@ -558,6 +562,8 @@ where
 					StateMachine::Polkadot(_) => keys.push(
 						pallet_ismp::child_trie::RequestReceipts::<T>::storage_key(*commitment),
 					),
+					// unsupported
+					StateMachine::Tendermint(_) => {},
 				},
 				Key::Response { request_commitment, .. } => {
 					match proof.dest_proof.height.id.state_id {
@@ -578,6 +584,8 @@ where
 							keys.push(pallet_ismp::child_trie::ResponseReceipts::<T>::storage_key(
 								*request_commitment,
 							)),
+						// unsupported
+						StateMachine::Tendermint(_) => {},
 					}
 				},
 			}
@@ -635,6 +643,8 @@ where
 									.into();
 								U256::from(fee)
 							},
+							// unsupported
+							StateMachine::Tendermint(_) => Err(Error::<T>::MismatchedStateMachine)?,
 						}
 					};
 					let encoded_receipt = dest_result
@@ -661,6 +671,8 @@ where
 								<Vec<u8>>::decode(&mut &*encoded_receipt)
 									.map_err(|_| Error::<T>::ProofValidationError)?
 							},
+							// unsupported
+							StateMachine::Tendermint(_) => Err(Error::<T>::MismatchedStateMachine)?,
 						}
 					};
 					let entry = result.entry(address).or_insert(U256::zero());
@@ -699,6 +711,8 @@ where
 									.into();
 								U256::from(fee)
 							},
+							// unsupported
+							StateMachine::Tendermint(_) => Err(Error::<T>::MismatchedStateMachine)?,
 						}
 					};
 					let encoded_receipt = dest_result
@@ -737,6 +751,8 @@ where
 										.map_err(|_| Error::<T>::ProofValidationError)?;
 								(receipt.relayer, receipt.response.0)
 							},
+							// unsupported
+							StateMachine::Tendermint(_) => Err(Error::<T>::MismatchedStateMachine)?,
 						}
 					};
 

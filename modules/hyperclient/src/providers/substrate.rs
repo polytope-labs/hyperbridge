@@ -224,6 +224,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				});
 				Ok(proof.encode())
 			},
+			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
 		}
 	}
 
@@ -265,6 +266,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				});
 				Ok(proof.encode())
 			},
+			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
 		}
 	}
 

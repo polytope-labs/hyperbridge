@@ -36,7 +36,7 @@ use ethers::{
 use futures::{stream::FuturesOrdered, FutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	messaging::{CreateConsensusState, ResponseMessage},
 	router::{Request, RequestResponse},
 };
@@ -434,7 +434,7 @@ impl IsmpProvider for EvmClient {
 
 								if successful_execution &&
 									client.state_machine ==
-										StateMachine::Ethereum(Ethereum::Arbitrum)
+										StateMachine::Ethereum(ethereum::ARBITRUM)
 								{
 									gas_to_be_used =
 										client.client.estimate_gas(&call.tx, call.block).await?;

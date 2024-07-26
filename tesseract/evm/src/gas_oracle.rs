@@ -7,7 +7,7 @@ use ethers::{
 };
 use frame_support::Deserialize;
 use hex_literal::hex;
-use ismp::host::{Ethereum, StateMachine};
+use ismp::host::{ethereum, StateMachine};
 use primitive_types::{H160, U256};
 use reqwest::{
 	header::{HeaderMap, USER_AGENT},
@@ -88,7 +88,7 @@ pub async fn get_current_gas_cost_in_usd(
 			let eth_price_uri = format!("{api}?module=stats&action=ethprice&apikey={api_keys}");
 
 			match inner_evm {
-				Ethereum::Arbitrum => {
+				ethereum::ARBITRUM => {
 					let node_gas_price = client.get_gas_price().await?;
 					let arb_gas_info_contract = ArbGasInfo::new(H160(ARB_GAS_INFO), client);
 					let (.., oracle_gas_price) = arb_gas_info_contract.get_prices_in_wei().await?;
@@ -98,22 +98,7 @@ pub async fn get_current_gas_cost_in_usd(
 					unit_wei = get_cost_of_one_wei(eth_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
-				Ethereum::Optimism |
-				Ethereum::Base |
-				Ethereum::Blast |
-				Ethereum::Mantle |
-				Ethereum::Manta |
-				Ethereum::Bob => {
-					let node_gas_price: U256 = client.get_gas_price().await?;
-					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
-					let ovm_gas_price = ovm_gas_price_oracle.gas_price().await?;
-					gas_price = std::cmp::max(ovm_gas_price, node_gas_price); // minimum gas price is 0.1 Gwei
-					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
-					let eth_usd = parse_to_27_decimals(&response_json.result.ethusd)?;
-					unit_wei = get_cost_of_one_wei(eth_usd);
-					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-				},
-				Ethereum::ExecutionLayer => {
+				ethereum::EXECUTION_LAYER => {
 					let uri = format!("{api}?module=gastracker&action=gasoracle&apikey={api_keys}");
 					if TESTNET_CHAIN_IDS.contains(&chain_id) {
 						#[derive(Debug, Deserialize, Clone)]
@@ -153,6 +138,17 @@ pub async fn get_current_gas_cost_in_usd(
 						unit_wei = get_cost_of_one_wei(eth_usd);
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 					};
+				},
+				// op stack chains
+				_ => {
+					let node_gas_price: U256 = client.get_gas_price().await?;
+					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
+					let ovm_gas_price = ovm_gas_price_oracle.gas_price().await?;
+					gas_price = std::cmp::max(ovm_gas_price, node_gas_price); // minimum gas price is 0.1 Gwei
+					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
+					let eth_usd = parse_to_27_decimals(&response_json.result.ethusd)?;
+					unit_wei = get_cost_of_one_wei(eth_usd);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 			}
 		},
@@ -258,20 +254,13 @@ pub async fn get_l2_data_cost(
 	let mut data_cost = U256::zero();
 
 	match chain {
-		StateMachine::Ethereum(inner_evm) => {
-			match inner_evm {
-				Ethereum::Optimism |
-				Ethereum::Base |
-				Ethereum::Blast |
-				Ethereum::Mantle |
-				Ethereum::Manta |
-				Ethereum::Bob => {
-					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
-					let data_cost_bytes = ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?; // this is in wei
-					data_cost = data_cost_bytes * unit_wei_cost
-				},
-				Ethereum::ExecutionLayer | Ethereum::Arbitrum => {},
-			}
+		StateMachine::Ethereum(inner_evm) => match inner_evm {
+			ethereum::EXECUTION_LAYER | ethereum::ARBITRUM => {},
+			_ => {
+				let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
+				let data_cost_bytes = ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?; // this is in wei
+				data_cost = data_cost_bytes * unit_wei_cost
+			},
 		},
 		_ => Err(anyhow!("Unknown chain: {chain:?}"))?,
 	}
@@ -356,7 +345,7 @@ mod test {
 		get_l2_data_cost, parse_to_27_decimals,
 	};
 	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
-	use ismp::host::{Ethereum, StateMachine};
+	use ismp::host::{ethereum, StateMachine};
 	use primitive_types::U256;
 	use std::sync::Arc;
 	use tesseract_primitives::Cost;
@@ -373,7 +362,7 @@ mod test {
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			1,
-			StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -397,7 +386,7 @@ mod test {
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			11155111u64,
-			StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -492,7 +481,7 @@ mod test {
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			42161,
-			StateMachine::Ethereum(Ethereum::Arbitrum),
+			StateMachine::Ethereum(ethereum::ARBITRUM),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -515,7 +504,7 @@ mod test {
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			10,
-			StateMachine::Ethereum(Ethereum::Optimism),
+			StateMachine::Ethereum(ethereum::OPTIMISM),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -537,7 +526,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			10,
-			StateMachine::Ethereum(Ethereum::Optimism),
+			StateMachine::Ethereum(ethereum::OPTIMISM),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -546,7 +535,7 @@ mod test {
 		.unwrap();
 		let data_cost = get_l2_data_cost(
 			vec![1u8; 32].into(),
-			StateMachine::Ethereum(Ethereum::Optimism),
+			StateMachine::Ethereum(ethereum::OPTIMISM),
 			client.clone(),
 			ethereum_gas_cost_in_usd.unit_wei_cost,
 		)

@@ -202,7 +202,7 @@ mod tests {
 	use ethers::prelude::H160;
 	use hex_literal::hex;
 	use ismp::{
-		host::{Ethereum, StateMachine},
+		host::{ethereum, StateMachine},
 		router::{PostRequest, PostResponse},
 	};
 	const OP_HOST: H160 = H160(hex!("1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95"));
@@ -219,7 +219,7 @@ mod tests {
 
 		let dest_chain = EvmConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
-			state_machine: StateMachine::Ethereum(Ethereum::Optimism),
+			state_machine: StateMachine::Ethereum(ethereum::OPTIMISM),
 			host_address: OP_HOST,
 			consensus_state_id: *b"ETH0",
 		};
@@ -245,7 +245,7 @@ mod tests {
 
 		let js_dest = JsChainConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
-			state_machine: "OPTI".to_string(),
+			state_machine: "ETH-OPTI".to_string(),
 			host_address: hex::encode(&OP_HOST.0),
 			consensus_state_id: "ETH0".to_string(),
 		};

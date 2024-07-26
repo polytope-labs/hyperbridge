@@ -240,52 +240,6 @@ pub trait IsmpHost: Keccak256 {
 	}
 }
 
-/// Currently supported ethereum state machines.
-///
-/// # IMPORTANT
-/// DO NOT REMOVE OR CHANGE THE ORDER OF ANY VARIANTS, THIS WILL BREAK SCALE ENCODING
-#[derive(
-	Clone,
-	Debug,
-	Copy,
-	Encode,
-	Decode,
-	PartialOrd,
-	Ord,
-	PartialEq,
-	Eq,
-	Hash,
-	scale_info::TypeInfo,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-pub enum Ethereum {
-	/// Ethereum Execution layer
-	#[codec(index = 0)]
-	ExecutionLayer,
-	/// The optimism state machine
-	#[codec(index = 1)]
-	Optimism,
-	/// The Arbitrum state machine
-	#[codec(index = 2)]
-	Arbitrum,
-	/// The Base state machine
-	#[codec(index = 3)]
-	Base,
-	/// The Blast state machine
-	#[codec(index = 4)]
-	Blast,
-	/// The Mantle state machine
-	#[codec(index = 5)]
-	Mantle,
-	/// The Manta state machine
-	#[codec(index = 6)]
-	Manta,
-	/// The Build on Bitcoin state machine
-	#[codec(index = 7)]
-	Bob,
-}
-
 /// Currently supported state machines.
 #[derive(
 	Clone,
@@ -305,7 +259,7 @@ pub enum Ethereum {
 pub enum StateMachine {
 	/// Ethereum state machines
 	#[codec(index = 0)]
-	Ethereum(Ethereum),
+	Ethereum(ConsensusStateId),
 	/// Polkadot parachains
 	#[codec(index = 1)]
 	Polkadot(u32),
@@ -324,25 +278,46 @@ pub enum StateMachine {
 	/// Bsc Pos
 	#[codec(index = 6)]
 	Bsc,
+	/// Tendermint chains
+	#[codec(index = 7)]
+	Tendermint(ConsensusStateId),
+}
+
+/// Some whitelisted identifiers for ethereum state machines
+pub mod ethereum {
+	use crate::consensus::ConsensusStateId;
+
+	/// Identifier for the Ethereum execution layer
+	pub const EXECUTION_LAYER: ConsensusStateId = *b"EXEC";
+
+	/// Identifier for the optimism state machine
+	pub const ARBITRUM: ConsensusStateId = *b"ARBI";
+
+	/// Identifier for the optimism state machine
+	pub const OPTIMISM: ConsensusStateId = *b"OPTI";
+
+	/// Identifier for the optimism state machine
+	pub const BASE: ConsensusStateId = *b"BASE";
 }
 
 impl Display for StateMachine {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		let str = match self {
-			StateMachine::Ethereum(ethereum) => match ethereum {
-				Ethereum::ExecutionLayer => "ETHE".to_string(),
-				Ethereum::Arbitrum => "ARBI".to_string(),
-				Ethereum::Optimism => "OPTI".to_string(),
-				Ethereum::Base => "BASE".to_string(),
-				Ethereum::Blast => "BLST".to_string(),
-				Ethereum::Mantle => "MNTL".to_string(),
-				Ethereum::Manta => "MNTA".to_string(),
-				Ethereum::Bob => "BOB".to_string(),
+			StateMachine::Ethereum(id) => {
+				format!("ETH-{}", String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?)
 			},
 			StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
 			StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
-			StateMachine::Grandpa(id) => format!("GRANDPA-{}", u32::from_be_bytes(*id)),
-			StateMachine::Beefy(id) => format!("BEEFY-{}", u32::from_be_bytes(*id)),
+			StateMachine::Grandpa(id) => {
+				format!("GRANDPA-{}", String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?)
+			},
+			StateMachine::Beefy(id) => {
+				format!("BEEFY-{}", String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?)
+			},
+			StateMachine::Tendermint(id) => format!(
+				"TNDRMINT-{}",
+				String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
+			),
 			StateMachine::Polygon => "POLY".to_string(),
 			StateMachine::Bsc => "BSC".to_string(),
 		};
@@ -355,16 +330,15 @@ impl FromStr for StateMachine {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let s = match s {
-			"ETHE" => StateMachine::Ethereum(Ethereum::ExecutionLayer),
-			"ARBI" => StateMachine::Ethereum(Ethereum::Arbitrum),
-			"OPTI" => StateMachine::Ethereum(Ethereum::Optimism),
-			"BASE" => StateMachine::Ethereum(Ethereum::Base),
-			"BLST" => StateMachine::Ethereum(Ethereum::Blast),
-			"MNTL" => StateMachine::Ethereum(Ethereum::Mantle),
-			"MNTA" => StateMachine::Ethereum(Ethereum::Manta),
-			"BOB" => StateMachine::Ethereum(Ethereum::Bob),
-			"POLY" => StateMachine::Polygon,
-			"BSC" => StateMachine::Bsc,
+			name if name.starts_with("ETH-") => {
+				let name = name
+					.split('-')
+					.last()
+					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				let mut id = [0u8; 4];
+				id.copy_from_slice(name.as_bytes());
+				StateMachine::Ethereum(id)
+			},
 			name if name.starts_with("POLKADOT-") => {
 				let id = name
 					.split('-')
@@ -382,21 +356,34 @@ impl FromStr for StateMachine {
 				StateMachine::Kusama(id)
 			},
 			name if name.starts_with("GRANDPA-") => {
-				let id = name
+				let name = name
 					.split('-')
 					.last()
-					.and_then(|id| u32::from_str(id).ok().map(u32::to_be_bytes))
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				let mut id = [0u8; 4];
+				id.copy_from_slice(name.as_bytes());
 				StateMachine::Grandpa(id)
 			},
 			name if name.starts_with("BEEFY-") => {
-				let id = name
+				let name = name
 					.split('-')
 					.last()
-					.and_then(|id| u32::from_str(id).ok().map(u32::to_be_bytes))
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				let mut id = [0u8; 4];
+				id.copy_from_slice(name.as_bytes());
 				StateMachine::Beefy(id)
 			},
+			name if name.starts_with("TNDRMINT-") => {
+				let name = name
+					.split('-')
+					.last()
+					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				let mut id = [0u8; 4];
+				id.copy_from_slice(name.as_bytes());
+				StateMachine::Tendermint(id)
+			},
+			"POLY" => StateMachine::Polygon,
+			"BSC" => StateMachine::Bsc,
 			name => Err(format!("Unknown state machine: {name}"))?,
 		};
 
@@ -406,7 +393,7 @@ impl FromStr for StateMachine {
 
 #[cfg(test)]
 mod tests {
-	use crate::host::{Ethereum, StateMachine};
+	use crate::host::StateMachine;
 	use alloc::string::ToString;
 	use core::str::FromStr;
 
@@ -414,26 +401,11 @@ mod tests {
 	fn state_machine_conversions() {
 		let grandpa = StateMachine::Grandpa(*b"hybr");
 		let beefy = StateMachine::Beefy(*b"hybr");
-		let eth = StateMachine::Ethereum(Ethereum::ExecutionLayer);
-		let arb = StateMachine::Ethereum(Ethereum::Arbitrum);
-		let op = StateMachine::Ethereum(Ethereum::Optimism);
-		let base = StateMachine::Ethereum(Ethereum::Base);
 
 		let grandpa_string = grandpa.to_string();
 		let beefy_string = beefy.to_string();
-		let eth_str = eth.to_string();
-		let arb_str = arb.to_string();
-		let op_str = op.to_string();
-		let base_str = base.to_string();
-
-		dbg!(&grandpa_string);
-		dbg!(&beefy_string);
 
 		assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
 		assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());
-		assert_eq!(eth, StateMachine::from_str(&eth_str).unwrap());
-		assert_eq!(arb, StateMachine::from_str(&arb_str).unwrap());
-		assert_eq!(op, StateMachine::from_str(&op_str).unwrap());
-		assert_eq!(base, StateMachine::from_str(&base_str).unwrap());
 	}
 }

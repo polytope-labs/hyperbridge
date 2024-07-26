@@ -53,7 +53,17 @@ pub struct FraudProofMessage {
 }
 
 /// Identifies a state commitment at a given height
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	serde::Deserialize,
+	serde::Serialize,
+)]
 pub struct StateCommitmentHeight {
 	/// The state machine identifier
 	pub commitment: StateCommitment,
@@ -62,13 +72,26 @@ pub struct StateCommitmentHeight {
 }
 
 /// Used for creating the initial consensus state for a given consensus client.
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	serde::Deserialize,
+	serde::Serialize,
+)]
 pub struct CreateConsensusState {
 	/// Scale encoded consensus state
+	#[serde(with = "serde_utils::as_hex")]
 	pub consensus_state: Vec<u8>,
 	/// Consensus client id
+	#[serde(with = "serde_utils::as_utf8_string")]
 	pub consensus_client_id: ConsensusClientId,
 	/// The consensus state Id
+	#[serde(with = "serde_utils::as_utf8_string")]
 	pub consensus_state_id: ConsensusStateId,
 	/// Unbonding period for this consensus state.
 	pub unbonding_period: u64,

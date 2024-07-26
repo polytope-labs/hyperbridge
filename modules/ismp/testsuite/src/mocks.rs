@@ -16,7 +16,7 @@ use ismp::{
 	},
 	dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
 	error::Error,
-	host::{Ethereum, IsmpHost, StateMachine},
+	host::{ethereum, IsmpHost, StateMachine},
 	messaging::{hash_post_response, hash_request, hash_response, Keccak256, Proof},
 	module::IsmpModule,
 	router::{
@@ -65,7 +65,7 @@ impl ConsensusClient for MockClient {
 
 	fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match _id {
-			StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
+			StateMachine::Ethereum(ethereum::EXECUTION_LAYER) =>
 				Ok(Box::new(MockStateMachineClient)),
 			_ => Err(Error::Custom("Invalid state machine".to_string())),
 		}

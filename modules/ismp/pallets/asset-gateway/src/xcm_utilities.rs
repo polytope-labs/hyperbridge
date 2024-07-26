@@ -1,7 +1,7 @@
 use crate::{Config, Pallet};
 use core::marker::PhantomData;
 use frame_support::traits::fungibles::{self, Mutate};
-use ismp::host::{Ethereum, StateMachine};
+use ismp::host::{ethereum, StateMachine};
 use sp_core::{Get, H160};
 use staging_xcm::{
 	prelude::MultiLocation,
@@ -38,12 +38,12 @@ impl TryFrom<WrappedNetworkId> for StateMachine {
 		match value.0 {
 			NetworkId::Ethereum { chain_id } => match chain_id {
 				ARBITRUM_CHAIN_ID | ARBITRUM_SEPOLIA_CHAIN_ID =>
-					Ok(StateMachine::Ethereum(Ethereum::Arbitrum)),
+					Ok(StateMachine::Ethereum(ethereum::ARBITRUM)),
 				OPTIMISM_CHAIN_ID | OPTIMISM_SEPOLIA_CHAIN_ID =>
-					Ok(StateMachine::Ethereum(Ethereum::Optimism)),
-				BASE_CHAIN_ID | BASE_SEPOLIA_CHAIN_ID => Ok(StateMachine::Ethereum(Ethereum::Base)),
+					Ok(StateMachine::Ethereum(ethereum::OPTIMISM)),
+				BASE_CHAIN_ID | BASE_SEPOLIA_CHAIN_ID => Ok(StateMachine::Ethereum(ethereum::BASE)),
 				ETHEREUM_CHAIN_ID | SEPOLIA_CHAIN_ID =>
-					Ok(StateMachine::Ethereum(Ethereum::ExecutionLayer)),
+					Ok(StateMachine::Ethereum(ethereum::EXECUTION_LAYER)),
 				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => Ok(StateMachine::Bsc),
 				_ => Err(()),
 			},

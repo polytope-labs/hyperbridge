@@ -160,6 +160,7 @@ where
 				});
 				Ok(proof.encode())
 			},
+			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
 		}
 	}
 
@@ -201,6 +202,7 @@ where
 				});
 				Ok(proof.encode())
 			},
+			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
 		}
 	}
 

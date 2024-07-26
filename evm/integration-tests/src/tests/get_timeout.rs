@@ -1,7 +1,7 @@
 use ethers::abi::{Address, Tokenizable};
 use forge_testsuite::Runner;
 use ismp::{
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	router,
 };
 use ismp_solidity_abi::shared_types::GetRequest;
@@ -20,7 +20,7 @@ async fn test_get_timeout() -> Result<(), anyhow::Error> {
 	// create post request object
 	let get = router::GetRequest {
 		dest: StateMachine::Polkadot(2000),
-		source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+		source: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 		nonce: 0,
 		from: destination.as_bytes().to_vec(),
 		keys: vec![key.clone()],

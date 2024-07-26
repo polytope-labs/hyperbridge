@@ -7,7 +7,7 @@ use ethers::{
 use forge_testsuite::Runner;
 use hex_literal::hex;
 use ismp::{
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	messaging::hash_request,
 	router::{self, Request},
 };
@@ -30,7 +30,7 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
 
 	// create post request object
 	let post = router::PostRequest {
-		source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+		source: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 		dest: StateMachine::Polkadot(2000),
 		nonce: 0,
 		from: module.as_bytes().to_vec(),

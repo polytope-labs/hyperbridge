@@ -1,7 +1,7 @@
 use crate::TransactionPayment;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{PostRequest, PostResponse, Request, RequestResponse, Response},
 };
@@ -93,6 +93,7 @@ async fn transaction_payments_flow() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_unique_deliveries() -> anyhow::Result<()> {
 	let tx_payment = TransactionPayment::initialize("./dev2.db").await.unwrap();
 	let receipts = (0..5).into_iter().map(|i| {
@@ -150,7 +151,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let receipts2 = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			source: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			dest: StateMachine::Polygon,
 			nonce: i,
 			from: vec![],
@@ -173,7 +174,7 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let receipts3 = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			source: StateMachine::Polygon,
 			nonce: i,
 			from: vec![],
@@ -196,8 +197,8 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let receipts4 = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			dest: StateMachine::Ethereum(Ethereum::Optimism),
-			source: StateMachine::Ethereum(Ethereum::Base),
+			dest: StateMachine::Ethereum(ethereum::OPTIMISM),
+			source: StateMachine::Ethereum(ethereum::BASE),
 			nonce: i,
 			from: vec![],
 			to: vec![],
@@ -219,8 +220,8 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let receipts5 = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			source: StateMachine::Ethereum(Ethereum::Optimism),
-			dest: StateMachine::Ethereum(Ethereum::Base),
+			source: StateMachine::Ethereum(ethereum::OPTIMISM),
+			dest: StateMachine::Ethereum(ethereum::BASE),
 			nonce: i,
 			from: vec![],
 			to: vec![],

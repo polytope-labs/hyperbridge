@@ -126,7 +126,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 					assert_eq!(post.nonce, 0);
 					assert_eq!(
 						post.dest,
-						StateMachine::Ethereum(ismp::host::Ethereum::ExecutionLayer)
+						StateMachine::Ethereum(ismp::host::ethereum::EXECUTION_LAYER)
 					);
 					assert_eq!(post.source, StateMachine::Kusama(2000));
 					return Ok(());

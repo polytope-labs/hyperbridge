@@ -21,7 +21,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use ismp::{
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	messaging::{hash_request, hash_response},
 	router::{Request, Response},
 };
@@ -258,11 +258,11 @@ pub async fn query_request_status_from_indexer(
 					let vars = StateMachineUpdateVariables {
 						chain: {
 							match request.dest_chain() {
-								StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
+								StateMachine::Ethereum(ethereum::EXECUTION_LAYER) =>
 									SupportedChain::ETHE,
-								StateMachine::Ethereum(Ethereum::Base) => SupportedChain::BASE,
-								StateMachine::Ethereum(Ethereum::Arbitrum) => SupportedChain::ARBI,
-								StateMachine::Ethereum(Ethereum::Optimism) => SupportedChain::OPTI,
+								StateMachine::Ethereum(ethereum::BASE) => SupportedChain::BASE,
+								StateMachine::Ethereum(ethereum::ARBITRUM) => SupportedChain::ARBI,
+								StateMachine::Ethereum(ethereum::OPTIMISM) => SupportedChain::OPTI,
 								StateMachine::Bsc => SupportedChain::BSC,
 								StateMachine::Polygon => SupportedChain::POLY,
 								_ => Err(anyhow!("Unsupported chain for indexer"))?,
@@ -414,11 +414,11 @@ pub async fn query_response_status_from_indexer(
 					let vars = StateMachineUpdateVariables {
 						chain: {
 							match response.dest_chain() {
-								StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
+								StateMachine::Ethereum(ethereum::EXECUTION_LAYER) =>
 									SupportedChain::ETHE,
-								StateMachine::Ethereum(Ethereum::Base) => SupportedChain::BASE,
-								StateMachine::Ethereum(Ethereum::Arbitrum) => SupportedChain::ARBI,
-								StateMachine::Ethereum(Ethereum::Optimism) => SupportedChain::OPTI,
+								StateMachine::Ethereum(ethereum::BASE) => SupportedChain::BASE,
+								StateMachine::Ethereum(ethereum::ARBITRUM) => SupportedChain::ARBI,
+								StateMachine::Ethereum(ethereum::OPTIMISM) => SupportedChain::OPTI,
 								StateMachine::Bsc => SupportedChain::BSC,
 								StateMachine::Polygon => SupportedChain::POLY,
 								_ => Err(anyhow!("Unsupported chain for indexer"))?,

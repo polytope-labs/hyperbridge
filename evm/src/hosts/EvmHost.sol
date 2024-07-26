@@ -510,6 +510,98 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @dev Returns the nonce immediately available for requests
+     * @return the `nonce`
+     */
+    function nonce() external view returns (uint256) {
+        return _nonce;
+    }
+
+    /**
+     * @dev Should return a handle to the consensus client based on the id
+     * @return the consensus client contract
+     */
+    function consensusClient() external view returns (address) {
+        return _hostParams.consensusClient;
+    }
+
+    /**
+     * @return the last updated time of the consensus client
+     */
+    function consensusUpdateTime() external view returns (uint256) {
+        return _consensusUpdateTimestamp;
+    }
+
+    /**
+     * @return the state of the consensus client
+     */
+    function consensusState() external view returns (bytes memory) {
+        return _consensusState;
+    }
+
+    /**
+     * @return the challenge period
+     */
+    function challengePeriod() external view returns (uint256) {
+        return _hostParams.challengePeriod;
+    }
+
+    /**
+     * @return the unstaking period
+     */
+    function unStakingPeriod() external view returns (uint256) {
+        return _hostParams.unStakingPeriod;
+    }
+
+    /**
+     * @dev Check the response status for a given request.
+     * @param commitment - commitment to the request
+     * @return `response` status
+     */
+    function responded(bytes32 commitment) external view returns (bool) {
+        return _responded[commitment];
+    }
+
+    /**
+     * @return the latest state machine height for the given stateMachineId. If it returns 0, the state machine is unsupported.
+     */
+    function latestStateMachineHeight(uint256 id) external view returns (uint256) {
+        return _latestStateMachineHeight[id];
+    }
+
+    /**
+     * @param commitment - commitment to the request
+     * @return existence status of an incoming request commitment
+     */
+    function requestReceipts(bytes32 commitment) external view returns (address) {
+        return _requestReceipts[commitment];
+    }
+
+    /**
+     * @param commitment - commitment to the response
+     * @return existence status of an incoming response commitment
+     */
+    function responseReceipts(bytes32 commitment) external view returns (ResponseReceipt memory) {
+        return _responseReceipts[commitment];
+    }
+
+    /**
+     * @param commitment - commitment to the request
+     * @return existence status of an outgoing request commitment
+     */
+    function requestCommitments(bytes32 commitment) external view returns (FeeMetadata memory) {
+        return _requestCommitments[commitment];
+    }
+
+    /**
+     * @param commitment - commitment to the response
+     * @return existence status of an outgoing response commitment
+     */
+    function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory) {
+        return _responseCommitments[commitment];
+    }
+
+    /**
      * @dev Returns the fisherman responsible for vetoing the given state machine height.
      * @return the `fisherman` address
      */
@@ -518,11 +610,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Returns the nonce immediately available for requests
-     * @return the `nonce`
+     * @param height - state machine height
+     * @return the state machine update time at `height`
      */
-    function nonce() external view returns (uint256) {
-        return _nonce;
+    function stateMachineCommitmentUpdateTime(StateMachineHeight memory height) external view returns (uint256) {
+        return _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
     }
 
     /**
@@ -560,98 +652,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         return _stateCommitments[height.stateMachineId][height.height];
-    }
-
-    /**
-     * @param height - state machine height
-     * @return the state machine update time at `height`
-     */
-    function stateMachineCommitmentUpdateTime(StateMachineHeight memory height) external view returns (uint256) {
-        return _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
-    }
-
-    /**
-     * @dev Should return a handle to the consensus client based on the id
-     * @return the consensus client contract
-     */
-    function consensusClient() external view returns (address) {
-        return _hostParams.consensusClient;
-    }
-
-    /**
-     * @return the last updated time of the consensus client
-     */
-    function consensusUpdateTime() external view returns (uint256) {
-        return _consensusUpdateTimestamp;
-    }
-
-    /**
-     * @return the state of the consensus client
-     */
-    function consensusState() external view returns (bytes memory) {
-        return _consensusState;
-    }
-
-    /**
-     * @return the challenge period
-     */
-    function challengePeriod() external view returns (uint256) {
-        return _hostParams.challengePeriod;
-    }
-
-    /**
-     * @dev Check the response status for a given request.
-     * @param commitment - commitment to the request
-     * @return `response` status
-     */
-    function responded(bytes32 commitment) external view returns (bool) {
-        return _responded[commitment];
-    }
-
-    /**
-     * @return the latest state machine height for the given stateMachineId. If it returns 0, the state machine is unsupported.
-     */
-    function latestStateMachineHeight(uint256 id) external view returns (uint256) {
-        return _latestStateMachineHeight[id];
-    }
-
-    /**
-     * @return the unstaking period
-     */
-    function unStakingPeriod() external view returns (uint256) {
-        return _hostParams.unStakingPeriod;
-    }
-
-    /**
-     * @param commitment - commitment to the request
-     * @return existence status of an incoming request commitment
-     */
-    function requestReceipts(bytes32 commitment) external view returns (address) {
-        return _requestReceipts[commitment];
-    }
-
-    /**
-     * @param commitment - commitment to the response
-     * @return existence status of an incoming response commitment
-     */
-    function responseReceipts(bytes32 commitment) external view returns (ResponseReceipt memory) {
-        return _responseReceipts[commitment];
-    }
-
-    /**
-     * @param commitment - commitment to the request
-     * @return existence status of an outgoing request commitment
-     */
-    function requestCommitments(bytes32 commitment) external view returns (FeeMetadata memory) {
-        return _requestCommitments[commitment];
-    }
-
-    /**
-     * @param commitment - commitment to the response
-     * @return existence status of an outgoing response commitment
-     */
-    function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory) {
-        return _responseCommitments[commitment];
     }
 
     /**
@@ -705,7 +705,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             address(params.consensusClient).code.length == 0 ||
             !IERC165(params.consensusClient).supportsInterface(type(IConsensusClient).interfaceId)
         ) {
-            // otherwise cannot process new datagrams
+            // otherwise cannot process new consensus datagrams
             revert InvalidConsensusClient();
         }
         uint256 stateMachinesLen = params.stateMachines.length;
@@ -1189,6 +1189,18 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return commitment - the request commitment
      */
     function dispatch(DispatchPostResponse memory post) external payable notFrozen returns (bytes32 commitment) {
+        bytes32 receipt = post.request.hash();
+        address caller = _msgSender();
+
+        // known request?
+        if (_requestReceipts[receipt] == address(0)) revert UnknownRequest();
+
+        // check that the authorized application is issuing this response
+        if (_bytesToAddress(post.request.to) != caller) revert UnauthorizedResponse();
+
+        // check that request has not already been respond to
+        if (_responded[receipt]) revert DuplicateResponse();
+
         // minimum charge is the size of one word
         uint256 length = 32 > post.response.length ? 32 : post.response.length;
         uint256 fee = (_hostParams.perByteFee * length) + post.fee;
@@ -1207,18 +1219,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
         }
-
-        bytes32 receipt = post.request.hash();
-        address caller = _msgSender();
-
-        // known request?
-        if (_requestReceipts[receipt] == address(0)) revert UnknownRequest();
-
-        // check that the authorized application is issuing this response
-        if (_bytesToAddress(post.request.to) != caller) revert UnauthorizedResponse();
-
-        // check that request has not already been respond to
-        if (_responded[receipt]) revert DuplicateResponse();
 
         // adjust the timeout
         uint256 timeout = _hostParams.defaultTimeout > post.timeout ? _hostParams.defaultTimeout : post.timeout;

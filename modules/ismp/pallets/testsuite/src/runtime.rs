@@ -31,7 +31,7 @@ use ismp::{
 	},
 	error::Error as IsmpError,
 	handlers,
-	host::{Ethereum, IsmpHost, StateMachine},
+	host::{ethereum, IsmpHost, StateMachine},
 	messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
 	module::IsmpModule,
 	router::{IsmpRouter, PostRequest, RequestResponse, Response, Timeout},
@@ -387,7 +387,7 @@ where
 			challenge_period: 0,
 			state_machine_commitments: vec![(
 				StateMachineId {
-					state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+					state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 				},
 				StateCommitmentHeight {
@@ -404,7 +404,7 @@ where
 	.unwrap();
 	let height = StateMachineHeight {
 		id: StateMachineId {
-			state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 		},
 		height: 3,

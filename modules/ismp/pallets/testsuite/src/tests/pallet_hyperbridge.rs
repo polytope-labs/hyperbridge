@@ -21,7 +21,7 @@ use sp_runtime::traits::AccountIdConversion;
 
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	module::IsmpModule,
 	router::PostRequest,
 };
@@ -75,7 +75,7 @@ fn test_dispatch_fees() {
 		assert_eq!(Balances::balance(&account), 65 * 10 * UNIT);
 
 		let msg = DispatchPost {
-			dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 			from: vec![0u8; 32],
 			to: vec![0u8; 32],
 			timeout: 2_000_000_000,

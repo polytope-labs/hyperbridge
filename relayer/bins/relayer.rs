@@ -14,10 +14,22 @@
 // limitations under the License.
 
 use clap::Parser;
-use tesseract::cli::Cli;
+use tesseract::{cli::Cli, subcommand::Subcommand};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
 	let cli = Cli::parse();
+	if let Some(subcommand) = cli.subcommand {
+		match subcommand {
+			Subcommand::SetConsensusState(set_consensus_state) => {
+				set_consensus_state.set_consensus_state(cli.config.clone()).await?;
+			},
+			Subcommand::LogConsensusState(set_consensus_state) => {
+				set_consensus_state.log_consensus_state(cli.config.clone()).await?;
+			},
+		}
+		return Ok(())
+	}
+
 	cli.start_consensus().await
 }

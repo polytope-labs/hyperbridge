@@ -16,11 +16,14 @@ use crate::{
 	any::AnyConfig,
 	config::{HyperbridgeConfig, RelayerConfig},
 	logging,
+	subcommand::Subcommand,
 };
 
 /// CLI interface for tesseract relayer.
 #[derive(Parser, Debug)]
 pub struct Cli {
+	#[command(subcommand)]
+	pub subcommand: Option<Subcommand>,
 	/// Path to the relayer config file
 	#[arg(short, long)]
 	pub config: String,

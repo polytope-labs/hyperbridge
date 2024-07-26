@@ -32,7 +32,6 @@ pub struct MockProxyClient;
 
 pub const MOCK_CONSENSUS_CLIENT_ID: [u8; 4] = [1u8; 4];
 pub const MOCK_PROXY_CONSENSUS_CLIENT_ID: [u8; 4] = [2u8; 4];
-pub const ETHEREUM_EXECUTION_LAYER: [u8; 4] = *b"EXEC";
 
 #[derive(codec::Encode, codec::Decode)]
 pub struct MockConsensusState {
@@ -66,8 +65,9 @@ impl ConsensusClient for MockClient {
 
 	fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match _id {
-			StateMachine::Ethereum(ethereum::EXECUTION_LAYER) =>
-				Ok(Box::new(MockStateMachineClient)),
+			StateMachine::Ethereum(ethereum::EXECUTION_LAYER) => {
+				Ok(Box::new(MockStateMachineClient))
+			},
 			_ => Err(Error::Custom("Invalid state machine".to_string())),
 		}
 	}

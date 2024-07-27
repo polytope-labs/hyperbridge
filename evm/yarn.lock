@@ -2,6 +2,15 @@
 # yarn lockfile v1
 
 
+"@polytope-labs/erc6160@^0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@polytope-labs/erc6160/-/erc6160-0.3.0.tgz#d6718fd55fd9babfbfa414db29401019c2ee2d64"
+  integrity sha512-8eW+xetYveMcDcdNa6L7M/vYxZ6wm1f3rF2No1ltfo7FuAp2qbjzjOYguIXkn041S4sp+SM9HC8BlOoopnr4Iw==
+  dependencies:
+    openzeppelin-solidity "^4.8.1"
+    prettier "^3.3.3"
+    prettier-plugin-solidity "^1.3.1"
+
 "@polytope-labs/ismp-solidity@^0.3.1":
   version "0.3.1"
   resolved "https://registry.yarnpkg.com/@polytope-labs/ismp-solidity/-/ismp-solidity-0.3.1.tgz#80dd652eaacfb9c1764adc21dc31312c297ecd65"

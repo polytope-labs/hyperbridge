@@ -435,13 +435,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     receive() external payable {}
 
     /**
-     * @return the host admin
-     */
-    function admin() external view returns (address) {
-        return _hostParams.admin;
-    }
-
-    /**
      * @return the host state machine id
      */
     function host() public view virtual returns (bytes memory);
@@ -450,6 +443,56 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the mainnet evm chainId for this host
      */
     function chainId() public virtual returns (uint256);
+
+    /**
+     * @return the host timestamp
+     */
+    function timestamp() external view returns (uint256) {
+        return block.timestamp;
+    }
+
+    /**
+     * @return the `frozen` status
+     */
+    function frozen() external view returns (FrozenStatus) {
+        return _frozen;
+    }
+
+    /**
+     * @dev Returns the nonce immediately available for requests
+     * @return the `nonce`
+     */
+    function nonce() external view returns (uint256) {
+        return _nonce;
+    }
+
+    /**
+     * @return the last updated time of the consensus client
+     */
+    function consensusUpdateTime() external view returns (uint256) {
+        return _consensusUpdateTimestamp;
+    }
+
+    /**
+     * @return the state of the consensus client
+     */
+    function consensusState() external view returns (bytes memory) {
+        return _consensusState;
+    }
+
+    /**
+     * @return the `HostParams`
+     */
+    function hostParams() external view returns (HostParams memory) {
+        return _hostParams;
+    }
+
+    /**
+     * @return the host admin
+     */
+    function admin() external view returns (address) {
+        return _hostParams.admin;
+    }
 
     /**
      * @return the address of the ERC-20 fee token contract on this state machine
@@ -474,27 +517,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @return the host timestamp
-     */
-    function timestamp() external view returns (uint256) {
-        return block.timestamp;
-    }
-
-    /**
-     * @return the `frozen` status
-     */
-    function frozen() external view returns (FrozenStatus) {
-        return _frozen;
-    }
-
-    /**
-     * @return the `HostParams`
-     */
-    function hostParams() external view returns (HostParams memory) {
-        return _hostParams;
-    }
-
-    /**
      * @return the state machine identifier for the connected hyperbridge instance
      */
     function hyperbridge() external view returns (bytes memory) {
@@ -510,33 +532,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Returns the nonce immediately available for requests
-     * @return the `nonce`
-     */
-    function nonce() external view returns (uint256) {
-        return _nonce;
-    }
-
-    /**
      * @dev Should return a handle to the consensus client based on the id
      * @return the consensus client contract
      */
     function consensusClient() external view returns (address) {
         return _hostParams.consensusClient;
-    }
-
-    /**
-     * @return the last updated time of the consensus client
-     */
-    function consensusUpdateTime() external view returns (uint256) {
-        return _consensusUpdateTimestamp;
-    }
-
-    /**
-     * @return the state of the consensus client
-     */
-    function consensusState() external view returns (bytes memory) {
-        return _consensusState;
     }
 
     /**
@@ -655,24 +655,26 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Updates the HostParams, can only be called by cross-chain governance
+     * @dev Updates the HostParams. On mainnet it can only be called by cross-chain governance.
      * @param params, the new host params.
      */
-    function updateHostParams(HostParams memory params) external restrict(_hostParams.hostManager) {
-        updateHostParamsInternal(params);
-    }
-
-    /**
-     * @dev Updates the HostParams
-     * @param params, the new host params. Can only be called by admin on testnets.
-     */
-    function setHostParamsAdmin(HostParams memory params) public restrict(_hostParams.admin) {
-        if (chainId() == block.chainid) revert UnauthorizedAction();
-
-        uint256 whitelistLength = params.stateMachines.length;
-        for (uint256 i = 0; i < whitelistLength; ++i) {
-            delete _latestStateMachineHeight[params.stateMachines[i]];
+    function updateHostParams(HostParams memory params) external {
+        address caller = _msgSender();
+        if (caller != _hostParams.hostManager && caller != _hostParams.admin) {
+            revert UnauthorizedAction();
         }
+
+        if (caller == _hostParams.admin) {
+            // admin cannot change host params on mainnet
+            if (chainId() == block.chainid) revert UnauthorizedAction();
+
+            // reset all state machines, on testnet
+            uint256 whitelistLength = params.stateMachines.length;
+            for (uint256 i = 0; i < whitelistLength; ++i) {
+                delete _latestStateMachineHeight[params.stateMachines[i]];
+            }
+        }
+
         updateHostParamsInternal(params);
     }
 

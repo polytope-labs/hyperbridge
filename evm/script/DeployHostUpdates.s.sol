@@ -21,19 +21,19 @@ contract DeployScript is BaseScript {
 
         if (equal(host, "sepolia") || host.toSlice().startsWith("eth".toSlice())) {
             HostParams memory params = EvmHost(SEPOLIA_HOST).hostParams();
-            EvmHost(SEPOLIA_HOST).setHostParamsAdmin(params);
+            EvmHost(SEPOLIA_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
             HostParams memory params = EvmHost(ARB_SEPOLIA_HOST).hostParams();
-            EvmHost(ARB_SEPOLIA_HOST).setHostParamsAdmin(params);
+            EvmHost(ARB_SEPOLIA_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("optimism".toSlice())) {
             HostParams memory params = EvmHost(OP_SEPOLIA_HOST).hostParams();
-            EvmHost(OP_SEPOLIA_HOST).setHostParamsAdmin(params);
+            EvmHost(OP_SEPOLIA_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("base".toSlice())) {
             HostParams memory params = EvmHost(BASE_SEPOLIA_HOST).hostParams();
-            EvmHost(BASE_SEPOLIA_HOST).setHostParamsAdmin(params);
+            EvmHost(BASE_SEPOLIA_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("bsc".toSlice())) {
             HostParams memory params = EvmHost(BSC_TESTNET_HOST).hostParams();
-            EvmHost(BSC_TESTNET_HOST).setHostParamsAdmin(params);
+            EvmHost(BSC_TESTNET_HOST).updateHostParams(params);
         } else {
             revert("Unknown Host");
         }

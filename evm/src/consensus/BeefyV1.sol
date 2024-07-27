@@ -283,4 +283,7 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     function checkParticipationThreshold(uint256 len, uint256 total) internal pure returns (bool) {
         return len >= ((2 * total) / 3) + 1;
     }
+
+    // @dev so these structs are included in the abi
+    function noOp(BeefyConsensusState memory s, BeefyConsensusProof memory p) external pure {}
 }

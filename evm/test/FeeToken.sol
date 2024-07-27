@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
+import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 
 contract FeeToken is ERC6160Ext20 {
     constructor(

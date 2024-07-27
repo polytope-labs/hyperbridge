@@ -24,7 +24,7 @@ contract BeefyConsensusClientTest is Test {
     BeefyV1 internal beefy;
 
     function setUp() public virtual {
-        beefy = new BeefyV1(4009);
+        beefy = new BeefyV1();
     }
 
     function testFieldElementConversion() public pure {

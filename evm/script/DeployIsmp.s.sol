@@ -50,8 +50,8 @@ contract DeployScript is BaseScript {
 
         // consensus client
         //        PolkadotVerifier verifier = new PolkadotVerifier();
-        //        UltraPlonkBeefy consensusClient = new UltraPlonkBeefy{salt: salt}(paraId, verifier);
-        BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
+        //        UltraPlonkBeefy consensusClient = new UltraPlonkBeefy{salt: salt}(verifier);
+        BeefyV1 consensusClient = new BeefyV1{salt: salt}();
 
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();

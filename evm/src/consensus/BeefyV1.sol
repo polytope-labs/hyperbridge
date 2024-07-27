@@ -85,9 +85,6 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     // ConsensusID for aura
     bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
 
-    // Provided paraId was unknown
-    error UnknownParaId();
-
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
 
@@ -112,13 +109,6 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     // Provided authorities proof was invalid
     error InvalidAuthoritiesProof();
 
-    // Authorized paraId.
-    uint256 private _paraId;
-
-    constructor(uint256 paraId) {
-        _paraId = paraId;
-    }
-
     /**
      * @dev See {IERC165-supportsInterface}.
      */
@@ -136,7 +126,7 @@ contract BeefyV1 is IConsensusClient, ERC165 {
             (RelayChainProof, ParachainProof)
         );
 
-        (BeefyConsensusState memory newState, IntermediateState memory intermediate) = this.verifyConsensus(
+        (BeefyConsensusState memory newState, IntermediateState memory intermediate) = verifyConsensus(
             consensusState,
             BeefyConsensusProof(relay, parachain)
         );
@@ -149,7 +139,7 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     function verifyConsensus(
         BeefyConsensusState memory trustedState,
         BeefyConsensusProof memory proof
-    ) external view returns (BeefyConsensusState memory, IntermediateState memory) {
+    ) internal view returns (BeefyConsensusState memory, IntermediateState memory) {
         // verify mmr root proofs
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, proof.relay);
 
@@ -257,8 +247,6 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     ) internal view returns (IntermediateState memory) {
         Node[] memory leaves = new Node[](1);
         Parachain memory para = proof.parachain;
-
-        if (para.id != _paraId) revert UnknownParaId();
 
         Header memory header = Codec.DecodeHeader(para.header);
         if (header.number == 0) revert IllegalGenesisBlock();

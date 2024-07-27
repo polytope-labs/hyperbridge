@@ -1456,8 +1456,7 @@ pub mod i_rollup {
 		///Gets the contract's `RollupInitialized` event
 		pub fn rollup_initialized_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, RollupInitializedFilter>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, RollupInitializedFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `UserStakeUpdated` event

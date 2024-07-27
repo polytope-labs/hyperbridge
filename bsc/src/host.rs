@@ -102,7 +102,7 @@ impl IsmpHost for BscPosHost {
 					} else {
 						return Some((
 							Err(anyhow!(
-								"Not a fatal error: Error fetching latest header for {:?}",
+								"Not a fatal error: Error fetching latest header for {}",
 								client.state_machine
 							)),
 							(interval, None),
@@ -113,7 +113,7 @@ impl IsmpHost for BscPosHost {
 					// Send a block that would enact authority set rotation
 					if attested_epoch > current_epoch && consensus_state.next_validators.is_some() {
 						log::trace!(
-							"Enacting Authority Set Rotation for {:?} on {:?}",
+							"Enacting Authority Set Rotation for {:?} on {}",
 							client.state_machine,
 							counterparty.state_machine_id().state_id
 						);
@@ -133,7 +133,7 @@ impl IsmpHost for BscPosHost {
 							} else {
 								return Some((
 									Err(anyhow!(
-										"Not a fatal error: Error fetching {:?} header for {block}",
+										"Not a fatal error: Error fetching {} header for {block}",
 										client.state_machine
 									)),
 									(interval, None),
@@ -169,8 +169,7 @@ impl IsmpHost for BscPosHost {
 										update.clone(),
 									);
 									if update.source_header.number.low_u64() <=
-										consensus_state.finalized_height ||
-										res.is_err()
+										consensus_state.finalized_height || res.is_err()
 									{
 										block += 1;
 										continue;
@@ -189,7 +188,7 @@ impl IsmpHost for BscPosHost {
 								Err(_) =>
 									return Some((
 										Err(anyhow!(
-										"Not a fatal error: Error fetching authority enactment update for {:?}",
+										"Not a fatal error: Error fetching authority enactment update for {}",
 										client.state_machine
 									)),
 										(interval, None),
@@ -202,7 +201,7 @@ impl IsmpHost for BscPosHost {
 					// Try to sync the client first
 					if attested_epoch > current_epoch && consensus_state.next_validators.is_none() {
 						log::info!(
-							"Syncing {:?} on {:?}",
+							"Syncing {} on {}",
 							client.state_machine,
 							counterparty.state_machine_id().state_id
 						);
@@ -224,7 +223,7 @@ impl IsmpHost for BscPosHost {
 							} else {
 								return Some((
 									Err(anyhow!(
-										"Not a fatal error: Error fetching {:?} header for {block}",
+										"Not a fatal error: Error fetching {} header for {block}",
 										client.state_machine
 									)),
 									(interval, None),
@@ -265,7 +264,7 @@ impl IsmpHost for BscPosHost {
 										// cannot rotate validator set safely
 										return Some((
 											Err(anyhow!(
-												"Fatal error: No valid sync update found for  {:?}",
+												"Fatal error: No valid sync update found for  {}",
 												client.state_machine
 											)),
 											(interval, None),
@@ -297,7 +296,7 @@ impl IsmpHost for BscPosHost {
 								Err(err) =>
 									return Some((
 										Err(anyhow!(
-										"Not a fatal error: Error fetching sync update for {:?} \n {err:?}",
+										"Not a fatal error: Error fetching sync update for {} \n {err:?}",
 										client.state_machine
 									)),
 										(interval, None),
@@ -319,7 +318,7 @@ impl IsmpHost for BscPosHost {
 							client.prover.client.get_block(block_number).await?.ok_or_else(
 								|| {
 									anyhow!(
-										"Block with number {block_number} not found for {:?}",
+										"Block with number {block_number} not found for {}",
 										client.state_machine
 									)
 								},

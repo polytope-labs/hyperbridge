@@ -18,7 +18,7 @@ use futures::StreamExt;
 use hex_literal::hex;
 use ismp::{
 	consensus::StateMachineId,
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 };
 use pallet_ismp_demo::GetRequest;
 use primitive_types::H160;
@@ -256,7 +256,7 @@ async fn test_state_machine_notifs() -> Result<(), anyhow::Error> {
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
 	let state_machine_id = StateMachineId {
-		state_id: StateMachine::Ethereum(ismp::host::Ethereum::ExecutionLayer),
+		state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 		consensus_state_id: *b"ETH1",
 	};
 	let mut stream = chain_a.state_machine_update_notification(state_machine_id).await?;
@@ -308,10 +308,10 @@ async fn dispatch_to_evm() -> Result<(), anyhow::Error> {
 	};
 
 	let chains = vec![
-		(Ethereum::ExecutionLayer, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(Ethereum::Arbitrum, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(Ethereum::Optimism, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(Ethereum::Base, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
+		(ethereum::EXECUTION_LAYER, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
+		(ethereum::ARBITRUM, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
+		(ethereum::OPTIMISM, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
+		(ethereum::BASE, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
 	];
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;

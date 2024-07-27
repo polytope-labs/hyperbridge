@@ -69,7 +69,7 @@ impl BeefyConfig {
 pub(crate) fn extract_para_id(state_machine: StateMachine) -> Result<u32, anyhow::Error> {
 	let para_id = match state_machine {
 		StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
-		_ => Err(anyhow!("Invalid state machine: {state_machine:?}"))?,
+		_ => Err(anyhow!("Invalid state machine: {state_machine}"))?,
 	};
 
 	Ok(para_id)

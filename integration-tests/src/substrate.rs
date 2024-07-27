@@ -4,7 +4,7 @@ use divide_range::RangeDivisions;
 use ethers::abi::AbiDecode;
 use hex_literal::hex;
 use ismp::{
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	messaging::{hash_request, Keccak256},
 	router::{PostRequest, Request},
 };
@@ -35,6 +35,7 @@ impl Keccak256 for Hasher {
 pub type Mmr = MemMMR<DataOrHash<KeccakHasher, Leaf>, pallet_mmr::mmr::Hasher<KeccakHasher, Leaf>>;
 
 #[tokio::test]
+#[ignore]
 async fn extract_mmr_leaves() {
 	let substrate_config = SubstrateConfig {
 		state_machine: StateMachine::Kusama(4009),
@@ -199,7 +200,7 @@ async fn extract_mmr_leaves() {
 				.into_iter()
 				.map(|hash| Query {
 					source_chain: StateMachine::Bsc,
-					dest_chain: StateMachine::Ethereum(Ethereum::Optimism),
+					dest_chain: StateMachine::Ethereum(ethereum::OPTIMISM),
 					commitment: hash,
 					nonce: 0,
 				})

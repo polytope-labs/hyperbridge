@@ -92,7 +92,7 @@ pub async fn get_beacon_update<T: Config + Send + Sync + 'static>(
 					}
 				},
 				_ => {
-					log::warn!("Invalid combination of l2 consensus for {state_machine:?} {consensus_mechanic:?}");
+					log::warn!("Invalid combination of l2 consensus for {state_machine} {consensus_mechanic:?}");
 					continue;
 				},
 			}

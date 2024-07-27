@@ -98,7 +98,7 @@ impl ArbHost {
 
 	async fn fetch_header(&self, block: H256) -> Result<CodecHeader, anyhow::Error> {
 		let block = self.arb_execution_client.get_block(block).await?.ok_or_else(|| {
-			anyhow!("{:?} Header not found for {:?}", self.evm.state_machine, block)
+			anyhow!("{} Header not found for {:?}", self.evm.state_machine, block)
 		})?;
 		let arb_header = block.into();
 

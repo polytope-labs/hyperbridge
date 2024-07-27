@@ -47,7 +47,7 @@ impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T
 			// If block header is not found and node is fully synced, veto the state commitment
 			if !sync_status {
 				log::info!(
-					"Vetoing State Machine Update for {:?} on {:?}",
+					"Vetoing State Machine Update for {} on {}",
 					self.state_machine,
 					counterparty.state_machine_id().state_id
 				);
@@ -61,7 +61,7 @@ impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T
 		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
 		if state_machine_commitment.state_root != header.state_root {
 			log::info!(
-				"Vetoing State Machine Update for {:?} on {:?}",
+				"Vetoing State Machine Update for {} on {}",
 				self.state_machine,
 				counterparty.state_machine_id().state_id
 			);

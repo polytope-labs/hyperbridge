@@ -20,7 +20,7 @@ use anyhow::{anyhow, Error};
 use futures::{StreamExt, TryFutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
-	host::{Ethereum, StateMachine},
+	host::{ethereum, StateMachine},
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
 use ismp_sync_committee::{types::ConsensusState, BEACON_CONSENSUS_ID};
@@ -298,7 +298,7 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 		})?;
 		state_machine_commitments.push((
 			StateMachineId {
-				state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+				state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
 				consensus_state_id: self.consensus_state_id.clone(),
 			},
 			StateCommitmentHeight {

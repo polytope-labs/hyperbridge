@@ -153,7 +153,7 @@ where
 				.await;
 
 			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
-				result.context(format!("Failed to create mandatory queue for {state_machine:?}"))?
+				result.context(format!("Failed to create mandatory queue for {state_machine}"))?
 			}
 
 			let result = self
@@ -167,7 +167,7 @@ where
 				.await;
 
 			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
-				result.context(format!("Failed to create messages queue for {state_machine:?}"))?
+				result.context(format!("Failed to create messages queue for {state_machine}"))?
 			}
 		}
 
@@ -228,7 +228,7 @@ where
 
 							for state_machine in self.config.state_machines.iter() {
 								tracing::info!(
-									"Sending mandatory consensus proof to {state_machine:?}"
+									"Sending mandatory consensus proof to {state_machine}"
 								);
 
 								let mandatory_queue =
@@ -365,7 +365,7 @@ where
 
 					// notify all relevant state machines
 					for state_machine in state_machines {
-						tracing::info!("Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine:?}");
+						tracing::info!("Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine}");
 						self.rsmq
 							.send_message(
 								self.config.redis.messages_queue(&state_machine).as_str(),
@@ -500,8 +500,7 @@ where
 				if matches!(
 					event.event,
 					Event::PostRequest(_) |
-						Event::PostResponse(_) |
-						Event::PostRequestTimeoutHandled(_) |
+						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
 						Event::PostResponseTimeoutHandled(_)
 				) {
 					return Some(event);
@@ -874,7 +873,7 @@ mod tests {
 				)
 				.await;
 
-			tracing::error!("mandatory queue create result for {state_machine:?}: {result:?}");
+			tracing::error!("mandatory queue create result for {state_machine}: {result:?}");
 
 			let result = beefy_host
 				.rsmq()
@@ -896,21 +895,21 @@ mod tests {
 			let stream_0 = {
 				let state_machine_0 = beefy_config.state_machines[0].clone();
 				beefy_host.queue_notifications(state_machine_0, &pubsub).await?.map_ok(
-					move |message| log::info!("{state_machine_0:?} Got stream message {message:?}",),
+					move |message| log::info!("{state_machine_0} Got stream message {message:?}",),
 				)
 			};
 			let stream_1 = {
 				let state_machine_1 = beefy_config.state_machines[1].clone();
 
 				beefy_host.queue_notifications(state_machine_1, &pubsub).await?.map_ok(
-					move |message| log::info!("{state_machine_1:?} Got stream message {message:?}",),
+					move |message| log::info!("{state_machine_1} Got stream message {message:?}",),
 				)
 			};
 			let stream_2 = {
 				let state_machine_2 = beefy_config.state_machines[2].clone();
 
 				beefy_host.queue_notifications(state_machine_2, &pubsub).await?.map_ok(
-					move |message| log::info!("{state_machine_2:?} Got stream message {message:?}",),
+					move |message| log::info!("{state_machine_2} Got stream message {message:?}",),
 				)
 			};
 

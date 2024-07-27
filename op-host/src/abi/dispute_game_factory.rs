@@ -692,8 +692,7 @@ pub mod dispute_game_factory {
 			game_type: u32,
 			root_claim: [u8; 32],
 			extra_data: ::ethers::core::types::Bytes,
-		) -> ::ethers::contract::builders::ContractCall<M, (::ethers::core::types::Address, u64)>
-		{
+		) -> ::ethers::contract::builders::ContractCall<M, (::ethers::core::types::Address, u64)> {
 			self.0
 				.method_hash([95, 1, 80, 203], (game_type, root_claim, extra_data))
 				.expect("method not found (this should never happen)")
@@ -781,15 +780,13 @@ pub mod dispute_game_factory {
 		///Gets the contract's `DisputeGameCreated` event
 		pub fn dispute_game_created_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, DisputeGameCreatedFilter>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, DisputeGameCreatedFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `ImplementationSet` event
 		pub fn implementation_set_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, ImplementationSetFilter>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, ImplementationSetFilter> {
 			self.0.event()
 		}
 		///Gets the contract's `InitBondUpdated` event
@@ -814,8 +811,7 @@ pub mod dispute_game_factory {
 		/// Returns an `Event` builder for all the events of this contract.
 		pub fn events(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, DisputeGameFactoryEvents>
-		{
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, DisputeGameFactoryEvents> {
 			self.0.event_with_filter(::core::default::Default::default())
 		}
 	}

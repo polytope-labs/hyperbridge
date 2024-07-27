@@ -59,7 +59,7 @@ impl ByzantineHandler for OpHost {
 			// If block header is not found and node is fully synced, veto the state commitment
 			if !sync_status {
 				log::info!(
-					"Vetoing State Machine Update for {:?} on {:?}",
+					"Vetoing State Machine Update for {} on {}",
 					self.evm.state_machine,
 					counterparty.name()
 				);
@@ -73,7 +73,7 @@ impl ByzantineHandler for OpHost {
 		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
 		if state_machine_commitment.state_root != header.state_root {
 			log::info!(
-				"Vetoing State Machine Update for {:?} on {:?}",
+				"Vetoing State Machine Update for {} on {}",
 				self.evm.state_machine,
 				counterparty.name()
 			);

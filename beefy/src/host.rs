@@ -299,14 +299,14 @@ where
 							Ok(None) => break,
 							Err(err) => {
 								tracing::error!(
-									"{counterparty_state_machine:?} error pulling from mandatory queue: {err:?}"
+									"{counterparty_state_machine} error pulling from mandatory queue: {err:?}"
 								);
 								// non-fatal error, keep trying
 								continue;
 							},
 						};
 
-					tracing::info!("{counterparty_state_machine:?} got authority set handover proof for {set_id}");
+					tracing::info!("{counterparty_state_machine} got authority set handover proof for {set_id}");
 					let encoded = counterparty
 						.query_consensus_state(None, self.config.consensus_state_id)
 						.await
@@ -317,7 +317,7 @@ where
 					// just some sanity checks
 					if set_id < consensus_state.next_authorities.id {
 						tracing::error!(
-							"{counterparty_state_machine:?} got proof with set_id: {set_id} < next_set_id:{}",
+							"{counterparty_state_machine} got proof with set_id: {set_id} < next_set_id:{}",
 							consensus_state.next_authorities.id
 						);
 						self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
@@ -327,7 +327,7 @@ where
 					// just some sanity checks
 					if set_id != consensus_state.next_authorities.id {
 						tracing::error!(
-							"{counterparty_state_machine:?} consensus proof with set_id: {set_id} does not match next_set_id: {}",
+							"{counterparty_state_machine} consensus proof with set_id: {set_id} does not match next_set_id: {}",
 							consensus_state.next_authorities.id
 						);
 						// try to pull something else
@@ -336,16 +336,16 @@ where
 
 					if let Err(err) = counterparty.submit(vec![Message::Consensus(message)]).await {
 						tracing::error!(
-							"Error submitting consensus message to {counterparty_state_machine:?}: {err:?}",
+							"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
 						);
 						// non-fatal error, keep trying. This will pull it from the queue once more
 						continue;
 					};
 					tracing::info!(
-						"Submitted mandatory proof to {counterparty_state_machine:?} for {set_id}"
+						"Submitted mandatory proof to {counterparty_state_machine} for {set_id}"
 					);
 					self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal
-					                                                      // error
+					                                                 // error
 				}
 			}
 
@@ -366,14 +366,14 @@ where
 					Ok(Some(message)) => message,
 					Ok(None) => break, // no new items in the queue
 					Err(err) => {
-						tracing::error!("{counterparty_state_machine:?} error pulling from messages queue: {err:?}");
+						tracing::error!("{counterparty_state_machine} error pulling from messages queue: {err:?}");
 						// non-fatal error, keep trying
 						continue;
 					},
 				};
 
 				tracing::info!(
-					"{counterparty_state_machine:?} got messages proof for {finalized_height}"
+					"{counterparty_state_machine} got messages proof for {finalized_height}"
 				);
 				let encoded = counterparty
 					.query_consensus_state(None, self.config.consensus_state_id)
@@ -384,7 +384,7 @@ where
 				// check if the update is relevant to us.
 				if consensus_state.latest_beefy_height >= finalized_height {
 					tracing::info!(
-						"{counterparty_state_machine:?} saw proof for stale height {finalized_height}, current: {}",
+						"{counterparty_state_machine} saw proof for stale height {finalized_height}, current: {}",
 						consensus_state.latest_beefy_height
 					);
 					// delete the message and pull another one
@@ -396,21 +396,21 @@ where
 					set_id != consensus_state.next_authorities.id
 				{
 					tracing::info!(
-						"{counterparty_state_machine:?} saw proof for unknown set_id {set_id}, current: {}, next: {}",
+						"{counterparty_state_machine} saw proof for unknown set_id {set_id}, current: {}, next: {}",
 						consensus_state.current_authorities.id,
 						consensus_state.next_authorities.id,
 					);
 
 					if set_id > consensus_state.next_authorities.id {
 						tracing::info!(
-							"{counterparty_state_machine:?} proof was for future set: {set_id}, next: {}",
+							"{counterparty_state_machine} proof was for future set: {set_id}, next: {}",
 							consensus_state.next_authorities.id,
 						);
 						// break so that we can process a mandatory update
 						break;
 					} else if set_id < consensus_state.current_authorities.id {
 						tracing::info!(
-							"{counterparty_state_machine:?} proof was for older set: {set_id}, current: {}",
+							"{counterparty_state_machine} proof was for older set: {set_id}, current: {}",
 							consensus_state.current_authorities.id,
 						);
 						self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
@@ -420,14 +420,14 @@ where
 
 				if let Err(err) = counterparty.submit(vec![Message::Consensus(message)]).await {
 					tracing::error!(
-						"Error submitting consensus message to {counterparty_state_machine:?}: {err:?}",
+						"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
 					);
 					// non-fatal error, keep trying. This will pull it from the queue once more
 					continue;
 				};
 
 				self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal
-				                                                         // error
+				                                                     // error
 			}
 		}
 

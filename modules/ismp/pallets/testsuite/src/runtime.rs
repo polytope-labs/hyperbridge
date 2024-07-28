@@ -42,7 +42,7 @@ use pallet_ismp::{mmr::Leaf, ModuleId};
 use sp_core::{
 	crypto::AccountId32,
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H160, H256,
+	H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
@@ -426,11 +426,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	ext.execute_with(|| {
 		System::set_block_number(1);
-		let protocol_params = pallet_token_governor::Params::<Balance> {
-			token_gateway_address: H160::zero(),
-			token_registrar_address: H160::zero(),
-			registration_fee: Default::default(),
-		};
+		let protocol_params =
+			pallet_token_governor::Params::<Balance> { registration_fee: Default::default() };
 
 		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
 	});

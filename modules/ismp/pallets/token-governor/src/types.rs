@@ -19,6 +19,7 @@ use alloc::{string::String, vec, vec::Vec};
 use anyhow::anyhow;
 use frame_support::pallet_prelude::*;
 use ismp::host::StateMachine;
+use pallet_ismp_host_executive::EvmHosts;
 use primitive_types::{H160, H256, U256};
 
 /// Maximum size for logos to be stored onchain
@@ -71,10 +72,6 @@ pub struct ChainWithSupply {
 /// Protocol parameters
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct Params<Balance> {
-	/// The address of the token gateway contract across all chains
-	pub token_gateway_address: H160,
-	/// The address of the token registrar contract across all chains
-	pub token_registrar_address: H160,
 	/// The asset registration fee in native tokens, collected by the treasury
 	pub registration_fee: Balance,
 }
@@ -141,27 +138,21 @@ pub struct AssetRegistration {
 /// Protocol Parameters for the TokenRegistrar contract
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct RegistrarParams {
-	// The ERC20 contract address for the wrapped version of the local native token
-	pub erc20_native_token: H160,
 	// Ismp host
 	pub host: H160,
-	// Local UniswapV2 contract address
-	pub uniswap_v2: H160,
 	// registration base fee
 	pub base_fee: U256,
+	/// registrar address
+	pub address: H160,
 }
 
 /// Struct for updating the protocol parameters for a TokenRegistrar
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct RegistrarParamsUpdate {
-	// The ERC20 contract address for the wrapped version of the local native token
-	pub erc20_native_token: Option<H160>,
-	// Ismp host
-	pub host: Option<H160>,
-	// Local UniswapV2 contract address
-	pub uniswap_v2: Option<H160>,
 	// registration base fee
 	pub base_fee: Option<U256>,
+	/// registrar address
+	pub address: Option<H160>,
 }
 
 /// Protocol Parameters for the TokenGateway contract
@@ -169,33 +160,33 @@ pub struct RegistrarParamsUpdate {
 pub struct GatewayParams {
 	/// The Ismp host address
 	pub host: H160,
-	// Local UniswapV2 contract address
-	pub uniswap_v2: H160,
 	/// Contract for dispatching calls in `AssetWithCall`
 	pub call_dispatcher: H160,
+	/// Token gateway address
+	pub address: H160,
 }
 
 /// Struct for updating the protocol parameters for a TokenGateway
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct TokenGatewayParamsUpdate {
-	/// The Ismp host address
-	pub host: Option<H160>,
-	// Local UniswapV2 contract address
-	pub uniswap_v2: Option<H160>,
 	/// Contract for dispatching calls in `AssetWithCall`
 	pub call_dispatcher: Option<H160>,
+	/// Token gateway  address
+	pub address: Option<H160>,
+}
+
+/// Describes the token gateway module on a given chain
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct ContractInstance {
+	/// The associated chain
+	pub chain: StateMachine,
+	// The token gateway params on this chain
+	pub module_id: H160,
 }
 
 impl<B: Clone> Params<B> {
 	pub fn update(&self, update: ParamsUpdate<B>) -> Params<B> {
 		let mut params = self.clone();
-		if let Some(token_gateway_address) = update.token_gateway_address {
-			params.token_gateway_address = token_gateway_address;
-		}
-
-		if let Some(token_registrar_address) = update.token_registrar_address {
-			params.token_registrar_address = token_registrar_address;
-		}
 
 		if let Some(registration_fee) = update.registration_fee {
 			params.registration_fee = registration_fee;
@@ -207,18 +198,19 @@ impl<B: Clone> Params<B> {
 
 impl RegistrarParams {
 	/// Convenience method for updating protocol params
-	pub fn update(&self, update: RegistrarParamsUpdate) -> RegistrarParams {
+	pub fn update<T: crate::Config>(
+		&self,
+		state_machine: &StateMachine,
+		update: RegistrarParamsUpdate,
+	) -> RegistrarParams {
 		let mut params = self.clone();
-		if let Some(erc20_native_token) = update.erc20_native_token {
-			params.erc20_native_token = erc20_native_token;
-		}
 
-		if let Some(host) = update.host {
+		if let Some(host) = EvmHosts::<T>::get(state_machine) {
 			params.host = host;
 		}
 
-		if let Some(uniswap_v2) = update.uniswap_v2 {
-			params.uniswap_v2 = uniswap_v2;
+		if let Some(address) = update.address {
+			params.address = address;
 		}
 
 		if let Some(base_fee) = update.base_fee {
@@ -231,15 +223,19 @@ impl RegistrarParams {
 
 impl GatewayParams {
 	/// Convenience method for updating protocol params
-	pub fn update(&self, update: TokenGatewayParamsUpdate) -> GatewayParams {
+	pub fn update<T: crate::Config>(
+		&self,
+		state_machine: &StateMachine,
+		update: TokenGatewayParamsUpdate,
+	) -> GatewayParams {
 		let mut params = self.clone();
 
-		if let Some(host) = update.host {
+		if let Some(host) = EvmHosts::<T>::get(state_machine) {
 			params.host = host;
 		}
 
-		if let Some(uniswap_v2) = update.uniswap_v2 {
-			params.uniswap_v2 = uniswap_v2;
+		if let Some(address) = update.address {
+			params.address = address;
 		}
 
 		if let Some(call_dispatcher) = update.call_dispatcher {
@@ -252,6 +248,13 @@ impl GatewayParams {
 
 alloy_sol_macro::sol! {
 	#![sol(all_derives)]
+
+	struct SolTokenGatewayParams {
+		// address of the IsmpHost contract on this chain
+		address host;
+		// dispatcher for delegating external calls
+		address dispatcher;
+	}
 
 	struct SolAssetMetadata {
 	   // ERC20 token contract address for the asset
@@ -268,26 +271,6 @@ alloy_sol_macro::sol! {
 	   address beneficiary;
 	}
 
-	struct SolRequestBody {
-		// The asset owner
-		address owner;
-		// The assetId to create
-		bytes32 assetId;
-		// The base fee paid for registration, used in timeouts
-		uint256 baseFee;
-	}
-
-	struct SolRegistrarParams {
-		// The ERC20 contract address for the wrapped version of the local native token
-		address erc20NativeToken;
-		// Ismp host
-		address host;
-		// Local UniswapV2 contract address
-		address uniswapV2;
-		// registration base fee
-		uint256 baseFee;
-	}
-
 	struct SolDeregsiterAsset {
 	   // List of assets to deregister
 		bytes32[] assetIds;
@@ -300,13 +283,25 @@ alloy_sol_macro::sol! {
 		address newAdmin;
 	}
 
-	struct SolTokenGatewayParams {
-		// address of the IsmpHost contract on this chain
+	struct SolContractInstance {
+		// The state machine identifier for this chain
+		bytes chain;
+		// The token gateway contract address on this chain
+		address moduleId;
+	}
+
+	struct SolRegistrarParams {
+		// Ismp host
 		address host;
-		// local uniswap router
-		address uniswapV2;
-		// dispatcher for delegating external calls
-		address dispatcher;
+		// registration base fee
+		uint256 baseFee;
+	}
+
+	struct SolRequestBody {
+		// The asset owner
+		address owner;
+		// The assetId to create
+		bytes32 assetId;
 	}
 }
 
@@ -314,7 +309,6 @@ impl From<GatewayParams> for SolTokenGatewayParams {
 	fn from(value: GatewayParams) -> Self {
 		SolTokenGatewayParams {
 			host: value.host.0.into(),
-			uniswapV2: value.uniswap_v2.0.into(),
 			dispatcher: value.call_dispatcher.0.into(),
 		}
 	}
@@ -323,10 +317,17 @@ impl From<GatewayParams> for SolTokenGatewayParams {
 impl From<RegistrarParams> for SolRegistrarParams {
 	fn from(value: RegistrarParams) -> Self {
 		SolRegistrarParams {
-			erc20NativeToken: value.erc20_native_token.0.into(),
 			host: value.host.0.into(),
-			uniswapV2: value.uniswap_v2.0.into(),
 			baseFee: alloy_primitives::U256::from_limbs(value.base_fee.0),
+		}
+	}
+}
+
+impl From<ContractInstance> for SolContractInstance {
+	fn from(value: ContractInstance) -> Self {
+		SolContractInstance {
+			chain: value.chain.to_string().as_bytes().to_vec().into(),
+			moduleId: value.module_id.0.into(),
 		}
 	}
 }
@@ -394,6 +395,17 @@ impl TokenGatewayRequest for SolChangeAssetAdmin {
 
 		let variant = vec![4u8]; // enum variant on token gateway
 		let encoded = SolChangeAssetAdmin::abi_encode(self);
+
+		[variant, encoded].concat()
+	}
+}
+
+impl TokenGatewayRequest for SolContractInstance {
+	fn encode_request(&self) -> Vec<u8> {
+		use alloy_sol_types::SolType;
+
+		let variant = vec![5u8]; // enum variant on token gateway
+		let encoded = SolContractInstance::abi_encode(self);
 
 		[variant, encoded].concat()
 	}

@@ -9,15 +9,18 @@ import { RequestService } from "../../../services/request.service";
  * Handles the PostRequest event from Evm Hosts
  */
 export async function handlePostRequestEvent(
-  event: PostRequestEventLog,
+  event: PostRequestEventLog
 ): Promise<void> {
   assert(event.args, "No handlePostRequestEvent args");
 
   const { transaction, blockNumber, transactionHash, args, block } = event;
-  let { data, dest, fee, from, nonce, source, timeoutTimestamp, to } = args;
+  let { dest, fee, from, nonce, source, timeoutTimestamp, to, body } = args;
 
   logger.info(
-    `Handling PostRequest Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling PostRequest Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
@@ -32,14 +35,14 @@ export async function handlePostRequestEvent(
     BigInt(timeoutTimestamp.toString()),
     from,
     to,
-    data,
+    body
   );
 
   // Create the request entity
   await RequestService.findOrCreate({
     chain,
     commitment: request_commitment,
-    data,
+    data: body,
     dest,
     fee: BigInt(fee.toString()),
     from,

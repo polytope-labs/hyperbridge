@@ -1,4 +1,14 @@
 [
+  { "inputs": [], "name": "ChallengePeriodNotElapsed", "type": "error" },
+  { "inputs": [], "name": "ConsensusClientExpired", "type": "error" },
+  { "inputs": [], "name": "DuplicateMessage", "type": "error" },
+  { "inputs": [], "name": "HostFrozen", "type": "error" },
+  { "inputs": [], "name": "InvalidMessageDestination", "type": "error" },
+  { "inputs": [], "name": "InvalidProof", "type": "error" },
+  { "inputs": [], "name": "MessageNotTimedOut", "type": "error" },
+  { "inputs": [], "name": "MessageTimedOut", "type": "error" },
+  { "inputs": [], "name": "StateCommitmentNotFound", "type": "error" },
+  { "inputs": [], "name": "UnknownMessage", "type": "error" },
   {
     "inputs": [
       {

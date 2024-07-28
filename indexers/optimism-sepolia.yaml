@@ -19,10 +19,10 @@ network:
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 12199718
+    startBlock: 14835254
     options:
       abi: ethereumHost
-      address: "0x0D811D581D615AA44A36aa638825403F9b434E18"
+      address: "0x821c5D97213Aaf914174440a53bB4403BF42f27b"
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -79,10 +79,10 @@ dataSources:
 
   # Protocol Fee Token
   - kind: ethereum/Runtime
-    startBlock: 12199718
+    startBlock: 14835254
     options:
       abi: erc6160ext20
-      address: "0x6B0e814557b15D67db6F0F147702d209DBEd8D1A"
+      address: "0xC72747C906C6f02333B2f6a74cF412C9dF46bAAa"
     assets:
       erc6160ext20:
         file: ./abis/ERC6160Ext20.abi.json
@@ -97,10 +97,10 @@ dataSources:
 
   # Handler Contract
   - kind: ethereum/Runtime
-    startBlock: 12199718
+    startBlock: 14835254
     options:
       abi: handlerV1
-      address: "0x6DbcA7CAEBd47D377E230ec3EFaBDdf0A7afA395"
+      address: "0x269fCD56Fe8A0399782213001dC4aA99c50286A0"
     assets:
       handlerV1:
         file: ./abis/HandlerV1.abi.json
@@ -115,5 +115,43 @@ dataSources:
           kind: ethereum/TransactionHandler
           filter:
             function: "0x72becccd"
+
+  # TokenGateway Contract
+  - kind: ethereum/Runtime
+    startBlock: 14835254
+    options:
+      abi: tokenGateway
+      address: "0x06F411Ea7721e1dE3E00471d00C76F6e0Cf890Dc"
+    assets:
+      tokenGateway:
+        file: ./abis/TokenGateway.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleBidPlacedEvent
+          filter:
+            topics:
+              - "BidPlaced(bytes32,bytes32,uint256,address)"
+        - kind: ethereum/LogHandler
+          handler: handleBidRefundedEvent
+          filter:
+            topics:
+              - "BidRefunded(bytes32,bytes32,address)"
+        - kind: ethereum/LogHandler
+          handler: handleRequestFulfilledEvent
+          filter:
+            topics:
+              - "RequestFulfilled(address,uint256,bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleAssetReceivedEvent
+          filter:
+            topics:
+              - "AssetReceived(bytes32,address,address,uint256,bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleAssetTeleportedEvent
+          filter:
+            topics:
+              - "AssetTeleported(bytes32,address,bytes32,uint256,bytes32,bool)"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

@@ -15,7 +15,11 @@
 
 //! Pallet types
 
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{
+	string::{String, ToString},
+	vec,
+	vec::Vec,
+};
 use anyhow::anyhow;
 use frame_support::pallet_prelude::*;
 use ismp::host::StateMachine;

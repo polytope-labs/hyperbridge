@@ -18,6 +18,7 @@ geth-primitives = { workspace = true, default-features = false }
 evm-common = { workspace = true }
 arbitrum-verifier = { workspace = true }
 op-verifier = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
 
 # crates.io
 hex = { version = "0.4.3", default-features = false }

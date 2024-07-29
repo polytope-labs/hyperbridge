@@ -4641,6 +4641,7 @@ dependencies = [
  "hex",
  "hex-literal 0.3.4",
  "ismp",
+ "pallet-ismp-host-executive",
  "parity-scale-codec",
  "trie-db 0.28.0",
 ]
@@ -7308,6 +7309,7 @@ dependencies = [
  "geth-primitives",
  "ismp",
  "log",
+ "pallet-ismp-host-executive",
  "parity-scale-codec",
  "scale-info",
  "sp-core 27.0.0",
@@ -7444,6 +7446,7 @@ dependencies = [
  "ismp",
  "op-verifier",
  "pallet-ismp",
+ "pallet-ismp-host-executive",
  "parity-scale-codec",
  "scale-info",
  "sp-core 28.0.0",

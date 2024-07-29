@@ -77,8 +77,8 @@ impl pallet_ismp::Config for Runtime {
 	type Currency = Balances;
 	type Coprocessor = Coprocessor;
 	type ConsensusClients = (
-		ismp_bsc::BscClient<Ismp>,
-		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Mainnet>,
+		ismp_bsc::BscClient<Ismp, Runtime>,
+		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Mainnet, Runtime>,
 	);
 	type Mmr = Mmr;
 	type WeightProvider = ();

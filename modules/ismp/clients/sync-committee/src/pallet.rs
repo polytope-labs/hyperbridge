@@ -22,7 +22,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use ismp::{consensus::StateMachineId, host::IsmpHost};
 
-	use sp_core::{H160, H256};
+	use sp_core::H256;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -54,38 +54,8 @@ pub mod pallet {
 	where
 		<T as frame_system::Config>::Hash: From<H256>,
 	{
-		/// Add an ismp host contract address for a new chain
-		#[pallet::call_index(0)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-		pub fn add_ismp_address(
-			origin: OriginFor<T>,
-			contract_address: H160,
-			state_machine_id: StateMachineId,
-		) -> DispatchResult {
-			<T as Config>::AdminOrigin::ensure_origin(origin)?;
-
-			let host = <T as Config>::IsmpHost::default();
-			let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
-			let encoded_consensus_state = host
-				.consensus_state(consensus_state_id)
-				.map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
-			let mut consensus_state: ConsensusState =
-				codec::Decode::decode(&mut &encoded_consensus_state[..])
-					.map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
-			ensure!(
-				!consensus_state.ismp_contract_addresses.contains_key(&state_machine),
-				Error::<T>::ContractAddressAlreadyExists
-			);
-			consensus_state.ismp_contract_addresses.insert(state_machine, contract_address);
-
-			let encoded_consensus_state = consensus_state.encode();
-			host.store_consensus_state(consensus_state_id, encoded_consensus_state)
-				.map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
-			Ok(())
-		}
-
 		/// Add a new l2 consensus to the sync committee consensus state
-		#[pallet::call_index(1)]
+		#[pallet::call_index(0)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
 		pub fn add_l2_consensus(
 			origin: OriginFor<T>,

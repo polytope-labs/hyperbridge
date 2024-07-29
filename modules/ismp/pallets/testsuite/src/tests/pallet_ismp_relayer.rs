@@ -31,7 +31,7 @@ use pallet_ismp::{
 	dispatcher::FeeMetadata,
 	ResponseReceipt,
 };
-use pallet_ismp_host_executive::{EvmHostParam, HostParam};
+use pallet_ismp_host_executive::{EvmHostParam, EvmHosts, HostParam};
 use pallet_ismp_relayer::{
 	self as pallet_ismp_relayer, message,
 	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
@@ -488,20 +488,18 @@ fn test_evm_accumulate_fees() {
 			Duration::from_secs(100),
 		)
 		.unwrap();
+		EvmHosts::<Test>::insert(StateMachine::Bsc, bsc_host);
+		EvmHosts::<Test>::insert(StateMachine::Ethereum(ethereum::OPTIMISM), op_host);
 		let bsc_consensus_state = ismp_bsc::ConsensusState {
 			current_validators: vec![],
 			next_validators: None,
 			finalized_height: 0,
 			finalized_hash: Default::default(),
 			current_epoch: 0,
-			ismp_contract_address: bsc_host,
 		};
 		let sync_committee_consensus_state = ismp_sync_committee::types::ConsensusState {
 			frozen_height: None,
 			light_client_state: Default::default(),
-			ismp_contract_addresses: vec![(StateMachine::Ethereum(ethereum::OPTIMISM), op_host)]
-				.into_iter()
-				.collect(),
 			l2_consensus: Default::default(),
 		};
 		host.store_consensus_state(
@@ -656,20 +654,18 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 
 	host.store_state_machine_update_time(claim_proof.dest_proof.height, Duration::from_secs(100))
 		.unwrap();
+	EvmHosts::<Test>::insert(StateMachine::Bsc, bsc_host);
+	EvmHosts::<Test>::insert(StateMachine::Ethereum(ethereum::BASE), op_host);
 	let bsc_consensus_state = ismp_bsc::ConsensusState {
 		current_validators: vec![],
 		next_validators: None,
 		finalized_height: 0,
 		finalized_hash: Default::default(),
 		current_epoch: 0,
-		ismp_contract_address: bsc_host,
 	};
 	let sync_committee_consensus_state = ismp_sync_committee::types::ConsensusState {
 		frozen_height: None,
 		light_client_state: Default::default(),
-		ismp_contract_addresses: vec![(StateMachine::Ethereum(ethereum::BASE), op_host)]
-			.into_iter()
-			.collect(),
 		l2_consensus: Default::default(),
 	};
 	host.store_consensus_state(

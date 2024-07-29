@@ -19,11 +19,13 @@
 #![allow(unused_variables)]
 
 extern crate alloc;
+
 use alloc::collections::BTreeMap;
 use ethabi::ethereum_types::{H160, H256};
 use ismp::{
-	consensus::StateCommitment,
+	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
+	host::IsmpHost,
 	messaging::{Keccak256, Proof},
 	router::RequestResponse,
 };
@@ -32,6 +34,7 @@ pub mod prelude {
 	pub use alloc::{boxed::Box, string::ToString, vec, vec::Vec};
 }
 
+use pallet_ismp_host_executive::EvmHosts;
 use prelude::*;
 
 pub mod presets;
@@ -109,4 +112,54 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	}
 
 	Ok(map)
+}
+
+pub struct EvmStateMachine<H: IsmpHost, T: pallet_ismp_host_executive::Config>(
+	core::marker::PhantomData<(H, T)>,
+);
+
+impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Default for EvmStateMachine<H, T> {
+	fn default() -> Self {
+		Self(core::marker::PhantomData)
+	}
+}
+
+impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Clone for EvmStateMachine<H, T> {
+	fn clone(&self) -> Self {
+		EvmStateMachine::<H, T>::default()
+	}
+}
+
+impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMachineClient
+	for EvmStateMachine<H, T>
+{
+	fn verify_membership(
+		&self,
+		host: &dyn IsmpHost,
+		item: RequestResponse,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error> {
+		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
+			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+		verify_membership::<H>(item, root, proof, contract_address)
+	}
+
+	fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
+		// State trie keys are used to process timeouts from EVM chains
+		// We return the trie keys for request or response receipts
+		req_res_receipt_keys::<H>(items)
+	}
+
+	fn verify_state_proof(
+		&self,
+		host: &dyn IsmpHost,
+		keys: Vec<Vec<u8>>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
+		let ismp_address = EvmHosts::<T>::get(&proof.height.id.state_id)
+			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+		verify_state_proof::<H>(keys, root, proof, ismp_address)
+	}
 }

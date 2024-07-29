@@ -30,7 +30,7 @@ use ismp::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
-	host::{ethereum, IsmpHost, StateMachine},
+	host::{ethereum, StateMachine},
 	messaging::Keccak256,
 };
 
@@ -65,7 +65,7 @@ pub struct OptimismPayloadProof {
 	pub timestamp: u64,
 }
 
-pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
+pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 	payload: OptimismPayloadProof,
 	root: H256,
 	l2_oracle_address: H160,
@@ -207,7 +207,7 @@ pub fn calculate_output_root<H: Keccak256>(
 pub const CANNON: u32 = 0;
 pub const _PERMISSIONED: u32 = 1;
 
-pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
+pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 	payload: OptimismDisputeGameProof,
 	root: H256,
 	dispute_factory_address: H160,

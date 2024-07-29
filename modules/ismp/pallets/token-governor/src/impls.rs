@@ -15,7 +15,8 @@
 
 // Pallet Implementations
 
-use alloc::vec;
+use alloc::{collections::BTreeMap, vec};
+use alloy_sol_types::SolValue;
 use frame_support::{ensure, PalletId};
 use frame_system::{pallet_prelude::OriginFor, RawOrigin};
 use ismp::{
@@ -27,10 +28,11 @@ use sp_runtime::traits::AccountIdConversion;
 
 use crate::{
 	AssetMetadata, AssetMetadatas, AssetOwners, AssetRegistration, ChainWithSupply, Config,
-	ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate, Error, Event, Pallet,
-	Params, PendingAsset, ProtocolParams, SolAssetMetadata, SolChangeAssetAdmin,
-	SolDeregsiterAsset, SolTokenGatewayParams, SupportedChains, TokenGatewayParams,
-	TokenGatewayParamsUpdate, TokenGatewayRequest, UnsignedERC6160AssetRegistration, PALLET_ID,
+	ContractInstance, ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate, Error,
+	Event, GatewayParams, Pallet, PendingAsset, RegistrarParamsUpdate, SolAssetMetadata,
+	SolChangeAssetAdmin, SolContractInstance, SolDeregsiterAsset, SolRegistrarParams,
+	SolTokenGatewayParams, SupportedChains, TokenGatewayParams, TokenGatewayParamsUpdate,
+	TokenGatewayRequest, TokenRegistrarParams, UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
 impl<T: Config> Pallet<T>
@@ -62,8 +64,6 @@ where
 		if AssetOwners::<T>::contains_key(&asset_id) {
 			Err(Error::<T>::AssetAlreadyExists)?
 		}
-		let Params { token_gateway_address, .. } =
-			ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
 
 		let metadata = AssetMetadata {
 			name: asset.name.clone(),
@@ -81,13 +81,16 @@ where
 				body.initialSupply = alloy_primitives::U256::from_limbs(supply.initial_supply.0);
 			}
 
+			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+
 			let dispatcher = T::Dispatcher::default();
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
 						from: PALLET_ID.to_vec(),
-						to: token_gateway_address.as_bytes().to_vec(),
+						to: address.as_bytes().to_vec(),
 						timeout: 0,
 						body: body.encode_request(),
 					}),
@@ -142,9 +145,6 @@ where
 	///    supported chain (Should be used with caution)
 	/// 4. Dispatch a request to change the asset admin to another address.
 	pub fn update_erc6160_asset_impl(update: ERC6160AssetUpdate) -> Result<(), Error<T>> {
-		let Params { token_gateway_address, .. } =
-			ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
-
 		let metadata =
 			AssetMetadatas::<T>::get(&update.asset_id).ok_or_else(|| Error::<T>::UnknownAsset)?;
 
@@ -161,6 +161,10 @@ where
 			if SupportedChains::<T>::get(&update.asset_id, &chain).is_some() {
 				continue;
 			}
+
+			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+
 			let mut body: SolAssetMetadata =
 				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
 
@@ -174,7 +178,7 @@ where
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
 						from: PALLET_ID.to_vec(),
-						to: token_gateway_address.as_bytes().to_vec(),
+						to: address.as_bytes().to_vec(),
 						timeout: 0,
 						body: body.encode_request(),
 					}),
@@ -191,13 +195,16 @@ where
 				continue;
 			}
 
+			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+
 			let body = SolDeregsiterAsset { assetIds: vec![update.asset_id.0.into()] };
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
 						from: PALLET_ID.to_vec(),
-						to: token_gateway_address.as_bytes().to_vec(),
+						to: address.as_bytes().to_vec(),
 						timeout: 0,
 						body: body.encode_request(),
 					}),
@@ -212,6 +219,9 @@ where
 				continue;
 			}
 
+			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+
 			let body =
 				SolChangeAssetAdmin { assetId: update.asset_id.0.into(), newAdmin: admin.0.into() };
 			dispatcher
@@ -219,7 +229,7 @@ where
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
 						from: PALLET_ID.to_vec(),
-						to: token_gateway_address.as_bytes().to_vec(),
+						to: address.as_bytes().to_vec(),
 						timeout: 0,
 						body: body.encode_request(),
 					}),
@@ -233,40 +243,117 @@ where
 
 	/// Dispatches a request to update the TokenRegistrar contract parameters
 	pub fn update_gateway_params_impl(
-		update: TokenGatewayParamsUpdate,
-		state_machine: StateMachine,
+		updates: BTreeMap<StateMachine, TokenGatewayParamsUpdate>,
 	) -> Result<(), Error<T>> {
-		let stored_params = TokenGatewayParams::<T>::get(&state_machine);
-		let old_params = stored_params.clone().unwrap_or_default();
-		let new_params = old_params.update(update);
+		for (state_machine, update) in updates {
+			let stored_params = TokenGatewayParams::<T>::get(&state_machine);
+			let old_params = stored_params.clone().unwrap_or_default();
+			let new_params = old_params.update::<T>(&state_machine, update);
 
-		TokenGatewayParams::<T>::insert(state_machine.clone(), new_params.clone());
+			TokenGatewayParams::<T>::insert(state_machine.clone(), new_params.clone());
 
-		// if the params already exists then we dispatch a request to update it
-		if let Some(_) = stored_params {
-			let Params { token_gateway_address, .. } =
-				ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
-			let dispatcher = T::Dispatcher::default();
-			let body: SolTokenGatewayParams = new_params.clone().into();
-			dispatcher
-				.dispatch_request(
-					DispatchRequest::Post(DispatchPost {
-						dest: state_machine.clone(),
-						from: PALLET_ID.to_vec(),
-						to: token_gateway_address.as_bytes().to_vec(),
-						timeout: 0,
-						body: body.encode_request(),
-					}),
-					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-				)
-				.map_err(|_| Error::<T>::DispatchFailed)?;
+			// if the params already exists then we dispatch a request to update it
+			if let Some(old) = stored_params {
+				let dispatcher = T::Dispatcher::default();
+				let body: SolTokenGatewayParams = new_params.clone().into();
+				dispatcher
+					.dispatch_request(
+						DispatchRequest::Post(DispatchPost {
+							dest: state_machine.clone(),
+							from: PALLET_ID.to_vec(),
+							to: old.address.as_bytes().to_vec(),
+							timeout: 0,
+							body: body.encode_request(),
+						}),
+						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+					)
+					.map_err(|_| Error::<T>::DispatchFailed)?;
+			}
+
+			Self::deposit_event(Event::<T>::GatewayParamsUpdated {
+				old: old_params,
+				new: new_params,
+				state_machine,
+			});
 		}
 
-		Self::deposit_event(Event::<T>::GatewayParamsUpdated {
-			old: old_params,
-			new: new_params,
-			state_machine,
-		});
+		Ok(())
+	}
+
+	/// Introduce a new instance of the token gateway which has a different address
+	pub fn add_new_gateway_instance(
+		updates: BTreeMap<StateMachine, TokenGatewayParamsUpdate>,
+	) -> Result<(), Error<T>> {
+		// first set them all
+		for (state_machine, update) in updates.iter() {
+			let new_params = GatewayParams::default().update::<T>(&state_machine, update.clone());
+			TokenGatewayParams::<T>::insert(state_machine.clone(), new_params);
+		}
+
+		// now dispatch cross-chain governance actions
+		let dispatcher = T::Dispatcher::default();
+		for (state_machine, _) in updates {
+			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&state_machine)
+				.expect("Params set in previous loop; qed");
+			let body: SolContractInstance =
+				ContractInstance { chain: state_machine, module_id: address }.into();
+
+			for (chain, GatewayParams { address, .. }) in TokenGatewayParams::<T>::iter() {
+				if chain == state_machine {
+					continue;
+				}
+				dispatcher
+					.dispatch_request(
+						DispatchRequest::Post(DispatchPost {
+							dest: state_machine.clone(),
+							from: PALLET_ID.to_vec(),
+							to: address.as_bytes().to_vec(),
+							timeout: 0,
+							body: body.encode_request(),
+						}),
+						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+					)
+					.map_err(|_| Error::<T>::DispatchFailed)?;
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Dispatch a request to update the params of the TokenRegistrar
+	pub fn update_registrar_params_impl(
+		updates: BTreeMap<StateMachine, RegistrarParamsUpdate>,
+	) -> Result<(), Error<T>> {
+		for (state_machine, update) in updates {
+			let stored_params = TokenRegistrarParams::<T>::get(&state_machine);
+			let old_params = stored_params.clone().unwrap_or_default();
+			let new_params = old_params.update::<T>(&state_machine, update);
+
+			TokenRegistrarParams::<T>::insert(state_machine.clone(), new_params.clone());
+
+			// if the params already exists then we dispatch a request to update it
+			if let Some(old) = stored_params {
+				let dispatcher = T::Dispatcher::default();
+				dispatcher
+					.dispatch_request(
+						DispatchRequest::Post(DispatchPost {
+							dest: state_machine.clone(),
+							from: PALLET_ID.to_vec(),
+							to: old.address.as_bytes().to_vec(),
+							timeout: 0,
+							body: SolRegistrarParams::from(new_params.clone()).abi_encode(),
+						}),
+						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+					)
+					.map_err(|_| Error::<T>::DispatchFailed)?;
+			}
+
+			Self::deposit_event(Event::<T>::RegistrarParamsUpdated {
+				old: old_params,
+				new: new_params,
+				state_machine,
+			});
+		}
 
 		Ok(())
 	}
@@ -277,8 +364,6 @@ where
 		if AssetOwners::<T>::contains_key(&asset_id) {
 			Err(Error::<T>::AssetAlreadyExists)?
 		}
-		let Params { token_gateway_address, .. } =
-			ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
 
 		let metadata = AssetMetadata {
 			name: asset.name.clone(),
@@ -299,13 +384,16 @@ where
 				body.erc6160 = erc6160.0.into();
 			}
 
+			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+
 			let dispatcher = T::Dispatcher::default();
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
 						from: PALLET_ID.to_vec(),
-						to: token_gateway_address.as_bytes().to_vec(),
+						to: address.as_bytes().to_vec(),
 						timeout: 0,
 						body: body.encode_request(),
 					}),

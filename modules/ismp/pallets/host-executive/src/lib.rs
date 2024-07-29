@@ -39,6 +39,7 @@ pub mod pallet {
 	};
 	use pallet_hyperbridge::{Message, PALLET_HYPERBRIDGE};
 	use pallet_ismp::ModuleId;
+	use primitive_types::H160;
 
 	/// ISMP module identifier
 	pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"hostexec"));
@@ -57,7 +58,7 @@ pub mod pallet {
 		type IsmpHost: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
 	}
 
-	/// Host Manager Addresses on different chains
+	/// Host Params for all connected chains
 	#[pallet::storage]
 	#[pallet::getter(fn host_params)]
 	pub type HostParams<T: Config> = StorageMap<
@@ -67,6 +68,11 @@ pub mod pallet {
 		HostParam<<T as pallet_ismp::Config>::Balance>,
 		OptionQuery,
 	>;
+
+	/// EvmHost addresses of all connected Evm chains
+	#[pallet::storage]
+	#[pallet::getter(fn evm_hosts)]
+	pub type EvmHosts<T: Config> = StorageMap<_, Twox64Concat, StateMachine, H160, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -88,6 +94,22 @@ pub mod pallet {
 			state_machine: StateMachine,
 			/// The new host params
 			params: HostParam<<T as pallet_ismp::Config>::Balance>,
+		},
+		/// The address for some EvmHost has been set
+		HostAddressSet {
+			/// State machine's whose host EvmHost address was just added
+			state_machine: StateMachine,
+			/// The address of the IsmpHost
+			address: H160,
+		},
+		/// The host address for some EvmHost has been udpated
+		HostAddressUpdated {
+			/// State machine's whose host EvmHost address was just added
+			state_machine: StateMachine,
+			/// The old address of the IsmpHost
+			old_address: H160,
+			/// The updated address of the IsmpHost
+			new_address: H160,
 		},
 	}
 
@@ -187,6 +209,32 @@ pub mod pallet {
 				old: params,
 				new: updated,
 			});
+
+			Ok(())
+		}
+
+		/// Set or update the addresses for the specified evm hosts
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::call_index(2)]
+		pub fn update_evm_hosts(
+			origin: OriginFor<T>,
+			params: BTreeMap<StateMachine, H160>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			for (state_machine, address) in params {
+				let old = EvmHosts::<T>::get(&state_machine);
+				EvmHosts::<T>::insert(state_machine.clone(), address);
+				if let Some(old_address) = old {
+					Self::deposit_event(Event::<T>::HostAddressUpdated {
+						state_machine,
+						old_address,
+						new_address: address,
+					});
+				} else {
+					Self::deposit_event(Event::<T>::HostAddressSet { state_machine, address });
+				}
+			}
 
 			Ok(())
 		}

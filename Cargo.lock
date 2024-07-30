@@ -20703,6 +20703,7 @@ dependencies = [
  "log",
  "pallet-hyperbridge",
  "pallet-ismp",
+ "pallet-ismp-demo",
  "pallet-ismp-host-executive",
  "percentage",
  "sc-consensus-manual-seal",

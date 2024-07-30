@@ -245,8 +245,7 @@ pub mod api {
 					&self,
 					included_hash: ::subxt::utils::H256,
 					slot: runtime_types::sp_consensus_slots::Slot,
-				) -> ::subxt::runtime_api::Payload<types::CanBuildUpon, ::core::primitive::bool>
-				{
+				) -> ::subxt::runtime_api::Payload<types::CanBuildUpon, ::core::primitive::bool> {
 					::subxt::runtime_api::Payload::new_static(
 						"AuraUnincludedSegmentApi",
 						"can_build_upon",
@@ -854,8 +853,7 @@ pub mod api {
 				pub fn account_nonce(
 					&self,
 					account: ::subxt::utils::AccountId32,
-				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32>
-				{
+				) -> ::subxt::runtime_api::Payload<types::AccountNonce, ::core::primitive::u32> {
 					::subxt::runtime_api::Payload::new_static(
 						"AccountNonceApi",
 						"account_nonce",
@@ -1056,10 +1054,10 @@ pub mod api {
 						"query_call_info",
 						types::QueryCallInfo { call, len },
 						[
-							214u8, 111u8, 89u8, 124u8, 188u8, 10u8, 21u8, 229u8, 158u8, 141u8,
-							103u8, 50u8, 153u8, 215u8, 170u8, 17u8, 120u8, 46u8, 113u8, 143u8,
-							79u8, 115u8, 198u8, 138u8, 188u8, 112u8, 87u8, 94u8, 199u8, 76u8,
-							252u8, 117u8,
+							169u8, 46u8, 20u8, 53u8, 112u8, 111u8, 244u8, 125u8, 142u8, 156u8,
+							89u8, 156u8, 58u8, 83u8, 192u8, 83u8, 219u8, 221u8, 168u8, 25u8, 23u8,
+							55u8, 78u8, 207u8, 163u8, 197u8, 138u8, 44u8, 207u8, 65u8, 158u8,
+							110u8,
 						],
 					)
 				}
@@ -1079,9 +1077,9 @@ pub mod api {
 						"query_call_fee_details",
 						types::QueryCallFeeDetails { call, len },
 						[
-							43u8, 84u8, 193u8, 63u8, 141u8, 50u8, 67u8, 22u8, 92u8, 171u8, 35u8,
-							110u8, 128u8, 9u8, 74u8, 198u8, 205u8, 238u8, 255u8, 180u8, 228u8,
-							104u8, 193u8, 43u8, 73u8, 91u8, 31u8, 41u8, 156u8, 88u8, 198u8, 147u8,
+							247u8, 97u8, 22u8, 132u8, 206u8, 37u8, 232u8, 45u8, 101u8, 240u8,
+							250u8, 35u8, 166u8, 119u8, 195u8, 43u8, 74u8, 51u8, 61u8, 2u8, 125u8,
+							120u8, 12u8, 56u8, 97u8, 153u8, 204u8, 103u8, 42u8, 73u8, 124u8, 31u8,
 						],
 					)
 				}
@@ -1939,10 +1937,9 @@ pub mod api {
 						"create_transaction",
 						types::CreateTransaction { account, call },
 						[
-							238u8, 66u8, 220u8, 46u8, 231u8, 187u8, 142u8, 98u8, 113u8, 154u8,
-							235u8, 181u8, 129u8, 111u8, 9u8, 116u8, 185u8, 134u8, 101u8, 240u8,
-							14u8, 166u8, 173u8, 159u8, 239u8, 69u8, 19u8, 217u8, 140u8, 75u8, 13u8,
-							52u8,
+							83u8, 105u8, 207u8, 57u8, 145u8, 144u8, 13u8, 19u8, 243u8, 3u8, 238u8,
+							25u8, 76u8, 99u8, 20u8, 63u8, 199u8, 45u8, 17u8, 99u8, 113u8, 80u8,
+							64u8, 120u8, 20u8, 179u8, 137u8, 161u8, 254u8, 145u8, 174u8, 35u8,
 						],
 					)
 				}
@@ -2055,6 +2052,9 @@ pub mod api {
 		pub fn ismp_parachain(&self) -> ismp_parachain::storage::StorageApi {
 			ismp_parachain::storage::StorageApi
 		}
+		pub fn ismp_demo(&self) -> ismp_demo::storage::StorageApi {
+			ismp_demo::storage::StorageApi
+		}
 		pub fn relayer(&self) -> relayer::storage::StorageApi {
 			relayer::storage::StorageApi
 		}
@@ -2149,9 +2149,9 @@ pub mod api {
 			.hash();
 		runtime_metadata_hash ==
 			[
-				66u8, 189u8, 210u8, 53u8, 105u8, 45u8, 23u8, 229u8, 113u8, 49u8, 97u8, 73u8, 248u8,
-				79u8, 127u8, 35u8, 106u8, 176u8, 4u8, 26u8, 199u8, 192u8, 62u8, 217u8, 237u8, 50u8,
-				214u8, 189u8, 175u8, 229u8, 47u8, 248u8,
+				168u8, 20u8, 216u8, 196u8, 58u8, 32u8, 246u8, 246u8, 147u8, 21u8, 155u8, 156u8,
+				204u8, 0u8, 28u8, 249u8, 161u8, 217u8, 225u8, 91u8, 83u8, 71u8, 85u8, 13u8, 40u8,
+				149u8, 186u8, 160u8, 237u8, 37u8, 115u8, 150u8,
 			]
 	}
 	pub mod system {
@@ -3033,9 +3033,9 @@ pub mod api {
 						"Events",
 						vec![],
 						[
-							118u8, 49u8, 33u8, 46u8, 190u8, 73u8, 185u8, 45u8, 195u8, 159u8, 141u8,
-							142u8, 22u8, 92u8, 202u8, 216u8, 229u8, 7u8, 190u8, 117u8, 67u8, 63u8,
-							105u8, 95u8, 216u8, 141u8, 134u8, 183u8, 161u8, 156u8, 90u8, 251u8,
+							249u8, 74u8, 9u8, 95u8, 124u8, 221u8, 147u8, 197u8, 166u8, 78u8, 95u8,
+							111u8, 0u8, 159u8, 9u8, 252u8, 110u8, 235u8, 186u8, 83u8, 216u8, 4u8,
+							125u8, 57u8, 37u8, 245u8, 139u8, 223u8, 6u8, 156u8, 82u8, 3u8,
 						],
 					)
 				}
@@ -3253,8 +3253,7 @@ pub mod api {
 				#[doc = " The maximum length of a block (in bytes)."]
 				pub fn block_length(
 					&self,
-				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength>
-				{
+				) -> ::subxt::constants::Address<runtime_types::frame_system::limits::BlockLength> {
 					::subxt::constants::Address::new_static(
 						"System",
 						"BlockLength",
@@ -4510,9 +4509,9 @@ pub mod api {
 						"batch",
 						types::Batch { calls },
 						[
-							188u8, 182u8, 68u8, 19u8, 111u8, 46u8, 70u8, 19u8, 132u8, 77u8, 79u8,
-							3u8, 167u8, 106u8, 24u8, 63u8, 146u8, 232u8, 212u8, 216u8, 58u8, 99u8,
-							140u8, 48u8, 38u8, 188u8, 165u8, 70u8, 28u8, 243u8, 128u8, 37u8,
+							211u8, 43u8, 26u8, 199u8, 7u8, 66u8, 196u8, 201u8, 86u8, 207u8, 204u8,
+							78u8, 39u8, 38u8, 142u8, 160u8, 195u8, 177u8, 179u8, 237u8, 160u8,
+							106u8, 67u8, 26u8, 248u8, 209u8, 80u8, 89u8, 91u8, 206u8, 3u8, 57u8,
 						],
 					)
 				}
@@ -4527,10 +4526,10 @@ pub mod api {
 						"as_derivative",
 						types::AsDerivative { index, call: ::std::boxed::Box::new(call) },
 						[
-							57u8, 160u8, 227u8, 223u8, 15u8, 188u8, 185u8, 93u8, 18u8, 230u8,
-							135u8, 233u8, 171u8, 96u8, 112u8, 33u8, 218u8, 144u8, 77u8, 252u8,
-							92u8, 197u8, 145u8, 162u8, 86u8, 123u8, 60u8, 173u8, 81u8, 218u8,
-							195u8, 26u8,
+							151u8, 255u8, 141u8, 219u8, 19u8, 51u8, 145u8, 214u8, 47u8, 53u8,
+							252u8, 14u8, 84u8, 133u8, 183u8, 221u8, 42u8, 210u8, 35u8, 171u8, 88u8,
+							132u8, 103u8, 72u8, 45u8, 229u8, 226u8, 190u8, 164u8, 66u8, 43u8,
+							160u8,
 						],
 					)
 				}
@@ -4544,10 +4543,9 @@ pub mod api {
 						"batch_all",
 						types::BatchAll { calls },
 						[
-							191u8, 74u8, 244u8, 230u8, 221u8, 11u8, 171u8, 184u8, 160u8, 105u8,
-							232u8, 75u8, 74u8, 141u8, 81u8, 43u8, 117u8, 53u8, 109u8, 50u8, 140u8,
-							11u8, 35u8, 132u8, 250u8, 224u8, 236u8, 136u8, 250u8, 96u8, 119u8,
-							100u8,
+							222u8, 181u8, 12u8, 84u8, 129u8, 114u8, 222u8, 55u8, 113u8, 174u8,
+							174u8, 209u8, 150u8, 225u8, 144u8, 4u8, 230u8, 55u8, 235u8, 36u8, 65u8,
+							113u8, 0u8, 53u8, 88u8, 209u8, 239u8, 220u8, 66u8, 4u8, 245u8, 202u8,
 						],
 					)
 				}
@@ -4565,9 +4563,10 @@ pub mod api {
 							call: ::std::boxed::Box::new(call),
 						},
 						[
-							244u8, 112u8, 132u8, 177u8, 105u8, 72u8, 150u8, 173u8, 134u8, 228u8,
-							200u8, 172u8, 239u8, 41u8, 9u8, 83u8, 186u8, 231u8, 9u8, 38u8, 22u8,
-							124u8, 48u8, 188u8, 66u8, 101u8, 81u8, 119u8, 201u8, 234u8, 142u8, 4u8,
+							76u8, 178u8, 58u8, 33u8, 161u8, 148u8, 129u8, 204u8, 135u8, 140u8,
+							250u8, 173u8, 52u8, 241u8, 14u8, 242u8, 133u8, 180u8, 87u8, 17u8,
+							213u8, 211u8, 230u8, 142u8, 113u8, 67u8, 118u8, 206u8, 87u8, 147u8,
+							211u8, 154u8,
 						],
 					)
 				}
@@ -4581,10 +4580,9 @@ pub mod api {
 						"force_batch",
 						types::ForceBatch { calls },
 						[
-							160u8, 119u8, 155u8, 127u8, 26u8, 23u8, 137u8, 38u8, 139u8, 164u8,
-							225u8, 109u8, 24u8, 220u8, 124u8, 22u8, 196u8, 247u8, 129u8, 83u8,
-							224u8, 144u8, 84u8, 187u8, 96u8, 180u8, 76u8, 184u8, 8u8, 135u8, 199u8,
-							3u8,
+							196u8, 196u8, 78u8, 255u8, 74u8, 142u8, 23u8, 43u8, 47u8, 107u8, 153u8,
+							143u8, 22u8, 19u8, 233u8, 94u8, 233u8, 200u8, 33u8, 214u8, 225u8, 87u8,
+							62u8, 88u8, 61u8, 77u8, 4u8, 47u8, 112u8, 139u8, 135u8, 44u8,
 						],
 					)
 				}
@@ -4599,10 +4597,9 @@ pub mod api {
 						"with_weight",
 						types::WithWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							255u8, 176u8, 177u8, 14u8, 8u8, 166u8, 186u8, 180u8, 43u8, 102u8,
-							134u8, 124u8, 111u8, 220u8, 234u8, 112u8, 87u8, 50u8, 11u8, 138u8,
-							87u8, 254u8, 56u8, 254u8, 175u8, 186u8, 195u8, 76u8, 101u8, 168u8,
-							211u8, 114u8,
+							6u8, 145u8, 97u8, 95u8, 68u8, 85u8, 127u8, 53u8, 185u8, 81u8, 247u8,
+							140u8, 140u8, 241u8, 158u8, 85u8, 121u8, 18u8, 68u8, 127u8, 63u8, 7u8,
+							230u8, 17u8, 254u8, 65u8, 23u8, 69u8, 137u8, 105u8, 194u8, 196u8,
 						],
 					)
 				}
@@ -7380,9 +7377,9 @@ pub mod api {
 						"sudo",
 						types::Sudo { call: ::std::boxed::Box::new(call) },
 						[
-							60u8, 240u8, 239u8, 204u8, 212u8, 206u8, 40u8, 22u8, 191u8, 148u8,
-							195u8, 242u8, 29u8, 224u8, 147u8, 21u8, 39u8, 192u8, 45u8, 31u8, 61u8,
-							201u8, 53u8, 69u8, 214u8, 198u8, 176u8, 70u8, 20u8, 94u8, 176u8, 117u8,
+							47u8, 92u8, 140u8, 13u8, 207u8, 27u8, 50u8, 40u8, 144u8, 33u8, 10u8,
+							95u8, 10u8, 121u8, 40u8, 65u8, 67u8, 168u8, 145u8, 167u8, 163u8, 88u8,
+							162u8, 164u8, 10u8, 234u8, 94u8, 112u8, 206u8, 206u8, 144u8, 155u8,
 						],
 					)
 				}
@@ -7397,9 +7394,10 @@ pub mod api {
 						"sudo_unchecked_weight",
 						types::SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							119u8, 40u8, 4u8, 118u8, 59u8, 8u8, 216u8, 209u8, 144u8, 73u8, 49u8,
-							242u8, 72u8, 251u8, 194u8, 71u8, 184u8, 206u8, 157u8, 39u8, 39u8,
-							117u8, 1u8, 111u8, 165u8, 169u8, 160u8, 80u8, 9u8, 78u8, 72u8, 158u8,
+							3u8, 216u8, 240u8, 153u8, 220u8, 153u8, 45u8, 195u8, 88u8, 250u8,
+							163u8, 148u8, 77u8, 236u8, 104u8, 246u8, 189u8, 213u8, 1u8, 210u8,
+							40u8, 229u8, 205u8, 179u8, 151u8, 217u8, 198u8, 169u8, 4u8, 214u8,
+							141u8, 11u8,
 						],
 					)
 				}
@@ -7430,10 +7428,9 @@ pub mod api {
 						"sudo_as",
 						types::SudoAs { who, call: ::std::boxed::Box::new(call) },
 						[
-							41u8, 155u8, 170u8, 196u8, 38u8, 96u8, 87u8, 182u8, 99u8, 84u8, 169u8,
-							191u8, 143u8, 129u8, 142u8, 84u8, 123u8, 73u8, 31u8, 248u8, 30u8,
-							196u8, 146u8, 181u8, 58u8, 126u8, 115u8, 85u8, 110u8, 84u8, 112u8,
-							60u8,
+							117u8, 153u8, 97u8, 58u8, 68u8, 46u8, 119u8, 68u8, 201u8, 8u8, 145u8,
+							157u8, 17u8, 253u8, 102u8, 134u8, 148u8, 18u8, 162u8, 244u8, 249u8,
+							39u8, 15u8, 146u8, 221u8, 28u8, 36u8, 108u8, 129u8, 73u8, 9u8, 34u8,
 						],
 					)
 				}
@@ -11549,27 +11546,6 @@ pub mod api {
 				# [codec (crate = :: subxt :: ext :: codec)]
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub struct AddIsmpAddress {
-					pub contract_address: ::subxt::utils::H160,
-					pub state_machine_id: runtime_types::ismp::consensus::StateMachineId,
-				}
-				impl ::subxt::blocks::StaticExtrinsic for AddIsmpAddress {
-					const PALLET: &'static str = "IsmpSyncCommittee";
-					const CALL: &'static str = "add_ismp_address";
-				}
-				#[derive(
-					:: subxt :: ext :: codec :: Decode,
-					:: subxt :: ext :: codec :: Encode,
-					:: subxt :: ext :: scale_decode :: DecodeAsType,
-					:: subxt :: ext :: scale_encode :: EncodeAsType,
-					Clone,
-					Debug,
-					Eq,
-					PartialEq,
-				)]
-				# [codec (crate = :: subxt :: ext :: codec)]
-				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct AddL2Consensus {
 					pub state_machine_id: runtime_types::ismp::consensus::StateMachineId,
 					pub l2_consensus: runtime_types::ismp_sync_committee::types::L2Consensus,
@@ -11581,24 +11557,6 @@ pub mod api {
 			}
 			pub struct TransactionApi;
 			impl TransactionApi {
-				#[doc = "See [`Pallet::add_ismp_address`]."]
-				pub fn add_ismp_address(
-					&self,
-					contract_address: ::subxt::utils::H160,
-					state_machine_id: runtime_types::ismp::consensus::StateMachineId,
-				) -> ::subxt::tx::Payload<types::AddIsmpAddress> {
-					::subxt::tx::Payload::new_static(
-						"IsmpSyncCommittee",
-						"add_ismp_address",
-						types::AddIsmpAddress { contract_address, state_machine_id },
-						[
-							217u8, 107u8, 125u8, 76u8, 100u8, 199u8, 151u8, 210u8, 179u8, 33u8,
-							239u8, 132u8, 171u8, 30u8, 98u8, 219u8, 215u8, 69u8, 82u8, 56u8, 50u8,
-							67u8, 162u8, 212u8, 231u8, 32u8, 250u8, 193u8, 185u8, 35u8, 196u8,
-							142u8,
-						],
-					)
-				}
 				#[doc = "See [`Pallet::add_l2_consensus`]."]
 				pub fn add_l2_consensus(
 					&self,
@@ -11846,6 +11804,57 @@ pub mod api {
 			impl ::subxt::events::StaticEvent for GetResponse {
 				const PALLET: &'static str = "IsmpDemo";
 				const EVENT: &'static str = "GetResponse";
+			}
+		}
+		pub mod storage {
+			use super::runtime_types;
+			pub struct StorageApi;
+			impl StorageApi {
+				#[doc = " Storing values requested from other chains along with their requesting keys"]
+				#[doc = " hash of the key"]
+				pub fn get_responses(
+					&self,
+					_0: impl ::std::borrow::Borrow<[::core::primitive::u8; 16usize]>,
+				) -> ::subxt::storage::address::Address<
+					::subxt::storage::address::StaticStorageMapKey,
+					::core::option::Option<::std::vec::Vec<::core::primitive::u8>>,
+					::subxt::storage::address::Yes,
+					::subxt::storage::address::Yes,
+					::subxt::storage::address::Yes,
+				> {
+					::subxt::storage::address::Address::new_static(
+						"IsmpDemo",
+						"GetResponses",
+						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
+						[
+							72u8, 169u8, 144u8, 6u8, 77u8, 202u8, 235u8, 199u8, 231u8, 175u8, 97u8,
+							26u8, 82u8, 201u8, 244u8, 141u8, 83u8, 137u8, 228u8, 84u8, 63u8, 222u8,
+							11u8, 252u8, 40u8, 126u8, 134u8, 8u8, 161u8, 124u8, 186u8, 98u8,
+						],
+					)
+				}
+				#[doc = " Storing values requested from other chains along with their requesting keys"]
+				#[doc = " hash of the key"]
+				pub fn get_responses_root(
+					&self,
+				) -> ::subxt::storage::address::Address<
+					::subxt::storage::address::StaticStorageMapKey,
+					::core::option::Option<::std::vec::Vec<::core::primitive::u8>>,
+					(),
+					::subxt::storage::address::Yes,
+					::subxt::storage::address::Yes,
+				> {
+					::subxt::storage::address::Address::new_static(
+						"IsmpDemo",
+						"GetResponses",
+						Vec::new(),
+						[
+							72u8, 169u8, 144u8, 6u8, 77u8, 202u8, 235u8, 199u8, 231u8, 175u8, 97u8,
+							26u8, 82u8, 201u8, 244u8, 141u8, 83u8, 137u8, 228u8, 84u8, 63u8, 222u8,
+							11u8, 252u8, 40u8, 126u8, 134u8, 8u8, 161u8, 124u8, 186u8, 98u8,
+						],
+					)
+				}
 			}
 		}
 	}
@@ -12215,6 +12224,29 @@ pub mod api {
 					const PALLET: &'static str = "HostExecutive";
 					const CALL: &'static str = "update_host_params";
 				}
+				#[derive(
+					:: subxt :: ext :: codec :: Decode,
+					:: subxt :: ext :: codec :: Encode,
+					:: subxt :: ext :: scale_decode :: DecodeAsType,
+					:: subxt :: ext :: scale_encode :: EncodeAsType,
+					Clone,
+					Debug,
+					Eq,
+					PartialEq,
+				)]
+				# [codec (crate = :: subxt :: ext :: codec)]
+				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+				pub struct UpdateEvmHosts {
+					pub params: ::subxt::utils::KeyedVec<
+						runtime_types::ismp::host::StateMachine,
+						::subxt::utils::H160,
+					>,
+				}
+				impl ::subxt::blocks::StaticExtrinsic for UpdateEvmHosts {
+					const PALLET: &'static str = "HostExecutive";
+					const CALL: &'static str = "update_evm_hosts";
+				}
 			}
 			pub struct TransactionApi;
 			impl TransactionApi {
@@ -12255,6 +12287,26 @@ pub mod api {
 							71u8, 178u8, 122u8, 28u8, 191u8, 237u8, 90u8, 199u8, 250u8, 230u8, 1u8,
 							89u8, 47u8, 69u8, 220u8, 199u8, 167u8, 231u8, 28u8, 177u8, 97u8, 159u8,
 							55u8, 13u8, 56u8, 215u8, 237u8, 111u8, 144u8, 216u8, 90u8, 249u8,
+						],
+					)
+				}
+				#[doc = "See [`Pallet::update_evm_hosts`]."]
+				pub fn update_evm_hosts(
+					&self,
+					params: ::subxt::utils::KeyedVec<
+						runtime_types::ismp::host::StateMachine,
+						::subxt::utils::H160,
+					>,
+				) -> ::subxt::tx::Payload<types::UpdateEvmHosts> {
+					::subxt::tx::Payload::new_static(
+						"HostExecutive",
+						"update_evm_hosts",
+						types::UpdateEvmHosts { params },
+						[
+							127u8, 107u8, 228u8, 32u8, 207u8, 233u8, 228u8, 121u8, 65u8, 145u8,
+							75u8, 1u8, 111u8, 254u8, 254u8, 225u8, 196u8, 8u8, 3u8, 89u8, 160u8,
+							237u8, 173u8, 107u8, 237u8, 209u8, 62u8, 58u8, 16u8, 81u8, 182u8,
+							208u8,
 						],
 					)
 				}
@@ -12317,12 +12369,57 @@ pub mod api {
 				const PALLET: &'static str = "HostExecutive";
 				const EVENT: &'static str = "HostParamsSet";
 			}
+			#[derive(
+				:: subxt :: ext :: codec :: Decode,
+				:: subxt :: ext :: codec :: Encode,
+				:: subxt :: ext :: scale_decode :: DecodeAsType,
+				:: subxt :: ext :: scale_encode :: EncodeAsType,
+				Clone,
+				Debug,
+				Eq,
+				PartialEq,
+			)]
+			# [codec (crate = :: subxt :: ext :: codec)]
+			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+			#[doc = "The address for some EvmHost has been set"]
+			pub struct HostAddressSet {
+				pub state_machine: runtime_types::ismp::host::StateMachine,
+				pub address: ::subxt::utils::H160,
+			}
+			impl ::subxt::events::StaticEvent for HostAddressSet {
+				const PALLET: &'static str = "HostExecutive";
+				const EVENT: &'static str = "HostAddressSet";
+			}
+			#[derive(
+				:: subxt :: ext :: codec :: Decode,
+				:: subxt :: ext :: codec :: Encode,
+				:: subxt :: ext :: scale_decode :: DecodeAsType,
+				:: subxt :: ext :: scale_encode :: EncodeAsType,
+				Clone,
+				Debug,
+				Eq,
+				PartialEq,
+			)]
+			# [codec (crate = :: subxt :: ext :: codec)]
+			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+			#[doc = "The host address for some EvmHost has been udpated"]
+			pub struct HostAddressUpdated {
+				pub state_machine: runtime_types::ismp::host::StateMachine,
+				pub old_address: ::subxt::utils::H160,
+				pub new_address: ::subxt::utils::H160,
+			}
+			impl ::subxt::events::StaticEvent for HostAddressUpdated {
+				const PALLET: &'static str = "HostExecutive";
+				const EVENT: &'static str = "HostAddressUpdated";
+			}
 		}
 		pub mod storage {
 			use super::runtime_types;
 			pub struct StorageApi;
 			impl StorageApi {
-				#[doc = " Host Manager Addresses on different chains"]
+				#[doc = " Host Params for all connected chains"]
 				pub fn host_params(
 					&self,
 					_0: impl ::std::borrow::Borrow<runtime_types::ismp::host::StateMachine>,
@@ -12346,7 +12443,7 @@ pub mod api {
 						],
 					)
 				}
-				#[doc = " Host Manager Addresses on different chains"]
+				#[doc = " Host Params for all connected chains"]
 				pub fn host_params_root(
 					&self,
 				) -> ::subxt::storage::address::Address<
@@ -12366,6 +12463,51 @@ pub mod api {
 							42u8, 23u8, 17u8, 141u8, 53u8, 214u8, 240u8, 137u8, 97u8, 169u8, 110u8,
 							147u8, 17u8, 72u8, 34u8, 233u8, 159u8, 154u8, 183u8, 10u8, 66u8, 218u8,
 							132u8, 18u8, 194u8, 45u8, 196u8, 28u8, 114u8, 81u8, 199u8, 232u8,
+						],
+					)
+				}
+				#[doc = " EvmHost addresses of all connected Evm chains"]
+				pub fn evm_hosts(
+					&self,
+					_0: impl ::std::borrow::Borrow<runtime_types::ismp::host::StateMachine>,
+				) -> ::subxt::storage::address::Address<
+					::subxt::storage::address::StaticStorageMapKey,
+					::subxt::utils::H160,
+					::subxt::storage::address::Yes,
+					(),
+					::subxt::storage::address::Yes,
+				> {
+					::subxt::storage::address::Address::new_static(
+						"HostExecutive",
+						"EvmHosts",
+						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
+						[
+							96u8, 13u8, 102u8, 230u8, 17u8, 190u8, 253u8, 227u8, 203u8, 118u8,
+							209u8, 13u8, 185u8, 103u8, 225u8, 95u8, 183u8, 237u8, 177u8, 82u8,
+							192u8, 83u8, 40u8, 25u8, 117u8, 110u8, 20u8, 122u8, 91u8, 183u8, 7u8,
+							244u8,
+						],
+					)
+				}
+				#[doc = " EvmHost addresses of all connected Evm chains"]
+				pub fn evm_hosts_root(
+					&self,
+				) -> ::subxt::storage::address::Address<
+					::subxt::storage::address::StaticStorageMapKey,
+					::subxt::utils::H160,
+					(),
+					(),
+					::subxt::storage::address::Yes,
+				> {
+					::subxt::storage::address::Address::new_static(
+						"HostExecutive",
+						"EvmHosts",
+						Vec::new(),
+						[
+							96u8, 13u8, 102u8, 230u8, 17u8, 190u8, 253u8, 227u8, 203u8, 118u8,
+							209u8, 13u8, 185u8, 103u8, 225u8, 95u8, 183u8, 237u8, 177u8, 82u8,
+							192u8, 83u8, 40u8, 25u8, 117u8, 110u8, 20u8, 122u8, 91u8, 183u8, 7u8,
+							244u8,
 						],
 					)
 				}
@@ -12567,7 +12709,7 @@ pub mod api {
 					&self,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
-					runtime_types::pallet_asset_gateway::pallet::TokenGatewayParams,
+					runtime_types::pallet_asset_gateway::pallet::AssetGatewayParams,
 					::subxt::storage::address::Yes,
 					(),
 					(),
@@ -12609,7 +12751,7 @@ pub mod api {
 				pub fn params(
 					&self,
 				) -> ::subxt::constants::Address<
-					runtime_types::pallet_asset_gateway::pallet::TokenGatewayParams,
+					runtime_types::pallet_asset_gateway::pallet::AssetGatewayParams,
 				> {
 					::subxt::constants::Address::new_static(
 						"Gateway",
@@ -14881,8 +15023,10 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct UpdateRegistrarParams {
-					pub update: runtime_types::pallet_token_governor::types::RegistrarParamsUpdate,
-					pub state_machine: runtime_types::ismp::host::StateMachine,
+					pub update: ::subxt::utils::KeyedVec<
+						runtime_types::ismp::host::StateMachine,
+						runtime_types::pallet_token_governor::types::RegistrarParamsUpdate,
+					>,
 				}
 				impl ::subxt::blocks::StaticExtrinsic for UpdateRegistrarParams {
 					const PALLET: &'static str = "TokenGovernor";
@@ -14902,9 +15046,10 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct UpdateGatewayParams {
-					pub update:
+					pub update: ::subxt::utils::KeyedVec<
+						runtime_types::ismp::host::StateMachine,
 						runtime_types::pallet_token_governor::types::TokenGatewayParamsUpdate,
-					pub state_machine: runtime_types::ismp::host::StateMachine,
+					>,
 				}
 				impl ::subxt::blocks::StaticExtrinsic for UpdateGatewayParams {
 					const PALLET: &'static str = "TokenGovernor";
@@ -14972,6 +15117,29 @@ pub mod api {
 					const PALLET: &'static str = "TokenGovernor";
 					const CALL: &'static str = "create_erc20_asset";
 				}
+				#[derive(
+					:: subxt :: ext :: codec :: Decode,
+					:: subxt :: ext :: codec :: Encode,
+					:: subxt :: ext :: scale_decode :: DecodeAsType,
+					:: subxt :: ext :: scale_encode :: EncodeAsType,
+					Clone,
+					Debug,
+					Eq,
+					PartialEq,
+				)]
+				# [codec (crate = :: subxt :: ext :: codec)]
+				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+				pub struct NewContractInstance {
+					pub updates: ::subxt::utils::KeyedVec<
+						runtime_types::ismp::host::StateMachine,
+						runtime_types::pallet_token_governor::types::TokenGatewayParamsUpdate,
+					>,
+				}
+				impl ::subxt::blocks::StaticExtrinsic for NewContractInstance {
+					const PALLET: &'static str = "TokenGovernor";
+					const CALL: &'static str = "new_contract_instance";
+				}
 			}
 			pub struct TransactionApi;
 			impl TransactionApi {
@@ -15012,35 +15180,40 @@ pub mod api {
 				#[doc = "See [`Pallet::update_registrar_params`]."]
 				pub fn update_registrar_params(
 					&self,
-					update: runtime_types::pallet_token_governor::types::RegistrarParamsUpdate,
-					state_machine: runtime_types::ismp::host::StateMachine,
+					update: ::subxt::utils::KeyedVec<
+						runtime_types::ismp::host::StateMachine,
+						runtime_types::pallet_token_governor::types::RegistrarParamsUpdate,
+					>,
 				) -> ::subxt::tx::Payload<types::UpdateRegistrarParams> {
 					::subxt::tx::Payload::new_static(
 						"TokenGovernor",
 						"update_registrar_params",
-						types::UpdateRegistrarParams { update, state_machine },
+						types::UpdateRegistrarParams { update },
 						[
-							127u8, 83u8, 183u8, 173u8, 150u8, 101u8, 196u8, 155u8, 122u8, 110u8,
-							198u8, 25u8, 48u8, 209u8, 150u8, 47u8, 166u8, 237u8, 62u8, 169u8,
-							212u8, 23u8, 129u8, 47u8, 13u8, 228u8, 1u8, 240u8, 78u8, 231u8, 189u8,
-							160u8,
+							78u8, 36u8, 2u8, 185u8, 77u8, 82u8, 107u8, 19u8, 127u8, 117u8, 167u8,
+							144u8, 166u8, 1u8, 156u8, 194u8, 86u8, 239u8, 105u8, 235u8, 123u8,
+							16u8, 42u8, 18u8, 132u8, 109u8, 46u8, 151u8, 115u8, 139u8, 187u8,
+							196u8,
 						],
 					)
 				}
 				#[doc = "See [`Pallet::update_gateway_params`]."]
 				pub fn update_gateway_params(
 					&self,
-					update: runtime_types::pallet_token_governor::types::TokenGatewayParamsUpdate,
-					state_machine: runtime_types::ismp::host::StateMachine,
+					update: ::subxt::utils::KeyedVec<
+						runtime_types::ismp::host::StateMachine,
+						runtime_types::pallet_token_governor::types::TokenGatewayParamsUpdate,
+					>,
 				) -> ::subxt::tx::Payload<types::UpdateGatewayParams> {
 					::subxt::tx::Payload::new_static(
 						"TokenGovernor",
 						"update_gateway_params",
-						types::UpdateGatewayParams { update, state_machine },
+						types::UpdateGatewayParams { update },
 						[
-							240u8, 21u8, 152u8, 5u8, 225u8, 183u8, 160u8, 13u8, 2u8, 177u8, 152u8,
-							201u8, 250u8, 181u8, 126u8, 78u8, 153u8, 151u8, 151u8, 69u8, 142u8,
-							85u8, 12u8, 120u8, 50u8, 215u8, 193u8, 58u8, 139u8, 9u8, 168u8, 209u8,
+							181u8, 173u8, 63u8, 151u8, 182u8, 215u8, 49u8, 231u8, 0u8, 252u8,
+							120u8, 4u8, 43u8, 38u8, 81u8, 195u8, 220u8, 24u8, 128u8, 239u8, 9u8,
+							39u8, 134u8, 127u8, 183u8, 167u8, 221u8, 173u8, 126u8, 208u8, 128u8,
+							163u8,
 						],
 					)
 				}
@@ -15093,6 +15266,26 @@ pub mod api {
 							31u8, 180u8, 143u8, 52u8, 65u8, 189u8, 104u8, 163u8, 250u8, 119u8,
 							227u8, 231u8, 164u8, 151u8, 95u8, 49u8, 236u8, 131u8, 167u8, 126u8,
 							12u8, 36u8,
+						],
+					)
+				}
+				#[doc = "See [`Pallet::new_contract_instance`]."]
+				pub fn new_contract_instance(
+					&self,
+					updates: ::subxt::utils::KeyedVec<
+						runtime_types::ismp::host::StateMachine,
+						runtime_types::pallet_token_governor::types::TokenGatewayParamsUpdate,
+					>,
+				) -> ::subxt::tx::Payload<types::NewContractInstance> {
+					::subxt::tx::Payload::new_static(
+						"TokenGovernor",
+						"new_contract_instance",
+						types::NewContractInstance { updates },
+						[
+							40u8, 65u8, 254u8, 75u8, 200u8, 138u8, 52u8, 61u8, 31u8, 111u8, 56u8,
+							11u8, 198u8, 136u8, 239u8, 125u8, 214u8, 60u8, 80u8, 185u8, 254u8,
+							45u8, 75u8, 112u8, 120u8, 185u8, 221u8, 140u8, 149u8, 251u8, 186u8,
+							124u8,
 						],
 					)
 				}
@@ -15423,10 +15616,9 @@ pub mod api {
 						"ProtocolParams",
 						vec![],
 						[
-							149u8, 32u8, 176u8, 85u8, 230u8, 81u8, 178u8, 187u8, 228u8, 91u8,
-							151u8, 80u8, 195u8, 77u8, 163u8, 176u8, 122u8, 255u8, 238u8, 2u8,
-							194u8, 144u8, 41u8, 165u8, 57u8, 250u8, 191u8, 128u8, 222u8, 14u8,
-							83u8, 201u8,
+							236u8, 25u8, 75u8, 170u8, 45u8, 65u8, 10u8, 211u8, 96u8, 197u8, 239u8,
+							198u8, 174u8, 63u8, 102u8, 16u8, 202u8, 6u8, 71u8, 75u8, 30u8, 17u8,
+							161u8, 90u8, 247u8, 153u8, 29u8, 234u8, 102u8, 162u8, 188u8, 77u8,
 						],
 					)
 				}
@@ -15446,9 +15638,9 @@ pub mod api {
 						"TokenRegistrarParams",
 						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
 						[
-							165u8, 74u8, 23u8, 96u8, 198u8, 93u8, 24u8, 142u8, 229u8, 53u8, 235u8,
-							60u8, 36u8, 152u8, 123u8, 14u8, 195u8, 193u8, 26u8, 98u8, 220u8, 250u8,
-							238u8, 204u8, 83u8, 208u8, 53u8, 137u8, 35u8, 86u8, 239u8, 176u8,
+							187u8, 220u8, 91u8, 109u8, 25u8, 214u8, 14u8, 230u8, 90u8, 121u8, 83u8,
+							46u8, 2u8, 200u8, 22u8, 136u8, 86u8, 58u8, 212u8, 131u8, 213u8, 205u8,
+							142u8, 187u8, 197u8, 223u8, 221u8, 94u8, 151u8, 121u8, 44u8, 112u8,
 						],
 					)
 				}
@@ -15467,9 +15659,9 @@ pub mod api {
 						"TokenRegistrarParams",
 						Vec::new(),
 						[
-							165u8, 74u8, 23u8, 96u8, 198u8, 93u8, 24u8, 142u8, 229u8, 53u8, 235u8,
-							60u8, 36u8, 152u8, 123u8, 14u8, 195u8, 193u8, 26u8, 98u8, 220u8, 250u8,
-							238u8, 204u8, 83u8, 208u8, 53u8, 137u8, 35u8, 86u8, 239u8, 176u8,
+							187u8, 220u8, 91u8, 109u8, 25u8, 214u8, 14u8, 230u8, 90u8, 121u8, 83u8,
+							46u8, 2u8, 200u8, 22u8, 136u8, 86u8, 58u8, 212u8, 131u8, 213u8, 205u8,
+							142u8, 187u8, 197u8, 223u8, 221u8, 94u8, 151u8, 121u8, 44u8, 112u8,
 						],
 					)
 				}
@@ -15489,9 +15681,9 @@ pub mod api {
 						"TokenGatewayParams",
 						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
 						[
-							73u8, 231u8, 94u8, 225u8, 46u8, 244u8, 178u8, 4u8, 241u8, 101u8, 110u8,
-							18u8, 163u8, 55u8, 42u8, 75u8, 80u8, 30u8, 246u8, 19u8, 31u8, 47u8,
-							126u8, 8u8, 126u8, 22u8, 69u8, 153u8, 13u8, 119u8, 148u8, 145u8,
+							132u8, 44u8, 128u8, 21u8, 217u8, 96u8, 217u8, 50u8, 16u8, 233u8, 124u8,
+							131u8, 47u8, 79u8, 3u8, 172u8, 31u8, 83u8, 213u8, 133u8, 49u8, 177u8,
+							99u8, 204u8, 140u8, 157u8, 243u8, 154u8, 248u8, 65u8, 4u8, 123u8,
 						],
 					)
 				}
@@ -15510,9 +15702,9 @@ pub mod api {
 						"TokenGatewayParams",
 						Vec::new(),
 						[
-							73u8, 231u8, 94u8, 225u8, 46u8, 244u8, 178u8, 4u8, 241u8, 101u8, 110u8,
-							18u8, 163u8, 55u8, 42u8, 75u8, 80u8, 30u8, 246u8, 19u8, 31u8, 47u8,
-							126u8, 8u8, 126u8, 22u8, 69u8, 153u8, 13u8, 119u8, 148u8, 145u8,
+							132u8, 44u8, 128u8, 21u8, 217u8, 96u8, 217u8, 50u8, 16u8, 233u8, 124u8,
+							131u8, 47u8, 79u8, 3u8, 172u8, 31u8, 83u8, 213u8, 133u8, 49u8, 177u8,
+							99u8, 204u8, 140u8, 157u8, 243u8, 154u8, 248u8, 65u8, 4u8, 123u8,
 						],
 					)
 				}
@@ -17573,12 +17765,6 @@ pub mod api {
 					#[doc = "Contains a variant per dispatchable extrinsic that this pallet has."]
 					pub enum Call {
 						#[codec(index = 0)]
-						#[doc = "See [`Pallet::add_ismp_address`]."]
-						add_ismp_address {
-							contract_address: ::subxt::utils::H160,
-							state_machine_id: runtime_types::ismp::consensus::StateMachineId,
-						},
-						#[codec(index = 1)]
 						#[doc = "See [`Pallet::add_l2_consensus`]."]
 						add_l2_consensus {
 							state_machine_id: runtime_types::ismp::consensus::StateMachineId,
@@ -17644,6 +17830,22 @@ pub mod api {
 			use super::runtime_types;
 			pub mod pallet {
 				use super::runtime_types;
+				#[derive(
+					:: subxt :: ext :: codec :: Decode,
+					:: subxt :: ext :: codec :: Encode,
+					:: subxt :: ext :: scale_decode :: DecodeAsType,
+					:: subxt :: ext :: scale_encode :: EncodeAsType,
+					Clone,
+					Debug,
+					Eq,
+					PartialEq,
+				)]
+				# [codec (crate = :: subxt :: ext :: codec)]
+				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+				pub struct AssetGatewayParams {
+					pub protocol_fee_percentage: runtime_types::sp_arithmetic::per_things::Permill,
+				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
 					:: subxt :: ext :: codec :: Encode,
@@ -17728,22 +17930,6 @@ pub mod api {
 						amount: ::core::primitive::u128,
 						source: runtime_types::ismp::host::StateMachine,
 					},
-				}
-				#[derive(
-					:: subxt :: ext :: codec :: Decode,
-					:: subxt :: ext :: codec :: Encode,
-					:: subxt :: ext :: scale_decode :: DecodeAsType,
-					:: subxt :: ext :: scale_encode :: EncodeAsType,
-					Clone,
-					Debug,
-					Eq,
-					PartialEq,
-				)]
-				# [codec (crate = :: subxt :: ext :: codec)]
-				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub struct TokenGatewayParams {
-					pub protocol_fee_percentage: runtime_types::sp_arithmetic::per_things::Permill,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -19589,6 +19775,14 @@ pub mod api {
 							::core::primitive::u128,
 						>,
 					},
+					#[codec(index = 2)]
+					#[doc = "See [`Pallet::update_evm_hosts`]."]
+					update_evm_hosts {
+						params: ::subxt::utils::KeyedVec<
+							runtime_types::ismp::host::StateMachine,
+							::subxt::utils::H160,
+						>,
+					},
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -19650,6 +19844,19 @@ pub mod api {
 						params: runtime_types::pallet_ismp_host_executive::params::HostParam<
 							::core::primitive::u128,
 						>,
+					},
+					#[codec(index = 2)]
+					#[doc = "The address for some EvmHost has been set"]
+					HostAddressSet {
+						state_machine: runtime_types::ismp::host::StateMachine,
+						address: ::subxt::utils::H160,
+					},
+					#[codec(index = 3)]
+					#[doc = "The host address for some EvmHost has been udpated"]
+					HostAddressUpdated {
+						state_machine: runtime_types::ismp::host::StateMachine,
+						old_address: ::subxt::utils::H160,
+						new_address: ::subxt::utils::H160,
 					},
 				}
 			}
@@ -20404,7 +20611,7 @@ pub mod api {
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				#[doc = "Contains a variant per dispatchable extrinsic that this pallet has."]
 				pub enum Call {
-					# [codec (index = 0)] # [doc = "See [`Pallet::create_erc6160_asset`]."] create_erc6160_asset { asset : runtime_types :: pallet_token_governor :: types :: ERC6160AssetRegistration , } , # [codec (index = 1)] # [doc = "See [`Pallet::create_erc6160_asset_unsigned`]."] create_erc6160_asset_unsigned { registration : runtime_types :: pallet_token_governor :: types :: UnsignedERC6160AssetRegistration < :: subxt :: utils :: AccountId32 > , } , # [codec (index = 2)] # [doc = "See [`Pallet::update_registrar_params`]."] update_registrar_params { update : runtime_types :: pallet_token_governor :: types :: RegistrarParamsUpdate , state_machine : runtime_types :: ismp :: host :: StateMachine , } , # [codec (index = 3)] # [doc = "See [`Pallet::update_gateway_params`]."] update_gateway_params { update : runtime_types :: pallet_token_governor :: types :: TokenGatewayParamsUpdate , state_machine : runtime_types :: ismp :: host :: StateMachine , } , # [codec (index = 4)] # [doc = "See [`Pallet::update_params`]."] update_params { update : runtime_types :: pallet_token_governor :: types :: ParamsUpdate < :: core :: primitive :: u128 > , } , # [codec (index = 5)] # [doc = "See [`Pallet::update_erc6160_asset`]."] update_erc6160_asset { update : runtime_types :: pallet_token_governor :: types :: ERC6160AssetUpdate , } , # [codec (index = 6)] # [doc = "See [`Pallet::create_erc20_asset`]."] create_erc20_asset { asset : runtime_types :: pallet_token_governor :: types :: ERC20AssetRegistration , } , }
+					# [codec (index = 0)] # [doc = "See [`Pallet::create_erc6160_asset`]."] create_erc6160_asset { asset : runtime_types :: pallet_token_governor :: types :: ERC6160AssetRegistration , } , # [codec (index = 1)] # [doc = "See [`Pallet::create_erc6160_asset_unsigned`]."] create_erc6160_asset_unsigned { registration : runtime_types :: pallet_token_governor :: types :: UnsignedERC6160AssetRegistration < :: subxt :: utils :: AccountId32 > , } , # [codec (index = 2)] # [doc = "See [`Pallet::update_registrar_params`]."] update_registrar_params { update : :: subxt :: utils :: KeyedVec < runtime_types :: ismp :: host :: StateMachine , runtime_types :: pallet_token_governor :: types :: RegistrarParamsUpdate > , } , # [codec (index = 3)] # [doc = "See [`Pallet::update_gateway_params`]."] update_gateway_params { update : :: subxt :: utils :: KeyedVec < runtime_types :: ismp :: host :: StateMachine , runtime_types :: pallet_token_governor :: types :: TokenGatewayParamsUpdate > , } , # [codec (index = 4)] # [doc = "See [`Pallet::update_params`]."] update_params { update : runtime_types :: pallet_token_governor :: types :: ParamsUpdate < :: core :: primitive :: u128 > , } , # [codec (index = 5)] # [doc = "See [`Pallet::update_erc6160_asset`]."] update_erc6160_asset { update : runtime_types :: pallet_token_governor :: types :: ERC6160AssetUpdate , } , # [codec (index = 6)] # [doc = "See [`Pallet::create_erc20_asset`]."] create_erc20_asset { asset : runtime_types :: pallet_token_governor :: types :: ERC20AssetRegistration , } , # [codec (index = 7)] # [doc = "See [`Pallet::new_contract_instance`]."] new_contract_instance { updates : :: subxt :: utils :: KeyedVec < runtime_types :: ismp :: host :: StateMachine , runtime_types :: pallet_token_governor :: types :: TokenGatewayParamsUpdate > , } , }
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
 					:: subxt :: ext :: codec :: Encode,
@@ -20441,6 +20648,9 @@ pub mod api {
 					#[codec(index = 6)]
 					#[doc = "Provided signature was invalid"]
 					InvalidSignature,
+					#[codec(index = 7)]
+					#[doc = "Unknown token gateway instance"]
+					UnknownTokenGateway,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -20652,8 +20862,8 @@ pub mod api {
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct GatewayParams {
 					pub host: ::subxt::utils::H160,
-					pub uniswap_v2: ::subxt::utils::H160,
 					pub call_dispatcher: ::subxt::utils::H160,
+					pub address: ::subxt::utils::H160,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -20686,8 +20896,6 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct Params<_0> {
-					pub token_gateway_address: ::subxt::utils::H160,
-					pub token_registrar_address: ::subxt::utils::H160,
 					pub registration_fee: _0,
 				}
 				#[derive(
@@ -20722,10 +20930,9 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct RegistrarParams {
-					pub erc20_native_token: ::subxt::utils::H160,
 					pub host: ::subxt::utils::H160,
-					pub uniswap_v2: ::subxt::utils::H160,
 					pub base_fee: runtime_types::primitive_types::U256,
+					pub address: ::subxt::utils::H160,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -20741,10 +20948,8 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct RegistrarParamsUpdate {
-					pub erc20_native_token: ::core::option::Option<::subxt::utils::H160>,
-					pub host: ::core::option::Option<::subxt::utils::H160>,
-					pub uniswap_v2: ::core::option::Option<::subxt::utils::H160>,
 					pub base_fee: ::core::option::Option<runtime_types::primitive_types::U256>,
+					pub address: ::core::option::Option<::subxt::utils::H160>,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -20760,9 +20965,8 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct TokenGatewayParamsUpdate {
-					pub host: ::core::option::Option<::subxt::utils::H160>,
-					pub uniswap_v2: ::core::option::Option<::subxt::utils::H160>,
 					pub call_dispatcher: ::core::option::Option<::subxt::utils::H160>,
+					pub address: ::core::option::Option<::subxt::utils::H160>,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,

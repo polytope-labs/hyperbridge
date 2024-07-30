@@ -8,11 +8,12 @@ edition = "2021"
 tesseract-messaging = { path = "../messaging" }
 tesseract-primitives = { path = "../primitives" }
 tesseract-config = { path = "../config" }
-tesseract-substrate = { path = "../substrate" }
+tesseract-substrate = { path = "../substrate", features = ["testing"] }
 tesseract = { path = "../relayer" }
 substrate-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
+pallet-ismp-demo = { workspace = true}
 
 sc-consensus-manual-seal = { workspace = true }
 anyhow = "1.0.75"

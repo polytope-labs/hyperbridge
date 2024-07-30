@@ -24,7 +24,7 @@ use alloc::{
 	format,
 	string::{String, ToString},
 };
-use frame_support::{traits::fungible::Mutate, PalletId};
+use frame_support::{traits::fungible::Mutate, PalletId, StorageHasher, Twox128};
 use ismp::{
 	error::Error as IsmpError,
 	host::StateMachine,
@@ -57,6 +57,7 @@ pub mod pallet {
 	};
 
 	#[pallet::pallet]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	/// Pallet Configuration
@@ -113,6 +114,12 @@ pub mod pallet {
 		/// Get response recieved
 		GetResponse(Vec<Option<Vec<u8>>>),
 	}
+
+	/// Storing values requested from other chains along with their requesting keys
+	/// hash of the key
+	#[pallet::storage]
+	pub type GetResponses<T: Config> =
+		StorageMap<_, Twox128, [u8; 16], Option<Vec<u8>>, ValueQuery>;
 
 	/// Pallet Errors
 	#[pallet::error]
@@ -350,9 +357,18 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 			Response::Post(_) => Err(IsmpError::Custom(
 				"Balance transfer protocol does not accept post responses".to_string(),
 			))?,
-			Response::Get(res) => Pallet::<T>::deposit_event(Event::<T>::GetResponse(
-				res.values.into_values().collect(),
-			)),
+			Response::Get(res) => {
+				res.values.iter().for_each(|(k, v)| {
+					if v.is_some() {
+						let hash_key = Twox128::hash(k.as_ref());
+						GetResponses::<T>::insert(hash_key, v)
+					}
+				});
+
+				Pallet::<T>::deposit_event(Event::<T>::GetResponse(
+					res.values.into_values().collect(),
+				))
+			},
 		};
 
 		Ok(())

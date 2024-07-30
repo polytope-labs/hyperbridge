@@ -322,27 +322,19 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 
 	log::info!("🧊integration test for para: 2000 to para 2001: get request \n");
 
-	// =======================================================================
-	let chain_b_client = Arc::new(chain_b_sub_client.clone());
-
 	// parachain info pallet fetching para id
 	let encoded_chain_b_id_storage_key =
 		"0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f";
 	let key = hex::decode(encoded_chain_b_id_storage_key.strip_prefix("0x").unwrap()).unwrap();
 
-	let mut latest_fetch_height = 0;
-	let mut state_machine_update_b = chain_a_sub_client.state_machine_update_notification(chain_b_sub_client.state_machine_id()).await?;
-	while let Some(state_machine_update) = state_machine_update_b.next().await {
-		match state_machine_update {
-			Ok(update) => {
-				log::info!("state: {:?}",update);
-				latest_fetch_height = update.latest_height;
-				break
-			},
-			Err(_) => continue
-		}
-	}
-	// as we are fetching data that is being set since genesis para id we just set the fetching height to be 1
+	let mut latest_fetch_height = chain_a_sub_client
+		.state_machine_update_notification(chain_b_sub_client.state_machine_id())
+		.await?
+		.take(1)
+		.next()
+		.await
+		.ok_or(anyhow!("No stream"))??
+		.latest_height;
 
 	let get_request_param = IsmpPalletDemo::GetRequest {
 		para_id: 2001,
@@ -353,7 +345,14 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 
 	let tx_block_hash = chain_a_sub_client.get_request(get_request_param).await?;
 
-	let event = chain_a_sub_client.clone().client.events().at(tx_block_hash).await?.find_first::<RequestEventStatic>()?.unwrap();
+	let event = chain_a_sub_client
+		.clone()
+		.client
+		.events()
+		.at(tx_block_hash)
+		.await?
+		.find_first::<RequestEventStatic>()?
+		.unwrap();
 
 	let get_request_event = ismp::router::GetRequest {
 		source: StateMachine::Kusama(2000),

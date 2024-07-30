@@ -1539,6 +1539,13 @@ pub mod evm_host {
                                     ),
                                     indexed: false,
                                 },
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("fee"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
+                                    indexed: false,
+                                },
                             ],
                             anonymous: false,
                         },
@@ -3394,7 +3401,7 @@ pub mod evm_host {
 	)]
 	#[ethevent(
 		name = "GetRequestEvent",
-		abi = "GetRequestEvent(string,string,address,bytes[],uint256,uint256,uint256)"
+		abi = "GetRequestEvent(string,string,address,bytes[],uint256,uint256,uint256,uint256)"
 	)]
 	pub struct GetRequestEventFilter {
 		pub source: ::std::string::String,
@@ -3405,6 +3412,7 @@ pub mod evm_host {
 		pub height: ::ethers::core::types::U256,
 		pub nonce: ::ethers::core::types::U256,
 		pub timeout_timestamp: ::ethers::core::types::U256,
+		pub fee: ::ethers::core::types::U256,
 	}
 	#[derive(
 		Clone,

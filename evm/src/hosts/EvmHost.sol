@@ -300,7 +300,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // Monotonically increasing nonce
         uint256 nonce,
         // The timestamp at which this response will be considered as timed out
-        uint256 timeoutTimestamp
+        uint256 timeoutTimestamp,
+        // The associated protocol fee
+        uint256 fee
     );
 
     // Emitted when a POST or GET request is funded
@@ -1171,7 +1173,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             keys: request.keys,
             nonce: request.nonce,
             height: request.height,
-            timeoutTimestamp: request.timeoutTimestamp
+            timeoutTimestamp: request.timeoutTimestamp,
+            fee: get.fee
         });
     }
 

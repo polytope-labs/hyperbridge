@@ -316,14 +316,6 @@ contract TokenGateway is BaseIsmpModule {
         address newAdmin
     );
 
-    // Some native tokens have been withdrawn
-    event NativeTokenWithdrawal(
-        // beneficiary of the withdrawal
-        address beneficiary,
-        // amount of the native token to withdraw
-        uint256 amount
-    );
-
     // @dev Action is unauthorized
     error UnauthorizedAction();
 

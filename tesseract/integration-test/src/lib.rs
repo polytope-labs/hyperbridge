@@ -330,11 +330,23 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		"0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f";
 	let key = hex::decode(encoded_chain_b_id_storage_key.strip_prefix("0x").unwrap()).unwrap();
 
+	let mut latest_fetch_height = 0;
+	let mut state_machine_update_b = chain_a_sub_client.state_machine_update_notification(chain_b_sub_client.state_machine_id()).await?;
+	while let Some(state_machine_update) = state_machine_update_b.next().await {
+		match state_machine_update {
+			Ok(update) => {
+				log::info!("state: {:?}",update);
+				latest_fetch_height = update.latest_height;
+				break
+			},
+			Err(_) => continue
+		}
+	}
 	// as we are fetching data that is being set since genesis para id we just set the fetching height to be 1
 
 	let get_request_param = IsmpPalletDemo::GetRequest {
 		para_id: 2001,
-		height: 1,
+		height: latest_fetch_height as u32,
 		timeout: 0,
 		keys: vec![key.clone()],
 	};
@@ -349,7 +361,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		nonce: event.request_nonce,
 		from: pallet_ismp_demo::PALLET_ID.to_bytes(),
 		keys: vec![key],
-		height: 1,
+		height: latest_fetch_height,
 		timeout_timestamp: 0,
 	};
 	// ====== handle the get request and resubmit to chain A (origin chain) ============

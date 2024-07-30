@@ -322,7 +322,7 @@ pub mod signer {
 		client: &OnlineClient<T>,
 		signer: InMemorySigner<T>,
 		payload: Tx,
-	) -> Result<(), anyhow::Error>
+	) -> Result<T::Hash, anyhow::Error>
 	where
 		<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
 			Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
@@ -340,12 +340,12 @@ pub mod signer {
 			))?,
 		};
 
-		match extrinsic.wait_for_success().await {
+		let tx_result = match extrinsic.wait_for_success().await {
 			Ok(p) => p,
 			Err(err) =>
 				Err(err).context(format!("Error executing signed extrinsic {ext_hash:?}"))?,
 		};
-		Ok(())
+		Ok(tx_result.block_hash())
 	}
 }
 

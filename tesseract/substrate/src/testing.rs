@@ -50,14 +50,14 @@ where
 	pub async fn transfer(
 		&self,
 		params: TransferParams<C::AccountId, u128>,
-	) -> Result<(), anyhow::Error> {
+	) -> Result<C::Hash, anyhow::Error> {
 		let call = params.encode();
 		let tx = Extrinsic::new("IsmpDemo", "transfer", call);
 
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx).await?;
+		let tx_block_hash = send_extrinsic(&self.client, signer, tx).await?;
 
-		Ok(())
+		Ok(tx_block_hash)
 	}
 
 	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
@@ -69,13 +69,13 @@ where
 		Ok(())
 	}
 
-	pub async fn get_request(&self, get_req: GetRequest) -> Result<(), anyhow::Error> {
+	pub async fn get_request(&self, get_req: GetRequest) -> Result<C::Hash, anyhow::Error> {
 		let call = get_req.encode();
 		let tx = Extrinsic::new("IsmpDemo", "get_request", call);
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx).await?;
+		let tx_block_hash = send_extrinsic(&self.client, signer, tx).await?;
 
-		Ok(())
+		Ok(tx_block_hash)
 	}
 
 	pub async fn pallet_ismp_demo_events_stream(

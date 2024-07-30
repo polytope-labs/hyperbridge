@@ -248,7 +248,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		timeout: 80,
 	};
 
-	chain_a_sub_client.transfer(transfer_params).await?;
+	let _tx_block_hash = chain_a_sub_client.transfer(transfer_params).await?;
 
 	// watch for PostRequestHandled event in chain b
 	let mut post_request_handled_event = None;
@@ -330,27 +330,26 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		"0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f";
 	let key = hex::decode(encoded_chain_b_id_storage_key.strip_prefix("0x").unwrap()).unwrap();
 
-	let latest_height_b = chain_b_client.query_finalized_height().await?;
+	// as we are fetching data that is being set since genesis para id we just set the fetching height to be 1
 
 	let get_request_param = IsmpPalletDemo::GetRequest {
 		para_id: 2001,
-		height: latest_height_b as u32,
+		height: 1,
 		timeout: 0,
 		keys: vec![key.clone()],
 	};
 
-	chain_a_sub_client.get_request(get_request_param).await?;
+	let tx_block_hash = chain_a_sub_client.get_request(get_request_param).await?;
 
-	let event = chain_a_sub_client.pallet_ismp_demo_events_stream(1, "Ismp", "Request").await?;
-	let decoded_event: RequestEventStatic = Decode::decode(&mut &event[0].field_bytes()[..])?;
+	let event = chain_a_sub_client.clone().client.events().at(tx_block_hash).await?.find_first::<RequestEventStatic>()?.unwrap();
 
 	let get_request_event = ismp::router::GetRequest {
 		source: StateMachine::Kusama(2000),
 		dest: StateMachine::Kusama(2001),
-		nonce: decoded_event.request_nonce,
+		nonce: event.request_nonce,
 		from: pallet_ismp_demo::PALLET_ID.to_bytes(),
 		keys: vec![key],
-		height: latest_height_b,
+		height: 1,
 		timeout_timestamp: 0,
 	};
 	// ====== handle the get request and resubmit to chain A (origin chain) ============

@@ -5,7 +5,7 @@ import assert from "assert";
 import { extractStateMachineIdFromSubstrateEventData } from "../../../utils/substrate.helpers";
 
 export async function handleIsmpStateMachineUpdatedEvent(
-  event: SubstrateEvent,
+  event: SubstrateEvent
 ): Promise<void> {
   const {
     event: {
@@ -22,11 +22,11 @@ export async function handleIsmpStateMachineUpdatedEvent(
 
   assert(extrinsic);
   logger.info(
-    `Handling ISMP StateMachineUpdatedEvent. Block Number: ${blockNumber}`,
+    `Handling ISMP StateMachineUpdatedEvent. Block Number: ${blockNumber}`
   );
 
   const stateMachineId = extractStateMachineIdFromSubstrateEventData(
-    state_machine_id.toString(),
+    state_machine_id.toString()
   );
 
   if (typeof stateMachineId === "undefined") {
@@ -40,9 +40,9 @@ export async function handleIsmpStateMachineUpdatedEvent(
         blockHash: blockHash.toString(),
         timestamp: Date.parse(timestamp.toString()),
         stateMachineId,
-        height: BigInt(latest_height.toString()),
+        height: Number(latest_height.toString()),
       },
-      SupportedChain.HYPERBRIDGE,
+      SupportedChain.HYPERBRIDGE
     );
   }
 }

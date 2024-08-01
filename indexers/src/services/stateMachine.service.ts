@@ -4,7 +4,7 @@ import { IEvmHostEventArgs } from "./evmHostEvents.service";
 // Arguments to functions that create StateMachineUpdated events
 export interface ICreateStateMachineUpdatedEventArgs extends IEvmHostEventArgs {
   stateMachineId: string;
-  height: bigint;
+  height: number;
 }
 
 export class StateMachineService {
@@ -13,7 +13,7 @@ export class StateMachineService {
    */
   static async createEvmStateMachineUpdatedEvent(
     args: ICreateStateMachineUpdatedEventArgs,
-    chain: SupportedChain,
+    chain: SupportedChain
   ): Promise<void> {
     const {
       blockHash,
@@ -45,7 +45,7 @@ export class StateMachineService {
    */
   static async createHyperbridgeStateMachineUpdatedEvent(
     args: ICreateStateMachineUpdatedEventArgs,
-    chain: SupportedChain,
+    chain: SupportedChain
   ): Promise<void> {
     const {
       blockHash,

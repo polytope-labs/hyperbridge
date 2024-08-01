@@ -5,7 +5,7 @@ import { Request, RequestStatusMetadata } from "../types/models";
 export interface ICreateRequestArgs {
   chain: SupportedChain;
   commitment: string;
-  data?: string | undefined;
+  body?: string | undefined;
   dest?: string | undefined;
   fee?: bigint | undefined;
   from?: string | undefined;
@@ -45,7 +45,7 @@ export class RequestService {
     const {
       chain,
       commitment,
-      data,
+      body,
       dest,
       fee,
       from,
@@ -65,7 +65,7 @@ export class RequestService {
       request = Request.create({
         id: commitment,
         chain,
-        data,
+        body,
         dest,
         fee,
         from,
@@ -117,7 +117,13 @@ export class RequestService {
         REQUEST_STATUS_WEIGHTS[status] > REQUEST_STATUS_WEIGHTS[request.status]
       ) {
         logger.info(
-          `Updating Request Status: ${JSON.stringify({ new_status: status, old_status: request.status, is_true: REQUEST_STATUS_WEIGHTS[status] > REQUEST_STATUS_WEIGHTS[request.status] })}`,
+          `Updating Request Status: ${JSON.stringify({
+            new_status: status,
+            old_status: request.status,
+            is_true:
+              REQUEST_STATUS_WEIGHTS[status] >
+              REQUEST_STATUS_WEIGHTS[request.status],
+          })}`
         );
 
         request.status = status;
@@ -141,7 +147,7 @@ export class RequestService {
       await this.findOrCreate({
         commitment,
         chain,
-        data: undefined,
+        body: undefined,
         dest: undefined,
         fee: undefined,
         from: undefined,
@@ -157,7 +163,9 @@ export class RequestService {
       });
 
       logger.info(
-        `Created new request while attempting request update with details ${JSON.stringify({ commitment, transactionHash, status })}`,
+        `Created new request while attempting request update with details ${JSON.stringify(
+          { commitment, transactionHash, status }
+        )}`
       );
     }
   }
@@ -172,11 +180,11 @@ export class RequestService {
     timeoutTimestamp: bigint,
     from: string,
     to: string,
-    body: string,
+    body: string
   ): string {
     let hash = solidityKeccak256(
       ["bytes", "bytes", "uint64", "uint64", "bytes", "bytes", "bytes"],
-      [source, dest, nonce, timeoutTimestamp, from, to, body],
+      [source, dest, nonce, timeoutTimestamp, from, to, body]
     );
     return hash;
   }

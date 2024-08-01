@@ -42,7 +42,7 @@ export async function handlePostRequestEvent(
   await RequestService.findOrCreate({
     chain,
     commitment: request_commitment,
-    data: body,
+    body,
     dest,
     fee: BigInt(fee.toString()),
     from,

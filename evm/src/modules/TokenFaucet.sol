@@ -30,7 +30,7 @@ contract TokenFaucet {
         uint256 lastDrip = consumers[msg.sender];
         uint256 delay = block.timestamp - lastDrip;
 
-        if (delay < 86400) {
+        if (delay < 1 days) {
             revert("Can only request tokens once daily");
         }
 

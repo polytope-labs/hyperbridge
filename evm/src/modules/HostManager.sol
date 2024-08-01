@@ -49,13 +49,12 @@ contract HostManager is BaseIsmpModule, ERC165 {
 
     HostManagerParams private _params;
 
-    modifier onlyIsmpHost() {
-        require(msg.sender == _params.host, "HostManager: Unauthorized action");
-        _;
-    }
+    // @dev Action is unauthorized
+    error UnauthorizedAction();
 
-    modifier onlyAdmin() {
-        require(msg.sender == _params.admin, "HostManager: Unauthorized action");
+    // @dev restricts call to the provided `caller`
+    modifier restrict(address caller) {
+        if (msg.sender != caller) revert UnauthorizedAction();
         _;
     }
 
@@ -82,15 +81,15 @@ contract HostManager is BaseIsmpModule, ERC165 {
 
     // This function can only be called once by the admin to set the IsmpHost.
     // This exists to seal the cyclic dependency between this contract & the ismp host.
-    function setIsmpHost(address host) public onlyAdmin {
+    function setIsmpHost(address host) public restrict(_params.admin) {
         _params.host = host;
         _params.admin = address(0);
     }
 
-    function onAccept(IncomingPostRequest calldata incoming) external override onlyIsmpHost {
+    function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
         PostRequest calldata request = incoming.request;
         // Only the Hyperbridge parachain can send requests to this module.
-        require(request.source.equals(IIsmpHost(_params.host).hyperbridge()), "Unauthorized request");
+        if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
         if (action == OnAcceptActions.Withdraw) {
@@ -100,8 +99,6 @@ contract HostManager is BaseIsmpModule, ERC165 {
         } else if (action == OnAcceptActions.SetHostParam) {
             HostParams memory hostParams = abi.decode(request.body[1:], (HostParams));
             IHostManager(_params.host).updateHostParams(hostParams);
-        } else {
-            revert("Unknown action");
         }
     }
 }

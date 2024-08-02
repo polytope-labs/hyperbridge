@@ -56,27 +56,32 @@
 //! NOTE This pallet is experimental and not proven to work in production.
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use codec::Decode;
 use core::marker::PhantomData;
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use itertools::Itertools;
 use log;
-use merkle_mountain_range::helper::pos_height_in_tree;
-use merkle_mountain_range::MMRStore;
+use log::trace;
+use merkle_mountain_range::{helper::pos_height_in_tree, MMRStore};
 use sp_core::H256;
+use sp_core::offchain::StorageKind;
 
 use sp_runtime::traits::{self, One};
 use sp_std::prelude::*;
 
-use mmr_primitives::{DataOrHash, LeafMetadata, MerkleMountainRangeTree};
+use ismp::{
+	messaging::{hash_request, Keccak256},
+	router::Request,
+};
+use mmr_primitives::{DataOrHash, FullLeaf, LeafMetadata, MerkleMountainRangeTree};
 pub use pallet::*;
-use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
 pub use sp_mmr_primitives::{
 	self as primitives, utils::NodesUtils, Error, LeafDataProvider, LeafIndex, NodeIndex,
 };
-use sp_mmr_primitives::INDEXING_PREFIX;
-use ismp::router::Request;
+use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
 
 pub use mmr::storage::{OffchainStorage, Storage};
+use pallet_ismp::NoOpMmrTree;
 
 pub mod mmr;
 
@@ -103,7 +108,7 @@ pub mod pallet {
 
 	/// This pallet's configuration trait
 	#[pallet::config]
-	pub trait Config<I: 'static = ()>: frame_system::Config {
+	pub trait Config<I: 'static = ()>: frame_system::Config + pallet_ismp::Config {
 		/// Prefix for elements stored in the Off-chain DB via Indexing API.
 		///
 		/// Each node of the MMR is inserted both on-chain and off-chain via Indexing API.
@@ -170,7 +175,10 @@ pub mod pallet {
 	// Set the initial height at which leaves were pushed to the offchain db for the offchain
 	// mmr gadget. Since this is in on_initialize, then the leaves were set in a previous block.
 	#[pallet::hooks]
-	impl<T: Config<I>, I: 'static> Hooks<BlockNumberFor<T>> for Pallet<T, I> {
+	impl<T: Config<I>, I: 'static> Hooks<BlockNumberFor<T>> for Pallet<T, I>
+	where
+		HashOf<T, I>: Into<H256>,
+	{
 		fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
 			if NumberOfLeaves::<T, I>::get() > 0 && InitialHeight::<T, I>::get().is_none() {
 				InitialHeight::<T, I>::put(frame_system::Pallet::<T>::block_number() - One::one())
@@ -179,7 +187,7 @@ pub mod pallet {
 			Default::default()
 		}
 		fn on_idle(_n: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
-			Pallet::<T,I>::prune_mmr_leaves().unwrap(); // It should not do this
+			Self::prune_mmr_leaves().unwrap(); // It should not panic
 			Default::default()
 		}
 	}
@@ -276,49 +284,76 @@ where
 			.map_err(|_| Error::LeafNotFound)
 	}
 
-	// fetch the peaks and under each peak see if latest leaves (i.e right most leaf (leafIndex) is still valid,
-	// meaning has not timedout or processed. if its invalid then prune all leaves and inner under the peak.
+	// fetch the peaks and under each peak see if latest leaves (i.e right most leaf (leafIndex) is
+	// still valid, meaning has not timedout or processed. if its invalid then prune all leaves and
+	// inner under the peak. for now only prune the earliest peak
 	fn prune_mmr_leaves() -> Result<(), Error> {
-
 		if Self::leaf_count() < T::LEAF_COUNT_THRESHOLD {
-				Ok(())?
+			Ok(())?
 		}
 
-		let peaks_indexs = Nodes::<T,I>::iter().sorted_by_key(|(k,_)| *k).map(|(k,_v)| k).collect::<Vec<NodeIndex>>();
-		Ok(for peak_index in peaks_indexs.iter() {
-			// get the last leaf under the peak
-			let last_leaf_index = *peak_index - pos_height_in_tree(*peak_index) as u64;
-			if let Some(leaf_type) = Self::get_leaf(last_leaf_index)? {
-				match leaf_type {
-					// check if timeout or claimed
-					pallet_ismp::mmr::Leaf::Response(response) => {
-						match response {
-							ismp::router::Response::Post(post_response) => {
-								let time_out = post_response.timeout_timestamp;
+		let peaks_indexs = Nodes::<T, I>::iter()
+			.sorted_by_key(|(k, _)| *k)
+			.map(|(k, _v)| k)
+			.collect::<Vec<NodeIndex>>();
+		// if there is only 1 peak meaning the tree has no of leaves 2^n we are pruning inner nodes
+		// i.e the left most inner node on the (h-1) layer, where h = height of the tree
+		// if there is more than 1 peak, then prune all the nodes on the first peak
+		if peaks_indexs.len() == 1 {
+			todo!()
+		} else {
+			if let Some(peak_index) = peaks_indexs.iter().next() {
+				// get the last leaf under the peak and check
+				let last_leaf_index = *peak_index - pos_height_in_tree(*peak_index) as u64;
+				if let Some(leaf_type) = Self::get_leaf(last_leaf_index)? {
+					let last_leaf_to_delete = {
+						let encoded_inner_leaf = leaf_type.preimage();
+						let leaf_request: ismp::router::Request =
+							Decode::decode(&mut &encoded_inner_leaf[..])
+								.map_err(|_| Error::LeafNotFound)?;
 
-							}
-							ismp::router::Response::Get(get_response) => {
+						let claimed =
+							pallet_ismp::child_trie::RequestCommitments::<T>::get(hash_request::<
+								pallet_ismp::Pallet<T>,
+							>(&leaf_request))
+							.ok_or(Error::LeafNotFound)?
+							.claimed;
 
-							}
+						match leaf_request {
+							Request::Post(post) => {
+								// check if it has timedout and if fees has been claimed by this
+								// request
+								let _timeout = post.timeout_timestamp;
+								claimed
+							},
+							Request::Get(ref get) => {
+								// check if it has timedout and if fees has been claimed by this
+								// request
+								let _timeout = get.timeout_timestamp;
+								claimed
+							},
 						}
-					},
-					pallet_ismp::mmr::Leaf::Request(request) => {
-						match request {
-							Request::Post(post_request) => {
+					};
 
-							}
-							Request::Get(get_request) => {
-
-							}
+					// if we can delete the last leaf we can delete all nodes under the peak
+					if last_leaf_to_delete {
+						for node_index in 0..*peak_index {
+							let leaf = Self::get_leaf(node_index)?.ok_or(Error::LeafNotFound)?;
+							let commitment = pallet_ismp::Pallet::<T>::keccak256(&leaf.preimage()[..]);
+							// delete the node
+							let offchain_key = NoOpMmrTree::<T>::offchain_key(commitment);
+							sp_io::offchain::local_storage_clear(StorageKind::PERSISTENT, &offchain_key)
 						}
-					},
-					_ => unreachable!()
+					}else{
+						trace!(target: "mmr:pruning","No nodes to prune")
+					}
 				}
 			}
-			Ok(())
-		})
-}
+		}
 
+		Ok(())
+	}
+}
 /// Stateless MMR proof verification for batch of leaves.
 ///
 /// This function can be used to verify received MMR [primitives::Proof] (`proof`)
@@ -414,3 +449,4 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		}
 	}
 }
+

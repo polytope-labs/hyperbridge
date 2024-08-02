@@ -66,7 +66,7 @@ pub trait MerkleMountainRangeTree {
 
 	/// Prune the leaves of the mmr stored offchain/onchain based on specific implementation while
 	/// maintaining MMR integrity (i.e leaving the peaks of the pruned leaves)
-	fn prune_mmr_leaves() -> Result<(),primitives::Error>;
+	fn prune_mmr_leaves() -> Result<(), primitives::Error>;
 }
 
 /// NoOp tree can be used as a drop in replacement for when the underlying mmr tree is unneeded.

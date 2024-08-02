@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 use merkle_mountain_range::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset};
 use sp_core::H256;
 use sp_mmr_primitives as primitives;
-use sp_mmr_primitives::NodeIndex;
+use sp_mmr_primitives::{Error, NodeIndex};
 use sp_runtime::{scale_info, traits, RuntimeDebug};
 use sp_std::fmt;
 
@@ -63,6 +63,10 @@ pub trait MerkleMountainRangeTree {
 
 	/// Given the leaf position, it should return the leaf from the mmr store
 	fn get_leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error>;
+
+	/// Prune the leaves of the mmr stored offchain/onchain based on specific implementation while
+	/// maintaining MMR integrity (i.e leaving the peaks of the pruned leaves)
+	fn prune_mmr_leaves() -> Result<(),primitives::Error>;
 }
 
 /// NoOp tree can be used as a drop in replacement for when the underlying mmr tree is unneeded.
@@ -104,6 +108,10 @@ impl<T: FullLeaf, H: ismp::messaging::Keccak256> MerkleMountainRangeTree for NoO
 
 	fn get_leaf(_pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error> {
 		Ok(None)
+	}
+
+	fn prune_mmr_leaves() -> Result<(), Error> {
+		Ok(())
 	}
 }
 

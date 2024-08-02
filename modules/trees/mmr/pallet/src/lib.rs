@@ -58,7 +58,9 @@
 
 use core::marker::PhantomData;
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
+use itertools::Itertools;
 use log;
+use merkle_mountain_range::helper::pos_height_in_tree;
 use merkle_mountain_range::MMRStore;
 use sp_core::H256;
 
@@ -71,6 +73,8 @@ use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
 pub use sp_mmr_primitives::{
 	self as primitives, utils::NodesUtils, Error, LeafDataProvider, LeafIndex, NodeIndex,
 };
+use sp_mmr_primitives::INDEXING_PREFIX;
+use ismp::router::Request;
 
 pub use mmr::storage::{OffchainStorage, Storage};
 
@@ -127,6 +131,9 @@ pub mod pallet {
 
 		/// A type that returns a hash unique to every block as a fork identifer for offchain keys
 		type ForkIdentifierProvider: ForkIdentifier<Self>;
+
+		/// Leaves count to prune
+		const LEAF_COUNT_THRESHOLD: u64;
 	}
 
 	/// Latest MMR Root hash.
@@ -169,6 +176,10 @@ pub mod pallet {
 				InitialHeight::<T, I>::put(frame_system::Pallet::<T>::block_number() - One::one())
 			}
 
+			Default::default()
+		}
+		fn on_idle(_n: BlockNumberFor<T>, _remaining_weight: Weight) -> Weight {
+			Pallet::<T,I>::prune_mmr_leaves().unwrap(); // It should not do this
 			Default::default()
 		}
 	}
@@ -264,6 +275,48 @@ where
 			})
 			.map_err(|_| Error::LeafNotFound)
 	}
+
+	// fetch the peaks and under each peak see if latest leaves (i.e right most leaf (leafIndex) is still valid,
+	// meaning has not timedout or processed. if its invalid then prune all leaves and inner under the peak.
+	fn prune_mmr_leaves() -> Result<(), Error> {
+
+		if Self::leaf_count() < T::LEAF_COUNT_THRESHOLD {
+				Ok(())?
+		}
+
+		let peaks_indexs = Nodes::<T,I>::iter().sorted_by_key(|(k,_)| *k).map(|(k,_v)| k).collect::<Vec<NodeIndex>>();
+		Ok(for peak_index in peaks_indexs.iter() {
+			// get the last leaf under the peak
+			let last_leaf_index = *peak_index - pos_height_in_tree(*peak_index) as u64;
+			if let Some(leaf_type) = Self::get_leaf(last_leaf_index)? {
+				match leaf_type {
+					// check if timeout or claimed
+					pallet_ismp::mmr::Leaf::Response(response) => {
+						match response {
+							ismp::router::Response::Post(post_response) => {
+								let time_out = post_response.timeout_timestamp;
+
+							}
+							ismp::router::Response::Get(get_response) => {
+
+							}
+						}
+					},
+					pallet_ismp::mmr::Leaf::Request(request) => {
+						match request {
+							Request::Post(post_request) => {
+
+							}
+							Request::Get(get_request) => {
+
+							}
+						}
+					},
+					_ => unreachable!()
+				}
+			}
+			Ok(())
+		})
 }
 
 /// Stateless MMR proof verification for batch of leaves.

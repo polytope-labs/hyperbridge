@@ -27,6 +27,9 @@ mmr-primitives = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
 merkle-mountain-range = { workspace = true }
+itertools = { version = "0.10.3", default-features = false }
+pallet-ismp = { workspace = true }
+ismp = { workspace = true }
 
 [dev-dependencies]
 array-bytes = "6.1"
@@ -50,6 +53,7 @@ std = [
 	"sp-std/std",
 	"merkle-mountain-range/std",
 	"serde/default",
+	"itertools/use_std"
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

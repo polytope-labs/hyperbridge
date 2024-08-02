@@ -46,7 +46,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
                 body: abi.encodePacked(bytes32(0)),
                 payer: whaleAccount,
                 fee: 0,
-                dest: StateMachine.arbitrum(),
+                dest: StateMachine.evm(421614),
                 timeout: 0,
                 to: abi.encode(bytes32(0))
             })
@@ -98,7 +98,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         uint256 cost = quote(messagingFee);
         vm.prank(whaleAccount);
         bytes32 commitment = host.dispatch{value: cost}(
-            DispatchGet({dest: StateMachine.bsc(), height: 100, keys: keys, timeout: 60 * 60, fee: messagingFee})
+            DispatchGet({dest: StateMachine.evm(97), height: 100, keys: keys, timeout: 60 * 60, fee: messagingFee})
         );
         assert(host.requestCommitments(commitment).sender == whaleAccount);
     }
@@ -114,7 +114,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
                 body: abi.encode(bytes32(0)),
                 payer: whaleAccount,
                 fee: 0,
-                dest: StateMachine.arbitrum(),
+                dest: StateMachine.evm(421614),
                 timeout: 0,
                 to: abi.encode(bytes32(0))
             })

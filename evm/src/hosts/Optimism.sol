@@ -34,7 +34,7 @@ contract OptimismHost is EvmHost {
         return CHAIN_ID;
     }
 
-    function host() public pure override returns (bytes memory) {
-        return StateMachine.optimism();
+    function host() public view override returns (bytes memory) {
+        return StateMachine.evm(block.chainid);
     }
 }

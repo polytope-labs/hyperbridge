@@ -193,9 +193,9 @@ async fn handle_notification(
 				.await
 				{
 					tracing::error!(
-						"Error while handling {:?} on {:?}: {err:?}",
+						"Error while handling {} on {}: {err:?}",
 						state_machine_update.state_machine_id.state_id,
-						chain_a.state_machine_id().state_id
+						chain_a.name()
 					);
 				}
 			},
@@ -238,8 +238,8 @@ async fn handle_update(
 			.collect::<Vec<_>>(),
 		Err(err) => {
 			tracing::error!(
-				"Encountered an error querying events from {:?}: {err:?}",
-				chain_b.state_machine_id().state_id
+				"Encountered an error querying events from {}: {err:?}",
+				chain_b.name()
 			);
 			Default::default()
 		},
@@ -248,7 +248,7 @@ async fn handle_update(
 	let state_machine = state_machine_update.state_machine_id.state_id;
 	if events.is_empty() {
 		tracing::info!(
-			"Skipping latest finalized height {} on {}, no new messages from {state_machine:?} in range {:?}",
+			"Skipping latest finalized height {} on {}, no new messages from {state_machine} in range {:?}",
 			state_machine_update.latest_height,
 			chain_a.name(),
 			*previous_height..=state_machine_update.latest_height
@@ -269,7 +269,7 @@ async fn handle_update(
 		})
 		.into_iter()
 		.fold(String::default(), |acc, (state_machine, items)| {
-			format!("{acc}{}->{:?}: {} messages, ", chain_b.name(), state_machine, items.count())
+			format!("{acc}{}->{}: {} messages, ", chain_b.name(), state_machine, items.count())
 		});
 	tracing::info!(target: "tesseract", "{log_events}");
 	let state_machine_height = StateMachineHeight {
@@ -393,9 +393,9 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 
 		// Wait for destination chain's state machine update on hyperbridge
 		tracing::info!(
-			"Fee accumulation for {} messages submitted to {:?} has started",
+			"Fee accumulation for {} messages submitted to {} has started",
 			receipts.len(),
-			dest.state_machine_id().state_id
+			dest.name()
 		);
 		let dest_height = match wait_for_state_machine_update(
 			dest.state_machine_id(),
@@ -425,7 +425,7 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 							let source_chain = source_chain.ok_or_else(|| anyhow!("Client for {source} not found in config, fees cannot be accumulated"))?;
 							let source_height = hyperbridge.query_latest_height(source_chain.state_machine_id()).await?;
 							// Create claim proof for deliveries from source to dest
-							tracing::info!("Creating withdrawal proofs from db for deliveries from {:?}->{:?}", source, dest.state_machine_id().state_id);
+							tracing::info!("Creating withdrawal proofs from db for deliveries from {source}->{:?}", dest.name());
 							let proofs = tx_payment
 							.create_proof_from_receipts(source_height.into(), dest_height, source_chain.clone(), dest.clone(), receipts.clone())
 							.await?;

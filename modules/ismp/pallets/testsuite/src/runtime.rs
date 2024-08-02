@@ -66,7 +66,6 @@ frame_support::construct_runtime!(
 		Relayer: pallet_ismp_relayer,
 		Fishermen: pallet_fishermen,
 		HostExecutive: pallet_ismp_host_executive,
-		IsmpSyncCommittee: ismp_sync_committee::pallet,
 		CallCompressedExecutor: pallet_call_decompressor,
 		XcmpQueue: cumulus_pallet_xcmp_queue,
 		MessageQueue: pallet_message_queue,
@@ -75,6 +74,7 @@ frame_support::construct_runtime!(
 		Gateway: pallet_asset_gateway,
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
+		IsmpSyncCommittee: ismp_sync_committee::pallet,
 	}
 );
 

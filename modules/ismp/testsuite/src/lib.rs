@@ -50,7 +50,7 @@ fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
 	let intermediate_state = IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Evm(1),
+				state_id: StateMachine::Evm(11155111),
 				consensus_state_id: mock_consensus_state_id(),
 			},
 			height: 1,

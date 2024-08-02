@@ -14,13 +14,13 @@ router = { Kusama = 4296 }
 module_filter = []
 minimum_profit_percentage = 0
 delivery_endpoints = [
-    "ETH-ARBI",
-    "ETH-BASE"
+    "EVM-1",
+    "EVM-97"
 ]
 
 [optimism]
 type = "evm"
-state_machine = "ETH-ARBI"
+state_machine = "EVM-97"
 rpc_urls = [
     "http://127.0.0.1:8345"
 ]

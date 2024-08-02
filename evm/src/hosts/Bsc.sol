@@ -34,7 +34,7 @@ contract BscHost is EvmHost {
         return CHAIN_ID;
     }
 
-    function host() public pure override returns (bytes memory) {
-        return StateMachine.bsc();
+    function host() public view override returns (bytes memory) {
+        return StateMachine.evm(block.chainid);
     }
 }

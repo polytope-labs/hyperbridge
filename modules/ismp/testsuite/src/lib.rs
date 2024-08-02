@@ -50,7 +50,7 @@ fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
 	let intermediate_state = IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Ethereum(*b"EXEC"),
+				state_id: StateMachine::Evm(1),
 				consensus_state_id: mock_consensus_state_id(),
 			},
 			height: 1,
@@ -470,7 +470,7 @@ where
 /// The State machine for the proxy is assumed in this test to be ``StateMachine::Kusama(2000);``
 /// the State machine for the host is assumed in this test to be ``StateMachine::Polkadot(1000)``
 /// The destination state machine for the test is assumed to be
-/// ``StateMachine::Ethereum(*b"EXEC")``
+/// ``StateMachine::Evm(*b"EXEC")``
 pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 	direct_conn_state_machine: StateMachine,
 ) -> Result<(), &'static str> {

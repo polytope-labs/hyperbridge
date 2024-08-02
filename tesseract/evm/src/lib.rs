@@ -8,11 +8,7 @@ use ethers::{
 	signers::Signer,
 };
 use frame_support::crypto::ecdsa::ECDSAExt;
-use ismp::{
-	consensus::ConsensusStateId,
-	events::Event,
-	host::{ethereum, StateMachine},
-};
+use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine};
 
 use evm_common::presets::{
 	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
@@ -99,7 +95,7 @@ impl Default for EvmConfig {
 	fn default() -> Self {
 		Self {
 			rpc_urls: Default::default(),
-			state_machine: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			state_machine: StateMachine::Evm(1),
 			consensus_state_id: Default::default(),
 			ismp_host: Default::default(),
 			signer: Default::default(),

@@ -21,7 +21,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use ismp::{
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::{hash_request, hash_response},
 	router::{Request, Response},
 };
@@ -258,13 +258,8 @@ pub async fn query_request_status_from_indexer(
 					let vars = StateMachineUpdateVariables {
 						chain: {
 							match request.dest_chain() {
-								StateMachine::Ethereum(ethereum::EXECUTION_LAYER) =>
-									SupportedChain::ETHE,
-								StateMachine::Ethereum(ethereum::BASE) => SupportedChain::BASE,
-								StateMachine::Ethereum(ethereum::ARBITRUM) => SupportedChain::ARBI,
-								StateMachine::Ethereum(ethereum::OPTIMISM) => SupportedChain::OPTI,
-								StateMachine::Bsc => SupportedChain::BSC,
-								StateMachine::Polygon => SupportedChain::POLY,
+								// todo: fix once we remove supported chain enum
+								StateMachine::Evm(_) => SupportedChain::ETHE,
 								_ => Err(anyhow!("Unsupported chain for indexer"))?,
 							}
 						},
@@ -414,13 +409,8 @@ pub async fn query_response_status_from_indexer(
 					let vars = StateMachineUpdateVariables {
 						chain: {
 							match response.dest_chain() {
-								StateMachine::Ethereum(ethereum::EXECUTION_LAYER) =>
-									SupportedChain::ETHE,
-								StateMachine::Ethereum(ethereum::BASE) => SupportedChain::BASE,
-								StateMachine::Ethereum(ethereum::ARBITRUM) => SupportedChain::ARBI,
-								StateMachine::Ethereum(ethereum::OPTIMISM) => SupportedChain::OPTI,
-								StateMachine::Bsc => SupportedChain::BSC,
-								StateMachine::Polygon => SupportedChain::POLY,
+								// todo: fix
+								StateMachine::Evm(_) => SupportedChain::ETHE,
 								_ => Err(anyhow!("Unsupported chain for indexer"))?,
 							}
 						},

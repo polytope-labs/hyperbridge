@@ -244,7 +244,7 @@ where
 {
 	pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
 		let address = match withdrawal_data.signature.clone() {
-			Signature::Ethereum { address, signature } => {
+			Signature::Evm { address, signature } => {
 				if signature.len() != 65 {
 					Err(Error::<T>::InvalidSignature)?
 				}
@@ -330,8 +330,7 @@ where
 		};
 
 		let data = match withdrawal_data.dest_chain {
-			StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc =>
-				params.abi_encode(),
+			StateMachine::Evm(_) => params.abi_encode(),
 			_ => Message::WithdrawRelayerFees(WithdrawalRequest {
 				amount: params.amount.low_u128(),
 				account: AccountId32::try_from(&address[..])
@@ -398,7 +397,7 @@ where
 		// For evm chains each response receipt occupies two slots
 		let mut slot_2_keys = alloc::vec![];
 		match &withdrawal_proof.dest_proof.height.id.state_id {
-			StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
+			StateMachine::Evm(_) => {
 				for (key, commitment) in dest_keys.iter().zip(withdrawal_proof.commitments.iter()) {
 					match commitment {
 						Key::Response { .. } => {
@@ -497,7 +496,7 @@ where
 		for key in &proof.commitments {
 			match key {
 				Key::Request(commitment) => match proof.source_proof.height.id.state_id {
-					StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
+					StateMachine::Evm(_) => {
 						keys.push(
 							derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 								commitment.0.to_vec(),
@@ -516,7 +515,7 @@ where
 				},
 				Key::Response { response_commitment, .. } => {
 					match proof.source_proof.height.id.state_id {
-						StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
+						StateMachine::Evm(_) => {
 							keys.push(
 								derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 									response_commitment.0.to_vec(),
@@ -546,7 +545,7 @@ where
 		for key in &proof.commitments {
 			match key {
 				Key::Request(commitment) => match proof.dest_proof.height.id.state_id {
-					StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
+					StateMachine::Evm(_) => {
 						keys.push(
 							derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 								commitment.0.to_vec(),
@@ -567,7 +566,7 @@ where
 				},
 				Key::Response { request_commitment, .. } => {
 					match proof.dest_proof.height.id.state_id {
-						StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
+						StateMachine::Evm(_) => {
 							keys.push(
 								derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 									request_commitment.0.to_vec(),
@@ -620,9 +619,7 @@ where
 
 					let fee = {
 						match proof.source_proof.height.id.state_id {
-							StateMachine::Ethereum(_) |
-							StateMachine::Polygon |
-							StateMachine::Bsc => {
+							StateMachine::Evm(_) => {
 								use alloy_rlp::Decodable;
 								let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
 									.map_err(|_| Error::<T>::ProofValidationError)?;
@@ -654,9 +651,7 @@ where
 						.ok_or_else(|| Error::<T>::ProofValidationError)?;
 					let address = {
 						match proof.dest_proof.height.id.state_id {
-							StateMachine::Ethereum(_) |
-							StateMachine::Polygon |
-							StateMachine::Bsc => {
+							StateMachine::Evm(_) => {
 								use alloy_rlp::Decodable;
 								Address::decode(&mut &*encoded_receipt)
 									.map_err(|_| Error::<T>::ProofValidationError)?
@@ -688,9 +683,7 @@ where
 						};
 					let fee = {
 						match proof.source_proof.height.id.state_id {
-							StateMachine::Ethereum(_) |
-							StateMachine::Polygon |
-							StateMachine::Bsc => {
+							StateMachine::Evm(_) => {
 								use alloy_rlp::Decodable;
 								let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
 									.map_err(|_| Error::<T>::ProofValidationError)?;
@@ -722,9 +715,7 @@ where
 						.ok_or_else(|| Error::<T>::ProofValidationError)?;
 					let (relayer, res) = {
 						match proof.dest_proof.height.id.state_id {
-							StateMachine::Ethereum(_) |
-							StateMachine::Polygon |
-							StateMachine::Bsc => {
+							StateMachine::Evm(_) => {
 								use alloy_rlp::Decodable;
 								let response_commitment =
 									alloy_primitives::B256::decode(&mut &*encoded_receipt)

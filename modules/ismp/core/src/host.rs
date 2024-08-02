@@ -25,11 +25,7 @@ use crate::{
 	prelude::Vec,
 	router::{IsmpRouter, PostResponse, Request, Response},
 };
-use alloc::{
-	boxed::Box,
-	format,
-	string::{String, ToString},
-};
+use alloc::{boxed::Box, format, string::String};
 use codec::{Decode, Encode};
 use core::{fmt::Display, str::FromStr, time::Duration};
 use primitive_types::H256;
@@ -257,9 +253,9 @@ pub trait IsmpHost: Keccak256 {
 	serde::Serialize,
 )]
 pub enum StateMachine {
-	/// Ethereum state machines
+	/// Evm state machines
 	#[codec(index = 0)]
-	Ethereum(ConsensusStateId),
+	Evm(u32),
 	/// Polkadot parachains
 	#[codec(index = 1)]
 	Polkadot(u32),
@@ -273,38 +269,16 @@ pub enum StateMachine {
 	#[codec(index = 4)]
 	Beefy(ConsensusStateId),
 	#[codec(index = 5)]
-	/// Polygon Pos
-	Polygon,
-	/// Bsc Pos
-	#[codec(index = 6)]
-	Bsc,
 	/// Tendermint chains
 	#[codec(index = 7)]
 	Tendermint(ConsensusStateId),
 }
 
-/// Some whitelisted identifiers for ethereum state machines
-pub mod ethereum {
-	use crate::consensus::ConsensusStateId;
-
-	/// Identifier for the Ethereum execution layer
-	pub const EXECUTION_LAYER: ConsensusStateId = *b"EXEC";
-
-	/// Identifier for the optimism state machine
-	pub const ARBITRUM: ConsensusStateId = *b"ARBI";
-
-	/// Identifier for the optimism state machine
-	pub const OPTIMISM: ConsensusStateId = *b"OPTI";
-
-	/// Identifier for the optimism state machine
-	pub const BASE: ConsensusStateId = *b"BASE";
-}
-
 impl Display for StateMachine {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		let str = match self {
-			StateMachine::Ethereum(id) => {
-				format!("ETH-{}", String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?)
+			StateMachine::Evm(id) => {
+				format!("EVM-{id}")
 			},
 			StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
 			StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
@@ -318,8 +292,6 @@ impl Display for StateMachine {
 				"TNDRMINT-{}",
 				String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
 			),
-			StateMachine::Polygon => "POLY".to_string(),
-			StateMachine::Bsc => "BSC".to_string(),
 		};
 		write!(f, "{}", str)
 	}
@@ -330,14 +302,13 @@ impl FromStr for StateMachine {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let s = match s {
-			name if name.starts_with("ETH-") => {
-				let name = name
+			name if name.starts_with("EVM-") => {
+				let id = name
 					.split('-')
 					.last()
+					.and_then(|id| u32::from_str(id).ok())
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
-				let mut id = [0u8; 4];
-				id.copy_from_slice(name.as_bytes());
-				StateMachine::Ethereum(id)
+				StateMachine::Evm(id)
 			},
 			name if name.starts_with("POLKADOT-") => {
 				let id = name
@@ -382,8 +353,6 @@ impl FromStr for StateMachine {
 				id.copy_from_slice(name.as_bytes());
 				StateMachine::Tendermint(id)
 			},
-			"POLY" => StateMachine::Polygon,
-			"BSC" => StateMachine::Bsc,
 			name => Err(format!("Unknown state machine: {name}"))?,
 		};
 

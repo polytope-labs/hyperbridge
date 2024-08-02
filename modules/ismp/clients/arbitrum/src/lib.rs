@@ -30,7 +30,7 @@ use ismp::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
-	host::{ethereum, IsmpHost, StateMachine},
+	host::{IsmpHost, StateMachine},
 };
 
 /// Storage layout slot for the nodes map in the Rollup Contract
@@ -175,7 +175,8 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
 	Ok(IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Ethereum(ethereum::ARBITRUM),
+				// note: This will state machine id should not be used to store the state commitment
+				state_id: StateMachine::Evm(Default::default()),
 				consensus_state_id,
 			},
 			height: block_number,

@@ -5,7 +5,7 @@ use ethers::{
 };
 use forge_testsuite::Runner;
 use ismp::{
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	router::{PostRequest, Request},
 };
 use ismp_solidity_abi::{
@@ -27,7 +27,7 @@ async fn test_post_request_proof() -> Result<(), anyhow::Error> {
 	// create post request object
 	let post = PostRequest {
 		source: StateMachine::Polkadot(2000),
-		dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		dest: StateMachine::Evm(1),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: destination.as_bytes().to_vec(),

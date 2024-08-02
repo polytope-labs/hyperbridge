@@ -3,7 +3,6 @@
 use std::{env, time::Duration};
 
 use codec::Decode;
-use ismp::host::ethereum;
 use merkle_mountain_range::MerkleProof;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
@@ -45,12 +44,8 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 	let pb = ProgressBar::new(100_000);
 	for pos in 44_243..100_000 {
 		// Initialize MMR Pallet by dispatching some leaves and finalizing
-		let params = EvmParams {
-			module: H160::random(),
-			destination: ethereum::EXECUTION_LAYER,
-			timeout: 0,
-			count: 10_000,
-		};
+		let params =
+			EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10_000 };
 		let call = client
 			.tx()
 			.call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
@@ -115,12 +110,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	};
 
 	// Initialize MMR Pallet by dispatching some leaves and finalizing
-	let params = EvmParams {
-		module: H160::random(),
-		destination: ethereum::EXECUTION_LAYER,
-		timeout: 0,
-		count: 10,
-	};
+	let params = EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
 	let call = client
 		.tx()
 		.call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
@@ -192,12 +182,8 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	{
 		let mut parent_hash = last_finalized;
 		for _ in 0..3 {
-			let params = EvmParams {
-				module: H160::random(),
-				destination: ethereum::EXECUTION_LAYER,
-				timeout: 0,
-				count: 10,
-			};
+			let params =
+				EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
 			let call = client
 				.tx()
 				.call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
@@ -253,12 +239,8 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 			Keyring::Dave.to_account_id().to_ss58check(),
 		];
 		for i in 0..accounts.len() {
-			let params = EvmParams {
-				module: H160::random(),
-				destination: ethereum::ARBITRUM,
-				timeout: 0,
-				count: 10,
-			};
+			let params =
+				EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
 			let call = client
 				.tx()
 				.call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;

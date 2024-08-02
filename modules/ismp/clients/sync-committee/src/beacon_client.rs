@@ -27,7 +27,7 @@ use ismp::{
 		VerifiedCommitments,
 	},
 	error::Error,
-	host::{ethereum, IsmpHost, StateMachine},
+	host::{IsmpHost, StateMachine},
 	messaging::{Proof, StateCommitmentHeight},
 	router::RequestResponse,
 };
@@ -76,7 +76,7 @@ impl<
 
 		let state_root = consensus_update.execution_payload.state_root;
 		let intermediate_state = construct_intermediate_state(
-			StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			StateMachine::Evm(consensus_state.chain_id),
 			consensus_state_id.clone(),
 			consensus_update.execution_payload.block_number,
 			consensus_update.execution_payload.timestamp,
@@ -91,8 +91,7 @@ impl<
 		let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 		state_commitment_vec.push(ethereum_state_commitment_height);
 
-		state_machine_map
-			.insert(StateMachine::Ethereum(ethereum::EXECUTION_LAYER), state_commitment_vec);
+		state_machine_map.insert(StateMachine::Evm(consensus_state.chain_id), state_commitment_vec);
 
 		let l2_consensus = consensus_state.l2_consensus.clone();
 
@@ -165,6 +164,7 @@ impl<
 			})?,
 			ismp_contract_addresses: consensus_state.ismp_contract_addresses,
 			l2_consensus: consensus_state.l2_consensus,
+			chain_id: consensus_state.chain_id,
 		};
 
 		Ok((new_consensus_state.encode(), state_machine_map))
@@ -186,7 +186,7 @@ impl<
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match id {
-			StateMachine::Ethereum(_) => Ok(Box::new(<EvmStateMachine<H>>::default())),
+			StateMachine::Evm(_) => Ok(Box::new(<EvmStateMachine<H>>::default())),
 			_ => Err(Error::Custom("State machine not supported".to_string())),
 		}
 	}

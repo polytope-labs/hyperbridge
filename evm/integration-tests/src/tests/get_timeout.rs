@@ -1,9 +1,6 @@
 use ethers::abi::{Address, Tokenizable};
 use forge_testsuite::Runner;
-use ismp::{
-	host::{ethereum, StateMachine},
-	router,
-};
+use ismp::{host::StateMachine, router};
 use ismp_solidity_abi::shared_types::GetRequest;
 use primitive_types::H256;
 use std::{env, path::PathBuf};
@@ -20,7 +17,7 @@ async fn test_get_timeout() -> Result<(), anyhow::Error> {
 	// create post request object
 	let get = router::GetRequest {
 		dest: StateMachine::Polkadot(2000),
-		source: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		source: StateMachine::Evm(1),
 		nonce: 0,
 		from: destination.as_bytes().to_vec(),
 		keys: vec![key.clone()],

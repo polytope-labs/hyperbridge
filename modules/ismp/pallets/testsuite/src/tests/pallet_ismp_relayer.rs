@@ -46,7 +46,6 @@ use crate::runtime::{
 	new_test_ext, set_timestamp, Ismp, RuntimeCall, RuntimeOrigin, Test, MOCK_CONSENSUS_CLIENT_ID,
 	MOCK_CONSENSUS_STATE_ID,
 };
-use ismp::host::ethereum;
 use ismp_bsc::BSC_CONSENSUS_ID;
 use ismp_sync_committee::BEACON_CONSENSUS_ID;
 use pallet_ismp::{dispatcher::RequestMetadata, mmr::LeafIndexAndPos};
@@ -342,20 +341,20 @@ fn test_withdrawal_fees_evm() {
 		let address = pair.public().to_eth_address().unwrap();
 		let evm_host_params = EvmHostParam::default();
 		pallet_ismp_host_executive::HostParams::<Test>::insert(
-			StateMachine::Ethereum(ethereum::BASE),
+			StateMachine::Evm(84532),
 			HostParam::EvmHostParam(evm_host_params),
 		);
 		pallet_ismp_relayer::Fees::<Test>::insert(
-			StateMachine::Ethereum(ethereum::BASE),
+			StateMachine::Evm(84532),
 			address.to_vec(),
 			U256::from(250_000_000_000_000_000_000u128),
 		);
-		let message = message(0, StateMachine::Ethereum(ethereum::BASE));
+		let message = message(0, StateMachine::Evm(84532));
 		let signature = pair.sign_prehashed(&message).0.to_vec();
 
 		let withdrawal_input = WithdrawalInputData {
-			signature: Signature::Ethereum { address: address.to_vec(), signature },
-			dest_chain: StateMachine::Ethereum(ethereum::BASE),
+			signature: Signature::Evm { address: address.to_vec(), signature },
+			dest_chain: StateMachine::Evm(84532),
 		};
 
 		pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(
@@ -364,18 +363,12 @@ fn test_withdrawal_fees_evm() {
 		)
 		.unwrap();
 		assert_eq!(
-			pallet_ismp_relayer::Fees::<Test>::get(
-				StateMachine::Ethereum(ethereum::BASE),
-				address.to_vec()
-			),
+			pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Evm(84532), address.to_vec()),
 			U256::zero()
 		);
 
 		assert_eq!(
-			pallet_ismp_relayer::Nonce::<Test>::get(
-				address.to_vec(),
-				StateMachine::Ethereum(ethereum::BASE)
-			),
+			pallet_ismp_relayer::Nonce::<Test>::get(address.to_vec(), StateMachine::Evm(84532)),
 			1
 		);
 
@@ -495,14 +488,16 @@ fn test_evm_accumulate_fees() {
 			finalized_hash: Default::default(),
 			current_epoch: 0,
 			ismp_contract_address: bsc_host,
+			chain_id: 97,
 		};
 		let sync_committee_consensus_state = ismp_sync_committee::types::ConsensusState {
 			frozen_height: None,
 			light_client_state: Default::default(),
-			ismp_contract_addresses: vec![(StateMachine::Ethereum(ethereum::OPTIMISM), op_host)]
+			ismp_contract_addresses: vec![(StateMachine::Evm(11155420), op_host)]
 				.into_iter()
 				.collect(),
 			l2_consensus: Default::default(),
+			chain_id: 11155111,
 		};
 		host.store_consensus_state(
 			claim_proof.source_proof.height.id.consensus_state_id,
@@ -553,7 +548,7 @@ fn test_evm_accumulate_fees() {
 
 		assert_eq!(
 			pallet_ismp_relayer::Fees::<Test>::get(
-				StateMachine::Bsc,
+				StateMachine::Evm(97),
 				vec![
 					125, 114, 152, 63, 237, 193, 243, 50, 229, 80, 6, 254, 162, 162, 175, 193, 72,
 					246, 97, 66
@@ -663,14 +658,14 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 		finalized_hash: Default::default(),
 		current_epoch: 0,
 		ismp_contract_address: bsc_host,
+		chain_id: 97,
 	};
 	let sync_committee_consensus_state = ismp_sync_committee::types::ConsensusState {
 		frozen_height: None,
 		light_client_state: Default::default(),
-		ismp_contract_addresses: vec![(StateMachine::Ethereum(ethereum::BASE), op_host)]
-			.into_iter()
-			.collect(),
+		ismp_contract_addresses: vec![(StateMachine::Evm(84532), op_host)].into_iter().collect(),
 		l2_consensus: Default::default(),
+		chain_id: 11155111,
 	};
 	host.store_consensus_state(
 		claim_proof.source_proof.height.id.consensus_state_id,

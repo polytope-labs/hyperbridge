@@ -7,7 +7,7 @@ use evm_common::{
 use hex_literal::hex;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::{hash_request, Proof},
 	router::{PostRequest, RequestResponse},
 };
@@ -42,7 +42,7 @@ async fn test_ismp_state_proof() {
 	let geth_url = std::env::var("SEPOLIA_URL").expect("SEPOLIA_URL must be set.");
 	let config = EvmConfig {
 		rpc_urls: vec![geth_url.clone()],
-		state_machine: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		state_machine: StateMachine::Evm(1),
 		consensus_state_id: "SYNC".to_string(),
 		ismp_host: ISMP_HOST,
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
@@ -111,7 +111,7 @@ async fn test_ismp_state_proof() {
 		&Proof {
 			height: StateMachineHeight {
 				id: StateMachineId {
-					state_id: StateMachine::Polygon,
+					state_id: StateMachine::Evm(97),
 					consensus_state_id: [0, 0, 0, 0],
 				},
 				height: 0,
@@ -130,7 +130,7 @@ async fn fetch_state_commitment() -> anyhow::Result<()> {
 	let geth_url = std::env::var("SEPOLIA_URL").expect("SEPOLIA_URL must be set.");
 	let config = EvmConfig {
 		rpc_urls: vec![geth_url.clone()],
-		state_machine: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		state_machine: StateMachine::Evm(1),
 		consensus_state_id: "ETH0".to_string(),
 		ismp_host: NEW_HOST,
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),

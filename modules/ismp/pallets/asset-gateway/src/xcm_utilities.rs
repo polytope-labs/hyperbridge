@@ -1,7 +1,7 @@
 use crate::{Config, Pallet};
 use core::marker::PhantomData;
 use frame_support::traits::fungibles::{self, Mutate};
-use ismp::host::{ethereum, StateMachine};
+use ismp::host::StateMachine;
 use sp_core::{Get, H160};
 use staging_xcm::{
 	prelude::MultiLocation,
@@ -16,19 +16,6 @@ use staging_xcm_executor::{
 	Assets as XcmAssets,
 };
 
-// Supported EVM chains
-const ARBITRUM_CHAIN_ID: u64 = 42161;
-const OPTIMISM_CHAIN_ID: u64 = 10;
-const BASE_CHAIN_ID: u64 = 8453;
-const ETHEREUM_CHAIN_ID: u64 = 1;
-const BSC_CHAIN_ID: u64 = 56;
-
-const ARBITRUM_SEPOLIA_CHAIN_ID: u64 = 421614;
-const OPTIMISM_SEPOLIA_CHAIN_ID: u64 = 11155420;
-const BASE_SEPOLIA_CHAIN_ID: u64 = 84532;
-const SEPOLIA_CHAIN_ID: u64 = 11155111;
-const BSC_TESTNET_CHAIN_ID: u64 = 97;
-
 pub struct WrappedNetworkId(pub NetworkId);
 
 impl TryFrom<WrappedNetworkId> for StateMachine {
@@ -36,17 +23,7 @@ impl TryFrom<WrappedNetworkId> for StateMachine {
 
 	fn try_from(value: WrappedNetworkId) -> Result<Self, Self::Error> {
 		match value.0 {
-			NetworkId::Ethereum { chain_id } => match chain_id {
-				ARBITRUM_CHAIN_ID | ARBITRUM_SEPOLIA_CHAIN_ID =>
-					Ok(StateMachine::Ethereum(ethereum::ARBITRUM)),
-				OPTIMISM_CHAIN_ID | OPTIMISM_SEPOLIA_CHAIN_ID =>
-					Ok(StateMachine::Ethereum(ethereum::OPTIMISM)),
-				BASE_CHAIN_ID | BASE_SEPOLIA_CHAIN_ID => Ok(StateMachine::Ethereum(ethereum::BASE)),
-				ETHEREUM_CHAIN_ID | SEPOLIA_CHAIN_ID =>
-					Ok(StateMachine::Ethereum(ethereum::EXECUTION_LAYER)),
-				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => Ok(StateMachine::Bsc),
-				_ => Err(()),
-			},
+			NetworkId::Ethereum { chain_id } => Ok(StateMachine::Evm(chain_id as u32)),
 			// Only transforms ethereum network ids
 			_ => Err(()),
 		}

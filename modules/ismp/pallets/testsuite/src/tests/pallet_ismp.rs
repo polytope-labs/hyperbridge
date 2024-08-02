@@ -25,7 +25,7 @@ use sp_runtime::traits::AccountIdConversion;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
-	host::{ethereum, IsmpHost, StateMachine},
+	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, Message, Proof, ResponseMessage, TimeoutMessage},
 	router::{GetResponse, PostRequest, Request, RequestResponse, Response, Timeout},
 };
@@ -142,7 +142,7 @@ fn should_handle_get_request_timeouts_correctly() {
 			.into_iter()
 			.map(|i| {
 				let msg = DispatchGet {
-					dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+					dest: StateMachine::Evm(1),
 					from: vec![0u8; 32],
 					keys: vec![vec![1u8; 32], vec![1u8; 32]],
 					height: 2,
@@ -156,7 +156,7 @@ fn should_handle_get_request_timeouts_correctly() {
 				.unwrap();
 				let get = ismp::router::GetRequest {
 					source: host.host_state_machine(),
-					dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+					dest: StateMachine::Evm(1),
 					nonce: i,
 					from: vec![0u8; 32],
 					keys: vec![vec![1u8; 32], vec![1u8; 32]],
@@ -190,7 +190,7 @@ fn should_handle_get_request_responses_correctly() {
 			.into_iter()
 			.map(|i| {
 				let msg = DispatchGet {
-					dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+					dest: StateMachine::Evm(1),
 					from: vec![0u8; 32],
 
 					keys: vec![vec![1u8; 32], vec![1u8; 32]],
@@ -205,7 +205,7 @@ fn should_handle_get_request_responses_correctly() {
 				.unwrap();
 				let get = ismp::router::GetRequest {
 					source: host.host_state_machine(),
-					dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+					dest: StateMachine::Evm(1),
 					nonce: i,
 					from: vec![0u8; 32],
 					keys: vec![vec![1u8; 32], vec![1u8; 32]],
@@ -224,7 +224,7 @@ fn should_handle_get_request_responses_correctly() {
 			proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
-						state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+						state_id: StateMachine::Evm(1),
 						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 					},
 					height: 3,
@@ -252,7 +252,7 @@ fn test_dispatch_fees_and_refunds() {
 
 	ext.execute_with(|| {
 		let msg = DispatchGet {
-			dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			dest: StateMachine::Evm(1),
 			from: vec![0u8; 32],
 			keys: vec![vec![1u8; 32], vec![1u8; 32]],
 			height: 3,
@@ -325,7 +325,7 @@ fn test_fund_message() {
 
 	ext.execute_with(|| {
 		let msg = DispatchGet {
-			dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			dest: StateMachine::Evm(1),
 			from: vec![0u8; 32],
 			keys: vec![vec![1u8; 32], vec![1u8; 32]],
 			height: 3,

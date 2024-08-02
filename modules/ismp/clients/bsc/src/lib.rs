@@ -11,7 +11,7 @@ use bsc_verifier::{
 	verify_bsc_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
-use evm_common::{req_res_receipt_keys, verify_membership, verify_state_proof};
+use evm_common::EvmStateMachine;
 use geth_primitives::Header;
 use ismp::{
 	consensus::{
@@ -19,8 +19,7 @@ use ismp::{
 	},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{Proof, StateCommitmentHeight},
-	router::RequestResponse,
+	messaging::StateCommitmentHeight,
 };
 use sp_core::{H160, H256};
 use sync_committee_primitives::constants::BlsPublicKey;
@@ -41,21 +40,23 @@ pub struct ConsensusState {
 	pub chain_id: u32,
 }
 
-pub struct BscClient<H: IsmpHost>(PhantomData<H>);
+pub struct BscClient<H: IsmpHost, T: pallet_ismp_host_executive::Config>(PhantomData<(H, T)>);
 
-impl<H: IsmpHost> Default for BscClient<H> {
+impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Default for BscClient<H, T> {
 	fn default() -> Self {
 		Self(PhantomData)
 	}
 }
 
-impl<H: IsmpHost> Clone for BscClient<H> {
+impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Clone for BscClient<H, T> {
 	fn clone(&self) -> Self {
 		Self(PhantomData)
 	}
 }
 
-impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClient<H> {
+impl<H: IsmpHost + Send + Sync + Default + 'static, T: pallet_ismp_host_executive::Config>
+	ConsensusClient for BscClient<H, T>
+{
 	fn verify_consensus(
 		&self,
 		_host: &dyn IsmpHost,
@@ -171,46 +172,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
 		match id {
 			StateMachine::Evm(chain_id)
 				if chain_id == BSC_CHAIN_ID || chain_id == BSC_TESTNET_CHAIN_ID =>
-				Ok(Box::new(<EvmStateMachine<H>>::default())),
+				Ok(Box::new(<EvmStateMachine<H, T>>::default())),
 			state_machine =>
 				Err(Error::Custom(alloc::format!("Unsupported state machine: {state_machine:?}"))),
 		}
-	}
-}
-
-#[derive(Default, Clone)]
-pub struct EvmStateMachine<H: IsmpHost>(core::marker::PhantomData<H>);
-
-impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
-	fn verify_membership(
-		&self,
-		host: &dyn IsmpHost,
-		item: RequestResponse,
-		root: StateCommitment,
-		proof: &Proof,
-	) -> Result<(), Error> {
-		let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
-		let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode consensus state".to_string()))?;
-
-		verify_membership::<H>(item, root, proof, consensus_state.ismp_contract_address)
-	}
-
-	fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		req_res_receipt_keys::<H>(items)
-	}
-
-	fn verify_state_proof(
-		&self,
-		host: &dyn IsmpHost,
-		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
-		proof: &Proof,
-	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-		let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
-		let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode consensus state".to_string()))?;
-
-		verify_state_proof::<H>(keys, root, proof, consensus_state.ismp_contract_address)
 	}
 }

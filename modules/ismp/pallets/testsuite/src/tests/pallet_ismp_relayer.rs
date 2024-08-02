@@ -31,7 +31,7 @@ use pallet_ismp::{
 	dispatcher::FeeMetadata,
 	ResponseReceipt,
 };
-use pallet_ismp_host_executive::{EvmHostParam, HostParam};
+use pallet_ismp_host_executive::{EvmHostParam, EvmHosts, HostParam};
 use pallet_ismp_relayer::{
 	self as pallet_ismp_relayer, message,
 	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
@@ -481,6 +481,8 @@ fn test_evm_accumulate_fees() {
 			Duration::from_secs(100),
 		)
 		.unwrap();
+		EvmHosts::<Test>::insert(StateMachine::Evm(97), bsc_host);
+		EvmHosts::<Test>::insert(StateMachine::Evm(11155420), op_host);
 		let bsc_consensus_state = ismp_bsc::ConsensusState {
 			current_validators: vec![],
 			next_validators: None,
@@ -493,9 +495,6 @@ fn test_evm_accumulate_fees() {
 		let sync_committee_consensus_state = ismp_sync_committee::types::ConsensusState {
 			frozen_height: None,
 			light_client_state: Default::default(),
-			ismp_contract_addresses: vec![(StateMachine::Evm(11155420), op_host)]
-				.into_iter()
-				.collect(),
 			l2_consensus: Default::default(),
 			chain_id: 11155111,
 		};
@@ -651,6 +650,8 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 
 	host.store_state_machine_update_time(claim_proof.dest_proof.height, Duration::from_secs(100))
 		.unwrap();
+	EvmHosts::<Test>::insert(StateMachine::Evm(97), bsc_host);
+	EvmHosts::<Test>::insert(StateMachine::Evm(84532), op_host);
 	let bsc_consensus_state = ismp_bsc::ConsensusState {
 		current_validators: vec![],
 		next_validators: None,
@@ -663,7 +664,6 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 	let sync_committee_consensus_state = ismp_sync_committee::types::ConsensusState {
 		frozen_height: None,
 		light_client_state: Default::default(),
-		ismp_contract_addresses: vec![(StateMachine::Evm(84532), op_host)].into_iter().collect(),
 		l2_consensus: Default::default(),
 		chain_id: 11155111,
 	};

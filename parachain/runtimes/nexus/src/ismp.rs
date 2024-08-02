@@ -32,7 +32,7 @@ use ismp::{
 	module::IsmpModule,
 	router::{IsmpRouter, PostRequest, Request, Response},
 };
-use pallet_asset_gateway::TokenGatewayParams;
+use pallet_asset_gateway::AssetGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use sp_core::crypto::AccountId32;
@@ -78,8 +78,8 @@ impl pallet_ismp::Config for Runtime {
 	type Currency = Balances;
 	type Coprocessor = Coprocessor;
 	type ConsensusClients = (
-		ismp_bsc::BscClient<Ismp>,
-		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Mainnet>,
+		ismp_bsc::BscClient<Ismp, Runtime>,
+		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Mainnet, Runtime>,
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
@@ -113,7 +113,7 @@ impl ismp_parachain::Config for Runtime {
 parameter_types! {
 	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
 	pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
-	pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
+	pub const TransferParams: AssetGatewayParams = AssetGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
 }
 
 impl pallet_asset_gateway::Config for Runtime {
@@ -174,16 +174,17 @@ impl pallet_assets::Config for Runtime {
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
 		if request.dest != HostStateMachine::get() {
-			let meta = FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
-			Ismp::dispatch_request(Request::Post(request), meta)?;
+			Ismp::dispatch_request(
+				Request::Post(request),
+				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
+			)?;
 			return Ok(());
 		}
 
 		let pallet_id =
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
-		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
-
+		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address(&request.source));
 		match pallet_id {
 			id if id == token_gateway =>
 				pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
@@ -193,40 +194,29 @@ impl IsmpModule for ProxyModule {
 
 	fn on_response(&self, response: Response) -> Result<(), Error> {
 		if response.dest_chain() != HostStateMachine::get() {
-			let meta = FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
-			Ismp::dispatch_response(response, meta)?;
+			Ismp::dispatch_response(
+				response,
+				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
+			)?;
 			return Ok(());
 		}
 
-		let request = &response.request();
-		let from = match &request {
-			Request::Post(post) => &post.from,
-			Request::Get(get) => &get.from,
-		};
-
-		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
-
-		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
-		match pallet_id {
-			id if id == token_gateway =>
-				pallet_asset_gateway::Module::<Runtime>::default().on_response(response),
-			_ => Err(Error::Custom("Destination module not found".to_string())),
-		}
+		Err(Error::Custom("Destination module not found".to_string()))
 	}
 
 	fn on_timeout(&self, timeout: Timeout) -> Result<(), Error> {
-		let from = match &timeout {
-			Timeout::Request(Request::Post(post)) => &post.from,
-			Timeout::Request(Request::Get(get)) => &get.from,
-			Timeout::Response(res) => &res.post.to,
+		let (from, source) = match &timeout {
+			Timeout::Request(Request::Post(post)) => (&post.from, &post.source),
+			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
+			Timeout::Response(res) => (&res.post.to, &res.post.dest),
 		};
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
-		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
+		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address(source));
 		match pallet_id {
 			id if id == token_gateway =>
 				pallet_asset_gateway::Module::<Runtime>::default().on_timeout(timeout),
-			// instead of returning an error, do nothing. The timeout is for a connected chain.
+			// instead of returning an error, do nothing. The timeout is for a connected chain
 			_ => Ok(()),
 		}
 	}

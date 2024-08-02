@@ -19,6 +19,7 @@ bsc-verifier = { workspace = true }
 sync-committee-primitives = { workspace = true }
 geth-primitives = { workspace = true }
 evm-common = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
 
 [features]
 default = ["std"]
@@ -31,5 +32,6 @@ std = [
     "bsc-verifier/std",
     "ismp/std",
     "sync-committee-primitives/std",
-    "evm-common/std"
+    "evm-common/std",
+    "pallet-ismp-host-executive/std"
 ]

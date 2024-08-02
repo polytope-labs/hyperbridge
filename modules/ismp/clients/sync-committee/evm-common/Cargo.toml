@@ -12,6 +12,7 @@ publish = false
 ismp = { workspace = true  }
 ethereum-triedb = { workspace = true  }
 geth-primitives = { workspace = true  }
+pallet-ismp-host-executive = { workspace = true }
 
 # crates.io
 trie-db = { workspace = true }
@@ -39,5 +40,6 @@ std = [
     "ethabi/std",
     "hash256-std-hasher/std",
     "hex/std",
-    "geth-primitives/std"
+    "geth-primitives/std",
+    "pallet-ismp-host-executive/std"
 ]

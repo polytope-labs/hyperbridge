@@ -26,6 +26,8 @@ alloy-primitives = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
+pallet-ismp-host-executive = { workspace = true }
+
 [features]
 default = ["std"]
 std = [
@@ -41,4 +43,5 @@ std = [
     "scale-info/std",
     "anyhow/std",
     "alloy-primitives/std",
+    "pallet-ismp-host-executive/std",
 ]

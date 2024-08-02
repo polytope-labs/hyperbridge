@@ -119,7 +119,7 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     function verifyConsensus(
         bytes memory encodedState,
         bytes memory encodedProof
-    ) external view returns (bytes memory, IntermediateState memory) {
+    ) external pure returns (bytes memory, IntermediateState memory) {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
         (RelayChainProof memory relay, ParachainProof memory parachain) = abi.decode(
             encodedProof,
@@ -139,7 +139,7 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     function verifyConsensus(
         BeefyConsensusState memory trustedState,
         BeefyConsensusProof memory proof
-    ) internal view returns (BeefyConsensusState memory, IntermediateState memory) {
+    ) internal pure returns (BeefyConsensusState memory, IntermediateState memory) {
         // verify mmr root proofs
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, proof.relay);
 
@@ -244,7 +244,7 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     function verifyParachainHeaderProof(
         bytes32 headsRoot,
         ParachainProof memory proof
-    ) internal view returns (IntermediateState memory) {
+    ) internal pure returns (IntermediateState memory) {
         Node[] memory leaves = new Node[](1);
         Parachain memory para = proof.parachain;
 

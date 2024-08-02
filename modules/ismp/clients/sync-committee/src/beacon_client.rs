@@ -16,20 +16,21 @@
 use alloc::{collections::BTreeMap, format, string::ToString};
 use arbitrum_verifier::verify_arbitrum_payload;
 use codec::{Decode, Encode};
-use evm_common::{
-	construct_intermediate_state, req_res_receipt_keys, verify_membership, verify_state_proof,
-};
+use evm_common::construct_intermediate_state;
 
-use crate::types::{BeaconClientUpdate, ConsensusState, L2Consensus};
+use crate::{
+	pallet::{self, LayerTwos},
+	types::{BeaconClientUpdate, ConsensusState, L2Consensus},
+};
+use evm_common::EvmStateMachine;
 use ismp::{
 	consensus::{
-		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+		ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineClient,
 		VerifiedCommitments,
 	},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{Proof, StateCommitmentHeight},
-	router::RequestResponse,
+	messaging::StateCommitmentHeight,
 };
 use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
 use sync_committee_primitives::constants::Config;
@@ -38,13 +39,39 @@ use crate::prelude::*;
 
 pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
 
-#[derive(Default, Clone)]
-pub struct SyncCommitteeConsensusClient<H: IsmpHost, C: Config>(core::marker::PhantomData<(H, C)>);
+pub struct SyncCommitteeConsensusClient<
+	H: IsmpHost,
+	C: Config,
+	T: pallet_ismp_host_executive::Config + crate::pallet::Config,
+>(core::marker::PhantomData<(H, C, T)>);
 
 impl<
 		H: IsmpHost + Send + Sync + Default + 'static,
 		C: Config + Send + Sync + Default + 'static,
-	> ConsensusClient for SyncCommitteeConsensusClient<H, C>
+		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
+	> Default for SyncCommitteeConsensusClient<H, C, T>
+{
+	fn default() -> Self {
+		Self(core::marker::PhantomData)
+	}
+}
+
+impl<
+		H: IsmpHost + Send + Sync + Default + 'static,
+		C: Config + Send + Sync + Default + 'static,
+		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
+	> Clone for SyncCommitteeConsensusClient<H, C, T>
+{
+	fn clone(&self) -> Self {
+		Self(core::marker::PhantomData)
+	}
+}
+
+impl<
+		H: IsmpHost + Send + Sync + Default + 'static,
+		C: Config + Send + Sync + Default + 'static,
+		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
+	> ConsensusClient for SyncCommitteeConsensusClient<H, C, T>
 {
 	fn verify_consensus(
 		&self,
@@ -162,7 +189,6 @@ impl<
 			light_client_state: new_light_client_state.try_into().map_err(|_| {
 				Error::Custom(format!("Cannot convert light client state to codec type"))
 			})?,
-			ismp_contract_addresses: consensus_state.ismp_contract_addresses,
 			l2_consensus: consensus_state.l2_consensus,
 			chain_id: consensus_state.chain_id,
 		};
@@ -186,57 +212,37 @@ impl<
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match id {
-			StateMachine::Evm(_) => Ok(Box::new(<EvmStateMachine<H>>::default())),
+			StateMachine::Evm(chain_id)
+				if supported_chain_id(chain_id) || LayerTwos::<T>::contains_key(id) =>
+				Ok(Box::new(<EvmStateMachine<H, T>>::default())),
 			_ => Err(Error::Custom("State machine not supported".to_string())),
 		}
 	}
 }
 
-#[derive(Default, Clone)]
-pub struct EvmStateMachine<H: IsmpHost>(core::marker::PhantomData<H>);
+/// Mainnet and L2 chain Ids
+pub const ARBITRUM_CHAIN_ID: u32 = 42161;
+pub const OPTIMISM_CHAIN_ID: u32 = 10;
+pub const BASE_CHAIN_ID: u32 = 8453;
+pub const ETHEREUM_CHAIN_ID: u32 = 1;
 
-impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
-	fn verify_membership(
-		&self,
-		host: &dyn IsmpHost,
-		item: RequestResponse,
-		root: StateCommitment,
-		proof: &Proof,
-	) -> Result<(), Error> {
-		let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
-		let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode consensus state".to_string()))?;
-
-		let contract_address = consensus_state
-			.ismp_contract_addresses
-			.get(&proof.height.id.state_id)
-			.cloned()
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
-		verify_membership::<H>(item, root, proof, contract_address)
-	}
-
-	fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		// State trie keys are used to process timeouts from EVM chains
-		// We return the trie keys for request or response receipts
-		req_res_receipt_keys::<H>(items)
-	}
-
-	fn verify_state_proof(
-		&self,
-		host: &dyn IsmpHost,
-		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
-		proof: &Proof,
-	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-		let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
-		let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode consensus state".to_string()))?;
-		let ismp_address = consensus_state
-			.ismp_contract_addresses
-			.get(&proof.height.id.state_id)
-			.cloned()
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
-
-		verify_state_proof::<H>(keys, root, proof, ismp_address)
-	}
+// Testnets
+pub const ARBITRUM_SEPOLIA_CHAIN_ID: u32 = 421614;
+pub const OPTIMISM_SEPOLIA_CHAIN_ID: u32 = 11155420;
+pub const BASE_SEPOLIA_CHAIN_ID: u32 = 84532;
+pub const SEPOLIA_CHAIN_ID: u32 = 11155111;
+/// Check if a Chain Id is supported
+/// Any subsequent l2 that is added will be checked using the LayerTwos storage map
+fn supported_chain_id(id: u32) -> bool {
+	[
+		ETHEREUM_CHAIN_ID,
+		SEPOLIA_CHAIN_ID,
+		BASE_CHAIN_ID,
+		BASE_SEPOLIA_CHAIN_ID,
+		OPTIMISM_CHAIN_ID,
+		OPTIMISM_SEPOLIA_CHAIN_ID,
+		ARBITRUM_CHAIN_ID,
+		ARBITRUM_SEPOLIA_CHAIN_ID,
+	]
+	.contains(&id)
 }

@@ -20,11 +20,15 @@ pub mod pallet {
 	use crate::types::{ConsensusState, L2Consensus};
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use ismp::{consensus::StateMachineId, host::IsmpHost};
+	use ismp::{
+		consensus::StateMachineId,
+		host::{IsmpHost, StateMachine},
+	};
 
-	use sp_core::{H160, H256};
+	use sp_core::H256;
 
 	#[pallet::pallet]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	/// The config trait
@@ -49,44 +53,19 @@ pub mod pallet {
 		ErrorStoringConsensusState,
 	}
 
+	/// Additional L2s added after the consensus client has been initialized
+	#[pallet::storage]
+	#[pallet::getter(fn layer_twos)]
+	pub type LayerTwos<T: Config> = StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
+
 	#[pallet::call]
 	impl<T: Config> Pallet<T>
 	where
 		<T as frame_system::Config>::Hash: From<H256>,
 	{
-		/// Add an ismp host contract address for a new chain
-		#[pallet::call_index(0)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-		pub fn add_ismp_address(
-			origin: OriginFor<T>,
-			contract_address: H160,
-			state_machine_id: StateMachineId,
-		) -> DispatchResult {
-			<T as Config>::AdminOrigin::ensure_origin(origin)?;
-
-			let host = <T as Config>::IsmpHost::default();
-			let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
-			let encoded_consensus_state = host
-				.consensus_state(consensus_state_id)
-				.map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
-			let mut consensus_state: ConsensusState =
-				codec::Decode::decode(&mut &encoded_consensus_state[..])
-					.map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
-			ensure!(
-				!consensus_state.ismp_contract_addresses.contains_key(&state_machine),
-				Error::<T>::ContractAddressAlreadyExists
-			);
-			consensus_state.ismp_contract_addresses.insert(state_machine, contract_address);
-
-			let encoded_consensus_state = consensus_state.encode();
-			host.store_consensus_state(consensus_state_id, encoded_consensus_state)
-				.map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
-			Ok(())
-		}
-
 		/// Add a new l2 consensus to the sync committee consensus state
-		#[pallet::call_index(1)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
+		#[pallet::call_index(0)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn add_l2_consensus(
 			origin: OriginFor<T>,
 			state_machine_id: StateMachineId,
@@ -105,6 +84,7 @@ pub mod pallet {
 					.map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
 
 			consensus_state.l2_consensus.insert(state_machine, l2_consensus);
+			LayerTwos::<T>::insert(state_machine_id.state_id, true);
 
 			let encoded_consensus_state = consensus_state.encode();
 			host.store_consensus_state(consensus_state_id, encoded_consensus_state)

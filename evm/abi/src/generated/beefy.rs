@@ -334,7 +334,7 @@ pub mod beefy {
                                 },
                             ],
                             constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::Pure,
                         },
                     ],
                 ),

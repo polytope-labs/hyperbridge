@@ -209,7 +209,7 @@ contract UltraPlonkBeefy is IConsensusClient, ERC165 {
     function verifyParachainHeaderProof(
         bytes32 headsRoot,
         ParachainProof memory proof
-    ) internal view returns (IntermediateState memory) {
+    ) internal pure returns (IntermediateState memory) {
         Node[] memory leaves = new Node[](1);
         Parachain memory para = proof.parachain;
 

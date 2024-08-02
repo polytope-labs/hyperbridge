@@ -79,7 +79,7 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
 		panic!("Call should revert")
 	};
 
-	assert_eq!(error.reason.as_str(), "Unauthorized request");
+	assert_eq!(error.reason.as_str(), "UnauthorizedAction()");
 
 	Ok(())
 }

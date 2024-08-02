@@ -18,7 +18,6 @@ contract DeployScript is BaseScript {
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
         string memory host = vm.envString("HOST");
         // todo:
-        address uniRouter = address(1);
         address callDispatcher = address(1);
 
         if (equal(host, "sepolia") || equal(host, "ethereum")) {
@@ -45,8 +44,6 @@ contract DeployScript is BaseScript {
     }
 
     function deployGateway(address host, address admin, address callDispatcher) public {
-        uint256 _paraId = vm.envUint("PARA_ID");
-
         IERC6160Ext20 feeToken = IERC6160Ext20(FEE_TOKEN);
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);

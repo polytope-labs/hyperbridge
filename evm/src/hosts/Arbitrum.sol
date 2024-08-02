@@ -14,8 +14,7 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import "./EvmHost.sol";
-import "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {EvmHost, HostParams} from "./EvmHost.sol";
 
 /**
  * @title The ArbitrumHost
@@ -32,9 +31,5 @@ contract ArbitrumHost is EvmHost {
 
     function chainId() public pure override returns (uint256) {
         return CHAIN_ID;
-    }
-
-    function host() public view override returns (bytes memory) {
-        return StateMachine.evm(block.chainid);
     }
 }

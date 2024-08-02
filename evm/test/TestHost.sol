@@ -14,8 +14,7 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import "../src/hosts/EvmHost.sol";
-import "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {EvmHost, HostParams} from "../src/hosts/EvmHost.sol";
 
 contract TestHost is EvmHost {
     constructor(HostParams memory params) EvmHost(params) {}
@@ -25,9 +24,5 @@ contract TestHost is EvmHost {
 
     function chainId() public pure override returns (uint256) {
         return CHAIN_ID;
-    }
-
-    function host() public view override returns (bytes memory) {
-        return StateMachine.evm(1);
     }
 }

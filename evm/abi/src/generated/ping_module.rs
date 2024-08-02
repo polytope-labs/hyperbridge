@@ -526,8 +526,8 @@ pub mod ping_module {
 			Self(::ethers::contract::Contract::new(address.into(), PINGMODULE_ABI.clone(), client))
 		}
 		/// Constructs the general purpose `Deployer` instance based on the provided constructor
-		/// arguments and sends it. Returns a new instance of a deployer that returns an instance of
-		/// this contract after sending the transaction
+		/// arguments and sends it. Returns a new instance of a deployer that returns an instance
+		/// of this contract after sending the transaction
 		///
 		/// Notes:
 		/// - If there are no constructor arguments, you should pass `()` as the argument.
@@ -699,13 +699,15 @@ pub mod ping_module {
 		///Gets the contract's `GetTimeoutReceived` event
 		pub fn get_timeout_received_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetTimeoutReceivedFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetTimeoutReceivedFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `MessageDispatched` event
 		pub fn message_dispatched_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, MessageDispatchedFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, MessageDispatchedFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `PostReceived` event

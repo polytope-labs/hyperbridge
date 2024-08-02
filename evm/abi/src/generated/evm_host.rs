@@ -2712,7 +2712,8 @@ pub mod evm_host {
 		///Gets the contract's `GetRequestHandled` event
 		pub fn get_request_handled_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetRequestHandledFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetRequestHandledFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `GetRequestTimeoutHandled` event
@@ -2734,7 +2735,8 @@ pub mod evm_host {
 		///Gets the contract's `HostParamsUpdated` event
 		pub fn host_params_updated_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostParamsUpdatedFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, HostParamsUpdatedFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `HostWithdrawal` event
@@ -2752,7 +2754,8 @@ pub mod evm_host {
 		///Gets the contract's `PostRequestHandled` event
 		pub fn post_request_handled_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostRequestHandledFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostRequestHandledFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `PostRequestTimeoutHandled` event
@@ -2768,13 +2771,15 @@ pub mod evm_host {
 		///Gets the contract's `PostResponseEvent` event
 		pub fn post_response_event_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseEventFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseEventFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `PostResponseFunded` event
 		pub fn post_response_funded_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseFundedFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseFundedFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `PostResponseHandled` event

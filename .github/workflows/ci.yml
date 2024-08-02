@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize]
   # pull_request:
   #   branches:
@@ -333,6 +333,9 @@ jobs:
       #      - name: Beefy integration tests
       #        run: |
       #          cargo test -p ismp-solidity-tests -- --nocapture --ignored
+      - name: Parachain to Parachain ismp relayer messaging integration tests
+          run: |
+            cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
 
       - name: Xcm integration tests
         run: |
@@ -357,10 +360,7 @@ jobs:
       - name: Binance Smart Chain integration tests
         run: |
           cargo test -p bsc-prover -- --nocapture --ignored
-
-      # - name: Parachain to Parachain ismp relayer messaging integration tests
-      #   run: |
-      #     cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
+          
 
   check-solidity:
     name: Check ismp-solidity

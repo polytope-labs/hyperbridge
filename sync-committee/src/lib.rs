@@ -14,7 +14,10 @@
 // limitations under the License.
 
 use arb_host::{ArbConfig, ArbHost};
-use ethers::{prelude::Provider, providers::Http};
+use ethers::{
+	prelude::Provider,
+	providers::{Http, Middleware},
+};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 pub use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
 use ismp_sync_committee::{
@@ -184,10 +187,11 @@ impl<C: Config> SyncCommitteeHost<C> {
 			l2_consensus.insert(state_machine, L2Consensus::ArbitrumOrbit(address));
 		}
 
+		let chain_id = self.el.get_chainid().await?;
 		let consensus_state = ConsensusState {
 			frozen_height: None,
 			light_client_state: client_state,
-			ismp_contract_addresses: params.ismp_contract_addresses,
+			chain_id: chain_id.low_u32(),
 			l2_consensus,
 		};
 
@@ -226,7 +230,6 @@ impl<C: Config> Clone for SyncCommitteeHost<C> {
 }
 
 pub struct GetConsensusStateParams {
-	pub ismp_contract_addresses: BTreeMap<StateMachine, H160>,
 	pub l2_oracle_address: BTreeMap<StateMachine, H160>,
 	pub rollup_core_address: BTreeMap<StateMachine, H160>,
 	pub dispute_factory_address: BTreeMap<StateMachine, H160>,

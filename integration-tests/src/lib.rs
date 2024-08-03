@@ -16,10 +16,7 @@ use std::{
 use crate::util::{setup_logging, timeout_future, Hyperbridge};
 use futures::StreamExt;
 use hex_literal::hex;
-use ismp::{
-	consensus::StateMachineId,
-	host::{ethereum, StateMachine},
-};
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use pallet_ismp_demo::GetRequest;
 use primitive_types::H160;
 use substrate_state_machine::HashAlgorithm;
@@ -255,10 +252,8 @@ async fn test_state_machine_notifs() -> Result<(), anyhow::Error> {
 	};
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
-	let state_machine_id = StateMachineId {
-		state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
-		consensus_state_id: *b"ETH1",
-	};
+	let state_machine_id =
+		StateMachineId { state_id: StateMachine::Evm(1), consensus_state_id: *b"ETH1" };
 	let mut stream = chain_a.state_machine_update_notification(state_machine_id).await?;
 	while let Some(update) = stream.next().await {
 		println!("Yielded Event {:?}", update);
@@ -308,10 +303,14 @@ async fn dispatch_to_evm() -> Result<(), anyhow::Error> {
 	};
 
 	let chains = vec![
-		(ethereum::EXECUTION_LAYER, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(ethereum::ARBITRUM, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(ethereum::OPTIMISM, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(ethereum::BASE, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
+		// sepolia
+		(11155111, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
+		// arbitrum
+		(421614, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
+		// op
+		(11155420, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
+		// base
+		(84532, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
 	];
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;

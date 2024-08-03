@@ -18,20 +18,20 @@
 use crate::{
 	beefy::IntermediateState,
 	evm_host::EvmHostEvents,
-	shared_types::{PostRequest, PostResponse, StateCommitment, StateMachineHeight},
+	shared_types::{GetRequest, PostRequest, PostResponse, StateCommitment, StateMachineHeight},
 };
 
-use anyhow::anyhow;
-use ismp::{host::StateMachine, router};
-
 use crate::evm_host::PostRequestEventFilter;
+use anyhow::anyhow;
 #[cfg(feature = "beefy")]
 pub use beefy::*;
 use ismp::{
 	consensus::StateMachineId,
 	events::{StateCommitmentVetoed, StateMachineUpdated, TimeoutHandled},
+	host::StateMachine,
+	router,
 };
-use primitive_types::H256;
+use primitive_types::{H160, H256};
 use std::str::FromStr;
 
 #[cfg(feature = "beefy")]
@@ -216,10 +216,32 @@ impl From<router::PostRequest> for PostRequest {
 			source: value.source.to_string().as_bytes().to_vec().into(),
 			dest: value.dest.to_string().as_bytes().to_vec().into(),
 			nonce: value.nonce.into(),
-			from: value.from.into(),
+			from: {
+				let mut address = H160::default();
+				address.0.copy_from_slice(&value.from);
+				address
+			},
 			to: value.to.into(),
 			timeout_timestamp: value.timeout_timestamp.into(),
 			body: value.body.into(),
+		}
+	}
+}
+
+impl From<router::GetRequest> for GetRequest {
+	fn from(value: router::GetRequest) -> Self {
+		GetRequest {
+			source: value.source.to_string().as_bytes().to_vec().into(),
+			dest: value.dest.to_string().as_bytes().to_vec().into(),
+			nonce: value.nonce,
+			keys: value.keys.into_iter().map(Into::into).collect(),
+			from: {
+				let mut address = H160::default();
+				address.0.copy_from_slice(&value.from);
+				address
+			},
+			timeout_timestamp: value.timeout_timestamp,
+			height: value.height,
 		}
 	}
 }
@@ -233,7 +255,7 @@ impl TryFrom<PostRequest> for router::PostRequest {
 			dest: StateMachine::from_str(&String::from_utf8(value.dest.to_vec())?)
 				.map_err(|err| anyhow!("{err}"))?,
 			nonce: value.nonce,
-			from: value.from.to_vec(),
+			from: value.from.0.to_vec(),
 			to: value.to.to_vec(),
 			timeout_timestamp: value.timeout_timestamp.into(),
 			body: value.body.to_vec(),

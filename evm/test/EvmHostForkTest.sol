@@ -62,7 +62,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: new bytes(0),
+            from: address(0),
             to: abi.encodePacked(address(manager)),
             timeoutTimestamp: 0,
             body: bytes.concat(hex"01", abi.encode(host.hostParams()))
@@ -143,7 +143,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: new bytes(0),
+            from: address(0),
             to: abi.encodePacked(address(manager)),
             timeoutTimestamp: 0,
             body: bytes.concat(hex"01", abi.encode(host.hostParams()))
@@ -189,7 +189,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: new bytes(0),
+            from: address(0),
             to: abi.encodePacked(address(manager)),
             timeoutTimestamp: 0,
             body: bytes.concat(

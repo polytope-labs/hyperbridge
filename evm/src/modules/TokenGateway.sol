@@ -362,8 +362,8 @@ contract TokenGateway is BaseIsmpModule {
      */
     modifier authenticate(PostRequest calldata request) {
         // TokenGateway only accepts incoming assets from itself
-        bool unknown = !request.from.equals(abi.encodePacked(address(this))) &&
-            _instances[keccak256(request.source)] != bytesToAddress(request.from);
+        bool unknown = request.from != address(this) &&
+            _instances[keccak256(request.source)] != request.from;
         if (unknown) revert UnauthorizedAction();
         _;
     }
@@ -830,8 +830,8 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     /**
-     * @dev Creates a new entry for the provided asset in the mappings. If there's no existing
-     * ERC6160 address provided, then a contract for the asset is created.
+     * @dev Creates a new entry for the provided asset in the mappings. If there's no ERC6160 address
+     * is provided, then a contract for the asset is created.
      */
     function createAssets(AssetMetadata[] memory assets) internal {
         uint256 length = assets.length;

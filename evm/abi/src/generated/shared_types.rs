@@ -1,4 +1,4 @@
-///`GetRequest(bytes,bytes,uint64,bytes,uint64,bytes[],uint64)`
+///`GetRequest(bytes,bytes,uint64,address,uint64,bytes[],uint64)`
 #[derive(
 	Clone,
 	::ethers::contract::EthAbiType,
@@ -13,12 +13,12 @@ pub struct GetRequest {
 	pub source: ::ethers::core::types::Bytes,
 	pub dest: ::ethers::core::types::Bytes,
 	pub nonce: u64,
-	pub from: ::ethers::core::types::Bytes,
+	pub from: ::ethers::core::types::Address,
 	pub timeout_timestamp: u64,
 	pub keys: ::std::vec::Vec<::ethers::core::types::Bytes>,
 	pub height: u64,
 }
-///`GetResponse((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[])`
+///`GetResponse((bytes,bytes,uint64,address,uint64,bytes[],uint64),(bytes,bytes)[])`
 #[derive(
 	Clone,
 	::ethers::contract::EthAbiType,
@@ -33,7 +33,7 @@ pub struct GetResponse {
 	pub request: GetRequest,
 	pub values: ::std::vec::Vec<StorageValue>,
 }
-///`IncomingGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]),
+///`IncomingGetResponse(((bytes,bytes,uint64,address,uint64,bytes[],uint64),(bytes,bytes)[]),
 /// address)`
 #[derive(
 	Clone,
@@ -49,7 +49,7 @@ pub struct IncomingGetResponse {
 	pub response: GetResponse,
 	pub relayer: ::ethers::core::types::Address,
 }
-///`IncomingPostRequest((bytes,bytes,uint64,bytes,bytes,uint64,bytes),address)`
+///`IncomingPostRequest((bytes,bytes,uint64,address,bytes,uint64,bytes),address)`
 #[derive(
 	Clone,
 	::ethers::contract::EthAbiType,
@@ -64,7 +64,7 @@ pub struct IncomingPostRequest {
 	pub request: PostRequest,
 	pub relayer: ::ethers::core::types::Address,
 }
-///`IncomingPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),address)`
+///`IncomingPostResponse(((bytes,bytes,uint64,address,bytes,uint64,bytes),bytes,uint64),address)`
 #[derive(
 	Clone,
 	::ethers::contract::EthAbiType,
@@ -79,7 +79,7 @@ pub struct IncomingPostResponse {
 	pub response: PostResponse,
 	pub relayer: ::ethers::core::types::Address,
 }
-///`PostRequest(bytes,bytes,uint64,bytes,bytes,uint64,bytes)`
+///`PostRequest(bytes,bytes,uint64,address,bytes,uint64,bytes)`
 #[derive(
 	Clone,
 	::ethers::contract::EthAbiType,
@@ -94,12 +94,12 @@ pub struct PostRequest {
 	pub source: ::ethers::core::types::Bytes,
 	pub dest: ::ethers::core::types::Bytes,
 	pub nonce: u64,
-	pub from: ::ethers::core::types::Bytes,
+	pub from: ::ethers::core::types::Address,
 	pub to: ::ethers::core::types::Bytes,
 	pub timeout_timestamp: u64,
 	pub body: ::ethers::core::types::Bytes,
 }
-///`PostResponse((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64)`
+///`PostResponse((bytes,bytes,uint64,address,bytes,uint64,bytes),bytes,uint64)`
 #[derive(
 	Clone,
 	::ethers::contract::EthAbiType,

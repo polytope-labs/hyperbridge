@@ -121,7 +121,7 @@ contract EvmHostTest is BaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: new bytes(0),
+            from: address(0),
             to: abi.encodePacked(address(this)),
             timeoutTimestamp: 0,
             body: bytes.concat(hex"01", abi.encode(host.hostParams()))
@@ -223,7 +223,7 @@ contract EvmHostTest is BaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: new bytes(0),
+            from: address(0),
             to: abi.encodePacked(address(manager)),
             timeoutTimestamp: 0,
             body: bytes.concat(hex"01", abi.encode(host.hostParams()))

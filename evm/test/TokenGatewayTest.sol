@@ -123,7 +123,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"00", abi.encode(body)),
                     nonce: 0,
@@ -161,7 +161,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"00", abi.encode(body)),
                     nonce: 0,
@@ -190,7 +190,7 @@ contract TokenGatewayTest is BaseTest {
         gateway.onPostRequestTimeout(
             PostRequest({
                 to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
+                from: address(gateway),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
                 nonce: 0,
@@ -215,7 +215,7 @@ contract TokenGatewayTest is BaseTest {
         gateway.onPostRequestTimeout(
             PostRequest({
                 to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
+                from: address(gateway),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(bodyWithCall)),
                 nonce: 0,
@@ -242,7 +242,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"02", abi.encode(asset1)),
                     nonce: 0,
@@ -275,7 +275,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"02", abi.encode(asset2)),
                     nonce: 0,
@@ -308,7 +308,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"02", abi.encode(asset)),
                     nonce: 0,
@@ -331,7 +331,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"03", abi.encode(DeregsiterAsset({assetIds: assets}))),
                     nonce: 0,
@@ -365,7 +365,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"00", abi.encode(body)),
                     nonce: 0,
@@ -393,7 +393,7 @@ contract TokenGatewayTest is BaseTest {
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
                     // not from gateway
-                    from: abi.encodePacked(address(this)),
+                    from: address(this),
                     dest: new bytes(0),
                     body: bytes.concat(hex"00", abi.encode(body)),
                     nonce: 0,
@@ -427,7 +427,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"02", abi.encode(asset)),
                     nonce: 0,
@@ -458,7 +458,7 @@ contract TokenGatewayTest is BaseTest {
 
         PostRequest memory request = PostRequest({
             to: abi.encodePacked(address(0)),
-            from: abi.encodePacked(address(gateway)),
+            from: address(gateway),
             dest: host.host(),
             body: bytes.concat(hex"00", abi.encode(body)),
             nonce: 0,
@@ -494,7 +494,7 @@ contract TokenGatewayTest is BaseTest {
 
         PostRequest memory request = PostRequest({
             to: abi.encodePacked(address(0)),
-            from: abi.encodePacked(address(0)),
+            from: address(0),
             dest: new bytes(0),
             body: bytes.concat(hex"00", abi.encode(body)),
             nonce: 0,
@@ -505,7 +505,7 @@ contract TokenGatewayTest is BaseTest {
         vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
         gateway.bid(request, 1e18);
 
-        request.from = abi.encodePacked(address(gateway));
+        request.from = address(gateway);
         vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
         gateway.bid(request, 1e18);
 
@@ -548,7 +548,7 @@ contract TokenGatewayTest is BaseTest {
 
         PostRequest memory request = PostRequest({
             to: abi.encodePacked(address(gateway)),
-            from: abi.encodePacked(address(gateway)),
+            from: address(gateway),
             dest: host.host(),
             body: bytes.concat(hex"00", abi.encode(body)),
             nonce: 0,
@@ -592,7 +592,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"01", abi.encode(params)),
                     nonce: 0,
@@ -620,7 +620,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"04", abi.encode(changeAsset)),
                     nonce: 0,
@@ -650,7 +650,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
+                    from: address(gateway),
                     dest: new bytes(0),
                     body: bytes.concat(hex"05", abi.encode(instance)),
                     nonce: 0,
@@ -679,7 +679,7 @@ contract TokenGatewayTest is BaseTest {
             IncomingPostRequest({
                 request: PostRequest({
                     to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(this)),
+                    from: address(this),
                     dest: new bytes(0),
                     body: bytes.concat(hex"00", abi.encode(body)),
                     nonce: 0,

@@ -31,7 +31,7 @@ use ismp::{
 	},
 	error::Error as IsmpError,
 	handlers,
-	host::{ethereum, IsmpHost, StateMachine},
+	host::{IsmpHost, StateMachine},
 	messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
 	module::IsmpModule,
 	router::{IsmpRouter, PostRequest, RequestResponse, Response, Timeout},
@@ -74,6 +74,7 @@ frame_support::construct_runtime!(
 		Gateway: pallet_asset_gateway,
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
+		IsmpSyncCommittee: ismp_sync_committee::pallet,
 	}
 );
 
@@ -200,6 +201,11 @@ impl pallet_ismp::Config for Test {
 
 impl pallet_hyperbridge::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+}
+
+impl ismp_sync_committee::pallet::Config for Test {
+	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IsmpHost = Ismp;
 }
 
@@ -387,7 +393,7 @@ where
 			challenge_period: 0,
 			state_machine_commitments: vec![(
 				StateMachineId {
-					state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+					state_id: StateMachine::Evm(1),
 					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 				},
 				StateCommitmentHeight {
@@ -404,7 +410,7 @@ where
 	.unwrap();
 	let height = StateMachineHeight {
 		id: StateMachineId {
-			state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			state_id: StateMachine::Evm(1),
 			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 		},
 		height: 3,

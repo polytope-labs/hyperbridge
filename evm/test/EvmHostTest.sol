@@ -111,7 +111,7 @@ contract EvmHostTest is BaseTest {
                 body: abi.encodePacked(bytes32(0)),
                 payer: address(this),
                 fee: 0,
-                dest: StateMachine.arbitrum(),
+                dest: StateMachine.evm(421614),
                 timeout: 0,
                 to: abi.encode(bytes32(0))
             })
@@ -140,7 +140,7 @@ contract EvmHostTest is BaseTest {
         bytes[] memory keys = new bytes[](1);
         keys[0] = abi.encode(address(this));
         vm.expectRevert(EvmHost.FrozenHost.selector);
-        host.dispatch(DispatchGet({dest: StateMachine.bsc(), height: 100, keys: keys, timeout: 60 * 60, fee: 0}));
+        host.dispatch(DispatchGet({dest: StateMachine.evm(97), height: 100, keys: keys, timeout: 60 * 60, fee: 0}));
 
         vm.prank(host.hostParams().handler);
         host.setFrozenState(FrozenStatus.None);
@@ -151,7 +151,7 @@ contract EvmHostTest is BaseTest {
                 body: abi.encodePacked(bytes32(0)),
                 payer: address(this),
                 fee: 0,
-                dest: StateMachine.arbitrum(),
+                dest: StateMachine.evm(421614),
                 timeout: 0,
                 to: abi.encode(bytes32(0))
             })
@@ -168,7 +168,7 @@ contract EvmHostTest is BaseTest {
                 body: new bytes(0),
                 payer: tx.origin,
                 fee: 0,
-                dest: StateMachine.arbitrum(),
+                dest: StateMachine.evm(421614),
                 timeout: 0,
                 to: new bytes(0)
             })

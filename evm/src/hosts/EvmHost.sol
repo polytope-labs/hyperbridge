@@ -27,6 +27,7 @@ import {StateCommitment, StateMachineHeight} from "@polytope-labs/ismp-solidity/
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "@polytope-labs/ismp-solidity/Message.sol";
 import {IConsensusClient} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
@@ -439,7 +440,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the host state machine id
      */
-    function host() public view virtual returns (bytes memory);
+    function host() public view returns (bytes memory) {
+        return StateMachine.evm(block.chainid);
+    }
 
     /**
      * @return the mainnet evm chainId for this host

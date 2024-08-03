@@ -30,7 +30,7 @@ use ismp::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::Keccak256,
 };
 
@@ -176,7 +176,8 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 	Ok(IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Ethereum(ethereum::ARBITRUM),
+				// note: This will state machine id should not be used to store the state commitment
+				state_id: StateMachine::Evm(Default::default()),
 				consensus_state_id,
 			},
 			height: block_number,

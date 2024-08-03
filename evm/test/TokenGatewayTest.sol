@@ -42,7 +42,7 @@ contract TokenGatewayTest is BaseTest {
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
-                dest: StateMachine.bsc(),
+                dest: StateMachine.evm(97),
                 relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(this)),
@@ -72,7 +72,7 @@ contract TokenGatewayTest is BaseTest {
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
-                dest: StateMachine.bsc(),
+                dest: StateMachine.evm(97),
                 relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(miniStaking)),
@@ -95,7 +95,7 @@ contract TokenGatewayTest is BaseTest {
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
                 maxFee: 1 * 1e18,
-                dest: StateMachine.bsc(),
+                dest: StateMachine.evm(97),
                 relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(this)),

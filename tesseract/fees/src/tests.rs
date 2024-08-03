@@ -1,7 +1,7 @@
 use crate::TransactionPayment;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{PostRequest, PostResponse, Request, RequestResponse, Response},
 };
@@ -13,8 +13,8 @@ async fn transaction_payments_flow() {
 	let tx_payment = TransactionPayment::initialize("./dev.db").await.unwrap();
 	let receipts = (0..500).into_iter().map(|i| {
 		let post = PostRequest {
-			source: StateMachine::Bsc,
-			dest: StateMachine::Polygon,
+			source: StateMachine::Evm(97),
+			dest: StateMachine::Evm(8002),
 			nonce: i,
 			from: vec![],
 			to: vec![],
@@ -37,8 +37,8 @@ async fn transaction_payments_flow() {
 	let response_receipts = (0..500).into_iter().map(|i| {
 		let resp = Response::Post(PostResponse {
 			post: PostRequest {
-				source: StateMachine::Polygon,
-				dest: StateMachine::Bsc,
+				source: StateMachine::Evm(8002),
+				dest: StateMachine::Evm(97),
 				nonce: i,
 				from: vec![],
 				to: vec![],
@@ -73,8 +73,8 @@ async fn transaction_payments_flow() {
 		.create_claim_proof(
 			0,
 			0,
-			Arc::new(MockHost::new((), 0, StateMachine::Bsc)),
-			Arc::new(MockHost::new((), 0, StateMachine::Polygon)),
+			Arc::new(MockHost::new((), 0, StateMachine::Evm(97))),
+			Arc::new(MockHost::new((), 0, StateMachine::Evm(8002))),
 			&MockHost::new((), 0, StateMachine::Kusama(2000)),
 		)
 		.await
@@ -98,8 +98,8 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 	let tx_payment = TransactionPayment::initialize("./dev2.db").await.unwrap();
 	let receipts = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			source: StateMachine::Bsc,
-			dest: StateMachine::Polygon,
+			source: StateMachine::Evm(97),
+			dest: StateMachine::Evm(8002),
 			nonce: i,
 			from: vec![],
 			to: vec![],
@@ -122,8 +122,8 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 	let response_receipts = (0..5).into_iter().map(|i| {
 		let resp = Response::Post(PostResponse {
 			post: PostRequest {
-				source: StateMachine::Polygon,
-				dest: StateMachine::Bsc,
+				source: StateMachine::Evm(8002),
+				dest: StateMachine::Evm(97),
 				nonce: i,
 				from: vec![],
 				to: vec![],
@@ -151,8 +151,8 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let receipts2 = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			source: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
-			dest: StateMachine::Polygon,
+			source: StateMachine::Evm(1),
+			dest: StateMachine::Evm(8002),
 			nonce: i,
 			from: vec![],
 			to: vec![],
@@ -174,8 +174,8 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let receipts3 = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
-			source: StateMachine::Polygon,
+			dest: StateMachine::Evm(1),
+			source: StateMachine::Evm(8002),
 			nonce: i,
 			from: vec![],
 			to: vec![],
@@ -197,8 +197,8 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let receipts4 = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			dest: StateMachine::Ethereum(ethereum::OPTIMISM),
-			source: StateMachine::Ethereum(ethereum::BASE),
+			dest: StateMachine::Evm(100),
+			source: StateMachine::Evm(200),
 			nonce: i,
 			from: vec![],
 			to: vec![],
@@ -220,8 +220,8 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 
 	let receipts5 = (0..5).into_iter().map(|i| {
 		let post = PostRequest {
-			source: StateMachine::Ethereum(ethereum::OPTIMISM),
-			dest: StateMachine::Ethereum(ethereum::BASE),
+			source: StateMachine::Evm(100),
+			dest: StateMachine::Evm(200),
 			nonce: i,
 			from: vec![],
 			to: vec![],
@@ -267,8 +267,8 @@ async fn highest_delivery_height() {
 	let tx_payment = TransactionPayment::initialize("./dev_2.db").await.unwrap();
 	let receipts = (0..500).into_iter().map(|i| {
 		let post = PostRequest {
-			source: StateMachine::Bsc,
-			dest: StateMachine::Polygon,
+			source: StateMachine::Evm(97),
+			dest: StateMachine::Evm(8002),
 			nonce: i,
 			from: vec![],
 			to: vec![],
@@ -291,8 +291,8 @@ async fn highest_delivery_height() {
 	let response_receipts = (0..500).into_iter().map(|i| {
 		let resp = Response::Post(PostResponse {
 			post: PostRequest {
-				source: StateMachine::Polygon,
-				dest: StateMachine::Bsc,
+				source: StateMachine::Evm(8002),
+				dest: StateMachine::Evm(97),
 				nonce: i,
 				from: vec![],
 				to: vec![],
@@ -324,7 +324,7 @@ async fn highest_delivery_height() {
 		.unwrap();
 
 	let height = tx_payment
-		.highest_delivery_height(StateMachine::Bsc, StateMachine::Polygon)
+		.highest_delivery_height(StateMachine::Evm(97), StateMachine::Evm(8002))
 		.await
 		.unwrap()
 		.unwrap();

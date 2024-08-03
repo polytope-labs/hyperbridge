@@ -168,7 +168,7 @@ mod tests {
 		let pair =
 			ecdsa::Pair::from_seed_slice(&bytes).expect("TELEMETRY_SECRET_KEY must be 64 chars!");
 		let mut message =
-			Message { signature: vec![], metadata: vec![(StateMachine::Polygon, H160::random())] };
+			Message { signature: vec![], metadata: vec![(StateMachine::Evm(97), H160::random())] };
 		message.signature = pair.sign(message.metadata.encode().as_slice()).to_raw_vec();
 		// get a socket that is connected to the admin namespace
 		let socket = ClientBuilder::new("http://localhost:3000")

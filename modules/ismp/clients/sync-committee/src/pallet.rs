@@ -20,11 +20,15 @@ pub mod pallet {
 	use crate::types::{ConsensusState, L2Consensus};
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use ismp::{consensus::StateMachineId, host::IsmpHost};
+	use ismp::{
+		consensus::StateMachineId,
+		host::{IsmpHost, StateMachine},
+	};
 
 	use sp_core::H256;
 
 	#[pallet::pallet]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	/// The config trait
@@ -49,6 +53,11 @@ pub mod pallet {
 		ErrorStoringConsensusState,
 	}
 
+	/// Additional L2s added after the consensus client has been initialized
+	#[pallet::storage]
+	#[pallet::getter(fn layer_twos)]
+	pub type LayerTwos<T: Config> = StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
+
 	#[pallet::call]
 	impl<T: Config> Pallet<T>
 	where
@@ -56,7 +65,7 @@ pub mod pallet {
 	{
 		/// Add a new l2 consensus to the sync committee consensus state
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn add_l2_consensus(
 			origin: OriginFor<T>,
 			state_machine_id: StateMachineId,
@@ -75,6 +84,7 @@ pub mod pallet {
 					.map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
 
 			consensus_state.l2_consensus.insert(state_machine, l2_consensus);
+			LayerTwos::<T>::insert(state_machine_id.state_id, true);
 
 			let encoded_consensus_state = consensus_state.encode();
 			host.store_consensus_state(consensus_state_id, encoded_consensus_state)

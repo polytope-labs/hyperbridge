@@ -1,4 +1,7 @@
-use crate::EvmClient;
+use crate::{
+	gas_oracle::{ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID},
+	EvmClient,
+};
 use anyhow::anyhow;
 use codec::Decode;
 use ethers::{
@@ -13,7 +16,7 @@ use ethers::{
 	types::{TransactionReceipt, TransactionRequest},
 };
 use ismp::{
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::{Message, ResponseMessage},
 	router::{RequestResponse, Response},
 };
@@ -125,7 +128,6 @@ where
 		if let Some(call) = retry {
 			// lets retry
 			let gas_price = get_current_gas_cost_in_usd(
-				client.chain_id,
 				client.state_machine,
 				&client.config.etherscan_api_key.clone(),
 				client.client.clone(),
@@ -227,7 +229,6 @@ pub async fn generate_contract_calls(
 	let set_gas_price = || !debug_trace || client.client_type.erigon();
 	let gas_price = if set_gas_price() {
 		get_current_gas_cost_in_usd(
-			client.chain_id,
 			client.state_machine,
 			&client.config.etherscan_api_key.clone(),
 			client.client.clone(),
@@ -384,11 +385,9 @@ pub async fn generate_contract_calls(
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
-		StateMachine::Ethereum(ethereum::EXECUTION_LAYER) => 20_000_000,
-		StateMachine::Ethereum(ethereum::ARBITRUM) => 32_000_000,
-		StateMachine::Ethereum(_any) => 20_000_000,
-		StateMachine::Polygon => 20_000_000,
-		StateMachine::Bsc => 20_000_000,
+		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
+			32_000_000,
+		StateMachine::Evm(_) => 20_000_000,
 		_ => Default::default(),
 	}
 }

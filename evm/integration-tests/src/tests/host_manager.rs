@@ -1,10 +1,7 @@
 use ethers::abi::Tokenizable;
 use forge_testsuite::Runner;
 use foundry_evm::executor::EvmError;
-use ismp::{
-	host::{ethereum, StateMachine},
-	router,
-};
+use ismp::{host::StateMachine, router};
 use ismp_solidity_abi::{evm_host::HostParams, shared_types::PostRequest};
 use pallet_ismp_host_executive::EvmHostParamsAbi;
 use pallet_ismp_relayer::withdrawal::WithdrawalParams;
@@ -27,7 +24,7 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
 	// create post request object
 	let post = router::PostRequest {
 		source: StateMachine::Kusama(2000),
-		dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		dest: StateMachine::Evm(1),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],
@@ -60,7 +57,7 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
 	let post = router::PostRequest {
 		// wrong source
 		source: StateMachine::Polkadot(1000),
-		dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		dest: StateMachine::Evm(1),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],
@@ -100,7 +97,7 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
 	// create post request object
 	let post = router::PostRequest {
 		source: StateMachine::Kusama(2000),
-		dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		dest: StateMachine::Evm(1),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],
@@ -170,7 +167,7 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
 	// create post request object
 	let post = router::PostRequest {
 		source: StateMachine::Kusama(2000),
-		dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		dest: StateMachine::Evm(1),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],

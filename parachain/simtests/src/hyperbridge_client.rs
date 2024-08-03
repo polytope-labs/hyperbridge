@@ -105,7 +105,7 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 
 	let post = PostRequest {
 		source: StateMachine::Polkadot(para_id),
-		dest: StateMachine::Polygon,
+		dest: StateMachine::Evm(8002),
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
 		to: H256::random().as_bytes().to_vec(),
@@ -296,7 +296,7 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 
 	let post = PostRequest {
 		source: StateMachine::Polkadot(para_id),
-		dest: StateMachine::Polygon,
+		dest: StateMachine::Evm(8002),
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
 		to: H256::random().as_bytes().to_vec(),
@@ -481,7 +481,7 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 
 	let post = PostRequest {
 		source: StateMachine::Polkadot(para_id),
-		dest: StateMachine::Polygon,
+		dest: StateMachine::Evm(8002),
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
 		to: H256::random().as_bytes().to_vec(),

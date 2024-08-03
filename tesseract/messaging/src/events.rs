@@ -388,7 +388,7 @@ pub fn filter_events(
 
 pub fn chunk_size(state_machine: StateMachine) -> usize {
 	match state_machine {
-		StateMachine::Ethereum(_) | StateMachine::Bsc => 100,
+		StateMachine::Evm(_) => 100,
 		_ => 200,
 	}
 }
@@ -416,16 +416,15 @@ pub async fn return_successful_queries(
 	let mut retriable_messages = Vec::new();
 	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
 
-	// We'll be querying from possibly multiple chains, Let's take the average tracing batch size
+	// We'll be querying from possibly multiple chains, Let's use the lowest tracing batch size
 	// from all clients(except the coprocessor) and use that as the max concurrency
-	let total_clients = client_map.len() - 1;
-	let batch_size = client_map.values().into_iter().fold(0, |acc, next| {
-		if next.state_machine_id().state_id != coprocessor {
-			acc + next.max_concurrent_queries()
-		} else {
-			acc
-		}
-	}) / total_clients;
+	let batch_size = client_map
+		.values()
+		.into_iter()
+		.map(|client| client.max_concurrent_queries())
+		.min()
+		.unwrap_or(1);
+
 	for chunk in gas_estimates
 		.into_iter()
 		.zip(messages.into_iter())

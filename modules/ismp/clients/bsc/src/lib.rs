@@ -21,10 +21,13 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use sp_core::H256;
+use sp_core::{H160, H256};
 use sync_committee_primitives::constants::BlsPublicKey;
 
 pub const BSC_CONSENSUS_ID: ConsensusStateId = *b"BSCP";
+
+const BSC_CHAIN_ID: u32 = 56;
+const BSC_TESTNET_CHAIN_ID: u32 = 97;
 
 #[derive(codec::Encode, codec::Decode, Debug, Default, PartialEq, Eq, Clone)]
 pub struct ConsensusState {
@@ -33,6 +36,8 @@ pub struct ConsensusState {
 	pub finalized_height: u64,
 	pub finalized_hash: H256,
 	pub current_epoch: u64,
+	pub ismp_contract_address: H160,
+	pub chain_id: u32,
 }
 
 pub struct BscClient<H: IsmpHost, T: pallet_ismp_host_executive::Config>(PhantomData<(H, T)>);
@@ -109,7 +114,8 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: pallet_ismp_host_executiv
 			consensus_state.next_validators = Some(next_validators);
 		}
 		consensus_state.finalized_height = finalized_header.number.low_u64();
-		state_machine_map.insert(StateMachine::Bsc, vec![state_commitment]);
+		state_machine_map
+			.insert(StateMachine::Evm(consensus_state.chain_id), vec![state_commitment]);
 
 		Ok((consensus_state.encode(), state_machine_map))
 	}
@@ -164,7 +170,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: pallet_ismp_host_executiv
 		id: ismp::host::StateMachine,
 	) -> Result<Box<dyn StateMachineClient>, ismp::error::Error> {
 		match id {
-			StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H, T>>::default())),
+			StateMachine::Evm(chain_id)
+				if chain_id == BSC_CHAIN_ID || chain_id == BSC_TESTNET_CHAIN_ID =>
+				Ok(Box::new(<EvmStateMachine<H, T>>::default())),
 			state_machine =>
 				Err(Error::Custom(alloc::format!("Unsupported state machine: {state_machine:?}"))),
 		}

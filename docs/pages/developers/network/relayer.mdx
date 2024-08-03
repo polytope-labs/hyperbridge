@@ -176,11 +176,11 @@ minimum_withdrawal_amount = 100
 unprofitable_retry_frequency = 600
 # (Optional) If not empty, tesseract will only deliver requests to the specified state-machines
 delivery_endpoints = [
-    "ETH-EXEC",
-    "ETH-ARBI",
-    "ETH-OPTI",
-    "ETH-BASE",
-    "BSC"
+    "EVM-11155111",
+    "EVM-421614",
+    "EVM-11155420",
+    "EVM-84532",
+    "EVM-97"
 ]
 
 # Here you'll declare a new chain entry for every chain you want to support.
@@ -188,13 +188,28 @@ delivery_endpoints = [
 [ethereum]
 # configuration type can be either "evm" or "substrate"
 type = "evm"
-# State machine identifier for the this evm chain. The possible values:
-# state_machine = "ETH-EXEC" # Ethereum L1
-# state_machine = "ETH-ARBI" # Arbitrum
-# state_machine = "ETH-OPTI" # Optimism
-# state_machine = "ETH-BASE" # Base
-# state_machine = "BSC" # Binance smart chain
-state_machine = "ETH-EXEC"
+# State machine identifier for the this evm chain. 
+# Must be specified as:
+# - "EVM-{chainId}"
+
+# The possible values:
+
+# state_machine = "EVM-1" # Ethereum Mainnet
+# state_machine = "EVM-11155111" # Ethereum Sepolia
+
+# state_machine = "EVM-42161" # Arbitrum Mainnet
+# state_machine = "EVM-421614" # Arbitrum Sepolia
+
+# state_machine = "EVM-10" # Optimism Mainnet
+# state_machine = "EVM-11155420" # Optimism Sepolia
+
+# state_machine = "EVM-8453" # Base Mainnet
+# state_machine = "EVM-84532" # Base Sepolia
+
+# state_machine = "EVM-56" # Binance smart chain Mainnet
+# state_machine = "EVM-97" # Binance smart chain Testnet
+
+state_machine = "EVM-11155111"
 # http(s) rpc urls for evm based chains
 # Multiple rpc endpoints supported for increased reliability
 rpc_urls = ["http://127.0.0.1:8545", ""]

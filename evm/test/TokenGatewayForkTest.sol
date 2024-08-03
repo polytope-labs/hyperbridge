@@ -54,7 +54,7 @@ contract TeleportForkTest is MainnetForkBaseTest {
                 maxFee: 1 * 1e6,
                 amount: 1_000 * 1e6, // $1000
                 redeem: false,
-                dest: StateMachine.bsc(),
+                dest: StateMachine.evm(97),
                 relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(this)),
@@ -90,7 +90,7 @@ contract TeleportForkTest is MainnetForkBaseTest {
                 maxFee: 0,
                 amount: teleportAmount, // $1000
                 redeem: false,
-                dest: StateMachine.bsc(),
+                dest: StateMachine.evm(97),
                 relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: addressToBytes32(address(this)),

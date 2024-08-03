@@ -18,7 +18,10 @@ use arbitrum_verifier::verify_arbitrum_payload;
 use codec::{Decode, Encode};
 use evm_common::construct_intermediate_state;
 
-use crate::types::{BeaconClientUpdate, ConsensusState, L2Consensus};
+use crate::{
+	pallet::{self, LayerTwos},
+	types::{BeaconClientUpdate, ConsensusState, L2Consensus},
+};
 use evm_common::EvmStateMachine;
 use ismp::{
 	consensus::{
@@ -26,7 +29,7 @@ use ismp::{
 		VerifiedCommitments,
 	},
 	error::Error,
-	host::{ethereum, IsmpHost, StateMachine},
+	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
 use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
@@ -39,13 +42,13 @@ pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
 pub struct SyncCommitteeConsensusClient<
 	H: IsmpHost,
 	C: Config,
-	T: pallet_ismp_host_executive::Config,
+	T: pallet_ismp_host_executive::Config + crate::pallet::Config,
 >(core::marker::PhantomData<(H, C, T)>);
 
 impl<
 		H: IsmpHost + Send + Sync + Default + 'static,
 		C: Config + Send + Sync + Default + 'static,
-		T: pallet_ismp_host_executive::Config + 'static,
+		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
 	> Default for SyncCommitteeConsensusClient<H, C, T>
 {
 	fn default() -> Self {
@@ -56,7 +59,7 @@ impl<
 impl<
 		H: IsmpHost + Send + Sync + Default + 'static,
 		C: Config + Send + Sync + Default + 'static,
-		T: pallet_ismp_host_executive::Config + 'static,
+		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
 	> Clone for SyncCommitteeConsensusClient<H, C, T>
 {
 	fn clone(&self) -> Self {
@@ -67,7 +70,7 @@ impl<
 impl<
 		H: IsmpHost + Send + Sync + Default + 'static,
 		C: Config + Send + Sync + Default + 'static,
-		T: pallet_ismp_host_executive::Config + 'static,
+		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
 	> ConsensusClient for SyncCommitteeConsensusClient<H, C, T>
 {
 	fn verify_consensus(
@@ -100,7 +103,7 @@ impl<
 
 		let state_root = consensus_update.execution_payload.state_root;
 		let intermediate_state = construct_intermediate_state(
-			StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			StateMachine::Evm(consensus_state.chain_id),
 			consensus_state_id.clone(),
 			consensus_update.execution_payload.block_number,
 			consensus_update.execution_payload.timestamp,
@@ -115,8 +118,7 @@ impl<
 		let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 		state_commitment_vec.push(ethereum_state_commitment_height);
 
-		state_machine_map
-			.insert(StateMachine::Ethereum(ethereum::EXECUTION_LAYER), state_commitment_vec);
+		state_machine_map.insert(StateMachine::Evm(consensus_state.chain_id), state_commitment_vec);
 
 		let l2_consensus = consensus_state.l2_consensus.clone();
 
@@ -188,6 +190,7 @@ impl<
 				Error::Custom(format!("Cannot convert light client state to codec type"))
 			})?,
 			l2_consensus: consensus_state.l2_consensus,
+			chain_id: consensus_state.chain_id,
 		};
 
 		Ok((new_consensus_state.encode(), state_machine_map))
@@ -209,8 +212,37 @@ impl<
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match id {
-			StateMachine::Ethereum(_) => Ok(Box::new(<EvmStateMachine<H, T>>::default())),
+			StateMachine::Evm(chain_id)
+				if supported_chain_id(chain_id) || LayerTwos::<T>::contains_key(id) =>
+				Ok(Box::new(<EvmStateMachine<H, T>>::default())),
 			_ => Err(Error::Custom("State machine not supported".to_string())),
 		}
 	}
+}
+
+/// Mainnet and L2 chain Ids
+pub const ARBITRUM_CHAIN_ID: u32 = 42161;
+pub const OPTIMISM_CHAIN_ID: u32 = 10;
+pub const BASE_CHAIN_ID: u32 = 8453;
+pub const ETHEREUM_CHAIN_ID: u32 = 1;
+
+// Testnets
+pub const ARBITRUM_SEPOLIA_CHAIN_ID: u32 = 421614;
+pub const OPTIMISM_SEPOLIA_CHAIN_ID: u32 = 11155420;
+pub const BASE_SEPOLIA_CHAIN_ID: u32 = 84532;
+pub const SEPOLIA_CHAIN_ID: u32 = 11155111;
+/// Check if a Chain Id is supported
+/// Any subsequent l2 that is added will be checked using the LayerTwos storage map
+fn supported_chain_id(id: u32) -> bool {
+	[
+		ETHEREUM_CHAIN_ID,
+		SEPOLIA_CHAIN_ID,
+		BASE_CHAIN_ID,
+		BASE_SEPOLIA_CHAIN_ID,
+		OPTIMISM_CHAIN_ID,
+		OPTIMISM_SEPOLIA_CHAIN_ID,
+		ARBITRUM_CHAIN_ID,
+		ARBITRUM_SEPOLIA_CHAIN_ID,
+	]
+	.contains(&id)
 }

@@ -103,7 +103,7 @@ impl AccumulateFees {
 					if highest_delivery_height_to_dest.is_none() &&
 						highest_delivery_height_to_source.is_none()
 					{
-						log::info!("No deliveries found in db for {source_chain:?}->{dest_chain:?}");
+						log::info!("No deliveries found in db for {source_chain}->{dest_chain}");
 						return Ok::<_, anyhow::Error>(())
 					}
 
@@ -125,19 +125,19 @@ impl AccumulateFees {
 						match height {
 							Some(height) => {
 								// Create claim proof for deliveries from source to dest
-								log::info!("Creating withdrawal proof from db for deliveries from {source_chain:?}->{dest_chain:?}");
+								log::info!("Creating withdrawal proof from db for deliveries from {source_chain}->{dest_chain}");
 								let proofs = tx_payment
 									.create_claim_proof(source_height.into(), height, source.clone(), dest.clone(), &hyperbridge)
 									.await?;
 
 								if proofs.is_empty() {
-									log::info!("All fees in the database for  {source_chain:?}->{dest_chain:?} have been successfully accumulated in a previous attempt")
+									log::info!("All fees in the database for  {source_chain}->{dest_chain} have been successfully accumulated in a previous attempt")
 								} else {
 									observe_challenge_period(dest.clone(), Arc::new(hyperbridge.clone()), height).await?;
 								}
 
 								log::info!(
-									"Submitting proofs for {source_chain:?}->{dest_chain:?} to hyperbridge"
+									"Submitting proofs for {source_chain}->{dest_chain} to hyperbridge"
 								);
 								for proof in proofs {
 									hyperbridge.accumulate_fees(proof.clone()).await?;
@@ -153,7 +153,7 @@ impl AccumulateFees {
 								log::info!("Proofs sucessfully submitted");
 							},
 							None => {
-								log::info!("Skipping fee accumulation for {source_chain:?}->{dest_chain:?}: state machine update not yet available on hyperbridge");
+								log::info!("Skipping fee accumulation for {source_chain}->{dest_chain}: state machine update not yet available on hyperbridge");
 							},
 						}
 					}
@@ -176,19 +176,19 @@ impl AccumulateFees {
 						match height {
 							Some(height) => {
 								// Create claim proof for deliveries from dest to source
-								log::info!("Creating withdrawal proof from db for deliveries from {dest_chain:?}->{source_chain:?}");
+								log::info!("Creating withdrawal proof from db for deliveries from {dest_chain}->{source_chain}");
 								let proofs = tx_payment
 									.create_claim_proof(dest_height.into(), height, dest.clone(), source.clone(), &hyperbridge)
 									.await?;
 
 								if proofs.is_empty() {
-									log::info!("All fees in the database for  {dest_chain:?}->{source_chain:?} have been successfully accumulated in a previous attempt")
+									log::info!("All fees in the database for  {dest_chain}->{source_chain} have been successfully accumulated in a previous attempt")
 								}
 								else {
 									observe_challenge_period(source.clone(), Arc::new(hyperbridge.clone()), height).await?;
 								}
 								log::info!(
-									"Submitting proofs for {dest_chain:?}->{source_chain:?} to hyperbridge"
+									"Submitting proofs for {dest_chain}->{source_chain} to hyperbridge"
 								);
 								for proof in proofs {
 									hyperbridge.accumulate_fees(proof.clone()).await?;
@@ -203,7 +203,7 @@ impl AccumulateFees {
 								log::info!("Proof sucessfully submitted");
 							},
 							None => {
-								log::info!("Skipping fee accumulation for {dest_chain:?}->{source_chain:?}: state machine update not yet available on hyperbridge");
+								log::info!("Skipping fee accumulation for {dest_chain}->{source_chain}: state machine update not yet available on hyperbridge");
 							},
 						}
 					}
@@ -212,7 +212,7 @@ impl AccumulateFees {
 				};
 				match lambda().await {
 					Ok(_) => {},
-					Err(e) => log::error!("Fee accumulation for {dest_chain:?}->{source_chain:?} failed: {e:?}"),
+					Err(e) => log::error!("Fee accumulation for {dest_chain}->{source_chain} failed: {e:?}"),
 				}
 			}
 
@@ -232,7 +232,7 @@ impl AccumulateFees {
 		stream
 			.for_each_concurrent(None, |chain| {
 				let client =
-					clients.get(&chain).expect(&format!("Client not found for {chain:?}")).clone();
+					clients.get(&chain).expect(&format!("Client not found for {chain}")).clone();
 				let hyperbridge = hyperbridge.clone();
 				let tx = tx.clone();
 				async move {
@@ -255,14 +255,14 @@ impl AccumulateFees {
 						}
 
 						log::info!(
-							"Submitting withdrawal request to {chain:?}  for amount ${}",
+							"Submitting withdrawal request to {chain}  for amount ${}",
 							Cost(amount)
 						);
 						let result = hyperbridge
 							.withdraw_funds(client.clone(), chain)
 							.await?;
 						log::info!("Request submitted to hyperbridge successfully");
-						log::info!("Starting delivery of withdrawal message to {:?}", chain);
+						log::info!("Starting delivery of withdrawal message to {}", chain);
 						// Wait for state machine update
 						// persist the withdrawal in-case delivery fails, so it's not lost forever
 						let ids = tx.store_pending_withdrawals(vec![result.clone()]).await?;
@@ -322,7 +322,7 @@ where
 		stream
 			.for_each_concurrent(None, |chain| {
 				let client =
-					clients.get(&chain).expect(&format!("Client not found for {chain:?}")).clone();
+					clients.get(&chain).expect(&format!("Client not found for {chain}")).clone();
 				let hyperbridge = hyperbridge.clone();
 				let moved_db = db.clone();
 				async move {
@@ -344,14 +344,14 @@ where
 						}
 
 						tracing::info!(
-							"Submitting withdrawal request to hyperbridge for amount ${} on {chain:?}",
+							"Submitting withdrawal request to hyperbridge for amount ${} on {chain}",
 							Cost(amount)
 						);
 						let result = hyperbridge
 							.withdraw_funds(client.clone(), chain)
 							.await?;
 						tracing::info!("Request submitted to hyperbridge successfully");
-						tracing::info!("Starting delivery of withdrawal message to {:?}", chain);
+						tracing::info!("Starting delivery of withdrawal message to {}", chain);
 
 						// persist the withdrawal in-case delivery fails, so it's not lost forever
 						let ids = moved_db.store_pending_withdrawals(vec![result.clone()]).await?;
@@ -450,19 +450,19 @@ async fn deliver_post_request<D: IsmpProvider>(
 		signer: dest_chain.address(),
 	};
 
-	log::info!("Submitting post request to {:?}", dest_chain.state_machine_id().state_id);
+	log::info!("Submitting post request to {}", dest_chain.state_machine_id().state_id);
 
 	let mut count = 5;
 	while count != 0 {
 		if let Err(e) = dest_chain.submit(vec![Message::Request(msg.clone())]).await {
 			log::info!(
-					"Encountered error trying to submit withdrawal request to {:?}.\n{e:?}\nWill retry {count} more times.",
+					"Encountered error trying to submit withdrawal request to {}.\n{e:?}\nWill retry {count} more times.",
 					dest_chain.state_machine_id().state_id
 				);
 			count -= 1;
 		} else {
 			log::info!(
-				"Withdrawal message submitted successfully to {:?}",
+				"Withdrawal message submitted successfully to {}",
 				dest_chain.state_machine_id().state_id
 			);
 			return Ok(());

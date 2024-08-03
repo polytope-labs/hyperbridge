@@ -38,11 +38,7 @@ use crate::{
 };
 use futures::StreamExt;
 use hex_literal::hex;
-use ismp::{
-	consensus::StateMachineId,
-	host::{ethereum, StateMachine},
-	router,
-};
+use ismp::{consensus::StateMachineId, host::StateMachine, router};
 use ismp_solidity_abi::{
 	erc20::ERC20,
 	evm_host::{EvmHost, PostRequestEventFilter},
@@ -65,14 +61,14 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 
 	let source_chain = EvmConfig {
 		rpc_url: bsc_url.clone(),
-		state_machine: StateMachine::Bsc,
+		state_machine: StateMachine::Evm(97),
 		host_address: BSC_HOST,
 		consensus_state_id: *b"BSC0",
 	};
 
 	let dest_chain = EvmConfig {
 		rpc_url: op_url,
-		state_machine: StateMachine::Ethereum(ethereum::OPTIMISM),
+		state_machine: StateMachine::Evm(11155420),
 		host_address: OP_HOST,
 		consensus_state_id: *b"ETH0",
 	};
@@ -98,7 +94,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		.with_chain_id(provider.get_chainid().await?.low_u64());
 	let client = Arc::new(provider.with_signer(signer));
 	let ping = PingModule::new(PING_MODULE, client.clone());
-	let chain = StateMachine::Bsc;
+	let chain = StateMachine::Evm(97);
 	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
 	let host = EvmHost::new(host_addr, client.clone());
 	let erc_20 =
@@ -163,14 +159,14 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let sepolia_url = env!("SEPOLIA_URL").to_string();
 	let source_chain = EvmConfig {
 		rpc_url: bsc_url.clone(),
-		state_machine: StateMachine::Bsc,
+		state_machine: StateMachine::Evm(97),
 		host_address: BSC_HOST,
 		consensus_state_id: *b"BSC0",
 	};
 
 	let dest_chain = EvmConfig {
 		rpc_url: sepolia_url,
-		state_machine: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		state_machine: StateMachine::Evm(11155111),
 		host_address: SEPOLIA_HOST,
 		consensus_state_id: *b"ETH0",
 	};
@@ -196,7 +192,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let signer = LocalWallet::from(SecretKey::from_slice(pair.as_slice())?).with_chain_id(chain_id);
 	let client = Arc::new(provider.with_signer(signer));
 	let ping = PingModule::new(PING_MODULE, client.clone());
-	let chain = StateMachine::Bsc;
+	let chain = StateMachine::Evm(97);
 	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
 	let host = EvmHost::new(host_addr, client.clone());
 	tracing::info!("{:#?}", host.host_params().await?);
@@ -216,7 +212,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let mut stream = hyperclient
 		.hyperbridge
 		.state_machine_update_notification(StateMachineId {
-			state_id: StateMachine::Bsc,
+			state_id: StateMachine::Evm(97),
 			consensus_state_id: *b"BSC0",
 		})
 		.await?;

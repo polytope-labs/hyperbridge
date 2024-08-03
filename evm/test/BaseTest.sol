@@ -128,6 +128,8 @@ contract BaseTest is Test {
         feeToken.superApprove(address(this), address(host));
 
         miniStaking = new MiniStaking(address(feeToken));
+
+        vm.chainId(1);
     }
 
     function module() public view returns (address) {

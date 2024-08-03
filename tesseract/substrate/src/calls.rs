@@ -189,7 +189,7 @@ where
 								false
 							}
 						},
-						StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
+						StateMachine::Evm(_) => {
 							let address = &post.body[1..33].to_vec();
 							// abi encoding will pad address with 12 bytes
 							address.ends_with(&counterparty.address()) && condition

@@ -924,8 +924,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param response - post response
      */
     function dispatchIncoming(PostResponse memory response, address relayer) external restrict(_hostParams.handler) {
-        address origin = _bytesToAddress(response.request.from);
-
         // replay protection
         bytes32 requestCommitment = response.request.hash();
         bytes32 responseCommitment = response.hash();
@@ -934,7 +932,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             responseCommitment: responseCommitment
         });
 
-        (bool success, ) = address(origin).call(
+        (bool success, ) = address(response.request.from).call(
             abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, IncomingPostResponse(response, relayer))
         );
 
@@ -951,14 +949,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param response - get response
      */
     function dispatchIncoming(GetResponse memory response, address relayer) external restrict(_hostParams.handler) {
-        address origin = _bytesToAddress(response.request.from);
-
         // replay protection
         bytes32 commitment = response.request.hash();
         // don't commit the full response object, it's unused.
         _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
 
-        (bool success, ) = address(origin).call(
+        (bool success, ) = address(response.request.from).call(
             abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, IncomingGetResponse(response, relayer))
         );
 
@@ -981,11 +977,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory meta,
         bytes32 commitment
     ) external restrict(_hostParams.handler) {
-        address origin = _bytesToAddress(request.from);
-
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success, ) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
+        (bool success, ) = address(request.from).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -1005,11 +999,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory meta,
         bytes32 commitment
     ) external restrict(_hostParams.handler) {
-        address origin = _bytesToAddress(request.from);
-
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success, ) = address(origin).call(
+        (bool success, ) = address(request.from).call(
             abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request)
         );
 
@@ -1100,7 +1092,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             source: host(),
             dest: post.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(_msgSender()),
+            from: _msgSender(),
             to: post.to,
             timeoutTimestamp: timeoutTimestamp,
             body: post.body
@@ -1112,7 +1104,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         emit PostRequestEvent({
             source: string(request.source),
             dest: string(request.dest),
-            from: _msgSender(),
+            from: request.from,
             to: abi.encodePacked(request.to),
             nonce: request.nonce,
             timeoutTimestamp: request.timeoutTimestamp,
@@ -1160,7 +1152,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             source: host(),
             dest: get.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(_msgSender()),
+            from: _msgSender(),
             timeoutTimestamp: timeoutTimestamp,
             keys: get.keys,
             height: get.height
@@ -1248,7 +1240,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             source: string(response.request.dest),
             dest: string(response.request.source),
             from: caller,
-            to: response.request.from,
+            to: abi.encodePacked(response.request.from),
             nonce: response.request.nonce,
             timeoutTimestamp: response.request.timeoutTimestamp,
             body: response.request.body,

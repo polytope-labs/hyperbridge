@@ -489,6 +489,7 @@ fn test_evm_accumulate_fees() {
 			finalized_height: 0,
 			finalized_hash: Default::default(),
 			current_epoch: 0,
+			ismp_contract_address: bsc_host,
 			chain_id: 97,
 		};
 		let sync_committee_consensus_state = ismp_sync_committee::types::ConsensusState {
@@ -657,6 +658,7 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 		finalized_height: 0,
 		finalized_hash: Default::default(),
 		current_epoch: 0,
+		ismp_contract_address: bsc_host,
 		chain_id: 97,
 	};
 	let sync_committee_consensus_state = ismp_sync_committee::types::ConsensusState {

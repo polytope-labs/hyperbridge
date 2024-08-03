@@ -84,7 +84,7 @@ contract TokenRegistrarTest is MainnetForkBaseTest {
                     source: new bytes(0),
                     dest: new bytes(0),
                     nonce: 0,
-                    from: address(0),
+                    from: new bytes(0),
                     to: new bytes(0),
                     timeoutTimestamp: 0,
                     body: body
@@ -99,7 +99,7 @@ contract TokenRegistrarTest is MainnetForkBaseTest {
                     source: host.hyperbridge(),
                     dest: new bytes(0),
                     nonce: 0,
-                    from: address(0),
+                    from: new bytes(0),
                     to: new bytes(0),
                     timeoutTimestamp: 0,
                     body: body

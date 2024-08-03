@@ -21,7 +21,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use sp_core::H256;
+use sp_core::{H160, H256};
 use sync_committee_primitives::constants::BlsPublicKey;
 
 pub const BSC_CONSENSUS_ID: ConsensusStateId = *b"BSCP";
@@ -36,6 +36,7 @@ pub struct ConsensusState {
 	pub finalized_height: u64,
 	pub finalized_hash: H256,
 	pub current_epoch: u64,
+	pub ismp_contract_address: H160,
 	pub chain_id: u32,
 }
 

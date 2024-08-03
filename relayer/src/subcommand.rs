@@ -21,7 +21,7 @@ pub enum Subcommand {
 	subcommand_negates_reqs = true
 )]
 pub struct SetConsensusState {
-    /// State Machine whose consensus state should be generated
+	/// State Machine whose consensus state should be generated
 	state_machine: String,
 }
 
@@ -57,7 +57,7 @@ impl SetConsensusState {
 	}
 
 	pub async fn log_consensus_state(&self, config_path: String) -> Result<(), anyhow::Error> {
-        // using env_logger because tracing subscriber does not allow the output to be piped
+		// using env_logger because tracing subscriber does not allow the output to be piped
 		env_logger::init();
 		let state_machine = StateMachine::from_str(&self.state_machine)
 			.map_err(|_| anyhow!("Failed to deserialize state machine"))?;

@@ -18,11 +18,10 @@ pub use bsc_verifier::{
 	primitives::{compute_epoch, BscClientUpdate},
 	verify_bsc_header,
 };
-use ethers::providers::{Http, Provider};
+use ethers::providers::{Http, Middleware, Provider};
 pub use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, messaging::Keccak256};
 pub use ismp_bsc::ConsensusState;
-use primitive_types::H160;
 
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
@@ -97,10 +96,7 @@ impl BscPosHost {
 		})
 	}
 
-	pub async fn get_consensus_state<I: Keccak256>(
-		&self,
-		ismp_contract_address: H160,
-	) -> Result<ConsensusState, anyhow::Error> {
+	pub async fn get_consensus_state<I: Keccak256>(&self) -> Result<ConsensusState, anyhow::Error> {
 		let (header, current_validators) =
 			self.prover.fetch_finalized_state::<KeccakHasher>().await?;
 		let latest_header = self.prover.latest_header().await?;
@@ -112,13 +108,15 @@ impl BscPosHost {
 			))
 			.await;
 		}
+
+		let chain_id = self.prover.client.get_chainid().await?;
 		let consensus_state = ConsensusState {
 			current_validators,
 			next_validators: None,
 			finalized_hash: Header::from(&header).hash::<KeccakHasher>(),
 			finalized_height: header.number.as_u64(),
-			ismp_contract_address,
 			current_epoch: compute_epoch(header.number.low_u64()),
+			chain_id: chain_id.low_u32(),
 		};
 
 		Ok(consensus_state)

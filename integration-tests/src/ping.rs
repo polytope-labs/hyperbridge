@@ -17,11 +17,7 @@ use ethers::{
 };
 use futures::TryStreamExt;
 use hex_literal::hex;
-use ismp::{
-	events::Event,
-	host::{ethereum, StateMachine},
-	router::Request,
-};
+use ismp::{events::Event, host::StateMachine, router::Request};
 use ismp_solidity_abi::evm_host::EvmHost;
 use primitive_types::{H160, U256};
 use sp_core::Pair;
@@ -48,11 +44,11 @@ async fn test_ping() -> anyhow::Result<()> {
 	let ping_addr = H160(hex!("76Af4528383200CD7456E3Db967Bec309FAc583a"));
 
 	let chains = vec![
-		(StateMachine::Ethereum(ethereum::EXECUTION_LAYER), _geth_url, 6328728),
-		(StateMachine::Ethereum(ethereum::ARBITRUM), _arb_url, 64565289),
-		(StateMachine::Ethereum(ethereum::OPTIMISM), _op_url, 14717202),
-		(StateMachine::Ethereum(ethereum::BASE), _base_url, 10218678),
-		(StateMachine::Bsc, _bsc_url, 42173080),
+		(StateMachine::Evm(11155111), _geth_url, 6328728),
+		(StateMachine::Evm(421614), _arb_url, 64565289),
+		(StateMachine::Evm(11155420), _op_url, 14717202),
+		(StateMachine::Evm(84532), _base_url, 10218678),
+		(StateMachine::Evm(97), _bsc_url, 42173080),
 	];
 
 	let stream = futures::stream::iter(chains.clone().into_iter().map(Ok::<_, anyhow::Error>));

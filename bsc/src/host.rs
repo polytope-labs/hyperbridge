@@ -384,8 +384,7 @@ impl IsmpHost for BscPosHost {
 	}
 
 	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
-		let initial_consensus_state =
-			self.get_consensus_state::<KeccakHasher>(self.evm.ismp_host).await?;
+		let initial_consensus_state = self.get_consensus_state::<KeccakHasher>().await?;
 		Ok(Some(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),
 			consensus_client_id: ismp_bsc::BSC_CONSENSUS_ID,

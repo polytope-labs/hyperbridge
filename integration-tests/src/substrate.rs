@@ -4,7 +4,7 @@ use divide_range::RangeDivisions;
 use ethers::abi::AbiDecode;
 use hex_literal::hex;
 use ismp::{
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::{hash_request, Keccak256},
 	router::{PostRequest, Request},
 };
@@ -199,8 +199,8 @@ async fn extract_mmr_leaves() {
 			evm_hashes
 				.into_iter()
 				.map(|hash| Query {
-					source_chain: StateMachine::Bsc,
-					dest_chain: StateMachine::Ethereum(ethereum::OPTIMISM),
+					source_chain: StateMachine::Evm(97),
+					dest_chain: StateMachine::Evm(11155420),
 					commitment: hash,
 					nonce: 0,
 				})

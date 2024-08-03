@@ -20,7 +20,6 @@ use anyhow::{anyhow, Error};
 use futures::{StreamExt, TryFutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
-	host::{ethereum, StateMachine},
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
 use ismp_sync_committee::{types::ConsensusState, BEACON_CONSENSUS_ID};
@@ -212,7 +211,6 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 	}
 
 	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
-		let mut ismp_contract_addresses = BTreeMap::new();
 		let mut l2_oracle = BTreeMap::new();
 		let mut dispute_factory_address = BTreeMap::new();
 		let mut rollup_core_address = BTreeMap::new();
@@ -221,7 +219,6 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 		for (state_machine, l2_host) in self.l2_clients.clone() {
 			match l2_host {
 				L2Host::ArbitrumOrbit(host) => {
-					ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
 					rollup_core_address.insert(host.evm.state_machine, host.host.rollup_core);
 					let number = host.arb_execution_client.get_block_number().await?;
 					let block =
@@ -247,7 +244,6 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 					));
 				},
 				L2Host::OpStack(host) => {
-					ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
 					if let Some(dispute_factory) = host.host.dispute_game_factory {
 						dispute_factory_address.insert(host.evm.state_machine, dispute_factory);
 					}
@@ -282,9 +278,7 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 			}
 		}
 
-		ismp_contract_addresses.insert(self.state_machine, self.evm.ismp_host);
 		let params = GetConsensusStateParams {
-			ismp_contract_addresses,
 			l2_oracle_address: l2_oracle,
 			rollup_core_address,
 			dispute_factory_address,
@@ -298,7 +292,7 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 		})?;
 		state_machine_commitments.push((
 			StateMachineId {
-				state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+				state_id: self.state_machine,
 				consensus_state_id: self.consensus_state_id.clone(),
 			},
 			StateCommitmentHeight {

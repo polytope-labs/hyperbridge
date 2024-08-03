@@ -723,7 +723,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // otherwise cannot process new datagrams
         if (stateMachinesLen == 0) revert InvalidStateMachinesLength();
         // otherwise cannot process new datagrams
-        if (86400 > params.unStakingPeriod) revert InvalidUnstakingPeriod();
+        if (1 days > params.unStakingPeriod) revert InvalidUnstakingPeriod();
 
         // maximum of 100 fishermen
         if (newFishermenLength > 100) revert MaxFishermanCountExceeded();
@@ -951,14 +951,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param response - get response
      */
     function dispatchIncoming(GetResponse memory response, address relayer) external restrict(_hostParams.handler) {
-        address origin = _bytesToAddress(response.request.from);
-
         // replay protection
         bytes32 commitment = response.request.hash();
         // don't commit the full response object, it's unused.
         _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
 
-        (bool success, ) = address(origin).call(
+        (bool success, ) = address(response.request.from).call(
             abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, IncomingGetResponse(response, relayer))
         );
 
@@ -981,11 +979,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory meta,
         bytes32 commitment
     ) external restrict(_hostParams.handler) {
-        address origin = _bytesToAddress(request.from);
-
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success, ) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
+        (bool success, ) = address(request.from).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -1020,6 +1016,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         if (meta.fee != 0) {
+            // refund relayer fee
             SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
         emit PostRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
@@ -1160,7 +1157,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             source: host(),
             dest: get.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(_msgSender()),
+            from: _msgSender(),
             timeoutTimestamp: timeoutTimestamp,
             keys: get.keys,
             height: get.height
@@ -1172,7 +1169,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         emit GetRequestEvent({
             source: string(request.source),
             dest: string(request.dest),
-            from: _msgSender(),
+            from: request.from,
             keys: request.keys,
             nonce: request.nonce,
             height: request.height,

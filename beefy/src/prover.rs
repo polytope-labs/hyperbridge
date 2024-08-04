@@ -500,7 +500,8 @@ where
 				if matches!(
 					event.event,
 					Event::PostRequest(_) |
-						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
+						Event::PostResponse(_) |
+						Event::PostRequestTimeoutHandled(_) |
 						Event::PostResponseTimeoutHandled(_)
 				) {
 					return Some(event);

@@ -169,7 +169,8 @@ impl IsmpHost for BscPosHost {
 										update.clone(),
 									);
 									if update.source_header.number.low_u64() <=
-										consensus_state.finalized_height || res.is_err()
+										consensus_state.finalized_height ||
+										res.is_err()
 									{
 										block += 1;
 										continue;

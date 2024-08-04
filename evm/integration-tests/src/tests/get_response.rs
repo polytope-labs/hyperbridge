@@ -57,15 +57,7 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
 	}
 	.encode();
 
-	let mut sol_get = GetRequest {
-		source: get.source.to_string().as_bytes().to_vec().into(),
-		dest: get.dest.to_string().as_bytes().to_vec().into(),
-		nonce: get.nonce,
-		keys: get.keys.into_iter().map(Into::into).collect(),
-		from: get.from.into(),
-		timeout_timestamp: get.timeout_timestamp,
-		height: get.height,
-	};
+	let mut sol_get: GetRequest = get.into();
 
 	let message = GetResponseMessage {
 		proof: proof.into_iter().map(Into::into).collect(),

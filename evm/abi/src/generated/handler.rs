@@ -69,7 +69,7 @@ pub mod handler {
                                                             ::ethers::core::abi::ethabi::ParamType::Bytes,
                                                             ::ethers::core::abi::ethabi::ParamType::Bytes,
                                                             ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                            ::ethers::core::abi::ethabi::ParamType::Address,
                                                             ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                                             ::ethers::core::abi::ethabi::ParamType::Array(
                                                                 ::std::boxed::Box::new(
@@ -129,7 +129,7 @@ pub mod handler {
                                                             ::ethers::core::abi::ethabi::ParamType::Bytes,
                                                             ::ethers::core::abi::ethabi::ParamType::Bytes,
                                                             ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                            ::ethers::core::abi::ethabi::ParamType::Address,
                                                             ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                                             ::ethers::core::abi::ethabi::ParamType::Array(
                                                                 ::std::boxed::Box::new(
@@ -608,24 +608,24 @@ pub mod handler {
 				.method_hash([187, 22, 137, 190], (host, proof))
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `handleGetRequestTimeouts` (0x8fcfc947) function
+		///Calls the contract's `handleGetRequestTimeouts` (0xee241c0d) function
 		pub fn handle_get_request_timeouts(
 			&self,
 			host: ::ethers::core::types::Address,
 			message: GetTimeoutMessage,
 		) -> ::ethers::contract::builders::ContractCall<M, ()> {
 			self.0
-				.method_hash([143, 207, 201, 71], (host, message))
+				.method_hash([238, 36, 28, 13], (host, message))
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `handleGetResponses` (0x4e2def1e) function
+		///Calls the contract's `handleGetResponses` (0x2e8f454b) function
 		pub fn handle_get_responses(
 			&self,
 			host: ::ethers::core::types::Address,
 			message: GetResponseMessage,
 		) -> ::ethers::contract::builders::ContractCall<M, ()> {
 			self.0
-				.method_hash([78, 45, 239, 30], (host, message))
+				.method_hash([46, 143, 69, 75], (host, message))
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `handlePostRequestTimeouts` (0x089b174c) function
@@ -1035,8 +1035,8 @@ pub mod handler {
 		pub proof: ::ethers::core::types::Bytes,
 	}
 	///Container type for all input parameters for the `handleGetRequestTimeouts` function with
-	/// signature `handleGetRequestTimeouts(address,((bytes,bytes,uint64,bytes,uint64,bytes[],
-	/// uint64)[]))` and selector `0x8fcfc947`
+	/// signature `handleGetRequestTimeouts(address,((bytes,bytes,uint64,address,uint64,bytes[],
+	/// uint64)[]))` and selector `0xee241c0d`
 	#[derive(
 		Clone,
 		::ethers::contract::EthCall,
@@ -1049,15 +1049,15 @@ pub mod handler {
 	)]
 	#[ethcall(
 		name = "handleGetRequestTimeouts",
-		abi = "handleGetRequestTimeouts(address,((bytes,bytes,uint64,bytes,uint64,bytes[],uint64)[]))"
+		abi = "handleGetRequestTimeouts(address,((bytes,bytes,uint64,address,uint64,bytes[],uint64)[]))"
 	)]
 	pub struct HandleGetRequestTimeoutsCall {
 		pub host: ::ethers::core::types::Address,
 		pub message: GetTimeoutMessage,
 	}
 	///Container type for all input parameters for the `handleGetResponses` function with signature
-	/// `handleGetResponses(address,(bytes[],(uint256,uint256),(bytes,bytes,uint64,bytes,uint64,
-	/// bytes[],uint64)[]))` and selector `0x4e2def1e`
+	/// `handleGetResponses(address,(bytes[],(uint256,uint256),(bytes,bytes,uint64,address,uint64,
+	/// bytes[],uint64)[]))` and selector `0x2e8f454b`
 	#[derive(
 		Clone,
 		::ethers::contract::EthCall,
@@ -1070,7 +1070,7 @@ pub mod handler {
 	)]
 	#[ethcall(
 		name = "handleGetResponses",
-		abi = "handleGetResponses(address,(bytes[],(uint256,uint256),(bytes,bytes,uint64,bytes,uint64,bytes[],uint64)[]))"
+		abi = "handleGetResponses(address,(bytes[],(uint256,uint256),(bytes,bytes,uint64,address,uint64,bytes[],uint64)[]))"
 	)]
 	pub struct HandleGetResponsesCall {
 		pub host: ::ethers::core::types::Address,
@@ -1324,7 +1324,7 @@ pub mod handler {
 		Hash,
 	)]
 	pub struct SupportsInterfaceReturn(pub bool);
-	///`GetResponseMessage(bytes[],(uint256,uint256),(bytes,bytes,uint64,bytes,uint64,bytes[],
+	///`GetResponseMessage(bytes[],(uint256,uint256),(bytes,bytes,uint64,address,uint64,bytes[],
 	/// uint64)[])`
 	#[derive(
 		Clone,
@@ -1341,7 +1341,7 @@ pub mod handler {
 		pub height: StateMachineHeight,
 		pub requests: ::std::vec::Vec<GetRequest>,
 	}
-	///`GetTimeoutMessage((bytes,bytes,uint64,bytes,uint64,bytes[],uint64)[])`
+	///`GetTimeoutMessage((bytes,bytes,uint64,address,uint64,bytes[],uint64)[])`
 	#[derive(
 		Clone,
 		::ethers::contract::EthAbiType,

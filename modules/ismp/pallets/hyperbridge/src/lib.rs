@@ -181,7 +181,12 @@ where
 		let fees = match request {
 			DispatchRequest::Post(ref post) => {
 				let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
-				let fees = per_byte_fee.into() * post.body.len() as u128;
+				// minimum fee is 32 bytes
+				let fees = if post.body.len() < 32 {
+					per_byte_fee.into() * 32 as u128
+				} else {
+					per_byte_fee.into() * post.body.len() as u128
+				};
 
 				// collect protocol fees
 				if fees != 0 {
@@ -217,7 +222,12 @@ where
 	) -> Result<H256, ismp::Error> {
 		// collect protocol fees
 		let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
-		let fees = per_byte_fee.into() * response.response.len() as u128;
+		// minimum fee is 32 bytes
+		let fees = if response.response.len() < 32 {
+			per_byte_fee.into() * 32 as u128
+		} else {
+			per_byte_fee.into() * response.response.len() as u128
+		};
 
 		if fees != 0 {
 			T::Currency::transfer(

@@ -2,7 +2,7 @@
 
 import { SupportedAssets } from "./types/enums";
 
-export const HYPERBRIDGE = "HYPERBRIDGE";
+export const HYPERBRIDGE = "KUSAMA-4009";
 
 export interface ITokenPriceFeedDetails {
   name: SupportedAssets;

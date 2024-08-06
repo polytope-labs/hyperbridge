@@ -33,10 +33,10 @@ export const SUPPORTED_STATE_MACHINES: { [key: string]: IStateMachineDetails } =
       chainId: "421614",
       startBlock: 20034995,
       isEvm: true,
-      isEvmL2: false,
+      isEvmL2: true,
       ethereumHostAddress: "0x15Ba7e42BC2c3e8FeDEb30D13CEE611D97315E7F",
     }, // Arbitrum Sepolia
-    BSC: {
+    "EVM-97": {
       chainId: "97",
       startBlock: 38301829,
       isEvm: true,

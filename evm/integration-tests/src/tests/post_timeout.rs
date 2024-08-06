@@ -38,8 +38,8 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
 		timeout_timestamp: 10_000,
 		body: storage_prefix.clone(),
 	};
-	let commitment = hash_request::<Keccak256>(&Request::Post(post.clone()));
 
+	let commitment = hash_request::<Keccak256>(&Request::Post(post.clone()));
 	let mut key = storage_prefix.clone();
 	key.extend_from_slice(commitment.as_ref());
 

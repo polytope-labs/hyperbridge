@@ -439,7 +439,16 @@ impl Response {
 	pub fn encode(&self) -> Vec<u8> {
 		match self {
 			Response::Post(res) => res.encode(),
-			Response::Get(res) => Request::Get(res.get.clone()).encode(),
+			Response::Get(res) => {
+				let request = Request::Get(res.get.clone()).encode();
+				let values = res.values.iter().fold(vec![], |mut acc, (key, value)| {
+					let item =
+						vec![key.clone(), value.as_ref().cloned().unwrap_or_default()].concat();
+					acc.extend_from_slice(&item);
+					acc
+				});
+				vec![request, values].concat()
+			},
 		}
 	}
 }

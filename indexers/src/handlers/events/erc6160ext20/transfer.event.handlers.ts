@@ -1,11 +1,10 @@
 import assert from "assert";
-import { HOST_ADDRESSES } from "../../../constants";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RelayerService } from "../../../services/relayer.service";
 import { TransferService } from "../../../services/transfer.service";
-import { SupportedChain } from "../../../types";
 import { TransferLog } from "../../../types/abi-interfaces/ERC6160Ext20Abi";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
+import { GET_HOST_ADDRESSES } from "../../../addresses/state-machine.addresses";
 
 /**
  * Handles the Transfer event from the Fee Token contract
@@ -14,12 +13,17 @@ export async function handleTransferEvent(event: TransferLog): Promise<void> {
   assert(event.args, "No handleTransferEvent args");
   const { args, transactionHash, transaction, blockNumber } = event;
   const { from, to, value } = args;
+  const HOST_ADDRESSES = GET_HOST_ADDRESSES();
 
   logger.info(
-    `Handling Transfer event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling Transfer event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   // Only store transfers from/to the Hyperbridge host contracts
   if (HOST_ADDRESSES.includes(from) || HOST_ADDRESSES.includes(to)) {
@@ -36,7 +40,7 @@ export async function handleTransferEvent(event: TransferLog): Promise<void> {
         await RelayerService.updateFeesEarned(transfer),
         await HyperBridgeService.handleTransferOutOfHostAccounts(
           transfer,
-          chain,
+          chain
         ),
       ]);
     }

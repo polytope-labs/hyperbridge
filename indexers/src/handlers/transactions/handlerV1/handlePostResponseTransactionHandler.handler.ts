@@ -1,31 +1,34 @@
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RelayerService } from "../../../services/relayer.service";
 import { HandlePostRequestsTransaction } from "../../../types/abi-interfaces/HandlerV1Abi";
-import { SupportedChain } from "../../../types/enums";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the handlePostResponse transaction from handlerV1 contract
  */
 export async function handlePostResponseTransactionHandler(
-  transaction: HandlePostRequestsTransaction,
+  transaction: HandlePostRequestsTransaction
 ): Promise<void> {
   const { blockNumber, hash } = transaction;
 
   logger.info(
-    `Handling PostRequests Transaction: ${JSON.stringify({ blockNumber, transactionHash: hash })}`,
+    `Handling PostRequests Transaction: ${JSON.stringify({
+      blockNumber,
+      transactionHash: hash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   Promise.all([
     await RelayerService.handlePostRequestOrResponseTransaction(
       chain,
-      transaction,
+      transaction
     ),
     await HyperBridgeService.handlePostRequestOrResponseTransaction(
       chain,
-      transaction,
+      transaction
     ),
   ]);
 }

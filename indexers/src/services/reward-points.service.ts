@@ -3,13 +3,12 @@ import {
   RewardPoints,
   RewardPointsActivityLog,
   RewardPointsActivityType,
-  SupportedChain,
 } from "../types";
 import { TokenGatewayService } from "./tokenGateway.service";
 
 export interface IAssignRewardPointsForFulfilledRequestInput {
   address: string;
-  chain: SupportedChain;
+  chain: string;
   amount: bigint;
   earnerType: ProtocolParticipant;
   asset_id: string;
@@ -19,7 +18,7 @@ export interface IAssignRewardPointsForFulfilledRequestInput {
 
 export interface IAssignRewardPointsToRelayerInput {
   relayer_address: string;
-  chain: SupportedChain;
+  chain: string;
   is_success: boolean;
   earnerType: ProtocolParticipant;
   transaction_hash: string;
@@ -27,7 +26,7 @@ export interface IAssignRewardPointsToRelayerInput {
 
 export interface IAssignRewardPointsForAssetTransferInput {
   address: string;
-  chain: SupportedChain;
+  chain: string;
   amount: bigint;
   earnerType: ProtocolParticipant;
   asset_id: string;
@@ -44,7 +43,7 @@ export class RewardPointsService {
    * @param data
    */
   static async assignRewardForFulfilledRequest(
-    data: IAssignRewardPointsForFulfilledRequestInput,
+    data: IAssignRewardPointsForFulfilledRequestInput
   ) {
     const {
       address,
@@ -60,11 +59,11 @@ export class RewardPointsService {
       chain,
       contract_address,
       asset_id,
-      amount,
+      amount
     );
 
     let rewardPointRecord = await RewardPoints.get(
-      `${address}-${chain}-${earnerType}`,
+      `${address}-${chain}-${earnerType}`
     );
 
     if (typeof rewardPointRecord === "undefined") {
@@ -102,7 +101,7 @@ export class RewardPointsService {
       data;
 
     let rewardPointRecord = await RewardPoints.get(
-      `${relayer_address}-${chain}-${earnerType}`,
+      `${relayer_address}-${chain}-${earnerType}`
     );
 
     const points = is_success
@@ -144,7 +143,7 @@ export class RewardPointsService {
    * @param data
    */
   static async assignRewardForAssetTransfer(
-    data: IAssignRewardPointsForAssetTransferInput,
+    data: IAssignRewardPointsForAssetTransferInput
   ) {
     const {
       address,
@@ -160,11 +159,11 @@ export class RewardPointsService {
       chain,
       contract_address,
       asset_id,
-      amount,
+      amount
     );
 
     let rewardPointRecord = await RewardPoints.get(
-      `${address}-${chain}-${earnerType}`,
+      `${address}-${chain}-${earnerType}`
     );
 
     if (typeof rewardPointRecord === "undefined") {

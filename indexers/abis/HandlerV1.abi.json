@@ -37,7 +37,7 @@
               { "internalType": "bytes", "name": "source", "type": "bytes" },
               { "internalType": "bytes", "name": "dest", "type": "bytes" },
               { "internalType": "uint64", "name": "nonce", "type": "uint64" },
-              { "internalType": "bytes", "name": "from", "type": "bytes" },
+              { "internalType": "address", "name": "from", "type": "address" },
               {
                 "internalType": "uint64",
                 "name": "timeoutTimestamp",
@@ -89,7 +89,7 @@
               { "internalType": "bytes", "name": "source", "type": "bytes" },
               { "internalType": "bytes", "name": "dest", "type": "bytes" },
               { "internalType": "uint64", "name": "nonce", "type": "uint64" },
-              { "internalType": "bytes", "name": "from", "type": "bytes" },
+              { "internalType": "address", "name": "from", "type": "address" },
               {
                 "internalType": "uint64",
                 "name": "timeoutTimestamp",
@@ -447,6 +447,15 @@
     "name": "handlePostResponses",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "bytes4", "name": "interfaceId", "type": "bytes4" }
+    ],
+    "name": "supportsInterface",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "stateMutability": "view",
     "type": "function"
   }
 ]

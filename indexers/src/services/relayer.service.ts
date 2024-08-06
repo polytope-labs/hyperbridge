@@ -1,14 +1,13 @@
-import { EthereumResult, EthereumTransaction } from "@subql/types-ethereum";
-import { ProtocolParticipant, SupportedChain } from "../types/enums";
+import { ProtocolParticipant } from "../types/enums";
 import { Relayer, Transfer } from "../types/models";
 import { RelayerChainStatsService } from "./relayerChainStats.service";
-import { getNativeCurrencyPrice } from "../utils/price.helpers";
 import {
   HandlePostRequestsTransaction,
   HandlePostResponsesTransaction,
 } from "../types/abi-interfaces/HandlerV1Abi";
-import { ETHEREUM_L2_SUPPORTED_CHAINS } from "../constants";
 import { RewardPointsService } from "./reward-points.service";
+import PriceHelper from "../utils/price.helpers";
+import { GET_ETHEREUM_L2_STATE_MACHINES } from "../addresses/state-machine.addresses";
 
 export class RelayerService {
   /**
@@ -16,7 +15,7 @@ export class RelayerService {
    */
   static async findOrCreate(
     relayer_id: string,
-    chain: SupportedChain,
+    chain: string
   ): Promise<Relayer> {
     let relayer = await Relayer.get(relayer_id);
 
@@ -40,7 +39,7 @@ export class RelayerService {
     if (relayer) {
       let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
         relayer.id,
-        transfer.chain,
+        transfer.chain
       );
 
       relayer_chain_stats.feesEarned += transfer.amount;
@@ -53,22 +52,25 @@ export class RelayerService {
    * Computes relayer specific stats from the handlePostRequest/handlePostResponse transactions on the handlerV1 contract
    */
   static async handlePostRequestOrResponseTransaction(
-    chain: SupportedChain,
-    transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
+    chain: string,
+    transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction
   ): Promise<void> {
     const { from: relayer_id, hash: transaction_hash } = transaction;
     const receipt = await transaction.receipt();
     const { status, gasUsed, effectiveGasPrice } = receipt;
 
-    const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
+    const nativeCurrencyPrice = await PriceHelper.getNativeCurrencyPrice(chain);
 
     let gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
 
     // Add the L1 Gas Used for L2 chains
-    if (ETHEREUM_L2_SUPPORTED_CHAINS.includes(chain)) {
+    if (GET_ETHEREUM_L2_STATE_MACHINES().includes(chain)) {
       if (!(receipt as any).l1Fee) {
         logger.error(
-          `Could not find l1Fee in transaction receipt: ${JSON.stringify({ chain, transactionHash: transaction.hash })}`,
+          `Could not find l1Fee in transaction receipt: ${JSON.stringify({
+            chain,
+            transactionHash: transaction.hash,
+          })}`
         );
       }
       const l1Fee = BigInt((receipt as any).l1Fee ?? 0);
@@ -81,7 +83,7 @@ export class RelayerService {
     const relayer = await RelayerService.findOrCreate(relayer_id, chain);
     let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
       relayer_id,
-      chain,
+      chain
     );
 
     if (status === true) {

@@ -1,12 +1,12 @@
 import { SubstrateEvent } from "@subql/types";
 import { RequestService } from "../../../services/request.service";
-import { Status, SupportedChain } from "../../../types";
+import { Status } from "../../../types";
+import { HYPERBRIDGE } from "../../../constants";
 
 export async function handleHyperbridgeRequestEvent(
-  event: SubstrateEvent,
+  event: SubstrateEvent
 ): Promise<void> {
   logger.info(`Handling ISMP Request Event`);
-
 
   const {
     event: {
@@ -23,12 +23,12 @@ export async function handleHyperbridgeRequestEvent(
 
   let transactionHash = "";
   if (extrinsic) {
-    transactionHash = extrinsic.extrinsic.hash.toString()
-  } 
+    transactionHash = extrinsic.extrinsic.hash.toString();
+  }
 
   await RequestService.updateStatus({
     commitment: commitment.toString(),
-    chain: SupportedChain.HYPERBRIDGE,
+    chain: HYPERBRIDGE,
     blockNumber: blockNumber.toString(),
     blockHash: blockHash.toString(),
     blockTimestamp: BigInt(Date.parse(timestamp.toString())),

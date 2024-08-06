@@ -1,9 +1,9 @@
-import { Status, SupportedChain } from "../types/enums";
+import { Status } from "../types/enums";
 import { solidityKeccak256 } from "ethers/lib/utils";
 import { Request, RequestStatusMetadata } from "../types/models";
 
 export interface ICreateRequestArgs {
-  chain: SupportedChain;
+  chain: string;
   commitment: string;
   body?: string | undefined;
   dest?: string | undefined;
@@ -27,7 +27,7 @@ export interface IUpdateRequestStatusArgs {
   blockHash: string;
   transactionHash: string;
   blockTimestamp: bigint;
-  chain: SupportedChain;
+  chain: string;
 }
 
 const REQUEST_STATUS_WEIGHTS = {

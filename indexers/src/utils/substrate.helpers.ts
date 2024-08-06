@@ -1,10 +1,8 @@
-import { SupportedChain } from "../types";
-
 /**
  * Get the StateMachineID parsing the stringified object which substrate provides
  */
 export const extractStateMachineIdFromSubstrateEventData = (
-  substrateStateMachineId: string,
+  substrateStateMachineId: string
 ): string | undefined => {
   try {
     const stateMachineId = JSON.parse(substrateStateMachineId);
@@ -23,22 +21,22 @@ export const extractStateMachineIdFromSubstrateEventData = (
         case "ETHEREUM":
           switch (value.toUpperCase()) {
             case "EXECUTIONLAYER":
-              return SupportedChain.ETHE;
+              return "EVM-11155111";
             case "OPTIMISM":
-              return SupportedChain.OPTI;
+              return "EVM-11155420";
             case "ARBITRUM":
-              return SupportedChain.ARBI;
+              return "EVM-421614";
             case "BASE":
-              return SupportedChain.BASE;
+              return "EVM-84532";
             default:
               throw new Error(
-                `Unknown state machine ID ${value} encountered in extractStateMachineIdFromSubstrateEventData`,
+                `Unknown state machine ID ${value} encountered in extractStateMachineIdFromSubstrateEventData`
               );
           }
         case "BSC":
-          return SupportedChain.BSC;
+          return "BSC";
         case "POLYGON":
-          return SupportedChain.POLY;
+          return "POLY";
         case "POLKADOT":
           return "POLKADOT-".concat(value);
         case "KUSAMA":
@@ -49,12 +47,12 @@ export const extractStateMachineIdFromSubstrateEventData = (
           return "GRANDPA-".concat(value);
         default:
           throw new Error(
-            `Unknown state machine ID ${main_key} encountered in extractStateMachineIdFromSubstrateEventData`,
+            `Unknown state machine ID ${main_key} encountered in extractStateMachineIdFromSubstrateEventData`
           );
       }
     } else {
       throw new Error(
-        `StateId not present in stateMachineId: ${substrateStateMachineId}`,
+        `StateId not present in stateMachineId: ${substrateStateMachineId}`
       );
     }
   } catch (error) {

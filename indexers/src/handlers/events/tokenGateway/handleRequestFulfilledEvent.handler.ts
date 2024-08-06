@@ -1,16 +1,16 @@
 import assert from "assert";
-import { ProtocolParticipant, SupportedChain } from "../../../types";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
+import { ProtocolParticipant } from "../../../types";
 import { RequestFulfilledLog } from "../../../types/abi-interfaces/TokenGatewayAbi";
 import { BidService } from "../../../services/bid.service";
 import { RewardPointsService } from "../../../services/reward-points.service";
 import { TokenGatewayService } from "../../../services/tokenGateway.service";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the RequestFulfilled event
  */
 export async function handleRequestFulfilledEvent(
-  event: RequestFulfilledLog,
+  event: RequestFulfilledLog
 ): Promise<void> {
   assert(event.args, "No handleRequestFulfilledEvent args");
 
@@ -24,10 +24,14 @@ export async function handleRequestFulfilledEvent(
   const { assetId, amount, bidder } = args;
 
   logger.info(
-    `Handling RequestFulfilled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling RequestFulfilled Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   await BidService.createFulfilledRequest({
     id: transactionHash,
@@ -39,7 +43,7 @@ export async function handleRequestFulfilledEvent(
 
   const assetDetails = await TokenGatewayService.getAssetDetails(
     contract_address,
-    assetId,
+    assetId
   );
 
   // If asset is an ERC20 token, assign reward points to the filler

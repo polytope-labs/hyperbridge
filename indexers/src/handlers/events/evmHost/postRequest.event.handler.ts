@@ -1,9 +1,9 @@
 import assert from "assert";
-import { Status, SupportedChain } from "../../../types";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
-import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RequestService } from "../../../services/request.service";
+import { Status } from "../../../types";
+import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the PostRequest event from Evm Hosts
@@ -23,7 +23,8 @@ export async function handlePostRequestEvent(
     })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event);
 

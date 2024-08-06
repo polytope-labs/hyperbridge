@@ -1,6 +1,5 @@
 import { BigNumber } from "ethers";
 import { Transfer } from "../types/models";
-import { SupportedChain } from "../types";
 
 // Argument for storing transfer events
 export interface IStoreTranferArgs {
@@ -8,7 +7,7 @@ export interface IStoreTranferArgs {
   to: string;
   value: BigNumber;
   transactionHash: string;
-  chain: SupportedChain;
+  chain: string;
 }
 
 export class TransferService {

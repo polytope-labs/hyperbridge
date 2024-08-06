@@ -3,19 +3,6 @@
 # https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
 
 """
-The blockchains currently indexed by the hyberbridge multi-chain indexer
-"""
-enum SupportedChain {
-  ETHE
-  ARBI
-  OPTI
-  BASE
-  BSC
-  POLY
-  HYPERBRIDGE
-}
-
-"""
 Assets currently supported by hyperbridge
 """
 enum SupportedAssets {
@@ -128,7 +115,7 @@ type RelayerStatsPerChain @entity {
   """
   The chain the metrics are for
   """
-  chain: SupportedChain!
+  chain: String!
 
   """
   Total number of successful post requests or post responses handled by the Relayer
@@ -205,7 +192,7 @@ type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
   """
   The chain on which the transfer was made
   """
-  chain: SupportedChain!
+  chain: String!
 
   """
   The amount transferred
@@ -232,7 +219,7 @@ type Event @entity {
   """
   id: ID!
   type: EventType!
-  chain: SupportedChain!
+  chain: String!
   blockHash: String!
   blockNumber: BigInt!
   transactionHash: String!
@@ -252,7 +239,7 @@ type StateMachineUpdateEvent @entity {
   id: ID!
   stateMachineId: String!
   height: Int!
-  chain: SupportedChain!
+  chain: String!
   blockHash: String!
   blockNumber: BigInt!
   transactionHash: String!
@@ -272,7 +259,7 @@ type Request @entity {
   """
   The chain on which the request was made
   """
-  chain: SupportedChain!
+  chain: String!
 
   """
   This is the statemachine id where this request originated from
@@ -331,7 +318,7 @@ Metadata about the status of a Request
 type RequestStatusMetadata @entity {
   id: ID!
   status: Status!
-  chain: SupportedChain!
+  chain: String!
   timestamp: BigInt!
   blockNumber: String!
   blockHash: String!
@@ -351,7 +338,7 @@ type Response @entity {
   """
   The chain on which the response was made
   """
-  chain: SupportedChain!
+  chain: String!
 
   """
   The response message
@@ -385,7 +372,7 @@ Metadata about the status of a Response
 type ResponseStatusMetadata @entity {
   id: ID!
   status: Status!
-  chain: SupportedChain!
+  chain: String!
   timestamp: BigInt!
   blockNumber: String!
   blockHash: String!
@@ -402,7 +389,7 @@ type Bid @entity {
   bid: BigInt!
   bidder: String!
   commitment: String!
-  chain: SupportedChain!
+  chain: String!
 }
 
 """
@@ -413,7 +400,7 @@ type BidRefund @entity {
   assetId: String!
   bidder: String!
   commitment: String!
-  chain: SupportedChain!
+  chain: String!
 }
 
 """
@@ -424,7 +411,7 @@ type FulfilledRequest @entity {
   assetId: String!
   bidder: String!
   amount: BigInt!
-  chain: SupportedChain!
+  chain: String!
 }
 
 """
@@ -435,7 +422,7 @@ type AssetReceived @entity {
   amount: BigInt!
   assetId: String!
   beneficiary: String!
-  chain: SupportedChain!
+  chain: String!
   commitment: String!
   from: String!
 }
@@ -447,7 +434,7 @@ type AssetTeleported @entity {
   id: ID!
   amount: BigInt!
   assetId: String!
-  chain: SupportedChain!
+  chain: String!
   commitment: String!
   from: String!
   to: String!
@@ -460,14 +447,14 @@ Reward points earned by participants in the hyperbridge protocol
 type RewardPoints @entity {
   id: ID!
   address: String!
-  chain: SupportedChain!
+  chain: String!
   points: BigInt!
   earnerType: ProtocolParticipant!
 }
 
 type RewardPointsActivityLog @entity {
   id: ID!
-  chain: SupportedChain!
+  chain: String!
   points: BigInt!
   transactionHash: String!
   earnerAddress: String!

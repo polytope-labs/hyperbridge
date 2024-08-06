@@ -1,8 +1,8 @@
 import { SubstrateEvent } from "@subql/types";
 import { StateMachineService } from "../../../services/stateMachine.service";
-import { SupportedChain } from "../../../types";
 import assert from "assert";
 import { extractStateMachineIdFromSubstrateEventData } from "../../../utils/substrate.helpers";
+import { HYPERBRIDGE } from "../../../constants";
 
 export async function handleIsmpStateMachineUpdatedEvent(
   event: SubstrateEvent
@@ -42,7 +42,7 @@ export async function handleIsmpStateMachineUpdatedEvent(
         stateMachineId,
         height: Number(latest_height.toString()),
       },
-      SupportedChain.HYPERBRIDGE
+      HYPERBRIDGE
     );
   }
 }

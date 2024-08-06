@@ -1,16 +1,16 @@
 import assert from "assert";
-import { EventType, Status, SupportedChain } from "../../../types";
+import { EventType, Status } from "../../../types";
 import { PostRequestTimeoutHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RequestService } from "../../../services/request.service";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the PostRequestTimeoutHandled event
  */
 export async function handlePostRequestTimeoutHandledEvent(
-  event: PostRequestTimeoutHandledLog,
+  event: PostRequestTimeoutHandledLog
 ): Promise<void> {
   assert(event.args, "No handlePostRequestTimeoutHandledEvent args");
 
@@ -27,10 +27,14 @@ export async function handlePostRequestTimeoutHandledEvent(
   const { commitment, dest } = args;
 
   logger.info(
-    `Handling PostRequestTimeoutHandled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling PostRequestTimeoutHandled Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   Promise.all([
     await EvmHostEventsService.createEvent(
@@ -45,7 +49,7 @@ export async function handlePostRequestTimeoutHandledEvent(
         timestamp: Number(block.timestamp),
         type: EventType.EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED,
       },
-      chain,
+      chain
     ),
     await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain),
     await RequestService.updateStatus({

@@ -1,4 +1,3 @@
-import { SupportedChain } from "../types";
 import {
   PostRequestEventLog,
   PostResponseEventLog,
@@ -18,7 +17,7 @@ export class HyperBridgeService {
    * Perform the necessary actions related to Hyperbridge stats when a PostRequest/PostResponse event is indexed
    */
   static async handlePostRequestOrResponseEvent(
-    chain: SupportedChain,
+    chain: string,
     event: PostRequestEventLog | PostResponseEventLog
   ): Promise<void> {
     assert(
@@ -42,7 +41,7 @@ export class HyperBridgeService {
    */
   static async handlePostRequestOrResponseHandledEvent(
     _relayer_id: string,
-    chain: SupportedChain
+    chain: string
   ): Promise<void> {
     await this.incrementNumberOfDeliveredMessages(chain);
   }
@@ -51,7 +50,7 @@ export class HyperBridgeService {
    * Handle PostRequest or PostResponse transactions
    */
   static async handlePostRequestOrResponseTransaction(
-    chain: SupportedChain,
+    chain: string,
     transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction
   ): Promise<void> {
     const { status } = await transaction.receipt();
@@ -64,9 +63,7 @@ export class HyperBridgeService {
   /**
    * Increment the total number of messages sent on hyperbridge
    */
-  static async incrementNumberOfSentMessages(
-    chain: SupportedChain
-  ): Promise<void> {
+  static async incrementNumberOfSentMessages(chain: string): Promise<void> {
     // Update the specific chain stats
     let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(
       chain
@@ -80,7 +77,7 @@ export class HyperBridgeService {
    * Increment the number of successful messages handled by hyperbridge
    */
   static async incrementNumberOfDeliveredMessages(
-    chain: SupportedChain
+    chain: string
   ): Promise<void> {
     // Update the specific chain stats
     let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(
@@ -94,9 +91,7 @@ export class HyperBridgeService {
   /**
    * Increment the number of failed deliveries by hyperbridge
    */
-  static async incrementNumberOfFailedDeliveries(
-    chain: SupportedChain
-  ): Promise<void> {
+  static async incrementNumberOfFailedDeliveries(chain: string): Promise<void> {
     // Update the specific chain stats
     let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(
       chain
@@ -110,7 +105,7 @@ export class HyperBridgeService {
    * Increment the number of timed-out messages handled by hyperbridge
    */
   static async incrementNumberOfTimedOutMessagesSent(
-    chain: SupportedChain
+    chain: string
   ): Promise<void> {
     // Update the specific chain stats
     let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(
@@ -126,7 +121,7 @@ export class HyperBridgeService {
    */
   static async incrementProtocolFeesEarned(
     amount: bigint,
-    chain: SupportedChain
+    chain: string
   ): Promise<void> {
     // Update the specific chain stats
     let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(
@@ -142,7 +137,7 @@ export class HyperBridgeService {
    */
   static async handleTransferOutOfHostAccounts(
     transfer: Transfer,
-    chain: SupportedChain
+    chain: string
   ): Promise<void> {
     let relayer = await Relayer.get(transfer.to);
 
@@ -161,7 +156,7 @@ export class HyperBridgeService {
    */
   static async updateTotalTransfersIn(
     transfer: Transfer,
-    chain: SupportedChain
+    chain: string
   ): Promise<void> {
     // Update the specific chain metrics
     let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(

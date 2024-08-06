@@ -1,14 +1,14 @@
 import assert from "assert";
-import { EventType, SupportedChain } from "../../../types";
+import { EventType } from "../../../types";
 import { GetRequestTimeoutHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the GetRequestTimeoutHandled event
  */
 export async function handleGetRequestTimeoutHandledEvent(
-  event: GetRequestTimeoutHandledLog,
+  event: GetRequestTimeoutHandledLog
 ): Promise<void> {
   assert(event.args, "No handleGetRequestTimeoutHandledEvent args");
 
@@ -25,10 +25,14 @@ export async function handleGetRequestTimeoutHandledEvent(
   const { commitment, dest } = args;
 
   logger.info(
-    `Handling GetRequestTimeoutHandled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling GetRequestTimeoutHandled Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   await EvmHostEventsService.createEvent(
     {
@@ -42,6 +46,6 @@ export async function handleGetRequestTimeoutHandledEvent(
       timestamp: Number(block.timestamp),
       type: EventType.EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED,
     },
-    chain,
+    chain
   );
 }

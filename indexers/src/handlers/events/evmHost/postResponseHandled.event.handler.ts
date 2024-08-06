@@ -1,16 +1,16 @@
 import assert from "assert";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
-import { EventType, Status, SupportedChain } from "../../../types";
+import { EventType, Status } from "../../../types";
 import { PostResponseHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
 import { ResponseService } from "../../../services/response.service";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the PostResponseHandled event from Hyperbridge
  */
 export async function handlePostResponseHandledEvent(
-  event: PostResponseHandledLog,
+  event: PostResponseHandledLog
 ): Promise<void> {
   assert(event.args, "No handlePostResponseHandledEvent args");
 
@@ -27,10 +27,14 @@ export async function handlePostResponseHandledEvent(
   const { relayer: relayer_id, commitment } = args;
 
   logger.info(
-    `Handling PostResponseHandled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling PostResponseHandled Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   Promise.all([
     await EvmHostEventsService.createEvent(
@@ -44,11 +48,11 @@ export async function handlePostResponseHandledEvent(
         timestamp: Number(block.timestamp),
         type: EventType.EVM_HOST_POST_RESPONSE_HANDLED,
       },
-      chain,
+      chain
     ),
     await HyperBridgeService.handlePostRequestOrResponseHandledEvent(
       relayer_id,
-      chain,
+      chain
     ),
 
     await ResponseService.updateStatus({

@@ -180,6 +180,12 @@
       },
       {
         "indexed": false,
+        "internalType": "string",
+        "name": "dest",
+        "type": "string"
+      },
+      {
+        "indexed": false,
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
@@ -293,7 +299,6 @@
       {
         "components": [
           { "internalType": "address", "name": "host", "type": "address" },
-          { "internalType": "address", "name": "uniswapV2", "type": "address" },
           { "internalType": "address", "name": "dispatcher", "type": "address" }
         ],
         "indexed": false,
@@ -304,7 +309,6 @@
       {
         "components": [
           { "internalType": "address", "name": "host", "type": "address" },
-          { "internalType": "address", "name": "uniswapV2", "type": "address" },
           { "internalType": "address", "name": "dispatcher", "type": "address" }
         ],
         "indexed": false,
@@ -370,6 +374,25 @@
   },
   {
     "inputs": [
+      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" }
+    ],
+    "name": "bid",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "address", "name": "bidder", "type": "address" },
+          { "internalType": "uint256", "name": "fee", "type": "uint256" }
+        ],
+        "internalType": "struct LiquidityBid",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
       { "internalType": "bytes32", "name": "assetId", "type": "bytes32" }
     ],
     "name": "erc20",
@@ -393,11 +416,6 @@
           {
             "components": [
               { "internalType": "address", "name": "host", "type": "address" },
-              {
-                "internalType": "address",
-                "name": "uniswapV2",
-                "type": "address"
-              },
               {
                 "internalType": "address",
                 "name": "dispatcher",
@@ -442,6 +460,15 @@
     "name": "init",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "bytes", "name": "destination", "type": "bytes" }
+    ],
+    "name": "instance",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -497,7 +524,11 @@
                     "name": "nonce",
                     "type": "uint64"
                   },
-                  { "internalType": "bytes", "name": "from", "type": "bytes" },
+                  {
+                    "internalType": "address",
+                    "name": "from",
+                    "type": "address"
+                  },
                   {
                     "internalType": "uint64",
                     "name": "timeoutTimestamp",
@@ -551,7 +582,7 @@
           { "internalType": "bytes", "name": "source", "type": "bytes" },
           { "internalType": "bytes", "name": "dest", "type": "bytes" },
           { "internalType": "uint64", "name": "nonce", "type": "uint64" },
-          { "internalType": "bytes", "name": "from", "type": "bytes" },
+          { "internalType": "address", "name": "from", "type": "address" },
           {
             "internalType": "uint64",
             "name": "timeoutTimestamp",
@@ -697,7 +728,6 @@
       {
         "components": [
           { "internalType": "address", "name": "host", "type": "address" },
-          { "internalType": "address", "name": "uniswapV2", "type": "address" },
           { "internalType": "address", "name": "dispatcher", "type": "address" }
         ],
         "internalType": "struct TokenGatewayParams",
@@ -748,15 +778,10 @@
           { "internalType": "bytes32", "name": "assetId", "type": "bytes32" },
           { "internalType": "bool", "name": "redeem", "type": "bool" },
           { "internalType": "bytes32", "name": "to", "type": "bytes32" },
-          { "internalType": "address", "name": "feeToken", "type": "address" },
           { "internalType": "bytes", "name": "dest", "type": "bytes" },
           { "internalType": "uint64", "name": "timeout", "type": "uint64" },
           { "internalType": "bytes", "name": "data", "type": "bytes" },
-          {
-            "internalType": "uint256",
-            "name": "amountInMax",
-            "type": "uint256"
-          }
+          { "internalType": "uint256", "name": "nativeCost", "type": "uint256" }
         ],
         "internalType": "struct TeleportParams",
         "name": "teleportParams",
@@ -765,7 +790,7 @@
     ],
     "name": "teleport",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "payable",
     "type": "function"
   }
 ]

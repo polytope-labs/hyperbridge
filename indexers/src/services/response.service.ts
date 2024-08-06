@@ -1,14 +1,8 @@
 import { solidityKeccak256 } from "ethers/lib/utils";
-import {
-  Request,
-  Status,
-  Response,
-  SupportedChain,
-  ResponseStatusMetadata,
-} from "../types";
+import { Request, Status, Response, ResponseStatusMetadata } from "../types";
 
 export interface ICreateResponseArgs {
-  chain: SupportedChain;
+  chain: string;
   commitment: string;
   response_message?: string | undefined;
   responseTimeoutTimestamp?: bigint | undefined;
@@ -27,7 +21,7 @@ export interface IUpdateResponseStatusArgs {
   blockHash: string;
   transactionHash: string;
   blockTimestamp: bigint;
-  chain: SupportedChain;
+  chain: string;
 }
 
 const RESPONSE_STATUS_WEIGHTS = {
@@ -138,11 +132,13 @@ export class ResponseService {
       });
 
       logger.error(
-        `Attempted to update status of non-existent response with commitment: ${commitment} in transaction: ${transactionHash}`,
+        `Attempted to update status of non-existent response with commitment: ${commitment} in transaction: ${transactionHash}`
       );
 
       logger.info(
-        `Created new response while attempting response update with details: ${JSON.stringify({ commitment, transactionHash, status })}`,
+        `Created new response while attempting response update with details: ${JSON.stringify(
+          { commitment, transactionHash, status }
+        )}`
       );
     }
   }
@@ -156,7 +152,7 @@ export class ResponseService {
     to: string,
     body: string,
     response: string,
-    responseTimeoutTimestamp: bigint,
+    responseTimeoutTimestamp: bigint
   ): string {
     let hash = solidityKeccak256(
       [
@@ -180,7 +176,7 @@ export class ResponseService {
         body,
         response,
         responseTimeoutTimestamp,
-      ],
+      ]
     );
     return hash;
   }

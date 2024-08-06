@@ -1,4 +1,4 @@
-import { RelayerStatsPerChain, SupportedChain } from "../types";
+import { RelayerStatsPerChain } from "../types";
 
 export class RelayerChainStatsService {
   /*
@@ -6,7 +6,7 @@ export class RelayerChainStatsService {
    */
   static async findOrCreate(
     relayer_id: string,
-    chain: SupportedChain,
+    chain: string
   ): Promise<RelayerStatsPerChain> {
     let id = `${relayer_id}-${chain}`;
     let metrics = await RelayerStatsPerChain.get(id);

@@ -1,15 +1,15 @@
 import assert from "assert";
-import { ProtocolParticipant, SupportedChain } from "../../../types";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
+import { ProtocolParticipant } from "../../../types";
 import { AssetTeleportedLog } from "../../../types/abi-interfaces/TokenGatewayAbi";
 import { AssetService } from "../../../services/asset.service";
 import { RewardPointsService } from "../../../services/reward-points.service";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the AssetTeleported event
  */
 export async function handleAssetTeleportedEvent(
-  event: AssetTeleportedLog,
+  event: AssetTeleportedLog
 ): Promise<void> {
   assert(event.args, "No handleAssetTeleportedEvent args");
 
@@ -23,10 +23,14 @@ export async function handleAssetTeleportedEvent(
   const { commitment, from, to, amount, assetId, redeem } = args;
 
   logger.info(
-    `Handling AssetTeleported Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling AssetTeleported Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   await AssetService.createTeleportedAsset({
     id: commitment,

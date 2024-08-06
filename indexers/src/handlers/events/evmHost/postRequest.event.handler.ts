@@ -1,26 +1,30 @@
 import assert from "assert";
-import { Status, SupportedChain } from "../../../types";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
-import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RequestService } from "../../../services/request.service";
+import { Status } from "../../../types";
+import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the PostRequest event from Evm Hosts
  */
 export async function handlePostRequestEvent(
-  event: PostRequestEventLog,
+  event: PostRequestEventLog
 ): Promise<void> {
   assert(event.args, "No handlePostRequestEvent args");
 
   const { transaction, blockNumber, transactionHash, args, block } = event;
-  let { data, dest, fee, from, nonce, source, timeoutTimestamp, to } = args;
+  let { dest, fee, from, nonce, source, timeoutTimestamp, to, body } = args;
 
   logger.info(
-    `Handling PostRequest Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling PostRequest Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event);
 
@@ -32,14 +36,14 @@ export async function handlePostRequestEvent(
     BigInt(timeoutTimestamp.toString()),
     from,
     to,
-    data,
+    body
   );
 
   // Create the request entity
   await RequestService.findOrCreate({
     chain,
     commitment: request_commitment,
-    data,
+    body,
     dest,
     fee: BigInt(fee.toString()),
     from,

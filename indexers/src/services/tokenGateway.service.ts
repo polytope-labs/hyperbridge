@@ -1,7 +1,6 @@
 import { SUPPORTED_ASSETS_CONTRACT_ADDRESSES } from "../constants";
-import { SupportedChain } from "../types";
 import { TokenGatewayAbi__factory } from "../types/contracts";
-import { getTokenPriceInUsd } from "../utils/price.helpers";
+import PriceHelper from "../utils/price.helpers";
 
 export interface IAssetDetails {
   erc20_address: string;
@@ -16,11 +15,11 @@ export class TokenGatewayService {
    */
   static async getAssetDetails(
     contract_address: string,
-    asset_id: string,
+    asset_id: string
   ): Promise<IAssetDetails> {
     const tokenGatewayContract = TokenGatewayAbi__factory.connect(
       contract_address,
-      api,
+      api
     );
 
     const erc20Address = await tokenGatewayContract.erc20(asset_id);
@@ -38,14 +37,14 @@ export class TokenGatewayService {
    * Get the USD value of an asset transfer on TokenGateway
    */
   static async getUsdValueOfAsset(
-    chain: SupportedChain,
+    chain: string,
     contract_address: string,
     asset_id: string,
-    amount: bigint,
+    amount: bigint
   ): Promise<bigint> {
     const assetDetails = await TokenGatewayService.getAssetDetails(
       contract_address,
-      asset_id,
+      asset_id
     );
 
     const assetsSupportedForChain = SUPPORTED_ASSETS_CONTRACT_ADDRESSES[chain];
@@ -58,17 +57,17 @@ export class TokenGatewayService {
 
     const priceFeedDetails = assetsSupportedForChain.find(
       (asset) =>
-        asset.address.toLowerCase() == assetDetails.erc20_address.toLowerCase(),
+        asset.address.toLowerCase() == assetDetails.erc20_address.toLowerCase()
     );
 
     if (typeof priceFeedDetails == "undefined") {
       logger.info(
-        `Could not get asset contract address price feed details on chain ${chain} for asset with assetID ${asset_id}`,
+        `Could not get asset contract address price feed details on chain ${chain} for asset with assetID ${asset_id}`
       );
       return BigInt(0);
     }
 
-    const priceInUsd = await getTokenPriceInUsd(priceFeedDetails);
+    const priceInUsd = await PriceHelper.getTokenPriceInUsd(priceFeedDetails);
     return BigInt(priceInUsd * amount);
   }
 }

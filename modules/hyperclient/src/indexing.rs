@@ -21,7 +21,6 @@ use crate::{
 };
 use anyhow::anyhow;
 use ismp::{
-	host::StateMachine,
 	messaging::{hash_request, hash_response},
 	router::{Request, Response},
 };
@@ -71,7 +70,7 @@ query ResponseQuery($id: String!) {
 "#;
 
 static STATE_MACHINE_QUERY: &'static str = r#"
-query StateMachineUpdatesQuery($stateMachineId: String!, $chain: SupportedChain!, $height: BigFloat!) {
+query StateMachineUpdatesQuery($stateMachineId: String!, $chain: String!, $height: Int!) {
 	stateMachineUpdateEvents(
 	  filter: {and: {stateMachineId: {equalTo: $stateMachineId }, chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}
 	) {
@@ -87,18 +86,6 @@ query StateMachineUpdatesQuery($stateMachineId: String!, $chain: SupportedChain!
 	}
   }
 "#;
-
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-pub enum SupportedChain {
-	ETHE,
-	BASE,
-	OPTI,
-	ARBI,
-	BSC,
-	POLY,
-	HYPERBRIDGE,
-	Other(String),
-}
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub enum Status {
@@ -117,7 +104,7 @@ pub struct StatusMetadata {
 pub struct StatusMetadataNode {
 	pub id: String,
 	pub status: Status,
-	pub chain: SupportedChain,
+	pub chain: String,
 	pub timestamp: BigInt,
 	#[serde(rename = "blockNumber")]
 	pub block_number: String,
@@ -171,8 +158,8 @@ pub struct StateMachineUpdatesQueryStateMachineUpdateEventsNodes {
 	pub block_hash: String,
 	#[serde(rename = "blockNumber")]
 	pub block_number: BigInt,
-	pub chain: SupportedChain,
-	pub height: BigInt,
+	pub chain: String,
+	pub height: u64,
 	pub id: String,
 	#[serde(rename = "stateMachineId")]
 	pub state_machine_id: String,
@@ -184,7 +171,7 @@ pub struct StateMachineUpdatesQueryStateMachineUpdateEventsNodes {
 pub struct StateMachineUpdateVariables {
 	#[serde(rename = "stateMachineId")]
 	pub state_machine_id: String,
-	pub chain: SupportedChain,
+	pub chain: String,
 	pub height: u64,
 }
 
@@ -223,7 +210,7 @@ pub async fn query_request_status_from_indexer(
 				Status::SOURCE => {
 					// Try and fetch state machine update for source chain on hyperbridge
 					let vars = StateMachineUpdateVariables {
-						chain: SupportedChain::HYPERBRIDGE,
+						chain: hyperclient.hyperbridge.state_machine.state_id.to_string(),
 						state_machine_id: request.source_chain().to_string(),
 						height: block_number.parse::<u64>()?,
 					};
@@ -256,13 +243,7 @@ pub async fn query_request_status_from_indexer(
 				Status::MESSAGE_RELAYED => {
 					// Try and fetch state machine update for hyperbridge on destination chain
 					let vars = StateMachineUpdateVariables {
-						chain: {
-							match request.dest_chain() {
-								// todo: fix once we remove supported chain enum
-								StateMachine::Evm(_) => SupportedChain::ETHE,
-								_ => Err(anyhow!("Unsupported chain for indexer"))?,
-							}
-						},
+						chain: request.dest_chain().to_string(),
 						state_machine_id: request.dest_chain().to_string(),
 						height: block_number.parse::<u64>()?,
 					};
@@ -292,7 +273,7 @@ pub async fn query_request_status_from_indexer(
 									&dest_client,
 									post,
 									commitment,
-									data.height.low_u64(),
+									data.height,
 								)
 								.await?
 							},
@@ -300,7 +281,7 @@ pub async fn query_request_status_from_indexer(
 						};
 
 						MessageStatusWithMetadata::HyperbridgeFinalized {
-							finalized_height: data.height.low_u64(),
+							finalized_height: data.height,
 							meta,
 							calldata: calldata.into(),
 						}
@@ -374,7 +355,7 @@ pub async fn query_response_status_from_indexer(
 				Status::SOURCE => {
 					// Try and fetch state machine update for source chain on hyperbridge
 					let vars = StateMachineUpdateVariables {
-						chain: SupportedChain::HYPERBRIDGE,
+						chain: hyperclient.hyperbridge.state_machine.state_id.to_string(),
 						state_machine_id: response.source_chain().to_string(),
 						height: block_number.parse::<u64>()?,
 					};
@@ -407,13 +388,7 @@ pub async fn query_response_status_from_indexer(
 				Status::MESSAGE_RELAYED => {
 					// Try and fetch state machine update for hyperbridge on destination chain
 					let vars = StateMachineUpdateVariables {
-						chain: {
-							match response.dest_chain() {
-								// todo: fix
-								StateMachine::Evm(_) => SupportedChain::ETHE,
-								_ => Err(anyhow!("Unsupported chain for indexer"))?,
-							}
-						},
+						chain: response.dest_chain().to_string(),
 						state_machine_id: response.dest_chain().to_string(),
 						height: block_number.parse::<u64>()?,
 					};
@@ -443,7 +418,7 @@ pub async fn query_response_status_from_indexer(
 									&dest_client,
 									post,
 									commitment,
-									data.height.low_u64(),
+									data.height,
 								)
 								.await?
 							},
@@ -451,7 +426,7 @@ pub async fn query_response_status_from_indexer(
 						};
 
 						MessageStatusWithMetadata::HyperbridgeFinalized {
-							finalized_height: data.height.low_u64(),
+							finalized_height: data.height,
 							meta,
 							calldata: calldata.into(),
 						}

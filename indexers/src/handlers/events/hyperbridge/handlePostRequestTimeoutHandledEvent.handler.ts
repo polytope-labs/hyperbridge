@@ -1,10 +1,11 @@
 import { SubstrateEvent } from "@subql/types";
 import { RequestService } from "../../../services/request.service";
-import { Status, SupportedChain } from "../../../types";
+import { Status } from "../../../types";
 import assert from "assert";
+import { HYPERBRIDGE } from "../../../constants";
 
 export async function handleHyperbridgePostRequestTimeoutHandledEvent(
-  event: SubstrateEvent,
+  event: SubstrateEvent
 ): Promise<void> {
   logger.info(`Handling ISMP PostRequestTimeoutHandled Event`);
 
@@ -28,7 +29,7 @@ export async function handleHyperbridgePostRequestTimeoutHandledEvent(
 
   await RequestService.updateStatus({
     commitment: timeoutData.commitment.toString(),
-    chain: SupportedChain.HYPERBRIDGE,
+    chain: HYPERBRIDGE,
     blockNumber: blockNumber.toString(),
     blockHash: blockHash.toString(),
     blockTimestamp: BigInt(Date.parse(timestamp.toString())),

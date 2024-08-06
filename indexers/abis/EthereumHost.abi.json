@@ -13,6 +13,11 @@
             "name": "perByteFee",
             "type": "uint256"
           },
+          {
+            "internalType": "uint256",
+            "name": "stateCommitmentFee",
+            "type": "uint256"
+          },
           { "internalType": "address", "name": "feeToken", "type": "address" },
           { "internalType": "address", "name": "admin", "type": "address" },
           { "internalType": "address", "name": "handler", "type": "address" },
@@ -21,6 +26,7 @@
             "name": "hostManager",
             "type": "address"
           },
+          { "internalType": "address", "name": "uniswapV2", "type": "address" },
           {
             "internalType": "uint256",
             "name": "unStakingPeriod",
@@ -56,38 +62,49 @@
     "stateMutability": "nonpayable",
     "type": "constructor"
   },
+  { "inputs": [], "name": "CannotChangeFeeToken", "type": "error" },
+  { "inputs": [], "name": "DuplicateResponse", "type": "error" },
+  { "inputs": [], "name": "FrozenHost", "type": "error" },
+  { "inputs": [], "name": "InvalidAddressLength", "type": "error" },
+  { "inputs": [], "name": "InvalidConsensusClient", "type": "error" },
+  { "inputs": [], "name": "InvalidHandler", "type": "error" },
+  { "inputs": [], "name": "InvalidHostManager", "type": "error" },
+  { "inputs": [], "name": "InvalidHyperbridgeId", "type": "error" },
+  { "inputs": [], "name": "InvalidStateMachinesLength", "type": "error" },
+  { "inputs": [], "name": "InvalidUnstakingPeriod", "type": "error" },
+  { "inputs": [], "name": "MaxFishermanCountExceeded", "type": "error" },
+  { "inputs": [], "name": "UnauthorizedAccount", "type": "error" },
+  { "inputs": [], "name": "UnauthorizedAction", "type": "error" },
+  { "inputs": [], "name": "UnauthorizedResponse", "type": "error" },
+  { "inputs": [], "name": "UnknownRequest", "type": "error" },
+  { "inputs": [], "name": "UnknownResponse", "type": "error" },
+  { "inputs": [], "name": "WithdrawalFailed", "type": "error" },
   {
     "anonymous": false,
     "inputs": [
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "source",
-        "type": "bytes"
+        "type": "string"
       },
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "dest",
-        "type": "bytes"
+        "type": "string"
       },
       {
-        "indexed": false,
-        "internalType": "bytes",
+        "indexed": true,
+        "internalType": "address",
         "name": "from",
-        "type": "bytes"
+        "type": "address"
       },
       {
         "indexed": false,
         "internalType": "bytes[]",
         "name": "keys",
         "type": "bytes[]"
-      },
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "nonce",
-        "type": "uint256"
       },
       {
         "indexed": false,
@@ -98,7 +115,19 @@
       {
         "indexed": false,
         "internalType": "uint256",
+        "name": "nonce",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
         "name": "timeoutTimestamp",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "fee",
         "type": "uint256"
       }
     ],
@@ -109,7 +138,7 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "bytes32",
         "name": "commitment",
         "type": "bytes32"
@@ -128,16 +157,16 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "bytes32",
         "name": "commitment",
         "type": "bytes32"
       },
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "dest",
-        "type": "bytes"
+        "type": "string"
       }
     ],
     "name": "GetRequestTimeoutHandled",
@@ -148,21 +177,182 @@
     "inputs": [
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "enum FrozenStatus",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "name": "HostFrozen",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "defaultTimeout",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "perByteFee",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stateCommitmentFee",
+            "type": "uint256"
+          },
+          { "internalType": "address", "name": "feeToken", "type": "address" },
+          { "internalType": "address", "name": "admin", "type": "address" },
+          { "internalType": "address", "name": "handler", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "hostManager",
+            "type": "address"
+          },
+          { "internalType": "address", "name": "uniswapV2", "type": "address" },
+          {
+            "internalType": "uint256",
+            "name": "unStakingPeriod",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "challengePeriod",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "consensusClient",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "stateMachines",
+            "type": "uint256[]"
+          },
+          {
+            "internalType": "address[]",
+            "name": "fishermen",
+            "type": "address[]"
+          },
+          { "internalType": "bytes", "name": "hyperbridge", "type": "bytes" }
+        ],
+        "indexed": false,
+        "internalType": "struct HostParams",
+        "name": "oldParams",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "defaultTimeout",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "perByteFee",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stateCommitmentFee",
+            "type": "uint256"
+          },
+          { "internalType": "address", "name": "feeToken", "type": "address" },
+          { "internalType": "address", "name": "admin", "type": "address" },
+          { "internalType": "address", "name": "handler", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "hostManager",
+            "type": "address"
+          },
+          { "internalType": "address", "name": "uniswapV2", "type": "address" },
+          {
+            "internalType": "uint256",
+            "name": "unStakingPeriod",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "challengePeriod",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "consensusClient",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "stateMachines",
+            "type": "uint256[]"
+          },
+          {
+            "internalType": "address[]",
+            "name": "fishermen",
+            "type": "address[]"
+          },
+          { "internalType": "bytes", "name": "hyperbridge", "type": "bytes" }
+        ],
+        "indexed": false,
+        "internalType": "struct HostParams",
+        "name": "newParams",
+        "type": "tuple"
+      }
+    ],
+    "name": "HostParamsUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "beneficiary",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "native",
+        "type": "bool"
+      }
+    ],
+    "name": "HostWithdrawal",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string",
         "name": "source",
-        "type": "bytes"
+        "type": "string"
       },
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "dest",
-        "type": "bytes"
+        "type": "string"
       },
       {
-        "indexed": false,
-        "internalType": "bytes",
+        "indexed": true,
+        "internalType": "address",
         "name": "from",
-        "type": "bytes"
+        "type": "address"
       },
       {
         "indexed": false,
@@ -171,7 +361,7 @@
         "type": "bytes"
       },
       {
-        "indexed": true,
+        "indexed": false,
         "internalType": "uint256",
         "name": "nonce",
         "type": "uint256"
@@ -185,7 +375,7 @@
       {
         "indexed": false,
         "internalType": "bytes",
-        "name": "data",
+        "name": "body",
         "type": "bytes"
       },
       {
@@ -202,7 +392,7 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "bytes32",
         "name": "commitment",
         "type": "bytes32"
@@ -221,16 +411,16 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "bytes32",
         "name": "commitment",
         "type": "bytes32"
       },
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "dest",
-        "type": "bytes"
+        "type": "string"
       }
     ],
     "name": "PostRequestTimeoutHandled",
@@ -241,21 +431,21 @@
     "inputs": [
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "source",
-        "type": "bytes"
+        "type": "string"
       },
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "dest",
-        "type": "bytes"
+        "type": "string"
       },
       {
-        "indexed": false,
-        "internalType": "bytes",
+        "indexed": true,
+        "internalType": "address",
         "name": "from",
-        "type": "bytes"
+        "type": "address"
       },
       {
         "indexed": false,
@@ -264,7 +454,7 @@
         "type": "bytes"
       },
       {
-        "indexed": true,
+        "indexed": false,
         "internalType": "uint256",
         "name": "nonce",
         "type": "uint256"
@@ -278,7 +468,7 @@
       {
         "indexed": false,
         "internalType": "bytes",
-        "name": "data",
+        "name": "body",
         "type": "bytes"
       },
       {
@@ -290,7 +480,7 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "resTimeoutTimestamp",
+        "name": "responseTimeoutTimestamp",
         "type": "uint256"
       },
       {
@@ -307,7 +497,26 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      },
+      {
         "indexed": false,
+        "internalType": "uint256",
+        "name": "newFee",
+        "type": "uint256"
+      }
+    ],
+    "name": "PostResponseFunded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "bytes32",
         "name": "commitment",
         "type": "bytes32"
@@ -326,16 +535,16 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "bytes32",
         "name": "commitment",
         "type": "bytes32"
       },
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "dest",
-        "type": "bytes"
+        "type": "string"
       }
     ],
     "name": "PostResponseTimeoutHandled",
@@ -345,10 +554,48 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      },
+      {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "uint256",
+        "name": "newFee",
+        "type": "uint256"
+      }
+    ],
+    "name": "RequestFunded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "caller",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "fee",
+        "type": "uint256"
+      }
+    ],
+    "name": "StateCommitmentRead",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string",
         "name": "stateMachineId",
-        "type": "bytes"
+        "type": "string"
       },
       {
         "indexed": false,
@@ -372,7 +619,7 @@
         "type": "tuple"
       },
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "address",
         "name": "fisherman",
         "type": "address"
@@ -386,9 +633,9 @@
     "inputs": [
       {
         "indexed": false,
-        "internalType": "bytes",
+        "internalType": "string",
         "name": "stateMachineId",
-        "type": "bytes"
+        "type": "string"
       },
       {
         "indexed": false,
@@ -472,45 +719,6 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "components": [
-          {
-            "components": [
-              { "internalType": "bytes", "name": "source", "type": "bytes" },
-              { "internalType": "bytes", "name": "dest", "type": "bytes" },
-              { "internalType": "uint64", "name": "nonce", "type": "uint64" },
-              { "internalType": "bytes", "name": "from", "type": "bytes" },
-              { "internalType": "bytes", "name": "to", "type": "bytes" },
-              {
-                "internalType": "uint64",
-                "name": "timeoutTimestamp",
-                "type": "uint64"
-              },
-              { "internalType": "bytes", "name": "body", "type": "bytes" }
-            ],
-            "internalType": "struct PostRequest",
-            "name": "request",
-            "type": "tuple"
-          },
-          { "internalType": "bytes", "name": "response", "type": "bytes" },
-          { "internalType": "uint64", "name": "timeout", "type": "uint64" },
-          { "internalType": "uint256", "name": "fee", "type": "uint256" },
-          { "internalType": "address", "name": "payer", "type": "address" }
-        ],
-        "internalType": "struct DispatchPostResponse",
-        "name": "post",
-        "type": "tuple"
-      }
-    ],
-    "name": "dispatch",
-    "outputs": [
-      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "feeToken",
     "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
@@ -520,7 +728,9 @@
   {
     "inputs": [],
     "name": "frozen",
-    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "outputs": [
+      { "internalType": "enum FrozenStatus", "name": "", "type": "uint8" }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -531,7 +741,7 @@
     ],
     "name": "fundRequest",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "payable",
     "type": "function"
   },
   {
@@ -541,14 +751,14 @@
     ],
     "name": "fundResponse",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "payable",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "host",
     "outputs": [{ "internalType": "bytes", "name": "", "type": "bytes" }],
-    "stateMutability": "pure",
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -567,6 +777,11 @@
             "name": "perByteFee",
             "type": "uint256"
           },
+          {
+            "internalType": "uint256",
+            "name": "stateCommitmentFee",
+            "type": "uint256"
+          },
           { "internalType": "address", "name": "feeToken", "type": "address" },
           { "internalType": "address", "name": "admin", "type": "address" },
           { "internalType": "address", "name": "handler", "type": "address" },
@@ -575,6 +790,7 @@
             "name": "hostManager",
             "type": "address"
           },
+          { "internalType": "address", "name": "uniswapV2", "type": "address" },
           {
             "internalType": "uint256",
             "name": "unStakingPeriod",
@@ -626,6 +842,13 @@
   },
   {
     "inputs": [],
+    "name": "nonce",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "perByteFee",
     "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
     "stateMutability": "view",
@@ -656,6 +879,15 @@
     ],
     "name": "requestReceipts",
     "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" }
+    ],
+    "name": "responded",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
     "stateMutability": "view",
     "type": "function"
   },
@@ -738,69 +970,23 @@
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "bool", "name": "newState", "type": "bool" }],
+    "inputs": [
+      {
+        "internalType": "enum FrozenStatus",
+        "name": "newState",
+        "type": "uint8"
+      }
+    ],
     "name": "setFrozenState",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "defaultTimeout",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "perByteFee",
-            "type": "uint256"
-          },
-          { "internalType": "address", "name": "feeToken", "type": "address" },
-          { "internalType": "address", "name": "admin", "type": "address" },
-          { "internalType": "address", "name": "handler", "type": "address" },
-          {
-            "internalType": "address",
-            "name": "hostManager",
-            "type": "address"
-          },
-          {
-            "internalType": "uint256",
-            "name": "unStakingPeriod",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "challengePeriod",
-            "type": "uint256"
-          },
-          {
-            "internalType": "address",
-            "name": "consensusClient",
-            "type": "address"
-          },
-          {
-            "internalType": "uint256[]",
-            "name": "stateMachines",
-            "type": "uint256[]"
-          },
-          {
-            "internalType": "address[]",
-            "name": "fishermen",
-            "type": "address[]"
-          },
-          { "internalType": "bytes", "name": "hyperbridge", "type": "bytes" }
-        ],
-        "internalType": "struct HostParams",
-        "name": "params",
-        "type": "tuple"
-      }
-    ],
-    "name": "setHostParamsAdmin",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "inputs": [],
+    "name": "stateCommitmentFee",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -836,7 +1022,7 @@
         "type": "tuple"
       }
     ],
-    "stateMutability": "view",
+    "stateMutability": "payable",
     "type": "function"
   },
   {
@@ -861,10 +1047,13 @@
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "uint256", "name": "id", "type": "uint256" }],
+    "inputs": [
+      { "internalType": "bytes", "name": "parachainId", "type": "bytes" },
+      { "internalType": "uint256", "name": "id", "type": "uint256" }
+    ],
     "name": "stateMachineId",
-    "outputs": [{ "internalType": "bytes", "name": "", "type": "bytes" }],
-    "stateMutability": "view",
+    "outputs": [{ "internalType": "string", "name": "", "type": "string" }],
+    "stateMutability": "pure",
     "type": "function"
   },
   {
@@ -924,6 +1113,13 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "uniswapV2Router",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "components": [
@@ -937,6 +1133,11 @@
             "name": "perByteFee",
             "type": "uint256"
           },
+          {
+            "internalType": "uint256",
+            "name": "stateCommitmentFee",
+            "type": "uint256"
+          },
           { "internalType": "address", "name": "feeToken", "type": "address" },
           { "internalType": "address", "name": "admin", "type": "address" },
           { "internalType": "address", "name": "handler", "type": "address" },
@@ -945,6 +1146,7 @@
             "name": "hostManager",
             "type": "address"
           },
+          { "internalType": "address", "name": "uniswapV2", "type": "address" },
           {
             "internalType": "uint256",
             "name": "unStakingPeriod",
@@ -1005,6 +1207,16 @@
   },
   {
     "inputs": [
+      { "internalType": "uint256", "name": "paraId", "type": "uint256" },
+      { "internalType": "uint256", "name": "height", "type": "uint256" }
+    ],
+    "name": "vetoes",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
       {
         "components": [
           {
@@ -1012,7 +1224,8 @@
             "name": "beneficiary",
             "type": "address"
           },
-          { "internalType": "uint256", "name": "amount", "type": "uint256" }
+          { "internalType": "uint256", "name": "amount", "type": "uint256" },
+          { "internalType": "bool", "name": "native", "type": "bool" }
         ],
         "internalType": "struct WithdrawParams",
         "name": "params",
@@ -1023,5 +1236,6 @@
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
-  }
+  },
+  { "stateMutability": "payable", "type": "receive" }
 ]

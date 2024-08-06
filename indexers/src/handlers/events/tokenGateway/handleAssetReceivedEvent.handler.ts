@@ -1,15 +1,15 @@
 import assert from "assert";
-import { ProtocolParticipant, SupportedChain } from "../../../types";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
+import { ProtocolParticipant } from "../../../types";
 import { AssetReceivedLog } from "../../../types/abi-interfaces/TokenGatewayAbi";
 import { AssetService } from "../../../services/asset.service";
 import { RewardPointsService } from "../../../services/reward-points.service";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the AssetReceived event
  */
 export async function handleAssetReceivedEvent(
-  event: AssetReceivedLog,
+  event: AssetReceivedLog
 ): Promise<void> {
   assert(event.args, "No handleAssetReceivedEvent args");
 
@@ -23,10 +23,14 @@ export async function handleAssetReceivedEvent(
   const { commitment, from, beneficiary, amount, assetId } = args;
 
   logger.info(
-    `Handling AssetReceived Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling AssetReceived Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   await AssetService.createReceivedAsset({
     id: commitment,

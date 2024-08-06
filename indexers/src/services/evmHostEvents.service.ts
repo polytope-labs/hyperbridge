@@ -1,5 +1,5 @@
 import { Event } from "../types/models";
-import { EventType, SupportedChain } from "../types";
+import { EventType } from "../types";
 
 export interface IEvmHostEventArgs {
   blockHash: string;
@@ -23,7 +23,7 @@ export class EvmHostEventsService {
    */
   static async createEvent(
     args: ICreateEvmHostEventArgs,
-    chain: SupportedChain,
+    chain: string
   ): Promise<void> {
     const {
       commitment,

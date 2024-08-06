@@ -1,18 +1,17 @@
 import assert from "assert";
-import { SupportedChain } from "../../../types";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { StateMachineUpdatedLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { StateMachineService } from "../../../services/stateMachine.service";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handle the StateMachineUpdated event
  */
 export async function handleStateMachineUpdatedEvent(
-  event: StateMachineUpdatedLog,
+  event: StateMachineUpdatedLog
 ): Promise<void> {
   assert(
     event.args,
-    `No handleStateMachineUpdatedEvent args. Tx Hash: ${event.transactionHash}`,
+    `No handleStateMachineUpdatedEvent args. Tx Hash: ${event.transactionHash}`
   );
   const {
     blockHash,
@@ -26,10 +25,14 @@ export async function handleStateMachineUpdatedEvent(
   const { stateMachineId, height } = args;
 
   logger.info(
-    `Handling StateMachineUpdated Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling StateMachineUpdated Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
   await StateMachineService.createEvmStateMachineUpdatedEvent(
     {
       transactionHash,
@@ -38,8 +41,8 @@ export async function handleStateMachineUpdatedEvent(
       blockNumber,
       timestamp: Number(block.timestamp),
       stateMachineId: stateMachineId,
-      height: height.toBigInt(),
+      height: height.toNumber(),
     },
-    chain,
+    chain
   );
 }

@@ -1,11 +1,11 @@
-import { SupportedChain, HyperBridgeChainStats } from "../types";
+import { HyperBridgeChainStats } from "../types";
 
 export class HyperBridgeChainStatsService {
   /**
    * Find the HyperBridgeChainStats record for a chain, create it if it doesn't exist
    */
   static async findOrCreateChainStats(
-    chain: SupportedChain,
+    chain: string
   ): Promise<HyperBridgeChainStats> {
     let chainStats = await HyperBridgeChainStats.get(chain);
 

@@ -1,26 +1,22 @@
 import assert from "assert";
-import {
-  Status,
-  SupportedChain,
-  Request,
-} from "../../../types";
-import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
+import { Status, Request } from "../../../types";
 import { PostResponseEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { ResponseService } from "../../../services/response.service";
 import { RequestService } from "../../../services/request.service";
+import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
  * Handles the PostResponse event from Evm Hosts
  */
 export async function handlePostResponseEvent(
-  event: PostResponseEventLog,
+  event: PostResponseEventLog
 ): Promise<void> {
   assert(event.args, "No handlePostResponseEvent args");
 
   const { transaction, blockNumber, transactionHash, args, block } = event;
   let {
-    data,
+    body,
     dest,
     fee,
     from,
@@ -29,14 +25,18 @@ export async function handlePostResponseEvent(
     timeoutTimestamp,
     to,
     response,
-    resTimeoutTimestamp,
+    responseTimeoutTimestamp,
   } = args;
 
   logger.info(
-    `Handling PostResponse Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+    `Handling PostResponse Event: ${JSON.stringify({
+      blockNumber,
+      transactionHash,
+    })}`
   );
 
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  const chain: string =
+    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
   await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event);
 
@@ -48,9 +48,9 @@ export async function handlePostResponseEvent(
     BigInt(timeoutTimestamp.toString()),
     from,
     to,
-    data,
+    body,
     response,
-    BigInt(resTimeoutTimestamp.toString()),
+    BigInt(responseTimeoutTimestamp.toString())
   );
 
   // Compute the request commitment
@@ -61,14 +61,14 @@ export async function handlePostResponseEvent(
     BigInt(timeoutTimestamp.toString()),
     from,
     to,
-    data,
+    body
   );
 
   let request = await Request.get(request_commitment);
 
   if (typeof request === "undefined") {
     logger.error(
-      `Error handling PostResponseEvent because request with commitment: ${request_commitment} was not found`,
+      `Error handling PostResponseEvent because request with commitment: ${request_commitment} was not found`
     );
     return;
   }
@@ -77,7 +77,7 @@ export async function handlePostResponseEvent(
   await ResponseService.findOrCreate({
     chain,
     commitment: response_commitment,
-    responseTimeoutTimestamp: BigInt(resTimeoutTimestamp.toString()),
+    responseTimeoutTimestamp: BigInt(responseTimeoutTimestamp.toString()),
     response_message: response,
     status: Status.SOURCE,
     request,

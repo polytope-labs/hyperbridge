@@ -9,7 +9,7 @@ use ethers::{
 use forge_testsuite::Runner;
 use hex_literal::hex;
 use ismp::{
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::hash_response,
 	router::{self, Request, Response},
 };
@@ -37,7 +37,7 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
 
 	// create post request object
 	let post = router::PostRequest {
-		source: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		source: StateMachine::Evm(1),
 		dest: StateMachine::Polkadot(2000),
 		nonce: 0,
 		from: module.as_bytes().to_vec(),
@@ -114,7 +114,7 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
 	// create post request object
 	let post = router::PostRequest {
 		source: StateMachine::Polkadot(2000),
-		dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		dest: StateMachine::Evm(1),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: destination.as_bytes().to_vec(),
@@ -202,7 +202,7 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
 	// create post request object
 	let post = router::PostRequest {
 		source: StateMachine::Polkadot(2000),
-		dest: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		dest: StateMachine::Evm(1),
 		nonce: 0,
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: destination.as_bytes().to_vec(),

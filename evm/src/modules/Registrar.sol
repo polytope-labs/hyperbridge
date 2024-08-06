@@ -59,7 +59,7 @@ contract TokenRegistrar is BaseIsmpModule {
     error UnauthorizedAction();
 
     // @notice A user has initiated the asset registration process
-    event RegistrationBegun(bytes32 indexed assetId, address indexed owner);
+    event RegistrationBegun(bytes32 indexed assetId, address indexed owner, uint256 feePaid);
 
     // @notice Governance has updated the registrar parameters
     event ParamsUpdated(RegistrarParams oldParams, RegistrarParams newParams);
@@ -100,7 +100,8 @@ contract TokenRegistrar is BaseIsmpModule {
     function registerAsset(bytes32 assetId) public payable {
         address feeToken = IIsmpHost(_params.host).feeToken();
         uint256 messagingFee = 64 * IIsmpHost(_params.host).perByteFee();
-        uint256 fee = _params.baseFee + messagingFee;
+        uint256 baseFee = _params.baseFee;
+        uint256 fee = baseFee + messagingFee;
 
         // user has provided the native token
         if (msg.value > 0) {
@@ -114,9 +115,9 @@ contract TokenRegistrar is BaseIsmpModule {
                 address(this),
                 block.timestamp
             );
-            SafeERC20.safeTransfer(IERC20(feeToken), _params.host, _params.baseFee);
+            SafeERC20.safeTransfer(IERC20(feeToken), _params.host, baseFee);
         } else {
-            SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, _params.host, _params.baseFee);
+            SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, _params.host, baseFee);
             SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), messagingFee);
         }
         bytes memory data = abi.encode(RequestBody({owner: msg.sender, assetId: assetId}));
@@ -133,7 +134,7 @@ contract TokenRegistrar is BaseIsmpModule {
         });
         IDispatcher(_params.host).dispatch(request);
 
-        emit RegistrationBegun({assetId: assetId, owner: msg.sender});
+        emit RegistrationBegun({assetId: assetId, owner: msg.sender, feePaid: baseFee });
     }
 
     // @notice Governance parameter updates

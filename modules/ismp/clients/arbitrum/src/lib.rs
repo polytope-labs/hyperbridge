@@ -30,7 +30,8 @@ use ismp::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
-	host::{ethereum, IsmpHost, StateMachine},
+	host::StateMachine,
+	messaging::Keccak256,
 };
 
 /// Storage layout slot for the nodes map in the Rollup Contract
@@ -46,7 +47,7 @@ pub struct GlobalState {
 
 impl GlobalState {
 	/// https://github.com/OffchainLabs/nitro/blob/5e9f4228e6418b114a5aea0aa7f2f0cc161b67c0/contracts/src/state/GlobalState.sol#L16
-	pub fn hash<H: IsmpHost>(&self) -> H256 {
+	pub fn hash<H: Keccak256>(&self) -> H256 {
 		// abi encode packed
 		let mut buf = Vec::new();
 		buf.extend_from_slice("Global state:".as_bytes());
@@ -105,7 +106,7 @@ pub struct ArbitrumPayloadProof {
 }
 
 /// https://github.com/OffchainLabs/nitro/blob/5e9f4228e6418b114a5aea0aa7f2f0cc161b67c0/contracts/src/rollup/RollupLib.sol#L59
-fn get_state_hash<H: IsmpHost>(
+fn get_state_hash<H: Keccak256>(
 	global_state: GlobalState,
 	machine_status: MachineStatus,
 	inbox_max_count: U256,
@@ -120,7 +121,7 @@ fn get_state_hash<H: IsmpHost>(
 	H::keccak256(&buf)
 }
 
-pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
+pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 	payload: ArbitrumPayloadProof,
 	root: H256,
 	rollup_core_address: H160,
@@ -175,7 +176,8 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
 	Ok(IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				state_id: StateMachine::Ethereum(ethereum::ARBITRUM),
+				// note: This will state machine id should not be used to store the state commitment
+				state_id: StateMachine::Evm(Default::default()),
 				consensus_state_id,
 			},
 			height: block_number,

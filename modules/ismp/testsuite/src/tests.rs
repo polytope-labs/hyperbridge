@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ismp::host::{ethereum, StateMachine};
+use ismp::host::StateMachine;
 
 use crate::{
 	check_challenge_period, check_client_expiry, check_request_source_and_destination,
@@ -60,19 +60,19 @@ fn should_reject_duplicate_fraud_proofs() {
 
 #[test]
 fn should_prevent_request_timeout_on_proxy_with_known_state_machine() {
-	let direct_conn_state_machine = StateMachine::Ethereum(ethereum::EXECUTION_LAYER);
+	let direct_conn_state_machine = StateMachine::Evm(11155111);
 	prevent_request_timeout_on_proxy_with_known_state_machine(direct_conn_state_machine).unwrap()
 }
 
 #[test]
 fn should_prevent_request_processing_through_proxy_with_known_state_machine() {
-	let direct_conn_state_machine = StateMachine::Ethereum(ethereum::EXECUTION_LAYER);
+	let direct_conn_state_machine = StateMachine::Evm(11155111);
 	prevent_request_processing_on_proxy_with_known_state_machine(direct_conn_state_machine).unwrap()
 }
 
 #[test]
 fn should_prevent_response_timeout_on_proxy_with_known_state_machine() {
-	let direct_conn_state_machine = StateMachine::Ethereum(ethereum::EXECUTION_LAYER);
+	let direct_conn_state_machine = StateMachine::Evm(11155111);
 	prevent_response_timeout_on_proxy_with_known_state_machine(direct_conn_state_machine).unwrap()
 }
 

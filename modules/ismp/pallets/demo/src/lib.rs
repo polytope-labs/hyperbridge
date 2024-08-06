@@ -51,7 +51,6 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		consensus::ConsensusStateId,
 		dispatcher::{DispatchGet, DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
@@ -217,7 +216,7 @@ pub mod pallet {
 		pub fn dispatch_to_evm(origin: OriginFor<T>, params: EvmParams) -> DispatchResult {
 			let origin = ensure_signed(origin)?;
 			let post = DispatchPost {
-				dest: StateMachine::Ethereum(params.destination),
+				dest: StateMachine::Evm(params.destination),
 				from: PALLET_ID.to_bytes(),
 				to: params.module.0.to_vec(),
 				timeout: params.timeout,
@@ -293,7 +292,7 @@ pub mod pallet {
 		pub module: H160,
 
 		/// Destination EVM host
-		pub destination: ConsensusStateId,
+		pub destination: u32,
 
 		/// Timeout timestamp on destination chain in seconds
 		pub timeout: u64,
@@ -317,7 +316,7 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 		let source_chain = request.source;
 
 		match source_chain {
-			StateMachine::Ethereum(_) => Pallet::<T>::deposit_event(Event::Request {
+			StateMachine::Evm(_) => Pallet::<T>::deposit_event(Event::Request {
 				source: source_chain,
 				data: unsafe { String::from_utf8_unchecked(request.body) },
 			}),

@@ -39,16 +39,14 @@ pub const PALLET_ID: [u8; 8] = *b"registry";
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloc::collections::BTreeMap;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{fungible::Mutate, tokens::Preservation},
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
-	use ismp::{
-		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
-		host::StateMachine,
-	};
+	use ismp::{dispatcher::IsmpDispatcher, host::StateMachine};
 	use sp_runtime::traits::AccountIdConversion;
 
 	#[pallet::pallet]
@@ -57,7 +55,9 @@ pub mod pallet {
 
 	/// The pallet's configuration trait.
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config {
+	pub trait Config:
+		frame_system::Config + pallet_ismp::Config + pallet_ismp_host_executive::Config
+	{
 		/// The overarching runtime event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -163,6 +163,8 @@ pub mod pallet {
 		NotAssetOwner,
 		/// Provided signature was invalid
 		InvalidSignature,
+		/// Unknown token gateway instance
+		UnknownTokenGateway,
 	}
 
 	#[pallet::call]
@@ -220,40 +222,11 @@ pub mod pallet {
 		#[pallet::weight(weight())]
 		pub fn update_registrar_params(
 			origin: OriginFor<T>,
-			update: RegistrarParamsUpdate,
-			state_machine: StateMachine,
+			update: BTreeMap<StateMachine, RegistrarParamsUpdate>,
 		) -> DispatchResult {
-			ensure_root(origin)?;
-			let stored_params = TokenRegistrarParams::<T>::get(&state_machine);
-			let old_params = stored_params.clone().unwrap_or_default();
-			let new_params = old_params.update(update);
+			T::AdminOrigin::ensure_origin(origin)?;
 
-			TokenRegistrarParams::<T>::insert(state_machine.clone(), new_params.clone());
-
-			// if the params already exists then we dispatch a request to update it
-			if let Some(_) = stored_params {
-				let Params { token_registrar_address, .. } =
-					ProtocolParams::<T>::get().ok_or_else(|| Error::<T>::NotInitialized)?;
-				let dispatcher = T::Dispatcher::default();
-				dispatcher
-					.dispatch_request(
-						DispatchRequest::Post(DispatchPost {
-							dest: state_machine.clone(),
-							from: PALLET_ID.to_vec(),
-							to: token_registrar_address.as_bytes().to_vec(),
-							timeout: 0,
-							body: SolRegistrarParams::from(new_params.clone()).abi_encode(),
-						}),
-						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-					)
-					.map_err(|_| Error::<T>::DispatchFailed)?;
-			}
-
-			Self::deposit_event(Event::<T>::RegistrarParamsUpdated {
-				old: old_params,
-				new: new_params,
-				state_machine,
-			});
+			Self::update_registrar_params_impl(update)?;
 
 			Ok(())
 		}
@@ -263,12 +236,11 @@ pub mod pallet {
 		#[pallet::weight(weight())]
 		pub fn update_gateway_params(
 			origin: OriginFor<T>,
-			update: TokenGatewayParamsUpdate,
-			state_machine: StateMachine,
+			update: BTreeMap<StateMachine, TokenGatewayParamsUpdate>,
 		) -> DispatchResult {
-			ensure_root(origin)?;
+			T::AdminOrigin::ensure_origin(origin)?;
 
-			Self::update_gateway_params_impl(update, state_machine)?;
+			Self::update_gateway_params_impl(update)?;
 
 			Ok(())
 		}
@@ -280,7 +252,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			update: ParamsUpdate<<T as pallet_ismp::Config>::Balance>,
 		) -> DispatchResult {
-			ensure_root(origin)?;
+			T::AdminOrigin::ensure_origin(origin)?;
 			let stored_params = ProtocolParams::<T>::get();
 
 			let old_params = stored_params.unwrap_or_default();
@@ -318,9 +290,23 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset: ERC20AssetRegistration,
 		) -> DispatchResult {
-			ensure_root(origin)?;
+			T::AdminOrigin::ensure_origin(origin)?;
 
 			Self::create_erc20_asset_impl(asset)?;
+
+			Ok(())
+		}
+
+		/// Adds a new token gateway contract instance to all existing instances
+		#[pallet::call_index(7)]
+		#[pallet::weight(weight())]
+		pub fn new_contract_instance(
+			origin: OriginFor<T>,
+			updates: BTreeMap<StateMachine, TokenGatewayParamsUpdate>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			Self::add_new_gateway_instance(updates)?;
 
 			Ok(())
 		}
@@ -383,11 +369,11 @@ pub mod pallet {
 impl<T: Config> IsmpModule for Pallet<T> {
 	fn on_accept(
 		&self,
-		PostRequest { body: data, from, .. }: PostRequest,
+		PostRequest { body: data, from, source, .. }: PostRequest,
 	) -> Result<(), ismp::error::Error> {
-		let Params { token_registrar_address, .. } = ProtocolParams::<T>::get()
+		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
 			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
-		if from != token_registrar_address.as_bytes().to_vec() {
+		if from != address.as_bytes().to_vec() {
 			Err(ismp::error::Error::Custom(format!("Unauthorized action")))?
 		}
 		let body = SolRequestBody::abi_decode(&data[..], true)

@@ -7,7 +7,7 @@ use ethers::{
 };
 use frame_support::Deserialize;
 use hex_literal::hex;
-use ismp::host::{ethereum, StateMachine};
+use ismp::host::StateMachine;
 use primitive_types::{H160, U256};
 use reqwest::{
 	header::{HeaderMap, USER_AGENT},
@@ -56,9 +56,34 @@ pub struct EthPriceResponse {
 	pub result: EthPriceResult,
 }
 
-const TESTNET_CHAIN_IDS: [u64; 6] = [11155111u64, 421614, 84532, 11155420, 80001, 97];
 const ARB_GAS_INFO: [u8; 20] = hex!("000000000000000000000000000000000000006c");
 const OP_GAS_ORACLE: [u8; 20] = hex!("420000000000000000000000000000000000000F");
+
+// Supported EVM chains
+// Mainnets
+pub const ARBITRUM_CHAIN_ID: u32 = 42161;
+pub const OPTIMISM_CHAIN_ID: u32 = 10;
+pub const BASE_CHAIN_ID: u32 = 8453;
+pub const ETHEREUM_CHAIN_ID: u32 = 1;
+pub const BSC_CHAIN_ID: u32 = 56;
+pub const POLYGON_CHAIN_ID: u32 = 137;
+
+// Testnets
+pub const ARBITRUM_SEPOLIA_CHAIN_ID: u32 = 421614;
+pub const OPTIMISM_SEPOLIA_CHAIN_ID: u32 = 11155420;
+pub const BASE_SEPOLIA_CHAIN_ID: u32 = 84532;
+pub const SEPOLIA_CHAIN_ID: u32 = 11155111;
+pub const BSC_TESTNET_CHAIN_ID: u32 = 97;
+pub const POLYGON_TESTNET_CHAIN_ID: u32 = 80002;
+
+pub fn is_orbit_chain(id: u32) -> bool {
+	[ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID].contains(&id)
+}
+
+pub fn is_op_stack(id: u32) -> bool {
+	[OPTIMISM_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, BASE_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID]
+		.contains(&id)
+}
 
 #[derive(Debug)]
 pub struct GasBreakdown {
@@ -72,7 +97,6 @@ pub struct GasBreakdown {
 
 /// Function gets current gas price (for execution) in wei and return the equivalent in USD,
 pub async fn get_current_gas_cost_in_usd(
-	chain_id: u64,
 	chain: StateMachine,
 	api_keys: &String,
 	client: Arc<Provider<Http>>,
@@ -83,12 +107,12 @@ pub async fn get_current_gas_cost_in_usd(
 	let mut unit_wei = U256::zero();
 
 	match chain {
-		StateMachine::Ethereum(inner_evm) => {
+		StateMachine::Evm(inner_evm) => {
 			let api = "https://api.etherscan.io/api";
 			let eth_price_uri = format!("{api}?module=stats&action=ethprice&apikey={api_keys}");
 
 			match inner_evm {
-				ethereum::ARBITRUM => {
+				chain_id if is_orbit_chain(chain_id) => {
 					let node_gas_price = client.get_gas_price().await?;
 					let arb_gas_info_contract = ArbGasInfo::new(H160(ARB_GAS_INFO), client);
 					let (.., oracle_gas_price) = arb_gas_info_contract.get_prices_in_wei().await?;
@@ -98,9 +122,9 @@ pub async fn get_current_gas_cost_in_usd(
 					unit_wei = get_cost_of_one_wei(eth_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
-				ethereum::EXECUTION_LAYER => {
+				SEPOLIA_CHAIN_ID | ETHEREUM_CHAIN_ID => {
 					let uri = format!("{api}?module=gastracker&action=gasoracle&apikey={api_keys}");
-					if TESTNET_CHAIN_IDS.contains(&chain_id) {
+					if inner_evm == SEPOLIA_CHAIN_ID {
 						#[derive(Debug, Deserialize, Clone)]
 						struct GasNow {
 							standard: u128,
@@ -139,8 +163,87 @@ pub async fn get_current_gas_cost_in_usd(
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 					};
 				},
+				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
+					let uri = format!(
+						"https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
+					);
+					if inner_evm == POLYGON_TESTNET_CHAIN_ID {
+						const POLYGON_TESTNET: &'static str =
+							"https://gasstation-testnet.polygon.technology/v2";
+
+						#[derive(Debug, Deserialize, Clone)]
+						#[serde(rename_all = "camelCase")]
+						struct PriorityFee {
+							max_priority_fee: f64,
+						}
+
+						#[derive(Debug, Deserialize, Clone)]
+						#[serde(rename_all = "camelCase")]
+						struct Response {
+							standard: PriorityFee,
+						}
+
+						let mut header_map = HeaderMap::new();
+						// Polygon gas API returns forbidden if the user agent is not set
+						header_map.insert(USER_AGENT, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".parse().unwrap());
+						let response =
+							make_request::<Response>(POLYGON_TESTNET, header_map).await?;
+						let node_gas_price: U256 = client.get_gas_price().await?;
+						let oracle_gas_price =
+							parse_units(response.standard.max_priority_fee.to_string(), "gwei")?
+								.into();
+						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						let response_json =
+							make_request::<GasResponse>(&uri, Default::default()).await?;
+						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+						unit_wei = get_cost_of_one_wei(eth_usd);
+						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+					} else {
+						// Mainnet
+						let node_gas_price: U256 = client.get_gas_price().await?;
+						let uri = format!(
+							"https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
+						);
+						let response_json =
+							make_request::<GasResponse>(&uri, Default::default()).await?;
+						let oracle_gas_price =
+							parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?
+								.into();
+						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+						unit_wei = get_cost_of_one_wei(eth_usd);
+						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+					};
+				},
+
+				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => {
+					let uri = format!(
+						"https://api.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
+					);
+
+					if inner_evm == BSC_TESTNET_CHAIN_ID {
+						gas_price = client.get_gas_price().await?;
+						let response_json =
+							make_request::<GasResponse>(&uri, Default::default()).await?;
+						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+						let unit_wei = get_cost_of_one_wei(eth_usd);
+						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+					} else {
+						let node_gas_price: U256 = client.get_gas_price().await?;
+						// Mainnet
+						let response_json =
+							make_request::<GasResponse>(&uri, Default::default()).await?;
+						let oracle_gas_price =
+							parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?
+								.into();
+						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+						unit_wei = get_cost_of_one_wei(eth_usd);
+						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+					};
+				},
 				// op stack chains
-				_ => {
+				chain_id if is_op_stack(chain_id) => {
 					let node_gas_price: U256 = client.get_gas_price().await?;
 					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
 					let ovm_gas_price = ovm_gas_price_oracle.gas_price().await?;
@@ -150,77 +253,8 @@ pub async fn get_current_gas_cost_in_usd(
 					unit_wei = get_cost_of_one_wei(eth_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
+				_ => Err(anyhow!("Unknown chain: {chain:?}"))?,
 			}
-		},
-		StateMachine::Polygon => {
-			let uri = format!(
-                "https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-            );
-			if TESTNET_CHAIN_IDS.contains(&chain_id) {
-				const POLYGON_TESTNET: &'static str =
-					"https://gasstation-testnet.polygon.technology/v2";
-
-				#[derive(Debug, Deserialize, Clone)]
-				#[serde(rename_all = "camelCase")]
-				struct PriorityFee {
-					max_priority_fee: f64,
-				}
-
-				#[derive(Debug, Deserialize, Clone)]
-				#[serde(rename_all = "camelCase")]
-				struct Response {
-					standard: PriorityFee,
-				}
-
-				let mut header_map = HeaderMap::new();
-				// Polygon gas API returns forbidden if the user agent is not set
-				header_map.insert(USER_AGENT, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".parse().unwrap());
-				let response = make_request::<Response>(POLYGON_TESTNET, header_map).await?;
-				let node_gas_price: U256 = client.get_gas_price().await?;
-				let oracle_gas_price =
-					parse_units(response.standard.max_priority_fee.to_string(), "gwei")?.into();
-				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
-				let response_json = make_request::<GasResponse>(&uri, Default::default()).await?;
-				let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-				unit_wei = get_cost_of_one_wei(eth_usd);
-				gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-			} else {
-				// Mainnet
-				let node_gas_price: U256 = client.get_gas_price().await?;
-				let uri = format!(
-                    "https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-                );
-				let response_json = make_request::<GasResponse>(&uri, Default::default()).await?;
-				let oracle_gas_price =
-					parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?.into();
-				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
-				let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-				unit_wei = get_cost_of_one_wei(eth_usd);
-				gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-			};
-		},
-		StateMachine::Bsc => {
-			let uri = format!(
-				"https://api.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-			);
-
-			if TESTNET_CHAIN_IDS.contains(&chain_id) {
-				gas_price = client.get_gas_price().await?;
-				let response_json = make_request::<GasResponse>(&uri, Default::default()).await?;
-				let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-				let unit_wei = get_cost_of_one_wei(eth_usd);
-				gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-			} else {
-				let node_gas_price: U256 = client.get_gas_price().await?;
-				// Mainnet
-				let response_json = make_request::<GasResponse>(&uri, Default::default()).await?;
-				let oracle_gas_price =
-					parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?.into();
-				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
-				let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-				unit_wei = get_cost_of_one_wei(eth_usd);
-				gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-			};
 		},
 		chain => Err(anyhow!("Unknown chain: {chain:?}"))?,
 	}
@@ -252,15 +286,15 @@ pub async fn get_l2_data_cost(
 	unit_wei_cost: U256,
 ) -> Result<Cost, anyhow::Error> {
 	let mut data_cost = U256::zero();
-
 	match chain {
-		StateMachine::Ethereum(inner_evm) => match inner_evm {
-			ethereum::EXECUTION_LAYER | ethereum::ARBITRUM => {},
-			_ => {
+		StateMachine::Evm(inner_evm) => match inner_evm {
+			id if is_op_stack(id) => {
 				let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
 				let data_cost_bytes = ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?; // this is in wei
 				data_cost = data_cost_bytes * unit_wei_cost
 			},
+
+			_ => {},
 		},
 		_ => Err(anyhow!("Unknown chain: {chain:?}"))?,
 	}
@@ -342,10 +376,11 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 mod test {
 	use crate::gas_oracle::{
 		convert_27_decimals_to_18_decimals, get_cost_of_one_wei, get_current_gas_cost_in_usd,
-		get_l2_data_cost, parse_to_27_decimals,
+		get_l2_data_cost, parse_to_27_decimals, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_TESTNET_CHAIN_ID,
+		OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
 	};
 	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
-	use ismp::host::{ethereum, StateMachine};
+	use ismp::host::StateMachine;
 	use primitive_types::U256;
 	use std::sync::Arc;
 	use tesseract_primitives::Cost;
@@ -361,8 +396,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			1,
-			StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			StateMachine::Evm(SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -385,8 +419,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			11155111u64,
-			StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			StateMachine::Evm(SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -409,8 +442,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			137,
-			StateMachine::Polygon,
+			StateMachine::Evm(POLYGON_TESTNET_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -433,8 +465,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			80001,
-			StateMachine::Polygon,
+			StateMachine::Evm(POLYGON_TESTNET_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -457,8 +488,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			56,
-			StateMachine::Bsc,
+			StateMachine::Evm(BSC_TESTNET_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -480,8 +510,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			42161,
-			StateMachine::Ethereum(ethereum::ARBITRUM),
+			StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -503,8 +532,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			10,
-			StateMachine::Ethereum(ethereum::OPTIMISM),
+			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -525,8 +553,7 @@ mod test {
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			10,
-			StateMachine::Ethereum(ethereum::OPTIMISM),
+			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 			None,
@@ -535,7 +562,7 @@ mod test {
 		.unwrap();
 		let data_cost = get_l2_data_cost(
 			vec![1u8; 32].into(),
-			StateMachine::Ethereum(ethereum::OPTIMISM),
+			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
 			client.clone(),
 			ethereum_gas_cost_in_usd.unit_wei_cost,
 		)

@@ -31,7 +31,7 @@ use ismp::{
 	},
 	error::Error as IsmpError,
 	handlers,
-	host::{ethereum, IsmpHost, StateMachine},
+	host::{IsmpHost, StateMachine},
 	messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
 	module::IsmpModule,
 	router::{IsmpRouter, PostRequest, RequestResponse, Response, Timeout},
@@ -42,7 +42,7 @@ use pallet_ismp::{mmr::Leaf, ModuleId};
 use sp_core::{
 	crypto::AccountId32,
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H160, H256,
+	H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
@@ -74,6 +74,7 @@ frame_support::construct_runtime!(
 		Gateway: pallet_asset_gateway,
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
+		IsmpSyncCommittee: ismp_sync_committee::pallet,
 	}
 );
 
@@ -191,8 +192,8 @@ impl pallet_ismp::Config for Test {
 	type Currency = Balances;
 	type ConsensusClients = (
 		MockConsensusClient,
-		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia>,
-		ismp_bsc::BscClient<Ismp>,
+		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test>,
+		ismp_bsc::BscClient<Ismp, Test>,
 	);
 	type Mmr = Mmr;
 	type WeightProvider = ();
@@ -200,6 +201,11 @@ impl pallet_ismp::Config for Test {
 
 impl pallet_hyperbridge::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+}
+
+impl ismp_sync_committee::pallet::Config for Test {
+	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IsmpHost = Ismp;
 }
 
@@ -387,7 +393,7 @@ where
 			challenge_period: 0,
 			state_machine_commitments: vec![(
 				StateMachineId {
-					state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+					state_id: StateMachine::Evm(1),
 					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 				},
 				StateCommitmentHeight {
@@ -404,7 +410,7 @@ where
 	.unwrap();
 	let height = StateMachineHeight {
 		id: StateMachineId {
-			state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+			state_id: StateMachine::Evm(1),
 			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 		},
 		height: 3,
@@ -426,11 +432,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	ext.execute_with(|| {
 		System::set_block_number(1);
-		let protocol_params = pallet_token_governor::Params::<Balance> {
-			token_gateway_address: H160::zero(),
-			token_registrar_address: H160::zero(),
-			registration_fee: Default::default(),
-		};
+		let protocol_params =
+			pallet_token_governor::Params::<Balance> { registration_fee: Default::default() };
 
 		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
 	});

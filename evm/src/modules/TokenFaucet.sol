@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity 0.8.17;
 
-import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
+import {IERC6160Ext20} from "@polytope-labs/erc6160/interfaces/IERC6160Ext20.sol";
 
 /**
  * @title The TokenFaucet.
@@ -30,7 +30,7 @@ contract TokenFaucet {
         uint256 lastDrip = consumers[msg.sender];
         uint256 delay = block.timestamp - lastDrip;
 
-        if (delay < 86400) {
+        if (delay < 1 days) {
             revert("Can only request tokens once daily");
         }
 

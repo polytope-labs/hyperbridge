@@ -119,7 +119,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 
 	let post = PostRequest {
 		source: StateMachine::Polkadot(para_id),
-		dest: StateMachine::Polygon,
+		dest: StateMachine::Evm(8002),
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
 		to: H256::random().as_bytes().to_vec(),

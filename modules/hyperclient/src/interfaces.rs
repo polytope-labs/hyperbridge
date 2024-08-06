@@ -202,7 +202,7 @@ mod tests {
 	use ethers::prelude::H160;
 	use hex_literal::hex;
 	use ismp::{
-		host::{ethereum, StateMachine},
+		host::StateMachine,
 		router::{PostRequest, PostResponse},
 	};
 	const OP_HOST: H160 = H160(hex!("1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95"));
@@ -212,14 +212,14 @@ mod tests {
 	fn test_chain_config_conversion() {
 		let source_chain = EvmConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
-			state_machine: StateMachine::Bsc,
+			state_machine: StateMachine::Evm(97),
 			host_address: BSC_HOST,
 			consensus_state_id: *b"BSC0",
 		};
 
 		let dest_chain = EvmConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
-			state_machine: StateMachine::Ethereum(ethereum::OPTIMISM),
+			state_machine: StateMachine::Evm(11155420),
 			host_address: OP_HOST,
 			consensus_state_id: *b"ETH0",
 		};
@@ -238,14 +238,14 @@ mod tests {
 
 		let js_source = JsChainConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
-			state_machine: "BSC".to_string(),
+			state_machine: "EVM-97".to_string(),
 			host_address: hex::encode(&BSC_HOST.0),
 			consensus_state_id: "BSC0".to_string(),
 		};
 
 		let js_dest = JsChainConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
-			state_machine: "ETH-OPTI".to_string(),
+			state_machine: "EVM-11155420".to_string(),
 			host_address: hex::encode(&OP_HOST.0),
 			consensus_state_id: "ETH0".to_string(),
 		};
@@ -266,7 +266,7 @@ mod tests {
 	fn test_post_conversion() {
 		let post_response = PostResponse {
 			post: PostRequest {
-				source: StateMachine::Bsc,
+				source: StateMachine::Evm(97),
 				dest: StateMachine::Kusama(2000),
 				nonce: 100,
 				from: vec![30; 20],
@@ -280,7 +280,7 @@ mod tests {
 
 		let js_post_response = JsPostResponse {
 			post: JsPost {
-				source: "BSC".to_string(),
+				source: "EVM-97".to_string(),
 				dest: "KUSAMA-2000".to_string(),
 				nonce: 100,
 				from: hex::encode(vec![30; 20]),

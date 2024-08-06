@@ -69,12 +69,6 @@ contract UltraPlonkBeefy is IConsensusClient, ERC165 {
     // Plonk verifier contract
     IVerifier internal _verifier;
 
-    // Authorized paraId.
-    uint256 private _paraId;
-
-    // Provided paraId was unknown
-    error UnknownParaId();
-
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
 
@@ -93,8 +87,7 @@ contract UltraPlonkBeefy is IConsensusClient, ERC165 {
     // Genesis block should not be provided
     error IllegalGenesisBlock();
 
-    constructor(uint256 paraId, IVerifier verifier) {
-        _paraId = paraId;
+    constructor(IVerifier verifier) {
         _verifier = verifier;
     }
 
@@ -216,10 +209,9 @@ contract UltraPlonkBeefy is IConsensusClient, ERC165 {
     function verifyParachainHeaderProof(
         bytes32 headsRoot,
         ParachainProof memory proof
-    ) internal view returns (IntermediateState memory) {
+    ) internal pure returns (IntermediateState memory) {
         Node[] memory leaves = new Node[](1);
         Parachain memory para = proof.parachain;
-        if (para.id != _paraId) revert UnknownParaId();
 
         Header memory header = Codec.DecodeHeader(para.header);
 

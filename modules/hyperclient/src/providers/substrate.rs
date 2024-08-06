@@ -197,7 +197,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		}
 		match keys[0].dest_chain {
 			// Use mmr proofs for queries going to EVM chains
-			StateMachine::Ethereum(_) | StateMachine::Bsc | StateMachine::Polygon => {
+			StateMachine::Evm(_) => {
 				let keys =
 					ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
@@ -239,7 +239,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 		match keys[0].dest_chain {
 			// Use mmr proofs for queries going to EVM chains
-			StateMachine::Ethereum(_) | StateMachine::Bsc | StateMachine::Polygon => {
+			StateMachine::Evm(_) => {
 				let keys =
 					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];

@@ -1,9 +1,6 @@
 [submodule "evm/lib/forge-std"]
 	path = evm/lib/forge-std
 	url = git@github.com:foundry-rs/forge-std
-[submodule "evm/lib/ERC6160"]
-	path = evm/lib/ERC6160
-	url = https://github.com/polytope-labs/ERC6160
 [submodule "evm/lib/solidity-stringutils"]
 	path = evm/lib/solidity-stringutils
 	url = https://github.com/Arachnid/solidity-stringutils

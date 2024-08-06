@@ -27,6 +27,7 @@ import {StateCommitment, StateMachineHeight} from "@polytope-labs/ismp-solidity/
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "@polytope-labs/ismp-solidity/Message.sol";
 import {IConsensusClient} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
@@ -300,7 +301,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // Monotonically increasing nonce
         uint256 nonce,
         // The timestamp at which this response will be considered as timed out
-        uint256 timeoutTimestamp
+        uint256 timeoutTimestamp,
+        // The associated protocol fee
+        uint256 fee
     );
 
     // Emitted when a POST or GET request is funded
@@ -435,21 +438,66 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     receive() external payable {}
 
     /**
-     * @return the host admin
-     */
-    function admin() external view returns (address) {
-        return _hostParams.admin;
-    }
-
-    /**
      * @return the host state machine id
      */
-    function host() public view virtual returns (bytes memory);
+    function host() public view returns (bytes memory) {
+        return StateMachine.evm(block.chainid);
+    }
 
     /**
      * @return the mainnet evm chainId for this host
      */
     function chainId() public virtual returns (uint256);
+
+    /**
+     * @return the host timestamp
+     */
+    function timestamp() external view returns (uint256) {
+        return block.timestamp;
+    }
+
+    /**
+     * @return the `frozen` status
+     */
+    function frozen() external view returns (FrozenStatus) {
+        return _frozen;
+    }
+
+    /**
+     * @dev Returns the nonce immediately available for requests
+     * @return the `nonce`
+     */
+    function nonce() external view returns (uint256) {
+        return _nonce;
+    }
+
+    /**
+     * @return the last updated time of the consensus client
+     */
+    function consensusUpdateTime() external view returns (uint256) {
+        return _consensusUpdateTimestamp;
+    }
+
+    /**
+     * @return the state of the consensus client
+     */
+    function consensusState() external view returns (bytes memory) {
+        return _consensusState;
+    }
+
+    /**
+     * @return the `HostParams`
+     */
+    function hostParams() external view returns (HostParams memory) {
+        return _hostParams;
+    }
+
+    /**
+     * @return the host admin
+     */
+    function admin() external view returns (address) {
+        return _hostParams.admin;
+    }
 
     /**
      * @return the address of the ERC-20 fee token contract on this state machine
@@ -474,27 +522,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @return the host timestamp
-     */
-    function timestamp() external view returns (uint256) {
-        return block.timestamp;
-    }
-
-    /**
-     * @return the `frozen` status
-     */
-    function frozen() external view returns (FrozenStatus) {
-        return _frozen;
-    }
-
-    /**
-     * @return the `HostParams`
-     */
-    function hostParams() external view returns (HostParams memory) {
-        return _hostParams;
-    }
-
-    /**
      * @return the state machine identifier for the connected hyperbridge instance
      */
     function hyperbridge() external view returns (bytes memory) {
@@ -510,33 +537,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Returns the nonce immediately available for requests
-     * @return the `nonce`
-     */
-    function nonce() external view returns (uint256) {
-        return _nonce;
-    }
-
-    /**
      * @dev Should return a handle to the consensus client based on the id
      * @return the consensus client contract
      */
     function consensusClient() external view returns (address) {
         return _hostParams.consensusClient;
-    }
-
-    /**
-     * @return the last updated time of the consensus client
-     */
-    function consensusUpdateTime() external view returns (uint256) {
-        return _consensusUpdateTimestamp;
-    }
-
-    /**
-     * @return the state of the consensus client
-     */
-    function consensusState() external view returns (bytes memory) {
-        return _consensusState;
     }
 
     /**
@@ -655,24 +660,26 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Updates the HostParams, can only be called by cross-chain governance
+     * @dev Updates the HostParams. On mainnet it can only be called by cross-chain governance.
      * @param params, the new host params.
      */
-    function updateHostParams(HostParams memory params) external restrict(_hostParams.hostManager) {
-        updateHostParamsInternal(params);
-    }
-
-    /**
-     * @dev Updates the HostParams
-     * @param params, the new host params. Can only be called by admin on testnets.
-     */
-    function setHostParamsAdmin(HostParams memory params) public restrict(_hostParams.admin) {
-        if (chainId() == block.chainid) revert UnauthorizedAction();
-
-        uint256 whitelistLength = params.stateMachines.length;
-        for (uint256 i = 0; i < whitelistLength; ++i) {
-            delete _latestStateMachineHeight[params.stateMachines[i]];
+    function updateHostParams(HostParams memory params) external {
+        address caller = _msgSender();
+        if (caller != _hostParams.hostManager && caller != _hostParams.admin) {
+            revert UnauthorizedAction();
         }
+
+        if (caller == _hostParams.admin) {
+            // admin cannot change host params on mainnet
+            if (chainId() == block.chainid) revert UnauthorizedAction();
+
+            // reset all state machines, on testnet
+            uint256 whitelistLength = params.stateMachines.length;
+            for (uint256 i = 0; i < whitelistLength; ++i) {
+                delete _latestStateMachineHeight[params.stateMachines[i]];
+            }
+        }
+
         updateHostParamsInternal(params);
     }
 
@@ -716,7 +723,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // otherwise cannot process new datagrams
         if (stateMachinesLen == 0) revert InvalidStateMachinesLength();
         // otherwise cannot process new datagrams
-        if (86400 > params.unStakingPeriod) revert InvalidUnstakingPeriod();
+        if (1 days > params.unStakingPeriod) revert InvalidUnstakingPeriod();
 
         // maximum of 100 fishermen
         if (newFishermenLength > 100) revert MaxFishermanCountExceeded();
@@ -944,14 +951,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param response - get response
      */
     function dispatchIncoming(GetResponse memory response, address relayer) external restrict(_hostParams.handler) {
-        address origin = _bytesToAddress(response.request.from);
-
         // replay protection
         bytes32 commitment = response.request.hash();
         // don't commit the full response object, it's unused.
         _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
 
-        (bool success, ) = address(origin).call(
+        (bool success, ) = address(response.request.from).call(
             abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, IncomingGetResponse(response, relayer))
         );
 
@@ -974,11 +979,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory meta,
         bytes32 commitment
     ) external restrict(_hostParams.handler) {
-        address origin = _bytesToAddress(request.from);
-
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success, ) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
+        (bool success, ) = address(request.from).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -1013,6 +1016,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         if (meta.fee != 0) {
+            // refund relayer fee
             SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
         }
         emit PostRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
@@ -1153,7 +1157,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             source: host(),
             dest: get.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(_msgSender()),
+            from: _msgSender(),
             timeoutTimestamp: timeoutTimestamp,
             keys: get.keys,
             height: get.height
@@ -1165,11 +1169,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         emit GetRequestEvent({
             source: string(request.source),
             dest: string(request.dest),
-            from: _msgSender(),
+            from: request.from,
             keys: request.keys,
             nonce: request.nonce,
             height: request.height,
-            timeoutTimestamp: request.timeoutTimestamp
+            timeoutTimestamp: request.timeoutTimestamp,
+            fee: get.fee
         });
     }
 

@@ -20,7 +20,7 @@ extern crate alloc;
 use alloc::{boxed::Box, string::ToString, vec};
 use alloy_sol_types::SolType;
 use core::marker::PhantomData;
-use pallet_token_governor::ProtocolParams;
+use pallet_token_governor::TokenGatewayParams;
 
 use frame_support::{
 	ensure,
@@ -83,7 +83,7 @@ pub mod pallet {
 
 		/// Pallet parameters
 		#[pallet::constant]
-		type Params: Get<TokenGatewayParams>;
+		type Params: Get<AssetGatewayParams>;
 
 		/// The [`IsmpDispatcher`] implementation to use for dispatching requests
 		type IsmpHost: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
@@ -94,7 +94,7 @@ pub mod pallet {
 
 	#[pallet::storage]
 	#[pallet::getter(fn params)]
-	pub type Params<T> = StorageValue<_, TokenGatewayParams, OptionQuery>;
+	pub type Params<T> = StorageValue<_, AssetGatewayParams, OptionQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -146,12 +146,12 @@ pub mod pallet {
 	}
 
 	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
-	pub struct TokenGatewayParams {
+	pub struct AssetGatewayParams {
 		/// Percentage to be taken as protocol fees
 		pub protocol_fee_percentage: Permill,
 	}
 
-	impl TokenGatewayParams {
+	impl AssetGatewayParams {
 		pub const fn from_parts(protocol_fee_percentage: Permill) -> Self {
 			Self { protocol_fee_percentage }
 		}
@@ -199,8 +199,10 @@ where
 		T::TreasuryAccount::get().into_account_truncating()
 	}
 
-	pub fn token_gateway_address() -> H160 {
-		ProtocolParams::<T>::get().map(|p| p.token_gateway_address).unwrap_or_default()
+	pub fn token_gateway_address(state_machine: &StateMachine) -> H160 {
+		TokenGatewayParams::<T>::get(state_machine)
+			.map(|p| p.address)
+			.unwrap_or_default()
 	}
 
 	pub fn protocol_fee_percentage() -> Permill {
@@ -238,7 +240,7 @@ where
 			to: to.into(),
 		};
 
-		let token_gateway_address = Self::token_gateway_address();
+		let token_gateway_address = Self::token_gateway_address(&multi_account.dest_state_machine);
 
 		let dispatch_post = DispatchPost {
 			dest: multi_account.dest_state_machine,
@@ -309,7 +311,7 @@ where
 		let request = Request::Post(post.clone());
 		// Check that source module is equal to the known token gateway deployment address
 		ensure!(
-			request.source_module() == Pallet::<T>::token_gateway_address().0.to_vec(),
+			request.source_module() == Pallet::<T>::token_gateway_address(&post.source).0.to_vec(),
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Unknown source contract address".to_string(),
 				meta: Meta {
@@ -427,7 +429,6 @@ where
 
 	fn on_timeout(&self, request: Timeout) -> Result<(), ismp::error::Error> {
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
-
 		match request {
 			Timeout::Request(Request::Post(post)) => {
 				let request = Request::Post(post.clone());

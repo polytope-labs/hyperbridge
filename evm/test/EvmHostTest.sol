@@ -74,13 +74,13 @@ contract EvmHostTest is BaseTest {
         HostParams memory params = host.hostParams();
         // we can set host params
         vm.prank(host.hostParams().admin);
-        host.setHostParamsAdmin(params);
+        host.updateHostParams(params);
 
         // can't set on mainnet
         vm.chainId(host.chainId());
         vm.prank(host.hostParams().admin);
         vm.expectRevert(EvmHost.UnauthorizedAction.selector);
-        host.setHostParamsAdmin(params);
+        host.updateHostParams(params);
     }
 
     function testSweepFeeTokenBeforeUpdate() public {
@@ -94,12 +94,12 @@ contract EvmHostTest is BaseTest {
         // we can't set host params
         vm.prank(host.hostParams().admin);
         vm.expectRevert(EvmHost.CannotChangeFeeToken.selector);
-        host.setHostParamsAdmin(params);
+        host.updateHostParams(params);
 
         feeToken.burn(address(host), 1 * 1e18);
         // we can't set host params
         vm.prank(host.hostParams().admin);
-        host.setHostParamsAdmin(params);
+        host.updateHostParams(params);
         assert(host.hostParams().feeToken == address(this));
     }
 
@@ -111,7 +111,7 @@ contract EvmHostTest is BaseTest {
                 body: abi.encodePacked(bytes32(0)),
                 payer: address(this),
                 fee: 0,
-                dest: StateMachine.arbitrum(),
+                dest: StateMachine.evm(421614),
                 timeout: 0,
                 to: abi.encode(bytes32(0))
             })
@@ -140,7 +140,7 @@ contract EvmHostTest is BaseTest {
         bytes[] memory keys = new bytes[](1);
         keys[0] = abi.encode(address(this));
         vm.expectRevert(EvmHost.FrozenHost.selector);
-        host.dispatch(DispatchGet({dest: StateMachine.bsc(), height: 100, keys: keys, timeout: 60 * 60, fee: 0}));
+        host.dispatch(DispatchGet({dest: StateMachine.evm(97), height: 100, keys: keys, timeout: 60 * 60, fee: 0}));
 
         vm.prank(host.hostParams().handler);
         host.setFrozenState(FrozenStatus.None);
@@ -151,7 +151,7 @@ contract EvmHostTest is BaseTest {
                 body: abi.encodePacked(bytes32(0)),
                 payer: address(this),
                 fee: 0,
-                dest: StateMachine.arbitrum(),
+                dest: StateMachine.evm(421614),
                 timeout: 0,
                 to: abi.encode(bytes32(0))
             })
@@ -168,7 +168,7 @@ contract EvmHostTest is BaseTest {
                 body: new bytes(0),
                 payer: tx.origin,
                 fee: 0,
-                dest: StateMachine.arbitrum(),
+                dest: StateMachine.evm(421614),
                 timeout: 0,
                 to: new bytes(0)
             })
@@ -256,7 +256,7 @@ contract EvmHostTest is BaseTest {
         fishermen[0] = tx.origin;
         params.fishermen = fishermen;
         vm.prank(params.admin);
-        host.setHostParamsAdmin(params);
+        host.updateHostParams(params);
 
         // create a state commitment
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
@@ -318,7 +318,7 @@ contract EvmHostTest is BaseTest {
         fishermen[1] = address(this);
         params.fishermen = fishermen;
         vm.prank(params.admin);
-        host.setHostParamsAdmin(params);
+        host.updateHostParams(params);
 
         // create a state commitment
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
@@ -358,7 +358,7 @@ contract EvmHostTest is BaseTest {
         address[] memory newFishermen = new address[](0);
         params.fishermen = newFishermen;
         vm.prank(params.admin);
-        host.setHostParamsAdmin(params);
+        host.updateHostParams(params);
 
         // create a state commitment
         vm.prank(params.handler);
@@ -392,7 +392,7 @@ contract EvmHostTest is BaseTest {
         HostParams memory params = host.hostParams();
         params.hyperbridge = StateMachine.polkadot(3367);
         vm.prank(params.admin);
-        host.setHostParamsAdmin(params);
+        host.updateHostParams(params);
 
         assert(StateMachine.polkadot(3000).equals(bytes(host.stateMachineId(host.hyperbridge(), 3000))));
     }

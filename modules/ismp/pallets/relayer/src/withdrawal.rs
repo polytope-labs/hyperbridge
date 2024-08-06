@@ -45,8 +45,8 @@ pub struct WithdrawalInputData {
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum Signature {
-	/// An Ethereum Address and signature
-	Ethereum { address: Vec<u8>, signature: Vec<u8> },
+	/// An Evm Address and signature
+	Evm { address: Vec<u8>, signature: Vec<u8> },
 	/// An Sr25519 public key and signature
 	Sr25519 { public_key: Vec<u8>, signature: Vec<u8> },
 	/// An Ed25519 public key and signature

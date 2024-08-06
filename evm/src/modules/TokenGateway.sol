@@ -19,8 +19,8 @@ import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {Message} from "@polytope-labs/ismp-solidity/Message.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
-import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
-import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
+import {IERC6160Ext20} from "@polytope-labs/erc6160/interfaces/IERC6160Ext20.sol";
+import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
@@ -247,6 +247,8 @@ contract TokenGateway is BaseIsmpModule {
     event AssetTeleported(
         // The beneficiary of the funds
         bytes32 to,
+        // The destination chain
+        string dest,
         // The amount that was requested to be sent
         uint256 amount,
         // The associated request commitment
@@ -316,14 +318,6 @@ contract TokenGateway is BaseIsmpModule {
         address newAdmin
     );
 
-    // Some native tokens have been withdrawn
-    event NativeTokenWithdrawal(
-        // beneficiary of the withdrawal
-        address beneficiary,
-        // amount of the native token to withdraw
-        uint256 amount
-    );
-
     // @dev Action is unauthorized
     error UnauthorizedAction();
 
@@ -366,7 +360,7 @@ contract TokenGateway is BaseIsmpModule {
     /**
      * @dev Checks that the request originates from a known instance of the TokenGateway.
      */
-    modifier authenticate(PostRequest memory request) {
+    modifier authenticate(PostRequest calldata request) {
         // TokenGateway only accepts incoming assets from itself
         bool unknown = !request.from.equals(abi.encodePacked(address(this))) &&
             _instances[keccak256(request.source)] != bytesToAddress(request.from);
@@ -381,7 +375,7 @@ contract TokenGateway is BaseIsmpModule {
     /**
      * @dev initialize required parameters
      */
-    function init(TokenGatewayParamsExt memory teleportParams) public restrict(_admin) {
+    function init(TokenGatewayParamsExt calldata teleportParams) public restrict(_admin) {
         _params = teleportParams.params;
         createAssets(teleportParams.assets);
 
@@ -427,7 +421,7 @@ contract TokenGateway is BaseIsmpModule {
     /**
      * @dev Fetch the TokenGateway instance for a destination.
      */
-    function instance(bytes memory destination) public view returns (address) {
+    function instance(bytes calldata destination) public view returns (address) {
         address gateway = _instances[keccak256(destination)];
         return gateway == address(0) ? address(this) : gateway;
     }
@@ -439,12 +433,11 @@ contract TokenGateway is BaseIsmpModule {
      * @notice If a request times out, users can request a refund permissionlessly through
      * `HandlerV1.handlePostRequestTimeouts`.
      */
-    function teleport(TeleportParams memory teleportParams) public payable {
+    function teleport(TeleportParams calldata teleportParams) public payable {
         if (teleportParams.to == bytes32(0)) revert ZeroAddress();
         if (teleportParams.amount == 0) revert InvalidAmount();
 
         uint256 msgValue = msg.value;
-        bytes32 fromBytes32 = addressToBytes32(msg.sender);
         address _erc20 = _erc20s[teleportParams.assetId];
         address _erc6160 = _erc6160s[teleportParams.assetId];
         address feeToken = IIsmpHost(_params.host).feeToken();
@@ -471,7 +464,7 @@ contract TokenGateway is BaseIsmpModule {
         bytes memory data = teleportParams.data.length > 0
             ? abi.encode(
                 BodyWithCall({
-                    from: fromBytes32,
+                    from: addressToBytes32(msg.sender),
                     to: teleportParams.to,
                     amount: teleportParams.amount,
                     maxFee: teleportParams.maxFee,
@@ -482,7 +475,7 @@ contract TokenGateway is BaseIsmpModule {
             )
             : abi.encode(
                 Body({
-                    from: fromBytes32,
+                    from: addressToBytes32(msg.sender),
                     to: teleportParams.to,
                     maxFee: teleportParams.maxFee,
                     amount: teleportParams.amount,
@@ -513,6 +506,7 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetTeleported({
             from: msg.sender,
             to: teleportParams.to,
+            dest: string(teleportParams.dest),
             assetId: teleportParams.assetId,
             amount: teleportParams.amount,
             redeem: teleportParams.redeem,
@@ -622,7 +616,7 @@ contract TokenGateway is BaseIsmpModule {
 
         SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
 
-        emit BidRefunded({commitment: commitment, assetId: body.assetId, bidder: msg.sender});
+        emit BidRefunded({commitment: commitment, assetId: body.assetId, bidder: liquidityBid.bidder});
     }
 
     /**

@@ -5,7 +5,7 @@ use ethers::{
 };
 use forge_testsuite::Runner;
 use ismp::{
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::hash_request,
 	router::{self, Request},
 };
@@ -32,7 +32,7 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
 	// create post request object
 	let get = router::GetRequest {
 		dest: StateMachine::Polkadot(2000),
-		source: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+		source: StateMachine::Evm(1),
 		nonce: 0,
 		from: destination.as_bytes().to_vec(),
 		keys: vec![key.clone()],
@@ -57,15 +57,7 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
 	}
 	.encode();
 
-	let mut sol_get = GetRequest {
-		source: get.source.to_string().as_bytes().to_vec().into(),
-		dest: get.dest.to_string().as_bytes().to_vec().into(),
-		nonce: get.nonce,
-		keys: get.keys.into_iter().map(Into::into).collect(),
-		from: get.from.into(),
-		timeout_timestamp: get.timeout_timestamp,
-		height: get.height,
-	};
+	let mut sol_get: GetRequest = get.into();
 
 	let message = GetResponseMessage {
 		proof: proof.into_iter().map(Into::into).collect(),

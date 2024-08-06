@@ -2,8 +2,8 @@
 pragma solidity 0.8.17;
 
 import "forge-std/Script.sol";
-import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
-import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
+import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
+import {IERC6160Ext20} from "@polytope-labs/erc6160/interfaces/IERC6160Ext20.sol";
 import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
@@ -18,7 +18,6 @@ contract DeployScript is BaseScript {
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
         string memory host = vm.envString("HOST");
         // todo:
-        address uniRouter = address(1);
         address callDispatcher = address(1);
 
         if (equal(host, "sepolia") || equal(host, "ethereum")) {
@@ -45,8 +44,6 @@ contract DeployScript is BaseScript {
     }
 
     function deployGateway(address host, address admin, address callDispatcher) public {
-        uint256 _paraId = vm.envUint("PARA_ID");
-
         IERC6160Ext20 feeToken = IERC6160Ext20(FEE_TOKEN);
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);

@@ -24,8 +24,8 @@ use sync_committee_primitives::types::{VerifierState, VerifierStateUpdate};
 pub struct ConsensusState {
 	pub frozen_height: Option<u64>,
 	pub light_client_state: VerifierState,
-	pub ismp_contract_addresses: BTreeMap<StateMachine, H160>,
 	pub l2_consensus: BTreeMap<StateMachine, L2Consensus>,
+	pub chain_id: u32,
 }
 
 #[derive(Encode, Decode)]

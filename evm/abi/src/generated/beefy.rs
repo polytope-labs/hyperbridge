@@ -14,17 +14,7 @@ pub mod beefy {
 	#[allow(deprecated)]
 	fn __abi() -> ::ethers::core::abi::Abi {
 		::ethers::core::abi::ethabi::Contract {
-            constructor: ::core::option::Option::Some(::ethers::core::abi::ethabi::Constructor {
-                inputs: ::std::vec![
-                    ::ethers::core::abi::ethabi::Param {
-                        name: ::std::borrow::ToOwned::to_owned("paraId"),
-                        kind: ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                        internal_type: ::core::option::Option::Some(
-                            ::std::borrow::ToOwned::to_owned("uint256"),
-                        ),
-                    },
-                ],
-            }),
+            constructor: ::core::option::Option::None,
             functions: ::core::convert::From::from([
                 (
                     ::std::borrow::ToOwned::to_owned("AURA_CONSENSUS_ID"),
@@ -117,43 +107,13 @@ pub mod beefy {
                     ],
                 ),
                 (
-                    ::std::borrow::ToOwned::to_owned("supportsInterface"),
+                    ::std::borrow::ToOwned::to_owned("noOp"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("supportsInterface"),
+                            name: ::std::borrow::ToOwned::to_owned("noOp"),
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::borrow::ToOwned::to_owned("interfaceId"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
-                                        4usize,
-                                    ),
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("bytes4"),
-                                    ),
-                                },
-                            ],
-                            outputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("bool"),
-                                    ),
-                                },
-                            ],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
-                ),
-                (
-                    ::std::borrow::ToOwned::to_owned("verifyConsensus"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("verifyConsensus"),
-                            inputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::borrow::ToOwned::to_owned("trustedState"),
+                                    name: ::std::borrow::ToOwned::to_owned("s"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
                                         ::std::vec![
                                             ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
@@ -181,7 +141,7 @@ pub mod beefy {
                                     ),
                                 },
                                 ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::borrow::ToOwned::to_owned("proof"),
+                                    name: ::std::borrow::ToOwned::to_owned("p"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
                                         ::std::vec![
                                             ::ethers::core::abi::ethabi::ParamType::Tuple(
@@ -288,58 +248,45 @@ pub mod beefy {
                                     ),
                                 },
                             ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::Pure,
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("supportsInterface"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("supportsInterface"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("interfaceId"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        4usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes4"),
+                                    ),
+                                },
+                            ],
                             outputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::Param {
                                     name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                        ::std::vec![
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                                ::std::vec![
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
-                                                ],
-                                            ),
-                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                                ::std::vec![
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
                                     internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned(
-                                            "struct BeefyConsensusState",
-                                        ),
-                                    ),
-                                },
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                        ::std::vec![
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                                ::std::vec![
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
-                                                ],
-                                            ),
-                                        ],
-                                    ),
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("struct IntermediateState"),
+                                        ::std::borrow::ToOwned::to_owned("bool"),
                                     ),
                                 },
                             ],
                             constant: ::core::option::Option::None,
                             state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
                         },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("verifyConsensus"),
+                    ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
                             name: ::std::borrow::ToOwned::to_owned("verifyConsensus"),
                             inputs: ::std::vec![
@@ -387,7 +334,7 @@ pub mod beefy {
                                 },
                             ],
                             constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::Pure,
                         },
                     ],
                 ),
@@ -476,15 +423,6 @@ pub mod beefy {
                         },
                     ],
                 ),
-                (
-                    ::std::borrow::ToOwned::to_owned("UnknownParaId"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::AbiError {
-                            name: ::std::borrow::ToOwned::to_owned("UnknownParaId"),
-                            inputs: ::std::vec![],
-                        },
-                    ],
-                ),
             ]),
             receive: false,
             fallback: false,
@@ -552,6 +490,16 @@ pub mod beefy {
 				.method_hash([144, 92, 5, 17], ())
 				.expect("method not found (this should never happen)")
 		}
+		///Calls the contract's `noOp` (0x756087e2) function
+		pub fn no_op(
+			&self,
+			s: BeefyConsensusState,
+			p: BeefyConsensusProof,
+		) -> ::ethers::contract::builders::ContractCall<M, ()> {
+			self.0
+				.method_hash([117, 96, 135, 226], (s, p))
+				.expect("method not found (this should never happen)")
+		}
 		///Calls the contract's `supportsInterface` (0x01ffc9a7) function
 		pub fn supports_interface(
 			&self,
@@ -561,29 +509,8 @@ pub mod beefy {
 				.method_hash([1, 255, 201, 167], interface_id)
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `verifyConsensus` (0x5e399aea) function
-		pub fn verify_consensus(
-			&self,
-			trusted_state: BeefyConsensusState,
-			proof: BeefyConsensusProof,
-		) -> ::ethers::contract::builders::ContractCall<
-			M,
-			(
-				(
-					::ethers::core::types::U256,
-					::ethers::core::types::U256,
-					(::ethers::core::types::U256, ::ethers::core::types::U256, [u8; 32]),
-					(::ethers::core::types::U256, ::ethers::core::types::U256, [u8; 32]),
-				),
-				IntermediateState,
-			),
-		> {
-			self.0
-				.method_hash([94, 57, 154, 234], (trusted_state, proof))
-				.expect("method not found (this should never happen)")
-		}
 		///Calls the contract's `verifyConsensus` (0x7d755598) function
-		pub fn verify_consensus_with_encoded_state_and_encoded_proof(
+		pub fn verify_consensus(
 			&self,
 			encoded_state: ::ethers::core::types::Bytes,
 			encoded_proof: ::ethers::core::types::Bytes,
@@ -712,19 +639,6 @@ pub mod beefy {
 	)]
 	#[etherror(name = "UnknownAuthoritySet", abi = "UnknownAuthoritySet()")]
 	pub struct UnknownAuthoritySet;
-	///Custom Error type `UnknownParaId` with signature `UnknownParaId()` and selector `0xdbb2cc09`
-	#[derive(
-		Clone,
-		::ethers::contract::EthError,
-		::ethers::contract::EthDisplay,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	#[etherror(name = "UnknownParaId", abi = "UnknownParaId()")]
-	pub struct UnknownParaId;
 	///Container type for all of the contract's custom errors
 	#[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
 	pub enum BeefyErrors {
@@ -736,7 +650,6 @@ pub mod beefy {
 		StaleHeight(StaleHeight),
 		SuperMajorityRequired(SuperMajorityRequired),
 		UnknownAuthoritySet(UnknownAuthoritySet),
-		UnknownParaId(UnknownParaId),
 		/// The standard solidity revert string, with selector
 		/// Error(string) -- 0x08c379a0
 		RevertString(::std::string::String),
@@ -787,9 +700,6 @@ pub mod beefy {
 			{
 				return Ok(Self::UnknownAuthoritySet(decoded));
 			}
-			if let Ok(decoded) = <UnknownParaId as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::UnknownParaId(decoded));
-			}
 			Err(::ethers::core::abi::Error::InvalidData.into())
 		}
 	}
@@ -810,7 +720,6 @@ pub mod beefy {
 					::ethers::core::abi::AbiEncode::encode(element),
 				Self::UnknownAuthoritySet(element) =>
 					::ethers::core::abi::AbiEncode::encode(element),
-				Self::UnknownParaId(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::RevertString(s) => ::ethers::core::abi::AbiEncode::encode(s),
 			}
 		}
@@ -840,8 +749,6 @@ pub mod beefy {
 				_ if selector ==
 					<UnknownAuthoritySet as ::ethers::contract::EthError>::selector() =>
 					true,
-				_ if selector == <UnknownParaId as ::ethers::contract::EthError>::selector() =>
-					true,
 				_ => false,
 			}
 		}
@@ -857,7 +764,6 @@ pub mod beefy {
 				Self::StaleHeight(element) => ::core::fmt::Display::fmt(element, f),
 				Self::SuperMajorityRequired(element) => ::core::fmt::Display::fmt(element, f),
 				Self::UnknownAuthoritySet(element) => ::core::fmt::Display::fmt(element, f),
-				Self::UnknownParaId(element) => ::core::fmt::Display::fmt(element, f),
 				Self::RevertString(s) => ::core::fmt::Display::fmt(s, f),
 			}
 		}
@@ -905,11 +811,6 @@ pub mod beefy {
 	impl ::core::convert::From<UnknownAuthoritySet> for BeefyErrors {
 		fn from(value: UnknownAuthoritySet) -> Self {
 			Self::UnknownAuthoritySet(value)
-		}
-	}
-	impl ::core::convert::From<UnknownParaId> for BeefyErrors {
-		fn from(value: UnknownParaId) -> Self {
-			Self::UnknownParaId(value)
 		}
 	}
 	///Container type for all input parameters for the `AURA_CONSENSUS_ID` function with signature
@@ -968,6 +869,29 @@ pub mod beefy {
 	)]
 	#[ethcall(name = "SLOT_DURATION", abi = "SLOT_DURATION()")]
 	pub struct SlotDurationCall;
+	///Container type for all input parameters for the `noOp` function with signature
+	/// `noOp((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),(((((bytes2,
+	/// bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,uint256,
+	/// bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,uint256,bytes),
+	/// (uint256,bytes32)[][])))` and selector `0x756087e2`
+	#[derive(
+		Clone,
+		::ethers::contract::EthCall,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[ethcall(
+		name = "noOp",
+		abi = "noOp((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),(((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,uint256,bytes),(uint256,bytes32)[][])))"
+	)]
+	pub struct NoOpCall {
+		pub s: BeefyConsensusState,
+		pub p: BeefyConsensusProof,
+	}
 	///Container type for all input parameters for the `supportsInterface` function with signature
 	/// `supportsInterface(bytes4)` and selector `0x01ffc9a7`
 	#[derive(
@@ -985,29 +909,6 @@ pub mod beefy {
 		pub interface_id: [u8; 4],
 	}
 	///Container type for all input parameters for the `verifyConsensus` function with signature
-	/// `verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),
-	/// (((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,
-	/// uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,
-	/// uint256,bytes),(uint256,bytes32)[][])))` and selector `0x5e399aea`
-	#[derive(
-		Clone,
-		::ethers::contract::EthCall,
-		::ethers::contract::EthDisplay,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	#[ethcall(
-		name = "verifyConsensus",
-		abi = "verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),(((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,uint256,bytes),(uint256,bytes32)[][])))"
-	)]
-	pub struct VerifyConsensusCall {
-		pub trusted_state: BeefyConsensusState,
-		pub proof: BeefyConsensusProof,
-	}
-	///Container type for all input parameters for the `verifyConsensus` function with signature
 	/// `verifyConsensus(bytes,bytes)` and selector `0x7d755598`
 	#[derive(
 		Clone,
@@ -1020,7 +921,7 @@ pub mod beefy {
 		Hash,
 	)]
 	#[ethcall(name = "verifyConsensus", abi = "verifyConsensus(bytes,bytes)")]
-	pub struct VerifyConsensusWithEncodedStateAndEncodedProofCall {
+	pub struct VerifyConsensusCall {
 		pub encoded_state: ::ethers::core::types::Bytes,
 		pub encoded_proof: ::ethers::core::types::Bytes,
 	}
@@ -1031,11 +932,9 @@ pub mod beefy {
 		IsmpConsensusId(IsmpConsensusIdCall),
 		MmrRootPayloadId(MmrRootPayloadIdCall),
 		SlotDuration(SlotDurationCall),
+		NoOp(NoOpCall),
 		SupportsInterface(SupportsInterfaceCall),
 		VerifyConsensus(VerifyConsensusCall),
-		VerifyConsensusWithEncodedStateAndEncodedProof(
-			VerifyConsensusWithEncodedStateAndEncodedProofCall,
-		),
 	}
 	impl ::ethers::core::abi::AbiDecode for BeefyCalls {
 		fn decode(
@@ -1061,6 +960,9 @@ pub mod beefy {
 			{
 				return Ok(Self::SlotDuration(decoded));
 			}
+			if let Ok(decoded) = <NoOpCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+				return Ok(Self::NoOp(decoded));
+			}
 			if let Ok(decoded) =
 				<SupportsInterfaceCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
@@ -1071,11 +973,6 @@ pub mod beefy {
 			{
 				return Ok(Self::VerifyConsensus(decoded));
 			}
-			if let Ok(decoded) = <VerifyConsensusWithEncodedStateAndEncodedProofCall as ::ethers::core::abi::AbiDecode>::decode(
-                data,
-            ) {
-                return Ok(Self::VerifyConsensusWithEncodedStateAndEncodedProof(decoded));
-            }
 			Err(::ethers::core::abi::Error::InvalidData.into())
 		}
 	}
@@ -1086,10 +983,9 @@ pub mod beefy {
 				Self::IsmpConsensusId(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::MmrRootPayloadId(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::SlotDuration(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::NoOp(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::SupportsInterface(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::VerifyConsensus(element) => ::ethers::core::abi::AbiEncode::encode(element),
-				Self::VerifyConsensusWithEncodedStateAndEncodedProof(element) =>
-					::ethers::core::abi::AbiEncode::encode(element),
 			}
 		}
 	}
@@ -1100,10 +996,9 @@ pub mod beefy {
 				Self::IsmpConsensusId(element) => ::core::fmt::Display::fmt(element, f),
 				Self::MmrRootPayloadId(element) => ::core::fmt::Display::fmt(element, f),
 				Self::SlotDuration(element) => ::core::fmt::Display::fmt(element, f),
+				Self::NoOp(element) => ::core::fmt::Display::fmt(element, f),
 				Self::SupportsInterface(element) => ::core::fmt::Display::fmt(element, f),
 				Self::VerifyConsensus(element) => ::core::fmt::Display::fmt(element, f),
-				Self::VerifyConsensusWithEncodedStateAndEncodedProof(element) =>
-					::core::fmt::Display::fmt(element, f),
 			}
 		}
 	}
@@ -1127,6 +1022,11 @@ pub mod beefy {
 			Self::SlotDuration(value)
 		}
 	}
+	impl ::core::convert::From<NoOpCall> for BeefyCalls {
+		fn from(value: NoOpCall) -> Self {
+			Self::NoOp(value)
+		}
+	}
 	impl ::core::convert::From<SupportsInterfaceCall> for BeefyCalls {
 		fn from(value: SupportsInterfaceCall) -> Self {
 			Self::SupportsInterface(value)
@@ -1135,11 +1035,6 @@ pub mod beefy {
 	impl ::core::convert::From<VerifyConsensusCall> for BeefyCalls {
 		fn from(value: VerifyConsensusCall) -> Self {
 			Self::VerifyConsensus(value)
-		}
-	}
-	impl ::core::convert::From<VerifyConsensusWithEncodedStateAndEncodedProofCall> for BeefyCalls {
-		fn from(value: VerifyConsensusWithEncodedStateAndEncodedProofCall) -> Self {
-			Self::VerifyConsensusWithEncodedStateAndEncodedProof(value)
 		}
 	}
 	///Container type for all return fields from the `AURA_CONSENSUS_ID` function with signature
@@ -1208,30 +1103,6 @@ pub mod beefy {
 	)]
 	pub struct SupportsInterfaceReturn(pub bool);
 	///Container type for all return fields from the `verifyConsensus` function with signature
-	/// `verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),
-	/// (((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,
-	/// uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,
-	/// uint256,bytes),(uint256,bytes32)[][])))` and selector `0x5e399aea`
-	#[derive(
-		Clone,
-		::ethers::contract::EthAbiType,
-		::ethers::contract::EthAbiCodec,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	pub struct VerifyConsensusReturn(
-		pub  (
-			::ethers::core::types::U256,
-			::ethers::core::types::U256,
-			(::ethers::core::types::U256, ::ethers::core::types::U256, [u8; 32]),
-			(::ethers::core::types::U256, ::ethers::core::types::U256, [u8; 32]),
-		),
-		pub IntermediateState,
-	);
-	///Container type for all return fields from the `verifyConsensus` function with signature
 	/// `verifyConsensus(bytes,bytes)` and selector `0x7d755598`
 	#[derive(
 		Clone,
@@ -1243,10 +1114,7 @@ pub mod beefy {
 		Eq,
 		Hash,
 	)]
-	pub struct VerifyConsensusWithEncodedStateAndEncodedProofReturn(
-		pub ::ethers::core::types::Bytes,
-		pub IntermediateState,
-	);
+	pub struct VerifyConsensusReturn(pub ::ethers::core::types::Bytes, pub IntermediateState);
 	///`AuthoritySetCommitment(uint256,uint256,bytes32)`
 	#[derive(
 		Clone,

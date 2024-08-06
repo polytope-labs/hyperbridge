@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use frame_support::{pallet_prelude::ConstU32, BoundedVec};
 use pallet_hyperbridge::VersionedHostParams;
-use sp_core::{H160, U256};
+use primitive_types::{H160, U256};
 use sp_runtime::RuntimeDebug;
 
 /// The host parameters of all connected chains

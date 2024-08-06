@@ -149,8 +149,12 @@ where
 									"Request payment not present in path: {payment_key:?}",
 								))
 							})?;
-
-						let cost = size * per_byte_fee.into();
+						// minimum fee is 32 bytes
+						let cost = if 32 > size {
+							32 * per_byte_fee.into()
+						} else {
+							size * per_byte_fee.into()
+						};
 
 						if cost > paid {
 							Err(Error::Custom(format!(
@@ -191,8 +195,12 @@ where
 									"Request payment not present in path: {payment_key:?}",
 								))
 							})?;
-
-						let cost = size * per_byte_fee.into();
+						// minimum fee is 32 bytes
+						let cost = if 32 > size {
+							32 * per_byte_fee.into()
+						} else {
+							size * per_byte_fee.into()
+						};
 
 						if cost > paid {
 							Err(Error::Custom(format!(

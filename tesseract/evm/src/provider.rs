@@ -1,5 +1,6 @@
 use crate::{
 	abi::{beefy::BeefyConsensusState, EvmHost},
+	gas_oracle::is_orbit_chain,
 	state_comitment_key,
 	tx::submit_messages,
 	EvmClient,
@@ -36,7 +37,7 @@ use ethers::{
 use futures::{stream::FuturesOrdered, FutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
-	host::{ethereum, StateMachine},
+	host::StateMachine,
 	messaging::{CreateConsensusState, ResponseMessage},
 	router::{Request, RequestResponse},
 };
@@ -367,7 +368,6 @@ impl IsmpProvider for EvmClient {
 
 		let calls = generate_contract_calls(self, messages, true).await?;
 		let gas_breakdown = get_current_gas_cost_in_usd(
-			self.chain_id,
 			self.state_machine,
 			&self.config.etherscan_api_key.clone(),
 			self.client.clone(),
@@ -432,10 +432,7 @@ impl IsmpProvider for EvmClient {
 									},
 								};
 
-								if successful_execution &&
-									client.state_machine ==
-										StateMachine::Ethereum(ethereum::ARBITRUM)
-								{
+								if successful_execution && is_orbit_chain(client.chain_id as u32) {
 									gas_to_be_used =
 										client.client.estimate_gas(&call.tx, call.block).await?;
 								} else {
@@ -448,7 +445,7 @@ impl IsmpProvider for EvmClient {
 						};
 
 						let gas_cost_for_data_in_usd = match client.state_machine {
-							StateMachine::Ethereum(_) =>
+							StateMachine::Evm(_) =>
 								get_l2_data_cost(
 									call.tx.rlp(),
 									client.state_machine,
@@ -654,7 +651,7 @@ impl IsmpProvider for EvmClient {
 			.sign_hash(H256::from_slice(msg))
 			.expect("Infallible")
 			.to_vec();
-		Signature::Ethereum { address: self.address.clone(), signature }
+		Signature::Evm { address: self.address.clone(), signature }
 	}
 
 	async fn set_latest_finalized_height(

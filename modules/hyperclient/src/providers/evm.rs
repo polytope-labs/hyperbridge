@@ -46,7 +46,7 @@ use ismp::{
 	router::{Request, RequestResponse, Response},
 };
 use ismp_solidity_abi::{
-	evm_host::{EvmHost, EvmHostEvents, GetRequest, PostRequestHandledFilter},
+	evm_host::{EvmHost, EvmHostEvents, PostRequestHandledFilter},
 	handler::{
 		GetTimeoutMessage, Handler, PostRequestLeaf, PostRequestMessage, PostRequestTimeoutMessage,
 		PostResponseLeaf, PostResponseMessage, PostResponseTimeoutMessage, Proof,
@@ -530,15 +530,7 @@ impl Client for EvmClient {
 				let get_requests = requests
 					.into_iter()
 					.filter_map(|req| match req {
-						Request::Get(get) => Some(GetRequest {
-							source: get.source.to_string().as_bytes().to_vec().into(),
-							dest: get.dest.to_string().as_bytes().to_vec().into(),
-							nonce: get.nonce,
-							from: get.from.into(),
-							keys: get.keys.into_iter().map(|key| key.into()).collect(),
-							timeout_timestamp: get.timeout_timestamp,
-							height: get.height.into(),
-						}),
+						Request::Get(get) => Some(get.into()),
 						_ => None,
 					})
 					.collect();

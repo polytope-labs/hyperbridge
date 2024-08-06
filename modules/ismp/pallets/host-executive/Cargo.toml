@@ -12,7 +12,7 @@ publish = false
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 sp-runtime = { workspace = true }
-sp-core = { workspace = true }
+primitive-types = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
@@ -36,12 +36,12 @@ std = [
     "frame-support/std",
     "frame-system/std",
     "sp-runtime/std",
-    "sp-core/std",
     "alloy-primitives/std",
     "ismp/std",
     "anyhow/std",
     "pallet-ismp/std",
     "pallet-hyperbridge/std",
+    "primitive-types/std",
 ]
 
 try-runtime = [

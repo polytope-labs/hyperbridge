@@ -26,6 +26,8 @@ pub enum Event {
 	PostResponse(Meta),
 	/// An event that is emitted when a get request is dispatched
 	GetRequest(Meta),
+	/// An event that is emitted when a get response is dispatched
+	GetResponse(Meta),
 	/// Post request handled
 	PostRequestHandled(RequestResponseHandled),
 	/// Emitted when a post response is handled
@@ -55,6 +57,11 @@ impl From<IsmpEvent> for Event {
 			}),
 			IsmpEvent::GetRequest(e) =>
 				Event::GetRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
+			IsmpEvent::GetResponse(e) => Event::GetResponse(Meta {
+				nonce: e.get.nonce,
+				dest: e.get.dest,
+				source: e.get.source,
+			}),
 			IsmpEvent::PostRequestHandled(ev) => Event::PostRequestHandled(ev),
 			IsmpEvent::PostResponseHandled(handled) => Event::PostResponseHandled(handled),
 			IsmpEvent::PostRequestTimeoutHandled(handled) =>

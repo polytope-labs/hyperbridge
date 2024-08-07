@@ -33,6 +33,7 @@ use pallet_ismp::{
 	mmr::{Leaf, LeafIndexAndPos},
 };
 use sp_core::U256;
+
 /// Message for processing state queries
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 pub struct GetRequestsWithProof {

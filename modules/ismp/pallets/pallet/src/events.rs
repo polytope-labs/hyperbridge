@@ -33,17 +33,15 @@ impl<T: Config> TryFrom<PalletEvent<T>> for ismp::events::Event {
 					latest_height,
 				})),
 			PalletEvent::Response { commitment, .. } => {
-				let response = match Pallet::<T>::response(commitment).ok_or_else(|| ())? {
-					Response::Post(post_reposnse) => post_reposnse,
-					Response::Get(_) => Err(())?,
+				let event = match Pallet::<T>::response(commitment).ok_or_else(|| ())? {
+					Response::Post(response) => ismp::events::Event::PostResponse(response),
+					Response::Get(response) => ismp::events::Event::GetResponse(response),
 				};
 
-				Ok(ismp::events::Event::PostResponse(response))
+				Ok(event)
 			},
 			PalletEvent::Request { commitment, .. } => {
-				let request = Pallet::<T>::request(commitment).ok_or_else(|| ())?;
-
-				let event = match request {
+				let event = match Pallet::<T>::request(commitment).ok_or_else(|| ())? {
 					Request::Post(post) => ismp::events::Event::PostRequest(post),
 					Request::Get(get) => ismp::events::Event::GetRequest(get),
 				};
@@ -104,7 +102,8 @@ impl<T: Config> From<ismp::events::Event> for PalletEvent<T> {
 			// be deposited when a message is handled
 			ismp::events::Event::PostRequest(_) |
 			ismp::events::Event::PostResponse(_) |
-			ismp::events::Event::GetRequest(_) => {
+			ismp::events::Event::GetRequest(_) |
+			ismp::events::Event::GetResponse(_) => {
 				unimplemented!("These events should not originate from handler")
 			},
 		}

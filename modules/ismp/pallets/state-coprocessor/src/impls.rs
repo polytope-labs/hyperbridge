@@ -16,6 +16,7 @@
 //! Pallet method definitions
 
 use super::{Config, Pallet};
+use alloc::string::ToString;
 use codec::{Decode, Encode};
 use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{

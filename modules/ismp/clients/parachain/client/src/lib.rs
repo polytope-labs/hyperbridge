@@ -77,7 +77,7 @@ pub mod pallet {
 
 	/// List of parachains that this state machine is interested in.
 	#[pallet::storage]
-	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ParachainData>;
+	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, u64>;
 
 	/// Events emitted by this pallet
 	#[pallet::event]
@@ -127,7 +127,7 @@ pub mod pallet {
 		pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<ParachainData>) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 			for para in &para_ids {
-				Parachains::<T>::insert(para.id, para);
+				Parachains::<T>::insert(para.id, para.slot_duration);
 			}
 
 			Self::deposit_event(Event::ParachainsAdded { para_ids });
@@ -215,7 +215,7 @@ pub mod pallet {
 
 			// insert the parachain ids
 			for para in &self.parachains {
-				Parachains::<T>::insert(para.id, para);
+				Parachains::<T>::insert(para.id, para.slot_duration);
 			}
 		}
 	}

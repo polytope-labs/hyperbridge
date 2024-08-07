@@ -26,14 +26,14 @@ mod impls;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::vec;
+	use alloc::{vec, vec::Vec};
+
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use impls::GetRequestsWithProof;
 	use ismp::{host::IsmpHost, messaging::hash_request, router::Request};
 	use mmr_primitives::MerkleMountainRangeTree;
 	use pallet_ismp::mmr::Leaf;
-
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);

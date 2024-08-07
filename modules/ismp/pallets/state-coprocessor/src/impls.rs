@@ -16,6 +16,7 @@
 //! Pallet method definitions
 
 use super::{Config, Pallet};
+use alloc::{string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
@@ -32,7 +33,6 @@ use pallet_ismp::{
 	mmr::{Leaf, LeafIndexAndPos},
 };
 use sp_core::U256;
-
 /// Message for processing state queries
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 pub struct GetRequestsWithProof {

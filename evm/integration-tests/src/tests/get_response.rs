@@ -6,7 +6,7 @@ use ethers::{
 use forge_testsuite::Runner;
 use ismp::{
 	host::StateMachine,
-	router::{self, Response},
+	router::{self, Response, StorageValue},
 };
 use ismp_solidity_abi::{
 	beefy::{IntermediateState, StateCommitment, StateMachineHeight},
@@ -16,7 +16,7 @@ use ismp_solidity_abi::{
 use mmr_primitives::DataOrHash;
 use pallet_ismp::mmr::Leaf;
 use primitive_types::H256;
-use std::{collections::BTreeMap, env, path::PathBuf};
+use std::{env, path::PathBuf};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_response() -> Result<(), anyhow::Error> {
@@ -38,9 +38,7 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
 		height: 0,
 	};
 
-	let mut values = BTreeMap::new();
-	values.insert(key, Some(H256::random().as_bytes().to_vec()));
-
+	let values = vec![StorageValue { key, value: Some(H256::random().as_bytes().to_vec()) }];
 	let response = router::GetResponse { get: get.clone(), values };
 
 	let leaf = DataOrHash::Data(Leaf::Response(Response::Get(response.clone())));

@@ -16,7 +16,7 @@
 //! Message router definitions
 
 use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString};
+use alloc::{boxed::Box, string::ToString};
 use codec::{Decode, Encode};
 use core::{fmt::Formatter, time::Duration};
 
@@ -355,7 +355,26 @@ pub struct GetResponse {
 	/// The Get request that triggered this response.
 	pub get: GetRequest,
 	/// Values derived from the state proof
-	pub values: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+	pub values: Vec<StorageValue>,
+}
+
+/// The verfied key-values for a GetResponse
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	PartialEq,
+	Eq,
+	scale_info::TypeInfo,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+pub struct StorageValue {
+	/// The request storage keys
+	pub key: Vec<u8>,
+	/// The verified value
+	pub value: Option<Vec<u8>>,
 }
 
 /// The ISMP response
@@ -441,9 +460,12 @@ impl Response {
 			Response::Post(res) => res.encode(),
 			Response::Get(res) => {
 				let request = Request::Get(res.get.clone()).encode();
-				let values = res.values.iter().fold(vec![], |mut acc, (key, value)| {
-					let item =
-						vec![key.clone(), value.as_ref().cloned().unwrap_or_default()].concat();
+				let values = res.values.iter().fold(vec![], |mut acc, storage_value| {
+					let item = vec![
+						storage_value.key.clone(),
+						storage_value.value.as_ref().cloned().unwrap_or_default(),
+					]
+					.concat();
 					acc.extend_from_slice(&item);
 					acc
 				});

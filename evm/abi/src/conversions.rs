@@ -269,9 +269,9 @@ impl From<router::GetResponse> for GetResponse {
 			values: value
 				.values
 				.into_iter()
-				.map(|(key, value)| StorageValue {
-					key: key.into(),
-					value: value.unwrap_or_default().into(),
+				.map(|storage_value| StorageValue {
+					key: storage_value.key.into(),
+					value: storage_value.value.unwrap_or_default().into(),
 				})
 				.collect(),
 		}

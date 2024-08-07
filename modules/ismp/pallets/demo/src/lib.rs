@@ -350,7 +350,7 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 				"Balance transfer protocol does not accept post responses".to_string(),
 			))?,
 			Response::Get(res) => Pallet::<T>::deposit_event(Event::<T>::GetResponse(
-				res.values.into_values().collect(),
+				res.values.into_iter().map(|storage_value| storage_value.value).collect(),
 			)),
 		};
 

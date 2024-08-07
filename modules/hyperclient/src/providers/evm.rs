@@ -48,8 +48,8 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{EvmHost, EvmHostEvents, PostRequestHandledFilter},
 	handler::{
-		GetTimeoutMessage, Handler, PostRequestLeaf, PostRequestMessage, PostRequestTimeoutMessage,
-		PostResponseLeaf, PostResponseMessage, PostResponseTimeoutMessage, Proof,
+		Handler, PostRequestLeaf, PostRequestMessage, PostRequestTimeoutMessage, PostResponseLeaf,
+		PostResponseMessage, PostResponseTimeoutMessage, Proof,
 	},
 };
 use mmr_primitives::mmr_position_to_k_index;

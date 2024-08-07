@@ -21,6 +21,11 @@ codec = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 mmr-primitives = { workspace = true }
+evm-common = { workspace = true }
+
+alloy-rlp = { workspace = true }
+alloy-primitives = { workspace = true }
+
 
 [features]
 default = ["std"]
@@ -36,4 +41,5 @@ std = [
     "ismp/std",
     "pallet-ismp/std",
     "mmr-primitives/std",
+    "evm-common/std" 
 ]

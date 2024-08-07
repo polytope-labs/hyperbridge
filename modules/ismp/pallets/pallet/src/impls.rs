@@ -29,7 +29,7 @@ use frame_system::Phase;
 use ismp::{
 	handlers::{handle_incoming_message, MessageResult},
 	messaging::{hash_request, hash_response, Message},
-	router::{Request, Response},
+	router::{GetResponse, Request, Response},
 };
 use log::debug;
 use mmr_primitives::{ForkIdentifier, MerkleMountainRangeTree};
@@ -156,6 +156,38 @@ impl<T: Config> Pallet<T> {
 		);
 
 		Ok(commitment)
+	}
+
+	/// Insert a get response into the MMR and dispatch an event
+	pub fn dispatch_get_response(
+		get_response: GetResponse,
+		meta: FeeMetadata<T>,
+	) -> Result<(), ismp::Error> {
+		let full = Request::Get(get_response.get.clone());
+		let commitment = hash_request::<Pallet<T>>(&full);
+		let event = Event::Response {
+			request_nonce: full.nonce(),
+			dest_chain: full.source_chain(),
+			source_chain: full.dest_chain(),
+			commitment,
+		};
+		let leaf_index_and_pos =
+			<T as Config>::Mmr::push(Leaf::Response(Response::Get(get_response)));
+
+		ResponseCommitments::<T>::insert(
+			commitment,
+			RequestMetadata {
+				mmr: LeafIndexAndPos {
+					leaf_index: leaf_index_and_pos.index,
+					pos: leaf_index_and_pos.position,
+				},
+				fee: meta,
+				claimed: false,
+			},
+		);
+		Pallet::<T>::deposit_event(event);
+
+		Ok(())
 	}
 
 	/// Dispatch an outgoing response, returns the response commitment

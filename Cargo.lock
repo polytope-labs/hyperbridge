@@ -11752,6 +11752,9 @@ dependencies = [
 name = "pallet-state-coprocessor"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "evm-common",
  "frame-support",
  "frame-system",
  "ismp",

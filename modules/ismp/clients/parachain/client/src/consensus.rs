@@ -21,6 +21,7 @@ use alloc::{boxed::Box, collections::BTreeMap, format, string::ToString, vec::Ve
 use codec::{Decode, Encode};
 use core::fmt::Debug;
 use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
+use frame_support::traits::Get;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -123,7 +124,8 @@ where
 			let header = Header::<u32, BlakeTwo256>::decode(&mut &*header)
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
-			let (mut timestamp, mut overlay_root) = (0, H256::default());
+			let (mut timestamp, mut overlay_root, mut mmr_root) =
+				(0, H256::default(), H256::default());
 			for digest in header.digest().logs.iter() {
 				match digest {
 					DigestItem::PreRuntime(consensus_engine_id, value)
@@ -140,6 +142,7 @@ where
 						let log = ConsensusDigest::decode(&mut &value[..]);
 						if let Ok(log) = log {
 							overlay_root = log.child_trie_root;
+							mmr_root = log.mmr_root;
 						} else {
 							Err(Error::Custom(
 								"Header contains an invalid ismp consensus log".into(),
@@ -163,13 +166,24 @@ where
 				_ => Err(Error::Custom("Host state machine should be a parachain".into()))?,
 			};
 
-			let intermediate = StateCommitmentHeight {
-				commitment: StateCommitment {
-					timestamp,
-					overlay_root: Some(overlay_root),
-					state_root: header.state_root,
+			let intermediate = match T::Coprocessor::get() {
+				Some(id) if id == state_id => StateCommitmentHeight {
+					// for the coprocessor, we only care about the child root & mmr root
+					commitment: StateCommitment {
+						timestamp,
+						overlay_root: Some(mmr_root),
+						state_root: overlay_root, // child root
+					},
+					height: height.into(),
 				},
-				height: height.into(),
+				_ => StateCommitmentHeight {
+					commitment: StateCommitment {
+						timestamp,
+						overlay_root: Some(overlay_root),
+						state_root: header.state_root,
+					},
+					height: height.into(),
+				},
 			};
 
 			state_commitments_vec.push(intermediate);

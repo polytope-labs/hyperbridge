@@ -43,7 +43,7 @@ use sp_runtime::{
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check, SubstrateStateMachine};
 
-use crate::{ParachainData, Parachains, RelayChainOracle};
+use crate::{Parachains, RelayChainOracle};
 
 /// The parachain consensus client implementation for ISMP.
 pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>>(PhantomData<(T, R, S)>);
@@ -105,20 +105,18 @@ where
 		let storage_proof = StorageProof::new(update.storage_proof);
 		let mut intermediates = BTreeMap::new();
 
-		let (para_header_keys, parachain_data_values): (Vec<Vec<u8>>, Vec<ParachainData>) =
-			Parachains::<T>::iter()
-				.map(|(id, para_value)| (parachain_header_storage_key(id).0, para_value))
-				.unzip();
-		let headers = read_proof_check::<BlakeTwo256, _>(&root, storage_proof, para_header_keys)
+		let header_keys = Parachains::<T>::iter_keys().map(|id| parachain_header_storage_key(id).0);
+		let headers = read_proof_check::<BlakeTwo256, _>(&root, storage_proof, header_keys)
 			.map_err(|e| Error::Custom(format!("Error verifying parachain header {e:?}",)))?;
 
-		for ((key, header), para_value) in headers.into_iter().zip(parachain_data_values) {
+		for (key, header) in headers.into_iter() {
 			let Some(header) = header else { continue };
-
 			let mut state_commitments_vec = Vec::new();
 
 			let id = codec::Decode::decode(&mut &key[(key.len() - 4)..])
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
+
+			let slot_duration = Parachains::<T>::get(id).expect("Parachain with ID exists; qed");
 
 			// ideally all parachain headers are the same
 			let header = Header::<u32, BlakeTwo256>::decode(&mut &*header)
@@ -133,8 +131,7 @@ where
 					{
 						let slot = Slot::decode(&mut &value[..])
 							.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
-						timestamp =
-							Duration::from_millis(*slot * para_value.slot_duration).as_secs();
+						timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
 					},
 					DigestItem::Consensus(consensus_engine_id, value)
 						if *consensus_engine_id == ISMP_ID =>

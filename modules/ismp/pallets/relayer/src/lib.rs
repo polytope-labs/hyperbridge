@@ -761,6 +761,15 @@ where
 	}
 }
 
+impl<T: Config> Pallet<T> {
+	pub fn accumulate_fee(state_machine: StateMachine, address: Vec<u8>, fee: U256) {
+		let _ = Fees::<T>::try_mutate(state_machine, address.clone(), |inner| {
+			*inner += fee;
+			Ok::<(), ()>(())
+		});
+	}
+}
+
 pub fn message(nonce: u64, dest_chain: StateMachine) -> [u8; 32] {
 	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
 }

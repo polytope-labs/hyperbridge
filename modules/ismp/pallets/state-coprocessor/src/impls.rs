@@ -20,12 +20,16 @@ use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, Proof},
-	router::{GetRequest, GetResponse, Request, StorageValue},
+	messaging::{hash_request, hash_response, Proof},
+	router::{GetRequest, GetResponse, Request, Response, StorageValue},
 	Error,
 };
 use mmr_primitives::MerkleMountainRangeTree;
-use pallet_ismp::{child_trie::RequestCommitments, dispatcher::FeeMetadata, mmr::Leaf};
+use pallet_ismp::{
+	child_trie::RequestCommitments,
+	dispatcher::{FeeMetadata, RequestMetadata},
+	mmr::{Leaf, LeafIndexAndPos},
+};
 use sp_core::U256;
 
 /// Message for processing state queries
@@ -54,7 +58,7 @@ where
 		// 4. insert GetResponse into mmr and request receipts
 		// 5. emit Response events
 		let mut checked = vec![];
-		let host = T::IsmpHost::default();
+		let host = <<T as Config>::IsmpHost>::default();
 		for req in requests.iter() {
 			let full = Request::Get(req.clone());
 
@@ -94,12 +98,11 @@ where
 			&source,
 		)?;
 
+		let mut total_fee = Default::default();
+
 		for (.., value) in result {
 			if let Some(value) = value {
-				// Accumulate fees here
-				// Whose account do we accumulate fees to?
-
-				let _fee = {
+				let fee = {
 					match source.height.id.state_id {
 						StateMachine::Evm(_) => {
 							use alloy_rlp::Decodable;
@@ -125,12 +128,20 @@ where
 							Err(Error::Custom("Unsupported State Machine".to_string()))?,
 					}
 				};
+
+				total_fee += fee;
 			} else {
 				Err(Error::MembershipProofVerificationFailed(
 					"Message contains a request that was not found in the proof".to_string(),
 				))?
 			}
 		}
+
+		pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
+			source.height.id.state_id,
+			address.clone(),
+			total_fee,
+		);
 
 		// Verify response proof
 		let dest_state_machine = validate_state_machine(&host, response.height)?;
@@ -139,7 +150,7 @@ where
 		// Insert GetResponses into mmr
 		let mut get_responses = vec![];
 		for req in requests {
-			let values = source_state_machine
+			let values = dest_state_machine
 				.verify_state_proof(&host, req.keys.clone(), state_root, &response)?
 				.into_iter()
 				.map(|(key, value)| StorageValue { key, value })
@@ -151,14 +162,47 @@ where
 		}
 
 		for get_response in get_responses {
-			let signer = vec![];
 			let full = Request::Get(get_response.get.clone());
-			let commitment = hash_request::<T::IsmpHost>(&full);
-			host.store_request_receipt(&full, &signer)?;
+			host.store_request_receipt(&full, &address)?;
 			let meta = FeeMetadata::<T> { payer: [0u8; 32].into(), fee: Default::default() };
-			pallet_ismp::Pallet::<T>::dispatch_get_response(get_response, meta)
+			Self::dispatch_get_response(get_response, meta)
 				.map_err(|e| Error::Custom("Failed to dispatch get response".to_string()))?
 		}
+
+		Ok(())
+	}
+
+	/// Insert a get response into the MMR and dispatch an event
+	pub fn dispatch_get_response(
+		get_response: GetResponse,
+		meta: FeeMetadata<T>,
+	) -> Result<(), ismp::Error> {
+		let full = Response::Get(get_response.clone());
+		let commitment = hash_response::<<T as Config>::IsmpHost>(&full);
+		let req_commitment =
+			hash_request::<<T as Config>::IsmpHost>(&Request::Get(get_response.get.clone()));
+		let event = pallet_ismp::Event::Response {
+			request_nonce: full.nonce(),
+			dest_chain: full.source_chain(),
+			source_chain: full.dest_chain(),
+			commitment,
+		};
+		let leaf_index_and_pos =
+			<T as pallet_ismp::Config>::Mmr::push(Leaf::Response(Response::Get(get_response)));
+
+		pallet_ismp::child_trie::ResponseCommitments::<T>::insert(
+			commitment,
+			RequestMetadata {
+				mmr: LeafIndexAndPos {
+					leaf_index: leaf_index_and_pos.index,
+					pos: leaf_index_and_pos.position,
+				},
+				fee: meta,
+				claimed: false,
+			},
+		);
+		pallet_ismp::Responded::<T>::insert(req_commitment, true);
+		pallet_ismp::Pallet::<T>::deposit_pallet_event(event);
 
 		Ok(())
 	}
@@ -168,7 +212,7 @@ fn get_request_keys<T: Config>(requests: &[GetRequest], source: StateMachine) ->
 	let mut keys = vec![];
 	for req in requests {
 		let full = Request::Get(req.clone());
-		let commitment = hash_request::<T::IsmpHost>(&full);
+		let commitment = hash_request::<<T as Config>::IsmpHost>(&full);
 
 		match source {
 			StateMachine::Evm(_) => {

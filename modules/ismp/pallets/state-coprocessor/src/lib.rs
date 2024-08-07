@@ -39,7 +39,9 @@ pub mod pallet {
 
 	/// The config trait
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config {
+	pub trait Config:
+		frame_system::Config + pallet_ismp::Config + pallet_ismp_relayer::Config
+	{
 		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 

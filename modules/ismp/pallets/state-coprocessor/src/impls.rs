@@ -20,7 +20,7 @@ use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, hash_response, Proof},
+	messaging::{hash_get_response, hash_request, hash_response, Proof},
 	router::{GetRequest, GetResponse, Request, Response, StorageValue},
 	Error,
 };
@@ -166,7 +166,7 @@ where
 			host.store_request_receipt(&full, &address)?;
 			let meta = FeeMetadata::<T> { payer: [0u8; 32].into(), fee: Default::default() };
 			Self::dispatch_get_response(get_response, meta)
-				.map_err(|e| Error::Custom("Failed to dispatch get response".to_string()))?
+				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?
 		}
 
 		Ok(())
@@ -177,14 +177,13 @@ where
 		get_response: GetResponse,
 		meta: FeeMetadata<T>,
 	) -> Result<(), ismp::Error> {
-		let full = Response::Get(get_response.clone());
-		let commitment = hash_response::<<T as Config>::IsmpHost>(&full);
+		let commitment = hash_get_response::<<T as Config>::IsmpHost>(&get_response);
 		let req_commitment =
 			hash_request::<<T as Config>::IsmpHost>(&Request::Get(get_response.get.clone()));
 		let event = pallet_ismp::Event::Response {
-			request_nonce: full.nonce(),
-			dest_chain: full.source_chain(),
-			source_chain: full.dest_chain(),
+			request_nonce: get_response.get.nonce,
+			dest_chain: get_response.get.dest,
+			source_chain: get_response.get.source,
 			commitment,
 		};
 		let leaf_index_and_pos =

@@ -358,6 +358,23 @@ pub struct GetResponse {
 	pub values: Vec<StorageValue>,
 }
 
+impl GetResponse {
+	/// Returns the encoding for a get response
+	pub fn encode(&self) -> Vec<u8> {
+		let request = Request::Get(self.get.clone()).encode();
+		let values = self.values.iter().fold(vec![], |mut acc, storage_value| {
+			let item = vec![
+				storage_value.key.clone(),
+				storage_value.value.as_ref().cloned().unwrap_or_default(),
+			]
+			.concat();
+			acc.extend_from_slice(&item);
+			acc
+		});
+		vec![request, values].concat()
+	}
+}
+
 /// The verfied key-values for a GetResponse
 #[derive(
 	Debug,
@@ -458,19 +475,7 @@ impl Response {
 	pub fn encode(&self) -> Vec<u8> {
 		match self {
 			Response::Post(res) => res.encode(),
-			Response::Get(res) => {
-				let request = Request::Get(res.get.clone()).encode();
-				let values = res.values.iter().fold(vec![], |mut acc, storage_value| {
-					let item = vec![
-						storage_value.key.clone(),
-						storage_value.value.as_ref().cloned().unwrap_or_default(),
-					]
-					.concat();
-					acc.extend_from_slice(&item);
-					acc
-				});
-				vec![request, values].concat()
-			},
+			Response::Get(res) => res.encode(),
 		}
 	}
 }

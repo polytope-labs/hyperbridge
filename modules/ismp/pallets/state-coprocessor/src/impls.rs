@@ -22,7 +22,7 @@ use ismp::{
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_get_response, hash_request, Proof},
-	router::{GetRequest, GetResponse, Request, Response, StorageValue},
+	router::{GetRequest, GetResponse, Request, RequestResponse, Response, StorageValue},
 	Error,
 };
 use mmr_primitives::MerkleMountainRangeTree;
@@ -93,6 +93,16 @@ where
 		let state_root = host.state_machine_commitment(source.height)?;
 
 		let source_storage_keys = get_request_keys::<T>(&requests, source.height.id.state_id);
+		// Verify membership proof to ensure that requests where committed on source chain
+		let all_requests = requests.clone().into_iter().map(|req| Request::Get(req)).collect();
+		source_state_machine.verify_membership(
+			&host,
+			RequestResponse::Request(all_requests),
+			state_root,
+			&source,
+		)?;
+
+		// Extract the request fee from the proof
 		let result = source_state_machine.verify_state_proof(
 			&host,
 			source_storage_keys,
@@ -131,10 +141,6 @@ where
 				};
 
 				total_fee += fee;
-			} else {
-				Err(Error::MembershipProofVerificationFailed(
-					"Message contains a request that was not found in the proof".to_string(),
-				))?
 			}
 		}
 

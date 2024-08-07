@@ -60,6 +60,11 @@ impl ismp_sync_committee::pallet::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl pallet_state_coprocessor::Config for Runtime {
+	type IsmpHost = Ismp;
+	type Mmr = Mmr;
+}
+
 pub struct Coprocessor;
 
 impl Get<Option<StateMachine>> for Coprocessor {

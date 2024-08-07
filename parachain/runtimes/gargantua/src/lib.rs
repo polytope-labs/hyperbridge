@@ -214,7 +214,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("gargantua"),
 	impl_name: create_runtime_str!("gargantua"),
 	authoring_version: 1,
-	spec_version: 370,
+	spec_version: 380,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -556,31 +556,31 @@ construct_runtime!(
 	{
 		// System support stuff.
 		System: frame_system = 0,
-		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
+		Timestamp: pallet_timestamp = 1,
 		ParachainSystem: cumulus_pallet_parachain_system = 2,
 		ParachainInfo: parachain_info = 3,
 		Utility: pallet_utility = 4,
 
 		// Monetary stuff.
-		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 10,
-		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>} = 11,
+		Balances: pallet_balances = 10,
+		TransactionPayment: pallet_transaction_payment = 11,
 
 		// Collator support. The order of these 4 are important and shall not change.
-		Authorship: pallet_authorship::{Pallet, Storage} = 20,
-		CollatorSelection: pallet_collator_selection::{Pallet, Call, Storage, Event<T>, Config<T>} = 21,
-		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>} = 22,
-		Aura: pallet_aura::{Pallet, Storage, Config<T>} = 23,
+		Authorship: pallet_authorship = 20,
+		CollatorSelection: pallet_collator_selection = 21,
+		Session: pallet_session = 22,
+		Aura: pallet_aura = 23,
 		AuraExt: cumulus_pallet_aura_ext = 24,
-		Sudo: pallet_sudo::{Pallet, Storage, Call, Event<T>, Config<T>} = 25,
+		Sudo: pallet_sudo = 25,
 
 		// XCM helpers.
-		XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 30,
+		XcmpQueue: cumulus_pallet_xcmp_queue = 30,
 		PolkadotXcm: pallet_xcm = 31,
-		CumulusXcm: cumulus_pallet_xcm::{Pallet, Event<T>, Origin} = 32,
+		CumulusXcm: cumulus_pallet_xcm = 32,
 
 		// ISMP stuff
-		// Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
-		// setup the mmr
+		// Xcm messages are executed in on_initialize of the message queue,
+		// pallet ismp must come before the queue so it can setup the mmr
 		Mmr: pallet_mmr = 40,
 		Ismp: pallet_ismp = 41,
 		MessageQueue: pallet_message_queue = 42,
@@ -595,6 +595,7 @@ construct_runtime!(
 		Gateway: pallet_asset_gateway = 57,
 		Assets: pallet_assets = 58,
 		TokenGovernor: pallet_token_governor = 59,
+		StateCoprocessor: pallet_state_coprocessor = 60,
 	}
 );
 

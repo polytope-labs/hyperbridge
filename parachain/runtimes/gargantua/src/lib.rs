@@ -541,6 +541,7 @@ impl pallet_mmr::Config for Runtime {
 	type Hashing = Keccak256;
 	type Leaf = Leaf;
 	type ForkIdentifierProvider = Ismp;
+	const LEAF_COUNT_THRESHOLD: u64 = 100_000;
 }
 
 impl pallet_utility::Config for Runtime {

@@ -144,11 +144,13 @@ where
 			}
 		}
 
-		pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
-			source.height.id.state_id,
-			address.clone(),
-			total_fee,
-		);
+		if total_fee != Default::default() {
+			pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
+				source.height.id.state_id,
+				address.clone(),
+				total_fee,
+			);
+		}
 
 		// Verify response proof
 		let dest_state_machine = validate_state_machine(&host, response.height)?;

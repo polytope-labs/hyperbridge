@@ -29,7 +29,8 @@ pub mod pallet {
 	use alloc::vec;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use ismp::host::IsmpHost;
+	use impls::GetRequestsWithProof;
+	use ismp::{host::IsmpHost, messaging::hash_request, router::Request};
 	use mmr_primitives::MerkleMountainRangeTree;
 	use pallet_ismp::mmr::Leaf;
 
@@ -42,9 +43,6 @@ pub mod pallet {
 	pub trait Config:
 		frame_system::Config + pallet_ismp::Config + pallet_ismp_relayer::Config
 	{
-		/// The overarching event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + Default;
 
@@ -56,27 +54,77 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Some error happened
-		SomeError,
-	}
-
-	#[pallet::event]
-	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	pub enum Event<T: Config> {
-		/// An account `account` has been added to the fishermen set.
-		Added { account: T::AccountId },
+		/// An error occured, check the node logs.
+		HandlingError,
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T>
 	where
 		T::AccountId: AsRef<[u8]>,
+		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+		<T as pallet_ismp::Config>::Balance: Into<u128>,
 	{
-		/// Adds a new fisherman to the set
+		/// This is an extension of the ISMP protocol to allow Hyperbridge perform state proof
+		/// verification on behalf of its applications and provides the verified values in the
+		/// overlay tree.
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn add(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
+		pub fn handle_unsigned(
+			origin: OriginFor<T>,
+			message: GetRequestsWithProof,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			Self::handle_get_requests(message).map_err(|err| {
+				log::error!(target: "ismp", "{:?}", err);
+				Error::<T>::HandlingError
+			})?;
+
 			Ok(())
+		}
+	}
+
+	#[pallet::validate_unsigned]
+	impl<T: Config> ValidateUnsigned for Pallet<T>
+	where
+		T::AccountId: AsRef<[u8]>,
+		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+		<T as pallet_ismp::Config>::Balance: Into<u128>,
+	{
+		type Call = Call<T>;
+
+		// empty pre-dispatch so we don't modify storage
+		fn pre_dispatch(_call: &Self::Call) -> Result<(), TransactionValidityError> {
+			Ok(())
+		}
+
+		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+			let Call::handle_unsigned { message } = call else {
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
+			};
+
+			if let Err(err) = Self::handle_get_requests(message.clone()) {
+				log::error!(target: "ismp", "{:?}", err);
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
+			}
+
+			let messages = message
+				.requests
+				.iter()
+				.map(|get| hash_request::<<T as Config>::IsmpHost>(&Request::Get(get.clone())))
+				.collect::<Vec<_>>();
+
+			// this is so we can reject duplicate batches at the mempool level
+			let msg_hash = sp_io::hashing::keccak_256(&messages.encode()).to_vec();
+
+			Ok(ValidTransaction {
+				priority: 100,
+				requires: vec![],
+				provides: vec![msg_hash],
+				longevity: 25,
+				propagate: true,
+			})
 		}
 	}
 }

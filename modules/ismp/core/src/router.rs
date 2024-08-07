@@ -16,7 +16,7 @@
 //! Message router definitions
 
 use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
-use alloc::{boxed::Box, string::ToString};
+use alloc::{boxed::Box, string::ToString, vec};
 use codec::{Decode, Encode};
 use core::{fmt::Formatter, time::Duration};
 

@@ -11758,6 +11758,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "ismp",
+ "log",
  "mmr-primitives",
  "pallet-ismp",
  "pallet-ismp-relayer",

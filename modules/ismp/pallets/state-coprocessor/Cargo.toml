@@ -16,6 +16,7 @@ sp-std = { workspace = true }
 sp-io = { workspace = true }
 scale-info = { workspace = true }
 codec = { workspace = true }
+log = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
@@ -31,7 +32,8 @@ alloy-primitives = { workspace = true }
 [features]
 default = ["std"]
 std = [
-    "codec/std",
+	"codec/std",
+    "log/std",
     "frame-support/std",
     "frame-system/std",
     "sp-io/std",

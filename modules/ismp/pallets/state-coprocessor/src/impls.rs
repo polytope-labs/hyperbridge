@@ -16,11 +16,12 @@
 //! Pallet method definitions
 
 use super::{Config, Pallet};
+use codec::{Decode, Encode};
 use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_get_response, hash_request, hash_response, Proof},
+	messaging::{hash_get_response, hash_request, Proof},
 	router::{GetRequest, GetResponse, Request, Response, StorageValue},
 	Error,
 };
@@ -33,6 +34,7 @@ use pallet_ismp::{
 use sp_core::U256;
 
 /// Message for processing state queries
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 pub struct GetRequestsWithProof {
 	/// The associated Get requests
 	pub requests: Vec<GetRequest>,
@@ -114,7 +116,6 @@ where
 						StateMachine::Grandpa(_) |
 						StateMachine::Kusama(_) |
 						StateMachine::Polkadot(_) => {
-							use codec::Decode;
 							let fee: u128 =
 								pallet_ismp::dispatcher::RequestMetadata::<T>::decode(&mut &*value)
 									.map_err(|_| Error::Custom("Failed to decode fee".to_string()))?
@@ -164,30 +165,28 @@ where
 		for get_response in get_responses {
 			let full = Request::Get(get_response.get.clone());
 			host.store_request_receipt(&full, &address)?;
-			let meta = FeeMetadata::<T> { payer: [0u8; 32].into(), fee: Default::default() };
-			Self::dispatch_get_response(get_response, meta)
+			Self::dispatch_get_response(get_response)
 				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?
 		}
 
 		Ok(())
 	}
 
-	/// Insert a get response into the MMR and dispatch an event
-	pub fn dispatch_get_response(
-		get_response: GetResponse,
-		meta: FeeMetadata<T>,
-	) -> Result<(), ismp::Error> {
+	/// Insert a get response into the MMR and emits an event
+	pub fn dispatch_get_response(get_response: GetResponse) -> Result<(), ismp::Error> {
 		let commitment = hash_get_response::<<T as Config>::IsmpHost>(&get_response);
 		let req_commitment =
 			hash_request::<<T as Config>::IsmpHost>(&Request::Get(get_response.get.clone()));
 		let event = pallet_ismp::Event::Response {
 			request_nonce: get_response.get.nonce,
-			dest_chain: get_response.get.dest,
-			source_chain: get_response.get.source,
+			dest_chain: get_response.get.source,
+			source_chain: get_response.get.dest,
 			commitment,
 		};
+
 		let leaf_index_and_pos =
 			<T as pallet_ismp::Config>::Mmr::push(Leaf::Response(Response::Get(get_response)));
+		let meta = FeeMetadata::<T> { payer: [0u8; 32].into(), fee: Default::default() };
 
 		pallet_ismp::child_trie::ResponseCommitments::<T>::insert(
 			commitment,
@@ -207,6 +206,7 @@ where
 	}
 }
 
+/// Returns the storage keys for
 fn get_request_keys<T: Config>(requests: &[GetRequest], source: StateMachine) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	for req in requests {

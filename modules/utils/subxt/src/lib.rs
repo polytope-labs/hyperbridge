@@ -318,7 +318,7 @@ pub mod signer {
 		client: &OnlineClient<T>,
 		signer: InMemorySigner<T>,
 		payload: Tx,
-	) -> Result<(), anyhow::Error>
+	) -> Result<T::Hash, anyhow::Error>
 	where
 		<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
 			Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
@@ -341,7 +341,7 @@ pub mod signer {
 			Err(err) =>
 				Err(err).context(format!("Error executing signed extrinsic {ext_hash:?}"))?,
 		};
-		Ok(())
+		Ok(extrinsic.block_hash())
 	}
 }
 

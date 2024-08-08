@@ -231,8 +231,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
 
         for (uint256 i = 0; i < responsesLength; ++i) {
             GetResponseLeaf memory leaf = message.responses[i];
-            // timed-out?
-            if (timestamp >= leaf.response.request.timeout()) revert MessageTimedOut();
+            // don't check for timeouts because it's checked on Hyperbridge
 
             // known request? also serves as source check
             bytes32 requestCommitment = leaf.response.request.hash();
@@ -350,8 +349,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
 
         for (uint256 i = 0; i < timeoutsLength; ++i) {
             GetRequest memory request = message.timeouts[i];
-            // timed-out?
-            if (request.timeout() > state.timestamp) revert MessageNotTimedOut();
+            // don't check for timeouts because it's checked on Hyperbridge
 
             bytes32 commitment = request.hash();
             FeeMetadata memory meta = host.requestCommitments(commitment);

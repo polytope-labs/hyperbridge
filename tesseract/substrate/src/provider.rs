@@ -127,11 +127,15 @@ where
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		if keys.is_empty() {
 			Err(anyhow!("No queries provided"))?
 		}
-		match keys[0].dest_chain {
+		// We use the counterparty chain's state machine id to know what kind of proof is required
+		// Necessary for when substrate chains are using tesseract to communicate with hyperbridge
+		// The destination chain in the request does not reflect the kind of proof needed
+		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
 			StateMachine::Evm(_) => {
 				let keys =
@@ -168,12 +172,13 @@ where
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		if keys.is_empty() {
 			Err(anyhow!("No queries provided"))?
 		}
 
-		match keys[0].dest_chain {
+		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
 			StateMachine::Evm(_) => {
 				let keys =

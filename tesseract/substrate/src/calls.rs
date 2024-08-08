@@ -17,6 +17,7 @@ use pallet_ismp_relayer::{
 	message,
 	withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
+use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	U256,
@@ -36,7 +37,9 @@ use subxt::{
 	OnlineClient,
 };
 use subxt_utils::send_extrinsic;
-use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, WithdrawFundsResult};
+use tesseract_primitives::{
+	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
+};
 
 #[derive(codec::Encode, codec::Decode)]
 pub struct RequestMetadata {
@@ -231,6 +234,26 @@ where
 		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
 
 		Ok(leaf_meta.claimed)
+	}
+}
+
+#[async_trait::async_trait]
+impl<C> HandleGetResponse for SubstrateClient<C>
+where
+	C: subxt::Config + Send + Sync + Clone,
+	C::Header: Send + Sync,
+	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	C::AccountId:
+		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
+{
+	async fn submit_get_response(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
+		let _ = send_unsigned_extrinsic(&self.client, tx, false)
+			.await?
+			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
+		Ok(())
 	}
 }
 

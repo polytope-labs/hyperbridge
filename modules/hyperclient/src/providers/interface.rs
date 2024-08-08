@@ -77,6 +77,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
 	/// Query a responses proof
@@ -85,6 +86,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
 	// Query the response receipt from the ISMP host on the destination chain

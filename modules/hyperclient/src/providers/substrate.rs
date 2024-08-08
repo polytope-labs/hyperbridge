@@ -191,11 +191,12 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		if keys.is_empty() {
 			Err(anyhow!("No queries provided"))?
 		}
-		match keys[0].dest_chain {
+		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
 			StateMachine::Evm(_) => {
 				let keys =
@@ -232,12 +233,13 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		if keys.is_empty() {
 			Err(anyhow!("No queries provided"))?
 		}
 
-		match keys[0].dest_chain {
+		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
 			StateMachine::Evm(_) => {
 				let keys =

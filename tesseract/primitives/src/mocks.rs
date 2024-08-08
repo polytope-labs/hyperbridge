@@ -119,11 +119,21 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		Ok(Duration::from_secs(0))
 	}
 
-	async fn query_requests_proof(&self, _at: u64, _keys: Vec<Query>) -> Result<Vec<u8>, Error> {
+	async fn query_requests_proof(
+		&self,
+		_at: u64,
+		_keys: Vec<Query>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, Error> {
 		Ok(Default::default())
 	}
 
-	async fn query_responses_proof(&self, _at: u64, _keys: Vec<Query>) -> Result<Vec<u8>, Error> {
+	async fn query_responses_proof(
+		&self,
+		_at: u64,
+		_keys: Vec<Query>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, Error> {
 		Ok(Default::default())
 	}
 

@@ -34,7 +34,8 @@ import {
     PostResponseTimeoutMessage,
     GetTimeoutMessage,
     PostRequestLeaf,
-    PostResponseLeaf
+    PostResponseLeaf,
+    GetResponseLeaf
 } from "@polytope-labs/ismp-solidity/Message.sol";
 
 import {Context} from "openzeppelin/utils/Context.sol";
@@ -59,6 +60,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
     using Message for PostResponse;
     using Message for PostRequest;
     using Message for GetRequest;
+    using Message for GetResponse;
 
     // The cosensus client has now expired to mitigate
     // long fork attacks, this is unrecoverable.
@@ -163,9 +165,9 @@ contract HandlerV1 is IHandler, ERC165, Context {
 
         bytes32 root = host.stateMachineCommitment(request.proof.height).overlayRoot;
         if (root == bytes32(0)) revert StateCommitmentNotFound();
-        if (!MerkleMountainRange.VerifyProof(root, request.proof.multiproof, leaves, request.proof.leafCount)) {
-            revert InvalidProof();
-        }
+        bool valid = MerkleMountainRange.VerifyProof(root, request.proof.multiproof, leaves, request.proof.leafCount);
+        if (!valid) revert InvalidProof();
+
 
         for (uint256 i = 0; i < requestsLen; ++i) {
             PostRequestLeaf memory leaf = request.requests[i];
@@ -182,7 +184,6 @@ contract HandlerV1 is IHandler, ERC165, Context {
         uint256 timestamp = block.timestamp;
         uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(response.proof.height);
         uint256 challengePeriod = host.challengePeriod();
-
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
 
         uint256 responsesLength = response.responses.length;
@@ -192,6 +193,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             PostResponseLeaf memory leaf = response.responses[i];
             // check time-out
             if (timestamp >= leaf.response.timeout()) revert MessageTimedOut();
+
             // known request? also serves as a source check
             bytes32 requestCommitment = leaf.response.request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
@@ -204,12 +206,50 @@ contract HandlerV1 is IHandler, ERC165, Context {
 
         bytes32 root = host.stateMachineCommitment(response.proof.height).overlayRoot;
         if (root == bytes32(0)) revert StateCommitmentNotFound();
-        if (!MerkleMountainRange.VerifyProof(root, response.proof.multiproof, leaves, response.proof.leafCount)) {
-            revert InvalidProof();
-        }
+        bool valid = MerkleMountainRange.VerifyProof(root, response.proof.multiproof, leaves, response.proof.leafCount);
+        if (!valid) revert InvalidProof();
 
         for (uint256 i = 0; i < responsesLength; ++i) {
             PostResponseLeaf memory leaf = response.responses[i];
+            host.dispatchIncoming(leaf.response, _msgSender());
+        }
+    }
+
+    /**
+     * @dev check response proofs, message delay and timeouts, then dispatch get responses to modules
+     * @param host - Ismp host
+     * @param message - batch get responses
+     */
+    function handleGetResponses(IIsmpHost host, GetResponseMessage calldata message) external notFrozen(host) {
+        uint256 timestamp = block.timestamp;
+        uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(message.proof.height);
+        uint256 challengePeriod = host.challengePeriod();
+        if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
+
+        uint256 responsesLength = message.responses.length;
+        MmrLeaf[] memory leaves = new MmrLeaf[](responsesLength);
+
+        for (uint256 i = 0; i < responsesLength; ++i) {
+            GetResponseLeaf memory leaf = message.responses[i];
+            // don't check for timeouts because it's checked on Hyperbridge
+
+            // known request? also serves as source check
+            bytes32 requestCommitment = leaf.response.request.hash();
+            FeeMetadata memory meta = host.requestCommitments(requestCommitment);
+            if (meta.sender == address(0)) revert UnknownMessage();
+
+            // duplicate response?
+            if (host.responseReceipts(requestCommitment).relayer != address(0)) revert DuplicateMessage();
+            leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, leaf.response.hash());
+        }
+
+        bytes32 root = host.stateMachineCommitment(message.proof.height).overlayRoot;
+        if (root == bytes32(0)) revert StateCommitmentNotFound();
+        bool valid = MerkleMountainRange.VerifyProof(root, message.proof.multiproof, leaves, message.proof.leafCount);
+        if (!valid) revert InvalidProof();
+
+        for (uint256 i = 0; i < responsesLength; ++i) {
+            GetResponseLeaf memory leaf = message.responses[i];
             host.dispatchIncoming(leaf.response, _msgSender());
         }
     }
@@ -293,63 +333,36 @@ contract HandlerV1 is IHandler, ERC165, Context {
     }
 
     /**
-     * @dev check response proofs, message delay and timeouts, then dispatch get responses to modules
-     * @param host - Ismp host
-     * @param message - batch get responses
-     */
-    function handleGetResponses(IIsmpHost host, GetResponseMessage calldata message) external notFrozen(host) {
-        uint256 timestamp = block.timestamp;
-        uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(message.height);
-        uint256 challengePeriod = host.challengePeriod();
-        if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
-
-        bytes32 root = host.stateMachineCommitment(message.height).stateRoot;
-        if (root == bytes32(0)) revert StateCommitmentNotFound();
-
-        uint256 responsesLength = message.requests.length;
-        bytes[] memory proof = message.proof;
-
-        for (uint256 i = 0; i < responsesLength; ++i) {
-            GetRequest memory request = message.requests[i];
-            // timed-out?
-            if (timestamp >= request.timeout()) revert MessageTimedOut();
-
-            // known request? also serves as source check
-            bytes32 requestCommitment = request.hash();
-            FeeMetadata memory meta = host.requestCommitments(requestCommitment);
-            if (meta.sender == address(0)) revert UnknownMessage();
-
-            // duplicate response?
-            if (host.responseReceipts(requestCommitment).relayer != address(0)) revert DuplicateMessage();
-            StorageValue[] memory values = MerklePatricia.ReadChildProofCheck(
-                root,
-                proof,
-                request.keys,
-                bytes.concat(requestCommitment)
-            );
-            GetResponse memory response = GetResponse({request: request, values: values});
-
-            host.dispatchIncoming(response, _msgSender());
-        }
-    }
-
-    /**
      * @dev Check the provided Get request timeouts, then dispatch to modules
      * @param host - Ismp host
      * @param message - batch get request timeouts
      */
     function handleGetRequestTimeouts(IIsmpHost host, GetTimeoutMessage calldata message) external notFrozen(host) {
+        uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
+        uint256 challengePeriod = host.challengePeriod();
+        if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
+
+        // fetch the state commitment
+        StateCommitment memory state = host.stateMachineCommitment(message.height);
+        if (state.stateRoot == bytes32(0)) revert StateCommitmentNotFound();
         uint256 timeoutsLength = message.timeouts.length;
-        uint256 timestamp = block.timestamp;
 
         for (uint256 i = 0; i < timeoutsLength; ++i) {
             GetRequest memory request = message.timeouts[i];
-            bytes32 requestCommitment = request.hash();
-            FeeMetadata memory meta = host.requestCommitments(requestCommitment);
-            if (meta.sender == address(0)) revert InvalidProof();
+            // don't check for timeouts because it's checked on Hyperbridge
 
-            if (request.timeout() > timestamp) revert MessageNotTimedOut();
-            host.dispatchTimeOut(request, meta, requestCommitment);
+            bytes32 commitment = request.hash();
+            FeeMetadata memory meta = host.requestCommitments(commitment);
+            if (meta.sender == address(0)) revert UnknownMessage();
+
+            bytes[] memory keys = new bytes[](1);
+            keys[i] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(commitment));
+
+            // verify state trie non-membership proofs
+            StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
+            if (entry.value.length != 0) revert InvalidProof();
+
+            host.dispatchTimeOut(request, meta, commitment);
         }
     }
 }

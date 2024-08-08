@@ -23,7 +23,7 @@ use crate::{
 		ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
-	router::{PostRequest, PostResponse, Request, RequestResponse, Response},
+	router::{GetResponse, PostRequest, PostResponse, Request, RequestResponse, Response},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -231,11 +231,16 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
 pub fn hash_response<H: Keccak256>(res: &Response) -> H256 {
 	match res {
 		Response::Post(res) => hash_post_response::<H>(res),
-		Response::Get(res) => hash_request::<H>(&Request::Get(res.get.clone())),
+		Response::Get(res) => hash_get_response::<H>(res),
 	}
 }
 
-/// Return the keccak256 of a response
+/// Return the keccak256 of a post response
 pub fn hash_post_response<H: Keccak256>(res: &PostResponse) -> H256 {
+	H::keccak256(&res.encode())
+}
+
+/// Return the keccak256 of a get response
+pub fn hash_get_response<H: Keccak256>(res: &GetResponse) -> H256 {
 	H::keccak256(&res.encode())
 }

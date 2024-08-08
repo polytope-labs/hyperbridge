@@ -1,0 +1,50 @@
+[package]
+name = "pallet-state-coprocessor"
+version = "0.1.0"
+edition = "2021"
+description = "The state coprocessor enables Hyperbridge to performs state queries of connected chains"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+# substrate
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
+sp-std = { workspace = true }
+sp-io = { workspace = true }
+scale-info = { workspace = true }
+codec = { workspace = true }
+log = { workspace = true }
+
+# polytope labs
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+mmr-primitives = { workspace = true }
+evm-common = { workspace = true }
+pallet-ismp-relayer = { workspace = true }
+
+alloy-rlp = { workspace = true }
+alloy-primitives = { workspace = true }
+
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+    "log/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "scale-info/std",
+    "sp-std/std",
+    "sp-core/std",
+    "ismp/std",
+    "pallet-ismp/std",
+    "mmr-primitives/std",
+    "evm-common/std",
+    "pallet-ismp-relayer/std",
+    "alloy-primitives/std"
+]

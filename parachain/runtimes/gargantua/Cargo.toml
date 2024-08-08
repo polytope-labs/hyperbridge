@@ -87,6 +87,7 @@ ismp-parachain-runtime-api = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
+pallet-state-coprocessor = { workspace = true }
 pallet-asset-gateway = { workspace = true  }
 pallet-token-governor = { workspace = true }
 pallet-mmr = { workspace = true }
@@ -159,6 +160,7 @@ std = [
 	"pallet-ismp-relayer/std",
 	"pallet-ismp-host-executive/std",
 	"pallet-call-decompressor/std",
+	"pallet-state-coprocessor/std",
 	"pallet-asset-gateway/std",
 	"pallet-token-governor/std",
 	"pallet-assets/std",

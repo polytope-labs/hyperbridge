@@ -16,7 +16,7 @@
 //! Message router definitions
 
 use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString};
+use alloc::{boxed::Box, string::ToString, vec};
 use codec::{Decode, Encode};
 use core::{fmt::Formatter, time::Duration};
 
@@ -355,7 +355,43 @@ pub struct GetResponse {
 	/// The Get request that triggered this response.
 	pub get: GetRequest,
 	/// Values derived from the state proof
-	pub values: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+	pub values: Vec<StorageValue>,
+}
+
+impl GetResponse {
+	/// Returns the encoding for a get response
+	pub fn encode(&self) -> Vec<u8> {
+		let request = Request::Get(self.get.clone()).encode();
+		let values = self.values.iter().fold(vec![], |mut acc, storage_value| {
+			let item = vec![
+				storage_value.key.clone(),
+				storage_value.value.as_ref().cloned().unwrap_or_default(),
+			]
+			.concat();
+			acc.extend_from_slice(&item);
+			acc
+		});
+		vec![request, values].concat()
+	}
+}
+
+/// The verfied key-values for a GetResponse
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	PartialEq,
+	Eq,
+	scale_info::TypeInfo,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+pub struct StorageValue {
+	/// The request storage keys
+	pub key: Vec<u8>,
+	/// The verified value
+	pub value: Option<Vec<u8>>,
 }
 
 /// The ISMP response
@@ -439,7 +475,7 @@ impl Response {
 	pub fn encode(&self) -> Vec<u8> {
 		match self {
 			Response::Post(res) => res.encode(),
-			Response::Get(res) => Request::Get(res.get.clone()).encode(),
+			Response::Get(res) => res.encode(),
 		}
 	}
 }

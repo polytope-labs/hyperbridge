@@ -38,15 +38,18 @@ contract GetRequestTest is BaseTest {
         assert(host.responseReceipts(commitment).relayer == address(this));
     }
 
-    function GetTimeoutNoChallenge(GetRequest memory request) public {
+    function GetTimeoutNoChallenge(
+        bytes memory consensusProof,
+        GetRequest memory request,
+        GetTimeoutMessage memory message
+    ) public {
         testModule.dispatch(request);
         request.timeoutTimestamp += uint64(block.timestamp);
         assert(host.requestCommitments(request.hash()).sender != address(0));
+
+        handler.handleConsensus(host, consensusProof);
         vm.warp(1000);
 
-        GetRequest[] memory timeouts = new GetRequest[](1);
-        timeouts[0] = request;
-        GetTimeoutMessage memory message = GetTimeoutMessage({timeouts: timeouts});
         handler.handleGetRequestTimeouts(host, message);
 
         assert(host.requestCommitments(request.hash()).sender == address(0));

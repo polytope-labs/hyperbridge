@@ -21,7 +21,7 @@ use crate::{
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, hash_response, ResponseMessage},
-	router::{GetResponse, Request, RequestResponse, Response},
+	router::{GetResponse, Request, RequestResponse, Response, StorageValue},
 };
 use alloc::{vec, vec::Vec};
 
@@ -147,7 +147,11 @@ where
 				.map(|request| {
 					let wrapped_req = Request::Get(request.clone());
 					let keys = request.keys.clone();
-					let values = state_machine.verify_state_proof(host, keys, state, &proof)?;
+					let values = state_machine
+						.verify_state_proof(host, keys, state, &proof)?
+						.into_iter()
+						.map(|(key, value)| StorageValue { key, value })
+						.collect();
 
 					let router = host.ismp_router();
 					let cb = router.module_for_id(request.from.clone())?;

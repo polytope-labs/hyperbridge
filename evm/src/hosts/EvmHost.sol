@@ -25,7 +25,7 @@ import {DispatchPost, DispatchPostResponse, DispatchGet} from "@polytope-labs/is
 import {IIsmpHost, FeeMetadata, ResponseReceipt, FrozenStatus} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {StateCommitment, StateMachineHeight} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
-import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "@polytope-labs/ismp-solidity/Message.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse, Message} from "@polytope-labs/ismp-solidity/Message.sol";
 import {IConsensusClient} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
@@ -989,6 +989,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
+        if (meta.fee != 0) {
+            // refund relayer fee
+            SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
+        }
         emit GetRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
     }
 

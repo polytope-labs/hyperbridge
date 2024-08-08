@@ -48,8 +48,8 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{EvmHost, EvmHostEvents, PostRequestHandledFilter},
 	handler::{
-		GetTimeoutMessage, Handler, PostRequestLeaf, PostRequestMessage, PostRequestTimeoutMessage,
-		PostResponseLeaf, PostResponseMessage, PostResponseTimeoutMessage, Proof,
+		Handler, PostRequestLeaf, PostRequestMessage, PostRequestTimeoutMessage, PostResponseLeaf,
+		PostResponseMessage, PostResponseTimeoutMessage, Proof,
 	},
 };
 use mmr_primitives::mmr_position_to_k_index;
@@ -526,21 +526,20 @@ impl Client for EvmClient {
 				let call = contract.handle_post_response_timeouts(self.host_address, message);
 				Ok(call.tx.data().cloned().expect("Infallible").to_vec())
 			},
-			Message::Timeout(TimeoutMessage::Get { requests }) => {
-				let get_requests = requests
-					.into_iter()
-					.filter_map(|req| match req {
-						Request::Get(get) => Some(get.into()),
-						_ => None,
-					})
-					.collect();
+			// Message::Timeout(TimeoutMessage::Get { requests }) => {
+			// 	let get_requests = requests
+			// 		.into_iter()
+			// 		.filter_map(|req| match req {
+			// 			Request::Get(get) => Some(get.into()),
+			// 			_ => None,
+			// 		})
+			// 		.collect();
 
-				let message = GetTimeoutMessage { timeouts: get_requests };
-				let call = contract.handle_get_request_timeouts(self.host_address, message);
+			// 	let message = GetTimeoutMessage { timeouts: get_requests };
+			// 	let call = contract.handle_get_request_timeouts(self.host_address, message);
 
-				Ok(call.tx.data().cloned().expect("Infallible").to_vec())
-			},
-
+			// 	Ok(call.tx.data().cloned().expect("Infallible").to_vec())
+			// },
 			Message::Request(msg) => {
 				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
 				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();

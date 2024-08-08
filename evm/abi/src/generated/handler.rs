@@ -81,6 +81,17 @@ pub mod handler {
                                                     ),
                                                 ),
                                             ),
+                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                ::std::vec![
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                ],
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                ),
+                                            ),
                                         ],
                                     ),
                                     internal_type: ::core::option::Option::Some(
@@ -111,14 +122,19 @@ pub mod handler {
                                     name: ::std::borrow::ToOwned::to_owned("message"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
                                         ::std::vec![
-                                            ::ethers::core::abi::ethabi::ParamType::Array(
-                                                ::std::boxed::Box::new(
-                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                ),
-                                            ),
                                             ::ethers::core::abi::ethabi::ParamType::Tuple(
                                                 ::std::vec![
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                        ::std::vec![
+                                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                        ],
+                                                    ),
+                                                    ::ethers::core::abi::ethabi::ParamType::Array(
+                                                        ::std::boxed::Box::new(
+                                                            ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                                        ),
+                                                    ),
                                                     ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
                                                 ],
                                             ),
@@ -126,17 +142,37 @@ pub mod handler {
                                                 ::std::boxed::Box::new(
                                                     ::ethers::core::abi::ethabi::ParamType::Tuple(
                                                         ::std::vec![
-                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                                            ::ethers::core::abi::ethabi::ParamType::Address,
-                                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                                            ::ethers::core::abi::ethabi::ParamType::Array(
-                                                                ::std::boxed::Box::new(
-                                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                                ),
+                                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                                ::std::vec![
+                                                                    ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                                        ::std::vec![
+                                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                                                ::std::boxed::Box::new(
+                                                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                                                ),
+                                                                            ),
+                                                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                                        ],
+                                                                    ),
+                                                                    ::ethers::core::abi::ethabi::ParamType::Array(
+                                                                        ::std::boxed::Box::new(
+                                                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                                                ::std::vec![
+                                                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                                                ],
+                                                                            ),
+                                                                        ),
+                                                                    ),
+                                                                ],
                                                             ),
-                                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
                                                         ],
                                                     ),
                                                 ),
@@ -608,24 +644,24 @@ pub mod handler {
 				.method_hash([187, 22, 137, 190], (host, proof))
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `handleGetRequestTimeouts` (0xee241c0d) function
+		///Calls the contract's `handleGetRequestTimeouts` (0x22b3144a) function
 		pub fn handle_get_request_timeouts(
 			&self,
 			host: ::ethers::core::types::Address,
 			message: GetTimeoutMessage,
 		) -> ::ethers::contract::builders::ContractCall<M, ()> {
 			self.0
-				.method_hash([238, 36, 28, 13], (host, message))
+				.method_hash([34, 179, 20, 74], (host, message))
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `handleGetResponses` (0x2e8f454b) function
+		///Calls the contract's `handleGetResponses` (0x6e011b21) function
 		pub fn handle_get_responses(
 			&self,
 			host: ::ethers::core::types::Address,
 			message: GetResponseMessage,
 		) -> ::ethers::contract::builders::ContractCall<M, ()> {
 			self.0
-				.method_hash([46, 143, 69, 75], (host, message))
+				.method_hash([110, 1, 27, 33], (host, message))
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `handlePostRequestTimeouts` (0x089b174c) function
@@ -1036,7 +1072,7 @@ pub mod handler {
 	}
 	///Container type for all input parameters for the `handleGetRequestTimeouts` function with
 	/// signature `handleGetRequestTimeouts(address,((bytes,bytes,uint64,address,uint64,bytes[],
-	/// uint64)[]))` and selector `0xee241c0d`
+	/// uint64)[],(uint256,uint256),bytes[]))` and selector `0x22b3144a`
 	#[derive(
 		Clone,
 		::ethers::contract::EthCall,
@@ -1049,15 +1085,16 @@ pub mod handler {
 	)]
 	#[ethcall(
 		name = "handleGetRequestTimeouts",
-		abi = "handleGetRequestTimeouts(address,((bytes,bytes,uint64,address,uint64,bytes[],uint64)[]))"
+		abi = "handleGetRequestTimeouts(address,((bytes,bytes,uint64,address,uint64,bytes[],uint64)[],(uint256,uint256),bytes[]))"
 	)]
 	pub struct HandleGetRequestTimeoutsCall {
 		pub host: ::ethers::core::types::Address,
 		pub message: GetTimeoutMessage,
 	}
 	///Container type for all input parameters for the `handleGetResponses` function with signature
-	/// `handleGetResponses(address,(bytes[],(uint256,uint256),(bytes,bytes,uint64,address,uint64,
-	/// bytes[],uint64)[]))` and selector `0x2e8f454b`
+	/// `handleGetResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,
+	/// address,uint64,bytes[],uint64),(bytes,bytes)[]),uint256,uint256)[]))` and selector
+	/// `0x6e011b21`
 	#[derive(
 		Clone,
 		::ethers::contract::EthCall,
@@ -1070,7 +1107,7 @@ pub mod handler {
 	)]
 	#[ethcall(
 		name = "handleGetResponses",
-		abi = "handleGetResponses(address,(bytes[],(uint256,uint256),(bytes,bytes,uint64,address,uint64,bytes[],uint64)[]))"
+		abi = "handleGetResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,address,uint64,bytes[],uint64),(bytes,bytes)[]),uint256,uint256)[]))"
 	)]
 	pub struct HandleGetResponsesCall {
 		pub host: ::ethers::core::types::Address,
@@ -1324,8 +1361,25 @@ pub mod handler {
 		Hash,
 	)]
 	pub struct SupportsInterfaceReturn(pub bool);
-	///`GetResponseMessage(bytes[],(uint256,uint256),(bytes,bytes,uint64,address,uint64,bytes[],
-	/// uint64)[])`
+	///`GetResponseLeaf(((bytes,bytes,uint64,address,uint64,bytes[],uint64),(bytes,bytes)[]),
+	/// uint256,uint256)`
+	#[derive(
+		Clone,
+		::ethers::contract::EthAbiType,
+		::ethers::contract::EthAbiCodec,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	pub struct GetResponseLeaf {
+		pub response: GetResponse,
+		pub index: ::ethers::core::types::U256,
+		pub k_index: ::ethers::core::types::U256,
+	}
+	///`GetResponseMessage(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,address,
+	/// uint64,bytes[],uint64),(bytes,bytes)[]),uint256,uint256)[])`
 	#[derive(
 		Clone,
 		::ethers::contract::EthAbiType,
@@ -1337,11 +1391,11 @@ pub mod handler {
 		Hash,
 	)]
 	pub struct GetResponseMessage {
-		pub proof: ::std::vec::Vec<::ethers::core::types::Bytes>,
-		pub height: StateMachineHeight,
-		pub requests: ::std::vec::Vec<GetRequest>,
+		pub proof: Proof,
+		pub responses: ::std::vec::Vec<GetResponseLeaf>,
 	}
-	///`GetTimeoutMessage((bytes,bytes,uint64,address,uint64,bytes[],uint64)[])`
+	///`GetTimeoutMessage((bytes,bytes,uint64,address,uint64,bytes[],uint64)[],(uint256,uint256),
+	/// bytes[])`
 	#[derive(
 		Clone,
 		::ethers::contract::EthAbiType,
@@ -1354,6 +1408,8 @@ pub mod handler {
 	)]
 	pub struct GetTimeoutMessage {
 		pub timeouts: ::std::vec::Vec<GetRequest>,
+		pub height: StateMachineHeight,
+		pub proof: ::std::vec::Vec<::ethers::core::types::Bytes>,
 	}
 	///`PostRequestLeaf((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)`
 	#[derive(

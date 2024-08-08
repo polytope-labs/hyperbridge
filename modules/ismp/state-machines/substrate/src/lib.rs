@@ -23,7 +23,7 @@ extern crate alloc;
 use alloc::{collections::BTreeMap, format, string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use core::{fmt::Debug, marker::PhantomData, time::Duration};
-use frame_support::ensure;
+use frame_support::{ensure, traits::Get};
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
@@ -102,7 +102,7 @@ impl<T> Default for SubstrateStateMachine<T> {
 }
 
 impl<T> From<StateMachine> for SubstrateStateMachine<T> {
-	fn from(_state_machine: StateMachine) -> Self {
+	fn from(_: StateMachine) -> Self {
 		Self::default()
 	}
 }
@@ -124,9 +124,17 @@ where
 			matches!(state_proof, SubstrateStateProof::OverlayProof { .. }),
 			Error::Custom("Expected Overlay Proof".to_string())
 		);
-		let root = state.overlay_root.ok_or_else(|| {
-			Error::Custom("Child trie root is not available for provided state commitment".into())
-		})?;
+
+		let root = match T::Coprocessor::get() {
+			Some(id) if id == proof.height.id.state_id => state.state_root, /* child root on */
+			// hyperbridge
+			_ => state.overlay_root.ok_or_else(|| {
+				Error::Custom(
+					"Child trie root is not available for provided state commitment".into(),
+				)
+			})?,
+		};
+
 		let keys = match item {
 			RequestResponse::Request(requests) => requests
 				.into_iter()

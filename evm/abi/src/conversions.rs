@@ -18,7 +18,10 @@
 use crate::{
 	beefy::IntermediateState,
 	evm_host::EvmHostEvents,
-	shared_types::{GetRequest, PostRequest, PostResponse, StateCommitment, StateMachineHeight},
+	shared_types::{
+		GetRequest, GetResponse, PostRequest, PostResponse, StateCommitment, StateMachineHeight,
+		StorageValue,
+	},
 };
 
 use anyhow::anyhow;
@@ -255,6 +258,22 @@ impl From<router::GetRequest> for GetRequest {
 			},
 			timeout_timestamp: value.timeout_timestamp,
 			height: value.height,
+		}
+	}
+}
+
+impl From<router::GetResponse> for GetResponse {
+	fn from(value: router::GetResponse) -> Self {
+		GetResponse {
+			request: value.get.into(),
+			values: value
+				.values
+				.into_iter()
+				.map(|storage_value| StorageValue {
+					key: storage_value.key.into(),
+					value: storage_value.value.unwrap_or_default().into(),
+				})
+				.collect(),
 		}
 	}
 }

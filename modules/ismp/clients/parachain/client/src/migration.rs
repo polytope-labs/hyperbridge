@@ -31,15 +31,13 @@ pub mod storage_v0 {
 			return if Pallet::<T>::on_chain_storage_version() == 0 {
 				// track reads and write to be made
 				let storage_count = Parachains::<T>::iter_keys().count() as u64;
-				Parachains::<T>::translate(|key: u32, _old_value: ()| {
-					Some(ParachainData { id: key, slot_duration: 12000 })
-				});
+				Parachains::<T>::translate(|_key: u32, _old_value: ()| Some(12_000));
 				log::info!(target: "ismp_parachain", "Migrated Parachain storage on {} keys", storage_count);
 				StorageVersion::new(1).put::<Pallet<T>>();
 				Weight::from_all(storage_count)
 			} else {
 				Weight::zero()
-			}
+			};
 		}
 	}
 }

@@ -20,10 +20,12 @@ use crate::{
 	events::Meta,
 };
 use alloc::{string::String, vec::Vec};
+use codec::{Decode, Encode};
 use core::time::Duration;
+use scale_info::TypeInfo;
 
 /// Errors that may be encountered by the ISMP module
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Encode, Decode, TypeInfo)]
 pub enum Error {
 	/// The unbonding period for the given consensus client has elapsed and can no longer process
 	/// consensus updates.

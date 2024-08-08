@@ -105,6 +105,7 @@ pub async fn process_get_request_events<
 					},
 				};
 
+				tracing::info!(target: "tesseract", "Handling {} get_requests {}-{state_machine}", requests.len(), state_machine_update.state_machine_id.state_id);
 				let msg = GetRequestsWithProof {
 					requests,
 					source: source_proof,
@@ -130,7 +131,7 @@ pub async fn process_get_request_events<
 					let dest = client_map
 						.get(&msg.response.height.id.state_id)
 						.cloned()
-						.expect("Client exists");
+						.expect("Client exists, we have a proof");
 					async move {
 						let lambda = || async {
 							// Wait for challenge period for source and dest state machine heights

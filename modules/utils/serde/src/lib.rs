@@ -47,6 +47,42 @@ pub mod as_hex {
 		serializer.collect_str(&output)
 	}
 
+	/// Serialize Option<Vec<u8>> into hex string
+	pub fn serialize_option<S, T: AsRef<[u8]>>(
+		data: &Option<T>,
+		serializer: S,
+	) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		if let Some(data) = data {
+			let encoding = hex::encode(data.as_ref());
+			let output = format!("{HEX_ENCODING_PREFIX}{encoding}");
+			serializer.collect_str(&output)
+		} else {
+			serializer.collect_str(&"")
+		}
+	}
+
+	/// Deserialize hex string into Option<Vec<u8>>
+	pub fn deserialize_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+		T: TryFrom<Vec<u8>>,
+	{
+		let s = <String>::deserialize(deserializer)?;
+
+		let data = try_bytes_from_hex_str(&s).map_err(serde::de::Error::custom)?;
+		if data.is_empty() {
+			Ok(None)
+		} else {
+			let inner = T::try_from(data).map_err(|_| {
+				serde::de::Error::custom("type failed to parse bytes from hex data")
+			})?;
+			Ok(Some(inner))
+		}
+	}
+
 	/// Deserialize hex string into Vec<u8>
 	pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 	where
@@ -241,7 +277,7 @@ pub mod seq_of_str {
 mod test {
 	use primitive_types::{H256, H512};
 
-	use ismp::router::{GetRequest, PostRequest, PostResponse};
+	use ismp::router::{GetRequest, GetResponse, PostRequest, PostResponse, StorageValue};
 
 	#[test]
 	fn serialize_and_deserialize_post_request() {
@@ -311,6 +347,46 @@ mod test {
 		let deserialized: GetRequest = serde_json::from_str(&serialized).unwrap();
 
 		assert_eq!(get, deserialized);
+	}
+
+	#[test]
+	fn serialize_and_deserialize_get_response() {
+		let get = GetRequest {
+			source: ismp::host::StateMachine::Polkadot(100),
+			dest: ismp::host::StateMachine::Polkadot(2000),
+			nonce: 300,
+			from: H256::random().0.to_vec(),
+			keys: vec![
+				H256::random().0.to_vec(),
+				H256::random().0.to_vec(),
+				H256::random().0.to_vec(),
+			],
+			timeout_timestamp: 40000,
+			height: 289900,
+		};
+
+		let response = GetResponse {
+			get,
+			values: vec![
+				StorageValue {
+					key: H256::random().0.to_vec(),
+					value: Some(H256::random().0.to_vec()),
+				},
+				StorageValue { key: H256::random().0.to_vec(), value: None },
+				StorageValue {
+					key: H256::random().0.to_vec(),
+					value: Some(H256::random().0.to_vec()),
+				},
+			],
+		};
+
+		let serialized = serde_json::to_string(&response).unwrap();
+
+		println!("{serialized:?}\n");
+
+		let deserialized: GetResponse = serde_json::from_str(&serialized).unwrap();
+
+		assert_eq!(response, deserialized);
 	}
 
 	#[test]

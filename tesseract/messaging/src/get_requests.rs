@@ -9,12 +9,12 @@ use ismp::{
 	router::{GetRequest, Request},
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
+use sp_core::U256;
 use tesseract_primitives::{
 	config::RelayerConfig, observe_challenge_period, HandleGetResponse, Hasher, IsmpProvider,
 	StateMachineUpdated, StateProofQueryType,
 };
 use tokio::sync::mpsc::Receiver;
-use sp_core::U256;
 
 pub async fn process_get_request_events<
 	A: IsmpProvider + HandleGetResponse + Clone + Clone + 'static,
@@ -26,9 +26,14 @@ pub async fn process_get_request_events<
 	config: RelayerConfig,
 ) -> Result<(), anyhow::Error> {
 	let min_amount: U256 =
-		(config.minimum_get_request_fee.map(|val| std::cmp::max(val, 10)).unwrap_or(10) as u128 *
+		(config.minimum_get_request_fee.map(|val| std::cmp::max(val, 2)).unwrap_or(0) as u128 *
 			10u128.pow(18))
 		.into();
+    if min_amount == Default::default() {
+        tracing::warn!(
+            "Setting the minimum_get_request_fee=0 is not reccomended in live environments!"
+        );
+    }
 	while let Some((get_requests, state_machine_update)) = receiver.recv().await {
 		if get_requests.is_empty() {
 			continue;
@@ -51,13 +56,15 @@ pub async fn process_get_request_events<
 
 		get_requests.into_iter().for_each(|req| {
 			// Filter out timed out requests
-			if req.timeout() <= hyperbridge_timestamp {
+            let full = Request::Get(req.clone());
+			if full.timed_out(hyperbridge_timestamp)  {
                 tracing::trace!(target: "tesseract", "Skipping timed out get request from {} with nonce {}",req.source, req.nonce);
-				let key = (req.dest, req.height);
+			} else {
+                let key = (req.dest, req.height);
 				let entry = groups.entry(key);
 				let requests = entry.or_default();
 				requests.push(req);
-			}
+            }
 		});
 
 		let mut messages = vec![];
@@ -85,20 +92,13 @@ pub async fn process_get_request_events<
 					}
 				}
 
-				let request_commitment_keys = requests
-					.iter()
-					.map(|req| {
-						let full = Request::Get(req.clone());
-						let commitment = hash_request::<Hasher>(&full);
-						source
-							.request_commitment_full_key(commitment)
-							.into_iter()
-							.flatten()
-							.collect()
-					})
-					.collect::<Vec<_>>();
+				let request_commitment_keys = requests.iter().map(|req| {
+					let full = Request::Get(req.clone());
+					let commitment = hash_request::<Hasher>(&full);
+					source.request_commitment_full_key(commitment)
+				});
 
-				let query = StateProofQueryType::Ismp(request_commitment_keys);
+				let query = StateProofQueryType::Ismp(request_commitment_keys.flatten().collect());
 
 				tracing::trace!(target: "tesseract", "Fetching source proofs for {} get_requests from {}", requests.len(), state_machine_update.state_machine_id.state_id);
 				let source_proof =
@@ -134,7 +134,7 @@ pub async fn process_get_request_events<
 					},
 				};
 
-				tracing::trace!(target: "tesseract", "Handling {} get_requests for the chain pair {}-{state_machine}", requests.len(), state_machine_update.state_machine_id.state_id);
+				tracing::trace!(target: "tesseract", "Handling {} get_requests for the chain pair {}:{state_machine}", requests.len(), state_machine_update.state_machine_id.state_id);
 				let msg = GetRequestsWithProof {
 					requests,
 					source: source_proof,

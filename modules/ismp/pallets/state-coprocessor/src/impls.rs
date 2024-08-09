@@ -85,7 +85,7 @@ where
 
 		// Ensure the proof height is equal to each retrieval height specified in the Get
 		// requests
-		if !checked.iter().all(|get| get.height == source.height.height) {
+		if !checked.iter().all(|get| get.height == response.height.height) {
 			Err(Error::InsufficientProofHeight)?
 		}
 

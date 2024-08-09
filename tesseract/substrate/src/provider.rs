@@ -253,13 +253,37 @@ where
 			return Ok(Default::default());
 		}
 
-		let params = rpc_params![
-			BlockNumberOrHash::<H256>::Number(previous_height.saturating_add(1) as u32),
-			BlockNumberOrHash::<H256>::Number(event.latest_height as u32)
-		];
-		let response: HashMap<String, Vec<Event>> =
-			self.client.rpc().request("ismp_queryEvents", params).await?;
-		let events = response.values().into_iter().cloned().flatten().collect();
+		let mut events = vec![];
+		let chunk_size = 100;
+		let chunks = range.end().saturating_sub(*range.start()) / chunk_size;
+		for i in 0..=chunks {
+			let start = (i * chunk_size) + *range.start();
+			let end = if i == chunks { *range.end() } else { start + chunk_size - 1 };
+			let params = rpc_params![
+				BlockNumberOrHash::<H256>::Number(start as u32),
+				BlockNumberOrHash::<H256>::Number(end as u32)
+			];
+			let response = self
+				.client
+				.rpc()
+				.request::<HashMap<String, Vec<Event>>>("ismp_queryEvents", params)
+				.await;
+			match response {
+				Ok(response) => {
+					let batch = response.values().into_iter().cloned().flatten();
+					events.extend(batch)
+				},
+				Err(err) => {
+					log::error!(
+						"Error while querying events in range {}..{} from {:?}: {err:?}",
+						start,
+						end,
+						self.state_machine
+					);
+				},
+			}
+		}
+
 		Ok(events)
 	}
 
@@ -387,8 +411,9 @@ where
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		let client = self.clone();
 		let (tx, recv) = tokio::sync::mpsc::channel(256);
+		let latest_height = client.query_finalized_height().await?;
 		tokio::task::spawn(async move {
-			let mut latest_height = client.initial_height;
+			let mut latest_height = latest_height;
 			let state_machine = client.state_machine;
 			loop {
 				tokio::time::sleep(Duration::from_secs(10)).await;

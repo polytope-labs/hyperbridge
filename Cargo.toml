@@ -116,7 +116,7 @@ frame-system = { version = "37.0.0", default-features = false }
 frame-system-benchmarking = { version = "37.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "34.0.0", default-features = false }
 frame-try-runtime = { version = "0.43.0", default-features = false }
-pallet-aura = { version = "36.0.0", features = ["experimental"], default-features = false }
+pallet-aura = { version = "36.0.0", default-features = false }
 pallet-authorship = { version = "37.0.0", default-features = false }
 pallet-balances = { version = "38.0.0", default-features = false }
 pallet-session = { version = "37.0.0", default-features = false }

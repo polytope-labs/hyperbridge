@@ -45,7 +45,7 @@ use sp_consensus_beefy::{
 	mmr::{BeefyNextAuthoritySet, MmrLeaf},
 };
 use sp_io::hashing::keccak_256;
-use sp_mmr_primitives::Proof;
+use sp_mmr_primitives::LeafProof;
 use subxt::{rpc_params, Config, OnlineClient};
 use util::{hash_authority_addresses, prove_authority_set, AuthorityProofWithSignatures};
 
@@ -153,7 +153,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let leaf_proof = fetch_mmr_proof(&self.relay, block_number.into()).await?;
 		let leaves: Vec<Vec<u8>> = codec::Decode::decode(&mut &*leaf_proof.leaves.0)?;
 		let latest_leaf: MmrLeaf<u32, H256, H256, H256> = codec::Decode::decode(&mut &*leaves[0])?;
-		let mmr_proof: Proof<H256> = Decode::decode(&mut &*leaf_proof.proof.0)?;
+		let mmr_proof: LeafProof<H256> = Decode::decode(&mut &*leaf_proof.proof.0)?;
 
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),

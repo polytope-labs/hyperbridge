@@ -29,11 +29,6 @@ pub async fn process_get_request_events<
 		(config.minimum_get_request_fee.map(|val| std::cmp::max(val, 2)).unwrap_or(0) as u128 *
 			10u128.pow(18))
 		.into();
-    if min_amount == Default::default() {
-        tracing::warn!(
-            "Setting the minimum_get_request_fee=0 is not reccomended in live environments!"
-        );
-    }
 	while let Some((get_requests, state_machine_update)) = receiver.recv().await {
 		if get_requests.is_empty() {
 			continue;

@@ -64,6 +64,13 @@ impl Cli {
 				"Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
 			);
 		}
+
+		if relayer.minimum_get_request_fee == None {
+			log::warn!(
+				"minimum_get_request_fee is not set, get responses will be delivered at no cost!"
+			);
+		}
+		
 		let tx_payment = Arc::new(
 			TransactionPayment::initialize(&self.db)
 				.await

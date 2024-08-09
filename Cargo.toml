@@ -215,7 +215,7 @@ polkadot-runtime-parachains = "16.0.0"
 
 # crates.io
 serde = { version = "1", default-features = false }
-trie-db = { version = "0.28.0", default-features = false }
+trie-db = { version = "0.29.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false }

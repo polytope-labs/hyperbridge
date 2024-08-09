@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use codec::Encode;
-use sp_core_hashing::keccak_256;
+use sp_crypto_hashing::keccak_256;
 use subxt::{
 	config::{
 		polkadot::PolkadotExtrinsicParams,

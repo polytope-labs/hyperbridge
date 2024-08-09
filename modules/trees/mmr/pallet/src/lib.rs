@@ -188,10 +188,10 @@ where
 
 	fn generate_proof(
 		indices: Vec<LeafIndex>,
-	) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error> {
+	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), Error> {
 		let (leaves, proof) = Pallet::<T, I>::generate_proof(indices)?;
 		let proof_nodes = proof.items.into_iter().map(Into::into).collect();
-		let new_proof = primitives::Proof {
+		let new_proof = primitives::LeafProof {
 			leaf_indices: proof.leaf_indices,
 			leaf_count: proof.leaf_count,
 			items: proof_nodes,
@@ -276,7 +276,7 @@ where
 pub fn verify_leaves_proof<H, L>(
 	root: H::Output,
 	leaves: Vec<mmr::Node<H, L>>,
-	proof: primitives::Proof<H::Output>,
+	proof: primitives::LeafProof<H::Output>,
 ) -> Result<(), primitives::Error>
 where
 	H: traits::Hash,
@@ -328,7 +328,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	/// It may return an error or panic if used incorrectly.
 	pub fn generate_proof(
 		indices: Vec<LeafIndex>,
-	) -> Result<(Vec<LeafOf<T, I>>, primitives::Proof<HashOf<T, I>>), primitives::Error> {
+	) -> Result<(Vec<LeafOf<T, I>>, primitives::LeafProof<HashOf<T, I>>), primitives::Error> {
 		let leaves_count = NumberOfLeaves::<T, I>::get();
 		let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(leaves_count);
 		mmr.generate_proof(indices)
@@ -342,7 +342,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	/// or the proof is invalid.
 	pub fn verify_leaves(
 		leaves: Vec<LeafOf<T, I>>,
-		proof: primitives::Proof<HashOf<T, I>>,
+		proof: primitives::LeafProof<HashOf<T, I>>,
 	) -> Result<(), primitives::Error> {
 		if proof.leaf_count > NumberOfLeaves::<T, I>::get() ||
 			proof.leaf_count == 0 ||

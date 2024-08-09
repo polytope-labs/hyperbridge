@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 subxt = { workspace = true }
 ismp = { workspace = true }
-sp-core-hashing = { workspace = true }
+sp-crypto-hashing = { workspace = true }
 codec = { workspace = true }
 anyhow = { workspace = true }
 futures = "0.3.30"
@@ -28,7 +28,7 @@ std = [
     "subxt/native",
     "subxt/jsonrpsee",
     "ismp/std",
-    "sp-core-hashing/std",
+    "sp-crypto-hashing/std",
     "codec/std",
     "primitive-types/std",
     "alloy-primitives/std",

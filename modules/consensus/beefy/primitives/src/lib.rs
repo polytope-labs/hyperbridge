@@ -73,7 +73,7 @@ pub struct MmrProof {
 	/// Latest leaf added to mmr
 	pub latest_mmr_leaf: MmrLeaf<u32, H256, H256, H256>,
 	/// Proof for the latest mmr leaf
-	pub mmr_proof: sp_mmr_primitives::Proof<H256>,
+	pub mmr_proof: sp_mmr_primitives::LeafProof<H256>,
 	/// Proof for authorities in current session
 	pub authority_proof: Vec<Vec<(usize, [u8; 32])>>,
 }

@@ -172,6 +172,7 @@ where
 		let source = chain_b.clone();
 		let client_map = client_map.clone();
 		let name = format!("get-request-{}-{}", source.name(), hyperbridge.name());
+		let config = config.clone();
 		task_manager.spawn_essential_handle().spawn_blocking(
 			Box::leak(Box::new(name.clone())),
 			"messaging",
@@ -181,6 +182,7 @@ where
 					source,
 					hyperbridge,
 					client_map,
+					config,
 				)
 				.await;
 				tracing::error!("{name} terminated with result {res:?}");

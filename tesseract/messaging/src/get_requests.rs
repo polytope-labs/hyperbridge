@@ -10,10 +10,11 @@ use ismp::{
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use tesseract_primitives::{
-	observe_challenge_period, HandleGetResponse, Hasher, IsmpProvider, StateMachineUpdated,
-	StateProofQueryType,
+	config::RelayerConfig, observe_challenge_period, HandleGetResponse, Hasher, IsmpProvider,
+	StateMachineUpdated, StateProofQueryType,
 };
 use tokio::sync::mpsc::Receiver;
+use sp_core::U256;
 
 pub async fn process_get_request_events<
 	A: IsmpProvider + HandleGetResponse + Clone + Clone + 'static,
@@ -22,11 +23,18 @@ pub async fn process_get_request_events<
 	source: Arc<dyn IsmpProvider>,
 	hyperbridge: A,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	config: RelayerConfig,
 ) -> Result<(), anyhow::Error> {
+	let min_amount: U256 =
+		(config.minimum_get_request_fee.map(|val| std::cmp::max(val, 10)).unwrap_or(10) as u128 *
+			10u128.pow(18))
+		.into();
 	while let Some((get_requests, state_machine_update)) = receiver.recv().await {
 		if get_requests.is_empty() {
 			continue;
 		}
+
+		tracing::info!(target: "tesseract", "Got {} get_requests from {}", get_requests.len(), state_machine_update.state_machine_id.state_id);
 
 		// Group requests by destination chain and height
 		// Fetch source chain proofs
@@ -44,6 +52,7 @@ pub async fn process_get_request_events<
 		get_requests.into_iter().for_each(|req| {
 			// Filter out timed out requests
 			if req.timeout() <= hyperbridge_timestamp {
+                tracing::trace!(target: "tesseract", "Skipping timed out get request from {} with nonce {}",req.source, req.nonce);
 				let key = (req.dest, req.height);
 				let entry = groups.entry(key);
 				let requests = entry.or_default();
@@ -57,7 +66,24 @@ pub async fn process_get_request_events<
 
 		for (state_machine, height) in group_keys {
 			if let Some(client) = client_map.get(&state_machine) {
-				let requests = groups.remove(&(state_machine, height)).unwrap_or_default();
+				let all_requests = groups.remove(&(state_machine, height)).unwrap_or_default();
+
+				let mut requests = vec![];
+
+				for req in all_requests {
+					let full = Request::Get(req.clone());
+					let commitment = hash_request::<Hasher>(&full);
+					if let Ok(fee) = source.query_request_fee_metadata(commitment).await {
+						if fee < min_amount {
+							tracing::trace!(target: "tesseract", "Skipping unprofitable  get request {:?}", commitment);
+						} else {
+							requests.push(req)
+						}
+					} else {
+						tracing::error!("Failed to query fee for get request {:?}", commitment);
+						continue
+					}
+				}
 
 				let request_commitment_keys = requests
 					.iter()
@@ -74,6 +100,7 @@ pub async fn process_get_request_events<
 
 				let query = StateProofQueryType::Ismp(request_commitment_keys);
 
+				tracing::trace!(target: "tesseract", "Fetching source proofs for {} get_requests from {}", requests.len(), state_machine_update.state_machine_id.state_id);
 				let source_proof =
 					match source.query_state_proof(state_machine_update.latest_height, query).await
 					{
@@ -90,7 +117,9 @@ pub async fn process_get_request_events<
 						},
 					};
 
-				let keys = requests.iter().map(|req| req.keys.clone()).flatten().collect();
+				let keys =
+					requests.iter().map(|req| req.keys.clone()).flatten().collect::<Vec<_>>();
+				tracing::trace!(target: "tesseract", "Fetching state proofs for {} keys from {state_machine}", keys.len());
 				let storage_proof = match client
 					.query_state_proof(height, StateProofQueryType::Arbitrary(keys))
 					.await
@@ -105,7 +134,7 @@ pub async fn process_get_request_events<
 					},
 				};
 
-				tracing::info!(target: "tesseract", "Handling {} get_requests {}-{state_machine}", requests.len(), state_machine_update.state_machine_id.state_id);
+				tracing::trace!(target: "tesseract", "Handling {} get_requests for the chain pair {}-{state_machine}", requests.len(), state_machine_update.state_machine_id.state_id);
 				let msg = GetRequestsWithProof {
 					requests,
 					source: source_proof,
@@ -151,8 +180,10 @@ pub async fn process_get_request_events<
 
 							// Submit messages to Hyperbridge
 
+							tracing::trace!(target: "tesseract", "Tracing get response message");
 							hyperbridge.dry_run_submission(msg.clone()).await?;
 
+							tracing::info!(target: "tesseract", "Submitting get response",);
 							hyperbridge.submit_get_response(msg).await?;
 
 							Ok::<_, anyhow::Error>(())

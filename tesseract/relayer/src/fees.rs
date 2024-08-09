@@ -436,7 +436,9 @@ async fn deliver_post_request<D: IsmpProvider>(
 		commitment: hash_request::<Hasher>(&Request::Post(result.post.clone())),
 	};
 	log::info!("Querying request proof from hyperbridge at {}", latest_height);
-	let proof = hyperbridge.query_requests_proof(latest_height, vec![query]).await?;
+	let proof = hyperbridge
+		.query_requests_proof(latest_height, vec![query], dest_chain.state_machine_id().state_id)
+		.await?;
 	log::info!("Successfully queried request proof from hyperbridge");
 	let msg = RequestMessage {
 		requests: vec![result.post.clone()],
@@ -669,8 +671,13 @@ mod tests {
 							commitment: hash_request::<Hasher>(&Request::Post(post.clone())),
 						};
 						log::info!("Querying request proof from hyperbridge at {}", latest_height);
-						let proof =
-							hyperbridge.query_requests_proof(latest_height, vec![query]).await?;
+						let proof = hyperbridge
+							.query_requests_proof(
+								latest_height,
+								vec![query],
+								dest_chain.state_machine_id().state_id,
+							)
+							.await?;
 						log::info!("Successfully queried request proof from hyperbridge");
 						let msg = RequestMessage {
 							requests: vec![post.clone()],

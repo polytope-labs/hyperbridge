@@ -191,10 +191,11 @@ where
 			dest_chain: get_response.get.source,
 			source_chain: get_response.get.dest,
 			commitment,
+			req_commitment,
 		};
 
 		let leaf_index_and_pos =
-			<T as pallet_ismp::Config>::Mmr::push(Leaf::Response(Response::Get(get_response)));
+			<T as Config>::Mmr::push(Leaf::Response(Response::Get(get_response)));
 		let meta = FeeMetadata::<T> { payer: [0u8; 32].into(), fee: Default::default() };
 
 		pallet_ismp::child_trie::ResponseCommitments::<T>::insert(

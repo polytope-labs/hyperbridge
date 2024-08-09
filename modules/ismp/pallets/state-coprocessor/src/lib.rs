@@ -21,7 +21,7 @@ extern crate alloc;
 
 pub use pallet::*;
 
-mod impls;
+pub mod impls;
 
 #[frame_support::pallet]
 pub mod pallet {

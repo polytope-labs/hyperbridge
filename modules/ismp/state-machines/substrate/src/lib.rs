@@ -232,11 +232,18 @@ where
 		let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
 			.map_err(|e| Error::Custom(format!("failed to decode proof: {e:?}")))?;
 		let root = match &state_proof {
-			SubstrateStateProof::OverlayProof { .. } => root.overlay_root.ok_or_else(|| {
-				Error::Custom(
-					"Child trie root is not available for provided state commitment".into(),
-				)
-			})?,
+			SubstrateStateProof::OverlayProof { .. } => {
+				match T::Coprocessor::get() {
+					Some(id) if id == proof.height.id.state_id => root.state_root, /* child root
+					                                                                 * on */
+					// hyperbridge
+					_ => root.overlay_root.ok_or_else(|| {
+						Error::Custom(
+							"Child trie root is not available for provided state commitment".into(),
+						)
+					})?,
+				}
+			},
 			SubstrateStateProof::StateProof { .. } => root.state_root,
 		};
 		let data = match state_proof.hasher() {

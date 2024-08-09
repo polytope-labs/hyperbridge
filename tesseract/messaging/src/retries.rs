@@ -163,6 +163,7 @@ pub async fn retry_unprofitable_messages(
 									.query_requests_proof(
 										state_machine_height.height,
 										queries.to_vec(),
+										dest.state_machine_id().state_id,
 									)
 									.await
 								{
@@ -234,6 +235,7 @@ pub async fn retry_unprofitable_messages(
 									.query_responses_proof(
 										state_machine_height.height,
 										queries.to_vec(),
+										dest.state_machine_id().state_id,
 									)
 									.await
 								{

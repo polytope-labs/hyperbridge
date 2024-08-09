@@ -23,6 +23,7 @@ pallet-ismp-relayer = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
+pallet-state-coprocessor = { workspace = true, default-features = true }
 
 
 [features]

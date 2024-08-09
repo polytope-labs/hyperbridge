@@ -1,7 +1,7 @@
 //! Functions for updating configuration on pallets
 
 use crate::{
-	extrinsic::{send_unsigned_extrinsic, Extrinsic, InMemorySigner},
+	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner},
 	runtime, SubstrateClient,
 };
 use anyhow::anyhow;
@@ -17,6 +17,7 @@ use pallet_ismp_relayer::{
 	message,
 	withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
+use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	U256,
@@ -30,13 +31,16 @@ use subxt::{
 		sp_core::{crypto, Pair},
 		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
 	},
+	rpc::types::DryRunResult,
 	rpc_params,
 	tx::TxPayload,
 	utils::AccountId32,
 	OnlineClient,
 };
 use subxt_utils::send_extrinsic;
-use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, WithdrawFundsResult};
+use tesseract_primitives::{
+	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
+};
 
 #[derive(codec::Encode, codec::Decode)]
 pub struct RequestMetadata {
@@ -231,6 +235,34 @@ where
 		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
 
 		Ok(leaf_meta.claimed)
+	}
+}
+
+#[async_trait::async_trait]
+impl<C> HandleGetResponse for SubstrateClient<C>
+where
+	C: subxt::Config + Send + Sync + Clone,
+	C::Header: Send + Sync,
+	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	C::AccountId:
+		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
+{
+	async fn submit_get_response(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
+		let _ = send_unsigned_extrinsic(&self.client, tx, false)
+			.await?
+			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
+		Ok(())
+	}
+
+	async fn dry_run_submission(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
+		match system_dry_run_unsigned(&self.client, tx).await? {
+			DryRunResult::Success => Ok(()),
+			_ => Err(anyhow!("Execution failed")),
+		}
 	}
 }
 

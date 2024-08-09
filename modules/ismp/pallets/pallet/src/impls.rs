@@ -181,6 +181,7 @@ impl<T: Config> Pallet<T> {
 			dest_chain,
 			source_chain,
 			commitment,
+			req_commitment,
 		});
 		ResponseCommitments::<T>::insert(
 			commitment,

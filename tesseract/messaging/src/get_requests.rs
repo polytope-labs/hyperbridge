@@ -151,6 +151,8 @@ pub async fn process_get_request_events<
 
 							// Submit messages to Hyperbridge
 
+							hyperbridge.dry_run_submission(msg.clone()).await?;
+
 							hyperbridge.submit_get_response(msg).await?;
 
 							Ok::<_, anyhow::Error>(())

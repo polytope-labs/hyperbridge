@@ -388,6 +388,10 @@ pub trait HandleGetResponse {
 	async fn submit_get_response(&self, _msg: GetRequestsWithProof) -> anyhow::Result<()> {
 		Ok(())
 	}
+
+	async fn dry_run_submission(&self, _msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		Ok(())
+	}
 }
 
 #[derive(Encode, Decode, Clone)]

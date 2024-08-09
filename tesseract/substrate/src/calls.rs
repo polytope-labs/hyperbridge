@@ -1,7 +1,7 @@
 //! Functions for updating configuration on pallets
 
 use crate::{
-	extrinsic::{send_unsigned_extrinsic, Extrinsic, InMemorySigner},
+	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner},
 	runtime, SubstrateClient,
 };
 use anyhow::anyhow;
@@ -32,6 +32,7 @@ use subxt::{
 		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
 	},
 	rpc_params,
+	rpc::types::DryRunResult,
 	tx::TxPayload,
 	utils::AccountId32,
 	OnlineClient,
@@ -254,6 +255,14 @@ where
 			.await?
 			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
 		Ok(())
+	}
+
+	async fn dry_run_submission(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
+		match system_dry_run_unsigned(&self.client, tx).await? {
+			DryRunResult::Success => Ok(()),
+			_ => Err(anyhow!("Execution failed")),
+		}
 	}
 }
 

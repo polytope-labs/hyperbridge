@@ -141,6 +141,7 @@ pub mod pallet {
 			<T::NativeCurrency as Mutate<T::AccountId>>::burn_from(
 				&origin,
 				params.amount.into(),
+				frame_support::traits::tokens::Preservation::Expendable,
 				Precision::Exact,
 				Fortitude::Force,
 			)?;

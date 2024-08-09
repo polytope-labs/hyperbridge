@@ -33,7 +33,7 @@ use sp_std::prelude::*;
 pub fn verify_leaves_proof<H, L>(
 	root: H::Output,
 	leaves: Vec<Node<H, L>>,
-	proof: primitives::Proof<H::Output>,
+	proof: primitives::LeafProof<H::Output>,
 ) -> Result<bool, Error>
 where
 	H: sp_runtime::traits::Hash,
@@ -99,7 +99,7 @@ where
 	pub fn verify_leaves_proof(
 		&self,
 		leaves: Vec<L>,
-		proof: primitives::Proof<HashOf<T, I>>,
+		proof: primitives::LeafProof<HashOf<T, I>>,
 	) -> Result<bool, Error> {
 		let p =
 			merkle_mountain_range::MerkleProof::<NodeOf<T, I, L>, Hasher<HashingOf<T, I>, L>>::new(
@@ -171,7 +171,7 @@ where
 	pub fn generate_proof(
 		&self,
 		leaf_indices: Vec<NodeIndex>,
-	) -> Result<(Vec<L>, primitives::Proof<HashOf<T, I>>), Error> {
+	) -> Result<(Vec<L>, primitives::LeafProof<HashOf<T, I>>), Error> {
 		let positions = leaf_indices
 			.iter()
 			.map(|index| merkle_mountain_range::leaf_index_to_pos(*index))
@@ -189,7 +189,7 @@ where
 		self.mmr
 			.gen_proof(positions)
 			.map_err(|e| Error::GenerateProof.log_error(e))
-			.map(|p| primitives::Proof {
+			.map(|p| primitives::LeafProof {
 				leaf_indices,
 				leaf_count,
 				items: p.proof_items().iter().map(|x| x.hash()).collect(),

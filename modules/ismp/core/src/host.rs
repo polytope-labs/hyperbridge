@@ -274,6 +274,27 @@ pub enum StateMachine {
 	Tendermint(ConsensusStateId),
 }
 
+impl StateMachine {
+	/// Check if the state machine is evm based.
+	pub fn is_evm(&self) -> bool {
+		match self {
+			StateMachine::Evm(_) => true,
+			_ => false,
+		}
+	}
+
+	/// Check if the state machine is substrate-based
+	pub fn is_substrate(&self) -> bool {
+		match self {
+			StateMachine::Polkadot(_) |
+			StateMachine::Kusama(_) |
+			StateMachine::Beefy(_) |
+			StateMachine::Grandpa(_) => true,
+			_ => false,
+		}
+	}
+}
+
 impl Display for StateMachine {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		let str = match self {

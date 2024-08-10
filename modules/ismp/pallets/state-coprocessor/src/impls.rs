@@ -117,16 +117,13 @@ where
 			if let Some(value) = value {
 				let fee = {
 					match source.height.id.state_id {
-						StateMachine::Evm(_) => {
+						s if s.is_evm() => {
 							use alloy_rlp::Decodable;
 							let fee = alloy_primitives::U256::decode(&mut &*value)
 								.map_err(|_| Error::Custom("Failed to decode fee".to_string()))?;
 							U256::from_big_endian(&fee.to_be_bytes::<32>())
 						},
-						StateMachine::Beefy(_) |
-						StateMachine::Grandpa(_) |
-						StateMachine::Kusama(_) |
-						StateMachine::Polkadot(_) => {
+						s if s.is_substrate() => {
 							let fee: u128 =
 								pallet_ismp::dispatcher::RequestMetadata::<T>::decode(&mut &*value)
 									.map_err(|_| Error::Custom("Failed to decode fee".to_string()))?
@@ -136,8 +133,7 @@ where
 							U256::from(fee)
 						},
 						// unsupported
-						StateMachine::Tendermint(_) =>
-							Err(Error::Custom("Unsupported State Machine".to_string()))?,
+						_ => Err(Error::Custom(alloc::format!("Unsupported State Machine {s:?}")))?,
 					}
 				};
 
@@ -224,7 +220,7 @@ fn get_request_keys<T: Config>(requests: &[GetRequest], source: StateMachine) ->
 		let commitment = hash_request::<<T as Config>::IsmpHost>(&full);
 
 		match source {
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				keys.push(
 					derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 						commitment.0.to_vec(),
@@ -234,12 +230,9 @@ fn get_request_keys<T: Config>(requests: &[GetRequest], source: StateMachine) ->
 					.to_vec(),
 				);
 			},
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Beefy(_) => keys.push(RequestCommitments::<T>::storage_key(commitment)),
+			s if s.is_substrate() => keys.push(RequestCommitments::<T>::storage_key(commitment)),
 			// unsupported
-			StateMachine::Tendermint(_) => {},
+			_ => {},
 		}
 	}
 	keys

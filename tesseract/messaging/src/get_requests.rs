@@ -10,7 +10,7 @@ use ismp::{
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use tesseract_primitives::{
-	observe_challenge_period, HandleGetResponse, Hasher, IsmpProvider, StateMachineUpdated,
+	observe_challenge_period, Cost, HandleGetResponse, Hasher, IsmpProvider, StateMachineUpdated,
 	StateProofQueryType,
 };
 use tokio::sync::mpsc::Receiver;
@@ -70,15 +70,20 @@ pub async fn process_get_request_events<
 					let full = Request::Get(req.clone());
 					let commitment = hash_request::<Hasher>(&full);
 					if let Ok(fee) = source.query_request_fee_metadata(commitment).await {
-						if fee != Default::default() {
-							tracing::trace!(target: "tesseract", "Skipping unprofitable  get request {:?}", commitment);
+						if fee.is_zero() {
+							tracing::trace!(target: "tesseract", "Skipping unprofitable  get request {:?}, fee provided {:?}", commitment, Cost(fee));
 						} else {
+							tracing::trace!(target: "tesseract", "Handling profitable  get request {:?}, fee provided {:?}", commitment, Cost(fee));
 							requests.push(req)
 						}
 					} else {
 						tracing::error!("Failed to query fee for get request {:?}", commitment);
 						continue
 					}
+				}
+
+				if requests.is_empty() {
+					continue;
 				}
 
 				let request_commitment_keys = requests.iter().map(|req| {

@@ -35,7 +35,4 @@ pub struct RelayerConfig {
 	pub delivery_endpoints: Vec<String>,
 	/// Flag to tell the messsaging process to deliver failed transactions
 	pub deliver_failed: Option<bool>,
-	/// Get request threshold fee
-	/// This should be the minimum cost of making a query for storage proofs from the rpc provider
-	pub minimum_get_request_fee: Option<u64>,
 }

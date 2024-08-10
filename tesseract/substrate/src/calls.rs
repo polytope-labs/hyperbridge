@@ -260,7 +260,7 @@ where
 		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
 		match system_dry_run_unsigned(&self.client, tx).await? {
 			DryRunResult::Success => Ok(()),
-			_ => Err(anyhow!("Execution failed")),
+			_ => Err(anyhow!("Tracing of get response message returned an error")),
 		}
 	}
 }

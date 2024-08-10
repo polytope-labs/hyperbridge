@@ -412,8 +412,8 @@ pub mod erc20 {
 			Self(::ethers::contract::Contract::new(address.into(), ERC20_ABI.clone(), client))
 		}
 		/// Constructs the general purpose `Deployer` instance based on the provided constructor
-		/// arguments and sends it. Returns a new instance of a deployer that returns an instance
-		/// of this contract after sending the transaction
+		/// arguments and sends it. Returns a new instance of a deployer that returns an instance of
+		/// this contract after sending the transaction
 		///
 		/// Notes:
 		/// - If there are no constructor arguments, you should pass `()` as the argument.

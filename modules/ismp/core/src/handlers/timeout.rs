@@ -70,7 +70,7 @@ where
 				}
 			}
 
-			let keys = state_machine.state_trie_key(requests.clone().into());
+			let keys = state_machine.receipts_state_trie_key(requests.clone().into());
 			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
 			if values.into_iter().any(|(_key, val)| val.is_some()) {
 				Err(Error::Custom("Some Requests in the batch have been delivered".into()))?
@@ -139,7 +139,7 @@ where
 			}
 
 			let items = responses.iter().map(|r| Into::into(r.clone())).collect::<Vec<Response>>();
-			let keys = state_machine.state_trie_key(items.into());
+			let keys = state_machine.receipts_state_trie_key(items.into());
 			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
 			if values.into_iter().any(|(_key, val)| val.is_some()) {
 				Err(Error::Custom("Some responses in the batch have been delivered".into()))?

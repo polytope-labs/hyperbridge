@@ -67,7 +67,7 @@ pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
 	Ok(evm_state_proof)
 }
 
-pub fn req_res_to_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
+pub fn req_res_commitment_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	match item {
 		RequestResponse::Request(requests) =>

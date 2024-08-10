@@ -192,7 +192,7 @@ where
 		Ok(())
 	}
 
-	fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
+	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
 		let mut keys = vec![];
 		match items {
 			RequestResponse::Request(requests) =>

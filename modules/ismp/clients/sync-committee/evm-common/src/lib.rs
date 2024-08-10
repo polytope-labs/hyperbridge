@@ -53,7 +53,7 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 		.storage_proof
 		.remove(&contract_address.0.to_vec())
 		.ok_or_else(|| Error::Custom("Ismp contract account trie proof is missing".to_string()))?;
-	let keys = req_res_to_key::<H>(item);
+	let keys = req_res_commitment_key::<H>(item);
 	let root = H256::from_slice(&root.state_root[..]);
 	let contract_root = get_contract_storage_root::<H>(
 		evm_state_proof.contract_proof,
@@ -145,7 +145,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		verify_membership::<H>(item, root, proof, contract_address)
 	}
 
-	fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
+	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
 		// State trie keys are used to process timeouts from EVM chains
 		// We return the trie keys for request or response receipts
 		req_res_receipt_keys::<H>(items)

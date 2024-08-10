@@ -133,7 +133,7 @@ where
 							U256::from(fee)
 						},
 						// unsupported
-						_ => Err(Error::Custom(alloc::format!("Unsupported State Machine {s:?}")))?,
+						s => Err(Error::Custom(alloc::format!("Unsupported State Machine {s:?}")))?,
 					}
 				};
 

@@ -39,6 +39,8 @@ pub mod calls;
 pub mod config;
 pub mod extrinsic;
 mod provider;
+
+#[cfg(feature = "testing")]
 pub use subxt_utils::gargantua as runtime;
 #[cfg(feature = "testing")]
 mod testing;

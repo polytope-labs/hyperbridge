@@ -65,12 +65,6 @@ impl Cli {
 			);
 		}
 
-		if relayer.minimum_get_request_fee == None {
-			log::warn!(
-				"minimum_get_request_fee is not set, get responses will be delivered at no cost!"
-			);
-		}
-		
 		let tx_payment = Arc::new(
 			TransactionPayment::initialize(&self.db)
 				.await

@@ -9,10 +9,9 @@ use ismp::{
 	router::{GetRequest, Request},
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
-use sp_core::U256;
 use tesseract_primitives::{
-	config::RelayerConfig, observe_challenge_period, HandleGetResponse, Hasher, IsmpProvider,
-	StateMachineUpdated, StateProofQueryType,
+	observe_challenge_period, HandleGetResponse, Hasher, IsmpProvider, StateMachineUpdated,
+	StateProofQueryType,
 };
 use tokio::sync::mpsc::Receiver;
 
@@ -23,12 +22,7 @@ pub async fn process_get_request_events<
 	source: Arc<dyn IsmpProvider>,
 	hyperbridge: A,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
-	config: RelayerConfig,
 ) -> Result<(), anyhow::Error> {
-	let min_amount: U256 =
-		(config.minimum_get_request_fee.map(|val| std::cmp::max(val, 2)).unwrap_or(0) as u128 *
-			10u128.pow(18))
-		.into();
 	while let Some((get_requests, state_machine_update)) = receiver.recv().await {
 		if get_requests.is_empty() {
 			continue;
@@ -76,7 +70,7 @@ pub async fn process_get_request_events<
 					let full = Request::Get(req.clone());
 					let commitment = hash_request::<Hasher>(&full);
 					if let Ok(fee) = source.query_request_fee_metadata(commitment).await {
-						if fee < min_amount {
+						if fee != Default::default() {
 							tracing::trace!(target: "tesseract", "Skipping unprofitable  get request {:?}", commitment);
 						} else {
 							requests.push(req)

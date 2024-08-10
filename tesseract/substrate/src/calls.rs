@@ -2,7 +2,7 @@
 
 use crate::{
 	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner},
-	runtime, SubstrateClient,
+	SubstrateClient,
 };
 use anyhow::anyhow;
 use codec::{Decode, Encode};
@@ -37,7 +37,7 @@ use subxt::{
 	utils::AccountId32,
 	OnlineClient,
 };
-use subxt_utils::send_extrinsic;
+use subxt_utils::{relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic};
 use tesseract_primitives::{
 	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
 };
@@ -142,11 +142,10 @@ where
 		counterparty: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
-		let addr = runtime::api::storage()
-			.relayer()
-			.nonce(counterparty.address().as_slice(), &chain.into());
+		let key = relayer_nonce_storage_key(counterparty.address(), chain);
+		let raw_value = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
 		let nonce =
-			self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default();
+			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
 
 		let signature = {
 			let message = message(nonce, chain);
@@ -271,15 +270,14 @@ async fn relayer_account_balance<C: subxt::Config>(
 	chain: StateMachine,
 	address: Vec<u8>,
 ) -> anyhow::Result<U256> {
-	let addr = runtime::api::storage().relayer().fees(&chain.into(), address.as_slice());
-	let balance = client
-		.storage()
-		.at_latest()
-		.await?
-		.fetch(&addr)
-		.await?
-		.map(|val| U256(val.0))
-		.unwrap_or(U256::zero());
+	let key = relayer_account_balance_storage_key(chain, address);
+
+	let raw_value = client.storage().at_latest().await?.fetch_raw(&key).await?;
+	let balance = if let Some(raw_value) = raw_value {
+		Decode::decode(&mut &*raw_value)?
+	} else {
+		Default::default()
+	};
 
 	Ok(balance)
 }

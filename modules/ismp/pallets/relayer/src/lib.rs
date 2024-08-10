@@ -82,14 +82,28 @@ pub mod pallet {
 	/// double map of address to source chain, which holds the amount of the relayer address
 	#[pallet::storage]
 	#[pallet::getter(fn relayer_fees)]
-	pub type Fees<T: Config> =
-		StorageDoubleMap<_, Twox64Concat, StateMachine, Twox64Concat, Vec<u8>, U256, ValueQuery>;
+	pub type Fees<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		StateMachine,
+		Blake2_128Concat,
+		Vec<u8>,
+		U256,
+		ValueQuery,
+	>;
 
 	/// Latest nonce for each address and the state machine they want to withdraw from
 	#[pallet::storage]
 	#[pallet::getter(fn nonce)]
-	pub type Nonce<T: Config> =
-		StorageDoubleMap<_, Twox64Concat, Vec<u8>, Twox64Concat, StateMachine, u64, ValueQuery>;
+	pub type Nonce<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		Vec<u8>,
+		Blake2_128Concat,
+		StateMachine,
+		u64,
+		ValueQuery,
+	>;
 
 	/// Default minimum withdrawal is $10
 	pub struct MinWithdrawal;

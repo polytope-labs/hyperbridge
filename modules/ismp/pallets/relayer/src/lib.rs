@@ -82,14 +82,28 @@ pub mod pallet {
 	/// double map of address to source chain, which holds the amount of the relayer address
 	#[pallet::storage]
 	#[pallet::getter(fn relayer_fees)]
-	pub type Fees<T: Config> =
-		StorageDoubleMap<_, Twox64Concat, StateMachine, Twox64Concat, Vec<u8>, U256, ValueQuery>;
+	pub type Fees<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		StateMachine,
+		Blake2_128Concat,
+		Vec<u8>,
+		U256,
+		ValueQuery,
+	>;
 
 	/// Latest nonce for each address and the state machine they want to withdraw from
 	#[pallet::storage]
 	#[pallet::getter(fn nonce)]
-	pub type Nonce<T: Config> =
-		StorageDoubleMap<_, Twox64Concat, Vec<u8>, Twox64Concat, StateMachine, u64, ValueQuery>;
+	pub type Nonce<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		Vec<u8>,
+		Blake2_128Concat,
+		StateMachine,
+		u64,
+		ValueQuery,
+	>;
 
 	/// Default minimum withdrawal is $10
 	pub struct MinWithdrawal;
@@ -303,10 +317,7 @@ where
 
 		let dispatcher = <T as Config>::IsmpHost::default();
 		let relayer_manager_address = match withdrawal_data.dest_chain {
-			StateMachine::Beefy(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Polkadot(_) => PALLET_HYPERBRIDGE.0.to_vec(),
+			s if s.is_substrate() => PALLET_HYPERBRIDGE.0.to_vec(),
 			_ => {
 				let HostParam::EvmHostParam(params) =
 					HostParams::<T>::get(withdrawal_data.dest_chain)
@@ -330,7 +341,7 @@ where
 		};
 
 		let data = match withdrawal_data.dest_chain {
-			StateMachine::Evm(_) => params.abi_encode(),
+			s if s.is_evm() => params.abi_encode(),
 			_ => Message::WithdrawRelayerFees(WithdrawalRequest {
 				amount: params.amount.low_u128(),
 				account: AccountId32::try_from(&address[..])
@@ -397,7 +408,7 @@ where
 		// For evm chains each response receipt occupies two slots
 		let mut slot_2_keys = alloc::vec![];
 		match &withdrawal_proof.dest_proof.height.id.state_id {
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				for (key, commitment) in dest_keys.iter().zip(withdrawal_proof.commitments.iter()) {
 					match commitment {
 						Key::Response { .. } => {
@@ -496,7 +507,7 @@ where
 		for key in &proof.commitments {
 			match key {
 				Key::Request(commitment) => match proof.source_proof.height.id.state_id {
-					StateMachine::Evm(_) => {
+					s if s.is_evm() => {
 						keys.push(
 							derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 								commitment.0.to_vec(),
@@ -506,16 +517,14 @@ where
 							.to_vec(),
 						);
 					},
-					StateMachine::Polkadot(_) |
-					StateMachine::Kusama(_) |
-					StateMachine::Grandpa(_) |
-					StateMachine::Beefy(_) => keys.push(RequestCommitments::<T>::storage_key(*commitment)),
+					s if s.is_substrate() =>
+						keys.push(RequestCommitments::<T>::storage_key(*commitment)),
 					// unsupported
-					StateMachine::Tendermint(_) => {},
+					_ => {},
 				},
 				Key::Response { response_commitment, .. } => {
 					match proof.source_proof.height.id.state_id {
-						StateMachine::Evm(_) => {
+						s if s.is_evm() => {
 							keys.push(
 								derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 									response_commitment.0.to_vec(),
@@ -525,13 +534,10 @@ where
 								.to_vec(),
 							);
 						},
-						StateMachine::Polkadot(_) |
-						StateMachine::Kusama(_) |
-						StateMachine::Grandpa(_) |
-						StateMachine::Beefy(_) =>
+						s if s.is_substrate() =>
 							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment)),
 						// unsupported
-						StateMachine::Tendermint(_) => {},
+						_ => {},
 					}
 				},
 			}
@@ -545,7 +551,7 @@ where
 		for key in &proof.commitments {
 			match key {
 				Key::Request(commitment) => match proof.dest_proof.height.id.state_id {
-					StateMachine::Evm(_) => {
+					s if s.is_evm() => {
 						keys.push(
 							derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 								commitment.0.to_vec(),
@@ -555,18 +561,15 @@ where
 							.to_vec(),
 						);
 					},
-					StateMachine::Beefy(_) |
-					StateMachine::Grandpa(_) |
-					StateMachine::Kusama(_) |
-					StateMachine::Polkadot(_) => keys.push(
+					s if s.is_substrate() => keys.push(
 						pallet_ismp::child_trie::RequestReceipts::<T>::storage_key(*commitment),
 					),
 					// unsupported
-					StateMachine::Tendermint(_) => {},
+					_ => {},
 				},
 				Key::Response { request_commitment, .. } => {
 					match proof.dest_proof.height.id.state_id {
-						StateMachine::Evm(_) => {
+						s if s.is_evm() => {
 							keys.push(
 								derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 									request_commitment.0.to_vec(),
@@ -576,15 +579,12 @@ where
 								.to_vec(),
 							);
 						},
-						StateMachine::Beefy(_) |
-						StateMachine::Grandpa(_) |
-						StateMachine::Kusama(_) |
-						StateMachine::Polkadot(_) =>
+						s if s.is_substrate() =>
 							keys.push(pallet_ismp::child_trie::ResponseReceipts::<T>::storage_key(
 								*request_commitment,
 							)),
 						// unsupported
-						StateMachine::Tendermint(_) => {},
+						_ => {},
 					}
 				},
 			}
@@ -617,58 +617,47 @@ where
 							continue;
 						};
 
-					let fee = {
-						match proof.source_proof.height.id.state_id {
-							StateMachine::Evm(_) => {
-								use alloy_rlp::Decodable;
-								let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
-									.map_err(|_| Error::<T>::ProofValidationError)?;
-								U256::from_big_endian(&fee.to_be_bytes::<32>())
-							},
-							StateMachine::Beefy(_) |
-							StateMachine::Grandpa(_) |
-							StateMachine::Kusama(_) |
-							StateMachine::Polkadot(_) => {
-								use codec::Decode;
-								let fee: u128 =
-									pallet_ismp::dispatcher::RequestMetadata::<T>::decode(
-										&mut &*encoded_metadata,
-									)
-									.map_err(|_| Error::<T>::ProofValidationError)?
-									.fee
-									.fee
-									.into();
-								U256::from(fee)
-							},
-							// unsupported
-							StateMachine::Tendermint(_) => Err(Error::<T>::MismatchedStateMachine)?,
-						}
+					let fee = match proof.source_proof.height.id.state_id {
+						s if s.is_evm() => {
+							use alloy_rlp::Decodable;
+							let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
+								.map_err(|_| Error::<T>::ProofValidationError)?;
+							U256::from_big_endian(&fee.to_be_bytes::<32>())
+						},
+						s if s.is_substrate() => {
+							use codec::Decode;
+							let fee: u128 = pallet_ismp::dispatcher::RequestMetadata::<T>::decode(
+								&mut &*encoded_metadata,
+							)
+							.map_err(|_| Error::<T>::ProofValidationError)?
+							.fee
+							.fee
+							.into();
+							U256::from(fee)
+						},
+						// unsupported
+						_ => Err(Error::<T>::MismatchedStateMachine)?,
 					};
 					let encoded_receipt = dest_result
 						.get(&dest_key)
 						.cloned()
 						.flatten()
 						.ok_or_else(|| Error::<T>::ProofValidationError)?;
-					let address = {
-						match proof.dest_proof.height.id.state_id {
-							StateMachine::Evm(_) => {
-								use alloy_rlp::Decodable;
-								Address::decode(&mut &*encoded_receipt)
-									.map_err(|_| Error::<T>::ProofValidationError)?
-									.0
-									.to_vec()
-							},
-							StateMachine::Beefy(_) |
-							StateMachine::Grandpa(_) |
-							StateMachine::Kusama(_) |
-							StateMachine::Polkadot(_) => {
-								use codec::Decode;
-								<Vec<u8>>::decode(&mut &*encoded_receipt)
-									.map_err(|_| Error::<T>::ProofValidationError)?
-							},
-							// unsupported
-							StateMachine::Tendermint(_) => Err(Error::<T>::MismatchedStateMachine)?,
-						}
+					let address = match proof.dest_proof.height.id.state_id {
+						s if s.is_evm() => {
+							use alloy_rlp::Decodable;
+							Address::decode(&mut &*encoded_receipt)
+								.map_err(|_| Error::<T>::ProofValidationError)?
+								.0
+								.to_vec()
+						},
+						s if s.is_substrate() => {
+							use codec::Decode;
+							<Vec<u8>>::decode(&mut &*encoded_receipt)
+								.map_err(|_| Error::<T>::ProofValidationError)?
+						},
+						// unsupported
+						_ => Err(Error::<T>::MismatchedStateMachine)?,
 					};
 					let entry = result.entry(address).or_insert(U256::zero());
 					*entry += fee;
@@ -681,32 +670,26 @@ where
 						} else {
 							continue;
 						};
-					let fee = {
-						match proof.source_proof.height.id.state_id {
-							StateMachine::Evm(_) => {
-								use alloy_rlp::Decodable;
-								let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
-									.map_err(|_| Error::<T>::ProofValidationError)?;
-								U256::from_big_endian(&fee.to_be_bytes::<32>())
-							},
-							StateMachine::Beefy(_) |
-							StateMachine::Grandpa(_) |
-							StateMachine::Kusama(_) |
-							StateMachine::Polkadot(_) => {
-								use codec::Decode;
-								let fee: u128 =
-									pallet_ismp::dispatcher::RequestMetadata::<T>::decode(
-										&mut &*encoded_metadata,
-									)
-									.map_err(|_| Error::<T>::ProofValidationError)?
-									.fee
-									.fee
-									.into();
-								U256::from(fee)
-							},
-							// unsupported
-							StateMachine::Tendermint(_) => Err(Error::<T>::MismatchedStateMachine)?,
-						}
+					let fee = match proof.source_proof.height.id.state_id {
+						s if s.is_evm() => {
+							use alloy_rlp::Decodable;
+							let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
+								.map_err(|_| Error::<T>::ProofValidationError)?;
+							U256::from_big_endian(&fee.to_be_bytes::<32>())
+						},
+						s if s.is_substrate() => {
+							use codec::Decode;
+							let fee: u128 = pallet_ismp::dispatcher::RequestMetadata::<T>::decode(
+								&mut &*encoded_metadata,
+							)
+							.map_err(|_| Error::<T>::ProofValidationError)?
+							.fee
+							.fee
+							.into();
+							U256::from(fee)
+						},
+						// unsupported
+						_ => Err(Error::<T>::MismatchedStateMachine)?,
 					};
 					let encoded_receipt = dest_result
 						.get(&dest_key)
@@ -715,7 +698,7 @@ where
 						.ok_or_else(|| Error::<T>::ProofValidationError)?;
 					let (relayer, res) = {
 						match proof.dest_proof.height.id.state_id {
-							StateMachine::Evm(_) => {
+							s if s.is_evm() => {
 								use alloy_rlp::Decodable;
 								let response_commitment =
 									alloy_primitives::B256::decode(&mut &*encoded_receipt)
@@ -732,10 +715,7 @@ where
 									.to_vec();
 								(address, response_commitment.0)
 							},
-							StateMachine::Beefy(_) |
-							StateMachine::Grandpa(_) |
-							StateMachine::Kusama(_) |
-							StateMachine::Polkadot(_) => {
+							s if s.is_substrate() => {
 								use codec::Decode;
 								let receipt =
 									pallet_ismp::ResponseReceipt::decode(&mut &*encoded_receipt)
@@ -743,7 +723,7 @@ where
 								(receipt.relayer, receipt.response.0)
 							},
 							// unsupported
-							StateMachine::Tendermint(_) => Err(Error::<T>::MismatchedStateMachine)?,
+							_ => Err(Error::<T>::MismatchedStateMachine)?,
 						}
 					};
 

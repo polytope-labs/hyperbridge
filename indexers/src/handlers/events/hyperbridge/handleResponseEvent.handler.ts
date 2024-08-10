@@ -12,7 +12,7 @@ export async function handleHyperbridgeResponseEvent(
   assert(event.extrinsic);
   const {
     event: {
-      data: [dest_chain, source_chain, request_nonce, commitment],
+      data: [dest_chain, source_chain, request_nonce, commitment, req_commitment],
     },
     extrinsic,
     block: {

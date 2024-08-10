@@ -82,7 +82,10 @@ async fn test_ismp_state_proof() {
 	dbg!(&request_meta);
 	assert!(request_meta.sender != H160::zero());
 
-	let proof = client.query_requests_proof(at, vec![query]).await.unwrap();
+	let proof = client
+		.query_requests_proof(at, vec![query], StateMachine::Polkadot(1))
+		.await
+		.unwrap();
 	let evm_state_proof = EvmStateProof::decode(&mut &*proof).unwrap();
 	let contract_root = get_contract_storage_root::<Keccak256Hasher>(
 		evm_state_proof.contract_proof,

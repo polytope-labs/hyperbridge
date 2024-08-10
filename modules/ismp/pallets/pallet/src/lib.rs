@@ -600,8 +600,10 @@ pub mod pallet {
 			source_chain: StateMachine,
 			/// Nonce for the request which this response is for
 			request_nonce: u64,
-			/// Commitment
+			/// Response Commitment
 			commitment: H256,
+			/// Request commitment
+			req_commitment: H256,
 		},
 		/// An Outgoing Request has been deposited
 		Request {

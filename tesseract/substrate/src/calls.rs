@@ -1,8 +1,8 @@
 //! Functions for updating configuration on pallets
 
 use crate::{
-	extrinsic::{send_unsigned_extrinsic, Extrinsic, InMemorySigner},
-	runtime, SubstrateClient,
+	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner},
+	SubstrateClient,
 };
 use anyhow::anyhow;
 use codec::{Decode, Encode};
@@ -17,6 +17,7 @@ use pallet_ismp_relayer::{
 	message,
 	withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
+use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	U256,
@@ -30,13 +31,16 @@ use subxt::{
 		sp_core::{crypto, Pair},
 		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
 	},
+	rpc::types::DryRunResult,
 	rpc_params,
 	tx::TxPayload,
 	utils::AccountId32,
 	OnlineClient,
 };
-use subxt_utils::send_extrinsic;
-use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, WithdrawFundsResult};
+use subxt_utils::{relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic};
+use tesseract_primitives::{
+	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
+};
 
 #[derive(codec::Encode, codec::Decode)]
 pub struct RequestMetadata {
@@ -138,11 +142,10 @@ where
 		counterparty: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
-		let addr = runtime::api::storage()
-			.relayer()
-			.nonce(counterparty.address().as_slice(), &chain.into());
+		let key = relayer_nonce_storage_key(counterparty.address(), chain);
+		let raw_value = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
 		let nonce =
-			self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default();
+			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
 
 		let signature = {
 			let message = message(nonce, chain);
@@ -234,20 +237,47 @@ where
 	}
 }
 
+#[async_trait::async_trait]
+impl<C> HandleGetResponse for SubstrateClient<C>
+where
+	C: subxt::Config + Send + Sync + Clone,
+	C::Header: Send + Sync,
+	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	C::AccountId:
+		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
+{
+	async fn submit_get_response(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
+		let _ = send_unsigned_extrinsic(&self.client, tx, false)
+			.await?
+			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
+		Ok(())
+	}
+
+	async fn dry_run_submission(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
+		match system_dry_run_unsigned(&self.client, tx).await? {
+			DryRunResult::Success => Ok(()),
+			_ => Err(anyhow!("Tracing of get response message returned an error")),
+		}
+	}
+}
+
 async fn relayer_account_balance<C: subxt::Config>(
 	client: &OnlineClient<C>,
 	chain: StateMachine,
 	address: Vec<u8>,
 ) -> anyhow::Result<U256> {
-	let addr = runtime::api::storage().relayer().fees(&chain.into(), address.as_slice());
-	let balance = client
-		.storage()
-		.at_latest()
-		.await?
-		.fetch(&addr)
-		.await?
-		.map(|val| U256(val.0))
-		.unwrap_or(U256::zero());
+	let key = relayer_account_balance_storage_key(chain, address);
+
+	let raw_value = client.storage().at_latest().await?.fetch_raw(&key).await?;
+	let balance = if let Some(raw_value) = raw_value {
+		Decode::decode(&mut &*raw_value)?
+	} else {
+		Default::default()
+	};
 
 	Ok(balance)
 }

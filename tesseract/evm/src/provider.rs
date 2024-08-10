@@ -136,7 +136,12 @@ impl IsmpProvider for EvmClient {
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
-	async fn query_requests_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
+	async fn query_requests_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
 			.map(|query| self.request_commitment_key(query.commitment).1)
@@ -161,7 +166,12 @@ impl IsmpProvider for EvmClient {
 		Ok(proof.encode())
 	}
 
-	async fn query_responses_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
+	async fn query_responses_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
 			.map(|query| self.response_commitment_key(query.commitment).1)

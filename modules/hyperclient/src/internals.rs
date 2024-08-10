@@ -956,6 +956,7 @@ pub async fn encode_request_call_data(
 		.query_requests_proof(
 			height,
 			vec![Query { source_chain: post.source, dest_chain: post.dest, commitment }],
+			dest_client.state_machine_id().state_id,
 		)
 		.await?;
 	let proof_height = StateMachineHeight { id: hyperbridge.state_machine, height };
@@ -984,6 +985,7 @@ pub async fn encode_response_call_data(
 				dest_chain: post_response.post.source,
 				commitment,
 			}],
+			dest_client.state_machine_id().state_id,
 		)
 		.await?;
 	let proof_height = StateMachineHeight { id: hyperbridge.state_machine, height };

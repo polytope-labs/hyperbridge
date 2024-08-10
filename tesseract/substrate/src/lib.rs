@@ -39,6 +39,8 @@ pub mod calls;
 pub mod config;
 pub mod extrinsic;
 mod provider;
+
+#[cfg(feature = "testing")]
 pub use subxt_utils::gargantua as runtime;
 #[cfg(feature = "testing")]
 mod testing;
@@ -142,9 +144,8 @@ where
 		&mut self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		let id = self.state_machine_id();
 		let name = counterparty.name();
-		self.initial_height = counterparty.query_latest_height(id).await?.into();
+		self.initial_height = self.query_finalized_height().await?.into();
 		log::info!(
 			"Initialized height for {:?}->{name} at {}",
 			self.state_machine,

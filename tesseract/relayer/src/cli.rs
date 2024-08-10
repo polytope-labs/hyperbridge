@@ -64,6 +64,7 @@ impl Cli {
 				"Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
 			);
 		}
+
 		let tx_payment = Arc::new(
 			TransactionPayment::initialize(&self.db)
 				.await

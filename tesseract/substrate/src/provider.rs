@@ -57,7 +57,7 @@ use subxt::{
 	tx::TxPayload,
 };
 
-use subxt_utils::send_extrinsic;
+use subxt_utils::{host_params_storage_key, send_extrinsic, state_machine_update_time_storage_key};
 use tesseract_primitives::{
 	BoxStream, EstimateGasReturnParams, IsmpProvider, Query, StateMachineUpdated,
 	StateProofQueryType, TxReceipt,
@@ -66,7 +66,6 @@ use tesseract_primitives::{
 use crate::{
 	calls::RequestMetadata,
 	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner},
-	runtime::{self},
 	SubstrateClient,
 };
 
@@ -114,11 +113,18 @@ where
 		&self,
 		height: StateMachineHeight,
 	) -> Result<Duration, anyhow::Error> {
+		let key = state_machine_update_time_storage_key(height);
 		let block = self.client.blocks().at_latest().await?;
-		let key = runtime::api::storage().ismp().state_machine_update_time(&height.into());
-		let value = self.client.storage().at(block.hash()).fetch(&key).await?.ok_or_else(|| {
-			anyhow!("State machine update for {:?} not found at block {:?}", height, block.hash())
-		})?;
+		let raw_value =
+			self.client.storage().at(block.hash()).fetch_raw(&key).await?.ok_or_else(|| {
+				anyhow!(
+					"State machine update for {:?} not found at block {:?}",
+					height,
+					block.hash()
+				)
+			})?;
+
+		let value = Decode::decode(&mut &*raw_value)?;
 
 		Ok(Duration::from_secs(value))
 	}
@@ -127,11 +133,15 @@ where
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		if keys.is_empty() {
 			Err(anyhow!("No queries provided"))?
 		}
-		match keys[0].dest_chain {
+		// We use the counterparty chain's state machine id to know what kind of proof is required
+		// Necessary for when substrate chains are using tesseract to communicate with hyperbridge
+		// The destination chain in the request does not reflect the kind of proof needed
+		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
 			StateMachine::Evm(_) => {
 				let keys =
@@ -168,12 +178,13 @@ where
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		if keys.is_empty() {
 			Err(anyhow!("No queries provided"))?
 		}
 
-		match keys[0].dest_chain {
+		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
 			StateMachine::Evm(_) => {
 				let keys =
@@ -248,13 +259,37 @@ where
 			return Ok(Default::default());
 		}
 
-		let params = rpc_params![
-			BlockNumberOrHash::<H256>::Number(previous_height.saturating_add(1) as u32),
-			BlockNumberOrHash::<H256>::Number(event.latest_height as u32)
-		];
-		let response: HashMap<String, Vec<Event>> =
-			self.client.rpc().request("ismp_queryEvents", params).await?;
-		let events = response.values().into_iter().cloned().flatten().collect();
+		let mut events = vec![];
+		let chunk_size = 100;
+		let chunks = range.end().saturating_sub(*range.start()) / chunk_size;
+		for i in 0..=chunks {
+			let start = (i * chunk_size) + *range.start();
+			let end = if i == chunks { *range.end() } else { start + chunk_size - 1 };
+			let params = rpc_params![
+				BlockNumberOrHash::<H256>::Number(start as u32),
+				BlockNumberOrHash::<H256>::Number(end as u32)
+			];
+			let response = self
+				.client
+				.rpc()
+				.request::<HashMap<String, Vec<Event>>>("ismp_queryEvents", params)
+				.await;
+			match response {
+				Ok(response) => {
+					let batch = response.values().into_iter().cloned().flatten();
+					events.extend(batch)
+				},
+				Err(err) => {
+					log::error!(
+						"Error while querying events in range {}..{} from {:?}: {err:?}",
+						start,
+						end,
+						self.state_machine
+					);
+				},
+			}
+		}
+
 		Ok(events)
 	}
 
@@ -382,8 +417,9 @@ where
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		let client = self.clone();
 		let (tx, recv) = tokio::sync::mpsc::channel(256);
+		let latest_height = client.query_finalized_height().await?;
 		tokio::task::spawn(async move {
-			let mut latest_height = client.initial_height;
+			let mut latest_height = latest_height;
 			let state_machine = client.state_machine;
 			loop {
 				tokio::time::sleep(Duration::from_secs(10)).await;
@@ -573,21 +609,17 @@ where
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let addr = runtime::api::storage().ismp().state_commitments(&height.into());
-		let commitment = self
-			.client
-			.storage()
-			.at_latest()
-			.await?
-			.fetch(&addr)
-			.await?
-			.ok_or_else(|| anyhow!("State commitment not present for state machine"))?;
+		let key = pallet_ismp::child_trie::state_commitment_storage_key(height);
+		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+		let storage_key = StorageKey(key);
+		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
 
-		let commitment = StateCommitment {
-			timestamp: commitment.timestamp,
-			overlay_root: commitment.overlay_root,
-			state_root: commitment.state_root,
-		};
+		let response: Option<StorageData> =
+			self.client.rpc().request("childstate_getStorage", params).await?;
+		let data =
+			response.ok_or_else(|| anyhow!("State commitment not present for state machine"))?;
+		let commitment = Decode::decode(&mut &*data.0)?;
+
 		Ok(commitment)
 	}
 
@@ -607,17 +639,18 @@ where
 		&self,
 		state_machine: StateMachine,
 	) -> Result<HostParam<u128>, anyhow::Error> {
-		let address = runtime::api::storage().host_executive().host_params(&state_machine.into());
-		let params = self
+		let key = host_params_storage_key(state_machine);
+		let raw_params = self
 			.client
 			.storage()
 			.at_latest()
 			.await?
-			.fetch(&address)
+			.fetch_raw(&key)
 			.await?
 			.ok_or_else(|| anyhow!("Missing host params for {state_machine:?}"))?;
 
-		Ok(params.into())
+		let params = Decode::decode(&mut &*raw_params)?;
+		Ok(params)
 	}
 
 	fn max_concurrent_queries(&self) -> usize {

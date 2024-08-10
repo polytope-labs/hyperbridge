@@ -83,11 +83,15 @@ pub fn response_receipt_storage_key(key: H256) -> Vec<u8> {
 	full_key
 }
 
+/// Returns the storage key for a state commitment in the child trie
+pub fn state_commitment_storage_key(height: StateMachineHeight) -> Vec<u8> {
+	[STATE_COMMITMENTS_KEY.to_vec(), sp_io::hashing::keccak_256(&height.encode()).to_vec()].concat()
+}
+
 impl<T: Config> StateCommitments<T> {
 	/// Returns the hashed storage key
 	pub fn storage_key(key: StateMachineHeight) -> Vec<u8> {
-		[STATE_COMMITMENTS_KEY.to_vec(), sp_io::hashing::keccak_256(&key.encode()).to_vec()]
-			.concat()
+		state_commitment_storage_key(key)
 	}
 
 	/// Get the provided key from the child trie

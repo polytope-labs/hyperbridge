@@ -4,7 +4,7 @@
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::{
-	consensus::StateMachineHeight,
+	consensus::{StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 	messaging::{Message, Proof, ResponseMessage},
@@ -29,18 +29,16 @@ use subxt::{
 };
 use subxt_signer::sr25519::dev::{self};
 use subxt_utils::{
-	gargantua::{
-		api,
-		api::{
-			ismp::events::{PostRequestHandled, Request as RequestEvent},
-			ismp_demo::events::GetResponse,
-			runtime_types::{
-				ismp::host::StateMachine as StateMachineType,
-				pallet_ismp_demo::pallet::{GetRequest, TransferParams},
-			},
+	gargantua::api::{
+		self,
+		ismp::events::{PostRequestHandled, Request as RequestEvent},
+		ismp_demo::events::GetResponse,
+		runtime_types::{
+			ismp::host::StateMachine as StateMachineType,
+			pallet_ismp_demo::pallet::{GetRequest, TransferParams},
 		},
 	},
-	Hyperbridge,
+	relayer_nonce_storage_key, Hyperbridge,
 };
 //use subxt_utils::gargantua::api::host_executive::events::HostParamsSet;
 use tesseract::logging::setup as log_setup;
@@ -478,5 +476,60 @@ async fn run_integration_tests() -> Result<(), anyhow::Error> {
 
 	parachain_messaging().await?;
 	get_request_works().await?;
+	Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_raw_storage_queries() -> Result<(), anyhow::Error> {
+	use tesseract_primitives::HyperbridgeClaim;
+	let chain_a_config = SubstrateConfig {
+		state_machine: StateMachine::Kusama(4009),
+		hashing: None,
+		consensus_state_id: Some("PARA".to_string()),
+		rpc_ws: "ws://127.0.0.1:9001".to_string(), // url from local-testnet zombienet config
+		max_rpc_payload_size: None,
+		signer: Some(
+			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+		),
+		latest_height: None,
+		max_concurent_queries: None,
+	};
+
+	let mut client = SubstrateClient::<KeccakSubstrateChain>::new(chain_a_config.clone()).await?;
+	client.address = hex::decode("bc50b90751bfcccbfa4c7220261909d0f528b00f").unwrap();
+
+	// Query relayer balance
+
+	let balance = client
+		.available_amount(Arc::new(client.clone()), &StateMachine::Evm(97))
+		.await?;
+
+	dbg!(balance);
+
+	dbg!(hex::encode(client.address()));
+	let key = relayer_nonce_storage_key(client.address(), StateMachine::Evm(97));
+	let raw_value = client.client.storage().at_latest().await?.fetch_raw(&key).await?.unwrap();
+	let nonce: u64 = Decode::decode(&mut &*raw_value)?;
+
+	dbg!(nonce);
+
+	let height = StateMachineHeight {
+		id: StateMachineId { state_id: StateMachine::Evm(97), consensus_state_id: *b"BSC0" },
+		height: 42858376,
+	};
+
+	let state_commitment = client.query_state_machine_commitment(height).await?;
+
+	dbg!(state_commitment);
+
+	let update_time = client.query_state_machine_update_time(height).await?;
+
+	dbg!(update_time);
+
+	let host_params = client.query_host_params(StateMachine::Evm(97)).await?;
+
+	dbg!(host_params);
+
 	Ok(())
 }

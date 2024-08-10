@@ -149,7 +149,12 @@ impl Client for EvmClient {
 		Ok(relayer)
 	}
 
-	async fn query_requests_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
+	async fn query_requests_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
 			.map(|query| self.request_commitment_key(query.commitment))
@@ -174,7 +179,12 @@ impl Client for EvmClient {
 		Ok(proof.encode())
 	}
 
-	async fn query_responses_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
+	async fn query_responses_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
 			.map(|query| self.response_commitment_key(query.commitment))

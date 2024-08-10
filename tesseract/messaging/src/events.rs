@@ -145,7 +145,11 @@ pub async fn translate_events_to_messages(
 							};
 
 							let proof = source
-								.query_requests_proof(state_machine_height.height, vec![query])
+								.query_requests_proof(
+									state_machine_height.height,
+									vec![query],
+									sink.state_machine_id().state_id,
+								)
 								.await?;
 
 							let _msg = RequestMessage {
@@ -188,7 +192,11 @@ pub async fn translate_events_to_messages(
 							};
 
 							let proof = source
-								.query_responses_proof(state_machine_height.height, vec![query])
+								.query_responses_proof(
+									state_machine_height.height,
+									vec![query],
+									sink.state_machine_id().state_id,
+								)
 								.await?;
 
 							let _msg = ResponseMessage {
@@ -329,7 +337,11 @@ pub async fn translate_events_to_messages(
 		let post_request_chunks = post_requests.chunks(chunks);
 		for (queries, post_requests) in query_chunks.into_iter().zip(post_request_chunks) {
 			let requests_proof = source
-				.query_requests_proof(state_machine_height.height, queries.to_vec())
+				.query_requests_proof(
+					state_machine_height.height,
+					queries.to_vec(),
+					sink.state_machine_id().state_id,
+				)
 				.await?;
 			let msg = RequestMessage {
 				requests: post_requests.to_vec(),
@@ -347,7 +359,11 @@ pub async fn translate_events_to_messages(
 		let post_request_chunks = post_responses.chunks(chunks);
 		for (queries, post_responses) in query_chunks.into_iter().zip(post_request_chunks) {
 			let responses_proof = source
-				.query_responses_proof(state_machine_height.height, queries.to_vec())
+				.query_responses_proof(
+					state_machine_height.height,
+					queries.to_vec(),
+					sink.state_machine_id().state_id,
+				)
 				.await?;
 			let msg = ResponseMessage {
 				datagram: RequestResponse::Response(post_responses.to_vec()),

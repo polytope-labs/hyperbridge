@@ -389,8 +389,11 @@ impl GetResponse {
 )]
 pub struct StorageValue {
 	/// The request storage keys
+	#[serde(with = "serde_utils::as_hex")]
 	pub key: Vec<u8>,
 	/// The verified value
+	#[serde(serialize_with = "serde_utils::as_hex::serialize_option")]
+	#[serde(deserialize_with = "serde_utils::as_hex::deserialize_option")]
 	pub value: Option<Vec<u8>>,
 }
 

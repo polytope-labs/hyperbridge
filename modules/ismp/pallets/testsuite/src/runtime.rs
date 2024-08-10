@@ -357,7 +357,7 @@ impl StateMachineClient for MockStateMachine {
 		Ok(())
 	}
 
-	fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
 		Default::default()
 	}
 

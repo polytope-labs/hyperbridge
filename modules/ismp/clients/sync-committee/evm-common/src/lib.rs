@@ -85,8 +85,10 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	// Group keys by the contract address they belong to
 	for key in keys {
 		// For keys that are 52 bytes we expect the first 20 bytes to be the contract address and
-		// the last 32 bytes the slot hash For keys that are 20 bytes we expect that to the the
-		// contract or account address For keys that are 32 bytes we expect that to be a slothash in
+		// the last 32 bytes the slot hash.
+		// For keys that are 20 bytes we expect that to the the
+		// contract or account address.
+		// For keys that are 32 bytes we expect that to be a slothash in
 		// the Ismp EVM host
 		let contract_address = if key.len() == 52 {
 			H160::from_slice(&key[..20])
@@ -96,7 +98,10 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			contract_account_queries.push(H160::from_slice(&key));
 			continue
 		} else {
-			Err(Error::Custom("Unsupported Key format".to_string()))?
+			Err(Error::Custom(
+				"Unsupported Key type, found a key whose length is not one of 20, 32 or 52"
+					.to_string(),
+			))?
 		};
 		let entry = contract_to_keys.entry(contract_address.0.to_vec()).or_insert(vec![]);
 

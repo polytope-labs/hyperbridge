@@ -40,8 +40,6 @@ pub enum RequestOrResponse {
 
 #[derive(Copy, Clone, Debug)]
 pub struct Query {
-	pub source_chain: StateMachine,
-	pub dest_chain: StateMachine,
 	pub commitment: H256,
 }
 
@@ -97,7 +95,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 	// given post or response
 	async fn ismp_events_stream(
 		&self,
-		item: RequestOrResponse,
+		commitment: H256,
 		initial_height: u64,
 	) -> Result<BoxStream<WithMetadata<Event>>, anyhow::Error>;
 

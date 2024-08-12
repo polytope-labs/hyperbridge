@@ -31,13 +31,13 @@ extern crate core;
 use crate::types::ClientConfig;
 
 use crate::{
-	interfaces::{JsClientConfig, JsPost, JsPostResponse},
+	interfaces::{JsClientConfig, JsGet, JsPost, JsPostResponse},
 	providers::substrate::SubstrateClient,
 	types::{MessageStatusWithMetadata, TimeoutStatus},
 };
 use ethers::{types::H256, utils::keccak256};
 use futures::StreamExt;
-use ismp::router::{PostRequest, PostResponse};
+use ismp::router::{GetRequest, PostRequest, PostResponse};
 use subxt_utils::Hyperbridge;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
@@ -95,9 +95,38 @@ interface IPostRequest {
     // Encoded request body.
     data: string;
     // Timestamp which this request expires in seconds.
-    timeout_timestamp: bigint;
+    timeoutTimestamp: bigint;
     // Height at which this request was emitted on the source
+    txHeight: bigint;
+}
+
+interface IGetRequest {
+    // The source state machine of this request.
+    source: string;
+    // The destination state machine of this request.
+    dest: string;
+    // Module Id of the sending module
+    from: string;
+    // The nonce of this request on the source chain
+    nonce: bigint;
+    // Height at which to read the state machine.
     height: bigint;
+	/// Raw Storage keys that would be used to fetch the values from the counterparty
+	/// For deriving storage keys for ink contract fields follow the guide in the link below
+	/// `<https://use.ink/datastructures/storage-in-metadata#a-full-example>`
+	/// The algorithms for calculating raw storage keys for different substrate pallet storage
+	/// types are described in the following links
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
+	/// For fetching keys from EVM contracts each key should be 52 bytes
+	/// This should be a concatenation of contract address and slot hash
+    keys: string[];
+    // Timestamp which this request expires in seconds.
+    timeoutTimestamp: bigint;
+    // Height at which this request was emitted on the source
+    txHeight: bigint;
 }
 
 interface IPostResponse {
@@ -277,6 +306,9 @@ extern "C" {
 
 	#[wasm_bindgen(typescript_type = "IPostResponse")]
 	pub type IPostResponse;
+
+	#[wasm_bindgen(typescript_type = "IGetRequest")]
+	pub type IGetRequest;
 }
 
 /// The hyperclient, allows the clients of hyperbridge to manage their in-flight ISMP requests
@@ -328,11 +360,32 @@ impl HyperClient {
 	}
 
 	/// Queries the status of a request and returns `MessageStatusWithMetadata`
-	pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
+	pub async fn query_post_request_status(
+		&self,
+		request: IPostRequest,
+	) -> Result<JsValue, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
 			let post: PostRequest = post.try_into()?;
-			let status = internals::query_request_status_internal(&self, post).await?;
+			let status = internals::query_post_request_status_internal(&self, post).await?;
+			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+		};
+
+		lambda().await.map_err(|err: anyhow::Error| {
+			JsError::new(&format!(
+				"Failed to query request status for {:?}->{:?}: {err:?}",
+				self.source.state_machine_id().state_id,
+				self.dest.state_machine_id().state_id,
+			))
+		})
+	}
+
+	/// Queries the status of a request and returns `MessageStatusWithMetadata`
+	pub async fn query_get_request_status(&self, request: IGetRequest) -> Result<JsValue, JsError> {
+		let lambda = || async move {
+			let get = serde_wasm_bindgen::from_value::<JsGet>(request.into()).unwrap();
+			let get: GetRequest = get.try_into()?;
+			let status = internals::query_get_request_status(&self, get).await?;
 			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
 		};
 
@@ -346,7 +399,10 @@ impl HyperClient {
 	}
 
 	/// Accepts a post response and returns a `MessageStatusWithMetadata`
-	pub async fn query_response_status(&self, response: IPostResponse) -> Result<JsValue, JsError> {
+	pub async fn query_post_response_status(
+		&self,
+		response: IPostResponse,
+	) -> Result<JsValue, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPostResponse>(response.into()).unwrap();
 			let response: PostResponse = post.try_into()?;
@@ -365,22 +421,60 @@ impl HyperClient {
 
 	/// Return the status of a post request as a `ReadableStream` that yields
 	/// `MessageStatusWithMeta`
-	pub async fn request_status_stream(
+	pub async fn post_request_status_stream(
 		&self,
 		request: IPostRequest,
 	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
-			let height = post.height;
+			let height = post.tx_height;
 			let post: PostRequest = post.try_into()?;
 
 			// Obtaining the request stream and the timeout stream
 			let timed_out =
-				internals::request_timeout_stream(post.timeout_timestamp, self.source.clone())
+				internals::message_timeout_stream(post.timeout_timestamp, self.source.clone())
 					.await;
 
-			let request_status = internals::request_status_stream(&self, post, height).await?;
+			let request_status = internals::post_request_status_stream(&self, post, height).await?;
 
+			let stream = futures::stream::select(request_status, timed_out).map(|res| {
+				res.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+					.map_err(|e| {
+						serde_wasm_bindgen::to_value(&MessageStatusWithMetadata::Error {
+							description: alloc::format!("{e:?}"),
+						})
+						.expect("Infallible")
+					})
+			});
+
+			// Wrapping the main stream in a readable stream
+			let js_stream = ReadableStream::from_stream(stream);
+
+			Ok(js_stream.into_raw())
+		};
+
+		lambda().await.map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to create request status stream: {err:?}"))
+		})
+	}
+
+	/// Return the status of a post request as a `ReadableStream` that yields
+	/// `MessageStatusWithMeta`
+	pub async fn get_request_status_stream(
+		&self,
+		request: IGetRequest,
+	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
+		let lambda = || async move {
+			let get = serde_wasm_bindgen::from_value::<JsGet>(request.into()).unwrap();
+			let height = get.tx_height;
+			let get: GetRequest = get.try_into()?;
+
+			// Obtaining the request stream and the timeout stream
+			let timed_out =
+				internals::message_timeout_stream(get.timeout_timestamp, self.hyperbridge.clone())
+					.await;
+
+			let request_status = internals::get_request_status_stream(&self, get, height).await?;
 			let stream = futures::stream::select(request_status, timed_out).map(|res| {
 				res.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
 					.map_err(|e| {
@@ -414,7 +508,7 @@ impl HyperClient {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
 			let post: PostRequest = post.try_into()?;
 
-			let stream = internals::timeout_request_stream(&self, post).await?.map(|value| {
+			let stream = internals::timeout_post_request_stream(&self, post).await?.map(|value| {
 				value
 					.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
 					.map_err(|e| {

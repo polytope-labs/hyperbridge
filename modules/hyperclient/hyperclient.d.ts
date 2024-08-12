@@ -62,7 +62,36 @@ interface IPostRequest {
   // Timestamp which this request expires in seconds.
   timeoutTimestamp: bigint;
   // Height at which this request was emitted on the source
+  txHeight: bigint;
+}
+
+interface IGetRequest {
+  // The source state machine of this request.
+  source: string;
+  // The destination state machine of this request.
+  dest: string;
+  // Module Id of the sending module
+  from: string;
+  // The nonce of this request on the source chain
+  nonce: bigint;
+  // Height at which to read the state machine.
   height: bigint;
+  /// Raw Storage keys that would be used to fetch the values from the counterparty
+  /// For deriving storage keys for ink contract fields follow the guide in the link below
+  /// `<https://use.ink/datastructures/storage-in-metadata#a-full-example>`
+  /// The algorithms for calculating raw storage keys for different substrate pallet storage
+  /// types are described in the following links
+  /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42>`
+  /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44>`
+  /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48>`
+  /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
+  /// For fetching keys from EVM contracts each key should be 52 bytes
+  /// This should be a concatenation of contract address and slot hash
+  keys: string[];
+  // Timestamp which this request expires in seconds.
+  timeoutTimestamp: bigint;
+  // Height at which this request was emitted on the source
+  txHeight: bigint;
 }
 
 interface IPostResponse {
@@ -245,24 +274,41 @@ export class HyperClient {
   /**
    * Queries the status of a request and returns `MessageStatusWithMetadata`
    * @param {IPostRequest} request
-   * @returns {Promise<MessageStatus>}
+   * @returns {Promise<MessageStatusWithMeta>}
    */
-  query_request_status(request: IPostRequest): Promise<MessageStatus>;
+  query_post_request_status(request: IPostRequest): Promise<MessageStatusWithMeta>;
+  /**
+   * Queries the status of a request and returns `MessageStatusWithMetadata`
+   * @param {IGetRequest} request
+   * @returns {Promise<any>}
+   */
+  query_get_request_status(request: IGetRequest): Promise<MessageStatusWithMeta>;
   /**
    * Accepts a post response and returns a `MessageStatusWithMetadata`
    * @param {IPostResponse} response
-   * @returns {Promise<MessageStatus>}
+   * @returns {Promise<MessageStatusWithMeta>}
    */
-  query_response_status(response: IPostResponse): Promise<MessageStatus>;
+  query_post_response_status(response: IPostResponse): Promise<MessageStatusWithMeta>;
   /**
    * Return the status of a post request as a `ReadableStream` that yields
    * `MessageStatusWithMeta`
    * @param {IPostRequest} request
    * @returns {Promise<ReadableStream<MessageStatusWithMeta>>}
    */
-  request_status_stream(
+  post_request_status_stream(
     request: IPostRequest,
   ): Promise<ReadableStream<MessageStatusWithMeta>>;
+
+  /**
+   * Return the status of a get request as a `ReadableStream` that yields
+   * `MessageStatusWithMeta`
+   * @param {IGetRequest} request
+   * @returns {Promise<ReadableStream<MessageStatusWithMeta>>}
+   */
+  get_request_status_stream(
+    request: IGetRequest
+  ): Promise<ReadableStream<MessageStatusWithMeta>>;
+
   /**
    * Given a post request that has timed out returns a `ReadableStream` that yields a
    * `TimeoutStatus` This function will not check if the request has timed out, only call it

@@ -416,8 +416,7 @@ pub async fn query_response_status_from_indexer(
 								encode_response_call_data(
 									hyperbridge,
 									&dest_client,
-									post,
-									commitment,
+									Response::Post(post),
 									data.height,
 								)
 								.await?

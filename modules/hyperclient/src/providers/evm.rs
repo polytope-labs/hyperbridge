@@ -13,10 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-	providers::interface::{Client, RequestOrResponse},
-	types::BoxStream,
-};
+use crate::{providers::interface::Client, types::BoxStream};
 use codec::{Decode, Encode};
 use ethereum_triedb::StorageProof;
 use ethers::prelude::Middleware;
@@ -264,7 +261,7 @@ impl Client for EvmClient {
 
 	async fn ismp_events_stream(
 		&self,
-		_item: RequestOrResponse,
+		_commitment: H256,
 		_initial_height: u64,
 	) -> Result<BoxStream<WithMetadata<Event>>, Error> {
 		Err(anyhow!("Ismp stream unavailable for evm client"))

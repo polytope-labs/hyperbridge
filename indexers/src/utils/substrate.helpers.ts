@@ -18,25 +18,8 @@ export const extractStateMachineIdFromSubstrateEventData = (
       });
 
       switch (main_key) {
-        case "ETHEREUM":
-          switch (value.toUpperCase()) {
-            case "EXECUTIONLAYER":
-              return "EVM-11155111";
-            case "OPTIMISM":
-              return "EVM-11155420";
-            case "ARBITRUM":
-              return "EVM-421614";
-            case "BASE":
-              return "EVM-84532";
-            default:
-              throw new Error(
-                `Unknown state machine ID ${value} encountered in extractStateMachineIdFromSubstrateEventData`
-              );
-          }
-        case "BSC":
-          return "BSC";
-        case "POLYGON":
-          return "POLY";
+        case "EVM":
+          return "EVM-".concat(value);
         case "POLKADOT":
           return "POLKADOT-".concat(value);
         case "KUSAMA":

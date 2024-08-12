@@ -234,46 +234,44 @@ impl IsmpProvider for EvmClient {
 			StateProofQueryType::Arbitrary(keys) => {
 				let mut contract_proofs: Vec<_> = vec![];
 				let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
-				let mut contract_address_to_proofs = BTreeMap::new();
+				let mut contract_addresses_to_keys = BTreeMap::new();
+
 				for key in keys {
-					if key.len() != 52 {
-						Err(anyhow!("All arbitrary keys must have a length of 52 when querying state proofs, founf key with length {}", key.len()))?
+					if key.len() != 20 && key.len() != 52 {
+						Err(anyhow!("All arbitrary keys must have a length of 52 bytes or 20 bytes when querying state proofs, found key with length {}", key.len()))?
 					}
 
 					let contract_address = H160::from_slice(&key[..20]);
-					let slot_hash = H256::from_slice(&key[20..]);
+					let entry =
+						contract_addresses_to_keys.entry(contract_address).or_insert(vec![]);
+
+					if key.len() == 52 {
+						let slot_hash = H256::from_slice(&key[20..]);
+						entry.push(slot_hash)
+					}
+				}
+
+				for (contract_address, slot_hashes) in contract_addresses_to_keys {
 					let proof = self
 						.client
-						.get_proof(contract_address, vec![slot_hash], Some(at.into()))
+						.get_proof(contract_address, slot_hashes, Some(at.into()))
 						.await?;
 					contract_proofs.push(StorageProof::new(
 						proof.account_proof.into_iter().map(|node| node.0.into()),
 					));
 
-					let entry = contract_address_to_proofs
-						.entry(contract_address.0.to_vec())
-						.or_insert(vec![]);
-					entry.push(StorageProof::new(
-						proof
-							.storage_proof
-							.get(0)
-							.cloned()
-							.ok_or_else(|| {
-								anyhow!(
-									"Invalid key supplied, storage proof could not be retrieved"
-								)
-							})?
-							.proof
-							.into_iter()
-							.map(|bytes| bytes.0.into()),
-					));
-				}
+					if !proof.storage_proof.is_empty() {
+						let storage_proofs = proof.storage_proof.into_iter().map(|storage_proof| {
+							StorageProof::new(
+								storage_proof.proof.into_iter().map(|bytes| bytes.0.into()),
+							)
+						});
 
-				for (address, storage_proofs) in contract_address_to_proofs {
-					map.insert(
-						address,
-						StorageProof::merge(storage_proofs).into_nodes().into_iter().collect(),
-					);
+						map.insert(
+							contract_address.0.to_vec(),
+							StorageProof::merge(storage_proofs).into_nodes().into_iter().collect(),
+						);
+					}
 				}
 
 				let contract_proof = StorageProof::merge(contract_proofs);

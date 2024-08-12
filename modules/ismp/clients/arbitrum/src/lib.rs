@@ -23,7 +23,7 @@ mod tests;
 use alloc::format;
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U256};
-use evm_common::{derive_map_key, get_contract_storage_root, get_value_from_proof, prelude::*};
+use evm_common::{derive_map_key, get_contract_account, get_value_from_proof, prelude::*};
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
 	consensus::{
@@ -128,7 +128,10 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 	consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
 	let storage_root =
-		get_contract_storage_root::<H>(payload.contract_proof, &rollup_core_address.0, root)?;
+		get_contract_account::<H>(payload.contract_proof, &rollup_core_address.0, root)?
+			.storage_root
+			.0
+			.into();
 
 	let header: Header = payload.arbitrum_header.as_ref().into();
 	if &payload.global_state.send_root[..] != &payload.arbitrum_header.extra_data {

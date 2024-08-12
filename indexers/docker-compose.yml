@@ -35,7 +35,7 @@ services:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
       - -f=app/hyperbridge-gargantua.yaml
       - --db-schema=app
-      - --workers=3
+      - --workers=5
       - --batch-size=10
       - --disable-historical
       - --multi-chain
@@ -70,7 +70,7 @@ services:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
       - -f=app/ethereum-sepolia.yaml
       - --db-schema=app
-      - --workers=3
+      - --workers=5
       - --batch-size=10
       - --disable-historical
       - --multi-chain
@@ -105,7 +105,7 @@ services:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
       - -f=app/base-sepolia.yaml
       - --db-schema=app
-      - --workers=3
+      - --workers=5
       - --batch-size=10
       - --disable-historical
       - --multi-chain
@@ -135,7 +135,7 @@ services:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
       - -f=app/optimism-sepolia.yaml
       - --db-schema=app
-      - --workers=3
+      - --workers=5
       - --batch-size=10
       - --disable-historical
       - --multi-chain
@@ -170,7 +170,7 @@ services:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
       - -f=app/arbitrum-sepolia.yaml
       - --db-schema=app
-      - --workers=3
+      - --workers=5
       - --batch-size=10
       - --disable-historical
       - --multi-chain
@@ -205,7 +205,7 @@ services:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
       - -f=app/bsc-chapel.yaml
       - --db-schema=app
-      - --workers=3
+      - --workers=5
       - --batch-size=10
       - --disable-historical
       - --multi-chain

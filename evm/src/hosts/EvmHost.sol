@@ -407,9 +407,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // only permits fishermen
     modifier onlyFishermen() {
-        if (!_fishermen[_msgSender()]) {
-            revert UnauthorizedAccount();
-        }
+        if (!_fishermen[_msgSender()]) revert UnauthorizedAccount();
         _;
     }
 

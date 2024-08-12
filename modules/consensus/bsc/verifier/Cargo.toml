@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 log = { version = "0.4.17", default-features = false }
 anyhow = { workspace = true, default-features = false }
-sp-core = {version = "27.0.0", default-features = false }
+sp-core = {workspace = true, default-features = false }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }

@@ -143,7 +143,7 @@ sp-std = { version = "14.0.0", default-features = false }
 sp-transaction-pool = { version = "34.0.0", default-features = false }
 sp-version = { version = "37.0.0", default-features = false }
 sp-genesis-builder = { version = "0.15.0", default-features = false }
-pallet-xcm = { version = "=16.0.0", default-features = false }
+pallet-xcm = { version = "16.0.0", default-features = false }
 polkadot-parachain-primitives = { version = "14.0.0", default-features = false }
 polkadot-runtime-common = { version = "16.0.0", default-features = false }
 staging-xcm = { version = "14.1.0", default-features = false }
@@ -153,13 +153,13 @@ cumulus-primitives-aura = { version = "0.15.0", default-features = false }
 cumulus-pallet-session-benchmarking = { version = "18.0.0", default-features = false }
 cumulus-pallet-aura-ext = { version = "0.16.0", default-features = false }
 cumulus-pallet-dmp-queue = { version = "0.16.0", default-features = false }
-cumulus-pallet-xcm = { version = "=0.16.0", default-features = false }
+cumulus-pallet-xcm = { version = "0.16.0", default-features = false }
 cumulus-pallet-xcmp-queue = { version = "0.16.0", default-features = false }
 cumulus-primitives-core = { version = "0.15.0", default-features = false }
 cumulus-primitives-timestamp = { version = "0.15.0", default-features = false }
 cumulus-primitives-utility = { version = "0.16.0", default-features = false }
 pallet-collator-selection = { version = "18.0.0", default-features = false }
-parachain-info = { package = "staging-parachain-info", version = "0.16.0", default-features = false }
+parachain-info = { version = "0.16.0", package = "staging-parachain-info", default-features = false }
 parachains-common = { version = "17.0.0", default-features = false }
 sp-timestamp = { version = "34.0.0", default-features = false }
 sp-keystore = { version = "0.40.0", default-features = false }
@@ -231,7 +231,7 @@ orml-traits = { version = "=1.0.0", default-features = false }
 primitive-types = { version = "0.12.1", default-features = false }
 sc-simnode = { version = "1.15.0" }
 simnode-runtime-api = { version = "1.15.0", default-features = false }
-subxt = { version = "0.30.1", default-features = false }
+subxt = { version = "0.37.0", default-features = false }
 tokio = { version = "1.37.0" }
 tokio-stream = { version = "0.1.15" }
 
@@ -304,10 +304,7 @@ tesseract = { path = "tesseract/relayer" }
 transaction-fees = { path = "tesseract/fees" }
 telemetry-server = { path = "tesseract/telemetry" }
 tesseract-config = { path = "tesseract/config" }
-
-[workspace.dependencies.cumulus-pallet-parachain-system]
-version = "0.16.0"
-default-features = false
+cumulus-pallet-parachain-system= { version = "0.16.0", default-features = false }
 
 [workspace.dependencies.ethers]
 git = "https://github.com/polytope-labs/ethers-rs"

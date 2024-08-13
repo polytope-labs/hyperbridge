@@ -21,8 +21,7 @@ use alloc::format;
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U128, U256};
 use evm_common::{
-	derive_array_item_key, derive_map_key, get_contract_storage_root, get_value_from_proof,
-	prelude::*,
+	derive_array_item_key, derive_map_key, get_contract_account, get_value_from_proof, prelude::*,
 };
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
@@ -72,7 +71,10 @@ pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 	consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
 	let storage_root =
-		get_contract_storage_root::<H>(payload.l2_oracle_proof, &l2_oracle_address.0, root)?;
+		get_contract_account::<H>(payload.l2_oracle_proof, &l2_oracle_address.0, root)?
+			.storage_root
+			.0
+			.into();
 
 	let output_root = calculate_output_root::<H>(
 		payload.version,
@@ -220,11 +222,11 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 			"Game type must be the respected game type".to_string(),
 		))?;
 	}
-	let storage_root = get_contract_storage_root::<H>(
-		payload.dispute_factory_proof,
-		&dispute_factory_address.0,
-		root,
-	)?;
+	let storage_root =
+		get_contract_account::<H>(payload.dispute_factory_proof, &dispute_factory_address.0, root)?
+			.storage_root
+			.0
+			.into();
 	let l2_block_hash = Header::from(&payload.header).hash::<H>();
 
 	let root_claim = calculate_output_root::<H>(

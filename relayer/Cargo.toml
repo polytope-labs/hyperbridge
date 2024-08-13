@@ -35,7 +35,10 @@ toml = "0.7.4"
 clap = { version = "4.3.5", features = ["derive"] }
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs", "io-std"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+primitive-types = "0.12.2"
+subxt = { version = "0.30.1", default-features = false }
 
+subxt-utils = { workspace = true }
 tesseract-beefy = { workspace = true }
 tesseract-bsc = { workspace = true }
 tesseract-sync-committee = { workspace = true }

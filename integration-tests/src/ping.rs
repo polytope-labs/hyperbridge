@@ -14,16 +14,22 @@ use ethers::{
 	core::k256::SecretKey,
 	prelude::{LocalWallet, MiddlewareBuilder, Signer},
 	providers::{Http, Middleware, Provider, ProviderExt},
+	types::BlockId,
 };
 use futures::TryStreamExt;
 use hex_literal::hex;
-use ismp::{events::Event, host::StateMachine, router::Request};
+use ismp::{
+	consensus::{StateMachineHeight, StateMachineId},
+	events::Event,
+	host::StateMachine,
+	router::Request,
+};
 use ismp_solidity_abi::evm_host::EvmHost;
 use primitive_types::{H160, U256};
 use sp_core::Pair;
 use tesseract_evm::{
-	abi::{erc_20::Erc20, PingMessage, PingModule},
-	EvmConfig,
+	abi::{erc_20::Erc20, GetRequest, PingMessage, PingModule},
+	derive_map_key, state_comitment_key, EvmConfig,
 };
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 
@@ -41,7 +47,7 @@ async fn test_ping() -> anyhow::Result<()> {
 	let signing_key =
 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
-	let ping_addr = H160(hex!("bbf1c67a1A426e6B63B456C6788e9458DADC3E3a"));
+	let ping_addr = H160(hex!("0A7175d240fe71C8AEa0D1D7467bF03C6E217C50"));
 
 	let chains = vec![
 		(StateMachine::Evm(11155111), _geth_url, 6328728),
@@ -201,6 +207,134 @@ async fn test_ping() -> anyhow::Result<()> {
 			}
 		})
 		.await?;
+
+	Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_ping_get_request() -> anyhow::Result<()> {
+	dotenv::dotenv().ok();
+	let _bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");
+	let _geth_url = std::env::var("GETH_URL").expect("GETH_URL was missing in env variables");
+
+	let signing_key =
+		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
+
+	let ping_addr = H160(hex!("0A7175d240fe71C8AEa0D1D7467bF03C6E217C50"));
+
+	let hyperbridge_config = SubstrateConfig {
+		state_machine: StateMachine::Kusama(2000),
+		max_rpc_payload_size: None,
+		hashing: Some(HashAlgorithm::Keccak),
+		consensus_state_id: Some("PARA".to_string()),
+		// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+		rpc_ws: "ws://127.0.0.1:9001".to_string(),
+		signer: None,
+		latest_height: None,
+		max_concurent_queries: None,
+	};
+
+	// sepolia host
+	let sepolia_host = H160(hex!("F1c7a386325B7D22025D7542b28Ee881Cdf107b3"));
+
+	let config = EvmConfig {
+		rpc_urls: vec![_geth_url.clone()],
+		ismp_host: sepolia_host.clone(),
+		state_machine: StateMachine::Evm(11155111),
+		consensus_state_id: "ETH0".to_string(),
+		signer: signing_key.clone(),
+		etherscan_api_key: Default::default(),
+		tracing_batch_size: Default::default(),
+		query_batch_size: Default::default(),
+		poll_interval: Default::default(),
+		gas_price_buffer: Default::default(),
+		client_type: None,
+	};
+	let sepolia_client = config.into_client().await?;
+
+	println!("Connecting .. ");
+	let hyperbridge = SubstrateClient::<Hyperbridge>::new(hyperbridge_config).await?;
+	println!("Connected .. ");
+
+	let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex::decode(signing_key.clone()).unwrap())?;
+	let provider = Arc::new(Provider::<Http>::try_connect(&_bsc_url).await?);
+	let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
+		.with_chain_id(provider.get_chainid().await?.low_u64());
+	let bsc_client = Arc::new(provider.with_signer(signer));
+	let ping = PingModule::new(ping_addr.clone(), bsc_client.clone());
+
+	let latest_sepolia_height = hyperbridge
+		.query_latest_height(StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: *b"ETH0",
+		})
+		.await?;
+
+	// We'll query the state commitment of the latest hyperbridge height from the evm host on
+	// sepolia
+
+	let contract = EvmHost::new(sepolia_host, sepolia_client.client.clone());
+	let latest_hyperbridge_height = contract
+		.latest_state_machine_height(4009u32.into())
+		.block(BlockId::Number(ethers::types::BlockNumber::Number(latest_sepolia_height.into())))
+		.call()
+		.await?;
+
+	dbg!(latest_hyperbridge_height);
+	let keys = {
+		let keys = state_comitment_key(4009u32.into(), latest_hyperbridge_height);
+		let key_1 = {
+			let mut bytes = sepolia_host.0.to_vec();
+			bytes.extend_from_slice(keys.0.as_bytes());
+			bytes
+		};
+
+		let key_2 = {
+			let mut bytes = sepolia_host.0.to_vec();
+			bytes.extend_from_slice(keys.1.as_bytes());
+			bytes
+		};
+
+		let key_3 = {
+			let mut bytes = sepolia_host.0.to_vec();
+			bytes.extend_from_slice(keys.2.as_bytes());
+			bytes
+		};
+
+		vec![key_1.into(), key_2.into(), key_3.into()]
+	};
+
+	let state = sepolia_client
+		.query_state_machine_commitment(StateMachineHeight {
+			id: StateMachineId {
+				state_id: StateMachine::Kusama(4009),
+				consensus_state_id: *b"PARA",
+			},
+			height: latest_hyperbridge_height.low_u64(),
+		})
+		.await?;
+
+	dbg!(state);
+
+	let get_request = GetRequest {
+		source: Default::default(),
+		dest: StateMachine::Evm(11155111).to_string().as_bytes().to_vec().into(),
+		nonce: Default::default(),
+		from: Default::default(),
+		timeout_timestamp: 0,
+		keys,
+		height: latest_sepolia_height.into(),
+	};
+
+	let call = ping.dispatch_with_request(get_request);
+	let gas = call.estimate_gas().await.context(format!("Failed to estimate gas"))?;
+	let _receipt = call
+		.gas(gas)
+		.send()
+		.await?
+		.await
+		.context(format!("Failed to execute ping message"))?;
 
 	Ok(())
 }

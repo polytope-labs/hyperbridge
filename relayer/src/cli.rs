@@ -48,7 +48,8 @@ impl Cli {
 		log::info!("🧊 Initializing tesseract consensus");
 
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
-		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
+		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, chains, .. } =
+			config.clone();
 
 		let clients = create_client_map(config.clone()).await?;
 		let mut processes = vec![];
@@ -65,6 +66,7 @@ impl Cli {
 				&relayer,
 				self.setup_eth,
 				self.setup_para,
+				chains,
 			)
 			.await?;
 			log::info!("Initialized consensus states");
@@ -155,6 +157,7 @@ async fn initialize_consensus_clients(
 	relayer: &RelayerConfig,
 	setup_eth: bool,
 	setup_para: bool,
+	configs: HashMap<StateMachine, AnyConfig>,
 ) -> anyhow::Result<()> {
 	if setup_eth {
 		let initial_state = hyperbridge.hydrate_initial_consensus_state(None).await?;
@@ -180,6 +183,41 @@ async fn initialize_consensus_clients(
 				consensus_state.challenge_period = relayer.challenge_period.unwrap_or_default();
 				hyperbridge.client().create_consensus_state(consensus_state).await?;
 			}
+		}
+
+		// hack to set the EvmHost addresses on Hyperbridge
+		{
+			use codec::Encode;
+			use primitive_types::H160;
+			use subxt::{
+				ext::{
+					sp_core::Pair,
+					sp_runtime::{traits::IdentifyAccount, MultiSigner},
+				},
+				tx::TxPayload,
+			};
+			use subxt_utils::{send_extrinsic, Extrinsic, InMemorySigner};
+
+			let params = configs
+				.into_iter()
+				.filter_map(|(s, c)| match c.host_address() {
+					Some(addr) => Some((s, addr)),
+					_ => None,
+				})
+				.collect::<BTreeMap<StateMachine, H160>>();
+
+			let substrate_client = hyperbridge.client();
+
+			let signer = InMemorySigner {
+				account_id: MultiSigner::Sr25519(substrate_client.signer.public())
+					.into_account()
+					.into(),
+				signer: substrate_client.signer.clone(),
+			};
+			let encoded_call = Extrinsic::new("HostExecutive", "update_evm_hosts", params.encode())
+				.encode_call_data(&substrate_client.client.metadata())?;
+			let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
+			send_extrinsic(&substrate_client.client, signer, tx).await?;
 		}
 
 		log::info!("setting host params on on hyperbridge");

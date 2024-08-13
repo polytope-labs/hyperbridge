@@ -331,6 +331,7 @@ where
 							let event = match &e.event {
 								Event::PostRequest(req) => req.dest,
 								Event::PostResponse(res) => res.dest_chain(),
+								Event::GetResponse(res) => res.get.source,
 								Event::PostRequestTimeoutHandled(req)
 									if req.source != hyperbridge =>
 									req.source,
@@ -501,7 +502,8 @@ where
 					event.event,
 					Event::PostRequest(_) |
 						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
-						Event::PostResponseTimeoutHandled(_)
+						Event::PostResponseTimeoutHandled(_) |
+						Event::GetResponse(_)
 				) {
 					return Some(event);
 				}

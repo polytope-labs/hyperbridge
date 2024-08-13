@@ -1,6 +1,7 @@
 use arb_host::ArbConfig;
 use ismp::host::StateMachine;
 use op_host::OpConfig;
+use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 use tesseract_bsc::BscPosConfig;
 use tesseract_sync_committee::SyncCommitteeConfig;
@@ -30,6 +31,17 @@ impl AnyConfig {
 			AnyConfig::ArbitrumOrbit(config) => config.evm_config.state_machine,
 			AnyConfig::OpStack(config) => config.evm_config.state_machine,
 			AnyConfig::Bsc(config) => config.evm_config.state_machine,
+		}
+	}
+
+	/// Returns the Ismp host contract address for EVM chains.
+	pub fn host_address(&self) -> Option<H160> {
+		match self {
+			AnyConfig::Bsc(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::Sepolia(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::OpStack(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::ArbitrumOrbit(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::Ethereum(c) => Some(c.evm_config.ismp_host.clone()),
 		}
 	}
 }

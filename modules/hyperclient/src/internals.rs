@@ -44,6 +44,10 @@ use subxt_utils::Hyperbridge;
 
 use ismp::messaging::hash_response;
 use std::time::Duration;
+#[cfg(not(target_arch = "wasm"))]
+use tokio::time::*;
+#[cfg(target_arch = "wasm")]
+use wasmtimer::tokio::*;
 
 /// This returns a stream that yields when the provided timeout value is reached on the chain for
 /// the provided [`Client`]
@@ -59,7 +63,7 @@ pub async fn message_timeout_stream(
 				Ok(true)
 			} else {
 				let sleep_time = timeout - current_timestamp;
-				let _ = wasmtimer::tokio::sleep(Duration::from_secs(sleep_time)).await;
+				let _ = sleep(Duration::from_secs(sleep_time)).await;
 				Ok::<_, anyhow::Error>(false)
 			};
 		};

@@ -29,6 +29,11 @@ use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
 use std::ops::RangeInclusive;
 
+#[cfg(not(target_arch = "wasm"))]
+use tokio::time::*;
+#[cfg(target_arch = "wasm")]
+use wasmtimer::tokio::*;
+
 #[derive(Eq, PartialEq, Clone)]
 pub enum RequestOrResponse {
 	Request(PostRequest),
@@ -167,12 +172,12 @@ pub async fn wait_for_challenge_period<C: Client>(
 	last_consensus_update: Duration,
 	challenge_period: Duration,
 ) -> anyhow::Result<()> {
-	wasmtimer::tokio::sleep(challenge_period).await;
+	sleep(challenge_period).await;
 	let current_timestamp = client.query_timestamp().await?;
 	let mut delay = current_timestamp.saturating_sub(last_consensus_update);
 
 	while delay <= challenge_period {
-		wasmtimer::tokio::sleep(challenge_period.saturating_sub(delay)).await;
+		sleep(challenge_period.saturating_sub(delay)).await;
 		let current_timestamp = client.query_timestamp().await?;
 		delay = current_timestamp.saturating_sub(last_consensus_update);
 	}

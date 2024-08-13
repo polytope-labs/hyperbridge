@@ -23,6 +23,7 @@ use evm_common::presets::{
 };
 use sp_mmr_primitives::utils::NodesUtils;
 
+use super::interface::Query;
 use crate::{
 	providers::interface::WithMetadata,
 	types::{EventMetadata, EvmStateProof, SubstrateStateProof},
@@ -53,8 +54,10 @@ use ismp_solidity_abi::{
 use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
-
-use super::interface::Query;
+#[cfg(not(target_arch = "wasm"))]
+use tokio::time::*;
+#[cfg(target_arch = "wasm")]
+use wasmtimer::tokio::*;
 
 #[derive(Debug, Clone)]
 pub struct EvmClient {
@@ -277,7 +280,7 @@ impl Client for EvmClient {
 		let stream =
 			stream::unfold((initial_height, client), move |(latest_height, client)| async move {
 				let state_machine = client.state_machine;
-				wasmtimer::tokio::sleep(Duration::from_secs(12)).await;
+				sleep(Duration::from_secs(12)).await;
 				let block_number = match client.client.get_block_number().await {
 					Ok(number) => number.low_u64(),
 					Err(err) =>
@@ -370,7 +373,7 @@ impl Client for EvmClient {
 			(initial_height, self.clone()),
 			move |(latest_height, client)| async move {
 				let state_machine = client.state_machine;
-				wasmtimer::tokio::sleep(Duration::from_secs(30)).await;
+				sleep(Duration::from_secs(30)).await;
 				let block_number = match client.client.get_block_number().await {
 					Ok(number) => number.low_u64(),
 					Err(err) =>

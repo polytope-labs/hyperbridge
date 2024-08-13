@@ -62,7 +62,7 @@ sp-core = { workspace = true }
 sp-keystore = { workspace = true }
 sp-offchain = { workspace = true }
 sc-offchain = { workspace = true }
-sp-io = { workspace = true }
+sp-io = { workspace = true, default-features = true }
 sp-runtime = { workspace = true }
 sp-session = { workspace = true }
 sp-timestamp = { workspace = true }

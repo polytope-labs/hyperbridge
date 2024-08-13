@@ -29,9 +29,9 @@ use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
 use std::ops::RangeInclusive;
 
-#[cfg(not(target_arch = "wasm"))]
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
-#[cfg(target_arch = "wasm")]
+#[cfg(target_arch = "wasm32")]
 use wasmtimer::tokio::*;
 
 #[derive(Eq, PartialEq, Clone)]

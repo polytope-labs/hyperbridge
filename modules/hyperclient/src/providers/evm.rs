@@ -54,9 +54,9 @@ use ismp_solidity_abi::{
 use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
-#[cfg(not(target_arch = "wasm"))]
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
-#[cfg(target_arch = "wasm")]
+#[cfg(target_arch = "wasm32")]
 use wasmtimer::tokio::*;
 
 #[derive(Debug, Clone)]

@@ -44,9 +44,9 @@ use subxt_utils::Hyperbridge;
 
 use ismp::messaging::hash_response;
 use std::time::Duration;
-#[cfg(not(target_arch = "wasm"))]
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
-#[cfg(target_arch = "wasm")]
+#[cfg(target_arch = "wasm32")]
 use wasmtimer::tokio::*;
 
 /// This returns a stream that yields when the provided timeout value is reached on the chain for

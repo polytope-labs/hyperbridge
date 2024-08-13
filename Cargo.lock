@@ -6709,7 +6709,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -6805,7 +6805,7 @@ dependencies = [
 
 [[package]]
 name = "hyperclient"
-version = "0.3.25"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -20608,7 +20608,7 @@ checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
 name = "tesseract"
-version = "0.3.8"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-trait",

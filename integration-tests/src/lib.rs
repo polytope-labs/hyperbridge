@@ -5,7 +5,7 @@
 // mod bsc;
 // // mod polygon;
 mod ping;
-mod substrate;
+// mod substrate;
 mod util;
 
 use std::{

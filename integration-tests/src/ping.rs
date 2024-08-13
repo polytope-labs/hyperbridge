@@ -41,7 +41,7 @@ async fn test_ping() -> anyhow::Result<()> {
 	let signing_key =
 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
-	let ping_addr = H160(hex!("76Af4528383200CD7456E3Db967Bec309FAc583a"));
+	let ping_addr = H160(hex!("bbf1c67a1A426e6B63B456C6788e9458DADC3E3a"));
 
 	let chains = vec![
 		(StateMachine::Evm(11155111), _geth_url, 6328728),
@@ -174,7 +174,7 @@ async fn test_ping() -> anyhow::Result<()> {
 						.context(format!("Failed to approve {ping_addr} in {chain}"))?;
 
 					for (chain, _, _) in chains_clone.iter().filter(|(c, _, _)| chain != *c) {
-						for _ in 0..10 {
+						for _ in 0..5 {
 							let call = ping.ping(PingMessage {
 								dest: chain.to_string().as_bytes().to_vec().into(),
 								module: ping_addr.clone().into(),

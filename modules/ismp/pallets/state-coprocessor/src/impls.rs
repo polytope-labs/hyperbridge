@@ -202,7 +202,7 @@ where
 					pos: leaf_index_and_pos.position,
 				},
 				fee: meta,
-				claimed: false,
+				claimed: true,
 			},
 		);
 		pallet_ismp::Responded::<T>::insert(req_commitment, true);

@@ -28,7 +28,7 @@ use ethers::{
 
 use crate::{
 	internals,
-	internals::{request_status_stream, timeout_request_stream},
+	internals::{post_request_status_stream, timeout_post_request_stream},
 	providers::interface::Client,
 	types::{
 		ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, MessageStatusWithMetadata,
@@ -40,17 +40,17 @@ use futures::StreamExt;
 use hex_literal::hex;
 use ismp::{consensus::StateMachineId, host::StateMachine, router};
 use ismp_solidity_abi::{
+	beefy::GetRequest,
 	erc20::ERC20,
-	evm_host::{EvmHost, PostRequestEventFilter},
+	evm_host::{EvmHost, GetRequestEventFilter, PostRequestEventFilter},
 	ping_module::{PingMessage, PingModule},
 };
 use std::sync::Arc;
 
-const OP_HOST: H160 = H160(hex!("821c5D97213Aaf914174440a53bB4403BF42f27b"));
-const SEPOLIA_HOST: H160 = H160(hex!("Bc0fA79725aCD430D507855e77f30C9d9ED4dC24"));
-const BSC_HOST: H160 = H160(hex!("4e456CE71aD3AfB8a55adeE5119127c2d892E2D0"));
-const BSC_HANDLER: H160 = H160(hex!("5d7B5700dC751b29a0cF977366c65993562e8eFE"));
-const PING_MODULE: H160 = H160(hex!("76Af4528383200CD7456E3Db967Bec309FAc583a"));
+const OP_HOST: H160 = H160(hex!("625c531a56DB772CC36313d0A0114956aD8b56c2"));
+const SEPOLIA_HOST: H160 = H160(hex!("F1c7a386325B7D22025D7542b28Ee881Cdf107b3"));
+const BSC_HOST: H160 = H160(hex!("eB8977EDCdA5FaBDcDdEB39861Df25E8821a9e9b"));
+const PING_MODULE: H160 = H160(hex!("0A7175d240fe71C8AEa0D1D7467bF03C6E217C50"));
 
 pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");
@@ -75,7 +75,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 
 	let hyperbrige_config = SubstrateConfig {
 		rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-		// rpc_url: "ws://127.0.0.1:9901".to_string(),
+		// rpc_url: "ws://127.0.0.1:9001".to_string(),
 		consensus_state_id: *b"PARA",
 		hash_algo: HashAlgorithm::Keccak,
 	};
@@ -135,7 +135,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	let block = receipt.block_number.unwrap();
 	tracing::info!("\n\nTx block: {block}\n\n");
 
-	let mut stream = request_status_stream(&hyperclient, post, block.low_u64()).await?;
+	let mut stream = post_request_status_stream(&hyperclient, post, block.low_u64()).await?;
 
 	while let Some(res) = stream.next().await {
 		match res {
@@ -173,7 +173,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 
 	let hyperbrige_config = SubstrateConfig {
 		rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-		// rpc_url: "ws://127.0.0.1:9901".to_string(),
+		// rpc_url: "ws://127.0.0.1:9001".to_string(),
 		consensus_state_id: *b"PARA",
 		hash_algo: HashAlgorithm::Keccak,
 	};
@@ -195,7 +195,8 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let chain = StateMachine::Evm(97);
 	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
 	let host = EvmHost::new(host_addr, client.clone());
-	tracing::info!("{:#?}", host.host_params().await?);
+	let host_params = host.host_params().await?;
+	tracing::info!("{:#?}", host_params);
 
 	let erc_20 =
 		ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
@@ -258,11 +259,12 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let block = receipt.block_number.unwrap();
 	tracing::info!("\n\nTx block: {block}\n\n");
 
-	let request_status = request_status_stream(&hyperclient, post.clone(), block.low_u64()).await?;
+	let request_status =
+		post_request_status_stream(&hyperclient, post.clone(), block.low_u64()).await?;
 
 	// Obtaining the request stream and the timeout stream
 	let timed_out =
-		internals::request_timeout_stream(post.timeout_timestamp, hyperclient.source.clone()).await;
+		internals::message_timeout_stream(post.timeout_timestamp, hyperclient.source.clone()).await;
 
 	let mut stream = futures::stream::select(request_status, timed_out);
 
@@ -281,7 +283,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		}
 	}
 
-	let mut stream = timeout_request_stream(&hyperclient, post).await?;
+	let mut stream = timeout_post_request_stream(&hyperclient, post).await?;
 
 	while let Some(res) = stream.next().await {
 		match res {
@@ -294,7 +296,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 						let pending = client
 							.send_transaction(
 								TypedTransaction::Legacy(TransactionRequest {
-									to: Some(NameOrAddress::Address(BSC_HANDLER)),
+									to: Some(NameOrAddress::Address(host_params.handler)),
 									gas_price: Some(gas_price * 5), // experiment with higher?
 									data: Some(calldata.0.into()),
 									..Default::default()
@@ -314,5 +316,134 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 			},
 		}
 	}
+	Ok(())
+}
+
+pub async fn get_request_handling() -> Result<(), anyhow::Error> {
+	tracing::info!("\n\n\n\nStarting get request test\n\n\n\n");
+
+	let signing_key = env!("SIGNING_KEY").to_string();
+	let bsc_url = env!("BSC_URL").to_string();
+	let sepolia_url = env!("SEPOLIA_URL").to_string();
+
+	let source_chain = EvmConfig {
+		rpc_url: bsc_url.clone(),
+		state_machine: StateMachine::Evm(97),
+		host_address: BSC_HOST,
+		consensus_state_id: *b"BSC0",
+	};
+
+	let dest_chain = EvmConfig {
+		rpc_url: sepolia_url,
+		state_machine: StateMachine::Evm(11155111),
+		host_address: SEPOLIA_HOST,
+		consensus_state_id: *b"ETH0",
+	};
+
+	let hyperbrige_config = SubstrateConfig {
+		// rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+		rpc_url: "ws://127.0.0.1:9001".to_string(),
+		consensus_state_id: *b"PARA",
+		hash_algo: HashAlgorithm::Keccak,
+	};
+	let config = ClientConfig {
+		source: ChainConfig::Evm(source_chain.clone()),
+		dest: ChainConfig::Evm(dest_chain.clone()),
+		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
+		indexer: None,
+	};
+	let hyperclient = HyperClient::new(config).await?;
+
+	let latest_height = hyperclient
+		.hyperbridge
+		.query_latest_state_machine_height(StateMachineId {
+			consensus_state_id: *b"ETH0",
+			state_id: dest_chain.state_machine,
+		})
+		.await?;
+
+	let pair = hex::decode(signing_key).unwrap();
+	let provider = Arc::new(Provider::<Http>::try_connect(&bsc_url).await?);
+	let chain_id = provider.get_chainid().await?.low_u64();
+	let signer = LocalWallet::from(SecretKey::from_slice(pair.as_slice())?).with_chain_id(chain_id);
+	let client = Arc::new(provider.with_signer(signer));
+
+	let ping = PingModule::new(PING_MODULE, client.clone());
+	let chain = StateMachine::Evm(97);
+	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
+	let host = EvmHost::new(host_addr, client.clone());
+	let host_params = host.host_params().await?;
+
+	let ping = PingModule::new(PING_MODULE, client.clone());
+	let request = GetRequest {
+		dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
+		height: latest_height,
+		// just query the account of the host in the world state
+		keys: vec![SEPOLIA_HOST.as_bytes().to_vec().into()],
+		timeout_timestamp: 0,
+		..Default::default()
+	};
+	let call = ping.dispatch_with_request(request);
+
+	let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
+	let receipt = call
+		.gas(gas)
+		.send()
+		.await
+		.context(format!("Error in {chain:?}"))?
+		.await
+		.context(format!("Error in {chain:?}"))?
+		.unwrap();
+
+	dbg!(&receipt);
+
+	let get_request: router::GetRequest = receipt
+		.logs
+		.into_iter()
+		.find_map(|log| parse_log::<GetRequestEventFilter>(log).ok())
+		.expect("Tx should emit post request")
+		.try_into()?;
+
+	dbg!(&get_request);
+
+	let mut stream = internals::get_request_status_stream(
+		&hyperclient,
+		get_request.clone(),
+		receipt.block_number.unwrap().low_u64(),
+	)
+	.await?;
+
+	while let Some(res) = stream.next().await {
+		match res {
+			Ok(status) => {
+				tracing::info!("\nGot Status {:#?}\n", status);
+				match status {
+					MessageStatusWithMetadata::HyperbridgeFinalized { calldata, .. } => {
+						let gas_price = client.get_gas_price().await?;
+						tracing::info!("Sending Get response to BSC");
+						let pending = client
+							.send_transaction(
+								TypedTransaction::Legacy(TransactionRequest {
+									to: Some(NameOrAddress::Address(host_params.handler)),
+									gas_price: Some(gas_price * 5), // experiment with higher?
+									data: Some(calldata.0.into()),
+									..Default::default()
+								}),
+								None,
+							)
+							.await;
+						tracing::info!("Send transaction result: {pending:#?}");
+						let result = pending?.await;
+						tracing::info!("Transaction Receipt: {result:#?}");
+					},
+					_ => {},
+				}
+			},
+			Err(e) => {
+				tracing::info!("{e:?}")
+			},
+		}
+	}
+
 	Ok(())
 }

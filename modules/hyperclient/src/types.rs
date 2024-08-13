@@ -189,16 +189,17 @@ impl fmt::Debug for Bytes {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum PostStreamState {
-	/// Message has been finalized on source chain
+pub enum MessageStatusStreamState {
+	/// Waiting for the message to be finalized on the source chain
 	Pending,
-	/// Source state machine has been updated on hyperbridge, holds the block number at which the
+	/// Source state machine has been finalized on hyperbridge, holds the block number at which the
 	/// source was finalized on hyperbridge
 	SourceFinalized(u64),
-	/// Message has been finalized by hyperbridge
-	HyperbridgeFinalized(u64),
 	/// Message has been delivered to hyperbridge, holds the block where the message was delivered
 	HyperbridgeDelivered(u64),
+	/// Message has been finalized by hyperbridge, holds the destination block number where
+	/// hyperbridge was finalized.
+	HyperbridgeFinalized(u64),
 	/// Message has been delivered to destination
 	DestinationDelivered,
 	/// Stream has ended, check the message status

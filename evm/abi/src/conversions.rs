@@ -27,7 +27,7 @@ use crate::{
 use anyhow::anyhow;
 use ismp::{host::StateMachine, router};
 
-use crate::evm_host::PostRequestEventFilter;
+use crate::evm_host::{GetRequestEventFilter, PostRequestEventFilter};
 #[cfg(feature = "beefy")]
 pub use beefy::*;
 use ismp::{
@@ -306,15 +306,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 	fn try_from(event: EvmHostEvents) -> Result<Self, Self::Error> {
 		match event {
 			EvmHostEvents::GetRequestEventFilter(get) =>
-				Ok(ismp::events::Event::GetRequest(router::GetRequest {
-					source: StateMachine::from_str(&get.source).map_err(|e| anyhow!("{}", e))?,
-					dest: StateMachine::from_str(&get.dest).map_err(|e| anyhow!("{}", e))?,
-					nonce: get.nonce.low_u64(),
-					from: get.from.0.into(),
-					keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
-					height: get.height.low_u64(),
-					timeout_timestamp: get.timeout_timestamp.low_u64(),
-				})),
+				Ok(ismp::events::Event::GetRequest(get.try_into()?)),
 			EvmHostEvents::PostRequestEventFilter(post) =>
 				Ok(ismp::events::Event::PostRequest(post.try_into()?)),
 			EvmHostEvents::PostResponseEventFilter(resp) =>
@@ -414,6 +406,22 @@ impl TryFrom<PostRequestEventFilter> for router::PostRequest {
 			to: post.to.0.into(),
 			timeout_timestamp: post.timeout_timestamp.low_u64(),
 			body: post.body.0.into(),
+		})
+	}
+}
+
+impl TryFrom<GetRequestEventFilter> for router::GetRequest {
+	type Error = anyhow::Error;
+
+	fn try_from(get: GetRequestEventFilter) -> Result<Self, Self::Error> {
+		Ok(router::GetRequest {
+			source: StateMachine::from_str(&get.source).map_err(|e| anyhow!("{}", e))?,
+			dest: StateMachine::from_str(&get.dest).map_err(|e| anyhow!("{}", e))?,
+			nonce: get.nonce.low_u64(),
+			from: get.from.0.into(),
+			keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
+			height: get.height.low_u64(),
+			timeout_timestamp: get.timeout_timestamp.low_u64(),
 		})
 	}
 }

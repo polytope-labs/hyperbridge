@@ -13,9 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::interface::Query;
 use crate::{
-	providers::interface::{Client, RequestOrResponse, WithMetadata},
+	providers::interface::{Client, WithMetadata},
 	types::{BoxStream, EventMetadata, Extrinsic, HashAlgorithm, SubstrateStateProof},
+	Keccak256,
 };
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
@@ -28,7 +30,8 @@ use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
-	messaging::Message,
+	messaging::{hash_request, hash_response, Message},
+	router::{Request, Response},
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use pallet_ismp::{
@@ -47,8 +50,6 @@ use subxt::{
 	OnlineClient,
 };
 use subxt_utils::state_machine_update_time_storage_key;
-
-use super::interface::Query;
 
 /// Contains a scale encoded Mmr Proof or Trie proof
 #[derive(Serialize, Deserialize)]
@@ -290,14 +291,14 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 	async fn ismp_events_stream(
 		&self,
-		item: RequestOrResponse,
+		commitment: H256,
 		initial_height: u64,
 	) -> Result<BoxStream<WithMetadata<Event>>, Error> {
 		let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
 		let stream = stream::unfold(
 			(initial_height, subscription, self.clone()),
 			move |(latest_height, mut subscription, client)| {
-				let item = item.clone();
+				let commitment = commitment.clone();
 				async move {
 					let header = match subscription.next().await {
 						Some(Ok(header)) => header,
@@ -325,12 +326,15 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					let event = events.into_iter().find_map(|event| {
 						let value = match event.event.clone() {
 							Event::PostRequest(post) =>
-								Some(RequestOrResponse::Request(post.clone())),
-							Event::PostResponse(resp) => Some(RequestOrResponse::Response(resp)),
+								Some(hash_request::<Keccak256>(&Request::Post(post.clone()))),
+							Event::PostResponse(resp) =>
+								Some(hash_response::<Keccak256>(&Response::Post(resp))),
+							Event::GetResponse(response) =>
+								Some(hash_request::<Keccak256>(&Request::Get(response.get))),
 							_ => None,
 						};
 
-						if value == Some(item.clone()) {
+						if value == Some(commitment.clone()) {
 							Some(event)
 						} else {
 							None

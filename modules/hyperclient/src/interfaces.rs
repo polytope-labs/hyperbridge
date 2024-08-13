@@ -18,11 +18,11 @@ use anyhow::anyhow;
 use core::str::FromStr;
 use ismp::{
 	host::StateMachine,
-	router::{PostRequest, PostResponse},
+	router::{GetRequest, PostRequest, PostResponse},
 };
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
-use sp_core::bytes::from_hex;
+use sp_core::bytes::{from_hex, FromHexError};
 
 #[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsChainConfig {
@@ -133,7 +133,8 @@ pub struct JsPost {
 	/// Encoded Request.
 	pub body: String,
 	/// Height at which this request was emitted on the source chain
-	pub height: u64,
+	#[serde(rename = "txHeight")]
+	pub tx_height: u64,
 }
 
 impl TryFrom<JsPost> for PostRequest {
@@ -164,6 +165,75 @@ impl TryFrom<JsPost> for PostRequest {
 			body: from_hex(&value.body)?,
 		};
 		Ok(post)
+	}
+}
+
+#[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
+pub struct JsGet {
+	/// The source state machine of this request.
+	pub source: String,
+	/// The destination state machine of this request.
+	pub dest: String,
+	/// The nonce of this request on the source chain
+	pub nonce: u64,
+	/// Module identifier of the sending module
+	pub from: String,
+	/// Raw Storage keys that would be used to fetch the values from the counterparty
+	/// For deriving storage keys for ink contract fields follow the guide in the link below
+	/// `<https://use.ink/datastructures/storage-in-metadata#a-full-example>`
+	/// The algorithms for calculating raw storage keys for different substrate pallet storage
+	/// types are described in the following links
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
+	/// For fetching keys from EVM contracts each key should be 52 bytes
+	/// This should be a concatenation of contract address and slot hash
+	pub keys: Vec<String>,
+	/// Height at which to read the state machine.
+	pub height: u64,
+	/// Host timestamp at which this request expires in seconds
+	#[serde(rename = "timeoutTimestamp")]
+	pub timeout_timestamp: u64,
+	/// Height at which this request was emitted on the source chain
+	#[serde(rename = "txHeight")]
+	pub tx_height: u64,
+}
+
+impl TryFrom<JsGet> for GetRequest {
+	type Error = anyhow::Error;
+
+	fn try_from(value: JsGet) -> Result<Self, Self::Error> {
+		let source = if value.source.starts_with("0x") {
+			let string = String::from_utf8(from_hex(&value.source)?)?;
+			StateMachine::from_str(&string).map_err(|e| anyhow!("{e:?}"))?
+		} else {
+			StateMachine::from_str(&value.source).map_err(|e| anyhow!("{e:?}"))?
+		};
+
+		let dest = if value.dest.starts_with("0x") {
+			let string = String::from_utf8(from_hex(&value.dest)?)?;
+			StateMachine::from_str(&string).map_err(|e| anyhow!("{e:?}"))?
+		} else {
+			StateMachine::from_str(&value.dest).map_err(|e| anyhow!("{e:?}"))?
+		};
+
+		let keys = value
+			.keys
+			.iter()
+			.map(|k| from_hex(k))
+			.collect::<Result<Vec<Vec<u8>>, FromHexError>>()
+			.map_err(|err| anyhow!("Hex error: {err:?}"))?;
+
+		Ok(GetRequest {
+			source,
+			dest,
+			nonce: value.nonce,
+			from: from_hex(&value.from)?,
+			keys,
+			height: value.height,
+			timeout_timestamp: value.timeout_timestamp,
+		})
 	}
 }
 
@@ -287,7 +357,7 @@ mod tests {
 				to: hex::encode(vec![15; 20]),
 				timeout_timestamp: 1_600_000,
 				body: hex::encode(vec![40; 256]),
-				height: 0,
+				tx_height: 0,
 			},
 			response: vec![80; 256],
 			timeout_timestamp: 4_500_000,

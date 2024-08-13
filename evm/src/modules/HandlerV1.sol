@@ -349,7 +349,8 @@ contract HandlerV1 is IHandler, ERC165, Context {
 
         for (uint256 i = 0; i < timeoutsLength; ++i) {
             GetRequest memory request = message.timeouts[i];
-            // don't check for timeouts because it's checked on Hyperbridge
+            // timed-out?
+            if (request.timeout() > state.timestamp) revert MessageNotTimedOut();
 
             bytes32 commitment = request.hash();
             FeeMetadata memory meta = host.requestCommitments(commitment);

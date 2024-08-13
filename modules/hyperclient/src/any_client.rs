@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use ismp::host::StateMachine;
+use primitive_types::H256;
 use subxt_utils::{BlakeSubstrateChain, Hyperbridge};
 
 use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
@@ -120,18 +121,18 @@ impl Client for AnyClient {
 
 	async fn ismp_events_stream(
 		&self,
-		item: crate::providers::interface::RequestOrResponse,
+		commitment: H256,
 		initial_height: u64,
 	) -> Result<
 		crate::types::BoxStream<crate::providers::interface::WithMetadata<ismp::events::Event>>,
 		anyhow::Error,
 	> {
 		match self {
-			AnyClient::Evm(inner) => inner.ismp_events_stream(item, initial_height).await,
+			AnyClient::Evm(inner) => inner.ismp_events_stream(commitment, initial_height).await,
 			AnyClient::BlakeSubstrateChain(inner) =>
-				inner.ismp_events_stream(item, initial_height).await,
+				inner.ismp_events_stream(commitment, initial_height).await,
 			AnyClient::KeccakSubstrateChain(inner) =>
-				inner.ismp_events_stream(item, initial_height).await,
+				inner.ismp_events_stream(commitment, initial_height).await,
 		}
 	}
 

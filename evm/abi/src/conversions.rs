@@ -27,7 +27,7 @@ use crate::{
 use anyhow::anyhow;
 use ismp::{host::StateMachine, router};
 
-use crate::evm_host::PostRequestEventFilter;
+use crate::evm_host::{GetRequestEventFilter, PostRequestEventFilter};
 #[cfg(feature = "beefy")]
 pub use beefy::*;
 use ismp::{
@@ -305,19 +305,13 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 	type Error = anyhow::Error;
 	fn try_from(event: EvmHostEvents) -> Result<Self, Self::Error> {
 		match event {
-			EvmHostEvents::GetRequestEventFilter(get) =>
-				Ok(ismp::events::Event::GetRequest(router::GetRequest {
-					source: StateMachine::from_str(&get.source).map_err(|e| anyhow!("{}", e))?,
-					dest: StateMachine::from_str(&get.dest).map_err(|e| anyhow!("{}", e))?,
-					nonce: get.nonce.low_u64(),
-					from: get.from.0.into(),
-					keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
-					height: get.height.low_u64(),
-					timeout_timestamp: get.timeout_timestamp.low_u64(),
-				})),
-			EvmHostEvents::PostRequestEventFilter(post) =>
-				Ok(ismp::events::Event::PostRequest(post.try_into()?)),
-			EvmHostEvents::PostResponseEventFilter(resp) =>
+			EvmHostEvents::GetRequestEventFilter(get) => {
+				Ok(ismp::events::Event::GetRequest(get.try_into()?))
+			},
+			EvmHostEvents::PostRequestEventFilter(post) => {
+				Ok(ismp::events::Event::PostRequest(post.try_into()?))
+			},
+			EvmHostEvents::PostResponseEventFilter(resp) => {
 				Ok(ismp::events::Event::PostResponse(router::PostResponse {
 					post: router::PostRequest {
 						source: StateMachine::from_str(&resp.dest).map_err(|e| anyhow!("{}", e))?,
@@ -330,24 +324,28 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 					},
 					response: resp.response.0.into(),
 					timeout_timestamp: resp.response_timeout_timestamp.low_u64(),
-				})),
-			EvmHostEvents::PostRequestHandledFilter(handled) =>
+				}))
+			},
+			EvmHostEvents::PostRequestHandledFilter(handled) => {
 				Ok(ismp::events::Event::PostRequestHandled(ismp::events::RequestResponseHandled {
 					commitment: handled.commitment.into(),
 					relayer: handled.relayer.as_bytes().to_vec(),
-				})),
-			EvmHostEvents::GetRequestHandledFilter(handled) =>
+				}))
+			},
+			EvmHostEvents::GetRequestHandledFilter(handled) => {
 				Ok(ismp::events::Event::GetRequestHandled(ismp::events::RequestResponseHandled {
 					commitment: handled.commitment.into(),
 					relayer: handled.relayer.as_bytes().to_vec(),
-				})),
+				}))
+			},
 
-			EvmHostEvents::PostResponseHandledFilter(handled) =>
+			EvmHostEvents::PostResponseHandledFilter(handled) => {
 				Ok(ismp::events::Event::PostResponseHandled(ismp::events::RequestResponseHandled {
 					commitment: handled.commitment.into(),
 					relayer: handled.relayer.as_bytes().to_vec(),
-				})),
-			EvmHostEvents::StateMachineUpdatedFilter(filter) =>
+				}))
+			},
+			EvmHostEvents::StateMachineUpdatedFilter(filter) => {
 				Ok(ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
 					state_machine_id: ismp::consensus::StateMachineId {
 						state_id: StateMachine::from_str(&filter.state_machine_id)
@@ -355,7 +353,8 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 						consensus_state_id: Default::default(),
 					},
 					latest_height: filter.height.low_u64(),
-				})),
+				}))
+			},
 			EvmHostEvents::PostRequestTimeoutHandledFilter(handled) => {
 				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::PostRequestTimeoutHandled(TimeoutHandled {
@@ -380,7 +379,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 					source: dest.clone(),
 				}))
 			},
-			EvmHostEvents::StateCommitmentVetoedFilter(vetoed) =>
+			EvmHostEvents::StateCommitmentVetoedFilter(vetoed) => {
 				Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
 					height: ismp::consensus::StateMachineHeight {
 						id: StateMachineId {
@@ -391,13 +390,14 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 						height: vetoed.height.low_u64(),
 					},
 					fisherman: vetoed.fisherman.as_bytes().to_vec(),
-				})),
-			EvmHostEvents::StateCommitmentReadFilter(_) |
-			EvmHostEvents::HostFrozenFilter(_) |
-			EvmHostEvents::HostWithdrawalFilter(_) |
-			EvmHostEvents::HostParamsUpdatedFilter(_) |
-			EvmHostEvents::PostResponseFundedFilter(_) |
-			EvmHostEvents::RequestFundedFilter(_) => Err(anyhow!("Unsupported Event!"))?,
+				}))
+			},
+			EvmHostEvents::StateCommitmentReadFilter(_)
+			| EvmHostEvents::HostFrozenFilter(_)
+			| EvmHostEvents::HostWithdrawalFilter(_)
+			| EvmHostEvents::HostParamsUpdatedFilter(_)
+			| EvmHostEvents::PostResponseFundedFilter(_)
+			| EvmHostEvents::RequestFundedFilter(_) => Err(anyhow!("Unsupported Event!"))?,
 		}
 	}
 }
@@ -414,6 +414,22 @@ impl TryFrom<PostRequestEventFilter> for router::PostRequest {
 			to: post.to.0.into(),
 			timeout_timestamp: post.timeout_timestamp.low_u64(),
 			body: post.body.0.into(),
+		})
+	}
+}
+
+impl TryFrom<GetRequestEventFilter> for router::GetRequest {
+	type Error = anyhow::Error;
+
+	fn try_from(get: GetRequestEventFilter) -> Result<Self, Self::Error> {
+		Ok(router::GetRequest {
+			source: StateMachine::from_str(&get.source).map_err(|e| anyhow!("{}", e))?,
+			dest: StateMachine::from_str(&get.dest).map_err(|e| anyhow!("{}", e))?,
+			nonce: get.nonce.low_u64(),
+			from: get.from.0.into(),
+			keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
+			height: get.height.low_u64(),
+			timeout_timestamp: get.timeout_timestamp.low_u64(),
 		})
 	}
 }

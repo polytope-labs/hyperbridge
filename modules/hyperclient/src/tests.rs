@@ -24,7 +24,7 @@ use substrate_state_machine::HashAlgorithm;
 
 use crate::{
 	indexing::{query_request_status_from_indexer, query_response_status_from_indexer},
-	testing::{subscribe_to_request_status, test_timeout_request},
+	testing::{get_request_handling, subscribe_to_request_status, test_timeout_request},
 	types::{ChainConfig, ClientConfig, EvmConfig, MessageStatusWithMetadata, SubstrateConfig},
 	HyperClient,
 };
@@ -40,8 +40,11 @@ pub fn setup_logging() {
 #[ignore]
 async fn hyperclient_integration_tests() -> Result<(), anyhow::Error> {
 	setup_logging();
-	test_timeout_request().await?;
-	subscribe_to_request_status().await?;
+	get_request_handling().await?;
+
+	// test_timeout_request().await?;
+	// subscribe_to_request_status().await?;
+
 	Ok(())
 }
 

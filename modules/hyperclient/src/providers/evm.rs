@@ -45,8 +45,9 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{EvmHost, EvmHostEvents, PostRequestHandledFilter},
 	handler::{
-		Handler, PostRequestLeaf, PostRequestMessage, PostRequestTimeoutMessage, PostResponseLeaf,
-		PostResponseMessage, PostResponseTimeoutMessage, Proof,
+		GetResponseLeaf, GetResponseMessage, Handler, PostRequestLeaf, PostRequestMessage,
+		PostRequestTimeoutMessage, PostResponseLeaf, PostResponseMessage,
+		PostResponseTimeoutMessage, Proof,
 	},
 };
 use mmr_primitives::mmr_position_to_k_index;
@@ -606,48 +607,96 @@ impl Client for EvmClient {
 
 				match datagram {
 					RequestResponse::Response(responses) => {
-						let mut leaves = responses
-							.into_iter()
-							.zip(k_and_leaf_indices)
-							.filter_map(|(res, (k_index, leaf_index))| match res {
-								Response::Post(res) => Some(PostResponseLeaf {
-									response: res.into(),
-									index: leaf_index.into(),
-									k_index: k_index.into(),
-								}),
-								_ => None,
-							})
-							.collect::<Vec<_>>();
-						leaves.sort_by_key(|leaf| leaf.index);
-						let message = PostResponseMessage {
-							proof: Proof {
-								height: ismp_solidity_abi::shared_types::StateMachineHeight {
-									state_machine_id: {
-										match proof.height.id.state_id {
-											StateMachine::Polkadot(id) |
-											StateMachine::Kusama(id) => id.into(),
-											_ => Err(anyhow!(
-												"Expected polkadot or kusama state machines"
-											))?,
-										}
+						let calldata =
+							match responses[0] {
+								Response::Post(_) => {
+									let mut leaves = responses
+										.into_iter()
+										.zip(k_and_leaf_indices)
+										.filter_map(|(res, (k_index, leaf_index))| match res {
+											Response::Post(res) => Some(PostResponseLeaf {
+												response: res.into(),
+												index: leaf_index.into(),
+												k_index: k_index.into(),
+											}),
+											_ => None,
+										})
+										.collect::<Vec<_>>();
+									leaves.sort_by_key(|leaf| leaf.index);
+									let message = PostResponseMessage {
+									proof: Proof {
+										height: ismp_solidity_abi::shared_types::StateMachineHeight {
+											state_machine_id: {
+												match proof.height.id.state_id {
+													StateMachine::Polkadot(id)
+													| StateMachine::Kusama(id) => id.into(),
+													_ => Err(anyhow!(
+														"Expected polkadot or kusama state machines"
+													))?,
+												}
+											},
+											height: proof.height.height.into(),
+										},
+										multiproof: membership_proof
+											.items
+											.into_iter()
+											.map(|node| node.0)
+											.collect(),
+										leaf_count: membership_proof.leaf_count.into(),
 									},
-									height: proof.height.height.into(),
-								},
-								multiproof: membership_proof
-									.items
-									.into_iter()
-									.map(|node| node.0)
-									.collect(),
-								leaf_count: membership_proof.leaf_count.into(),
-							},
-							responses: leaves,
-						};
+									responses: leaves,
+								};
 
-						let call = contract.handle_post_responses(self.host_address, message);
-						Ok(call.tx.data().cloned().expect("Infallible").to_vec())
+									let call =
+										contract.handle_post_responses(self.host_address, message);
+									call.tx.data().cloned().expect("Infallible").to_vec()
+								},
+								Response::Get(_) => {
+									let mut leaves = responses
+										.into_iter()
+										.zip(k_and_leaf_indices)
+										.filter_map(|(res, (k_index, leaf_index))| match res {
+											Response::Get(res) => Some(GetResponseLeaf {
+												response: res.into(),
+												index: leaf_index.into(),
+												k_index: k_index.into(),
+											}),
+											_ => None,
+										})
+										.collect::<Vec<_>>();
+									leaves.sort_by_key(|leaf| leaf.index);
+									let message = GetResponseMessage {
+										proof: Proof {
+											height: ismp_solidity_abi::shared_types::StateMachineHeight {
+												state_machine_id: {
+													match proof.height.id.state_id {
+														StateMachine::Polkadot(id)
+														| StateMachine::Kusama(id) => id.into(),
+														_ => Err(anyhow!(
+															"Expected polkadot or kusama state machines"
+														))?,
+													}
+												},
+												height: proof.height.height.into(),
+											},
+											multiproof: membership_proof
+												.items
+												.into_iter()
+												.map(|node| node.0)
+												.collect(),
+											leaf_count: membership_proof.leaf_count.into(),
+										},
+										responses: leaves,
+									};
+
+									let call =
+										contract.handle_get_responses(self.host_address, message);
+									call.tx.data().cloned().expect("Infallible").to_vec()
+								},
+							};
+						Ok(calldata)
 					},
-					RequestResponse::Request(..) =>
-						Err(anyhow!("Get requests are not supported yet"))?,
+					RequestResponse::Request(..) => Err(anyhow!("Get requests cannot be relayed"))?,
 				}
 			},
 			_ => Err(anyhow!("Unsupported message"))?,

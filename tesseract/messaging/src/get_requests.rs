@@ -62,25 +62,25 @@ pub async fn process_get_request_events<
 
 		for (state_machine, height) in group_keys {
 			if let Some(client) = client_map.get(&state_machine) {
-				let all_requests = groups.remove(&(state_machine, height)).unwrap_or_default();
+				let requests = groups.remove(&(state_machine, height)).unwrap_or_default();
 
-				let mut requests = vec![];
+				// let mut requests = vec![];
 
-				for req in all_requests {
-					let full = Request::Get(req.clone());
-					let commitment = hash_request::<Hasher>(&full);
-					if let Ok(fee) = source.query_request_fee_metadata(commitment).await {
-						if fee.is_zero() {
-							tracing::trace!(target: "tesseract", "Skipping unprofitable  get request {:?}, fee provided {:?}", commitment, Cost(fee));
-						} else {
-							tracing::trace!(target: "tesseract", "Handling profitable  get request {:?}, fee provided {:?}", commitment, Cost(fee));
-							requests.push(req)
-						}
-					} else {
-						tracing::error!("Failed to query fee for get request {:?}", commitment);
-						continue
-					}
-				}
+				// for req in all_requests {
+				// 	let full = Request::Get(req.clone());
+				// 	let commitment = hash_request::<Hasher>(&full);
+				// 	if let Ok(fee) = source.query_request_fee_metadata(commitment).await {
+				// 		if fee.is_zero() {
+				// 			tracing::trace!(target: "tesseract", "Skipping unprofitable  get request {:?},
+				// fee provided {:?}", commitment, Cost(fee)); 		} else {
+				// 			tracing::trace!(target: "tesseract", "Handling profitable  get request {:?}, fee
+				// provided {:?}", commitment, Cost(fee)); 			requests.push(req)
+				// 		}
+				// 	} else {
+				// 		tracing::error!("Failed to query fee for get request {:?}", commitment);
+				// 		continue
+				// 	}
+				// }
 
 				if requests.is_empty() {
 					continue;

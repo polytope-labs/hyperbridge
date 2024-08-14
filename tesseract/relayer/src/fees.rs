@@ -11,9 +11,8 @@ use ismp::{
 use sp_core::U256;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tesseract_primitives::{
-	config::RelayerConfig, observe_challenge_period, wait_for_challenge_period,
-	wait_for_state_machine_update, Cost, Hasher, HyperbridgeClaim, IsmpProvider, Query,
-	WithdrawFundsResult,
+	config::RelayerConfig, observe_challenge_period, wait_for_state_machine_update, Cost, Hasher,
+	HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
 };
 use tesseract_substrate::config::KeccakSubstrateChain;
 use tracing::instrument;
@@ -420,15 +419,6 @@ async fn deliver_post_request<D: IsmpProvider>(
 		};
 	}
 
-	let state_machine_id = hyperbridge.state_machine_id();
-	let challenge_period =
-		dest_chain.query_challenge_period(state_machine_id.consensus_state_id).await?;
-	let height = StateMachineHeight { id: state_machine_id, height: latest_height };
-	let last_consensus_update = dest_chain.query_state_machine_update_time(height).await?;
-
-	log::info!("Waiting for challenge period to elapse");
-
-	wait_for_challenge_period(dest_chain.clone(), last_consensus_update, challenge_period).await?;
 	let query = Query {
 		source_chain: result.post.source,
 		dest_chain: result.post.dest,

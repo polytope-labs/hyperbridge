@@ -105,7 +105,7 @@ fn setup_mock_proxy_client<H: IsmpHost>(
 pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 	let intermediate_state = setup_mock_client(host);
 	// Set the previous update time
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
 	let previous_update_time = host.timestamp() - (challenge_period / 2);
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -181,7 +181,7 @@ pub fn check_client_expiry<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 	let intermediate_state = setup_mock_client(host);
 	// Set the previous update time
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
 	let previous_update_time = host.timestamp() - (challenge_period * 2);
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -215,7 +215,7 @@ pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
 pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 	let intermediate_state = setup_mock_client(host);
 	// Set the previous update time
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
 	let previous_update_time = host.timestamp() - (challenge_period * 2);
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -278,7 +278,7 @@ where
 	H::Balance: From<u32> + Default,
 {
 	let intermediate_state = setup_mock_client(host);
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
 	let previous_update_time = host.timestamp().saturating_sub(challenge_period * 2);
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -351,7 +351,7 @@ where
 	H::Balance: From<u32> + Default,
 {
 	let intermediate_state = setup_mock_client(host);
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
 	let previous_update_time = host.timestamp() - (challenge_period * 2);
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -478,10 +478,9 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 	let mut host = Host::default();
 	host.proxy = Some(proxy_state_machine);
 
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
-	let previous_update_time = host.timestamp() - (challenge_period * 2);
-
 	let proxy = setup_mock_proxy_client(&host, proxy_state_machine);
+	let challenge_period = host.challenge_period(proxy.height.id).unwrap();
+	let previous_update_time = host.timestamp() - (challenge_period * 2);
 
 	host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -562,7 +561,7 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
 	host.proxy = Some(proxy_state_machine);
 
 	let intermediate_state = setup_mock_client(&host);
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
 	let previous_update_time = host.timestamp() - (challenge_period * 2);
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -648,10 +647,9 @@ pub fn prevent_request_processing_on_proxy_with_known_state_machine(
 	let proxy_state_machine = StateMachine::Kusama(2000);
 	let mut host = Host::default();
 	host.proxy = Some(proxy_state_machine);
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
-	let previous_update_time = host.timestamp() - (challenge_period * 2);
-
 	let proxy = setup_mock_proxy_client(&host, proxy_state_machine);
+	let challenge_period = host.challenge_period(proxy.height.id).unwrap();
+	let previous_update_time = host.timestamp() - (challenge_period * 2);
 
 	host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -712,7 +710,7 @@ pub fn prevent_request_processing_on_proxy_with_known_state_machine(
 pub fn check_request_source_and_destination() -> Result<(), &'static str> {
 	let host = Host::default();
 	let intermediate_state = setup_mock_client(&host);
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
 	let previous_update_time = host.timestamp() - (challenge_period * 2);
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();
@@ -749,7 +747,7 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
 pub fn check_response_source() -> Result<(), &'static str> {
 	let host = Host::default();
 	let intermediate_state = setup_mock_client(&host);
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+	let challenge_period = host.challenge_period(intermediate_state.height.id).unwrap();
 	let previous_update_time = host.timestamp() - (challenge_period * 2);
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();

@@ -271,16 +271,16 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		<T as Config>::ConsensusClients::consensus_clients()
 	}
 
-	fn challenge_period(&self, id: ConsensusStateId) -> Option<Duration> {
-		ChallengePeriod::<T>::get(&id).map(Duration::from_secs)
+	fn challenge_period(&self, state_machine: StateMachineId) -> Option<Duration> {
+		ChallengePeriod::<T>::get(&state_machine).map(Duration::from_secs)
 	}
 
 	fn store_challenge_period(
 		&self,
-		consensus_state_id: ConsensusStateId,
+		state_machine: StateMachineId,
 		period: u64,
 	) -> Result<(), Error> {
-		ChallengePeriod::<T>::insert(consensus_state_id, period);
+		ChallengePeriod::<T>::insert(state_machine, period);
 		Ok(())
 	}
 

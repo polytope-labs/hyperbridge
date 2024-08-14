@@ -344,11 +344,11 @@ pub mod pallet {
 	pub type UnbondingPeriod<T: Config> =
 		StorageMap<_, Blake2_128Concat, ConsensusStateId, u64, OptionQuery>;
 
-	/// A mapping of consensus state identifiers to their challenge periods
+	/// A mapping of state machine Ids to their challenge periods
 	#[pallet::storage]
 	#[pallet::getter(fn challenge_period)]
 	pub type ChallengePeriod<T: Config> =
-		StorageMap<_, Blake2_128Concat, ConsensusStateId, u64, OptionQuery>;
+		StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
 
 	/// Holds a map of consensus clients frozen due to byzantine
 	/// behaviour
@@ -512,8 +512,10 @@ pub mod pallet {
 					.map_err(|_| Error::<T>::UnbondingPeriodUpdateFailed)?;
 			}
 
-			if let Some(challenge_period) = message.challenge_period {
-				host.store_challenge_period(message.consensus_state_id, challenge_period)
+			for (state_id, period) in message.challenge_periods {
+				let id =
+					StateMachineId { state_id, consensus_state_id: message.consensus_state_id };
+				host.store_challenge_period(id, period)
 					.map_err(|_| Error::<T>::UnbondingPeriodUpdateFailed)?;
 			}
 

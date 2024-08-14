@@ -20,6 +20,7 @@ use alloc::{string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
+	events::RequestResponseHandled,
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_get_response, hash_request, Proof},
@@ -171,7 +172,13 @@ where
 			let full = Request::Get(get_response.get.clone());
 			host.store_request_receipt(&full, &address)?;
 			Self::dispatch_get_response(get_response)
-				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?
+				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?;
+			let event = pallet_ismp::Event::GetRequestHandled(RequestResponseHandled {
+				commitment: hash_request::<<T as Config>::IsmpHost>(&&full),
+				relayer: address.clone(),
+			});
+
+			pallet_ismp::Pallet::<T>::deposit_pallet_event(event);
 		}
 
 		Ok(())

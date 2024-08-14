@@ -34,9 +34,8 @@ use futures::{FutureExt, StreamExt};
 use ismp::{consensus::StateMachineHeight, events::Event, host::StateMachine, router::GetRequest};
 
 use tesseract_primitives::{
-	config::RelayerConfig, observe_challenge_period, wait_for_challenge_period,
-	wait_for_state_machine_update, HandleGetResponse, HyperbridgeClaim, IsmpProvider,
-	StateMachineUpdated, TxReceipt,
+	config::RelayerConfig, observe_challenge_period, wait_for_state_machine_update,
+	HandleGetResponse, HyperbridgeClaim, IsmpProvider, StateMachineUpdated, TxReceipt,
 };
 use transaction_fees::TransactionPayment;
 
@@ -327,16 +326,6 @@ async fn handle_update(
 		id: state_machine_update.state_machine_id,
 		height: state_machine_update.latest_height,
 	};
-
-	let last_consensus_update =
-		chain_a.query_state_machine_update_time(state_machine_height).await?;
-	let challenge_period = chain_a
-		.query_challenge_period(chain_b.state_machine_id().consensus_state_id)
-		.await?;
-
-	// Wait for the challenge period for the consensus update to elapse before submitting
-	// messages.So that calls to debug_traceCall can succeed
-	wait_for_challenge_period(chain_a.clone(), last_consensus_update, challenge_period).await?;
 
 	let (messages, unprofitable) = translate_events_to_messages(
 		chain_b.clone(),

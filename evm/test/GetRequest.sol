@@ -28,6 +28,7 @@ contract GetRequestTest is BaseTest {
         GetRequest memory request,
         GetResponseMessage memory message
     ) public {
+        feeToken.mint(address(testModule), 32 * host.perByteFee());
         bytes32 commitment = testModule.dispatch(request);
         assert(host.requestCommitments(commitment).sender == address(testModule));
 
@@ -43,6 +44,7 @@ contract GetRequestTest is BaseTest {
         GetRequest memory request,
         GetTimeoutMessage memory message
     ) public {
+   	    feeToken.mint(address(testModule), 32 * host.perByteFee());
         testModule.dispatch(request);
         request.timeoutTimestamp += uint64(block.timestamp);
         assert(host.requestCommitments(request.hash()).sender != address(0));

@@ -1134,21 +1134,21 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return commitment - the request commitment
      */
     function dispatch(DispatchGet memory get) external payable notFrozen returns (bytes32 commitment) {
-        if (get.fee != 0) {
-            if (msg.value > 0) {
-                address[] memory path = new address[](2);
-                address uniswapV2 = _hostParams.uniswapV2;
-                path[0] = IUniswapV2Router02(uniswapV2).WETH();
-                path[1] = feeToken();
-                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                    get.fee,
-                    path,
-                    address(this),
-                    block.timestamp
-                );
-            } else {
-                SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), get.fee);
-            }
+        // minimum charge is the size of one word
+        uint256 fee = get.fee == 0 ? 32 * _hostParams.perByteFee : get.fee;
+        if (msg.value > 0) {
+            address[] memory path = new address[](2);
+            address uniswapV2 = _hostParams.uniswapV2;
+            path[0] = IUniswapV2Router02(uniswapV2).WETH();
+            path[1] = feeToken();
+            IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
+                fee,
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else {
+            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
         }
 
         // adjust the timeout
@@ -1167,7 +1167,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: msg.sender, fee: get.fee});
+        _requestCommitments[commitment] = FeeMetadata({sender: msg.sender, fee: fee});
         emit GetRequestEvent({
             source: string(request.source),
             dest: string(request.dest),
@@ -1176,7 +1176,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             nonce: request.nonce,
             height: request.height,
             timeoutTimestamp: request.timeoutTimestamp,
-            fee: get.fee
+            fee: fee
         });
     }
 

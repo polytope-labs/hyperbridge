@@ -1130,12 +1130,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * If no native tokens are provided then it will try to collect payment from the calling contract in
      * the IIsmpHost.feeToken.
      *
+     * A minimum fee of one word size (32) * _params.perByteFee is enforced, to mitigate spam.
+     *
      * @param get - get request
      * @return commitment - the request commitment
      */
     function dispatch(DispatchGet memory get) external payable notFrozen returns (bytes32 commitment) {
         // minimum charge is the size of one word
-        uint256 fee = get.fee == 0 ? 32 * _hostParams.perByteFee : get.fee;
+        uint256 minimumFee = 32 * _hostParams.perByteFee;
+        uint256 fee = minimumFee > get.fee ? minimumFee : get.fee;
         if (msg.value > 0) {
             address[] memory path = new address[](2);
             address uniswapV2 = _hostParams.uniswapV2;

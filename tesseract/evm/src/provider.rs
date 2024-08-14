@@ -657,7 +657,7 @@ impl IsmpProvider for EvmClient {
 						}
 					};
 
-					let mut state_commitment_vetoed_stream = client.state_commitment_vetoed_notification(block_number, commitment_height).await;
+					let mut state_commitment_vetoed_stream = client.state_commitment_vetoed_notification(latest_height, commitment_height).await;
 					let provider = Arc::new(client.clone());
 					// Yield if the challenge period elapses and the state commitment is not vetoed
 					tokio::select! {

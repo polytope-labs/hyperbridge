@@ -151,7 +151,7 @@ pub async fn encode_request_message_and_wait_for_challenge_period(
 		encode_request_call_data(hyperbridge, dest_client, post, commitment, height).await?;
 	let proof_height = StateMachineHeight { id: hyperbridge.state_machine, height };
 	let challenge_period = dest_client
-		.query_challenge_period(hyperbridge.state_machine_id().consensus_state_id)
+		.query_challenge_period(hyperbridge.state_machine_id())
 		.await?;
 	let update_time = dest_client.query_state_machine_update_time(proof_height).await?;
 	wait_for_challenge_period(dest_client, update_time, challenge_period).await?;
@@ -168,7 +168,7 @@ pub async fn encode_response_message_and_wait_for_challenge_period(
 	let calldata = encode_response_call_data(hyperbridge, dest_client, response, height).await?;
 	let proof_height = StateMachineHeight { id: hyperbridge.state_machine, height };
 	let challenge_period = dest_client
-		.query_challenge_period(hyperbridge.state_machine_id().consensus_state_id)
+		.query_challenge_period(hyperbridge.state_machine_id())
 		.await?;
 	let update_time = dest_client.query_state_machine_update_time(proof_height).await?;
 	wait_for_challenge_period(dest_client, update_time, challenge_period).await?;

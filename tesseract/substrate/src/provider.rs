@@ -597,7 +597,7 @@ where
 							}
 						};
 
-						let mut state_commitment_vetoed_stream = client.state_commitment_vetoed_notification(header.number().into(), commitment_height).await;
+						let mut state_commitment_vetoed_stream = client.state_commitment_vetoed_notification(latest_height, commitment_height).await;
 						let provider = Arc::new(client.clone());
 						tokio::select! {
 							_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period) => {

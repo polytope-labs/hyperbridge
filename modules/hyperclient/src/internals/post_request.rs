@@ -746,7 +746,7 @@ pub async fn timeout_post_request_stream(
 						});
 						let challenge_period = hyperbridge_client
 							.query_challenge_period(
-								dest_client.state_machine_id().consensus_state_id,
+								dest_client.state_machine_id(),
 							)
 							.await?;
 						let update_time =
@@ -852,7 +852,7 @@ pub async fn timeout_post_request_stream(
 						});
 						let challenge_period = source_client
 							.query_challenge_period(
-								hyperbridge_client.state_machine_id().consensus_state_id,
+								hyperbridge_client.state_machine_id(),
 							)
 							.await?;
 						let update_time =

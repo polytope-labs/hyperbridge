@@ -163,7 +163,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 	) -> Result<Duration, anyhow::Error>;
 
 	/// Query the challenge period for client
-	async fn query_challenge_period(&self, id: ConsensusStateId)
+	async fn query_challenge_period(&self, id: StateMachineId)
 		-> Result<Duration, anyhow::Error>;
 }
 

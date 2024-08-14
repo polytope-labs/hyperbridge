@@ -98,8 +98,13 @@ where
 	// Store the initial state for the consensus client
 	host.store_consensus_state(message.consensus_state_id, message.consensus_state)?;
 	host.store_unbonding_period(message.consensus_state_id, message.unbonding_period)?;
-	host.store_challenge_period(message.consensus_state_id, message.challenge_period)?;
 	host.store_consensus_state_id(message.consensus_state_id, message.consensus_client_id)?;
+
+	// Store all challenge periods
+	for (state_id, challenge_period) in message.challenge_periods {
+		let id = StateMachineId { state_id, consensus_state_id: message.consensus_state_id };
+		host.store_challenge_period(id, challenge_period)?;
+	}
 
 	// Store all intermediate state machine commitments
 	for (id, state_commitment) in message.state_machine_commitments {

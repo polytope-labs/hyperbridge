@@ -27,7 +27,7 @@ use futures::{stream, StreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
-	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
+	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message},
@@ -543,7 +543,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		Ok(Duration::from_secs(value))
 	}
 
-	async fn query_challenge_period(&self, id: ConsensusStateId) -> Result<Duration, Error> {
+	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, Error> {
 		let params = rpc_params![id];
 		let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
 

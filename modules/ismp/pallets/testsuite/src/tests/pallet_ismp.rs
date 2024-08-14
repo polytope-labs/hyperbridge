@@ -77,7 +77,12 @@ fn should_reject_updates_within_challenge_period() {
 	ext.execute_with(|| {
 		set_timestamp(None);
 		let host = Ismp::default();
-		host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 1_000_000).unwrap();
 		check_challenge_period(&host).unwrap()
 	})
 }
@@ -89,7 +94,11 @@ fn should_reject_messages_for_frozen_state_machines() {
 	ext.execute_with(|| {
 		set_timestamp(None);
 		let host = Ismp::default();
-		host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 1_000_000).unwrap();
 		missing_state_commitment_check(&host).unwrap()
 	})
 }
@@ -102,7 +111,11 @@ fn should_reject_expired_check_clients() {
 		set_timestamp(None);
 		let host = Ismp::default();
 		host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
-		host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 1_000_000).unwrap();
 		check_client_expiry(&host).unwrap()
 	})
 }
@@ -114,7 +127,11 @@ fn should_handle_post_request_timeouts_correctly() {
 	ext.execute_with(|| {
 		set_timestamp(Some(0));
 		let host = Ismp::default();
-		host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 0).unwrap();
 		post_request_timeout_check(&host).unwrap()
 	})
 }
@@ -126,7 +143,11 @@ fn should_handle_post_response_timeouts_correctly() {
 	ext.execute_with(|| {
 		set_timestamp(None);
 		let host = Ismp::default();
-		host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 1_000_000).unwrap();
 		post_response_timeout_check(&host).unwrap()
 	})
 }
@@ -137,7 +158,11 @@ fn should_handle_get_request_timeouts_correctly() {
 	ext.execute_with(|| {
 		let host = Ismp::default();
 		setup_mock_client::<_, Test>(&host);
-		host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 0).unwrap();
 		let requests = (0..2)
 			.into_iter()
 			.map(|i| {
@@ -185,7 +210,11 @@ fn should_handle_get_request_responses_correctly() {
 	ext.execute_with(|| {
 		let host = Ismp::default();
 		setup_mock_client::<_, Test>(&host);
-		host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(11155111),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+		host.store_challenge_period(id, 0).unwrap();
 		let requests = (0..2)
 			.into_iter()
 			.map(|i| {

@@ -75,11 +75,9 @@ where
 	H: IsmpHost,
 {
 	let update_time = host.state_machine_update_time(*proof_height)?;
-	let delay_period = host.challenge_period(proof_height.id.consensus_state_id).ok_or(
-		Error::ChallengePeriodNotConfigured {
-			consensus_state_id: proof_height.id.consensus_state_id,
-		},
-	)?;
+	let delay_period = host
+		.challenge_period(proof_height.id)
+		.ok_or(Error::ChallengePeriodNotConfigured { state_machine: proof_height.id })?;
 	let current_timestamp = host.timestamp();
 	Ok(delay_period.as_secs() == 0 || current_timestamp.saturating_sub(update_time) > delay_period)
 }
@@ -109,7 +107,7 @@ where
 	// Ensure delay period has elapsed
 	if !verify_delay_passed(host, &proof_height)? {
 		return Err(Error::ChallengePeriodNotElapsed {
-			consensus_state_id: proof_height.id.consensus_state_id,
+			state_machine_id: proof_height.id,
 			current_time: host.timestamp(),
 			update_time: host.state_machine_update_time(proof_height)?,
 		});

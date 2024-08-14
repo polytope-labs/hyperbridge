@@ -720,7 +720,7 @@ impl Client for EvmClient {
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
-	async fn query_challenge_period(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
+	async fn query_challenge_period(&self, _id: StateMachineId) -> Result<Duration, Error> {
 		let contract = EvmHost::new(self.host_address, self.client.clone());
 		let value = contract.challenge_period().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))

@@ -15,9 +15,14 @@
 
 //! Pallet utilities
 
+use alloc::collections::BTreeMap;
+
 use codec::{Decode, Encode};
 use frame_support::PalletId;
-use ismp::consensus::{ConsensusClient, ConsensusStateId};
+use ismp::{
+	consensus::{ConsensusClient, ConsensusStateId},
+	host::StateMachine,
+};
 use sp_core::{
 	crypto::{AccountId32, ByteArray},
 	H160, H256,
@@ -31,8 +36,8 @@ pub struct UpdateConsensusState {
 	pub consensus_state_id: ConsensusStateId,
 	/// Unbonding duration
 	pub unbonding_period: Option<u64>,
-	/// Challenge period duration
-	pub challenge_period: Option<u64>,
+	/// Challenge period duration for different state machines
+	pub challenge_periods: BTreeMap<StateMachine, u64>,
 }
 
 /// Holds a commitment to either a request or response

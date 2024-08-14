@@ -281,7 +281,7 @@ impl Client for AnyClient {
 
 	async fn query_challenge_period(
 		&self,
-		id: ismp::consensus::ConsensusStateId,
+		id: ismp::consensus::StateMachineId,
 	) -> Result<std::time::Duration, anyhow::Error> {
 		match self {
 			AnyClient::Evm(inner) => inner.query_challenge_period(id).await,

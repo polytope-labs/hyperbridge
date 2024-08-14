@@ -30,7 +30,7 @@ pub enum HandlingError {
 		update_time: u64,
 		current_time: u64,
 		delay_period: Option<u64>,
-		consensus_client_id: Option<ConsensusClientId>,
+		consensus_client_id: Option<StateMachineId>,
 	},
 	ConsensusStateNotFound {
 		id: ConsensusClientId,
@@ -172,14 +172,14 @@ impl From<ismp::error::Error> for HandlingError {
 	fn from(value: ismp::error::Error) -> Self {
 		match value {
 			IsmpError::ChallengePeriodNotElapsed {
-				consensus_state_id,
+				state_machine_id,
 				current_time,
 				update_time,
 			} => HandlingError::ChallengePeriodNotElapsed {
 				update_time: update_time.as_secs(),
 				current_time: current_time.as_secs(),
 				delay_period: None,
-				consensus_client_id: Some(consensus_state_id),
+				consensus_client_id: Some(state_machine_id),
 			},
 			IsmpError::ConsensusStateNotFound { consensus_state_id } =>
 				HandlingError::ConsensusStateNotFound { id: consensus_state_id },

@@ -49,7 +49,7 @@ use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
 use ::ismp::{
-	consensus::{ConsensusClientId, StateMachineId},
+	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	router::{Request, Response},
 };
 
@@ -214,7 +214,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("gargantua"),
 	impl_name: create_runtime_str!("gargantua"),
 	authoring_version: 1,
-	spec_version: 400,
+	spec_version: 500,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -797,8 +797,8 @@ impl_runtime_apis! {
 			<Runtime as pallet_ismp::Config>::HostStateMachine::get()
 		}
 
-		fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
-			Ismp::challenge_period(consensus_state_id)
+		fn challenge_period(state_machine_id: StateMachineId) -> Option<u64> {
+			Ismp::challenge_period(state_machine_id)
 		}
 
 		/// Generate a proof for the provided leaf indices
@@ -824,8 +824,8 @@ impl_runtime_apis! {
 		}
 
 		/// Return the timestamp this client was last updated in seconds
-		fn consensus_update_time(id: ConsensusClientId) -> Option<u64> {
-			Ismp::consensus_update_time(id)
+		fn state_machine_update_time(height: StateMachineHeight) -> Option<u64> {
+			Ismp::state_machine_update_time(height)
 		}
 
 		/// Return the latest height of the state machine

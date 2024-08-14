@@ -20,6 +20,7 @@ use alloc::{string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
+	events::RequestResponseHandled,
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_get_response, hash_request, Proof},
@@ -170,15 +171,18 @@ where
 		for get_response in get_responses {
 			let full = Request::Get(get_response.get.clone());
 			host.store_request_receipt(&full, &address)?;
-			Self::dispatch_get_response(get_response)
-				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?
+			Self::dispatch_get_response(get_response, address.clone())
+				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?;
 		}
 
 		Ok(())
 	}
 
 	/// Insert a get response into the MMR and emits an event
-	pub fn dispatch_get_response(get_response: GetResponse) -> Result<(), ismp::Error> {
+	pub fn dispatch_get_response(
+		get_response: GetResponse,
+		address: Vec<u8>,
+	) -> Result<(), ismp::Error> {
 		let commitment = hash_get_response::<<T as Config>::IsmpHost>(&get_response);
 		let req_commitment =
 			hash_request::<<T as Config>::IsmpHost>(&Request::Get(get_response.get.clone()));
@@ -206,6 +210,12 @@ where
 			},
 		);
 		pallet_ismp::Responded::<T>::insert(req_commitment, true);
+		pallet_ismp::Pallet::<T>::deposit_pallet_event(event);
+		let event = pallet_ismp::Event::GetRequestHandled(RequestResponseHandled {
+			commitment: req_commitment,
+			relayer: address.clone(),
+		});
+
 		pallet_ismp::Pallet::<T>::deposit_pallet_event(event);
 
 		Ok(())

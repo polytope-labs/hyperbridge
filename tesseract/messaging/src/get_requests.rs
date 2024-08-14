@@ -10,7 +10,7 @@ use ismp::{
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use tesseract_primitives::{
-	observe_challenge_period, Cost, HandleGetResponse, Hasher, IsmpProvider, StateMachineUpdated,
+	observe_challenge_period, HandleGetResponse, Hasher, IsmpProvider, StateMachineUpdated,
 	StateProofQueryType,
 };
 use tokio::sync::mpsc::Receiver;

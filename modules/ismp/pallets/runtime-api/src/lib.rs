@@ -22,7 +22,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use ismp::{
-	consensus::{ConsensusClientId, StateMachineId},
+	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
 	router::{Request, Response},
 };
@@ -51,10 +51,10 @@ sp_api::decl_runtime_apis! {
 		fn consensus_state(id: ConsensusClientId) -> Option<Vec<u8>>;
 
 		/// Return the timestamp this client was last updated in seconds
-		fn consensus_update_time(id: ConsensusClientId) -> Option<u64>;
+		fn state_machine_update_time(id: StateMachineHeight) -> Option<u64>;
 
 		/// Return the challenge period timestamp
-		fn challenge_period(id: ConsensusClientId) -> Option<u64>;
+		fn challenge_period(id: StateMachineId) -> Option<u64>;
 
 		/// Return the latest height of the state machine
 		fn latest_state_machine_height(id: StateMachineId) -> Option<u64>;

@@ -42,7 +42,7 @@ use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
-use staging_xcm::latest::MultiLocation;
+use staging_xcm::latest::Location;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -162,8 +162,8 @@ parameter_types! {
 impl pallet_assets::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
-	type AssetId = MultiLocation;
-	type AssetIdParameter = MultiLocation;
+	type AssetId = Location;
+	type AssetIdParameter = Location;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;

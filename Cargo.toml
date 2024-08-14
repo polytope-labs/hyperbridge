@@ -231,7 +231,7 @@ orml-traits = { version = "=1.0.0", default-features = false }
 primitive-types = { version = "0.12.1", default-features = false }
 sc-simnode = { version = "1.15.0" }
 simnode-runtime-api = { version = "1.15.0", default-features = false }
-subxt = { version = "0.37.0", default-features = false }
+subxt = { version = "0.30.1", default-features = false }
 tokio = { version = "1.37.0" }
 tokio-stream = { version = "0.1.15" }
 

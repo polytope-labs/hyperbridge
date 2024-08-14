@@ -1,4 +1,4 @@
-ga [package]
+[package]
 name = "beefy-verifier-primitives"
 version = "0.1.1"
 edition = "2021"

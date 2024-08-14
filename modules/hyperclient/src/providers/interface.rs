@@ -19,7 +19,7 @@ use crate::types::{BoxStream, EventMetadata};
 use core::time::Duration;
 use ethers::{prelude::H256, types::H160};
 use ismp::{
-	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
+	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 	messaging::Message,
@@ -163,8 +163,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 	) -> Result<Duration, anyhow::Error>;
 
 	/// Query the challenge period for client
-	async fn query_challenge_period(&self, id: StateMachineId)
-		-> Result<Duration, anyhow::Error>;
+	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, anyhow::Error>;
 }
 
 pub async fn wait_for_challenge_period<C: Client>(

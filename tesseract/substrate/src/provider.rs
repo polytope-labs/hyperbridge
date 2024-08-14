@@ -601,14 +601,27 @@ where
 						let provider = Arc::new(client.clone());
 						tokio::select! {
 							_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period) => {
-								if let Err(err) = tx.send(Ok(event.clone())).await {
-									log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
-									return
-								};
+								match _res {
+									Ok(_) => {
+										if let Err(err) = tx.send(Ok(event.clone())).await {
+											log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
+											return
+										};
+									}
+									Err(err) => {
+										log::error!(target: "tesseract", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
+									}
+								}
 							}
-
 							_res = state_commitment_vetoed_stream.next() => {
-								log::error!(target: "tesseract", "State Commitment for {event:?} was vetoed");
+								match _res {
+									Some(Ok(_)) => {
+										log::error!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
+									}
+									_ => {
+										log::error!(target: "tesseract", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
+									}
+								}
 							}
 						};
 					},

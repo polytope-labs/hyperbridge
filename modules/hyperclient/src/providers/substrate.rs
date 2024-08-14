@@ -27,7 +27,7 @@ use futures::{stream, StreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
-	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
+	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message},

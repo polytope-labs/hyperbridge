@@ -745,9 +745,7 @@ pub async fn timeout_post_request_stream(
 							timeout_proof: Proof { height, proof },
 						});
 						let challenge_period = hyperbridge_client
-							.query_challenge_period(
-								dest_client.state_machine_id(),
-							)
+							.query_challenge_period(dest_client.state_machine_id())
 							.await?;
 						let update_time =
 							hyperbridge_client.query_state_machine_update_time(height).await?;
@@ -851,9 +849,7 @@ pub async fn timeout_post_request_stream(
 							timeout_proof: Proof { height, proof },
 						});
 						let challenge_period = source_client
-							.query_challenge_period(
-								hyperbridge_client.state_machine_id(),
-							)
+							.query_challenge_period(hyperbridge_client.state_machine_id())
 							.await?;
 						let update_time =
 							source_client.query_state_machine_update_time(height).await?;

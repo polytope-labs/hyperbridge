@@ -102,17 +102,20 @@ parameter_types! {
 	pub const MaxAssetsIntoHolding: u32 = 64;
 }
 
-/*match_types! {
-	pub type ParentOrParentsExecutivePlurality: impl Contains<Location> = {
-		Location { parents: 1, interior: Here } |
-		Location { parents: 1, interior: X1([Plurality { id: BodyId::Executive, .. }]) }
-	};
-}*/
-
 pub struct ParentOrParentsExecutivePlurality;
 impl Contains<Location> for ParentOrParentsExecutivePlurality {
 	fn contains(location: &Location) -> bool {
-		matches!(location.unpack(), (1, []) | (1, [Plurality { id: BodyId::Executive, .. }]))
+		match location {
+			Location {
+				parents: 1,
+				interior:Here,
+			} => true,
+			Location {
+				parents: 1,
+				interior: X1(arc),
+			} if arc.len() == 1 && matches!(arc.as_ref(), [Plurality { id: BodyId::Executive, .. }]) => true,
+			_ => false,
+		}
 	}
 }
 

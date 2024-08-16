@@ -24,7 +24,7 @@ use sp_runtime::traits::{IdentifyAccount, Verify};
 use staging_xcm::v3::MultiLocation;
 
 /// Specialized `ChainSpec` for the normal parachain runtime.
-pub type ChainSpec<T> = sc_service::GenericChainSpec<T, Extensions>;
+pub type ChainSpec = sc_service::GenericChainSpec<Extensions>;
 
 /// The default XCM version to set in genesis config.
 const SAFE_XCM_VERSION: u32 = staging_xcm::prelude::XCM_VERSION;
@@ -77,7 +77,7 @@ pub fn session_keys(keys: AuraId) -> gargantua_runtime::SessionKeys {
 	gargantua_runtime::SessionKeys { aura: keys }
 }
 
-pub fn gargantua_development_config(id: u32) -> ChainSpec<gargantua_runtime::RuntimeGenesisConfig> {
+pub fn gargantua_development_config(id: u32) -> ChainSpec {
 	// Give your base currency a unit name and decimal places
 	let mut properties = sc_chain_spec::Properties::new();
 	properties.insert("tokenSymbol".into(), "DEV".into());
@@ -127,7 +127,7 @@ pub fn gargantua_development_config(id: u32) -> ChainSpec<gargantua_runtime::Run
 	.build()
 }
 
-pub fn messier_development_config(id: u32) -> ChainSpec<messier_runtime::RuntimeGenesisConfig> {
+pub fn messier_development_config(id: u32) -> ChainSpec {
 	// Give your base currency a unit name and decimal places
 	let mut properties = sc_chain_spec::Properties::new();
 	properties.insert("tokenSymbol".into(), "DEV".into());
@@ -177,7 +177,7 @@ pub fn messier_development_config(id: u32) -> ChainSpec<messier_runtime::Runtime
 	.build()
 }
 
-pub fn nexus_development_config(id: u32) -> ChainSpec<nexus_runtime::RuntimeGenesisConfig> {
+pub fn nexus_development_config(id: u32) -> ChainSpec {
 	// Give your base currency a unit name and decimal places
 	let mut properties = sc_chain_spec::Properties::new();
 	properties.insert("tokenSymbol".into(), "DEV".into());

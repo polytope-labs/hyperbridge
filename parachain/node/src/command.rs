@@ -36,18 +36,17 @@ use crate::{
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 	Ok(match id {
-		"dev" | "gargantua" => Box::new(chain_spec::ChainSpec::<
-			gargantua_runtime::RuntimeGenesisConfig,
-		>::from_json_bytes(
+		"dev" | "gargantua" => Box::new(chain_spec::ChainSpec
+		::from_json_bytes(
 			include_bytes!("../../chainspec/gargantua.paseo.json").to_vec(),
 		)?),
 		"messier" => Box::new(
-			chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
+			chain_spec::ChainSpec::from_json_bytes(
 				include_bytes!("../../chainspec/messier.json").to_vec(),
 			)?,
 		),
 		"" | "nexus" =>
-			Box::new(chain_spec::ChainSpec::<nexus_runtime::RuntimeGenesisConfig>::from_json_bytes(
+			Box::new(chain_spec::ChainSpec::from_json_bytes(
 				include_bytes!("../../chainspec/nexus.json").to_vec(),
 			)?),
 		name if name.starts_with("gargantua-") => {
@@ -66,7 +65,7 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 			Box::new(chain_spec::nexus_development_config(id))
 		},
 		path => Box::new(
-			chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_file(
+			chain_spec::ChainSpec::from_json_file(
 				std::path::PathBuf::from(path),
 			)?,
 		),
@@ -287,7 +286,10 @@ pub fn run() -> Result<()> {
 			match cmd {
 				BenchmarkCmd::Pallet(cmd) =>
 					if cfg!(feature = "runtime-benchmarks") {
-						runner.sync_run(|config| cmd.run::<Block, ()>(config))
+						runner.sync_run(|config|
+										cmd.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ()>(Some(
+											config.chain_spec)))
+
 					} else {
 						Err("Benchmarking wasn't enabled when building the node. \
 					You can enable it with `--features runtime-benchmarks`."

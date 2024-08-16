@@ -176,7 +176,11 @@ where
 		sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&parachain_config);
 	let params = new_partial::<Runtime, _>(&parachain_config, executor)?;
 	let (block_import, mut telemetry, telemetry_worker_handle) = params.other;
-	let net_config = sc_network::config::FullNetworkConfiguration::new(&parachain_config.network);
+	let net_config = sc_network::config::FullNetworkConfiguration::<
+	_,
+	_,
+	sc_network::NetworkWorker<opaque::Block, opaque::Hash>,
+>::new(&parachain_config.network);
 
 	let client = params.client.clone();
 	let backend = params.backend.clone();
@@ -225,7 +229,7 @@ where
 				transaction_pool: Some(OffchainTransactionPoolFactory::new(
 					transaction_pool.clone(),
 				)),
-				network_provider: network.clone(),
+				network_provider: Arc::new(network.clone()),
 				is_validator: parachain_config.role.is_authority(),
 				enable_http_requests: false,
 				custom_extensions: move |_| vec![],
@@ -387,7 +391,6 @@ where
 			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
 			Ok(timestamp)
 		},
-		slot_duration,
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
 		telemetry,
@@ -463,12 +466,11 @@ where
 		code_hash_provider: move |hash| {
 			client.code_at(hash).ok().map(ValidationCode).map(|c| c.hash())
 		},
-		sync_oracle,
 		keystore,
 		collator_key,
 		para_id,
 		overseer_handle,
-		slot_duration,
+		reinitialize: true,
 		relay_chain_slot_duration,
 		proposer,
 		collator_service,
@@ -479,7 +481,6 @@ where
 	let fut = lookahead::run::<
 		opaque::Block,
 		sp_consensus_aura::sr25519::AuthorityPair,
-		_,
 		_,
 		_,
 		_,

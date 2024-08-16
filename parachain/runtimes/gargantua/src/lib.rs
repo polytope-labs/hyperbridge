@@ -398,7 +398,7 @@ parameter_types! {
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction = pallet_transaction_payment::CurrencyAdapter<Balances, ()>;
+	type OnChargeTransaction = pallet_transaction_payment::FungibleAdapter<Balances, ()>;
 	type WeightToFee = WeightToFee;
 	type LengthToFee = ConstantMultiplier<Balance, TransactionByteFee>;
 	type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
@@ -446,8 +446,8 @@ impl cumulus_pallet_xcmp_queue::Config for Runtime {
 	type XcmpQueue = TransformOrigin<MessageQueue, AggregateMessageOrigin, ParaId, ParaIdToSibling>;
 	type MaxInboundSuspended = sp_core::ConstU32<1_000>;
 	type WeightInfo = weights::cumulus_pallet_xcmp_queue::WeightInfo<Runtime>;
-	type MaxActiveOutboundChannels = ();
-	type MaxPageSize = ();
+	type MaxActiveOutboundChannels = sp_core::ConstU32<128>;
+	type MaxPageSize = sp_core::ConstU32<{ 103 * 1024 }>;
 }
 
 parameter_types! {
@@ -973,7 +973,7 @@ impl_runtime_apis! {
 				frame_system::CheckWeight::<Runtime>::new(),
 				pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
 			);
-			let signature = MultiSignature::from(sp_core::sr25519::Signature::default());
+			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
 			let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(
 				call,

@@ -19,7 +19,7 @@ use super::{
 };
 use crate::AllPalletsWithSystem;
 use frame_support::{
-	match_types, parameter_types,
+	parameter_types,
 	traits::{ConstU32, Contains, Everything, Nothing},
 	weights::Weight,
 };

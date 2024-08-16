@@ -311,8 +311,8 @@ where
 		// Update the first MMR block in case of a pallet reset.
 		self.handle_potential_pallet_reset(&notification);
 
-		// // Run catchup to just to be sure no blocks are skipped
-		// self.canonicalize_catch_up(&notification);
+		// Run catchup to just to be sure no blocks are skipped
+		self.canonicalize_catch_up(notification.hash);
 
 		trace!(target: LOG_TARGET, "Got new finality notification {:?}, Best Canonicalized {:?}", notification.hash, self.best_canonicalized);
 		let mut block_nums = vec![];

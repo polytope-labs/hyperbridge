@@ -177,10 +177,10 @@ where
 	let params = new_partial::<Runtime, _>(&parachain_config, executor)?;
 	let (block_import, mut telemetry, telemetry_worker_handle) = params.other;
 	let net_config = sc_network::config::FullNetworkConfiguration::<
-	_,
-	_,
-	sc_network::NetworkWorker<opaque::Block, opaque::Hash>,
->::new(&parachain_config.network);
+		_,
+		_,
+		sc_network::NetworkWorker<opaque::Block, opaque::Hash>,
+	>::new(&parachain_config.network);
 
 	let client = params.client.clone();
 	let backend = params.backend.clone();

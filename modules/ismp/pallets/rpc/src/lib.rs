@@ -63,11 +63,7 @@
 //! }
 //! ```
 
-use jsonrpsee::{
-	core::{BoxError as RpcError, RpcResult},
-	proc_macros::rpc,
-	types::{ErrorObject},
-};
+use jsonrpsee::{core::RpcResult, proc_macros::rpc, types::ErrorObject};
 
 use anyhow::anyhow;
 use codec::Encode;
@@ -76,6 +72,7 @@ use ismp::{
 	events::Event,
 	router::{Request, Response},
 };
+use jsonrpsee::types::ErrorObjectOwned;
 use pallet_ismp::{
 	child_trie::CHILD_TRIE_PREFIX,
 	mmr::{Leaf, LeafIndexQuery, ProofKeys},
@@ -92,8 +89,6 @@ use sp_core::{
 use sp_runtime::traits::{Block as BlockT, Hash, Header};
 use sp_trie::LayoutV0;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
-use jsonrpsee::core::BoxError;
-use jsonrpsee::types::ErrorObjectOwned;
 use trie_db::{Recorder, Trie, TrieDBBuilder};
 
 /// A type that could be a block number or a block hash

@@ -42,11 +42,10 @@ pub use pallet::*;
 use sp_core::{H160, H256, U256};
 use sp_runtime::{traits::AccountIdConversion, Permill};
 use staging_xcm::{
-	v4::{AssetId, Fungibility, Junction, WeightLimit},
+	prelude::Assets,
+	v4::{Asset, AssetId, Fungibility, Junction, Location, WeightLimit},
 	VersionedMultiAssets, VersionedMultiLocation,
 };
-use staging_xcm::prelude::Assets;
-use staging_xcm::v4::{Asset, Location};
 use xcm_utilities::MultiAccount;
 
 pub mod xcm_utilities;
@@ -385,8 +384,7 @@ where
 		let xcm_dest = VersionedMultiLocation::V4(Location::parent());
 		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
-		let asset =
-			Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
+		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 
 		let mut assets = Assets::new();
 		assets.push(asset);
@@ -476,10 +474,8 @@ where
 				let xcm_dest = VersionedMultiLocation::V4(Location::parent());
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
-				let asset = Asset {
-					id: AssetId(Location::parent()),
-					fun: Fungibility::Fungible(amount),
-				};
+				let asset =
+					Asset { id: AssetId(Location::parent()), fun: Fungibility::Fungible(amount) };
 
 				let mut assets = Assets::new();
 				assets.push(asset);

@@ -36,3 +36,4 @@ std = [
     "ismp/std",
     "pallet-ismp/std",
 ]
+try-runtime = []

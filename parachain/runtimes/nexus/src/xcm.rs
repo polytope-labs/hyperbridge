@@ -20,10 +20,9 @@ use super::{
 use crate::AllPalletsWithSystem;
 use frame_support::{
 	match_types, parameter_types,
-	traits::{ConstU32, Everything, Nothing},
+	traits::{ConstU32, Contains, Everything, Nothing},
 	weights::Weight,
 };
-use frame_support::traits::Contains;
 use frame_system::EnsureRoot;
 use orml_traits::location::AbsoluteReserveProvider;
 use orml_xcm_support::MultiNativeAsset;
@@ -31,8 +30,7 @@ use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
 use sp_runtime::traits::Identity;
-use staging_xcm::latest::Junctions::X1;
-use staging_xcm::latest::prelude::*;
+use staging_xcm::latest::{prelude::*, Junctions::X1};
 use staging_xcm_builder::{
 	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom,
 	ConvertedConcreteId, EnsureXcmOrigin, FixedWeightBounds, NoChecking, ParentIsPreset,
@@ -106,14 +104,11 @@ pub struct ParentOrParentsExecutivePlurality;
 impl Contains<Location> for ParentOrParentsExecutivePlurality {
 	fn contains(location: &Location) -> bool {
 		match location {
-			Location {
-				parents: 1,
-				interior:Here,
-			} => true,
-			Location {
-				parents: 1,
-				interior: X1(arc),
-			} if arc.len() == 1 && matches!(arc.as_ref(), [Plurality { id: BodyId::Executive, .. }]) => true,
+			Location { parents: 1, interior: Here } => true,
+			Location { parents: 1, interior: X1(arc) }
+				if arc.len() == 1 &&
+					matches!(arc.as_ref(), [Plurality { id: BodyId::Executive, .. }]) =>
+				true,
 			_ => false,
 		}
 	}

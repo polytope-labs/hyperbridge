@@ -45,3 +45,4 @@ std = [
     "alloy-primitives/std",
     "pallet-ismp-host-executive/std",
 ]
+try-runtime = []

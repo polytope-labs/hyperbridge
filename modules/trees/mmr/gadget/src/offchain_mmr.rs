@@ -338,7 +338,7 @@ where
 			Err(e) => {
 				warn!(target: LOG_TARGET, "{:?}", e);
 				return;
-			}
+			},
 		};
 		for hash in stale_forks.iter() {
 			self.prune_branch(hash);

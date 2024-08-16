@@ -3,14 +3,15 @@ use core::marker::PhantomData;
 use frame_support::traits::fungibles::{self, Mutate};
 use ismp::host::StateMachine;
 use sp_core::{Get, H160};
-use staging_xcm::{
-	v4::{
-		Location, Error as XcmError, Junction, Junctions, Asset, NetworkId, Result as XcmResult,
-		XcmContext,
-	},
+use staging_xcm::v4::{
+	Asset, Error as XcmError, Junction, Junctions, Location, NetworkId, Result as XcmResult,
+	XcmContext,
 };
 use staging_xcm_builder::{AssetChecking, FungiblesMutateAdapter};
-use staging_xcm_executor::{traits::{ConvertLocation, Error as MatchError, MatchesFungibles, TransactAsset},  AssetsInHolding};
+use staging_xcm_executor::{
+	traits::{ConvertLocation, Error as MatchError, MatchesFungibles, TransactAsset},
+	AssetsInHolding,
+};
 
 pub struct WrappedNetworkId(pub NetworkId);
 
@@ -51,16 +52,11 @@ where
 {
 	fn convert_location(location: &Location) -> Option<MultiAccount<A>> {
 		match location {
-			Location {
-				parents: 0,
-				interior:
-				Junctions::X3(arc_junctions),
-			} => {
+			Location { parents: 0, interior: Junctions::X3(arc_junctions) } => {
 				// Dereference the Arc to access the underlying array
 				match arc_junctions.as_ref() {
-					[Junction::AccountId32 { id, .. },
-					Junction::AccountKey20 { network: Some(network), key },
-					Junction::GeneralIndex(timeout)] => {
+					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout)] =>
+					{
 						// Ensure that the network Id is one of the supported ethereum networks
 						// If it transforms correctly we return the ethereum account
 						let dest_state_machine =
@@ -145,11 +141,7 @@ where
 		>::check_out(dest, what, context)
 	}
 
-	fn deposit_asset(
-		what: &Asset,
-		who: &Location,
-		_context: Option<&XcmContext>,
-	) -> XcmResult {
+	fn deposit_asset(what: &Asset, who: &Location, _context: Option<&XcmContext>) -> XcmResult {
 		// Check we handle this asset.
 		let (asset_id, amount) = Matcher::matches_fungibles(what)?;
 

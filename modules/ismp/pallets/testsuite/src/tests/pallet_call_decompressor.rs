@@ -22,6 +22,7 @@ use crate::{
 	tests::pallet_ismp_relayer::{encode_accumulate_fees_call, read_file_string},
 };
 use codec::Encode;
+use frame_support::traits::Time;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::{IsmpHost, StateMachine},

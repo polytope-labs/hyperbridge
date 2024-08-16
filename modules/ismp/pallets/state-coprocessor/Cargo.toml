@@ -48,3 +48,4 @@ std = [
     "pallet-ismp-relayer/std",
     "alloy-primitives/std"
 ]
+try-runtime = []

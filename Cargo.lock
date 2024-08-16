@@ -20180,7 +20180,7 @@ dependencies = [
  "hash-db",
  "indicatif",
  "ismp",
- "jsonrpsee-core 0.22.5",
+ "jsonrpsee-core 0.23.2",
  "mmr-primitives",
  "pallet-hyperbridge",
  "pallet-ismp",

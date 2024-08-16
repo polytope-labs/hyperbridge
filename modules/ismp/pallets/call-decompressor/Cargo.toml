@@ -45,3 +45,4 @@ std = [
     "pallet-ismp-relayer/std",
     "ruzstd/std"
 ]
+try-runtime = []

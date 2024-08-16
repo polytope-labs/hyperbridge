@@ -44,7 +44,7 @@ use sp_runtime::{traits::AccountIdConversion, Permill};
 use staging_xcm::{
 	prelude::Assets,
 	v4::{Asset, AssetId, Fungibility, Junction, Location, WeightLimit},
-	VersionedMultiAssets, VersionedMultiLocation,
+	VersionedAssets, VersionedLocation,
 };
 use xcm_utilities::MultiAccount;
 
@@ -381,7 +381,7 @@ where
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
 		let xcm_beneficiary: Location =
 			Junction::AccountId32 { network: None, id: body.to.0 }.into();
-		let xcm_dest = VersionedMultiLocation::V4(Location::parent());
+		let xcm_dest = VersionedLocation::V4(Location::parent());
 		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
 		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
@@ -394,7 +394,7 @@ where
 			frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 			Box::new(xcm_dest),
 			Box::new(xcm_beneficiary.into()),
-			Box::new(VersionedMultiAssets::V4(assets)),
+			Box::new(VersionedAssets::V4(assets)),
 			fee_asset_item,
 			weight_limit,
 		)
@@ -471,7 +471,7 @@ where
 				// on the relaychain;
 				let xcm_beneficiary: Location =
 					Junction::AccountId32 { network: None, id: beneficiary.clone().into() }.into();
-				let xcm_dest = VersionedMultiLocation::V4(Location::parent());
+				let xcm_dest = VersionedLocation::V4(Location::parent());
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
 				let asset =
@@ -483,7 +483,7 @@ where
 					frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 					Box::new(xcm_dest),
 					Box::new(xcm_beneficiary.into()),
-					Box::new(VersionedMultiAssets::V4(assets)),
+					Box::new(VersionedAssets::V4(assets)),
 					fee_asset_item,
 					weight_limit,
 				)

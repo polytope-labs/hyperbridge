@@ -19,7 +19,7 @@ use crate::types::{BoxStream, EventMetadata};
 use core::time::Duration;
 use ethers::{prelude::H256, types::H160};
 use ismp::{
-	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
+	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 	messaging::Message,
@@ -28,6 +28,11 @@ use ismp::{
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
 use std::ops::RangeInclusive;
+
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::time::*;
+#[cfg(target_arch = "wasm32")]
+use wasmtimer::tokio::*;
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum RequestOrResponse {
@@ -40,8 +45,6 @@ pub enum RequestOrResponse {
 
 #[derive(Copy, Clone, Debug)]
 pub struct Query {
-	pub source_chain: StateMachine,
-	pub dest_chain: StateMachine,
 	pub commitment: H256,
 }
 
@@ -77,6 +80,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
 	/// Query a responses proof
@@ -85,6 +89,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
 	// Query the response receipt from the ISMP host on the destination chain
@@ -95,7 +100,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 	// given post or response
 	async fn ismp_events_stream(
 		&self,
-		item: RequestOrResponse,
+		commitment: H256,
 		initial_height: u64,
 	) -> Result<BoxStream<WithMetadata<Event>>, anyhow::Error>;
 
@@ -158,8 +163,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 	) -> Result<Duration, anyhow::Error>;
 
 	/// Query the challenge period for client
-	async fn query_challenge_period(&self, id: ConsensusStateId)
-		-> Result<Duration, anyhow::Error>;
+	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, anyhow::Error>;
 }
 
 pub async fn wait_for_challenge_period<C: Client>(
@@ -167,12 +171,12 @@ pub async fn wait_for_challenge_period<C: Client>(
 	last_consensus_update: Duration,
 	challenge_period: Duration,
 ) -> anyhow::Result<()> {
-	wasmtimer::tokio::sleep(challenge_period).await;
+	sleep(challenge_period).await;
 	let current_timestamp = client.query_timestamp().await?;
 	let mut delay = current_timestamp.saturating_sub(last_consensus_update);
 
 	while delay <= challenge_period {
-		wasmtimer::tokio::sleep(challenge_period.saturating_sub(delay)).await;
+		sleep(challenge_period.saturating_sub(delay)).await;
 		let current_timestamp = client.query_timestamp().await?;
 		delay = current_timestamp.saturating_sub(last_consensus_update);
 	}

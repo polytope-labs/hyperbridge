@@ -7044,7 +7044,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -7140,7 +7140,7 @@ dependencies = [
 
 [[package]]
 name = "hyperclient"
-version = "0.3.25"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -23510,7 +23510,7 @@ checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
 name = "tesseract"
-version = "0.3.8"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -23662,6 +23662,7 @@ dependencies = [
  "ismp-solidity-abi",
  "itertools 0.13.0",
  "pallet-ismp",
+ "pallet-state-coprocessor",
  "percentage",
  "sc-service 0.45.0",
  "sp-core 21.0.0",
@@ -23684,6 +23685,7 @@ dependencies = [
  "log",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
+ "pallet-state-coprocessor",
  "parity-scale-codec",
  "primitive-types",
  "serde",
@@ -23709,6 +23711,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
+ "pallet-state-coprocessor",
  "parity-scale-codec",
  "parking_lot 0.12.3",
  "serde",

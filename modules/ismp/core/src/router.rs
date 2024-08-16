@@ -96,14 +96,17 @@ pub struct GetRequest {
 	/// Raw Storage keys that would be used to fetch the values from the counterparty
 	/// For deriving storage keys for ink contract fields follow the guide in the link below
 	/// `<https://use.ink/datastructures/storage-in-metadata#a-full-example>`
+	/// Substrate Keys
 	/// The algorithms for calculating raw storage keys for different substrate pallet storage
 	/// types are described in the following links
 	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42>`
 	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44>`
 	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48>`
 	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
-	/// For fetching keys from EVM contracts each key should be 52 bytes
-	/// This should be a concatenation of contract address and slot hash
+	/// EVM Keys
+	/// For fetching keys from EVM contracts each key should either be 52 bytes or 20 bytes
+	/// For 52 byte keys we expect it to be a concatenation of contract address and slot hash
+	/// For 20 bytes we expect it to be a contract or account address
 	#[serde(with = "serde_utils::seq_of_hex")]
 	pub keys: Vec<Vec<u8>>,
 	/// Height at which to read the state machine.
@@ -389,8 +392,11 @@ impl GetResponse {
 )]
 pub struct StorageValue {
 	/// The request storage keys
+	#[serde(with = "serde_utils::as_hex")]
 	pub key: Vec<u8>,
 	/// The verified value
+	#[serde(serialize_with = "serde_utils::as_hex::serialize_option")]
+	#[serde(deserialize_with = "serde_utils::as_hex::deserialize_option")]
 	pub value: Option<Vec<u8>>,
 }
 

@@ -13,10 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::interface::Query;
 use crate::{
-	providers::interface::{Client, RequestOrResponse, WithMetadata},
-	runtime::{self},
+	providers::interface::{Client, WithMetadata},
 	types::{BoxStream, EventMetadata, Extrinsic, HashAlgorithm, SubstrateStateProof},
+	Keccak256,
 };
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
@@ -26,10 +27,11 @@ use futures::{stream, StreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
-	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
+	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
-	messaging::Message,
+	messaging::{hash_request, hash_response, Message},
+	router::{Request, Response},
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use pallet_ismp::{
@@ -47,8 +49,7 @@ use subxt::{
 	config::Header, rpc::types::StorageData, rpc_params, storage::StorageKey, tx::TxPayload,
 	OnlineClient,
 };
-
-use super::interface::Query;
+use subxt_utils::state_machine_update_time_storage_key;
 
 /// Contains a scale encoded Mmr Proof or Trie proof
 #[derive(Serialize, Deserialize)]
@@ -79,17 +80,17 @@ where
 		consensus_state_id: [u8; 4],
 	) -> Result<Self, Error> {
 		let client = subxt_utils::client::ws_client(&rpc_url, 10 * 1024 * 1024).await?;
-		let state_machine_address = runtime::api::storage().parachain_info().parachain_id();
-		let state_id = client
-			.storage()
-			.at_latest()
+		let para_id_key =
+			hex!("0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f").to_vec();
+		let response = client
+			.rpc()
+			.storage(&para_id_key, None)
 			.await?
-			.fetch(&state_machine_address)
-			.await?
-			.ok_or(anyhow!("Couldn't get para chain id"))?;
+			.ok_or_else(|| anyhow!("Failed to fetch timestamp"))?;
+		let state_id: u32 = codec::Decode::decode(&mut response.0.as_slice())?;
 
 		let state_machine =
-			StateMachineId { state_id: StateMachine::Kusama(state_id.0), consensus_state_id };
+			StateMachineId { state_id: StateMachine::Kusama(state_id), consensus_state_id };
 
 		Ok(Self { rpc_url, client, state_machine, hashing })
 	}
@@ -191,11 +192,12 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		if keys.is_empty() {
 			Err(anyhow!("No queries provided"))?
 		}
-		match keys[0].dest_chain {
+		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
 			StateMachine::Evm(_) => {
 				let keys =
@@ -232,12 +234,13 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		if keys.is_empty() {
 			Err(anyhow!("No queries provided"))?
 		}
 
-		match keys[0].dest_chain {
+		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
 			StateMachine::Evm(_) => {
 				let keys =
@@ -288,14 +291,14 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 	async fn ismp_events_stream(
 		&self,
-		item: RequestOrResponse,
+		commitment: H256,
 		initial_height: u64,
 	) -> Result<BoxStream<WithMetadata<Event>>, Error> {
 		let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
 		let stream = stream::unfold(
 			(initial_height, subscription, self.clone()),
 			move |(latest_height, mut subscription, client)| {
-				let item = item.clone();
+				let commitment = commitment.clone();
 				async move {
 					let header = match subscription.next().await {
 						Some(Ok(header)) => header,
@@ -323,12 +326,15 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					let event = events.into_iter().find_map(|event| {
 						let value = match event.event.clone() {
 							Event::PostRequest(post) =>
-								Some(RequestOrResponse::Request(post.clone())),
-							Event::PostResponse(resp) => Some(RequestOrResponse::Response(resp)),
+								Some(hash_request::<Keccak256>(&Request::Post(post.clone()))),
+							Event::PostResponse(resp) =>
+								Some(hash_response::<Keccak256>(&Response::Post(resp))),
+							Event::GetResponse(response) =>
+								Some(hash_request::<Keccak256>(&Request::Get(response.get))),
 							_ => None,
 						};
 
-						if value == Some(item.clone()) {
+						if value == Some(commitment.clone()) {
 							Some(event)
 						} else {
 							None
@@ -379,21 +385,16 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let addr = runtime::api::storage().ismp().state_commitments(&height.into());
-		let commitment = self
-			.client
-			.storage()
-			.at_latest()
-			.await?
-			.fetch(&addr)
-			.await?
-			.ok_or_else(|| anyhow!("State commitment not present for state machine"))?;
+		let key = pallet_ismp::child_trie::state_commitment_storage_key(height);
+		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+		let storage_key = StorageKey(key);
+		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
 
-		let commitment = StateCommitment {
-			timestamp: commitment.timestamp,
-			overlay_root: commitment.overlay_root,
-			state_root: commitment.state_root,
-		};
+		let response: Option<StorageData> =
+			self.client.rpc().request("childstate_getStorage", params).await?;
+		let data =
+			response.ok_or_else(|| anyhow!("State commitment not present for state machine"))?;
+		let commitment = Decode::decode(&mut &*data.0)?;
 		Ok(commitment)
 	}
 
@@ -526,16 +527,23 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<Duration, Error> {
+		let key = state_machine_update_time_storage_key(height);
 		let block = self.client.blocks().at_latest().await?;
-		let key = runtime::api::storage().ismp().state_machine_update_time(&height.into());
-		let value = self.client.storage().at(block.hash()).fetch(&key).await?.ok_or_else(|| {
-			anyhow!("State machine update for {:?} not found at block {:?}", height, block.hash())
-		})?;
+		let raw_value =
+			self.client.storage().at(block.hash()).fetch_raw(&key).await?.ok_or_else(|| {
+				anyhow!(
+					"State machine update for {:?} not found at block {:?}",
+					height,
+					block.hash()
+				)
+			})?;
+
+		let value = Decode::decode(&mut &*raw_value)?;
 
 		Ok(Duration::from_secs(value))
 	}
 
-	async fn query_challenge_period(&self, id: ConsensusStateId) -> Result<Duration, Error> {
+	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, Error> {
 		let params = rpc_params![id];
 		let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
 

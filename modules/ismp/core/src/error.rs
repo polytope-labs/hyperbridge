@@ -16,7 +16,7 @@
 //! ISMP error definitions
 
 use crate::{
-	consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight},
+	consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
 	events::Meta,
 };
 use alloc::{string::String, vec::Vec};
@@ -37,7 +37,7 @@ pub enum Error {
 	/// new consensus updates in the mean time.
 	ChallengePeriodNotElapsed {
 		/// The consensus client identifier
-		consensus_state_id: ConsensusStateId,
+		state_machine_id: StateMachineId,
 		/// The last time the consensus client was updated
 		update_time: Duration,
 		/// The current time
@@ -122,8 +122,8 @@ pub enum Error {
 
 	/// Challenge period has not been configured for this consensus state
 	ChallengePeriodNotConfigured {
-		/// Consensus state Id
-		consensus_state_id: ConsensusStateId,
+		/// State Machine Id
+		state_machine: StateMachineId,
 	},
 	/// Consensus state id already exists
 	DuplicateConsensusStateId {

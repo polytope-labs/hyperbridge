@@ -21,7 +21,7 @@ extern crate alloc;
 
 pub use pallet::*;
 
-mod impls;
+pub mod impls;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -77,7 +77,7 @@ pub mod pallet {
 			ensure_none(origin)?;
 
 			Self::handle_get_requests(message).map_err(|err| {
-				log::error!(target: "ismp", "{:?}", err);
+				log::error!(target: "ismp", "pallet-coprocessor: {:?}", err);
 				Error::<T>::HandlingError
 			})?;
 

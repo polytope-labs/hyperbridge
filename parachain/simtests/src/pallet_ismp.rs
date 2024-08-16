@@ -82,7 +82,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
                 runtime_types::pallet_ismp_host_executive::pallet::Call::set_host_params {
                     params: vec![
                         (
-                            StateMachine::Polkadot(para_id).into(),
+                            StateMachine::Kusama(para_id).into(),
                             runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(
                                 runtime_types::pallet_hyperbridge::VersionedHostParams::V1(0)
                             )
@@ -118,7 +118,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	}
 
 	let post = PostRequest {
-		source: StateMachine::Polkadot(para_id),
+		source: StateMachine::Kusama(para_id),
 		dest: StateMachine::Evm(8002),
 		nonce: 0,
 		from: H256::random().as_bytes().to_vec(),
@@ -157,7 +157,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		StateCommitment { timestamp: 0, overlay_root: Some(root), state_root: root };
 	let height = StateMachineHeight {
 		id: StateMachineId {
-			state_id: StateMachine::Polkadot(para_id).into(),
+			state_id: StateMachine::Kusama(para_id).into(),
 			consensus_state_id: *b"PARA",
 		},
 		height: 200,

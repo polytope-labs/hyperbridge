@@ -248,7 +248,23 @@ fn test_withdrawal_proof() {
 
 		host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 10_000_000_000).unwrap();
 
-		host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
+		host.store_challenge_period(
+			StateMachineId {
+				state_id: StateMachine::Kusama(2001),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			0,
+		)
+		.unwrap();
+
+		host.store_challenge_period(
+			StateMachineId {
+				state_id: StateMachine::Kusama(2000),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			0,
+		)
+		.unwrap();
 
 		let withdrawal_proof = WithdrawalProof {
 			commitments: keys,
@@ -526,8 +542,7 @@ fn test_evm_accumulate_fees() {
 		)
 		.unwrap();
 
-		host.store_challenge_period(claim_proof.source_proof.height.id.consensus_state_id, 0)
-			.unwrap();
+		host.store_challenge_period(claim_proof.source_proof.height.id, 0).unwrap();
 
 		host.store_unbonding_period(
 			claim_proof.dest_proof.height.id.consensus_state_id,
@@ -535,8 +550,7 @@ fn test_evm_accumulate_fees() {
 		)
 		.unwrap();
 
-		host.store_challenge_period(claim_proof.dest_proof.height.id.consensus_state_id, 0)
-			.unwrap();
+		host.store_challenge_period(claim_proof.dest_proof.height.id, 0).unwrap();
 
 		pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(
 			RuntimeOrigin::none(),
@@ -694,8 +708,7 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 	)
 	.unwrap();
 
-	host.store_challenge_period(claim_proof.source_proof.height.id.consensus_state_id, 0)
-		.unwrap();
+	host.store_challenge_period(claim_proof.source_proof.height.id, 0).unwrap();
 
 	host.store_unbonding_period(
 		claim_proof.dest_proof.height.id.consensus_state_id,
@@ -703,8 +716,7 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 	)
 	.unwrap();
 
-	host.store_challenge_period(claim_proof.dest_proof.height.id.consensus_state_id, 0)
-		.unwrap();
+	host.store_challenge_period(claim_proof.dest_proof.height.id, 0).unwrap();
 
 	claim_proof
 }

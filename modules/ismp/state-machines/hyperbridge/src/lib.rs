@@ -215,8 +215,8 @@ where
 		Ok(())
 	}
 
-	fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-		self.client.state_trie_key(items)
+	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
+		self.client.receipts_state_trie_key(items)
 	}
 
 	fn verify_state_proof(

@@ -32,6 +32,7 @@ pallet-ismp-host-executive = { workspace = true, default-features = true }
 substrate-state-machine = { workspace = true, default-features = true }
 pallet-hyperbridge = { workspace = true, default-features = true }
 serde-utils = { workspace = true, default-features = false }
+pallet-state-coprocessor = { workspace = true, default-features = true }
 
 [features]
 testing = []

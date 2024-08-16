@@ -50,7 +50,7 @@ use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
 use ::ismp::{
-	consensus::{ConsensusClientId, StateMachineId},
+	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	router::{Request, Response},
 };
 use frame_support::{
@@ -807,8 +807,8 @@ impl_runtime_apis! {
 			<Runtime as pallet_ismp::Config>::HostStateMachine::get()
 		}
 
-		fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
-			Ismp::challenge_period(consensus_state_id)
+		fn challenge_period(id: StateMachineId) -> Option<u64> {
+			Ismp::challenge_period(id)
 		}
 
 		/// Generate a proof for the provided leaf indices
@@ -834,8 +834,8 @@ impl_runtime_apis! {
 		}
 
 		/// Return the timestamp this client was last updated in seconds
-		fn consensus_update_time(id: ConsensusClientId) -> Option<u64> {
-			Ismp::consensus_update_time(id)
+		fn state_machine_update_time(height: StateMachineHeight) -> Option<u64> {
+			Ismp::state_machine_update_time(height)
 		}
 
 		/// Return the latest height of the state machine

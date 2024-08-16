@@ -72,7 +72,7 @@ use jsonrpsee::{
 use anyhow::anyhow;
 use codec::Encode;
 use ismp::{
-	consensus::{ConsensusClientId, StateMachineId},
+	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	events::Event,
 	router::{Request, Response},
 };
@@ -188,12 +188,12 @@ where
 	) -> RpcResult<Vec<u8>>;
 
 	/// Query timestamp of when this client was last updated in seconds
-	#[method(name = "ismp_queryConsensusUpdateTime")]
-	fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> RpcResult<u64>;
+	#[method(name = "ismp_queryStateMachineUpdateTime")]
+	fn query_state_machine_update_time(&self, height: StateMachineHeight) -> RpcResult<u64>;
 
-	/// Query the challenge period for client
+	/// Query the challenge period for a state machine
 	#[method(name = "ismp_queryChallengePeriod")]
-	fn query_challenge_period(&self, client_id: ConsensusClientId) -> RpcResult<u64>;
+	fn query_challenge_period(&self, client_id: StateMachineId) -> RpcResult<u64>;
 
 	/// Query the latest height for a state machine
 	#[method(name = "ismp_queryStateMachineLatestHeight")]
@@ -362,19 +362,19 @@ where
 			.ok_or_else(|| runtime_error_into_rpc_error("Error fetching Consensus state"))
 	}
 
-	fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> RpcResult<u64> {
+	fn query_state_machine_update_time(&self, height: StateMachineHeight) -> RpcResult<u64> {
 		let api = self.client.runtime_api();
 		let at = self.client.info().best_hash;
-		api.consensus_update_time(at, client_id)
+		api.state_machine_update_time(at, height)
 			.ok()
 			.flatten()
 			.ok_or_else(|| runtime_error_into_rpc_error("Error fetching Consensus update time"))
 	}
 
-	fn query_challenge_period(&self, client_id: ConsensusClientId) -> RpcResult<u64> {
+	fn query_challenge_period(&self, state_machine_id: StateMachineId) -> RpcResult<u64> {
 		let api = self.client.runtime_api();
 		let at = self.client.info().best_hash;
-		api.challenge_period(at, client_id)
+		api.challenge_period(at, state_machine_id)
 			.ok()
 			.flatten()
 			.ok_or_else(|| runtime_error_into_rpc_error("Error fetching Challenge period"))

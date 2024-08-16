@@ -23,7 +23,7 @@ use futures::{Stream, StreamExt};
 pub use ismp::events::StateMachineUpdated;
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
-	events::Event,
+	events::{Event, StateCommitmentVetoed},
 	host::StateMachine,
 	messaging::{CreateConsensusState, Keccak256, Message},
 	router::PostRequest,
@@ -31,6 +31,7 @@ use ismp::{
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Key;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
+use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::{Decode, Encode};
 use primitive_types::{H256, U256};
 use sp_core::keccak_256;
@@ -190,8 +191,7 @@ pub trait IsmpProvider: Send + Sync {
 	) -> Result<Duration, anyhow::Error>;
 
 	/// Query the challenge period for client
-	async fn query_challenge_period(&self, id: ConsensusStateId)
-		-> Result<Duration, anyhow::Error>;
+	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, anyhow::Error>;
 
 	/// Query the latest timestamp for chain
 	async fn query_timestamp(&self) -> Result<Duration, anyhow::Error>;
@@ -202,6 +202,7 @@ pub trait IsmpProvider: Send + Sync {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
 	/// Query a responses proof
@@ -210,6 +211,7 @@ pub trait IsmpProvider: Send + Sync {
 		&self,
 		at: u64,
 		keys: Vec<Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
 	/// Query state proof for some keys, return scaled encoded proof
@@ -271,6 +273,14 @@ pub trait IsmpProvider: Send + Sync {
 		&self,
 		counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
+
+	/// Return a stream that watches for state machine commitment vetoes, starting at [`from`]
+	/// yields when a [`StateCommitmentVetoed`] event is observed for [`height`]
+	async fn state_commitment_vetoed_notification(
+		&self,
+		from: u64,
+		height: StateMachineHeight,
+	) -> BoxStream<StateCommitmentVetoed>;
 
 	/// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
 	/// this chain.
@@ -380,6 +390,17 @@ pub trait HyperbridgeClaim {
 	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool>;
 }
 
+#[async_trait::async_trait]
+pub trait HandleGetResponse {
+	async fn submit_get_response(&self, _msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		Ok(())
+	}
+
+	async fn dry_run_submission(&self, _msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		Ok(())
+	}
+}
+
 #[derive(Encode, Decode, Clone)]
 pub struct WithdrawFundsResult {
 	/// Post request emitted by the withdraw request
@@ -467,11 +488,9 @@ pub async fn observe_challenge_period(
 	hyperbridge: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<()> {
-	let challenge_period = hyperbridge
-		.query_challenge_period(chain.state_machine_id().consensus_state_id)
-		.await?;
+	let challenge_period = hyperbridge.query_challenge_period(chain.state_machine_id()).await?;
 	let height = StateMachineHeight { id: chain.state_machine_id(), height };
 	let last_consensus_update = hyperbridge.query_state_machine_update_time(height).await?;
-	wait_for_challenge_period(chain, last_consensus_update, challenge_period).await?;
+	wait_for_challenge_period(hyperbridge, last_consensus_update, challenge_period).await?;
 	Ok(())
 }

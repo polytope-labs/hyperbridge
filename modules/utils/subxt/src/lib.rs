@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use codec::Encode;
-use sp_crypto_hashing::keccak_256;
+use ismp::{consensus::StateMachineHeight, host::StateMachine};
+use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
 use subxt::{
 	config::{
 		polkadot::PolkadotExtrinsicParams,
@@ -353,4 +354,50 @@ pub fn refine_subxt_error(err: subxt::Error) -> anyhow::Error {
 		},
 		_ => anyhow!(err),
 	}
+}
+
+pub fn relayer_account_balance_storage_key(
+	state_machine: StateMachine,
+	address: Vec<u8>,
+) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Relayer").to_vec();
+
+	let storage_prefix = twox_128(b"Fees").to_vec();
+	let key_1 = blake2_128(&state_machine.encode()).to_vec();
+	let key_2 = blake2_128(&address.encode()).to_vec();
+
+	// dbg!(alloy_primitives::hex::encode([pallet_prefix, storage_prefix, key_1, key_2].concat()));
+
+	[pallet_prefix, storage_prefix, key_1, state_machine.encode(), key_2, address.encode()].concat()
+}
+
+pub fn relayer_nonce_storage_key(address: Vec<u8>, state_machine: StateMachine) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Relayer").to_vec();
+
+	let storage_prefix = twox_128(b"Nonce").to_vec();
+	let key_1 = blake2_128(&address.encode()).to_vec();
+	let key_2 = blake2_128(&state_machine.encode()).to_vec();
+
+	// dbg!(alloy_primitives::hex::encode([pallet_prefix, storage_prefix, key_1, address.encode(),
+	// key_2, state_machine.encode()].concat()));
+
+	[pallet_prefix, storage_prefix, key_1, address.encode(), key_2, state_machine.encode()].concat()
+}
+
+pub fn state_machine_update_time_storage_key(height: StateMachineHeight) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Ismp").to_vec();
+
+	let storage_prefix = twox_128(b"StateMachineUpdateTime").to_vec();
+	let key_1 = twox_64(&height.encode()).to_vec();
+
+	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
+}
+
+pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"HostExecutive").to_vec();
+
+	let storage_prefix = twox_128(b"HostParams").to_vec();
+	let key_1 = twox_64(&state_machine.encode()).to_vec();
+
+	[pallet_prefix, storage_prefix, key_1, state_machine.encode()].concat()
 }

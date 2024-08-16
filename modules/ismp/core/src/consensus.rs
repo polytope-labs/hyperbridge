@@ -169,8 +169,8 @@ pub trait StateMachineClient {
 		proof: &Proof,
 	) -> Result<(), Error>;
 
-	/// Transform the requests/responses into their equivalent key in the state trie.
-	fn state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
+	/// Transform the requests/responses into the underlying storage key in the state trie.
+	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
 
 	/// Verify the state of proof of some arbitrary data. Should return the verified data
 	fn verify_state_proof(

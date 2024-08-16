@@ -2,7 +2,7 @@ use crate::{EvmClient, EvmConfig};
 use codec::Decode;
 use ethers::providers::Middleware;
 use evm_common::{
-	get_contract_storage_root, get_value_from_proof, types::EvmStateProof, verify_membership,
+	get_contract_account, get_value_from_proof, types::EvmStateProof, verify_membership,
 };
 use hex_literal::hex;
 use ismp::{
@@ -82,14 +82,20 @@ async fn test_ismp_state_proof() {
 	dbg!(&request_meta);
 	assert!(request_meta.sender != H160::zero());
 
-	let proof = client.query_requests_proof(at, vec![query]).await.unwrap();
+	let proof = client
+		.query_requests_proof(at, vec![query], StateMachine::Polkadot(1))
+		.await
+		.unwrap();
 	let evm_state_proof = EvmStateProof::decode(&mut &*proof).unwrap();
-	let contract_root = get_contract_storage_root::<Keccak256Hasher>(
+	let contract_root = get_contract_account::<Keccak256Hasher>(
 		evm_state_proof.contract_proof,
 		&ISMP_HOST.0,
 		state_root,
 	)
-	.unwrap();
+	.unwrap()
+	.storage_root
+	.0
+	.into();
 
 	let key = sp_core::keccak_256(&client.request_commitment_key(query.commitment).1 .0).to_vec();
 	let value = get_value_from_proof::<Keccak256Hasher>(

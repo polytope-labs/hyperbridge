@@ -357,7 +357,7 @@ impl StateMachineClient for MockStateMachine {
 		Ok(())
 	}
 
-	fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
 		Default::default()
 	}
 
@@ -390,7 +390,7 @@ where
 			consensus_client_id: MOCK_CONSENSUS_CLIENT_ID,
 			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
 			unbonding_period: 1_000_000,
-			challenge_period: 0,
+			challenge_periods: vec![(StateMachine::Evm(1), 0)].into_iter().collect(),
 			state_machine_commitments: vec![(
 				StateMachineId {
 					state_id: StateMachine::Evm(1),

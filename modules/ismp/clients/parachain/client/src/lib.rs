@@ -41,7 +41,8 @@ pub mod pallet {
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		host::IsmpHost,
+		consensus::StateMachineId,
+		host::{IsmpHost, StateMachine},
 		messaging::{ConsensusMessage, Message},
 	};
 	use migration::StorageV0;
@@ -126,8 +127,18 @@ pub mod pallet {
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(para_ids.len() as u64))]
 		pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<ParachainData>) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
+			let host = <T::IsmpHost>::default();
 			for para in &para_ids {
+				let state_id = match host.host_state_machine() {
+					StateMachine::Kusama(_) => StateMachine::Kusama(para.id),
+					StateMachine::Polkadot(_) => StateMachine::Polkadot(para.id),
+					_ => continue,
+				};
 				Parachains::<T>::insert(para.id, para.slot_duration);
+				let _ = host.store_challenge_period(
+					StateMachineId { state_id, consensus_state_id: PARACHAIN_CONSENSUS_ID },
+					0,
+				);
 			}
 
 			Self::deposit_event(Event::ParachainsAdded { para_ids });
@@ -212,10 +223,20 @@ pub mod pallet {
 	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
 		fn build(&self) {
 			Pallet::<T>::initialize();
+			let host = <T::IsmpHost>::default();
 
 			// insert the parachain ids
 			for para in &self.parachains {
 				Parachains::<T>::insert(para.id, para.slot_duration);
+				let state_id = match host.host_state_machine() {
+					StateMachine::Kusama(_) => StateMachine::Kusama(para.id),
+					StateMachine::Polkadot(_) => StateMachine::Polkadot(para.id),
+					_ => continue,
+				};
+				let _ = host.store_challenge_period(
+					StateMachineId { state_id, consensus_state_id: PARACHAIN_CONSENSUS_ID },
+					0,
+				);
 			}
 		}
 	}
@@ -242,7 +263,7 @@ impl<T: Config> Pallet<T> {
 			// insert empty bytes
 			consensus_state: vec![],
 			unbonding_period: u64::MAX,
-			challenge_period: 0,
+			challenge_periods: Default::default(),
 			consensus_state_id: PARACHAIN_CONSENSUS_ID,
 			consensus_client_id: PARACHAIN_CONSENSUS_ID,
 			state_machine_commitments: vec![],

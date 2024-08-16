@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ismp::host::StateMachine;
+use primitive_types::H256;
 use subxt_utils::{BlakeSubstrateChain, Hyperbridge};
 
 use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
@@ -78,11 +80,14 @@ impl Client for AnyClient {
 		&self,
 		at: u64,
 		keys: Vec<crate::providers::interface::Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		match self {
-			AnyClient::Evm(inner) => inner.query_requests_proof(at, keys).await,
-			AnyClient::BlakeSubstrateChain(inner) => inner.query_requests_proof(at, keys).await,
-			AnyClient::KeccakSubstrateChain(inner) => inner.query_requests_proof(at, keys).await,
+			AnyClient::Evm(inner) => inner.query_requests_proof(at, keys, counterparty).await,
+			AnyClient::BlakeSubstrateChain(inner) =>
+				inner.query_requests_proof(at, keys, counterparty).await,
+			AnyClient::KeccakSubstrateChain(inner) =>
+				inner.query_requests_proof(at, keys, counterparty).await,
 		}
 	}
 
@@ -90,11 +95,14 @@ impl Client for AnyClient {
 		&self,
 		at: u64,
 		keys: Vec<crate::providers::interface::Query>,
+		counterparty: StateMachine,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		match self {
-			AnyClient::Evm(inner) => inner.query_responses_proof(at, keys).await,
-			AnyClient::BlakeSubstrateChain(inner) => inner.query_responses_proof(at, keys).await,
-			AnyClient::KeccakSubstrateChain(inner) => inner.query_responses_proof(at, keys).await,
+			AnyClient::Evm(inner) => inner.query_responses_proof(at, keys, counterparty).await,
+			AnyClient::BlakeSubstrateChain(inner) =>
+				inner.query_responses_proof(at, keys, counterparty).await,
+			AnyClient::KeccakSubstrateChain(inner) =>
+				inner.query_responses_proof(at, keys, counterparty).await,
 		}
 	}
 
@@ -113,18 +121,18 @@ impl Client for AnyClient {
 
 	async fn ismp_events_stream(
 		&self,
-		item: crate::providers::interface::RequestOrResponse,
+		commitment: H256,
 		initial_height: u64,
 	) -> Result<
 		crate::types::BoxStream<crate::providers::interface::WithMetadata<ismp::events::Event>>,
 		anyhow::Error,
 	> {
 		match self {
-			AnyClient::Evm(inner) => inner.ismp_events_stream(item, initial_height).await,
+			AnyClient::Evm(inner) => inner.ismp_events_stream(commitment, initial_height).await,
 			AnyClient::BlakeSubstrateChain(inner) =>
-				inner.ismp_events_stream(item, initial_height).await,
+				inner.ismp_events_stream(commitment, initial_height).await,
 			AnyClient::KeccakSubstrateChain(inner) =>
-				inner.ismp_events_stream(item, initial_height).await,
+				inner.ismp_events_stream(commitment, initial_height).await,
 		}
 	}
 
@@ -273,7 +281,7 @@ impl Client for AnyClient {
 
 	async fn query_challenge_period(
 		&self,
-		id: ismp::consensus::ConsensusStateId,
+		id: ismp::consensus::StateMachineId,
 	) -> Result<std::time::Duration, anyhow::Error> {
 		match self {
 			AnyClient::Evm(inner) => inner.query_challenge_period(id).await,

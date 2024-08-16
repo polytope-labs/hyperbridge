@@ -20,6 +20,7 @@ use alloc::{string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
+	events::RequestResponseHandled,
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_get_response, hash_request, Proof},
@@ -85,7 +86,7 @@ where
 
 		// Ensure the proof height is equal to each retrieval height specified in the Get
 		// requests
-		if !checked.iter().all(|get| get.height == source.height.height) {
+		if !checked.iter().all(|get| get.height == response.height.height) {
 			Err(Error::InsufficientProofHeight)?
 		}
 
@@ -117,16 +118,13 @@ where
 			if let Some(value) = value {
 				let fee = {
 					match source.height.id.state_id {
-						StateMachine::Evm(_) => {
+						s if s.is_evm() => {
 							use alloy_rlp::Decodable;
 							let fee = alloy_primitives::U256::decode(&mut &*value)
 								.map_err(|_| Error::Custom("Failed to decode fee".to_string()))?;
 							U256::from_big_endian(&fee.to_be_bytes::<32>())
 						},
-						StateMachine::Beefy(_) |
-						StateMachine::Grandpa(_) |
-						StateMachine::Kusama(_) |
-						StateMachine::Polkadot(_) => {
+						s if s.is_substrate() => {
 							let fee: u128 =
 								pallet_ismp::dispatcher::RequestMetadata::<T>::decode(&mut &*value)
 									.map_err(|_| Error::Custom("Failed to decode fee".to_string()))?
@@ -136,8 +134,7 @@ where
 							U256::from(fee)
 						},
 						// unsupported
-						StateMachine::Tendermint(_) =>
-							Err(Error::Custom("Unsupported State Machine".to_string()))?,
+						s => Err(Error::Custom(alloc::format!("Unsupported State Machine {s:?}")))?,
 					}
 				};
 
@@ -174,15 +171,18 @@ where
 		for get_response in get_responses {
 			let full = Request::Get(get_response.get.clone());
 			host.store_request_receipt(&full, &address)?;
-			Self::dispatch_get_response(get_response)
-				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?
+			Self::dispatch_get_response(get_response, address.clone())
+				.map_err(|_| Error::Custom("Failed to dispatch get response".to_string()))?;
 		}
 
 		Ok(())
 	}
 
 	/// Insert a get response into the MMR and emits an event
-	pub fn dispatch_get_response(get_response: GetResponse) -> Result<(), ismp::Error> {
+	pub fn dispatch_get_response(
+		get_response: GetResponse,
+		address: Vec<u8>,
+	) -> Result<(), ismp::Error> {
 		let commitment = hash_get_response::<<T as Config>::IsmpHost>(&get_response);
 		let req_commitment =
 			hash_request::<<T as Config>::IsmpHost>(&Request::Get(get_response.get.clone()));
@@ -191,10 +191,11 @@ where
 			dest_chain: get_response.get.source,
 			source_chain: get_response.get.dest,
 			commitment,
+			req_commitment,
 		};
 
 		let leaf_index_and_pos =
-			<T as pallet_ismp::Config>::Mmr::push(Leaf::Response(Response::Get(get_response)));
+			<T as Config>::Mmr::push(Leaf::Response(Response::Get(get_response)));
 		let meta = FeeMetadata::<T> { payer: [0u8; 32].into(), fee: Default::default() };
 
 		pallet_ismp::child_trie::ResponseCommitments::<T>::insert(
@@ -205,10 +206,16 @@ where
 					pos: leaf_index_and_pos.position,
 				},
 				fee: meta,
-				claimed: false,
+				claimed: true,
 			},
 		);
 		pallet_ismp::Responded::<T>::insert(req_commitment, true);
+		pallet_ismp::Pallet::<T>::deposit_pallet_event(event);
+		let event = pallet_ismp::Event::GetRequestHandled(RequestResponseHandled {
+			commitment: req_commitment,
+			relayer: address.clone(),
+		});
+
 		pallet_ismp::Pallet::<T>::deposit_pallet_event(event);
 
 		Ok(())
@@ -223,7 +230,7 @@ fn get_request_keys<T: Config>(requests: &[GetRequest], source: StateMachine) ->
 		let commitment = hash_request::<<T as Config>::IsmpHost>(&full);
 
 		match source {
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				keys.push(
 					derive_unhashed_map_key::<<T as Config>::IsmpHost>(
 						commitment.0.to_vec(),
@@ -233,12 +240,9 @@ fn get_request_keys<T: Config>(requests: &[GetRequest], source: StateMachine) ->
 					.to_vec(),
 				);
 			},
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Beefy(_) => keys.push(RequestCommitments::<T>::storage_key(commitment)),
+			s if s.is_substrate() => keys.push(RequestCommitments::<T>::storage_key(commitment)),
 			// unsupported
-			StateMachine::Tendermint(_) => {},
+			_ => {},
 		}
 	}
 	keys

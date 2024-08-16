@@ -67,7 +67,7 @@ pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
 	Ok(evm_state_proof)
 }
 
-pub fn req_res_to_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
+pub fn req_res_commitment_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	match item {
 		RequestResponse::Request(requests) =>
@@ -132,11 +132,11 @@ pub(super) fn to_bytes_32(bytes: &[u8]) -> Result<[u8; 32], Error> {
 	Ok(array)
 }
 
-pub fn get_contract_storage_root<H: Keccak256 + Send + Sync>(
+pub fn get_contract_account<H: Keccak256 + Send + Sync>(
 	contract_account_proof: Vec<Vec<u8>>,
 	contract_address: &[u8],
 	root: H256,
-) -> Result<H256, Error> {
+) -> Result<Account, Error> {
 	let db = StorageProof::new(contract_account_proof).into_memory_db::<KeccakHasher<H>>();
 	let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&db, &root).build();
 	let key = H::keccak256(contract_address).0;
@@ -149,7 +149,7 @@ pub fn get_contract_storage_root<H: Keccak256 + Send + Sync>(
 		Error::Custom(format!("Error decoding contract account from value {:?}", &result))
 	})?;
 
-	Ok(contract_account.storage_root.0.into())
+	Ok(contract_account)
 }
 
 pub fn derive_map_key<H: Keccak256>(mut key: Vec<u8>, slot: u64) -> H256 {

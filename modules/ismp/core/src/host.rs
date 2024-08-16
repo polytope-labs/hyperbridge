@@ -190,12 +190,12 @@ pub trait IsmpHost: Keccak256 {
 	fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>>;
 
 	/// Should return the configured delay period for a consensus state
-	fn challenge_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration>;
+	fn challenge_period(&self, state_machine: StateMachineId) -> Option<Duration>;
 
 	/// Set the challenge period in seconds for a consensus state.
 	fn store_challenge_period(
 		&self,
-		consensus_state_id: ConsensusStateId,
+		state_machine: StateMachineId,
 		period: u64,
 	) -> Result<(), Error>;
 
@@ -272,6 +272,27 @@ pub enum StateMachine {
 	/// Tendermint chains
 	#[codec(index = 7)]
 	Tendermint(ConsensusStateId),
+}
+
+impl StateMachine {
+	/// Check if the state machine is evm based.
+	pub fn is_evm(&self) -> bool {
+		match self {
+			StateMachine::Evm(_) => true,
+			_ => false,
+		}
+	}
+
+	/// Check if the state machine is substrate-based
+	pub fn is_substrate(&self) -> bool {
+		match self {
+			StateMachine::Polkadot(_) |
+			StateMachine::Kusama(_) |
+			StateMachine::Beefy(_) |
+			StateMachine::Grandpa(_) => true,
+			_ => false,
+		}
+	}
 }
 
 impl Display for StateMachine {

@@ -117,7 +117,7 @@ impl StateMachineClient for MockStateMachineClient {
 		Ok(())
 	}
 
-	fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
 		Default::default()
 	}
 
@@ -366,13 +366,13 @@ impl IsmpHost for Host {
 		vec![Box::new(MockClient), Box::new(MockProxyClient)]
 	}
 
-	fn challenge_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
+	fn challenge_period(&self, _state_machine: StateMachineId) -> Option<Duration> {
 		Some(Duration::from_secs(60 * 60))
 	}
 
 	fn store_challenge_period(
 		&self,
-		_consensus_state_id: ConsensusStateId,
+		_state_machine: StateMachineId,
 		_period: u64,
 	) -> Result<(), Error> {
 		Ok(())

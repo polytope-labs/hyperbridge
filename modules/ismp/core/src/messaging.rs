@@ -18,11 +18,14 @@
 // Messages are processed in batches, all messages in a batch should
 // originate from the same chain
 
+use alloc::collections::BTreeMap;
+
 use crate::{
 	consensus::{
 		ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
+	host::StateMachine,
 	router::{GetResponse, PostRequest, PostResponse, Request, RequestResponse, Response},
 };
 use alloc::{string::ToString, vec::Vec};
@@ -95,8 +98,8 @@ pub struct CreateConsensusState {
 	pub consensus_state_id: ConsensusStateId,
 	/// Unbonding period for this consensus state.
 	pub unbonding_period: u64,
-	/// Challenge period for this consensus state
-	pub challenge_period: u64,
+	/// Challenge period for the supported state machines
+	pub challenge_periods: BTreeMap<StateMachine, u64>,
 	/// State machine commitments
 	pub state_machine_commitments: Vec<(StateMachineId, StateCommitmentHeight)>,
 }

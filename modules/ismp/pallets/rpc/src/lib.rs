@@ -64,9 +64,9 @@
 //! ```
 
 use jsonrpsee::{
-	core::{Error as RpcError, RpcResult},
+	core::{BoxError as RpcError, RpcResult},
 	proc_macros::rpc,
-	types::{error::CallError, ErrorObject},
+	types::{ErrorObject},
 };
 
 use anyhow::anyhow;
@@ -92,6 +92,8 @@ use sp_core::{
 use sp_runtime::traits::{Block as BlockT, Hash, Header};
 use sp_trie::LayoutV0;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
+use jsonrpsee::core::BoxError;
+use jsonrpsee::types::ErrorObjectOwned;
 use trie_db::{Recorder, Trie, TrieDBBuilder};
 
 /// A type that could be a block number or a block hash
@@ -114,7 +116,7 @@ impl<Hash: std::fmt::Debug> Display for BlockNumberOrHash<Hash> {
 }
 
 /// Contains a scale encoded Mmr Proof or Trie proof
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Proof {
 	/// Scale encoded `MmrProof` or state trie proof `Vec<Vec<u8>>`
 	pub proof: Vec<u8>,
@@ -123,12 +125,12 @@ pub struct Proof {
 }
 
 /// Converts a runtime trap into an RPC error.
-fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> RpcError {
-	RpcError::Call(CallError::Custom(ErrorObject::owned(
+fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
+	ErrorObject::owned(
 		9876, // no real reason for this value
 		"Something wrong",
 		Some(format!("{}", e)),
-	)))
+	)
 }
 
 /// Relevant transaction metadata for an event
@@ -143,7 +145,7 @@ pub struct EventMetadata {
 }
 
 /// Holds an event along with relevant metadata about the event
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct EventWithMetadata {
 	/// The event metdata
 	pub meta: EventMetadata,

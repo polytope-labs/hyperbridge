@@ -303,13 +303,13 @@ impl<T: subxt::Config, Tip: core::fmt::Debug + Encode + 'static> ExtrinsicParams
 	fn encode_additional_to(&self, v: &mut Vec<u8>) {
 		self.0.encode_additional_to(v);
 		// frame_metadata_hash_extension::CheckMetadataHash::encode_additional_to
-		// reference https://github.com/paritytech/subxt/blob/90b47faad85c34382f086e2cc886da8574453c36/core/src/config/signed_extensions.rs#L63
+		// https://github.com/paritytech/polkadot-sdk/blob/743dc632fd6115b408376a6e4efe815bd804cd52/substrate/frame/metadata-hash-extension/src/lib.rs#L142
 		// We don't use metadata hash in subxt so the it should be encoded as None
 		None::<()>.encode_to(v);
 	}
 }
 
-type PolkadotExtrinsicParams<T> = BasicExtrinsicParamWithCheckMetadata<T, PlainTip>;
+pub type PolkadotExtrinsicParams<T> = BasicExtrinsicParamWithCheckMetadata<T, PlainTip>;
 
 #[cfg(feature = "std")]
 pub mod signer {

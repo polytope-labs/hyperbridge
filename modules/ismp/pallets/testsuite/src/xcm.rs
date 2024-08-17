@@ -64,7 +64,7 @@ impl EnsureOriginWithArg<RuntimeOrigin, Location> for ForeignCreators {
 	}
 
 	#[cfg(feature = "runtime-benchmarks")]
-	fn try_successful_origin(a: &MultiLocation) -> Result<RuntimeOrigin, ()> {
+	fn try_successful_origin(a: &Location) -> Result<RuntimeOrigin, ()> {
 		Ok(pallet_xcm::Origin::Xcm(a.clone()).into())
 	}
 }
@@ -386,8 +386,8 @@ impl pallet_assets::Config for Test {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct IdentityBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<MultiLocation> for IdentityBenchmarkHelper {
-	fn create_asset_id_parameter(id: u32) -> MultiLocation {
-		MultiLocation::new(1, Parachain(id))
+impl BenchmarkHelper<Location> for IdentityBenchmarkHelper {
+	fn create_asset_id_parameter(id: u32) -> Location {
+		Location::new(1, Parachain(id))
 	}
 }

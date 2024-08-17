@@ -136,6 +136,7 @@ pub type SignedExtra = (
 	frame_system::CheckNonce<Runtime>,
 	frame_system::CheckWeight<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -972,6 +973,7 @@ impl_runtime_apis! {
 				frame_system::CheckNonce::<Runtime>::from(nonce),
 				frame_system::CheckWeight::<Runtime>::new(),
 				pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
+				frame_metadata_hash_extension::CheckMetadataHash::new(false)
 			);
 			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());

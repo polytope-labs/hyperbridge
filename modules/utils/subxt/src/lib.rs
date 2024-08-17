@@ -1,12 +1,14 @@
 use anyhow::anyhow;
 use codec::Encode;
+use derivative::Derivative;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
-use sp_core_hashing::{blake2_128, keccak_256, twox_128, twox_64};
+use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
 use subxt::{
 	config::{
-		polkadot::PolkadotExtrinsicParams,
-		substrate::{BlakeTwo256, SubstrateExtrinsicParams, SubstrateHeader},
-		Hasher,
+		extrinsic_params::{BaseExtrinsicParams, BaseExtrinsicParamsBuilder},
+		polkadot::PlainTip,
+		substrate::{BlakeTwo256, SubstrateHeader},
+		ExtrinsicParams, Hasher,
 	},
 	tx::TxPayload,
 	utils::{AccountId32, MultiAddress, H256},
@@ -205,7 +207,7 @@ impl subxt::Config for BlakeSubstrateChain {
 	type Signature = subxt::utils::MultiSignature;
 	type Hasher = BlakeTwo256;
 	type Header = SubstrateHeader<u32, BlakeTwo256>;
-	type ExtrinsicParams = SubstrateExtrinsicParams<Self>;
+	type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
 }
 
 /// Implements [`TxPayload`] for extrinsic encoding
@@ -260,6 +262,54 @@ impl TxPayload for Extrinsic {
 		Ok(())
 	}
 }
+
+#[derive(Derivative)]
+#[derivative(Debug(bound = "Tip: core::fmt::Debug"))]
+pub struct BasicExtrinsicParamWithCheckMetadata<T: subxt::Config, Tip: core::fmt::Debug>(
+	BaseExtrinsicParams<T, Tip>,
+);
+
+impl<T: subxt::Config, Tip: core::fmt::Debug + Encode + 'static> ExtrinsicParams<T::Hash>
+	for BasicExtrinsicParamWithCheckMetadata<T, Tip>
+{
+	type OtherParams = BaseExtrinsicParamsBuilder<T, Tip>;
+
+	fn new(
+		// Provided from subxt client:
+		spec_version: u32,
+		transaction_version: u32,
+		nonce: u64,
+		genesis_hash: T::Hash,
+		// Provided externally:
+		other_params: Self::OtherParams,
+	) -> Self {
+		Self(BaseExtrinsicParams::new(
+			spec_version,
+			transaction_version,
+			nonce,
+			genesis_hash,
+			other_params,
+		))
+	}
+
+	fn encode_extra_to(&self, v: &mut Vec<u8>) {
+		self.0.encode_extra_to(v);
+		// frame_metadata_hash_extension::CheckMetadataHash::encode_to_extra
+		// reference https://github.com/paritytech/subxt/blob/90b47faad85c34382f086e2cc886da8574453c36/core/src/config/signed_extensions.rs#L58
+		// Mode `0` means that the metadata hash is not added
+		0u8.encode_to(v);
+	}
+
+	fn encode_additional_to(&self, v: &mut Vec<u8>) {
+		self.0.encode_additional_to(v);
+		// frame_metadata_hash_extension::CheckMetadataHash::encode_additional_to
+		// https://github.com/paritytech/polkadot-sdk/blob/743dc632fd6115b408376a6e4efe815bd804cd52/substrate/frame/metadata-hash-extension/src/lib.rs#L142
+		// We don't use metadata hash in subxt so the it should be encoded as None
+		None::<()>.encode_to(v);
+	}
+}
+
+pub type PolkadotExtrinsicParams<T> = BasicExtrinsicParamWithCheckMetadata<T, PlainTip>;
 
 #[cfg(feature = "std")]
 pub mod signer {
@@ -366,8 +416,6 @@ pub fn relayer_account_balance_storage_key(
 	let key_1 = blake2_128(&state_machine.encode()).to_vec();
 	let key_2 = blake2_128(&address.encode()).to_vec();
 
-	// dbg!(alloy_primitives::hex::encode([pallet_prefix, storage_prefix, key_1, key_2].concat()));
-
 	[pallet_prefix, storage_prefix, key_1, state_machine.encode(), key_2, address.encode()].concat()
 }
 
@@ -377,9 +425,6 @@ pub fn relayer_nonce_storage_key(address: Vec<u8>, state_machine: StateMachine) 
 	let storage_prefix = twox_128(b"Nonce").to_vec();
 	let key_1 = blake2_128(&address.encode()).to_vec();
 	let key_2 = blake2_128(&state_machine.encode()).to_vec();
-
-	// dbg!(alloy_primitives::hex::encode([pallet_prefix, storage_prefix, key_1, address.encode(),
-	// key_2, state_machine.encode()].concat()));
 
 	[pallet_prefix, storage_prefix, key_1, address.encode(), key_2, state_machine.encode()].concat()
 }

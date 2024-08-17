@@ -3,17 +3,14 @@ use core::marker::PhantomData;
 use frame_support::traits::fungibles::{self, Mutate};
 use ismp::host::StateMachine;
 use sp_core::{Get, H160};
-use staging_xcm::{
-	prelude::MultiLocation,
-	v3::{
-		Error as XcmError, Junction, Junctions, MultiAsset, NetworkId, Result as XcmResult,
-		XcmContext,
-	},
+use staging_xcm::v4::{
+	Asset, Error as XcmError, Junction, Junctions, Location, NetworkId, Result as XcmResult,
+	XcmContext,
 };
 use staging_xcm_builder::{AssetChecking, FungiblesMutateAdapter};
 use staging_xcm_executor::{
 	traits::{ConvertLocation, Error as MatchError, MatchesFungibles, TransactAsset},
-	Assets as XcmAssets,
+	AssetsInHolding,
 };
 
 pub struct WrappedNetworkId(pub NetworkId);
@@ -53,28 +50,26 @@ impl<A> ConvertLocation<MultiAccount<A>> for MultilocationToMultiAccount<A>
 where
 	A: From<[u8; 32]> + Into<[u8; 32]> + Clone,
 {
-	fn convert_location(location: &MultiLocation) -> Option<MultiAccount<A>> {
-		// We only support locations X3 Junctions addressed to our parachain and an ethereum account
+	fn convert_location(location: &Location) -> Option<MultiAccount<A>> {
 		match location {
-			MultiLocation {
-				parents: 0,
-				interior:
-					Junctions::X3(
-						Junction::AccountId32 { id, .. },
-						Junction::AccountKey20 { network: Some(network), key },
-						Junction::GeneralIndex(timeout),
-					),
-			} => {
-				// Ensure that the network Id is one of the supported ethereum networks
-				// If it transforms correctly we return the ethereum account
-				let dest_state_machine =
-					StateMachine::try_from(WrappedNetworkId(network.clone())).ok()?;
-				Some(MultiAccount {
-					substrate_account: A::from(*id),
-					evm_account: H160::from(*key),
-					dest_state_machine,
-					timeout: *timeout as u64,
-				})
+			Location { parents: 0, interior: Junctions::X3(arc_junctions) } => {
+				// Dereference the Arc to access the underlying array
+				match arc_junctions.as_ref() {
+					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout)] =>
+					{
+						// Ensure that the network Id is one of the supported ethereum networks
+						// If it transforms correctly we return the ethereum account
+						let dest_state_machine =
+							StateMachine::try_from(WrappedNetworkId(network.clone())).ok()?;
+						Some(MultiAccount {
+							substrate_account: A::from(*id),
+							evm_account: H160::from(*key),
+							dest_state_machine,
+							timeout: *timeout as u64,
+						})
+					},
+					_ => None,
+				}
 			},
 			// Any other multilocation format is unsupported
 			_ => None,
@@ -102,7 +97,7 @@ where
 	u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
 	T::AccountId: Eq + Clone + From<[u8; 32]> + Into<[u8; 32]>,
 {
-	fn can_check_in(origin: &MultiLocation, what: &MultiAsset, context: &XcmContext) -> XcmResult {
+	fn can_check_in(origin: &Location, what: &Asset, context: &XcmContext) -> XcmResult {
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -113,7 +108,7 @@ where
 		>::can_check_in(origin, what, context)
 	}
 
-	fn check_in(origin: &MultiLocation, what: &MultiAsset, context: &XcmContext) {
+	fn check_in(origin: &Location, what: &Asset, context: &XcmContext) {
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -124,7 +119,7 @@ where
 		>::check_in(origin, what, context)
 	}
 
-	fn can_check_out(dest: &MultiLocation, what: &MultiAsset, context: &XcmContext) -> XcmResult {
+	fn can_check_out(dest: &Location, what: &Asset, context: &XcmContext) -> XcmResult {
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -135,7 +130,7 @@ where
 		>::can_check_out(dest, what, context)
 	}
 
-	fn check_out(dest: &MultiLocation, what: &MultiAsset, context: &XcmContext) {
+	fn check_out(dest: &Location, what: &Asset, context: &XcmContext) {
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -146,11 +141,7 @@ where
 		>::check_out(dest, what, context)
 	}
 
-	fn deposit_asset(
-		what: &MultiAsset,
-		who: &MultiLocation,
-		_context: Option<&XcmContext>,
-	) -> XcmResult {
+	fn deposit_asset(what: &Asset, who: &Location, _context: Option<&XcmContext>) -> XcmResult {
 		// Check we handle this asset.
 		let (asset_id, amount) = Matcher::matches_fungibles(what)?;
 
@@ -181,10 +172,10 @@ where
 	}
 
 	fn withdraw_asset(
-		what: &MultiAsset,
-		who: &MultiLocation,
+		what: &Asset,
+		who: &Location,
 		maybe_context: Option<&XcmContext>,
-	) -> Result<XcmAssets, XcmError> {
+	) -> Result<AssetsInHolding, XcmError> {
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -196,11 +187,11 @@ where
 	}
 
 	fn internal_transfer_asset(
-		asset: &MultiAsset,
-		from: &MultiLocation,
-		to: &MultiLocation,
+		asset: &Asset,
+		from: &Location,
+		to: &Location,
 		context: &XcmContext,
-	) -> Result<XcmAssets, XcmError> {
+	) -> Result<AssetsInHolding, XcmError> {
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -212,11 +203,11 @@ where
 	}
 
 	fn transfer_asset(
-		asset: &MultiAsset,
-		from: &MultiLocation,
-		to: &MultiLocation,
+		asset: &Asset,
+		from: &Location,
+		to: &Location,
 		context: &XcmContext,
-	) -> Result<XcmAssets, XcmError> {
+	) -> Result<AssetsInHolding, XcmError> {
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,

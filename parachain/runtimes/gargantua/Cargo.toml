@@ -51,6 +51,7 @@ sp-transaction-pool = { workspace = true }
 sp-version = { workspace = true }
 sp-storage = { workspace = true }
 sp-genesis-builder = { workspace = true }
+frame-metadata-hash-extension = { workspace = true }
 
 # Polkadot
 pallet-xcm = { workspace = true }
@@ -171,6 +172,7 @@ std = [
 	"sp-mmr-primitives/std",
 	"simnode-runtime-api/std",
 	"hyperbridge-client-machine/std",
+	"frame-metadata-hash-extension/std"
 ]
 
 runtime-benchmarks = [

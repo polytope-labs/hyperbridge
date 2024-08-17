@@ -1,24 +1,25 @@
 #![cfg(test)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
+use alloy_sol_types::SolType;
 use anyhow::anyhow;
 use codec::Encode;
 use futures::StreamExt;
 use ismp::host::StateMachine;
 use pallet_ismp_rpc::BlockNumberOrHash;
 use staging_xcm::{
-	v3::{Junction, Junctions, MultiLocation, NetworkId, WeightLimit},
-	VersionedMultiAssets, VersionedMultiLocation,
+	v4::{Junction, Junctions, Location, NetworkId, WeightLimit},
+	VersionedAssets, VersionedLocation,
 };
 use subxt::{
 	config::Header,
 	ext::sp_core::{bytes::from_hex, sr25519, Pair, H256},
 	rpc_params,
 	tx::TxPayload,
-	OnlineClient, PolkadotConfig,
+	OnlineClient,
 };
-use subxt_utils::{send_extrinsic, Extrinsic, Hyperbridge, InMemorySigner};
+use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Extrinsic, Hyperbridge, InMemorySigner};
 
 const SEND_AMOUNT: u128 = 2_000_000_000_000;
 
@@ -31,11 +32,11 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	);
 	let seed = from_hex(&private_key)?;
 	let pair = sr25519::Pair::from_seed_slice(&seed)?;
-	let signer = InMemorySigner::<PolkadotConfig>::new(pair.clone());
+	let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
 	let url = std::env::var("ROCOCO_LOCAL_URL")
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9922".to_string());
-	let client = OnlineClient::<PolkadotConfig>::from_url(&url).await?;
+	let client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
 
 	let para_url = std::env::var("PARA_LOCAL_URL")
 		.ok()
@@ -51,33 +52,39 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.await
 		.into_iter()
 		.collect::<Result<Vec<_>, _>>()?;
-	let beneficiary: MultiLocation = Junctions::X3(
+	let beneficiary: Location = Junctions::X3(Arc::new([
 		Junction::AccountId32 { network: None, id: pair.public().into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 1 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
-	)
+	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
-	let dest: MultiLocation = Junction::Parachain(2000).into();
+	let dest: VersionedLocation = VersionedLocation::V4(Junction::Parachain(2000).into());
+	let para_absolute_location: Location = Junction::Parachain(2000).into();
 
 	let call = (
-		Box::<VersionedMultiLocation>::new(dest.clone().into()),
-		Box::<VersionedMultiLocation>::new(beneficiary.clone().into()),
-		Box::<VersionedMultiAssets>::new((Junctions::Here, SEND_AMOUNT).into()),
+		Box::<VersionedLocation>::new(dest.clone()),
+		Box::<VersionedLocation>::new(VersionedLocation::V4(beneficiary.clone().into())),
+		Box::<VersionedAssets>::new(VersionedAssets::V4(
+			vec![(Junctions::Here, SEND_AMOUNT).into()].into(),
+		)),
 		0,
 		weight_limit,
 	);
 
 	{
-		let signer = InMemorySigner::<PolkadotConfig>::new(pair.clone());
+		let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
 		// Force set the xcm version to our supported version
-		let encoded_call =
-			Extrinsic::new("XcmPallet", "force_xcm_version", (Box::new(dest.clone()), 3).encode())
-				.encode_call_data(&client.metadata())?;
+		let encoded_call = Extrinsic::new(
+			"XcmPallet",
+			"force_xcm_version",
+			(Box::new(para_absolute_location), 4u32).encode(),
+		)
+		.encode_call_data(&client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
 		send_extrinsic(&client, signer, tx).await?;
 	}
@@ -120,10 +127,13 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 					ismp::events::Event::PostRequest(post) => Some(post),
 					_ => None,
 				}) {
-					dbg!(&post);
-
+					let body =
+						pallet_asset_gateway::Body::abi_decode(&mut &post.body[1..], true).unwrap();
+					let to = alloy_primitives::FixedBytes::<32>::from_slice(
+						&vec![vec![0u8; 12], vec![1u8; 20]].concat(),
+					);
 					// Assert that this is the post we sent
-					assert_eq!(post.nonce, 0);
+					assert_eq!(body.to, to);
 					assert_eq!(post.dest, StateMachine::Evm(1));
 					assert_eq!(post.source, StateMachine::Kusama(2000));
 					return Ok(());

@@ -80,17 +80,18 @@ impl pallet_balances::Config for Runtime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type FreezeIdentifier = ();
 	type MaxFreezes = ConstU32<0>;
-	type MaxHolds = ConstU32<100>;
 }
 
-impl shared::Config for Runtime {}
+impl shared::Config for Runtime {
+	type DisabledValidators = ();
+}
 
 impl configuration::Config for Runtime {
 	type WeightInfo = configuration::TestWeightInfo;
 }
 
 parameter_types! {
-	pub const TokenLocation: MultiLocation = Here.into_location();
+	pub const TokenLocation: Location = Here.into_location();
 	pub RelayNetwork: NetworkId = ByGenesis([0; 32]);
 	pub const AnyNetwork: Option<NetworkId> = None;
 	pub UniversalLocation: Junctions = Here;
@@ -149,6 +150,16 @@ impl Config for XcmConfig {
 	type CallDispatcher = RuntimeCall;
 	type SafeCallFilter = Everything;
 	type Aliasers = Nothing;
+
+	type TransactionalProcessor = ();
+
+	type HrmpNewChannelOpenRequestHandler = ();
+
+	type HrmpChannelAcceptedHandler = ();
+
+	type HrmpChannelClosingHandler = ();
+
+	type XcmRecorder = ();
 }
 
 pub type LocalOriginToLocation = SignedToAccountId32<RuntimeOrigin, AccountId, RelayNetwork>;
@@ -194,6 +205,7 @@ parameter_types! {
 	pub MessageQueueServiceWeight: Weight = Weight::from_parts(1_000_000_000, 1_000_000);
 	pub const MessageQueueHeapSize: u32 = 65_536;
 	pub const MessageQueueMaxStale: u32 = 16;
+	pub const IdleMaxServiceWeight: Option<Weight> = None;
 }
 
 /// Message processor to handle any messages that were enqueued into the `MessageQueue` pallet.
@@ -228,6 +240,7 @@ impl pallet_message_queue::Config for Runtime {
 	type QueueChangeHandler = ();
 	type QueuePausedQuery = ();
 	type WeightInfo = ();
+	type IdleMaxServiceWeight = IdleMaxServiceWeight;
 }
 
 construct_runtime!(

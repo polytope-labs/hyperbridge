@@ -17,7 +17,7 @@ clap = { version = "4.0.32", features = ["derive"] }
 log = "0.4.17"
 codec = { package = "parity-scale-codec", version = "3.0.0" }
 serde = { version = "1.0.152", features = ["derive"] }
-jsonrpsee = { version = "0.16.2", features = ["server"] }
+jsonrpsee = { version = "0.23", features = ["server"] }
 futures = "0.3.28"
 serde_json = "1.0.108"
 
@@ -62,7 +62,7 @@ sp-core = { workspace = true }
 sp-keystore = { workspace = true }
 sp-offchain = { workspace = true }
 sc-offchain = { workspace = true }
-sp-io = { workspace = true }
+sp-io = { workspace = true, default-features = true }
 sp-runtime = { workspace = true }
 sp-session = { workspace = true }
 sp-timestamp = { workspace = true }
@@ -71,6 +71,7 @@ substrate-frame-rpc-system = { workspace = true }
 substrate-prometheus-endpoint = { workspace = true }
 try-runtime-cli = { workspace = true,  optional = true }
 sp-mmr-primitives = { workspace = true,  default-features = true }
+frame-metadata-hash-extension = { workspace = true, default-features = true }
 
 # Polkadot
 polkadot-cli = { workspace = true }

@@ -311,8 +311,8 @@ where
 		// Update the first MMR block in case of a pallet reset.
 		self.handle_potential_pallet_reset(&notification);
 
-		// // Run catchup to just to be sure no blocks are skipped
-		// self.canonicalize_catch_up(&notification);
+		// Run catchup to just to be sure no blocks are skipped
+		self.canonicalize_catch_up(notification.hash);
 
 		trace!(target: LOG_TARGET, "Got new finality notification {:?}, Best Canonicalized {:?}", notification.hash, self.best_canonicalized);
 		let mut block_nums = vec![];
@@ -333,12 +333,13 @@ where
 		self.write_gadget_state_or_log();
 
 		// Remove offchain MMR nodes for stale forks.
-		let stale_forks = self.client.expand_forks(&notification.stale_heads).unwrap_or_else(
-			|(stale_forks, e)| {
+		let stale_forks = match self.client.expand_forks(&notification.stale_heads) {
+			Ok(forks) => forks,
+			Err(e) => {
 				warn!(target: LOG_TARGET, "{:?}", e);
-				stale_forks
+				return;
 			},
-		);
+		};
 		for hash in stale_forks.iter() {
 			self.prune_branch(hash);
 		}

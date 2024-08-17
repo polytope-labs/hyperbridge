@@ -7,14 +7,11 @@ use merkle_mountain_range::MerkleProof;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
 use sp_keyring::sr25519::Keyring;
-use sp_mmr_primitives::{
-	mmr_lib::{leaf_index_to_pos, util::MemMMR},
-	utils::NodesUtils,
-	INDEXING_PREFIX,
-};
+use sp_mmr_primitives::{mmr_lib::leaf_index_to_pos, utils::NodesUtils, INDEXING_PREFIX};
 use sp_runtime::traits::Keccak256;
 use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160};
 
+use merkle_mountain_range::util::MemMMR;
 use mmr_primitives::{DataOrHash, FullLeaf};
 use pallet_ismp::mmr::{Leaf, ProofKeys};
 use pallet_mmr::mmr::Hasher as MmrHasher;

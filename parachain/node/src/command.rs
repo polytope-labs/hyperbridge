@@ -15,6 +15,7 @@
 
 use std::{borrow::Cow, str::FromStr};
 
+use cumulus_client_service::storage_proof_size::HostFunctions as ReclaimHostFunctions;
 use cumulus_primitives_core::ParaId;
 use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
 use gargantua_runtime::Block;
@@ -31,25 +32,20 @@ use std::net::SocketAddr;
 use crate::{
 	chain_spec,
 	cli::{Cli, RelayChainCli, Subcommand},
-	service::new_partial,
+	service::{new_partial, HostFunctions},
 };
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 	Ok(match id {
-		"dev" | "gargantua" => Box::new(chain_spec::ChainSpec::<
-			gargantua_runtime::RuntimeGenesisConfig,
-		>::from_json_bytes(
+		"dev" | "gargantua" => Box::new(chain_spec::ChainSpec::from_json_bytes(
 			include_bytes!("../../chainspec/gargantua.paseo.json").to_vec(),
 		)?),
-		"messier" => Box::new(
-			chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
-				include_bytes!("../../chainspec/messier.json").to_vec(),
-			)?,
-		),
-		"" | "nexus" =>
-			Box::new(chain_spec::ChainSpec::<nexus_runtime::RuntimeGenesisConfig>::from_json_bytes(
-				include_bytes!("../../chainspec/nexus.json").to_vec(),
-			)?),
+		"messier" => Box::new(chain_spec::ChainSpec::from_json_bytes(
+			include_bytes!("../../chainspec/messier.json").to_vec(),
+		)?),
+		"" | "nexus" => Box::new(chain_spec::ChainSpec::from_json_bytes(
+			include_bytes!("../../chainspec/nexus.json").to_vec(),
+		)?),
 		name if name.starts_with("gargantua-") => {
 			let id = name.split('-').last().expect("dev chainspec should have chain id");
 			let id = u32::from_str(id).expect("can't parse Id into u32");
@@ -65,11 +61,7 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 			let id = u32::from_str(id).expect("can't parse Id into u32");
 			Box::new(chain_spec::nexus_development_config(id))
 		},
-		path => Box::new(
-			chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_file(
-				std::path::PathBuf::from(path),
-			)?,
-		),
+		path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),
 	})
 }
 
@@ -160,21 +152,21 @@ macro_rules! construct_async_run {
         match runner.config().chain_spec.id() {
             chain if chain.contains("gargantua") || chain.contains("dev") => {
                 runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config);
                     let $components = new_partial::<gargantua_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
             }
             chain if chain.contains("messier") => {
                 runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config);
                     let $components = new_partial::<messier_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
             }
             chain if chain.contains("nexus") => {
                 runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config);
                     let $components = new_partial::<nexus_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
@@ -248,8 +240,7 @@ pub fn run() -> Result<()> {
 			let runner = cli.create_runner(cmd)?;
 
 			runner.sync_run(|config| {
-				let executor =
-					sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
+				let executor = sc_service::new_wasm_executor::<HostFunctions>(&config);
 
 				match config.chain_spec.id() {
 					chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -287,15 +278,18 @@ pub fn run() -> Result<()> {
 			match cmd {
 				BenchmarkCmd::Pallet(cmd) =>
 					if cfg!(feature = "runtime-benchmarks") {
-						runner.sync_run(|config| cmd.run::<Block, ()>(config))
+						runner.sync_run(|config| {
+							cmd.run_with_spec::<sp_runtime::traits::HashingFor<Block>, ReclaimHostFunctions>(Some(
+								config.chain_spec,
+							))
+						})
 					} else {
 						Err("Benchmarking wasn't enabled when building the node. \
 					You can enable it with `--features runtime-benchmarks`."
 							.into())
 					},
 				BenchmarkCmd::Block(cmd) => runner.sync_run(|config| {
-					let executor =
-						sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
+					let executor = sc_service::new_wasm_executor::<HostFunctions>(&config);
 
 					match config.chain_spec.id() {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -326,8 +320,7 @@ pub fn run() -> Result<()> {
 					.into()),
 				#[cfg(feature = "runtime-benchmarks")]
 				BenchmarkCmd::Storage(cmd) => runner.sync_run(|config| {
-					let executor =
-						sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
+					let executor = sc_service::new_wasm_executor::<HostFunctions>(&config);
 					match config.chain_spec.id() {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
 							let components =
@@ -371,9 +364,7 @@ pub fn run() -> Result<()> {
 				sc_service::TaskManager::new(runner.config().tokio_handle.clone(), *registry)
 					.map_err(|e| format!("Error: {:?}", e))?;
 
-			runner.async_run(|_| {
-				Ok((cmd.run::<Block, sp_io::SubstrateHostFunctions>(), task_manager))
-			})
+			runner.async_run(|_| Ok((cmd.run::<Block, HostFunctions>(), task_manager)))
 		},
 		#[cfg(not(feature = "try-runtime"))]
 		Some(Subcommand::TryRuntime) => Err("Try-runtime was not enabled when building the node. \

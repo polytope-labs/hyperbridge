@@ -26,6 +26,7 @@ default = ["std"]
 std = [
     "sp-std/std",
     "sp-core/std",
+    "sp-io/std",
     "sp-consensus-beefy/std",
     "codec/std",
     "sp-mmr-primitives/std",

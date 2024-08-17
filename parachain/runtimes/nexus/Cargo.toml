@@ -26,6 +26,7 @@ orml-traits = { workspace = true  }
 # Substrate
 frame-benchmarking = { workspace = true, optional = true }
 frame-system-benchmarking = { workspace = true, optional = true }
+frame-metadata-hash-extension = { workspace = true }
 
 frame-executive = { workspace = true }
 frame-support = { workspace = true }
@@ -178,6 +179,7 @@ std = [
 	"sp-mmr-primitives/std",
 	"simnode-runtime-api/std",
 	"hyperbridge-client-machine/std",
+	"frame-metadata-hash-extension/std"
 ]
 
 runtime-benchmarks = [

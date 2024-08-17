@@ -33,3 +33,4 @@ std = [
     "sp-std/std",
     "primitive-types/std",
 ]
+try-runtime = []

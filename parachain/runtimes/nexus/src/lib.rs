@@ -57,7 +57,7 @@ use ::ismp::{
 use frame_support::{
 	construct_runtime,
 	dispatch::DispatchClass,
-	genesis_builder_helper::{build_config, create_default_config},
+	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
 	traits::{ConstU32, ConstU64, ConstU8, Everything},
 	weights::{
@@ -134,6 +134,7 @@ pub type SignedExtra = (
 	frame_system::CheckNonce<Runtime>,
 	frame_system::CheckWeight<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -398,7 +399,6 @@ impl pallet_balances::Config for Runtime {
 	type ReserveIdentifier = [u8; 8];
 	type FreezeIdentifier = ();
 	type MaxFreezes = ();
-	type MaxHolds = ConstU32<1>;
 	type RuntimeHoldReason = RuntimeHoldReason;
 
 	type RuntimeFreezeReason = RuntimeFreezeReason;
@@ -411,7 +411,7 @@ parameter_types! {
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction = pallet_transaction_payment::CurrencyAdapter<Balances, ()>;
+	type OnChargeTransaction = pallet_transaction_payment::FungibleAdapter<Balances, ()>;
 	type WeightToFee = WeightToFee;
 	type LengthToFee = ConstantMultiplier<Balance, TransactionByteFee>;
 	type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
@@ -460,6 +460,8 @@ impl cumulus_pallet_xcmp_queue::Config for Runtime {
 	type XcmpQueue = TransformOrigin<MessageQueue, AggregateMessageOrigin, ParaId, ParaIdToSibling>;
 	type MaxInboundSuspended = sp_core::ConstU32<1_000>;
 	type WeightInfo = weights::cumulus_pallet_xcmp_queue::WeightInfo<Runtime>;
+	type MaxActiveOutboundChannels = sp_core::ConstU32<128>;
+	type MaxPageSize = sp_core::ConstU32<{ 103 * 1024 }>;
 }
 
 parameter_types! {
@@ -486,6 +488,7 @@ impl pallet_message_queue::Config for Runtime {
 	type HeapSize = sp_core::ConstU32<{ 64 * 1024 }>;
 	type MaxStale = sp_core::ConstU32<8>;
 	type ServiceWeight = MessageQueueServiceWeight;
+	type IdleMaxServiceWeight = MessageQueueServiceWeight;
 }
 
 parameter_types! {
@@ -640,7 +643,7 @@ impl_runtime_apis! {
 		}
 
 		fn authorities() -> Vec<AuraId> {
-			Aura::authorities().into_inner()
+			pallet_aura::Authorities::<Runtime>::get().into_inner()
 		}
 	}
 
@@ -661,7 +664,7 @@ impl_runtime_apis! {
 			Executive::execute_block(block)
 		}
 
-		fn initialize_block(header: &<Block as BlockT>::Header) {
+		fn initialize_block(header: &<Block as BlockT>::Header) -> sp_runtime::ExtrinsicInclusionMode {
 			Executive::initialize_block(header)
 		}
 	}
@@ -782,12 +785,16 @@ impl_runtime_apis! {
 	}
 
 	impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
-		fn create_default_config() -> Vec<u8> {
-			create_default_config::<RuntimeGenesisConfig>()
+		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+			build_state::<RuntimeGenesisConfig>(config)
 		}
 
-		fn build_config(config: Vec<u8>) -> sp_genesis_builder::Result {
-			build_config::<RuntimeGenesisConfig>(config)
+		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
+			get_preset::<RuntimeGenesisConfig>(id, |_| None)
+		}
+
+		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
+			vec![]
 		}
 	}
 
@@ -975,8 +982,9 @@ impl_runtime_apis! {
 				frame_system::CheckNonce::<Runtime>::from(nonce),
 				frame_system::CheckWeight::<Runtime>::new(),
 				pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
+				frame_metadata_hash_extension::CheckMetadataHash::new(false)
 			);
-			let signature = MultiSignature::from(sr25519::Signature([0_u8;64]));
+			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
 			let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(
 				call,

@@ -162,12 +162,13 @@ impl<
 						state_machine_map.insert(state_machine, state_commitment_vec);
 					}
 				},
-				L2Consensus::OpFaultProofs(dispute_game_factory) => {
+				L2Consensus::OpFaultProofs((dispute_game_factory, respected_game_type)) =>
 					if let Some(payload) = dispute_game_payload.remove(&state_machine) {
 						let state = verify_optimism_dispute_game_proof::<H>(
 							payload,
 							state_root,
 							dispute_game_factory,
+							respected_game_type,
 							consensus_state_id.clone(),
 						)?;
 
@@ -179,8 +180,7 @@ impl<
 						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 						state_commitment_vec.push(state_commitment_height);
 						state_machine_map.insert(state_machine, state_commitment_vec);
-					}
-				},
+					},
 			}
 		}
 

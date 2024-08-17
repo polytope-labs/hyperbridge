@@ -40,7 +40,6 @@ use sc_client_api::Backend;
 use sc_consensus::ImportQueue;
 use sc_executor::{RuntimeVersionOf, WasmExecutor};
 use sc_network::NetworkBlock;
-use sc_network_sync::SyncingService;
 use sc_service::{Configuration, PartialComponents, TFullBackend, TFullClient, TaskManager};
 use sc_simnode::parachain::ParachainSelectChain;
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker, TelemetryWorkerHandle};
@@ -51,12 +50,21 @@ use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
 use substrate_prometheus_endpoint::Registry;
 
-pub type FullClient<Runtime, Executor = WasmExecutor<sp_io::SubstrateHostFunctions>> =
+#[cfg(not(feature = "runtime-benchmarks"))]
+pub type HostFunctions = cumulus_client_service::ParachainHostFunctions;
+
+#[cfg(feature = "runtime-benchmarks")]
+pub type HostFunctions = (
+	cumulus_client_service::ParachainHostFunctions,
+	frame_benchmarking::benchmarking::HostFunctions,
+);
+
+pub type FullClient<Runtime, Executor = WasmExecutor<HostFunctions>> =
 	TFullClient<opaque::Block, Runtime, Executor>;
 
 pub type FullBackend = TFullBackend<opaque::Block>;
 
-type ParachainBlockImport<Runtime, Executor = WasmExecutor<sp_io::SubstrateHostFunctions>> =
+type ParachainBlockImport<Runtime, Executor = WasmExecutor<HostFunctions>> =
 	TParachainBlockImport<opaque::Block, Arc<FullClient<Runtime, Executor>>, FullBackend>;
 
 /// Starts a `ServiceBuilder` for a full service.
@@ -172,11 +180,14 @@ where
 		sc_client_api::StateBackend<Keccak256>,
 {
 	let parachain_config = prepare_node_config(parachain_config);
-	let executor =
-		sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&parachain_config);
+	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config);
 	let params = new_partial::<Runtime, _>(&parachain_config, executor)?;
 	let (block_import, mut telemetry, telemetry_worker_handle) = params.other;
-	let net_config = sc_network::config::FullNetworkConfiguration::new(&parachain_config.network);
+	let net_config = sc_network::config::FullNetworkConfiguration::<
+		_,
+		_,
+		sc_network::NetworkWorker<opaque::Block, opaque::Hash>,
+	>::new(&parachain_config.network);
 
 	let client = params.client.clone();
 	let backend = params.backend.clone();
@@ -225,7 +236,7 @@ where
 				transaction_pool: Some(OffchainTransactionPoolFactory::new(
 					transaction_pool.clone(),
 				)),
-				network_provider: network.clone(),
+				network_provider: Arc::new(network.clone()),
 				is_validator: parachain_config.role.is_authority(),
 				enable_http_requests: false,
 				custom_extensions: move |_| vec![],
@@ -341,7 +352,6 @@ where
 			&task_manager,
 			relay_chain_interface.clone(),
 			transaction_pool,
-			sync_service.clone(),
 			params.keystore_container.keystore(),
 			relay_chain_slot_duration,
 			para_id,
@@ -372,8 +382,6 @@ where
 		sc_client_api::StateBackend<Keccak256>,
 	Executor: CodeExecutor + RuntimeVersionOf + 'static,
 {
-	let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
-
 	Ok(cumulus_client_consensus_aura::equivocation_import_queue::fully_verifying_import_queue::<
 		sp_consensus_aura::sr25519::AuthorityPair,
 		_,
@@ -387,7 +395,6 @@ where
 			let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
 			Ok(timestamp)
 		},
-		slot_duration,
 		&task_manager.spawn_essential_handle(),
 		config.prometheus_registry(),
 		telemetry,
@@ -403,7 +410,6 @@ fn start_consensus<Runtime>(
 	task_manager: &TaskManager,
 	relay_chain_interface: Arc<dyn RelayChainInterface>,
 	transaction_pool: Arc<sc_transaction_pool::FullPool<opaque::Block, FullClient<Runtime>>>,
-	sync_oracle: Arc<SyncingService<opaque::Block>>,
 	keystore: KeystorePtr,
 	relay_chain_slot_duration: Duration,
 	para_id: ParaId,
@@ -419,9 +425,6 @@ where
 {
 	// NOTE: because we use Aura here explicitly, we can use `CollatorSybilResistance::Resistant`
 	// when starting the network.
-
-	let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
-
 	let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
 		task_manager.spawn_handle(),
 		client.clone(),
@@ -463,12 +466,11 @@ where
 		code_hash_provider: move |hash| {
 			client.code_at(hash).ok().map(ValidationCode).map(|c| c.hash())
 		},
-		sync_oracle,
 		keystore,
 		collator_key,
 		para_id,
 		overseer_handle,
-		slot_duration,
+		reinitialize: true,
 		relay_chain_slot_duration,
 		proposer,
 		collator_service,
@@ -479,7 +481,6 @@ where
 	let fut = lookahead::run::<
 		opaque::Block,
 		sp_consensus_aura::sr25519::AuthorityPair,
-		_,
 		_,
 		_,
 		_,

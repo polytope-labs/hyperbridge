@@ -50,7 +50,7 @@ pub trait MerkleMountainRangeTree {
 	/// Generates a proof for the MMR at the current block height.
 	fn generate_proof(
 		indices: Vec<u64>,
-	) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), primitives::Error>;
+	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), primitives::Error>;
 
 	/// Push a new leaf into the MMR. Doesn't actually perform any expensive tree recomputation.
 	/// Simply adds the leaves to a buffer where they can be recalled when the tree actually
@@ -86,7 +86,7 @@ impl<T: FullLeaf, H: ismp::messaging::Keccak256> MerkleMountainRangeTree for NoO
 
 	fn generate_proof(
 		_indices: Vec<u64>,
-	) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), primitives::Error> {
+	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), primitives::Error> {
 		Err(primitives::Error::GenerateProof)?
 	}
 

@@ -15,12 +15,14 @@
 
 #![cfg(test)]
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use frame_support::traits::fungible::{Inspect, Mutate};
+use frame_support::traits::{
+	fungible::{Inspect, Mutate},
+	Time,
+};
 use frame_system::Origin;
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::traits::AccountIdConversion;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},

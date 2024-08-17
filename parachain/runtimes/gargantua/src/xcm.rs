@@ -19,8 +19,8 @@ use super::{
 };
 use crate::AllPalletsWithSystem;
 use frame_support::{
-	match_types, parameter_types,
-	traits::{ConstU32, Everything, Nothing},
+	parameter_types,
+	traits::{ConstU32, Contains, Everything, Nothing},
 	weights::Weight,
 };
 use frame_system::EnsureRoot;
@@ -30,7 +30,7 @@ use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
 use sp_runtime::traits::Identity;
-use staging_xcm::latest::prelude::*;
+use staging_xcm::latest::{prelude::*, Junctions::X1};
 use staging_xcm_builder::{
 	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom,
 	ConvertedConcreteId, EnsureXcmOrigin, FixedWeightBounds, NoChecking, ParentIsPreset,
@@ -43,11 +43,11 @@ use staging_xcm_executor::XcmExecutor;
 use pallet_asset_gateway::xcm_utilities::HyperbridgeAssetTransactor;
 
 parameter_types! {
-	pub const RelayLocation: MultiLocation = MultiLocation::parent();
+	pub const RelayLocation: Location = Location::parent();
 	pub const RelayNetwork: Option<NetworkId> = None;
 	pub RelayChainOrigin: RuntimeOrigin = cumulus_pallet_xcm::Origin::Relay.into();
-	pub Ancestry: MultiLocation = Parachain(ParachainInfo::parachain_id().into()).into();
-	pub UniversalLocation: InteriorMultiLocation = Parachain(ParachainInfo::parachain_id().into()).into();
+	pub Ancestry: Location = Parachain(ParachainInfo::parachain_id().into()).into();
+	pub UniversalLocation: InteriorLocation = Parachain(ParachainInfo::parachain_id().into()).into();
 	pub CheckingAccount: AccountId = PolkadotXcm::check_account();
 }
 
@@ -66,7 +66,7 @@ pub type LocationToAccountId = (
 /// Means for transacting assets on this chain.
 pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 	Runtime,
-	ConvertedConcreteId<MultiLocation, Balance, Identity, Identity>,
+	ConvertedConcreteId<Location, Balance, Identity, Identity>,
 	LocationToAccountId,
 	NoChecking,
 	CheckingAccount,
@@ -100,11 +100,18 @@ parameter_types! {
 	pub const MaxAssetsIntoHolding: u32 = 64;
 }
 
-match_types! {
-	pub type ParentOrParentsExecutivePlurality: impl Contains<MultiLocation> = {
-		MultiLocation { parents: 1, interior: Here } |
-		MultiLocation { parents: 1, interior: X1(Plurality { id: BodyId::Executive, .. }) }
-	};
+pub struct ParentOrParentsExecutivePlurality;
+impl Contains<Location> for ParentOrParentsExecutivePlurality {
+	fn contains(location: &Location) -> bool {
+		match location {
+			Location { parents: 1, interior: Here } => true,
+			Location { parents: 1, interior: X1(arc) }
+				if arc.len() == 1 &&
+					matches!(arc.as_ref(), [Plurality { id: BodyId::Executive, .. }]) =>
+				true,
+			_ => false,
+		}
+	}
 }
 
 pub type Barrier = (
@@ -143,6 +150,11 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type UniversalAliases = Nothing;
 	type CallDispatcher = RuntimeCall;
 	type SafeCallFilter = Nothing;
+	type TransactionalProcessor = ();
+	type HrmpNewChannelOpenRequestHandler = ();
+	type HrmpChannelAcceptedHandler = ();
+	type HrmpChannelClosingHandler = ();
+	type XcmRecorder = ();
 }
 
 /// No local origins on this chain are allowed to dispatch XCM sends/executions.
@@ -159,7 +171,7 @@ pub type XcmRouter = (
 
 #[cfg(feature = "runtime-benchmarks")]
 parameter_types! {
-	pub ReachableDest: Option<MultiLocation> = Some(Parent.into());
+	pub ReachableDest: Option<Location> = Some(Parent.into());
 }
 
 impl pallet_xcm::Config for Runtime {

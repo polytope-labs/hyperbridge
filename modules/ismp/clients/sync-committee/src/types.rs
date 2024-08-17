@@ -43,6 +43,6 @@ pub enum L2Consensus {
 	ArbitrumOrbit(H160),
 	/// Op Stack L2 Oracle Address
 	OpL2Oracle(H160),
-	/// Op Stack Dispute game factory address
-	OpFaultProofs(H160),
+	/// Op Stack Dispute game factory address and the respected game type
+	OpFaultProofs((H160, u32)),
 }

@@ -42,8 +42,9 @@ pub use pallet::*;
 use sp_core::{H160, H256, U256};
 use sp_runtime::{traits::AccountIdConversion, Permill};
 use staging_xcm::{
-	v3::{AssetId, Fungibility, Junction, MultiAsset, MultiAssets, MultiLocation, WeightLimit},
-	VersionedMultiAssets, VersionedMultiLocation,
+	prelude::Assets,
+	v4::{Asset, AssetId, Fungibility, Junction, Location, WeightLimit},
+	VersionedAssets, VersionedLocation,
 };
 use xcm_utilities::MultiAccount;
 
@@ -304,7 +305,7 @@ impl<T: Config> IsmpModule for Module<T>
 where
 	<T::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
 	u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
-	<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<MultiLocation>,
+	<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<Location>,
 	T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
 {
 	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), ismp::error::Error> {
@@ -375,18 +376,17 @@ where
 				},
 			})?;
 
-		let asset_id = MultiLocation::parent();
+		let asset_id = Location::parent();
 
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
-		let xcm_beneficiary: MultiLocation =
+		let xcm_beneficiary: Location =
 			Junction::AccountId32 { network: None, id: body.to.0 }.into();
-		let xcm_dest = VersionedMultiLocation::V3(MultiLocation::parent());
+		let xcm_dest = VersionedLocation::V4(Location::parent());
 		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
-		let asset =
-			MultiAsset { id: AssetId::Concrete(asset_id), fun: Fungibility::Fungible(amount) };
+		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 
-		let mut assets = MultiAssets::new();
+		let mut assets = Assets::new();
 		assets.push(asset);
 
 		// Send xcm back to relaychain
@@ -394,7 +394,7 @@ where
 			frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 			Box::new(xcm_dest),
 			Box::new(xcm_beneficiary.into()),
-			Box::new(VersionedMultiAssets::V3(assets)),
+			Box::new(VersionedAssets::V4(assets)),
 			fee_asset_item,
 			weight_limit,
 		)
@@ -469,23 +469,21 @@ where
 						})?;
 				// We do an xcm limited reserve transfer from the pallet custody account to the user
 				// on the relaychain;
-				let xcm_beneficiary: MultiLocation =
+				let xcm_beneficiary: Location =
 					Junction::AccountId32 { network: None, id: beneficiary.clone().into() }.into();
-				let xcm_dest = VersionedMultiLocation::V3(MultiLocation::parent());
+				let xcm_dest = VersionedLocation::V4(Location::parent());
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
-				let asset = MultiAsset {
-					id: AssetId::Concrete(MultiLocation::parent()),
-					fun: Fungibility::Fungible(amount),
-				};
+				let asset =
+					Asset { id: AssetId(Location::parent()), fun: Fungibility::Fungible(amount) };
 
-				let mut assets = MultiAssets::new();
+				let mut assets = Assets::new();
 				assets.push(asset);
 				pallet_xcm::Pallet::<T>::limited_reserve_transfer_assets(
 					frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 					Box::new(xcm_dest),
 					Box::new(xcm_beneficiary.into()),
-					Box::new(VersionedMultiAssets::V3(assets)),
+					Box::new(VersionedAssets::V4(assets)),
 					fee_asset_item,
 					weight_limit,
 				)

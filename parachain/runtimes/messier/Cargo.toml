@@ -93,7 +93,7 @@ pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
 pallet-asset-gateway = { workspace = true  }
 pallet-token-governor = { workspace = true }
-
+hyperbridge-client-machine = { workspace = true }
 
 pallet-mmr = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
@@ -127,6 +127,7 @@ std = [
 	"pallet-balances/std",
 	"pallet-collator-selection/std",
 	"pallet-session/std",
+	"hyperbridge-client-machine/std",
 	"pallet-sudo/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",

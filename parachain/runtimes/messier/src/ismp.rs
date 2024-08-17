@@ -133,10 +133,10 @@ impl pallet_asset_gateway::Config for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<MultiLocation> for XcmBenchmarkHelper {
-	fn create_asset_id_parameter(id: u32) -> MultiLocation {
-		use staging_xcm::v3::Junction::Parachain;
-		MultiLocation::new(1, Parachain(id))
+impl BenchmarkHelper<Location> for XcmBenchmarkHelper {
+	fn create_asset_id_parameter(id: u32) -> Location {
+		use staging_xcm::v4::Junction::Parachain;
+		Location::new(1, Parachain(id))
 	}
 }
 

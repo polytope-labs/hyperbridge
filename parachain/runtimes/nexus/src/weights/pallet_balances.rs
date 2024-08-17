@@ -137,14 +137,14 @@ impl<T: frame_system::Config> pallet_balances::WeightInfo for WeightInfo<T> {
 	}
 
 	fn force_adjust_total_issuance() -> Weight {
-		todo!()
+		Weight::default()
 	}
 
 	fn burn_allow_death() -> Weight {
-		todo!()
+		Weight::default()
 	}
 
 	fn burn_keep_alive() -> Weight {
-		todo!()
+		Weight::default()
 	}
 }

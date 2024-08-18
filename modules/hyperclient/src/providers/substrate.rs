@@ -199,7 +199,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		}
 		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				let keys =
 					ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
@@ -208,10 +208,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Beefy(_) => {
+			s if s.is_substrate() => {
 				let keys: Vec<_> = keys
 					.into_iter()
 					.map(|key| request_commitment_storage_key(key.commitment))
@@ -226,7 +223,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				});
 				Ok(proof.encode())
 			},
-			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
+			s => Err(anyhow::anyhow!("Unsupported state machine {s:?} !")),
 		}
 	}
 
@@ -242,7 +239,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				let keys =
 					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
@@ -251,10 +248,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Beefy(_) => {
+			s if s.is_substrate() => {
 				let keys: Vec<_> = keys
 					.into_iter()
 					.map(|key| response_commitment_storage_key(key.commitment))
@@ -269,7 +263,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				});
 				Ok(proof.encode())
 			},
-			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
+			s => Err(anyhow::anyhow!("Unsupported state machine {s:?} !")),
 		}
 	}
 
@@ -325,12 +319,15 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 					let event = events.into_iter().find_map(|event| {
 						let value = match event.event.clone() {
-							Event::PostRequest(post) =>
-								Some(hash_request::<Keccak256>(&Request::Post(post.clone()))),
-							Event::PostResponse(resp) =>
-								Some(hash_response::<Keccak256>(&Response::Post(resp))),
-							Event::GetResponse(response) =>
-								Some(hash_request::<Keccak256>(&Request::Get(response.get))),
+							Event::PostRequest(post) => {
+								Some(hash_request::<Keccak256>(&Request::Post(post.clone())))
+							},
+							Event::PostResponse(resp) => {
+								Some(hash_response::<Keccak256>(&Response::Post(resp)))
+							},
+							Event::GetResponse(response) => {
+								Some(hash_request::<Keccak256>(&Request::Get(response.get)))
+							},
 							_ => None,
 						};
 
@@ -342,8 +339,9 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					});
 
 					let value = match event {
-						Some(event) =>
-							Some((Ok(Some(event)), (header.number().into(), subscription, client))),
+						Some(event) => {
+							Some((Ok(Some(event)), (header.number().into(), subscription, client)))
+						},
 						None => Some((Ok(None), (header.number().into(), subscription, client))),
 					};
 
@@ -385,7 +383,14 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let key = pallet_ismp::child_trie::state_commitment_storage_key(height);
+		// calculate key manually because sp_io uses host functions that are not available in the
+		// browser
+		let key = [
+			pallet_ismp::child_trie::STATE_COMMITMENTS_KEY.to_vec(),
+			ethers::utils::keccak256(&height.encode()).to_vec(),
+		]
+		.concat();
+
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 		let storage_key = StorageKey(key);
 		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
@@ -434,7 +439,9 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					.filter_map(|event| match event.event {
 						Event::StateMachineUpdated(e)
 							if e.state_machine_id == counterparty_state_id =>
-							Some((e, event.meta)),
+						{
+							Some((e, event.meta))
+						},
 						_ => None,
 					})
 					.max_by(|x, y| x.0.latest_height.cmp(&y.0.latest_height));

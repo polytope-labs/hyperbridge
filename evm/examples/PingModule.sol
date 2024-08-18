@@ -9,6 +9,7 @@ import "@polytope-labs/ismp-solidity/StateMachine.sol";
 import "@polytope-labs/ismp-solidity/Message.sol";
 import "@polytope-labs/ismp-solidity/IDispatcher.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/Types.sol";
 
 struct PingMessage {
     bytes dest;
@@ -24,7 +25,7 @@ contract PingModule is IIsmpModule {
     using Message for GetRequest;
 
     event PostResponseReceived();
-    event GetResponseReceived();
+    event GetResponseReceived(StorageValue[] message);
     event PostRequestTimeoutReceived();
     event PostResponseTimeoutReceived();
     event GetTimeoutReceived();
@@ -166,8 +167,8 @@ contract PingModule is IIsmpModule {
         emit PostResponseReceived();
     }
 
-    function onGetResponse(IncomingGetResponse memory) external onlyIsmpHost {
-        emit GetResponseReceived();
+    function onGetResponse(IncomingGetResponse memory response) external onlyIsmpHost {
+        emit GetResponseReceived(response.response.values);
     }
 
     function onGetTimeout(GetRequest memory) external onlyIsmpHost {

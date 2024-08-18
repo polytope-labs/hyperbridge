@@ -51,10 +51,17 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 	fn try_from(value: JsClientConfig) -> Result<Self, Self::Error> {
 		let to_config = |val: &JsChainConfig| {
 			if !val.host_address.is_empty() {
+				let state_machine = if val.state_machine.starts_with("0x") {
+					let bytes =
+						from_hex(&val.state_machine).map_err(|err| anyhow!("Hex: {err:?}"))?;
+					StateMachine::from_str(&String::from_utf8(bytes)?)
+						.map_err(|e| anyhow!("{e:?}"))?
+				} else {
+					StateMachine::from_str(&val.state_machine).map_err(|e| anyhow!("{e:?}"))?
+				};
 				let conf = EvmConfig {
 					rpc_url: val.rpc_url.clone(),
-					state_machine: StateMachine::from_str(&val.state_machine)
-						.map_err(|e| anyhow!("{e:?}"))?,
+					state_machine,
 					host_address: {
 						let address = from_hex(&val.host_address)?;
 						if address.len() != 20 {

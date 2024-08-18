@@ -122,6 +122,24 @@ jobs:
         with:
           key: ${{ join(matrix.targets, '-') }}
 
+      - name: Install yarn
+        run: |
+          curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
+          chmod +x $HOME/bin/yarn
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+          cache-dependency-path: "evm/yarn.lock"
+          cache: "yarn"
+
+      - name: Install npm dependencies
+        working-directory: evm
+        run: |
+          yarn install
+
       - name: Install dependencies
         run: |
           sudo apt-get update

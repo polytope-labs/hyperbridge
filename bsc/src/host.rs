@@ -390,7 +390,7 @@ impl IsmpHost for BscPosHost {
 			consensus_client_id: ismp_bsc::BSC_CONSENSUS_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
-			challenge_period: 5 * 60,
+			challenge_periods: vec![(self.state_machine, 5 * 60)].into_iter().collect(),
 			state_machine_commitments: vec![],
 		}))
 	}

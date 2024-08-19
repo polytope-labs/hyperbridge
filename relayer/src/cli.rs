@@ -180,7 +180,11 @@ async fn initialize_consensus_clients(
 			let host_param = provider.query_host_params(*state_machine).await?;
 			params.insert(*state_machine, host_param);
 			if let Some(mut consensus_state) = client.query_initial_consensus_state().await? {
-				consensus_state.challenge_period = relayer.challenge_period.unwrap_or_default();
+				consensus_state.challenge_periods = consensus_state
+					.challenge_periods
+					.into_iter()
+					.map(|(key, _)| (key, relayer.challenge_period.unwrap_or_default()))
+					.collect();
 				hyperbridge.client().create_consensus_state(consensus_state).await?;
 			}
 		}

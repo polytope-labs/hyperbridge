@@ -179,8 +179,9 @@ impl<C: Config> SyncCommitteeHost<C> {
 			l2_consensus.insert(state_machine, L2Consensus::OpL2Oracle(address));
 		}
 
-		for (state_machine, address) in params.dispute_factory_address {
-			l2_consensus.insert(state_machine, L2Consensus::OpFaultProofs(address));
+		for (state_machine, (address, respected_game_type)) in params.dispute_factory_address {
+			l2_consensus
+				.insert(state_machine, L2Consensus::OpFaultProofs((address, respected_game_type)));
 		}
 
 		for (state_machine, address) in params.rollup_core_address {
@@ -232,5 +233,5 @@ impl<C: Config> Clone for SyncCommitteeHost<C> {
 pub struct GetConsensusStateParams {
 	pub l2_oracle_address: BTreeMap<StateMachine, H160>,
 	pub rollup_core_address: BTreeMap<StateMachine, H160>,
-	pub dispute_factory_address: BTreeMap<StateMachine, H160>,
+	pub dispute_factory_address: BTreeMap<StateMachine, (H160, u32)>,
 }

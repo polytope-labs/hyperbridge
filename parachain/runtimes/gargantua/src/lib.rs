@@ -67,7 +67,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot,
+	EnsureRoot, EnsureRootWithSuccess,
 };
 
 use pallet_ismp::mmr::Proof;
@@ -88,9 +88,14 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use ::ismp::host::StateMachine;
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
-use frame_support::{derive_impl, traits::ConstBool};
+use frame_support::{
+	derive_impl,
+	traits::{tokens::pay::PayAssetFromAccount, ConstBool},
+};
 use pallet_ismp::mmr::{Leaf, ProofKeys};
-use sp_core::Get;
+use sp_core::{crypto::AccountId32, Get};
+use sp_runtime::traits::IdentityLookup;
+use staging_xcm::latest::Location;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -553,6 +558,45 @@ impl pallet_utility::Config for Runtime {
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
 }
 
+parameter_types! {
+	pub const SpendingPeriod: BlockNumber = 6 * DAYS;
+	pub const TreasuryPalletId: PalletId = PalletId(*b"hb/trsry");
+	pub const PayoutPeriod: BlockNumber = 14 * DAYS;
+	pub const MaxBalance: Balance = Balance::max_value();
+	pub TreasuryAccount: AccountId = Treasury::account_id();
+}
+
+/// A way to pay from treasury
+impl pallet_treasury::Config for Runtime {
+	type Currency = Balances;
+	type RejectOrigin = EnsureRoot<AccountId32>;
+	type RuntimeEvent = RuntimeEvent;
+	type SpendPeriod = SpendingPeriod;
+	type Burn = ();
+	type PalletId = TreasuryPalletId;
+	type BurnDestination = ();
+	type WeightInfo = ();
+	type SpendFunds = ();
+	type MaxApprovals = ConstU32<1>; // number of technical collectives
+	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
+	type AssetKind = Location;
+	type Beneficiary = AccountId32;
+	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
+	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
+	type BalanceConverter = AssetRate;
+	type PayoutPeriod = PayoutPeriod;
+}
+
+impl pallet_asset_rate::Config for Runtime {
+	type WeightInfo = ();
+	type RuntimeEvent = RuntimeEvent;
+	type CreateOrigin = EnsureRoot<AccountId32>;
+	type RemoveOrigin = EnsureRoot<AccountId32>;
+	type UpdateOrigin = EnsureRoot<AccountId32>;
+	type Currency = Balances;
+	type AssetKind = Location;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime
@@ -567,6 +611,8 @@ construct_runtime!(
 		// Monetary stuff.
 		Balances: pallet_balances = 10,
 		TransactionPayment: pallet_transaction_payment = 11,
+		Treasury: pallet_treasury = 12,
+		AssetRate: pallet_asset_rate = 13,
 
 		// Collator support. The order of these 4 are important and shall not change.
 		Authorship: pallet_authorship = 20,

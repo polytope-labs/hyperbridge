@@ -38,6 +38,9 @@ pallet-balances = { workspace = true }
 pallet-assets = { workspace = true }
 pallet-session = { workspace = true }
 pallet-sudo = { workspace = true }
+pallet-treasury = { workspace = true}
+pallet-asset-rate = { workspace = true}
+pallet-collective = { workspace = true}
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
@@ -137,6 +140,9 @@ std = [
 	"pallet-ismp-runtime-api/std",
 	"pallet-ismp-demo/std",
 	"parachain-info/std",
+	"pallet-treasury/std",
+	"pallet-asset-rate/std",
+	"pallet-collective/std",
 	"polkadot-parachain-primitives/std",
 	"polkadot-runtime-common/std",
 	"sp-api/std",
@@ -184,6 +190,9 @@ runtime-benchmarks = [
 	"frame-system/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-collator-selection/runtime-benchmarks",
+	"pallet-treasury/runtime-benchmarks",
+	"pallet-collective/runtime-benchmarks",
+	"pallet-asset-rate/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-xcm/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",

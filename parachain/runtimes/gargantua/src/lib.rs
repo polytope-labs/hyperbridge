@@ -28,6 +28,7 @@ mod weights;
 pub mod xcm;
 
 use alloc::vec::Vec;
+use alloc::sync::Arc;
 use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
@@ -92,10 +93,15 @@ use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, ConstBool},
 };
+use pallet_asset_rate::AssetKindFactory;
+use pallet_collective::PrimeDefaultVote;
+use pallet_treasury::ArgumentsFactory;
 use pallet_ismp::mmr::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};
+use sp_core::crypto::FromEntropy;
 use sp_runtime::traits::IdentityLookup;
-use staging_xcm::latest::Location;
+use staging_xcm::latest::Junctions::X1;
+use staging_xcm::latest::{Junction, Location};
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -564,6 +570,40 @@ parameter_types! {
 	pub const PayoutPeriod: BlockNumber = 14 * DAYS;
 	pub const MaxBalance: Balance = Balance::max_value();
 	pub TreasuryAccount: AccountId = Treasury::account_id();
+	pub const TechnicalMotionDuration: BlockNumber = 5 * DAYS;
+	pub const TechnicalMaxProposals: u32 = 100;
+	pub const TechnicalMaxMembers: u32 = 10;
+	pub MaxCollectivesProposalWeight: Weight = Perbill::from_percent(50) * RuntimeBlockWeights::get().max_block;
+}
+
+pub struct TreasuryAssetFactory{}
+impl<A,B> ArgumentsFactory<A,B> for TreasuryAssetFactory
+where
+	A: From<Location>,
+	B: FromEntropy
+{
+	fn create_asset_kind(seed: u32) -> A {
+		Location{
+			parents: 0,
+			interior:X1(Arc::new([Junction::GeneralIndex(seed as u128)]))
+		}.into()
+	}
+
+	fn create_beneficiary(seed: [u8; 32]) -> B {
+		B::from_entropy(&mut seed.as_slice()).unwrap()
+	}
+}
+
+impl<A> AssetKindFactory<A> for TreasuryAssetFactory
+where
+	A: From<Location>
+{
+	fn create_asset_kind(seed: u32) -> A {
+		Location{
+			parents: 0,
+			interior:X1(Arc::new([Junction::GeneralIndex(seed as u128)]))
+		}.into()
+	}
 }
 
 /// A way to pay from treasury
@@ -585,6 +625,8 @@ impl pallet_treasury::Config for Runtime {
 	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
 	type BalanceConverter = AssetRate;
 	type PayoutPeriod = PayoutPeriod;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = TreasuryAssetFactory;
 }
 
 impl pallet_asset_rate::Config for Runtime {
@@ -595,8 +637,22 @@ impl pallet_asset_rate::Config for Runtime {
 	type UpdateOrigin = EnsureRoot<AccountId32>;
 	type Currency = Balances;
 	type AssetKind = Location;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = TreasuryAssetFactory;
 }
 
+impl pallet_collective::Config for Runtime {
+	type RuntimeOrigin = RuntimeOrigin;
+	type Proposal = RuntimeCall;
+	type RuntimeEvent = RuntimeEvent;
+	type MotionDuration = TechnicalMotionDuration;
+	type MaxProposals = TechnicalMaxProposals;
+	type MaxMembers = TechnicalMaxMembers;
+	type DefaultVote = PrimeDefaultVote;
+	type WeightInfo = ();
+	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
+	type MaxProposalWeight = MaxCollectivesProposalWeight;
+}
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime
@@ -645,6 +701,9 @@ construct_runtime!(
 		Assets: pallet_assets = 58,
 		TokenGovernor: pallet_token_governor = 59,
 		StateCoprocessor: pallet_state_coprocessor = 60,
+
+		// Governance
+		TechnicalCollective: pallet_collective = 80
 	}
 );
 

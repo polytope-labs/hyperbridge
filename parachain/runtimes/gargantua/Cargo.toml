@@ -40,6 +40,7 @@ pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 pallet-message-queue = { workspace = true }
 pallet-treasury = { workspace = true}
 pallet-asset-rate = { workspace = true}
+pallet-collective = { workspace = true}
 sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-consensus-aura = { workspace = true }
@@ -134,6 +135,7 @@ std = [
 	"pallet-xcm/std",
 	"pallet-treasury/std",
 	"pallet-asset-rate/std",
+	"pallet-collective/std",
 	"pallet-ismp/std",
 	"pallet-ismp-runtime-api/std",
 	"pallet-ismp-demo/std",
@@ -191,6 +193,9 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-xcm/runtime-benchmarks",
 	"pallet-utility/runtime-benchmarks",
+	"pallet-treasury/runtime-benchmarks",
+	"pallet-collective/runtime-benchmarks",
+	"pallet-asset-rate/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
 	"staging-xcm-builder/runtime-benchmarks",
 	"pallet-xcm/runtime-benchmarks",

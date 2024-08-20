@@ -21,13 +21,15 @@ pub const VALIDATOR_BIT_SET_SIZE: usize = 64;
 
 /// This trait should be used to host parameters that could be potentially be different for mainnet
 /// and testnet and affect how headers are verified
-pub trait Config {
+pub trait Config: Clone + Send + Sync {
 	/// Timestamp at which the BOHR fork occured
 	const BOHR_FORK_TIMESTAMP: u64;
 }
 
+#[derive(Clone, Default)]
 pub struct Testnet;
 
+#[derive(Clone, Default)]
 pub struct Mainnet;
 
 impl Config for Testnet {

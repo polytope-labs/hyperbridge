@@ -74,7 +74,10 @@ pub async fn get_beacon_update<T: Config + Send + Sync + 'static>(
 						l2_oracle_payload.insert(state_machine, payload);
 					}
 				},
-				(L2Host::OpStack(op_client), L2Consensus::OpFaultProofs(_)) => {
+				(
+					L2Host::OpStack(op_client),
+					L2Consensus::OpFaultProofs((_, respected_game_type)),
+				) => {
 					let latest_events = op_client
 						.latest_dispute_games(
 							latest_height,
@@ -84,6 +87,7 @@ pub async fn get_beacon_update<T: Config + Send + Sync + 'static>(
 					let payload = op_client
 						.fetch_dispute_game_payload(
 							consensus_update.execution_payload.block_number,
+							respected_game_type,
 							latest_events,
 						)
 						.await?;

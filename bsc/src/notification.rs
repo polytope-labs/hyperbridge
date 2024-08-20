@@ -2,7 +2,7 @@ use codec::{Decode, Encode};
 use ismp::messaging::{ConsensusMessage, Message};
 use ismp_bsc::ConsensusState;
 
-use bsc_verifier::primitives::{compute_epoch, BscClientUpdate};
+use bsc_verifier::primitives::{compute_epoch, BscClientUpdate, Config};
 use ethers::types::Block;
 use primitive_types::H256;
 use sp_core::H160;
@@ -12,8 +12,8 @@ use tesseract_primitives::IsmpProvider;
 
 use crate::{BscPosHost, KeccakHasher};
 
-pub async fn consensus_notification(
-	client: &BscPosHost,
+pub async fn consensus_notification<C: Config>(
+	client: &BscPosHost<C>,
 	counterparty: Arc<dyn IsmpProvider>,
 	_block: Block<H256>,
 ) -> Result<(Option<BscClientUpdate>, Option<ConsensusState>), anyhow::Error> {

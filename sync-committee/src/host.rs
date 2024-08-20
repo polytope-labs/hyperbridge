@@ -244,8 +244,12 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 					));
 				},
 				L2Host::OpStack(host) => {
-					if let Some(dispute_factory) = host.host.dispute_game_factory {
-						dispute_factory_address.insert(host.evm.state_machine, dispute_factory);
+					if let Some((dispute_factory, respected_game_type)) =
+						host.host.dispute_game_factory.and_then(|addr| {
+							host.host.respected_game_type.map(|game_type| (addr, game_type))
+						}) {
+						dispute_factory_address
+							.insert(host.evm.state_machine, (dispute_factory, respected_game_type));
 					}
 
 					if let Some(l2_oracle_address) = host.host.l2_oracle {
@@ -310,7 +314,10 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 			consensus_client_id: BEACON_CONSENSUS_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
-			challenge_period: 5 * 60,
+			challenge_periods: state_machine_commitments
+				.iter()
+				.map(|(state_machine, ..)| (state_machine.state_id, 5 * 60))
+				.collect(),
 			state_machine_commitments,
 		}))
 	}

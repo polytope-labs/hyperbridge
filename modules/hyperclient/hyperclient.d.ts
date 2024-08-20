@@ -87,7 +87,7 @@ interface IGetRequest {
   /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
   /// For fetching keys from EVM contracts each key should be 52 bytes
   /// This should be a concatenation of contract address and slot hash
-  keys: string[];
+  keys: `0x{string}`[];
   // Timestamp which this request expires in seconds.
   timeoutTimestamp: bigint;
   // Height at which this request was emitted on the source
@@ -276,19 +276,25 @@ export class HyperClient {
    * @param {IPostRequest} request
    * @returns {Promise<MessageStatusWithMeta>}
    */
-  query_post_request_status(request: IPostRequest): Promise<MessageStatusWithMeta>;
+  query_post_request_status(
+    request: IPostRequest,
+  ): Promise<MessageStatusWithMeta>;
   /**
    * Queries the status of a request and returns `MessageStatusWithMetadata`
    * @param {IGetRequest} request
    * @returns {Promise<any>}
    */
-  query_get_request_status(request: IGetRequest): Promise<MessageStatusWithMeta>;
+  query_get_request_status(
+    request: IGetRequest,
+  ): Promise<MessageStatusWithMeta>;
   /**
    * Accepts a post response and returns a `MessageStatusWithMetadata`
    * @param {IPostResponse} response
    * @returns {Promise<MessageStatusWithMeta>}
    */
-  query_post_response_status(response: IPostResponse): Promise<MessageStatusWithMeta>;
+  query_post_response_status(
+    response: IPostResponse,
+  ): Promise<MessageStatusWithMeta>;
   /**
    * Return the status of a post request as a `ReadableStream` that yields
    * `MessageStatusWithMeta`
@@ -306,7 +312,7 @@ export class HyperClient {
    * @returns {Promise<ReadableStream<MessageStatusWithMeta>>}
    */
   get_request_status_stream(
-    request: IGetRequest
+    request: IGetRequest,
   ): Promise<ReadableStream<MessageStatusWithMeta>>;
 
   /**

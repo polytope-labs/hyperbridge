@@ -199,7 +199,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		}
 		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				let keys =
 					ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
@@ -208,10 +208,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Beefy(_) => {
+			s if s.is_substrate() => {
 				let keys: Vec<_> = keys
 					.into_iter()
 					.map(|key| request_commitment_storage_key(key.commitment))
@@ -226,7 +223,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				});
 				Ok(proof.encode())
 			},
-			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
+			s => Err(anyhow::anyhow!("Unsupported state machine {s:?} !")),
 		}
 	}
 
@@ -242,7 +239,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				let keys =
 					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
@@ -251,10 +248,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Beefy(_) => {
+			s if s.is_substrate() => {
 				let keys: Vec<_> = keys
 					.into_iter()
 					.map(|key| response_commitment_storage_key(key.commitment))
@@ -269,7 +263,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				});
 				Ok(proof.encode())
 			},
-			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
+			s => Err(anyhow::anyhow!("Unsupported state machine {s:?} !")),
 		}
 	}
 
@@ -385,7 +379,14 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let key = pallet_ismp::child_trie::state_commitment_storage_key(height);
+		// calculate key manually because sp_io uses host functions that are not available in the
+		// browser
+		let key = [
+			pallet_ismp::child_trie::STATE_COMMITMENTS_KEY.to_vec(),
+			ethers::utils::keccak256(&height.encode()).to_vec(),
+		]
+		.concat();
+
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 		let storage_key = StorageKey(key);
 		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];

@@ -16,7 +16,29 @@ const BLS_PUBLIC_KEY_LENGTH: usize = 48;
 const VALIDATOR_BYTES_LENGTH: usize = 20 + BLS_PUBLIC_KEY_LENGTH;
 const VALIDATOR_NUMBER_SIZE: usize = 1; // // Fixed number of extra prefix bytes reserved for validator number after Luban
 const ADDRESS_LENGTH: usize = 20;
+const TURN_LENGTH_SIZE: usize = 1;
 pub const VALIDATOR_BIT_SET_SIZE: usize = 64;
+
+/// This trait should be used to host parameters that could be potentially be different for mainnet
+/// and testnet and affect how headers are verified
+pub trait Config: Clone + Send + Sync {
+	/// Timestamp at which the BOHR fork occured
+	const BOHR_FORK_TIMESTAMP: u64;
+}
+
+#[derive(Clone, Default)]
+pub struct Testnet;
+
+#[derive(Clone, Default)]
+pub struct Mainnet;
+
+impl Config for Testnet {
+	const BOHR_FORK_TIMESTAMP: u64 = 1724116996;
+}
+
+impl Config for Mainnet {
+	const BOHR_FORK_TIMESTAMP: u64 = u64::MAX;
+}
 
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct BscClientUpdate {
@@ -68,8 +90,10 @@ pub struct VoteData {
 	pub target_hash: B256,
 }
 
-pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow::Error> {
-	let data = extra_data;
+pub fn parse_extra<H: Keccak256, C: Config>(
+	header: &CodecHeader,
+) -> Result<ExtraData, anyhow::Error> {
+	let data = header.extra_data.as_slice();
 
 	let mut extra = ExtraData {
 		extra_vanity: Vec::new(),
@@ -86,7 +110,7 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
 		vote_address_set: 0,
 	};
 
-	if extra_data.len() < EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH {
+	if data.len() < EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH {
 		Err(anyhow!("Invalid extra data"))?;
 	}
 
@@ -126,7 +150,17 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
 				extra.validators.push(validator_info);
 			}
 			extra.validators.sort_by(|a, b| a.address.0.cmp(&b.address.0));
-			data = &remaining_data[validator_bytes_total_length - VALIDATOR_NUMBER_SIZE..];
+
+			// Check for BOHR fork
+			data = if header.timestamp >= C::BOHR_FORK_TIMESTAMP {
+				// In Bohr fork there is an extra byte for turn
+				// https://github.com/bnb-chain/bsc/blob/26a4d4fda656cc78436c1931aaea5dc3ed33eeeb/consensus/parlia/parlia.go#L383
+				let index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE + TURN_LENGTH_SIZE;
+				&remaining_data[index..]
+			} else {
+				let index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE;
+				&remaining_data[index..]
+			};
 			data_length = data.len();
 		}
 

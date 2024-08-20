@@ -192,7 +192,7 @@ impl pallet_ismp::Config for Test {
 	type ConsensusClients = (
 		MockConsensusClient,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test>,
-		ismp_bsc::BscClient<Ismp, Test>,
+		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
 	);
 	type Mmr = Mmr;
 	type WeightProvider = ();

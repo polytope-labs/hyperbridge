@@ -55,6 +55,11 @@ pub async fn message_timeout_stream(
 	timeout: u64,
 	client: impl Client + Clone,
 ) -> BoxStream<MessageStatusWithMetadata> {
+	if timeout == 0 {
+		// since it doesn't timeout, use stream pending here
+		return Box::pin(stream::pending());
+	}
+
 	let stream = stream::unfold(client, move |client| async move {
 		let lambda = || async {
 			let current_timestamp = client.query_timestamp().await?.as_secs();

@@ -1,5 +1,5 @@
 use bsc_verifier::{
-	primitives::{compute_epoch, EPOCH_LENGTH},
+	primitives::{compute_epoch, Testnet, EPOCH_LENGTH},
 	verify_bsc_header, NextValidators,
 };
 use ethers::{
@@ -23,7 +23,7 @@ impl Keccak256 for Host {
 	}
 }
 
-async fn setup_prover() -> BscPosProver {
+async fn setup_prover() -> BscPosProver<Testnet> {
 	dotenv::dotenv().ok();
 	let consensus_url = std::env::var("BSC_URL").unwrap();
 	let mut provider = Provider::<Http>::connect(&consensus_url).await;
@@ -76,7 +76,7 @@ async fn verify_bsc_pos_headers() {
 				update.attested_header.number.low_u64() % EPOCH_LENGTH >=
 					(validators.len() as u64 / 2)
 			{
-				let result = verify_bsc_header::<Host>(
+				let result = verify_bsc_header::<Host, Testnet>(
 					&next_validators.clone().unwrap().validators,
 					update.clone(),
 				);
@@ -88,7 +88,7 @@ async fn verify_bsc_pos_headers() {
 					continue;
 				}
 			}
-			let result = verify_bsc_header::<Host>(&validators, update.clone()).unwrap();
+			let result = verify_bsc_header::<Host, Testnet>(&validators, update.clone()).unwrap();
 			dbg!(&result.hash);
 			dbg!(result.next_validators.is_some());
 			if let Some(validators) = result.next_validators {

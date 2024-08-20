@@ -2,7 +2,7 @@
 mod test;
 
 use anyhow::anyhow;
-use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, EPOCH_LENGTH};
+use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, Config, EPOCH_LENGTH};
 use ethers::{
 	prelude::Provider,
 	providers::{Http, Middleware},
@@ -11,19 +11,21 @@ use ethers::{
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
 use sp_core::H256;
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 use sync_committee_primitives::constants::BlsPublicKey;
 use tracing::{instrument, trace};
 
 #[derive(Clone)]
-pub struct BscPosProver {
+pub struct BscPosProver<C: Config> {
 	/// Execution Rpc client
 	pub client: Arc<Provider<Http>>,
+	/// Phamtom data
+	_phantom_data: PhantomData<C>,
 }
 
-impl BscPosProver {
+impl<C: Config> BscPosProver<C> {
 	pub fn new(client: Provider<Http>) -> Self {
-		Self { client: Arc::new(client) }
+		Self { client: Arc::new(client), _phantom_data: PhantomData }
 	}
 
 	pub async fn fetch_header<T: Into<BlockId> + Send + Sync + Debug + Copy>(
@@ -58,7 +60,7 @@ impl BscPosProver {
 		fetch_val_set_change: bool,
 	) -> Result<Option<BscClientUpdate>, anyhow::Error> {
 		trace!(target: "bsc-prover", "fetching bsc update for  {:?}", attested_header.number);
-		let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
+		let parse_extra_data = parse_extra::<I, C>(&attested_header)
 			.map_err(|_| anyhow!("Extra data not found in header {:?}", attested_header.number))?;
 		let source_hash = H256::from_slice(&parse_extra_data.vote_data.source_hash.0);
 		let target_hash = H256::from_slice(&parse_extra_data.vote_data.target_hash.0);
@@ -129,7 +131,7 @@ impl BscPosProver {
 			self.fetch_header(current_epoch_block_number).await?.ok_or_else(|| {
 				anyhow!("header block could not be fetched {current_epoch_block_number}")
 			})?;
-		let current_epoch_extra_data = parse_extra::<I>(&current_epoch_header.extra_data)
+		let current_epoch_extra_data = parse_extra::<I, C>(&current_epoch_header)
 			.map_err(|_| anyhow!("Extra data set not found in header"))?;
 
 		let current_validators = current_epoch_extra_data

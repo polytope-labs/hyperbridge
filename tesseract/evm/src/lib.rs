@@ -19,7 +19,7 @@ use ismp_solidity_abi::shared_types::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::{sync::Arc, time::Duration};
-use tesseract_primitives::IsmpProvider;
+use tesseract_primitives::{IsmpProvider, StateMachineUpdated, StreamError};
 
 pub mod abi;
 mod gas_oracle;
@@ -129,6 +129,12 @@ pub struct EvmClient {
 	pub chain_id: u64,
 	/// Client type
 	pub client_type: ClientType,
+	/// Producer for state machine updated stream
+	state_machine_update_sender: Arc<
+		tokio::sync::Mutex<
+			Option<tokio::sync::broadcast::Sender<Result<StateMachineUpdated, StreamError>>>,
+		>,
+	>,
 }
 
 impl EvmClient {
@@ -172,6 +178,7 @@ impl EvmClient {
 			config: config_clone,
 			chain_id,
 			client_type: config.client_type.unwrap_or_default(),
+			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
 		})
 	}
 
@@ -339,6 +346,7 @@ impl Clone for EvmClient {
 			config: self.config.clone(),
 			chain_id: self.chain_id.clone(),
 			client_type: self.client_type.clone(),
+			state_machine_update_sender: self.state_machine_update_sender.clone(),
 		}
 	}
 }

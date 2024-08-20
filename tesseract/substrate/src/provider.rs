@@ -415,35 +415,23 @@ where
 		update_height: StateMachineHeight,
 	) -> BoxStream<StateCommitmentVetoed> {
 		let client = self.clone();
-		let (tx, recv) = tokio::sync::mpsc::channel(256);
+		let (tx, recv) = tokio::sync::mpsc::channel(32);
 		tokio::task::spawn(async move {
 			let mut latest_height = from;
 			let state_machine = client.state_machine;
 			loop {
 				tokio::time::sleep(Duration::from_secs(10)).await;
-				let header = match client.client.rpc().finalized_head().await {
-					Ok(hash) => match client.client.rpc().header(Some(hash)).await {
-						Ok(Some(header)) => header,
-						_ => {
-							if let Err(err) = tx
-								.send(Err(anyhow!(
-									"Error encountered while fething finalized head"
-								)))
-								.await
-							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
-							}
-							continue;
-						},
-					},
-					Err(err) => {
+				let header = match client.client.rpc().header(None).await {
+					Ok(Some(header)) => header,
+					_ => {
 						if let Err(err) = tx
 							.send(Err(anyhow!(
-								"Error encountered while fetching finalized head: {err:?}"
-							)))
+								"Error encountered while fething finalized head"
+							).into()))
 							.await
 						{
 							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							return
 						}
 						continue;
 					},
@@ -464,10 +452,11 @@ where
 						if let Err(err) = tx
 							.send(Err(anyhow!(
 								"Error encountered while querying ismp events {err:?}"
-							)))
+							).into()))
 							.await
 						{
 							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							return
 						}
 						latest_height = header.number().into();
 						continue;
@@ -506,133 +495,154 @@ where
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		use futures::StreamExt;
 		let client = self.clone();
-		let (tx, recv) = tokio::sync::mpsc::channel(256);
+		let mut mutex = self.state_machine_update_sender.lock().await;
+		let is_empty = mutex.is_none();
+		let (tx, recv) = if is_empty {
+			let (tx_og, recv) = tokio::sync::broadcast::channel(512);
+			*mutex = Some(tx_og.clone());
+			(tx_og, recv)
+		} else {
+			let tx = mutex.as_ref().expect("Not empty").clone();
+			let recv = tx.subscribe();
+			(tx, recv)
+		};
 		let latest_height = client.query_finalized_height().await?;
 		let challenge_period = self.query_challenge_period(counterparty_state_id).await?;
-		tokio::task::spawn(async move {
-			let mut latest_height = latest_height;
-			let state_machine = client.state_machine;
-			loop {
-				tokio::time::sleep(Duration::from_secs(10)).await;
-				let header = match client.client.rpc().finalized_head().await {
-					Ok(hash) => match client.client.rpc().header(Some(hash)).await {
-						Ok(Some(header)) => header,
-						_ => {
+
+		if is_empty {
+			tokio::task::spawn(async move {
+				let mut latest_height = latest_height;
+				let state_machine = client.state_machine;
+				loop {
+					tokio::time::sleep(Duration::from_secs(10)).await;
+					let header = match client.client.rpc().finalized_head().await {
+						Ok(hash) => match client.client.rpc().header(Some(hash)).await {
+							Ok(Some(header)) => header,
+							_ => {
+								if let Err(err) = tx
+									.send(Err(anyhow!(
+										"Error encountered while fetching finalized head"
+									).into()))
+								{
+									log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+									return
+								}
+								continue;
+							},
+						},
+						Err(err) => {
 							if let Err(err) = tx
 								.send(Err(anyhow!(
-									"Error encountered while fething finalized head"
-								)))
-								.await
+									"Error encountered while fetching finalized head: {err:?}"
+								).into()))
 							{
 								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								return
 							}
 							continue;
 						},
-					},
-					Err(err) => {
-						if let Err(err) = tx
-							.send(Err(anyhow!(
-								"Error encountered while fetching finalized head: {err:?}"
-							)))
-							.await
-						{
-							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
-						}
-						continue;
-					},
-				};
+					};
 
-				if header.number().into() <= latest_height {
-					continue;
+					if header.number().into() <= latest_height {
+						continue;
+					}
+
+					let event = StateMachineUpdated {
+						state_machine_id: client.state_machine_id(),
+						latest_height: header.number().into(),
+					};
+
+					let events = match client.query_ismp_events(latest_height, event).await {
+						Ok(e) => e,
+						Err(err) => {
+							if let Err(err) = tx
+								.send(Err(anyhow!(
+									"Error encountered while querying ismp events {err:?}"
+								).into()))
+							{
+								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								return
+							}
+							latest_height = header.number().into();
+							continue;
+						},
+					};
+
+					let event = events
+						.into_iter()
+						.filter_map(|event| match event {
+							Event::StateMachineUpdated(e)
+								if e.state_machine_id == counterparty_state_id =>
+								Some(e),
+							_ => None,
+						})
+						.max_by(|x, y| x.latest_height.cmp(&y.latest_height));
+
+					match event {
+						Some(event) => {
+							// We wait for the challenge period and see if the update will be vetoed before yielding
+							let commitment_height = StateMachineHeight { id: counterparty_state_id, height: event.latest_height };
+							let state_machine_update_time = match client.query_state_machine_update_time(commitment_height).await {
+								Ok(val) => val,
+								Err(err) => {
+									if let Err(err) = tx
+										.send(Err(anyhow!(
+											"Error encountered while querying state_machine_update_time {err:?}"
+										).into()))
+									{
+										log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+										return
+									}
+									latest_height = header.number().into();
+									continue;
+								}
+							};
+
+							let mut state_commitment_vetoed_stream = client.state_commitment_vetoed_notification(latest_height, commitment_height).await;
+
+							let provider = Arc::new(client.clone());
+							tokio::select! {
+								_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period) => {
+									match _res {
+										Ok(_) => {
+											if let Err(err) = tx.send(Ok(event.clone())) {
+												log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
+												return
+											};
+										}
+										Err(err) => {
+											log::error!(target: "tesseract", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
+										}
+									}
+								}
+								_res = state_commitment_vetoed_stream.next() => {
+									match _res {
+										Some(Ok(_)) => {
+											log::error!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
+										}
+										_ => {
+											log::error!(target: "tesseract", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
+										}
+									}
+								}
+							};
+						},
+						None => {},
+					};
+
+					latest_height = header.number().into();
 				}
+			}.boxed());
+		}
 
-				let event = StateMachineUpdated {
-					state_machine_id: client.state_machine_id(),
-					latest_height: header.number().into(),
-				};
-
-				let events = match client.query_ismp_events(latest_height, event).await {
-					Ok(e) => e,
-					Err(err) => {
-						if let Err(err) = tx
-							.send(Err(anyhow!(
-								"Error encountered while querying ismp events {err:?}"
-							)))
-							.await
-						{
-							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
-						}
-						latest_height = header.number().into();
-						continue;
-					},
-				};
-
-				let event = events
-					.into_iter()
-					.filter_map(|event| match event {
-						Event::StateMachineUpdated(e)
-							if e.state_machine_id == counterparty_state_id =>
-							Some(e),
-						_ => None,
-					})
-					.max_by(|x, y| x.latest_height.cmp(&y.latest_height));
-
-				match event {
-					Some(event) => {
-						// We wait for the challenge period and see if the update will be vetoed before yielding
-						let commitment_height = StateMachineHeight { id: counterparty_state_id, height: event.latest_height };
-						let state_machine_update_time = match client.query_state_machine_update_time(commitment_height).await {
-							Ok(val) => val,
-							Err(err) => {
-								if let Err(err) = tx
-									.send(Err(anyhow!(
-										"Error encountered while querying state_machine_update_time {err:?}"
-									)))
-									.await
-								{
-									log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
-								}
-								latest_height = header.number().into();
-								continue;
-							}
-						};
-
-						let mut state_commitment_vetoed_stream = client.state_commitment_vetoed_notification(latest_height, commitment_height).await;
-						let provider = Arc::new(client.clone());
-						tokio::select! {
-							_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period) => {
-								match _res {
-									Ok(_) => {
-										if let Err(err) = tx.send(Ok(event.clone())).await {
-											log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
-											return
-										};
-									}
-									Err(err) => {
-										log::error!(target: "tesseract", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
-									}
-								}
-							}
-							_res = state_commitment_vetoed_stream.next() => {
-								match _res {
-									Some(Ok(_)) => {
-										log::error!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
-									}
-									_ => {
-										log::error!(target: "tesseract", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
-									}
-								}
-							}
-						};
-					},
-					None => {},
-				};
-
-				latest_height = header.number().into();
+		let stream = tokio_stream::wrappers::BroadcastStream::new(recv).filter_map(|res| async {
+			match res {
+				Ok(res) => Some(res),
+				Err(err) => Some(Err(anyhow!("{err:?}").into())),
 			}
-		}.boxed());
+		});
 
-		Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(recv)))
+		Ok(Box::pin(stream))
 	}
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, anyhow::Error> {

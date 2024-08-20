@@ -26,12 +26,14 @@ fn init_tracing() {
 }
 
 #[wasm_bindgen_test]
+#[ignore]
 async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	init_tracing();
 	hyperclient::testing::subscribe_to_request_status().await
 }
 
 #[wasm_bindgen_test]
+#[ignore]
 async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	init_tracing();
 

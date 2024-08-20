@@ -21,7 +21,7 @@ use pallet_ismp::child_trie::{
 	request_commitment_storage_key, request_receipt_storage_key, response_commitment_storage_key,
 	response_receipt_storage_key,
 };
-use tesseract_primitives::IsmpProvider;
+use tesseract_primitives::{IsmpProvider, StateMachineUpdated, StreamError};
 
 use serde::{Deserialize, Serialize};
 use subxt::ext::sp_core::{bytes::from_hex, crypto, sr25519, Pair, H256};
@@ -84,6 +84,12 @@ pub struct SubstrateClient<C: subxt::Config> {
 	initial_height: u64,
 	/// Max concurrent rpc requests allowed
 	max_concurent_queries: Option<u64>,
+	/// Producer for state machine updated stream
+	state_machine_update_sender: Arc<
+		tokio::sync::Mutex<
+			Option<tokio::sync::broadcast::Sender<Result<StateMachineUpdated, StreamError>>>,
+		>,
+	>,
 }
 
 impl<C> SubstrateClient<C>
@@ -129,6 +135,7 @@ where
 			address,
 			initial_height: latest_height,
 			max_concurent_queries: config.max_concurent_queries,
+			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
 		})
 	}
 
@@ -182,6 +189,7 @@ impl<C: subxt::Config> Clone for SubstrateClient<C> {
 			address: self.address.clone(),
 			initial_height: self.initial_height,
 			max_concurent_queries: self.max_concurent_queries,
+			state_machine_update_sender: self.state_machine_update_sender.clone(),
 		}
 	}
 }

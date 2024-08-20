@@ -19,6 +19,7 @@ pub mod config;
 pub mod mocks;
 pub mod queue;
 
+use anyhow::anyhow;
 use futures::{Stream, StreamExt};
 pub use ismp::events::StateMachineUpdated;
 use ismp::{
@@ -152,8 +153,25 @@ pub enum StateProofQueryType {
 	Arbitrary(Vec<Vec<u8>>),
 }
 
+/// Cloneable error, used in place of `anyhow::Error`` which does not implement `Clone` required by
+/// tokio::sync::broadcast
+#[derive(Clone, Debug)]
+pub struct StreamError(pub String);
+
+impl From<StreamError> for anyhow::Error {
+	fn from(value: StreamError) -> Self {
+		anyhow!("{value:?}")
+	}
+}
+
+impl From<anyhow::Error> for StreamError {
+	fn from(value: anyhow::Error) -> Self {
+		Self(format!("{value:?}"))
+	}
+}
+
 /// Stream alias
-pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send + 'static>>;
+pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, StreamError>> + Send + 'static>>;
 
 pub struct Hasher;
 

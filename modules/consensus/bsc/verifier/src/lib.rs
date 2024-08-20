@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use ark_ec::AffineRepr;
 use ismp::messaging::Keccak256;
-use primitives::{parse_extra, BscClientUpdate, EPOCH_LENGTH, VALIDATOR_BIT_SET_SIZE};
+use primitives::{parse_extra, BscClientUpdate, Config, EPOCH_LENGTH, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use sync_committee_verifier::crypto::{pairing, pubkey_to_projective};
 pub mod primitives;
@@ -33,11 +33,11 @@ pub struct NextValidators {
 	pub rotation_block: u64,
 }
 
-pub fn verify_bsc_header<H: Keccak256>(
+pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	current_validators: &Vec<BlsPublicKey>,
 	update: BscClientUpdate,
 ) -> Result<VerificationResult, anyhow::Error> {
-	let extra_data = parse_extra::<H>(&update.attested_header.extra_data)
+	let extra_data = parse_extra::<H, C>(&update.attested_header)
 		.map_err(|_| anyhow!("could not parse extra data from header"))?;
 	let source_hash = H256::from_slice(&extra_data.vote_data.source_hash.0);
 	let target_hash = H256::from_slice(&extra_data.vote_data.target_hash.0);
@@ -95,7 +95,7 @@ pub fn verify_bsc_header<H: Keccak256>(
                 Err(anyhow!("Epoch ancestry submitted is invalid"))?
             }
             let epoch_header = update.epoch_header_ancestry[0].clone();
-            let epoch_header_extra_data = parse_extra::<H>(&epoch_header.extra_data)
+            let epoch_header_extra_data = parse_extra::<H, C>(&epoch_header)
                 .map_err(|_| anyhow!("could not parse extra data from epoch header"))?;
             let validators = epoch_header_extra_data
                 .validators
@@ -116,7 +116,7 @@ pub fn verify_bsc_header<H: Keccak256>(
             }
             // If the source header that was finalized is the epoch header we extract the next validator set
         } else if update.source_header.number.low_u64() % EPOCH_LENGTH == 0 {
-            let epoch_header_extra_data = parse_extra::<H>(&update.source_header.extra_data)
+            let epoch_header_extra_data = parse_extra::<H, C>(&update.source_header)
                 .map_err(|_| anyhow!("could not parse extra data from epoch header"))?;
             let validators = epoch_header_extra_data
                 .validators

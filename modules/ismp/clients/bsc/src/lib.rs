@@ -6,6 +6,7 @@ extern crate alloc;
 use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
+pub use bsc_verifier::primitives::{Mainnet, Testnet};
 use bsc_verifier::{
 	primitives::{compute_epoch, BscClientUpdate, EPOCH_LENGTH},
 	verify_bsc_header, NextValidators, VerificationResult,
@@ -39,22 +40,33 @@ pub struct ConsensusState {
 	pub chain_id: u32,
 }
 
-pub struct BscClient<H: IsmpHost, T: pallet_ismp_host_executive::Config>(PhantomData<(H, T)>);
+pub struct BscClient<
+	H: IsmpHost,
+	T: pallet_ismp_host_executive::Config,
+	C: bsc_verifier::primitives::Config,
+>(PhantomData<(H, T, C)>);
 
-impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Default for BscClient<H, T> {
+impl<H: IsmpHost, T: pallet_ismp_host_executive::Config, C: bsc_verifier::primitives::Config>
+	Default for BscClient<H, T, C>
+{
 	fn default() -> Self {
 		Self(PhantomData)
 	}
 }
 
-impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Clone for BscClient<H, T> {
+impl<H: IsmpHost, T: pallet_ismp_host_executive::Config, C: bsc_verifier::primitives::Config> Clone
+	for BscClient<H, T, C>
+{
 	fn clone(&self) -> Self {
 		Self(PhantomData)
 	}
 }
 
-impl<H: IsmpHost + Send + Sync + Default + 'static, T: pallet_ismp_host_executive::Config>
-	ConsensusClient for BscClient<H, T>
+impl<
+		H: IsmpHost + Send + Sync + Default + 'static,
+		T: pallet_ismp_host_executive::Config,
+		C: bsc_verifier::primitives::Config,
+	> ConsensusClient for BscClient<H, T, C>
 {
 	fn verify_consensus(
 		&self,
@@ -93,7 +105,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: pallet_ismp_host_executiv
 		}
 
 		let VerificationResult { hash, finalized_header, next_validators } =
-			verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update)
+			verify_bsc_header::<H, C>(&consensus_state.current_validators, bsc_client_update)
 				.map_err(|e| Error::Custom(e.to_string()))?;
 
 		let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
@@ -151,10 +163,10 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: pallet_ismp_host_executiv
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
 
-		let _ = verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update_1)
+		let _ = verify_bsc_header::<H, C>(&consensus_state.current_validators, bsc_client_update_1)
 			.map_err(|_| Error::Custom("Failed to verify first header".to_string()))?;
 
-		let _ = verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update_2)
+		let _ = verify_bsc_header::<H, C>(&consensus_state.current_validators, bsc_client_update_2)
 			.map_err(|_| Error::Custom("Failed to verify second header".to_string()))?;
 
 		Ok(())

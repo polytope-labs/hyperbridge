@@ -82,7 +82,7 @@ impl pallet_ismp::Config for Runtime {
 	type Currency = Balances;
 	type Router = Router;
 	type ConsensusClients = (
-		ismp_bsc::BscClient<Ismp, Runtime>,
+		ismp_bsc::BscClient<Ismp, Runtime, ismp_bsc::Testnet>,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Runtime>,
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,

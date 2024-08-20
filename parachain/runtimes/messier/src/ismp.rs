@@ -78,7 +78,7 @@ impl pallet_ismp::Config for Runtime {
 	type Currency = Balances;
 	type Coprocessor = Coprocessor;
 	type ConsensusClients = (
-		ismp_bsc::BscClient<Ismp, Runtime>,
+		ismp_bsc::BscClient<Ismp, Runtime, ismp_bsc::Mainnet>,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Mainnet, Runtime>,
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,

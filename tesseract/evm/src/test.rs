@@ -131,6 +131,7 @@ async fn test_ismp_state_proof() {
 
 const NEW_HOST: H160 = H160(hex!("Bc0fA79725aCD430D507855e77f30C9d9ED4dC24"));
 #[tokio::test]
+#[ignore]
 async fn fetch_state_commitment() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
 	let geth_url = std::env::var("SEPOLIA_URL").expect("SEPOLIA_URL must be set.");

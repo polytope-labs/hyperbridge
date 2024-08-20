@@ -278,8 +278,12 @@ pub async fn create_client_map(
 				let client = config.into_client().await?;
 				client
 			},
+			AnyConfig::BscTestnet(config) => {
+				let client = config.into_client::<tesseract_bsc::Testnet>().await?;
+				client
+			},
 			AnyConfig::Bsc(config) => {
-				let client = config.into_client().await?;
+				let client = config.into_client::<tesseract_bsc::Mainnet>().await?;
 				client
 			},
 		};

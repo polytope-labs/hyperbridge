@@ -15,7 +15,7 @@
 
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{
-	primitives::{compute_epoch, BscClientUpdate},
+	primitives::{compute_epoch, BscClientUpdate, Config},
 	verify_bsc_header,
 };
 use ethers::providers::{Http, Middleware, Provider};
@@ -31,6 +31,8 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 mod byzantine;
 mod host;
 mod notification;
+
+pub use bsc_verifier::primitives::{Mainnet, Testnet};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BscPosConfig {
@@ -48,8 +50,8 @@ pub struct HostConfig {
 
 impl BscPosConfig {
 	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(BscPosHost::new(&self.host, &self.evm_config).await?))
+	pub async fn into_client<C: Config + 'static>(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(BscPosHost::<C>::new(&self.host, &self.evm_config).await?))
 	}
 
 	pub fn state_machine(&self) -> StateMachine {
@@ -58,13 +60,13 @@ impl BscPosConfig {
 }
 
 #[derive(Clone)]
-pub struct BscPosHost {
+pub struct BscPosHost<C: Config> {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this chain.
 	pub state_machine: StateMachine,
 	/// Consensus prover
-	pub prover: BscPosProver,
+	pub prover: BscPosProver<C>,
 	/// Host config options
 	pub host: HostConfig,
 	/// Evm config options
@@ -73,7 +75,7 @@ pub struct BscPosHost {
 	pub provider: Arc<dyn IsmpProvider>,
 }
 
-impl BscPosHost {
+impl<C: Config> BscPosHost<C> {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let provider = Provider::new(Http::new_client_with_chain_middleware(
 			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,

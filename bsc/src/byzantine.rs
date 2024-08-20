@@ -16,6 +16,7 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use bsc_verifier::primitives::Config;
 use ethers::{providers::Middleware, types::SyncingStatus};
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
@@ -26,7 +27,7 @@ use tesseract_primitives::{ByzantineHandler, IsmpProvider};
 use crate::BscPosHost;
 
 #[async_trait::async_trait]
-impl ByzantineHandler for BscPosHost {
+impl<C: Config> ByzantineHandler for BscPosHost<C> {
 	async fn check_for_byzantine_attack(
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,

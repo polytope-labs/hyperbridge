@@ -14,7 +14,7 @@
 
 use anyhow::{anyhow, Error};
 use bsc_verifier::{
-	primitives::{compute_epoch, EPOCH_LENGTH},
+	primitives::{compute_epoch, Config, EPOCH_LENGTH},
 	verify_bsc_header,
 };
 use codec::{Decode, Encode};
@@ -31,7 +31,7 @@ use bsc_prover::get_rotation_block;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
-impl IsmpHost for BscPosHost {
+impl<C: Config> IsmpHost for BscPosHost<C> {
 	async fn start_consensus(
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
@@ -164,7 +164,7 @@ impl IsmpHost for BscPosHost {
 									// should occur but sometimes It happens further in the future
 									let next_validators =
 										consensus_state.next_validators.clone().unwrap_or_default();
-									let res = verify_bsc_header::<KeccakHasher>(
+									let res = verify_bsc_header::<KeccakHasher, C>(
 										&next_validators.validators,
 										update.clone(),
 									);
@@ -255,7 +255,7 @@ impl IsmpHost for BscPosHost {
 										continue;
 									}
 
-									if let Err(_) = verify_bsc_header::<KeccakHasher>(
+									if let Err(_) = verify_bsc_header::<KeccakHasher, C>(
 										&consensus_state.current_validators,
 										update.clone(),
 									) {

@@ -117,7 +117,7 @@ pub mod pallet {
 				"Only parachain consensus updates should be passed in the inherents!"
 			);
 
-			// Handling error will prevent this inherent from breaking block production is there's a
+			// Handling error will prevent this inherent from breaking block production if there's a
 			// reorg and it's no longer valid
 			if let Err(err) =
 				pallet_ismp::Pallet::<T>::handle_messages(vec![Message::Consensus(data)])

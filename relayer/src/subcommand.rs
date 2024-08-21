@@ -33,7 +33,7 @@ impl SetConsensusState {
 			.map_err(|_| anyhow!("Failed to deserialize state machine"))?;
 		log::info!("🧊 Setting consensus state on {state_machine}");
 		let config = HyperbridgeConfig::parse_conf(&config_path).await?;
-		let HyperbridgeConfig { hyperbridge: hyperbridge_config, .. } = config.clone();
+		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
 
 		let hyperbridge = hyperbridge_config
 			.clone()
@@ -46,11 +46,17 @@ impl SetConsensusState {
 			.get(&state_machine)
 			.ok_or_else(|| anyhow!("Client for provided state machine was not found"))?;
 
-		let consensus_state = client
+		let mut consensus_state = client
 			.query_initial_consensus_state()
 			.await?
 			.ok_or_else(|| anyhow!("The state machine provided does not have a consensus state"))?;
 
+		let challenge_period = relayer.unwrap_or_default().challenge_period.unwrap_or_default();
+		consensus_state.challenge_periods = consensus_state
+					.challenge_periods
+					.into_iter()
+					.map(|(key, _)| (key, challenge_period))
+					.collect();
 		hyperbridge.client().create_consensus_state(consensus_state).await?;
 
 		Ok(())

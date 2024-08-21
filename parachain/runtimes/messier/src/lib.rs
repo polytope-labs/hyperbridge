@@ -316,6 +316,7 @@ use sp_runtime::traits::IdentityLookup;
 use staging_xcm::latest::Junctions::X1;
 use staging_xcm::latest::{Junction, Location};
 use pallet_ismp::mmr::Leaf;
+use sp_core::crypto::FromEntropy;
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {

@@ -93,9 +93,13 @@ use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, ConstBool},
 };
+#[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
+
 use pallet_collective::PrimeDefaultVote;
+#[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
+
 use pallet_ismp::mmr::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};
 use sp_core::crypto::FromEntropy;
@@ -576,7 +580,10 @@ parameter_types! {
 	pub MaxCollectivesProposalWeight: Weight = Perbill::from_percent(50) * RuntimeBlockWeights::get().max_block;
 }
 
+#[cfg(feature = "runtime-benchmarks")]
 pub struct TreasuryAssetFactory{}
+
+#[cfg(feature = "runtime-benchmarks")]
 impl<A,B> ArgumentsFactory<A,B> for TreasuryAssetFactory
 where
 	A: From<Location>,
@@ -594,6 +601,7 @@ where
 	}
 }
 
+#[cfg(feature = "runtime-benchmarks")]
 impl<A> AssetKindFactory<A> for TreasuryAssetFactory
 where
 	A: From<Location>

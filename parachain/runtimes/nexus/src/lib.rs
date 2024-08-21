@@ -44,6 +44,7 @@ use sp_runtime::{
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
+#[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
 
 use sp_core::Get;
@@ -309,6 +310,7 @@ use ::ismp::host::StateMachine;
 use frame_support::derive_impl;
 use frame_support::traits::tokens::pay::PayAssetFromAccount;
 use pallet_collective::PrimeDefaultVote;
+#[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
 use sp_core::crypto::{AccountId32, FromEntropy};
 use sp_runtime::traits::IdentityLookup;
@@ -584,7 +586,10 @@ parameter_types! {
 	pub MaxCollectivesProposalWeight: Weight = Perbill::from_percent(50) * RuntimeBlockWeights::get().max_block;
 }
 
+#[cfg(feature = "runtime-benchmarks")]
 pub struct TreasuryAssetFactory{}
+
+#[cfg(feature = "runtime-benchmarks")]
 impl<A,B> ArgumentsFactory<A,B> for TreasuryAssetFactory
 	where
 		A: From<Location>,
@@ -602,6 +607,7 @@ impl<A,B> ArgumentsFactory<A,B> for TreasuryAssetFactory
 	}
 }
 
+#[cfg(feature = "runtime-benchmarks")]
 impl<A> AssetKindFactory<A> for TreasuryAssetFactory
 	where
 		A: From<Location>

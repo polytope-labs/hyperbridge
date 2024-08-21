@@ -67,10 +67,14 @@ impl ConsensusInherentProvider {
 			return Ok(ConsensusInherentProvider(None));
 		}
 
-		let relay_header = relay_chain_interface
-			.header(BlockId::Number(state.number))
-			.await?
-			.ok_or_else(|| anyhow!("Relay chain header for height {} not found", state.number))?;
+		let relay_header = if let Ok(Some(header)) =
+			relay_chain_interface.header(BlockId::Number(state.number)).await
+		{
+			header
+		} else {
+			log::trace!("Relay chain header not available for {}", state.number);
+			return Ok(ConsensusInherentProvider(None));
+		};
 
 		let mut para_ids_to_fetch = vec![];
 		for id in para_ids {

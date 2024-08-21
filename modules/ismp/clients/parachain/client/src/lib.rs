@@ -116,8 +116,16 @@ pub mod pallet {
 				data.consensus_state_id, PARACHAIN_CONSENSUS_ID,
 				"Only parachain consensus updates should be passed in the inherents!"
 			);
-			pallet_ismp::Pallet::<T>::handle_messages(vec![Message::Consensus(data)])?;
-			ConsensusUpdated::<T>::put(true);
+
+			// Handling error will prevent this inherent from breaking block production is there's a
+			// reorg and it's no longer valid
+			if let Err(err) =
+				pallet_ismp::Pallet::<T>::handle_messages(vec![Message::Consensus(data)])
+			{
+				log::trace!(target: "ismp", "Parachain inherent consensus update failed {err:?}");
+			} else {
+				ConsensusUpdated::<T>::put(true);
+			}
 
 			Ok(Pays::No.into())
 		}

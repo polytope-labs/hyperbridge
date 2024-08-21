@@ -7539,7 +7539,7 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "ismp"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -7575,7 +7575,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-parachain"
-version = "1.6.2"
+version = "1.15.0"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -7599,7 +7599,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.6.3"
+version = "1.15.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7619,7 +7619,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-runtime-api"
-version = "1.6.2"
+version = "1.15.0"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "sp-api 34.0.0",
@@ -10243,7 +10243,7 @@ dependencies = [
 
 [[package]]
 name = "mmr-primitives"
-version = "1.6.2"
+version = "1.15.0"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
@@ -12049,7 +12049,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.6.2"
+version = "1.15.0"
 dependencies = [
  "frame-support 37.0.0",
  "frame-system",
@@ -12117,7 +12117,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "1.6.2"
+version = "1.15.0"
 dependencies = [
  "env_logger 0.10.2",
  "fortuples",
@@ -12211,7 +12211,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "1.6.2"
+version = "1.15.0"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -12239,7 +12239,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "1.6.2"
+version = "1.15.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -22995,7 +22995,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "1.6.2"
+version = "1.15.0"
 dependencies = [
  "frame-support 37.0.0",
  "hash-db",

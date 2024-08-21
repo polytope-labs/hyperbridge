@@ -36,6 +36,7 @@ async fn test_get_timeout() -> Result<(), anyhow::Error> {
 		nonce: 0,
 		from: destination.as_bytes().to_vec(),
 		keys: vec![key.clone()],
+		context: Default::default(),
 		timeout_timestamp: 100,
 		height: 0,
 	};

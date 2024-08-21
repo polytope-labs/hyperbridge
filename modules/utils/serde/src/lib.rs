@@ -330,6 +330,7 @@ mod test {
 			source: ismp::host::StateMachine::Polkadot(100),
 			dest: ismp::host::StateMachine::Polkadot(2000),
 			nonce: 300,
+			context: Default::default(),
 			from: H256::random().0.to_vec(),
 			keys: vec![
 				H256::random().0.to_vec(),
@@ -355,6 +356,8 @@ mod test {
 			source: ismp::host::StateMachine::Polkadot(100),
 			dest: ismp::host::StateMachine::Polkadot(2000),
 			nonce: 300,
+			context: Default::default(),
+
 			from: H256::random().0.to_vec(),
 			keys: vec![
 				H256::random().0.to_vec(),

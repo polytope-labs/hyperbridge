@@ -445,6 +445,8 @@ impl IsmpDispatcher for Host {
 					nonce: host.next_nonce(),
 					from: dispatch_get.from,
 					keys: dispatch_get.keys,
+					context: dispatch_get.context,
+
 					height: dispatch_get.height,
 					timeout_timestamp: dispatch_get.timeout,
 				};

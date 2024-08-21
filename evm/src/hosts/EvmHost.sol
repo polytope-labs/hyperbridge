@@ -302,6 +302,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 nonce,
         // The timestamp at which this response will be considered as timed out
         uint256 timeoutTimestamp,
+        // Some application-specific metadata relating to this request
+        bytes context,
         // The associated protocol fee
         uint256 fee
     );
@@ -979,7 +981,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     ) external restrict(_hostParams.handler) {
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success, ) = address(request.from).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
+        (bool success, ) = address(request.from).call(
+            abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request)
+        );
 
         if (!success) {
             // so that it can be retried
@@ -1137,8 +1141,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchGet memory get) external payable notFrozen returns (bytes32 commitment) {
         // minimum charge is the size of one word
-        uint256 minimumFee = 32 * _hostParams.perByteFee;
-        uint256 fee = minimumFee > get.fee ? minimumFee : get.fee;
+        uint256 pbf = _hostParams.perByteFee;
+        uint256 minimumFee = 32 * pbf;
+        uint256 totalFee = get.fee + (pbf * get.context.length);
+        uint256 fee = minimumFee > totalFee ? minimumFee : totalFee;
+
         if (msg.value > 0) {
             address[] memory path = new address[](2);
             address uniswapV2 = _hostParams.uniswapV2;
@@ -1165,7 +1172,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             from: _msgSender(),
             timeoutTimestamp: timeoutTimestamp,
             keys: get.keys,
-            height: get.height
+            height: get.height,
+            context: get.context
         });
 
         // make the commitment
@@ -1178,6 +1186,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             keys: request.keys,
             nonce: request.nonce,
             height: request.height,
+            context: request.context,
             timeoutTimestamp: request.timeoutTimestamp,
             fee: fee
         });

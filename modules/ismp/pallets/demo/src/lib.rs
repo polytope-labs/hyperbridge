@@ -199,6 +199,7 @@ pub mod pallet {
 				keys: params.keys,
 				height: params.height as u64,
 				timeout: params.timeout,
+				context: Default::default(),
 			};
 
 			let dispatcher = T::IsmpDispatcher::default();

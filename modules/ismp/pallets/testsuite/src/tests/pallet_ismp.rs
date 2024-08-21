@@ -172,6 +172,7 @@ fn should_handle_get_request_timeouts_correctly() {
 					dest: StateMachine::Evm(1),
 					from: vec![0u8; 32],
 					keys: vec![vec![1u8; 32], vec![1u8; 32]],
+					context: Default::default(),
 					height: 2,
 					timeout: 1000,
 				};
@@ -188,6 +189,8 @@ fn should_handle_get_request_timeouts_correctly() {
 					from: vec![0u8; 32],
 					keys: vec![vec![1u8; 32], vec![1u8; 32]],
 					height: 2,
+					context: Default::default(),
+
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 1000,
 				};
 				ismp::router::Request::Get(get)
@@ -223,6 +226,7 @@ fn should_handle_get_request_responses_correctly() {
 				let msg = DispatchGet {
 					dest: StateMachine::Evm(1),
 					from: vec![0u8; 32],
+					context: Default::default(),
 
 					keys: vec![vec![1u8; 32], vec![1u8; 32]],
 					height: 3,
@@ -241,6 +245,8 @@ fn should_handle_get_request_responses_correctly() {
 					from: vec![0u8; 32],
 					keys: vec![vec![1u8; 32], vec![1u8; 32]],
 					height: 3,
+					context: Default::default(),
+
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
 						2_000_000_000,
 				};
@@ -286,6 +292,7 @@ fn test_dispatch_fees_and_refunds() {
 			dest: StateMachine::Evm(1),
 			from: vec![0u8; 32],
 			keys: vec![vec![1u8; 32], vec![1u8; 32]],
+			context: Default::default(),
 			height: 3,
 			timeout: 2_000_000_000,
 		};
@@ -359,6 +366,7 @@ fn test_fund_message() {
 			dest: StateMachine::Evm(1),
 			from: vec![0u8; 32],
 			keys: vec![vec![1u8; 32], vec![1u8; 32]],
+			context: Default::default(),
 			height: 3,
 			timeout: 2_000_000_000,
 		};

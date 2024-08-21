@@ -140,7 +140,16 @@ contract EvmHostTest is BaseTest {
         bytes[] memory keys = new bytes[](1);
         keys[0] = abi.encode(address(this));
         vm.expectRevert(EvmHost.FrozenHost.selector);
-        host.dispatch(DispatchGet({dest: StateMachine.evm(97), height: 100, keys: keys, timeout: 60 * 60, fee: 0}));
+        host.dispatch(
+        DispatchGet({
+        dest: StateMachine.evm(97),
+        height: 100,
+        keys: keys,
+        context: new bytes(0),
+        timeout: 60 * 60,
+        fee: 0
+        })
+        );
 
         vm.prank(host.hostParams().handler);
         host.setFrozenState(FrozenStatus.None);

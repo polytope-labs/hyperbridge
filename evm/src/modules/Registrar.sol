@@ -134,7 +134,7 @@ contract TokenRegistrar is BaseIsmpModule {
         });
         IDispatcher(_params.host).dispatch(request);
 
-        emit RegistrationBegun({assetId: assetId, owner: msg.sender, feePaid: baseFee });
+        emit RegistrationBegun({assetId: assetId, owner: msg.sender, feePaid: baseFee});
     }
 
     // @notice Governance parameter updates

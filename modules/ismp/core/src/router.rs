@@ -111,6 +111,9 @@ pub struct GetRequest {
 	pub keys: Vec<Vec<u8>>,
 	/// Height at which to read the state machine.
 	pub height: u64,
+	/// Some application-specific metadata relating to this request
+	#[serde(with = "serde_utils::as_hex")]
+	pub context: Vec<u8>,
 	/// Host timestamp at which this request expires in seconds
 	pub timeout_timestamp: u64,
 }
@@ -256,6 +259,7 @@ impl Request {
 				buf.extend_from_slice(&get.timeout_timestamp.to_be_bytes());
 				buf.extend_from_slice(&get.from);
 				get.keys.iter().for_each(|key| buf.extend_from_slice(key));
+				buf.extend_from_slice(&get.context);
 				buf
 			},
 		}

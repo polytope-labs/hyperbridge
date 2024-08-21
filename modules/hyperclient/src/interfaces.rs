@@ -202,6 +202,8 @@ pub struct JsGet {
 	/// Host timestamp at which this request expires in seconds
 	#[serde(rename = "timeoutTimestamp")]
 	pub timeout_timestamp: u64,
+	/// Some application-specific metadata relating to this request
+	pub context: String,
 	/// Height at which this request was emitted on the source chain
 	#[serde(rename = "txHeight")]
 	pub tx_height: u64,
@@ -238,6 +240,7 @@ impl TryFrom<JsGet> for GetRequest {
 			nonce: value.nonce,
 			from: from_hex(&value.from)?,
 			keys,
+			context: from_hex(&value.context)?,
 			height: value.height,
 			timeout_timestamp: value.timeout_timestamp,
 		})

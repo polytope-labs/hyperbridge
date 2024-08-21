@@ -98,7 +98,9 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         uint256 cost = quote(messagingFee);
         vm.prank(whaleAccount);
         bytes32 commitment = host.dispatch{value: cost}(
-            DispatchGet({dest: StateMachine.evm(97), height: 100, keys: keys, timeout: 60 * 60, fee: messagingFee})
+            DispatchGet({dest: StateMachine.evm(97), height: 100, keys: keys, timeout: 60 * 60,
+            context: new bytes(0),
+            fee: messagingFee})
         );
         assert(host.requestCommitments(commitment).sender == whaleAccount);
     }

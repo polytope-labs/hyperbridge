@@ -35,6 +35,7 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
 		from: destination.as_bytes().to_vec(),
 		keys: vec![key.clone()],
 		timeout_timestamp: 100,
+		context: Default::default(),
 		height: 0,
 	};
 

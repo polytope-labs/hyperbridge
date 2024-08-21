@@ -420,6 +420,10 @@ where
 			let mut latest_height = from;
 			let state_machine = client.state_machine;
 			loop {
+				// Kill task when receiver is dropped
+				if tx.is_closed() {
+					return
+				}
 				tokio::time::sleep(Duration::from_secs(10)).await;
 				let header = match client.client.rpc().header(None).await {
 					Ok(Some(header)) => header,

@@ -512,6 +512,10 @@ impl IsmpProvider for EvmClient {
 			let mut latest_height = from;
 			let state_machine = client.state_machine;
 			loop {
+				// If receiver has been dropped kill the task
+				if tx.is_closed() {
+					return
+				}
 				tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 				// wait for an update with a greater height
 				let block_number = match client.client.get_block_number().await {

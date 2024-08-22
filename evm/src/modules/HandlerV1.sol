@@ -168,7 +168,6 @@ contract HandlerV1 is IHandler, ERC165, Context {
         bool valid = MerkleMountainRange.VerifyProof(root, request.proof.multiproof, leaves, request.proof.leafCount);
         if (!valid) revert InvalidProof();
 
-
         for (uint256 i = 0; i < requestsLen; ++i) {
             PostRequestLeaf memory leaf = request.requests[i];
             host.dispatchIncoming(leaf.request, _msgSender());

@@ -112,6 +112,8 @@ fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {
 					from: H256::random().0.to_vec(),
 					keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
 					height: 3,
+					context: Default::default(),
+
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
 						2_000_000_000,
 				};
@@ -177,6 +179,8 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 					from: H256::random().0.to_vec(),
 					keys: { (0..256).into_iter().map(|_| H256::random().0.to_vec()).collect() },
 					height: 3,
+					context: Default::default(),
+
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
 						2_000_000_000,
 				};

@@ -11,10 +11,10 @@
     prettier "^3.3.3"
     prettier-plugin-solidity "^1.3.1"
 
-"@polytope-labs/ismp-solidity@^0.4.1":
-  version "0.4.1"
-  resolved "https://registry.yarnpkg.com/@polytope-labs/ismp-solidity/-/ismp-solidity-0.4.1.tgz#3896beb6ad367f38f62ea9d99d72d20b52ad2b84"
-  integrity sha512-fEsDufxSq4rvrNZF5Bkr0Fli31cYrC5yEews6AupeF6VZ341IGM6aJZVGUHqf+eYFvID71PbMa65JRcXTUjlww==
+"@polytope-labs/ismp-solidity@^0.5.1":
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/@polytope-labs/ismp-solidity/-/ismp-solidity-0.5.1.tgz#486cfa6e14cba48e8b6c070291a02a1ad3263b11"
+  integrity sha512-7XAJp/H8vA1/U3hQ3UIK2hNRZaaflLlQkJ3w6J9s3mWjxCfPhG/5R83vmRxnT2iHGIXNt1R8h/oDzu2S6wGCkg==
   dependencies:
     "@polytope-labs/solidity-merkle-trees" "^0.2.3"
     openzeppelin-solidity "^4.8.1"

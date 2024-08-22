@@ -1,4 +1,4 @@
-///`GetRequest(bytes,bytes,uint64,address,uint64,bytes[],uint64)`
+///`GetRequest(bytes,bytes,uint64,address,uint64,bytes[],uint64,bytes)`
 #[derive(
 	Clone,
 	::ethers::contract::EthAbiType,
@@ -17,8 +17,9 @@ pub struct GetRequest {
 	pub timeout_timestamp: u64,
 	pub keys: ::std::vec::Vec<::ethers::core::types::Bytes>,
 	pub height: u64,
+	pub context: ::ethers::core::types::Bytes,
 }
-///`GetResponse((bytes,bytes,uint64,address,uint64,bytes[],uint64),(bytes,bytes)[])`
+///`GetResponse((bytes,bytes,uint64,address,uint64,bytes[],uint64,bytes),(bytes,bytes)[])`
 #[derive(
 	Clone,
 	::ethers::contract::EthAbiType,
@@ -33,7 +34,7 @@ pub struct GetResponse {
 	pub request: GetRequest,
 	pub values: ::std::vec::Vec<StorageValue>,
 }
-///`IncomingGetResponse(((bytes,bytes,uint64,address,uint64,bytes[],uint64),(bytes,bytes)[]),
+///`IncomingGetResponse(((bytes,bytes,uint64,address,uint64,bytes[],uint64,bytes),(bytes,bytes)[]),
 /// address)`
 #[derive(
 	Clone,

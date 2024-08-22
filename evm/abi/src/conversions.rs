@@ -256,6 +256,7 @@ impl From<router::GetRequest> for GetRequest {
 				address.0.copy_from_slice(&value.from);
 				address
 			},
+			context: value.context.into(),
 			timeout_timestamp: value.timeout_timestamp,
 			height: value.height,
 		}
@@ -421,6 +422,7 @@ impl TryFrom<GetRequestEventFilter> for router::GetRequest {
 			from: get.from.0.into(),
 			keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
 			height: get.height.low_u64(),
+			context: get.context.as_ref().to_vec(),
 			timeout_timestamp: get.timeout_timestamp.low_u64(),
 		})
 	}

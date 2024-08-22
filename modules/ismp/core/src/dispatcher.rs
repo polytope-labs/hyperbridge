@@ -46,6 +46,8 @@ pub struct DispatchGet {
 	pub keys: Vec<Vec<u8>>,
 	/// Height at which to read the state machine.
 	pub height: u64,
+	/// Some application-specific metadata relating to this request
+	pub context: Vec<u8>,
 	/// Relative from the current timestamp at which this request expires in seconds.
 	pub timeout: u64,
 }

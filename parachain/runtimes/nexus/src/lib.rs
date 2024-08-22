@@ -34,6 +34,8 @@ use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_asset_rate::AssetKindFactory;
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
@@ -44,8 +46,6 @@ use sp_runtime::{
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
 };
-#[cfg(feature = "runtime-benchmarks")]
-use pallet_asset_rate::AssetKindFactory;
 
 use sp_core::Get;
 use sp_std::prelude::*;
@@ -69,7 +69,10 @@ use frame_support::{
 	},
 	PalletId,
 };
-use frame_system::{limits::{BlockLength, BlockWeights}, EnsureRoot, EnsureRootWithSuccess};
+use frame_system::{
+	limits::{BlockLength, BlockWeights},
+	EnsureRoot, EnsureRootWithSuccess,
+};
 use pallet_ismp::mmr::{Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
@@ -307,16 +310,14 @@ parameter_types! {
 // Configure FRAME pallets to include in runtime.
 
 use ::ismp::host::StateMachine;
-use frame_support::derive_impl;
-use frame_support::traits::tokens::pay::PayAssetFromAccount;
+use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
 use pallet_collective::PrimeDefaultVote;
+use pallet_ismp::mmr::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
 use sp_core::crypto::{AccountId32, FromEntropy};
 use sp_runtime::traits::IdentityLookup;
-use staging_xcm::latest::Junctions::X1;
-use staging_xcm::latest::{Junction, Location};
-use pallet_ismp::mmr::Leaf;
+use staging_xcm::latest::{Junction, Junctions::X1, Location};
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
@@ -587,19 +588,17 @@ parameter_types! {
 }
 
 #[cfg(feature = "runtime-benchmarks")]
-pub struct TreasuryAssetFactory{}
+pub struct TreasuryAssetFactory {}
 
 #[cfg(feature = "runtime-benchmarks")]
-impl<A,B> ArgumentsFactory<A,B> for TreasuryAssetFactory
-	where
-		A: From<Location>,
-		B: FromEntropy
+impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
+where
+	A: From<Location>,
+	B: FromEntropy,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location{
-			parents: 0,
-			interior:X1(Arc::new([Junction::GeneralIndex(seed as u128)]))
-		}.into()
+		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
+			.into()
 	}
 
 	fn create_beneficiary(seed: [u8; 32]) -> B {
@@ -609,17 +608,14 @@ impl<A,B> ArgumentsFactory<A,B> for TreasuryAssetFactory
 
 #[cfg(feature = "runtime-benchmarks")]
 impl<A> AssetKindFactory<A> for TreasuryAssetFactory
-	where
-		A: From<Location>
+where
+	A: From<Location>,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location{
-			parents: 0,
-			interior:X1(Arc::new([Junction::GeneralIndex(seed as u128)]))
-		}.into()
+		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
+			.into()
 	}
 }
-
 
 /// A way to pay from treasury
 impl pallet_treasury::Config for Runtime {
@@ -714,7 +710,7 @@ construct_runtime!(
 		Assets: pallet_assets = 46,
 		TokenGovernor: pallet_token_governor = 47,
 
-        // Governance
+		// Governance
 		TechnicalCollective: pallet_collective = 60
 	}
 );

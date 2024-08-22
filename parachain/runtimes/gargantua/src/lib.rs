@@ -27,8 +27,7 @@ mod ismp;
 mod weights;
 pub mod xcm;
 
-use alloc::vec::Vec;
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
@@ -101,11 +100,12 @@ use pallet_collective::PrimeDefaultVote;
 use pallet_treasury::ArgumentsFactory;
 
 use pallet_ismp::mmr::{Leaf, ProofKeys};
-use sp_core::{crypto::AccountId32, Get};
-use sp_core::crypto::FromEntropy;
+use sp_core::{
+	crypto::{AccountId32, FromEntropy},
+	Get,
+};
 use sp_runtime::traits::IdentityLookup;
-use staging_xcm::latest::Junctions::X1;
-use staging_xcm::latest::{Junction, Location};
+use staging_xcm::latest::{Junction, Junctions::X1, Location};
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -581,19 +581,17 @@ parameter_types! {
 }
 
 #[cfg(feature = "runtime-benchmarks")]
-pub struct TreasuryAssetFactory{}
+pub struct TreasuryAssetFactory {}
 
 #[cfg(feature = "runtime-benchmarks")]
-impl<A,B> ArgumentsFactory<A,B> for TreasuryAssetFactory
+impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
 where
 	A: From<Location>,
-	B: FromEntropy
+	B: FromEntropy,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location{
-			parents: 0,
-			interior:X1(Arc::new([Junction::GeneralIndex(seed as u128)]))
-		}.into()
+		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
+			.into()
 	}
 
 	fn create_beneficiary(seed: [u8; 32]) -> B {
@@ -604,13 +602,11 @@ where
 #[cfg(feature = "runtime-benchmarks")]
 impl<A> AssetKindFactory<A> for TreasuryAssetFactory
 where
-	A: From<Location>
+	A: From<Location>,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location{
-			parents: 0,
-			interior:X1(Arc::new([Junction::GeneralIndex(seed as u128)]))
-		}.into()
+		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
+			.into()
 	}
 }
 

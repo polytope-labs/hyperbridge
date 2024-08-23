@@ -1,5 +1,5 @@
 [package]
-name = "ismp-grandpa-primitives"
+name = "grandpa-verifier-primitives"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -7,21 +7,23 @@ publish = false
 
 [dependencies]
 # crates.io
-anyhow = { version = "1.0.64", default-features = false }
+anyhow = { workspace = true }
 finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false }
-codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false }
+codec = { workspace = true }
+log = { workspace = true }
 
 # substrate
-sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-io = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-frame-support = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-storage = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-consensus-grandpa = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+frame-support = { workspace = true }
+sp-std = { workspace = true }
+sp-trie = { workspace = true }
+sp-storage = { workspace = true }
+sp-consensus-grandpa = { workspace = true }
 # polytope
-ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
+ismp = { workspace = true }
+
 
 [features]
 default = ["std"]

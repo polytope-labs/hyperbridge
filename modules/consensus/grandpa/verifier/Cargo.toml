@@ -1,5 +1,5 @@
 [package]
-name = "ismp-grandpa-verifier"
+name = "grandpa-verifier"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -9,37 +9,37 @@ publish = false
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false }
-anyhow = { version = "1.0.64", default-features = false }
+codec = { workspace = true, features = ["derive"]}
+anyhow = { workspace = true }
 finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false }
-serde = { version = "1.0.144", default-features = false, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
 
-sp-consensus-grandpa = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-frame-support = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-io = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-storage = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
+sp-consensus-grandpa = { workspace = true }
+frame-support = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+sp-trie = { workspace = true }
+sp-io = { workspace = true }
+sp-core = { workspace = true }
+sp-storage = { workspace = true }
 
-primitives = { package = "ismp-grandpa-primitives", path = "../primitives", default-features = false }
-substrate-state-machine = { path = "../../pallet-ismp/primitives/state-machine", default-features = false }
+grandpa-verifier-primitives = { workspace = true }
+substrate-state-machine = { workspace = true }
 
 [dev-dependencies]
-polkadot-core-primitives = { git = "https://github.com/paritytech/polkadot", branch = "release-v0.9.42" }
+polkadot-core-primitives = { workspace = true }
 subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
 futures = "0.3.24"
 hex = "0.4.3"
 env_logger = "0.9.0"
 log = "0.4.17"
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 hex-literal = "0.3.4"
-grandpa-prover = { package = "ismp-grandpa-prover", path = "../prover" }
-ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main"}
-sc-finality-grandpa-rpc = "0.25.0"
+grandpa-prover = { workspace = true}
+ismp = { workspace = true }
+sc-consensus-grandpa-rpc = "0.29.0"
 
 
 
@@ -55,7 +55,7 @@ std = [
     "sp-trie/std",
     "sp-consensus-grandpa/std",
     "sp-io/std",
-    "primitives/std",
+    "grandpa-verifier-primitives/std",
     "serde/std",
     "sp-storage/std",
     "substrate-state-machine/std"

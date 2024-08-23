@@ -36,6 +36,7 @@ members = [
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/sync-committee/evm-common",
     "modules/ismp/clients/bsc",
+    "modules/ismp/clients/grandpa",
 
     # cryptography
     "modules/consensus/sync-committee/prover",
@@ -46,6 +47,9 @@ members = [
     "modules/consensus/geth-primitives",
     "modules/consensus/bsc/verifier",
     "modules/consensus/bsc/prover",
+    "modules/consensus/grandpa/prover",
+    "modules/consensus/grandpa/primitives",
+    "modules/consensus/grandpa/verifier",
     "modules/trees/ethereum",
     "modules/trees/mmr/pallet",
     "modules/trees/mmr/primitives",
@@ -133,6 +137,7 @@ sp-trie = { version = "37.0.0", default-features = false }
 sp-block-builder = { version = "34.0.0", default-features = false }
 sp-consensus-aura = { version = "0.40.0", default-features = false }
 sp-consensus-beefy = { version = "22.0.0", default-features = false }
+sp-consensus-grandpa = { version = "21.0.0", default-features = false }
 sp-core = { version = "34.0.0", default-features = false }
 sp-crypto-hashing = { version = "0.1.0", default-features = false }
 sp-inherents = { version = "34.0.0", default-features = false }
@@ -213,6 +218,8 @@ mmr-rpc = { version = "37.0.0" }
 xcm-simulator-example = "16.0.0"
 xcm-simulator = "16.0.0"
 polkadot-runtime-parachains = "16.0.0"
+polkadot-core-primitives = "15.0.0"
+sc-consensus-grandpa-rpc = "0.29.0"
 
 # crates.io
 serde = { version = "1", default-features = false }
@@ -256,6 +263,9 @@ geth-primitives = { path = "./modules/consensus/geth-primitives", default-featur
 sync-committee-primitives = { path = "./modules/consensus/sync-committee/primitives", default-features = false }
 sync-committee-prover = { path = "./modules/consensus/sync-committee/prover" }
 sync-committee-verifier = { path = "./modules/consensus/sync-committee/verifier", default-features = false }
+grandpa-verifier-primitives = { path = "./modules/consensus/grandpa/primitives", default-features = false }
+grandpa-prover = { path = "./modules/consensus/grandpa/prover" }
+grandpa-verifier = { path = "./modules/consensus/grandpa/verifier", default-features = false }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }

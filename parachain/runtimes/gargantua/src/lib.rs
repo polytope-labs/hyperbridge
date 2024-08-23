@@ -619,7 +619,7 @@ impl pallet_treasury::Config for Runtime {
 	type Burn = ();
 	type PalletId = TreasuryPalletId;
 	type BurnDestination = ();
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_treasury::WeightInfo<Runtime>;
 	type SpendFunds = ();
 	type MaxApprovals = ConstU32<1>; // number of technical collectives
 	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
@@ -634,7 +634,7 @@ impl pallet_treasury::Config for Runtime {
 }
 
 impl pallet_asset_rate::Config for Runtime {
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_asset_rate::WeightInfo<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
 	type CreateOrigin = EnsureRoot<AccountId32>;
 	type RemoveOrigin = EnsureRoot<AccountId32>;
@@ -653,7 +653,7 @@ impl pallet_collective::Config for Runtime {
 	type MaxProposals = TechnicalMaxProposals;
 	type MaxMembers = TechnicalMaxMembers;
 	type DefaultVote = PrimeDefaultVote;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_collective::WeightInfo<Runtime>;
 	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
 	type MaxProposalWeight = MaxCollectivesProposalWeight;
 }
@@ -731,6 +731,9 @@ mod benches {
 		[pallet_sudo, Sudo]
 		[pallet_assets, Assets]
 		[pallet_utility, Utility]
+		[pallet_treasury, Treasury]
+		[pallet_asset_rate, AssetRate]
+		[pallet_collective, TechnicalCollective]
 		[cumulus_pallet_parachain_system, ParachainSystem]
 		[pallet_session, SessionBench::<Runtime>]
 	);

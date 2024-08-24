@@ -26,12 +26,15 @@ pub mod rocksdb_weights;
 pub mod cumulus_pallet_parachain_system;
 pub mod cumulus_pallet_xcmp_queue;
 pub mod frame_system;
+pub mod pallet_asset_rate;
 pub mod pallet_assets;
 pub mod pallet_balances;
+pub mod pallet_collective;
 pub mod pallet_message_queue;
 pub mod pallet_session;
 pub mod pallet_sudo;
 pub mod pallet_timestamp;
+pub mod pallet_treasury;
 pub mod pallet_utility;
 
 pub use block_weights::constants::BlockExecutionWeight;

@@ -73,8 +73,8 @@ pub async fn process_get_request_events<
 				// 		if fee.is_zero() {
 				// 			tracing::trace!(target: "tesseract", "Skipping unprofitable  get request {:?},
 				// fee provided {:?}", commitment, Cost(fee)); 		} else {
-				// 			tracing::trace!(target: "tesseract", "Handling profitable  get request {:?}, fee
-				// provided {:?}", commitment, Cost(fee)); 			requests.push(req)
+				// 			tracing::trace!(target: "tesseract", "Handling profitable  get request {:?},
+				// fee provided {:?}", commitment, Cost(fee)); 			requests.push(req)
 				// 		}
 				// 	} else {
 				// 		tracing::error!("Failed to query fee for get request {:?}", commitment);

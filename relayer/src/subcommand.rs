@@ -53,10 +53,10 @@ impl SetConsensusState {
 
 		let challenge_period = relayer.unwrap_or_default().challenge_period.unwrap_or_default();
 		consensus_state.challenge_periods = consensus_state
-					.challenge_periods
-					.into_iter()
-					.map(|(key, _)| (key, challenge_period))
-					.collect();
+			.challenge_periods
+			.into_iter()
+			.map(|(key, _)| (key, challenge_period))
+			.collect();
 		hyperbridge.client().create_consensus_state(consensus_state).await?;
 
 		Ok(())

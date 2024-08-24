@@ -33,9 +33,11 @@ use tesseract_evm::{
 };
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 
+const PING_ADDR: H160 = H160(hex!("dfe8549cF259127a5e8De9B5d95529845FF04905"));
+
 #[tokio::test]
 #[ignore]
-async fn test_ping() -> anyhow::Result<()> {
+async fn dispatch_ping() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
 	let _op_url = std::env::var("OP_URL").expect("OP_URL was missing in env variables");
 	let _base_url = std::env::var("BASE_URL").expect("BASE_URL was missing in env variables");
@@ -46,8 +48,6 @@ async fn test_ping() -> anyhow::Result<()> {
 
 	let signing_key =
 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
-
-	let ping_addr = H160(hex!("0A7175d240fe71C8AEa0D1D7467bF03C6E217C50"));
 
 	let chains = vec![
 		(StateMachine::Evm(11155111), _geth_url, 6328728),
@@ -87,7 +87,7 @@ async fn test_ping() -> anyhow::Result<()> {
 				let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
 					.with_chain_id(provider.get_chainid().await?.low_u64());
 				let client = Arc::new(provider.with_signer(signer));
-				let ping = PingModule::new(ping_addr.clone(), client.clone());
+				let ping = PingModule::new(PING_ADDR.clone(), client.clone());
 
 				let host_addr = ping.host().await.context(format!("Error in {chain}"))?;
 				dbg!((&chain, &host_addr));
@@ -170,20 +170,20 @@ async fn test_ping() -> anyhow::Result<()> {
 						host.fee_token().await.context(format!("Error in {chain}"))?,
 						client.clone(),
 					);
-					let call = erc_20.approve(ping_addr, U256::max_value());
+					let call = erc_20.approve(PING_ADDR, U256::max_value());
 					let gas = call.estimate_gas().await.context(format!("Error in {chain}"))?;
 					call.gas(gas)
 						.send()
 						.await
-						.context(format!("Failed to send approval for {ping_addr} in {chain}"))?
+						.context(format!("Failed to send approval for {PING_ADDR} in {chain}"))?
 						.await
-						.context(format!("Failed to approve {ping_addr} in {chain}"))?;
+						.context(format!("Failed to approve {PING_ADDR} in {chain}"))?;
 
 					for (chain, _, _) in chains_clone.iter().filter(|(c, _, _)| chain != *c) {
 						for _ in 0..5 {
 							let call = ping.ping(PingMessage {
 								dest: chain.to_string().as_bytes().to_vec().into(),
-								module: ping_addr.clone().into(),
+								module: PING_ADDR.clone().into(),
 								timeout: 10 * 60 * 60,
 								fee: U256::from(30_000_000_000_000_000_000u128),
 								count: U256::from(100),
@@ -220,8 +220,6 @@ async fn test_ping_get_request() -> anyhow::Result<()> {
 
 	let signing_key =
 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
-
-	let ping_addr = H160(hex!("0A7175d240fe71C8AEa0D1D7467bF03C6E217C50"));
 
 	let hyperbridge_config = SubstrateConfig {
 		state_machine: StateMachine::Kusama(2000),
@@ -262,7 +260,7 @@ async fn test_ping_get_request() -> anyhow::Result<()> {
 	let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
 		.with_chain_id(provider.get_chainid().await?.low_u64());
 	let bsc_client = Arc::new(provider.with_signer(signer));
-	let ping = PingModule::new(ping_addr.clone(), bsc_client.clone());
+	let ping = PingModule::new(PING_ADDR.clone(), bsc_client.clone());
 
 	let latest_sepolia_height = hyperbridge
 		.query_latest_height(StateMachineId {
@@ -323,6 +321,7 @@ async fn test_ping_get_request() -> anyhow::Result<()> {
 		nonce: Default::default(),
 		from: Default::default(),
 		timeout_timestamp: 0,
+		context: Default::default(),
 		keys,
 		height: latest_sepolia_height.into(),
 	};

@@ -299,7 +299,10 @@ impl Display for StateMachine {
 			StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
 			StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
 			StateMachine::Substrate(id) => {
-				format!("GRANDPA-{}", String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?)
+				format!(
+					"SUBSTRATE-{}",
+					String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
+				)
 			},
 			StateMachine::Tendermint(id) => format!(
 				"TNDRMINT-{}",

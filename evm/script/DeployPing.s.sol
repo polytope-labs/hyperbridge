@@ -10,6 +10,7 @@ import {BaseScript} from "./BaseScript.sol";
 contract DeployScript is BaseScript {
     function run() external {
         address admin = vm.envAddress("ADMIN");
+        address tokenFaucet = vm.envAddress("TOKEN_FAUCET");
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
         string memory host = vm.envString("HOST");
 
@@ -17,15 +18,15 @@ contract DeployScript is BaseScript {
         PingModule ping = new PingModule{salt: salt}(admin);
 
         if (equal(host, "sepolia") || equal(host, "ethereum")) {
-            ping.setIsmpHost(SEPOLIA_HOST);
+            ping.setIsmpHost(SEPOLIA_HOST, tokenFaucet);
         } else if (equal(host, "arbitrum-sepolia")) {
-            ping.setIsmpHost(ARB_SEPOLIA_HOST);
+            ping.setIsmpHost(ARB_SEPOLIA_HOST, tokenFaucet);
         } else if (equal(host, "optimism-sepolia")) {
-            ping.setIsmpHost(OP_SEPOLIA_HOST);
+            ping.setIsmpHost(OP_SEPOLIA_HOST, tokenFaucet);
         } else if (equal(host, "base-sepolia")) {
-            ping.setIsmpHost(BASE_SEPOLIA_HOST);
+            ping.setIsmpHost(BASE_SEPOLIA_HOST, tokenFaucet);
         } else if (equal(host, "bsc-testnet")) {
-            ping.setIsmpHost(BSC_TESTNET_HOST);
+            ping.setIsmpHost(BSC_TESTNET_HOST, tokenFaucet);
         }
         vm.stopBroadcast();
     }

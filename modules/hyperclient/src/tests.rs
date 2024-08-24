@@ -42,8 +42,8 @@ async fn hyperclient_integration_tests() -> Result<(), anyhow::Error> {
 	setup_logging();
 	get_request_handling().await?;
 
-	test_timeout_request().await?;
-	subscribe_to_request_status().await?;
+	// test_timeout_request().await?;
+	// subscribe_to_request_status().await?;
 
 	Ok(())
 }

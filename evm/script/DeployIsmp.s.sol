@@ -87,10 +87,6 @@ contract DeployScript is BaseScript {
         // set the host address on the host manager
         manager.setIsmpHost(hostAddress);
 
-        // deploy the ping module as well
-        PingModule module = new PingModule{salt: salt}(admin);
-        module.setIsmpHost(hostAddress);
-
         // deploy the call dispatcher
         CallDispatcher dispatcher = new CallDispatcher{salt: salt}();
 
@@ -132,6 +128,10 @@ contract DeployScript is BaseScript {
         // and token faucet
         TokenFaucet faucet = new TokenFaucet{salt: salt}();
         feeToken.grantRole(MINTER_ROLE, address(faucet));
+
+        // deploy the ping module as well
+        PingModule module = new PingModule{salt: salt}(admin);
+        module.setIsmpHost(hostAddress, address(faucet));
 
         AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = AssetMetadata({

@@ -47,10 +47,10 @@ use ismp_solidity_abi::{
 };
 use std::sync::Arc;
 
-const OP_HOST: H160 = H160(hex!("625c531a56DB772CC36313d0A0114956aD8b56c2"));
-const SEPOLIA_HOST: H160 = H160(hex!("F1c7a386325B7D22025D7542b28Ee881Cdf107b3"));
-const BSC_HOST: H160 = H160(hex!("eB8977EDCdA5FaBDcDdEB39861Df25E8821a9e9b"));
-const PING_MODULE: H160 = H160(hex!("0A7175d240fe71C8AEa0D1D7467bF03C6E217C50"));
+const OP_HOST: H160 = H160(hex!("30e3af1747B155F37F935E0EC995De5EA4e67586"));
+const SEPOLIA_HOST: H160 = H160(hex!("27B0c6960B792a8dCb01F0652bDE48015cd5f23e"));
+const BSC_HOST: H160 = H160(hex!("4cB0f5750f6fE14d4B86acA6fe126943bdA3c8c4"));
+const PING_MODULE: H160 = H160(hex!("42C6551d05eA47c46Fc7B01BBaaD37c466481361"));
 
 pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");
@@ -385,9 +385,9 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 	};
 	let call = ping.dispatch_with_request(request);
 
-	let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
+	// let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
 	let receipt = call
-		.gas(gas)
+		.gas(10_000_000)
 		.send()
 		.await
 		.context(format!("Error in {chain:?}"))?

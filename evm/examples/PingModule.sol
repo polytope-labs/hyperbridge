@@ -19,6 +19,11 @@ struct PingMessage {
     uint256 fee;
 }
 
+interface ITokenFaucet {
+    // drips the feeToken once per day
+    function drip(address) external;
+}
+
 contract PingModule is IIsmpModule {
     using Message for PostResponse;
     using Message for PostRequest;
@@ -59,7 +64,13 @@ contract PingModule is IIsmpModule {
         _admin = admin;
     }
 
-    function setIsmpHost(address hostAddr) public onlyAdmin {
+    function setIsmpHost(address hostAddr, address tokenFaucet) public onlyAdmin {
+        address feeToken = IIsmpHost(hostAddr).feeToken();
+        IERC20(feeToken).approve(hostAddr, type(uint256).max);
+        if (tokenFaucet != address(0)) {
+            ITokenFaucet(tokenFaucet).drip(feeToken);
+        }
+
         _host = hostAddr;
     }
 
@@ -79,7 +90,6 @@ contract PingModule is IIsmpModule {
         uint256 fee = perByteFee * length;
 
         IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
-        IERC20(feeToken).approve(_host, fee);
         DispatchPostResponse memory post = DispatchPostResponse({
             request: response.request,
             response: response.response,
@@ -97,8 +107,6 @@ contract PingModule is IIsmpModule {
         uint256 fee = perByteFee * length;
 
         IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
-        IERC20(feeToken).approve(_host, fee);
-
         DispatchPost memory post = DispatchPost({
             body: request.body,
             dest: request.dest,
@@ -132,7 +140,6 @@ contract PingModule is IIsmpModule {
         uint256 fee = (pingMessage.fee + (perByteFee * length)) * pingMessage.count;
 
         IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
-        IERC20(feeToken).approve(_host, fee);
 
         for (uint256 i = 0; i < pingMessage.count; i++) {
             DispatchPost memory post = DispatchPost({

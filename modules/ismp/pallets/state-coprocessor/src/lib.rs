@@ -109,11 +109,12 @@ pub mod pallet {
 				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
 			}
 
-			let messages = message
+			let mut messages = message
 				.requests
 				.iter()
 				.map(|get| hash_request::<<T as Config>::IsmpHost>(&Request::Get(get.clone())))
 				.collect::<Vec<_>>();
+			messages.sort();
 
 			// this is so we can reject duplicate batches at the mempool level
 			let msg_hash = sp_io::hashing::keccak_256(&messages.encode()).to_vec();

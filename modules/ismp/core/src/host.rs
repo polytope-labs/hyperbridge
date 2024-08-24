@@ -262,15 +262,11 @@ pub enum StateMachine {
 	/// Kusama parachains
 	#[codec(index = 2)]
 	Kusama(u32),
-	/// We identify standalone state machines by their consensus state
+	/// Substrate-based standalone chain
 	#[codec(index = 3)]
-	Grandpa(ConsensusStateId),
-	/// State machines chains running on beefy consensus state
-	#[codec(index = 4)]
-	Beefy(ConsensusStateId),
-	#[codec(index = 5)]
+	Substrate(ConsensusStateId),
 	/// Tendermint chains
-	#[codec(index = 7)]
+	#[codec(index = 4)]
 	Tendermint(ConsensusStateId),
 }
 
@@ -286,10 +282,9 @@ impl StateMachine {
 	/// Check if the state machine is substrate-based
 	pub fn is_substrate(&self) -> bool {
 		match self {
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Beefy(_) |
-			StateMachine::Grandpa(_) => true,
+			StateMachine::Polkadot(_) | StateMachine::Kusama(_) | StateMachine::Substrate(_) => {
+				true
+			},
 			_ => false,
 		}
 	}
@@ -303,11 +298,11 @@ impl Display for StateMachine {
 			},
 			StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
 			StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
-			StateMachine::Grandpa(id) => {
-				format!("GRANDPA-{}", String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?)
-			},
-			StateMachine::Beefy(id) => {
-				format!("BEEFY-{}", String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?)
+			StateMachine::Substrate(id) => {
+				format!(
+					"SUBSTRATE-{}",
+					String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
+				)
 			},
 			StateMachine::Tendermint(id) => format!(
 				"TNDRMINT-{}",
@@ -347,23 +342,14 @@ impl FromStr for StateMachine {
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
 				StateMachine::Kusama(id)
 			},
-			name if name.starts_with("GRANDPA-") => {
+			name if name.starts_with("SUBSTRATE-") => {
 				let name = name
 					.split('-')
 					.last()
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
 				let mut id = [0u8; 4];
 				id.copy_from_slice(name.as_bytes());
-				StateMachine::Grandpa(id)
-			},
-			name if name.starts_with("BEEFY-") => {
-				let name = name
-					.split('-')
-					.last()
-					.ok_or_else(|| format!("invalid state machine: {name}"))?;
-				let mut id = [0u8; 4];
-				id.copy_from_slice(name.as_bytes());
-				StateMachine::Beefy(id)
+				StateMachine::Substrate(id)
 			},
 			name if name.starts_with("TNDRMINT-") => {
 				let name = name
@@ -389,8 +375,8 @@ mod tests {
 
 	#[test]
 	fn state_machine_conversions() {
-		let grandpa = StateMachine::Grandpa(*b"hybr");
-		let beefy = StateMachine::Beefy(*b"hybr");
+		let grandpa = StateMachine::Substrate(*b"hybr");
+		let beefy = StateMachine::Tendermint(*b"hybr");
 
 		let grandpa_string = grandpa.to_string();
 		let beefy_string = beefy.to_string();

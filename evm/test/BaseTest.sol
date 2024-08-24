@@ -29,6 +29,7 @@ import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {ERC20Token} from "./mocks/ERC20Token.sol";
 import {MiniStaking} from "./mocks/MiniStakingContract.sol";
+import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 
 contract BaseTest is Test {
     /// @notice The Id of Role required to mint token
@@ -89,8 +90,16 @@ contract BaseTest is Test {
         });
         host = new TestHost(params);
 
+        // and token faucet
+        TokenFaucet faucet = new TokenFaucet();
+        feeToken.grantRole(MINTER_ROLE, address(faucet));
+
         testModule = new PingModule(address(this));
-        testModule.setIsmpHost(address(host));
+        uint256 oldTime = block.timestamp;
+        vm.warp(100_000);
+        testModule.setIsmpHost(address(host), address(faucet));
+        vm.warp(oldTime);
+
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
 

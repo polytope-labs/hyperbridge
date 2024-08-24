@@ -29,6 +29,7 @@ import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "../src/modules/TokenGateway.sol";
+import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 
 contract MainnetForkBaseTest is Test {
     /// @notice The Id of Role required to mint token
@@ -99,7 +100,7 @@ contract MainnetForkBaseTest is Test {
         host = new TestHost(params);
 
         testModule = new PingModule(address(this));
-        testModule.setIsmpHost(address(host));
+        testModule.setIsmpHost(address(host), address(0));
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
         AssetMetadata[] memory assets = new AssetMetadata[](2);

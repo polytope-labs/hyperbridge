@@ -65,12 +65,12 @@ mod gargantua_conversion {
 				runtime_types::ismp::host::StateMachine::Evm(id) => StateMachine::Evm(id),
 				runtime_types::ismp::host::StateMachine::Polkadot(id) => StateMachine::Polkadot(id),
 				runtime_types::ismp::host::StateMachine::Kusama(id) => StateMachine::Kusama(id),
-				runtime_types::ismp::host::StateMachine::Grandpa(consensus_state_id) =>
-					StateMachine::Grandpa(consensus_state_id),
-				runtime_types::ismp::host::StateMachine::Beefy(consensus_state_id) =>
-					StateMachine::Beefy(consensus_state_id),
-				runtime_types::ismp::host::StateMachine::Tendermint(id) =>
-					StateMachine::Tendermint(id),
+				runtime_types::ismp::host::StateMachine::Substrate(consensus_state_id) => {
+					StateMachine::Substrate(consensus_state_id)
+				},
+				runtime_types::ismp::host::StateMachine::Tendermint(id) => {
+					StateMachine::Tendermint(id)
+				},
 			}
 		}
 	}
@@ -99,12 +99,12 @@ mod gargantua_conversion {
 				StateMachine::Evm(id) => runtime_types::ismp::host::StateMachine::Evm(id),
 				StateMachine::Polkadot(id) => runtime_types::ismp::host::StateMachine::Polkadot(id),
 				StateMachine::Kusama(id) => runtime_types::ismp::host::StateMachine::Kusama(id),
-				StateMachine::Grandpa(consensus_state_id) =>
-					runtime_types::ismp::host::StateMachine::Grandpa(consensus_state_id),
-				StateMachine::Beefy(consensus_state_id) =>
-					runtime_types::ismp::host::StateMachine::Beefy(consensus_state_id),
-				StateMachine::Tendermint(id) =>
-					runtime_types::ismp::host::StateMachine::Tendermint(id),
+				StateMachine::Substrate(consensus_state_id) => {
+					runtime_types::ismp::host::StateMachine::Substrate(consensus_state_id)
+				},
+				StateMachine::Tendermint(id) => {
+					runtime_types::ismp::host::StateMachine::Tendermint(id)
+				},
 			}
 		}
 	}
@@ -389,8 +389,9 @@ pub mod signer {
 
 		match extrinsic.wait_for_success().await {
 			Ok(p) => p,
-			Err(err) =>
-				Err(err).context(format!("Error executing signed extrinsic {ext_hash:?}"))?,
+			Err(err) => {
+				Err(err).context(format!("Error executing signed extrinsic {ext_hash:?}"))?
+			},
 		};
 		Ok(())
 	}

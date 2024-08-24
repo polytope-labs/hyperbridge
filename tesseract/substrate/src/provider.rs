@@ -141,7 +141,7 @@ where
 		// The destination chain in the request does not reflect the kind of proof needed
 		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				let keys =
 					ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
@@ -150,10 +150,7 @@ where
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Beefy(_) => {
+			s if s.is_substrate() => {
 				let keys: Vec<_> = keys
 					.into_iter()
 					.map(|key| request_commitment_storage_key(key.commitment))
@@ -168,7 +165,7 @@ where
 				});
 				Ok(proof.encode())
 			},
-			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
+			s => Err(anyhow::anyhow!("Unsupported state machine {s:?}!")),
 		}
 	}
 
@@ -184,7 +181,7 @@ where
 
 		match counterparty {
 			// Use mmr proofs for queries going to EVM chains
-			StateMachine::Evm(_) => {
+			s if s.is_evm() => {
 				let keys =
 					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
@@ -193,10 +190,7 @@ where
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
-			StateMachine::Polkadot(_) |
-			StateMachine::Kusama(_) |
-			StateMachine::Grandpa(_) |
-			StateMachine::Beefy(_) => {
+			s if s.is_substrate() => {
 				let keys: Vec<_> = keys
 					.into_iter()
 					.map(|key| response_commitment_storage_key(key.commitment))
@@ -211,7 +205,7 @@ where
 				});
 				Ok(proof.encode())
 			},
-			StateMachine::Tendermint(_) => Err(anyhow::anyhow!("Unsupported state machine!")),
+			s => Err(anyhow::anyhow!("Unsupported state machine {s:?}!")),
 		}
 	}
 
@@ -667,8 +661,8 @@ where
 			let compressed_call_len = zstd_safe::compress(&mut buffer[..], &encoded_call, 3)
 				.map_err(|_| anyhow!("Call compression failed"))?;
 			// If compression saving is less than 15% submit the uncompressed call
-			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) <
-				20usize
+			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len)
+				< 20usize
 			{
 				log::trace!(target: "tesseract", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))

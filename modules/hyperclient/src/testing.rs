@@ -385,9 +385,9 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 	};
 	let call = ping.dispatch_with_request(request);
 
-	// let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
+	let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
 	let receipt = call
-		.gas(10_000_000)
+		.gas(gas)
 		.send()
 		.await
 		.context(format!("Error in {chain:?}"))?

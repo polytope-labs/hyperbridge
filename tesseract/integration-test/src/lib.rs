@@ -434,7 +434,7 @@ async fn run_integration_tests() -> Result<(), anyhow::Error> {
 	let (client_a, client_b) =
 		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
 
-	client_a.blocks().subscribe_finalized().await?.take(1).await;
+	client_a.blocks().subscribe_finalized().await?.take(1).next().await;
 
 	//======================= run only once ( set host executives ) ====================
 	// check if the host params are set

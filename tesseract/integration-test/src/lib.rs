@@ -397,6 +397,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 		from: pallet_ismp_demo::PALLET_ID.to_bytes(),
 		keys: vec![key],
 		height: latest_fetch_height,
+		context: vec![],
 		timeout_timestamp: 0,
 	};
 	// ====== handle the get request and resubmit to chain A (origin chain) ============
@@ -433,19 +434,8 @@ async fn run_integration_tests() -> Result<(), anyhow::Error> {
 	let (client_a, client_b) =
 		(chain_a_sub_client.clone().client, chain_b_sub_client.clone().client);
 
-	let mut block_stream = client_a.blocks().subscribe_finalized().await?;
-	while let Some(block_result) = block_stream.next().await {
-		match block_result {
-			Ok(_block) => {
-				log::info!("chain producing blocks and finalizing");
-				break
-			},
-			Err(_err) => {
-				log::info!("chain not yet producing blocks and finalizing");
-				continue
-			},
-		}
-	}
+	client_a.blocks().subscribe_finalized().await?.take(1).await;
+
 	//======================= run only once ( set host executives ) ====================
 	// check if the host params are set
 	let host_param_a = client_a

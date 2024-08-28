@@ -40,6 +40,7 @@ hex-literal = "0.3.4"
 grandpa-prover = { workspace = true}
 ismp = { workspace = true }
 sc-consensus-grandpa-rpc = "0.29.0"
+subxt-utils = { workspace = true, default-features = true }
 
 
 

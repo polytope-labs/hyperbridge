@@ -6599,6 +6599,7 @@ dependencies = [
  "sp-trie 37.0.0",
  "substrate-state-machine",
  "subxt",
+ "subxt-utils",
  "tokio",
 ]
 

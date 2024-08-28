@@ -1,6 +1,5 @@
 use crate::verify_parachain_headers_with_grandpa_finality_proof;
 use codec::{Decode, Encode};
-use futures::StreamExt;
 use grandpa_prover::GrandpaProver;
 use grandpa_verifier_primitives::{
 	justification::GrandpaJustification, ParachainHeadersWithFinalityProof,
@@ -8,27 +7,10 @@ use grandpa_verifier_primitives::{
 use ismp::host::StateMachine;
 use polkadot_core_primitives::Header;
 use serde::{Deserialize, Serialize};
-use sp_core::{crypto::AccountId32, H256};
 use subxt::{
-	config::{
-		polkadot::PolkadotExtrinsicParams as ParachainExtrinsicParams,
-		substrate::{BlakeTwo256, SubstrateHeader},
-	},
+	config::substrate::{BlakeTwo256, SubstrateHeader},
 	rpc_params,
 };
-
-pub struct DefaultConfig;
-
-impl subxt::config::Config for DefaultConfig {
-	type Hash = H256;
-	type AccountId = AccountId32;
-	type Address = sp_runtime::MultiAddress<Self::AccountId, u32>;
-	type Signature = sp_runtime::MultiSignature;
-	type Hasher = subxt::config::substrate::BlakeTwo256;
-	type Header =
-		subxt::config::substrate::SubstrateHeader<u32, subxt::config::substrate::BlakeTwo256>;
-	type ExtrinsicParams = ParachainExtrinsicParams<Self>;
-}
 
 pub type Justification = GrandpaJustification<Header>;
 
@@ -44,17 +26,19 @@ async fn follow_grandpa_justifications() {
 		.format_module_path(false)
 		.init();
 
-	let relay = std::env::var("RELAY_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+	let relay_ws_url = std::env::var("RELAY_HOST")
+		.unwrap_or_else(|_| "wss://hyperbridge-paseo-relay.blockops.network:443".to_string());
 
-	let relay_ws_url = format!("ws://{relay}:9944");
+	// let relay_ws_url = format!("ws://{relay}:9944");
 
-	let para_ids = vec![2000, 2001];
+	let para_ids = vec![4009];
 	let babe_epoch_start_key =
 		hex::decode("1cb6f36e027abb2091cfb5110ab5087fe90e2fbf2d792cb324bffa9427fe1f0e").unwrap();
 	let current_set_id_key =
 		hex::decode("5f9cc45b7a00c5899361e1c6099678dc8a2d09463effcc78a22d75b9cb87dffc").unwrap();
 
-	let prover = GrandpaProver::<DefaultConfig>::new(
+	println!("Connecting to relay chain {relay_ws_url}");
+	let prover = GrandpaProver::<subxt_utils::BlakeSubstrateChain>::new(
 		&relay_ws_url,
 		para_ids,
 		StateMachine::Polkadot(0),
@@ -64,19 +48,21 @@ async fn follow_grandpa_justifications() {
 	.await
 	.unwrap();
 
+	println!("Connected to relay chain");
+
 	println!("Waiting for grandpa proofs to become available");
-	let session_length = prover.session_length().await.unwrap();
-	prover
-		.client
-		.blocks()
-		.subscribe_finalized()
-		.await
-		.unwrap()
-		.filter_map(|result| futures::future::ready(result.ok()))
-		.skip_while(|h| futures::future::ready(h.number() < (session_length * 2) + 10))
-		.take(1)
-		.collect::<Vec<_>>()
-		.await;
+	// let session_length = prover.session_length().await.unwrap();
+	// prover
+	// 	.client
+	// 	.blocks()
+	// 	.subscribe_finalized()
+	// 	.await
+	// 	.unwrap()
+	// 	.filter_map(|result| futures::future::ready(result.ok()))
+	// 	.skip_while(|h| futures::future::ready(h.number() < (session_length * 2) + 10))
+	// 	.take(1)
+	// 	.collect::<Vec<_>>()
+	// 	.await;
 
 	let mut subscription = prover
 		.client
@@ -87,11 +73,10 @@ async fn follow_grandpa_justifications() {
 			"grandpa_unsubscribeJustifications",
 		)
 		.await
-		.unwrap()
-		.take(100);
+		.unwrap();
 
 	// slot duration in milliseconds for parachains
-	let slot_duration = 12_000;
+	let slot_duration = 6000;
 
 	let mut consensus_state = prover.initialize_consensus_state(slot_duration).await.unwrap();
 

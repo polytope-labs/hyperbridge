@@ -34,7 +34,7 @@ use std::{
 	collections::{BTreeMap, BTreeSet, HashMap},
 	sync::Arc,
 };
-use subxt::{config::Header, Config, OnlineClient};
+use subxt::{config::Header, rpc_params, Config, OnlineClient};
 
 /// Head data for parachain
 #[derive(Decode, Encode)]
@@ -45,8 +45,6 @@ pub struct HeadData(pub Vec<u8>);
 pub struct GrandpaProver<T: Config> {
 	/// Subxt client for the chain
 	pub client: OnlineClient<T>,
-	/// Chain jsonrpsee client for typed rpc requests, which subxt lacks support for.
-	pub ws_client: Arc<Client>,
 	/// ParaId of the associated parachains
 	pub para_ids: Vec<u32>,
 	/// State machine identifier for the chain
@@ -94,10 +92,10 @@ where
 		babe_epoch_start: Vec<u8>,
 		current_set_id: Vec<u8>,
 	) -> Result<Self, anyhow::Error> {
-		let ws_client = Arc::new(WsClientBuilder::default().build(ws_url).await?);
-		let client = subxt_utils::client::ws_client(ws_url, 150 * 1024).await?;
+		let max_rpc_payload_size = 15 * 1024 * 1024;
+		let client = subxt_utils::client::ws_client(ws_url, max_rpc_payload_size).await?;
 
-		Ok(Self { ws_client, client, para_ids, state_machine, babe_epoch_start, current_set_id })
+		Ok(Self { client, para_ids, state_machine, babe_epoch_start, current_set_id })
 	}
 
 	/// Construct the initial consensus state.
@@ -178,13 +176,18 @@ where
 		T::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
 		H::Number: finality_grandpa::BlockNumberOps + One,
 	{
-		let encoded = GrandpaApiClient::<JustificationNotification, H256, u32>::prove_finality(
-			&*self.ws_client,
-			latest_finalized_height,
-		)
-		.await?
-		.ok_or_else(|| anyhow!("No justification found for block: {:?}", latest_finalized_height))?
-		.0;
+		let encoded = self
+			.client
+			.rpc()
+			.request::<Option<JustificationNotification>>(
+				"grandpa_proveFinality",
+				rpc_params![latest_finalized_height],
+			)
+			.await?
+			.ok_or_else(|| {
+				anyhow!("No justification found for block: {:?}", latest_finalized_height)
+			})?
+			.0;
 
 		let mut finality_proof = FinalityProof::<H>::decode(&mut &encoded[..])?;
 

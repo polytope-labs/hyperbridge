@@ -1,7 +1,7 @@
 #![cfg(test)]
 #![deny(missing_docs, unused_imports)]
 
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
 use futures::{FutureExt, StreamExt};
 use ismp::{
 	consensus::StateMachineHeight,
@@ -13,7 +13,6 @@ use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp_demo as IsmpPalletDemo;
 use pallet_ismp_host_executive::HostParam;
 use sc_service::TaskManager;
-use sp_core::H256;
 use std::{
 	collections::{BTreeMap, HashMap},
 	sync::Arc,

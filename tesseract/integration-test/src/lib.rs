@@ -1,7 +1,7 @@
 #![cfg(test)]
 #![deny(missing_docs, unused_imports)]
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use futures::{FutureExt, StreamExt};
 use ismp::{
 	consensus::StateMachineHeight,
@@ -13,6 +13,7 @@ use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp_demo as IsmpPalletDemo;
 use pallet_ismp_host_executive::HostParam;
 use sc_service::TaskManager;
+use sp_core::H256;
 use std::{
 	collections::{BTreeMap, HashMap},
 	sync::Arc,
@@ -86,17 +87,24 @@ async fn relay_get_response_message(
 	// =================== send to the source chain ================================
 
 	// resubmit if fails
-
 	let mut tx_res_hash = None;
-	while let Ok(tx_hash) = send_unsigned_extrinsic(
-		&cloned_chain_a_client.clone().client.clone(),
-		Extrinsic::new("Ismp", "handle_unsigned", vec![response.clone()].encode()),
-		true,
-	)
-	.await
-	{
-		tx_res_hash = tx_hash;
-		break
+
+	while let None = tx_res_hash {
+		let res = send_unsigned_extrinsic(
+			&cloned_chain_a_client.clone().client.clone(),
+			Extrinsic::new("Ismp", "handle_unsigned", vec![response.clone()].encode()),
+			true,
+		)
+		.await;
+		match res {
+			Ok(res) =>
+				if res.is_some() {
+					tx_res_hash = res;
+				} else {
+					continue
+				},
+			Err(_) => continue,
+		}
 	}
 
 	let get_resp_event = chain_a_client

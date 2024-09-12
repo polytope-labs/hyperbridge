@@ -83,10 +83,6 @@ pub struct Params<Balance> {
 /// Struct for updating the protocol parameters for the TokenGovernor
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ParamsUpdate<Balance> {
-	/// The address of the token gateway contract across all chains
-	pub token_gateway_address: Option<H160>,
-	/// The address of the token registrar contract across all chains
-	pub token_registrar_address: Option<H160>,
 	/// The asset registration fee in native tokens, collected by the treasury
 	pub registration_fee: Option<Balance>,
 }

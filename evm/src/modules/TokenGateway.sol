@@ -30,32 +30,28 @@ import {ICallDispatcher, CallDispatcherParams} from "./CallDispatcher.sol";
 struct TeleportParams {
     // amount to be sent
     uint256 amount;
-    // Maximum amount to pay for liquidity fees
-    uint256 maxFee;
     // Relayer fee
     uint256 relayerFee;
-    // The token identifier
+    // The token identifier to send
     bytes32 assetId;
-    // Redeem Erc20 on the destination?
+    // Redeem ERC20 on the destination?
     bool redeem;
     // recipient address
     bytes32 to;
     // recipient state machine
     bytes dest;
-    // timeout in seconds
+    // request timeout in seconds
     uint64 timeout;
-    // destination contract call data
-    bytes data;
     // Amount of native token to pay for dispatching the request
     // if 0 will use the `IIsmpHost.feeToken`
     uint256 nativeCost;
+    // destination contract call data
+    bytes data;
 }
 
 struct Body {
     // Amount of the asset to be sent
     uint256 amount;
-    // Maximum amount to pay for liquidity fees
-    uint256 maxFee;
     // The asset identifier
     bytes32 assetId;
     // Flag to redeem the erc20 asset on the destination
@@ -69,8 +65,6 @@ struct Body {
 struct BodyWithCall {
     // Amount of the asset to be sent
     uint256 amount;
-    // Maximum amount to pay for liquidity fees
-    uint256 maxFee;
     // The asset identifier
     bytes32 assetId;
     // Flag to redeem the erc20 asset on the destination
@@ -149,7 +143,7 @@ struct DeregsiterAsset {
 }
 
 // Abi-encoded size of Body struct
-uint256 constant BODY_BYTES_SIZE = 193;
+uint256 constant BODY_BYTES_SIZE = 161;
 
 // Params for the TokenGateway contract
 struct TokenGatewayParams {
@@ -159,20 +153,13 @@ struct TokenGatewayParams {
     address dispatcher;
 }
 
-struct LiquidityBid {
-    // Bidder in question
-    address bidder;
-    // Proposed fee
-    uint256 fee;
-}
-
 /**
  * @title The TokenGateway.
  * @author Polytope Labs (hello@polytope.technology)
  *
  * @notice Allows users send either ERC20 or ERC6160 tokens using Hyperbridge as a message-passing layer.
  *
- * @dev If ERC20 tokens are sent then fillers bid to provide the ERC20 token on the destination chain.
+ * @dev ERC20 tokens are custodied in exchange for ERC6160 tokens to be minted on the destination chain,
  * Otherwise if ERC6160 tokens are sent, then it simply performs a burn-and-mint.
  */
 contract TokenGateway is BaseIsmpModule {
@@ -191,43 +178,8 @@ contract TokenGateway is BaseIsmpModule {
     // mapping of token identifier to erc20 contracts
     mapping(bytes32 => address) private _erc20s;
 
-    // mapping of a request commitment to a corresponding bid
-    mapping(bytes32 => LiquidityBid) private _bids;
-
     // mapping of keccak256(source chain) to the token gateway contract address
     mapping(bytes32 => address) private _instances;
-
-    // A filler has just placed a bid to fulfil some request
-    event BidPlaced(
-        // The associated request commitment
-        bytes32 commitment,
-        // The liquidity fee for the bid
-        uint256 bid,
-        // The assetId for the bid
-        bytes32 indexed assetId,
-        // The bidder's address
-        address indexed bidder
-    );
-
-    // The request associated with a bid has timed out and the bid refunded
-    event BidRefunded(
-        // The associated request commitment
-        bytes32 commitment,
-        // The assetId for the bid
-        bytes32 indexed assetId,
-        // The bidder's address
-        address indexed bidder
-    );
-
-    // Filler fulfilled some liquidity request
-    event RequestFulfilled(
-        // The amount that was provided to the user
-        uint256 amount,
-        // The bidder's address
-        address indexed bidder,
-        // The provided assetId
-        bytes32 indexed assetId
-    );
 
     // User has received some assets
     event AssetReceived(
@@ -321,21 +273,6 @@ contract TokenGateway is BaseIsmpModule {
     // @dev Action is unauthorized
     error UnauthorizedAction();
 
-    // @dev Provided request has timed out
-    error RequestTimedOut();
-
-    // @dev Provided request has not timed out
-    error RequestNotTimedOut();
-
-    // @dev Provided bid cannot usurp the existing bid
-    error BidTooHigh();
-
-    // @dev Unfortunately no one has bid to fulfil this request
-    error NoExistingBid();
-
-    // @dev Provided request already fulfilled
-    error RequestAlreadyFulfilled();
-
     // @dev Unexpected zero address
     error ZeroAddress();
 
@@ -412,13 +349,6 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     /**
-     * @dev Fetch the bid for a given request commitment
-     */
-    function bid(bytes32 commitment) public view returns (LiquidityBid memory) {
-        return _bids[commitment];
-    }
-
-    /**
      * @dev Fetch the TokenGateway instance for a destination.
      */
     function instance(bytes calldata destination) public view returns (address) {
@@ -467,7 +397,6 @@ contract TokenGateway is BaseIsmpModule {
                     from: addressToBytes32(msg.sender),
                     to: teleportParams.to,
                     amount: teleportParams.amount,
-                    maxFee: teleportParams.maxFee,
                     assetId: teleportParams.assetId,
                     redeem: teleportParams.redeem,
                     data: teleportParams.data
@@ -477,7 +406,6 @@ contract TokenGateway is BaseIsmpModule {
                 Body({
                     from: addressToBytes32(msg.sender),
                     to: teleportParams.to,
-                    maxFee: teleportParams.maxFee,
                     amount: teleportParams.amount,
                     assetId: teleportParams.assetId,
                     redeem: teleportParams.redeem
@@ -512,111 +440,6 @@ contract TokenGateway is BaseIsmpModule {
             redeem: teleportParams.redeem,
             commitment: commitment
         });
-    }
-
-    /**
-     * @dev Bid to fulfil an incoming asset. This will displace any pre-existing bids
-     * if the liquidity fee is lower than said bid. This effectively creates a
-     * race to the bottom for fees.
-     *
-     * @notice The request must not have expired, and must not have already been fulfilled.
-     */
-    function bid(PostRequest calldata request, uint256 fee) public authenticate(request) {
-        // Not sure why anyone would do this
-        if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
-        // cannot bid on timed-out requests
-        if (block.timestamp > request.timeout()) revert RequestTimedOut();
-
-        bytes32 commitment = request.hash();
-        // cannot bid on fulfilled requests
-        if (IIsmpHost(_params.host).requestReceipts(commitment) != address(0)) revert RequestAlreadyFulfilled();
-
-        Body memory body;
-        if (request.body.length > BODY_BYTES_SIZE) {
-            BodyWithCall memory bodyWithCall = abi.decode(request.body[1:], (BodyWithCall));
-            body = Body({
-                amount: bodyWithCall.amount,
-                maxFee: bodyWithCall.maxFee,
-                assetId: bodyWithCall.assetId,
-                redeem: bodyWithCall.redeem,
-                from: bodyWithCall.from,
-                to: bodyWithCall.to
-            });
-        } else {
-            body = abi.decode(request.body[1:], (Body));
-        }
-
-        if (body.redeem) revert UnauthorizedAction();
-
-        address erc20Address = _erc20s[body.assetId];
-        if (erc20Address == address(0)) revert UnknownAsset();
-
-        LiquidityBid memory liquidityBid = _bids[commitment];
-
-        // no existing bids
-        if (liquidityBid.bidder == address(0)) {
-            if (fee > body.maxFee) revert BidTooHigh();
-
-            // transfer from bidder to this
-            SafeERC20.safeTransferFrom(IERC20(erc20Address), msg.sender, address(this), body.amount - fee);
-        } else {
-            if (fee >= liquidityBid.fee) revert BidTooHigh();
-            // refund previous bidder
-            SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
-
-            // transfer from new bidder to this
-            SafeERC20.safeTransferFrom(IERC20(erc20Address), msg.sender, address(this), body.amount - fee);
-        }
-
-        _bids[commitment] = LiquidityBid({bidder: msg.sender, fee: fee});
-
-        // emit event
-        emit BidPlaced({commitment: commitment, assetId: body.assetId, bid: fee, bidder: msg.sender});
-    }
-
-    /**
-     * @dev This allows the bidder to refund their bids in the event that the request timed-out before
-     * the bid could be fulfilled.
-     */
-    function refundBid(PostRequest calldata request) public authenticate(request) {
-        // Not sure why anyone would do this
-        if (!request.dest.equals(IIsmpHost(_params.host).host())) revert UnauthorizedAction();
-        // Cannot refund bids on requests which have not timed out, sorry.
-        if (request.timeout() > block.timestamp) revert RequestNotTimedOut();
-
-        bytes32 commitment = request.hash();
-        // cannot refund bids for fulfilled requests
-        if (IIsmpHost(_params.host).requestReceipts(commitment) != address(0)) revert RequestAlreadyFulfilled();
-
-        LiquidityBid memory liquidityBid = _bids[commitment];
-        if (liquidityBid.bidder == address(0)) revert NoExistingBid();
-
-        Body memory body;
-        if (request.body.length > BODY_BYTES_SIZE) {
-            BodyWithCall memory bodyWithCall = abi.decode(request.body[1:], (BodyWithCall));
-            body = Body({
-                amount: bodyWithCall.amount,
-                maxFee: bodyWithCall.maxFee,
-                assetId: bodyWithCall.assetId,
-                redeem: bodyWithCall.redeem,
-                from: bodyWithCall.from,
-                to: bodyWithCall.to
-            });
-        } else {
-            body = abi.decode(request.body[1:], (Body));
-        }
-
-        address erc20Address = _erc20s[body.assetId];
-
-        // can only happen if someone bids on an asset right before it was deregistered.
-        // In this case, the asset will need to be re-registered
-        if (erc20Address == address(0)) revert UnknownAsset();
-
-        delete _bids[commitment];
-
-        SafeERC20.safeTransfer(IERC20(erc20Address), liquidityBid.bidder, body.amount - liquidityBid.fee);
-
-        emit BidRefunded({commitment: commitment, assetId: body.assetId, bidder: liquidityBid.bidder});
     }
 
     /**
@@ -655,7 +478,6 @@ contract TokenGateway is BaseIsmpModule {
             body = Body({
                 amount: bodyWithCall.amount,
                 assetId: bodyWithCall.assetId,
-                maxFee: bodyWithCall.maxFee,
                 redeem: bodyWithCall.redeem,
                 from: bodyWithCall.from,
                 to: bodyWithCall.to
@@ -687,7 +509,7 @@ contract TokenGateway is BaseIsmpModule {
     ) internal authenticate(incoming.request) {
         Body memory body = abi.decode(incoming.request.body[1:], (Body));
         bytes32 commitment = incoming.request.hash();
-        handleIncomingAsset(body, commitment);
+        handleIncomingAsset(body);
 
         emit AssetReceived({
             commitment: commitment,
@@ -710,13 +532,11 @@ contract TokenGateway is BaseIsmpModule {
         handleIncomingAsset(
             Body({
                 amount: body.amount,
-                maxFee: body.maxFee,
                 assetId: body.assetId,
                 redeem: body.redeem,
                 from: body.from,
                 to: body.to
-            }),
-            commitment
+            })
         );
 
         ICallDispatcher(_params.dispatcher).dispatch(body.data);
@@ -733,23 +553,13 @@ contract TokenGateway is BaseIsmpModule {
     /**
      * @dev Executes the asset disbursement for the provided request
      */
-    function handleIncomingAsset(Body memory body, bytes32 commitment) internal {
+    function handleIncomingAsset(Body memory body) internal {
         address _erc20 = _erc20s[body.assetId];
         address _erc6160 = _erc6160s[body.assetId];
 
         if (_erc20 != address(0) && body.redeem) {
             // a relayer/user is redeeming the native asset
             SafeERC20.safeTransfer(IERC20(_erc20), bytes32ToAddress(body.to), body.amount);
-        } else if (_erc20 != address(0) && _erc6160 != address(0) && !body.redeem) {
-            // user is swapping, fetch the bid
-            LiquidityBid memory liquidityBid = _bids[commitment];
-            if (liquidityBid.bidder == address(0)) revert NoExistingBid();
-
-            uint256 value = body.amount - liquidityBid.fee;
-            SafeERC20.safeTransfer(IERC20(_erc20), bytes32ToAddress(body.to), value);
-            // hand the bidder the receipt so they can redeem the asset on the source chain
-            IERC6160Ext20(_erc6160).mint(liquidityBid.bidder, body.amount);
-            emit RequestFulfilled({bidder: liquidityBid.bidder, amount: value, assetId: body.assetId});
         } else if (_erc6160 != address(0)) {
             IERC6160Ext20(_erc6160).mint(bytes32ToAddress(body.to), body.amount);
         } else {

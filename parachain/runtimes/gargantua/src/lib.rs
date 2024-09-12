@@ -26,7 +26,8 @@ extern crate alloc;
 mod ismp;
 mod weights;
 pub mod xcm;
-
+#[cfg(feature = "runtime-benchmarks")]
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
@@ -104,6 +105,10 @@ use sp_core::{crypto::AccountId32, Get};
 use sp_runtime::traits::IdentityLookup;
 use staging_xcm::latest::Location;
 
+#[cfg(feature = "runtime-benchmarks")]
+use sp_core::crypto::FromEntropy;
+#[cfg(feature = "runtime-benchmarks")]
+use staging_xcm::latest::{Junction, Junctions::X1};
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
 

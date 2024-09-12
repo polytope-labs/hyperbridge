@@ -26,6 +26,8 @@ extern crate alloc;
 mod ismp;
 mod weights;
 pub mod xcm;
+#[cfg(feature = "runtime-benchmarks")]
+use alloc::sync::Arc;
 
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
@@ -315,8 +317,12 @@ use pallet_ismp::mmr::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
 use sp_core::crypto::AccountId32;
+#[cfg(feature = "runtime-benchmarks")]
+use sp_core::crypto::FromEntropy;
 use sp_runtime::traits::IdentityLookup;
 use staging_xcm::latest::Location;
+#[cfg(feature = "runtime-benchmarks")]
+use staging_xcm::latest::{Junction, Junctions::X1};
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {

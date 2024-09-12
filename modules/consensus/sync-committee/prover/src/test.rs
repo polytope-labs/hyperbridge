@@ -4,7 +4,8 @@ use reqwest_eventsource::EventSource;
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use sync_committee_primitives::{
 	constants::{
-		gnosis::Testnet as Devnet, Root, EXECUTION_PAYLOAD_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
+		devnet::Devnet, Root, ETH1_DATA_VOTES_BOUND_ETH, EXECUTION_PAYLOAD_INDEX_LOG2,
+		NEXT_SYNC_COMMITTEE_INDEX_LOG2,
 	},
 	types::VerifierState,
 };
@@ -106,7 +107,8 @@ async fn test_execution_payload_proof() {
 
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 	let block_id = finalized_state.slot.to_string();
-	let execution_payload_proof = prove_execution_payload::<Devnet>(&mut finalized_state).unwrap();
+	let execution_payload_proof =
+		prove_execution_payload::<Devnet, ETH1_DATA_VOTES_BOUND_ETH>(&mut finalized_state).unwrap();
 
 	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
@@ -158,7 +160,9 @@ async fn test_sync_committee_update_proof() {
 	let block_id = finalized_state.slot.to_string();
 	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
-	let sync_committee_proof = prove_sync_committee_update::<Devnet>(&mut finalized_state).unwrap();
+	let sync_committee_proof =
+		prove_sync_committee_update::<Devnet, ETH1_DATA_VOTES_BOUND_ETH>(&mut finalized_state)
+			.unwrap();
 
 	let mut sync_committee = finalized_state.next_sync_committee;
 
@@ -272,7 +276,7 @@ async fn test_switch_provider_middleware() {
 		"http://localhost:3500".to_string(),
 	];
 
-	let prover = SyncCommitteeProver::<Devnet>::new(providers);
+	let prover = SyncCommitteeProver::<Devnet, ETH1_DATA_VOTES_BOUND_ETH>::new(providers);
 	let res = prover.fetch_finalized_checkpoint(None).await;
 	assert!(res.is_ok())
 }
@@ -285,9 +289,9 @@ pub struct EventResponse {
 	pub execution_optimistic: bool,
 }
 
-fn setup_prover() -> SyncCommitteeProver<Devnet> {
+fn setup_prover() -> SyncCommitteeProver<Devnet, ETH1_DATA_VOTES_BOUND_ETH> {
 	dotenv::dotenv().ok();
 	let consensus_url =
 		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
-	SyncCommitteeProver::<Devnet>::new(vec![consensus_url])
+	SyncCommitteeProver::<Devnet, ETH1_DATA_VOTES_BOUND_ETH>::new(vec![consensus_url])
 }

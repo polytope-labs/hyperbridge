@@ -70,7 +70,8 @@ pub const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 5;
 pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 5;
 pub const BLOCK_ROOTS_INDEX_LOG2: u64 = 5;
 pub const HISTORICAL_ROOTS_INDEX_LOG2: u64 = 5;
-pub const ETH1_DATA_VOTES_BOUND: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 32) as usize;
+pub const ETH1_DATA_VOTES_BOUND_ETH: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 32) as usize;
+pub const ETH1_DATA_VOTES_BOUND_GNO: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 16) as usize;
 
 pub trait Config {
 	const SLOTS_PER_EPOCH: Slot;

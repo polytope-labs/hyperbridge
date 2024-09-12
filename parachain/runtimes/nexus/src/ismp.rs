@@ -38,7 +38,7 @@ use pallet_assets::BenchmarkHelper;
 use sp_core::crypto::AccountId32;
 
 use ismp::router::Timeout;
-use ismp_sync_committee::constants::mainnet::Mainnet;
+use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_runtime::Permill;
 use sp_std::prelude::*;
@@ -80,6 +80,7 @@ impl pallet_ismp::Config for Runtime {
 	type ConsensusClients = (
 		ismp_bsc::BscClient<Ismp, Runtime, ismp_bsc::Mainnet>,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Mainnet, Runtime>,
+		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, gnosis::Mainnet, Runtime>,
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,

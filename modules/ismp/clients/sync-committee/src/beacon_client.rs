@@ -37,7 +37,7 @@ use sync_committee_primitives::constants::Config;
 
 use crate::prelude::*;
 
-pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
+pub use sync_committee_primitives::constants::{BEACON_CONSENSUS_ID, GNOSIS_CONSENSUS_ID};
 
 pub struct SyncCommitteeConsensusClient<
 	H: IsmpHost,
@@ -207,7 +207,7 @@ impl<
 	}
 
 	fn consensus_client_id(&self) -> ConsensusClientId {
-		BEACON_CONSENSUS_ID
+		C::ID
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {

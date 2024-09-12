@@ -73,6 +73,9 @@ pub const HISTORICAL_ROOTS_INDEX_LOG2: u64 = 5;
 pub const ETH1_DATA_VOTES_BOUND_ETH: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 32) as usize;
 pub const ETH1_DATA_VOTES_BOUND_GNO: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 16) as usize;
 
+pub const BEACON_CONSENSUS_ID: [u8; 4] = *b"BEAC";
+pub const GNOSIS_CONSENSUS_ID: [u8; 4] = *b"GNOS";
+
 pub trait Config {
 	const SLOTS_PER_EPOCH: Slot;
 	const GENESIS_VALIDATORS_ROOT: [u8; 32];
@@ -89,6 +92,7 @@ pub trait Config {
 	const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64;
 	const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64;
 	const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64;
+	const ID: [u8; 4];
 }
 
 use crate::ssz::ByteVector;
@@ -117,6 +121,7 @@ pub mod sepolia {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }
 
@@ -143,6 +148,7 @@ pub mod mainnet {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }
 
@@ -151,6 +157,26 @@ pub mod gnosis {
 
 	#[derive(Default)]
 	pub struct Mainnet;
+
+	impl Config for Mainnet {
+		const SLOTS_PER_EPOCH: Slot = 16;
+		const GENESIS_VALIDATORS_ROOT: [u8; 32] =
+			hex_literal::hex!("f5dcb5564e829aab27264b9becd5dfaa017085611224cb3036f573368dbb9d47");
+		const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("02000064");
+		const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("01000064");
+		const GENESIS_FORK_VERSION: Version = hex_literal::hex!("00000064");
+		const ALTAIR_FORK_EPOCH: Epoch = 512;
+		const BELLATRIX_FORK_EPOCH: Epoch = 385536;
+		const CAPELLA_FORK_EPOCH: Epoch = 648704;
+		const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03000064");
+		const DENEB_FORK_EPOCH: Epoch = 889856;
+		const DENEB_FORK_VERSION: Version = hex_literal::hex!("04000064");
+		const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 512;
+		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
+		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
+		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
+	}
 
 	#[derive(Default)]
 	pub struct Testnet;
@@ -172,6 +198,7 @@ pub mod gnosis {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}
 }
 
@@ -199,5 +226,6 @@ pub mod devnet {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }

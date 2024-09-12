@@ -27,7 +27,7 @@ mod ismp;
 mod weights;
 pub mod xcm;
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
@@ -100,12 +100,9 @@ use pallet_collective::PrimeDefaultVote;
 use pallet_treasury::ArgumentsFactory;
 
 use pallet_ismp::mmr::{Leaf, ProofKeys};
-use sp_core::{
-	crypto::{AccountId32, FromEntropy},
-	Get,
-};
+use sp_core::{crypto::AccountId32, Get};
 use sp_runtime::traits::IdentityLookup;
-use staging_xcm::latest::{Junction, Junctions::X1, Location};
+use staging_xcm::latest::Location;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -230,7 +227,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("gargantua"),
 	impl_name: create_runtime_str!("gargantua"),
 	authoring_version: 1,
-	spec_version: 800,
+	spec_version: 900,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,

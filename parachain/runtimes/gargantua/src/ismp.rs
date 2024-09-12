@@ -39,7 +39,7 @@ use sp_runtime::Permill;
 
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
-use ismp_sync_committee::constants::sepolia::Sepolia;
+use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
 use staging_xcm::latest::Location;
@@ -84,6 +84,7 @@ impl pallet_ismp::Config for Runtime {
 	type ConsensusClients = (
 		ismp_bsc::BscClient<Ismp, Runtime, ismp_bsc::Testnet>,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Runtime>,
+		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, gnosis::Testnet, Runtime>,
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,

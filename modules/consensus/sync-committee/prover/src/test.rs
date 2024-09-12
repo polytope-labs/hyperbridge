@@ -268,7 +268,7 @@ async fn test_prover() {
 }
 
 #[tokio::test]
-// #[ignore]
+#[ignore]
 async fn test_switch_provider_middleware() {
 	let providers = vec![
 		"http://localhost:3505".to_string(),

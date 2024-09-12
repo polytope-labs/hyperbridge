@@ -4,7 +4,7 @@ use reqwest_eventsource::EventSource;
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use sync_committee_primitives::{
 	constants::{
-		devnet::Devnet, Root, EXECUTION_PAYLOAD_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
+		gnosis::Testnet as Devnet, Root, EXECUTION_PAYLOAD_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
 	},
 	types::VerifierState,
 };
@@ -264,7 +264,7 @@ async fn test_prover() {
 }
 
 #[tokio::test]
-#[ignore]
+// #[ignore]
 async fn test_switch_provider_middleware() {
 	let providers = vec![
 		"http://localhost:3505".to_string(),

@@ -145,6 +145,35 @@ pub mod mainnet {
 	}
 }
 
+pub mod gnosis {
+	use super::*;
+
+	#[derive(Default)]
+	pub struct Mainnet;
+
+	#[derive(Default)]
+	pub struct Testnet;
+
+	impl Config for Testnet {
+		const SLOTS_PER_EPOCH: Slot = 16;
+		const GENESIS_VALIDATORS_ROOT: [u8; 32] =
+			hex_literal::hex!("9d642dac73058fbf39c0ae41ab1e34e4d889043cb199851ded7095bc99eb4c1e");
+		const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("0200006f");
+		const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("0100006f");
+		const GENESIS_FORK_VERSION: Version = hex_literal::hex!("0000006f");
+		const ALTAIR_FORK_EPOCH: Epoch = 90;
+		const BELLATRIX_FORK_EPOCH: Epoch = 180;
+		const CAPELLA_FORK_EPOCH: Epoch = 244224;
+		const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("0300006f");
+		const DENEB_FORK_EPOCH: Epoch = 516608;
+		const DENEB_FORK_VERSION: Version = hex_literal::hex!("0400006f");
+		const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 512;
+		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
+		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
+		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+	}
+}
+
 pub mod devnet {
 	use super::*;
 	use hex_literal::hex;

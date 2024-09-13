@@ -286,6 +286,16 @@ pub async fn create_client_map(
 				let client = config.into_client::<tesseract_bsc::Mainnet>().await?;
 				client
 			},
+
+			AnyConfig::Chiado(config) => {
+				let client = config.into_chiado().await?;
+				client
+			},
+
+			AnyConfig::Gnosis(config) => {
+				let client = config.into_gnosis().await?;
+				client
+			},
 		};
 		clients.insert(state_machine, client);
 	}

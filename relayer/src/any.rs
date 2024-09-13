@@ -22,6 +22,10 @@ pub enum AnyConfig {
 	BscTestnet(BscPosConfig),
 	/// Bsc mainnet chain config
 	Bsc(BscPosConfig),
+	/// Gnosis Chiado testnet sync committee config
+	Chiado(SyncCommitteeConfig),
+	/// Gnosis Mainnet sync committee config
+	Gnosis(SyncCommitteeConfig),
 }
 
 impl AnyConfig {
@@ -34,6 +38,8 @@ impl AnyConfig {
 			AnyConfig::OpStack(config) => config.evm_config.state_machine,
 			AnyConfig::BscTestnet(config) => config.evm_config.state_machine,
 			AnyConfig::Bsc(config) => config.evm_config.state_machine,
+			AnyConfig::Chiado(config) => config.evm_config.state_machine,
+			AnyConfig::Gnosis(config) => config.evm_config.state_machine,
 		}
 	}
 
@@ -46,6 +52,8 @@ impl AnyConfig {
 			AnyConfig::ArbitrumOrbit(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Ethereum(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::BscTestnet(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::Chiado(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::Gnosis(c) => Some(c.evm_config.ismp_host.clone()),
 		}
 	}
 }

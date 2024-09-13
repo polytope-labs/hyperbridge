@@ -183,8 +183,8 @@ where
 					match post.dest {
 						s if s.is_substrate() => {
 							if let Ok(decoded_data) = WithdrawalParams::decode(&mut &*post.body) {
-								decoded_data.beneficiary_address == counterparty.address()
-									&& condition
+								decoded_data.beneficiary_address == counterparty.address() &&
+									condition
 							} else {
 								false
 							}

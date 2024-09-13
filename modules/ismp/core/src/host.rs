@@ -282,9 +282,8 @@ impl StateMachine {
 	/// Check if the state machine is substrate-based
 	pub fn is_substrate(&self) -> bool {
 		match self {
-			StateMachine::Polkadot(_) | StateMachine::Kusama(_) | StateMachine::Substrate(_) => {
-				true
-			},
+			StateMachine::Polkadot(_) | StateMachine::Kusama(_) | StateMachine::Substrate(_) =>
+				true,
 			_ => false,
 		}
 	}

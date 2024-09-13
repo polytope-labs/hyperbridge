@@ -28,10 +28,10 @@ use sync_committee_primitives::{
 	consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
 	constants::{
 		BlsPublicKey, Config, Root, BLOCK_ROOTS_INDEX, BYTES_PER_LOGS_BLOOM,
-		EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, ETH1_DATA_VOTES_BOUND,
-		EXECUTION_PAYLOAD_INDEX, FINALIZED_ROOT_INDEX, HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS,
-		MAX_ATTESTER_SLASHINGS, MAX_BLS_TO_EXECUTION_CHANGES, MAX_BYTES_PER_TRANSACTION,
-		MAX_DEPOSITS, MAX_EXTRA_DATA_BYTES, MAX_PROPOSER_SLASHINGS, MAX_TRANSACTIONS_PER_PAYLOAD,
+		EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, EXECUTION_PAYLOAD_INDEX,
+		FINALIZED_ROOT_INDEX, HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS, MAX_ATTESTER_SLASHINGS,
+		MAX_BLS_TO_EXECUTION_CHANGES, MAX_BYTES_PER_TRANSACTION, MAX_DEPOSITS,
+		MAX_EXTRA_DATA_BYTES, MAX_PROPOSER_SLASHINGS, MAX_TRANSACTIONS_PER_PAYLOAD,
 		MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS, MAX_WITHDRAWALS_PER_PAYLOAD,
 		NEXT_SYNC_COMMITTEE_INDEX, SLOTS_PER_HISTORICAL_ROOT, SYNC_COMMITTEE_SIZE,
 		VALIDATOR_REGISTRY_LIMIT,
@@ -50,7 +50,7 @@ use tracing::instrument;
 
 use sync_committee_verifier::crypto::pubkey_to_projective;
 
-pub type BeaconStateType = BeaconState<
+pub type BeaconStateType<const ETH1_DATA_VOTES_BOUND: usize> = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
 	HISTORICAL_ROOTS_LIMIT,
 	ETH1_DATA_VOTES_BOUND,
@@ -63,14 +63,16 @@ pub type BeaconStateType = BeaconState<
 	MAX_EXTRA_DATA_BYTES,
 >;
 
-pub struct SyncCommitteeProver<C: Config> {
+pub struct SyncCommitteeProver<C: Config, const ETH1_DATA_VOTES_BOUND: usize> {
 	pub primary_url: String,
 	pub providers: Vec<String>,
 	pub client: ClientWithMiddleware,
 	pub phantom: PhantomData<C>,
 }
 
-impl<C: Config> Clone for SyncCommitteeProver<C> {
+impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> Clone
+	for SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND>
+{
 	fn clone(&self) -> Self {
 		Self {
 			primary_url: self.primary_url.clone(),
@@ -81,13 +83,13 @@ impl<C: Config> Clone for SyncCommitteeProver<C> {
 	}
 }
 
-impl<C: Config> SyncCommitteeProver<C> {
+impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND> {
 	pub fn new(providers: Vec<String>) -> Self {
 		let client = ClientBuilder::new(Client::new())
 			.with(ChainMiddleware::new(SwitchProviderMiddleware::_new(providers.clone())))
 			.build();
 
-		SyncCommitteeProver::<C> {
+		SyncCommitteeProver::<C, ETH1_DATA_VOTES_BOUND> {
 			primary_url: providers.get(0).expect("There must be atleast one provider").clone(),
 			providers,
 			client,
@@ -214,7 +216,7 @@ impl<C: Config> SyncCommitteeProver<C> {
 	pub async fn fetch_beacon_state(
 		&self,
 		state_id: &str,
-	) -> Result<BeaconStateType, anyhow::Error> {
+	) -> Result<BeaconStateType<ETH1_DATA_VOTES_BOUND>, anyhow::Error> {
 		trace!(target: "sync-committee-prover", "Fetching beacon state {state_id}");
 		let path = beacon_state_route(state_id);
 		let full_url = self.generate_route(&path)?;
@@ -224,7 +226,7 @@ impl<C: Config> SyncCommitteeProver<C> {
 		})?;
 
 		let response_data = response
-			.json::<responses::beacon_state_response::Response>()
+			.json::<responses::beacon_state_response::Response<ETH1_DATA_VOTES_BOUND>>()
 			.await
 			.map_err(|e| {
 				anyhow!("Failed to fetch beacon state with id {state_id} due to error {e:?}")
@@ -307,10 +309,13 @@ impl<C: Config> SyncCommitteeProver<C> {
 			self.fetch_beacon_state(&get_block_id(finalized_header.state_root)).await?;
 		let finality_proof = FinalityProof {
 			epoch: attested_state.finalized_checkpoint.epoch,
-			finality_branch: prove_finalized_header::<C>(&mut attested_state)?,
+			finality_branch: prove_finalized_header::<C, ETH1_DATA_VOTES_BOUND>(
+				&mut attested_state,
+			)?,
 		};
 
-		let execution_payload_proof = prove_execution_payload::<C>(&mut finalized_state)?;
+		let execution_payload_proof =
+			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND>(&mut finalized_state)?;
 
 		let signature_period = compute_sync_committee_period_at_slot::<C>(block.slot);
 		let client_state_next_sync_committee_root =
@@ -320,7 +325,7 @@ impl<C: Config> SyncCommitteeProver<C> {
 		let sync_committee_update =
             // We must make sure we switch the sync comittee only when the finalized header has changed sync committees
             if should_have_sync_committee_update(state_period, signature_period) && client_state_next_sync_committee_root == attested_state_current_sync_committee_root {
-                let sync_committee_proof = prove_sync_committee_update::<C>(&mut attested_state)?;
+                let sync_committee_proof = prove_sync_committee_update::<C, ETH1_DATA_VOTES_BOUND>(&mut attested_state)?;
                 Some(SyncCommitteeUpdate {
                     next_sync_committee: attested_state.next_sync_committee,
                     next_sync_committee_branch: sync_committee_proof,
@@ -399,13 +404,17 @@ impl<C: Config> SyncCommitteeProver<C> {
 			self.fetch_beacon_state(&get_block_id(finalized_header.state_root)).await?;
 		let finality_proof = FinalityProof {
 			epoch: attested_state.finalized_checkpoint.epoch,
-			finality_branch: prove_finalized_header::<C>(&mut attested_state)?,
+			finality_branch: prove_finalized_header::<C, ETH1_DATA_VOTES_BOUND>(
+				&mut attested_state,
+			)?,
 		};
 
-		let execution_payload_proof = prove_execution_payload::<C>(&mut finalized_state)?;
+		let execution_payload_proof =
+			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND>(&mut finalized_state)?;
 
 		let sync_committee_update = {
-			let sync_committee_proof = prove_sync_committee_update::<C>(&mut attested_state)?;
+			let sync_committee_proof =
+				prove_sync_committee_update::<C, ETH1_DATA_VOTES_BOUND>(&mut attested_state)?;
 			Some(SyncCommitteeUpdate {
 				next_sync_committee: attested_state.next_sync_committee,
 				next_sync_committee_branch: sync_committee_proof,
@@ -428,8 +437,8 @@ impl<C: Config> SyncCommitteeProver<C> {
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_execution_payload<C: Config>(
-	beacon_state: &mut BeaconStateType,
+pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
+	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
 ) -> anyhow::Result<ExecutionPayloadProof> {
 	trace!(target: "sync-committee-prover", "Proving execution payload");
 	let indices = [
@@ -458,8 +467,8 @@ pub fn prove_execution_payload<C: Config>(
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_sync_committee_update<C: Config>(
-	state: &mut BeaconStateType,
+pub fn prove_sync_committee_update<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
+	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
 ) -> anyhow::Result<Vec<Node>> {
 	trace!(target: "sync-committee-prover", "Proving sync committee update");
 	let proof = ssz_rs::generate_proof(state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
@@ -467,7 +476,9 @@ pub fn prove_sync_committee_update<C: Config>(
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_finalized_header<C: Config>(state: &mut BeaconStateType) -> anyhow::Result<Vec<Node>> {
+pub fn prove_finalized_header<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
+	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
+) -> anyhow::Result<Vec<Node>> {
 	trace!(target: "sync-committee-prover", "Proving finalized head");
 	let indices = [FINALIZED_ROOT_INDEX as usize];
 	let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
@@ -475,8 +486,8 @@ pub fn prove_finalized_header<C: Config>(state: &mut BeaconStateType) -> anyhow:
 	Ok(proof)
 }
 
-pub fn prove_block_roots_proof<C: Config>(
-	state: &mut BeaconStateType,
+pub fn prove_block_roots_proof<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
+	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
 	mut header: BeaconBlockHeader,
 ) -> anyhow::Result<AncestryProof> {
 	// Check if block root should still be part of the block roots vector on the beacon state

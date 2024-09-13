@@ -22,7 +22,7 @@ use ismp::{
 	consensus::{StateCommitment, StateMachineId},
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
-use ismp_sync_committee::{types::ConsensusState, BEACON_CONSENSUS_ID};
+use ismp_sync_committee::types::ConsensusState;
 use primitive_types::H160;
 use std::{collections::BTreeMap, sync::Arc};
 use sync_committee_primitives::{constants::Config, util::compute_sync_committee_period};
@@ -313,7 +313,7 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 
 		Ok(Some(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),
-			consensus_client_id: BEACON_CONSENSUS_ID,
+			consensus_client_id: T::ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
 			challenge_periods: state_machine_commitments

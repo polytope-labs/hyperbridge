@@ -1,6 +1,6 @@
 #!/bin/bash
 
-declare -a arr=("sepolia" "arbitrum-sepolia" "optimism-sepolia" "base-sepolia" "bsc-testnet")
+declare -a arr=("sepolia" "arbitrum-sepolia" "optimism-sepolia" "base-sepolia" "bsc-testnet" "chiado")
 
 for i in "${arr[@]}"
 do

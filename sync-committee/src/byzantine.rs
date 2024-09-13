@@ -26,7 +26,9 @@ use sync_committee_primitives::constants::Config;
 use tesseract_primitives::{ByzantineHandler, IsmpProvider};
 
 #[async_trait::async_trait]
-impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T> {
+impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> ByzantineHandler
+	for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND>
+{
 	async fn check_for_byzantine_attack(
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,

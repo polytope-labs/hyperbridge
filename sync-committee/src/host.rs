@@ -31,7 +31,9 @@ use crate::notification::{consensus_notification, get_beacon_update};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
-impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
+impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> IsmpHost
+	for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND>
+{
 	async fn start_consensus(&self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
 		let client = SyncCommitteeHost::clone(&self);
 

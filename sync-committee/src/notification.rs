@@ -18,8 +18,11 @@ pub struct EventResponse {
 	pub execution_optimistic: bool,
 }
 
-pub async fn get_beacon_update<T: Config + Send + Sync + 'static>(
-	client: &SyncCommitteeHost<T>,
+pub async fn get_beacon_update<
+	T: Config + Send + Sync + 'static,
+	const ETH1_DATA_VOTES_BOUND: usize,
+>(
+	client: &SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND>,
 	l2_consensus: BTreeMap<StateMachine, L2Consensus>,
 	consensus_update: VerifierStateUpdate,
 	execution_layer_height: u64,
@@ -112,8 +115,11 @@ pub async fn get_beacon_update<T: Config + Send + Sync + 'static>(
 	Ok(message)
 }
 
-pub async fn consensus_notification<T: Config + Send + Sync + 'static>(
-	client: &SyncCommitteeHost<T>,
+pub async fn consensus_notification<
+	T: Config + Send + Sync + 'static,
+	const ETH1_DATA_VOTES_BOUND: usize,
+>(
+	client: &SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND>,
 	counterparty: Arc<dyn IsmpProvider>,
 	checkpoint: Checkpoint,
 ) -> Result<Option<BeaconClientUpdate>, anyhow::Error> {

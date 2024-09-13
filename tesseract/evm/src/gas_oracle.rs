@@ -67,6 +67,7 @@ pub const BASE_CHAIN_ID: u32 = 8453;
 pub const ETHEREUM_CHAIN_ID: u32 = 1;
 pub const BSC_CHAIN_ID: u32 = 56;
 pub const POLYGON_CHAIN_ID: u32 = 137;
+pub const GNOSIS_CHAIN_ID: u32 = 100;
 
 // Testnets
 pub const ARBITRUM_SEPOLIA_CHAIN_ID: u32 = 421614;
@@ -75,6 +76,7 @@ pub const BASE_SEPOLIA_CHAIN_ID: u32 = 84532;
 pub const SEPOLIA_CHAIN_ID: u32 = 11155111;
 pub const BSC_TESTNET_CHAIN_ID: u32 = 97;
 pub const POLYGON_TESTNET_CHAIN_ID: u32 = 80002;
+pub const CHIADO_CHAIN_ID: u32 = 10200;
 
 pub fn is_orbit_chain(id: u32) -> bool {
 	[ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID].contains(&id)
@@ -162,6 +164,13 @@ pub async fn get_current_gas_cost_in_usd(
 						unit_wei = get_cost_of_one_wei(eth_usd);
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 					};
+				},
+				CHIADO_CHAIN_ID | GNOSIS_CHAIN_ID => {
+					// temporarily use naive gas price for gnosis
+					gas_price = client.get_gas_price().await?;
+					// one unit of the gas token is 1 usd
+					unit_wei = get_cost_of_one_wei(U256::one());
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
 					let uri = format!(

@@ -18,12 +18,12 @@ import "./Codec.sol";
 import "@polytope-labs/ismp-solidity/StateMachine.sol";
 import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 
-import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/MerkleMultiProof.sol";
-import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";
-import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/MerklePatricia.sol";
-import {StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/Types.sol";
-import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
-import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
+import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
+import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
+import {StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
+import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";

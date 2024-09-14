@@ -9,7 +9,7 @@ import "@polytope-labs/ismp-solidity/StateMachine.sol";
 import "@polytope-labs/ismp-solidity/Message.sol";
 import "@polytope-labs/ismp-solidity/IDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {StorageValue} from "@polytope-labs/solidity-merkle-trees/Types.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 
 struct PingMessage {
     bytes dest;

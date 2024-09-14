@@ -1,6 +1,6 @@
 @polytope-labs/ismp-solidity/=node_modules/@polytope-labs/ismp-solidity/interfaces/
 @openzeppelin/=node_modules/openzeppelin-solidity
-@polytope-labs/solidity-merkle-trees/=node_modules/@polytope-labs/solidity-merkle-trees/src/
+@polytope-labs/solidity-merkle-trees/=node_modules/@polytope-labs/solidity-merkle-trees/
 @polytope-labs/erc6160/=node_modules/@polytope-labs/erc6160/src/
 @uniswap/v2-periphery/=node_modules/@uniswap/v2-periphery
 stringutils/=lib/solidity-stringutils/src/

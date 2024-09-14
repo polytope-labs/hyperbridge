@@ -17,10 +17,10 @@ pragma solidity 0.8.17;
 import "@polytope-labs/ismp-solidity/StateMachine.sol";
 import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 
-import "@polytope-labs/solidity-merkle-trees/MerkleMultiProof.sol";
-import "@polytope-labs/solidity-merkle-trees/MerkleMountainRange.sol";
-import "@polytope-labs/solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
-import "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
+import "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
+import "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
+import "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import "./verifiers/IVerifier.sol";
 import "./Codec.sol";
 

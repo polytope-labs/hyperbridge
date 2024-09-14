@@ -51,6 +51,10 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 						counterparty.query_consensus_state(None, client.consensus_state_id).await?;
 					let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
 					let light_client_state = consensus_state.light_client_state;
+
+					if checkpoint.epoch <= light_client_state.latest_finalized_epoch {
+						return Ok(None);
+					}
 					// Signature period for this finalized epoch will be two epochs ahead
 					let signature_period = compute_sync_committee_period::<T>(checkpoint.epoch + 2);
 					// Do a sync check before returning any updates
@@ -101,14 +105,15 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 						return Some((Ok::<_, Error>(Some(update)), interval));
 					},
 					Ok(None) => {},
-					Err(err) =>
+					Err(err) => {
 						return Some((
 							Err::<_, Error>(err.context(format!(
 								"Error trying to fetch sync message for {:?}",
 								client.state_machine
 							))),
 							interval,
-						)),
+						))
+					},
 				};
 
 				// tick the interval
@@ -160,14 +165,15 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 						return Some((Ok::<_, Error>(Some(update)), interval));
 					},
 					Ok(None) => return Some((Ok::<_, Error>(None), interval)),
-					Err(err) =>
+					Err(err) => {
 						return Some((
 							Err::<_, Error>(err.context(format!(
 								"Failed to fetch consensus proof for {:?}",
 								client.state_machine
 							))),
 							interval,
-						)),
+						))
+					},
 				}
 			}
 		})

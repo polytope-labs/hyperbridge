@@ -25,8 +25,8 @@ import {StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/Types.
 import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 
-import {ECDSA} from "openzeppelin/utils/cryptography/ECDSA.sol";
-import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 struct Vote {
     // secp256k1 signature from a member of the authority set

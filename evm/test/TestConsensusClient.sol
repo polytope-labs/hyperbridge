@@ -15,7 +15,7 @@
 pragma solidity 0.8.17;
 
 import {IConsensusClient, IntermediateState} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
-import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /// Test consensus client, performs no verification
 contract TestConsensusClient is IConsensusClient, ERC165 {

@@ -20,7 +20,7 @@ import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {BaseIsmpModule, IncomingPostRequest, IIsmpModule} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 
-import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
 

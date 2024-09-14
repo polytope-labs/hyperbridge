@@ -24,7 +24,7 @@ import "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import "./verifiers/IVerifier.sol";
 import "./Codec.sol";
 
-import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 struct UltraPlonkConsensusProof {
     // Commitment message

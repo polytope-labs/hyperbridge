@@ -21,25 +21,10 @@ import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
 import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {IIsmpHost, FeeMetadata, FrozenStatus} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
-import {
-    Message,
-    PostResponse,
-    PostRequest,
-    GetRequest,
-    GetResponse,
-    PostRequestMessage,
-    PostResponseMessage,
-    GetResponseMessage,
-    PostRequestTimeoutMessage,
-    PostResponseTimeoutMessage,
-    GetTimeoutMessage,
-    PostRequestLeaf,
-    PostResponseLeaf,
-    GetResponseLeaf
-} from "@polytope-labs/ismp-solidity/Message.sol";
+import {Message, PostResponse, PostRequest, GetRequest, GetResponse, PostRequestMessage, PostResponseMessage, GetResponseMessage, PostRequestTimeoutMessage, PostResponseTimeoutMessage, GetTimeoutMessage, PostRequestLeaf, PostResponseLeaf, GetResponseLeaf} from "@polytope-labs/ismp-solidity/Message.sol";
 
-import {Context} from "openzeppelin/utils/Context.sol";
-import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 // Storage prefix for request receipts in the pallet-ismp child trie
 bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"526571756573745265636569707473";

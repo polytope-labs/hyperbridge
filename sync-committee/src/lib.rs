@@ -196,15 +196,12 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeHost<C, ETH1_DA
 		let block_header = self.prover.fetch_header(&block_id).await?;
 		let state = self.prover.fetch_beacon_state(&block_header.slot.to_string()).await?;
 
-		let latest_finalized_epoch = state.finalized_checkpoint.epoch;
 		let client_state = VerifierState {
 			finalized_header: block_header.clone(),
-			latest_finalized_epoch,
+			latest_finalized_epoch: compute_epoch_at_slot::<C>(block_header.slot),
 			current_sync_committee: state.current_sync_committee,
 			next_sync_committee: state.next_sync_committee,
-			state_period: compute_sync_committee_period_at_slot::<C>(
-				latest_finalized_epoch * C::SLOTS_PER_EPOCH,
-			),
+			state_period: compute_sync_committee_period_at_slot::<C>(block_header.slot),
 		};
 
 		let mut l2_consensus = BTreeMap::new();

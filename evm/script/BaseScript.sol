@@ -11,6 +11,7 @@ abstract contract BaseScript is Script {
     address payable internal OP_SEPOLIA_HOST = payable(vm.envAddress("OP_SEPOLIA_HOST"));
     address payable internal BASE_SEPOLIA_HOST = payable(vm.envAddress("BASE_SEPOLIA_HOST"));
     address payable internal BSC_TESTNET_HOST = payable(vm.envAddress("BSC_TESTNET_HOST"));
+    address payable internal CHIADO_HOST = payable(vm.envAddress("CHIADO_HOST"));
     address payable internal FEE_TOKEN = payable(vm.envAddress("FEE_TOKEN"));
 
     /**

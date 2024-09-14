@@ -21,9 +21,9 @@ import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import {IERC6160Ext20} from "@polytope-labs/erc6160/interfaces/IERC6160Ext20.sol";
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
-import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {SafeERC20} from "openzeppelin/token/ERC20/utils/SafeERC20.sol";
-import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import {ICallDispatcher, CallDispatcherParams} from "./CallDispatcher.sol";
 
@@ -530,13 +530,7 @@ contract TokenGateway is BaseIsmpModule {
         BodyWithCall memory body = abi.decode(incoming.request.body[1:], (BodyWithCall));
         bytes32 commitment = incoming.request.hash();
         handleIncomingAsset(
-            Body({
-                amount: body.amount,
-                assetId: body.assetId,
-                redeem: body.redeem,
-                from: body.from,
-                to: body.to
-            })
+            Body({amount: body.amount, assetId: body.assetId, redeem: body.redeem, from: body.from, to: body.to})
         );
 
         ICallDispatcher(_params.dispatcher).dispatch(body.data);

@@ -21,7 +21,7 @@ import {IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol"
 import "@polytope-labs/ismp-solidity/Message.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {NotRoleAdmin} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
-import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import "../src/modules/TokenGateway.sol";
 

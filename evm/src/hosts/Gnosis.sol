@@ -12,20 +12,24 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity ^0.8.17;
+pragma solidity 0.8.17;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {EvmHost, HostParams} from "./EvmHost.sol";
 
-contract MockUSCDC is ERC20 {
-    constructor(string memory _name, string memory _symbol) ERC20(_name, _symbol) {
-        _mint(tx.origin, 1_000_000_000_000000000000000000);
-    }
+/**
+ * @title The GnosisHost
+ * @author Polytope Labs (hello@polytope.technology)
+ *
+ * @notice The IsmpHost and IsmpDispatcher implementation for the Gnosis state machine.
+ * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
+ */
+contract GnosisHost is EvmHost {
+    constructor(HostParams memory params) EvmHost(params) {}
 
-    function superApprove(address owner, address spender) public {
-        _approve(owner, spender, type(uint256).max);
-    }
+    /// chainId for the Gnosis mainnet
+    uint256 public constant CHAIN_ID = 100;
 
-    function mint(address to, uint256 amount) public {
-        _mint(to, amount);
+    function chainId() public pure override returns (uint256) {
+        return CHAIN_ID;
     }
 }

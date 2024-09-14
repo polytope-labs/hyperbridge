@@ -8,6 +8,7 @@ import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMet
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
 import {BaseScript} from "./BaseScript.sol";
+import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 
 contract DeployScript is BaseScript {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
@@ -35,6 +36,9 @@ contract DeployScript is BaseScript {
         } else if (equal(host, "bsc-testnet")) {
             vm.startBroadcast(uint256(privateKey));
             deployGateway(BSC_TESTNET_HOST, admin, callDispatcher);
+        } else if (equal(host, "chiado")) {
+            vm.startBroadcast(uint256(privateKey));
+            deployGateway(CHIADO_HOST, admin, callDispatcher);
         }
     }
 
@@ -44,7 +48,7 @@ contract DeployScript is BaseScript {
     }
 
     function deployGateway(address host, address admin, address callDispatcher) public {
-        IERC6160Ext20 feeToken = IERC6160Ext20(FEE_TOKEN);
+        IERC6160Ext20 feeToken = IERC6160Ext20(IIsmpHost(host).feeToken());
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
         feeToken.grantRole(MINTER_ROLE, address(gateway));

@@ -15,8 +15,8 @@
 pragma solidity 0.8.17;
 
 import {StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
-import "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
-import "@polytope-labs/solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
+import "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
+import "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
 
 struct DigestItem {
     bytes4 consensusId;

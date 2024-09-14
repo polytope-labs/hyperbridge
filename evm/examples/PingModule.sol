@@ -8,8 +8,8 @@ import "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import "@polytope-labs/ismp-solidity/StateMachine.sol";
 import "@polytope-labs/ismp-solidity/Message.sol";
 import "@polytope-labs/ismp-solidity/IDispatcher.sol";
-import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {StorageValue} from "@polytope-labs/solidity-merkle-trees/Types.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 
 struct PingMessage {
     bytes dest;
@@ -103,7 +103,7 @@ contract PingModule is IIsmpModule {
     function dispatch(PostRequest memory request) public returns (bytes32) {
         uint256 perByteFee = IIsmpHost(_host).perByteFee();
         address feeToken = IIsmpHost(_host).feeToken();
-        uint256 length = 32 >  request.body.length ? 32 : request.body.length;
+        uint256 length = 32 > request.body.length ? 32 : request.body.length;
         uint256 fee = perByteFee * length;
 
         IERC20(feeToken).transferFrom(msg.sender, address(this), fee);

@@ -15,7 +15,7 @@
 	"description": "",
 	"dependencies": {
 		"@polytope-labs/erc6160": "^0.3.1",
-		"@polytope-labs/ismp-solidity": "^0.5.1",
+		"@polytope-labs/ismp-solidity": "^0.6.8",
 		"@polytope-labs/solidity-merkle-trees": "^0.3.4",
 		"@uniswap/v2-periphery": "^1.1.0-beta.0",
 		"openzeppelin-solidity": "4.8.1",

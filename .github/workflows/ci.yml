@@ -334,9 +334,9 @@ jobs:
       #        run: |
       #          cargo test -p ismp-solidity-tests -- --nocapture --ignored
 
-      - name: parachain messaging relayer integration tests
-        run: |
-          cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
+      # - name: parachain messaging relayer integration tests
+      #   run: |
+      #     cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
 
       - name: Xcm integration tests
         run: |

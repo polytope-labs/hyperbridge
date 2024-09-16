@@ -184,8 +184,9 @@ pub async fn get_current_gas_cost_in_usd(
 						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
 						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
 					}
-					// Gnosis uses a stable coin for gas
-					gas_price_cost = convert_27_decimals_to_18_decimals(gas_price)?;
+					// Gnosis uses a stable coin for gas convert the gas which means the usd is
+					// equivalent to the gas price
+					gas_price_cost = gas_price
 				},
 				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
 					let uri = format!(

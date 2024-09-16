@@ -100,7 +100,7 @@ pub struct GasBreakdown {
 /// Function gets current gas price (for execution) in wei and return the equivalent in USD,
 pub async fn get_current_gas_cost_in_usd(
 	chain: StateMachine,
-	api_keys: &String,
+	api_keys: &str,
 	client: Arc<Provider<Http>>,
 	gas_price_buffer: Option<u32>,
 ) -> Result<GasBreakdown, Error> {
@@ -166,11 +166,26 @@ pub async fn get_current_gas_cost_in_usd(
 					};
 				},
 				CHIADO_CHAIN_ID | GNOSIS_CHAIN_ID => {
-					// temporarily use naive gas price for gnosis
-					gas_price = client.get_gas_price().await?;
-					// one unit of the gas token is 1 usd
-					unit_wei = get_cost_of_one_wei(U256::one());
-					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+					let node_gas_price: U256 = client.get_gas_price().await?;
+					#[derive(Debug, Deserialize, Clone)]
+					struct BlockscoutResponse {
+						average: f32,
+					}
+					if CHIADO_CHAIN_ID == inner_evm {
+						let uri = "https://blockscout.chiadochain.net/api/v1/gas-price-oracle";
+						let response_json =
+							make_request::<BlockscoutResponse>(&uri, Default::default()).await?;
+						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
+						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+					} else {
+						let uri = "https://blockscout.com/xdai/mainnet/api/v1/gas-price-oracle";
+						let response_json =
+							make_request::<BlockscoutResponse>(&uri, Default::default()).await?;
+						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
+						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+					}
+					// Gnosis uses a stable coin for gas
+					gas_price_cost = convert_27_decimals_to_18_decimals(gas_price)?;
 				},
 				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
 					let uri = format!(
@@ -243,8 +258,7 @@ pub async fn get_current_gas_cost_in_usd(
 						let response_json =
 							make_request::<GasResponse>(&uri, Default::default()).await?;
 						let oracle_gas_price =
-							parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?
-								.into();
+							parse_units(response_json.result.safe_gas_price, "gwei")?.into();
 						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
 						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 						unit_wei = get_cost_of_one_wei(eth_usd);
@@ -386,7 +400,7 @@ mod test {
 	use crate::gas_oracle::{
 		convert_27_decimals_to_18_decimals, get_cost_of_one_wei, get_current_gas_cost_in_usd,
 		get_l2_data_cost, parse_to_27_decimals, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_TESTNET_CHAIN_ID,
-		OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
+		GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
 	};
 	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
 	use ismp::host::StateMachine;
@@ -460,6 +474,27 @@ mod test {
 		.unwrap();
 
 		println!("Ethereum Gas Cost Polygon Mainnet: {:?}", ethereum_gas_cost_in_usd);
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn get_gas_price_gnosis_testnet() {
+		dotenv::dotenv().ok();
+		let ethereum_rpc_uri = std::env::var("CHIADO_URL").expect("get url is not set in .env.");
+		// Client is unused in this test
+		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let client = Arc::new(provider.clone());
+
+		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
+			StateMachine::Evm(GNOSIS_CHAIN_ID),
+			"",
+			client.clone(),
+			None,
+		)
+		.await
+		.unwrap();
+
+		println!("Ethereum Gas Cost Gnosis Mainnet: {:?}", ethereum_gas_cost_in_usd);
 	}
 
 	#[tokio::test]

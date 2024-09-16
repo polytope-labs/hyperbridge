@@ -1,5 +1,5 @@
 use crate::{
-	gas_oracle::{ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID},
+	gas_oracle::{ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID, CHIADO_CHAIN_ID, GNOSIS_CHAIN_ID},
 	EvmClient,
 };
 use anyhow::anyhow;
@@ -387,6 +387,7 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
 		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
 			32_000_000,
+		StateMachine::Evm(GNOSIS_CHAIN_ID) | StateMachine::Evm(CHIADO_CHAIN_ID) => 16_000_000,
 		StateMachine::Evm(_) => 20_000_000,
 		_ => Default::default(),
 	}

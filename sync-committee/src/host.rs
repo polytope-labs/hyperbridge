@@ -105,15 +105,14 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 						return Some((Ok::<_, Error>(Some(update)), interval));
 					},
 					Ok(None) => {},
-					Err(err) => {
+					Err(err) =>
 						return Some((
 							Err::<_, Error>(err.context(format!(
 								"Error trying to fetch sync message for {:?}",
 								client.state_machine
 							))),
 							interval,
-						))
-					},
+						)),
 				};
 
 				// tick the interval
@@ -165,15 +164,14 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 						return Some((Ok::<_, Error>(Some(update)), interval));
 					},
 					Ok(None) => return Some((Ok::<_, Error>(None), interval)),
-					Err(err) => {
+					Err(err) =>
 						return Some((
 							Err::<_, Error>(err.context(format!(
 								"Failed to fetch consensus proof for {:?}",
 								client.state_machine
 							))),
 							interval,
-						))
-					},
+						)),
 				}
 			}
 		})

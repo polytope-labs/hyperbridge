@@ -17,12 +17,17 @@ use crate::{
 	VALIDATOR_SET_ID_KEY,
 };
 use anyhow::{anyhow, Context};
-use beefy_prover::{relay::fetch_latest_beefy_justification, runtime};
+use beefy_prover::{
+	relay::{fetch_latest_beefy_justification, parachain_header_storage_key},
+	BEEFY_MMR_LEAF_BEEFY_AUTHORITIES, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES,
+	BEEFY_VALIDATOR_SET_ID,
+};
 use beefy_verifier_primitives::ConsensusState;
 use bytes::Buf;
 use codec::{Decode, Encode};
 use ethabi::ethereum_types::H256;
 use ethers::abi::AbiEncode;
+use hex_literal::hex;
 use ismp::{
 	consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::ConsensusMessage,
 };
@@ -344,15 +349,16 @@ where
 						})
 						.collect::<HashSet<_>>();
 
-					let set_id = {
-						let key = runtime::storage().beefy().validator_set_id();
-						relay_client
-							.storage()
-							.at(latest_beefy_header.hash())
-							.fetch(&key)
-							.await?
-							.expect("Authority set id exists")
-					};
+					let set_id = relay_client
+						.rpc()
+						.storage(
+							BEEFY_VALIDATOR_SET_ID.as_slice(),
+							Some(latest_beefy_header.hash()),
+						)
+						.await?
+						.map(|data| u64::decode(&mut data.as_ref()))
+						.transpose()?
+						.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
 
 					let message = ConsensusProof {
 						finalized_height: commitment.commitment.block_number,
@@ -435,17 +441,15 @@ where
 		self.consensus_state.inner.current_authorities =
 			self.consensus_state.inner.next_authorities.clone();
 		self.consensus_state.inner.next_authorities = {
-			let key = runtime::storage().beefy_mmr_leaf().beefy_next_authorities();
 			let next_authority_set = self
 				.prover
 				.inner()
 				.relay
-				.storage()
-				.at(hash)
-				.fetch(&key)
+				.rpc()
+				.storage(BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(), Some(hash))
 				.await?
 				.expect("Should retrieve next authority set")
-				.encode();
+				.0;
 			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
 				.expect("Should decode next authority set correctly")
 		};
@@ -647,13 +651,17 @@ where
 			.header(None)
 			.await?
 			.ok_or_else(|| anyhow!("No blocks on the relay chain?"))?;
-		let key = runtime::storage().mmr().number_of_leaves();
+
 		let leaves = relay_chain
-			.storage()
-			.at(header.hash())
-			.fetch(&key)
+			.rpc()
+			.storage(
+				hex!("a8c65209d47ee80f56b0011e8fd91f508156209906244f2341137c136774c91d").as_slice(),
+				Some(header.hash()),
+			)
 			.await?
-			.ok_or_else(|| anyhow!("Number of mmr leaves is empty"))?;
+			.map(|data| u64::decode(&mut data.as_ref()))
+			.transpose()?
+			.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
 
 		let prover = beefy_prover::Prover {
 			beefy_activation_block: (header.number().into() - leaves) as u32,
@@ -696,29 +704,28 @@ where
 
 		// Encoding and decoding to fix dependency version conflicts
 		let next_authority_set = {
-			let key = runtime::storage().beefy_mmr_leaf().beefy_next_authorities();
-			let next_authority_set = inner
+			let next_authority_set: Vec<u8> = inner
 				.relay
-				.storage()
-				.at(latest_beefy_finalized)
-				.fetch(&key)
+				.rpc()
+				.storage(
+					BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(),
+					Some(latest_beefy_finalized),
+				)
 				.await?
 				.expect("Should retrieve next authority set")
-				.encode();
+				.0;
 			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
 				.expect("Should decode next authority set correctly")
 		};
 
 		let current_authority_set = {
-			let key = runtime::storage().beefy_mmr_leaf().beefy_authorities();
 			let authority_set = inner
 				.relay
-				.storage()
-				.at(latest_beefy_finalized)
-				.fetch(&key)
+				.rpc()
+				.storage(BEEFY_MMR_LEAF_BEEFY_AUTHORITIES.as_slice(), Some(latest_beefy_finalized))
 				.await?
 				.expect("Should retrieve next authority set")
-				.encode();
+				.0;
 			BeefyNextAuthoritySet::decode(&mut &*authority_set)
 				.expect("Should decode next authority set correctly")
 		};
@@ -758,21 +765,19 @@ pub async fn query_parachain_header<R: subxt::Config>(
 	hash: R::Hash,
 	para_id: u32,
 ) -> Result<sp_runtime::generic::Header<u32, Keccak256>, anyhow::Error> {
-	let head_data =
-		client
-			.storage()
-			.at(hash)
-			.fetch(&runtime::storage().paras().heads(
-				&runtime::runtime_types::polkadot_parachain_primitives::primitives::Id(para_id),
-			))
-			.await?
-			.ok_or_else(|| {
-				anyhow!(
-                "Could not fetch header for parachain with id {para_id} at block height {hash:?}"
-            )
-			})?;
+	let head_data = client
+		.rpc()
+		.storage(parachain_header_storage_key(para_id).as_ref(), Some(hash))
+		.await?
+		.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
+		.transpose()?
+		.ok_or_else(|| {
+			anyhow!(
+				"Could not fetch header for parachain with id {para_id} at block height {hash:?}"
+			)
+		})?;
 
-	let header = sp_runtime::generic::Header::<u32, Keccak256>::decode(&mut &head_data.0[..])?;
+	let header = sp_runtime::generic::Header::<u32, Keccak256>::decode(&mut &head_data[..])?;
 
 	Ok(header)
 }

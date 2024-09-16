@@ -31,7 +31,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use sync_committee_primitives::{
 	constants::{gnosis, Config, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO},
 	types::VerifierState,
-	util::{compute_epoch_at_slot, compute_sync_committee_period_at_slot},
+	util::compute_sync_committee_period_at_slot,
 };
 use sync_committee_prover::SyncCommitteeProver;
 pub use sync_committee_verifier::verify_sync_committee_attestation;

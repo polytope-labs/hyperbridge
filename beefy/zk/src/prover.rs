@@ -4,9 +4,9 @@ use crate::{
 	Network, PlonkConsensusProof,
 };
 use anyhow::anyhow;
-use beefy_prover::runtime;
+use beefy_prover::BEEFY_AUTHORITIES;
 use beefy_verifier_primitives::{ConsensusMessage, ConsensusState};
-use codec::Encode;
+use codec::{Decode, Encode};
 use ethers::prelude::H160;
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
 use sp_consensus_beefy::ecdsa_crypto::Signature;
@@ -80,15 +80,14 @@ where
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
 		let authorities = {
-			let key = runtime::storage().beefy().authorities();
 			self.inner
 				.relay
-				.storage()
-				.at(block_hash)
-				.fetch(&key)
+				.rpc()
+				.storage(BEEFY_AUTHORITIES.as_slice(), Some(block_hash))
 				.await?
+				.map(|data| Vec::<[u8; 33]>::decode(&mut data.as_ref()))
+				.transpose()?
 				.ok_or_else(|| anyhow!("No beefy authorities found!"))?
-				.0
 		};
 
 		let siblings = signed_commitment
@@ -98,9 +97,8 @@ where
 			.enumerate()
 			.filter_map(|(i, (item, public))| match item {
 				None => {
-					let public = libsecp256k1::PublicKey::parse_compressed(&public.0 .0)
-						.unwrap()
-						.serialize();
+					let public =
+						libsecp256k1::PublicKey::parse_compressed(&public).unwrap().serialize();
 					let address = keccak_256(&public[1..])[12..].to_vec();
 					let pre_hash = keccak_256(&address);
 					let [lo, hi] = plonk::to_field_element(&pre_hash);

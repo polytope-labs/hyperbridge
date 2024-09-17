@@ -13,6 +13,7 @@ dist = true
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
 tesseract-messaging = { workspace = true }
+tesseract-fisherman = { workspace = true }
 tesseract-evm = { workspace = true }
 transaction-fees = { workspace = true }
 telemetry-server = { workspace = true }

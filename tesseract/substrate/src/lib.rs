@@ -100,6 +100,7 @@ where
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);

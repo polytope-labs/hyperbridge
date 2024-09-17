@@ -99,7 +99,7 @@ impl Cli {
 			let coprocessor = hyperbridge_config.state_machine;
 
 			tesseract_messaging::relay(
-				new_hyperbridge,
+				new_hyperbridge.clone(),
 				client.clone(),
 				relayer.clone(),
 				coprocessor,
@@ -108,6 +108,11 @@ impl Cli {
 				&task_manager,
 			)
 			.await?;
+
+			if relayer.fisherman.unwrap_or_default() {
+				tesseract_fisherman::fish(Arc::new(new_hyperbridge), client.clone(), &task_manager)
+					.await?
+			}
 
 			metadata.push((
 				state_machine.clone(),

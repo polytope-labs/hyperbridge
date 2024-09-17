@@ -35,4 +35,6 @@ pub struct RelayerConfig {
 	pub delivery_endpoints: Vec<String>,
 	/// Flag to tell the messsaging process to deliver failed transactions
 	pub deliver_failed: Option<bool>,
+	/// Start fisherman task?
+	pub fisherman: Option<bool>,
 }

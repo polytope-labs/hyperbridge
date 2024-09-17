@@ -20,7 +20,7 @@ use pallet_ismp_relayer::{
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
-	U256,
+	H256, U256,
 };
 use std::{collections::BTreeMap, sync::Arc};
 use subxt::{
@@ -61,6 +61,7 @@ where
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	pub async fn create_consensus_state(
 		&self,
@@ -104,6 +105,7 @@ where
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	async fn available_amount(
 		&self,

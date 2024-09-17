@@ -23554,6 +23554,7 @@ dependencies = [
  "telemetry-server",
  "tesseract-config",
  "tesseract-evm",
+ "tesseract-fisherman",
  "tesseract-messaging",
  "tesseract-primitives",
  "tesseract-substrate",
@@ -23630,6 +23631,22 @@ dependencies = [
  "tesseract-primitives",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "tesseract-fisherman"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "sc-service 0.45.0",
+ "sp-core 34.0.0",
+ "tesseract-primitives",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

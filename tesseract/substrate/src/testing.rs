@@ -22,6 +22,7 @@ use crate::{
 use codec::Encode;
 use futures::stream::StreamExt;
 use pallet_ismp_demo::{EvmParams, GetRequest, TransferParams};
+use sp_core::H256;
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -42,6 +43,7 @@ where
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	pub fn latest_height(&self) -> u64 {
 		self.initial_height

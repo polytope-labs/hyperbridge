@@ -76,6 +76,7 @@ where
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	async fn query_consensus_state(
 		&self,

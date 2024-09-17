@@ -76,6 +76,7 @@ members = [
     "tesseract/fees/prisma-cli",
     "tesseract/telemetry",
     "tesseract/config",
+    "tesseract/fisherman",
 
     # integration tests
     "tesseract/integration-test",
@@ -304,6 +305,7 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 tesseract-primitives = { path = "tesseract/primitives" }
 tesseract-consensus = { path = "tesseract/consensus" }
 tesseract-messaging = { path = "tesseract/messaging" }
+tesseract-fisherman = { path = "tesseract/fisherman" }
 tesseract-substrate = { path = "tesseract/substrate" }
 tesseract-evm = { path = "tesseract/evm" }
 tesseract = { path = "tesseract/relayer" }

@@ -1,9 +1,7 @@
 use crate::{
 	abi::{beefy::BeefyConsensusState, EvmHost},
 	gas_oracle::is_orbit_chain,
-	state_comitment_key,
-	tx::submit_messages,
-	EvmClient,
+	state_comitment_key, EvmClient,
 };
 use anyhow::{anyhow, Error};
 use beefy_verifier_primitives::ConsensusState;
@@ -17,7 +15,7 @@ use evm_common::types::EvmStateProof;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
-	messaging::{hash_request, hash_response, Message, StateCommitmentHeight},
+	messaging::{Message, StateCommitmentHeight},
 };
 use ismp_solidity_abi::evm_host::{PostRequestHandledFilter, PostResponseHandledFilter};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
@@ -38,15 +36,14 @@ use futures::{stream::FuturesOrdered, FutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
 	host::StateMachine,
-	messaging::{CreateConsensusState, ResponseMessage},
-	router::{Request, RequestResponse},
+	messaging::CreateConsensusState,
 };
 use primitive_types::U256;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
-	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query,
-	Signature, StateMachineUpdated, StateProofQueryType, TxReceipt,
+	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
+	StateMachineUpdated, StateProofQueryType, TxReceipt,
 };
 
 #[async_trait::async_trait]
@@ -722,56 +719,12 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, Error> {
-		let receipts = submit_messages(&self, messages.clone()).await?;
-		let height = self.client.get_block_number().await?.low_u64();
-		let mut results = vec![];
-		for msg in messages {
-			match msg {
-				Message::Request(req_msg) =>
-					for post in req_msg.requests {
-						let req = Request::Post(post);
-						let commitment = hash_request::<Hasher>(&req);
-						if receipts.contains(&commitment) {
-							let tx_receipt = TxReceipt::Request {
-								query: Query {
-									source_chain: req.source_chain(),
-									dest_chain: req.dest_chain(),
-									nonce: req.nonce(),
-									commitment,
-								},
-								height,
-							};
-
-							results.push(tx_receipt);
-						}
-					},
-				Message::Response(ResponseMessage {
-					datagram: RequestResponse::Response(resp),
-					..
-				}) =>
-					for res in resp {
-						let commitment = hash_response::<Hasher>(&res);
-						let request_commitment = hash_request::<Hasher>(&res.request());
-						if receipts.contains(&commitment) {
-							let tx_receipt = TxReceipt::Response {
-								query: Query {
-									source_chain: res.source_chain(),
-									dest_chain: res.dest_chain(),
-									nonce: res.nonce(),
-									commitment,
-								},
-								request_commitment,
-								height,
-							};
-
-							results.push(tx_receipt);
-						}
-					},
-				_ => {},
-			}
-		}
-
-		Ok(results)
+		let queue = self
+			.queue
+			.as_ref()
+			.ok_or_else(|| anyhow!("Trasnsaction submission pipeline was not initialized"))?
+			.clone();
+		queue.send(messages).await?
 	}
 
 	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {

@@ -1231,6 +1231,7 @@ dependencies = [
  "derive_more",
  "frame-support 37.0.0",
  "hex",
+ "hex-literal 0.4.1",
  "mmr-rpc",
  "pallet-beefy-mmr",
  "parity-scale-codec",

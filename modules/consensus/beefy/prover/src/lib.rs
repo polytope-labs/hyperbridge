@@ -20,8 +20,6 @@
 
 /// Methods for querying the relay chain
 pub mod relay;
-/// Metadata generated code for interacting with the relay chain
-pub mod runtime;
 /// Helper functions and types
 pub mod util;
 
@@ -37,8 +35,9 @@ use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof, SignedCommitment,
 };
 use codec::{Decode, Encode};
+use hex_literal::hex;
 use primitive_types::H256;
-use relay::{fetch_latest_beefy_justification, fetch_mmr_proof};
+use relay::{fetch_latest_beefy_justification, fetch_mmr_proof, parachain_header_storage_key};
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature,
 	known_payloads::MMR_ROOT_ID,
@@ -62,6 +61,32 @@ pub struct Prover<R: Config, P: Config> {
 	pub para_ids: Vec<u32>,
 }
 
+#[cfg(not(feature = "local"))]
+/// Relay chain storage key for beefMmrLeaf.beefyNextAuthorites()
+pub const BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES: [u8; 32] =
+	hex!("2ecf93be7260df120a495bd3855c0e600c98535b82c72faf3c64974094af4643");
+#[cfg(not(feature = "local"))]
+/// Relay chain storage key for beefMmrLeaf.beefyAuthorites()
+pub const BEEFY_MMR_LEAF_BEEFY_AUTHORITIES: [u8; 32] =
+	hex!("2ecf93be7260df120a495bd3855c0e60c52aa943bf0908860a3eea0fad707cdc");
+#[cfg(feature = "local")]
+/// Relay chain storage key for beefMmrLeaf.beefyNextAuthorites()
+pub const BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES: [u8; 32] =
+	hex!("da7d4185f8093e80caceb64da45219e30c98535b82c72faf3c64974094af4643");
+#[cfg(feature = "local")]
+/// Relay chain storage key for beefMmrLeaf.beefyAuthorites()
+pub const BEEFY_MMR_LEAF_BEEFY_AUTHORITIES: [u8; 32] =
+	hex!("da7d4185f8093e80caceb64da45219e3c52aa943bf0908860a3eea0fad707cdc");
+/// Relay chain storage key for beefy.authorities()
+pub const BEEFY_AUTHORITIES: [u8; 32] =
+	hex!("08c41974a97dbf15cfbec28365bea2da5e0621c4869aa60c02be9adcc98a0d1d");
+/// Relay chain storage key for beefy.validatorSetId()
+pub const BEEFY_VALIDATOR_SET_ID: [u8; 32] =
+	hex!("08c41974a97dbf15cfbec28365bea2da8f05bccc2f70ec66a32999c5761156be");
+/// Relay chain storage key for paras.parachains()
+pub const PARAS_PARACHAINS: [u8; 32] =
+	hex!("cd710b30bd2eab0352ddcc26417aa1940b76934f4cc08dee01012d059e1b83ee");
+
 impl<R: Config, P: Config> Prover<R, P> {
 	/// Construct a beefy client state to be submitted to the counterparty chain
 	pub async fn get_initial_consensus_state(&self) -> Result<ConsensusState, anyhow::Error> {
@@ -72,35 +97,28 @@ impl<R: Config, P: Config> Prover<R, P> {
 
 		// Encoding and decoding to fix dependency version conflicts
 		let next_authority_set = {
-			let key = runtime::storage().beefy_mmr_leaf().beefy_next_authorities();
 			let next_authority_set = self
 				.relay
-				.storage()
-				.at(latest_beefy_finalized)
-				.fetch(&key)
+				.rpc()
+				.storage(
+					BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(),
+					Some(latest_beefy_finalized),
+				)
 				.await?
 				.expect("Should retrieve next authority set")
-				.encode();
+				.0;
 			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
 				.expect("Should decode next authority set correctly")
 		};
 
 		let current_authority_set = {
-			let key: subxt::storage::Address<
-				subxt::utils::Static<subxt::utils::Encoded>,
-				runtime::runtime_types::sp_consensus_beefy::mmr::BeefyAuthoritySet<H256>,
-				subxt::storage::address::Yes,
-				subxt::storage::address::Yes,
-				(),
-			> = runtime::storage().beefy_mmr_leaf().beefy_authorities();
 			let authority_set = self
 				.relay
-				.storage()
-				.at(latest_beefy_finalized)
-				.fetch(&key)
+				.rpc()
+				.storage(BEEFY_MMR_LEAF_BEEFY_AUTHORITIES.as_slice(), Some(latest_beefy_finalized))
 				.await?
 				.expect("Should retrieve next authority set")
-				.encode();
+				.0;
 			BeefyNextAuthoritySet::decode(&mut &*authority_set)
 				.expect("Should decode next authority set correctly")
 		};
@@ -138,14 +156,13 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
 		let current_authorities = {
-			let key = runtime::storage().beefy().authorities();
 			self.relay
-				.storage()
-				.at(block_hash)
-				.fetch(&key)
+				.rpc()
+				.storage(BEEFY_AUTHORITIES.as_slice(), Some(block_hash))
 				.await?
+				.map(|data| Vec::<[u8; 33]>::decode(&mut data.as_ref()))
+				.transpose()?
 				.ok_or_else(|| anyhow!("No beefy authorities found!"))?
-				.0
 		};
 
 		// Current LeafIndex
@@ -173,29 +190,27 @@ impl<R: Config, P: Config> Prover<R, P> {
 		};
 
 		let heads = {
-			let key = runtime::storage().paras().parachains();
 			let ids = self
 				.relay
-				.storage()
-				.at(block_hash)
-				.fetch(&key)
+				.rpc()
+				.storage(PARAS_PARACHAINS.as_slice(), Some(block_hash))
 				.await?
+				.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
+				.transpose()?
 				.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
 
 			let mut heads = vec![];
 			for id in ids {
-				let key = runtime::storage().paras().heads(&id);
 				let head = self
 					.relay
-					.storage()
-					.at(block_hash)
-					.fetch(&key)
+					.rpc()
+					.storage(parachain_header_storage_key(id).as_ref(), Some(block_hash))
 					.await?
-					.ok_or_else(|| anyhow!("No beefy authorities found!"))?
-					.0;
-				heads.push((id.0, head));
+					.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
+					.transpose()?
+					.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
+				heads.push((id, head));
 			}
-
 			heads.sort();
 
 			heads

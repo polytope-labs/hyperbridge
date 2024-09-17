@@ -453,20 +453,19 @@ impl IsmpProvider for EvmClient {
 						};
 
 						let gas_cost_for_data_in_usd = match client.state_machine {
-							StateMachine::Evm(_) => {
+							StateMachine::Evm(_) =>
 								get_l2_data_cost(
 									call.tx.rlp(),
 									client.state_machine,
 									client.client.clone(),
 									gas_breakdown.unit_wei_cost,
 								)
-								.await?
-							},
+								.await?,
 							_ => U256::zero().into(),
 						};
 
-						let execution_cost = (gas_breakdown.gas_price_cost * gas_to_be_used)
-							+ gas_cost_for_data_in_usd;
+						let execution_cost = (gas_breakdown.gas_price_cost * gas_to_be_used) +
+							gas_cost_for_data_in_usd;
 						Ok::<_, Error>(EstimateGasReturnParams {
 							execution_cost,
 							successful_execution,
@@ -728,7 +727,7 @@ impl IsmpProvider for EvmClient {
 		let mut results = vec![];
 		for msg in messages {
 			match msg {
-				Message::Request(req_msg) => {
+				Message::Request(req_msg) =>
 					for post in req_msg.requests {
 						let req = Request::Post(post);
 						let commitment = hash_request::<Hasher>(&req);
@@ -745,12 +744,11 @@ impl IsmpProvider for EvmClient {
 
 							results.push(tx_receipt);
 						}
-					}
-				},
+					},
 				Message::Response(ResponseMessage {
 					datagram: RequestResponse::Response(resp),
 					..
-				}) => {
+				}) =>
 					for res in resp {
 						let commitment = hash_response::<Hasher>(&res);
 						let request_commitment = hash_request::<Hasher>(&res.request());
@@ -768,8 +766,7 @@ impl IsmpProvider for EvmClient {
 
 							results.push(tx_receipt);
 						}
-					}
-				},
+					},
 				_ => {},
 			}
 		}

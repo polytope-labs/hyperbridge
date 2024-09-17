@@ -54,16 +54,16 @@ impl subxt::Config for HyperbridgeConfig {
 }
 
 fn default_para_id() -> u32 {
-	4009
+	2000
 }
 fn activation_block() -> u32 {
 	0
 }
 fn default_relay_ws_url() -> String {
-	"ws://127.0.0.1:9944".to_string()
+	"ws://127.0.0.1:9922".to_string()
 }
 fn default_para_ws_url() -> String {
-	"ws://127.0.0.1:9988".to_string()
+	"ws://127.0.0.1:9990".to_string()
 }
 #[derive(Deserialize, Debug)]
 struct Config {

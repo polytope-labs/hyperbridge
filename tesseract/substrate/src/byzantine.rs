@@ -34,7 +34,6 @@ where
 		counterparty: Arc<dyn IsmpProvider>,
 		event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error> {
-		let is_syncing = self.client.rpc().system_health().await?.is_syncing;
 		let height = StateMachineHeight {
 			id: StateMachineId {
 				state_id: self.state_machine_id().state_id,
@@ -46,18 +45,14 @@ where
 		let Some(block_hash) =
 			self.client.rpc().block_hash(Some(event.latest_height.into())).await?
 		else {
-			// If block header is not found and node is fully synced, veto the state commitment
-			if !is_syncing {
-				log::info!(
-					"Vetoing state commitment for {} on {}",
-					self.state_machine_id().state_id,
-					counterparty.state_machine_id().state_id
-				);
-				counterparty.veto_state_commitment(height).await?;
-				return Ok(())
-			} else {
-				Err(anyhow!("Node is still syncing, cannot fetch finalized block"))?
-			}
+			// If block header is not found veto the state commitment
+			log::info!(
+				"Vetoing state commitment for {} on {}",
+				self.state_machine_id().state_id,
+				counterparty.state_machine_id().state_id
+			);
+			counterparty.veto_state_commitment(height).await?;
+			return Ok(())
 		};
 		let header = self
 			.client

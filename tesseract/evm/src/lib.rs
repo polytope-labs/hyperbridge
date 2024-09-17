@@ -8,7 +8,7 @@ use ethers::{
 	signers::Signer,
 };
 use frame_support::crypto::ecdsa::ECDSAExt;
-use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine};
+use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::Message};
 
 use evm_common::presets::{
 	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
@@ -19,7 +19,11 @@ use ismp_solidity_abi::shared_types::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::{sync::Arc, time::Duration};
-use tesseract_primitives::{IsmpProvider, StateMachineUpdated, StreamError};
+use tesseract_primitives::{
+	queue::{start_pipeline, PipelineQueue},
+	IsmpProvider, StateMachineUpdated, StreamError, TxReceipt,
+};
+use tx::handle_message_submission;
 
 pub mod abi;
 mod gas_oracle;
@@ -135,6 +139,8 @@ pub struct EvmClient {
 			Option<tokio::sync::broadcast::Sender<Result<StateMachineUpdated, StreamError>>>,
 		>,
 	>,
+	/// Tx submission pipeline
+	queue: Option<Arc<PipelineQueue<Vec<Message>, anyhow::Result<Vec<TxReceipt>>>>>,
 }
 
 impl EvmClient {
@@ -168,7 +174,7 @@ impl EvmClient {
 		};
 
 		let latest_height = client.get_block_number().await?.as_u64();
-		Ok(Self {
+		let mut partial_client = Self {
 			client,
 			signer,
 			address,
@@ -179,7 +185,16 @@ impl EvmClient {
 			chain_id,
 			client_type: config.client_type.unwrap_or_default(),
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
-		})
+			queue: None,
+		};
+
+		let partial_client_clone = partial_client.clone();
+		let queue = start_pipeline(move |messages| {
+			let client = partial_client_clone.clone();
+			async move { handle_message_submission(&client, messages).await }
+		});
+		partial_client.queue = Some(Arc::new(queue));
+		Ok(partial_client)
 	}
 
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
@@ -347,6 +362,7 @@ impl Clone for EvmClient {
 			chain_id: self.chain_id.clone(),
 			client_type: self.client_type.clone(),
 			state_machine_update_sender: self.state_machine_update_sender.clone(),
+			queue: self.queue.clone(),
 		}
 	}
 }

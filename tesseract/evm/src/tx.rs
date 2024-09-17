@@ -17,8 +17,8 @@ use ethers::{
 };
 use ismp::{
 	host::StateMachine,
-	messaging::{Message, ResponseMessage},
-	router::{RequestResponse, Response},
+	messaging::{hash_request, hash_response, Message, ResponseMessage},
+	router::{Request, RequestResponse, Response},
 };
 use ismp_solidity_abi::{
 	beefy::StateMachineHeight,
@@ -33,6 +33,7 @@ use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
 use primitive_types::{H160, H256, U256};
 use sp_mmr_primitives::utils::NodesUtils;
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use tesseract_primitives::{Hasher, Query, TxReceipt};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 
@@ -391,4 +392,60 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 		StateMachine::Evm(_) => 20_000_000,
 		_ => Default::default(),
 	}
+}
+
+pub async fn handle_message_submission(
+	client: &EvmClient,
+	messages: Vec<Message>,
+) -> Result<Vec<TxReceipt>, anyhow::Error> {
+	let receipts = submit_messages(client, messages.clone()).await?;
+	let height = client.client.get_block_number().await?.low_u64();
+	let mut results = vec![];
+	for msg in messages {
+		match msg {
+			Message::Request(req_msg) =>
+				for post in req_msg.requests {
+					let req = Request::Post(post);
+					let commitment = hash_request::<Hasher>(&req);
+					if receipts.contains(&commitment) {
+						let tx_receipt = TxReceipt::Request {
+							query: Query {
+								source_chain: req.source_chain(),
+								dest_chain: req.dest_chain(),
+								nonce: req.nonce(),
+								commitment,
+							},
+							height,
+						};
+
+						results.push(tx_receipt);
+					}
+				},
+			Message::Response(ResponseMessage {
+				datagram: RequestResponse::Response(resp),
+				..
+			}) =>
+				for res in resp {
+					let commitment = hash_response::<Hasher>(&res);
+					let request_commitment = hash_request::<Hasher>(&res.request());
+					if receipts.contains(&commitment) {
+						let tx_receipt = TxReceipt::Response {
+							query: Query {
+								source_chain: res.source_chain(),
+								dest_chain: res.dest_chain(),
+								nonce: res.nonce(),
+								commitment,
+							},
+							request_commitment,
+							height,
+						};
+
+						results.push(tx_receipt);
+					}
+				},
+			_ => {},
+		}
+	}
+
+	Ok(results)
 }

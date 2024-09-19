@@ -103,8 +103,8 @@ where
 				// filter out unknown para ids
 				let parachain_headers = parachain_headers
 					.into_iter()
-					.filter(|id| Parachains::<T>::contains_key(para_id))
-					.collect();
+					.filter(|(para_id, _)| Parachains::<T>::contains_key(para_id))
+					.collect::<Vec<_>>();
 
 				for (para_id, header_vec) in parachain_headers {
 					let slot_duration =

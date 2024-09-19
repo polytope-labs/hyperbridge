@@ -109,14 +109,13 @@ where
 /// of these headers, stored at the recently finalized relay chain heights.
 /// Returns the new Consensus state alongside a map of para id to a vector that contains a tuple of
 /// finalized parachain header and timestamp
-pub fn verify_parachain_headers_with_grandpa_finality_proof<H, F>(
+pub fn verify_parachain_headers_with_grandpa_finality_proof<H>(
 	consensus_state: ConsensusState,
 	proof: ParachainHeadersWithFinalityProof<H>,
 ) -> Result<(ConsensusState, BTreeMap<u32, Vec<H>>), anyhow::Error>
 where
 	H: Header<Hash = H256, Number = u32>,
 	H::Number: finality_grandpa::BlockNumberOps + Into<u32>,
-	F: Fn(u32) -> bool,
 {
 	let ParachainHeadersWithFinalityProof { finality_proof, parachain_headers } = proof;
 

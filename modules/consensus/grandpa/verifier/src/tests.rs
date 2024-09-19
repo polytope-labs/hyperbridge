@@ -116,7 +116,7 @@ async fn follow_grandpa_justifications() {
 		let proof = ParachainHeadersWithFinalityProof::<Header>::decode(&mut &*proof).unwrap();
 
 		let (new_consensus_state, _parachain_headers) =
-			verify_parachain_headers_with_grandpa_finality_proof::<Header, _>(
+			verify_parachain_headers_with_grandpa_finality_proof::<Header>(
 				consensus_state.clone(),
 				proof.clone(),
 			)

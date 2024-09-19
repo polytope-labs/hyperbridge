@@ -59,23 +59,7 @@ pub mod pallet {
 		},
 	}
 
-	#[pallet::error]
-	pub enum Error<T> {
-		/// Standalone Consensus State Already Exists
-		StandaloneConsensusStateAlreadyExists,
-		/// Standalone Consensus Does not Exist
-		StandaloneConsensusStateDontExists,
-		/// Error fetching consensus state
-		ErrorFetchingConsensusState,
-		/// Error decoding consensus state
-		ErrorDecodingConsensusState,
-		/// Incorrect consensus state id length
-		IncorrectConsensusStateIdLength,
-		/// Error storing consensus state
-		ErrorStoringConsensusState,
-	}
-
-	/// Registered Standalone chains for the grandpa consensus client
+	/// Registered state machines for the grandpa consensus client
 	#[pallet::storage]
 	#[pallet::getter(fn state_machines)]
 	pub type SupportedStateMachines<T: Config> =

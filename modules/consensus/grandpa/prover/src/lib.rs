@@ -97,21 +97,21 @@ where
 	pub async fn initialize_consensus_state(
 		&self,
 		slot_duration: u64,
+		hash: T::Hash,
 	) -> Result<ConsensusState, anyhow::Error> {
 		use sp_consensus_grandpa::AuthorityList;
-		let latest_hash = self.client.rpc().finalized_head().await?;
 		let header = self
 			.client
 			.rpc()
-			.header(Some(latest_hash))
+			.header(Some(hash))
 			.await?
-			.ok_or_else(|| anyhow!("Header not found for hash: {latest_hash:?}"))?;
+			.ok_or_else(|| anyhow!("Header not found for hash: {hash:?}"))?;
 
 		let current_set_id: u64 = {
 			let raw_id = self
 				.client
 				.storage()
-				.at(latest_hash)
+				.at(hash)
 				.fetch_raw(&self.current_set_id[..])
 				.await
 				.ok()
@@ -129,7 +129,7 @@ where
 					subxt::rpc_params!(
 						"GrandpaApi_grandpa_authorities",
 						"0x",
-						Some(format!("{:?}", latest_hash))
+						Some(format!("{:?}", hash))
 					),
 				)
 				.await
@@ -152,7 +152,7 @@ where
 			current_authorities,
 			current_set_id: current_set_id + 1,
 			latest_height,
-			latest_hash: latest_hash.into(),
+			latest_hash: hash.into(),
 			slot_duration,
 			state_machine: self.state_machine,
 		})

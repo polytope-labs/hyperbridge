@@ -88,13 +88,13 @@ pub struct StateCommitmentHeight {
 )]
 pub struct CreateConsensusState {
 	/// Scale encoded consensus state
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub consensus_state: Vec<u8>,
 	/// Consensus client id
-	#[serde(with = "serde_utils::as_utf8_string")]
+	#[serde(with = "serde_hex_utils::as_utf8_string")]
 	pub consensus_client_id: ConsensusClientId,
 	/// The consensus state Id
-	#[serde(with = "serde_utils::as_utf8_string")]
+	#[serde(with = "serde_hex_utils::as_utf8_string")]
 	pub consensus_state_id: ConsensusStateId,
 	/// Unbonding period for this consensus state.
 	pub unbonding_period: u64,

@@ -10,7 +10,7 @@ use ssz_rs::prelude::*;
 #[derive(Default, Clone, Eq, SimpleSerialize, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ByteList<const N: usize>(
-	#[cfg_attr(feature = "serde", serde(with = "serde_utils::as_hex"))] List<u8, N>,
+	#[cfg_attr(feature = "serde", serde(with = "serde_hex_utils::as_hex"))] List<u8, N>,
 );
 
 impl<const N: usize> TryFrom<&[u8]> for ByteList<N> {

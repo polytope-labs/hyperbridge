@@ -27,7 +27,6 @@ mod ismp;
 mod weights;
 pub mod xcm;
 
-use alloc::sync::Arc;
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
@@ -314,9 +313,9 @@ use pallet_collective::PrimeDefaultVote;
 use pallet_ismp::mmr::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
-use sp_core::crypto::{AccountId32, FromEntropy};
+use sp_core::crypto::AccountId32;
 use sp_runtime::traits::IdentityLookup;
-use staging_xcm::latest::{Junction, Junctions::X1, Location};
+use staging_xcm::latest::Location;
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
@@ -586,11 +585,16 @@ pub struct TreasuryAssetFactory {}
 impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
 where
 	A: From<Location>,
-	B: FromEntropy,
+	B: sp_core::crypto::FromEntropy,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
-			.into()
+		Location {
+			parents: 0,
+			interior: staging_xcm::latest::Junctions::X1(alloc::sync::Arc::new([
+				staging_xcm::latest::Junction::GeneralIndex(seed as u128),
+			])),
+		}
+		.into()
 	}
 
 	fn create_beneficiary(seed: [u8; 32]) -> B {
@@ -604,8 +608,13 @@ where
 	A: From<Location>,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
-			.into()
+		Location {
+			parents: 0,
+			interior: staging_xcm::latest::Location::X1(alloc::sync::Arc::new([
+				staging_xcm::latest::Junctions::GeneralIndex(seed as u128),
+			])),
+		}
+		.into()
 	}
 }
 

@@ -130,7 +130,7 @@ impl ModuleId {
 pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 
 /// Consensus log digest for pallet ismp
-#[derive(Encode, Decode, Clone, scale_info::TypeInfo)]
+#[derive(Encode, Decode, Clone, scale_info::TypeInfo, Default)]
 pub struct ConsensusDigest {
 	/// Mmr root hash
 	pub mmr_root: H256,

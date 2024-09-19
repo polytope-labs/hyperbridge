@@ -13,7 +13,7 @@
 // See the License for the specific lang
 use alloc::collections::BTreeMap;
 use codec::{Decode, Encode};
-use primitives::{FinalityProof, ParachainHeaderProofs};
+use grandpa_verifier_primitives::{FinalityProof, ParachainHeaderProofs};
 use sp_core::H256;
 use sp_runtime::traits::BlakeTwo256;
 
@@ -23,22 +23,22 @@ pub type SubstrateHeader = sp_runtime::generic::Header<u32, BlakeTwo256>;
 /// [`ClientMessage`] definition
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum ConsensusMessage {
-    /// This is the variant representing the standalone chain
-    StandaloneChainMessage(StandaloneChainMessage),
-    /// This is the variant representing the relay chain
-    RelayChainMessage(RelayChainMessage),
+	/// This is the variant representing the standalone chain
+	StandaloneChainMessage(StandaloneChainMessage),
+	/// This is the variant representing the relay chain
+	RelayChainMessage(RelayChainMessage),
 }
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct StandaloneChainMessage {
-    /// finality proof
-    pub finality_proof: FinalityProof<SubstrateHeader>,
+	/// finality proof
+	pub finality_proof: FinalityProof<SubstrateHeader>,
 }
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct RelayChainMessage {
-    /// finality proof
-    pub finality_proof: FinalityProof<SubstrateHeader>,
-    /// parachain headers
-    pub parachain_headers: BTreeMap<H256, ParachainHeaderProofs>,
+	/// finality proof
+	pub finality_proof: FinalityProof<SubstrateHeader>,
+	/// parachain headers
+	pub parachain_headers: BTreeMap<H256, ParachainHeaderProofs>,
 }

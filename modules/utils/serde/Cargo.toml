@@ -1,13 +1,20 @@
 [package]
-name = "serde-utils"
+name = "serde-hex-utils"
 version = "0.1.0"
 edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge"
+documentation = "https://docs.rs/serde-hex-utils"
+description = "Collection of hexadecimal (De)serialization utilities for serde"
+keywords = ["serde", "utilities"]
+readme = "./README.md"
 
 [dependencies]
 # crates.io
 serde = { workspace = true, features = ["derive"] }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
-anyhow = {workspace = true, default-features = false}
+anyhow = {workspace = true, default-features = false }
 
 [features]
 default = ["std"]

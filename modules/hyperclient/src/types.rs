@@ -143,7 +143,7 @@ pub enum MessageStatusWithMetadata {
 		#[serde(flatten)]
 		meta: EventMetadata,
 		/// Calldata that encodes the proof for the message to be sent to the destination.
-		#[serde(with = "serde_utils::as_hex")]
+		#[serde(with = "serde_hex_utils::as_hex")]
 		calldata: Bytes,
 	},
 	/// Delivered to destination
@@ -236,7 +236,7 @@ pub enum TimeoutStatus {
 	/// Encoded call data to be submitted to source chain
 	TimeoutMessage {
 		/// Calldata that encodes the proof for the timeout message on the source.
-		#[serde(with = "serde_utils::as_hex")]
+		#[serde(with = "serde_hex_utils::as_hex")]
 		calldata: Bytes,
 	},
 }

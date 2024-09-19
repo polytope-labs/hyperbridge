@@ -49,7 +49,7 @@ mod testing;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateConfig {
 	/// Hyperbridge network
-	#[serde(with = "serde_utils::as_string")]
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub state_machine: StateMachine,
 	/// The hashing algorithm that substrate chain uses.
 	pub hashing: Option<HashAlgorithm>,

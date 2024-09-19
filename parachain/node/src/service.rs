@@ -513,15 +513,6 @@ pub async fn start_parachain_node(
 				hwbench,
 			)
 			.await,
-		chain if chain.contains("messier") =>
-			start_node_impl::<messier_runtime::RuntimeApi>(
-				parachain_config,
-				polkadot_config,
-				collator_options,
-				para_id,
-				hwbench,
-			)
-			.await,
 		chain if chain.contains("nexus") =>
 			start_node_impl::<nexus_runtime::RuntimeApi>(
 				parachain_config,

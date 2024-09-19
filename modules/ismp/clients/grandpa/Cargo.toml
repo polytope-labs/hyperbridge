@@ -1,42 +1,42 @@
 [package]
-name = "ismp-parachain"
+name = "ismp-grandpa"
 version = "1.15.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
 repository = "https://github.com/polytope-labs/hyperbridge"
 homepage = "https://docs.hyperbridge.network/developers/polkadot/integration"
-documentation = "https://docs.rs/ismp-parachain"
-description = "Parachain consensus client for pallet-ismp"
-keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+documentation = "https://docs.rs/ismp-grandpa"
+description = "GRANDPA consensus client for pallet-ismp"
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability", "GRANDPA"]
 readme = "./README.md"
 
 [dependencies]
-# crates.io
-serde = { workspace = true, features = ["derive"], optional = false }
 codec = { workspace = true, features = ["derive"] }
-scale-info = { workspace = true, features = ["derive"] }
-hex-literal = "0.4.1"
 primitive-types = { workspace = true }
-log = { workspace = true }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+merkle-mountain-range = { workspace = true }
+finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false }
+
+# polytope labs
+ismp = { workspace = true }
+grandpa-verifier-primitives = { workspace = true  }
+grandpa-verifier = { workspace = true }
+pallet-ismp = { workspace = true }
+
 
 # substrate
 frame-support = { workspace = true }
 frame-system = { workspace = true }
 sp-trie = { workspace = true }
-sp-inherents = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-consensus-aura = { workspace = true }
+sp-core = { workspace = true }
 
 # cumulus
-cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
-cumulus-primitives-core = { workspace = true, default-features = false }
-
-# local
+cumulus-primitives-core = { workspace = true }
 substrate-state-machine = { workspace = true }
-ismp = { workspace = true }
-pallet-ismp = { workspace = true }
 
 [features]
 default = ["std"]
@@ -45,21 +45,19 @@ std = [
     "frame-support/std",
     "frame-system/std",
     "scale-info/std",
-    "cumulus-pallet-parachain-system/std",
     "cumulus-primitives-core/std",
     "ismp/std",
-    "log/std",
     "sp-trie/std",
     "sp-consensus-aura/std",
     "sp-runtime/std",
     "sp-io/std",
-    "sp-inherents/std",
     "primitive-types/std",
     "pallet-ismp/std",
-    "substrate-state-machine/std"
+    "sp-core/std",
+    "grandpa-verifier-primitives/std",
+    "grandpa-verifier/std",
+    "merkle-mountain-range/std",
+    "substrate-state-machine/std",
+    "finality-grandpa/std",
 ]
-try-runtime = [
-	"frame-support/try-runtime",
-	"frame-system/try-runtime",
-	"sp-runtime/try-runtime",
-]
+try-runtime = []

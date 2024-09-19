@@ -34,23 +34,23 @@ use core::{fmt::Formatter, time::Duration};
 )]
 pub struct PostRequest {
 	/// The source state machine of this request.
-	#[serde(with = "serde_utils::as_string")]
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub source: StateMachine,
 	/// The destination state machine of this request.
-	#[serde(with = "serde_utils::as_string")]
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub dest: StateMachine,
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
 	/// Module identifier of the sending module
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub from: Vec<u8>,
 	/// Module identifier of the receiving module
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub to: Vec<u8>,
 	/// Timestamp which this request expires in seconds.
 	pub timeout_timestamp: u64,
 	/// Encoded request body
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub body: Vec<u8>,
 }
 
@@ -95,15 +95,15 @@ impl core::fmt::Display for PostRequest {
 )]
 pub struct GetRequest {
 	/// The source state machine of this request.
-	#[serde(with = "serde_utils::as_string")]
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub source: StateMachine,
 	/// The destination state machine of this request.
-	#[serde(with = "serde_utils::as_string")]
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub dest: StateMachine,
 	/// The nonce of this request on the source chain
 	pub nonce: u64,
 	/// Module identifier of the sending module
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub from: Vec<u8>,
 	/// Raw Storage keys that would be used to fetch the values from the counterparty
 	/// For deriving storage keys for ink contract fields follow the guide in the link below
@@ -119,12 +119,12 @@ pub struct GetRequest {
 	/// For fetching keys from EVM contracts each key should either be 52 bytes or 20 bytes
 	/// For 52 byte keys we expect it to be a concatenation of contract address and slot hash
 	/// For 20 bytes we expect it to be a contract or account address
-	#[serde(with = "serde_utils::seq_of_hex")]
+	#[serde(with = "serde_hex_utils::seq_of_hex")]
 	pub keys: Vec<Vec<u8>>,
 	/// Height at which to read the state machine.
 	pub height: u64,
 	/// Some application-specific metadata relating to this request
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub context: Vec<u8>,
 	/// Host timestamp at which this request expires in seconds
 	pub timeout_timestamp: u64,
@@ -294,7 +294,7 @@ pub struct PostResponse {
 	/// The request that triggered this response.
 	pub post: PostRequest,
 	/// The response message.
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub response: Vec<u8>,
 	/// Timestamp at which this response expires in seconds.
 	pub timeout_timestamp: u64,
@@ -408,11 +408,11 @@ impl GetResponse {
 )]
 pub struct StorageValue {
 	/// The request storage keys
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub key: Vec<u8>,
 	/// The verified value
-	#[serde(serialize_with = "serde_utils::as_hex::serialize_option")]
-	#[serde(deserialize_with = "serde_utils::as_hex::deserialize_option")]
+	#[serde(serialize_with = "serde_hex_utils::as_hex::serialize_option")]
+	#[serde(deserialize_with = "serde_hex_utils::as_hex::deserialize_option")]
 	pub value: Option<Vec<u8>>,
 }
 

@@ -19,22 +19,17 @@
 
 use anyhow::anyhow;
 use codec::{Decode, Encode};
-use ismp::host::StateMachine;
-use jsonrpsee::{async_client::Client, ws_client::WsClientBuilder};
-use primitives::{
-    parachain_header_storage_key, ConsensusState, FinalityProof, ParachainHeaderProofs,
-    ParachainHeadersWithFinalityProof,
+use grandpa_verifier_primitives::{
+	parachain_header_storage_key, ConsensusState, FinalityProof, ParachainHeaderProofs,
+	ParachainHeadersWithFinalityProof,
 };
-use sc_consensus_grandpa_rpc::GrandpaApiClient;
+use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_core::H256;
 use sp_runtime::traits::{One, Zero};
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    sync::Arc,
-};
-use subxt::{config::Header, Config, OnlineClient};
+use std::collections::{BTreeMap, BTreeSet};
+use subxt::{config::Header, rpc_params, Config, OnlineClient};
 
 /// Head data for parachain
 #[derive(Decode, Encode)]
@@ -43,18 +38,16 @@ pub struct HeadData(pub Vec<u8>);
 /// Contains methods useful for proving parachain and standalone-chain header finality using GRANDPA
 #[derive(Clone)]
 pub struct GrandpaProver<T: Config> {
-    /// Subxt client for the chain
-    pub client: OnlineClient<T>,
-    /// Chain jsonrpsee client for typed rpc requests, which subxt lacks support for.
-    pub ws_client: Arc<Client>,
-    /// ParaId of the associated parachains
-    pub para_ids: Vec<u32>,
-    /// State machine identifier for the chain
-    pub state_machine: StateMachine,
-    /// Storage for babe epoch start
-    pub babe_epoch_start: Vec<u8>,
-    /// Storage key for current set id
-    pub current_set_id: Vec<u8>,
+	/// Subxt client for the chain
+	pub client: OnlineClient<T>,
+	/// ParaId of the associated parachains
+	pub para_ids: Vec<u32>,
+	/// State machine identifier for the chain
+	pub state_machine: StateMachine,
+	/// Storage for babe epoch start
+	pub babe_epoch_start: Vec<u8>,
+	/// Storage key for current set id
+	pub current_set_id: Vec<u8>,
 }
 
 // We redefine these here because we want the header to be bounded by subxt::config::Header in the
@@ -63,15 +56,15 @@ pub struct GrandpaProver<T: Config> {
 pub type Commit = finality_grandpa::Commit<H256, u32, AuthoritySignature, AuthorityId>;
 
 /// Justification
-#[cfg_attr(any(feature = "std", test), derive(Debug))]
+#[cfg_attr(test, derive(Debug))]
 #[derive(Clone, Encode, Decode)]
 pub struct GrandpaJustification<H: Header + codec::Decode> {
-    /// Current voting round number, monotonically increasing
-    pub round: u64,
-    /// Contains block hash & number that's being finalized and the signatures.
-    pub commit: Commit,
-    /// Contains the path from a [`PreCommit`]'s target hash to the GHOST finalized block.
-    pub votes_ancestries: Vec<H>,
+	/// Current voting round number, monotonically increasing
+	pub round: u64,
+	/// Contains block hash & number that's being finalized and the signatures.
+	pub commit: Commit,
+	/// Contains the path from a [`PreCommit`]'s target hash to the GHOST finalized block.
+	pub votes_ancestries: Vec<H>,
 }
 
 /// An encoded justification proving that the given header has been finalized
@@ -80,276 +73,233 @@ pub struct JustificationNotification(pub sp_core::Bytes);
 
 impl<T> GrandpaProver<T>
 where
-    T: Config,
-    <T::Header as Header>::Number: Ord + Zero,
-    u32: From<<T::Header as Header>::Number>,
-    sp_core::H256: From<T::Hash>,
-    T::Header: codec::Decode,
+	T: Config,
+	<T::Header as Header>::Number: Ord + Zero,
+	u32: From<<T::Header as Header>::Number>,
+	sp_core::H256: From<T::Hash>,
+	T::Header: codec::Decode,
 {
-    /// Initializes the parachain and relay chain clients given the ws urls.
-    pub async fn new(
-        ws_url: &str,
-        para_ids: Vec<u32>,
-        state_machine: StateMachine,
-        babe_epoch_start: Vec<u8>,
-        current_set_id: Vec<u8>,
-    ) -> Result<Self, anyhow::Error> {
-        let ws_client = Arc::new(WsClientBuilder::default().build(ws_url).await?);
-        let client = OnlineClient::<T>::from_rpc_client(ws_client.clone()).await?;
+	/// Initializes the parachain and relay chain clients given the ws urls.
+	pub async fn new(
+		ws_url: &str,
+		para_ids: Vec<u32>,
+		state_machine: StateMachine,
+		babe_epoch_start: Vec<u8>,
+		current_set_id: Vec<u8>,
+	) -> Result<Self, anyhow::Error> {
+		let max_rpc_payload_size = 15 * 1024 * 1024;
+		let client = subxt_utils::client::ws_client(ws_url, max_rpc_payload_size).await?;
 
-        Ok(Self { ws_client, client, para_ids, state_machine, babe_epoch_start, current_set_id })
-    }
+		Ok(Self { client, para_ids, state_machine, babe_epoch_start, current_set_id })
+	}
 
-    /// Construct the initial consensus state.
-    pub async fn initialize_consensus_state(
-        &self,
-        slot_duration: u64,
-    ) -> Result<ConsensusState, anyhow::Error> {
-        use sp_consensus_grandpa::AuthorityList;
-        let latest_hash = self.client.rpc().finalized_head().await?;
-        let header = self
-            .client
-            .rpc()
-            .header(Some(latest_hash))
-            .await?
-            .ok_or_else(|| anyhow!("Header not found for hash: {latest_hash:?}"))?;
+	/// Construct the initial consensus state.
+	pub async fn initialize_consensus_state(
+		&self,
+		slot_duration: u64,
+		hash: T::Hash,
+	) -> Result<ConsensusState, anyhow::Error> {
+		use sp_consensus_grandpa::AuthorityList;
+		let header = self
+			.client
+			.rpc()
+			.header(Some(hash))
+			.await?
+			.ok_or_else(|| anyhow!("Header not found for hash: {hash:?}"))?;
 
-        let current_set_id: u64 = {
-            let raw_id = self
-                .client
-                .storage()
-                .at(latest_hash)
-                .fetch_raw(&self.current_set_id[..])
-                .await
-                .ok()
-                .flatten()
-                .expect("Failed to fetch current set id");
-            codec::Decode::decode(&mut &*raw_id)?
-        };
+		let current_set_id: u64 = {
+			let raw_id = self
+				.client
+				.storage()
+				.at(hash)
+				.fetch_raw(&self.current_set_id[..])
+				.await
+				.ok()
+				.flatten()
+				.expect("Failed to fetch current set id");
+			codec::Decode::decode(&mut &*raw_id)?
+		};
 
-        let current_authorities = {
-            let bytes = self
-                .client
-                .rpc()
-                .request::<String>(
-                    "state_call",
-                    subxt::rpc_params!(
-                        "GrandpaApi_grandpa_authorities",
-                        "0x",
-                        Some(format!("{:?}", latest_hash))
-                    ),
-                )
-                .await
-                .map(|res| hex::decode(&res[2..]))??;
+		let current_authorities = {
+			let bytes = self
+				.client
+				.rpc()
+				.request::<String>(
+					"state_call",
+					subxt::rpc_params!(
+						"GrandpaApi_grandpa_authorities",
+						"0x",
+						Some(format!("{:?}", hash))
+					),
+				)
+				.await
+				.map(|res| hex::decode(&res[2..]))??;
 
-            AuthorityList::decode(&mut &bytes[..])?
-        };
+			AuthorityList::decode(&mut &bytes[..])?
+		};
 
-        // Ensure there are no duplicates in authority list
-        let mut set = BTreeSet::new();
-        for (id, ..) in &current_authorities {
-            if !set.insert(id) {
-                Err(anyhow!("Duplicate entries found in current authority set"))?
-            }
-        }
+		// Ensure there are no duplicates in authority list
+		let mut set = BTreeSet::new();
+		for (id, ..) in &current_authorities {
+			if !set.insert(id) {
+				Err(anyhow!("Duplicate entries found in current authority set"))?
+			}
+		}
 
-        let latest_height = u32::from(header.number());
+		let latest_height = u32::from(header.number());
 
-        Ok(ConsensusState {
-            current_authorities,
-            current_set_id: current_set_id + 1,
-            latest_height,
-            latest_hash: latest_hash.into(),
-            para_ids: self.para_ids.iter().map(|id| (*id, true)).collect(),
-            state_machine: self.state_machine,
-            slot_duration,
-        })
-    }
+		Ok(ConsensusState {
+			current_authorities,
+			current_set_id: current_set_id + 1,
+			latest_height,
+			latest_hash: hash.into(),
+			slot_duration,
+			state_machine: self.state_machine,
+		})
+	}
 
-    /// Returns the grandpa finality proof
-    pub async fn query_finality_proof<H>(
-        &self,
-        previous_finalized_height: u32,
-        mut latest_finalized_height: u32,
-    ) -> Result<FinalityProof<H>, anyhow::Error>
-    where
-        H: Header + codec::Decode,
-        u32: From<<H as Header>::Number>,
-        <H::Hasher as subxt::config::Hasher>::Output: From<T::Hash>,
-        T::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
-        H::Number: finality_grandpa::BlockNumberOps + One,
-    {
-        let encoded = GrandpaApiClient::<JustificationNotification, H256, u32>::prove_finality(
-            &*self.ws_client,
-            latest_finalized_height,
-        )
-        .await?
-        .ok_or_else(|| anyhow!("No justification found for block: {:?}", latest_finalized_height))?
-        .0;
+	/// Returns the grandpa finality proof
+	pub async fn query_finality_proof<H>(
+		&self,
+		previous_finalized_height: u32,
+		mut latest_finalized_height: u32,
+	) -> Result<FinalityProof<H>, anyhow::Error>
+	where
+		H: Header + codec::Decode,
+		u32: From<<H as Header>::Number>,
+		<H::Hasher as subxt::config::Hasher>::Output: From<T::Hash>,
+		T::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
+		H::Number: finality_grandpa::BlockNumberOps + One,
+	{
+		let encoded = self
+			.client
+			.rpc()
+			.request::<Option<JustificationNotification>>(
+				"grandpa_proveFinality",
+				rpc_params![latest_finalized_height],
+			)
+			.await?
+			.ok_or_else(|| {
+				anyhow!("No justification found for block: {:?}", latest_finalized_height)
+			})?
+			.0;
 
-        let mut finality_proof = FinalityProof::<H>::decode(&mut &encoded[..])?;
+		let mut finality_proof = FinalityProof::<H>::decode(&mut &encoded[..])?;
 
-        let justification =
-            GrandpaJustification::<H>::decode(&mut &finality_proof.justification[..])?;
+		let justification =
+			GrandpaJustification::<H>::decode(&mut &finality_proof.justification[..])?;
 
-        finality_proof.block = justification.commit.target_hash;
+		finality_proof.block = justification.commit.target_hash;
 
-        latest_finalized_height = u32::from(justification.commit.target_number);
+		latest_finalized_height = u32::from(justification.commit.target_number);
 
-        let mut unknown_headers = vec![];
-        for height in previous_finalized_height..=latest_finalized_height {
-            let hash = self
-                .client
-                .rpc()
-                .block_hash(Some(height.into()))
-                .await?
-                .ok_or_else(|| anyhow!("Failed to fetch block has for height {height}"))?;
+		let mut unknown_headers = vec![];
+		for height in previous_finalized_height..=latest_finalized_height {
+			let hash = self
+				.client
+				.rpc()
+				.block_hash(Some(height.into()))
+				.await?
+				.ok_or_else(|| anyhow!("Failed to fetch block has for height {height}"))?;
 
-            let header = self
-                .client
-                .rpc()
-                .header(Some(hash))
-                .await?
-                .ok_or_else(|| anyhow!("Header with hash: {hash:?} not found!"))?;
+			let header = self
+				.client
+				.rpc()
+				.header(Some(hash))
+				.await?
+				.ok_or_else(|| anyhow!("Header with hash: {hash:?} not found!"))?;
 
-            unknown_headers.push(H::decode(&mut &header.encode()[..])?);
-        }
+			unknown_headers.push(H::decode(&mut &header.encode()[..])?);
+		}
 
-        // overwrite unknown headers
-        finality_proof.unknown_headers = unknown_headers;
-        Ok(finality_proof)
-    }
+		// overwrite unknown headers
+		finality_proof.unknown_headers = unknown_headers;
+		Ok(finality_proof)
+	}
 
-    /// Returns the proof for parachain headers finalized by the provided finality proof
-    pub async fn query_finalized_parachain_headers_with_proof<H>(
-        &self,
-        previous_finalized_height: u32,
-        latest_finalized_height: u32,
-        finality_proof: FinalityProof<H>,
-    ) -> Result<ParachainHeadersWithFinalityProof<H>, anyhow::Error>
-    where
-        H: Header + codec::Decode,
-        u32: From<<H as Header>::Number>,
-        <H::Hasher as subxt::config::Hasher>::Output: From<T::Hash>,
-        T::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
-        H::Number: finality_grandpa::BlockNumberOps + One,
-    {
-        // we are interested only in the blocks where our parachain header changes.
-        let para_keys: Vec<_> =
-            self.para_ids.iter().map(|para_id| parachain_header_storage_key(*para_id)).collect();
-        let keys = para_keys.iter().map(|key| key.as_ref()).collect::<Vec<&[u8]>>();
-        let mut parachain_headers_with_proof = BTreeMap::<H256, ParachainHeaderProofs>::default();
+	/// Returns the proof for parachain headers finalized by the provided finality proof
+	pub async fn query_finalized_parachain_headers_with_proof<H>(
+		&self,
+		_previous_finalized_height: u32,
+		latest_finalized_height: u32,
+		finality_proof: FinalityProof<H>,
+	) -> Result<ParachainHeadersWithFinalityProof<H>, anyhow::Error>
+	where
+		H: Header + codec::Decode,
+		u32: From<<H as Header>::Number>,
+		<H::Hasher as subxt::config::Hasher>::Output: From<T::Hash>,
+		T::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
+		H::Number: finality_grandpa::BlockNumberOps + One,
+	{
+		// we are interested only in the blocks where our parachain header changes.
+		let para_keys: Vec<_> = self
+			.para_ids
+			.iter()
+			.map(|para_id| parachain_header_storage_key(*para_id))
+			.collect();
+		let keys = para_keys.iter().map(|key| key.as_ref()).collect::<Vec<&[u8]>>();
+		let mut parachain_headers_with_proof = BTreeMap::<H256, ParachainHeaderProofs>::default();
 
-        let start = self
-            .client
-            .rpc()
-            .block_hash(Some(previous_finalized_height.into()))
-            .await?
-            .ok_or_else(|| anyhow!("Failed to fetch previous finalized hash + 1"))?;
+		let latest_finalized_hash = self
+			.client
+			.rpc()
+			.block_hash(Some(latest_finalized_height.into()))
+			.await?
+			.ok_or_else(|| anyhow!("Failed to fetch previous finalized hash + 1"))?;
 
-        let latest_finalized_hash = self
-            .client
-            .rpc()
-            .block_hash(Some(latest_finalized_height.into()))
-            .await?
-            .ok_or_else(|| anyhow!("Failed to fetch previous finalized hash + 1"))?;
+		let state_proof = self
+			.client
+			.rpc()
+			.read_proof(keys, Some(latest_finalized_hash))
+			.await?
+			.proof
+			.into_iter()
+			.map(|bytes| bytes.0)
+			.collect::<Vec<_>>();
+		parachain_headers_with_proof.insert(
+			latest_finalized_hash.into(),
+			ParachainHeaderProofs { state_proof, para_ids: self.para_ids.clone() },
+		);
+		Ok(ParachainHeadersWithFinalityProof {
+			finality_proof,
+			parachain_headers: parachain_headers_with_proof,
+		})
+	}
 
-        let change_set =
-            self.client.rpc().query_storage(keys, start, Some(latest_finalized_hash)).await?;
+	/// Queries the block at which the epoch for the given block belongs to ends.
+	pub async fn session_start_and_end_for_block(
+		&self,
+		block: u32,
+	) -> Result<(u32, u32), anyhow::Error> {
+		let block_hash = self
+			.client
+			.rpc()
+			.block_hash(Some(block.into()))
+			.await?
+			.ok_or(anyhow!("Failed to fetch block hash"))?;
+		let bytes = self
+			.client
+			.storage()
+			.at(block_hash)
+			.fetch_raw(&self.babe_epoch_start[..])
+			.await?
+			.ok_or_else(|| anyhow!("Failed to fetch epoch information"))?;
 
-        for changes in change_set {
-            let header = self
-                .client
-                .rpc()
-                .header(Some(changes.block))
-                .await?
-                .ok_or_else(|| anyhow!("block not found {:?}", changes.block))?;
-            let mut changed_keys = HashMap::new();
-            for para_id in self.para_ids.clone() {
-                let (key, parachain_header_bytes) = {
-                    let key = parachain_header_storage_key(para_id);
-                    if let Some(raw) =
-                        self.client.storage().at(header.hash()).fetch_raw(key.as_ref()).await?
-                    {
-                        let head_data: HeadData = codec::Decode::decode(&mut &*raw)?;
-                        (key, head_data.0)
-                    } else {
-                        continue
-                    }
-                };
+		let (previous_epoch_start, current_epoch_start): (u32, u32) =
+			codec::Decode::decode(&mut &*bytes)?;
+		Ok((
+			current_epoch_start,
+			current_epoch_start + (current_epoch_start - previous_epoch_start),
+		))
+	}
 
-                let para_header: H = Decode::decode(&mut &parachain_header_bytes[..])?;
-                let para_block_number = para_header.number();
-                // skip genesis header or any unknown headers
-                if para_block_number == Zero::zero() {
-                    continue
-                }
-
-                changed_keys.insert(key, para_id);
-            }
-
-            if !changed_keys.is_empty() {
-                let state_proof = self
-                    .client
-                    .rpc()
-                    .read_proof(
-                        changed_keys.keys().into_iter().map(|key| key.as_ref()),
-                        Some(header.hash()),
-                    )
-                    .await?
-                    .proof
-                    .into_iter()
-                    .map(|p| p.0)
-                    .collect();
-
-                let proofs = ParachainHeaderProofs {
-                    state_proof,
-                    para_ids: changed_keys.values().into_iter().map(|id| *id).collect(),
-                };
-                parachain_headers_with_proof.insert(header.hash().into(), proofs);
-            }
-        }
-
-        Ok(ParachainHeadersWithFinalityProof {
-            finality_proof,
-            parachain_headers: parachain_headers_with_proof,
-        })
-    }
-
-    /// Queries the block at which the epoch for the given block belongs to ends.
-    pub async fn session_start_and_end_for_block(
-        &self,
-        block: u32,
-    ) -> Result<(u32, u32), anyhow::Error> {
-        let block_hash = self
-            .client
-            .rpc()
-            .block_hash(Some(block.into()))
-            .await?
-            .ok_or(anyhow!("Failed to fetch block hash"))?;
-        let bytes = self
-            .client
-            .storage()
-            .at(block_hash)
-            .fetch_raw(&self.babe_epoch_start[..])
-            .await?
-            .ok_or_else(|| anyhow!("Failed to fetch epoch information"))?;
-
-        let (previous_epoch_start, current_epoch_start): (u32, u32) =
-            codec::Decode::decode(&mut &*bytes)?;
-        Ok((
-            current_epoch_start,
-            current_epoch_start + (current_epoch_start - previous_epoch_start),
-        ))
-    }
-
-    /// Returns the session length in blocks
-    pub async fn session_length(&self) -> Result<u32, anyhow::Error> {
-        let metadata = self.client.rpc().metadata().await?;
-        let metadata = metadata
-            .pallet_by_name_err("Babe")?
-            .constant_by_name("EpochDuration")
-            .ok_or(anyhow!("Failed to fetch constant"))?;
-        Ok(Decode::decode(&mut metadata.value())?)
-    }
+	/// Returns the session length in blocks
+	pub async fn session_length(&self) -> Result<u32, anyhow::Error> {
+		let metadata = self.client.rpc().metadata().await?;
+		let metadata = metadata
+			.pallet_by_name_err("Babe")?
+			.constant_by_name("EpochDuration")
+			.ok_or(anyhow!("Failed to fetch constant"))?;
+		Ok(Decode::decode(&mut metadata.value())?)
+	}
 }

@@ -34,7 +34,7 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        crate: [messier-runtime, gargantua-runtime, nexus-runtime]
+        crate: [gargantua-runtime, nexus-runtime]
 
     steps:
       - name: Get User Permission

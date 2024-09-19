@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 // mod ethereum;
-// // mod grandpa;
+mod grandpa;
 // mod bsc;
 // // mod polygon;
 mod ping;

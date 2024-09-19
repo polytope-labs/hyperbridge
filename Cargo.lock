@@ -441,7 +441,7 @@ dependencies = [
 [[package]]
 name = "arbitrum-verifier"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-rlp",
@@ -1241,7 +1241,7 @@ dependencies = [
 [[package]]
 name = "beefy-prover"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
@@ -1267,7 +1267,7 @@ dependencies = [
 [[package]]
 name = "beefy-verifier-primitives"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "derive_more 0.99.17",
  "parity-scale-codec",
@@ -1679,7 +1679,7 @@ dependencies = [
 [[package]]
 name = "bsc-prover"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "bsc-verifier",
@@ -1695,7 +1695,7 @@ dependencies = [
 [[package]]
 name = "bsc-verifier"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-rlp",
@@ -1920,6 +1920,12 @@ dependencies = [
  "libc",
  "once_cell",
 ]
+
+[[package]]
+name = "cesu8"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d43a04d8753f35258c91f8ec639f792891f748a1edbd759cf1dcea3382ad83c"
 
 [[package]]
 name = "cexpr"
@@ -2837,6 +2843,23 @@ dependencies = [
  "num 0.4.2",
  "rand 0.8.5",
  "sha3",
+]
+
+[[package]]
+name = "cumulus-primitives-core"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "114859ea473b98046ba46eab82a1830329294015673def6fbadcf34662df4e6f"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-core-primitives",
+ "polkadot-parachain-primitives",
+ "polkadot-primitives",
+ "scale-info",
+ "sp-api",
+ "sp-runtime 39.0.0",
+ "sp-trie 37.0.0",
+ "staging-xcm",
 ]
 
 [[package]]
@@ -3901,7 +3924,7 @@ dependencies = [
 [[package]]
 name = "ethereum-triedb"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "hash-db",
  "hash256-std-hasher",
@@ -4251,7 +4274,7 @@ dependencies = [
 [[package]]
 name = "evm-common"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-rlp",
@@ -5226,7 +5249,7 @@ dependencies = [
 [[package]]
 name = "geth-primitives"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-rlp",
@@ -5360,6 +5383,74 @@ dependencies = [
  "rand 0.8.5",
  "smallvec",
  "spinning_top",
+]
+
+[[package]]
+name = "grandpa-prover"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
+dependencies = [
+ "anyhow",
+ "derive_more 0.99.17",
+ "downcast-rs",
+ "finality-grandpa",
+ "grandpa-verifier-primitives",
+ "hex",
+ "ismp",
+ "jsonrpsee 0.23.2",
+ "jsonrpsee-ws-client 0.23.2",
+ "parity-scale-codec",
+ "sc-consensus-grandpa-rpc",
+ "serde",
+ "sp-consensus-grandpa",
+ "sp-core 34.0.0",
+ "sp-runtime 39.0.0",
+ "sp-state-machine 0.43.0",
+ "sp-trie 37.0.0",
+ "subxt",
+ "subxt-utils",
+]
+
+[[package]]
+name = "grandpa-verifier"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
+dependencies = [
+ "anyhow",
+ "derive_more 0.99.17",
+ "finality-grandpa",
+ "frame-support",
+ "grandpa-verifier-primitives",
+ "parity-scale-codec",
+ "serde",
+ "sp-consensus-grandpa",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+ "sp-std 14.0.0",
+ "sp-storage 21.0.0",
+ "sp-trie 37.0.0",
+ "substrate-state-machine",
+]
+
+[[package]]
+name = "grandpa-verifier-primitives"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
+dependencies = [
+ "anyhow",
+ "finality-grandpa",
+ "frame-support",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "sp-consensus-grandpa",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+ "sp-std 14.0.0",
+ "sp-storage 21.0.0",
+ "sp-trie 37.0.0",
 ]
 
 [[package]]
@@ -6161,7 +6252,7 @@ checksum = "f8478577c03552c21db0e2724ffb8986a5ce7af88107e6be5d2ee6e158c12800"
 [[package]]
 name = "ismp"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "derive_more 0.99.17",
@@ -6170,14 +6261,14 @@ dependencies = [
  "primitive-types",
  "scale-info",
  "serde",
- "serde-utils",
+ "serde-hex-utils",
  "serde_json",
 ]
 
 [[package]]
 name = "ismp-bsc"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "bsc-verifier",
@@ -6193,9 +6284,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-grandpa"
+version = "1.15.0"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
+dependencies = [
+ "ckb-merkle-mountain-range",
+ "cumulus-primitives-core",
+ "finality-grandpa",
+ "frame-support",
+ "frame-system",
+ "grandpa-verifier",
+ "grandpa-verifier-primitives",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-consensus-aura",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+ "sp-trie 37.0.0",
+ "substrate-state-machine",
+]
+
+[[package]]
 name = "ismp-solidity-abi"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
@@ -6212,7 +6328,7 @@ dependencies = [
 [[package]]
 name = "ismp-sync-committee"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "arbitrum-verifier",
  "ethabi",
@@ -6240,7 +6356,7 @@ dependencies = [
 [[package]]
 name = "ismp-testsuite"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "ismp",
  "once_cell",
@@ -6295,6 +6411,26 @@ name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
+
+[[package]]
+name = "jni"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6df18c2e3db7e453d3c6ac5b3e9d5182664d28788126d39b91f2d1e22b017ec"
+dependencies = [
+ "cesu8",
+ "combine",
+ "jni-sys",
+ "log",
+ "thiserror",
+ "walkdir",
+]
+
+[[package]]
+name = "jni-sys"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
 
 [[package]]
 name = "jobserver"
@@ -6407,6 +6543,7 @@ dependencies = [
  "jsonrpsee-proc-macros",
  "jsonrpsee-server",
  "jsonrpsee-types 0.23.2",
+ "jsonrpsee-ws-client 0.23.2",
  "tokio",
  "tracing",
 ]
@@ -6469,6 +6606,29 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-rustls 0.25.0",
+ "tokio-util 0.7.11",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "jsonrpsee-client-transport"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08163edd8bcc466c33d79e10f695cdc98c00d1e6ddfb95cec41b6b0279dd5432"
+dependencies = [
+ "base64 0.22.1",
+ "futures-util",
+ "http 1.1.0",
+ "jsonrpsee-core 0.23.2",
+ "pin-project",
+ "rustls 0.23.7",
+ "rustls-pki-types",
+ "rustls-platform-verifier",
+ "soketto 0.8.0",
+ "thiserror",
+ "tokio",
+ "tokio-rustls 0.26.0",
  "tokio-util 0.7.11",
  "tracing",
  "url",
@@ -6552,18 +6712,21 @@ dependencies = [
  "async-trait",
  "beef",
  "bytes",
+ "futures-timer",
  "futures-util",
  "http 1.1.0",
  "http-body 1.0.1",
  "http-body-util",
  "jsonrpsee-types 0.23.2",
  "parking_lot 0.12.3",
+ "pin-project",
  "rand 0.8.5",
  "rustc-hash",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tracing",
 ]
 
@@ -6703,6 +6866,19 @@ dependencies = [
  "jsonrpsee-client-transport 0.22.5",
  "jsonrpsee-core 0.22.5",
  "jsonrpsee-types 0.22.5",
+ "url",
+]
+
+[[package]]
+name = "jsonrpsee-ws-client"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c28759775f5cb2f1ea9667672d3fe2b0e701d1f4b7b67954e60afe7fd058b5e"
+dependencies = [
+ "http 1.1.0",
+ "jsonrpsee-client-transport 0.23.2",
+ "jsonrpsee-core 0.23.2",
+ "jsonrpsee-types 0.23.2",
  "url",
 ]
 
@@ -8087,7 +8263,7 @@ dependencies = [
 [[package]]
 name = "mmr-primitives"
 version = "1.15.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
@@ -9150,7 +9326,7 @@ dependencies = [
 [[package]]
 name = "op-verifier"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-rlp",
@@ -9415,7 +9591,7 @@ dependencies = [
 [[package]]
 name = "pallet-hyperbridge"
 version = "1.15.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -9430,7 +9606,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "1.15.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "fortuples",
  "frame-benchmarking",
@@ -9453,7 +9629,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-demo"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -9469,7 +9645,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-host-executive"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-sol-macro",
@@ -9489,7 +9665,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-relayer"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-rlp",
@@ -9515,7 +9691,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-rpc"
 version = "1.15.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -9544,7 +9720,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp-runtime-api"
 version = "1.15.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -9598,7 +9774,7 @@ dependencies = [
 [[package]]
 name = "pallet-state-coprocessor"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "alloy-rlp",
@@ -10117,6 +10293,50 @@ dependencies = [
  "scale-info",
  "sp-core 34.0.0",
  "sp-runtime 39.0.0",
+]
+
+[[package]]
+name = "polkadot-parachain-primitives"
+version = "14.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52b5648a2e8ce1f9a0f8c41c38def670cefd91932cd793468e1a5b0b0b4e4af1"
+dependencies = [
+ "bounded-collections 0.2.0",
+ "derive_more 0.99.17",
+ "parity-scale-codec",
+ "polkadot-core-primitives",
+ "scale-info",
+ "serde",
+ "sp-core 34.0.0",
+ "sp-runtime 39.0.0",
+ "sp-weights 31.0.0",
+]
+
+[[package]]
+name = "polkadot-primitives"
+version = "15.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b57bc055fa389372ec5fc0001b99aeffd50f3fd379280ce572d935189bb58dd8"
+dependencies = [
+ "bitvec",
+ "hex-literal 0.4.1",
+ "log",
+ "parity-scale-codec",
+ "polkadot-core-primitives",
+ "polkadot-parachain-primitives",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-application-crypto 38.0.0",
+ "sp-arithmetic 26.0.0",
+ "sp-authority-discovery",
+ "sp-consensus-slots",
+ "sp-core 34.0.0",
+ "sp-inherents",
+ "sp-io 38.0.0",
+ "sp-keystore 0.40.0",
+ "sp-runtime 39.0.0",
+ "sp-staking",
 ]
 
 [[package]]
@@ -12131,6 +12351,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls"
+version = "0.23.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebbbdb961df0ad3f2652da8f3fdc4b36122f568f968f45ad3316f26c025c677b"
+dependencies = [
+ "log",
+ "once_cell",
+ "ring 0.17.8",
+ "rustls-pki-types",
+ "rustls-webpki 0.102.3",
+ "subtle 2.5.0",
+ "zeroize",
+]
+
+[[package]]
 name = "rustls-native-certs"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12191,6 +12426,33 @@ name = "rustls-pki-types"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "beb461507cee2c2ff151784c52762cf4d9ff6a61f3e80968600ed24fa837fa54"
+
+[[package]]
+name = "rustls-platform-verifier"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afbb878bdfdf63a336a5e63561b1835e7a8c91524f51621db870169eac84b490"
+dependencies = [
+ "core-foundation",
+ "core-foundation-sys",
+ "jni",
+ "log",
+ "once_cell",
+ "rustls 0.23.7",
+ "rustls-native-certs 0.7.0",
+ "rustls-platform-verifier-android",
+ "rustls-webpki 0.102.3",
+ "security-framework",
+ "security-framework-sys",
+ "webpki-roots 0.26.3",
+ "winapi",
+]
+
+[[package]]
+name = "rustls-platform-verifier-android"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
@@ -12504,6 +12766,72 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-consensus-grandpa"
+version = "0.29.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "197e67ed725bcad27563c4418254e89e56eb79491cebb278e9926760a1fc16d4"
+dependencies = [
+ "ahash 0.8.11",
+ "array-bytes 6.2.2",
+ "async-trait",
+ "dyn-clone",
+ "finality-grandpa",
+ "fork-tree",
+ "futures",
+ "futures-timer",
+ "log",
+ "parity-scale-codec",
+ "parking_lot 0.12.3",
+ "rand 0.8.5",
+ "sc-block-builder",
+ "sc-chain-spec",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-network",
+ "sc-network-common",
+ "sc-network-gossip",
+ "sc-network-sync",
+ "sc-network-types",
+ "sc-telemetry",
+ "sc-transaction-pool-api",
+ "sc-utils",
+ "serde_json",
+ "sp-api",
+ "sp-application-crypto 38.0.0",
+ "sp-arithmetic 26.0.0",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-grandpa",
+ "sp-core 34.0.0",
+ "sp-crypto-hashing",
+ "sp-keystore 0.40.0",
+ "sp-runtime 39.0.0",
+ "substrate-prometheus-endpoint",
+ "thiserror",
+]
+
+[[package]]
+name = "sc-consensus-grandpa-rpc"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6400433a4a8114f5fe7b5673f9332129ac55c71a9f6224c8b2cdf3251a000f10"
+dependencies = [
+ "finality-grandpa",
+ "futures",
+ "jsonrpsee 0.23.2",
+ "log",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sc-consensus-grandpa",
+ "sc-rpc",
+ "serde",
+ "sp-blockchain",
+ "sp-core 34.0.0",
+ "sp-runtime 39.0.0",
+ "thiserror",
+]
+
+[[package]]
 name = "sc-executor"
 version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12704,6 +13032,26 @@ dependencies = [
  "sp-consensus",
  "sp-consensus-grandpa",
  "sp-runtime 39.0.0",
+]
+
+[[package]]
+name = "sc-network-gossip"
+version = "0.44.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2dc2ff366c09b8aba9b0bfd04b991508788203a28da0c66a32625cda7ae8015d"
+dependencies = [
+ "ahash 0.8.11",
+ "futures",
+ "futures-timer",
+ "log",
+ "sc-network",
+ "sc-network-common",
+ "sc-network-sync",
+ "sc-network-types",
+ "schnellru",
+ "sp-runtime 39.0.0",
+ "substrate-prometheus-endpoint",
+ "tracing",
 ]
 
 [[package]]
@@ -13518,6 +13866,7 @@ dependencies = [
  "core-foundation",
  "core-foundation-sys",
  "libc",
+ "num-bigint 0.4.4",
  "security-framework-sys",
 ]
 
@@ -13610,9 +13959,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-utils"
+name = "serde-hex-utils"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "hex",
@@ -14336,6 +14685,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sp-authority-discovery"
+version = "34.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "519c33af0e25ba2dd2eb3790dc404d634b6e4ce0801bcc8fa3574e07c365e734"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+ "sp-application-crypto 38.0.0",
+ "sp-runtime 39.0.0",
+]
+
+[[package]]
 name = "sp-block-builder"
 version = "34.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14394,6 +14756,25 @@ dependencies = [
  "sp-api",
  "sp-application-crypto 38.0.0",
  "sp-consensus-slots",
+ "sp-inherents",
+ "sp-runtime 39.0.0",
+ "sp-timestamp",
+]
+
+[[package]]
+name = "sp-consensus-babe"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36ee95e17ee8dcd14db7d584b899a426565ca9abe5a266ab82277977fc547f86"
+dependencies = [
+ "async-trait",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-application-crypto 38.0.0",
+ "sp-consensus-slots",
+ "sp-core 34.0.0",
  "sp-inherents",
  "sp-runtime 39.0.0",
  "sp-timestamp",
@@ -15930,6 +16311,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
+name = "staging-xcm"
+version = "14.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2b7b5f531c6bf9629514ef8e5fda0e9e80dd84516957f710940d0e01d3fb36c"
+dependencies = [
+ "array-bytes 6.2.2",
+ "bounded-collections 0.2.0",
+ "derivative",
+ "environmental",
+ "impl-trait-for-tuples",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-weights 31.0.0",
+ "xcm-procedural",
+]
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -16147,7 +16547,7 @@ dependencies = [
 [[package]]
 name = "substrate-state-machine"
 version = "1.15.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "frame-support",
  "hash-db",
@@ -16158,6 +16558,7 @@ dependencies = [
  "scale-info",
  "serde",
  "sp-consensus-aura",
+ "sp-consensus-babe",
  "sp-runtime 39.0.0",
  "sp-trie 37.0.0",
 ]
@@ -16279,7 +16680,7 @@ dependencies = [
 [[package]]
 name = "subxt-utils"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "alloy-primitives 0.7.4",
  "anyhow",
@@ -16377,7 +16778,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-primitives"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -16388,14 +16789,14 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types",
  "serde",
- "serde-utils",
+ "serde-hex-utils",
  "ssz-rs",
 ]
 
 [[package]]
 name = "sync-committee-prover"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -16423,7 +16824,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-verifier"
 version = "0.1.1"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -16601,7 +17002,7 @@ dependencies = [
  "subxt-utils",
  "tesseract-beefy",
  "tesseract-bsc",
- "tesseract-fisherman",
+ "tesseract-grandpa",
  "tesseract-primitives",
  "tesseract-substrate",
  "tesseract-sync-committee",
@@ -16683,7 +17084,7 @@ dependencies = [
 [[package]]
 name = "tesseract-config"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "ismp",
@@ -16700,7 +17101,7 @@ dependencies = [
 [[package]]
 name = "tesseract-evm"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -16735,7 +17136,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "serde",
- "serde-utils",
+ "serde-hex-utils",
  "serde_json",
  "sp-core 34.0.0",
  "sp-mmr-primitives",
@@ -16745,16 +17146,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "tesseract-fisherman"
+name = "tesseract-grandpa"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "finality-grandpa",
  "futures",
+ "grandpa-prover",
+ "grandpa-verifier-primitives",
+ "hex",
+ "hex-literal 0.4.1",
  "ismp",
+ "ismp-grandpa",
  "log",
  "pallet-ismp",
- "sp-core 34.0.0",
+ "parity-scale-codec",
+ "polkadot-core-primitives",
+ "serde",
+ "sp-core 21.0.0",
+ "subxt",
  "tesseract-primitives",
+ "tesseract-substrate",
  "tokio",
 ]
 
@@ -16770,9 +17183,11 @@ dependencies = [
  "env_logger",
  "ethers",
  "futures",
+ "grandpa-verifier-primitives",
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-grandpa",
  "ismp-solidity-abi",
  "log",
  "mmr-primitives",
@@ -16796,6 +17211,7 @@ dependencies = [
  "tesseract-bsc",
  "tesseract-config",
  "tesseract-evm",
+ "tesseract-grandpa",
  "tesseract-messaging",
  "tesseract-primitives",
  "tesseract-substrate",
@@ -16808,7 +17224,7 @@ dependencies = [
 [[package]]
 name = "tesseract-messaging"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "futures",
@@ -16831,7 +17247,7 @@ dependencies = [
 [[package]]
 name = "tesseract-primitives"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -16853,7 +17269,7 @@ dependencies = [
 [[package]]
 name = "tesseract-substrate"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -16872,7 +17288,7 @@ dependencies = [
  "parity-scale-codec",
  "parking_lot 0.12.3",
  "serde",
- "serde-utils",
+ "serde-hex-utils",
  "sp-core 34.0.0",
  "substrate-state-machine",
  "subxt",
@@ -17206,6 +17622,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "775e0c0f0adb3a2f22a00c4745d728b479985fc15ee7ca6a2608388c5569860f"
 dependencies = [
  "rustls 0.22.4",
+ "rustls-pki-types",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c7bc40d0e5a97695bb96e27995cd3a08538541b0a846f65bba7a359f36700d4"
+dependencies = [
+ "rustls 0.23.7",
  "rustls-pki-types",
  "tokio",
 ]
@@ -17559,7 +17986,7 @@ dependencies = [
 [[package]]
 name = "transaction-fees"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/hyperbridge?rev=099c4cdd90be3c341da2335f47cda9e05d809074#099c4cdd90be3c341da2335f47cda9e05d809074"
+source = "git+https://github.com/polytope-labs/hyperbridge?rev=3663d36b3729de9a4b2f55da7145a0823d83414b#3663d36b3729de9a4b2f55da7145a0823d83414b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -18681,6 +19108,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
 
 [[package]]
+name = "webpki-roots"
+version = "0.26.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd7c23921eeb1713a4e851530e9b9756e4fb0e89978582942612524cf09f01cd"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
 name = "which"
 version = "4.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -19154,6 +19590,18 @@ dependencies = [
  "libc",
  "linux-raw-sys 0.4.13",
  "rustix 0.38.34",
+]
+
+[[package]]
+name = "xcm-procedural"
+version = "10.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87fb4f14094d65c500a59bcf540cf42b99ee82c706edd6226a92e769ad60563e"
+dependencies = [
+ "Inflector",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.60",
 ]
 
 [[package]]

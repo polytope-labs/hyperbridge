@@ -29,7 +29,7 @@ pallet-ismp = { workspace = true }
 sp-io = { workspace = true }
 sp-keyring = { workspace = true }
 
-#tesseract-grandpa = { path = "../substrate/grandpa" }
+tesseract-grandpa = { workspace = true }
 tesseract-beefy = { workspace = true  }
 tesseract-substrate = { workspace = true, features = ["testing"] }
 tesseract-messaging = { workspace = true  }
@@ -38,6 +38,7 @@ tesseract-evm = { workspace = true  }
 tesseract-sync-committee = { workspace = true, features = ["testing"] }
 #tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
 tesseract-bsc = { workspace = true  }
+ismp-grandpa = { workspace = true  }
 dotenv = "0.15.0"
 sync-committee-primitives = { workspace = true }
 transaction-fees = { workspace = true }
@@ -52,3 +53,4 @@ divide_range = "0.1.1"
 substrate-state-machine = { workspace = true }
 arb-host = { workspace = true }
 op-host = { workspace = true }
+grandpa-verifier-primitives = { workspace = true }

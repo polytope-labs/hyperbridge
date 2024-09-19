@@ -17,16 +17,17 @@ async-trait = "0.1.53"
 tokio = { version = "1.32.0", features = ["full"] }
 finality-grandpa = "0.16.2"
 hex-literal = "0.4.1"
+hex = "0.4.3"
+log = "0.4.19"
 
-pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-grandpa-prover = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-grandpa-primitives = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-grandpa = {git = "https://github.com/polytope-labs/hyperbridge", branch = "main"}
+pallet-ismp = { workspace = true }
+ismp = { workspace = true }
+grandpa-prover = { workspace = true }
+grandpa-verifier-primitives = { workspace = true }
+ismp-grandpa = { workspace = true }
 polkadot-core-primitives = { workspace = true }
 
-tesseract-substrate = { path = "../common" }
-tesseract-primitives = { path = "../../primitives" }
+tesseract-substrate = {  workspace = true }
+tesseract-primitives = {  workspace = true }
 
 sp-core = { version = "21.0.0", features = ["full_crypto"] }

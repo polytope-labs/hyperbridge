@@ -4,6 +4,7 @@ use op_host::OpConfig;
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 use tesseract_bsc::BscPosConfig;
+use tesseract_grandpa::GrandpaConfig;
 use tesseract_sync_committee::SyncCommitteeConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +27,8 @@ pub enum AnyConfig {
 	Chiado(SyncCommitteeConfig),
 	/// Gnosis Mainnet sync committee config
 	Gnosis(SyncCommitteeConfig),
+	/// Grandpa committee config
+	Grandpa(GrandpaConfig),
 }
 
 impl AnyConfig {
@@ -40,6 +43,7 @@ impl AnyConfig {
 			AnyConfig::Bsc(config) => config.evm_config.state_machine,
 			AnyConfig::Chiado(config) => config.evm_config.state_machine,
 			AnyConfig::Gnosis(config) => config.evm_config.state_machine,
+			AnyConfig::Grandpa(config) => config.substrate.state_machine,
 		}
 	}
 
@@ -54,6 +58,7 @@ impl AnyConfig {
 			AnyConfig::BscTestnet(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Chiado(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Gnosis(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::Grandpa(_) => None,
 		}
 	}
 }

@@ -19,6 +19,7 @@ use prover::{Prover, ProverConfig};
 use serde::{Deserialize, Serialize};
 
 pub use beefy_verifier_primitives::ConsensusState;
+use sp_core::H256;
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::MultiSignature,
@@ -26,7 +27,6 @@ use subxt::{
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 pub use zk_beefy::Network;
 
-mod byzantine;
 pub mod host;
 pub mod prover;
 mod redis_utils;
@@ -57,6 +57,7 @@ impl BeefyConfig {
 		P::Signature: From<MultiSignature> + Send + Sync,
 		P::AccountId:
 			From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+		H256: From<<P as subxt::Config>::Hash>,
 	{
 		let client = SubstrateClient::<P>::new(self.substrate).await?;
 		let prover = Prover::<R, P>::new(self.prover.clone()).await?;

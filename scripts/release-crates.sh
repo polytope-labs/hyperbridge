@@ -1,6 +1,7 @@
 #!/bin/bash
 
 cargo release \
+-p serde-utils \
 -p ismp \
 -p mmr-primitives \
 -p pallet-hyperbridge \
@@ -9,6 +10,9 @@ cargo release \
 -p pallet-ismp-rpc \
 -p substrate-state-machine \
 -p ismp-parachain \
+-p grandpa-verifier-primitives \
+-p grandpa-verifier \
+-p ismp-grandpa \
 -p ismp-parachain-runtime-api \
 -p ismp-parachain-inherent \
 --execute

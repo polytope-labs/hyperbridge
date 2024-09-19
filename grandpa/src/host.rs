@@ -13,163 +13,270 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::GrandpaHost;
-use codec::{Decode, Encode};
-use futures::stream;
-use ismp::{host::StateMachine, messaging::ConsensusMessage};
-use ismp_grandpa::messages::{RelayChainMessage, StandaloneChainMessage};
-use ismp_grandpa_primitives::ConsensusState;
+use std::{sync::Arc, time::Duration};
 
-use ismp_grandpa_primitives::justification::GrandpaJustification;
-use subxt::config::Header;
+use crate::GrandpaHost;
+use anyhow::{anyhow, Error};
+use codec::{Decode, Encode};
+use futures::{stream, StreamExt};
+use grandpa_verifier_primitives::ConsensusState;
+use ismp::{
+	host::StateMachine,
+	messaging::{ConsensusMessage, CreateConsensusState, Message},
+};
+use ismp_grandpa::{
+	consensus::GRANDPA_CONSENSUS_ID,
+	messages::{RelayChainMessage, StandaloneChainMessage},
+};
+
+use grandpa_verifier_primitives::justification::GrandpaJustification;
+use sp_core::crypto;
+use subxt::config::{
+	extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
+};
 
 use subxt::{
-    config::substrate::{BlakeTwo256, SubstrateHeader},
-    ext::sp_runtime::traits::{One, Zero},
+	config::substrate::{BlakeTwo256, SubstrateHeader},
+	ext::sp_runtime::{
+		traits::{One, Zero},
+		MultiSignature,
+	},
 };
-use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
-use tokio::time::{interval, sleep};
+use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 pub type Justification = GrandpaJustification<polkadot_core_primitives::Header>;
 
 #[async_trait::async_trait]
 impl<T> IsmpHost for GrandpaHost<T>
 where
-    T: subxt::Config + Send + Sync + Clone,
-    T::Header: Send + Sync,
-    <T::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One,
-    u32: From<<T::Header as Header>::Number>,
-    sp_core::H256: From<T::Hash>,
-    T::Header: codec::Decode,
-    <T::Hasher as subxt::config::Hasher>::Output: From<T::Hash>,
-    T::Hash: From<<T::Hasher as subxt::config::Hasher>::Output>,
-    <T as subxt::Config>::Hash: From<sp_core::H256>,
+	T: subxt::Config + Send + Sync + Clone,
+	T::Header: Send + Sync,
+	<T::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One,
+	u32: From<<T::Header as Header>::Number>,
+	sp_core::H256: From<T::Hash>,
+	T::Header: codec::Decode,
+	<T::Hasher as subxt::config::Hasher>::Output: From<T::Hash>,
+	T::Hash: From<<T::Hasher as subxt::config::Hasher>::Output>,
+	<T as subxt::Config>::Hash: From<sp_core::H256>,
+	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
+	T::Signature: From<MultiSignature> + Send + Sync,
+	T::AccountId: From<crypto::AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
 {
-    async fn consensus_notification<C>(
-        &self,
-        counterparty: C,
-    ) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
-    where
-        C: IsmpHost + IsmpProvider + 'static,
-    {
-        let client = GrandpaHost::clone(&self);
-        let challenge_period =
-            counterparty.query_challenge_period(self.consensus_state_id.clone()).await?;
-        let last_consensus_update =
-            counterparty.query_state_machine_update_time(self.consensus_state_id.clone()).await?;
-        let counterparty_timestamp = counterparty.query_timestamp().await?;
-        if counterparty_timestamp - last_consensus_update < challenge_period {
-            // We sleep until the current challenge period has elapsed before starting the interval
-            // because the first tick of the interval completes instantly.
-            // sleep(challenge_period - (counterparty_timestamp - last_consensus_update)).await;
-            let sleep_duration =
-                challenge_period - (counterparty_timestamp - last_consensus_update);
-            sleep(sleep_duration).await;
-        }
+	async fn start_consensus(
+		&self,
+		counterparty: Arc<dyn IsmpProvider>,
+	) -> Result<(), anyhow::Error> {
+		let client = GrandpaHost::clone(&self);
 
-        let interval_stream = stream::try_unfold((), move |state| {
-            let client = client.clone();
-            let counterparty = counterparty.clone();
-            let prover = client.prover.clone();
-            // Let the interval be the length of the challenge period
-            let mut interval = interval(challenge_period);
-            async move {
-                loop {
-                    interval.tick().await;
-                    let last_consensus_update = counterparty
-                        .query_state_machine_update_time(client.consensus_state_id.clone())
-                        .await?;
-                    let counterparty_timestamp = counterparty.query_timestamp().await?;
-                    // If onchain timestamp has not progressed wait for next tick of the interval
-                    if counterparty_timestamp - last_consensus_update < challenge_period {
-                        continue
-                    } else {
-                        break
+		let interval = tokio::time::interval(Duration::from_secs(
+			self.config.host.consensus_update_frequency.unwrap_or(300),
+		));
+
+		let counterparty_clone = counterparty.clone();
+
+		let interval_stream = stream::unfold(interval, move |mut interval| {
+			let client = client.clone();
+			let counterparty = counterparty_clone.clone();
+			async move {
+                let sync = || async {
+                    let consensus_state_bytes = counterparty
+									.query_consensus_state(None, client.consensus_state_id.clone())
+									.await?;
+
+					let consensus_state: ConsensusState =codec::Decode::decode(&mut &consensus_state_bytes[..])?;
+                    client.should_sync(consensus_state.current_set_id).await
+                };
+
+                match sync().await {
+                    Ok(val) => {
+                        // If the consensus client on counterparty needs to be synced, then we should not observe the interval
+                        if !val {
+                            interval.tick().await;
+                        }
+                    }
+                    Err(e) => {
+                        return Some((Err(anyhow!("Error while checking sync status of client {e:?}")), interval))
                     }
                 }
-                return match client.state_machine {
-                    StateMachine::Polkadot(_) | StateMachine::Kusama(_) => {
-                        let consensus_state_bytes = counterparty
-                            .query_consensus_state(None, client.consensus_state_id.clone())
-                            .await?;
 
-                        let consensus_state: ConsensusState =
-                            codec::Decode::decode(&mut &consensus_state_bytes[..])?;
+				let lambda = || {
+					async {
+						match client.state_machine {
+							StateMachine::Polkadot(_) | StateMachine::Kusama(_) => {
+								let consensus_state_bytes = counterparty
+									.query_consensus_state(None, client.consensus_state_id.clone())
+									.await?;
 
-                        let next_relay_height = consensus_state.latest_height + 1;
+								let consensus_state: ConsensusState =
+									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
-                        let finality_proof = prover
-                            .query_finality_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-                                consensus_state.latest_height,
-                                next_relay_height,
-                            )
-                            .await?;
+                                let finalized_hash = client.client.rpc().finalized_head().await?;
+                                let latest_finalized_head: u64 = client.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
 
-                        let justification =
-                            Justification::decode(&mut &finality_proof.justification[..])?;
+                                if latest_finalized_head <= consensus_state.latest_height.into() {
+                                    return Ok(None)
+                                }
 
-                        let parachain_headers_with_proof = prover
-                                .query_finalized_parachain_headers_with_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-                                    consensus_state.latest_height.clone(),
-                                    justification.commit.target_number,
-                                    finality_proof.clone(),
-                                )
-                                .await?;
-                        let relay_chain_message = RelayChainMessage {
-                            finality_proof: codec::Decode::decode(
-                                &mut &parachain_headers_with_proof.finality_proof.encode()[..],
-                            )?,
-                            parachain_headers: parachain_headers_with_proof.parachain_headers,
-                        };
-                        let message = ConsensusMessage {
-                            consensus_proof:
-                                ismp_grandpa::messages::ConsensusMessage::RelayChainMessage(
-                                    relay_chain_message,
-                                )
-                                .encode(),
-                            consensus_state_id: client.consensus_state_id.clone(),
-                        };
+                                // Query finality proof will give us the highest finality proof in the epoch of the block number we supplied
+								let next_relay_height = consensus_state.latest_height + 1;
 
-                        Ok(Some((message, state)))
-                    }
-                    StateMachine::Grandpa(_) => {
-                        // Query finality proof
-                        let consensus_state_bytes = counterparty
-                            .query_consensus_state(None, client.consensus_state_id)
-                            .await?;
+								let finality_proof = client
+									.prover
+									.query_finality_proof::<SubstrateHeader<u32, BlakeTwo256>>(
+										consensus_state.latest_height,
+										next_relay_height,
+									)
+									.await?;
 
-                        let consensus_state: ConsensusState =
-                            codec::Decode::decode(&mut &consensus_state_bytes[..])?;
+								let justification =
+									Justification::decode(&mut &finality_proof.justification[..])?;
 
-                        let next_relay_height = consensus_state.latest_height + 1;
+								let parachain_headers_with_proof = client
+									.prover
+									.query_finalized_parachain_headers_with_proof::<SubstrateHeader<u32, BlakeTwo256>>(
+										consensus_state.latest_height.clone(),
+										justification.commit.target_number,
+										finality_proof.clone(),
+									)
+									.await?;
 
-                        let finality_proof = prover
-                            .query_finality_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-                                consensus_state.latest_height,
-                                next_relay_height,
-                            )
-                            .await?;
-                        let standalone_message = StandaloneChainMessage {
-                            finality_proof: codec::Decode::decode(
-                                &mut &finality_proof.encode()[..],
-                            )?,
-                        };
-                        let message = ConsensusMessage {
-                            consensus_proof:
-                                ismp_grandpa::messages::ConsensusMessage::StandaloneChainMessage(
-                                    standalone_message,
-                                )
-                                .encode(),
-                            consensus_state_id: client.consensus_state_id,
-                        };
+								let relay_chain_message = RelayChainMessage {
+									finality_proof: codec::Decode::decode(
+										&mut &parachain_headers_with_proof.finality_proof.encode()
+											[..],
+									)?,
+									parachain_headers: parachain_headers_with_proof
+										.parachain_headers,
+								};
+								let message = ConsensusMessage {
+									consensus_proof:
+										ismp_grandpa::messages::ConsensusMessage::RelayChainMessage(
+											relay_chain_message,
+										)
+										.encode(),
+									consensus_state_id: client.consensus_state_id.clone(),
+									signer: counterparty.address(),
+								};
 
-                        Ok(Some((message, state)))
-                    }
-                    _ => Ok(None),
-                }
-            }
-        });
+								Ok::<_, Error>(Some(message))
+							},
+							StateMachine::Substrate(_) => {
+								// Query finality proof
+								let consensus_state_bytes = counterparty
+									.query_consensus_state(None, client.consensus_state_id)
+									.await?;
 
-        Ok(Box::pin(interval_stream))
-    }
+								let consensus_state: ConsensusState =
+									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
+
+                                let finalized_hash = client.client.rpc().finalized_head().await?;
+                                let latest_finalized_head: u64 = client.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
+
+                                // We ensure there's a new finalized block before trying to query a finality proof 
+                                if latest_finalized_head <= consensus_state.latest_height.into() {
+                                    return Ok(None)
+                                }
+
+                                // Query finality proof will give us the highest finality proof in the epoch of the block number we supplied
+								let next_relay_height = consensus_state.latest_height + 1;
+
+								let finality_proof = client
+									.prover
+									.query_finality_proof::<SubstrateHeader<u32, BlakeTwo256>>(
+										consensus_state.latest_height,
+										next_relay_height,
+									)
+									.await?;
+								let standalone_message = StandaloneChainMessage {
+									finality_proof: codec::Decode::decode(
+										&mut &finality_proof.encode()[..],
+									)?,
+								};
+								let message = ConsensusMessage {
+                                    consensus_proof:
+                                        ismp_grandpa::messages::ConsensusMessage::StandaloneChainMessage(
+                                            standalone_message,
+                                        )
+                                        .encode(),
+                                    consensus_state_id: client.consensus_state_id,
+                                    signer: counterparty.address()
+                                };
+
+								Ok(Some(message))
+							},
+							_ => Err(anyhow!("Unsupported state machine")),
+						}
+					}
+				};
+
+				match lambda().await {
+					Ok(message) => Some((Ok(message), interval)),
+					Err(err) => Some((Err(err), interval)),
+				}
+			}
+		}).filter_map(|res| async move {
+			match res {
+				Ok(Some(update)) => Some(Ok(update)),
+				Ok(None) => None,
+				Err(err) => Some(Err(err)),
+			}
+		});
+
+		let mut stream = Box::pin(interval_stream);
+
+		let provider = self.provider();
+		while let Some(item) = stream.next().await {
+			match item {
+				Ok(consensus_message) => {
+					log::info!(
+						target: "tesseract",
+						"🛰️ Transmitting consensus message from {} to {}",
+						provider.name(), counterparty.name()
+					);
+					let res =
+						counterparty.submit(vec![Message::Consensus(consensus_message)]).await;
+					if let Err(err) = res {
+						log::error!(
+							"Failed to submit transaction to {}: {err:?}",
+							counterparty.name()
+						)
+					}
+				},
+				Err(e) => {
+					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+				},
+			}
+		}
+
+		Err(anyhow!(
+			"{}-{} consensus task has failed, Please restart relayer",
+			provider.name(),
+			counterparty.name()
+		))
+	}
+
+	/// Queries the consensus state at the latest height
+	async fn query_initial_consensus_state(
+		&self,
+	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
+		let finalized_hash = self.client.rpc().finalized_head().await?;
+		let consensus_state: ConsensusState = self
+			.prover
+			.initialize_consensus_state(self.config.host.slot_duration, finalized_hash)
+			.await?;
+
+		Ok(Some(CreateConsensusState {
+			consensus_state: consensus_state.encode(),
+			consensus_client_id: GRANDPA_CONSENSUS_ID,
+			consensus_state_id: self.consensus_state_id,
+			unbonding_period: 60 * 60 * 60 * 27,
+			challenge_periods: vec![(self.state_machine, 5 * 60)].into_iter().collect(),
+			state_machine_commitments: vec![],
+		}))
+	}
+
+	fn provider(&self) -> Arc<dyn IsmpProvider> {
+		Arc::new(self.substrate_client.clone())
+	}
 }

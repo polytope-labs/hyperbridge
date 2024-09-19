@@ -28,7 +28,6 @@ use std::{sync::Arc, time::Duration};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
-mod byzantine;
 mod host;
 mod notification;
 

@@ -83,6 +83,7 @@ where
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	H256: From<<P as subxt::Config>::Hash>,
 {
 	/// Construct an implementation of the [`BeefyHost`]
 	pub async fn new(

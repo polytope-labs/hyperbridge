@@ -113,6 +113,7 @@ where
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
 	P::AccountId: From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + Send + Sync,
 	P::Signature: From<MultiSignature> + Send + Sync,
+	H256: From<<P as subxt::Config>::Hash>,
 {
 	/// Constructs an instance of the [`BeefyProver`]
 	pub async fn new(

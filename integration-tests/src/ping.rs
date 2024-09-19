@@ -33,7 +33,7 @@ use tesseract_evm::{
 };
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 
-const PING_ADDR: H160 = H160(hex!("dfe8549cF259127a5e8De9B5d95529845FF04905"));
+const PING_ADDR: H160 = H160(hex!("42C6551d05eA47c46Fc7B01BBaaD37c466481361"));
 
 #[tokio::test]
 #[ignore]

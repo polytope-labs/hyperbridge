@@ -114,40 +114,6 @@ impl Cli {
 
 		Ok(())
 	}
-
-	/// Start the fisherman tasks
-	pub async fn start_fisherman(&self) -> Result<(), anyhow::Error> {
-		logging::setup()?;
-		log::info!("🧊 Initializing tesseract fisherman");
-
-		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
-
-		let HyperbridgeConfig { hyperbridge: hyperbridge_config, .. } = config.clone();
-
-		let _client_map = create_client_map(config.clone()).await?;
-		let mut processes = vec![];
-
-		for (_, client) in _client_map.iter() {
-			let hyperbridge = hyperbridge_config
-				.clone()
-				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-				.await?;
-			processes.push(tokio::spawn(tesseract_fisherman::fish(
-				Arc::new(hyperbridge),
-				client.clone(),
-			)));
-		}
-
-		log::info!("Initialized fisherman tasks");
-
-		let (_result, _index, tasks) = futures::future::select_all(processes).await;
-
-		for task in tasks {
-			task.abort();
-		}
-
-		Ok(())
-	}
 }
 
 /// Initializes the consensus state across all connected chains.
@@ -294,6 +260,11 @@ pub async fn create_client_map(
 
 			AnyConfig::Gnosis(config) => {
 				let client = config.into_gnosis().await?;
+				client
+			},
+
+			AnyConfig::Grandpa(config) => {
+				let client = config.into_client().await?;
 				client
 			},
 		};

@@ -69,7 +69,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Add some a state machine to the list of supported state machines
 		#[pallet::call_index(0)]
-		#[pallet::weight((0, DispatchClass::Mandatory))]
+		#[pallet::weight(T::DbWeight::get().writes(new_state_machines.len() as u64))]
 		pub fn add_state_machines(
 			origin: OriginFor<T>,
 			new_state_machines: Vec<AddStateMachine>,
@@ -89,7 +89,7 @@ pub mod pallet {
 
 		/// Remove a state machine from the list of supported state machines
 		#[pallet::call_index(1)]
-		#[pallet::weight((0, DispatchClass::Mandatory))]
+		#[pallet::weight(T::DbWeight::get().writes(state_machines.len() as u64))]
 		pub fn remove_state_machines(
 			origin: OriginFor<T>,
 			state_machines: Vec<StateMachine>,

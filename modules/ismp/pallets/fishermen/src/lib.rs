@@ -110,9 +110,7 @@ pub mod pallet {
 		/// changes at the provided height. This allows them to veto the state commitment.
 		/// They aren't required to provide any proofs for this.
 		#[pallet::call_index(2)]
-		#[pallet::weight((
-			<T as frame_system::Config>::DbWeight::get().reads_writes(2, 3),
-			DispatchClass::Mandatory))]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(2, 3))]
 		pub fn veto_state_commitment(
 			origin: OriginFor<T>,
 			height: StateMachineHeight,

@@ -25,6 +25,6 @@ std = [
 ]
 
 [dev-dependencies]
-#ismp = { workspace = true, default-features = true }
-#primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
-#serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }
+ismp = { workspace = true, default-features = true }
+primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
+serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }

@@ -77,9 +77,8 @@ async fn follow_grandpa_justifications() {
 
 	// slot duration in milliseconds for parachains
 	let slot_duration = 6000;
-
-	let mut consensus_state = prover.initialize_consensus_state(slot_duration).await.unwrap();
-
+	let hash = prover.client.rpc().block_hash(Some(10u64.into())).await.unwrap().unwrap();
+	let mut consensus_state = prover.initialize_consensus_state(slot_duration, hash).await.unwrap();
 	println!("Grandpa proofs are now available");
 	while let Some(Ok(_)) = subscription.next().await {
 		let next_relay_height = consensus_state.latest_height + 1;

@@ -90,7 +90,7 @@ pub struct ParachainHeadersWithFinalityProof<H: codec::Codec> {
 	/// last known finalized grandpa block.
 	pub finality_proof: FinalityProof<H>,
 	/// Contains a map of relay chain header hashes to parachain headers
-	/// finalzed at the relay chain height. We check for this parachain header finalization
+	/// finalized at the relay chain height. We check for this parachain header finalization
 	/// via state proofs. Also contains extrinsic proof for timestamp.
 	pub parachain_headers: BTreeMap<Hash, ParachainHeaderProofs>,
 }

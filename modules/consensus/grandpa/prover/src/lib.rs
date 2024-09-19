@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_core::H256;
 use sp_runtime::traits::{One, Zero};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use subxt::{config::Header, rpc_params, Config, OnlineClient};
 
 /// Head data for parachain
@@ -220,7 +220,7 @@ where
 	/// Returns the proof for parachain headers finalized by the provided finality proof
 	pub async fn query_finalized_parachain_headers_with_proof<H>(
 		&self,
-		previous_finalized_height: u32,
+		_previous_finalized_height: u32,
 		latest_finalized_height: u32,
 		finality_proof: FinalityProof<H>,
 	) -> Result<ParachainHeadersWithFinalityProof<H>, anyhow::Error>
@@ -240,13 +240,6 @@ where
 		let keys = para_keys.iter().map(|key| key.as_ref()).collect::<Vec<&[u8]>>();
 		let mut parachain_headers_with_proof = BTreeMap::<H256, ParachainHeaderProofs>::default();
 
-		let start = self
-			.client
-			.rpc()
-			.block_hash(Some(previous_finalized_height.into()))
-			.await?
-			.ok_or_else(|| anyhow!("Failed to fetch previous finalized hash + 1"))?;
-
 		let latest_finalized_hash = self
 			.client
 			.rpc()
@@ -254,65 +247,19 @@ where
 			.await?
 			.ok_or_else(|| anyhow!("Failed to fetch previous finalized hash + 1"))?;
 
-		let change_set = self
+		let state_proof = self
 			.client
 			.rpc()
-			.query_storage(keys, start, Some(latest_finalized_hash))
-			.await?;
-
-		for changes in change_set {
-			let header = self
-				.client
-				.rpc()
-				.header(Some(changes.block))
-				.await?
-				.ok_or_else(|| anyhow!("block not found {:?}", changes.block))?;
-			let mut changed_keys = HashMap::new();
-			for para_id in self.para_ids.clone() {
-				let (key, parachain_header_bytes) = {
-					let key = parachain_header_storage_key(para_id);
-					if let Some(raw) =
-						self.client.storage().at(header.hash()).fetch_raw(key.as_ref()).await?
-					{
-						let head_data: HeadData = codec::Decode::decode(&mut &*raw)?;
-						(key, head_data.0)
-					} else {
-						continue;
-					}
-				};
-
-				let para_header: H = Decode::decode(&mut &parachain_header_bytes[..])?;
-				let para_block_number = para_header.number();
-				// skip genesis header or any unknown headers
-				if para_block_number == Zero::zero() {
-					continue;
-				}
-
-				changed_keys.insert(key, para_id);
-			}
-
-			if !changed_keys.is_empty() {
-				let state_proof = self
-					.client
-					.rpc()
-					.read_proof(
-						changed_keys.keys().into_iter().map(|key| key.as_ref()),
-						Some(header.hash()),
-					)
-					.await?
-					.proof
-					.into_iter()
-					.map(|p| p.0)
-					.collect();
-
-				let proofs = ParachainHeaderProofs {
-					state_proof,
-					para_ids: changed_keys.values().into_iter().map(|id| *id).collect(),
-				};
-				parachain_headers_with_proof.insert(header.hash().into(), proofs);
-			}
-		}
-
+			.read_proof(keys, Some(latest_finalized_hash))
+			.await?
+			.proof
+			.into_iter()
+			.map(|bytes| bytes.0)
+			.collect::<Vec<_>>();
+		parachain_headers_with_proof.insert(
+			latest_finalized_hash.into(),
+			ParachainHeaderProofs { state_proof, para_ids: self.para_ids.clone() },
+		);
 		Ok(ParachainHeadersWithFinalityProof {
 			finality_proof,
 			parachain_headers: parachain_headers_with_proof,

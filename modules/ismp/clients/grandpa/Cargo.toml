@@ -60,3 +60,4 @@ std = [
     "substrate-state-machine/std",
     "finality-grandpa/std",
 ]
+try-runtime = []

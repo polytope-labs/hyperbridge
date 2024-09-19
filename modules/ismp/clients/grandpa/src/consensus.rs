@@ -100,16 +100,19 @@ where
 					)
 					.map_err(|_| Error::Custom(format!("Error verifying parachain headers")))?;
 
-				// filter out unknown para ids
 				let parachain_headers = parachain_headers
 					.into_iter()
-					.filter(|(para_id, _)| Parachains::<T>::contains_key(para_id))
+					// filter out unknown para ids
+					.filter_map(|(para_id, header)| {
+						if let Some(slot_duration) = Parachains::<T>::get(para_id) {
+							Some((para_id, header, slot_duration))
+						} else {
+							None
+						}
+					})
 					.collect::<Vec<_>>();
 
-				for (para_id, header_vec) in parachain_headers {
-					let slot_duration =
-						Parachains::<T>::get(para_id).expect("ParaId has been checked; qed");
-
+				for (para_id, header_vec, slot_duration) in parachain_headers {
 					let mut state_commitments_vec = Vec::new();
 
 					let state_id: StateMachine = match T::Coprocessor::get() {
@@ -228,7 +231,7 @@ where
 			})?;
 
 		if first_proof.block == second_proof.block {
-			return Err(Error::Custom(format!("Fraud proofs are for the same block",)))
+			return Err(Error::Custom(format!("Fraud proofs are for the same block",)));
 		}
 
 		let first_headers = AncestryChain::<SubstrateHeader>::new(&first_proof.unknown_headers);
@@ -246,7 +249,7 @@ where
 			.ok_or_else(|| Error::Custom(format!("Unknown headers can't be empty!")))?;
 
 		if first_target.hash() != first_proof.block || second_target.hash() != second_proof.block {
-			return Err(Error::Custom(format!("Fraud proofs are not for the same chain")))
+			return Err(Error::Custom(format!("Fraud proofs are not for the same chain")));
 		}
 
 		let first_base = first_proof
@@ -271,7 +274,7 @@ where
 		let second_parent = second_base.parent_hash();
 
 		if first_parent != second_parent {
-			return Err(Error::Custom(format!("Fraud proofs are not for the same ancestor")))
+			return Err(Error::Custom(format!("Fraud proofs are not for the same ancestor")));
 		}
 
 		let first_justification =

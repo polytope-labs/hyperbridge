@@ -590,7 +590,7 @@ where
 	fn create_asset_kind(seed: u32) -> A {
 		Location {
 			parents: 0,
-			interior: staging_xcm::latest::Junction::X1(alloc::sync::Arc::new([
+			interior: staging_xcm::latest::Junctions::X1(alloc::sync::Arc::new([
 				staging_xcm::latest::Junction::GeneralIndex(seed as u128),
 			])),
 		}
@@ -610,8 +610,8 @@ where
 	fn create_asset_kind(seed: u32) -> A {
 		Location {
 			parents: 0,
-			interior: staging_xcm::latest::Junction::X1(alloc::sync::Arc::new([
-				staging_xcm::latest::Junction::GeneralIndex(seed as u128),
+			interior: staging_xcm::latest::Location::X1(alloc::sync::Arc::new([
+				staging_xcm::latest::Junctions::GeneralIndex(seed as u128),
 			])),
 		}
 		.into()

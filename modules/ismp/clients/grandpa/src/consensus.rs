@@ -14,7 +14,7 @@
 
 use crate::{
 	messages::{ConsensusMessage, SubstrateHeader},
-	Parachains, SupportedStateMachines,
+	SupportedStateMachines,
 };
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use codec::{Decode, Encode};
@@ -98,13 +98,16 @@ where
 						consensus_state,
 						headers_with_finality_proof,
 					)
-					.map_err(|_| Error::Custom(format!("Error verifying parachain headers")))?;
+					.map_err(|_| Error::Custom("Error verifying parachain headers".into()))?;
 
 				let parachain_headers = parachain_headers
 					.into_iter()
 					// filter out unknown para ids
 					.filter_map(|(para_id, header)| {
-						if let Some(slot_duration) = Parachains::<T>::get(para_id) {
+						if let Some(slot_duration) =
+							SupportedStateMachines::<T>::get(StateMachine::Polkadot(para_id))
+								.or(SupportedStateMachines::<T>::get(StateMachine::Kusama(para_id)))
+						{
 							Some((para_id, header, slot_duration))
 						} else {
 							None
@@ -162,7 +165,6 @@ where
 
 				Ok((consensus_state.encode(), intermediates))
 			},
-
 			ConsensusMessage::StandaloneChainMessage(standalone_chain_message) => {
 				let (consensus_state, header, _, _) = verify_grandpa_finality_proof(
 					consensus_state,
@@ -316,12 +318,7 @@ where
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-		let is_supported_para = match &id {
-			StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-				Parachains::<T>::contains_key(*id),
-			_ => false,
-		};
-		if SupportedStateMachines::<T>::contains_key(id) || is_supported_para {
+		if SupportedStateMachines::<T>::contains_key(id) {
 			Ok(Box::new(SubstrateStateMachine::<T>::default()))
 		} else {
 			Err(Error::Custom(format!("Unsupported State Machine {id:?}")))

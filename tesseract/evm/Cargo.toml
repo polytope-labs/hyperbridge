@@ -53,7 +53,7 @@ ismp-testsuite = { workspace = true, default-features = true }
 reconnecting-jsonrpsee-ws-client = { workspace = true, default-features = true }
 jsonrpsee = { version = "0.21", features = ["ws-client"]}
 pallet-ismp-host-executive = { workspace = true, default-features = true }
-serde-utils = { workspace = true, default-features = false }
+serde-hex-utils = { workspace = true, default-features = false }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true, default-features = true }

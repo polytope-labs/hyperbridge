@@ -1,7 +1,7 @@
 #!/bin/bash
 
 cargo release \
--p serde-utils \
+-p serde-hex-utils \
 -p ismp \
 -p mmr-primitives \
 -p pallet-hyperbridge \

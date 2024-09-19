@@ -41,7 +41,7 @@ pub struct StateCommitmentVetoed {
 	/// The state commitment identifier
 	pub height: StateMachineHeight,
 	/// The account responsible
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub fisherman: Vec<u8>,
 }
 
@@ -53,7 +53,7 @@ pub struct RequestResponseHandled {
 	/// The commitment to the request or response
 	pub commitment: H256,
 	/// The address of the relayer responsible for relaying the request
-	#[serde(with = "serde_utils::as_hex")]
+	#[serde(with = "serde_hex_utils::as_hex")]
 	pub relayer: Vec<u8>,
 }
 
@@ -65,10 +65,10 @@ pub struct TimeoutHandled {
 	/// The commitment to the request or response
 	pub commitment: H256,
 	/// The source chain of the message
-	#[serde(with = "serde_utils::as_string")]
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub source: StateMachine,
 	/// The destination chain of the message
-	#[serde(with = "serde_utils::as_string")]
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub dest: StateMachine,
 }
 

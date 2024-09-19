@@ -19,7 +19,7 @@ pub mod consensus;
 pub mod messages;
 
 use alloc::vec::Vec;
-use ismp::consensus::ConsensusStateId;
+use ismp::host::StateMachine;
 pub use pallet::*;
 
 #[frame_support::pallet]
@@ -27,10 +27,7 @@ pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use ismp::{
-		consensus::StateMachineId,
-		host::{IsmpHost, StateMachine},
-	};
+	use ismp::host::IsmpHost;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -42,6 +39,7 @@ pub mod pallet {
 		/// The overarching event type
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
+		/// IsmpHost implementation
 		type IsmpHost: IsmpHost + Default;
 	}
 
@@ -49,23 +47,13 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Parachains with the `para_ids` have been added to the whitelist
-		ParachainsAdded {
-			/// The parachains in question
-			para_ids: Vec<(u32, u64)>,
-		},
-		/// Parachains with the `para_ids` have been removed from the whitelist
-		ParachainsRemoved {
-			/// The parachains in question
-			para_ids: Vec<u32>,
-		},
-		/// Standalone Chain Added to whitelist
-		StandaloneChainsAdded {
+		/// State machines have been added to whitelist
+		StateMachineAdded {
 			/// The state machines in question
 			state_machines: Vec<StateMachine>,
 		},
-		/// Standalone have been removed from the whitelist
-		StandaloneChainsRemoved {
+		/// State machines have been removed from the whitelist
+		StateMachineRemoved {
 			/// The state machines in question
 			state_machines: Vec<StateMachine>,
 		},
@@ -91,11 +79,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn state_machines)]
 	pub type SupportedStateMachines<T: Config> =
-		StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
-
-	/// List of parachains that this state machine is interested in.
-	#[pallet::storage]
-	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, u64>;
+		StorageMap<_, Twox64Concat, StateMachine, u64, OptionQuery>;
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
@@ -104,13 +88,17 @@ pub mod pallet {
 		#[pallet::weight((0, DispatchClass::Mandatory))]
 		pub fn add_state_machines(
 			origin: OriginFor<T>,
-			state_machines: Vec<StateMachine>,
+			new_state_machines: Vec<AddStateMachine>,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
-			for state_machine in state_machines {
-				SupportedStateMachines::<T>::insert(state_machine, true)
+			let state_machines =
+				new_state_machines.iter().map(|a| a.state_machine.clone()).collect();
+			for AddStateMachine { state_machine, slot_duration } in new_state_machines {
+				SupportedStateMachines::<T>::insert(state_machine, slot_duration);
 			}
+
+			Self::deposit_event(Event::StateMachineAdded { state_machines });
 
 			Ok(())
 		}
@@ -128,58 +116,18 @@ pub mod pallet {
 				SupportedStateMachines::<T>::remove(state_machine)
 			}
 
-			Self::deposit_event(Event::StandaloneChainsRemoved { state_machines });
-
-			Ok(())
-		}
-
-		/// Add some new parachains to the parachains whitelist
-		#[pallet::call_index(2)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(data.parachains.len() as u64))]
-		pub fn add_parachains(origin: OriginFor<T>, data: ParachainData) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
-			let host = <T::IsmpHost>::default();
-			for (para, slot_duration) in &data.parachains {
-				let state_id = match <T as pallet_ismp::Config>::Coprocessor::get() {
-					Some(StateMachine::Kusama(_)) => StateMachine::Kusama(*para),
-					Some(StateMachine::Polkadot(_)) => StateMachine::Polkadot(*para),
-					_ => continue,
-				};
-				Parachains::<T>::insert(*para, slot_duration);
-				let _ = host.store_challenge_period(
-					StateMachineId { state_id, consensus_state_id: data.consensus_state_id },
-					data.challenge_period,
-				);
-			}
-
-			Self::deposit_event(Event::ParachainsAdded { para_ids: data.parachains });
-
-			Ok(())
-		}
-
-		/// Removes some parachains from the parachains whitelist
-		#[pallet::call_index(3)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(para_ids.len() as u64))]
-		pub fn remove_parachains(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
-			for id in &para_ids {
-				Parachains::<T>::remove(id);
-			}
-
-			Self::deposit_event(Event::ParachainsRemoved { para_ids });
+			Self::deposit_event(Event::StateMachineRemoved { state_machines });
 
 			Ok(())
 		}
 	}
 }
 
-/// Update the parachain whitelist
+/// Update the state machine whitelist
 #[derive(Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, Debug, PartialEq, Eq)]
-pub struct ParachainData {
-	/// Consensus state id for the parachains
-	pub consensus_state_id: ConsensusStateId,
-	/// A list of parachain ids and slot duration
-	pub parachains: Vec<(u32, u64)>,
-	/// Challenge period for the parachains
-	pub challenge_period: u64,
+pub struct AddStateMachine {
+	/// State machine to add
+	pub state_machine: StateMachine,
+	/// It's slot duration
+	pub slot_duration: u64,
 }

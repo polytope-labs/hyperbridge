@@ -40,9 +40,6 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 		"dev" | "gargantua" => Box::new(chain_spec::ChainSpec::from_json_bytes(
 			include_bytes!("../../chainspec/gargantua.paseo.json").to_vec(),
 		)?),
-		"messier" => Box::new(chain_spec::ChainSpec::from_json_bytes(
-			include_bytes!("../../chainspec/messier.json").to_vec(),
-		)?),
 		"" | "nexus" => Box::new(chain_spec::ChainSpec::from_json_bytes(
 			include_bytes!("../../chainspec/nexus.json").to_vec(),
 		)?),
@@ -50,11 +47,6 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 			let id = name.split('-').last().expect("dev chainspec should have chain id");
 			let id = u32::from_str(id).expect("can't parse Id into u32");
 			Box::new(chain_spec::gargantua_development_config(id))
-		},
-		name if name.starts_with("messier-") => {
-			let id = name.split('-').last().expect("dev chainspec should have chain id");
-			let id = u32::from_str(id).expect("can't parse Id into u32");
-			Box::new(chain_spec::messier_development_config(id))
 		},
 		name if name.starts_with("nexus-") => {
 			let id = name.split('-').last().expect("dev chainspec should have chain id");
@@ -157,13 +149,6 @@ macro_rules! construct_async_run {
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
             }
-            chain if chain.contains("messier") => {
-                runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config);
-                    let $components = new_partial::<messier_runtime::RuntimeApi, _>(&$config, executor)?;
-                    Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
-                })
-            }
             chain if chain.contains("nexus") => {
                 runner.async_run(|$config| {
                     let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config);
@@ -249,12 +234,6 @@ pub fn run() -> Result<()> {
 
 						cmd.run(components.client.clone())
 					},
-					chain if chain.contains("messier") => {
-						let components =
-							new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
-
-						cmd.run(components.client.clone())
-					},
 					chain if chain.contains("nexus") => {
 						let components =
 							new_partial::<nexus_runtime::RuntimeApi, _>(&config, executor)?;
@@ -297,11 +276,6 @@ pub fn run() -> Result<()> {
 								new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
 							cmd.run(components.client)
 						},
-						chain if chain.contains("messier") => {
-							let components =
-								new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
-							cmd.run(components.client)
-						},
 						chain if chain.contains("nexus") => {
 							let components =
 								new_partial::<nexus_runtime::RuntimeApi, _>(&config, executor)?;
@@ -325,13 +299,6 @@ pub fn run() -> Result<()> {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
 							let components =
 								new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
-							let db = components.backend.expose_db();
-							let storage = components.backend.expose_storage();
-							cmd.run(config, components.client.clone(), db, storage)
-						},
-						chain if chain.contains("messier") => {
-							let components =
-								new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
 							let db = components.backend.expose_db();
 							let storage = components.backend.expose_storage();
 							cmd.run(config, components.client.clone(), db, storage)

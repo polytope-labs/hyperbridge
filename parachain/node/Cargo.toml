@@ -23,7 +23,7 @@ serde_json = "1.0.108"
 
 # local
 gargantua-runtime = { path = "../runtimes/gargantua" }
-messier-runtime = { path = "../runtimes/messier" }
+#messier-runtime = { path = "../runtimes/messier" }
 nexus-runtime = { path = "../runtimes/nexus" }
 pallet-ismp-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
@@ -106,12 +106,12 @@ default = []
 runtime-benchmarks = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/runtime-benchmarks",
-	"messier-runtime/runtime-benchmarks",
+#	"messier-runtime/runtime-benchmarks",
 	"nexus-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
 try-runtime = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/try-runtime",
-	"messier-runtime/try-runtime"
+#	"messier-runtime/try-runtime"
 ]

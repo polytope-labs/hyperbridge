@@ -21,7 +21,7 @@ derive_more = { version = "0.99.17", default-features = false, features = ["from
 serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
 anyhow = {workspace = true, default-features = false}
-serde-utils = { workspace = true, default-features = false }
+serde-hex-utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -34,5 +34,5 @@ std = [
     "anyhow/std",
     "hex/std",
     "serde_json/std",
-    "serde-utils/std"
+    "serde-hex-utils/std"
 ]

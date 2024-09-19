@@ -1,12 +1,12 @@
 [package]
-name = "serde-utils"
+name = "serde-hex-utils"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
 repository = "https://github.com/polytope-labs/hyperbridge"
-documentation = "https://docs.rs/serde-utils"
-description = "Collection of useful (De)serialization utilities for serde"
+documentation = "https://docs.rs/serde-hex-utils"
+description = "Collection of hexadecimal (De)serialization utilities for serde"
 keywords = ["serde", "utilities"]
 readme = "./README.md"
 
@@ -14,7 +14,7 @@ readme = "./README.md"
 # crates.io
 serde = { workspace = true, features = ["derive"] }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
-anyhow = {workspace = true, default-features = false}
+anyhow = {workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -25,6 +25,6 @@ std = [
 ]
 
 [dev-dependencies]
-ismp = { workspace = true, default-features = true }
-primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
-serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }
+#ismp = { workspace = true, default-features = true }
+#primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
+#serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }

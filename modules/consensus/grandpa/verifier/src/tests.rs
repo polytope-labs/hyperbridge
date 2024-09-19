@@ -1,5 +1,6 @@
 use crate::verify_parachain_headers_with_grandpa_finality_proof;
 use codec::{Decode, Encode};
+use futures::StreamExt;
 use grandpa_prover::GrandpaProver;
 use grandpa_verifier_primitives::{
 	justification::GrandpaJustification, ParachainHeadersWithFinalityProof,
@@ -11,7 +12,6 @@ use subxt::{
 	config::substrate::{BlakeTwo256, SubstrateHeader},
 	rpc_params,
 };
-
 pub type Justification = GrandpaJustification<Header>;
 
 /// An encoded justification proving that the given header has been finalized
@@ -31,7 +31,7 @@ async fn follow_grandpa_justifications() {
 
 	// let relay_ws_url = format!("ws://{relay}:9944");
 
-	let para_ids = vec![4009];
+	let para_ids = vec![2000];
 	let babe_epoch_start_key =
 		hex::decode("1cb6f36e027abb2091cfb5110ab5087fe90e2fbf2d792cb324bffa9427fe1f0e").unwrap();
 	let current_set_id_key =
@@ -51,18 +51,18 @@ async fn follow_grandpa_justifications() {
 	println!("Connected to relay chain");
 
 	println!("Waiting for grandpa proofs to become available");
-	// let session_length = prover.session_length().await.unwrap();
-	// prover
-	// 	.client
-	// 	.blocks()
-	// 	.subscribe_finalized()
-	// 	.await
-	// 	.unwrap()
-	// 	.filter_map(|result| futures::future::ready(result.ok()))
-	// 	.skip_while(|h| futures::future::ready(h.number() < (session_length * 2) + 10))
-	// 	.take(1)
-	// 	.collect::<Vec<_>>()
-	// 	.await;
+	let session_length = prover.session_length().await.unwrap();
+	prover
+		.client
+		.blocks()
+		.subscribe_finalized()
+		.await
+		.unwrap()
+		.filter_map(|result| futures::future::ready(result.ok()))
+		.skip_while(|h| futures::future::ready(h.number() < (session_length * 2) + 10))
+		.take(1)
+		.collect::<Vec<_>>()
+		.await;
 
 	let mut subscription = prover
 		.client
@@ -119,7 +119,6 @@ async fn follow_grandpa_justifications() {
 			verify_parachain_headers_with_grandpa_finality_proof::<Header, _>(
 				consensus_state.clone(),
 				proof.clone(),
-				|_id| true,
 			)
 			.expect("Failed to verify parachain headers with grandpa finality_proof");
 

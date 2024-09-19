@@ -112,7 +112,6 @@ where
 pub fn verify_parachain_headers_with_grandpa_finality_proof<H, F>(
 	consensus_state: ConsensusState,
 	proof: ParachainHeadersWithFinalityProof<H>,
-	is_resgistered_para: F,
 ) -> Result<(ConsensusState, BTreeMap<u32, Vec<H>>), anyhow::Error>
 where
 	H: Header<Hash = H256, Number = u32>,
@@ -135,11 +134,6 @@ where
 		let state_proof = proof.state_proof;
 		let mut keys = BTreeMap::new();
 		for para_id in proof.para_ids {
-			// ensure the para id is in the consensus state before proof verification
-			if !is_resgistered_para(para_id) {
-				continue
-			}
-
 			let key = parachain_header_storage_key(para_id);
 
 			keys.insert(key.0, para_id);

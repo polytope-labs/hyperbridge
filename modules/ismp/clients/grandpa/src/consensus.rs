@@ -93,27 +93,26 @@ where
 					parachain_headers: relay_chain_message.parachain_headers,
 				};
 
-				let is_registered_para = |para_id: u32| Parachains::<T>::contains_key(para_id);
-
 				let (consensus_state, parachain_headers) =
 					verify_parachain_headers_with_grandpa_finality_proof(
 						consensus_state,
 						headers_with_finality_proof,
-						is_registered_para,
 					)
 					.map_err(|_| Error::Custom(format!("Error verifying parachain headers")))?;
 
+				// filter out unknown para ids
+				let parachain_headers = parachain_headers
+					.into_iter()
+					.filter(|id| Parachains::<T>::contains_key(para_id))
+					.collect();
+
 				for (para_id, header_vec) in parachain_headers {
-					let slot_duration = if let Some(slot_duration) = Parachains::<T>::get(para_id) {
-						slot_duration
-					} else {
-						continue
-					};
+					let slot_duration =
+						Parachains::<T>::get(para_id).expect("ParaId has been checked; qed");
 
 					let mut state_commitments_vec = Vec::new();
 
-					let state_id: StateMachine = match <T as pallet_ismp::Config>::Coprocessor::get(
-					) {
+					let state_id: StateMachine = match T::Coprocessor::get() {
 						Some(StateMachine::Polkadot(_)) => StateMachine::Polkadot(para_id),
 						Some(StateMachine::Kusama(_)) => StateMachine::Kusama(para_id),
 						_ => Err(Error::Custom(

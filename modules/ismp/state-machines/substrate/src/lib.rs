@@ -37,6 +37,7 @@ use pallet_ismp::{
 };
 use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
+use sp_consensus_babe::{digests::PreDigest, BABE_ENGINE_ID};
 use sp_runtime::{
 	traits::{BlakeTwo256, Keccak256},
 	Digest, DigestItem,
@@ -326,6 +327,14 @@ pub fn fetch_overlay_root_and_timestamp(
 			{
 				let slot = Slot::decode(&mut &value[..])
 					.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
+				timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+			},
+			DigestItem::PreRuntime(consensus_engine_id, value)
+				if *consensus_engine_id == BABE_ENGINE_ID =>
+			{
+				let slot = PreDigest::decode(&mut &value[..])
+					.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?
+					.slot();
 				timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
 			},
 			DigestItem::Consensus(consensus_engine_id, value)

@@ -23150,6 +23150,7 @@ dependencies = [
  "scale-info",
  "serde",
  "sp-consensus-aura 0.40.0",
+ "sp-consensus-babe 0.40.0",
  "sp-runtime 39.0.0",
  "sp-trie 37.0.0",
 ]

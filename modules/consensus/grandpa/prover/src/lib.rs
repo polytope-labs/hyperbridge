@@ -24,16 +24,11 @@ use grandpa_verifier_primitives::{
 	ParachainHeadersWithFinalityProof,
 };
 use ismp::host::StateMachine;
-use jsonrpsee::{async_client::Client, ws_client::WsClientBuilder};
-use sc_consensus_grandpa_rpc::GrandpaApiClient;
 use serde::{Deserialize, Serialize};
 use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_core::H256;
 use sp_runtime::traits::{One, Zero};
-use std::{
-	collections::{BTreeMap, BTreeSet, HashMap},
-	sync::Arc,
-};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use subxt::{config::Header, rpc_params, Config, OnlineClient};
 
 /// Head data for parachain
@@ -61,7 +56,7 @@ pub struct GrandpaProver<T: Config> {
 pub type Commit = finality_grandpa::Commit<H256, u32, AuthoritySignature, AuthorityId>;
 
 /// Justification
-#[cfg_attr(any(feature = "std", test), derive(Debug))]
+#[cfg_attr(test, derive(Debug))]
 #[derive(Clone, Encode, Decode)]
 pub struct GrandpaJustification<H: Header + codec::Decode> {
 	/// Current voting round number, monotonically increasing
@@ -282,7 +277,7 @@ where
 						let head_data: HeadData = codec::Decode::decode(&mut &*raw)?;
 						(key, head_data.0)
 					} else {
-						continue
+						continue;
 					}
 				};
 
@@ -290,7 +285,7 @@ where
 				let para_block_number = para_header.number();
 				// skip genesis header or any unknown headers
 				if para_block_number == Zero::zero() {
-					continue
+					continue;
 				}
 
 				changed_keys.insert(key, para_id);

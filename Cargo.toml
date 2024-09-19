@@ -137,6 +137,7 @@ sp-io = { version = "38.0.0", default-features = false }
 sp-trie = { version = "37.0.0", default-features = false }
 sp-block-builder = { version = "34.0.0", default-features = false }
 sp-consensus-aura = { version = "0.40.0", default-features = false }
+sp-consensus-babe = { version = "0.40.0", default-features = false }
 sp-consensus-beefy = { version = "22.0.0", default-features = false }
 sp-consensus-grandpa = { version = "21.0.0", default-features = false }
 sp-core = { version = "34.0.0", default-features = false }
@@ -174,9 +175,9 @@ sp-state-machine = { version = "0.43.0", default-features = false }
 sp-storage = { version = "21.0.0", default-features = false }
 pallet-beefy-mmr = { version = "38.0.0", default-features = false }
 pallet-assets = { version = "39.0.0", default-features = false }
-pallet-treasury = { version = "36.0.0", default-features = false}
-pallet-asset-rate = {version = "16.0.0", default-features = false}
-pallet-collective = {version = "37.0.0", default-features = false}
+pallet-treasury = { version = "36.0.0", default-features = false }
+pallet-asset-rate = { version = "16.0.0", default-features = false }
+pallet-collective = { version = "37.0.0", default-features = false }
 frame-metadata-hash-extension = { default-features = false, version = "0.5.0" }
 sp-keyring = "39.0.0"
 
@@ -232,12 +233,15 @@ hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false }
 log = { version = "0.4.21", default-features = false }
-anyhow = {version = "1.0.71", default-features = false }
+anyhow = { version = "1.0.71", default-features = false }
 alloy-rlp = { version = "0.3.2", default-features = false }
 alloy-rlp-derive = "0.3.2"
 alloy-sol-macro = "0.7.4"
 alloy-sol-types = { version = "0.7.4", default-features = false }
-ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
+ethabi = { version = "18.0.0", features = [
+    "rlp",
+    "parity-codec",
+], default-features = false }
 orml-xcm-support = { version = "=1.0.0", default-features = false }
 orml-traits = { version = "=1.0.0", default-features = false }
 primitive-types = { version = "0.12.1", default-features = false }
@@ -322,7 +326,7 @@ tesseract = { path = "tesseract/relayer" }
 transaction-fees = { path = "tesseract/fees" }
 telemetry-server = { path = "tesseract/telemetry" }
 tesseract-config = { path = "tesseract/config" }
-cumulus-pallet-parachain-system= { version = "0.16.0", default-features = false }
+cumulus-pallet-parachain-system = { version = "0.16.0", default-features = false }
 
 [workspace.dependencies.ethers]
 git = "https://github.com/polytope-labs/ethers-rs"

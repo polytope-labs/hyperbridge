@@ -6086,6 +6086,7 @@ dependencies = [
  "hyperbridge-client-machine",
  "ismp",
  "ismp-bsc",
+ "ismp-grandpa",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
  "ismp-sync-committee",
@@ -7689,7 +7690,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "0.1.0"
+version = "1.15.0"
 dependencies = [
  "ckb-merkle-mountain-range",
  "cumulus-primitives-core",

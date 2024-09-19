@@ -709,7 +709,9 @@ construct_runtime!(
 		StateCoprocessor: pallet_state_coprocessor = 60,
 
 		// Governance
-		TechnicalCollective: pallet_collective = 80
+		TechnicalCollective: pallet_collective = 80,
+		// consensus clients
+		IsmpGrandpa: ismp_grandpa = 255
 	}
 );
 

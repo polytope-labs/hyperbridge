@@ -72,6 +72,7 @@ impl Get<Option<StateMachine>> for Coprocessor {
 		Some(HostStateMachine::get())
 	}
 }
+
 impl pallet_ismp::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type AdminOrigin = EnsureRoot<AccountId>;
@@ -90,9 +91,15 @@ impl pallet_ismp::Config for Runtime {
 			IsmpParachain,
 			HyperbridgeClientMachine<Runtime, Ismp>,
 		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Runtime>,
 	);
 	type Mmr = Mmr;
 	type WeightProvider = ();
+}
+
+impl ismp_grandpa::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
 }
 
 impl pallet_token_governor::Config for Runtime {

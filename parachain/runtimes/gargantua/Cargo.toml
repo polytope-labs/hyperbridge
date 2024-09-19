@@ -87,6 +87,7 @@ pallet-ismp-runtime-api = { workspace = true  }
 ismp-sync-committee = { workspace = true  }
 ismp-bsc = { workspace = true  }
 ismp-parachain = { workspace = true  }
+ismp-grandpa = { workspace = true }
 ismp-parachain-runtime-api = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
@@ -162,6 +163,7 @@ std = [
 	"parachains-common/std",
 	"sp-genesis-builder/std",
 	"ismp-bsc/std",
+	"ismp-grandpa/std",
 	"ismp-parachain/std",
 	"ismp-parachain-runtime-api/std",
 	"pallet-ismp-relayer/std",

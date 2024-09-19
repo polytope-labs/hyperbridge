@@ -122,22 +122,33 @@ where
 					};
 
 					for header in header_vec {
-						let (timestamp, overlay_root) =
+						let digest_result =
 							fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
-						if timestamp == 0 {
+						if digest_result.timestamp == 0 {
 							Err(Error::Custom("Timestamp or ismp root not found".into()))?
 						}
 
 						let height: u32 = (*header.number()).into();
 
-						let intermediate = StateCommitmentHeight {
-							commitment: StateCommitment {
-								timestamp,
-								overlay_root: Some(overlay_root),
-								state_root: header.state_root,
+						let intermediate = match T::Coprocessor::get() {
+							Some(id) if id == state_id => StateCommitmentHeight {
+								// for the coprocessor, we only care about the child root & mmr root
+								commitment: StateCommitment {
+									timestamp: digest_result.timestamp,
+									overlay_root: Some(digest_result.ismp_digest.mmr_root),
+									state_root: digest_result.ismp_digest.child_trie_root, /* child root */
+								},
+								height: height.into(),
 							},
-							height: height.into(),
+							_ => StateCommitmentHeight {
+								commitment: StateCommitment {
+									timestamp: digest_result.timestamp,
+									overlay_root: Some(digest_result.ismp_digest.child_trie_root),
+									state_root: header.state_root,
+								},
+								height: height.into(),
+							},
 						};
 
 						state_commitments_vec.push(intermediate);
@@ -154,26 +165,24 @@ where
 					consensus_state,
 					standalone_chain_message.finality_proof,
 				)
-				.map_err(|_| Error::Custom("Error verifying parachain headers".parse().unwrap()))?;
-				let (timestamp, overlay_root) = fetch_overlay_root_and_timestamp(
+				.map_err(|_| Error::Custom("Error verifying grandpa header".parse().unwrap()))?;
+				let digest_result = fetch_overlay_root_and_timestamp(
 					header.digest(),
 					consensus_state.slot_duration,
 				)?;
 
-				if timestamp == 0 {
+				if digest_result.timestamp == 0 {
 					Err(Error::Custom("Timestamp or ismp root not found".into()))?
 				}
 
 				let height: u32 = (*header.number()).into();
 
-				let state_id = consensus_state.state_machine.ok_or_else(|| {
-					Error::Custom("State Machine Id was not set on consensus state".into())
-				})?;
+				let state_id = consensus_state.state_machine;
 
 				let intermediate = StateCommitmentHeight {
 					commitment: StateCommitment {
-						timestamp,
-						overlay_root: Some(overlay_root),
+						timestamp: digest_result.timestamp,
+						overlay_root: Some(digest_result.ismp_digest.child_trie_root),
 						state_root: header.state_root,
 					},
 					height: height.into(),

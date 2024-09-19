@@ -154,7 +154,7 @@ where
 			latest_height,
 			latest_hash: latest_hash.into(),
 			slot_duration,
-			state_machine: Some(self.state_machine),
+			state_machine: self.state_machine,
 		})
 	}
 

@@ -70,8 +70,8 @@ pub struct ConsensusState {
 	pub latest_hash: Hash,
 	/// slot duration for the standalone chain
 	pub slot_duration: u64,
-	/// State machine for this consensus state when tracking a standalone chain
-	pub state_machine: Option<StateMachine>,
+	/// State machine for this consensus state
+	pub state_machine: StateMachine,
 }
 
 /// Holds relavant parachain proofs for both header and timestamp extrinsic.

@@ -85,10 +85,9 @@ where
 		})?;
 	}
 
-	let mut finalized = headers
+	let finalized = headers
 		.ancestry(from, target.hash())
 		.map_err(|_| anyhow!("[verify_grandpa_finality_proof] Invalid ancestry!"))?;
-	finalized.sort();
 
 	// 2. verify justification.
 	justification.verify(consensus_state.current_set_id, &consensus_state.current_authorities)?;
@@ -119,8 +118,9 @@ where
 {
 	let ParachainHeadersWithFinalityProof { finality_proof, parachain_headers } = proof;
 
-	let (consensus_state, _, finalized_hashes, headers) =
+	let (consensus_state, _, mut finalized_hashes, headers) =
 		verify_grandpa_finality_proof(consensus_state, finality_proof)?;
+	finalized_hashes.sort();
 	// verifies state proofs of parachain headers in finalized relay chain headers.
 	let mut verified_parachain_headers: BTreeMap<u32, Vec<H>> = BTreeMap::new();
 	for (hash, proof) in parachain_headers {

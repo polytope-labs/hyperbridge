@@ -118,7 +118,7 @@ pub mod pallet {
 		/// Remove a state machine from the list of supported state machines
 		#[pallet::call_index(1)]
 		#[pallet::weight((0, DispatchClass::Mandatory))]
-		pub fn remove_state_machine(
+		pub fn remove_state_machines(
 			origin: OriginFor<T>,
 			state_machines: Vec<StateMachine>,
 		) -> DispatchResult {
@@ -136,7 +136,7 @@ pub mod pallet {
 		/// Add some new parachains to the parachains whitelist
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(data.parachains.len() as u64))]
-		pub fn add_parachain(origin: OriginFor<T>, data: ParachainData) -> DispatchResult {
+		pub fn add_parachains(origin: OriginFor<T>, data: ParachainData) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 			let host = <T::IsmpHost>::default();
 			for (para, slot_duration) in &data.parachains {
@@ -160,7 +160,7 @@ pub mod pallet {
 		/// Removes some parachains from the parachains whitelist
 		#[pallet::call_index(3)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(para_ids.len() as u64))]
-		pub fn remove_parachain(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
+		pub fn remove_parachains(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 			for id in &para_ids {
 				Parachains::<T>::remove(id);
@@ -173,9 +173,13 @@ pub mod pallet {
 	}
 }
 
+/// Update the parachain whitelist
 #[derive(Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, Debug, PartialEq, Eq)]
 pub struct ParachainData {
+	/// Consensus state id for the parachains
 	pub consensus_state_id: ConsensusStateId,
+	/// A list of parachain ids and slot duration
 	pub parachains: Vec<(u32, u64)>,
+	/// Challenge period for the parachains
 	pub challenge_period: u64,
 }

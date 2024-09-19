@@ -33,9 +33,8 @@ use ismp::{
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
-	ISMP_ID,
+	ConsensusDigest, ISMP_ID,
 };
-use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_consensus_babe::{digests::PreDigest, BABE_ENGINE_ID};
 use sp_runtime::{
@@ -313,12 +312,21 @@ where
 	Ok(result)
 }
 
+/// Result for processing consensus digest logs
+#[derive(Default)]
+pub struct DigestResult {
+	/// Timestamp
+	pub timestamp: u64,
+	/// Ismp digest
+	pub ismp_digest: ConsensusDigest,
+}
+
 /// Fetches the overlay (ismp) root and timestamp from the header digest
 pub fn fetch_overlay_root_and_timestamp(
 	digest: &Digest,
 	slot_duration: u64,
-) -> Result<(u64, H256), Error> {
-	let (mut timestamp, mut overlay_root) = (0, H256::default());
+) -> Result<DigestResult, Error> {
+	let mut digest_result = DigestResult::default();
 
 	for digest in digest.logs.iter() {
 		match digest {
@@ -327,7 +335,7 @@ pub fn fetch_overlay_root_and_timestamp(
 			{
 				let slot = Slot::decode(&mut &value[..])
 					.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
-				timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+				digest_result.timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
 			},
 			DigestItem::PreRuntime(consensus_engine_id, value)
 				if *consensus_engine_id == BABE_ENGINE_ID =>
@@ -335,21 +343,20 @@ pub fn fetch_overlay_root_and_timestamp(
 				let slot = PreDigest::decode(&mut &value[..])
 					.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?
 					.slot();
-				timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+				digest_result.timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
 			},
 			DigestItem::Consensus(consensus_engine_id, value)
 				if *consensus_engine_id == ISMP_ID =>
 			{
-				if value.len() != 32 {
-					Err(Error::Custom("Header contains an invalid ismp root".into()))?
-				}
+				let digest = ConsensusDigest::decode(&mut &value[..])
+					.map_err(|e| Error::Custom(format!("Failed to decode digest: {e:?}")))?;
 
-				overlay_root = H256::from_slice(&value);
+				digest_result.ismp_digest = digest
 			},
 			// don't really care about the rest
 			_ => {},
 		};
 	}
 
-	Ok((timestamp, overlay_root))
+	Ok(digest_result)
 }

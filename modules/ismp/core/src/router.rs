@@ -54,6 +54,18 @@ pub struct PostRequest {
 	pub body: Vec<u8>,
 }
 
+impl PostRequest {
+	/// Returns the timeout timestamp for a request
+	pub fn timeout(&self) -> Duration {
+		get_timeout(self.timeout_timestamp)
+	}
+
+	/// Returns true if the destination chain timestamp has exceeded the request timeout timestamp
+	pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+		proof_timestamp >= self.timeout()
+	}
+}
+
 impl core::fmt::Display for PostRequest {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		writeln!(f, "Post {{")?;

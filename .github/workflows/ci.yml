@@ -334,6 +334,10 @@ jobs:
       #        run: |
       #          cargo test -p ismp-solidity-tests -- --nocapture --ignored
 
+      # - name: parachain messaging relayer integration tests
+      #   run: |
+      #     cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
+
       - name: Xcm integration tests
         run: |
           cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
@@ -357,10 +361,7 @@ jobs:
       - name: Binance Smart Chain integration tests
         run: |
           cargo test -p bsc-prover -- --nocapture --ignored
-
-      # - name: Parachain to Parachain ismp relayer messaging integration tests
-      #   run: |
-      #     cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
+          
 
   check-solidity:
     name: Check ismp-solidity

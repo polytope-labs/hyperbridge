@@ -51,7 +51,6 @@ contract TeleportForkTest is MainnetForkBaseTest {
 
         gateway.teleport{value: _amountInMax}(
             TeleportParams({
-                maxFee: 1 * 1e6,
                 amount: 1_000 * 1e6, // $1000
                 redeem: false,
                 dest: StateMachine.evm(97),
@@ -87,7 +86,6 @@ contract TeleportForkTest is MainnetForkBaseTest {
         vm.startPrank(whaleAccount);
         gateway.teleport{value: total}(
             TeleportParams({
-                maxFee: 0,
                 amount: teleportAmount, // $1000
                 redeem: false,
                 dest: StateMachine.evm(97),

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
-import "openzeppelin/utils/Strings.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 import "stringutils/strings.sol";
 
 import {EvmHost, HostParams} from "../src/hosts/EvmHost.sol";

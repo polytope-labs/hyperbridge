@@ -80,6 +80,7 @@ members = [
     "tesseract/fees/prisma-cli",
     "tesseract/telemetry",
     "tesseract/config",
+    "tesseract/fisherman",
 
     # integration tests
     "tesseract/integration-test",
@@ -173,6 +174,9 @@ sp-state-machine = { version = "0.43.0", default-features = false }
 sp-storage = { version = "21.0.0", default-features = false }
 pallet-beefy-mmr = { version = "38.0.0", default-features = false }
 pallet-assets = { version = "39.0.0", default-features = false }
+pallet-treasury = { version = "36.0.0", default-features = false}
+pallet-asset-rate = {version = "16.0.0", default-features = false}
+pallet-collective = {version = "37.0.0", default-features = false}
 frame-metadata-hash-extension = { default-features = false, version = "0.5.0" }
 sp-keyring = "39.0.0"
 
@@ -311,6 +315,7 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 tesseract-primitives = { path = "tesseract/primitives" }
 tesseract-consensus = { path = "tesseract/consensus" }
 tesseract-messaging = { path = "tesseract/messaging" }
+tesseract-fisherman = { path = "tesseract/fisherman" }
 tesseract-substrate = { path = "tesseract/substrate" }
 tesseract-evm = { path = "tesseract/evm" }
 tesseract = { path = "tesseract/relayer" }

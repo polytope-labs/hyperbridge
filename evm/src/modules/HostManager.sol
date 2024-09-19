@@ -14,13 +14,13 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse} from "@polytope-labs/ismp-solidity/Message.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {BaseIsmpModule, IncomingPostRequest, IIsmpModule} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 
-import {ERC165} from "openzeppelin/utils/introspection/ERC165.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
 

@@ -26,6 +26,8 @@ use subxt::{
 	Config, OnlineClient,
 };
 
+use crate::BEEFY_VALIDATOR_SET_ID;
+
 /// This contains the leaf indices of the relay chain blocks and a map of relay chain heights to a
 /// map of all parachain headers at those heights Used for generating [`ParaHeadsProof`]
 pub struct FinalizedParaHeads {
@@ -81,10 +83,11 @@ pub async fn fetch_next_beefy_justification<T: Config>(
 
 	let (signed_commitment, latest_beefy_finalized) = loop {
 		let set_id = client
-			.storage()
-			.at(block_hash)
-			.fetch(&crate::runtime::storage().beefy().validator_set_id())
+			.rpc()
+			.storage(BEEFY_VALIDATOR_SET_ID.as_slice(), Some(block_hash))
 			.await?
+			.map(|data| u64::decode(&mut data.as_ref()))
+			.transpose()?
 			.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
 
 		let block = client

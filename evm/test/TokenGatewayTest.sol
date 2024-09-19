@@ -21,7 +21,7 @@ import {IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol"
 import "@polytope-labs/ismp-solidity/Message.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {NotRoleAdmin} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
-import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import "../src/modules/TokenGateway.sol";
 
@@ -41,7 +41,6 @@ contract TokenGatewayTest is BaseTest {
             TeleportParams({
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
-                maxFee: 1 * 1e18,
                 dest: StateMachine.evm(97),
                 relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
@@ -58,7 +57,7 @@ contract TokenGatewayTest is BaseTest {
 
     function testCanTeleportAssetsWithCall() public {
         // relayer fee + per-byte fee
-        uint256 messagingFee = (9 * 1e17) + (353 * host.perByteFee());
+        uint256 messagingFee = (9 * 1e17) + (321 * host.perByteFee());
         uint256 totalFee = 1_000 * 1e18 + messagingFee;
         feeToken.mint(address(this), totalFee);
 
@@ -71,7 +70,6 @@ contract TokenGatewayTest is BaseTest {
             TeleportParams({
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
-                maxFee: 1 * 1e18,
                 dest: StateMachine.evm(97),
                 relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
@@ -94,7 +92,6 @@ contract TokenGatewayTest is BaseTest {
             TeleportParams({
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
-                maxFee: 1 * 1e18,
                 dest: StateMachine.evm(97),
                 relayerFee: 9 * 1e17, // $0.9
                 timeout: 0,
@@ -113,7 +110,6 @@ contract TokenGatewayTest is BaseTest {
             assetId: keccak256("USD.h"),
             to: addressToBytes32(address(this)),
             redeem: false,
-            maxFee: 1 * 1e18,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this))
         });
@@ -150,7 +146,6 @@ contract TokenGatewayTest is BaseTest {
             assetId: keccak256("USD.h"),
             to: addressToBytes32(address(miniStaking)),
             redeem: false,
-            maxFee: 1 * 1e18,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this)),
             data: abi.encode(calls)
@@ -182,7 +177,6 @@ contract TokenGatewayTest is BaseTest {
             assetId: keccak256("USD.h"),
             to: addressToBytes32(address(this)),
             redeem: false,
-            maxFee: 1 * 1e18,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this))
         });
@@ -207,7 +201,6 @@ contract TokenGatewayTest is BaseTest {
             to: addressToBytes32(address(miniStaking)),
             redeem: false,
             amount: 1_000 * 1e18,
-            maxFee: 1 * 1e18,
             from: addressToBytes32(address(this)),
             data: stakeCalldata
         });
@@ -357,7 +350,6 @@ contract TokenGatewayTest is BaseTest {
             to: addressToBytes32(address(this)),
             redeem: false,
             amount: 1_000 * 1e18,
-            maxFee: 1 * 1e18,
             from: addressToBytes32(address(this))
         });
         vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
@@ -383,7 +375,6 @@ contract TokenGatewayTest is BaseTest {
             to: addressToBytes32(address(this)),
             redeem: false,
             amount: 1_000 * 1e18,
-            maxFee: 1 * 1e18,
             from: addressToBytes32(address(this))
         });
         vm.startPrank(address(host));
@@ -403,182 +394,6 @@ contract TokenGatewayTest is BaseTest {
                 relayer: address(0)
             })
         );
-    }
-
-    function testHandleIncomingAssetWithSwap() public {
-        // Adding new Asset to the gateway
-        AssetMetadata memory asset = AssetMetadata({
-            erc20: address(hyperInu),
-            erc6160: address(hyperInu_h),
-            name: "HyperInu",
-            symbol: "HINU.h",
-            beneficiary: address(0),
-            initialSupply: 0
-        });
-
-        bytes memory hyperbridge = StateMachine.kusama(2000);
-
-        // relayer fee + per-byte fee
-        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
-        feeToken.mint(address(this), 1_000 * 1e18 + messagingFee);
-
-        vm.prank(address(host));
-        gateway.onAccept(
-            IncomingPostRequest({
-                request: PostRequest({
-                    to: abi.encodePacked(address(0)),
-                    from: abi.encodePacked(address(gateway)),
-                    dest: new bytes(0),
-                    body: bytes.concat(hex"02", abi.encode(asset)),
-                    nonce: 0,
-                    source: hyperbridge,
-                    timeoutTimestamp: 0
-                }),
-                relayer: address(0)
-            })
-        );
-
-        address user_vault = address(1);
-        address relayer_address = address(tx.origin);
-
-        hyperInu.mint(relayer_address, 1_000 * 1e18);
-        hyperInu.superApprove(relayer_address, address(gateway));
-        uint256 liquidityFee = 3 * 1e18; // 0.3% of the total amount (997000000000000000000)
-
-        Body memory body = Body({
-            assetId: keccak256("HINU.h"),
-            to: addressToBytes32(user_vault),
-            redeem: false,
-            amount: 1_000 * 1e18,
-            maxFee: liquidityFee,
-            from: addressToBytes32(address(this))
-        });
-
-        uint256 relayerBalanceBefore = hyperInu_h.balanceOf(relayer_address);
-
-        PostRequest memory request = PostRequest({
-            to: abi.encodePacked(address(0)),
-            from: abi.encodePacked(address(gateway)),
-            dest: host.host(),
-            body: bytes.concat(hex"00", abi.encode(body)),
-            nonce: 0,
-            source: new bytes(0),
-            timeoutTimestamp: 0
-        });
-
-        vm.prank(address(relayer_address));
-        gateway.bid(request, liquidityFee);
-
-        // hitting the gateway with the incoming asset
-        vm.prank(address(host));
-        gateway.onAccept(IncomingPostRequest({request: request, relayer: relayer_address}));
-
-        uint256 relayerBalanceAfter = hyperInu_h.balanceOf(relayer_address);
-
-        assert(hyperInu.balanceOf(user_vault) == 1_000 * 1e18 - liquidityFee); // user should have the ERC20 token - fee
-        assert((relayerBalanceAfter - relayerBalanceBefore) == 1_000 * 1e18); // relayer should have the ERC6160 token
-    }
-
-    function testBidInvariants() public {
-        // create the asset
-        testHandleIncomingAssetWithSwap();
-
-        Body memory body = Body({
-            assetId: keccak256("HINU.h"),
-            to: addressToBytes32(address(this)),
-            redeem: false,
-            maxFee: 1e18,
-            amount: 1_000 * 1e18,
-            from: addressToBytes32(address(this))
-        });
-
-        PostRequest memory request = PostRequest({
-            to: abi.encodePacked(address(0)),
-            from: abi.encodePacked(address(0)),
-            dest: new bytes(0),
-            body: bytes.concat(hex"00", abi.encode(body)),
-            nonce: 0,
-            source: new bytes(0),
-            timeoutTimestamp: 0
-        });
-
-        vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
-        gateway.bid(request, 1e18);
-
-        request.from = abi.encodePacked(address(gateway));
-        vm.expectRevert(TokenGateway.UnauthorizedAction.selector);
-        gateway.bid(request, 1e18);
-
-        request.dest = host.host();
-        vm.expectRevert(TokenGateway.BidTooHigh.selector);
-        gateway.bid(request, 10e18);
-
-        // ok bid for real this time
-        hyperInu.mint(address(this), 1_000 * 1e18);
-        hyperInu.superApprove(address(this), address(gateway));
-        gateway.bid(request, 1e18);
-
-        // can't usurp bids with the same price
-        vm.expectRevert(TokenGateway.BidTooHigh.selector);
-        gateway.bid(request, 1e18);
-
-        // usurp bid with less
-        hyperInu.mint(address(11111), 1_000 * 1e18);
-        hyperInu.superApprove(address(11111), address(gateway));
-        vm.prank(address(11111));
-        gateway.bid(request, 9e17);
-
-        // bid refunded
-        assert(hyperInu.balanceOf(address(this)) == 1_000 * 1e18);
-        assert(hyperInu.balanceOf(address(11111)) == 9e17);
-    }
-
-    function testRefundBid() public {
-        // create the asset
-        testHandleIncomingAssetWithSwap();
-
-        Body memory body = Body({
-            assetId: keccak256("HINU.h"),
-            to: addressToBytes32(address(this)),
-            redeem: false,
-            maxFee: 1e18,
-            amount: 1_000 * 1e18,
-            from: addressToBytes32(address(this))
-        });
-
-        PostRequest memory request = PostRequest({
-            to: abi.encodePacked(address(gateway)),
-            from: abi.encodePacked(address(gateway)),
-            dest: host.host(),
-            body: bytes.concat(hex"00", abi.encode(body)),
-            nonce: 0,
-            source: new bytes(0),
-            timeoutTimestamp: 1_000
-        });
-
-        hyperInu.mint(address(this), 1_000 * 1e18);
-        hyperInu.superApprove(address(this), address(gateway));
-        gateway.bid(request, 1e18);
-        assert(hyperInu.balanceOf(address(this)) == 1e18);
-
-        vm.expectRevert(TokenGateway.RequestNotTimedOut.selector);
-        gateway.refundBid(request);
-
-        // advance the time so that refunds can pass
-        vm.warp(1_001);
-        gateway.refundBid(request);
-        assert(hyperInu.balanceOf(address(this)) == 1_000 * 1e18);
-
-        // bid again and dispatch the request
-        vm.warp(1);
-        gateway.bid(request, 1e18);
-        vm.prank(address(handler));
-        host.dispatchIncoming(request, address(1111111));
-
-        // then try to ask for a refund
-        vm.warp(1_001);
-        vm.expectRevert(TokenGateway.RequestAlreadyFulfilled.selector);
-        gateway.refundBid(request);
     }
 
     function testCanModifyProtocolParams() public {
@@ -669,7 +484,6 @@ contract TokenGatewayTest is BaseTest {
             assetId: keccak256("USD.h"),
             to: addressToBytes32(address(this)),
             redeem: false,
-            maxFee: 0,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this))
         });

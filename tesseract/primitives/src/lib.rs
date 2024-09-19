@@ -182,7 +182,7 @@ impl Keccak256 for Hasher {
 }
 
 #[async_trait::async_trait]
-pub trait IsmpProvider: Send + Sync {
+pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// Query the latest consensus state of a client
 	async fn query_consensus_state(
 		&self,
@@ -370,7 +370,7 @@ pub trait ByzantineHandler {
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
-pub trait IsmpHost: ByzantineHandler + Send + Sync {
+pub trait IsmpHost: Send + Sync {
 	/// Begin the task of submitting [`ConsensusMessage`](ismp::messaging::ConsensusMessage) to the
 	/// counterparty chain. Implementations are free to submit these messages however frequently
 	/// they like. This method should never return unless it encounters an unrecoverable error, in

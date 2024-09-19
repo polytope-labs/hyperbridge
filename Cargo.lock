@@ -1242,6 +1242,7 @@ dependencies = [
  "derive_more",
  "frame-support 37.0.0",
  "hex",
+ "hex-literal 0.4.1",
  "mmr-rpc",
  "pallet-beefy-mmr",
  "parity-scale-codec",
@@ -6092,12 +6093,14 @@ dependencies = [
  "orml-traits",
  "orml-xcm-support",
  "pallet-asset-gateway",
+ "pallet-asset-rate",
  "pallet-assets",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
  "pallet-call-decompressor",
  "pallet-collator-selection",
+ "pallet-collective",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
@@ -6113,6 +6116,7 @@ dependencies = [
  "pallet-token-governor",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-treasury",
  "pallet-utility",
  "pallet-xcm",
  "parachains-common",
@@ -7155,7 +7159,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -10055,12 +10059,14 @@ dependencies = [
  "orml-traits",
  "orml-xcm-support",
  "pallet-asset-gateway",
+ "pallet-asset-rate",
  "pallet-assets",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
  "pallet-call-decompressor",
  "pallet-collator-selection",
+ "pallet-collective",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
@@ -10075,6 +10081,7 @@ dependencies = [
  "pallet-token-governor",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-treasury",
  "pallet-xcm",
  "parachains-common",
  "parity-scale-codec",
@@ -11013,12 +11020,14 @@ dependencies = [
  "orml-traits",
  "orml-xcm-support",
  "pallet-asset-gateway",
+ "pallet-asset-rate",
  "pallet-assets",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
  "pallet-call-decompressor",
  "pallet-collator-selection",
+ "pallet-collective",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
@@ -11033,6 +11042,7 @@ dependencies = [
  "pallet-token-governor",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-treasury",
  "pallet-utility",
  "pallet-xcm",
  "parachains-common",
@@ -23650,7 +23660,7 @@ checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
 name = "tesseract"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -23679,6 +23689,7 @@ dependencies = [
  "telemetry-server",
  "tesseract-config",
  "tesseract-evm",
+ "tesseract-fisherman",
  "tesseract-messaging",
  "tesseract-primitives",
  "tesseract-substrate",
@@ -23758,6 +23769,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesseract-fisherman"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "sc-service 0.45.0",
+ "sp-core 34.0.0",
+ "tesseract-primitives",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "tesseract-integration-test"
 version = "0.1.0"
 dependencies = [
@@ -23768,6 +23795,7 @@ dependencies = [
  "log",
  "pallet-hyperbridge",
  "pallet-ismp",
+ "pallet-ismp-demo",
  "pallet-ismp-host-executive",
  "percentage",
  "sc-consensus-manual-seal",

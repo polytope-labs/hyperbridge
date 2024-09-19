@@ -13,6 +13,7 @@ arbitrum-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
 base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 polygon-mumbai = "${POLYGON_MUMBAI_RPC_URL}"
 bsc-testnet = "${BSC_TESTNET_RPC_URL}"
+chiado = "${CHIADO_RPC_URL}"
 
 [etherscan]
 # testnet
@@ -22,5 +23,6 @@ arbitrum-sepolia = { key = "${ARBITRUM_ETHERSCAN_API_KEY}", chain = 421614, url 
 base-sepolia = { key = "${BASE_ETHERSCAN_API_KEY}", chain = 84532, url = "https://api-sepolia.basescan.org/api" }
 polygon-mumbai = { key = "${POLYGON_ETHERSCAN_API_KEY}", chain = 80001, url = "https://api-testnet.polygonscan.com/api" }
 bsc-testnet = { key = "${BSC_ETHERSCAN_API_KEY}", chain = 97, url = "https://api-testnet.bscscan.com/api" }
+chiado = { key = "${GNOSIS_BLOCKSCOUT_API_KEY}", chain = 10200, url = "https://gnosis-chiado.blockscout.com/api" }
 
 # mainnet

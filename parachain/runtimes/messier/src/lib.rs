@@ -27,6 +27,7 @@ mod ismp;
 mod weights;
 pub mod xcm;
 
+use alloc::sync::Arc;
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
@@ -67,7 +68,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot,
+	EnsureRoot, EnsureRootWithSuccess,
 };
 use pallet_ismp::mmr::{Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -306,8 +307,16 @@ parameter_types! {
 // Configure FRAME pallets to include in runtime.
 
 use ::ismp::host::StateMachine;
-use frame_support::derive_impl;
+use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_asset_rate::AssetKindFactory;
+use pallet_collective::PrimeDefaultVote;
 use pallet_ismp::mmr::Leaf;
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_treasury::ArgumentsFactory;
+use sp_core::crypto::{AccountId32, FromEntropy};
+use sp_runtime::traits::IdentityLookup;
+use staging_xcm::latest::{Junction, Junctions::X1, Location};
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
@@ -558,6 +567,96 @@ impl pallet_mmr::Config for Runtime {
 	type ForkIdentifierProvider = Ismp;
 }
 
+parameter_types! {
+	pub const SpendingPeriod: BlockNumber = 6 * DAYS;
+	pub const TreasuryPalletId: PalletId = PalletId(*b"hb/trsry");
+	pub const PayoutPeriod: BlockNumber = 14 * DAYS;
+	pub const MaxBalance: Balance = Balance::max_value();
+	pub TreasuryAccount: AccountId = Treasury::account_id();
+	pub const TechnicalMotionDuration: BlockNumber = 5 * DAYS;
+	pub const TechnicalMaxProposals: u32 = 100;
+	pub const TechnicalMaxMembers: u32 = 10;
+	pub MaxCollectivesProposalWeight: Weight = Perbill::from_percent(50) * RuntimeBlockWeights::get().max_block;
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+pub struct TreasuryAssetFactory {}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
+where
+	A: From<Location>,
+	B: FromEntropy,
+{
+	fn create_asset_kind(seed: u32) -> A {
+		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
+			.into()
+	}
+
+	fn create_beneficiary(seed: [u8; 32]) -> B {
+		B::from_entropy(&mut seed.as_slice()).unwrap()
+	}
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl<A> AssetKindFactory<A> for TreasuryAssetFactory
+where
+	A: From<Location>,
+{
+	fn create_asset_kind(seed: u32) -> A {
+		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
+			.into()
+	}
+}
+
+/// A way to pay from treasury
+impl pallet_treasury::Config for Runtime {
+	type Currency = Balances;
+	type RejectOrigin = EnsureRoot<AccountId32>;
+	type RuntimeEvent = RuntimeEvent;
+	type SpendPeriod = SpendingPeriod;
+	type Burn = ();
+	type PalletId = TreasuryPalletId;
+	type BurnDestination = ();
+	type WeightInfo = ();
+	type SpendFunds = ();
+	type MaxApprovals = ConstU32<1>; // number of technical collectives
+	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
+	type AssetKind = Location;
+	type Beneficiary = AccountId32;
+	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
+	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
+	type BalanceConverter = AssetRate;
+	type PayoutPeriod = PayoutPeriod;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = TreasuryAssetFactory;
+}
+
+impl pallet_asset_rate::Config for Runtime {
+	type WeightInfo = ();
+	type RuntimeEvent = RuntimeEvent;
+	type CreateOrigin = EnsureRoot<AccountId32>;
+	type RemoveOrigin = EnsureRoot<AccountId32>;
+	type UpdateOrigin = EnsureRoot<AccountId32>;
+	type Currency = Balances;
+	type AssetKind = Location;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = TreasuryAssetFactory;
+}
+
+impl pallet_collective::Config for Runtime {
+	type RuntimeOrigin = RuntimeOrigin;
+	type Proposal = RuntimeCall;
+	type RuntimeEvent = RuntimeEvent;
+	type MotionDuration = TechnicalMotionDuration;
+	type MaxProposals = TechnicalMaxProposals;
+	type MaxMembers = TechnicalMaxMembers;
+	type DefaultVote = PrimeDefaultVote;
+	type WeightInfo = ();
+	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
+	type MaxProposalWeight = MaxCollectivesProposalWeight;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime
@@ -571,6 +670,8 @@ construct_runtime!(
 		// Monetary stuff.
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 10,
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>} = 11,
+		Treasury: pallet_treasury = 12,
+		AssetRate: pallet_asset_rate = 13,
 
 		// Collator support. The order of these 4 are important and shall not change.
 		Authorship: pallet_authorship::{Pallet, Storage} = 20,
@@ -601,6 +702,9 @@ construct_runtime!(
 		Gateway: pallet_asset_gateway = 45,
 		Assets: pallet_assets = 46,
 		TokenGovernor: pallet_token_governor = 47,
+
+		// Governance
+		TechnicalCollective: pallet_collective = 60
 	}
 );
 

@@ -13,6 +13,7 @@ import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
+import "../src/hosts/Gnosis.sol";
 
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
@@ -87,10 +88,6 @@ contract DeployScript is BaseScript {
         // set the host address on the host manager
         manager.setIsmpHost(hostAddress);
 
-        // deploy the ping module as well
-        PingModule module = new PingModule{salt: salt}(admin);
-        module.setIsmpHost(hostAddress);
-
         // deploy the call dispatcher
         CallDispatcher dispatcher = new CallDispatcher{salt: salt}();
 
@@ -118,6 +115,9 @@ contract DeployScript is BaseScript {
         } else if (host.toSlice().startsWith("polygon".toSlice())) {
             PolygonHost h = new PolygonHost{salt: salt}(params);
             return address(h);
+        } else if (host.toSlice().startsWith("chiado".toSlice())) {
+            GnosisHost h = new GnosisHost{salt: salt}(params);
+            return address(h);
         }
 
         revert("Unknown host");
@@ -132,6 +132,10 @@ contract DeployScript is BaseScript {
         // and token faucet
         TokenFaucet faucet = new TokenFaucet{salt: salt}();
         feeToken.grantRole(MINTER_ROLE, address(faucet));
+
+        // deploy the ping module as well
+        PingModule module = new PingModule{salt: salt}(admin);
+        module.setIsmpHost(hostAddress, address(faucet));
 
         AssetMetadata[] memory assets = new AssetMetadata[](1);
         assets[0] = AssetMetadata({

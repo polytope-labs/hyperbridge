@@ -44,6 +44,9 @@ pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 pallet-message-queue = { workspace = true }
 pallet-utility = { workspace = true }
+pallet-treasury = { workspace = true}
+pallet-asset-rate = { workspace = true}
+pallet-collective = { workspace = true}
 
 sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
@@ -142,6 +145,9 @@ std = [
 	"pallet-ismp-runtime-api/std",
 	"pallet-ismp-demo/std",
 	"parachain-info/std",
+	"pallet-treasury/std",
+	"pallet-asset-rate/std",
+	"pallet-collective/std",
 	"polkadot-parachain-primitives/std",
 	"polkadot-runtime-common/std",
 	"sp-api/std",
@@ -193,6 +199,9 @@ runtime-benchmarks = [
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-xcm/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
+	"pallet-treasury/runtime-benchmarks",
+	"pallet-collective/runtime-benchmarks",
+	"pallet-asset-rate/runtime-benchmarks",
 	"staging-xcm-builder/runtime-benchmarks",
 	"pallet-utility/runtime-benchmarks",
 	"cumulus-pallet-session-benchmarking/runtime-benchmarks",

@@ -37,7 +37,7 @@ impl Config for Testnet {
 }
 
 impl Config for Mainnet {
-	const BOHR_FORK_TIMESTAMP: u64 = u64::MAX;
+	const BOHR_FORK_TIMESTAMP: u64 = 1727317200;
 }
 
 #[derive(Debug, Encode, Decode, Clone)]

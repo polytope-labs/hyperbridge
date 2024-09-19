@@ -75,7 +75,7 @@ pub async fn query_post_request_status_internal(
 	}
 
 	// Checking to see if the messaging has timed-out
-	if destination_current_timestamp.as_secs() >= post.timeout_timestamp {
+	if destination_current_timestamp.as_secs() >= post.timeout().as_secs() {
 		// request timed out before reaching the destination chain
 		return Ok(MessageStatusWithMetadata::Timeout);
 	}
@@ -87,7 +87,7 @@ pub async fn query_post_request_status_internal(
 		return Ok(MessageStatusWithMetadata::HyperbridgeDelivered { meta: Default::default() });
 	}
 
-	if hyperbridge_current_timestamp.as_secs() > post.timeout_timestamp {
+	if hyperbridge_current_timestamp.as_secs() > post.timeout().as_secs() {
 		// the request timed out before getting to hyper bridge
 		return Ok(MessageStatusWithMetadata::Timeout);
 	}
@@ -217,7 +217,7 @@ pub async fn post_request_status_stream(
 							)));
 						}
 
-						if destination_current_timestamp.as_secs() >= post.timeout_timestamp {
+						if destination_current_timestamp.as_secs() >= post.timeout().as_secs() {
 							// Checking to see if the message has timed-out
 							return Ok(Some((
 								Ok(MessageStatusWithMetadata::Timeout),
@@ -244,7 +244,7 @@ pub async fn post_request_status_stream(
 							)));
 						}
 
-						if hyperbridge_current_timestamp.as_secs() >= post.timeout_timestamp {
+						if hyperbridge_current_timestamp.as_secs() >= post.timeout().as_secs() {
 							// Checking to see if the message has timed-out
 							return Ok(Some((
 								Ok(MessageStatusWithMetadata::Timeout),
@@ -660,7 +660,7 @@ pub async fn timeout_post_request_stream(
 		let source_client = source_client.clone();
 		let req = Request::Post(post.clone());
 		let hash = hash_request::<Keccak256>(&req);
-
+		let post = post.clone();
 		async move {
 			let lambda = || async {
 				match state {
@@ -678,7 +678,7 @@ pub async fn timeout_post_request_stream(
 								})
 								.await?;
 
-							if state_commitment.timestamp > post.timeout_timestamp {
+							if state_commitment.timestamp > post.timeout().as_secs() {
 								// early return if the destination has already finalized the height
 								return Ok(Some((
 									Ok(TimeoutStatus::DestinationFinalized {
@@ -702,7 +702,7 @@ pub async fn timeout_post_request_stream(
 										let commitment = hyperbridge_client
 											.query_state_machine_commitment(state_machine_height)
 											.await?;
-										if commitment.timestamp > post.timeout_timestamp {
+										if commitment.timestamp > post.timeout().as_secs() {
 											valid_proof_height = Some(ev);
 											break;
 										}
@@ -813,7 +813,7 @@ pub async fn timeout_post_request_stream(
 									let commitment = source_client
 										.query_state_machine_commitment(state_machine_height)
 										.await?;
-									if commitment.timestamp > post.timeout_timestamp &&
+									if commitment.timestamp > post.timeout().as_secs() &&
 										ev.event.latest_height >= hyperbridge_height
 									{
 										valid_proof_height = Some(ev);

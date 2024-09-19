@@ -18,7 +18,7 @@ import "forge-std/Test.sol";
 import "../src/hosts/EvmHost.sol";
 
 import {BaseTest} from "./BaseTest.sol";
-import {Bytes} from "@polytope-labs/solidity-merkle-trees/trie/Bytes.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 

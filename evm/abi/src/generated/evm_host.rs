@@ -5649,63 +5649,6 @@ pub mod evm_host {
 		Hash,
 	)]
 	pub struct VetoesReturn(pub ::ethers::core::types::Address);
-	///`DispatchGet(bytes,uint64,bytes[],uint64,uint256,bytes)`
-	#[derive(
-		Clone,
-		::ethers::contract::EthAbiType,
-		::ethers::contract::EthAbiCodec,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	pub struct DispatchGet {
-		pub dest: ::ethers::core::types::Bytes,
-		pub height: u64,
-		pub keys: ::std::vec::Vec<::ethers::core::types::Bytes>,
-		pub timeout: u64,
-		pub fee: ::ethers::core::types::U256,
-		pub context: ::ethers::core::types::Bytes,
-	}
-	///`DispatchPost(bytes,bytes,bytes,uint64,uint256,address)`
-	#[derive(
-		Clone,
-		::ethers::contract::EthAbiType,
-		::ethers::contract::EthAbiCodec,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	pub struct DispatchPost {
-		pub dest: ::ethers::core::types::Bytes,
-		pub to: ::ethers::core::types::Bytes,
-		pub body: ::ethers::core::types::Bytes,
-		pub timeout: u64,
-		pub fee: ::ethers::core::types::U256,
-		pub payer: ::ethers::core::types::Address,
-	}
-	///`DispatchPostResponse((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,
-	/// address)`
-	#[derive(
-		Clone,
-		::ethers::contract::EthAbiType,
-		::ethers::contract::EthAbiCodec,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	pub struct DispatchPostResponse {
-		pub request: PostRequest,
-		pub response: ::ethers::core::types::Bytes,
-		pub timeout: u64,
-		pub fee: ::ethers::core::types::U256,
-		pub payer: ::ethers::core::types::Address,
-	}
 	///`FeeMetadata(uint256,address)`
 	#[derive(
 		Clone,

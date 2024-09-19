@@ -22,6 +22,7 @@ use crate::{
 use codec::Encode;
 use futures::stream::StreamExt;
 use pallet_ismp_demo::{EvmParams, GetRequest, TransferParams};
+use sp_core::H256;
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -42,6 +43,7 @@ where
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	pub fn latest_height(&self) -> u64 {
 		self.initial_height
@@ -50,14 +52,13 @@ where
 	pub async fn transfer(
 		&self,
 		params: TransferParams<C::AccountId, u128>,
-	) -> Result<(), anyhow::Error> {
+	) -> Result<C::Hash, anyhow::Error> {
 		let call = params.encode();
 		let tx = Extrinsic::new("IsmpDemo", "transfer", call);
 
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx).await?;
-
-		Ok(())
+		let tx_block_hash = send_extrinsic(&self.client, signer, tx).await?;
+		Ok(tx_block_hash)
 	}
 
 	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
@@ -69,13 +70,13 @@ where
 		Ok(())
 	}
 
-	pub async fn get_request(&self, get_req: GetRequest) -> Result<(), anyhow::Error> {
+	pub async fn get_request(&self, get_req: GetRequest) -> Result<C::Hash, anyhow::Error> {
 		let call = get_req.encode();
 		let tx = Extrinsic::new("IsmpDemo", "get_request", call);
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx).await?;
+		let tx_block_hash = send_extrinsic(&self.client, signer, tx).await?;
 
-		Ok(())
+		Ok(tx_block_hash)
 	}
 
 	pub async fn pallet_ismp_demo_events_stream(

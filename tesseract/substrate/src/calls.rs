@@ -20,7 +20,7 @@ use pallet_ismp_relayer::{
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
-	U256,
+	H256, U256,
 };
 use std::{collections::BTreeMap, sync::Arc};
 use subxt::{
@@ -61,6 +61,7 @@ where
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	pub async fn create_consensus_state(
 		&self,
@@ -104,6 +105,7 @@ where
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	async fn available_amount(
 		&self,
@@ -181,10 +183,7 @@ where
 					let condition =
 						post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
 					match post.dest {
-						StateMachine::Kusama(_) |
-						StateMachine::Polkadot(_) |
-						StateMachine::Grandpa(_) |
-						StateMachine::Beefy(_) => {
+						s if s.is_substrate() => {
 							if let Ok(decoded_data) = WithdrawalParams::decode(&mut &*post.body) {
 								decoded_data.beneficiary_address == counterparty.address() &&
 									condition
@@ -192,12 +191,12 @@ where
 								false
 							}
 						},
-						StateMachine::Evm(_) => {
+						s if s.is_evm() => {
 							let address = &post.body[1..33].to_vec();
 							// abi encoding will pad address with 12 bytes
 							address.ends_with(&counterparty.address()) && condition
 						},
-						StateMachine::Tendermint(_) => false,
+						_ => false,
 					}
 				},
 				_ => false,

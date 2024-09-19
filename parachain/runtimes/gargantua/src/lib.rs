@@ -26,7 +26,8 @@ extern crate alloc;
 mod ismp;
 mod weights;
 pub mod xcm;
-
+#[cfg(feature = "runtime-benchmarks")]
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
@@ -67,7 +68,7 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot,
+	EnsureRoot, EnsureRootWithSuccess,
 };
 
 use pallet_ismp::mmr::Proof;
@@ -88,10 +89,26 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use ::ismp::host::StateMachine;
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
-use frame_support::{derive_impl, traits::ConstBool};
-use pallet_ismp::mmr::{Leaf, ProofKeys};
-use sp_core::Get;
+use frame_support::{
+	derive_impl,
+	traits::{tokens::pay::PayAssetFromAccount, ConstBool},
+};
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_asset_rate::AssetKindFactory;
 
+use pallet_collective::PrimeDefaultVote;
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_treasury::ArgumentsFactory;
+
+use pallet_ismp::mmr::{Leaf, ProofKeys};
+use sp_core::{crypto::AccountId32, Get};
+use sp_runtime::traits::IdentityLookup;
+use staging_xcm::latest::Location;
+
+#[cfg(feature = "runtime-benchmarks")]
+use sp_core::crypto::FromEntropy;
+#[cfg(feature = "runtime-benchmarks")]
+use staging_xcm::latest::{Junction, Junctions::X1};
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
 
@@ -215,7 +232,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("gargantua"),
 	impl_name: create_runtime_str!("gargantua"),
 	authoring_version: 1,
-	spec_version: 700,
+	spec_version: 900,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -553,6 +570,95 @@ impl pallet_utility::Config for Runtime {
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
 }
 
+parameter_types! {
+	pub const SpendingPeriod: BlockNumber = 6 * DAYS;
+	pub const TreasuryPalletId: PalletId = PalletId(*b"hb/trsry");
+	pub const PayoutPeriod: BlockNumber = 14 * DAYS;
+	pub const MaxBalance: Balance = Balance::max_value();
+	pub TreasuryAccount: AccountId = Treasury::account_id();
+	pub const TechnicalMotionDuration: BlockNumber = 5 * DAYS;
+	pub const TechnicalMaxProposals: u32 = 100;
+	pub const TechnicalMaxMembers: u32 = 10;
+	pub MaxCollectivesProposalWeight: Weight = Perbill::from_percent(50) * RuntimeBlockWeights::get().max_block;
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+pub struct TreasuryAssetFactory {}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
+where
+	A: From<Location>,
+	B: FromEntropy,
+{
+	fn create_asset_kind(seed: u32) -> A {
+		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
+			.into()
+	}
+
+	fn create_beneficiary(seed: [u8; 32]) -> B {
+		B::from_entropy(&mut seed.as_slice()).unwrap()
+	}
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl<A> AssetKindFactory<A> for TreasuryAssetFactory
+where
+	A: From<Location>,
+{
+	fn create_asset_kind(seed: u32) -> A {
+		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
+			.into()
+	}
+}
+
+/// A way to pay from treasury
+impl pallet_treasury::Config for Runtime {
+	type Currency = Balances;
+	type RejectOrigin = EnsureRoot<AccountId32>;
+	type RuntimeEvent = RuntimeEvent;
+	type SpendPeriod = SpendingPeriod;
+	type Burn = ();
+	type PalletId = TreasuryPalletId;
+	type BurnDestination = ();
+	type WeightInfo = weights::pallet_treasury::WeightInfo<Runtime>;
+	type SpendFunds = ();
+	type MaxApprovals = ConstU32<1>; // number of technical collectives
+	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
+	type AssetKind = Location;
+	type Beneficiary = AccountId32;
+	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
+	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
+	type BalanceConverter = AssetRate;
+	type PayoutPeriod = PayoutPeriod;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = TreasuryAssetFactory;
+}
+
+impl pallet_asset_rate::Config for Runtime {
+	type WeightInfo = weights::pallet_asset_rate::WeightInfo<Runtime>;
+	type RuntimeEvent = RuntimeEvent;
+	type CreateOrigin = EnsureRoot<AccountId32>;
+	type RemoveOrigin = EnsureRoot<AccountId32>;
+	type UpdateOrigin = EnsureRoot<AccountId32>;
+	type Currency = Balances;
+	type AssetKind = Location;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkHelper = TreasuryAssetFactory;
+}
+
+impl pallet_collective::Config for Runtime {
+	type RuntimeOrigin = RuntimeOrigin;
+	type Proposal = RuntimeCall;
+	type RuntimeEvent = RuntimeEvent;
+	type MotionDuration = TechnicalMotionDuration;
+	type MaxProposals = TechnicalMaxProposals;
+	type MaxMembers = TechnicalMaxMembers;
+	type DefaultVote = PrimeDefaultVote;
+	type WeightInfo = weights::pallet_collective::WeightInfo<Runtime>;
+	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
+	type MaxProposalWeight = MaxCollectivesProposalWeight;
+}
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime
@@ -567,6 +673,8 @@ construct_runtime!(
 		// Monetary stuff.
 		Balances: pallet_balances = 10,
 		TransactionPayment: pallet_transaction_payment = 11,
+		Treasury: pallet_treasury = 12,
+		AssetRate: pallet_asset_rate = 13,
 
 		// Collator support. The order of these 4 are important and shall not change.
 		Authorship: pallet_authorship = 20,
@@ -599,6 +707,9 @@ construct_runtime!(
 		Assets: pallet_assets = 58,
 		TokenGovernor: pallet_token_governor = 59,
 		StateCoprocessor: pallet_state_coprocessor = 60,
+
+		// Governance
+		TechnicalCollective: pallet_collective = 80
 	}
 );
 
@@ -622,6 +733,9 @@ mod benches {
 		[pallet_sudo, Sudo]
 		[pallet_assets, Assets]
 		[pallet_utility, Utility]
+		[pallet_treasury, Treasury]
+		[pallet_asset_rate, AssetRate]
+		[pallet_collective, TechnicalCollective]
 		[cumulus_pallet_parachain_system, ParachainSystem]
 		[pallet_session, SessionBench::<Runtime>]
 	);

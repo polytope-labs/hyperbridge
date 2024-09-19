@@ -8,8 +8,8 @@ import "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import "@polytope-labs/ismp-solidity/StateMachine.sol";
 import "@polytope-labs/ismp-solidity/Message.sol";
 import "@polytope-labs/ismp-solidity/IDispatcher.sol";
-import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {StorageValue} from "@polytope-labs/solidity-merkle-trees/Types.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 
 struct PingMessage {
     bytes dest;
@@ -17,6 +17,11 @@ struct PingMessage {
     uint64 timeout;
     uint256 count;
     uint256 fee;
+}
+
+interface ITokenFaucet {
+    // drips the feeToken once per day
+    function drip(address) external;
 }
 
 contract PingModule is IIsmpModule {
@@ -59,7 +64,13 @@ contract PingModule is IIsmpModule {
         _admin = admin;
     }
 
-    function setIsmpHost(address hostAddr) public onlyAdmin {
+    function setIsmpHost(address hostAddr, address tokenFaucet) public onlyAdmin {
+        address feeToken = IIsmpHost(hostAddr).feeToken();
+        IERC20(feeToken).approve(hostAddr, type(uint256).max);
+        if (tokenFaucet != address(0)) {
+            ITokenFaucet(tokenFaucet).drip(feeToken);
+        }
+
         _host = hostAddr;
     }
 
@@ -79,7 +90,6 @@ contract PingModule is IIsmpModule {
         uint256 fee = perByteFee * length;
 
         IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
-        IERC20(feeToken).approve(_host, fee);
         DispatchPostResponse memory post = DispatchPostResponse({
             request: response.request,
             response: response.response,
@@ -93,12 +103,10 @@ contract PingModule is IIsmpModule {
     function dispatch(PostRequest memory request) public returns (bytes32) {
         uint256 perByteFee = IIsmpHost(_host).perByteFee();
         address feeToken = IIsmpHost(_host).feeToken();
-        uint256 length = 32 >  request.body.length ? 32 : request.body.length;
+        uint256 length = 32 > request.body.length ? 32 : request.body.length;
         uint256 fee = perByteFee * length;
 
         IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
-        IERC20(feeToken).approve(_host, fee);
-
         DispatchPost memory post = DispatchPost({
             body: request.body,
             dest: request.dest,
@@ -132,7 +140,6 @@ contract PingModule is IIsmpModule {
         uint256 fee = (pingMessage.fee + (perByteFee * length)) * pingMessage.count;
 
         IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
-        IERC20(feeToken).approve(_host, fee);
 
         for (uint256 i = 0; i < pingMessage.count; i++) {
             DispatchPost memory post = DispatchPost({

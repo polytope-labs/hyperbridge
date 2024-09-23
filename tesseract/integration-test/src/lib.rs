@@ -365,7 +365,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let key = hex::decode(encoded_chain_b_id_storage_key.strip_prefix("0x").unwrap()).unwrap();
 
 	let latest_fetch_height = chain_a_sub_client
-		.state_machine_update_notification(chain_b_sub_client.state_machine_id())
+		.state_machine_update_notification(chain_b_sub_client.state_machine_id(), true)
 		.await?
 		.take(1)
 		.next()

@@ -67,6 +67,9 @@ pub struct SubstrateConfig {
 	pub max_concurent_queries: Option<u64>,
 }
 
+/// An mpsc producer for state machine updates
+pub type StateMachineUpdateProducer =
+	tokio::sync::broadcast::Sender<Result<StateMachineUpdated, StreamError>>;
 /// Core substrate client.
 pub struct SubstrateClient<C: subxt::Config> {
 	/// Subxt client for the substrate chain
@@ -86,11 +89,8 @@ pub struct SubstrateClient<C: subxt::Config> {
 	/// Max concurrent rpc requests allowed
 	max_concurent_queries: Option<u64>,
 	/// Producer for state machine updated stream
-	state_machine_update_sender: Arc<
-		tokio::sync::Mutex<
-			Option<tokio::sync::broadcast::Sender<Result<StateMachineUpdated, StreamError>>>,
-		>,
-	>,
+	state_machine_update_sender:
+		Arc<tokio::sync::Mutex<Option<(StateMachineUpdateProducer, StateMachineUpdateProducer)>>>,
 }
 
 impl<C> SubstrateClient<C>

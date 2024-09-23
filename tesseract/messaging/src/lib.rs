@@ -202,7 +202,7 @@ async fn handle_notification(
 	get_request_sender: Option<GetReqSender>,
 ) -> Result<(), anyhow::Error> {
 	let mut state_machine_update_stream = chain_a
-		.state_machine_update_notification(chain_b.state_machine_id())
+		.state_machine_update_notification(chain_b.state_machine_id(), true)
 		.await
 		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
 

@@ -183,6 +183,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
+		_wait_for_challenge_period: bool,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
 		todo!()
 	}

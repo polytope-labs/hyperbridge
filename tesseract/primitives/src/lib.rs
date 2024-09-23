@@ -290,6 +290,7 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
+		wait_for_challenge_period: bool,
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
 
 	/// Return a stream that watches for state machine commitment vetoes, starting at [`from`]
@@ -483,7 +484,7 @@ pub async fn wait_for_state_machine_update(
 		return Ok(latest_height);
 	}
 
-	let mut stream = hyperbridge.state_machine_update_notification(state_id).await?;
+	let mut stream = hyperbridge.state_machine_update_notification(state_id, true).await?;
 
 	while let Some(res) = stream.next().await {
 		match res {

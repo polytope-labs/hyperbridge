@@ -63,7 +63,7 @@ async fn handle_notification(
 	chain_b: Arc<dyn IsmpProvider>,
 ) -> Result<(), anyhow::Error> {
 	let mut state_machine_update_stream = chain_a
-		.state_machine_update_notification(chain_b.state_machine_id())
+		.state_machine_update_notification(chain_b.state_machine_id(), false)
 		.await
 		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
 

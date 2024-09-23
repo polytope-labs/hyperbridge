@@ -580,18 +580,21 @@ impl IsmpProvider for EvmClient {
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
+		observe_challenge_period: bool,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
 		use futures::StreamExt;
 		let mut mutex = self.state_machine_update_sender.lock().await;
 		let is_empty = mutex.is_none();
-		let (tx, recv) = if is_empty {
+		let (tx, recv, optimistic_tx, optimistic_recv) = if is_empty {
 			let (tx_og, recv) = tokio::sync::broadcast::channel(512);
-			*mutex = Some(tx_og.clone());
-			(tx_og, recv)
+			let (optimistic_tx_og, optimistic_recv) = tokio::sync::broadcast::channel(512);
+			*mutex = Some((tx_og.clone(), optimistic_tx_og.clone()));
+			(tx_og, recv, optimistic_tx_og, optimistic_recv)
 		} else {
-			let tx = mutex.as_ref().expect("Not empty").clone();
+			let (tx, optimistic_tx) = mutex.as_ref().expect("Not empty").clone();
 			let recv = tx.subscribe();
-			(tx, recv)
+			let optimistic_recv = optimistic_tx.subscribe();
+			(tx, recv, optimistic_tx, optimistic_recv)
 		};
 
 		if is_empty {
@@ -654,6 +657,11 @@ impl IsmpProvider for EvmClient {
 						.max_by(|a, b| a.latest_height.cmp(&b.latest_height));
 
 					if let Some(event) = event {
+						// Send update to optimistic receivers
+						if let Err(err) = optimistic_tx.send(Ok(event.clone())) {
+							log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
+							return
+						};
 						// We wait for the challenge period and see if the update will be vetoed before yielding
 						let commitment_height = StateMachineHeight { id: counterparty_state_id, height: event.latest_height };
 						let state_machine_update_time = match client.query_state_machine_update_time(commitment_height).await {
@@ -708,12 +716,14 @@ impl IsmpProvider for EvmClient {
 			}.boxed());
 		}
 
-		let stream = tokio_stream::wrappers::BroadcastStream::new(recv).filter_map(|res| async {
-			match res {
-				Ok(res) => Some(res),
-				Err(err) => Some(Err(anyhow!("{err:?}").into())),
-			}
-		});
+		let receiver = if observe_challenge_period { recv } else { optimistic_recv };
+		let stream =
+			tokio_stream::wrappers::BroadcastStream::new(receiver).filter_map(|res| async {
+				match res {
+					Ok(res) => Some(res),
+					Err(err) => Some(Err(anyhow!("{err:?}").into())),
+				}
+			});
 
 		Ok(Box::pin(stream))
 	}

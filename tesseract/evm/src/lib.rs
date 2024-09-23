@@ -114,6 +114,10 @@ impl Default for EvmConfig {
 	}
 }
 
+/// An mpsc producer for state machine updates
+pub type StateMachineUpdateProducer =
+	tokio::sync::broadcast::Sender<Result<StateMachineUpdated, StreamError>>;
+
 /// Core EVM client.
 pub struct EvmClient {
 	/// Execution Rpc client
@@ -135,11 +139,8 @@ pub struct EvmClient {
 	/// Client type
 	pub client_type: ClientType,
 	/// Producer for state machine updated stream
-	state_machine_update_sender: Arc<
-		tokio::sync::Mutex<
-			Option<tokio::sync::broadcast::Sender<Result<StateMachineUpdated, StreamError>>>,
-		>,
-	>,
+	state_machine_update_sender:
+		Arc<tokio::sync::Mutex<Option<(StateMachineUpdateProducer, StateMachineUpdateProducer)>>>,
 	/// Tx submission pipeline
 	queue: Option<Arc<PipelineQueue<Vec<Message>, anyhow::Result<Vec<TxReceipt>>>>>,
 }

@@ -6102,6 +6102,7 @@ dependencies = [
  "pallet-call-decompressor",
  "pallet-collator-selection",
  "pallet-collective",
+ "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",

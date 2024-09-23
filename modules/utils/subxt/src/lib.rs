@@ -365,13 +365,14 @@ pub mod signer {
 		client: &OnlineClient<T>,
 		signer: InMemorySigner<T>,
 		payload: Tx,
+		tip: Option<PlainTip>,
 	) -> Result<T::Hash, anyhow::Error>
 	where
 		<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
 			Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
 		T::Signature: From<MultiSignature> + Send + Sync,
 	{
-		let other_params = BaseExtrinsicParamsBuilder::new();
+		let other_params = BaseExtrinsicParamsBuilder::new().tip(tip.unwrap_or_default());
 		let ext = client.tx().create_signed(&payload, &signer, other_params.into()).await?;
 		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
 		let ext_hash = progress.extrinsic_hash();
@@ -441,4 +442,18 @@ pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {
 	let key_1 = twox_64(&state_machine.encode()).to_vec();
 
 	[pallet_prefix, storage_prefix, key_1, state_machine.encode()].concat()
+}
+
+pub fn fisherman_storage_key(address: Vec<u8>) -> Vec<u8> {
+	let address = {
+		let mut dest = [0u8; 32];
+		dest.copy_from_slice(&address);
+		dest
+	};
+	let pallet_prefix = twox_128(b"Fishermen").to_vec();
+
+	let storage_prefix = twox_128(b"Fishermen").to_vec();
+	let key_1 = twox_64(&address.encode()).to_vec();
+
+	[pallet_prefix, storage_prefix, key_1, address.encode()].concat()
 }

@@ -363,9 +363,17 @@ pub trait ByzantineHandler {
 	/// Check the state machine update event for byzantine behaviour and challenge it.
 	async fn check_for_byzantine_attack(
 		&self,
+		coprocessor: StateMachine,
 		counterparty: Arc<dyn IsmpProvider>,
 		challenge_event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error>;
+
+	/// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
+	/// [`Vec<StateMachineUpdated>`] event is observed for [`counterparty_state_id`]
+	async fn state_machine_updates(
+		&self,
+		counterparty_state_id: StateMachineId,
+	) -> Result<BoxStream<Vec<StateMachineUpdated>>, anyhow::Error>;
 }
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
@@ -455,9 +463,14 @@ pub async fn wait_for_challenge_period(
 	client: Arc<dyn IsmpProvider>,
 	last_consensus_update: Duration,
 	challenge_period: Duration,
+	counterparty_state_id: StateMachine,
 ) -> anyhow::Result<()> {
 	if challenge_period != Duration::ZERO {
-		log::info!("Waiting for challenge period {challenge_period:?}");
+		log::info!(
+			"Waiting for challenge period {challenge_period:?} for {} on {}",
+			counterparty_state_id,
+			client.name()
+		);
 	}
 
 	tokio::time::sleep(challenge_period).await;
@@ -509,6 +522,12 @@ pub async fn observe_challenge_period(
 	let challenge_period = hyperbridge.query_challenge_period(chain.state_machine_id()).await?;
 	let height = StateMachineHeight { id: chain.state_machine_id(), height };
 	let last_consensus_update = hyperbridge.query_state_machine_update_time(height).await?;
-	wait_for_challenge_period(hyperbridge, last_consensus_update, challenge_period).await?;
+	wait_for_challenge_period(
+		hyperbridge,
+		last_consensus_update,
+		challenge_period,
+		chain.state_machine_id().state_id,
+	)
+	.await?;
 	Ok(())
 }

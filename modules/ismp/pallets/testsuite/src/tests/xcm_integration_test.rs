@@ -86,7 +86,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		)
 		.encode_call_data(&client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-		send_extrinsic(&client, signer, tx).await?;
+		send_extrinsic(&client, signer, tx, None).await?;
 	}
 
 	let ext = Extrinsic::new(
@@ -102,7 +102,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.ok_or_else(|| anyhow!("Failed to fetch latest header"))?
 		.number();
 
-	send_extrinsic(&client, signer, ext).await?;
+	send_extrinsic(&client, signer, ext, None).await?;
 
 	let mut sub = para_client.rpc().subscribe_finalized_block_headers().await?;
 

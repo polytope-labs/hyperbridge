@@ -175,6 +175,10 @@ impl pallet_assets::Config for Runtime {
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
 		if request.dest != HostStateMachine::get() {
+			let token_gateway = Gateway::token_gateway_address(&request.dest);
+			if request.source.is_substrate() && request.from == token_gateway.0.to_vec() {
+				Err(Error::Custom("Illegal request!".into()))?
+			}
 			Ismp::dispatch_request(
 				Request::Post(request),
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },

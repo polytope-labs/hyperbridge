@@ -57,9 +57,17 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 	async fn check_for_byzantine_attack(
 		&self,
+		_coprocessor: StateMachine,
 		_counterparty: Arc<dyn IsmpProvider>,
 		_challenge_event: StateMachineUpdated,
 	) -> Result<(), Error> {
+		Err(anyhow!("No byzantine faults"))
+	}
+
+	async fn state_machine_updates(
+		&self,
+		_counterparty_state_id: StateMachineId,
+	) -> Result<BoxStream<Vec<StateMachineUpdated>>, anyhow::Error> {
 		Err(anyhow!("No byzantine faults"))
 	}
 }

@@ -149,7 +149,6 @@ fn should_process_on_accept_module_callback_correctly() {
 			},
 			asset_id: pallet_asset_gateway::Pallet::<Test>::dot_asset_id().0.into(),
 			redeem: false,
-			max_fee: Default::default(),
 			from: alloy_primitives::B256::from_slice(ALICE.as_slice()),
 			to: alloy_primitives::B256::from_slice(ALICE.as_slice()),
 		};
@@ -260,7 +259,6 @@ fn should_process_on_timeout_module_callback_correctly() {
 			},
 			asset_id: pallet_asset_gateway::Pallet::<Test>::dot_asset_id().0.into(),
 			redeem: false,
-			max_fee: Default::default(),
 			from: alloy_primitives::FixedBytes::<32>::from_slice(ALICE.as_slice()),
 			to: alloy_primitives::FixedBytes::<32>::from_slice(&[0u8; 32]),
 		};

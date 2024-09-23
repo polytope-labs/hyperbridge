@@ -234,7 +234,6 @@ where
 				convert_to_erc20(amount).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
-			max_fee: Default::default(),
 			asset_id,
 			redeem: false,
 			from: from.into(),
@@ -279,8 +278,6 @@ alloy_sol_macro::sol! {
 	struct Body {
 		// Amount of the asset to be sent
 		uint256 amount;
-		// Maximum amount to pay for liquidity fees
-		uint256 max_fee;
 		// The asset identifier
 		bytes32 asset_id;
 		// Flag to redeem the erc20 asset on the destination

@@ -112,7 +112,7 @@ impl pallet_ismp_demo::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
-	type IsmpDispatcher = Ismp;
+	type IsmpHost = Ismp;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {
@@ -130,6 +130,11 @@ impl pallet_call_decompressor::Config for Runtime {
 }
 
 impl ismp_parachain::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+}
+
+impl pallet_fishermen::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 }
@@ -193,6 +198,11 @@ impl pallet_assets::Config for Runtime {
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
 		if request.dest != HostStateMachine::get() {
+			let token_gateway = Gateway::token_gateway_address(&request.dest);
+			if request.source.is_substrate() && request.from == token_gateway.0.to_vec() {
+				Err(Error::Custom("Illegal request!".into()))?
+			}
+
 			Ismp::dispatch_request(
 				Request::Post(request),
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },

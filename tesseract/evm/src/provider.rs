@@ -676,7 +676,7 @@ impl IsmpProvider for EvmClient {
 						let provider = Arc::new(client.clone());
 						// Yield if the challenge period elapses and the state commitment is not vetoed
 						tokio::select! {
-							_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period) => {
+							_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period, counterparty_state_id.state_id) => {
 								match _res {
 									Ok(_) => {
 										if let Err(err) = tx.send(Ok(event.clone())) {

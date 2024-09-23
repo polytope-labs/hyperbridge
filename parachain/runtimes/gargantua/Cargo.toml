@@ -82,6 +82,7 @@ parachains-common = { workspace = true  }
 # local modules
 ismp = { workspace = true  }
 pallet-ismp = { workspace = true, features = ["unsigned"]  }
+pallet-fishermen = { workspace = true  }
 pallet-ismp-demo = { workspace = true  }
 pallet-ismp-runtime-api = { workspace = true  }
 ismp-sync-committee = { workspace = true  }
@@ -135,6 +136,7 @@ std = [
 	"pallet-transaction-payment/std",
 	"pallet-xcm/std",
 	"pallet-treasury/std",
+	"pallet-fishermen/std",
 	"pallet-asset-rate/std",
 	"pallet-collective/std",
 	"pallet-ismp/std",

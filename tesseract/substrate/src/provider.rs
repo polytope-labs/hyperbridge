@@ -55,7 +55,10 @@ use subxt::{
 	tx::TxPayload,
 };
 
-use subxt_utils::{host_params_storage_key, send_extrinsic, state_machine_update_time_storage_key};
+use subxt_utils::{
+	fisherman_storage_key, host_params_storage_key, send_extrinsic,
+	state_machine_update_time_storage_key,
+};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query,
 	StateMachineUpdated, StateProofQueryType, TxReceipt,
@@ -601,7 +604,7 @@ where
 
 							let provider = Arc::new(client.clone());
 							tokio::select! {
-								_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period) => {
+								_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period, counterparty_state_id.state_id) => {
 									match _res {
 										Ok(_) => {
 											if let Err(err) = tx.send(Ok(event.clone())) {
@@ -617,7 +620,7 @@ where
 								_res = state_commitment_vetoed_stream.next() => {
 									match _res {
 										Some(Ok(_)) => {
-											log::error!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
+											log::info!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
 										}
 										_ => {
 											log::error!(target: "tesseract", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
@@ -762,6 +765,12 @@ where
 	}
 
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+		let key = fisherman_storage_key(self.address());
+		let raw_params = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
+		if raw_params.is_none() {
+			return Ok(())
+		}
+
 		let signer = InMemorySigner {
 			account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
 			signer: self.signer.clone(),
@@ -769,7 +778,7 @@ where
 
 		let call = height.encode();
 		let call = Extrinsic::new("Fishermen", "veto_state_commitment", call);
-		send_extrinsic(&self.client, signer, call).await?;
+		send_extrinsic(&self.client, signer, call, Some(PlainTip::new(100))).await?;
 		Ok(())
 	}
 

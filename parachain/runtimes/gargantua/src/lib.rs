@@ -232,7 +232,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("gargantua"),
 	impl_name: create_runtime_str!("gargantua"),
 	authoring_version: 1,
-	spec_version: 900,
+	spec_version: 1130,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -707,6 +707,7 @@ construct_runtime!(
 		Assets: pallet_assets = 58,
 		TokenGovernor: pallet_token_governor = 59,
 		StateCoprocessor: pallet_state_coprocessor = 60,
+		Fishermen: pallet_fishermen = 61,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,

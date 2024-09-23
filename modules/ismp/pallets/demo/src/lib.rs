@@ -51,8 +51,9 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
+		consensus::{StateCommitment, StateMachineHeight},
 		dispatcher::{DispatchGet, DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
-		host::StateMachine,
+		host::{IsmpHost, StateMachine},
 	};
 
 	#[pallet::pallet]
@@ -70,7 +71,8 @@ pub mod pallet {
 		/// Native currency implementation
 		type NativeCurrency: Mutate<Self::AccountId>;
 		/// Ismp message disptacher
-		type IsmpDispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = <Self as Config>::Balance>
+		type IsmpHost: IsmpHost
+			+ IsmpDispatcher<Account = Self::AccountId, Balance = <Self as Config>::Balance>
 			+ Default;
 	}
 
@@ -162,7 +164,7 @@ pub mod pallet {
 			};
 
 			// dispatch the request
-			let dispatcher = T::IsmpDispatcher::default();
+			let dispatcher = T::IsmpHost::default();
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(post),
@@ -202,7 +204,7 @@ pub mod pallet {
 				context: Default::default(),
 			};
 
-			let dispatcher = T::IsmpDispatcher::default();
+			let dispatcher = T::IsmpHost::default();
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Get(get),
@@ -224,7 +226,7 @@ pub mod pallet {
 				timeout: params.timeout,
 				body: b"Hello from polkadot".to_vec(),
 			};
-			let dispatcher = T::IsmpDispatcher::default();
+			let dispatcher = T::IsmpHost::default();
 			for _ in 0..params.count {
 				// dispatch the request
 				dispatcher
@@ -234,6 +236,30 @@ pub mod pallet {
 					)
 					.map_err(|_| Error::<T>::TransferFailed)?;
 			}
+			Ok(())
+		}
+
+		/// Insert an unverified state commitment into the host, this is for testing purposes only.
+		#[pallet::weight(Weight::from_parts(1_000_000, 0))]
+		#[pallet::call_index(3)]
+		pub fn set_state_commitment(
+			origin: OriginFor<T>,
+			height: StateMachineHeight,
+			commitment: StateCommitment,
+		) -> DispatchResult {
+			use ismp::events::{Event, StateMachineUpdated};
+			ensure_root(origin)?;
+			let host = T::IsmpHost::default();
+
+			// shouldn't return an error
+			host.store_state_machine_commitment(height, commitment).unwrap();
+			host.store_state_machine_update_time(height, host.timestamp()).unwrap();
+
+			// deposit the event
+			pallet_ismp::Pallet::<T>::deposit_pallet_event(Event::StateMachineUpdated(
+				StateMachineUpdated { state_machine_id: height.id, latest_height: height.height },
+			));
+
 			Ok(())
 		}
 	}

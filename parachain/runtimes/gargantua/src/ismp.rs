@@ -112,7 +112,7 @@ impl pallet_ismp_demo::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
-	type IsmpDispatcher = Ismp;
+	type IsmpHost = Ismp;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {

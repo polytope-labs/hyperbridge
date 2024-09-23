@@ -23801,6 +23801,7 @@ dependencies = [
  "serde",
  "serde-hex-utils",
  "sp-core 34.0.0",
+ "sp-runtime 39.0.0",
  "substrate-state-machine",
  "subxt",
  "subxt-utils",

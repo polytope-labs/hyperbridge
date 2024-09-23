@@ -33,6 +33,7 @@ substrate-state-machine = { workspace = true, default-features = true }
 pallet-hyperbridge = { workspace = true, default-features = true }
 serde-hex-utils = { workspace = true, default-features = false }
 pallet-state-coprocessor = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
 
 [features]
 testing = []

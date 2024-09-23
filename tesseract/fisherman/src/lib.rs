@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use futures::StreamExt;
+use ismp::host::StateMachine;
 use sc_service::TaskManager;
 use tesseract_primitives::IsmpProvider;
 
@@ -26,16 +27,18 @@ pub async fn fish(
 	chain_a: Arc<dyn IsmpProvider>,
 	chain_b: Arc<dyn IsmpProvider>,
 	task_manager: &TaskManager,
+	coprocessor: StateMachine,
 ) -> Result<(), anyhow::Error> {
 	{
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
+		let coprocessor = coprocessor.clone();
 		let name = format!("fisherman-{}-{}", chain_a.name(), chain_b.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
 			Box::leak(Box::new(name.clone())),
 			"fisherman",
 			async move {
-				let res = handle_notification(chain_a, chain_b).await;
+				let res = handle_notification(chain_a, chain_b, coprocessor).await;
 				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
 			},
 		)
@@ -44,12 +47,13 @@ pub async fn fish(
 	{
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
+		let coprocessor = coprocessor.clone();
 		let name = format!("fisherman-{}-{}", chain_b.name(), chain_a.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
 			Box::leak(Box::new(name.clone())),
 			"fisherman",
 			async move {
-				let res = handle_notification(chain_b, chain_a).await;
+				let res = handle_notification(chain_b, chain_a, coprocessor).await;
 				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
 			},
 		)
@@ -61,6 +65,7 @@ pub async fn fish(
 async fn handle_notification(
 	chain_a: Arc<dyn IsmpProvider>,
 	chain_b: Arc<dyn IsmpProvider>,
+	coprocessor: StateMachine,
 ) -> Result<(), anyhow::Error> {
 	let mut state_machine_update_stream = chain_a
 		.state_machine_update_notification(chain_b.state_machine_id(), false)
@@ -70,8 +75,9 @@ async fn handle_notification(
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
 			Ok(state_machine_update) => {
-				let res =
-					chain_b.check_for_byzantine_attack(chain_a.clone(), state_machine_update).await;
+				let res = chain_b
+					.check_for_byzantine_attack(coprocessor, chain_a.clone(), state_machine_update)
+					.await;
 				if let Err(err) = res {
 					log::error!("Failed to check for byzantine behavior: {err:?}")
 				}

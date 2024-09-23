@@ -1,6 +1,7 @@
 use crate::{
-	BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost, IsmpProvider,
-	Query, Signature, StateMachineUpdated, StateProofQueryType, TxReceipt, WithdrawFundsResult,
+	config::RelayerConfig, BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim,
+	IsmpHost, IsmpProvider, Query, Signature, StateMachineUpdated, StateProofQueryType, TxReceipt,
+	WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use ismp::{
@@ -57,6 +58,7 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 	async fn check_for_byzantine_attack(
 		&self,
+		_coprocessor: StateMachine,
 		_counterparty: Arc<dyn IsmpProvider>,
 		_challenge_event: StateMachineUpdated,
 	) -> Result<(), Error> {

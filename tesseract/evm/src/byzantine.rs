@@ -4,6 +4,7 @@ use ethers::providers::Middleware;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	events::StateMachineUpdated,
+	host::StateMachine,
 };
 use tesseract_primitives::{ByzantineHandler, IsmpProvider};
 
@@ -13,6 +14,7 @@ use crate::EvmClient;
 impl ByzantineHandler for EvmClient {
 	async fn check_for_byzantine_attack(
 		&self,
+		_coprocessor: StateMachine,
 		counterparty: Arc<dyn IsmpProvider>,
 		event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error> {

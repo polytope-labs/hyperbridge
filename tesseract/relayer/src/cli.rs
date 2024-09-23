@@ -110,8 +110,19 @@ impl Cli {
 			.await?;
 
 			if relayer.fisherman.unwrap_or_default() {
-				tesseract_fisherman::fish(Arc::new(new_hyperbridge), client.clone(), &task_manager)
-					.await?
+				log::info!(
+					"💬 Initialized fisherman task for {}-{}",
+					new_hyperbridge.name(),
+					client.name()
+				);
+
+				tesseract_fisherman::fish(
+					Arc::new(new_hyperbridge),
+					client.clone(),
+					&task_manager,
+					coprocessor,
+				)
+				.await?
 			}
 
 			metadata.push((

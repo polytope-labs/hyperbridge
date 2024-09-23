@@ -364,6 +364,7 @@ pub trait ByzantineHandler {
 	/// Check the state machine update event for byzantine behaviour and challenge it.
 	async fn check_for_byzantine_attack(
 		&self,
+		coprocessor: StateMachine,
 		counterparty: Arc<dyn IsmpProvider>,
 		challenge_event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error>;

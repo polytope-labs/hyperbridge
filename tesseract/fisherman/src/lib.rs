@@ -59,16 +59,19 @@ async fn handle_notification(
 
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
-			Ok(state_machine_updates) => {
+			Ok(state_machine_updates) =>
 				for state_machine_update in state_machine_updates {
 					let res = chain_b
-					.check_for_byzantine_attack(coprocessor, chain_a.clone(), state_machine_update)
-					.await;
+						.check_for_byzantine_attack(
+							coprocessor,
+							chain_a.clone(),
+							state_machine_update,
+						)
+						.await;
 					if let Err(err) = res {
 						log::error!("Failed to check for byzantine behavior: {err:?}")
 					}
-				}
-			},
+				},
 			Err(e) => {
 				log::error!(target: "tesseract","Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
 			},

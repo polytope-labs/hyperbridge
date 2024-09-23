@@ -17,7 +17,7 @@ use subxt::{
 	},
 	ext::sp_runtime::{AccountId32, MultiSignature},
 };
-use subxt_utils::fisherman_storage_key;
+
 use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpProvider};
 
 use crate::SubstrateClient;
@@ -47,23 +47,19 @@ where
 			height: event.latest_height,
 		};
 
-		let key = fisherman_storage_key(self.address());
-		let raw_params = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
-		let is_fisherman = raw_params.is_some();
-
 		let Some(block_hash) =
 			self.client.rpc().block_hash(Some(event.latest_height.into())).await?
 		else {
 			// If block header is not found veto the state commitment
-			if is_fisherman {
-				log::info!(
-					"Vetoing state commitment for {} on {}: block header not found for {}",
-					self.state_machine_id().state_id,
-					counterparty.state_machine_id().state_id,
-					event.latest_height
-				);
-				counterparty.veto_state_commitment(height).await?;
-			}
+
+			log::info!(
+				"Vetoing state commitment for {} on {}: block header not found for {}",
+				self.state_machine_id().state_id,
+				counterparty.state_machine_id().state_id,
+				event.latest_height
+			);
+			counterparty.veto_state_commitment(height).await?;
+
 			return Ok(())
 		};
 		let header = self
@@ -88,14 +84,12 @@ where
 			counterparty.query_state_machine_commitment(height).await?;
 
 		if finalized_state_commitment.state_root != state_root.into() {
-			if is_fisherman {
-				log::info!(
-					"Vetoing state commitment for {} on {}, state commitment mismatch",
-					self.state_machine_id().state_id,
-					counterparty.state_machine_id().state_id
-				);
-				counterparty.veto_state_commitment(height).await?;
-			}
+			log::info!(
+				"Vetoing state commitment for {} on {}, state commitment mismatch",
+				self.state_machine_id().state_id,
+				counterparty.state_machine_id().state_id
+			);
+			counterparty.veto_state_commitment(height).await?;
 		}
 
 		Ok(())

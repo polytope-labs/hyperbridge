@@ -55,7 +55,10 @@ use subxt::{
 	tx::TxPayload,
 };
 
-use subxt_utils::{host_params_storage_key, send_extrinsic, state_machine_update_time_storage_key};
+use subxt_utils::{
+	fisherman_storage_key, host_params_storage_key, send_extrinsic,
+	state_machine_update_time_storage_key,
+};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query,
 	StateMachineUpdated, StateProofQueryType, TxReceipt,
@@ -762,6 +765,12 @@ where
 	}
 
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+		let key = fisherman_storage_key(self.address());
+		let raw_params = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
+		if raw_params.is_none() {
+			return Ok(())
+		}
+
 		let signer = InMemorySigner {
 			account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
 			signer: self.signer.clone(),

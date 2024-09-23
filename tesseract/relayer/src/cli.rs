@@ -110,12 +110,6 @@ impl Cli {
 			.await?;
 
 			if relayer.fisherman.unwrap_or_default() {
-				log::info!(
-					"💬 Initialized fisherman task for {}-{}",
-					new_hyperbridge.name(),
-					client.name()
-				);
-
 				tesseract_fisherman::fish(
 					Arc::new(new_hyperbridge),
 					client.clone(),

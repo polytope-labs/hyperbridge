@@ -601,7 +601,7 @@ where
 
 							let provider = Arc::new(client.clone());
 							tokio::select! {
-								_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period) => {
+								_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period, counterparty_state_id.state_id) => {
 									match _res {
 										Ok(_) => {
 											if let Err(err) = tx.send(Ok(event.clone())) {
@@ -617,7 +617,7 @@ where
 								_res = state_commitment_vetoed_stream.next() => {
 									match _res {
 										Some(Ok(_)) => {
-											log::error!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
+											log::info!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
 										}
 										_ => {
 											log::error!(target: "tesseract", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
@@ -769,7 +769,7 @@ where
 
 		let call = height.encode();
 		let call = Extrinsic::new("Fishermen", "veto_state_commitment", call);
-		send_extrinsic(&self.client, signer, call).await?;
+		send_extrinsic(&self.client, signer, call, Some(PlainTip::new(100))).await?;
 		Ok(())
 	}
 

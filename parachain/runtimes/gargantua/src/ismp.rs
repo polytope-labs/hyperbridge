@@ -134,6 +134,11 @@ impl ismp_parachain::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl pallet_fishermen::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+}
+
 // todo: set corrrect parameters
 parameter_types! {
 	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");

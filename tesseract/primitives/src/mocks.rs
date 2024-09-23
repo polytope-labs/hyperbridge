@@ -1,7 +1,6 @@
 use crate::{
-	config::RelayerConfig, BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim,
-	IsmpHost, IsmpProvider, Query, Signature, StateMachineUpdated, StateProofQueryType, TxReceipt,
-	WithdrawFundsResult,
+	BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost, IsmpProvider,
+	Query, Signature, StateMachineUpdated, StateProofQueryType, TxReceipt, WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use ismp::{
@@ -62,6 +61,13 @@ impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 		_counterparty: Arc<dyn IsmpProvider>,
 		_challenge_event: StateMachineUpdated,
 	) -> Result<(), Error> {
+		Err(anyhow!("No byzantine faults"))
+	}
+
+	async fn state_machine_updates(
+		&self,
+		_counterparty_state_id: StateMachineId,
+	) -> Result<BoxStream<Vec<StateMachineUpdated>>, anyhow::Error> {
 		Err(anyhow!("No byzantine faults"))
 	}
 }
@@ -185,7 +191,6 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
-		_wait_for_challenge_period: bool,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
 		todo!()
 	}

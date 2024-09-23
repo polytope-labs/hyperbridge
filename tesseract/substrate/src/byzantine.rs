@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
+use futures::FutureExt;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
-	events::StateMachineUpdated,
+	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 };
 use sp_core::H256;
@@ -12,11 +13,11 @@ use substrate_state_machine::fetch_overlay_root_and_timestamp;
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip,
-		substrate::SubstrateHeader, ExtrinsicParams,
+		substrate::SubstrateHeader, ExtrinsicParams, Header,
 	},
 	ext::sp_runtime::{AccountId32, MultiSignature},
 };
-use tesseract_primitives::{ByzantineHandler, IsmpProvider};
+use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpProvider};
 
 use crate::SubstrateClient;
 
@@ -89,5 +90,92 @@ where
 		}
 
 		Ok(())
+	}
+
+	async fn state_machine_updates(
+		&self,
+		counterparty_state_id: StateMachineId,
+	) -> Result<BoxStream<Vec<StateMachineUpdated>>, Error> {
+		use futures::StreamExt;
+		let client = self.clone();
+		let (tx, recv) = tokio::sync::broadcast::channel(512);
+		let latest_height = client.query_finalized_height().await?;
+
+		tokio::task::spawn(async move {
+				let mut latest_height = latest_height;
+				let state_machine = client.state_machine;
+				loop {
+					tokio::time::sleep(Duration::from_secs(3)).await;
+					let header = match client.client.rpc().header(None).await {
+						Ok(Some(header)) => header,
+						_ => {
+							if let Err(err) = tx
+								.send(Err(anyhow!(
+									"Error encountered while fetching finalized head"
+								).into()))
+							{
+								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								return
+							}
+							continue;
+						},
+					};
+
+					if header.number().into() <= latest_height {
+						continue;
+					}
+
+					let event = StateMachineUpdated {
+						state_machine_id: client.state_machine_id(),
+						latest_height: header.number().into(),
+					};
+
+					let events = match client.query_ismp_events(latest_height, event).await {
+						Ok(e) => e,
+						Err(err) => {
+							if let Err(err) = tx
+								.send(Err(anyhow!(
+									"Error encountered while querying ismp events {err:?}"
+								).into()))
+							{
+								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								return
+							}
+							latest_height = header.number().into();
+							continue;
+						},
+					};
+
+					let events = events
+						.into_iter()
+						.filter_map(|event| match event {
+							Event::StateMachineUpdated(e)
+								if e.state_machine_id == counterparty_state_id =>
+								Some(e),
+							_ => None,
+						})
+						.collect::<Vec<_>>();
+
+					if !events.is_empty() {
+						if let Err(err) = tx
+										.send(Ok(events))
+									{
+										log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+										return
+									}
+					}
+
+					latest_height = header.number().into();
+				}
+			}.boxed());
+
+		let stream = tokio_stream::wrappers::BroadcastStream::new(recv).filter_map(|res| async {
+			match res {
+				Ok(res) => Some(res),
+				Err(err) => Some(Err(anyhow!("{err:?}").into())),
+			}
+		});
+
+		Ok(Box::pin(stream))
 	}
 }

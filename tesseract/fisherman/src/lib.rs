@@ -68,20 +68,25 @@ async fn handle_notification(
 	coprocessor: StateMachine,
 ) -> Result<(), anyhow::Error> {
 	let mut state_machine_update_stream = chain_a
-		.state_machine_update_notification(chain_b.state_machine_id(), false)
+		.state_machine_updates(chain_b.state_machine_id())
 		.await
 		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
 
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
-			Ok(state_machine_update) => {
-				let res = chain_b
-					.check_for_byzantine_attack(coprocessor, chain_a.clone(), state_machine_update)
-					.await;
-				if let Err(err) = res {
-					log::error!("Failed to check for byzantine behavior: {err:?}")
-				}
-			},
+			Ok(state_machine_updates) =>
+				for state_machine_update in state_machine_updates {
+					let res = chain_b
+						.check_for_byzantine_attack(
+							coprocessor,
+							chain_a.clone(),
+							state_machine_update,
+						)
+						.await;
+					if let Err(err) = res {
+						log::error!("Failed to check for byzantine behavior: {err:?}")
+					}
+				},
 			Err(e) => {
 				log::error!(target: "tesseract","Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
 			},

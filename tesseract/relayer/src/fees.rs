@@ -396,7 +396,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 			result.block
 		);
 		let mut stream = dest_chain
-			.state_machine_update_notification(hyperbridge.state_machine_id(), true)
+			.state_machine_update_notification(hyperbridge.state_machine_id())
 			.await?;
 
 		latest_height = loop {

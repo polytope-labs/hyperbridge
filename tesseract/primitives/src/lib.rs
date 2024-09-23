@@ -290,7 +290,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
-		wait_for_challenge_period: bool,
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
 
 	/// Return a stream that watches for state machine commitment vetoes, starting at [`from`]
@@ -368,6 +367,13 @@ pub trait ByzantineHandler {
 		counterparty: Arc<dyn IsmpProvider>,
 		challenge_event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error>;
+
+	/// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
+	/// [`Vec<StateMachineUpdated>`] event is observed for [`counterparty_state_id`]
+	async fn state_machine_updates(
+		&self,
+		counterparty_state_id: StateMachineId,
+	) -> Result<BoxStream<Vec<StateMachineUpdated>>, anyhow::Error>;
 }
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
@@ -485,7 +491,7 @@ pub async fn wait_for_state_machine_update(
 		return Ok(latest_height);
 	}
 
-	let mut stream = hyperbridge.state_machine_update_notification(state_id, true).await?;
+	let mut stream = hyperbridge.state_machine_update_notification(state_id).await?;
 
 	while let Some(res) = stream.next().await {
 		match res {

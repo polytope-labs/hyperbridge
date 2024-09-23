@@ -491,22 +491,19 @@ where
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
-		observe_challenge_period: bool,
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		use futures::StreamExt;
 		let client = self.clone();
 		let mut mutex = self.state_machine_update_sender.lock().await;
 		let is_empty = mutex.is_none();
-		let (tx, recv, optimistic_tx, optimistic_recv) = if is_empty {
+		let (tx, recv) = if is_empty {
 			let (tx_og, recv) = tokio::sync::broadcast::channel(512);
-			let (optimistic_tx_og, optimistic_recv) = tokio::sync::broadcast::channel(512);
-			*mutex = Some((tx_og.clone(), optimistic_tx_og.clone()));
-			(tx_og, recv, optimistic_tx_og, optimistic_recv)
+			*mutex = Some(tx_og.clone());
+			(tx_og, recv)
 		} else {
-			let (tx, optimistic_tx) = mutex.as_ref().expect("Not empty").clone();
+			let tx = mutex.as_ref().expect("Not empty").clone();
 			let recv = tx.subscribe();
-			let optimistic_recv = optimistic_tx.subscribe();
-			(tx, recv, optimistic_tx, optimistic_recv)
+			(tx, recv)
 		};
 		let latest_height = client.query_finalized_height().await?;
 		let challenge_period = self.query_challenge_period(counterparty_state_id).await?;
@@ -517,29 +514,41 @@ where
 				let state_machine = client.state_machine;
 				loop {
 					tokio::time::sleep(Duration::from_secs(10)).await;
-					let header = match client.client.rpc().header(None).await {
-						Ok(Some(header)) => header,
-						_ => {
+					let header = match client.client.rpc().finalized_head().await {
+						Ok(hash) => match client.client.rpc().header(Some(hash)).await {
+							Ok(Some(header)) => header,
+							_ => {
+								if let Err(err) = tx
+									.send(Err(anyhow!(
+										"Error encountered while fetching finalized head"
+									).into()))
+								{
+									log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+									return
+								}
+								continue;
+							},
+						},
+						Err(err) => {
 							if let Err(err) = tx
 								.send(Err(anyhow!(
-									"Error encountered while fetching latest head"
+									"Error encountered while fetching finalized head: {err:?}"
 								).into()))
 							{
 								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							continue;
-						}
+						},
 					};
-					// Avoid reorgs by using a header that is 3 blocks behind
-					let header_number = header.number().into() - 3u64;
-					if header_number <= latest_height {
+
+					if header.number().into() <= latest_height {
 						continue;
 					}
 
 					let event = StateMachineUpdated {
 						state_machine_id: client.state_machine_id(),
-						latest_height: header_number,
+						latest_height: header.number().into(),
 					};
 
 					let events = match client.query_ismp_events(latest_height, event).await {
@@ -553,7 +562,7 @@ where
 								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
-							latest_height = header_number;
+							latest_height = header.number().into();
 							continue;
 						},
 					};
@@ -570,11 +579,6 @@ where
 
 					match event {
 						Some(event) => {
-							// Send update to optimistic receivers
-							if let Err(err) = optimistic_tx.send(Ok(event.clone())) {
-								log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
-								return
-							};
 							// We wait for the challenge period and see if the update will be vetoed before yielding
 							let commitment_height = StateMachineHeight { id: counterparty_state_id, height: event.latest_height };
 							let state_machine_update_time = match client.query_state_machine_update_time(commitment_height).await {
@@ -588,7 +592,7 @@ where
 										log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 										return
 									}
-									latest_height = header_number;
+									latest_height = header.number().into();
 									continue;
 								}
 							};
@@ -625,19 +629,17 @@ where
 						None => {},
 					};
 
-					latest_height = header_number;
+					latest_height = header.number().into();
 				}
 			}.boxed());
 		}
 
-		let receiver = if observe_challenge_period { recv } else { optimistic_recv };
-		let stream =
-			tokio_stream::wrappers::BroadcastStream::new(receiver).filter_map(|res| async {
-				match res {
-					Ok(res) => Some(res),
-					Err(err) => Some(Err(anyhow!("{err:?}").into())),
-				}
-			});
+		let stream = tokio_stream::wrappers::BroadcastStream::new(recv).filter_map(|res| async {
+			match res {
+				Ok(res) => Some(res),
+				Err(err) => Some(Err(anyhow!("{err:?}").into())),
+			}
+		});
 
 		Ok(Box::pin(stream))
 	}

@@ -159,7 +159,7 @@ where
 		let tx = Extrinsic::new("Relayer", "withdraw_fees", input_data.encode());
 		// Wait for finalization so we still get the correct block with the post request event even
 		// if a reorg happens
-		let hash = send_unsigned_extrinsic(&self.client, tx, true)
+		let (hash, _) = send_unsigned_extrinsic(&self.client, tx, true)
 			.await?
 			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
 		let block_number = self

@@ -142,6 +142,13 @@ impl TxReceipt {
 			TxReceipt::Response { height, .. } => *height,
 		}
 	}
+
+	pub fn source(&self) -> StateMachine {
+		match self {
+			TxReceipt::Request { query, .. } => query.source_chain,
+			TxReceipt::Response { query, .. } => query.source_chain,
+		}
+	}
 }
 
 /// A type that represents the location where state proof queries should be directed
@@ -489,10 +496,12 @@ pub async fn wait_for_challenge_period(
 pub async fn wait_for_state_machine_update(
 	state_id: StateMachineId,
 	hyperbridge: Arc<dyn IsmpProvider>,
+	counterparty: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<u64> {
 	let latest_height = hyperbridge.query_latest_height(state_id).await?.into();
 	if latest_height >= height {
+		observe_challenge_period(counterparty, hyperbridge, latest_height).await?;
 		return Ok(latest_height);
 	}
 

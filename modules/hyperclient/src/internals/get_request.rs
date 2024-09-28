@@ -35,7 +35,7 @@ pub async fn query_get_request_status(
 	let relayer = client.hyperbridge.query_request_receipt(commitment).await?;
 	if relayer != Default::default() {
 		// request has been handled by hyperbridge
-		return Ok(MessageStatusWithMetadata::HyperbridgeDelivered { meta: Default::default() })
+		return Ok(MessageStatusWithMetadata::HyperbridgeVerified { meta: Default::default() })
 	}
 
 	let timestamp = client.hyperbridge.latest_timestamp().await?.as_secs();
@@ -51,7 +51,7 @@ pub async fn query_get_request_status(
 pub async fn get_request_status_stream(
 	hyperclient: &HyperClient,
 	get: GetRequest,
-	tx_height: u64,
+	intial_state: MessageStatusStreamState,
 ) -> Result<BoxStream<MessageStatusWithMetadata>, anyhow::Error> {
 	let source_client = if get.source == hyperclient.dest.state_machine_id().state_id {
 		hyperclient.dest.clone()
@@ -64,14 +64,14 @@ pub async fn get_request_status_stream(
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
 	let commitment = hash_request::<Keccak256>(&Request::Get(get.clone()));
 
-	let stream = stream::unfold(MessageStatusStreamState::Pending, move |post_request_status| {
+	let stream = stream::unfold(intial_state, move |post_request_status| {
 		let hyperbridge_client = hyperbridge_client.clone();
 		let source_client = source_client.clone();
 
 		async move {
 			let lambda = || async {
 				match post_request_status {
-					MessageStatusStreamState::Pending => {
+					MessageStatusStreamState::Dispatched(tx_height) => {
 						// watch for the finalization of the get request
 						let mut update_stream = hyperbridge_client
 							.state_machine_update_notification(source_client.state_machine_id())
@@ -98,7 +98,7 @@ pub async fn get_request_status_stream(
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
-											MessageStatusStreamState::Pending,
+											MessageStatusStreamState::Dispatched(tx_height),
 											e
 										)),
 										post_request_status,
@@ -115,10 +115,10 @@ pub async fn get_request_status_stream(
 							match event {
 								Ok(event) => {
 									return Ok(Some((
-										Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
+										Ok(MessageStatusWithMetadata::HyperbridgeVerified {
 											meta: event.meta.clone(),
 										}),
-										MessageStatusStreamState::HyperbridgeDelivered(
+										MessageStatusStreamState::HyperbridgeVerified(
 											event.meta.block_number,
 										),
 									)));
@@ -130,7 +130,7 @@ pub async fn get_request_status_stream(
 						}
 						Ok(None)
 					},
-					MessageStatusStreamState::HyperbridgeDelivered(height) => {
+					MessageStatusStreamState::HyperbridgeVerified(height) => {
 						let mut stream = source_client
 							.state_machine_update_notification(
 								hyperbridge_client.state_machine_id(),
@@ -182,7 +182,7 @@ pub async fn get_request_status_stream(
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
-											MessageStatusStreamState::HyperbridgeDelivered(height),
+											MessageStatusStreamState::HyperbridgeVerified(height),
 											e
 										)),
 										post_request_status,

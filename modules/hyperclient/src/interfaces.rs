@@ -24,12 +24,26 @@ use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 use sp_core::bytes::{from_hex, FromHexError};
 
+#[derive(Clone, Eq, PartialEq, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum JsChainConfig {
+	Evm(JsEvmConfig),
+	Substrate(JsSubstrateConfig),
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
-pub struct JsChainConfig {
+pub struct JsEvmConfig {
 	pub rpc_url: String,
 	pub state_machine: String,
 	pub host_address: String,
 	pub consensus_state_id: String,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Deserialize, Serialize)]
+pub struct JsSubstrateConfig {
+	pub rpc_url: String,
+	pub consensus_state_id: String,
+	pub hash_algo: HashAlgorithm,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
@@ -37,7 +51,7 @@ pub struct JsHyperbridgeConfig {
 	pub rpc_url: String,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Eq, PartialEq, Debug, Deserialize, Serialize)]
 pub struct JsClientConfig {
 	pub source: JsChainConfig,
 	pub dest: JsChainConfig,
@@ -49,8 +63,8 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 	type Error = anyhow::Error;
 
 	fn try_from(value: JsClientConfig) -> Result<Self, Self::Error> {
-		let to_config = |val: &JsChainConfig| {
-			if !val.host_address.is_empty() {
+		let to_config = |val: &JsChainConfig| match val {
+			JsChainConfig::Evm(val) => {
 				let state_machine = if val.state_machine.starts_with("0x") {
 					let bytes =
 						from_hex(&val.state_machine).map_err(|err| anyhow!("Hex: {err:?}"))?;
@@ -80,22 +94,26 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 				};
 
 				Ok::<_, anyhow::Error>(ChainConfig::Evm(conf))
-			} else {
+			},
+			JsChainConfig::Substrate(val) => {
 				let conf = SubstrateConfig {
 					rpc_url: val.rpc_url.clone(),
 					consensus_state_id: {
 						if val.consensus_state_id.len() != 4 {
-							Err(anyhow!("Invalid consensus state id"))?
+							Err(anyhow!(
+								"Invalid consensus state id: {:?}",
+								val.consensus_state_id
+							))?
 						}
 						let mut dest = [0u8; 4];
 						dest.copy_from_slice(&val.consensus_state_id.as_bytes());
 						dest
 					},
-					hash_algo: HashAlgorithm::Keccak,
+					hash_algo: val.hash_algo,
 				};
 
 				Ok(ChainConfig::Substrate(conf))
-			}
+			},
 		};
 
 		let indexer = if value.indexer.is_empty() {
@@ -139,9 +157,6 @@ pub struct JsPost {
 	pub timeout_timestamp: u64,
 	/// Encoded Request.
 	pub body: String,
-	/// Height at which this request was emitted on the source chain
-	#[serde(rename = "txHeight")]
-	pub tx_height: u64,
 }
 
 impl TryFrom<JsPost> for PostRequest {
@@ -204,9 +219,6 @@ pub struct JsGet {
 	pub timeout_timestamp: u64,
 	/// Some application-specific metadata relating to this request
 	pub context: String,
-	/// Height at which this request was emitted on the source chain
-	#[serde(rename = "txHeight")]
-	pub tx_height: u64,
 }
 
 impl TryFrom<JsGet> for GetRequest {
@@ -276,7 +288,9 @@ impl TryFrom<JsPostResponse> for PostResponse {
 #[cfg(test)]
 mod tests {
 	use crate::{
-		interfaces::{JsChainConfig, JsClientConfig, JsHyperbridgeConfig, JsPost, JsPostResponse},
+		interfaces::{
+			JsChainConfig, JsClientConfig, JsEvmConfig, JsHyperbridgeConfig, JsPost, JsPostResponse,
+		},
 		types::{ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, SubstrateConfig},
 	};
 	use ethers::prelude::H160;
@@ -285,6 +299,7 @@ mod tests {
 		host::StateMachine,
 		router::{PostRequest, PostResponse},
 	};
+
 	const OP_HOST: H160 = H160(hex!("1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95"));
 	const BSC_HOST: H160 = H160(hex!("022DDE07A21d8c553978b006D93CDe68ac83e677"));
 
@@ -316,14 +331,14 @@ mod tests {
 			indexer: Some("http://localhost:3000/".to_string()),
 		};
 
-		let js_source = JsChainConfig {
+		let js_source = JsEvmConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: "EVM-97".to_string(),
 			host_address: hex::encode(&BSC_HOST.0),
 			consensus_state_id: "BSC0".to_string(),
 		};
 
-		let js_dest = JsChainConfig {
+		let js_dest = JsEvmConfig {
 			rpc_url: "https://127.0.0.1:9990".to_string(),
 			state_machine: "EVM-11155420".to_string(),
 			host_address: hex::encode(&OP_HOST.0),
@@ -333,8 +348,8 @@ mod tests {
 		let js_hyperbridge = JsHyperbridgeConfig { rpc_url: "ws://127.0.0.1:9990".to_string() };
 
 		let js_client_conf = JsClientConfig {
-			source: js_source,
-			dest: js_dest,
+			source: JsChainConfig::Evm(js_source),
+			dest: JsChainConfig::Evm(js_dest),
 			hyperbridge: js_hyperbridge,
 			indexer: "http://localhost:3000/".to_string(),
 		};
@@ -367,7 +382,6 @@ mod tests {
 				to: hex::encode(vec![15; 20]),
 				timeout_timestamp: 1_600_000,
 				body: hex::encode(vec![40; 256]),
-				tx_height: 0,
 			},
 			response: vec![80; 256],
 			timeout_timestamp: 4_500_000,

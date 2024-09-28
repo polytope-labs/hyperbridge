@@ -103,7 +103,7 @@ async fn relay_get_response_message(
 	let get_resp_event = chain_a_client
 		.client
 		.events()
-		.at(tx_res_hash.unwrap())
+		.at(tx_res_hash.unwrap().0)
 		.await?
 		.find_first::<GetResponse>()?
 		.ok_or(anyhow!("Failed to fetch event"))?;

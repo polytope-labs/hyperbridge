@@ -25,7 +25,8 @@ use ismp::{
 	consensus::{ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
 	host::StateMachine,
-	messaging::{CreateConsensusState, Message},
+	messaging::{hash_request, hash_response, CreateConsensusState, Message, ResponseMessage},
+	router::{Request, RequestResponse},
 };
 use pallet_ismp::{
 	child_trie::{
@@ -60,7 +61,7 @@ use subxt_utils::{
 	state_machine_update_time_storage_key,
 };
 use tesseract_primitives::{
-	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query,
+	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query,
 	StateMachineUpdated, StateProofQueryType, TxReceipt,
 };
 
@@ -509,7 +510,6 @@ where
 			(tx, recv)
 		};
 		let latest_height = client.query_finalized_height().await?;
-		let challenge_period = self.query_challenge_period(counterparty_state_id).await?;
 
 		if is_empty {
 			tokio::task::spawn(async move {
@@ -604,7 +604,7 @@ where
 
 							let provider = Arc::new(client.clone());
 							tokio::select! {
-								_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period, counterparty_state_id.state_id) => {
+								_res = wait_for_challenge_period(provider, state_machine_update_time, counterparty_state_id) => {
 									match _res {
 										Ok(_) => {
 											if let Err(err) = tx.send(Ok(event.clone())) {
@@ -649,7 +649,7 @@ where
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, anyhow::Error> {
 		let mut futs = vec![];
-		for msg in messages {
+		for msg in messages.clone() {
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
 			let call = vec![msg].encode();
 			let extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
@@ -678,11 +678,72 @@ where
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			}
 		}
-		futures::future::join_all(futs)
+		let results = futures::future::join_all(futs)
 			.await
 			.into_iter()
 			.collect::<Result<Vec<_>, _>>()?;
-		Ok(Default::default())
+		let receipts = results
+			.into_iter()
+			.filter_map(|val| val.map(|(_, receipts)| receipts))
+			.flatten()
+			.collect::<Vec<_>>();
+
+		let mut results = vec![];
+		let height = {
+			let block = self
+				.client
+				.rpc()
+				.header(None)
+				.await?
+				.ok_or_else(|| anyhow!("Failed to get latest height"))?;
+			block.number().into()
+		};
+		for msg in messages {
+			match msg {
+				Message::Request(req_msg) =>
+					for post in req_msg.requests {
+						let req = Request::Post(post);
+						let commitment = hash_request::<Hasher>(&req);
+						if receipts.contains(&commitment) {
+							let tx_receipt = TxReceipt::Request {
+								query: Query {
+									source_chain: req.source_chain(),
+									dest_chain: req.dest_chain(),
+									nonce: req.nonce(),
+									commitment,
+								},
+								height,
+							};
+
+							results.push(tx_receipt);
+						}
+					},
+				Message::Response(ResponseMessage {
+					datagram: RequestResponse::Response(resp),
+					..
+				}) =>
+					for res in resp {
+						let commitment = hash_response::<Hasher>(&res);
+						let request_commitment = hash_request::<Hasher>(&res.request());
+						if receipts.contains(&commitment) {
+							let tx_receipt = TxReceipt::Response {
+								query: Query {
+									source_chain: res.source_chain(),
+									dest_chain: res.dest_chain(),
+									nonce: res.nonce(),
+									commitment,
+								},
+								request_commitment,
+								height,
+							};
+
+							results.push(tx_receipt);
+						}
+					},
+				_ => {},
+			}
+		}
+		Ok(results)
 	}
 
 	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, anyhow::Error> {

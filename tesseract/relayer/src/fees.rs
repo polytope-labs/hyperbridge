@@ -111,6 +111,7 @@ impl AccumulateFees {
 							let height = wait_for_state_machine_update(
 								dest.state_machine_id(),
 								Arc::new(hyperbridge.clone()),
+								dest.clone(),
 								height,
 							)
 								.await?;
@@ -162,6 +163,7 @@ impl AccumulateFees {
 							let height = wait_for_state_machine_update(
 								source.state_machine_id(),
 								Arc::new(hyperbridge.clone()),
+								source.clone(),
 								height,
 							)
 								.await?;

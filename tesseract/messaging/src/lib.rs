@@ -351,6 +351,11 @@ async fn handle_update(
 				if let Some(sender) = fee_acc_sender {
 					// We should not store messages when they are delivered to hyperbridge
 					if chain_a.state_machine_id().state_id != coprocessor {
+						// Filter out receipts for transactions that originated from the coprocessor
+						let receipts = receipts
+							.into_iter()
+							.filter(|receipt| receipt.source() != coprocessor)
+							.collect::<Vec<_>>();
 						if !receipts.is_empty() {
 							// Store receipts in database before auto accumulation
 							tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), chain_b.name(), chain_a.name());
@@ -442,6 +447,7 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 		let dest_height = match wait_for_state_machine_update(
 			dest.state_machine_id(),
 			hyperbridge.clone(),
+			dest.clone(),
 			delivery_height,
 		)
 		.await

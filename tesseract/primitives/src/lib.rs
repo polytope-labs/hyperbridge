@@ -142,6 +142,13 @@ impl TxReceipt {
 			TxReceipt::Response { height, .. } => *height,
 		}
 	}
+
+	pub fn source(&self) -> StateMachine {
+		match self {
+			TxReceipt::Request { query, .. } => query.source_chain,
+			TxReceipt::Response { query, .. } => query.source_chain,
+		}
+	}
 }
 
 /// A type that represents the location where state proof queries should be directed
@@ -462,13 +469,13 @@ impl NonceProvider {
 pub async fn wait_for_challenge_period(
 	client: Arc<dyn IsmpProvider>,
 	last_consensus_update: Duration,
-	challenge_period: Duration,
-	counterparty_state_id: StateMachine,
+	counterparty_state_id: StateMachineId,
 ) -> anyhow::Result<()> {
+	let challenge_period = client.query_challenge_period(counterparty_state_id).await?;
 	if challenge_period != Duration::ZERO {
 		log::info!(
 			"Waiting for challenge period {challenge_period:?} for {} on {}",
-			counterparty_state_id,
+			counterparty_state_id.state_id,
 			client.name()
 		);
 	}
@@ -489,10 +496,12 @@ pub async fn wait_for_challenge_period(
 pub async fn wait_for_state_machine_update(
 	state_id: StateMachineId,
 	hyperbridge: Arc<dyn IsmpProvider>,
+	counterparty: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<u64> {
 	let latest_height = hyperbridge.query_latest_height(state_id).await?.into();
 	if latest_height >= height {
+		observe_challenge_period(counterparty, hyperbridge, latest_height).await?;
 		return Ok(latest_height);
 	}
 
@@ -519,15 +528,8 @@ pub async fn observe_challenge_period(
 	hyperbridge: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<()> {
-	let challenge_period = hyperbridge.query_challenge_period(chain.state_machine_id()).await?;
 	let height = StateMachineHeight { id: chain.state_machine_id(), height };
 	let last_consensus_update = hyperbridge.query_state_machine_update_time(height).await?;
-	wait_for_challenge_period(
-		hyperbridge,
-		last_consensus_update,
-		challenge_period,
-		chain.state_machine_id().state_id,
-	)
-	.await?;
+	wait_for_challenge_period(hyperbridge, last_consensus_update, chain.state_machine_id()).await?;
 	Ok(())
 }

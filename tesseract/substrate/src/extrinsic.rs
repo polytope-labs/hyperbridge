@@ -16,6 +16,7 @@
 //! Extrinsic utilities
 
 use anyhow::Context;
+use sp_core::H256;
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::MultiSignature,
@@ -32,7 +33,7 @@ pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: TxPayload>(
 	client: &OnlineClient<T>,
 	payload: Tx,
 	wait_for_finalization: bool,
-) -> Result<Option<T::Hash>, anyhow::Error>
+) -> Result<Option<(T::Hash, Vec<H256>)>, anyhow::Error>
 where
 	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
@@ -66,15 +67,24 @@ where
 		))?,
 	};
 
-	let hash = match extrinsic.wait_for_success().await {
+	let (hash, receipts) = match extrinsic.wait_for_success().await {
 		Ok(p) => {
 			log::info!("Successfully executed unsigned extrinsic {ext_hash:?}");
-			p.block_hash()
+			let mut receipts = p
+				.find::<subxt_utils::gargantua::api::ismp::events::PostRequestHandled>()
+				.filter_map(|ev| ev.ok().map(|e| e.0.commitment))
+				.collect::<Vec<_>>();
+			let temp_2 = p
+				.find::<subxt_utils::gargantua::api::ismp::events::PostResponseHandled>()
+				.filter_map(|ev| ev.ok().map(|e| e.0.commitment))
+				.collect::<Vec<_>>();
+			receipts.extend(temp_2);
+			(p.block_hash(), receipts)
 		},
 		Err(err) => Err(refine_subxt_error(err))
 			.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
 	};
-	Ok(Some(hash))
+	Ok(Some((hash, receipts)))
 }
 
 /// Dry run extrinsic

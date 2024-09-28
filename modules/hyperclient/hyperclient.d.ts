@@ -101,14 +101,6 @@ interface IPostResponse {
   timeoutTimestamp: bigint;
 }
 
-type MessageStatus =
-  | Pending
-  | SourceFinalized
-  | HyperbridgeDelivered
-  | HyperbridgeFinalized
-  | DestinationDelivered
-  | Timeout;
-
 // This transaction is still pending on the source chain
 interface Pending {
   kind: "Pending";
@@ -120,8 +112,8 @@ interface SourceFinalized {
 }
 
 // This event is emitted on hyperbridge
-interface HyperbridgeDelivered {
-  kind: "HyperbridgeDelivered";
+interface HyperbridgeVerified {
+  kind: "HyperbridgeVerified";
 }
 
 // This event is emitted on the destination chain
@@ -160,12 +152,6 @@ interface DestinationFinalizedState {
   DestinationFinalized: bigint
 }
 
-// The request has been timed out (deleted from) on Hyperbridge
-interface HyperbridgeTimedoutState {
-  // Height on Hyperbridge at which this request was timed out
-  HyperbridgeTimedout: bigint
-}
-
 // Hyperbridge has finalized some state
 interface HyperbridgeFinalizedState {
   // The height of the state commitment that was finalized
@@ -178,10 +164,10 @@ interface SourceFinalizedState {
   SourceFinalized: bigint
 }
 
-// The message has been verified & delivered to Hyperbridge
-interface HyperbridgeDeliveredState {
-  // Height at which the message was delivered to Hyperbridge
-  HyperbridgeDelivered: bigint
+// The message has been verified & aggregated to Hyperbridge
+interface HyperbridgeVerifiedState {
+  // Height at which the message was aggregated to Hyperbridge
+  HyperbridgeVerified: bigint
 }
 
 // Initial state for a pending cross-chain message
@@ -191,15 +177,15 @@ interface MessageDispatched {
 }
 
 // The possible initial states of a timeout (Post request or response) stream
-type TimeoutStreamState = "Pending" | DestinationFinalizedState | HyperbridgeTimedoutState | HyperbridgeFinalizedState;
+type TimeoutStreamState = "Pending" | DestinationFinalizedState | HyperbridgeVerifiedState | HyperbridgeFinalizedState;
 
 // The possible initial states of a message status (Post request or response) stream
-type MessageStatusStreamState = MessageDispatched | SourceFinalizedState | HyperbridgeDeliveredState | HyperbridgeFinalizedState;
+type MessageStatusStreamState = MessageDispatched | SourceFinalizedState | HyperbridgeVerifiedState | HyperbridgeFinalizedState;
 
 // The possible states of an inflight request
 type MessageStatusWithMeta =
   | SourceFinalizedWithMetadata
-  | HyperbridgeDeliveredWithMetadata
+  | HyperbridgeVerifiedWithMetadata
   | HyperbridgeFinalizedWithMetadata
   | DestinationDeliveredWithMetadata
   | Timeout
@@ -208,7 +194,7 @@ type MessageStatusWithMeta =
 // The possible states of a timed-out request
 type TimeoutStatusWithMeta =
   | DestinationFinalizedWithMetadata
-  | HyperbridgeTimedoutWithMetadata
+  | HyperbridgeVerifiedWithMetadata
   | HyperbridgeFinalizedWithMetadata
   | TimeoutMessage
   | ErrorWithMetadata;
@@ -227,8 +213,8 @@ interface SourceFinalizedWithMetadata {
 }
 
 // This event is emitted on hyperbridge
-interface HyperbridgeDeliveredWithMetadata {
-  kind: "HyperbridgeDelivered";
+interface HyperbridgeVerifiedWithMetadata {
+  kind: "HyperbridgeVerified";
   // The hash of the block where the event was emitted
   block_hash: HexString;
   // The hash of the extrinsic responsible for the event
@@ -250,17 +236,6 @@ interface HyperbridgeFinalizedWithMetadata {
   block_number: bigint;
   // The transaction calldata which can be used for self-relay
   calldata: HexString;
-}
-
-// This event is emitted on hyperbridge
-interface HyperbridgeTimedoutWithMetadata {
-  kind: "HyperbridgeTimedout";
-  // The hash of the block where the event was emitted
-  block_hash: HexString;
-  // The hash of the extrinsic responsible for the event
-  transaction_hash: HexString;
-  // The block number where the event was emitted
-  block_number: bigint;
 }
 
 // This event is emitted on the destination chain

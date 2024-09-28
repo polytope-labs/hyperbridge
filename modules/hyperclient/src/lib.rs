@@ -102,10 +102,7 @@ impl HyperClient {
 	}
 
 	/// Queries the status of a request and returns `MessageStatusWithMetadata`
-	pub async fn query_post_request_status(
-		&self,
-		request: JsValue,
-	) -> Result<JsValue, JsError> {
+	pub async fn query_post_request_status(&self, request: JsValue) -> Result<JsValue, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
 			let post: PostRequest = post.try_into()?;
@@ -141,10 +138,7 @@ impl HyperClient {
 	}
 
 	/// Accepts a post response and returns a `MessageStatusWithMetadata`
-	pub async fn query_post_response_status(
-		&self,
-		response: JsValue,
-	) -> Result<JsValue, JsError> {
+	pub async fn query_post_response_status(&self, response: JsValue) -> Result<JsValue, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPostResponse>(response).unwrap();
 			let response: PostResponse = post.try_into()?;
@@ -170,7 +164,8 @@ impl HyperClient {
 	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request).unwrap();
-			let state = serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state).unwrap();
+			let state =
+				serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state).unwrap();
 			let post: PostRequest = post.try_into()?;
 
 			// Obtaining the request stream and the timeout stream
@@ -211,7 +206,8 @@ impl HyperClient {
 		let lambda = || async move {
 			let get = serde_wasm_bindgen::from_value::<JsGet>(request).unwrap();
 			let get: GetRequest = get.try_into()?;
-			let state = serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state).unwrap();
+			let state =
+				serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state).unwrap();
 
 			// Obtaining the request stream and the timeout stream
 			let timed_out =
@@ -251,7 +247,8 @@ impl HyperClient {
 	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request).unwrap();
-			let state = serde_wasm_bindgen::from_value::<TimeoutStreamState>(initial_state).unwrap();
+			let state =
+				serde_wasm_bindgen::from_value::<TimeoutStreamState>(initial_state).unwrap();
 			let post: PostRequest = post.try_into()?;
 
 			let stream =

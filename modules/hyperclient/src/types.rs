@@ -101,20 +101,65 @@ pub struct EventMetadata {
 	pub block_number: u64,
 }
 
+#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct Bytes(pub Vec<u8>);
+
+impl AsRef<[u8]> for Bytes {
+	fn as_ref(&self) -> &[u8] {
+		&self.0
+	}
+}
+
+impl From<Vec<u8>> for Bytes {
+	fn from(value: Vec<u8>) -> Bytes {
+		Bytes(value)
+	}
+}
+
+impl From<Bytes> for Vec<u8> {
+	fn from(value: Bytes) -> Vec<u8> {
+		value.0
+	}
+}
+
+impl fmt::Debug for Bytes {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_tuple("Bytes").field(&HexFmt(self.0.clone())).finish()
+	}
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum MessageStatus {
+pub enum TimeoutStreamState {
 	Pending,
-	/// Source state machine has been finalized on hyperbridge.
-	SourceFinalized,
-	/// Message has been delivered to hyperbridge
-	HyperbridgeDelivered,
-	/// Messaged has been finalized on hyperbridge
-	HyperbridgeFinalized,
-	/// Delivered to destination
+	/// Destination state machine has been finalized on Hyperbridge
+	DestinationFinalized(u64),
+	/// The message time out has been verified by Hyperbridge, holds the block where the message
+	/// was verified
+	HyperbridgeVerified(u64),
+	/// Hyperbridge has been finalized on source chain
+	HyperbridgeFinalized(u64),
+	/// Stream has ended
+	End,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum MessageStatusStreamState {
+	/// Waiting for the message to be finalized on the source chain, holds the tx height for the
+	/// source chain.
+	Dispatched(u64),
+	/// Source state machine has been finalized on hyperbridge, holds the block number at which the
+	/// source was finalized on hyperbridge
+	SourceFinalized(u64),
+	/// The message has been verified by Hyperbridge, holds the block where the message was
+	/// verified
+	HyperbridgeVerified(u64),
+	/// Message has been finalized by hyperbridge, holds the destination block number where
+	/// hyperbridge was finalized.
+	HyperbridgeFinalized(u64),
+	/// Message has been delivered to destination
 	DestinationDelivered,
-	/// Message has timed out
-	Timeout,
+	/// Stream has ended, check the message status
+	End,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -129,8 +174,8 @@ pub enum MessageStatusWithMetadata {
 		#[serde(flatten)]
 		meta: EventMetadata,
 	},
-	/// Message has been delivered to hyperbridge
-	HyperbridgeDelivered {
+	/// The message has been verified by Hyperbridge
+	HyperbridgeVerified {
 		/// Metadata about the event on hyperbridge
 		#[serde(flatten)]
 		meta: EventMetadata,
@@ -161,67 +206,6 @@ pub enum MessageStatusWithMetadata {
 	Timeout,
 }
 
-#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct Bytes(pub Vec<u8>);
-
-impl AsRef<[u8]> for Bytes {
-	fn as_ref(&self) -> &[u8] {
-		&self.0
-	}
-}
-
-impl From<Vec<u8>> for Bytes {
-	fn from(value: Vec<u8>) -> Bytes {
-		Bytes(value)
-	}
-}
-
-impl From<Bytes> for Vec<u8> {
-	fn from(value: Bytes) -> Vec<u8> {
-		value.0
-	}
-}
-
-impl fmt::Debug for Bytes {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_tuple("Bytes").field(&HexFmt(self.0.clone())).finish()
-	}
-}
-
-// TODO: allow passing the initial stream state
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub enum TimeoutStreamState {
-	Pending,
-	/// Destination state machine has been finalized on hyperbridge
-	DestinationFinalized(u64),
-	/// Message has been timed out on hyperbridge
-	HyperbridgeTimedout(u64),
-	/// Hyperbridge has been finalized on source chain
-	HyperbridgeFinalized(u64),
-	/// Stream has ended
-	End,
-}
-
-// todo: take the stream as a parameter
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub enum MessageStatusStreamState {
-	/// Waiting for the message to be finalized on the source chain, holds the tx height for the
-	/// source chain.
-	Dispatched(u64),
-	/// Source state machine has been finalized on hyperbridge, holds the block number at which the
-	/// source was finalized on hyperbridge
-	SourceFinalized(u64),
-	/// Message has been delivered to hyperbridge, holds the block where the message was delivered
-	HyperbridgeDelivered(u64),
-	/// Message has been finalized by hyperbridge, holds the destination block number where
-	/// hyperbridge was finalized.
-	HyperbridgeFinalized(u64),
-	/// Message has been delivered to destination
-	DestinationDelivered,
-	/// Stream has ended, check the message status
-	End,
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum TimeoutStatus {
@@ -232,8 +216,8 @@ pub enum TimeoutStatus {
 		#[serde(flatten)]
 		meta: EventMetadata,
 	},
-	/// Message has been timed out on hyperbridge
-	HyperbridgeTimedout {
+	/// The message time out has been verified by Hyperbridge
+	HyperbridgeVerified {
 		/// Metadata about the event on hyperbridge
 		#[serde(flatten)]
 		meta: EventMetadata,
@@ -306,9 +290,7 @@ impl ClientConfig {
 
 #[cfg(test)]
 mod tests {
-	use crate::types::{
-		MessageStatus, MessageStatusStreamState, MessageStatusWithMetadata, TimeoutStreamState,
-	};
+	use crate::types::{MessageStatusStreamState, MessageStatusWithMetadata, TimeoutStreamState};
 
 	#[test]
 	fn test_serialization() -> Result<(), anyhow::Error> {
@@ -318,7 +300,6 @@ mod tests {
 				meta: Default::default()
 			})?
 		);
-		assert_eq!(r#"{"kind":"Timeout"}"#, json::to_string(&MessageStatus::Timeout)?);
 
 		println!(
 			"TimeoutStreamState::DestinationFinalized: {:?}",
@@ -330,7 +311,7 @@ mod tests {
 		);
 		println!(
 			"MessageStatusStreamState::HyperbridgeDelivered: {:?}",
-			json::to_string(&MessageStatusStreamState::HyperbridgeDelivered(24))
+			json::to_string(&MessageStatusStreamState::HyperbridgeVerified(24))
 		);
 
 		println!(

@@ -286,7 +286,7 @@ pub async fn query_request_status_from_indexer(
 							calldata: calldata.into(),
 						}
 					} else {
-						MessageStatusWithMetadata::HyperbridgeDelivered {
+						MessageStatusWithMetadata::HyperbridgeVerified {
 							meta: EventMetadata {
 								block_hash: H256::from_slice(&from_hex(&block_hash)?),
 								transaction_hash: H256::from_slice(&from_hex(&transaction_hash)?),
@@ -430,7 +430,7 @@ pub async fn query_response_status_from_indexer(
 							calldata: calldata.into(),
 						}
 					} else {
-						MessageStatusWithMetadata::HyperbridgeDelivered {
+						MessageStatusWithMetadata::HyperbridgeVerified {
 							meta: EventMetadata {
 								block_hash: H256::from_slice(&from_hex(&block_hash)?),
 								transaction_hash: H256::from_slice(&from_hex(&transaction_hash)?),

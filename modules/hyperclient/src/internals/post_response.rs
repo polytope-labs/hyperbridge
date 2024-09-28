@@ -61,7 +61,7 @@ pub async fn query_response_status_internal(
 	let relayer = hyperclient.hyperbridge.query_response_receipt(req_hash).await?;
 
 	if relayer != H160::zero() {
-		return Ok(MessageStatusWithMetadata::HyperbridgeDelivered { meta: Default::default() });
+		return Ok(MessageStatusWithMetadata::HyperbridgeVerified { meta: Default::default() });
 	}
 
 	let hyperbridge_current_timestamp = hyperclient.hyperbridge.latest_timestamp().await?;

@@ -74,7 +74,7 @@ pub async fn query_post_request_status_internal(
 	let relayer = client.hyperbridge.query_request_receipt(hash).await?;
 
 	if relayer != H160::zero() {
-		return Ok(MessageStatusWithMetadata::HyperbridgeDelivered { meta: Default::default() });
+		return Ok(MessageStatusWithMetadata::HyperbridgeVerified { meta: Default::default() });
 	}
 
 	if hyperbridge_current_timestamp.as_secs() > post.timeout().as_secs() {
@@ -147,7 +147,7 @@ pub async fn post_request_status_stream(
 										),
 									)));
 								},
-								MessageStatusWithMetadata::HyperbridgeDelivered { meta } => {
+								MessageStatusWithMetadata::HyperbridgeVerified { meta } => {
 									return Ok::<
 										Option<(
 											Result<_, anyhow::Error>,
@@ -156,7 +156,7 @@ pub async fn post_request_status_stream(
 										anyhow::Error,
 									>(Some((
 										Ok(msg_status.clone()),
-										MessageStatusStreamState::HyperbridgeDelivered(
+										MessageStatusStreamState::HyperbridgeVerified(
 											meta.block_number,
 										),
 									)));
@@ -225,10 +225,10 @@ pub async fn post_request_status_stream(
 								Option<(Result<_, anyhow::Error>, MessageStatusStreamState)>,
 								anyhow::Error,
 							>(Some((
-								Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
+								Ok(MessageStatusWithMetadata::HyperbridgeVerified {
 									meta: Default::default(),
 								}),
-								MessageStatusStreamState::HyperbridgeDelivered(
+								MessageStatusStreamState::HyperbridgeVerified(
 									hyperbridge_client.query_latest_block_height().await?,
 								),
 							)));
@@ -269,7 +269,9 @@ pub async fn post_request_status_stream(
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
-											MessageStatusStreamState::Dispatched(post_request_height),
+											MessageStatusStreamState::Dispatched(
+												post_request_height
+											),
 											e
 										)),
 										post_request_status,
@@ -289,7 +291,7 @@ pub async fn post_request_status_stream(
 								.flatten()
 						{
 							match msg_status {
-								MessageStatusWithMetadata::HyperbridgeDelivered { meta } => {
+								MessageStatusWithMetadata::HyperbridgeVerified { meta } => {
 									return Ok::<
 										Option<(
 											Result<_, anyhow::Error>,
@@ -298,7 +300,7 @@ pub async fn post_request_status_stream(
 										anyhow::Error,
 									>(Some((
 										Ok(msg_status.clone()),
-										MessageStatusStreamState::HyperbridgeDelivered(
+										MessageStatusStreamState::HyperbridgeVerified(
 											meta.block_number,
 										),
 									)));
@@ -353,10 +355,10 @@ pub async fn post_request_status_stream(
 								});
 
 							return Ok(Some((
-								Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
+								Ok(MessageStatusWithMetadata::HyperbridgeVerified {
 									meta: meta.unwrap_or_default(),
 								}),
-								MessageStatusStreamState::HyperbridgeDelivered(
+								MessageStatusStreamState::HyperbridgeVerified(
 									meta.map(|m| m.block_number).unwrap_or(latest_height),
 								),
 							)));
@@ -368,10 +370,10 @@ pub async fn post_request_status_stream(
 							match event {
 								Ok(event) => {
 									return Ok(Some((
-										Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
+										Ok(MessageStatusWithMetadata::HyperbridgeVerified {
 											meta: event.meta.clone(),
 										}),
-										MessageStatusStreamState::HyperbridgeDelivered(
+										MessageStatusStreamState::HyperbridgeVerified(
 											event.meta.block_number,
 										),
 									)));
@@ -384,7 +386,7 @@ pub async fn post_request_status_stream(
 
 						Ok(None)
 					},
-					MessageStatusStreamState::HyperbridgeDelivered(height) => {
+					MessageStatusStreamState::HyperbridgeVerified(height) => {
 						let res = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
@@ -529,7 +531,7 @@ pub async fn post_request_status_stream(
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
-											MessageStatusStreamState::HyperbridgeDelivered(height),
+											MessageStatusStreamState::HyperbridgeVerified(height),
 											e
 										)),
 										post_request_status,
@@ -718,8 +720,8 @@ pub async fn timeout_post_request_stream(
 						} else {
 							let height = hyperbridge_client.query_latest_block_height().await?;
 							Ok(Some((
-								Ok(TimeoutStatus::HyperbridgeTimedout { meta: Default::default() }),
-								TimeoutStreamState::HyperbridgeTimedout(height),
+								Ok(TimeoutStatus::HyperbridgeVerified { meta: Default::default() }),
+								TimeoutStreamState::HyperbridgeVerified(height),
 							)))
 						}
 					},
@@ -748,11 +750,11 @@ pub async fn timeout_post_request_stream(
 						.await?;
 						let meta = hyperbridge_client.submit(message).await?;
 						Ok(Some((
-							Ok(TimeoutStatus::HyperbridgeTimedout { meta }),
-							TimeoutStreamState::HyperbridgeTimedout(meta.block_number),
+							Ok(TimeoutStatus::HyperbridgeVerified { meta }),
+							TimeoutStreamState::HyperbridgeVerified(meta.block_number),
 						)))
 					},
-					TimeoutStreamState::HyperbridgeTimedout(hyperbridge_height) => {
+					TimeoutStreamState::HyperbridgeVerified(hyperbridge_height) => {
 						let latest_hyperbridge_height = source_client
 							.query_latest_state_machine_height(
 								hyperbridge_client.state_machine_id(),

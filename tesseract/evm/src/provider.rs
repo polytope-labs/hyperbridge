@@ -598,7 +598,7 @@ impl IsmpProvider for EvmClient {
 			let initial_height = self.client.get_block_number().await?.low_u64();
 			let client = self.clone();
 			let poll_interval = self.config.poll_interval.unwrap_or(10);
-			let challenge_period = self.query_challenge_period(counterparty_state_id).await?;
+
 			tokio::spawn(async move {
 				let mut latest_height = initial_height;
 				let state_machine = client.state_machine;
@@ -676,7 +676,7 @@ impl IsmpProvider for EvmClient {
 						let provider = Arc::new(client.clone());
 						// Yield if the challenge period elapses and the state commitment is not vetoed
 						tokio::select! {
-							_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period, counterparty_state_id.state_id) => {
+							_res = wait_for_challenge_period(provider, state_machine_update_time, counterparty_state_id) => {
 								match _res {
 									Ok(_) => {
 										if let Err(err) = tx.send(Ok(event.clone())) {

@@ -510,7 +510,6 @@ where
 			(tx, recv)
 		};
 		let latest_height = client.query_finalized_height().await?;
-		let challenge_period = self.query_challenge_period(counterparty_state_id).await?;
 
 		if is_empty {
 			tokio::task::spawn(async move {
@@ -605,7 +604,7 @@ where
 
 							let provider = Arc::new(client.clone());
 							tokio::select! {
-								_res = wait_for_challenge_period(provider, state_machine_update_time, challenge_period, counterparty_state_id.state_id) => {
+								_res = wait_for_challenge_period(provider, state_machine_update_time, counterparty_state_id) => {
 									match _res {
 										Ok(_) => {
 											if let Err(err) = tx.send(Ok(event.clone())) {

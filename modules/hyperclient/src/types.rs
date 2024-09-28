@@ -301,22 +301,19 @@ mod tests {
 			})?
 		);
 
-		println!(
-			"TimeoutStreamState::DestinationFinalized: {:?}",
-			json::to_string(&TimeoutStreamState::DestinationFinalized(24))
+		assert_eq!(
+			r#"{"DestinationFinalized":24}"#,
+			json::to_string(&TimeoutStreamState::DestinationFinalized(24))?
 		);
-		println!(
-			"TimeoutStreamState::DestinationFinalized: {:?}",
-			json::to_string(&TimeoutStreamState::Pending)
-		);
-		println!(
-			"MessageStatusStreamState::HyperbridgeDelivered: {:?}",
-			json::to_string(&MessageStatusStreamState::HyperbridgeVerified(24))
+		assert_eq!(r#""Pending""#, json::to_string(&TimeoutStreamState::Pending)?);
+		assert_eq!(
+			r#"{"HyperbridgeVerified":24}"#,
+			json::to_string(&MessageStatusStreamState::HyperbridgeVerified(24))?
 		);
 
-		println!(
-			"TimeoutStreamState::DestinationFinalized: {:?}",
-			json::to_string(&MessageStatusStreamState::Dispatched)
+		assert_eq!(
+			r#"{"Dispatched":23}"#,
+			json::to_string(&MessageStatusStreamState::Dispatched(23))?
 		);
 
 		Ok(())

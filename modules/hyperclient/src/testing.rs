@@ -31,8 +31,8 @@ use crate::{
 	internals::{post_request_status_stream, timeout_post_request_stream},
 	providers::interface::Client,
 	types::{
-		ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, MessageStatusWithMetadata,
-		SubstrateConfig, TimeoutStatus,
+		ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, MessageStatusStreamState,
+		MessageStatusWithMetadata, SubstrateConfig, TimeoutStatus, TimeoutStreamState,
 	},
 	HyperClient,
 };
@@ -135,7 +135,12 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	let block = receipt.block_number.unwrap();
 	tracing::info!("\n\nTx block: {block}\n\n");
 
-	let mut stream = post_request_status_stream(&hyperclient, post, block.low_u64()).await?;
+	let mut stream = post_request_status_stream(
+		&hyperclient,
+		post,
+		MessageStatusStreamState::Dispatched(block.low_u64()),
+	)
+	.await?;
 
 	while let Some(res) = stream.next().await {
 		match res {
@@ -259,8 +264,12 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let block = receipt.block_number.unwrap();
 	tracing::info!("\n\nTx block: {block}\n\n");
 
-	let request_status =
-		post_request_status_stream(&hyperclient, post.clone(), block.low_u64()).await?;
+	let request_status = post_request_status_stream(
+		&hyperclient,
+		post.clone(),
+		MessageStatusStreamState::Dispatched(block.low_u64()),
+	)
+	.await?;
 
 	// Obtaining the request stream and the timeout stream
 	let timed_out =
@@ -283,7 +292,8 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		}
 	}
 
-	let mut stream = timeout_post_request_stream(&hyperclient, post).await?;
+	let mut stream =
+		timeout_post_request_stream(&hyperclient, post, TimeoutStreamState::Pending).await?;
 
 	while let Some(res) = stream.next().await {
 		match res {
@@ -409,7 +419,7 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 	let mut stream = internals::get_request_status_stream(
 		&hyperclient,
 		get_request.clone(),
-		receipt.block_number.unwrap().low_u64(),
+		MessageStatusStreamState::Dispatched(receipt.block_number.unwrap().low_u64()),
 	)
 	.await?;
 

@@ -97,7 +97,7 @@ impl HyperClient {
 		};
 
 		lambda().await.map_err(|err: anyhow::Error| {
-			JsError::new(&format!("Could not create hyperclient {err:?}"))
+			JsError::new(&format!("Could not create hyperclient: {err:?}"))
 		})
 	}
 

@@ -188,10 +188,26 @@ impl fmt::Debug for Bytes {
 	}
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum MessageStatusStreamState {
-	/// Waiting for the message to be finalized on the source chain
+// TODO: allow passing the initial stream state
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum TimeoutStreamState {
 	Pending,
+	/// Destination state machine has been finalized on hyperbridge
+	DestinationFinalized(u64),
+	/// Message has been timed out on hyperbridge
+	HyperbridgeTimedout(u64),
+	/// Hyperbridge has been finalized on source chain
+	HyperbridgeFinalized(u64),
+	/// Stream has ended
+	End,
+}
+
+// todo: take the stream as a parameter
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum MessageStatusStreamState {
+	/// Waiting for the message to be finalized on the source chain, holds the tx height for the
+	/// source chain.
+	Dispatched(u64),
 	/// Source state machine has been finalized on hyperbridge, holds the block number at which the
 	/// source was finalized on hyperbridge
 	SourceFinalized(u64),
@@ -290,7 +306,9 @@ impl ClientConfig {
 
 #[cfg(test)]
 mod tests {
-	use crate::types::{MessageStatus, MessageStatusWithMetadata};
+	use crate::types::{
+		MessageStatus, MessageStatusStreamState, MessageStatusWithMetadata, TimeoutStreamState,
+	};
 
 	#[test]
 	fn test_serialization() -> Result<(), anyhow::Error> {
@@ -301,6 +319,24 @@ mod tests {
 			})?
 		);
 		assert_eq!(r#"{"kind":"Timeout"}"#, json::to_string(&MessageStatus::Timeout)?);
+
+		println!(
+			"TimeoutStreamState::DestinationFinalized: {:?}",
+			json::to_string(&TimeoutStreamState::DestinationFinalized(24))
+		);
+		println!(
+			"TimeoutStreamState::DestinationFinalized: {:?}",
+			json::to_string(&TimeoutStreamState::Pending)
+		);
+		println!(
+			"MessageStatusStreamState::HyperbridgeDelivered: {:?}",
+			json::to_string(&MessageStatusStreamState::HyperbridgeDelivered(24))
+		);
+
+		println!(
+			"TimeoutStreamState::DestinationFinalized: {:?}",
+			json::to_string(&MessageStatusStreamState::Dispatched)
+		);
 
 		Ok(())
 	}

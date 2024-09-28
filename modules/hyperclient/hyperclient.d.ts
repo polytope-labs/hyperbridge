@@ -19,6 +19,8 @@
  */
 export function start(): void;
 
+type HexString = `0x{string}` | `0x${string}`;
+
 interface IConfig {
   // confuration object for the source chain
   source: IChainConfig;
@@ -61,8 +63,6 @@ interface IPostRequest {
   body: string;
   // Timestamp which this request expires in seconds.
   timeoutTimestamp: bigint;
-  // Height at which this request was emitted on the source
-  txHeight: bigint;
 }
 
 interface IGetRequest {
@@ -87,11 +87,9 @@ interface IGetRequest {
   /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
   /// For fetching keys from EVM contracts each key should be 52 bytes
   /// This should be a concatenation of contract address and slot hash
-  keys: `0x{string}`[];
+  keys: HexString[];
   // Timestamp which this request expires in seconds.
   timeoutTimestamp: bigint;
-  // Height at which this request was emitted on the source
-  txHeight: bigint;
 }
 
 interface IPostResponse {
@@ -156,6 +154,48 @@ interface HyperbridgeTimedout {
   kind: "HyperbridgeTimedout";
 }
 
+// The request timeout has been finalized by the destination
+interface DestinationFinalizedState {
+  // the height of the destination chain at which the time out was finalized
+  DestinationFinalized: bigint
+}
+
+// The request has been timed out (deleted from) on Hyperbridge
+interface HyperbridgeTimedoutState {
+  // Height on Hyperbridge at which this request was timed out
+  HyperbridgeTimedout: bigint
+}
+
+// Hyperbridge has finalized some state
+interface HyperbridgeFinalizedState {
+  // The height of the state commitment that was finalized
+  HyperbridgeFinalized: bigint
+}
+
+// The source chain has finalized some state commitment
+interface SourceFinalizedState {
+  // The height of the source chain which was finalized
+  SourceFinalized: bigint
+}
+
+// The message has been verified & delivered to Hyperbridge
+interface HyperbridgeDeliveredState {
+  // Height at which the message was delivered to Hyperbridge
+  HyperbridgeDelivered: bigint
+}
+
+// Initial state for a pending cross-chain message
+interface MessageDispatched {
+  // The height at which the message was dispatched from the source chain
+  Dispatched: bigint
+}
+
+// The possible initial states of a timeout (Post request or response) stream
+type TimeoutStreamState = "Pending" | DestinationFinalizedState | HyperbridgeTimedoutState | HyperbridgeFinalizedState;
+
+// The possible initial states of a message status (Post request or response) stream
+type MessageStatusStreamState = MessageDispatched | SourceFinalizedState | HyperbridgeDeliveredState | HyperbridgeFinalizedState;
+
 // The possible states of an inflight request
 type MessageStatusWithMeta =
   | SourceFinalizedWithMetadata
@@ -179,9 +219,9 @@ interface SourceFinalizedWithMetadata {
   // Block height of the source chain that was finalized.
   finalized_height: bigint;
   // The hash of the block where the event was emitted
-  block_hash: `0x{string}`;
+  block_hash: HexString;
   // The hash of the extrinsic responsible for the event
-  transaction_hash: `0x{string}`;
+  transaction_hash: HexString;
   // The block number where the event was emitted
   block_number: bigint;
 }
@@ -190,9 +230,9 @@ interface SourceFinalizedWithMetadata {
 interface HyperbridgeDeliveredWithMetadata {
   kind: "HyperbridgeDelivered";
   // The hash of the block where the event was emitted
-  block_hash: `0x{string}`;
+  block_hash: HexString;
   // The hash of the extrinsic responsible for the event
-  transaction_hash: `0x{string}`;
+  transaction_hash: HexString;
   // The block number where the event was emitted
   block_number: bigint;
 }
@@ -203,22 +243,22 @@ interface HyperbridgeFinalizedWithMetadata {
   // Block height of hyperbridge chain that was finalized.
   finalized_height: bigint;
   // The hash of the block where the event was emitted
-  block_hash: `0x{string}`;
+  block_hash: HexString;
   // The hash of the extrinsic responsible for the event
-  transaction_hash: `0x{string}`;
+  transaction_hash: HexString;
   // The block number where the event was emitted
   block_number: bigint;
   // The transaction calldata which can be used for self-relay
-  calldata: `0x{string}`;
+  calldata: HexString;
 }
 
 // This event is emitted on hyperbridge
 interface HyperbridgeTimedoutWithMetadata {
   kind: "HyperbridgeTimedout";
   // The hash of the block where the event was emitted
-  block_hash: `0x{string}`;
+  block_hash: HexString;
   // The hash of the extrinsic responsible for the event
-  transaction_hash: `0x{string}`;
+  transaction_hash: HexString;
   // The block number where the event was emitted
   block_number: bigint;
 }
@@ -227,9 +267,9 @@ interface HyperbridgeTimedoutWithMetadata {
 interface DestinationDeliveredWithMetadata {
   kind: "DestinationDelivered";
   // The hash of the block where the event was emitted
-  block_hash: `0x{string}`;
+  block_hash: HexString;
   // The hash of the extrinsic responsible for the event
-  transaction_hash: `0x{string}`;
+  transaction_hash: HexString;
   // The block number where the event was emitted
   block_number: bigint;
 }
@@ -238,16 +278,16 @@ interface DestinationDeliveredWithMetadata {
 interface TimeoutMessage {
   kind: "TimeoutMessage";
   // encoded call for HandlerV1.handlePostRequestTimeouts
-  calldata: `0x{string}`;
+  calldata: HexString;
 }
 
 // This event is emitted on hyperbridge
 interface DestinationFinalizedWithMetadata {
   kind: "DestinationFinalized";
   // The hash of the block where the event was emitted
-  block_hash: `0x{string}`;
+  block_hash: HexString;
   // The hash of the extrinsic responsible for the event
-  transaction_hash: `0x{string}`;
+  transaction_hash: HexString;
   // The block number where the event was emitted
   block_number: bigint;
 }
@@ -265,49 +305,55 @@ interface ErrorWithMetadata {
  */
 export class HyperClient {
   free(): void;
+
   /**
    * Initialize the hyperclient
    * @param {IConfig} config
    * @returns {Promise<HyperClient>}
    */
   static init(config: IConfig): Promise<HyperClient>;
+
   /**
-   * Queries the status of a request and returns `MessageStatusWithMetadata`
+   * Queries the status of a POST request`
    * @param {IPostRequest} request
    * @returns {Promise<MessageStatusWithMeta>}
    */
   query_post_request_status(
     request: IPostRequest,
   ): Promise<MessageStatusWithMeta>;
+
   /**
-   * Queries the status of a request and returns `MessageStatusWithMetadata`
+   * Queries the status of a GET request`
    * @param {IGetRequest} request
    * @returns {Promise<any>}
    */
   query_get_request_status(
     request: IGetRequest,
   ): Promise<MessageStatusWithMeta>;
+
   /**
-   * Accepts a post response and returns a `MessageStatusWithMetadata`
+   * Queries the status of a POST response`
    * @param {IPostResponse} response
    * @returns {Promise<MessageStatusWithMeta>}
    */
   query_post_response_status(
     response: IPostResponse,
   ): Promise<MessageStatusWithMeta>;
+
   /**
-   * Return the status of a post request as a `ReadableStream` that yields
-   * `MessageStatusWithMeta`
+   * Return the status of a post request as a `ReadableStream`. If the stream terminates abruptly,
+   * perhaps as a result of some error, it can be resumed given some initial state.
    * @param {IPostRequest} request
+   * @param {MessageStatusStreamState} state
    * @returns {Promise<ReadableStream<MessageStatusWithMeta>>}
    */
   post_request_status_stream(
     request: IPostRequest,
+    state: MessageStatusStreamState,
   ): Promise<ReadableStream<MessageStatusWithMeta>>;
 
   /**
-   * Return the status of a get request as a `ReadableStream` that yields
-   * `MessageStatusWithMeta`
+   * Return the status of a get request as a `ReadableStream`
    * @param {IGetRequest} request
    * @returns {Promise<ReadableStream<MessageStatusWithMeta>>}
    */
@@ -320,12 +366,18 @@ export class HyperClient {
    * `TimeoutStatus` This function will not check if the request has timed out, only call it
    * when you receive a `MesssageStatus::TimeOut` from `query_request_status` or
    * `request_status_stream`. The stream ends when once it yields a `TimeoutMessage`
+   *
+   *  If the stream terminates abruptly, perhaps as a result of some error, it can be resumed given some initial state.
+   *
    * @param {IPostRequest} request
+   * @param {TimeoutStreamState} state
    * @returns {Promise<ReadableStream<TimeoutStatusWithMeta>>}
    */
   timeout_post_request(
     request: IPostRequest,
+    state: TimeoutStreamState,
   ): Promise<ReadableStream<TimeoutStatusWithMeta>>;
+
   /**
    * @returns {string | undefined}
    */

@@ -17,7 +17,10 @@ use crate::{
 	indexing::query_request_status_from_indexer,
 	internals::encode_request_message_and_wait_for_challenge_period,
 	providers::interface::{wait_for_challenge_period, Client},
-	types::{BoxStream, MessageStatusStreamState, MessageStatusWithMetadata, TimeoutStatus},
+	types::{
+		BoxStream, MessageStatusStreamState, MessageStatusWithMetadata, TimeoutStatus,
+		TimeoutStreamState,
+	},
 	HyperClient, Keccak256,
 };
 use anyhow::anyhow;
@@ -29,19 +32,6 @@ use ismp::{
 	router::{PostRequest, Request},
 };
 use primitive_types::H160;
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum TimeoutStreamState {
-	Pending,
-	/// Destination state machine has been finalized on hyperbridge
-	DestinationFinalized(u64),
-	/// Message has been timed out on hyperbridge
-	HyperbridgeTimedout(u64),
-	/// Hyperbridge has been finalized on source chain
-	HyperbridgeFinalized(u64),
-	/// Stream has ended
-	End,
-}
 
 /// `query_request_status_internal` is an internal function that
 /// checks the status of a message
@@ -99,7 +89,7 @@ pub async fn query_post_request_status_internal(
 pub async fn post_request_status_stream(
 	hyperclient: &HyperClient,
 	post: PostRequest,
-	post_request_height: u64,
+	state: MessageStatusStreamState,
 ) -> Result<BoxStream<MessageStatusWithMetadata>, anyhow::Error> {
 	let source_client = if post.source == hyperclient.dest.state_machine_id().state_id {
 		hyperclient.dest.clone()
@@ -118,7 +108,7 @@ pub async fn post_request_status_stream(
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
 	let hyperclient_clone = hyperclient.clone();
 
-	let stream = stream::unfold(MessageStatusStreamState::Pending, move |post_request_status| {
+	let stream = stream::unfold(state, move |post_request_status| {
 		let dest_client = dest_client.clone();
 		let hyperbridge_client = hyperbridge_client.clone();
 		let source_client = source_client.clone();
@@ -129,7 +119,7 @@ pub async fn post_request_status_stream(
 		async move {
 			let lambda = || async {
 				match post_request_status {
-					MessageStatusStreamState::Pending => {
+					MessageStatusStreamState::Dispatched(post_request_height) => {
 						let destination_current_timestamp = dest_client.query_timestamp().await?;
 						let relayer_address = dest_client.query_request_receipt(hash).await?;
 
@@ -279,7 +269,7 @@ pub async fn post_request_status_stream(
 									return Ok(Some((
 										Err(anyhow!(
 											"Encountered an error {:?}: in {:?}",
-											MessageStatusStreamState::Pending,
+											MessageStatusStreamState::Dispatched(post_request_height),
 											e
 										)),
 										post_request_status,
@@ -637,6 +627,7 @@ pub async fn post_request_status_stream(
 pub async fn timeout_post_request_stream(
 	hyperclient: &HyperClient,
 	post: PostRequest,
+	state: TimeoutStreamState,
 ) -> Result<BoxStream<TimeoutStatus>, anyhow::Error> {
 	let source_client = if post.source == hyperclient.dest.state_machine_id().state_id {
 		hyperclient.dest.clone()
@@ -654,7 +645,7 @@ pub async fn timeout_post_request_stream(
 	};
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
 
-	let stream = stream::unfold(TimeoutStreamState::Pending, move |state| {
+	let stream = stream::unfold(state, move |state| {
 		let dest_client = dest_client.clone();
 		let hyperbridge_client = hyperbridge_client.clone();
 		let source_client = source_client.clone();

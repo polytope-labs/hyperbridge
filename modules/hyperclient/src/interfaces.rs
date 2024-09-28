@@ -139,9 +139,6 @@ pub struct JsPost {
 	pub timeout_timestamp: u64,
 	/// Encoded Request.
 	pub body: String,
-	/// Height at which this request was emitted on the source chain
-	#[serde(rename = "txHeight")]
-	pub tx_height: u64,
 }
 
 impl TryFrom<JsPost> for PostRequest {
@@ -204,9 +201,6 @@ pub struct JsGet {
 	pub timeout_timestamp: u64,
 	/// Some application-specific metadata relating to this request
 	pub context: String,
-	/// Height at which this request was emitted on the source chain
-	#[serde(rename = "txHeight")]
-	pub tx_height: u64,
 }
 
 impl TryFrom<JsGet> for GetRequest {
@@ -367,7 +361,6 @@ mod tests {
 				to: hex::encode(vec![15; 20]),
 				timeout_timestamp: 1_600_000,
 				body: hex::encode(vec![40; 256]),
-				tx_height: 0,
 			},
 			response: vec![80; 256],
 			timeout_timestamp: 4_500_000,

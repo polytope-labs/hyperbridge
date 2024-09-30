@@ -713,6 +713,21 @@ pub async fn timeout_post_request_stream(
 						}))
 					},
 					TimeoutStreamState::DestinationFinalized(proof_height) => {
+						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
+						if relayer == H160::zero() {
+							// request was never delivered
+							let latest_height =
+								hyperbridge_client.client.rpc().header(None).await?.ok_or_else(
+									|| anyhow!("Failed to query latest hyperbridge height!"),
+								)?;
+							return Ok(Some((
+								Ok(TimeoutStatus::HyperbridgeVerified { meta: Default::default() }),
+								TimeoutStreamState::HyperbridgeVerified(
+									latest_height.number.into(),
+								),
+							)))
+						}
+
 						let storage_key = dest_client.request_receipt_full_key(hash);
 						let proof =
 							dest_client.query_state_proof(proof_height, vec![storage_key]).await?;

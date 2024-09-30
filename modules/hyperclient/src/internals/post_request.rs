@@ -658,72 +658,59 @@ pub async fn timeout_post_request_stream(
 			let lambda = || async {
 				match state {
 					TimeoutStreamState::Pending => {
-						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
-						if relayer != H160::zero() {
-							let height = hyperbridge_client
-								.query_latest_state_machine_height(dest_client.state_machine_id())
-								.await?;
+						let height = hyperbridge_client
+							.query_latest_state_machine_height(dest_client.state_machine_id())
+							.await?;
 
-							let state_commitment = hyperbridge_client
-								.query_state_machine_commitment(StateMachineHeight {
-									id: dest_client.state_machine_id(),
-									height,
-								})
-								.await?;
+						let state_commitment = hyperbridge_client
+							.query_state_machine_commitment(StateMachineHeight {
+								id: dest_client.state_machine_id(),
+								height,
+							})
+							.await?;
 
-							if state_commitment.timestamp > post.timeout().as_secs() {
-								// early return if the destination has already finalized the height
-								return Ok(Some((
-									Ok(TimeoutStatus::DestinationFinalized {
-										meta: Default::default(),
-									}),
-									TimeoutStreamState::DestinationFinalized(height),
-								)));
-							}
-
-							let mut stream = hyperbridge_client
-								.state_machine_update_notification(dest_client.state_machine_id())
-								.await?;
-							let mut valid_proof_height = None;
-							while let Some(event) = stream.next().await {
-								match event {
-									Ok(ev) => {
-										let state_machine_height = StateMachineHeight {
-											id: ev.event.state_machine_id,
-											height: ev.event.latest_height,
-										};
-										let commitment = hyperbridge_client
-											.query_state_machine_commitment(state_machine_height)
-											.await?;
-										if commitment.timestamp > post.timeout().as_secs() {
-											valid_proof_height = Some(ev);
-											break;
-										}
-									},
-									Err(e) =>
-										return Ok(Some((
-											Err(anyhow!(
-												"Encountered error in time out stream {e:?}"
-											)),
-											state,
-										))),
-								}
-							}
-							Ok(valid_proof_height.map(|ev| {
-								(
-									Ok(TimeoutStatus::DestinationFinalized { meta: ev.meta }),
-									TimeoutStreamState::DestinationFinalized(
-										ev.event.latest_height,
-									),
-								)
-							}))
-						} else {
-							let height = hyperbridge_client.query_latest_block_height().await?;
-							Ok(Some((
-								Ok(TimeoutStatus::HyperbridgeVerified { meta: Default::default() }),
-								TimeoutStreamState::HyperbridgeVerified(height),
-							)))
+						if state_commitment.timestamp > post.timeout().as_secs() {
+							// early return if the destination has already finalized the height
+							return Ok(Some((
+								Ok(TimeoutStatus::DestinationFinalized {
+									meta: Default::default(),
+								}),
+								TimeoutStreamState::DestinationFinalized(height),
+							)));
 						}
+
+						let mut stream = hyperbridge_client
+							.state_machine_update_notification(dest_client.state_machine_id())
+							.await?;
+						let mut valid_proof_height = None;
+						while let Some(event) = stream.next().await {
+							match event {
+								Ok(ev) => {
+									let state_machine_height = StateMachineHeight {
+										id: ev.event.state_machine_id,
+										height: ev.event.latest_height,
+									};
+									let commitment = hyperbridge_client
+										.query_state_machine_commitment(state_machine_height)
+										.await?;
+									if commitment.timestamp > post.timeout().as_secs() {
+										valid_proof_height = Some(ev);
+										break;
+									}
+								},
+								Err(e) =>
+									return Ok(Some((
+										Err(anyhow!("Encountered error in time out stream {e:?}")),
+										state,
+									))),
+							}
+						}
+						Ok(valid_proof_height.map(|ev| {
+							(
+								Ok(TimeoutStatus::DestinationFinalized { meta: ev.meta }),
+								TimeoutStreamState::DestinationFinalized(ev.event.latest_height),
+							)
+						}))
 					},
 					TimeoutStreamState::DestinationFinalized(proof_height) => {
 						let storage_key = dest_client.request_receipt_full_key(hash);

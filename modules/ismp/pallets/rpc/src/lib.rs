@@ -314,7 +314,7 @@ where
 			.map_err(|_| runtime_error_into_rpc_error("Error accessing state backend"))?;
 		let child_root = state
 			.storage(child_info.prefixed_storage_key().as_slice())
-			.map_err(|_| runtime_error_into_rpc_error("Error reading child trie root"))?
+			.map_err(|err| runtime_error_into_rpc_error(format!("Storage Read Error: {err:?}")))?
 			.map(|r| {
 				let mut hash = <<Block::Header as Header>::Hashing as Hash>::Output::default();
 
@@ -323,7 +323,7 @@ where
 
 				hash
 			})
-			.ok_or_else(|| runtime_error_into_rpc_error("Error reading child trie root"))?;
+			.ok_or_else(|| runtime_error_into_rpc_error("Child trie root storage returned None"))?;
 
 		let db = storage_proof.into_memory_db::<<Block::Header as Header>::Hashing>();
 

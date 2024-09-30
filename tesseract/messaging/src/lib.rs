@@ -477,6 +477,7 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 							let proofs = tx_payment
 							.create_proof_from_receipts(source_height.into(), dest_height, source_chain.clone(), dest.clone(), receipts.clone())
 							.await?;
+							observe_challenge_period(source_chain.clone(), hyperbridge.clone(), source_height.into()).await?;
 							observe_challenge_period(dest.clone(), hyperbridge.clone(), dest_height).await?;
 							let mut commitments =  vec![];
 							for proof in proofs {

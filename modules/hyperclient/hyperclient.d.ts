@@ -185,10 +185,10 @@ export interface MessageDispatched {
   Dispatched: bigint
 }
 
-// The possible initial states of a timeout (Post request or response) stream
+// The possible initial states of a timeout (request or response) stream
 export type TimeoutStreamState = "Pending" | DestinationFinalizedState | HyperbridgeVerifiedState | HyperbridgeFinalizedState;
 
-// The possible initial states of a message status (Post request or response) stream
+// The possible initial states of a message status (request or response) stream
 export type MessageStatusStreamState = MessageDispatched | SourceFinalizedState | HyperbridgeVerifiedState | HyperbridgeFinalizedState;
 
 // The possible states of an inflight request
@@ -337,12 +337,15 @@ export class HyperClient {
   ): Promise<ReadableStream<MessageStatusWithMeta>>;
 
   /**
-   * Return the status of a get request as a `ReadableStream`
+   * Return the status of a get request as a `ReadableStream`. If the stream terminates abruptly,
+   * perhaps as a result of some error, it can be resumed given some initial state.
    * @param {IGetRequest} request
+   * @param {MessageStatusStreamState} state
    * @returns {Promise<ReadableStream<MessageStatusWithMeta>>}
    */
   get_request_status_stream(
     request: IGetRequest,
+    state: MessageStatusStreamState,
   ): Promise<ReadableStream<MessageStatusWithMeta>>;
 
   /**

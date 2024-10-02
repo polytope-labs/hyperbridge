@@ -39,13 +39,10 @@ pub fn setup() -> Result<(), anyhow::Error> {
 	Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
-	dbg!("WTF");
-	println!("Set up logger");
 	setup()?;
-	println!("Done with logger");
 
 	// first compile the project.
 	let config = envy::from_env::<Config>()?;
@@ -129,7 +126,6 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 			_ => {},
 		};
 
-		tracing::info!("Generating proof");
 		prover
 			.consensus_proof(signed_commitment.clone(), consensus_state.clone())
 			.await?;

@@ -1,7 +1,6 @@
 /target
 .idea/
 dist/
-Cargo.lock
 
 *.log
 **/node_modules/*

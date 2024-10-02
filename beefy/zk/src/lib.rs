@@ -16,6 +16,7 @@ use sp1_beefy_primitives::{
 use sp_consensus_beefy::ecdsa_crypto::Signature;
 use sp_crypto_hashing::keccak_256;
 use std::sync::Arc;
+// use ismp_solidity_abi::
 
 /// Consensus prover for zk BEEFY.
 #[derive(Clone)]
@@ -39,8 +40,9 @@ where
 		consensus_state: ConsensusState,
 	) -> Result<(), anyhow::Error> {
 		let authority = match signed_commitment.commitment.validator_set_id {
-			id if id == consensus_state.current_authorities.id =>
-				consensus_state.current_authorities,
+			id if id == consensus_state.current_authorities.id => {
+				consensus_state.current_authorities
+			},
 			id if id == consensus_state.next_authorities.id => consensus_state.next_authorities,
 			_ => Err(anyhow::anyhow!(
 				"Unknown validator set {}",

@@ -24,9 +24,11 @@ sp1-beefy-primitives = { workspace = true }
 sp-consensus-beefy = { workspace = true }
 subxt = { version = "0.30.1", features = ["substrate-compat"] }
 sp-crypto-hashing = { workspace = true }
+ismp-solidity-abi = { workspace = true }
 
 [dev-dependencies]
 tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 futures = "0.3.27"
 envy = "0.4.2"

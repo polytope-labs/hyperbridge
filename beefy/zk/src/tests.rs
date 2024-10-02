@@ -7,6 +7,7 @@ use serde::Deserialize;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
 use subxt::{config::Header, rpc::Subscription, rpc_params, PolkadotConfig};
 use subxt_utils::Hyperbridge;
+use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
 
 fn default_para_id() -> u32 {
 	3367
@@ -30,9 +31,22 @@ struct Config {
 	para_id: u32,
 }
 
-#[tokio::test(flavor = "multi_thread")]
+pub fn setup() -> Result<(), anyhow::Error> {
+	let filter =
+		tracing_subscriber::EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
+	tracing_subscriber::fmt().with_env_filter(filter).finish().try_init()?;
+
+	Ok(())
+}
+
+#[tokio::test]
 #[ignore]
 async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
+	dbg!("WTF");
+	println!("Set up logger");
+	setup()?;
+	println!("Done with logger");
+
 	// first compile the project.
 	let config = envy::from_env::<Config>()?;
 

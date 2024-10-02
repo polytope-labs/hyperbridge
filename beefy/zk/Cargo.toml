@@ -16,6 +16,7 @@ derive_more = { version = "1.0.0-beta.6", features = ["display"] }
 primitive-types = { workspace = true, features = ["serde"] }
 
 ethers = { workspace = true, features = ["rustls"] }
+hex = { workspace = true }
 beefy-verifier-primitives = { workspace = true }
 beefy-prover = { workspace = true }
 sp1-beefy = { workspace = true }
@@ -25,6 +26,7 @@ subxt = { version = "0.30.1", features = ["substrate-compat"] }
 sp-crypto-hashing = { workspace = true }
 
 [dev-dependencies]
+tracing = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 futures = "0.3.27"
 envy = "0.4.2"

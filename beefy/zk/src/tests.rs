@@ -115,6 +115,7 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 			_ => {},
 		};
 
+		tracing::info!("Generating proof");
 		prover
 			.consensus_proof(signed_commitment.clone(), consensus_state.clone())
 			.await?;

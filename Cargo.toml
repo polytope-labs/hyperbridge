@@ -18,7 +18,7 @@ opt-level = 3
 
 [workspace.dependencies]
 tracing = "0.1.40"
-
+hex = "0.4.3"
 
 frame-support = { version = "37.0.0" }
 sp-io = { version = "38.0.0" }
@@ -83,8 +83,8 @@ tesseract-config = { git = "https://github.com/polytope-labs/hyperbridge", rev =
 tesseract-substrate = { git = "https://github.com/polytope-labs/hyperbridge", rev = "f386f7f2c840d3ada7ccc63e9ba35bcd7aa0a9c6" }
 tesseract-evm = { git = "https://github.com/polytope-labs/hyperbridge", rev = "f386f7f2c840d3ada7ccc63e9ba35bcd7aa0a9c6" }
 
-sp1-beefy = { git = "https://github.com/polytope-labs/sp1-beefy", rev = "d0aff67254ed0c7e99980398b4a4025a26414522" }
-sp1-beefy-primitives = { git = "https://github.com/polytope-labs/sp1-beefy", rev = "d0aff67254ed0c7e99980398b4a4025a26414522" }
+sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "60a023f92c4dc158386d6a4225aaa2e00a057907" }
+sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "60a023f92c4dc158386d6a4225aaa2e00a057907" }
 
 rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
 

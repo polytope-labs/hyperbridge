@@ -127,9 +127,10 @@ where
 			},
 		};
 
-		let proof = self.sp1_beefy.execute(SP1_BEEFY, commitment)?;
+		let proof = self.sp1_beefy.prove(SP1_BEEFY, commitment)?;
 
-		println!("Public inputs: {:#?}", proof);
+		println!("Plonk Proof: {:#?}\n", hex::encode(proof.bytes()));
+		println!("Public Inputs: {:#?}\n", proof.public_values.raw());
 
 		Ok(())
 	}

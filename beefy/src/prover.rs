@@ -203,11 +203,13 @@ where
 			Prover::Naive(ref naive) => {
 				let message: BeefyConsensusProof =
 					naive.consensus_proof(signed_commitment).await?.into();
-				message.encode()
+				AbiEncode::encode(message)
 			},
 			Prover::ZK(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
-				message.encode()
+				let encoded = AbiEncode::encode(message);
+				tracing::trace!("Encoded Sp1BeefyProof: {}", hex::encode(&encoded));
+				encoded
 			},
 		};
 

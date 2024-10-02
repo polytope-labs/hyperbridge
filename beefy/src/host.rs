@@ -341,6 +341,8 @@ where
 						tracing::error!(
 							"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
 						);
+						self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
+
 						// non-fatal error, keep trying. This will pull it from the queue once more
 						continue;
 					};

@@ -6,6 +6,7 @@ use anyhow::anyhow;
 use beefy_prover::util::hash_authority_addresses;
 use beefy_verifier_primitives::ConsensusState;
 use codec::Encode;
+use ismp_solidity_abi::sp1_beefy::Sp1BeefyProof;
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
 use sp1_beefy::{Sp1Beefy, SP1_BEEFY};
@@ -16,7 +17,6 @@ use sp1_beefy_primitives::{
 use sp_consensus_beefy::ecdsa_crypto::Signature;
 use sp_crypto_hashing::keccak_256;
 use std::sync::Arc;
-// use ismp_solidity_abi::
 
 /// Consensus prover for zk BEEFY.
 #[derive(Clone)]
@@ -38,11 +38,10 @@ where
 		&self,
 		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
 		consensus_state: ConsensusState,
-	) -> Result<(), anyhow::Error> {
+	) -> Result<Sp1BeefyProof, anyhow::Error> {
 		let authority = match signed_commitment.commitment.validator_set_id {
-			id if id == consensus_state.current_authorities.id => {
-				consensus_state.current_authorities
-			},
+			id if id == consensus_state.current_authorities.id =>
+				consensus_state.current_authorities,
 			id if id == consensus_state.next_authorities.id => consensus_state.next_authorities,
 			_ => Err(anyhow::anyhow!(
 				"Unknown validator set {}",
@@ -117,6 +116,7 @@ where
 				headers: message
 					.parachain
 					.parachains
+					.clone()
 					.into_iter()
 					.map(|p| ParachainHeader {
 						header: p.header,
@@ -131,9 +131,14 @@ where
 
 		let proof = self.sp1_beefy.prove(SP1_BEEFY, commitment)?;
 
-		println!("Plonk Proof: {:#?}\n", hex::encode(proof.bytes()));
-		println!("Public Inputs: {:#?}\n", proof.public_values.raw());
+		tracing::trace!(target: "zk_beefy", "Plonk Proof: {:#?}", hex::encode(proof.bytes()));
+		tracing::trace!(target: "zk_beefy", "Public Inputs: {:#?}", proof.public_values.raw());
 
-		Ok(())
+		Ok(Sp1BeefyProof {
+			commitment: signed_commitment.commitment.into(),
+			mmr_leaf: message.mmr.latest_mmr_leaf.into(),
+			proof: proof.bytes().into(),
+			headers: message.parachain.parachains.into_iter().map(|i| i.into()).collect(),
+		})
 	}
 }

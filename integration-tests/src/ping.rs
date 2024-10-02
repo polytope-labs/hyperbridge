@@ -29,7 +29,7 @@ use primitive_types::{H160, U256};
 use sp_core::Pair;
 use tesseract_evm::{
 	abi::{erc_20::Erc20, GetRequest, PingMessage, PingModule},
-	derive_map_key, state_comitment_key, EvmConfig,
+	state_comitment_key, EvmConfig,
 };
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 

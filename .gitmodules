@@ -4,3 +4,6 @@
 [submodule "evm/lib/solidity-stringutils"]
 	path = evm/lib/solidity-stringutils
 	url = https://github.com/Arachnid/solidity-stringutils
+[submodule "evm/lib/sp1-contracts"]
+	path = evm/lib/sp1-contracts
+	url = https://github.com/succinctlabs/sp1-contracts

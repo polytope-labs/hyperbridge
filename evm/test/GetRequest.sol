@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 
@@ -44,7 +44,7 @@ contract GetRequestTest is BaseTest {
         GetRequest memory request,
         GetTimeoutMessage memory message
     ) public {
-   	    feeToken.mint(address(testModule), 32 * host.perByteFee());
+        feeToken.mint(address(testModule), 32 * host.perByteFee());
         testModule.dispatch(request);
         request.timeoutTimestamp += uint64(block.timestamp);
         assert(host.requestCommitments(request.hash()).sender != address(0));

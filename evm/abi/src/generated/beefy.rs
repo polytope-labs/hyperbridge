@@ -315,21 +315,27 @@ pub mod beefy {
                                 },
                                 ::ethers::core::abi::ethabi::Param {
                                     name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                        ::std::vec![
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Array(
+                                        ::std::boxed::Box::new(
                                             ::ethers::core::abi::ethabi::ParamType::Tuple(
                                                 ::std::vec![
                                                     ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                        ::std::vec![
+                                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                                            ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                                            ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                                        ],
+                                                    ),
                                                 ],
                                             ),
-                                        ],
+                                        ),
                                     ),
                                     internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("struct IntermediateState"),
+                                        ::std::borrow::ToOwned::to_owned(
+                                            "struct IntermediateState[]",
+                                        ),
                                     ),
                                 },
                             ],
@@ -516,7 +522,7 @@ pub mod beefy {
 			encoded_proof: ::ethers::core::types::Bytes,
 		) -> ::ethers::contract::builders::ContractCall<
 			M,
-			(::ethers::core::types::Bytes, IntermediateState),
+			(::ethers::core::types::Bytes, ::std::vec::Vec<IntermediateState>),
 		> {
 			self.0
 				.method_hash([125, 117, 85, 152], (encoded_state, encoded_proof))
@@ -1114,7 +1120,10 @@ pub mod beefy {
 		Eq,
 		Hash,
 	)]
-	pub struct VerifyConsensusReturn(pub ::ethers::core::types::Bytes, pub IntermediateState);
+	pub struct VerifyConsensusReturn(
+		pub ::ethers::core::types::Bytes,
+		pub ::std::vec::Vec<IntermediateState>,
+	);
 	///`AuthoritySetCommitment(uint256,uint256,bytes32)`
 	#[derive(
 		Clone,

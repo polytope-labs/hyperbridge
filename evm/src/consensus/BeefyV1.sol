@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "./Codec.sol";
 import "@polytope-labs/ismp-solidity/StateMachine.sol";
@@ -119,7 +119,7 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     function verifyConsensus(
         bytes memory encodedState,
         bytes memory encodedProof
-    ) external pure returns (bytes memory, IntermediateState memory) {
+    ) external pure returns (bytes memory, IntermediateState[] memory) {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
         (RelayChainProof memory relay, ParachainProof memory parachain) = abi.decode(
             encodedProof,
@@ -131,7 +131,10 @@ contract BeefyV1 is IConsensusClient, ERC165 {
             BeefyConsensusProof(relay, parachain)
         );
 
-        return (abi.encode(newState), intermediate);
+        IntermediateState[] memory intermediates = new IntermediateState[](1);
+        intermediates[0] = intermediate;
+
+        return (abi.encode(newState), intermediates);
     }
 
     // @dev Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized

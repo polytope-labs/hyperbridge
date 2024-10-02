@@ -11,8 +11,6 @@ contract DeployScript is BaseScript {
     function run() external {
         address admin = vm.envAddress("ADMIN");
         address tokenFaucet = vm.envAddress("TOKEN_FAUCET");
-        bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
-        string memory host = vm.envString("HOST");
 
         vm.startBroadcast(uint256(privateKey));
         PingModule ping = new PingModule{salt: salt}(admin);

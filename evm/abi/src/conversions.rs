@@ -45,7 +45,7 @@ mod beefy {
 			Commitment, Node, Parachain, ParachainProof, Payload, RelayChainProof,
 			SignedCommitment, Vote,
 		},
-		sp1_beefy::ParachainHeader,
+		sp1_beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
 	use beefy_verifier_primitives::{ConsensusMessage, ConsensusState, MmrProof};
 	use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
@@ -99,8 +99,16 @@ mod beefy {
 		}
 	}
 
-	type SpMmrLeaf = sp_consensus_beefy::mmr::MmrLeaf<u32, H256, H256, H256>;
+	impl From<SpCommitment> for MiniCommitment {
+		fn from(value: SpCommitment) -> Self {
+			MiniCommitment {
+				block_number: value.block_number.into(),
+				validator_set_id: value.validator_set_id.into(),
+			}
+		}
+	}
 
+	type SpMmrLeaf = sp_consensus_beefy::mmr::MmrLeaf<u32, H256, H256, H256>;
 	impl From<beefy_verifier_primitives::ParachainHeader> for ParachainHeader {
 		fn from(value: beefy_verifier_primitives::ParachainHeader) -> Self {
 			ParachainHeader { header: value.header.into(), id: value.para_id.into() }
@@ -108,16 +116,14 @@ mod beefy {
 	}
 
 	// useful for Sp1Beefy verifier
-	impl From<SpMmrLeaf> for BeefyMmrLeaf {
+	impl From<SpMmrLeaf> for PartialBeefyMmrLeaf {
 		fn from(value: SpMmrLeaf) -> Self {
-			BeefyMmrLeaf {
+			PartialBeefyMmrLeaf {
 				version: 0.into(),
 				parent_number: value.parent_number_and_hash.0.into(),
 				parent_hash: value.parent_number_and_hash.1.into(),
 				next_authority_set: value.beefy_next_authority_set.into(),
 				extra: value.leaf_extra.into(),
-				k_index: 0.into(),
-				leaf_index: 0.into(),
 			}
 		}
 	}

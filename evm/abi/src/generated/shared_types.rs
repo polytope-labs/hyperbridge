@@ -14,42 +14,6 @@ pub struct AuthoritySetCommitment {
 	pub len: ::ethers::core::types::U256,
 	pub root: [u8; 32],
 }
-///`BeefyMmrLeaf(uint256,uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256)`
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct BeefyMmrLeaf {
-	pub version: ::ethers::core::types::U256,
-	pub parent_number: ::ethers::core::types::U256,
-	pub parent_hash: [u8; 32],
-	pub next_authority_set: AuthoritySetCommitment,
-	pub extra: [u8; 32],
-	pub k_index: ::ethers::core::types::U256,
-	pub leaf_index: ::ethers::core::types::U256,
-}
-///`Commitment((bytes2,bytes)[],uint256,uint256)`
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct Commitment {
-	pub payload: ::std::vec::Vec<Payload>,
-	pub block_number: ::ethers::core::types::U256,
-	pub validator_set_id: ::ethers::core::types::U256,
-}
 ///`DispatchGet(bytes,uint64,bytes[],uint64,uint256,bytes)`
 #[derive(
 	Clone,
@@ -204,21 +168,6 @@ pub struct IntermediateState {
 	pub state_machine_id: ::ethers::core::types::U256,
 	pub height: ::ethers::core::types::U256,
 	pub commitment: StateCommitment,
-}
-///`Payload(bytes2,bytes)`
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct Payload {
-	pub id: [u8; 2],
-	pub data: ::ethers::core::types::Bytes,
 }
 ///`PostRequest(bytes,bytes,uint64,bytes,bytes,uint64,bytes)`
 #[derive(

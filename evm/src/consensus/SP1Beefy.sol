@@ -31,18 +31,6 @@ import "./Types.sol";
 contract SP1Beefy is IConsensusClient, ERC165 {
     using HeaderImpl for Header;
 
-    // Slot duration in milliseconds
-    uint256 public constant SLOT_DURATION = 12_000;
-
-    // The PayloadId for the mmr root.
-    bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
-
-    // Digest Item ID
-    bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
-
-    // ConsensusID for aura
-    bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
-
     // SP1 verification key
     bytes32 verificationKey = bytes32(0x00b3830a7bcbd368596446801391435c29bb5319827319de0acb83fb7490ef49);
 
@@ -54,15 +42,6 @@ contract SP1Beefy is IConsensusClient, ERC165 {
 
     // Provided consensus proof height is stale
     error StaleHeight();
-
-    // Provided ultra plonk proof was invalid
-    error InvalidUltraPlonkProof();
-
-    // Mmr root hash was not found in header digests
-    error MmrRootHashMissing();
-
-    // Provided Mmr Proof was invalid
-    error InvalidMmrProof();
 
     // Genesis block should not be provided
     error IllegalGenesisBlock();
@@ -79,8 +58,8 @@ contract SP1Beefy is IConsensusClient, ERC165 {
     }
 
     function verifyConsensus(
-        bytes memory encodedState,
-        bytes memory encodedProof
+        bytes calldata encodedState,
+        bytes calldata encodedProof
     ) external view returns (bytes memory, IntermediateState[] memory) {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
         SP1BeefyProof memory proof = abi.decode(encodedProof, (SP1BeefyProof));
@@ -101,9 +80,8 @@ contract SP1Beefy is IConsensusClient, ERC165 {
         BeefyConsensusState memory trustedState,
         SP1BeefyProof memory proof
     ) internal view returns (BeefyConsensusState memory, IntermediateState[] memory) {
-        Commitment memory commitment = proof.commitment;
-        uint256 latestHeight = commitment.blockNumber;
-        if (trustedState.latestHeight >= latestHeight) revert StaleHeight();
+        MiniCommitment memory commitment = proof.commitment;
+        if (trustedState.latestHeight >= commitment.blockNumber) revert StaleHeight();
 
         AuthoritySetCommitment memory authority;
         if (commitment.validatorSetId == trustedState.nextAuthoritySet.id) {
@@ -151,11 +129,10 @@ contract SP1Beefy is IConsensusClient, ERC165 {
             trustedState.nextAuthoritySet = proof.mmrLeaf.nextAuthoritySet;
         }
 
-        trustedState.latestHeight = latestHeight;
+        trustedState.latestHeight = commitment.blockNumber;
 
         return (trustedState, intermediates);
     }
-
 
     // @dev so these structs are included in the abi
     function noOp(SP1BeefyProof memory s, PublicInputs memory p) external pure {}

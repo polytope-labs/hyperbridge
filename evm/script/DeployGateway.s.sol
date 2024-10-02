@@ -16,8 +16,6 @@ contract DeployScript is BaseScript {
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
-        bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
-        string memory host = vm.envString("HOST");
         // todo:
         address callDispatcher = address(1);
 

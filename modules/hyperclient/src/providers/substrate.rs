@@ -139,7 +139,10 @@ where
 	}
 }
 
-impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
+impl<C: subxt::Config + Clone> Client for SubstrateClient<C>
+where
+	C::Header: Clone,
+{
 	async fn query_latest_block_height(&self) -> Result<u64, Error> {
 		Ok(self.client.blocks().at_latest().await?.number().into())
 	}
@@ -288,20 +291,17 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		commitment: H256,
 		initial_height: u64,
 	) -> Result<BoxStream<WithMetadata<Event>>, Error> {
-		let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
+		let chunks = 5;
+		let subscription = self.client.rpc().subscribe_best_block_headers().await?.chunks(chunks);
 		let stream = stream::unfold(
 			(initial_height, subscription, self.clone()),
 			move |(latest_height, mut subscription, client)| {
 				let commitment = commitment.clone();
 				async move {
+					// get the last header in the batch
 					let header = match subscription.next().await {
-						Some(Ok(header)) => header,
-						Some(Err(_err)) => {
-							tracing::error!(
-								"Error encountered while watching finalized heads: {_err:?}"
-							);
-							return Some((Ok(None), (latest_height, subscription, client)));
-						},
+						Some(headers) =>
+							headers[chunks - 1].as_ref().expect("Error reading new heads").clone(),
 						None => return None,
 					};
 

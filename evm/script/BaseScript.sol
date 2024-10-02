@@ -13,6 +13,8 @@ abstract contract BaseScript is Script {
     address payable internal BSC_TESTNET_HOST = payable(vm.envAddress("BSC_TESTNET_HOST"));
     address payable internal CHIADO_HOST = payable(vm.envAddress("CHIADO_HOST"));
     address payable internal FEE_TOKEN = payable(vm.envAddress("FEE_TOKEN"));
+    bytes32 internal privateKey = vm.envBytes32("PRIVATE_KEY");
+    string internal host = vm.envString("HOST");
 
     /**
      * @dev Returns true if the two strings are equal.

@@ -16,16 +16,20 @@ pragma solidity ^0.8.17;
 
 import {Node} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 
-
 struct SP1BeefyProof {
     // BEEFY Commitment message
-    Commitment commitment;
+    MiniCommitment commitment;
     // Latest leaf added to mmr
-    BeefyMmrLeaf mmrLeaf;
+    PartialBeefyMmrLeaf mmrLeaf;
     // Parachain headers finalized by the commitment
     ParachainHeader[] headers;
     // SP1 plonk proof for BEEFY consensus
     bytes proof;
+}
+
+struct MiniCommitment {
+    uint256 blockNumber;
+    uint256 validatorSetId;
 }
 
 struct ParachainHeader {
@@ -94,6 +98,7 @@ struct PartialBeefyMmrLeaf {
     uint256 parentNumber;
     bytes32 parentHash;
     AuthoritySetCommitment nextAuthoritySet;
+    bytes32 extra;
 }
 
 struct Parachain {

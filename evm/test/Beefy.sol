@@ -18,7 +18,7 @@ import "forge-std/Test.sol";
 import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {Header} from "../src/consensus/Header.sol";
-import {BeefyMmrLeaf, Commitment, Codec} from "../src/consensus/Codec.sol";
+import {BeefyMmrLeaf, Commitment, Codec, PartialBeefyMmrLeaf} from "../src/consensus/Codec.sol";
 
 contract BeefyConsensusClientTest is Test {
     BeefyV1 internal beefy;
@@ -51,7 +51,7 @@ contract BeefyConsensusClientTest is Test {
         return Codec.DecodeHeader(encoded);
     }
 
-    function EncodeLeaf(BeefyMmrLeaf memory leaf) public pure returns (bytes memory) {
+    function EncodeLeaf(PartialBeefyMmrLeaf memory leaf) public pure returns (bytes memory) {
         return Codec.Encode(leaf);
     }
 

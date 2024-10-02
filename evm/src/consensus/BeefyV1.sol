@@ -73,17 +73,8 @@ struct BeefyConsensusProof {
 contract BeefyV1 is IConsensusClient, ERC165 {
     using HeaderImpl for Header;
 
-    // Slot duration in milliseconds
-    uint256 public constant SLOT_DURATION = 12_000;
-
     // The PayloadId for the mmr root.
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
-
-    // ChainId for ethereum
-    bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
-
-    // ConsensusID for aura
-    bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
 
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
@@ -232,7 +223,17 @@ contract BeefyV1 is IConsensusClient, ERC165 {
         RelayChainProof memory relay,
         bytes32 mmrRoot
     ) internal pure {
-        bytes32 hash = keccak256(Codec.Encode(relay.latestMmrLeaf));
+        bytes32 hash = keccak256(
+            Codec.Encode(
+                PartialBeefyMmrLeaf({
+                    version: relay.latestMmrLeaf.version,
+                    parentNumber: relay.latestMmrLeaf.parentNumber,
+                    parentHash: relay.latestMmrLeaf.parentHash,
+                    nextAuthoritySet: relay.latestMmrLeaf.nextAuthoritySet,
+                    extra: relay.latestMmrLeaf.extra
+                })
+            )
+        );
         uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;
 
         MmrLeaf[] memory leaves = new MmrLeaf[](1);

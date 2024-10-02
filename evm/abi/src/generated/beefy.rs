@@ -17,50 +17,6 @@ pub mod beefy {
             constructor: ::core::option::Option::None,
             functions: ::core::convert::From::from([
                 (
-                    ::std::borrow::ToOwned::to_owned("AURA_CONSENSUS_ID"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("AURA_CONSENSUS_ID"),
-                            inputs: ::std::vec![],
-                            outputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
-                                        4usize,
-                                    ),
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("bytes4"),
-                                    ),
-                                },
-                            ],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
-                ),
-                (
-                    ::std::borrow::ToOwned::to_owned("ISMP_CONSENSUS_ID"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("ISMP_CONSENSUS_ID"),
-                            inputs: ::std::vec![],
-                            outputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
-                                        4usize,
-                                    ),
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("bytes4"),
-                                    ),
-                                },
-                            ],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
-                ),
-                (
                     ::std::borrow::ToOwned::to_owned("MMR_ROOT_PAYLOAD_ID"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
@@ -76,28 +32,6 @@ pub mod beefy {
                                     ),
                                     internal_type: ::core::option::Option::Some(
                                         ::std::borrow::ToOwned::to_owned("bytes2"),
-                                    ),
-                                },
-                            ],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
-                ),
-                (
-                    ::std::borrow::ToOwned::to_owned("SLOT_DURATION"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("SLOT_DURATION"),
-                            inputs: ::std::vec![],
-                            outputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
-                                        256usize,
-                                    ),
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("uint256"),
                                     ),
                                 },
                             ],
@@ -468,32 +402,12 @@ pub mod beefy {
 		) -> Self {
 			Self(::ethers::contract::Contract::new(address.into(), BEEFY_ABI.clone(), client))
 		}
-		///Calls the contract's `AURA_CONSENSUS_ID` (0x4e9fdbec) function
-		pub fn aura_consensus_id(&self) -> ::ethers::contract::builders::ContractCall<M, [u8; 4]> {
-			self.0
-				.method_hash([78, 159, 219, 236], ())
-				.expect("method not found (this should never happen)")
-		}
-		///Calls the contract's `ISMP_CONSENSUS_ID` (0xbabb3118) function
-		pub fn ismp_consensus_id(&self) -> ::ethers::contract::builders::ContractCall<M, [u8; 4]> {
-			self.0
-				.method_hash([186, 187, 49, 24], ())
-				.expect("method not found (this should never happen)")
-		}
 		///Calls the contract's `MMR_ROOT_PAYLOAD_ID` (0xaf8b91d6) function
 		pub fn mmr_root_payload_id(
 			&self,
 		) -> ::ethers::contract::builders::ContractCall<M, [u8; 2]> {
 			self.0
 				.method_hash([175, 139, 145, 214], ())
-				.expect("method not found (this should never happen)")
-		}
-		///Calls the contract's `SLOT_DURATION` (0x905c0511) function
-		pub fn slot_duration(
-			&self,
-		) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::U256> {
-			self.0
-				.method_hash([144, 92, 5, 17], ())
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `noOp` (0x756087e2) function
@@ -819,34 +733,6 @@ pub mod beefy {
 			Self::UnknownAuthoritySet(value)
 		}
 	}
-	///Container type for all input parameters for the `AURA_CONSENSUS_ID` function with signature
-	/// `AURA_CONSENSUS_ID()` and selector `0x4e9fdbec`
-	#[derive(
-		Clone,
-		::ethers::contract::EthCall,
-		::ethers::contract::EthDisplay,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	#[ethcall(name = "AURA_CONSENSUS_ID", abi = "AURA_CONSENSUS_ID()")]
-	pub struct AuraConsensusIdCall;
-	///Container type for all input parameters for the `ISMP_CONSENSUS_ID` function with signature
-	/// `ISMP_CONSENSUS_ID()` and selector `0xbabb3118`
-	#[derive(
-		Clone,
-		::ethers::contract::EthCall,
-		::ethers::contract::EthDisplay,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	#[ethcall(name = "ISMP_CONSENSUS_ID", abi = "ISMP_CONSENSUS_ID()")]
-	pub struct IsmpConsensusIdCall;
 	///Container type for all input parameters for the `MMR_ROOT_PAYLOAD_ID` function with
 	/// signature `MMR_ROOT_PAYLOAD_ID()` and selector `0xaf8b91d6`
 	#[derive(
@@ -861,20 +747,6 @@ pub mod beefy {
 	)]
 	#[ethcall(name = "MMR_ROOT_PAYLOAD_ID", abi = "MMR_ROOT_PAYLOAD_ID()")]
 	pub struct MmrRootPayloadIdCall;
-	///Container type for all input parameters for the `SLOT_DURATION` function with signature
-	/// `SLOT_DURATION()` and selector `0x905c0511`
-	#[derive(
-		Clone,
-		::ethers::contract::EthCall,
-		::ethers::contract::EthDisplay,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	#[ethcall(name = "SLOT_DURATION", abi = "SLOT_DURATION()")]
-	pub struct SlotDurationCall;
 	///Container type for all input parameters for the `noOp` function with signature
 	/// `noOp((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),(((((bytes2,
 	/// bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,uint256,
@@ -934,10 +806,7 @@ pub mod beefy {
 	///Container type for all of the contract's call
 	#[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
 	pub enum BeefyCalls {
-		AuraConsensusId(AuraConsensusIdCall),
-		IsmpConsensusId(IsmpConsensusIdCall),
 		MmrRootPayloadId(MmrRootPayloadIdCall),
-		SlotDuration(SlotDurationCall),
 		NoOp(NoOpCall),
 		SupportsInterface(SupportsInterfaceCall),
 		VerifyConsensus(VerifyConsensusCall),
@@ -948,23 +817,9 @@ pub mod beefy {
 		) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
 			let data = data.as_ref();
 			if let Ok(decoded) =
-				<AuraConsensusIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
-			{
-				return Ok(Self::AuraConsensusId(decoded));
-			}
-			if let Ok(decoded) =
-				<IsmpConsensusIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
-			{
-				return Ok(Self::IsmpConsensusId(decoded));
-			}
-			if let Ok(decoded) =
 				<MmrRootPayloadIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
 				return Ok(Self::MmrRootPayloadId(decoded));
-			}
-			if let Ok(decoded) = <SlotDurationCall as ::ethers::core::abi::AbiDecode>::decode(data)
-			{
-				return Ok(Self::SlotDuration(decoded));
 			}
 			if let Ok(decoded) = <NoOpCall as ::ethers::core::abi::AbiDecode>::decode(data) {
 				return Ok(Self::NoOp(decoded));
@@ -985,10 +840,7 @@ pub mod beefy {
 	impl ::ethers::core::abi::AbiEncode for BeefyCalls {
 		fn encode(self) -> Vec<u8> {
 			match self {
-				Self::AuraConsensusId(element) => ::ethers::core::abi::AbiEncode::encode(element),
-				Self::IsmpConsensusId(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::MmrRootPayloadId(element) => ::ethers::core::abi::AbiEncode::encode(element),
-				Self::SlotDuration(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::NoOp(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::SupportsInterface(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::VerifyConsensus(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -998,34 +850,16 @@ pub mod beefy {
 	impl ::core::fmt::Display for BeefyCalls {
 		fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
 			match self {
-				Self::AuraConsensusId(element) => ::core::fmt::Display::fmt(element, f),
-				Self::IsmpConsensusId(element) => ::core::fmt::Display::fmt(element, f),
 				Self::MmrRootPayloadId(element) => ::core::fmt::Display::fmt(element, f),
-				Self::SlotDuration(element) => ::core::fmt::Display::fmt(element, f),
 				Self::NoOp(element) => ::core::fmt::Display::fmt(element, f),
 				Self::SupportsInterface(element) => ::core::fmt::Display::fmt(element, f),
 				Self::VerifyConsensus(element) => ::core::fmt::Display::fmt(element, f),
 			}
 		}
 	}
-	impl ::core::convert::From<AuraConsensusIdCall> for BeefyCalls {
-		fn from(value: AuraConsensusIdCall) -> Self {
-			Self::AuraConsensusId(value)
-		}
-	}
-	impl ::core::convert::From<IsmpConsensusIdCall> for BeefyCalls {
-		fn from(value: IsmpConsensusIdCall) -> Self {
-			Self::IsmpConsensusId(value)
-		}
-	}
 	impl ::core::convert::From<MmrRootPayloadIdCall> for BeefyCalls {
 		fn from(value: MmrRootPayloadIdCall) -> Self {
 			Self::MmrRootPayloadId(value)
-		}
-	}
-	impl ::core::convert::From<SlotDurationCall> for BeefyCalls {
-		fn from(value: SlotDurationCall) -> Self {
-			Self::SlotDuration(value)
 		}
 	}
 	impl ::core::convert::From<NoOpCall> for BeefyCalls {
@@ -1043,32 +877,6 @@ pub mod beefy {
 			Self::VerifyConsensus(value)
 		}
 	}
-	///Container type for all return fields from the `AURA_CONSENSUS_ID` function with signature
-	/// `AURA_CONSENSUS_ID()` and selector `0x4e9fdbec`
-	#[derive(
-		Clone,
-		::ethers::contract::EthAbiType,
-		::ethers::contract::EthAbiCodec,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	pub struct AuraConsensusIdReturn(pub [u8; 4]);
-	///Container type for all return fields from the `ISMP_CONSENSUS_ID` function with signature
-	/// `ISMP_CONSENSUS_ID()` and selector `0xbabb3118`
-	#[derive(
-		Clone,
-		::ethers::contract::EthAbiType,
-		::ethers::contract::EthAbiCodec,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	pub struct IsmpConsensusIdReturn(pub [u8; 4]);
 	///Container type for all return fields from the `MMR_ROOT_PAYLOAD_ID` function with signature
 	/// `MMR_ROOT_PAYLOAD_ID()` and selector `0xaf8b91d6`
 	#[derive(
@@ -1082,19 +890,6 @@ pub mod beefy {
 		Hash,
 	)]
 	pub struct MmrRootPayloadIdReturn(pub [u8; 2]);
-	///Container type for all return fields from the `SLOT_DURATION` function with signature
-	/// `SLOT_DURATION()` and selector `0x905c0511`
-	#[derive(
-		Clone,
-		::ethers::contract::EthAbiType,
-		::ethers::contract::EthAbiCodec,
-		Default,
-		Debug,
-		PartialEq,
-		Eq,
-		Hash,
-	)]
-	pub struct SlotDurationReturn(pub ::ethers::core::types::U256);
 	///Container type for all return fields from the `supportsInterface` function with signature
 	/// `supportsInterface(bytes4)` and selector `0x01ffc9a7`
 	#[derive(
@@ -1158,6 +953,42 @@ pub mod beefy {
 		pub current_authority_set: AuthoritySetCommitment,
 		pub next_authority_set: AuthoritySetCommitment,
 	}
+	///`BeefyMmrLeaf(uint256,uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256)`
+	#[derive(
+		Clone,
+		::ethers::contract::EthAbiType,
+		::ethers::contract::EthAbiCodec,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	pub struct BeefyMmrLeaf {
+		pub version: ::ethers::core::types::U256,
+		pub parent_number: ::ethers::core::types::U256,
+		pub parent_hash: [u8; 32],
+		pub next_authority_set: AuthoritySetCommitment,
+		pub extra: [u8; 32],
+		pub k_index: ::ethers::core::types::U256,
+		pub leaf_index: ::ethers::core::types::U256,
+	}
+	///`Commitment((bytes2,bytes)[],uint256,uint256)`
+	#[derive(
+		Clone,
+		::ethers::contract::EthAbiType,
+		::ethers::contract::EthAbiCodec,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	pub struct Commitment {
+		pub payload: ::std::vec::Vec<Payload>,
+		pub block_number: ::ethers::core::types::U256,
+		pub validator_set_id: ::ethers::core::types::U256,
+	}
 	///`Node(uint256,bytes32)`
 	#[derive(
 		Clone,
@@ -1203,6 +1034,21 @@ pub mod beefy {
 	pub struct ParachainProof {
 		pub parachain: Parachain,
 		pub proof: ::std::vec::Vec<::std::vec::Vec<Node>>,
+	}
+	///`Payload(bytes2,bytes)`
+	#[derive(
+		Clone,
+		::ethers::contract::EthAbiType,
+		::ethers::contract::EthAbiCodec,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	pub struct Payload {
+		pub id: [u8; 2],
+		pub data: ::ethers::core::types::Bytes,
 	}
 	///`RelayChainProof((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,
 	/// bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[])`

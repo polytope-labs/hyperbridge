@@ -49,7 +49,7 @@ library Codec {
     }
 
     // @dev SCALE-encodes the BEEFY Mmr leaf
-    function Encode(BeefyMmrLeaf memory leaf) internal pure returns (bytes memory) {
+    function Encode(PartialBeefyMmrLeaf memory leaf) internal pure returns (bytes memory) {
         bytes memory first = bytes.concat(
             abi.encodePacked(uint8(leaf.version)),
             ScaleCodec.encode32(uint32(leaf.parentNumber))

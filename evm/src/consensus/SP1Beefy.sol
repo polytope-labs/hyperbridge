@@ -155,4 +155,8 @@ contract SP1Beefy is IConsensusClient, ERC165 {
 
         return (trustedState, intermediates);
     }
+
+
+    // @dev so these structs are included in the abi
+    function noOp(SP1BeefyProof memory s, PublicInputs memory p) external pure {}
 }

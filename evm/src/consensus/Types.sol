@@ -36,7 +36,6 @@ struct ParachainHeader {
 }
 
 /// The public values encoded as a struct that can be easily deserialized inside Solidity.
-/// The public values encoded as a struct that can be easily deserialized inside Solidity.
 struct PublicInputs {
     // merkle commitment to all authorities
     bytes32 authorities_root;

@@ -19,13 +19,12 @@ use prover::{Prover, ProverConfig};
 use serde::{Deserialize, Serialize};
 
 pub use beefy_verifier_primitives::ConsensusState;
-use sp_core::H256;
+use primitive_types::H256;
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::MultiSignature,
 };
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
-pub use zk_beefy::Network;
 
 pub mod host;
 pub mod prover;

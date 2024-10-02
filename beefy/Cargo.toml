@@ -26,6 +26,7 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 redis = { version = "0.24.0", features = ["connection-manager", "tokio-rustls-comp"] }
 bytes = "1.6.0"
+primitive-types = { workspace = true }
 
 # polytope-labs
 pallet-ismp = { workspace = true }
@@ -46,7 +47,7 @@ polkadot-core-primitives = { workspace = true }
 tesseract-substrate = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 zk-beefy = { path = "zk" }
-rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
+rsmq_async = { workspace = true }
 redis-async = { version = "0.17.1", features = ["with-rustls"] }
 
 [features]

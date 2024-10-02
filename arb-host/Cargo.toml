@@ -23,9 +23,9 @@ log = "0.4.20"
 futures = "0.3.28"
 
 [dev-dependencies]
-alloy-rlp = "0.3.2"
-alloy-rlp-derive = "0.3.2"
-alloy-primitives = { version = "0.3.1", features = ["rlp"] }
+alloy-rlp = { workspace = true }
+alloy-rlp-derive = { workspace = true }
+alloy-primitives = { workspace = true, features = ["rlp"] }
 hex = "0.4.3"
 dotenv = "0.15.0"
 tesseract-evm = { workspace = true, features = ["testing"] }

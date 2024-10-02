@@ -1,7 +1,0 @@
-[package]
-name = "polkadot"
-type = "bin"
-authors = ["Polytope Labs <hello@polytope.technology>"]
-compiler_version = ">=0.19.4"
-
-[dependencies]

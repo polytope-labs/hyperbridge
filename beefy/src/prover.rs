@@ -19,7 +19,6 @@ use crate::{
 use anyhow::{anyhow, Context};
 use beefy_prover::{
 	relay::{fetch_latest_beefy_justification, parachain_header_storage_key},
-	BEEFY_MMR_LEAF_BEEFY_AUTHORITIES, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES,
 	BEEFY_VALIDATOR_SET_ID,
 };
 use beefy_verifier_primitives::ConsensusState;
@@ -37,8 +36,7 @@ use redis::{AsyncCommands, RedisError};
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
 use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
-	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, mmr::BeefyNextAuthoritySet,
-	SignedCommitment, VersionedFinalityProof,
+	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, SignedCommitment, VersionedFinalityProof,
 };
 use sp_runtime::traits::Keccak256;
 use std::{
@@ -54,7 +52,6 @@ use subxt::{
 };
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::SubstrateClient;
-use zk_beefy::Network;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyProverConfig {
@@ -76,8 +73,8 @@ pub struct ProverConfig {
 	pub para_rpc_ws: String,
 	/// para Id for the parachain
 	pub para_ids: Vec<u32>,
-	/// The intended network for zk beefy
-	pub zk_beefy: Option<Network>,
+	/// Generate zk BEEFY proofs?
+	pub zk_beefy: bool,
 	/// Maximum size in bytes for the rpc payloads, both requests & responses.
 	pub max_rpc_payload_size: Option<u32>,
 }
@@ -178,6 +175,185 @@ where
 		}
 
 		Ok(())
+	}
+
+	/// Rotate the prover's known authority set, using the network view at the provided hash
+	async fn rotate_authorities(&mut self, hash: R::Hash) -> Result<(), anyhow::Error> {
+		self.consensus_state.inner.current_authorities =
+			self.consensus_state.inner.next_authorities.clone();
+		self.consensus_state.inner.next_authorities =
+			self.prover.inner().mmr_leaf_next_authorities(Some(hash)).await?;
+
+		tracing::info!(
+			"Rotated authority set. Current {}, Next: {}",
+			self.consensus_state.inner.current_authorities.id,
+			self.consensus_state.inner.next_authorities.id,
+		);
+
+		Ok(())
+	}
+
+	/// Generate an encoded proof
+	pub async fn consensus_proof(
+		&self,
+		signed_commitment: SignedCommitment<u32, Signature>,
+		consensus_state: ConsensusState,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		let encoded = match self.prover {
+			Prover::Naive(ref naive) => {
+				let message: BeefyConsensusProof =
+					naive.consensus_proof(signed_commitment).await?.into();
+				message.encode()
+			},
+			Prover::ZK(ref zk) => {
+				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
+				message.encode()
+			},
+		};
+
+		Ok(encoded)
+	}
+
+	/// Returns the latest set of ismp messages that have been finalized and the latest finalized
+	/// parachain block that was queried.
+	pub async fn latest_ismp_message_events(
+		&self,
+		finalized: R::Hash,
+	) -> Result<(u64, Vec<EventWithMetadata>), anyhow::Error> {
+		let latest_height = self.consensus_state.finalized_parachain_height;
+		let para_id = extract_para_id(self.client.state_machine_id().state_id)?;
+		let header = query_parachain_header(&self.prover.inner().relay, finalized, para_id).await?;
+		let finalized_height = header.number.into();
+		if finalized_height <= latest_height {
+			return Ok((latest_height, vec![]));
+		}
+
+		let events = self.query_ismp_events_with_metadata(latest_height, finalized_height).await?;
+		let events = events
+			.into_iter()
+			.filter_map(|event| {
+				if matches!(
+					event.event,
+					Event::PostRequest(_) |
+						Event::PostResponse(_) |
+						Event::PostRequestTimeoutHandled(_) |
+						Event::PostResponseTimeoutHandled(_) |
+						Event::GetResponse(_)
+				) {
+					return Some(event);
+				}
+				None
+			})
+			.collect::<Vec<_>>();
+
+		return Ok((finalized_height, events));
+	}
+
+	/// Query the ismp events emitted within the block range (inclusive)
+	async fn query_ismp_events_with_metadata(
+		&self,
+		previous_height: u64,
+		latest_height: u64,
+	) -> Result<Vec<EventWithMetadata>, anyhow::Error> {
+		let range = (previous_height + 1)..=latest_height;
+
+		if range.is_empty() {
+			return Ok(Default::default());
+		}
+
+		let params = rpc_params![
+			BlockNumberOrHash::<H256>::Number(previous_height.saturating_add(1) as u32),
+			BlockNumberOrHash::<H256>::Number(latest_height as u32)
+		];
+		let response: HashMap<String, Vec<EventWithMetadata>> =
+			self.client.client.rpc().request("ismp_queryEventsWithMetadata", params).await?;
+		let events = response.into_values().flatten().collect();
+		Ok(events)
+	}
+
+	/// Queries for any authority set changes in between the latest relay chain block finalized
+	/// by beefy and the last known finalized block.
+	pub async fn query_next_finalized_epoch(
+		&self,
+	) -> Result<(Option<(R::Hash, u64)>, R::Header), anyhow::Error> {
+		let initial_height = self.consensus_state.inner.latest_beefy_height;
+		let relay_client = self.prover.inner().relay.clone();
+		let from = relay_client
+			.rpc()
+			.block_hash(Some(initial_height.into()))
+			.await?
+			.ok_or_else(|| anyhow!("Block hash should exist"))?;
+
+		let header = {
+			let hash = self
+				.prover
+				.inner()
+				.relay
+				.rpc()
+				.request::<R::Hash>("beefy_getFinalizedHead", rpc_params![])
+				.await?;
+			relay_client
+				.rpc()
+				.header(Some(hash))
+				.await?
+				.ok_or_else(|| anyhow!("Block hash should exist"))?
+		};
+
+		let changes = relay_client
+			.rpc()
+			.query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(header.hash()))
+			.await?;
+
+		let mut block_hash_and_set_id = changes
+			.into_iter()
+			.filter_map(|change| {
+				change.changes[0]
+					.clone()
+					.1
+					.and_then(|data| u64::decode(&mut &*data.0).ok())
+					.map(|id| (change.block, id))
+			})
+			.filter(|(_, set_id)| *set_id >= self.consensus_state.inner.next_authorities.id);
+
+		Ok((block_hash_and_set_id.next(), header))
+	}
+
+	/// Performs a linear search for the BEEFY justification which finalizes the given epoch
+	/// boundary
+	pub async fn epoch_justification_for(
+		&self,
+		start: u64,
+	) -> anyhow::Result<Option<SignedCommitment<u32, Signature>>> {
+		let relay_client = self.prover.inner().relay.clone();
+
+		for i in start..=(start + 50) {
+			let hash = if let Some(hash) = relay_client.rpc().block_hash(Some(i.into())).await? {
+				hash
+			} else {
+				continue;
+			};
+
+			if let Some(justifications) = relay_client
+				.rpc()
+				.block(Some(hash))
+				.await?
+				.ok_or_else(|| anyhow!("failed to find block for {hash:?}"))?
+				.justifications
+			{
+				let beefy = justifications
+					.into_iter()
+					.find(|justfication| justfication.0 == sp_consensus_beefy::BEEFY_ENGINE_ID);
+
+				if let Some((_, proof)) = beefy {
+					let VersionedFinalityProof::V1(commitment) =
+						VersionedFinalityProof::<u32, Signature>::decode(&mut &*proof)
+							.expect("Beefy justification should decode correctly");
+					return Ok(Some(commitment));
+				}
+			}
+		}
+
+		Ok(None)
 	}
 
 	/// Runs the proving task. Will internally notify the appropriate channels of new epoch
@@ -436,195 +612,6 @@ where
 			}
 		}
 	}
-
-	/// Rotate the prover's known authority set, using the network view at the provided hash
-	async fn rotate_authorities(&mut self, hash: R::Hash) -> Result<(), anyhow::Error> {
-		self.consensus_state.inner.current_authorities =
-			self.consensus_state.inner.next_authorities.clone();
-		self.consensus_state.inner.next_authorities = {
-			let next_authority_set = self
-				.prover
-				.inner()
-				.relay
-				.rpc()
-				.storage(BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(), Some(hash))
-				.await?
-				.expect("Should retrieve next authority set")
-				.0;
-			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
-				.expect("Should decode next authority set correctly")
-		};
-
-		tracing::info!(
-			"Rotated authority set. Current {}, Next: {}",
-			self.consensus_state.inner.current_authorities.id,
-			self.consensus_state.inner.next_authorities.id,
-		);
-
-		Ok(())
-	}
-
-	/// Generate an encoded proof
-	pub async fn consensus_proof(
-		&self,
-		signed_commitment: SignedCommitment<u32, Signature>,
-		consensus_state: ConsensusState,
-	) -> Result<Vec<u8>, anyhow::Error> {
-		let encoded = match self.prover {
-			Prover::Naive(ref naive) => {
-				let message: BeefyConsensusProof =
-					naive.consensus_proof(signed_commitment).await?.into();
-				message.encode()
-			},
-			Prover::ZK(ref zk) => {
-				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
-				message.encode()
-			},
-		};
-
-		Ok(encoded)
-	}
-
-	/// Returns the latest set of ismp messages that have been finalized and the latest finalized
-	/// parachain block that was queried.
-	pub async fn latest_ismp_message_events(
-		&self,
-		finalized: R::Hash,
-	) -> Result<(u64, Vec<EventWithMetadata>), anyhow::Error> {
-		let latest_height = self.consensus_state.finalized_parachain_height;
-		let para_id = extract_para_id(self.client.state_machine_id().state_id)?;
-		let header = query_parachain_header(&self.prover.inner().relay, finalized, para_id).await?;
-		let finalized_height = header.number.into();
-		if finalized_height <= latest_height {
-			return Ok((latest_height, vec![]));
-		}
-
-		let events = self.query_ismp_events_with_metadata(latest_height, finalized_height).await?;
-		let events = events
-			.into_iter()
-			.filter_map(|event| {
-				if matches!(
-					event.event,
-					Event::PostRequest(_) |
-						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
-						Event::PostResponseTimeoutHandled(_) |
-						Event::GetResponse(_)
-				) {
-					return Some(event);
-				}
-				None
-			})
-			.collect::<Vec<_>>();
-
-		return Ok((finalized_height, events));
-	}
-
-	/// Query the ismp events emitted within the block range (inclusive)
-	async fn query_ismp_events_with_metadata(
-		&self,
-		previous_height: u64,
-		latest_height: u64,
-	) -> Result<Vec<EventWithMetadata>, anyhow::Error> {
-		let range = (previous_height + 1)..=latest_height;
-
-		if range.is_empty() {
-			return Ok(Default::default());
-		}
-
-		let params = rpc_params![
-			BlockNumberOrHash::<H256>::Number(previous_height.saturating_add(1) as u32),
-			BlockNumberOrHash::<H256>::Number(latest_height as u32)
-		];
-		let response: HashMap<String, Vec<EventWithMetadata>> =
-			self.client.client.rpc().request("ismp_queryEventsWithMetadata", params).await?;
-		let events = response.into_values().flatten().collect();
-		Ok(events)
-	}
-
-	/// Queries for any authority set changes in between the latest relay chain block finalized
-	/// by beefy and the last known finalized block.
-	pub async fn query_next_finalized_epoch(
-		&self,
-	) -> Result<(Option<(R::Hash, u64)>, R::Header), anyhow::Error> {
-		let initial_height = self.consensus_state.inner.latest_beefy_height;
-		let relay_client = self.prover.inner().relay.clone();
-		let from = relay_client
-			.rpc()
-			.block_hash(Some(initial_height.into()))
-			.await?
-			.ok_or_else(|| anyhow!("Block hash should exist"))?;
-
-		let header = {
-			let hash = self
-				.prover
-				.inner()
-				.relay
-				.rpc()
-				.request::<R::Hash>("beefy_getFinalizedHead", rpc_params![])
-				.await?;
-			relay_client
-				.rpc()
-				.header(Some(hash))
-				.await?
-				.ok_or_else(|| anyhow!("Block hash should exist"))?
-		};
-
-		let changes = relay_client
-			.rpc()
-			.query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(header.hash()))
-			.await?;
-
-		let mut block_hash_and_set_id = changes
-			.into_iter()
-			.filter_map(|change| {
-				change.changes[0]
-					.clone()
-					.1
-					.and_then(|data| u64::decode(&mut &*data.0).ok())
-					.map(|id| (change.block, id))
-			})
-			.filter(|(_, set_id)| *set_id >= self.consensus_state.inner.next_authorities.id);
-
-		Ok((block_hash_and_set_id.next(), header))
-	}
-
-	/// Performs a linear search for the BEEFY justification which finalizes the given epoch
-	/// boundary
-	pub async fn epoch_justification_for(
-		&self,
-		start: u64,
-	) -> anyhow::Result<Option<SignedCommitment<u32, Signature>>> {
-		let relay_client = self.prover.inner().relay.clone();
-
-		for i in start..=(start + 50) {
-			let hash = if let Some(hash) = relay_client.rpc().block_hash(Some(i.into())).await? {
-				hash
-			} else {
-				continue;
-			};
-
-			if let Some(justifications) = relay_client
-				.rpc()
-				.block(Some(hash))
-				.await?
-				.ok_or_else(|| anyhow!("failed to find block for {hash:?}"))?
-				.justifications
-			{
-				let beefy = justifications
-					.into_iter()
-					.find(|justfication| justfication.0 == sp_consensus_beefy::BEEFY_ENGINE_ID);
-
-				if let Some((_, proof)) = beefy {
-					let VersionedFinalityProof::V1(commitment) =
-						VersionedFinalityProof::<u32, Signature>::decode(&mut &*proof)
-							.expect("Beefy justification should decode correctly");
-					return Ok(Some(commitment));
-				}
-			}
-		}
-
-		Ok(None)
-	}
 }
 
 /// Beefy prover, can either produce zk proofs or naive proofs
@@ -671,8 +658,8 @@ where
 			para_ids: config.para_ids,
 		};
 
-		let prover = if let Some(network) = &config.zk_beefy {
-			Prover::ZK(zk_beefy::Prover::new(prover, network.clone())?)
+		let prover = if config.zk_beefy {
+			Prover::ZK(zk_beefy::Prover::new(prover))
 		} else {
 			Prover::Naive(prover)
 		};
@@ -698,38 +685,17 @@ where
 			Some(hash) => hash,
 			None => inner.relay.rpc().request("beefy_getFinalizedHead", rpc_params!()).await?,
 		};
-		let (signed_commitment, latest_beefy_finalized) =
+		let (signed_commitment, _) =
 			fetch_latest_beefy_justification(&inner.relay, latest_finalized_head).await?;
 		let para_header =
 			query_parachain_header(&inner.relay, latest_finalized_head, inner.para_ids[0]).await?;
 
 		// Encoding and decoding to fix dependency version conflicts
-		let next_authority_set = {
-			let next_authority_set: Vec<u8> = inner
-				.relay
-				.rpc()
-				.storage(
-					BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(),
-					Some(latest_beefy_finalized),
-				)
-				.await?
-				.expect("Should retrieve next authority set")
-				.0;
-			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
-				.expect("Should decode next authority set correctly")
-		};
+		let next_authority_set =
+			inner.mmr_leaf_next_authorities(Some(latest_finalized_head)).await?;
 
-		let current_authority_set = {
-			let authority_set = inner
-				.relay
-				.rpc()
-				.storage(BEEFY_MMR_LEAF_BEEFY_AUTHORITIES.as_slice(), Some(latest_beefy_finalized))
-				.await?
-				.expect("Should retrieve next authority set")
-				.0;
-			BeefyNextAuthoritySet::decode(&mut &*authority_set)
-				.expect("Should decode next authority set correctly")
-		};
+		let current_authority_set =
+			inner.mmr_leaf_current_authorities(Some(latest_finalized_head)).await?;
 
 		let mmr_root_hash = signed_commitment
 			.commitment
@@ -831,7 +797,7 @@ mod tests {
 			relay_rpc_ws: "wss://hyperbridge-paseo-relay.blockops.network:443".to_string(),
 			para_rpc_ws: substrate_config.rpc_ws.clone(),
 			para_ids: vec![4009],
-			zk_beefy: None,
+			zk_beefy: false,
 			max_rpc_payload_size: None,
 		};
 		let prover = Prover::new(prover_config).await?;

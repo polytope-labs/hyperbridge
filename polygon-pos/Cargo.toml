@@ -19,7 +19,7 @@ tokio = { version = "1.32.0", features = ["full"] }
 tokio-stream = "0.1.14"
 hex-literal = "0.4.1"
 base2 = "0.3.1"
-primitive-types = { version = "0.12.1", features = ["impl-codec"] }
+primitive-types = { workspace = true, features = ["impl-codec"] }
 ethers = { workspace = true, features = ["rustls"] }
 sp-core = "22.0.0"
 
@@ -42,4 +42,3 @@ ismp = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 dotenv = "0.15.0"
 anyhow = "1.0.75"
-

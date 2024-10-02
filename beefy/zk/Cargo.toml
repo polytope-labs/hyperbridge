@@ -6,32 +6,29 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "SNARK Circuits for BEEFY consensus proofs written in noir"
 
 [dependencies]
-sp-core = { version = "27.0.0", default-features = false, features = ["full_crypto"] }
-sp-io = "29.0.0"
-hex = { version = "0.4.3", features = [] }
 libsecp256k1 = "0.7.1"
-toml = "0.8.8"
-tokio = { version = "1.35.1", features = ["fs"] }
-serde = "1.0.193"
+tokio = { version = "1.35.1", features = ["fs", "macros", "rt-multi-thread"] }
 rs_merkle = "1.4.1"
 serde_json = "1.0.111"
 anyhow = "1.0.79"
 codec = { package = "parity-scale-codec", version = "3.2.2" }
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
-
-# noir prover
-backend-interface = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
-nargo = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
-noirc_driver = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
-noirc_abi = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
-bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
+primitive-types = { workspace = true, features = ["serde"] }
 
 ethers = { workspace = true, features = ["rustls"] }
 beefy-verifier-primitives = { workspace = true }
-ismp-solidity-abi = { workspace = true }
 beefy-prover = { workspace = true }
+sp1-beefy = { workspace = true }
+sp1-beefy-primitives = { workspace = true }
 sp-consensus-beefy = { workspace = true }
 subxt = { version = "0.30.1", features = ["substrate-compat"] }
+sp-crypto-hashing = { workspace = true }
 
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+futures = "0.3.27"
+envy = "0.4.2"
 hex-literal = "0.4.1"
+sp-runtime = { workspace = true }
+subxt-utils = { workspace = true }
+hex = { version = "0.4.3", features = [] }

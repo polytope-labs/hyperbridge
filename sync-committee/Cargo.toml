@@ -18,7 +18,7 @@ tokio = { version = "1.32.0", features = ["full"] }
 tokio-stream = "0.1.14"
 hex-literal = "0.4.1"
 base2 = "0.3.1"
-primitive-types = { version = "0.12.1", features = ["impl-codec"] }
+primitive-types = { workspace = true, features = ["impl-codec"] }
 eventsource-client = "0.11.0"
 again = { git = "https://github.com/softprops/again", branch = "develop" }
 

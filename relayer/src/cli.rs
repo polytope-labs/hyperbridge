@@ -7,6 +7,7 @@ use std::{
 	str::FromStr,
 	sync::Arc,
 };
+use subxt::config::polkadot::PlainTip;
 use tesseract_beefy::host::BeefyHost;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
@@ -187,7 +188,7 @@ async fn initialize_consensus_clients(
 			let encoded_call = Extrinsic::new("HostExecutive", "update_evm_hosts", params.encode())
 				.encode_call_data(&substrate_client.client.metadata())?;
 			let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-			send_extrinsic(&substrate_client.client, signer, tx).await?;
+			send_extrinsic(&substrate_client.client, signer, tx, Some(PlainTip::new(100))).await?;
 		}
 
 		log::info!("setting host params on on hyperbridge");

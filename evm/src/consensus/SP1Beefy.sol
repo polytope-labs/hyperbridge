@@ -62,7 +62,18 @@ contract SP1Beefy is IConsensusClient, ERC165 {
         bytes calldata encodedProof
     ) external view returns (bytes memory, IntermediateState[] memory) {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
-        SP1BeefyProof memory proof = abi.decode(encodedProof, (SP1BeefyProof));
+        (
+            MiniCommitment memory commitment,
+            PartialBeefyMmrLeaf memory leaf,
+            ParachainHeader[] memory headers,
+            bytes memory plonkProof
+        ) = abi.decode(encodedProof, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes));
+        SP1BeefyProof memory proof = SP1BeefyProof({
+            commitment: commitment,
+            mmrLeaf: leaf,
+            headers: headers,
+            proof: plonkProof
+        });
 
         (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) = verifyConsensus(
             consensusState,

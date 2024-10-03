@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import {MerkleMountainRange, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
 import {MerklePatricia, StorageValue} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
@@ -21,8 +21,22 @@ import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {IIsmpHost, FeeMetadata, FrozenStatus} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
-import {Message, PostResponse, PostRequest, GetRequest, GetResponse, PostRequestMessage, PostResponseMessage, GetResponseMessage, PostRequestTimeoutMessage, PostResponseTimeoutMessage, GetTimeoutMessage, PostRequestLeaf, PostResponseLeaf, GetResponseLeaf} from "@polytope-labs/ismp-solidity/Message.sol";
-
+import {
+    Message,
+    PostResponse,
+    PostRequest,
+    GetRequest,
+    GetResponse,
+    PostRequestMessage,
+    PostResponseMessage,
+    GetResponseMessage,
+    PostRequestTimeoutMessage,
+    PostResponseTimeoutMessage,
+    GetTimeoutMessage,
+    PostRequestLeaf,
+    PostResponseLeaf,
+    GetResponseLeaf
+} from "@polytope-labs/ismp-solidity/Message.sol";
 import {Context} from "@openzeppelin/contracts/utils/Context.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
@@ -106,18 +120,23 @@ contract HandlerV1 is IHandler, ERC165, Context {
 
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
-        (bytes memory verifiedState, IntermediateState memory intermediate) = IConsensusClient(host.consensusClient())
-            .verifyConsensus(host.consensusState(), proof);
+        (bytes memory verifiedState, IntermediateState[] memory intermediates) = IConsensusClient(
+            host.consensusClient()
+        ).verifyConsensus(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
-        // check that we know this state machine and it's a new update
-        uint256 latestHeight = host.latestStateMachineHeight(intermediate.stateMachineId);
-        if (latestHeight != 0 && intermediate.height > latestHeight) {
-            StateMachineHeight memory stateMachineHeight = StateMachineHeight({
-                stateMachineId: intermediate.stateMachineId,
-                height: intermediate.height
-            });
-            host.storeStateMachineCommitment(stateMachineHeight, intermediate.commitment);
+        uint256 intermediatesLen = intermediates.length;
+        for (uint256 i = 0; i < intermediatesLen; i++) {
+            IntermediateState memory intermediate = intermediates[i];
+            // check that we know this state machine and it's a new update
+            uint256 latestHeight = host.latestStateMachineHeight(intermediate.stateMachineId);
+            if (latestHeight != 0 && intermediate.height > latestHeight) {
+                StateMachineHeight memory stateMachineHeight = StateMachineHeight({
+                    stateMachineId: intermediate.stateMachineId,
+                    height: intermediate.height
+                });
+                host.storeStateMachineCommitment(stateMachineHeight, intermediate.commitment);
+            }
         }
     }
 

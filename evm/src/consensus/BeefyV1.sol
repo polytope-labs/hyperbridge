@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "./Codec.sol";
 import "@polytope-labs/ismp-solidity/StateMachine.sol";
@@ -73,17 +73,8 @@ struct BeefyConsensusProof {
 contract BeefyV1 is IConsensusClient, ERC165 {
     using HeaderImpl for Header;
 
-    // Slot duration in milliseconds
-    uint256 public constant SLOT_DURATION = 12_000;
-
     // The PayloadId for the mmr root.
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
-
-    // ChainId for ethereum
-    bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
-
-    // ConsensusID for aura
-    bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
 
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
@@ -119,7 +110,7 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     function verifyConsensus(
         bytes memory encodedState,
         bytes memory encodedProof
-    ) external pure returns (bytes memory, IntermediateState memory) {
+    ) external pure returns (bytes memory, IntermediateState[] memory) {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
         (RelayChainProof memory relay, ParachainProof memory parachain) = abi.decode(
             encodedProof,
@@ -131,7 +122,10 @@ contract BeefyV1 is IConsensusClient, ERC165 {
             BeefyConsensusProof(relay, parachain)
         );
 
-        return (abi.encode(newState), intermediate);
+        IntermediateState[] memory intermediates = new IntermediateState[](1);
+        intermediates[0] = intermediate;
+
+        return (abi.encode(newState), intermediates);
     }
 
     // @dev Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized
@@ -229,7 +223,17 @@ contract BeefyV1 is IConsensusClient, ERC165 {
         RelayChainProof memory relay,
         bytes32 mmrRoot
     ) internal pure {
-        bytes32 hash = keccak256(Codec.Encode(relay.latestMmrLeaf));
+        bytes32 hash = keccak256(
+            Codec.Encode(
+                PartialBeefyMmrLeaf({
+                    version: relay.latestMmrLeaf.version,
+                    parentNumber: relay.latestMmrLeaf.parentNumber,
+                    parentHash: relay.latestMmrLeaf.parentHash,
+                    nextAuthoritySet: relay.latestMmrLeaf.nextAuthoritySet,
+                    extra: relay.latestMmrLeaf.extra
+                })
+            )
+        );
         uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;
 
         MmrLeaf[] memory leaves = new MmrLeaf[](1);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "forge-std/Script.sol";
 
@@ -13,6 +13,8 @@ abstract contract BaseScript is Script {
     address payable internal BSC_TESTNET_HOST = payable(vm.envAddress("BSC_TESTNET_HOST"));
     address payable internal CHIADO_HOST = payable(vm.envAddress("CHIADO_HOST"));
     address payable internal FEE_TOKEN = payable(vm.envAddress("FEE_TOKEN"));
+    bytes32 internal privateKey = vm.envBytes32("PRIVATE_KEY");
+    string internal host = vm.envString("HOST");
 
     /**
      * @dev Returns true if the two strings are equal.

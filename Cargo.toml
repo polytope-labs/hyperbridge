@@ -234,14 +234,11 @@ memory-db = { version = "0.32.0", default-features = false }
 codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false }
 log = { version = "0.4.21", default-features = false }
 anyhow = { version = "1.0.71", default-features = false }
-alloy-rlp = { version = "0.3.2", default-features = false }
-alloy-rlp-derive = "0.3.2"
-alloy-sol-macro = "0.7.4"
-alloy-sol-types = { version = "0.7.4", default-features = false }
-ethabi = { version = "18.0.0", features = [
-    "rlp",
-    "parity-codec",
-], default-features = false }
+alloy-rlp = { version = "0.3.7", default-features = false }
+alloy-rlp-derive = "0.3.7"
+alloy-sol-macro = "0.7.7"
+alloy-sol-types = { version = "0.7.7", default-features = false }
+
 orml-xcm-support = { version = "=1.0.0", default-features = false }
 orml-traits = { version = "=1.0.0", default-features = false }
 primitive-types = { version = "0.12.1", default-features = false }
@@ -329,6 +326,14 @@ telemetry-server = { path = "tesseract/telemetry" }
 tesseract-config = { path = "tesseract/config" }
 cumulus-pallet-parachain-system = { version = "0.16.0", default-features = false }
 
+[workspace.dependencies.ethabi]
+version = "18.0.0"
+default-features = false
+features = [
+    "rlp",
+    "parity-codec",
+]
+
 [workspace.dependencies.ethers]
 git = "https://github.com/polytope-labs/ethers-rs"
 rev = "45239225c50247e049892125d281442c084a2a92"
@@ -353,7 +358,7 @@ version = "0.5.2"
 default-features = false
 
 [workspace.dependencies.alloy-primitives]
-version = "0.7.4"
+version = "0.7.7"
 default-features = false
 features = ["rlp"]
 

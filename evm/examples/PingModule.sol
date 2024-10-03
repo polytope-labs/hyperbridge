@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 // A Sample ISMP solidity contract for unit tests
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import "@polytope-labs/ismp-solidity/IIsmpHost.sol";

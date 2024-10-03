@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
@@ -98,9 +98,14 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         uint256 cost = quote(messagingFee);
         vm.prank(whaleAccount);
         bytes32 commitment = host.dispatch{value: cost}(
-            DispatchGet({dest: StateMachine.evm(97), height: 100, keys: keys, timeout: 60 * 60,
-            context: new bytes(0),
-            fee: messagingFee})
+            DispatchGet({
+                dest: StateMachine.evm(97),
+                height: 100,
+                keys: keys,
+                timeout: 60 * 60,
+                context: new bytes(0),
+                fee: messagingFee
+            })
         );
         assert(host.requestCommitments(commitment).sender == whaleAccount);
     }

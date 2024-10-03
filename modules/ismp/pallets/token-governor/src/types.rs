@@ -410,3 +410,17 @@ impl TokenGatewayRequest for SolContractInstance {
 		[variant, encoded].concat()
 	}
 }
+
+/// Struct for requesting the token gateway address for some state machines
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+pub struct TokenGatewayAddressRequest {
+	/// The chains whose token gateway addresses are being requested
+	pub chains: BoundedVec<StateMachine, ConstU32<5>>,
+}
+
+/// Struct for responding to  token gateway address requests
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+pub struct TokenGatewayAddressResponse {
+	/// The token gateway address on diffirent chains
+	pub addresses: BoundedVec<(StateMachine, H160), ConstU32<5>>,
+}

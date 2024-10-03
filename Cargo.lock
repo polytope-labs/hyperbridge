@@ -12937,6 +12937,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-token-gateway"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-macro",
+ "alloy-sol-types",
+ "anyhow",
+ "frame-support 37.0.0",
+ "frame-system",
+ "ismp",
+ "log",
+ "pallet-asset-gateway",
+ "pallet-ismp",
+ "pallet-token-governor",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+]
+
+[[package]]
 name = "pallet-token-governor"
 version = "0.1.0"
 dependencies = [

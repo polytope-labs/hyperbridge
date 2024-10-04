@@ -16,7 +16,7 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Gateway, Ismp, IsmpParachain, Mmr,
-	ParachainInfo, Runtime, RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
+	ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
@@ -154,6 +154,10 @@ impl pallet_asset_gateway::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl pallet_token_gateway_inspector::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+}
+
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
@@ -198,10 +202,7 @@ impl pallet_assets::Config for Runtime {
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
 		if request.dest != HostStateMachine::get() {
-			let token_gateway = Gateway::token_gateway_address(&request.dest);
-			if request.source.is_substrate() && request.from == token_gateway.0.to_vec() {
-				Err(Error::Custom("Illegal request!".into()))?
-			}
+			TokenGatewayInspector::inspect_request(&request)?;
 
 			Ismp::dispatch_request(
 				Request::Post(request),
@@ -250,7 +251,12 @@ impl IsmpModule for ProxyModule {
 
 	fn on_timeout(&self, timeout: Timeout) -> Result<(), Error> {
 		let (from, source) = match &timeout {
-			Timeout::Request(Request::Post(post)) => (&post.from, &post.source),
+			Timeout::Request(Request::Post(post)) => {
+				if post.source != HostStateMachine::get() {
+					TokenGatewayInspector::handle_timeout(post)?;
+				}
+				(&post.from, &post.source)
+			},
 			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
 			Timeout::Response(res) => (&res.post.to, &res.post.dest),
 		};

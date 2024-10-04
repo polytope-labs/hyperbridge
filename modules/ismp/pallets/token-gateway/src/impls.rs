@@ -15,7 +15,7 @@
 
 // Pallet Implementations
 
-use alloc::string::ToString;
+use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
 use frame_support::ensure;
 use ismp::{

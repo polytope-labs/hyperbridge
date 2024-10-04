@@ -101,6 +101,7 @@ pallet-mmr-runtime-api = { workspace = true }
 sp-mmr-primitives = { workspace = true }
 simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
+pallet-token-gateway-inspector = { workspace = true  }
 
 [features]
 default = [
@@ -173,6 +174,7 @@ std = [
 	"pallet-call-decompressor/std",
 	"pallet-state-coprocessor/std",
 	"pallet-asset-gateway/std",
+	"pallet-token-gateway-inspector/std",
 	"pallet-token-governor/std",
 	"pallet-assets/std",
 	"pallet-mmr/std",

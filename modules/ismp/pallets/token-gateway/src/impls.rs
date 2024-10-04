@@ -49,6 +49,8 @@ pub fn convert_to_erc20(value: u128) -> U256 {
 	U256::from(value) * U256::from(100_000_000u128)
 }
 
+/// An Ismp Module that receives requests from substrate chains requesting for the token gateway
+/// addresses on EVM chains
 pub struct TokenGatewayAddressModule<T>(core::marker::PhantomData<T>);
 
 impl<T> Default for TokenGatewayAddressModule<T> {

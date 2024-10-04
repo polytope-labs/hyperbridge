@@ -39,16 +39,21 @@ use ismp::{
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{mmr::Leaf, ModuleId};
+use pallet_token_governor::GatewayParams;
 use sp_core::{
 	crypto::AccountId32,
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H256,
+	H160, H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	BuildStorage,
 };
+use staging_xcm::prelude::Location;
 use substrate_state_machine::SubstrateStateMachine;
+use xcm_simulator_example::ALICE;
+
+pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -75,6 +80,8 @@ frame_support::construct_runtime!(
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
 		IsmpSyncCommittee: ismp_sync_committee::pallet,
+		TokenGateway: pallet_token_gateway,
+		TokenGatewayInspector: pallet_token_gateway_inspector,
 	}
 );
 
@@ -201,6 +208,22 @@ impl pallet_ismp::Config for Test {
 impl pallet_hyperbridge::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
+}
+
+parameter_types! {
+	pub const NativeAssetId: Location = Location::here();
+}
+
+impl pallet_token_gateway::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Dispatcher = Ismp;
+	type Assets = Assets;
+	type Currency = Balances;
+	type NativeAssetId = NativeAssetId;
+}
+
+impl pallet_token_gateway_inspector::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
 }
 
 impl ismp_sync_committee::pallet::Config for Test {
@@ -424,7 +447,10 @@ where
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let _ = env_logger::builder().is_test(true).try_init();
 
-	let storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	let mut storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	pallet_balances::GenesisConfig::<Test> { balances: vec![(ALICE, INITIAL_BALANCE)] }
+		.assimilate_storage(&mut storage)
+		.unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(storage);
 	register_offchain_ext(&mut ext);
@@ -435,6 +461,23 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			pallet_token_governor::Params::<Balance> { registration_fee: Default::default() };
 
 		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
+		pallet_token_gateway::SupportedAssets::<Test>::insert(Location::here(), H256::zero());
+		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), Location::here());
+		pallet_token_gateway::TokenGatewayAddresses::<Test>::insert(
+			StateMachine::Evm(1),
+			H160::zero(),
+		);
+		pallet_token_gateway_inspector::StandaloneChainAssets::<Test>::insert(
+			StateMachine::Kusama(100),
+			H256::zero(),
+		);
+
+		let params = GatewayParams {
+			address: H160::zero(),
+			host: H160::zero(),
+			call_dispatcher: H160::random(),
+		};
+		pallet_token_governor::TokenGatewayParams::<Test>::insert(StateMachine::Evm(1), params);
 	});
 	ext
 }

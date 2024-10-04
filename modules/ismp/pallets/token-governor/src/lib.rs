@@ -29,7 +29,7 @@ pub use types::*;
 
 use alloc::{format, vec};
 use ismp::module::IsmpModule;
-use primitive_types::{H160, H256, U256};
+use primitive_types::{H160, H256};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -103,15 +103,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type TokenGatewayParams<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, GatewayParams, OptionQuery>;
-
-	/// Native asset ids for standalone chains connected to token gateway.
-	#[pallet::storage]
-	pub type StandaloneChainAssets<T: Config> =
-		StorageMap<_, Twox64Concat, StateMachine, H256, OptionQuery>;
-
-	/// Balances for net inflow of non native assets into a standalone chain
-	#[pallet::storage]
-	pub type InflowBalances<T: Config> = StorageMap<_, Twox64Concat, H256, U256, OptionQuery>;
 
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
@@ -317,22 +308,6 @@ pub mod pallet {
 			T::AdminOrigin::ensure_origin(origin)?;
 
 			Self::add_new_gateway_instance(updates)?;
-
-			Ok(())
-		}
-
-		/// Register the token native asset ids for standalone chains
-		#[pallet::call_index(8)]
-		#[pallet::weight(weight())]
-		pub fn register_standalone_chain_native_assets(
-			origin: OriginFor<T>,
-			assets: BTreeMap<StateMachine, H256>,
-		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
-
-			for (state_machine, asset_id) in assets {
-				StandaloneChainAssets::<T>::insert(state_machine, asset_id);
-			}
 
 			Ok(())
 		}

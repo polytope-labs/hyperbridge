@@ -15,12 +15,157 @@
 
 // Pallet Implementations
 
-use sp_runtime::traits::AccountIdConversion;
+use alloc::string::ToString;
+use codec::{Decode, Encode};
+use frame_support::ensure;
+use ismp::{
+	dispatcher::{FeeMetadata, IsmpDispatcher},
+	events::Meta,
+	module::IsmpModule,
+	router::{PostRequest, PostResponse},
+};
+use pallet_token_governor::TokenGatewayParams;
+use sp_core::{ConstU32, U256};
+use sp_runtime::{traits::AccountIdConversion, BoundedVec};
 
-use crate::{Config, Pallet, PALLET_ID};
+use crate::{
+	Config, Event, Pallet, TokenGatewayAddressRequest, TokenGatewayAddressResponse, PALLET_ID,
+};
 
 impl<T: Config> Pallet<T> {
 	pub fn pallet_account() -> T::AccountId {
 		PALLET_ID.into_account_truncating()
+	}
+}
+
+/// Converts an ERC20 U256 to a DOT u128
+pub fn convert_to_balance(value: U256) -> Result<u128, anyhow::Error> {
+	let dec_str = (value / U256::from(100_000_000u128)).to_string();
+	dec_str.parse().map_err(|e| anyhow::anyhow!("{e:?}"))
+}
+
+/// Converts a DOT u128 to an Erc20 denomination
+pub fn convert_to_erc20(value: u128) -> U256 {
+	U256::from(value) * U256::from(100_000_000u128)
+}
+
+pub struct TokenGatewayAddressModule<T>(core::marker::PhantomData<T>);
+
+impl<T> Default for TokenGatewayAddressModule<T> {
+	fn default() -> Self {
+		Self(core::marker::PhantomData)
+	}
+}
+
+impl<T: Config + pallet_token_governor::Config> IsmpModule for TokenGatewayAddressModule<T>
+where
+	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+{
+	fn on_accept(&self, post: PostRequest) -> Result<(), ismp::Error> {
+		let PostRequest { body: data, from, source, dest, nonce, .. } = post.clone();
+		// Check that source module is equal to the known token gateway deployment address
+		ensure!(
+			from == PALLET_ID.0.to_vec(),
+			ismp::error::Error::ModuleDispatchError {
+				msg: "Token Gateway: Unknown source contract address".to_string(),
+				meta: Meta { source, dest, nonce },
+			}
+		);
+
+		ensure!(
+			source.is_substrate(),
+			ismp::error::Error::ModuleDispatchError {
+				msg: "Token Gateway: Illegal source chain".to_string(),
+				meta: Meta { source, dest, nonce },
+			}
+		);
+
+		let req = TokenGatewayAddressRequest::decode(&mut &*data).map_err(|err| {
+			ismp::error::Error::Custom(format!("Invalid request from a substrate chain: {err}"))
+		})?;
+		let mut addresses = BoundedVec::<_, ConstU32<5>>::new();
+		for state_machine in req.chains {
+			if let Some(params) = TokenGatewayParams::<T>::get(&state_machine) {
+				addresses.try_push((state_machine, params.address)).map_err(|err| {
+					ismp::error::Error::Custom(alloc::format!(
+						"Maximum of 5 state machines can be requested: {err:?}"
+					))
+				})?;
+			}
+		}
+
+		if !addresses.is_empty() {
+			let response = TokenGatewayAddressResponse { addresses };
+			let dispatcher = <T as Config>::Dispatcher::default();
+
+			let post_response =
+				PostResponse { post, response: response.encode(), timeout_timestamp: 0 };
+
+			let commitment = dispatcher.dispatch_response(
+				post_response,
+				FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+			)?;
+
+			Pallet::<T>::deposit_event(Event::<T>::ResponseDispatched { dest: source, commitment });
+		}
+		return Ok(())
+	}
+
+	fn on_response(&self, _response: ismp::router::Response) -> Result<(), ismp::Error> {
+		Err(ismp::error::Error::Custom("Module does not accept responses".to_string()))
+	}
+
+	fn on_timeout(&self, _request: ismp::router::Timeout) -> Result<(), ismp::Error> {
+		Err(ismp::error::Error::Custom("Module does not accept timeouts".to_string()))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use sp_core::U256;
+	use sp_runtime::Permill;
+	use std::ops::Mul;
+
+	use super::{convert_to_balance, convert_to_erc20};
+
+	#[test]
+	fn test_per_mill() {
+		let per_mill = Permill::from_parts(1_000);
+
+		println!("{}", per_mill.mul(20_000_000u128));
+	}
+
+	#[test]
+	fn balance_conversions() {
+		let supposedly_small_u256 = U256::from_dec_str("1000000000000000000").unwrap();
+		// convert erc20 value to dot value
+		let converted_balance = convert_to_balance(supposedly_small_u256).unwrap();
+		println!("{}", converted_balance);
+
+		let dot = 10_000_000_000u128;
+
+		assert_eq!(converted_balance, dot);
+
+		// Convert 1 dot to erc20
+
+		let dot = 10_000_000_000u128;
+		let erc_20_val = convert_to_erc20(dot);
+		assert_eq!(erc_20_val, U256::from_dec_str("1000000000000000000").unwrap());
+	}
+
+	#[test]
+	fn max_value_check() {
+		let max = U256::MAX;
+
+		let converted_balance = convert_to_balance(max);
+		assert!(converted_balance.is_err())
+	}
+
+	#[test]
+	fn min_value_check() {
+		let min = U256::from(1u128);
+
+		let converted_balance = convert_to_balance(min).unwrap();
+		assert_eq!(converted_balance, 0);
 	}
 }

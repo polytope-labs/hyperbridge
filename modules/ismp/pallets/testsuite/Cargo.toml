@@ -45,6 +45,7 @@ pallet-ismp-relayer = { workspace = true, default-features = true }
 pallet-fishermen = { workspace = true, default-features = true }
 pallet-call-decompressor = { workspace = true, default-features = true }
 pallet-asset-gateway = { workspace = true, default-features = true }
+pallet-token-gateway = { workspace = true, default-features = true }
 sp-state-machine = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr = { workspace = true, default-features = true }

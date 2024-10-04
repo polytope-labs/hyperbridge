@@ -14,7 +14,8 @@ use ismp::{
 	module::IsmpModule,
 	router::{PostRequest, Request, Timeout},
 };
-use pallet_asset_gateway::{convert_to_erc20, Body, Module};
+use pallet_asset_gateway::Module;
+use pallet_token_gateway::{impls::convert_to_erc20, types::Body};
 use sp_core::{ByteArray, H160};
 use staging_xcm::v4::{Junction, Junctions, Location, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;

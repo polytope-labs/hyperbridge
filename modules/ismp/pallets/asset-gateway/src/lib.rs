@@ -20,6 +20,10 @@ extern crate alloc;
 use alloc::{boxed::Box, string::ToString, vec};
 use alloy_sol_types::SolType;
 use core::marker::PhantomData;
+use pallet_token_gateway::{
+	impls::{convert_to_balance, convert_to_erc20},
+	types::Body,
+};
 use pallet_token_governor::TokenGatewayParams;
 
 use frame_support::{
@@ -273,22 +277,6 @@ where
 	}
 }
 
-alloy_sol_macro::sol! {
-	#![sol(all_derives)]
-	struct Body {
-		// Amount of the asset to be sent
-		uint256 amount;
-		// The asset identifier
-		bytes32 asset_id;
-		// Flag to redeem the erc20 asset on the destination
-		bool redeem;
-		// Sender address
-		bytes32 from;
-		// Recipient address
-		bytes32 to;
-	}
-}
-
 #[derive(Clone)]
 pub struct Module<T>(PhantomData<T>);
 
@@ -512,65 +500,5 @@ where
 				},
 			}),
 		}
-	}
-}
-
-/// Converts an ERC20 U256 to a DOT u128
-pub fn convert_to_balance(value: U256) -> Result<u128, anyhow::Error> {
-	let dec_str = (value / U256::from(100_000_000u128)).to_string();
-	dec_str.parse().map_err(|e| anyhow::anyhow!("{e:?}"))
-}
-
-/// Converts a DOT u128 to an Erc20 denomination
-pub fn convert_to_erc20(value: u128) -> U256 {
-	U256::from(value) * U256::from(100_000_000u128)
-}
-
-#[cfg(test)]
-mod tests {
-	use sp_core::U256;
-	use sp_runtime::Permill;
-	use std::ops::Mul;
-
-	use crate::{convert_to_balance, convert_to_erc20};
-	#[test]
-	fn test_per_mill() {
-		let per_mill = Permill::from_parts(1_000);
-
-		println!("{}", per_mill.mul(20_000_000u128));
-	}
-
-	#[test]
-	fn balance_conversions() {
-		let supposedly_small_u256 = U256::from_dec_str("1000000000000000000").unwrap();
-		// convert erc20 value to dot value
-		let converted_balance = convert_to_balance(supposedly_small_u256).unwrap();
-		println!("{}", converted_balance);
-
-		let dot = 10_000_000_000u128;
-
-		assert_eq!(converted_balance, dot);
-
-		// Convert 1 dot to erc20
-
-		let dot = 10_000_000_000u128;
-		let erc_20_val = convert_to_erc20(dot);
-		assert_eq!(erc_20_val, U256::from_dec_str("1000000000000000000").unwrap());
-	}
-
-	#[test]
-	fn max_value_check() {
-		let max = U256::MAX;
-
-		let converted_balance = convert_to_balance(max);
-		assert!(converted_balance.is_err())
-	}
-
-	#[test]
-	fn min_value_check() {
-		let min = U256::from(1u128);
-
-		let converted_balance = convert_to_balance(min).unwrap();
-		assert_eq!(converted_balance, 0);
 	}
 }

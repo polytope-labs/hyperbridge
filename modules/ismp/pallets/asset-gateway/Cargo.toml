@@ -35,6 +35,7 @@ pallet-xcm = { workspace = true }
 staging-xcm = { workspace = true }
 staging-xcm-builder = { workspace = true }
 staging-xcm-executor = { workspace = true }
+pallet-token-gateway = { workspace = true }
 
 [features]
 default = ["std"]
@@ -56,6 +57,7 @@ std = [
     "pallet-token-governor/std",
     "alloy-sol-types/std",
     "alloy-primitives/std",
-    "anyhow/std"
+    "anyhow/std",
+    "pallet-token-gateway/std"
 ]
 try-runtime = []

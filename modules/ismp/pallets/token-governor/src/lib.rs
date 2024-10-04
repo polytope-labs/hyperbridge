@@ -23,18 +23,13 @@ mod impls;
 mod types;
 use alloy_sol_types::SolValue;
 use frame_support::pallet_prelude::Weight;
-use ismp::{
-	dispatcher::{FeeMetadata, IsmpDispatcher},
-	router::{PostRequest, PostResponse, Response, Timeout},
-};
-use sp_core::ConstU32;
-use sp_runtime::BoundedVec;
+use ismp::router::{PostRequest, Response, Timeout};
+
 pub use types::*;
 
 use alloc::{format, vec};
-use codec::{Decode, Encode};
 use ismp::module::IsmpModule;
-use primitive_types::{H160, H256};
+use primitive_types::{H160, H256, U256};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -109,6 +104,15 @@ pub mod pallet {
 	pub type TokenGatewayParams<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, GatewayParams, OptionQuery>;
 
+	/// Native asset ids for standalone chains connected to token gateway.
+	#[pallet::storage]
+	pub type StandaloneChainAssets<T: Config> =
+		StorageMap<_, Twox64Concat, StateMachine, H256, OptionQuery>;
+
+	/// Balances for net inflow of non native assets into a standalone chain
+	#[pallet::storage]
+	pub type InflowBalances<T: Config> = StorageMap<_, Twox64Concat, H256, U256, OptionQuery>;
+
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -149,14 +153,6 @@ pub mod pallet {
 			old: Params<<T as pallet_ismp::Config>::Balance>,
 			/// The new parameters
 			new: Params<<T as pallet_ismp::Config>::Balance>,
-		},
-
-		/// Response dispatched
-		ResponseDispatched {
-			/// Destination state machine
-			dest: StateMachine,
-			/// Response commitment
-			commitment: H256,
 		},
 	}
 
@@ -324,6 +320,22 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Register the token native asset ids for standalone chains
+		#[pallet::call_index(8)]
+		#[pallet::weight(weight())]
+		pub fn register_standalone_chain_native_assets(
+			origin: OriginFor<T>,
+			assets: BTreeMap<StateMachine, H256>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			for (state_machine, asset_id) in assets {
+				StandaloneChainAssets::<T>::insert(state_machine, asset_id);
+			}
+
+			Ok(())
+		}
 	}
 
 	/// This allows users to create assets from any chain using the TokenRegistrar.
@@ -380,44 +392,11 @@ pub mod pallet {
 	}
 }
 
-impl<T: Config> IsmpModule for Pallet<T>
-where
-	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-{
-	fn on_accept(&self, post: PostRequest) -> Result<(), ismp::error::Error> {
-		let PostRequest { body: data, from, source, .. } = post.clone();
-		// We only accept messages from substrate chains requesting for Token Gateway Addresses
-		if source.is_substrate() {
-			let req = TokenGatewayAddressRequest::decode(&mut &*data)
-				.map_err(|err| ismp::error::Error::Custom(format!("Decode error: {err}")))?;
-			let mut addresses = BoundedVec::<_, ConstU32<5>>::new();
-			for state_machine in req.chains {
-				if let Some(params) = TokenGatewayParams::<T>::get(&state_machine) {
-					addresses.try_push((state_machine, params.address)).map_err(|err| {
-						ismp::error::Error::Custom(alloc::format!(
-							"Maximum of 5 state machines can be requested: {err:?}"
-						))
-					})?;
-				}
-			}
-
-			if !addresses.is_empty() {
-				let response = TokenGatewayAddressResponse { addresses };
-				let dispatcher = <T as Config>::Dispatcher::default();
-
-				let post_response =
-					PostResponse { post, response: response.encode(), timeout_timestamp: 0 };
-
-				let commitment = dispatcher.dispatch_response(
-					post_response,
-					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-				)?;
-
-				Self::deposit_event(Event::<T>::ResponseDispatched { dest: source, commitment });
-			}
-			return Ok(())
-		}
-
+impl<T: Config> IsmpModule for Pallet<T> {
+	fn on_accept(
+		&self,
+		PostRequest { body: data, from, source, .. }: PostRequest,
+	) -> Result<(), ismp::error::Error> {
 		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
 			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
 		if from != address.as_bytes().to_vec() {

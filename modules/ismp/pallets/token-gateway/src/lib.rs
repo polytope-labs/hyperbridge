@@ -13,14 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The token governor handles asset registration as well as tracks the metadata of multi-chain
-//! native tokens across all connected chains
+//! The token gateway enables asset transfers to EVM instances of token gateway
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
-mod impls;
-mod types;
+pub mod impls;
+pub mod types;
+use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
 use codec::Decode;
 use frame_support::{
@@ -37,8 +37,6 @@ use ismp::{
 	events::Meta,
 	router::{PostRequest, Request, Response, Timeout},
 };
-use pallet_asset_gateway::{convert_to_balance, Body};
-use pallet_token_governor::TokenGatewayAddressResponse;
 use sp_core::{Get, U256};
 pub use types::*;
 
@@ -64,8 +62,6 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
-	use pallet_asset_gateway::{convert_to_erc20, Body};
-	use pallet_token_governor::TokenGatewayAddressRequest;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -86,7 +82,7 @@ pub mod pallet {
 		/// Fungible asset implementation
 		type Assets: fungibles::Mutate<Self::AccountId> + fungibles::Inspect<Self::AccountId>;
 
-		/// The native asset ID as registered on hyperbridge
+		/// The native asset ID
 		type NativeAssetId: Get<AssetId<Self>>;
 	}
 
@@ -96,7 +92,7 @@ pub mod pallet {
 	pub type SupportedAssets<T: Config> = StorageMap<_, Identity, AssetId<T>, H256, OptionQuery>;
 
 	/// Assets supported by this instance of token gateway
-	/// A map of the local asset id to the token gateway asset id
+	/// A map of the token gateway asset id to the local asset id
 	#[pallet::storage]
 	pub type LocalAssets<T: Config> = StorageMap<_, Identity, H256, AssetId<T>, OptionQuery>;
 
@@ -144,6 +140,13 @@ pub mod pallet {
 		},
 		/// Token Gateway address enquiry dispatched
 		AddressEnquiryDispatched { commitment: H256 },
+		/// Response dispatched
+		ResponseDispatched {
+			/// Destination state machine
+			dest: StateMachine,
+			/// Response commitment
+			commitment: H256,
+		},
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -205,7 +208,7 @@ pub mod pallet {
 			}
 
 			// Dispatch Ismp request
-
+			// Token gateway expected abi encoded address
 			let mut to = [0u8; 32];
 			to[12..].copy_from_slice(&params.recepient.0);
 			let from: [u8; 32] = who.clone().into();
@@ -267,7 +270,7 @@ pub mod pallet {
 			let dispatch_post = DispatchPost {
 				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
 				from: PALLET_ID.0.to_vec(),
-				to: pallet_token_governor::PALLET_ID.to_vec(),
+				to: PALLET_ID.0.to_vec(),
 				timeout: 0,
 				body: request.encode(),
 			};
@@ -407,22 +410,7 @@ where
 
 	fn on_timeout(&self, request: Timeout) -> Result<(), ismp::error::Error> {
 		match request {
-			Timeout::Request(Request::Post(PostRequest {
-				body,
-				from,
-				source,
-				dest,
-				nonce,
-				..
-			})) => {
-				ensure!(
-					from == TokenGatewayAddresses::<T>::get(source).unwrap_or_default().0.to_vec(),
-					ismp::error::Error::ModuleDispatchError {
-						msg: "Token Gateway: Unknown source contract address".to_string(),
-						meta: Meta { source, dest, nonce },
-					}
-				);
-
+			Timeout::Request(Request::Post(PostRequest { body, source, dest, nonce, .. })) => {
 				let body = Body::abi_decode(&mut &body[1..], true).map_err(|_| {
 					ismp::error::Error::ModuleDispatchError {
 						msg: "Token Gateway: Failed to decode request body".to_string(),

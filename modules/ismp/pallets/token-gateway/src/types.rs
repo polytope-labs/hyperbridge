@@ -40,14 +40,46 @@ pub struct TeleportParams<AssetId, Balance> {
 	pub timeout: u64,
 }
 
+/// Local asset Id and its corresponding token gateway asset id
 #[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
 pub struct AssetMap<AssetId> {
 	pub local_id: AssetId,
 	pub token_gateway_asset_id: H256,
 }
 
+/// A struct for registering some assets
 #[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
 #[scale_info(skip_type_params(T))]
 pub struct AssetRegistration<AssetId> {
 	pub assets: BoundedVec<AssetMap<AssetId>, ConstU32<5>>,
+}
+
+alloy_sol_macro::sol! {
+	#![sol(all_derives)]
+	struct Body {
+		// Amount of the asset to be sent
+		uint256 amount;
+		// The asset identifier
+		bytes32 asset_id;
+		// Flag to redeem the erc20 asset on the destination
+		bool redeem;
+		// Sender address
+		bytes32 from;
+		// Recipient address
+		bytes32 to;
+	}
+}
+
+/// Struct for requesting the token gateway address for some state machines
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+pub struct TokenGatewayAddressRequest {
+	/// The chains whose token gateway addresses are being requested
+	pub chains: BoundedVec<StateMachine, ConstU32<5>>,
+}
+
+/// Struct for responding to  token gateway address requests
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+pub struct TokenGatewayAddressResponse {
+	/// The token gateway address on diffirent chains
+	pub addresses: BoundedVec<(StateMachine, H160), ConstU32<5>>,
 }

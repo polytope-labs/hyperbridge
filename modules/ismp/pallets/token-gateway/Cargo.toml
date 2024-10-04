@@ -26,7 +26,6 @@ alloy-primitives = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
-pallet-asset-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 
 [features]
@@ -44,7 +43,6 @@ std = [
     "scale-info/std",
     "anyhow/std",
     "alloy-primitives/std",
-    "pallet-asset-gateway/std",
     "pallet-token-governor/std"
 ]
 try-runtime = []

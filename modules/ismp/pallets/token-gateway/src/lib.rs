@@ -140,13 +140,6 @@ pub mod pallet {
 		},
 		/// Token Gateway address enquiry dispatched
 		AddressEnquiryDispatched { commitment: H256 },
-		/// Response dispatched
-		ResponseDispatched {
-			/// Destination state machine
-			dest: StateMachine,
-			/// Response commitment
-			commitment: H256,
-		},
 	}
 
 	/// Errors that can be returned by this pallet.

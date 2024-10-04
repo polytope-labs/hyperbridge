@@ -28,9 +28,7 @@ use pallet_token_governor::TokenGatewayParams;
 use sp_core::{ConstU32, U256};
 use sp_runtime::{traits::AccountIdConversion, BoundedVec};
 
-use crate::{
-	Config, Event, Pallet, TokenGatewayAddressRequest, TokenGatewayAddressResponse, PALLET_ID,
-};
+use crate::{Config, Pallet, TokenGatewayAddressRequest, TokenGatewayAddressResponse, PALLET_ID};
 
 impl<T: Config> Pallet<T> {
 	pub fn pallet_account() -> T::AccountId {
@@ -59,7 +57,7 @@ impl<T> Default for TokenGatewayAddressModule<T> {
 	}
 }
 
-impl<T: Config + pallet_token_governor::Config> IsmpModule for TokenGatewayAddressModule<T>
+impl<T: pallet_token_governor::Config> IsmpModule for TokenGatewayAddressModule<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
@@ -98,17 +96,15 @@ where
 
 		if !addresses.is_empty() {
 			let response = TokenGatewayAddressResponse { addresses };
-			let dispatcher = <T as Config>::Dispatcher::default();
+			let dispatcher = <T as pallet_token_governor::Config>::Dispatcher::default();
 
 			let post_response =
 				PostResponse { post, response: response.encode(), timeout_timestamp: 0 };
 
-			let commitment = dispatcher.dispatch_response(
+			let _ = dispatcher.dispatch_response(
 				post_response,
 				FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 			)?;
-
-			Pallet::<T>::deposit_event(Event::<T>::ResponseDispatched { dest: source, commitment });
 		}
 		return Ok(())
 	}

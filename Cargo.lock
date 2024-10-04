@@ -6115,6 +6115,7 @@ dependencies = [
  "pallet-state-coprocessor",
  "pallet-sudo",
  "pallet-timestamp",
+ "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
  "pallet-transaction-payment",

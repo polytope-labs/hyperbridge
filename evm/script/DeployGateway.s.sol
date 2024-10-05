@@ -6,7 +6,7 @@ import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {IERC6160Ext20} from "@polytope-labs/erc6160/interfaces/IERC6160Ext20.sol";
 import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
-import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
+import {CrossChainInscription} from "../src/modules/Inscriptions.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 
@@ -14,35 +14,40 @@ contract DeployScript is BaseScript {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER ROLE");
 
-    function run() external {
-        address admin = vm.envAddress("ADMIN");
+    function run() external  {
         // todo:
         address callDispatcher = address(1);
 
         if (equal(host, "sepolia") || equal(host, "ethereum")) {
             vm.startBroadcast(uint256(privateKey));
+            deployInscription(SEPOLIA_HOST, admin);
             deployGateway(SEPOLIA_HOST, admin, callDispatcher);
         } else if (equal(host, "arbitrum-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
+            deployInscription(ARB_SEPOLIA_HOST, admin);
             deployGateway(ARB_SEPOLIA_HOST, admin, callDispatcher);
         } else if (equal(host, "optimism-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
+            deployInscription(OP_SEPOLIA_HOST, admin);
             deployGateway(OP_SEPOLIA_HOST, admin, callDispatcher);
         } else if (equal(host, "base-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
+            deployInscription(BASE_SEPOLIA_HOST, admin);
             deployGateway(BASE_SEPOLIA_HOST, admin, callDispatcher);
         } else if (equal(host, "bsc-testnet")) {
             vm.startBroadcast(uint256(privateKey));
+            deployInscription(BSC_TESTNET_HOST, admin);
             deployGateway(BSC_TESTNET_HOST, admin, callDispatcher);
         } else if (equal(host, "chiado")) {
             vm.startBroadcast(uint256(privateKey));
+            deployInscription(CHIADO_HOST, admin);
             deployGateway(CHIADO_HOST, admin, callDispatcher);
         }
     }
 
-    function deployMessenger(address host, address admin) public {
-        CrossChainMessenger c = new CrossChainMessenger{salt: salt}(admin);
-        c.setIsmpHost(host);
+    function deployInscription(address host, address admin) public {
+        CrossChainInscription c = new CrossChainInscription{salt: salt}(admin);
+        c.setHost(host);
     }
 
     function deployGateway(address host, address admin, address callDispatcher) public {

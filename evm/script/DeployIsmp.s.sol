@@ -37,7 +37,6 @@ bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
 contract DeployScript is BaseScript {
     using strings for *;
 
-    address private admin = vm.envAddress("ADMIN");
     address private pingDispatcher = vm.envAddress("DISPATCHER");
     uint256 private paraId = vm.envUint("PARA_ID");
 

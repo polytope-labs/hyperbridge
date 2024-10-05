@@ -317,8 +317,7 @@ contract TokenGateway is BaseIsmpModule {
         createAssets(teleportParams.assets);
 
         // infinite approval to save on gas
-        SafeERC20.safeIncreaseAllowance(
-            IERC20(IIsmpHost(_params.host).feeToken()),
+        IERC20(IIsmpHost(_params.host).feeToken()).approve(
             teleportParams.params.host,
             type(uint256).max
         );

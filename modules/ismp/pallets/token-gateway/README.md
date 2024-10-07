@@ -60,9 +60,11 @@ impl IsmpRouter for Router {
 
 The pallet requires some setting up before the teleport function is available for use in the runtime.
 
-1.  Request token gateway addresses for the EVM chains of interest by dispatching the `request_token_gateway_address` extrinsic.
+1.  Register your native asset directly on `Hyperbridge` by dispatching  `TokenGovernor::create_erc6160_asset`.
 2.  Register a map of local asset Ids to their token gateway equivalents by dispatching `register_assets` extrinsic.
-    Note: This registration must be done for the native asset also.
+    Note: This registration must be done for your native asset also.
+3.  Request token gateway addresses for the EVM chains of interest by dispatching the `request_token_gateway_address` extrinsic.
+    
 
 ## Dispatchable Functions
 

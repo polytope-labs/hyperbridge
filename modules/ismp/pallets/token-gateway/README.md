@@ -55,18 +55,19 @@ impl IsmpRouter for Router {
 
 The pallet requires some setting up before the teleport function is available for use in the runtime.
 
-1.  Register your native asset directly on `Hyperbridge` by dispatching  `TokenGovernor::create_erc6160_asset`.
-2.  Register a map of local asset Ids to their token gateway equivalents by dispatching `register_assets` extrinsic.
+1.  Register your native assets directly on `Hyperbridge` by dispatching  `create_erc6160_asset`.
+2.  Register a map of all local asset Ids to their token gateway equivalents by dispatching `register_assets` extrinsic.
     Note: This registration must be done for your native asset also.
-3.  Request token gateway addresses for the EVM chains of interest by dispatching the `request_token_gateway_address` extrinsic.
+3.  Set token gateway addresses for the EVM chains of interest by dispatching the `set_token_gateway_addresses` extrinsic.
+    This allows us validate incoming requests.
     
 
 ## Dispatchable Functions
 
 - `teleport` - This function is used to bridge assets to EVM chains through Hyperbridge.
-- `request_token_gateway_address` - This call allows the `AdminOrigin` origin to request the token gateway addresses from Hyperbridge.
+- `set_token_gateway_addresses` - This call allows the `AdminOrigin` origin to set the token gateway address for EVM chains.
 - `register_assets` - This call allows the configured `AdminOrigin` to register a map of local asset ids to their equivalent asset ids on token gateway.
-
+- `create_erc6160_asset` - This call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments
 ## License
 
 This library is licensed under the Apache 2.0 License, Copyright (c) 2024 Polytope Labs.

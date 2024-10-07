@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use alloy_sol_types::SolValue;
 use ismp::{
 	host::StateMachine,

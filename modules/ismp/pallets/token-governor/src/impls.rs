@@ -85,7 +85,7 @@ where
 				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
 
 			let dispatcher = T::Dispatcher::default();
-			dispatcher
+			let commitment = dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
@@ -99,11 +99,11 @@ where
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 			// tracks which chains the asset is deployed on
 			SupportedChains::<T>::insert(asset_id, chain, true);
+			Self::deposit_event(Event::<T>::AssetRegistered { asset_id, commitment, dest: chain });
 		}
 
 		AssetMetadatas::<T>::insert(asset_id, metadata);
 		AssetOwners::<T>::insert(asset_id, who);
-		Self::deposit_event(Event::<T>::AssetRegistered { asset_id });
 
 		Ok(())
 	}
@@ -388,7 +388,7 @@ where
 				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
 
 			let dispatcher = T::Dispatcher::default();
-			dispatcher
+			let commitment = dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
@@ -402,13 +402,13 @@ where
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 			// tracks which chains the asset is deployed on
 			SupportedChains::<T>::insert(asset_id, chain, true);
+			Self::deposit_event(Event::<T>::AssetRegistered { asset_id, commitment, dest: chain });
 		}
 
 		AssetMetadatas::<T>::insert(asset_id, metadata);
 
 		let who: T::AccountId = PalletId(PALLET_ID).into_account_truncating();
 		AssetOwners::<T>::insert(asset_id, who);
-		Self::deposit_event(Event::<T>::AssetRegistered { asset_id });
 		Ok(())
 	}
 }

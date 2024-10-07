@@ -101,6 +101,15 @@ pub struct ERC6160AssetRegistration {
 	pub chains: Vec<ChainWithSupply>,
 }
 
+/// Holds data required for multi-chain native asset registration
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct RemoteERC6160AssetRegistration<AccountId> {
+	/// Owner of these assets
+	pub owner: AccountId,
+	/// Assets
+	pub assets: Vec<ERC6160AssetRegistration>,
+}
+
 /// Holds data required for multi-chain native asset registration (unsigned)
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct UnsignedERC6160AssetRegistration<AccountId> {

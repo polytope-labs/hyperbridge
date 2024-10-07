@@ -112,6 +112,10 @@ pub mod pallet {
 		AssetRegistered {
 			/// The asset identifier
 			asset_id: H256,
+			/// Request commitment
+			commitment: H256,
+			/// Destination chain
+			dest: StateMachine,
 		},
 		/// A new pending asset has been registered
 		NewPendingAsset {
@@ -367,11 +371,26 @@ pub mod pallet {
 	}
 }
 
-impl<T: Config> IsmpModule for Pallet<T> {
+impl<T: Config> IsmpModule for Pallet<T>
+where
+	T::AccountId: From<[u8; 32]>,
+{
 	fn on_accept(
 		&self,
 		PostRequest { body: data, from, source, .. }: PostRequest,
 	) -> Result<(), ismp::error::Error> {
+		// Only substrate chains are allowed to fully register assets remotely
+		if source.is_substrate() {
+			let remote_reg: RemoteERC6160AssetRegistration<T::AccountId> =
+				codec::Decode::decode(&mut &*data)
+					.map_err(|_| ismp::error::Error::Custom(format!("Failed to decode data")))?;
+			for asset in remote_reg.assets {
+				Pallet::<T>::register_asset(asset, remote_reg.owner.clone()).map_err(|e| {
+					ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
+				})?;
+			}
+			return Ok(())
+		}
 		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
 			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
 		if from != address.as_bytes().to_vec() {

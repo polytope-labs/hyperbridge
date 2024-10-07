@@ -63,6 +63,7 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
+	use pallet_token_governor::{ERC6160AssetRegistration, RemoteERC6160AssetRegistration};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -139,6 +140,12 @@ pub mod pallet {
 			/// Destination chain
 			source: StateMachine,
 		},
+
+		/// ERC6160 asset creation request dispatched to hyperbridge
+		ERC6160AssetRegistrationDispatched {
+			/// Request commitment
+			commitment: H256,
+		},
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -146,14 +153,10 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// A asset that has not been registered
 		UnregisteredAsset,
-		/// A state machine does not have the token gateway address registered
-		UnregisteredDestinationChain,
 		/// Error while teleporting asset
 		AssetTeleportError,
 		/// Coprocessor was not configured in the runtime
 		CoprocessorNotConfigured,
-		/// A request to query the token gateway addresses failed to dispatch
-		AddressEnquiryDispatchFailed,
 	}
 
 	#[pallet::call]
@@ -276,6 +279,38 @@ pub mod pallet {
 				);
 				LocalAssets::<T>::insert(asset_map.token_gateway_asset_id, asset_map.local_id);
 			}
+			Ok(())
+		}
+
+		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
+		///
+		/// This works by dispatching a request to the TokenGateway module on each requested chain
+		/// to create the asset.
+		#[pallet::call_index(3)]
+		#[pallet::weight(weight())]
+		pub fn create_erc6160_asset(
+			origin: OriginFor<T>,
+			owner: T::AccountId,
+			assets: Vec<ERC6160AssetRegistration>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			let dispatcher = <T as Config>::Dispatcher::default();
+			let dispatch_post = DispatchPost {
+				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
+				from: module_id().0.to_vec(),
+				to: pallet_token_governor::PALLET_ID.to_vec(),
+				timeout: 0,
+				body: { RemoteERC6160AssetRegistration { assets, owner: owner.clone() }.encode() },
+			};
+
+			let metadata = FeeMetadata { payer: owner.into(), fee: Default::default() };
+
+			let commitment = dispatcher
+				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
+				.map_err(|_| Error::<T>::AssetTeleportError)?;
+			Self::deposit_event(Event::<T>::ERC6160AssetRegistrationDispatched { commitment });
+
 			Ok(())
 		}
 	}

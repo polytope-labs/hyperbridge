@@ -221,9 +221,6 @@ impl IsmpModule for ProxyModule {
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
 			id if id == token_gateway =>
 				pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
-			id if id == ModuleId::Pallet(pallet_token_gateway::PALLET_ID) =>
-				pallet_token_gateway::impls::AddressRequestModule::<Runtime>::default()
-					.on_accept(request),
 			_ => Err(Error::Custom("Destination module not found".to_string())),
 		}
 	}

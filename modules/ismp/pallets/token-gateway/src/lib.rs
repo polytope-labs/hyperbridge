@@ -20,7 +20,7 @@ extern crate alloc;
 
 pub mod impls;
 pub mod types;
-use crate::impls::{convert_to_balance, convert_to_erc20};
+use crate::impls::{convert_to_balance, convert_to_erc20, module_id};
 use alloy_sol_types::SolValue;
 use frame_support::{
 	ensure,
@@ -41,7 +41,7 @@ pub use types::*;
 
 use alloc::{string::ToString, vec, vec::Vec};
 use ismp::module::IsmpModule;
-use primitive_types::{H160, H256};
+use primitive_types::H256;
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -51,6 +51,8 @@ pub const PALLET_ID: PalletId = PalletId(*b"tokengtw");
 
 #[frame_support::pallet]
 pub mod pallet {
+	use alloc::collections::BTreeMap;
+
 	use super::*;
 	use frame_support::{
 		pallet_prelude::*,
@@ -98,12 +100,7 @@ pub mod pallet {
 	/// The token gateway adresses on different chains
 	#[pallet::storage]
 	pub type TokenGatewayAddresses<T: Config> =
-		StorageMap<_, Identity, StateMachine, H160, OptionQuery>;
-
-	/// The token gateway adresses on different chains
-	#[pallet::storage]
-	pub type TokenGatewayReverseMap<T: Config> =
-		StorageMap<_, Identity, Vec<u8>, StateMachine, OptionQuery>;
+		StorageMap<_, Identity, StateMachine, Vec<u8>, OptionQuery>;
 
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
@@ -114,7 +111,7 @@ pub mod pallet {
 			/// Source account on the relaychain
 			from: T::AccountId,
 			/// beneficiary account on destination
-			to: H160,
+			to: H256,
 			/// Amount transferred
 			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
 			/// Destination chain
@@ -142,8 +139,6 @@ pub mod pallet {
 			/// Destination chain
 			source: StateMachine,
 		},
-		/// Token Gateway address enquiry dispatched
-		AddressEnquiryDispatched { commitment: H256 },
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -166,6 +161,8 @@ pub mod pallet {
 	where
 		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 		u128: From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
+		<T as pallet_ismp::Config>::Balance:
+			From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
 		<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance:
 			From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
 		[u8; 32]: From<<T as frame_system::Config>::AccountId>,
@@ -206,8 +203,7 @@ pub mod pallet {
 
 			// Dispatch Ismp request
 			// Token gateway expected abi encoded address
-			let mut to = [0u8; 32];
-			to[12..].copy_from_slice(&params.recepient.0);
+			let to = params.recepient.0;
 			let from: [u8; 32] = who.clone().into();
 
 			let body = Body {
@@ -223,13 +219,10 @@ pub mod pallet {
 				to: to.into(),
 			};
 
-			let token_gateway_address = TokenGatewayAddresses::<T>::get(params.destination)
-				.ok_or_else(|| Error::<T>::UnregisteredDestinationChain)?;
-
 			let dispatch_post = DispatchPost {
 				dest: params.destination,
-				from: token_gateway_address.0.to_vec(),
-				to: token_gateway_address.0.to_vec(),
+				from: module_id().0.to_vec(),
+				to: params.token_gateway,
 				timeout: params.timeout,
 				body: {
 					// Prefix with the handleIncomingAsset enum variant
@@ -239,7 +232,7 @@ pub mod pallet {
 				},
 			};
 
-			let metadata = FeeMetadata { payer: who.clone(), fee: Default::default() };
+			let metadata = FeeMetadata { payer: who.clone(), fee: params.relayer_fee.into() };
 			let commitment = dispatcher
 				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
 				.map_err(|_| Error::<T>::AssetTeleportError)?;
@@ -254,29 +247,17 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Request the token gateway address from Hyperbridge for specified chains
+		/// Set the token gateway address for specified chains
 		#[pallet::call_index(1)]
 		#[pallet::weight(weight())]
-		pub fn request_token_gateway_address(
+		pub fn set_token_gateway_addresses(
 			origin: OriginFor<T>,
-			chains: BoundedVec<StateMachine, ConstU32<5>>,
+			addresses: BTreeMap<StateMachine, Vec<u8>>,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
-			let request = TokenGatewayAddressRequest { chains };
-			let dispatcher = <T as Config>::Dispatcher::default();
-			let dispatch_post = DispatchPost {
-				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
-				from: PALLET_ID.0.to_vec(),
-				to: PALLET_ID.0.to_vec(),
-				timeout: 0,
-				body: request.encode(),
-			};
-
-			let metadata = FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() };
-			let commitment = dispatcher
-				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
-				.map_err(|_| Error::<T>::AddressEnquiryDispatchFailed)?;
-			Self::deposit_event(Event::<T>::AddressEnquiryDispatched { commitment });
+			for (chain, address) in addresses {
+				TokenGatewayAddresses::<T>::insert(chain, address.clone());
+			}
 			Ok(())
 		}
 
@@ -320,7 +301,8 @@ where
 		PostRequest { body, from, source, dest, nonce, .. }: PostRequest,
 	) -> Result<(), ismp::error::Error> {
 		ensure!(
-			from == TokenGatewayAddresses::<T>::get(source).unwrap_or_default().0.to_vec(),
+			from == TokenGatewayAddresses::<T>::get(source).unwrap_or_default().to_vec() ||
+				from == module_id().0.to_vec(),
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Unknown source contract address".to_string(),
 				meta: Meta { source, dest, nonce },

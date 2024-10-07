@@ -3,7 +3,10 @@ use ismp::{
 	host::StateMachine,
 	router::{PostRequest, Request, Timeout},
 };
-use pallet_token_gateway::{impls::convert_to_erc20, Body, TeleportParams};
+use pallet_token_gateway::{
+	impls::{convert_to_erc20, module_id},
+	Body, TeleportParams,
+};
 use sp_core::{ByteArray, H160, H256, U256};
 use staging_xcm::prelude::Location;
 use xcm_simulator_example::ALICE;
@@ -21,9 +24,11 @@ fn should_teleport_asset_correctly() {
 		let params = TeleportParams {
 			asset_id: Location::here(),
 			destination: StateMachine::Evm(1),
-			recepient: H160::random(),
+			recepient: H256::random(),
 			timeout: 0,
 			amount: SEND_AMOUNT,
+			token_gateway: H160::zero().0.to_vec(),
+			relayer_fee: Default::default(),
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -40,9 +45,11 @@ fn should_receive_asset_correctly() {
 		let params = TeleportParams {
 			asset_id: Location::here(),
 			destination: StateMachine::Evm(1),
-			recepient: H160::random(),
+			recepient: H256::random(),
 			timeout: 0,
 			amount: SEND_AMOUNT,
+			token_gateway: H160::zero().0.to_vec(),
+			relayer_fee: Default::default(),
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -91,9 +98,11 @@ fn should_timeout_request_correctly() {
 		let params = TeleportParams {
 			asset_id: Location::here(),
 			destination: StateMachine::Evm(1),
-			recepient: H160::random(),
+			recepient: H256::random(),
 			timeout: 0,
 			amount: SEND_AMOUNT,
+			token_gateway: H160::zero().0.to_vec(),
+			relayer_fee: Default::default(),
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -144,7 +153,7 @@ fn inspector_should_intercept_illegal_request() {
 			source: StateMachine::Kusama(100),
 			dest: StateMachine::Evm(1),
 			nonce: 0,
-			from: H160::zero().0.to_vec(),
+			from: module_id().0.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000,
 			body: {
@@ -171,19 +180,23 @@ fn inspector_should_intercept_illegal_request() {
 		assert!(result.is_err());
 
 		pallet_token_gateway_inspector::InflowBalances::<Test>::insert(
+			StateMachine::Kusama(100),
 			asset_id,
 			convert_to_erc20(SEND_AMOUNT),
 		);
 
 		let result = TokenGatewayInspector::inspect_request(&post);
 		assert!(result.is_ok());
-		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(asset_id);
+		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(
+			StateMachine::Kusama(100),
+			asset_id,
+		);
 		assert_eq!(inflow, U256::zero());
 	});
 }
 
 #[test]
-fn inspector_should_record_non_native_asset_inflow() {
+fn inspector_should_record_asset_inflow() {
 	new_test_ext().execute_with(|| {
 		let asset_id: H256 = [1u8; 32].into();
 		let post = PostRequest {
@@ -216,7 +229,10 @@ fn inspector_should_record_non_native_asset_inflow() {
 		println!("{result:?}");
 		assert!(result.is_ok());
 
-		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(asset_id);
+		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(
+			StateMachine::Kusama(100),
+			asset_id,
+		);
 
 		assert_eq!(convert_to_erc20(SEND_AMOUNT), inflow);
 	});
@@ -230,7 +246,7 @@ fn inspector_should_handle_timeout_correctly() {
 			source: StateMachine::Kusama(100),
 			dest: StateMachine::Evm(1),
 			nonce: 0,
-			from: H160::zero().0.to_vec(),
+			from: module_id().0.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000,
 			body: {
@@ -252,15 +268,27 @@ fn inspector_should_handle_timeout_correctly() {
 			},
 		};
 
-		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(asset_id);
+		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(
+			StateMachine::Kusama(100),
+			asset_id,
+		);
 
 		assert_eq!(inflow, U256::zero());
+
+		pallet_token_gateway_inspector::InflowBalances::<Test>::insert(
+			StateMachine::Evm(1),
+			asset_id,
+			convert_to_erc20(SEND_AMOUNT),
+		);
 
 		let result = TokenGatewayInspector::handle_timeout(&post);
 		println!("{result:?}");
 		assert!(result.is_ok());
 
-		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(asset_id);
+		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(
+			StateMachine::Kusama(100),
+			asset_id,
+		);
 
 		assert_eq!(convert_to_erc20(SEND_AMOUNT), inflow);
 	});

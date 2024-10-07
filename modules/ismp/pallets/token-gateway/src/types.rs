@@ -15,10 +15,10 @@
 
 //! Pallet types
 
+use alloc::vec::Vec;
 use frame_support::{pallet_prelude::*, traits::fungibles};
 use ismp::host::StateMachine;
 use primitive_types::H256;
-use sp_core::H160;
 
 use crate::Config;
 
@@ -33,11 +33,15 @@ pub struct TeleportParams<AssetId, Balance> {
 	/// Destination state machine
 	pub destination: StateMachine,
 	/// Receiving account on destination
-	pub recepient: H160,
+	pub recepient: H256,
 	/// Amount to be sent
 	pub amount: Balance,
 	/// Request timeout
 	pub timeout: u64,
+	/// Token gateway address
+	pub token_gateway: Vec<u8>,
+	/// Relayer fee
+	pub relayer_fee: Balance,
 }
 
 /// Local asset Id and its corresponding token gateway asset id
@@ -68,18 +72,4 @@ alloy_sol_macro::sol! {
 		// Recipient address
 		bytes32 to;
 	}
-}
-
-/// Struct for requesting the token gateway address for some state machines
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
-pub struct TokenGatewayAddressRequest {
-	/// The chains whose token gateway addresses are being requested
-	pub chains: BoundedVec<StateMachine, ConstU32<5>>,
-}
-
-/// Struct for responding to  token gateway address requests
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
-pub struct TokenGatewayAddressResponse {
-	/// The token gateway address on diffirent chains
-	pub addresses: BoundedVec<(StateMachine, H160), ConstU32<5>>,
 }

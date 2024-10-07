@@ -15,32 +15,26 @@
 
 // Pallet Implementations
 
-use alloc::{format, string::ToString, vec::Vec};
-use codec::{Decode, Encode};
-use frame_support::ensure;
-use ismp::{
-	dispatcher::{FeeMetadata, IsmpDispatcher},
-	events::Meta,
-	module::IsmpModule,
-	router::{PostRequest, PostResponse, Response},
-};
-use pallet_token_governor::TokenGatewayParams;
-use sp_core::{ConstU32, U256};
-use sp_runtime::{traits::AccountIdConversion, BoundedVec};
+use alloc::string::ToString;
+use sp_core::{H160, U256};
+use sp_runtime::traits::AccountIdConversion;
 
-use crate::{
-	Config, Pallet, TokenGatewayAddressRequest, TokenGatewayAddressResponse, TokenGatewayAddresses,
-	TokenGatewayReverseMap, PALLET_ID,
-};
+use crate::{Config, Pallet, PALLET_ID};
 
 impl<T: Config> Pallet<T> {
 	pub fn pallet_account() -> T::AccountId {
 		PALLET_ID.into_account_truncating()
 	}
 
-	pub fn is_token_gateway(id: Vec<u8>) -> bool {
-		TokenGatewayReverseMap::<T>::contains_key(id)
+	pub fn is_token_gateway(id: &[u8]) -> bool {
+		id == &module_id().0
 	}
+}
+
+/// Module Id is the last 20 bytes of the keccak hash of the pallet id
+pub fn module_id() -> H160 {
+	let hash = sp_io::hashing::keccak_256(&PALLET_ID.0);
+	H160::from_slice(&hash[12..32])
 }
 
 /// Converts an ERC20 U256 to a DOT u128
@@ -52,121 +46,6 @@ pub fn convert_to_balance(value: U256) -> Result<u128, anyhow::Error> {
 /// Converts a DOT u128 to an Erc20 denomination
 pub fn convert_to_erc20(value: u128) -> U256 {
 	U256::from(value) * U256::from(100_000_000u128)
-}
-
-/// An Ismp Module that receives requests from substrate chains requesting for the token gateway
-/// addresses on EVM chains
-pub struct AddressRequestModule<T>(core::marker::PhantomData<T>);
-
-impl<T> Default for AddressRequestModule<T> {
-	fn default() -> Self {
-		Self(core::marker::PhantomData)
-	}
-}
-
-impl<T: pallet_token_governor::Config> IsmpModule for AddressRequestModule<T>
-where
-	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-{
-	fn on_accept(&self, post: PostRequest) -> Result<(), ismp::Error> {
-		let PostRequest { body: data, from, source, dest, nonce, .. } = post.clone();
-		// Check that source module is equal to the known token gateway deployment address
-		ensure!(
-			from == PALLET_ID.0.to_vec(),
-			ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Unknown source contract address".to_string(),
-				meta: Meta { source, dest, nonce },
-			}
-		);
-
-		ensure!(
-			source.is_substrate(),
-			ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Illegal source chain".to_string(),
-				meta: Meta { source, dest, nonce },
-			}
-		);
-
-		let req = TokenGatewayAddressRequest::decode(&mut &*data).map_err(|err| {
-			ismp::error::Error::Custom(format!("Invalid request from a substrate chain: {err}"))
-		})?;
-		let mut addresses = BoundedVec::<_, ConstU32<5>>::new();
-		for state_machine in req.chains {
-			if let Some(params) = TokenGatewayParams::<T>::get(&state_machine) {
-				addresses.try_push((state_machine, params.address)).map_err(|err| {
-					ismp::error::Error::Custom(alloc::format!(
-						"Maximum of 5 state machines can be requested: {err:?}"
-					))
-				})?;
-			}
-		}
-
-		if !addresses.is_empty() {
-			let response = TokenGatewayAddressResponse { addresses };
-			let dispatcher = <T as pallet_token_governor::Config>::Dispatcher::default();
-
-			let post_response =
-				PostResponse { post, response: response.encode(), timeout_timestamp: 0 };
-
-			let _ = dispatcher.dispatch_response(
-				post_response,
-				FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-			)?;
-		}
-		return Ok(())
-	}
-
-	fn on_response(&self, _response: ismp::router::Response) -> Result<(), ismp::Error> {
-		Err(ismp::error::Error::Custom("Module does not accept responses".to_string()))
-	}
-
-	fn on_timeout(&self, _request: ismp::router::Timeout) -> Result<(), ismp::Error> {
-		Err(ismp::error::Error::Custom("Module does not accept timeouts".to_string()))
-	}
-}
-
-pub struct AddressResponseModule<T>(core::marker::PhantomData<T>);
-
-impl<T> Default for AddressResponseModule<T> {
-	fn default() -> Self {
-		Self(core::marker::PhantomData)
-	}
-}
-
-impl<T: Config> IsmpModule for AddressResponseModule<T> {
-	fn on_accept(&self, _post: PostRequest) -> Result<(), ismp::Error> {
-		Err(ismp::error::Error::Custom("Module does not accept requests".to_string()))
-	}
-
-	fn on_response(&self, response: Response) -> Result<(), ismp::error::Error> {
-		let data = response.response().ok_or_else(|| ismp::error::Error::ModuleDispatchError {
-			msg: "AddressResponseModule: Response has no body".to_string(),
-			meta: Meta {
-				source: response.source_chain(),
-				dest: response.dest_chain(),
-				nonce: response.nonce(),
-			},
-		})?;
-		let resp = TokenGatewayAddressResponse::decode(&mut &*data).map_err(|_| {
-			ismp::error::Error::ModuleDispatchError {
-				msg: "AddressResponseModule: Failed to decode response body".to_string(),
-				meta: Meta {
-					source: response.source_chain(),
-					dest: response.dest_chain(),
-					nonce: response.nonce(),
-				},
-			}
-		})?;
-		for (state_machine, addr) in resp.addresses {
-			TokenGatewayAddresses::<T>::insert(state_machine, addr);
-			TokenGatewayReverseMap::<T>::insert(addr.0.to_vec(), state_machine)
-		}
-		Ok(())
-	}
-
-	fn on_timeout(&self, _request: ismp::router::Timeout) -> Result<(), ismp::Error> {
-		Err(ismp::error::Error::Custom("Module does not accept timeouts".to_string()))
-	}
 }
 
 #[cfg(test)]

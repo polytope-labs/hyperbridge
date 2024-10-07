@@ -16,6 +16,8 @@
 
 extern crate alloc;
 
+use std::collections::BTreeSet;
+
 use alloc::collections::BTreeMap;
 use cumulus_pallet_parachain_system::ParachainSetCode;
 use frame_support::{
@@ -465,11 +467,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), Location::here());
 		pallet_token_gateway::TokenGatewayAddresses::<Test>::insert(
 			StateMachine::Evm(1),
-			H160::zero(),
+			H160::zero().0.to_vec(),
 		);
 		pallet_token_gateway_inspector::StandaloneChainAssets::<Test>::insert(
 			StateMachine::Kusama(100),
-			H256::zero(),
+			vec![H256::zero()].into_iter().collect::<BTreeSet<_>>(),
 		);
 
 		let params = GatewayParams {

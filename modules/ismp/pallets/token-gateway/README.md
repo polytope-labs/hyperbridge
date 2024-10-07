@@ -42,13 +42,8 @@ impl pallet_ismp::Config for Runtime {
 struct Router;
 impl IsmpRouter for Router {
     fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        if TokenGateway::is_token_gateway(id.clone()) {
-            Box::new(TokenGateway::default())
-        };
-
         let module = match id.as_slice() {
-            // This is for receiving responses about token gateway addresses from Hyperbridge
-            id if id == &pallet_token_gateway::PALLET_ID.0 => Box::new(pallet_token_gateway::impls::AddressResponseModule::default()),
+            id if TokenGateway::is_token_gateway(&id) => Box::new(TokenGateway::default()),
             _ => Err(Error::ModuleNotFound(id))?
         };
         Ok(module)

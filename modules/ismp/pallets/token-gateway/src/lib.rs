@@ -22,7 +22,6 @@ pub mod impls;
 pub mod types;
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
-use codec::Decode;
 use frame_support::{
 	ensure,
 	pallet_prelude::Weight,
@@ -100,6 +99,11 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type TokenGatewayAddresses<T: Config> =
 		StorageMap<_, Identity, StateMachine, H160, OptionQuery>;
+
+	/// The token gateway adresses on different chains
+	#[pallet::storage]
+	pub type TokenGatewayReverseMap<T: Config> =
+		StorageMap<_, Identity, Vec<u8>, StateMachine, OptionQuery>;
 
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
@@ -376,29 +380,8 @@ where
 		Ok(())
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), ismp::error::Error> {
-		let data = response.response().ok_or_else(|| ismp::error::Error::ModuleDispatchError {
-			msg: "Token Gateway: Response has no body".to_string(),
-			meta: Meta {
-				source: response.source_chain(),
-				dest: response.dest_chain(),
-				nonce: response.nonce(),
-			},
-		})?;
-		let resp = TokenGatewayAddressResponse::decode(&mut &*data).map_err(|_| {
-			ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Failed to decode response body".to_string(),
-				meta: Meta {
-					source: response.source_chain(),
-					dest: response.dest_chain(),
-					nonce: response.nonce(),
-				},
-			}
-		})?;
-		for (state_machine, addr) in resp.addresses {
-			TokenGatewayAddresses::<T>::insert(state_machine, addr)
-		}
-		Ok(())
+	fn on_response(&self, _response: Response) -> Result<(), ismp::error::Error> {
+		Err(ismp::error::Error::Custom("Module does not accept responses".to_string()))
 	}
 
 	fn on_timeout(&self, request: Timeout) -> Result<(), ismp::error::Error> {

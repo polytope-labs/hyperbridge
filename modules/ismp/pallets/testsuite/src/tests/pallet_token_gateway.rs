@@ -14,6 +14,7 @@ use crate::runtime::{
 use ismp::module::IsmpModule;
 
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
+
 #[test]
 fn should_teleport_asset_correctly() {
 	new_test_ext().execute_with(|| {

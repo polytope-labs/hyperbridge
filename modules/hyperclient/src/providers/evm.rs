@@ -17,9 +17,12 @@ use crate::{providers::interface::Client, types::BoxStream};
 use codec::{Decode, Encode};
 use ethereum_triedb::StorageProof;
 use ethers::prelude::Middleware;
-use evm_common::presets::{
-	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
-	RESPONSE_RECEIPTS_SLOT,
+use evm_common::{
+	presets::{
+		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
+		RESPONSE_RECEIPTS_SLOT,
+	},
+	state_comitment_key,
 };
 use sp_mmr_primitives::utils::NodesUtils;
 
@@ -442,7 +445,6 @@ impl Client for EvmClient {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let contract = EvmHost::new(self.host_address, self.client.clone());
 		let id = match height.id.state_id {
 			StateMachine::Polkadot(para_id) => para_id,
 			StateMachine::Kusama(para_id) => para_id,
@@ -451,16 +453,17 @@ impl Client for EvmClient {
 				height.id.state_id
 			))?,
 		};
-		let state_machine_height = ismp_solidity_abi::shared_types::StateMachineHeight {
-			state_machine_id: id.into(),
-			height: height.height.into(),
+		let (timestamp_key, overlay_key, state_root_key) =
+			state_comitment_key(id.into(), height.height.into());
+		let timestamp = {
+			let timestamp =
+				self.client.get_storage_at(self.host_address, timestamp_key, None).await?;
+			U256::from_big_endian(timestamp.as_bytes()).low_u64()
 		};
-		let commitment = contract.state_machine_commitment(state_machine_height).call().await?;
-		Ok(StateCommitment {
-			timestamp: commitment.timestamp.low_u64(),
-			overlay_root: Some(commitment.overlay_root.into()),
-			state_root: commitment.state_root.into(),
-		})
+		let overlay_root = self.client.get_storage_at(self.host_address, overlay_key, None).await?;
+		let state_root =
+			self.client.get_storage_at(self.host_address, state_root_key, None).await?;
+		Ok(StateCommitment { timestamp, overlay_root: Some(overlay_root), state_root })
 	}
 
 	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8> {

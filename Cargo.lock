@@ -4803,6 +4803,7 @@ dependencies = [
  "ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
+ "sp-crypto-hashing",
  "trie-db 0.29.1",
 ]
 

@@ -21,6 +21,9 @@ contract CrossChainInscription is BaseIsmpModule {
     // An inscription has been received
     event PostReceived(string message);
 
+    // Call is unauthorized
+    error Unauthorized();
+
     address private _admin;
     address private _host;
 
@@ -29,6 +32,7 @@ contract CrossChainInscription is BaseIsmpModule {
     }
 
     function setHost(address host) public {
+        if (msg.sender != _admin) revert Unauthorized();
         _host = host;
         _admin = address(0);
     }

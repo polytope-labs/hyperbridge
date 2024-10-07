@@ -306,7 +306,7 @@ pallet-asset-gateway = { path = "modules/ismp/pallets/asset-gateway", default-fe
 pallet-token-governor = { path = "modules/ismp/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/ismp/pallets/state-coprocessor", default-features = false }
 pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
-pallet-token-gateway = { path = "modules/ismp/pallets/token-gateway", default-features = false }
+pallet-token-gateway = { version = "1.15.0", path = "modules/ismp/pallets/token-gateway", default-features = false }
 pallet-token-gateway-inspector = { path = "modules/ismp/pallets/token-gateway-inspector", default-features = false }
 
 # merkle trees

@@ -39,7 +39,7 @@ use ismp::{
 use sp_core::{Get, U256};
 pub use types::*;
 
-use alloc::{string::ToString, vec};
+use alloc::{string::ToString, vec, vec::Vec};
 use ismp::module::IsmpModule;
 use primitive_types::{H160, H256};
 

@@ -63,7 +63,7 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
-	use pallet_token_governor::{ERC6160AssetRegistration, RemoteERC6160AssetRegistration};
+	use pallet_token_governor::RemoteERC6160AssetRegistration;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -264,36 +264,25 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Map some local assets to their token gateway asset ids
-		#[pallet::call_index(2)]
-		#[pallet::weight(weight())]
-		pub fn register_assets(
-			origin: OriginFor<T>,
-			assets: AssetRegistration<AssetId<T>>,
-		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
-			for asset_map in assets.assets {
-				SupportedAssets::<T>::insert(
-					asset_map.local_id.clone(),
-					asset_map.token_gateway_asset_id.clone(),
-				);
-				LocalAssets::<T>::insert(asset_map.token_gateway_asset_id, asset_map.local_id);
-			}
-			Ok(())
-		}
-
 		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
 		///
 		/// This works by dispatching a request to the TokenGateway module on each requested chain
 		/// to create the asset.
-		#[pallet::call_index(3)]
+		#[pallet::call_index(2)]
 		#[pallet::weight(weight())]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			owner: T::AccountId,
-			assets: Vec<ERC6160AssetRegistration>,
+			assets: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
+
+			for asset_map in assets.assets.clone() {
+				let asset_id: H256 =
+					sp_io::hashing::keccak_256(asset_map.reg.symbol.as_ref()).into();
+				SupportedAssets::<T>::insert(asset_map.local_id.clone(), asset_id.clone());
+				LocalAssets::<T>::insert(asset_id, asset_map.local_id);
+			}
 
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
@@ -301,7 +290,13 @@ pub mod pallet {
 				from: module_id().0.to_vec(),
 				to: pallet_token_governor::PALLET_ID.to_vec(),
 				timeout: 0,
-				body: { RemoteERC6160AssetRegistration { assets, owner: owner.clone() }.encode() },
+				body: {
+					RemoteERC6160AssetRegistration {
+						assets: assets.assets.into_iter().map(|asset_map| asset_map.reg).collect(),
+						owner: owner.clone(),
+					}
+					.encode()
+				},
 			};
 
 			let metadata = FeeMetadata { payer: owner.into(), fee: Default::default() };

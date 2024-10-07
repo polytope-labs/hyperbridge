@@ -18,6 +18,7 @@
 use alloc::vec::Vec;
 use frame_support::{pallet_prelude::*, traits::fungibles};
 use ismp::host::StateMachine;
+use pallet_token_governor::ERC6160AssetRegistration;
 use primitive_types::H256;
 
 use crate::Config;
@@ -47,15 +48,17 @@ pub struct TeleportParams<AssetId, Balance> {
 /// Local asset Id and its corresponding token gateway asset id
 #[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
 pub struct AssetMap<AssetId> {
+	/// Local Asset Id
 	pub local_id: AssetId,
-	pub token_gateway_asset_id: H256,
+	/// MNT Asset registration details
+	pub reg: ERC6160AssetRegistration,
 }
 
 /// A struct for registering some assets
 #[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
 #[scale_info(skip_type_params(T))]
 pub struct AssetRegistration<AssetId> {
-	pub assets: BoundedVec<AssetMap<AssetId>, ConstU32<5>>,
+	pub assets: BoundedVec<AssetMap<AssetId>, ConstU32<10>>,
 }
 
 alloy_sol_macro::sol! {

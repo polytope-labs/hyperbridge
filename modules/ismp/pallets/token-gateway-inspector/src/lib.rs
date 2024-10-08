@@ -23,7 +23,7 @@ use alloy_sol_types::SolValue;
 use frame_support::pallet_prelude::Weight;
 use ismp::router::PostRequest;
 
-use alloc::{format, string::ToString, vec};
+use alloc::{format, string::ToString, vec, vec::Vec};
 use primitive_types::{H256, U256};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.

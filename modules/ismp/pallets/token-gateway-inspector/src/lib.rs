@@ -149,18 +149,30 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
+		pub fn is_token_gateway_request(
+			from: Vec<u8>,
+			to: Vec<u8>,
+			source: StateMachine,
+			dest: StateMachine,
+		) -> bool {
+			from == pallet_token_gateway::impls::module_id().0.to_vec() ||
+				TokenGatewayParams::<T>::get(source)
+					.map(|params| params.address.0.to_vec() == from)
+					.unwrap_or_default() ||
+				to == pallet_token_gateway::impls::module_id().0.to_vec() ||
+				TokenGatewayParams::<T>::get(dest)
+					.map(|params| params.address.0.to_vec() == to)
+					.unwrap_or_default()
+		}
+
 		pub fn inspect_request(post: &PostRequest) -> Result<(), ismp::Error> {
-			let PostRequest { body, from, source, dest, nonce, .. } = post.clone();
+			let PostRequest { body, from, to, source, dest, nonce, .. } = post.clone();
 
 			if source.is_evm() && dest.is_evm() {
 				return Ok(())
 			}
 
-			if from == pallet_token_gateway::impls::module_id().0.to_vec() ||
-				TokenGatewayParams::<T>::get(source)
-					.map(|params| params.address.0.to_vec() == from)
-					.unwrap_or_default()
-			{
+			if Self::is_token_gateway_request(from.clone(), to.clone(), source, dest) {
 				let body = Body::abi_decode(&mut &body[1..], true).map_err(|_| {
 					ismp::error::Error::ModuleDispatchError {
 						msg: "Token Gateway: Failed to decode request body".to_string(),
@@ -206,16 +218,12 @@ pub mod pallet {
 		}
 
 		pub fn handle_timeout(post: &PostRequest) -> Result<(), ismp::Error> {
-			let PostRequest { body, from, source, dest, nonce, .. } = post.clone();
+			let PostRequest { body, from, to, source, dest, nonce, .. } = post.clone();
 			if source.is_evm() && dest.is_evm() {
 				return Ok(())
 			}
 
-			if from == pallet_token_gateway::impls::module_id().0.to_vec() ||
-				TokenGatewayParams::<T>::get(source)
-					.map(|params| params.address.0.to_vec() == from)
-					.unwrap_or_default()
-			{
+			if Self::is_token_gateway_request(from.clone(), to.clone(), source, dest) {
 				let body = Body::abi_decode(&mut &body[1..], true).map_err(|_| {
 					ismp::error::Error::ModuleDispatchError {
 						msg: "Token Gateway: Failed to decode request body".to_string(),

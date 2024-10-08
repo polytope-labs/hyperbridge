@@ -168,6 +168,9 @@ pub mod pallet {
 		pub fn inspect_request(post: &PostRequest) -> Result<(), ismp::Error> {
 			let PostRequest { body, from, to, source, dest, nonce, .. } = post.clone();
 
+			// Token Gateway contracts on EVM chains are immutable and non upgradeable
+			// As long as the initial deployment is valid
+			// it's impossible to send malicious requests
 			if source.is_evm() && dest.is_evm() {
 				return Ok(())
 			}
@@ -219,6 +222,9 @@ pub mod pallet {
 
 		pub fn handle_timeout(post: &PostRequest) -> Result<(), ismp::Error> {
 			let PostRequest { body, from, to, source, dest, nonce, .. } = post.clone();
+			// Token Gateway contracts on EVM chains are immutable and non upgradeable
+			// As long as the initial deployment is valid
+			// it's impossible to send malicious requests
 			if source.is_evm() && dest.is_evm() {
 				return Ok(())
 			}

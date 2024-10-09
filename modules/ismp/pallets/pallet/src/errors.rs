@@ -17,18 +17,20 @@
 
 use alloc::string::ToString;
 use codec::{Decode, Encode};
+use sp_core::ConstU32;
+use sp_runtime::BoundedVec;
 use sp_std::prelude::*;
 
 #[derive(Clone, Debug, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 #[allow(missing_docs)]
 pub struct HandlingError {
-	message: Vec<u8>,
+	message: BoundedVec<u8, ConstU32<150>>,
 }
 
 impl From<anyhow::Error> for HandlingError {
 	fn from(value: anyhow::Error) -> Self {
 		let mut message = value.to_string().as_bytes().to_vec();
-		message.truncate(100);
-		Self { message }
+		message.truncate(150);
+		Self { message: message.try_into().unwrap_or_default() }
 	}
 }

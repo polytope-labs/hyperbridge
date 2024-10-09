@@ -7,7 +7,9 @@
     "/dns/nexus.boot.stake.plus/tcp/30332/wss/p2p/12D3KooWMVkkfZVVnZXXBwPjxrGqud6aoK1XMeBVGBjtyX5aobEU",
     "/dns/nexus.boot.stake.plus/tcp/31332/wss/p2p/12D3KooWGXeeQ9VtdmeoTSX1uWKYWRMPKZ8mKvqMzAM6pXmbDFZ7",
     "/dns4/boot.helikon.io/tcp/8610/p2p/12D3KooWNvVYuuHtV9KSpUXy7puERNvoNyAcRGizp3s2QpHQuuhq",
-    "/dns4/boot.helikon.io/tcp/8612/wss/p2p/12D3KooWNvVYuuHtV9KSpUXy7puERNvoNyAcRGizp3s2QpHQuuhq"
+    "/dns4/boot.helikon.io/tcp/8612/wss/p2p/12D3KooWNvVYuuHtV9KSpUXy7puERNvoNyAcRGizp3s2QpHQuuhq",
+    "/dns/nexus-bootnode.radiumblock.com/tcp/30333/p2p/12D3KooWJ9J1a3ktfko2UBr8jyx2pQVYYyubfCcMqo3SSsQKQ81o",
+    "/dns/nexus-bootnode.radiumblock.com/tcp/30336/wss/p2p/12D3KooWJ9J1a3ktfko2UBr8jyx2pQVYYyubfCcMqo3SSsQKQ81o"
   ],
   "telemetryEndpoints": [
     [

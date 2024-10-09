@@ -404,15 +404,15 @@ impl Keccak256 for Host {
 pub struct MockModule;
 
 impl IsmpModule for MockModule {
-	fn on_accept(&self, _request: PostRequest) -> Result<(), Error> {
+	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), Error> {
+	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 }
@@ -420,7 +420,7 @@ impl IsmpModule for MockModule {
 pub struct MockRouter(pub Host);
 
 impl IsmpRouter for MockRouter {
-	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		Ok(Box::new(MockModule))
 	}
 }
@@ -435,7 +435,7 @@ impl IsmpDispatcher for Host {
 		&self,
 		request: DispatchRequest,
 		_fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, Error> {
+	) -> Result<H256, anyhow::Error> {
 		let host = self.clone();
 		let request = match request {
 			DispatchRequest::Get(dispatch_get) => {
@@ -474,12 +474,12 @@ impl IsmpDispatcher for Host {
 		&self,
 		response: PostResponse,
 		_fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, Error> {
+	) -> Result<H256, anyhow::Error> {
 		let host = self.clone();
 		let response = Response::Post(response);
 		let hash = hash_response::<Host>(&response);
 		if host.responses.borrow().contains(&hash) {
-			return Err(Error::Custom("Duplicate response".to_string()));
+			return Err(Error::Custom("Duplicate response".to_string()).into());
 		}
 		host.responses.borrow_mut().insert(hash);
 		Ok(hash)

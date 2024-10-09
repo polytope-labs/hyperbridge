@@ -13,6 +13,7 @@ codec = { workspace = true, default-features = true }
 scale-info = { workspace = true, default-features = true }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
+anyhow = { workspace = true }
 
 frame-support = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }

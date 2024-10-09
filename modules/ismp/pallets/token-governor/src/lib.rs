@@ -22,6 +22,7 @@ extern crate alloc;
 mod impls;
 mod types;
 use alloy_sol_types::SolValue;
+use anyhow::anyhow;
 use frame_support::pallet_prelude::Weight;
 use ismp::router::{PostRequest, Response, Timeout};
 
@@ -407,7 +408,7 @@ where
 	fn on_accept(
 		&self,
 		PostRequest { body: data, from, source, .. }: PostRequest,
-	) -> Result<(), ismp::error::Error> {
+	) -> Result<(), anyhow::Error> {
 		// Only substrate chains are allowed to fully register assets remotely
 		if source.is_substrate() && from == token_gateway_id().0.to_vec() {
 			let remote_reg: RemoteERC6160AssetRegistration = codec::Decode::decode(&mut &*data)
@@ -458,14 +459,14 @@ where
 		Ok(())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), ismp::error::Error> {
-		Err(ismp::error::Error::Custom(format!("Module does not expect responses")))
+	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+		Err(anyhow!("Module does not expect responses"))
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), ismp::error::Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
 		// The request lives forever, it's not exactly time-sensitive.
 		// There are no refunds for asset registration fees
-		Err(ismp::error::Error::Custom(format!("Module does not expect timeouts")))
+		Err(anyhow!("Module does not expect timeouts"))
 	}
 }
 

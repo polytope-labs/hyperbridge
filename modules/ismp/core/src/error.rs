@@ -208,3 +208,20 @@ pub enum Error {
 		meta: Meta,
 	},
 }
+
+impl core::fmt::Display for Error {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		write!(f, "{self:?}")
+	}
+}
+
+impl core::error::Error for Error {}
+
+#[cfg(not(feature = "std"))]
+impl From<Error> for anyhow::Error {
+	fn from(value: Error) -> Self {
+		use alloc::format;
+		use anyhow::anyhow;
+		anyhow!(format!("{value:?}"))
+	}
+}

@@ -22,6 +22,7 @@ pub mod impls;
 pub mod types;
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
+use anyhow::anyhow;
 use codec::Decode;
 use frame_support::{
 	ensure,
@@ -360,14 +361,13 @@ where
 	fn on_accept(
 		&self,
 		PostRequest { body, from, source, dest, nonce, .. }: PostRequest,
-	) -> Result<(), ismp::error::Error> {
+	) -> Result<(), anyhow::Error> {
 		// The only requests allowed from token governor on Hyperbridge is asset creation
 		if &from == &pallet_token_governor::PALLET_ID && Some(source) == T::Coprocessor::get() {
 			let metadata = AssetMetadata::decode(&mut &*body)
 				.map_err(|_| ismp::error::Error::Custom("Failed to decode body".into()))?;
 			let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_ref()).into();
-			let local_asset_id = T::CreateAsset::create_asset(metadata)
-				.map_err(|_| ismp::error::Error::Custom("Failed to create asset".into()))?;
+			let local_asset_id = T::CreateAsset::create_asset(metadata)?;
 			SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
 			LocalAssets::<T>::insert(asset_id, local_asset_id);
 			return Ok(())
@@ -434,11 +434,11 @@ where
 		Ok(())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), ismp::error::Error> {
-		Err(ismp::error::Error::Custom("Module does not accept responses".to_string()))
+	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+		Err(anyhow!("Module does not accept responses".to_string()))
 	}
 
-	fn on_timeout(&self, request: Timeout) -> Result<(), ismp::error::Error> {
+	fn on_timeout(&self, request: Timeout) -> Result<(), anyhow::Error> {
 		match request {
 			Timeout::Request(Request::Post(PostRequest { body, source, dest, nonce, .. })) => {
 				let body = Body::abi_decode(&mut &body[1..], true).map_err(|_| {

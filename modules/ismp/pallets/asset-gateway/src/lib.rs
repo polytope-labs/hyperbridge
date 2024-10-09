@@ -293,7 +293,7 @@ where
 	<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<Location>,
 	T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
 {
-	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), ismp::error::Error> {
+	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), anyhow::Error> {
 		let request = Request::Post(post.clone());
 		// Check that source module is equal to the known token gateway deployment address
 		ensure!(
@@ -398,7 +398,7 @@ where
 		Ok(())
 	}
 
-	fn on_response(&self, response: ismp::router::Response) -> Result<(), ismp::error::Error> {
+	fn on_response(&self, response: ismp::router::Response) -> Result<(), anyhow::Error> {
 		Err(ismp::error::Error::ModuleDispatchError {
 			msg: "Token Gateway does not accept responses".to_string(),
 			meta: Meta {
@@ -406,10 +406,11 @@ where
 				dest: response.dest_chain(),
 				nonce: response.nonce(),
 			},
-		})
+		}
+		.into())
 	}
 
-	fn on_timeout(&self, request: Timeout) -> Result<(), ismp::error::Error> {
+	fn on_timeout(&self, request: Timeout) -> Result<(), anyhow::Error> {
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
 		match request {
 			Timeout::Request(Request::Post(post)) => {
@@ -489,7 +490,8 @@ where
 			Timeout::Request(Request::Get(get)) => Err(ismp::error::Error::ModuleDispatchError {
 				msg: "Tried to timeout unsupported request type".to_string(),
 				meta: Meta { source: get.source, dest: get.dest, nonce: get.nonce },
-			}),
+			}
+			.into()),
 
 			Timeout::Response(response) => Err(ismp::error::Error::ModuleDispatchError {
 				msg: "Tried to timeout unsupported request type".to_string(),
@@ -498,7 +500,8 @@ where
 					dest: response.dest_chain(),
 					nonce: response.nonce(),
 				},
-			}),
+			}
+			.into()),
 		}
 	}
 }

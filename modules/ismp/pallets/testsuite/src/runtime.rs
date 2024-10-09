@@ -267,16 +267,16 @@ impl pallet_call_decompressor::Config for Test {
 pub struct ErrorModule;
 
 impl IsmpModule for ErrorModule {
-	fn on_accept(&self, _request: PostRequest) -> Result<(), Error> {
-		Err(Error::InsufficientProofHeight)
+	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
+		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), Error> {
-		Err(Error::InsufficientProofHeight)
+	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
-		Err(Error::InsufficientProofHeight)
+	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
+		Err(Error::InsufficientProofHeight.into())
 	}
 }
 
@@ -286,7 +286,7 @@ pub struct ModuleRouter;
 pub const ERROR_MODULE_ID: &'static [u8] = &[12, 24, 36, 48];
 
 impl IsmpRouter for ModuleRouter {
-	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		return match id.as_slice() {
 			ERROR_MODULE_ID => Ok(Box::new(ErrorModule)),
 			_ => Ok(Box::new(MockModule)),
@@ -314,15 +314,15 @@ where
 pub struct MockModule;
 
 impl IsmpModule for MockModule {
-	fn on_accept(&self, _request: PostRequest) -> Result<(), ismp::error::Error> {
+	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), ismp::error::Error> {
+	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), ismp::error::Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 }

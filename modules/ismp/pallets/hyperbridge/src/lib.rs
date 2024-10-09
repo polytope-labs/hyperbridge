@@ -177,7 +177,7 @@ where
 		&self,
 		request: DispatchRequest,
 		fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, ismp::Error> {
+	) -> Result<H256, anyhow::Error> {
 		let fees = match request {
 			DispatchRequest::Post(ref post) => {
 				let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
@@ -219,7 +219,7 @@ where
 		&self,
 		response: PostResponse,
 		fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, ismp::Error> {
+	) -> Result<H256, anyhow::Error> {
 		// collect protocol fees
 		let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
 		// minimum fee is 32 bytes
@@ -277,7 +277,7 @@ where
 	T: Config,
 	T::Balance: Into<u128> + From<u128>,
 {
-	fn on_accept(&self, request: PostRequest) -> Result<(), ismp::Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
 		// this of course assumes that hyperbridge is configured as the coprocessor.
 		let source = request.source;
 		if Some(source) != T::Coprocessor::get() {
@@ -326,13 +326,13 @@ where
 		Ok(())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), ismp::Error> {
+	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
 		// this module does not expect responses
-		Err(ismp::Error::CannotHandleMessage)
+		Err(ismp::Error::CannotHandleMessage.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), ismp::Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
 		// this module does not dispatch requests
-		Err(ismp::Error::CannotHandleMessage)
+		Err(ismp::Error::CannotHandleMessage.into())
 	}
 }

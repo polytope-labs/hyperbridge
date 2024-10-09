@@ -21,8 +21,8 @@ use ismp::router::{IsmpRouter, Post, Response, Timeout};
 
 parameter_types! {
     // The Native asset Id for the native currency, for parachains this would be the XCM location for the parachain
-    // For standalone chains, any constant of your choosing 
-    pub const NativeAssetId: StateMachine = Location::here(); 
+    // For standalone chains, a constant value that can be used to identify the native currency 
+    pub const NativeAssetId: Location = Location::here(); 
 }
 
 impl pallet_ismp::Config for Runtime {
@@ -36,12 +36,15 @@ impl pallet_ismp::Config for Runtime {
 	type Currency = Balances;
     // The Native asset Id
 	type NativeAssetId = NativeAssetId;
+    // A type that allows token gateway to create local assets
+    // Required to receive asset creation messages from Hyperbridge
+    type CreateAsset = ();
 }
 
 #[derive(Default)]
 struct Router;
 impl IsmpRouter for Router {
-    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
         let module = match id.as_slice() {
             id if TokenGateway::is_token_gateway(&id) => Box::new(TokenGateway::default()),
             _ => Err(Error::ModuleNotFound(id))?

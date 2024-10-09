@@ -160,6 +160,8 @@ pub mod pallet {
 		AssetTeleportError,
 		/// Coprocessor was not configured in the runtime
 		CoprocessorNotConfigured,
+		/// Asset or update Dispatch Error
+		DispatchError,
 	}
 
 	#[pallet::call]
@@ -304,7 +306,7 @@ pub mod pallet {
 
 			let commitment = dispatcher
 				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
-				.map_err(|_| Error::<T>::AssetTeleportError)?;
+				.map_err(|_| Error::<T>::DispatchError)?;
 			Self::deposit_event(Event::<T>::ERC6160AssetRegistrationDispatched { commitment });
 
 			Ok(())
@@ -335,7 +337,7 @@ pub mod pallet {
 
 			let commitment = dispatcher
 				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
-				.map_err(|_| Error::<T>::AssetTeleportError)?;
+				.map_err(|_| Error::<T>::DispatchError)?;
 			Self::deposit_event(Event::<T>::ERC6160AssetRegistrationDispatched { commitment });
 
 			Ok(())

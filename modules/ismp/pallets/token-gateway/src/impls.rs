@@ -15,26 +15,24 @@
 
 // Pallet Implementations
 
+use crate::token_gateway_id;
 use alloc::string::ToString;
-use sp_core::{H160, U256};
+use frame_support::PalletId;
+use sp_core::U256;
 use sp_runtime::traits::AccountIdConversion;
 
-use crate::{Config, Pallet, PALLET_ID};
+use crate::{Config, Pallet};
 
 impl<T: Config> Pallet<T> {
 	pub fn pallet_account() -> T::AccountId {
-		PALLET_ID.into_account_truncating()
+		let mut inner = [0u8; 8];
+		inner.copy_from_slice(&token_gateway_id().0[0..8]);
+		PalletId(inner).into_account_truncating()
 	}
 
 	pub fn is_token_gateway(id: &[u8]) -> bool {
-		id == &module_id().0
+		id == &token_gateway_id().0
 	}
-}
-
-/// Module Id is the last 20 bytes of the keccak hash of the pallet id
-pub fn module_id() -> H160 {
-	let hash = sp_io::hashing::keccak_256(&PALLET_ID.0);
-	H160::from_slice(&hash[12..32])
 }
 
 /// Converts an ERC20 U256 to a DOT u128

@@ -220,6 +220,7 @@ impl pallet_token_gateway::Config for Test {
 	type Assets = Assets;
 	type Currency = Balances;
 	type NativeAssetId = NativeAssetId;
+	type CreateAsset = ();
 }
 
 impl pallet_token_gateway_inspector::Config for Test {
@@ -467,7 +468,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			StateMachine::Evm(1),
 			H160::zero().0.to_vec(),
 		);
-		pallet_token_gateway_inspector::StandaloneChainAssets::<Test>::insert(
+		pallet_token_governor::StandaloneChainAssets::<Test>::insert(
 			StateMachine::Kusama(100),
 			H256::zero(),
 			true,

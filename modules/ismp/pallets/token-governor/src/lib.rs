@@ -28,6 +28,7 @@ use ismp::router::{PostRequest, Response, Timeout};
 pub use types::*;
 
 use alloc::{format, vec};
+use codec::Encode;
 use ismp::module::IsmpModule;
 use primitive_types::{H160, H256};
 
@@ -39,8 +40,9 @@ pub const PALLET_ID: [u8; 8] = *b"registry";
 
 #[frame_support::pallet]
 pub mod pallet {
+
 	use super::*;
-	use alloc::collections::BTreeMap;
+	use alloc::collections::{BTreeMap, BTreeSet};
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{fungible::Mutate, tokens::Preservation},
@@ -104,6 +106,11 @@ pub mod pallet {
 	pub type TokenGatewayParams<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, GatewayParams, OptionQuery>;
 
+	/// Native asset ids for standalone chains connected to token gateway.
+	#[pallet::storage]
+	pub type StandaloneChainAssets<T: Config> =
+		StorageDoubleMap<_, Blake2_128Concat, StateMachine, Twox64Concat, H256, bool, OptionQuery>;
+
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -149,6 +156,8 @@ pub mod pallet {
 			/// The new parameters
 			new: Params<<T as pallet_ismp::Config>::Balance>,
 		},
+		/// Native asset IDs have been deregistered
+		NativeAssetsDeregistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -315,6 +324,26 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Deregister the native token asset ids for standalone chains
+		#[pallet::call_index(8)]
+		#[pallet::weight(weight())]
+		pub fn deregister_standalone_chain_native_assets(
+			origin: OriginFor<T>,
+			assets: BTreeMap<StateMachine, BTreeSet<H256>>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			for (state_machine, new_asset_ids) in assets.clone() {
+				new_asset_ids
+					.into_iter()
+					.for_each(|id| StandaloneChainAssets::<T>::remove(state_machine, id))
+			}
+
+			Self::deposit_event(Event::<T>::NativeAssetsDeregistered { assets });
+
+			Ok(())
+		}
 	}
 
 	/// This allows users to create assets from any chain using the TokenRegistrar.
@@ -380,15 +409,31 @@ where
 		PostRequest { body: data, from, source, .. }: PostRequest,
 	) -> Result<(), ismp::error::Error> {
 		// Only substrate chains are allowed to fully register assets remotely
-		if source.is_substrate() {
-			let remote_reg: RemoteERC6160AssetRegistration<T::AccountId> =
-				codec::Decode::decode(&mut &*data)
-					.map_err(|_| ismp::error::Error::Custom(format!("Failed to decode data")))?;
-			for asset in remote_reg.assets {
-				Pallet::<T>::register_asset(asset, remote_reg.owner.clone()).map_err(|e| {
-					ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
-				})?;
+		if source.is_substrate() && from == token_gateway_id().0.to_vec() {
+			let remote_reg: RemoteERC6160AssetRegistration = codec::Decode::decode(&mut &*data)
+				.map_err(|_| ismp::error::Error::Custom(format!("Failed to decode data")))?;
+			match remote_reg {
+				RemoteERC6160AssetRegistration::CreateAssets(assets) =>
+					for asset in assets {
+						let asset_id: H256 =
+							sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
+						Pallet::<T>::register_asset(
+							asset,
+							sp_io::hashing::keccak_256(&source.encode()).into(),
+						)
+						.map_err(|e| {
+							ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
+						})?;
+						StandaloneChainAssets::<T>::insert(source, asset_id, true);
+					},
+				RemoteERC6160AssetRegistration::UpdateAssets(assets) =>
+					for asset in assets {
+						Pallet::<T>::update_erc6160_asset_impl(asset).map_err(|e| {
+							ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
+						})?;
+					},
 			}
+
 			return Ok(())
 		}
 		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)

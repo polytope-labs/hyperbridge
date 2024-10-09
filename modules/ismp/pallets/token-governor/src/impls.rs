@@ -17,6 +17,7 @@
 
 use alloc::{collections::BTreeMap, vec};
 use alloy_sol_types::SolValue;
+use codec::Encode;
 use frame_support::{ensure, PalletId};
 use frame_system::{pallet_prelude::OriginFor, RawOrigin};
 use ismp::{
@@ -27,12 +28,13 @@ use sp_core::{H160, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use crate::{
-	AssetMetadata, AssetMetadatas, AssetOwners, AssetRegistration, ChainWithSupply, Config,
-	ContractInstance, ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate, Error,
-	Event, GatewayParams, Pallet, PendingAsset, RegistrarParamsUpdate, SolAssetMetadata,
-	SolChangeAssetAdmin, SolContractInstance, SolDeregsiterAsset, SolRegistrarParams,
-	SolTokenGatewayParams, SupportedChains, TokenGatewayParams, TokenGatewayParamsUpdate,
-	TokenGatewayRequest, TokenRegistrarParams, UnsignedERC6160AssetRegistration, PALLET_ID,
+	token_gateway_id, AssetMetadata, AssetMetadatas, AssetOwners, AssetRegistration,
+	ChainWithSupply, Config, ContractInstance, ERC20AssetRegistration, ERC6160AssetRegistration,
+	ERC6160AssetUpdate, Error, Event, GatewayParams, Pallet, PendingAsset, RegistrarParamsUpdate,
+	SolAssetMetadata, SolChangeAssetAdmin, SolContractInstance, SolDeregsiterAsset,
+	SolRegistrarParams, SolTokenGatewayParams, SupportedChains, TokenGatewayParams,
+	TokenGatewayParamsUpdate, TokenGatewayRequest, TokenRegistrarParams,
+	UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
 impl<T: Config> Pallet<T>
@@ -81,8 +83,13 @@ where
 				body.initialSupply = alloy_primitives::U256::from_limbs(supply.initial_supply.0);
 			}
 
-			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
-				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+			let address = if chain.is_substrate() {
+				token_gateway_id()
+			} else {
+				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+				address
+			};
 
 			let dispatcher = T::Dispatcher::default();
 			let commitment = dispatcher
@@ -92,7 +99,11 @@ where
 						from: PALLET_ID.to_vec(),
 						to: address.as_bytes().to_vec(),
 						timeout: 0,
-						body: body.encode_request(),
+						body: if chain.is_evm() {
+							body.encode_request()
+						} else {
+							metadata.clone().encode()
+						},
 					}),
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)

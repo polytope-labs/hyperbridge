@@ -20,10 +20,9 @@
 extern crate alloc;
 
 use alloy_sol_types::SolValue;
-use frame_support::pallet_prelude::Weight;
 use ismp::router::PostRequest;
 
-use alloc::{format, string::ToString, vec, vec::Vec};
+use alloc::{format, vec};
 use primitive_types::{H256, U256};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -32,12 +31,11 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::collections::{BTreeMap, BTreeSet};
 	use frame_support::{pallet_prelude::*, Blake2_128Concat};
-	use frame_system::pallet_prelude::*;
-	use ismp::{events::Meta, host::StateMachine};
+
+	use ismp::host::StateMachine;
 	use pallet_token_gateway::Body;
-	use pallet_token_governor::TokenGatewayParams;
+	use pallet_token_governor::StandaloneChainAssets;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -52,11 +50,6 @@ pub mod pallet {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 	}
 
-	/// Native asset ids for standalone chains connected to token gateway.
-	#[pallet::storage]
-	pub type StandaloneChainAssets<T: Config> =
-		StorageDoubleMap<_, Blake2_128Concat, StateMachine, Twox64Concat, H256, bool, OptionQuery>;
-
 	/// Balances for net inflow of non native assets into a standalone chain
 	#[pallet::storage]
 	pub type InflowBalances<T: Config> =
@@ -68,62 +61,11 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// Illegal request has been intercepted
 		IllegalRequest { source: StateMachine },
-		/// Native asset IDs have been registered
-		NativeAssetsRegistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
-		/// Native asset IDs have been deregistered
-		NativeAssetsDeregistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
 	}
 
 	/// Errors that can be returned by this pallet.
 	#[pallet::error]
 	pub enum Error<T> {}
-
-	#[pallet::call]
-	impl<T: Config> Pallet<T>
-	where
-		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-		<T as pallet_ismp::Config>::Balance: Default,
-	{
-		/// Register the native token asset ids for standalone chains
-		#[pallet::call_index(0)]
-		#[pallet::weight(weight())]
-		pub fn register_standalone_chain_native_assets(
-			origin: OriginFor<T>,
-			assets: BTreeMap<StateMachine, BTreeSet<H256>>,
-		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
-
-			for (state_machine, new_asset_ids) in assets.clone() {
-				new_asset_ids
-					.into_iter()
-					.for_each(|id| StandaloneChainAssets::<T>::insert(state_machine, id, true))
-			}
-
-			Self::deposit_event(Event::<T>::NativeAssetsRegistered { assets });
-
-			Ok(())
-		}
-
-		/// Deregister the native token asset ids for standalone chains
-		#[pallet::call_index(1)]
-		#[pallet::weight(weight())]
-		pub fn deregister_standalone_chain_native_assets(
-			origin: OriginFor<T>,
-			assets: BTreeMap<StateMachine, BTreeSet<H256>>,
-		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
-
-			for (state_machine, new_asset_ids) in assets.clone() {
-				new_asset_ids
-					.into_iter()
-					.for_each(|id| StandaloneChainAssets::<T>::remove(state_machine, id))
-			}
-
-			Self::deposit_event(Event::<T>::NativeAssetsDeregistered { assets });
-
-			Ok(())
-		}
-	}
 
 	// Hack for implementing the [`Default`] bound needed for
 	// [`IsmpDispatcher`](ismp::dispatcher::IsmpDispatcher) and
@@ -135,24 +77,12 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		pub fn is_token_gateway_request(
-			from: Vec<u8>,
-			to: Vec<u8>,
-			source: StateMachine,
-			dest: StateMachine,
-		) -> bool {
-			from == pallet_token_gateway::impls::module_id().0.to_vec() ||
-				TokenGatewayParams::<T>::get(source)
-					.map(|params| params.address.0.to_vec() == from)
-					.unwrap_or_default() ||
-				to == pallet_token_gateway::impls::module_id().0.to_vec() ||
-				TokenGatewayParams::<T>::get(dest)
-					.map(|params| params.address.0.to_vec() == to)
-					.unwrap_or_default()
+		pub fn is_token_gateway_request(body: &[u8]) -> Option<Body> {
+			Body::abi_decode(&mut &body[1..], true).ok()
 		}
 
 		pub fn inspect_request(post: &PostRequest) -> Result<(), ismp::Error> {
-			let PostRequest { body, from, to, source, dest, nonce, .. } = post.clone();
+			let PostRequest { body, source, dest, .. } = post.clone();
 
 			// Token Gateway contracts on EVM chains are immutable and non upgradeable
 			// As long as the initial deployment is valid
@@ -161,14 +91,7 @@ pub mod pallet {
 				return Ok(())
 			}
 
-			if Self::is_token_gateway_request(from.clone(), to.clone(), source, dest) {
-				let body = Body::abi_decode(&mut &body[1..], true).map_err(|_| {
-					ismp::error::Error::ModuleDispatchError {
-						msg: "Token Gateway: Failed to decode request body".to_string(),
-						meta: Meta { source, dest, nonce },
-					}
-				})?;
-
+			if let Some(body) = Self::is_token_gateway_request(&body) {
 				// There's no need to record when the destination is EVM because we don't perform
 				// the balance check when the source is EVM
 				if !dest.is_evm() {
@@ -214,7 +137,7 @@ pub mod pallet {
 		}
 
 		pub fn handle_timeout(post: &PostRequest) -> Result<(), ismp::Error> {
-			let PostRequest { body, from, to, source, dest, nonce, .. } = post.clone();
+			let PostRequest { body, source, dest, .. } = post.clone();
 			// Token Gateway contracts on EVM chains are immutable and non upgradeable
 			// As long as the initial deployment is valid
 			// it's impossible to send malicious requests
@@ -222,14 +145,7 @@ pub mod pallet {
 				return Ok(())
 			}
 
-			if Self::is_token_gateway_request(from.clone(), to.clone(), source, dest) {
-				let body = Body::abi_decode(&mut &body[1..], true).map_err(|_| {
-					ismp::error::Error::ModuleDispatchError {
-						msg: "Token Gateway: Failed to decode request body".to_string(),
-						meta: Meta { source, dest, nonce },
-					}
-				})?;
-
+			if let Some(body) = Self::is_token_gateway_request(&body) {
 				let is_native =
 					StandaloneChainAssets::<T>::get(source, H256::from(body.asset_id.0))
 						.unwrap_or_default();
@@ -262,9 +178,4 @@ pub mod pallet {
 			Ok(())
 		}
 	}
-}
-
-/// Static weights because benchmarks suck, and we'll be getting PolkaVM soon anyways
-fn weight() -> Weight {
-	Weight::from_parts(300_000_000, 0)
 }

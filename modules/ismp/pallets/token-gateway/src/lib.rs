@@ -20,8 +20,9 @@ extern crate alloc;
 
 pub mod impls;
 pub mod types;
-use crate::impls::{convert_to_balance, convert_to_erc20, module_id};
+use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
+use codec::Decode;
 use frame_support::{
 	ensure,
 	pallet_prelude::Weight,
@@ -30,12 +31,13 @@ use frame_support::{
 		tokens::Preservation,
 		Currency, ExistenceRequirement,
 	},
-	PalletId,
 };
 use ismp::{
 	events::Meta,
 	router::{PostRequest, Request, Response, Timeout},
 };
+pub use pallet_token_governor::token_gateway_id;
+use pallet_token_governor::AssetMetadata;
 use sp_core::{Get, U256};
 pub use types::*;
 
@@ -45,9 +47,6 @@ use primitive_types::H256;
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
-
-/// The module id for this pallet
-pub const PALLET_ID: PalletId = PalletId(*b"tokengtw");
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -63,7 +62,7 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
-	use pallet_token_governor::RemoteERC6160AssetRegistration;
+	use pallet_token_governor::{ERC6160AssetUpdate, RemoteERC6160AssetRegistration};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -86,6 +85,9 @@ pub mod pallet {
 
 		/// The native asset ID
 		type NativeAssetId: Get<AssetId<Self>>;
+
+		/// A trait that can be used to create new assets
+		type CreateAsset: CreateAsset<AssetId<Self>>;
 	}
 
 	/// Assets supported by this instance of token gateway
@@ -224,7 +226,7 @@ pub mod pallet {
 
 			let dispatch_post = DispatchPost {
 				dest: params.destination,
-				from: module_id().0.to_vec(),
+				from: token_gateway_id().0.to_vec(),
 				to: params.token_gateway,
 				timeout: params.timeout,
 				body: {
@@ -272,7 +274,6 @@ pub mod pallet {
 		#[pallet::weight(weight())]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
-			owner: T::AccountId,
 			assets: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
@@ -287,19 +288,49 @@ pub mod pallet {
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
 				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
-				from: module_id().0.to_vec(),
+				from: token_gateway_id().0.to_vec(),
 				to: pallet_token_governor::PALLET_ID.to_vec(),
 				timeout: 0,
 				body: {
-					RemoteERC6160AssetRegistration {
-						assets: assets.assets.into_iter().map(|asset_map| asset_map.reg).collect(),
-						owner: owner.clone(),
-					}
+					RemoteERC6160AssetRegistration::CreateAssets(
+						assets.assets.into_iter().map(|asset_map| asset_map.reg).collect(),
+					)
 					.encode()
 				},
 			};
 
-			let metadata = FeeMetadata { payer: owner.into(), fee: Default::default() };
+			let metadata = FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() };
+
+			let commitment = dispatcher
+				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
+				.map_err(|_| Error::<T>::AssetTeleportError)?;
+			Self::deposit_event(Event::<T>::ERC6160AssetRegistrationDispatched { commitment });
+
+			Ok(())
+		}
+
+		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
+		///
+		/// This works by dispatching a request to the TokenGateway module on each requested chain
+		/// to create the asset.
+		#[pallet::call_index(3)]
+		#[pallet::weight(weight())]
+		pub fn update_erc6160_asset(
+			origin: OriginFor<T>,
+			assets: Vec<ERC6160AssetUpdate>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			let dispatcher = <T as Config>::Dispatcher::default();
+			let dispatch_post = DispatchPost {
+				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
+				from: token_gateway_id().0.to_vec(),
+				to: pallet_token_governor::PALLET_ID.to_vec(),
+				timeout: 0,
+				body: { RemoteERC6160AssetRegistration::UpdateAssets(assets).encode() },
+			};
+
+			let metadata = FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() };
 
 			let commitment = dispatcher
 				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
@@ -330,9 +361,20 @@ where
 		&self,
 		PostRequest { body, from, source, dest, nonce, .. }: PostRequest,
 	) -> Result<(), ismp::error::Error> {
+		// The only requests allowed from token governor on Hyperbridge is asset creation
+		if &from == &pallet_token_governor::PALLET_ID && Some(source) == T::Coprocessor::get() {
+			let metadata = AssetMetadata::decode(&mut &*body)
+				.map_err(|_| ismp::error::Error::Custom("Failed to decode body".into()))?;
+			let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_ref()).into();
+			let local_asset_id = T::CreateAsset::create_asset(metadata)
+				.map_err(|_| ismp::error::Error::Custom("Failed to create asset".into()))?;
+			SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
+			LocalAssets::<T>::insert(asset_id, local_asset_id);
+			return Ok(())
+		}
 		ensure!(
 			from == TokenGatewayAddresses::<T>::get(source).unwrap_or_default().to_vec() ||
-				from == module_id().0.to_vec(),
+				from == token_gateway_id().0.to_vec(),
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Unknown source contract address".to_string(),
 				meta: Meta { source, dest, nonce },

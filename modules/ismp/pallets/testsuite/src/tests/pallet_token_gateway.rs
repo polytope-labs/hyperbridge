@@ -5,10 +5,8 @@ use ismp::{
 	host::StateMachine,
 	router::{PostRequest, Request, Timeout},
 };
-use pallet_token_gateway::{
-	impls::{convert_to_erc20, module_id},
-	Body, TeleportParams,
-};
+use pallet_token_gateway::{impls::convert_to_erc20, Body, TeleportParams};
+use pallet_token_governor::token_gateway_id;
 use sp_core::{ByteArray, H160, H256, U256};
 use staging_xcm::prelude::Location;
 use xcm_simulator_example::ALICE;
@@ -155,7 +153,7 @@ fn inspector_should_intercept_illegal_request() {
 			source: StateMachine::Kusama(100),
 			dest: StateMachine::Evm(1),
 			nonce: 0,
-			from: module_id().0.to_vec(),
+			from: token_gateway_id().0.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000,
 			body: {
@@ -248,7 +246,7 @@ fn inspector_should_handle_timeout_correctly() {
 			source: StateMachine::Kusama(100),
 			dest: StateMachine::Evm(1),
 			nonce: 0,
-			from: module_id().0.to_vec(),
+			from: token_gateway_id().0.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000,
 			body: {

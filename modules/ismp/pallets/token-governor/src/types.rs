@@ -103,11 +103,9 @@ pub struct ERC6160AssetRegistration {
 
 /// Holds data required for multi-chain native asset registration
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub struct RemoteERC6160AssetRegistration<AccountId> {
-	/// Owner of these assets
-	pub owner: AccountId,
-	/// Assets
-	pub assets: Vec<ERC6160AssetRegistration>,
+pub enum RemoteERC6160AssetRegistration {
+	CreateAssets(Vec<ERC6160AssetRegistration>),
+	UpdateAssets(Vec<ERC6160AssetUpdate>),
 }
 
 /// Holds data required for multi-chain native asset registration (unsigned)
@@ -418,4 +416,10 @@ impl TokenGatewayRequest for SolContractInstance {
 
 		[variant, encoded].concat()
 	}
+}
+/// Token Gateway Id for substrate chains
+/// Module Id is the last 20 bytes of the keccak hash of the pallet id
+pub fn token_gateway_id() -> H160 {
+	let hash = sp_io::hashing::keccak_256(b"tokengty");
+	H160::from_slice(&hash[12..32])
 }

@@ -16,9 +16,10 @@
 //! Pallet types
 
 use alloc::vec::Vec;
+use anyhow::anyhow;
 use frame_support::{pallet_prelude::*, traits::fungibles};
 use ismp::host::StateMachine;
-use pallet_token_governor::ERC6160AssetRegistration;
+use pallet_token_governor::{AssetMetadata, ERC6160AssetRegistration};
 use primitive_types::H256;
 
 use crate::Config;
@@ -74,5 +75,17 @@ alloy_sol_macro::sol! {
 		bytes32 from;
 		// Recipient address
 		bytes32 to;
+	}
+}
+
+/// A trait that helps in creating new assets in the runtime
+pub trait CreateAsset<AssetId> {
+	/// Create an asset and return its local asset id
+	fn create_asset(meta: AssetMetadata) -> Result<AssetId, anyhow::Error>;
+}
+
+impl<AssetId> CreateAsset<AssetId> for () {
+	fn create_asset(_meta: AssetMetadata) -> Result<AssetId, anyhow::Error> {
+		Err(anyhow!("Unimplemented"))
 	}
 }

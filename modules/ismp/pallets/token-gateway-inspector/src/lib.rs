@@ -55,7 +55,7 @@ pub mod pallet {
 	/// Native asset ids for standalone chains connected to token gateway.
 	#[pallet::storage]
 	pub type StandaloneChainAssets<T: Config> =
-		StorageMap<_, Twox64Concat, StateMachine, BTreeSet<H256>, OptionQuery>;
+		StorageDoubleMap<_, Blake2_128Concat, StateMachine, Twox64Concat, H256, bool, OptionQuery>;
 
 	/// Balances for net inflow of non native assets into a standalone chain
 	#[pallet::storage]
@@ -93,16 +93,10 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
-			for (state_machine, mut new_asset_ids) in assets.clone() {
-				let _ = StandaloneChainAssets::<T>::try_mutate(state_machine, |asset_ids| {
-					if let Some(set) = asset_ids {
-						set.append(&mut new_asset_ids);
-					} else {
-						*asset_ids = Some(new_asset_ids);
-					};
-
-					Ok::<(), ()>(())
-				});
+			for (state_machine, new_asset_ids) in assets.clone() {
+				new_asset_ids
+					.into_iter()
+					.for_each(|id| StandaloneChainAssets::<T>::insert(state_machine, id, true))
 			}
 
 			Self::deposit_event(Event::<T>::NativeAssetsRegistered { assets });
@@ -120,17 +114,9 @@ pub mod pallet {
 			T::AdminOrigin::ensure_origin(origin)?;
 
 			for (state_machine, new_asset_ids) in assets.clone() {
-				let _ = StandaloneChainAssets::<T>::try_mutate(state_machine, |asset_ids| {
-					if let Some(set) = asset_ids {
-						for id in new_asset_ids {
-							set.remove(&id);
-						}
-						if set.is_empty() {
-							*asset_ids = None;
-						}
-					}
-					Ok::<(), ()>(())
-				});
+				new_asset_ids
+					.into_iter()
+					.for_each(|id| StandaloneChainAssets::<T>::remove(state_machine, id))
 			}
 
 			Self::deposit_event(Event::<T>::NativeAssetsDeregistered { assets });
@@ -183,6 +169,8 @@ pub mod pallet {
 					}
 				})?;
 
+				// There's no need to record when the destination is EVM because we don't perform
+				// the balance check when the source is EVM
 				if !dest.is_evm() {
 					InflowBalances::<T>::try_mutate(dest, H256::from(body.asset_id.0), |val| {
 						let amount = U256::from_big_endian(&body.amount.to_be_bytes::<32>());
@@ -196,8 +184,13 @@ pub mod pallet {
 					})?;
 				}
 
-				let native_asset_ids = StandaloneChainAssets::<T>::get(source).unwrap_or_default();
-				if !native_asset_ids.contains(&H256::from(body.asset_id.0)) && !source.is_evm() {
+				let is_native =
+					StandaloneChainAssets::<T>::get(source, H256::from(body.asset_id.0))
+						.unwrap_or_default();
+				// We don't check when the source is EVM because the contract issuing the request
+				// cannot be malicious, And if there's a consensus fault, it will be caught by
+				// fishermen during the challenge period
+				if !is_native && !source.is_evm() {
 					let balance = InflowBalances::<T>::get(source, H256::from(body.asset_id.0));
 					let amount = U256::from_big_endian(&body.amount.to_be_bytes::<32>());
 					if amount > balance {
@@ -237,8 +230,10 @@ pub mod pallet {
 					}
 				})?;
 
-				let native_asset_ids = StandaloneChainAssets::<T>::get(source).unwrap_or_default();
-				if !native_asset_ids.contains(&H256::from(body.asset_id.0)) && !source.is_evm() {
+				let is_native =
+					StandaloneChainAssets::<T>::get(source, H256::from(body.asset_id.0))
+						.unwrap_or_default();
+				if !is_native && !source.is_evm() {
 					InflowBalances::<T>::try_mutate(source, H256::from(body.asset_id.0), |val| {
 						let amount = U256::from_big_endian(&body.amount.to_be_bytes::<32>());
 						*val += amount;

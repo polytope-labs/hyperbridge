@@ -16,7 +16,8 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Gateway, Ismp, IsmpParachain, Mmr,
-	ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, EXISTENTIAL_DEPOSIT,
+	ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor,
+	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use frame_support::{
@@ -216,12 +217,14 @@ impl IsmpModule for ProxyModule {
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
 		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address(&request.source));
+		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
 			id if id == token_gateway =>
 				pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
+			id if id == token_governor => TokenGovernor::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}

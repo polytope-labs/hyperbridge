@@ -19,7 +19,7 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use frame_support::{pallet_prelude::*, traits::fungibles};
 use ismp::host::StateMachine;
-use pallet_token_governor::{AssetMetadata, ERC6160AssetRegistration};
+use pallet_token_governor::{AssetMetadata, ERC6160AssetRegistration, SolAssetMetadata};
 use primitive_types::H256;
 
 use crate::Config;
@@ -81,11 +81,23 @@ alloy_sol_macro::sol! {
 /// A trait that helps in creating new assets in the runtime
 pub trait CreateAsset<AssetId> {
 	/// Create an asset and return its local asset id
-	fn create_asset(meta: AssetMetadata) -> Result<AssetId, anyhow::Error>;
+	fn create_asset(meta: SolAssetMetadata) -> Result<AssetId, anyhow::Error>;
+	/// Update Asset
+	fn update_asset(asset_id: AssetId, meta: SolAssetMetadata) -> Result<(), anyhow::Error>;
+	/// Delete asset
+	fn delete_asset(asset_id: AssetId) -> Result<(), anyhow::Error>;
 }
 
 impl<AssetId> CreateAsset<AssetId> for () {
-	fn create_asset(_meta: AssetMetadata) -> Result<AssetId, anyhow::Error> {
+	fn create_asset(_meta: SolAssetMetadata) -> Result<AssetId, anyhow::Error> {
+		Err(anyhow!("Unimplemented"))
+	}
+
+	fn update_asset(asset_id: AssetId, meta: SolAssetMetadata) -> Result<(), anyhow::Error> {
+		Err(anyhow!("Unimplemented"))
+	}
+
+	fn delete_asset(asset_id: AssetId) -> Result<(), anyhow::Error> {
 		Err(anyhow!("Unimplemented"))
 	}
 }

@@ -99,11 +99,7 @@ where
 						from: PALLET_ID.to_vec(),
 						to: address.as_bytes().to_vec(),
 						timeout: 0,
-						body: if chain.is_evm() {
-							body.encode_request()
-						} else {
-							metadata.clone().encode()
-						},
+						body: body.encode_request(),
 					}),
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
@@ -173,8 +169,13 @@ where
 				continue;
 			}
 
-			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
-				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+			let address = if chain.is_substrate() {
+				token_gateway_id()
+			} else {
+				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+				address
+			};
 
 			let mut body: SolAssetMetadata =
 				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
@@ -206,8 +207,13 @@ where
 				continue;
 			}
 
-			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
-				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+			let address = if chain.is_substrate() {
+				token_gateway_id()
+			} else {
+				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+				address
+			};
 
 			let body = SolDeregsiterAsset { assetIds: vec![update.asset_id.0.into()] };
 			dispatcher

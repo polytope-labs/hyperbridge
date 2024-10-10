@@ -38,7 +38,7 @@ use ismp::{
 	router::{PostRequest, Request, Response, Timeout},
 };
 pub use pallet_token_governor::token_gateway_id;
-use pallet_token_governor::AssetMetadata;
+use pallet_token_governor::{SolAssetMetadata, SolDeregsiterAsset};
 use sp_core::{Get, U256};
 pub use types::*;
 
@@ -366,13 +366,25 @@ where
 	) -> Result<(), anyhow::Error> {
 		// The only requests allowed from token governor on Hyperbridge is asset creation
 		if &from == &pallet_token_governor::PALLET_ID && Some(source) == T::Coprocessor::get() {
-			let metadata = AssetMetadata::decode(&mut &*body)
-				.map_err(|_| ismp::error::Error::Custom("Failed to decode body".into()))?;
-			let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_ref()).into();
-			let local_asset_id = T::CreateAsset::create_asset(metadata)?;
-			SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
-			LocalAssets::<T>::insert(asset_id, local_asset_id);
-			return Ok(())
+			if let Ok(metadata) = SolAssetMetadata::abi_decode(&mut &body[1..], true) {
+				let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_bytes()).into();
+				if let Some(local_asset_id) = LocalAssets::<T>::get(asset_id) {
+					T::CreateAsset::update_asset(local_asset_id, metadata)?;
+				} else {
+					let local_asset_id = T::CreateAsset::create_asset(metadata)?;
+					SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
+					LocalAssets::<T>::insert(asset_id, local_asset_id);
+				}
+				return Ok(())
+			}
+
+			if let Ok(meta) = SolDeregsiterAsset::abi_decode(&mut &body[1..], true) {
+				for asset_id in meta.assetIds {
+					if let Some(local_asset_id) = LocalAssets::<T>::get(H256::from(asset_id.0)) {
+						T::CreateAsset::delete_asset(local_asset_id)?;
+					}
+				}
+			}
 		}
 		ensure!(
 			from == TokenGatewayAddresses::<T>::get(source).unwrap_or_default().to_vec() ||

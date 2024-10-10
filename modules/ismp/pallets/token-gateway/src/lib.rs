@@ -380,7 +380,8 @@ where
 			if let Ok(meta) = SolDeregsiterAsset::abi_decode(&mut &body[1..], true) {
 				for asset_id in meta.assetIds {
 					if let Some(local_asset_id) = LocalAssets::<T>::get(H256::from(asset_id.0)) {
-						T::CreateAsset::delete_asset(local_asset_id)?;
+						SupportedAssets::<T>::remove(local_asset_id.clone());
+						LocalAssets::<T>::remove(H256::from(asset_id.0));
 					}
 				}
 			}

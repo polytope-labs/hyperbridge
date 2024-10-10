@@ -84,8 +84,6 @@ pub trait CreateAsset<AssetId> {
 	fn create_asset(meta: SolAssetMetadata) -> Result<AssetId, anyhow::Error>;
 	/// Update Asset
 	fn update_asset(asset_id: AssetId, meta: SolAssetMetadata) -> Result<(), anyhow::Error>;
-	/// Delete asset
-	fn delete_asset(asset_id: AssetId) -> Result<(), anyhow::Error>;
 }
 
 impl<AssetId> CreateAsset<AssetId> for () {
@@ -94,10 +92,6 @@ impl<AssetId> CreateAsset<AssetId> for () {
 	}
 
 	fn update_asset(_asset_id: AssetId, _meta: SolAssetMetadata) -> Result<(), anyhow::Error> {
-		Err(anyhow!("Unimplemented"))
-	}
-
-	fn delete_asset(_asset_id: AssetId) -> Result<(), anyhow::Error> {
 		Err(anyhow!("Unimplemented"))
 	}
 }

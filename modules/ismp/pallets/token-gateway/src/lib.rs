@@ -243,7 +243,7 @@ pub mod pallet {
 				amount: {
 					let amount: u128 = params.amount.into();
 					let mut bytes = [0u8; 32];
-					convert_to_erc20(amount, decimals, erc_decimals).to_big_endian(&mut bytes);
+					convert_to_erc20(amount, erc_decimals, decimals).to_big_endian(&mut bytes);
 					alloy_primitives::U256::from_be_bytes(bytes)
 				},
 				asset_id: asset_id.0.into(),

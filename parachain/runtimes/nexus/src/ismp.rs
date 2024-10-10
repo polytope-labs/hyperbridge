@@ -37,6 +37,7 @@ use pallet_asset_gateway::AssetGatewayParams;
 use pallet_assets::BenchmarkHelper;
 use sp_core::crypto::AccountId32;
 
+use anyhow::anyhow;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
@@ -173,7 +174,7 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl IsmpModule for ProxyModule {
-	fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
 		if request.dest != HostStateMachine::get() {
 			let token_gateway = Gateway::token_gateway_address(&request.dest);
 			if request.source.is_substrate() && request.from == token_gateway.0.to_vec() {
@@ -193,11 +194,11 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			id if id == token_gateway =>
 				pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
-			_ => Err(Error::Custom("Destination module not found".to_string())),
+			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), Error> {
+	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
 		if response.dest_chain() != HostStateMachine::get() {
 			Ismp::dispatch_response(
 				response,
@@ -206,10 +207,10 @@ impl IsmpModule for ProxyModule {
 			return Ok(());
 		}
 
-		Err(Error::Custom("Destination module not found".to_string()))
+		Err(anyhow!("Destination module not found"))
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), Error> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
 		let (from, source) = match &timeout {
 			Timeout::Request(Request::Post(post)) => (&post.from, &post.source),
 			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
@@ -231,7 +232,7 @@ impl IsmpModule for ProxyModule {
 pub struct Router;
 
 impl IsmpRouter for Router {
-	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		Ok(Box::new(ProxyModule::default()))
 	}
 }

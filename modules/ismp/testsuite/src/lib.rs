@@ -129,7 +129,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 		signer: vec![],
 	});
 
-	let res = handle_incoming_message(host, request_message);
+	let res = handle_incoming_message(host, request_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
@@ -144,7 +144,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 		signer: vec![],
 	});
 
-	let res = handle_incoming_message(host, response_message);
+	let res = handle_incoming_message(host, response_message).map_err(|e| e.downcast().unwrap());
 	assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
 	// Timeout mesaage handling check
@@ -153,7 +153,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
-	let res = handle_incoming_message(host, timeout_message);
+	let res = handle_incoming_message(host, timeout_message).map_err(|e| e.downcast().unwrap());
 	assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 	Ok(())
 }
@@ -172,7 +172,8 @@ pub fn check_client_expiry<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
 		.unwrap();
 
-	let res = handle_incoming_message::<H>(host, consensus_message);
+	let res =
+		handle_incoming_message::<H>(host, consensus_message).map_err(|e| e.downcast().unwrap());
 	assert!(matches!(res, Err(ismp::error::Error::UnbondingPeriodElapsed { .. })));
 
 	Ok(())
@@ -205,7 +206,7 @@ pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
 		signer: vec![],
 	});
 
-	let res = handle_incoming_message(host, request_message);
+	let res = handle_incoming_message(host, request_message).map_err(|e| e.downcast().unwrap());
 	dbg!(&res);
 	assert!(matches!(res, Err(ismp::error::Error::FrozenConsensusClient { .. })));
 	Ok(())
@@ -240,7 +241,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 		signer: vec![],
 	});
 
-	let res = handle_incoming_message(host, request_message);
+	let res = handle_incoming_message(host, request_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
@@ -255,7 +256,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 		signer: vec![],
 	});
 
-	let res = handle_incoming_message(host, response_message);
+	let res = handle_incoming_message(host, response_message).map_err(|e| e.downcast().unwrap());
 	assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
 	// Timeout mesaage handling check
@@ -264,7 +265,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
-	let res = handle_incoming_message(host, timeout_message);
+	let res = handle_incoming_message(host, timeout_message).map_err(|e| e.downcast().unwrap());
 	assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
 	Ok(())
@@ -338,7 +339,8 @@ where
 	assert!(handle_incoming_message(host, Message::FraudProof(fraud_proof.clone())).is_ok());
 
 	assert!(matches!(
-		handle_incoming_message(host, Message::FraudProof(fraud_proof)),
+		handle_incoming_message(host, Message::FraudProof(fraud_proof))
+			.map_err(|e| e.downcast().unwrap()),
 		Err(Error::FrozenConsensusClient { .. })
 	));
 }
@@ -544,7 +546,7 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 		timeout_proof: Proof { height: proxy.height, proof: vec![] },
 	});
 
-	let res = handle_incoming_message(&host, timeout_message);
+	let res = handle_incoming_message(&host, timeout_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
 
@@ -628,7 +630,7 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
 		timeout_proof: Proof { height: proxy.height, proof: vec![] },
 	});
 
-	let res = handle_incoming_message(&host, timeout_message);
+	let res = handle_incoming_message(&host, timeout_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));
 
@@ -697,7 +699,7 @@ pub fn prevent_request_processing_on_proxy_with_known_state_machine(
 		signer: vec![],
 	});
 
-	let res = handle_incoming_message(&host, request_message);
+	let res = handle_incoming_message(&host, request_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
 
@@ -735,7 +737,7 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
 		signer: vec![],
 	});
 
-	let res = handle_incoming_message(&host, request_message);
+	let res = handle_incoming_message(&host, request_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
 
@@ -790,7 +792,7 @@ pub fn check_response_source() -> Result<(), &'static str> {
 		signer: vec![],
 	});
 
-	let res = handle_incoming_message(&host, timeout_message);
+	let res = handle_incoming_message(&host, timeout_message).map_err(|e| e.downcast().unwrap());
 
 	dbg!(&res);
 	assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));

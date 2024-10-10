@@ -69,7 +69,7 @@ where
 		&self,
 		request: DispatchRequest,
 		fee: FeeMetadata<T>,
-	) -> Result<H256, IsmpError> {
+	) -> Result<H256, anyhow::Error> {
 		// collect payment for the request
 		if fee.fee != Zero::zero() {
 			T::Currency::transfer(
@@ -128,7 +128,7 @@ where
 		&self,
 		response: PostResponse,
 		fee: FeeMetadata<T>,
-	) -> Result<H256, IsmpError> {
+	) -> Result<H256, anyhow::Error> {
 		// collect payment for the response
 		if fee.fee != Zero::zero() {
 			T::Currency::transfer(
@@ -175,7 +175,7 @@ impl<T: Config> RefundingRouter<T> {
 }
 
 impl<T: Config> IsmpRouter for RefundingRouter<T> {
-	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, IsmpError> {
+	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		let module = self.inner.module_for_id(id)?;
 
 		Ok(Box::new(RefundingModule::<T>::new(module)))
@@ -199,15 +199,15 @@ impl<T: Config> RefundingModule<T> {
 }
 
 impl<T: Config> IsmpModule for RefundingModule<T> {
-	fn on_accept(&self, request: PostRequest) -> Result<(), IsmpError> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
 		self.inner.on_accept(request)
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), IsmpError> {
+	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
 		self.inner.on_response(response)
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), IsmpError> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
 		let result = self.inner.on_timeout(timeout.clone());
 
 		// only refund if module returns Ok(())

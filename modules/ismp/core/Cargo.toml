@@ -34,5 +34,6 @@ std = [
     "anyhow/std",
     "hex/std",
     "serde_json/std",
-    "serde-hex-utils/std"
+    "serde-hex-utils/std",
+    "anyhow/std"
 ]

@@ -16,8 +16,10 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Gateway, Ismp, IsmpParachain, Mmr,
-	ParachainInfo, Runtime, RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
+	ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor,
+	EXISTENTIAL_DEPOSIT,
 };
+use anyhow::anyhow;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -154,6 +156,10 @@ impl pallet_asset_gateway::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl pallet_token_gateway_inspector::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+}
+
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
@@ -196,12 +202,9 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl IsmpModule for ProxyModule {
-	fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
 		if request.dest != HostStateMachine::get() {
-			let token_gateway = Gateway::token_gateway_address(&request.dest);
-			if request.source.is_substrate() && request.from == token_gateway.0.to_vec() {
-				Err(Error::Custom("Illegal request!".into()))?
-			}
+			TokenGatewayInspector::inspect_request(&request)?;
 
 			Ismp::dispatch_request(
 				Request::Post(request),
@@ -214,17 +217,19 @@ impl IsmpModule for ProxyModule {
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
 		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address(&request.source));
+		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
 			id if id == token_gateway =>
 				pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
-			_ => Err(Error::Custom("Destination module not found".to_string())),
+			id if id == token_governor => TokenGovernor::default().on_accept(request),
+			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), Error> {
+	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
 		if response.dest_chain() != HostStateMachine::get() {
 			Ismp::dispatch_response(
 				response,
@@ -244,13 +249,18 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
-			_ => Err(Error::Custom("Destination module not found".to_string())),
+			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), Error> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
 		let (from, source) = match &timeout {
-			Timeout::Request(Request::Post(post)) => (&post.from, &post.source),
+			Timeout::Request(Request::Post(post)) => {
+				if post.source != HostStateMachine::get() {
+					TokenGatewayInspector::handle_timeout(post)?;
+				}
+				(&post.from, &post.source)
+			},
 			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
 			Timeout::Response(res) => (&res.post.to, &res.post.dest),
 		};
@@ -272,7 +282,7 @@ impl IsmpModule for ProxyModule {
 pub struct Router;
 
 impl IsmpRouter for Router {
-	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		Ok(Box::new(ProxyModule::default()))
 	}
 }

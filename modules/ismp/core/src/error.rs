@@ -220,6 +220,6 @@ impl core::error::Error for Error {}
 #[cfg(not(feature = "std"))]
 impl From<Error> for anyhow::Error {
 	fn from(value: Error) -> Self {
-		anyhow::Error::new(value)
+		anyhow::Error::msg(value)
 	}
 }

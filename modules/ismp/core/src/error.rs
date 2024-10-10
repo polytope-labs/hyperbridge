@@ -220,8 +220,6 @@ impl core::error::Error for Error {}
 #[cfg(not(feature = "std"))]
 impl From<Error> for anyhow::Error {
 	fn from(value: Error) -> Self {
-		use alloc::format;
-		use anyhow::anyhow;
-		anyhow!(format!("{value:?}"))
+		anyhow::Error::new(value)
 	}
 }

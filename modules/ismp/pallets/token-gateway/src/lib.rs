@@ -48,6 +48,9 @@ use primitive_types::H256;
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 
+/// Minimum balance for token gateway assets
+const MIN_BALANCE: u128 = 1_000_000_000;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use alloc::collections::BTreeMap;
@@ -81,29 +84,41 @@ pub mod pallet {
 		type Currency: Currency<Self::AccountId>;
 
 		/// Fungible asset implementation
-		type Assets: fungibles::Mutate<Self::AccountId> + fungibles::Inspect<Self::AccountId>;
+		type Assets: fungibles::Mutate<Self::AccountId>
+			+ fungibles::Inspect<Self::AccountId>
+			+ fungibles::Create<Self::AccountId>
+			+ fungibles::metadata::Mutate<Self::AccountId>;
 
 		/// The native asset ID
 		type NativeAssetId: Get<AssetId<Self>>;
 
-		/// A trait that can be used to create new assets
-		type CreateAsset: CreateAsset<AssetId<Self>>;
+		/// A trait that can be used to create new asset Ids
+		type AssetIdFactory: CreateAssetId<AssetId<Self>>;
+
+		/// The decimals of the native currency
+		#[pallet::constant]
+		type Decimals: Get<u8>;
 	}
 
 	/// Assets supported by this instance of token gateway
 	/// A map of the local asset id to the token gateway asset id
 	#[pallet::storage]
-	pub type SupportedAssets<T: Config> = StorageMap<_, Identity, AssetId<T>, H256, OptionQuery>;
+	pub type SupportedAssets<T: Config> =
+		StorageMap<_, Blake2_128Concat, AssetId<T>, H256, OptionQuery>;
 
 	/// Assets supported by this instance of token gateway
 	/// A map of the token gateway asset id to the local asset id
 	#[pallet::storage]
 	pub type LocalAssets<T: Config> = StorageMap<_, Identity, H256, AssetId<T>, OptionQuery>;
 
+	/// The decimals used by the EVM counterpart of this asset
+	#[pallet::storage]
+	pub type Decimals<T: Config> = StorageMap<_, Blake2_128Concat, AssetId<T>, u8, OptionQuery>;
+
 	/// The token gateway adresses on different chains
 	#[pallet::storage]
 	pub type TokenGatewayAddresses<T: Config> =
-		StorageMap<_, Identity, StateMachine, Vec<u8>, OptionQuery>;
+		StorageMap<_, Blake2_128Concat, StateMachine, Vec<u8>, OptionQuery>;
 
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
@@ -161,6 +176,10 @@ pub mod pallet {
 		CoprocessorNotConfigured,
 		/// Asset or update Dispatch Error
 		DispatchError,
+		/// Asset Id creation failed
+		AssetCreationError,
+		/// Asset decimals not found
+		AssetDecimalsNotFound,
 	}
 
 	#[pallet::call]
@@ -172,6 +191,7 @@ pub mod pallet {
 			From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
 		<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance:
 			From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
+		<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
 		[u8; 32]: From<<T as frame_system::Config>::AccountId>,
 	{
 		/// Teleports a registered asset
@@ -190,7 +210,7 @@ pub mod pallet {
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let asset_id = SupportedAssets::<T>::get(params.asset_id.clone())
 				.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
-			if params.asset_id == T::NativeAssetId::get() {
+			let decimals = if params.asset_id == T::NativeAssetId::get() {
 				// Custody funds in pallet
 				<T as Config>::Currency::transfer(
 					&who,
@@ -198,26 +218,32 @@ pub mod pallet {
 					params.amount,
 					ExistenceRequirement::KeepAlive,
 				)?;
+				T::Decimals::get()
 			} else {
 				<T as Config>::Assets::transfer(
-					params.asset_id,
+					params.asset_id.clone(),
 					&who,
 					&Self::pallet_account(),
 					params.amount.into(),
 					Preservation::Protect,
 				)?;
-			}
+				<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
+					params.asset_id.clone(),
+				)
+			};
 
 			// Dispatch Ismp request
 			// Token gateway expected abi encoded address
 			let to = params.recepient.0;
 			let from: [u8; 32] = who.clone().into();
+			let erc_decimals = Decimals::<T>::get(params.asset_id)
+				.ok_or_else(|| Error::<T>::AssetDecimalsNotFound)?;
 
 			let body = Body {
 				amount: {
 					let amount: u128 = params.amount.into();
 					let mut bytes = [0u8; 32];
-					convert_to_erc20(amount).to_big_endian(&mut bytes);
+					convert_to_erc20(amount, decimals, erc_decimals).to_big_endian(&mut bytes);
 					alloy_primitives::U256::from_be_bytes(bytes)
 				},
 				asset_id: asset_id.0.into(),
@@ -283,8 +309,34 @@ pub mod pallet {
 			for asset_map in assets.assets.clone() {
 				let asset_id: H256 =
 					sp_io::hashing::keccak_256(asset_map.reg.symbol.as_ref()).into();
-				SupportedAssets::<T>::insert(asset_map.local_id.clone(), asset_id.clone());
-				LocalAssets::<T>::insert(asset_id, asset_map.local_id);
+				if let Some(local_id) = asset_map.local_id.clone() {
+					SupportedAssets::<T>::insert(local_id.clone(), asset_id.clone());
+					LocalAssets::<T>::insert(asset_id, local_id.clone());
+					// All ERC6160 assets use 18 decimals
+					Decimals::<T>::insert(local_id, 18);
+				} else {
+					// Create the asset
+					let local_asset_id =
+						T::AssetIdFactory::create_asset_id(asset_map.reg.symbol.to_vec())
+							.map_err(|_| Error::<T>::AssetCreationError)?;
+					<T::Assets as fungibles::Create<T::AccountId>>::create(
+						local_asset_id.clone(),
+						Self::pallet_account(),
+						true,
+						MIN_BALANCE.into(),
+					)?;
+					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
+						local_asset_id.clone(),
+						&Self::pallet_account(),
+						asset_map.reg.name.to_vec(),
+						asset_map.reg.symbol.to_vec(),
+						18,
+					)?;
+					// All ERC6160 assets will use 18 decimals
+					Decimals::<T>::insert(local_asset_id.clone(), 18);
+					SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
+					LocalAssets::<T>::insert(asset_id, local_asset_id);
+				}
 			}
 
 			let dispatcher = <T as Config>::Dispatcher::default();
@@ -363,16 +415,47 @@ where
 		&self,
 		PostRequest { body, from, source, dest, nonce, .. }: PostRequest,
 	) -> Result<(), anyhow::Error> {
-		// The only requests allowed from token governor on Hyperbridge is asset creation
+		// The only requests allowed from token governor on Hyperbridge is asset creation, updating
+		// and deregistering
 		if &from == &pallet_token_governor::PALLET_ID && Some(source) == T::Coprocessor::get() {
 			if let Ok(metadata) = SolAssetMetadata::abi_decode(&mut &body[1..], true) {
 				let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_bytes()).into();
 				if let Some(local_asset_id) = LocalAssets::<T>::get(asset_id) {
-					T::CreateAsset::update_asset(local_asset_id, metadata)?;
+					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
+						local_asset_id.clone(),
+						&Self::pallet_account(),
+						metadata.name.as_bytes().to_vec(),
+						metadata.symbol.as_bytes().to_vec(),
+						// We do not change the asset's native decimal
+						<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
+							local_asset_id.clone(),
+						),
+					)
+					.map_err(|e| anyhow!("{e:?}"))?;
+					// Note the asset's ERC counterpart decimal
+					Decimals::<T>::insert(local_asset_id, metadata.decimal);
 				} else {
-					let local_asset_id = T::CreateAsset::create_asset(metadata)?;
+					let local_asset_id =
+						T::AssetIdFactory::create_asset_id(metadata.symbol.as_bytes().to_vec())?;
+					<T::Assets as fungibles::Create<T::AccountId>>::create(
+						local_asset_id.clone(),
+						Self::pallet_account(),
+						true,
+						MIN_BALANCE.into(),
+					)
+					.map_err(|e| anyhow!("{e:?}"))?;
+					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
+						local_asset_id.clone(),
+						&Self::pallet_account(),
+						metadata.name.as_bytes().to_vec(),
+						metadata.symbol.as_bytes().to_vec(),
+						18,
+					)
+					.map_err(|e| anyhow!("{e:?}"))?;
 					SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
-					LocalAssets::<T>::insert(asset_id, local_asset_id);
+					LocalAssets::<T>::insert(asset_id, local_asset_id.clone());
+					// Note the asset's ERC counterpart decimal
+					Decimals::<T>::insert(local_asset_id, metadata.decimal);
 				}
 				return Ok(())
 			}
@@ -382,6 +465,7 @@ where
 					if let Some(local_asset_id) = LocalAssets::<T>::get(H256::from(asset_id.0)) {
 						SupportedAssets::<T>::remove(local_asset_id.clone());
 						LocalAssets::<T>::remove(H256::from(asset_id.0));
+						Decimals::<T>::remove(local_asset_id.clone());
 					}
 				}
 			}
@@ -401,11 +485,6 @@ where
 				meta: Meta { source, dest, nonce },
 			}
 		})?;
-		let amount = convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
-			.map_err(|_| ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
-				meta: Meta { source, dest, nonce },
-			})?;
 
 		let local_asset_id =
 			LocalAssets::<T>::get(H256::from(body.asset_id.0)).ok_or_else(|| {
@@ -414,6 +493,25 @@ where
 					meta: Meta { source, dest, nonce },
 				}
 			})?;
+
+		let decimals = if local_asset_id == T::NativeAssetId::get() {
+			T::Decimals::get()
+		} else {
+			<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
+				local_asset_id.clone(),
+			)
+		};
+		let erc_decimals = Decimals::<T>::get(local_asset_id.clone())
+			.ok_or_else(|| anyhow!("Asset decimals not configured"))?;
+		let amount = convert_to_balance(
+			U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
+			erc_decimals,
+			decimals,
+		)
+		.map_err(|_| ismp::error::Error::ModuleDispatchError {
+			msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+			meta: Meta { source, dest, nonce },
+		})?;
 		let beneficiary: T::AccountId = body.to.0.into();
 		if local_asset_id == T::NativeAssetId::get() {
 			<T as Config>::Currency::transfer(
@@ -462,18 +560,29 @@ where
 					}
 				})?;
 				let beneficiary = body.from.0.into();
-
-				let amount =
-					convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
-						.map_err(|_| ismp::error::Error::ModuleDispatchError {
-							msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
-							meta: Meta { source, dest, nonce },
-						})?;
 				let local_asset_id = LocalAssets::<T>::get(H256::from(body.asset_id.0))
 					.ok_or_else(|| ismp::error::Error::ModuleDispatchError {
 						msg: "Token Gateway: Unknown asset".to_string(),
 						meta: Meta { source, dest, nonce },
 					})?;
+				let decimals = if local_asset_id == T::NativeAssetId::get() {
+					T::Decimals::get()
+				} else {
+					<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
+						local_asset_id.clone(),
+					)
+				};
+				let erc_decimals = Decimals::<T>::get(local_asset_id.clone())
+					.ok_or_else(|| anyhow!("Asset decimals not configured"))?;
+				let amount = convert_to_balance(
+					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
+					erc_decimals,
+					decimals,
+				)
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+					meta: Meta { source, dest, nonce },
+				})?;
 
 				if local_asset_id == T::NativeAssetId::get() {
 					<T as Config>::Currency::transfer(

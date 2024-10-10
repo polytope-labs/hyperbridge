@@ -19,7 +19,7 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use frame_support::{pallet_prelude::*, traits::fungibles};
 use ismp::host::StateMachine;
-use pallet_token_governor::{ERC6160AssetRegistration, SolAssetMetadata};
+use pallet_token_governor::ERC6160AssetRegistration;
 use primitive_types::H256;
 
 use crate::Config;
@@ -49,8 +49,10 @@ pub struct TeleportParams<AssetId, Balance> {
 /// Local asset Id and its corresponding token gateway asset id
 #[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
 pub struct AssetMap<AssetId> {
-	/// Local Asset Id
-	pub local_id: AssetId,
+	/// Local Asset Id if the asset exists already
+	/// If the asset exists, it's decimal will be updated to 18
+	/// other metadata will not be changed
+	pub local_id: Option<AssetId>,
 	/// MNT Asset registration details
 	pub reg: ERC6160AssetRegistration,
 }
@@ -78,20 +80,14 @@ alloy_sol_macro::sol! {
 	}
 }
 
-/// A trait that helps in creating new assets in the runtime
-pub trait CreateAsset<AssetId> {
-	/// Create an asset and return its local asset id
-	fn create_asset(meta: SolAssetMetadata) -> Result<AssetId, anyhow::Error>;
-	/// Update Asset
-	fn update_asset(asset_id: AssetId, meta: SolAssetMetadata) -> Result<(), anyhow::Error>;
+/// A trait that helps in creating new asset ids in the runtime
+pub trait CreateAssetId<AssetId> {
+	/// Should return a unique asset id
+	fn create_asset_id(symbol: Vec<u8>) -> Result<AssetId, anyhow::Error>;
 }
 
-impl<AssetId> CreateAsset<AssetId> for () {
-	fn create_asset(_meta: SolAssetMetadata) -> Result<AssetId, anyhow::Error> {
-		Err(anyhow!("Unimplemented"))
-	}
-
-	fn update_asset(_asset_id: AssetId, _meta: SolAssetMetadata) -> Result<(), anyhow::Error> {
+impl<AssetId> CreateAssetId<AssetId> for () {
+	fn create_asset_id(_symbol: Vec<u8>) -> Result<AssetId, anyhow::Error> {
 		Err(anyhow!("Unimplemented"))
 	}
 }

@@ -35,15 +35,21 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-/// Converts an ERC20 U256 to a DOT u128
-pub fn convert_to_balance(value: U256) -> Result<u128, anyhow::Error> {
-	let dec_str = (value / U256::from(100_000_000u128)).to_string();
+/// Converts an ERC20 U256 to a u128
+pub fn convert_to_balance(
+	value: U256,
+	erc_decimals: u8,
+	final_decimals: u8,
+) -> Result<u128, anyhow::Error> {
+	let dec_str = (value /
+		U256::from(10u128.pow(erc_decimals.saturating_sub(final_decimals) as u32)))
+	.to_string();
 	dec_str.parse().map_err(|e| anyhow::anyhow!("{e:?}"))
 }
 
-/// Converts a DOT u128 to an Erc20 denomination
-pub fn convert_to_erc20(value: u128) -> U256 {
-	U256::from(value) * U256::from(100_000_000u128)
+/// Converts a u128 to an Erc20 denomination
+pub fn convert_to_erc20(value: u128, erc_decimals: u8, decimals: u8) -> U256 {
+	U256::from(value) * U256::from(10u128.pow(erc_decimals.saturating_sub(decimals) as u32))
 }
 
 #[cfg(test)]
@@ -65,7 +71,7 @@ mod tests {
 	fn balance_conversions() {
 		let supposedly_small_u256 = U256::from_dec_str("1000000000000000000").unwrap();
 		// convert erc20 value to dot value
-		let converted_balance = convert_to_balance(supposedly_small_u256).unwrap();
+		let converted_balance = convert_to_balance(supposedly_small_u256, 18, 10).unwrap();
 		println!("{}", converted_balance);
 
 		let dot = 10_000_000_000u128;
@@ -75,15 +81,21 @@ mod tests {
 		// Convert 1 dot to erc20
 
 		let dot = 10_000_000_000u128;
-		let erc_20_val = convert_to_erc20(dot);
+		let erc_20_val = convert_to_erc20(dot, 18, 10);
 		assert_eq!(erc_20_val, U256::from_dec_str("1000000000000000000").unwrap());
+
+		// Convert 6 decimal ERC 20
+		let supposedly_small_u256 = U256::from_dec_str("1000000000000000000").unwrap();
+		// convert erc20 value to 18 decimal value
+		let converted_balance = convert_to_balance(supposedly_small_u256, 6, 18).unwrap();
+		println!("{}", converted_balance);
 	}
 
 	#[test]
 	fn max_value_check() {
 		let max = U256::MAX;
 
-		let converted_balance = convert_to_balance(max);
+		let converted_balance = convert_to_balance(max, 18, 10);
 		assert!(converted_balance.is_err())
 	}
 
@@ -91,7 +103,7 @@ mod tests {
 	fn min_value_check() {
 		let min = U256::from(1u128);
 
-		let converted_balance = convert_to_balance(min).unwrap();
+		let converted_balance = convert_to_balance(min, 18, 10).unwrap();
 		assert_eq!(converted_balance, 0);
 	}
 }

@@ -71,7 +71,7 @@ fn should_receive_asset_correctly() {
 					amount: {
 						let mut bytes = [0u8; 32];
 						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT).to_big_endian(&mut bytes);
+						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: H256::zero().0.into(),
@@ -124,7 +124,7 @@ fn should_timeout_request_correctly() {
 					amount: {
 						let mut bytes = [0u8; 32];
 						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT).to_big_endian(&mut bytes);
+						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: H256::zero().0.into(),
@@ -161,7 +161,7 @@ fn inspector_should_intercept_illegal_request() {
 					amount: {
 						let mut bytes = [0u8; 32];
 						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT).to_big_endian(&mut bytes);
+						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: asset_id.0.into(),
@@ -182,7 +182,7 @@ fn inspector_should_intercept_illegal_request() {
 		pallet_token_gateway_inspector::InflowBalances::<Test>::insert(
 			StateMachine::Kusama(100),
 			asset_id,
-			convert_to_erc20(SEND_AMOUNT),
+			convert_to_erc20(SEND_AMOUNT, 18, 10),
 		);
 
 		let result = TokenGatewayInspector::inspect_request(&post);
@@ -211,7 +211,7 @@ fn inspector_should_record_asset_inflow() {
 					amount: {
 						let mut bytes = [0u8; 32];
 						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT).to_big_endian(&mut bytes);
+						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: asset_id.0.into(),
@@ -234,7 +234,7 @@ fn inspector_should_record_asset_inflow() {
 			asset_id,
 		);
 
-		assert_eq!(convert_to_erc20(SEND_AMOUNT), inflow);
+		assert_eq!(convert_to_erc20(SEND_AMOUNT, 18, 10), inflow);
 	});
 }
 
@@ -254,7 +254,7 @@ fn inspector_should_handle_timeout_correctly() {
 					amount: {
 						let mut bytes = [0u8; 32];
 						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT).to_big_endian(&mut bytes);
+						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: asset_id.0.into(),
@@ -278,7 +278,7 @@ fn inspector_should_handle_timeout_correctly() {
 		pallet_token_gateway_inspector::InflowBalances::<Test>::insert(
 			StateMachine::Evm(1),
 			asset_id,
-			convert_to_erc20(SEND_AMOUNT),
+			convert_to_erc20(SEND_AMOUNT, 18, 10),
 		);
 
 		let result = TokenGatewayInspector::handle_timeout(&post);
@@ -290,6 +290,6 @@ fn inspector_should_handle_timeout_correctly() {
 			asset_id,
 		);
 
-		assert_eq!(convert_to_erc20(SEND_AMOUNT), inflow);
+		assert_eq!(convert_to_erc20(SEND_AMOUNT, 18, 10), inflow);
 	});
 }

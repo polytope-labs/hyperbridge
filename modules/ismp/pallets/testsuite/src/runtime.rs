@@ -212,6 +212,7 @@ impl pallet_hyperbridge::Config for Test {
 
 parameter_types! {
 	pub const NativeAssetId: Location = Location::here();
+	pub const Decimals: u8 = 10;
 }
 
 impl pallet_token_gateway::Config for Test {
@@ -220,7 +221,8 @@ impl pallet_token_gateway::Config for Test {
 	type Assets = Assets;
 	type Currency = Balances;
 	type NativeAssetId = NativeAssetId;
-	type CreateAsset = ();
+	type AssetIdFactory = ();
+	type Decimals = Decimals;
 }
 
 impl pallet_token_gateway_inspector::Config for Test {
@@ -464,6 +466,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
 		pallet_token_gateway::SupportedAssets::<Test>::insert(Location::here(), H256::zero());
 		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), Location::here());
+		pallet_token_gateway::Decimals::<Test>::insert(Location::here(), 18);
 		pallet_token_gateway::TokenGatewayAddresses::<Test>::insert(
 			StateMachine::Evm(1),
 			H160::zero().0.to_vec(),

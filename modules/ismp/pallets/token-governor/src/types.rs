@@ -26,9 +26,6 @@ use ismp::host::StateMachine;
 use pallet_ismp_host_executive::EvmHosts;
 use primitive_types::{H160, H256, U256};
 
-/// Maximum size for logos to be stored onchain
-const MAX_LOGO_SIZE: u32 = 100 * 1024; // 100kb
-
 /// Holds metadata relevant to a multi-chain native asset
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct AssetMetadata {
@@ -36,8 +33,8 @@ pub struct AssetMetadata {
 	pub name: BoundedVec<u8, ConstU32<20>>,
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
-	/// The asset logo
-	pub logo: BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>,
+	/// The asset decimals of the ERC6160 or ERC20 counterpart of this asset
+	pub decimals: u8,
 }
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
@@ -45,8 +42,6 @@ pub struct AssetMetadata {
 pub struct ERC6160AssetUpdate {
 	/// The asset identifier
 	pub asset_id: H256,
-	/// The asset logo
-	pub logo: Option<BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>>,
 	/// Chains to add support for the asset on
 	pub add_chains: BoundedVec<ChainWithSupply, ConstU32<100>>,
 	/// Chains to delist the asset from
@@ -94,8 +89,6 @@ pub struct ERC6160AssetRegistration {
 	pub name: BoundedVec<u8, ConstU32<20>>,
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
-	/// The asset logo
-	pub logo: BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>,
 	/// The list of chains to create the asset on along with their the initial supply on the
 	/// provided chains
 	pub chains: Vec<ChainWithSupply>,
@@ -126,8 +119,6 @@ pub struct ERC20AssetRegistration {
 	pub name: BoundedVec<u8, ConstU32<20>>,
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
-	/// The asset logo
-	pub logo: BoundedVec<u8, ConstU32<MAX_LOGO_SIZE>>,
 	/// Chains to support as well as the current ERC20 address on that chain
 	pub chains: Vec<AssetRegistration>,
 }
@@ -140,6 +131,8 @@ pub struct AssetRegistration {
 	pub erc20: Option<H160>,
 	/// Optional ERC6160 address
 	pub erc6160: Option<H160>,
+	/// Current decimals value of the Erc20 asset on it's parent chain
+	pub decimals: u8,
 }
 
 /// Protocol Parameters for the TokenRegistrar contract
@@ -276,6 +269,8 @@ alloy_sol_macro::sol! {
 	   uint256 initialSupply;
 	   // Initial beneficiary of the total supply
 	   address beneficiary;
+	   // decimal
+	   uint8 decimal;
 	}
 
 	struct SolDeregsiterAsset {
@@ -348,6 +343,7 @@ impl TryFrom<AssetMetadata> for SolAssetMetadata {
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
 			symbol: String::from_utf8(value.symbol.as_slice().to_vec())
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
+			decimal: value.decimals,
 			..Default::default()
 		};
 

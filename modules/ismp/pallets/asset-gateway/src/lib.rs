@@ -235,7 +235,7 @@ where
 			amount: {
 				let amount: u128 = amount.into();
 				let mut bytes = [0u8; 32];
-				convert_to_erc20(amount).to_big_endian(&mut bytes);
+				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
 			asset_id,
@@ -348,15 +348,16 @@ where
 			}
 		);
 
-		let amount = convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
-			.map_err(|_| ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
-				meta: Meta {
-					source: request.source_chain(),
-					dest: request.dest_chain(),
-					nonce: request.nonce(),
-				},
-			})?;
+		let amount =
+			convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()), 18, 10)
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+					meta: Meta {
+						source: request.source_chain(),
+						dest: request.dest_chain(),
+						nonce: request.nonce(),
+					},
+				})?;
 
 		let asset_id = Location::parent();
 
@@ -440,16 +441,19 @@ where
 				})?;
 				// Send xcm back to relaychain
 
-				let amount =
-					convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
-						.map_err(|_| ismp::error::Error::ModuleDispatchError {
-							msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
-							meta: Meta {
-								source: request.source_chain(),
-								dest: request.dest_chain(),
-								nonce: request.nonce(),
-							},
-						})?;
+				let amount = convert_to_balance(
+					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
+					18,
+					10,
+				)
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+					meta: Meta {
+						source: request.source_chain(),
+						dest: request.dest_chain(),
+						nonce: request.nonce(),
+					},
+				})?;
 				// We do an xcm limited reserve transfer from the pallet custody account to the user
 				// on the relaychain;
 				let xcm_beneficiary: Location =

@@ -145,7 +145,7 @@ fn should_process_on_accept_module_callback_correctly() {
 			amount: {
 				let mut bytes = [0u8; 32];
 				// Module callback will convert to ten decimals
-				convert_to_erc20(amount).to_big_endian(&mut bytes);
+				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
 			asset_id: pallet_asset_gateway::Pallet::<Test>::dot_asset_id().0.into(),
@@ -255,7 +255,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 			amount: {
 				let mut bytes = [0u8; 32];
 				// Module callback will convert to 10 decimals
-				convert_to_erc20(amount).to_big_endian(&mut bytes);
+				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
 			asset_id: pallet_asset_gateway::Pallet::<Test>::dot_asset_id().0.into(),

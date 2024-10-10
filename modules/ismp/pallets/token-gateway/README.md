@@ -23,6 +23,8 @@ parameter_types! {
     // The Native asset Id for the native currency, for parachains this would be the XCM location for the parachain
     // For standalone chains, a constant value that can be used to identify the native currency 
     pub const NativeAssetId: Location = Location::here(); 
+    // Set the correct decimals for the native currency
+    pub const Decimals: u8 = 12;
 }
 
 impl pallet_ismp::Config for Runtime {
@@ -36,9 +38,11 @@ impl pallet_ismp::Config for Runtime {
 	type Currency = Balances;
     // The Native asset Id
 	type NativeAssetId = NativeAssetId;
-    // A type that allows token gateway to create local assets
-    // Required to receive asset creation messages from Hyperbridge
+    // A type that allows token gateway to create local asset Ids
+    // An implementation is required to receive asset creation messages from Hyperbridge
     type CreateAsset = ();
+    // The decimals value of the native asset
+    type Decimals = Decimals;
 }
 
 #[derive(Default)]

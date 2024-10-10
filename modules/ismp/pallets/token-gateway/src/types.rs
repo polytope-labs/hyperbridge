@@ -19,7 +19,7 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use frame_support::{pallet_prelude::*, traits::fungibles};
 use ismp::host::StateMachine;
-use pallet_token_governor::{AssetMetadata, ERC6160AssetRegistration, SolAssetMetadata};
+use pallet_token_governor::{ERC6160AssetRegistration, SolAssetMetadata};
 use primitive_types::H256;
 
 use crate::Config;
@@ -93,11 +93,11 @@ impl<AssetId> CreateAsset<AssetId> for () {
 		Err(anyhow!("Unimplemented"))
 	}
 
-	fn update_asset(asset_id: AssetId, meta: SolAssetMetadata) -> Result<(), anyhow::Error> {
+	fn update_asset(_asset_id: AssetId, _meta: SolAssetMetadata) -> Result<(), anyhow::Error> {
 		Err(anyhow!("Unimplemented"))
 	}
 
-	fn delete_asset(asset_id: AssetId) -> Result<(), anyhow::Error> {
+	fn delete_asset(_asset_id: AssetId) -> Result<(), anyhow::Error> {
 		Err(anyhow!("Unimplemented"))
 	}
 }

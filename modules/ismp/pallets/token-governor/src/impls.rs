@@ -17,7 +17,6 @@
 
 use alloc::{collections::BTreeMap, vec};
 use alloy_sol_types::SolValue;
-use codec::Encode;
 use frame_support::{ensure, PalletId};
 use frame_system::{pallet_prelude::OriginFor, RawOrigin};
 use ismp::{

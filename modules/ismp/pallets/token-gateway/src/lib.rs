@@ -23,7 +23,6 @@ pub mod types;
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
-use codec::Decode;
 use frame_support::{
 	ensure,
 	pallet_prelude::Weight,

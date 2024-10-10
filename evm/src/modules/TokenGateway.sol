@@ -129,7 +129,7 @@ struct AssetMetadata {
     // Initial beneficiary of the total supply
     address beneficiary;
     // Asset's decimal
-    uint8 decimal
+    uint8 decimal;
 }
 
 struct ChangeAssetAdmin {

@@ -5,17 +5,20 @@ use ismp::{
 	host::StateMachine,
 	router::{PostRequest, Request, Timeout},
 };
-use pallet_token_gateway::{impls::convert_to_erc20, Body, TeleportParams};
+use pallet_token_gateway::{
+	impls::convert_to_erc20, AssetMap, AssetRegistration, Body, CreateAssetId, TeleportParams,
+};
 use pallet_token_governor::{
-	token_gateway_id, AssetMetadata, SolAssetMetadata, TokenGatewayRequest,
+	token_gateway_id, AssetMetadata, ChainWithSupply, ERC6160AssetRegistration, SolAssetMetadata,
+	TokenGatewayRequest,
 };
 use sp_core::{ByteArray, Get, H160, H256, U256};
 
 use xcm_simulator_example::ALICE;
 
 use crate::runtime::{
-	new_test_ext, NativeAssetId, RuntimeOrigin, Test, TokenGateway, TokenGatewayInspector,
-	INITIAL_BALANCE,
+	new_test_ext, AssetIdFactory, NativeAssetId, RuntimeOrigin, Test, TokenGateway,
+	TokenGatewayInspector, INITIAL_BALANCE,
 };
 use ismp::module::IsmpModule;
 
@@ -179,7 +182,6 @@ fn inspector_should_intercept_illegal_request() {
 		};
 
 		let result = TokenGatewayInspector::inspect_request(&post);
-		println!("{result:?}");
 		assert!(result.is_err());
 
 		pallet_token_gateway_inspector::InflowBalances::<Test>::insert(
@@ -229,7 +231,6 @@ fn inspector_should_record_asset_inflow() {
 		};
 
 		let result = TokenGatewayInspector::inspect_request(&post);
-		println!("{result:?}");
 		assert!(result.is_ok());
 
 		let inflow = pallet_token_gateway_inspector::InflowBalances::<Test>::get(
@@ -306,7 +307,7 @@ fn receiving_remote_asset_creation() {
 			decimals: 6,
 		};
 
-		let body: SolAssetMetadata = asset_metadata.try_into().unwrap();
+		let body: SolAssetMetadata = asset_metadata.clone().try_into().unwrap();
 
 		let post = PostRequest {
 			source: StateMachine::Polkadot(3367),
@@ -314,14 +315,42 @@ fn receiving_remote_asset_creation() {
 			nonce: 0,
 			from: pallet_token_governor::PALLET_ID.to_vec(),
 			to: token_gateway_id().0.to_vec(),
-			timeout_timestamp: 1000,
+			timeout_timestamp: 0,
 			body: body.encode_request(),
 		};
 
 		let module = TokenGateway::default();
-		module.on_accept(post).unwrap();
+		let res = module.on_accept(post);
+		println!("{res:?}");
+		assert!(res.is_ok());
+		let local_asset_id =
+			AssetIdFactory::create_asset_id(asset_metadata.symbol.to_vec()).unwrap();
+		let asset = pallet_token_gateway::SupportedAssets::<Test>::get(local_asset_id).unwrap();
+		// For the test we use the same asset id construction for local and token gateway, they
+		// should be equal
+		assert_eq!(local_asset_id, asset);
 	})
 }
 
 #[test]
-fn dispatching_remote_asset_creation() {}
+fn dispatching_remote_asset_creation() {
+	new_test_ext().execute_with(|| {
+		let asset_map = AssetMap::<H256> {
+			local_id: None,
+			reg: ERC6160AssetRegistration {
+				name: "MOODENG".as_bytes().to_vec().try_into().unwrap(),
+				symbol: "MDG".as_bytes().to_vec().try_into().unwrap(),
+				chains: vec![ChainWithSupply { chain: StateMachine::Evm(97), supply: None }],
+			},
+		};
+
+		let reg = AssetRegistration { assets: vec![asset_map].try_into().unwrap() };
+
+		TokenGateway::create_erc6160_asset(RuntimeOrigin::root(), reg).unwrap();
+		let local_asset_id = AssetIdFactory::create_asset_id("MDG".as_bytes().to_vec()).unwrap();
+		let asset = pallet_token_gateway::SupportedAssets::<Test>::get(local_asset_id).unwrap();
+		// For the test we use the same asset id construction for local and token gateway, they
+		// should be equal
+		assert_eq!(local_asset_id, asset);
+	})
+}

@@ -237,7 +237,7 @@ impl pallet_token_gateway::Config for Test {
 	type Assets = Assets;
 	type Currency = Balances;
 	type NativeAssetId = NativeAssetId;
-	type AssetIdFactory = ();
+	type AssetIdFactory = AssetIdFactory;
 	type Decimals = Decimals;
 }
 
@@ -467,9 +467,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let _ = env_logger::builder().is_test(true).try_init();
 
 	let mut storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	pallet_balances::GenesisConfig::<Test> { balances: vec![(ALICE, INITIAL_BALANCE)] }
-		.assimilate_storage(&mut storage)
-		.unwrap();
+	pallet_balances::GenesisConfig::<Test> {
+		balances: vec![(ALICE, INITIAL_BALANCE), (TokenGateway::pallet_account(), INITIAL_BALANCE)],
+	}
+	.assimilate_storage(&mut storage)
+	.unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(storage);
 	register_offchain_ext(&mut ext);

@@ -71,8 +71,7 @@ The pallet requires some setting up before the teleport function is available fo
 - `create_erc6160_asset` - This call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments
 
 ## Asset creation
-When creating assets, the metadata needs to be set, the account set as the asset owner is the pallet account, depending on the fungibles implementation,  
-funding the pallet account might be required for the asset creation to succeed.
+When creating assets, the metadata needs to be set, the account set as the asset owner is the pallet account, depending on the fungibles implementation, funding the pallet account might be required for the asset creation to succeed.
 
 ## License
 

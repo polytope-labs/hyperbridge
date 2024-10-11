@@ -81,9 +81,6 @@ The pallet requires some setting up before the teleport function is available fo
 - `set_token_gateway_addresses` - This call allows the `AdminOrigin` origin to set the token gateway address for EVM chains.
 - `create_erc6160_asset` - This call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments
 
-## Asset creation
-When creating assets, the metadata needs to be set, the account set as the asset owner is the pallet account, depending on the fungibles implementation, funding the pallet account might be required for the asset creation to succeed.
-
 ## License
 
 This library is licensed under the Apache 2.0 License, Copyright (c) 2024 Polytope Labs.

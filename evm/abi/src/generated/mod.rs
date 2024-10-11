@@ -10,3 +10,4 @@ pub mod handler;
 pub mod host_manager;
 pub mod ping_module;
 pub mod shared_types;
+pub mod sp1_beefy;

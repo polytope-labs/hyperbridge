@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import {IConsensusClient, IntermediateState} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
@@ -29,9 +29,12 @@ contract TestConsensusClient is IConsensusClient, ERC165 {
     function verifyConsensus(
         bytes memory consensusState,
         bytes memory proof
-    ) external pure returns (bytes memory, IntermediateState memory) {
+    ) external pure returns (bytes memory, IntermediateState[] memory) {
         IntermediateState memory intermediate = abi.decode(proof, (IntermediateState));
 
-        return (consensusState, intermediate);
+        IntermediateState[] memory intermediates = new IntermediateState[](1);
+        intermediates[0] = intermediate;
+
+        return (consensusState, intermediates);
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
@@ -22,8 +22,9 @@ import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
-import {PolkadotVerifier} from "../src/consensus/verifiers/PolkadotVerifier.sol";
-import {UltraPlonkBeefy} from "../src/consensus/UltraPlonkBeefy.sol";
+
+// import {SP1Verifier} from "@sp1-contracts/v2.0.0/SP1VerifierPlonk.sol";
+// import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
@@ -39,8 +40,6 @@ contract DeployScript is BaseScript {
     address private admin = vm.envAddress("ADMIN");
     address private pingDispatcher = vm.envAddress("DISPATCHER");
     uint256 private paraId = vm.envUint("PARA_ID");
-    string private host = vm.envString("HOST");
-    bytes32 private privateKey = vm.envBytes32("PRIVATE_KEY");
 
     function run() external {
         vm.startBroadcast(uint256(privateKey));
@@ -50,8 +49,8 @@ contract DeployScript is BaseScript {
         feeToken.mint(pingDispatcher, 1_000_000_000 * 1e18);
 
         // consensus client
-        //        PolkadotVerifier verifier = new PolkadotVerifier();
-        //        UltraPlonkBeefy consensusClient = new UltraPlonkBeefy{salt: salt}(verifier);
+        //        SP1Verifier verifier = new SP1Verifier();
+        //        SP1Beefy consensusClient = new SP1Beefy{salt: salt}(verifier);
         BeefyV1 consensusClient = new BeefyV1{salt: salt}();
 
         // handler

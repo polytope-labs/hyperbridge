@@ -20,8 +20,7 @@
 #![deny(missing_docs)]
 
 use codec::{Decode, Encode};
-use sp_consensus_beefy::mmr::MmrLeafVersion;
-pub use sp_consensus_beefy::mmr::{BeefyNextAuthoritySet, MmrLeaf};
+use sp_consensus_beefy::mmr::{BeefyAuthoritySet, MmrLeaf, MmrLeafVersion};
 use sp_core::H256;
 use sp_std::prelude::*;
 
@@ -35,9 +34,9 @@ pub struct ConsensusState {
 	/// Latest mmr root hash
 	pub mmr_root_hash: H256,
 	/// Authorities for the current session
-	pub current_authorities: BeefyNextAuthoritySet<H256>,
+	pub current_authorities: BeefyAuthoritySet<H256>,
 	/// Authorities for the next session
-	pub next_authorities: BeefyNextAuthoritySet<H256>,
+	pub next_authorities: BeefyAuthoritySet<H256>,
 }
 
 /// Hash length definition for hashing algorithms used
@@ -86,7 +85,7 @@ pub struct PartialMmrLeaf {
 	/// Parent block number and hash
 	pub parent_number_and_hash: (u32, H256),
 	/// Next beefy authorities
-	pub beefy_next_authority_set: BeefyNextAuthoritySet<H256>,
+	pub beefy_next_authority_set: BeefyAuthoritySet<H256>,
 }
 
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]

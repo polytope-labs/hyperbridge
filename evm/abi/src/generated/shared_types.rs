@@ -1,3 +1,19 @@
+///`AuthoritySetCommitment(uint256,uint256,bytes32)`
+#[derive(
+	Clone,
+	::ethers::contract::EthAbiType,
+	::ethers::contract::EthAbiCodec,
+	Default,
+	Debug,
+	PartialEq,
+	Eq,
+	Hash,
+)]
+pub struct AuthoritySetCommitment {
+	pub id: ::ethers::core::types::U256,
+	pub len: ::ethers::core::types::U256,
+	pub root: [u8; 32],
+}
 ///`DispatchGet(bytes,uint64,bytes[],uint64,uint256,bytes)`
 #[derive(
     Clone,
@@ -134,6 +150,22 @@ pub struct IncomingPostRequest {
 pub struct IncomingPostResponse {
     pub response: PostResponse,
     pub relayer: ::ethers::core::types::Address,
+}
+///`IntermediateState(uint256,uint256,(uint256,bytes32,bytes32))`
+#[derive(
+	Clone,
+	::ethers::contract::EthAbiType,
+	::ethers::contract::EthAbiCodec,
+	Default,
+	Debug,
+	PartialEq,
+	Eq,
+	Hash,
+)]
+pub struct IntermediateState {
+	pub state_machine_id: ::ethers::core::types::U256,
+	pub height: ::ethers::core::types::U256,
+	pub commitment: StateCommitment,
 }
 ///`PostRequest(bytes,bytes,uint64,bytes,bytes,uint64,bytes)`
 #[derive(

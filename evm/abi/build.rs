@@ -16,6 +16,7 @@ fn main() -> anyhow::Result<()> {
 			("EvmHost", format!("{base_dir}/out/EvmHost.sol/EvmHost.json")),
 			("Handler", format!("{base_dir}/out/HandlerV1.sol/HandlerV1.json")),
 			("Beefy", format!("{base_dir}/out/BeefyV1.sol/BeefyV1.json")),
+			("SP1Beefy", format!("{base_dir}/out/SP1Beefy.sol/SP1Beefy.json")),
 			("PingModule", format!("{base_dir}/out/PingModule.sol/PingModule.json")),
 			("HostManager", format!("{base_dir}/out/HostManager.sol/HostManager.json")),
 			("ERC20", format!("{base_dir}/out/ERC20.sol/ERC20.json")),

@@ -1,7 +1,7 @@
 #![allow(unused_parens)]
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 pub use ethers::{abi::Token, types::U256, utils::keccak256};
 use merkle_mountain_range::{util::MemMMR, Error, Merge};

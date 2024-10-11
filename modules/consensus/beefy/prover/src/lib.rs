@@ -41,7 +41,7 @@ use relay::{fetch_latest_beefy_justification, fetch_mmr_proof, parachain_header_
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature,
 	known_payloads::MMR_ROOT_ID,
-	mmr::{BeefyNextAuthoritySet, MmrLeaf},
+	mmr::{BeefyAuthoritySet, MmrLeaf},
 };
 use sp_io::hashing::keccak_256;
 use sp_mmr_primitives::LeafProof;
@@ -95,34 +95,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let (signed_commitment, latest_beefy_finalized) =
 			fetch_latest_beefy_justification(&self.relay, latest_finalized_head).await?;
 
-		// Encoding and decoding to fix dependency version conflicts
-		let next_authority_set = {
-			let next_authority_set = self
-				.relay
-				.rpc()
-				.storage(
-					BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(),
-					Some(latest_beefy_finalized),
-				)
-				.await?
-				.expect("Should retrieve next authority set")
-				.0;
-			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
-				.expect("Should decode next authority set correctly")
-		};
-
-		let current_authority_set = {
-			let authority_set = self
-				.relay
-				.rpc()
-				.storage(BEEFY_MMR_LEAF_BEEFY_AUTHORITIES.as_slice(), Some(latest_beefy_finalized))
-				.await?
-				.expect("Should retrieve next authority set")
-				.0;
-			BeefyNextAuthoritySet::decode(&mut &*authority_set)
-				.expect("Should decode next authority set correctly")
-		};
-
 		let mmr_root_hash = signed_commitment
 			.commitment
 			.payload
@@ -133,11 +105,101 @@ impl<R: Config, P: Config> Prover<R, P> {
 			mmr_root_hash,
 			beefy_activation_block: self.beefy_activation_block,
 			latest_beefy_height: signed_commitment.commitment.block_number as u32,
-			current_authorities: current_authority_set.clone(),
-			next_authorities: next_authority_set.clone(),
+			current_authorities: self
+				.mmr_leaf_current_authorities(Some(latest_beefy_finalized))
+				.await?,
+			next_authorities: self.mmr_leaf_next_authorities(Some(latest_beefy_finalized)).await?,
 		};
 
 		Ok(client_state)
+	}
+
+	/// Fetch the current BEEFY authority set commitment at the provided height
+	pub async fn mmr_leaf_current_authorities(
+		&self,
+		at: Option<R::Hash>,
+	) -> Result<BeefyAuthoritySet<H256>, anyhow::Error> {
+		let current_authority_set = {
+			let authority_set = self
+				.relay
+				.rpc()
+				.storage(BEEFY_MMR_LEAF_BEEFY_AUTHORITIES.as_slice(), at)
+				.await?
+				.expect("Should retrieve next authority set")
+				.0;
+			BeefyAuthoritySet::decode(&mut &*authority_set)?
+		};
+
+		Ok(current_authority_set)
+	}
+
+	/// Fetch the next BEEFY authority set commitment at the provided height
+	pub async fn mmr_leaf_next_authorities(
+		&self,
+		at: Option<R::Hash>,
+	) -> Result<BeefyAuthoritySet<H256>, anyhow::Error> {
+		// Encoding and decoding to fix dependency version conflicts
+		let next_authority_set = {
+			let next_authority_set = self
+				.relay
+				.rpc()
+				.storage(BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(), at)
+				.await?
+				.expect("Should retrieve next authority set")
+				.0;
+			BeefyAuthoritySet::decode(&mut &*next_authority_set)
+				.expect("Should decode next authority set correctly")
+		};
+		Ok(next_authority_set)
+	}
+
+	/// Fetch the BEEFY authority public keys at the provided height
+	pub async fn beefy_authorities(
+		&self,
+		at: Option<R::Hash>,
+	) -> Result<Vec<[u8; 33]>, anyhow::Error> {
+		// Encoding and decoding to fix dependency version conflicts
+		let current_authorities = {
+			self.relay
+				.rpc()
+				.storage(BEEFY_AUTHORITIES.as_slice(), at)
+				.await?
+				.map(|data| Vec::<[u8; 33]>::decode(&mut data.as_ref()))
+				.transpose()?
+				.ok_or_else(|| anyhow!("No beefy authorities found!"))?
+		};
+		Ok(current_authorities)
+	}
+
+	/// Fetch all parachain headers committed by BEEFY at provided height
+	pub async fn paras_parachains(
+		&self,
+		at: Option<R::Hash>,
+	) -> Result<Vec<(u32, Vec<u8>)>, anyhow::Error> {
+		let ids = self
+			.relay
+			.rpc()
+			.storage(PARAS_PARACHAINS.as_slice(), at)
+			.await?
+			.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
+			.transpose()?
+			.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
+
+		let mut heads = vec![];
+		for id in ids {
+			let head = self
+				.relay
+				.rpc()
+				.storage(parachain_header_storage_key(id).as_ref(), at)
+				.await?
+				.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
+				.transpose()?
+				.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
+			heads.push((id, head));
+		}
+		heads.sort();
+
+		Ok(heads)
 	}
 
 	/// This will fetch the latest leaf in the mmr as well as a proof for this leaf in the latest
@@ -155,15 +217,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		let current_authorities = {
-			self.relay
-				.rpc()
-				.storage(BEEFY_AUTHORITIES.as_slice(), Some(block_hash))
-				.await?
-				.map(|data| Vec::<[u8; 33]>::decode(&mut data.as_ref()))
-				.transpose()?
-				.ok_or_else(|| anyhow!("No beefy authorities found!"))?
-		};
+		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
 
 		// Current LeafIndex
 		let block_number = signed_commitment.commitment.block_number;
@@ -189,32 +243,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 			authority_proof,
 		};
 
-		let heads = {
-			let ids = self
-				.relay
-				.rpc()
-				.storage(PARAS_PARACHAINS.as_slice(), Some(block_hash))
-				.await?
-				.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
-				.transpose()?
-				.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
-
-			let mut heads = vec![];
-			for id in ids {
-				let head = self
-					.relay
-					.rpc()
-					.storage(parachain_header_storage_key(id).as_ref(), Some(block_hash))
-					.await?
-					.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
-					.transpose()?
-					.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
-				heads.push((id, head));
-			}
-			heads.sort();
-
-			heads
-		};
+		let heads = self.paras_parachains(Some(block_hash)).await?;
 
 		let (parachains, indices): (Vec<_>, Vec<_>) = self
 			.para_ids

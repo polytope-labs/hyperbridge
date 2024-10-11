@@ -4,3 +4,4 @@
 @polytope-labs/erc6160/=node_modules/@polytope-labs/erc6160/src/
 @uniswap/v2-periphery/=node_modules/@uniswap/v2-periphery
 stringutils/=lib/solidity-stringutils/src/
+@sp1-contracts/=lib/sp1-contracts/contracts/src/

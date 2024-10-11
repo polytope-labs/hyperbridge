@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import "../src/hosts/EvmHost.sol";
@@ -141,14 +141,14 @@ contract EvmHostTest is BaseTest {
         keys[0] = abi.encode(address(this));
         vm.expectRevert(EvmHost.FrozenHost.selector);
         host.dispatch(
-        DispatchGet({
-        dest: StateMachine.evm(97),
-        height: 100,
-        keys: keys,
-        context: new bytes(0),
-        timeout: 60 * 60,
-        fee: 0
-        })
+            DispatchGet({
+                dest: StateMachine.evm(97),
+                height: 100,
+                keys: keys,
+                context: new bytes(0),
+                timeout: 60 * 60,
+                fee: 0
+            })
         );
 
         vm.prank(host.hostParams().handler);

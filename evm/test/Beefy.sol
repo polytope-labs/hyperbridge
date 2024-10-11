@@ -12,13 +12,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {Header} from "../src/consensus/Header.sol";
-import {BeefyMmrLeaf, Commitment, Codec} from "../src/consensus/Codec.sol";
+import {BeefyMmrLeaf, Commitment, Codec, PartialBeefyMmrLeaf} from "../src/consensus/Codec.sol";
 
 contract BeefyConsensusClientTest is Test {
     BeefyV1 internal beefy;
@@ -43,7 +43,7 @@ contract BeefyConsensusClientTest is Test {
     function VerifyV1(
         bytes memory trustedConsensusState,
         bytes memory proof
-    ) public view returns (bytes memory, IntermediateState memory) {
+    ) public view returns (bytes memory, IntermediateState[] memory) {
         return beefy.verifyConsensus(trustedConsensusState, proof);
     }
 
@@ -51,7 +51,7 @@ contract BeefyConsensusClientTest is Test {
         return Codec.DecodeHeader(encoded);
     }
 
-    function EncodeLeaf(BeefyMmrLeaf memory leaf) public pure returns (bytes memory) {
+    function EncodeLeaf(PartialBeefyMmrLeaf memory leaf) public pure returns (bytes memory) {
         return Codec.Encode(leaf);
     }
 

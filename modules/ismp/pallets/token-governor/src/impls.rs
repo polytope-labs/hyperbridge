@@ -66,8 +66,12 @@ where
 			Err(Error::<T>::AssetAlreadyExists)?
 		}
 
-		let metadata =
-			AssetMetadata { name: asset.name.clone(), symbol: asset.symbol.clone(), decimals: 18 };
+		let metadata = AssetMetadata {
+			name: asset.name.clone(),
+			symbol: asset.symbol.clone(),
+			decimals: 18,
+			minimum_balance: asset.minimum_balance,
+		};
 
 		for ChainWithSupply { chain, supply } in asset.chains.clone() {
 			let mut body: SolAssetMetadata =

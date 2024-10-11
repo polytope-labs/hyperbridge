@@ -305,6 +305,7 @@ fn receiving_remote_asset_creation() {
 			name: "USDC".as_bytes().to_vec().try_into().unwrap(),
 			symbol: "USDC".as_bytes().to_vec().try_into().unwrap(),
 			decimals: 6,
+			minimum_balance: None,
 		};
 
 		let body: SolAssetMetadata = asset_metadata.clone().try_into().unwrap();
@@ -341,6 +342,7 @@ fn dispatching_remote_asset_creation() {
 				name: "MOODENG".as_bytes().to_vec().try_into().unwrap(),
 				symbol: "MDG".as_bytes().to_vec().try_into().unwrap(),
 				chains: vec![ChainWithSupply { chain: StateMachine::Evm(97), supply: None }],
+				minimum_balance: None,
 			},
 		};
 

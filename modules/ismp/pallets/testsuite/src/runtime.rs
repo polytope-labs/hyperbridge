@@ -231,6 +231,14 @@ impl CreateAssetId<H256> for AssetIdFactory {
 	}
 }
 
+pub struct AssetAdmin;
+
+impl Get<<Test as frame_system::Config>::AccountId> for AssetAdmin {
+	fn get() -> <Test as frame_system::Config>::AccountId {
+		TokenGateway::pallet_account()
+	}
+}
+
 impl pallet_token_gateway::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Dispatcher = Ismp;
@@ -239,6 +247,7 @@ impl pallet_token_gateway::Config for Test {
 	type NativeAssetId = NativeAssetId;
 	type AssetIdFactory = AssetIdFactory;
 	type Decimals = Decimals;
+	type AssetAdmin = AssetAdmin;
 }
 
 impl pallet_token_gateway_inspector::Config for Test {

@@ -390,8 +390,9 @@ impl pallet_assets::Config for Test {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct IdentityBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<Location> for IdentityBenchmarkHelper {
-	fn create_asset_id_parameter(id: u32) -> Location {
-		Location::new(1, Parachain(id))
+impl BenchmarkHelper<H256> for IdentityBenchmarkHelper {
+	fn create_asset_id_parameter(id: u32) -> H256 {
+		use codec::Encode;
+		sp_io::hashing::keccak_256(&Location::new(1, Parachain(id)).encode()).into()
 	}
 }

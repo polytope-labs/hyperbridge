@@ -23,6 +23,15 @@ parameter_types! {
     pub const Decimals: u8 = 12;
 }
 
+/// Should provide an account that is funded and can be used to pay for asset creation
+pub struct AssetAdmin;
+
+impl Get<<Test as frame_system::Config>::AccountId> for AssetAdmin {
+	fn get() -> <Test as frame_system::Config>::AccountId {
+		Treasury::account_id()
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
     // configure the runtime event
     type RuntimeEvent = RuntimeEvent;
@@ -32,6 +41,8 @@ impl pallet_ismp::Config for Runtime {
 	type Assets = Assets;
     // Pallet balances
 	type Currency = Balances;
+    // AssetAdmin account
+    type AssetAdmin = AssetAdmin;
     // The Native asset Id
 	type NativeAssetId = NativeAssetId;
     // A type that provides a function for creating unique asset ids

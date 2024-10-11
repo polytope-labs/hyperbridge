@@ -35,6 +35,8 @@ pub struct AssetMetadata {
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The asset decimals of the ERC6160 or ERC20 counterpart of this asset
 	pub decimals: u8,
+	/// Asset's minimum balance, only used by substrate chains
+	pub minimum_balance: Option<u128>,
 }
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
@@ -92,6 +94,8 @@ pub struct ERC6160AssetRegistration {
 	/// The list of chains to create the asset on along with their the initial supply on the
 	/// provided chains
 	pub chains: Vec<ChainWithSupply>,
+	/// Minimum balance for the asset, for substrate chains,
+	pub minimum_balance: Option<u128>,
 }
 
 /// Holds data required for multi-chain native asset registration
@@ -121,6 +125,8 @@ pub struct ERC20AssetRegistration {
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// Chains to support as well as the current ERC20 address on that chain
 	pub chains: Vec<AssetRegistration>,
+	/// Minimum balance for the asset, for substrate chains,
+	pub minimum_balance: Option<u128>,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
@@ -271,6 +277,8 @@ alloy_sol_macro::sol! {
 	   address beneficiary;
 	   // decimal
 	   uint8 decimal;
+	   // Minimum balance
+	   uint256 minbalance;
 	}
 
 	struct SolDeregsiterAsset {
@@ -344,6 +352,11 @@ impl TryFrom<AssetMetadata> for SolAssetMetadata {
 			symbol: String::from_utf8(value.symbol.as_slice().to_vec())
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
 			decimal: value.decimals,
+			minbalance: {
+				let mut bytes = [0u8; 32];
+				U256::from(value.minimum_balance.unwrap_or_default()).to_big_endian(&mut bytes);
+				alloy_primitives::U256::from_be_bytes(bytes)
+			},
 			..Default::default()
 		};
 

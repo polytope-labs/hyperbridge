@@ -83,6 +83,10 @@ pub mod pallet {
 		/// A currency implementation for interacting with the native asset
 		type Currency: Currency<Self::AccountId>;
 
+		/// A funded account that would be set as asset admin and also make payments for asset
+		/// creation
+		type AssetAdmin: Get<Self::AccountId>;
+
 		/// Fungible asset implementation
 		type Assets: fungibles::Mutate<Self::AccountId>
 			+ fungibles::Inspect<Self::AccountId>
@@ -321,13 +325,13 @@ pub mod pallet {
 							.map_err(|_| Error::<T>::AssetCreationError)?;
 					<T::Assets as fungibles::Create<T::AccountId>>::create(
 						local_asset_id.clone(),
-						Self::pallet_account(),
+						T::AssetAdmin::get(),
 						true,
-						MIN_BALANCE.into(),
+						asset_map.reg.minimum_balance.unwrap_or(MIN_BALANCE).into(),
 					)?;
 					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
 						local_asset_id.clone(),
-						&Self::pallet_account(),
+						&T::AssetAdmin::get(),
 						asset_map.reg.name.to_vec(),
 						asset_map.reg.symbol.to_vec(),
 						18,
@@ -423,7 +427,7 @@ where
 				if let Some(local_asset_id) = LocalAssets::<T>::get(asset_id) {
 					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
 						local_asset_id.clone(),
-						&Self::pallet_account(),
+						&T::AssetAdmin::get(),
 						metadata.name.as_bytes().to_vec(),
 						metadata.symbol.as_bytes().to_vec(),
 						// We do not change the asset's native decimal
@@ -435,18 +439,26 @@ where
 					// Note the asset's ERC counterpart decimal
 					Decimals::<T>::insert(local_asset_id, metadata.decimal);
 				} else {
+					let min_balance = {
+						let value = U256::from_big_endian(&metadata.minbalance.to_be_bytes::<32>());
+						if U256::zero() == value {
+							MIN_BALANCE
+						} else {
+							value.low_u128()
+						}
+					};
 					let local_asset_id =
 						T::AssetIdFactory::create_asset_id(metadata.symbol.as_bytes().to_vec())?;
 					<T::Assets as fungibles::Create<T::AccountId>>::create(
 						local_asset_id.clone(),
-						Self::pallet_account(),
+						T::AssetAdmin::get(),
 						true,
-						MIN_BALANCE.into(),
+						min_balance.into(),
 					)
 					.map_err(|e| anyhow!("{e:?}"))?;
 					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
 						local_asset_id.clone(),
-						&Self::pallet_account(),
+						&T::AssetAdmin::get(),
 						metadata.name.as_bytes().to_vec(),
 						metadata.symbol.as_bytes().to_vec(),
 						18,

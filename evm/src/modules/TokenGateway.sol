@@ -130,6 +130,8 @@ struct AssetMetadata {
     address beneficiary;
     // Asset's decimal
     uint8 decimal;
+    // Minimum balance
+    uint256 minBalance;
 }
 
 struct ChangeAssetAdmin {

@@ -60,7 +60,8 @@ contract DeployScript is BaseScript {
             symbol: "USDH",
             beneficiary: address(0),
             initialSupply: 0,
-            decimal: 18
+            decimal: 18,
+            minBalance: 0
         });
 
         gateway.init(

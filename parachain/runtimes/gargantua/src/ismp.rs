@@ -36,7 +36,7 @@ use ismp::{
 use pallet_asset_gateway::AssetGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
-use sp_core::crypto::AccountId32;
+use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::Permill;
 
 use hyperbridge_client_machine::HyperbridgeClientMachine;
@@ -44,7 +44,6 @@ use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
-use staging_xcm::latest::Location;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -163,10 +162,11 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<Location> for XcmBenchmarkHelper {
-	fn create_asset_id_parameter(id: u32) -> Location {
-		use staging_xcm::v4::Junction::Parachain;
-		Location::new(1, Parachain(id))
+impl BenchmarkHelper<H256> for XcmBenchmarkHelper {
+	fn create_asset_id_parameter(id: u32) -> H256 {
+		use codec::Encode;
+		use staging_xcm::{prelude::Location, v4::Junction::Parachain};
+		sp_io::hashing::keccak_256(&Location::new(1, Parachain(id)).encode()).into()
 	}
 }
 
@@ -181,8 +181,8 @@ parameter_types! {
 impl pallet_assets::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
-	type AssetId = Location;
-	type AssetIdParameter = Location;
+	type AssetId = H256;
+	type AssetIdParameter = H256;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;

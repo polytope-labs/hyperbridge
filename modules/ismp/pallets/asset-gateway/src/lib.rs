@@ -101,6 +101,16 @@ pub mod pallet {
 	#[pallet::getter(fn params)]
 	pub type Params<T> = StorageValue<_, AssetGatewayParams, OptionQuery>;
 
+	/// The map of XCM location to asset Ids
+	#[pallet::storage]
+	pub type AssetIds<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId,
+		Location,
+		OptionQuery,
+	>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Error encountered while dispatching post request
@@ -290,7 +300,6 @@ impl<T: Config> IsmpModule for Module<T>
 where
 	<T::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
 	u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
-	<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<Location>,
 	T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
 {
 	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), anyhow::Error> {

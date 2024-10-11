@@ -39,6 +39,7 @@ use ismp::{
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{mmr::Leaf, ModuleId};
+use pallet_token_gateway::CreateAssetId;
 use pallet_token_governor::GatewayParams;
 use sp_core::{
 	crypto::AccountId32,
@@ -49,7 +50,7 @@ use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	BuildStorage,
 };
-use staging_xcm::prelude::Location;
+
 use substrate_state_machine::SubstrateStateMachine;
 use xcm_simulator_example::ALICE;
 
@@ -211,8 +212,23 @@ impl pallet_hyperbridge::Config for Test {
 }
 
 parameter_types! {
-	pub const NativeAssetId: Location = Location::here();
 	pub const Decimals: u8 = 10;
+}
+
+pub struct AssetIdFactory;
+
+pub struct NativeAssetId;
+
+impl Get<H256> for NativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"NAND").into()
+	}
+}
+
+impl CreateAssetId<H256> for AssetIdFactory {
+	fn create_asset_id(symbol: Vec<u8>) -> Result<H256, anyhow::Error> {
+		Ok(sp_io::hashing::keccak_256(&symbol).into())
+	}
 }
 
 impl pallet_token_gateway::Config for Test {
@@ -464,9 +480,9 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			pallet_token_governor::Params::<Balance> { registration_fee: Default::default() };
 
 		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
-		pallet_token_gateway::SupportedAssets::<Test>::insert(Location::here(), H256::zero());
-		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), Location::here());
-		pallet_token_gateway::Decimals::<Test>::insert(Location::here(), 18);
+		pallet_token_gateway::SupportedAssets::<Test>::insert(NativeAssetId::get(), H256::zero());
+		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), NativeAssetId::get());
+		pallet_token_gateway::Decimals::<Test>::insert(NativeAssetId::get(), 18);
 		pallet_token_gateway::TokenGatewayAddresses::<Test>::insert(
 			StateMachine::Evm(1),
 			H160::zero().0.to_vec(),

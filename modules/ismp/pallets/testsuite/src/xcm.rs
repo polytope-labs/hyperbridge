@@ -22,11 +22,15 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::EnsureRoot;
-use pallet_asset_gateway::{xcm_utilities::HyperbridgeAssetTransactor, AssetGatewayParams};
+use pallet_asset_gateway::{
+	xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor},
+	AssetGatewayParams,
+};
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
+use sp_core::H256;
 use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Permill};
 use staging_xcm::{latest::prelude::*, VersionedXcm};
 use staging_xcm_builder::{
@@ -109,14 +113,14 @@ impl Get<AccountId32> for CheckingAccount {
 
 pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 	Test,
-	ConvertedConcreteId<Location, Balance, Identity, Identity>,
+	ConvertedConcreteId<H256, Balance, ConvertAssetId<Test>, Identity>,
 	LocationToAccountId,
 	NoChecking,
 	CheckingAccount,
 >;
 pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let asset_id = Location::parent();
+	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::parent().encode()).into();
 	let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
 		assets: vec![
 			// id, owner, is_sufficient, min_balance
@@ -363,8 +367,8 @@ impl pallet_asset_gateway::Config for Test {
 impl pallet_assets::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
-	type AssetId = Location;
-	type AssetIdParameter = Location;
+	type AssetId = H256;
+	type AssetIdParameter = H256;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;

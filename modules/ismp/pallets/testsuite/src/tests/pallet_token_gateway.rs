@@ -6,13 +6,16 @@ use ismp::{
 	router::{PostRequest, Request, Timeout},
 };
 use pallet_token_gateway::{impls::convert_to_erc20, Body, TeleportParams};
-use pallet_token_governor::token_gateway_id;
-use sp_core::{ByteArray, H160, H256, U256};
-use staging_xcm::prelude::Location;
+use pallet_token_governor::{
+	token_gateway_id, AssetMetadata, SolAssetMetadata, TokenGatewayRequest,
+};
+use sp_core::{ByteArray, Get, H160, H256, U256};
+
 use xcm_simulator_example::ALICE;
 
 use crate::runtime::{
-	new_test_ext, RuntimeOrigin, Test, TokenGateway, TokenGatewayInspector, INITIAL_BALANCE,
+	new_test_ext, NativeAssetId, RuntimeOrigin, Test, TokenGateway, TokenGatewayInspector,
+	INITIAL_BALANCE,
 };
 use ismp::module::IsmpModule;
 
@@ -22,7 +25,7 @@ const SEND_AMOUNT: u128 = 1000_000_000_0000;
 fn should_teleport_asset_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: Location::here(),
+			asset_id: NativeAssetId::get(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -43,7 +46,7 @@ fn should_teleport_asset_correctly() {
 fn should_receive_asset_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: Location::here(),
+			asset_id: NativeAssetId::get(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -96,7 +99,7 @@ fn should_receive_asset_correctly() {
 fn should_timeout_request_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: Location::here(),
+			asset_id: NativeAssetId::get(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -293,3 +296,32 @@ fn inspector_should_handle_timeout_correctly() {
 		assert_eq!(convert_to_erc20(SEND_AMOUNT, 18, 10), inflow);
 	});
 }
+
+#[test]
+fn receiving_remote_asset_creation() {
+	new_test_ext().execute_with(|| {
+		let asset_metadata = AssetMetadata {
+			name: "USDC".as_bytes().to_vec().try_into().unwrap(),
+			symbol: "USDC".as_bytes().to_vec().try_into().unwrap(),
+			decimals: 6,
+		};
+
+		let body: SolAssetMetadata = asset_metadata.try_into().unwrap();
+
+		let post = PostRequest {
+			source: StateMachine::Polkadot(3367),
+			dest: StateMachine::Kusama(100),
+			nonce: 0,
+			from: pallet_token_governor::PALLET_ID.to_vec(),
+			to: token_gateway_id().0.to_vec(),
+			timeout_timestamp: 1000,
+			body: body.encode_request(),
+		};
+
+		let module = TokenGateway::default();
+		module.on_accept(post).unwrap();
+	})
+}
+
+#[test]
+fn dispatching_remote_asset_creation() {}

@@ -50,6 +50,7 @@ pallet-asset-rate = { workspace = true}
 pallet-collective = { workspace = true}
 
 sp-api = { workspace = true }
+sp-io = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-consensus-aura = { workspace = true }
 sp-core = { workspace = true }
@@ -160,6 +161,7 @@ std = [
 	"sp-runtime/std",
 	"sp-session/std",
 	"sp-std/std",
+	"sp-io/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
 	"sp-storage/std",

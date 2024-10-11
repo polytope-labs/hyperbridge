@@ -29,6 +29,7 @@ use orml_xcm_support::MultiNativeAsset;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
+use sp_core::H256;
 use sp_runtime::traits::Identity;
 use staging_xcm::latest::{prelude::*, Junctions::X1};
 use staging_xcm_builder::{
@@ -40,7 +41,7 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::XcmExecutor;
 
-use pallet_asset_gateway::xcm_utilities::HyperbridgeAssetTransactor;
+use pallet_asset_gateway::xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor};
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();
@@ -66,7 +67,7 @@ pub type LocationToAccountId = (
 /// Means for transacting assets on this chain.
 pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 	Runtime,
-	ConvertedConcreteId<Location, Balance, Identity, Identity>,
+	ConvertedConcreteId<H256, Balance, ConvertAssetId<Runtime>, Identity>,
 	LocationToAccountId,
 	NoChecking,
 	CheckingAccount,

@@ -8,6 +8,7 @@ use crate::{
 	xcm::{MockNet, ParaA, Relay},
 };
 use alloy_sol_types::SolValue;
+use codec::Encode;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
 use ismp::{
 	host::StateMachine,
@@ -16,7 +17,7 @@ use ismp::{
 };
 use pallet_asset_gateway::Module;
 use pallet_token_gateway::{impls::convert_to_erc20, types::Body};
-use sp_core::{ByteArray, H160};
+use sp_core::{ByteArray, H160, H256};
 use staging_xcm::v4::{Junction, Junctions, Location, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
 use xcm_simulator_example::ALICE;
@@ -40,7 +41,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 	let weight_limit = WeightLimit::Unlimited;
 
 	let dest: Location = Junction::Parachain(PARA_ID).into();
-	let asset_id = Location::parent();
+	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::parent().encode()).into();
 
 	Relay::execute_with(|| {
 		// call extrinsic
@@ -97,7 +98,7 @@ fn should_process_on_accept_module_callback_correctly() {
 	let weight_limit = WeightLimit::Unlimited;
 
 	let dest: Location = Junction::Parachain(PARA_ID).into();
-	let asset_id = Location::parent();
+	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::parent().encode()).into();
 
 	let alice_balance = Relay::execute_with(|| {
 		// call extrinsic
@@ -205,7 +206,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 	let weight_limit = WeightLimit::Unlimited;
 
 	let dest: Location = Junction::Parachain(PARA_ID).into();
-	let asset_id = Location::parent();
+	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::parent().encode()).into();
 
 	let alice_balance = Relay::execute_with(|| {
 		// call extrinsic

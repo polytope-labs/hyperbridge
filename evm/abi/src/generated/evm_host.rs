@@ -2,18 +2,18 @@ pub use evm_host::*;
 /// This module was auto-generated with ethers-rs Abigen.
 /// More information at: <https://github.com/gakonst/ethers-rs>
 #[allow(
-    clippy::enum_variant_names,
-    clippy::too_many_arguments,
-    clippy::upper_case_acronyms,
-    clippy::type_complexity,
-    dead_code,
-    non_camel_case_types,
+	clippy::enum_variant_names,
+	clippy::too_many_arguments,
+	clippy::upper_case_acronyms,
+	clippy::type_complexity,
+	dead_code,
+	non_camel_case_types
 )]
 pub mod evm_host {
-    pub use super::super::shared_types::*;
-    #[allow(deprecated)]
-    fn __abi() -> ::ethers::core::abi::Abi {
-        ::ethers::core::abi::ethabi::Contract {
+	pub use super::super::shared_types::*;
+	#[allow(deprecated)]
+	fn __abi() -> ::ethers::core::abi::Abi {
+		::ethers::core::abi::ethabi::Contract {
             constructor: ::core::option::Option::None,
             functions: ::core::convert::From::from([
                 (

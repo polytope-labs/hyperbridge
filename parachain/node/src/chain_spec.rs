@@ -13,13 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use codec::Encode;
 use cumulus_primitives_core::ParaId;
 use gargantua_runtime::{AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT, MICROUNIT};
 use ismp_parachain::ParachainData;
 use sc_chain_spec::{ChainSpecExtension, ChainSpecGroup};
 use sc_service::ChainType;
 use serde::{Deserialize, Serialize};
-use sp_core::{sr25519, Pair, Public};
+use sp_core::{sr25519, Pair, Public, H256};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 use staging_xcm::v3::MultiLocation;
 
@@ -183,7 +184,7 @@ fn testnet_genesis(
 	root: AccountId,
 	id: u32,
 ) -> serde_json::Value {
-	let asset_id = MultiLocation::parent();
+	let asset_id: H256 = sp_io::hashing::keccak_256(&MultiLocation::parent().encode()).into();
 	let para_id: ParaId = id.into();
 
 	// sibling parachain for tests

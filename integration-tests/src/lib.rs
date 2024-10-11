@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-// mod ethereum;
+mod ethereum;
 mod grandpa;
 // mod bsc;
 // // mod polygon;

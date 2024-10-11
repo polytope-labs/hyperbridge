@@ -572,9 +572,9 @@ impl pallet_utility::Config for Runtime {
 }
 
 parameter_types! {
-	pub const SpendingPeriod: BlockNumber = 6 * DAYS;
+	pub const SpendingPeriod: BlockNumber = 24 * DAYS;
 	pub const TreasuryPalletId: PalletId = PalletId(*b"hb/trsry");
-	pub const PayoutPeriod: BlockNumber = 14 * DAYS;
+	pub const PayoutPeriod: BlockNumber = 30 * DAYS;
 	pub const MaxBalance: Balance = Balance::max_value();
 	pub TreasuryAccount: AccountId = Treasury::account_id();
 	pub const TechnicalMotionDuration: BlockNumber = 5 * DAYS;

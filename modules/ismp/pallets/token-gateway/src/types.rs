@@ -50,8 +50,7 @@ pub struct TeleportParams<AssetId, Balance> {
 #[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
 pub struct AssetMap<AssetId> {
 	/// Local Asset Id if the asset exists already
-	/// If the asset exists, it's decimal will be updated to 18
-	/// other metadata will not be changed
+	/// If the asset exists, it's metadata will not be changed
 	pub local_id: Option<AssetId>,
 	/// MNT Asset registration details
 	pub reg: ERC6160AssetRegistration,

@@ -14,15 +14,12 @@ The first step is to implement the pallet config for the runtime.
 
 ```rust,ignore
 use frame_support::parameter_types;
-use ismp::Error;
-use ismp::host::StateMachine;
 use ismp::module::IsmpModule;
-use ismp::router::{IsmpRouter, Post, Response, Timeout};
+use ismp::router::IsmpRouter;
 
 parameter_types! {
-    // The Native asset Id for the native currency, for parachains this would be the XCM location for the parachain
-    // For standalone chains, a constant value that can be used to identify the native currency 
-    pub const NativeAssetId: Location = Location::here(); 
+    // A constant that should represent the native asset id
+    pub const NativeAssetId: u32 = 0; 
     // Set the correct decimals for the native currency
     pub const Decimals: u8 = 12;
 }
@@ -38,13 +35,14 @@ impl pallet_ismp::Config for Runtime {
 	type Currency = Balances;
     // The Native asset Id
 	type NativeAssetId = NativeAssetId;
-    // A type that allows token gateway to create local asset Ids
-    // An implementation is required to receive asset creation messages from Hyperbridge
+    // A type that provides a function for creating unique asset ids
+    // An implementation is required  for asset creation calls or messages
     type CreateAsset = ();
     // The decimals value of the native asset
     type Decimals = Decimals;
 }
 
+// Add the pallet to your ISMP router
 #[derive(Default)]
 struct Router;
 impl IsmpRouter for Router {
@@ -69,9 +67,14 @@ The pallet requires some setting up before the teleport function is available fo
 
 ## Dispatchable Functions
 
-- `teleport` - This function is used to bridge assets to EVM chains through Hyperbridge.
+- `teleport` - This function is used to bridge assets to through Hyperbridge.
 - `set_token_gateway_addresses` - This call allows the `AdminOrigin` origin to set the token gateway address for EVM chains.
 - `create_erc6160_asset` - This call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments
+
+## Asset creation
+When creating assets, the metadata needs to be set, the account set as the admin is the pallet account, depending on the fungibles implementation,  
+funding the pallet account might be required for the asset creation to succeed.
+
 ## License
 
 This library is licensed under the Apache 2.0 License, Copyright (c) 2024 Polytope Labs.

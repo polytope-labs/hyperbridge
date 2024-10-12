@@ -70,7 +70,7 @@ pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
 pub fn req_res_commitment_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	match item {
-		RequestResponse::Request(requests) => {
+		RequestResponse::Request(requests) =>
 			for req in requests {
 				let commitment = hash_request::<H>(&req);
 				let key = derive_map_key_with_offset::<H>(
@@ -79,9 +79,8 @@ pub fn req_res_commitment_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8
 					1,
 				);
 				keys.push(key.0.to_vec())
-			}
-		},
-		RequestResponse::Response(responses) => {
+			},
+		RequestResponse::Response(responses) =>
 			for res in responses {
 				let commitment = hash_response::<H>(&res);
 				let key = derive_map_key_with_offset::<H>(
@@ -90,8 +89,7 @@ pub fn req_res_commitment_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8
 					1,
 				);
 				keys.push(key.0.to_vec())
-			}
-		},
+			},
 	}
 
 	keys
@@ -100,22 +98,20 @@ pub fn req_res_commitment_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8
 pub fn req_res_receipt_keys<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	match item {
-		RequestResponse::Request(requests) => {
+		RequestResponse::Request(requests) =>
 			for req in requests {
 				let commitment = hash_request::<H>(&req);
 				let key =
 					derive_unhashed_map_key::<H>(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT);
 				keys.push(key.0.to_vec())
-			}
-		},
-		RequestResponse::Response(responses) => {
+			},
+		RequestResponse::Response(responses) =>
 			for res in responses {
 				let commitment = hash_request::<H>(&res.request());
 				let key =
 					derive_unhashed_map_key::<H>(commitment.0.to_vec(), RESPONSE_RECEIPTS_SLOT);
 				keys.push(key.0.to_vec())
-			}
-		},
+			},
 	}
 
 	keys

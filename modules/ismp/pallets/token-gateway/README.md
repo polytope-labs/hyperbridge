@@ -19,20 +19,20 @@ use ismp::router::IsmpRouter;
 parameter_types! {
     // A constant that should represent the native asset id
     pub const NativeAssetId: u32 = 0; 
-    // Set the correct decimals for the native currency
+    // Set the correct precision for the native currency
     pub const Decimals: u8 = 12;
 }
 
 /// Should provide an account that is funded and can be used to pay for asset creation
 pub struct AssetAdmin;
 
-impl Get<<Test as frame_system::Config>::AccountId> for AssetAdmin {
-	fn get() -> <Test as frame_system::Config>::AccountId {
+impl Get<AccountId> for AssetAdmin {
+	fn get() -> AccountId {
 		Treasury::account_id()
 	}
 }
 
-impl pallet_ismp::Config for Runtime {
+impl pallet_token_gateway::Config for Runtime {
     // configure the runtime event
     type RuntimeEvent = RuntimeEvent;
     // Pallet Ismp 
@@ -46,9 +46,9 @@ impl pallet_ismp::Config for Runtime {
     // The Native asset Id
 	type NativeAssetId = NativeAssetId;
     // A type that provides a function for creating unique asset ids
-    // An implementation is required  for asset creation calls or messages
-    type CreateAsset = ();
-    // The decimals value of the native asset
+    // A concrete implementation for your specific runtime is required
+    type AssetIdFactory = ();
+    // The precision of the native asset
     type Decimals = Decimals;
 }
 
@@ -71,8 +71,7 @@ impl IsmpRouter for Router {
 The pallet requires some setting up before the teleport function is available for use in the runtime.
 
 1.  Register your native assets directly on `Hyperbridge` by dispatching  `create_erc6160_asset`.
-3.  Set token gateway addresses for the EVM chains of interest by dispatching the `set_token_gateway_addresses` extrinsic.
-    This allows us validate incoming requests.
+3.  Set token gateway addresses for the EVM chains of interest by dispatching the `set_token_gateway_addresses` extrinsic. These addresses are used to validate incoming messages.
     
 
 ## Dispatchable Functions

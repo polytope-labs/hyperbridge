@@ -1,0 +1,200 @@
+# Pallet Token Gateway
+
+This is an ISMP module that allows standalone chains or parachains make cross chain asset transfers through the token gateway protocol.
+
+## Config
+
+Let's look at the pallet specific components of the configuration trait: <br/><br/>
+`Dispatcher`: The dispatcher is the component that allows this pallet dispatch ismp requests.<br/><br/>
+`Assets`: This type should be configured with a component that implements `frame_support::traits::fungibles::Create`, `frame_support::traits::fungibles::Inspect`, `frame_support::traits::fungibles::Mutate`, and `frame_support::traits::fungibles::metadata::Mutate`, ideally `pallet-assets`.<br/><br/>
+`Currency`: This type should be configured with a component that implements `frame_support::traits::Currency`, ideally `pallet-balances`.<br/><br/>
+`AssetAdmin`: This pallet has some functionality for creating new assets. The account configured for this type would be the asset admin and also be responsible for paying the asset registration fees, therefore it should be funded before attempting to create any assets.<br/><br/>
+`AssetIdFactory`: This type should be configured with a component that implements `pallet_token_gateway::types::CreateAssetId`. It should return a unique asset id each time the `AssetIdFactory::create_asset_id` is called.<br/><br/>
+`NativeAssetId`: A constant value that represents the native asset.<br/><br/>
+`Decimals`: A constant that represents the precision of the native currency. <br/><br/>
+
+## Calls
+
+- `teleport` - This call is used to initialize a crosschain asset transfer.
+- `set_token_gateway_addresses` - This priviledged call is used to set the token gateway address for EVM chains.
+- `create_erc6160_asset` - This priviledged call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments
+
+Priviledged calls must be dispatched by [`AdminOrigin`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/trait.Config.html#associatedtype.AdminOrigin) configured in [`pallet-ismp`](https://docs.rs/pallet-ismp/latest/pallet_ismp).
+
+
+## Integrating the pallet into the Runtime
+
+The first step is to implement the pallet config for the runtime.
+
+```rust
+use frame_support::parameter_types;
+use ismp::module::IsmpModule;
+use ismp::router::IsmpRouter;
+
+parameter_types! {
+    // A constant that should represent the native asset id, this id must be unique to the native currency
+    pub const NativeAssetId: u32 = 0; 
+    // Set the correct decimals for the native currency
+    pub const Decimals: u8 = 12;
+}
+
+/// Should provide an account that is funded and can be used to pay for asset creation
+pub struct AssetAdmin;
+
+impl Get<AccountId> for AssetAdmin {
+	fn get() -> AccountId {
+		Treasury::account_id()
+	}
+}
+
+impl pallet_token_gateway::Config for Runtime {
+    // configure the runtime event
+    type RuntimeEvent = RuntimeEvent;
+    // Configured as Pallet Ismp 
+    type Dispatcher = Ismp;
+    // Configured as Pallet Assets
+	type Assets = Assets;
+    // Configured as Pallet balances
+	type Currency = Balances;
+    // AssetAdmin account
+    type AssetAdmin = AssetAdmin;
+    // The Native asset Id
+	type NativeAssetId = NativeAssetId;
+    // A type that provides a function for creating unique asset ids
+    // A concrete implementation for your specific runtime is required
+    type AssetIdFactory = ();
+    // The precision of the native asset
+    type Decimals = Decimals;
+}
+
+// Add the token gateway pallet to your ISMP router
+#[derive(Default)]
+struct Router;
+impl IsmpRouter for Router {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
+        let module = match id.as_slice() {
+            id if TokenGateway::is_token_gateway(&id) => Box::new(TokenGateway::default()),
+            _ => Err(Error::ModuleNotFound(id))?
+        };
+        Ok(module)
+    }
+}
+``` 
+
+## Setting up Token Gateway
+
+Setting up token gateway for use involves a few simple steps.
+
+1. **Registering token gateway addresses on EVM chains**<br/>
+   The pallet needs to know the addresses of the token gateway contracts on EVM chains, so it can validate the source of incoming messages.<br/>
+   This requires dispatching the  `set_token_gateway_addresses` extrinsic from `AdminOrigin` configured in `pallet-ismp`.<br/>
+   This call accepts a map of `StateMachine` to `Vec<u8>`, this is only neccessary for validating messages coming from EVM chains, all substrate chains use a static token gateway address.<br/>
+   Find the various token gateway addresses [here](https://docs.hyperbridge.network/developers/evm/contract-addresses)
+
+2. **Registering assets on token gateway deployments**<br/>
+   For transfer of the native currency and other assets issued on your chain through token gateway, those assets need to be registered on the token gateway asset registry on hyperbridge.<br/>
+   The process of registering assets involves dispatching a request to create the asset on hyperbridge after which hyperbridge dispatches requests to deploy the asset on all chains specified in the initial request.<br/>
+
+   The types involved in asset creation are described below:
+```rust
+pub struct InitialSupply {
+	/// The beneficiary for the initial supply
+	pub beneficiary: H160,
+	/// The total initial supply
+	pub initial_supply: U256,
+}
+
+/// Initial supply options on a per-chain basis
+pub struct ChainWithSupply {
+	/// The supported chain
+	pub chain: StateMachine,
+	/// Initial supply for this chain
+	pub supply: Option<InitialSupply>,
+}
+
+pub struct ERC6160AssetRegistration {
+	/// The asset name
+	pub name: BoundedVec<u8, ConstU32<20>>,
+	/// The asset symbol
+	pub symbol: BoundedVec<u8, ConstU32<20>>,
+	/// The list of chains to create the asset on along with their the initial supply on the
+	/// provided chains
+	pub chains: Vec<ChainWithSupply>,
+	/// This field needs to be set if you plan to deploy this asset on a substrate chain
+	pub minimum_balance: Option<u128>,
+}
+
+pub struct AssetMap<AssetId> {
+	/// Optional Local Asset Id, if the asset exists already
+	/// it's metadata will not be changed
+	pub local_id: Option<AssetId>,
+	/// Asset metadata
+	pub reg: ERC6160AssetRegistration,
+}
+
+/// A struct for registering some assets
+pub struct AssetRegistration<AssetId> {
+	pub assets: BoundedVec<AssetMap<AssetId>, ConstU32<10>>,
+}
+```
+
+To register assets on token gateway you need to dispatch the `create_erc6160_asset` extrinsic with an `AssetRegistration<AssetId>` object.<br/>
+The former contains a vector of `AssetMap<AssetId>`, which is a struct that describes the metadata for each asset you intend to create. <br/>
+
+### `ERC6160AssetRegistration`
+This is the core struct that holds the metadata of the asset you need to register.<br/><br/>
+`name`: This should be the full  name of the asset, it's limited to 20 characters.<br/><br/>
+`symbol`: This is the ticker for the asset, also limited to 20 characters. The asset Id will be derived from the `keccak256` hash of this value.<br/><br/>
+`chains`: This is a vector of the chains you want this asset deployed. It should be only chains supported by hyperbridge network.<br/>
+It is optional to specify the initial supply and beneficiary, if specified, the initial supply will be minted to the beneficiary when the token contract is deployed on EVM chains.<br/><br/>
+`minimum_balance`: This value is only necessary when you intend to deploy this asset on a substrate chain. It represents the minimum amount of the asset that an account can hold on susbtrate based chains.<br/><br/>
+
+There are three scenarios that you need to understand when creating token gateway assets:
+
+    *   **Registering the native currency (pallet-balances) on token gateway:**<br/>
+        To register the native currency on token gateway you need to set the `local_id` field in the `AssetMap<AssetId>` to the same constant that was specified as the `NativeAssetId` in the pallet config along with the required metadata.<br/>
+    *   **Registering assets that already exist locally on token gateway:**<br/>
+        You might want to register assets that already exist on your chain on token gateway. This can be achieved by setting the `local_id` field in the `AssetMap<AssetId>` to the existing asset Id.<br/>
+        This would instruct token gateway to not recreate the asset locally.<br/>
+    *   **Registering entirely new assets on token gateway:**<br/>
+        To register assets that do not exist locally on token gateway, leave the `local_id` field empty when dispatching the extrinsic. Token gateway will create the assets locally before dispatching a request to hyperbridge.<br/> 
+
+Assets can also be updated in the same way by dispatching `update_erc6160_asset`.<br/>
+
+## Asset Ids
+ Token gateway protocol represents assets ids with a 32 byte hash which is derived from the `keccak256` hash of the asset's symbol.
+
+## Teleporting assets
+
+To make a crosschain transfer the `teleport` called must be dispatched with the required parameters.
+
+```rust
+pub struct TeleportParams<AssetId, Balance> {
+	/// Asset Id registered on Hyperbridge
+	pub asset_id: AssetId,
+	/// Destination state machine
+	pub destination: StateMachine,
+	/// Receiving account on destination
+	pub recepient: H256,
+	/// Amount to be sent
+	pub amount: Balance,
+	/// Request timeout
+	pub timeout: u64,
+	/// Token gateway address
+	pub token_gateway: Vec<u8>,
+	/// Relayer fee
+	pub relayer_fee: Balance,
+}
+```
+Let's explore what each parameter holds: 
+
+`asset_id`: The local asset id for the asset that should be teleported<br/>
+`destination`: The destination chain for the bridging operation.<br/>
+`recepient`: The account that should receive the funds on the destination.<br/>
+For EVM chains, the address should be left padded with zeros to fit into the required 32 bytes.<br/>
+`amount`: The amount that should be bridged.<br/>
+`timeout`: The request timeout, this is the time after which the request cannot be delivered to the destination. It should represent the cumulative time for finalization on the source chain and hyperbridge with some additional buffer.<br/>
+`token_gateway`: The address of the token gateway contract on the destination chain.<br/>
+`relayer_fee`: The amount to be paid to relayers for delivering the request, a value of zero means the dispatcher is responsible for relaying the request.<br/>
+
+Funds from undelivered requests can be recovered by submitting a timeout message for the request through `pallet-ismp`.

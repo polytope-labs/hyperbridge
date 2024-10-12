@@ -18,6 +18,7 @@ Let's look at the pallet specific components of the configuration trait: <br/><b
 - `teleport` - This call is used to initialize a crosschain asset transfer.
 - `set_token_gateway_addresses` - This priviledged call is used to set the token gateway address for EVM chains.
 - `create_erc6160_asset` - This priviledged call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments
+- `update_erc6160_asset` - This priviledged call dispatches a request to Hyperbridge to update multi chain native assets on token gateway deployments
 
 Priviledged calls must be dispatched by [`AdminOrigin`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/trait.Config.html#associatedtype.AdminOrigin) configured in [`pallet-ismp`](https://docs.rs/pallet-ismp/latest/pallet_ismp).
 

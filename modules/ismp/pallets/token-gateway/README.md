@@ -79,6 +79,7 @@ The pallet requires some setting up before the teleport function is available fo
 - `teleport` - This function is used to bridge assets through Hyperbridge.
 - `set_token_gateway_addresses` - This call allows the `AdminOrigin` origin to set the token gateway address for EVM chains.
 - `create_erc6160_asset` - This call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments
+- `update_erc6160_asset` - This priviledged call dispatches a request to Hyperbridge to update multi chain native assets on token gateway deployments
 
 ## License
 

@@ -313,6 +313,8 @@ pub mod pallet {
 			for asset_map in assets.assets.clone() {
 				let asset_id: H256 =
 					sp_io::hashing::keccak_256(asset_map.reg.symbol.as_ref()).into();
+				// If the local asset id already exists we do not change it's metadata we only store
+				// the mapping to its token gateway asset id
 				if let Some(local_id) = asset_map.local_id.clone() {
 					SupportedAssets::<T>::insert(local_id.clone(), asset_id.clone());
 					LocalAssets::<T>::insert(asset_id, local_id.clone());
@@ -424,6 +426,7 @@ where
 		if &from == &pallet_token_governor::PALLET_ID && Some(source) == T::Coprocessor::get() {
 			if let Ok(metadata) = SolAssetMetadata::abi_decode(&mut &body[1..], true) {
 				let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_bytes()).into();
+				// If the local aset Id exists, then  it must mean this is an update.
 				if let Some(local_asset_id) = LocalAssets::<T>::get(asset_id) {
 					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
 						local_asset_id.clone(),

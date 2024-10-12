@@ -128,6 +128,10 @@ struct AssetMetadata {
     uint256 initialSupply;
     // Initial beneficiary of the total supply
     address beneficiary;
+    // Asset's decimal
+    uint8 decimal;
+    // Minimum balance
+    uint256 minBalance;
 }
 
 struct ChangeAssetAdmin {

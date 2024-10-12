@@ -1,8 +1,10 @@
-use crate::{Config, Pallet};
+use crate::{AssetIds, Config, Pallet};
+use codec::Encode;
 use core::marker::PhantomData;
 use frame_support::traits::fungibles::{self, Mutate};
 use ismp::host::StateMachine;
 use sp_core::{Get, H160};
+use sp_runtime::traits::MaybeEquivalence;
 use staging_xcm::v4::{
 	Asset, Error as XcmError, Junction, Junctions, Location, NetworkId, Result as XcmResult,
 	XcmContext,
@@ -77,6 +79,28 @@ where
 	}
 }
 
+pub struct ConvertAssetId<T>(core::marker::PhantomData<T>);
+
+impl<T: Config, AssetId: Clone> MaybeEquivalence<Location, AssetId> for ConvertAssetId<T>
+where
+	AssetId: From<[u8; 32]>,
+	<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<AssetId>,
+{
+	fn convert(a: &Location) -> Option<AssetId> {
+		let asset_id: AssetId = sp_io::hashing::keccak_256(&a.encode()).into();
+		let converted: <T::Assets as fungibles::Inspect<T::AccountId>>::AssetId =
+			asset_id.clone().into();
+		if !AssetIds::<T>::contains_key(converted.clone()) {
+			AssetIds::<T>::insert(converted, a.clone());
+		}
+		Some(asset_id)
+	}
+
+	fn convert_back(b: &AssetId) -> Option<Location> {
+		let converted: <T::Assets as fungibles::Inspect<T::AccountId>>::AssetId = b.clone().into();
+		AssetIds::<T>::get(converted)
+	}
+}
 pub struct HyperbridgeAssetTransactor<T, Matcher, AccountIdConverter, CheckAsset, CheckingAccount>(
 	PhantomData<(T, Matcher, AccountIdConverter, CheckAsset, CheckingAccount)>,
 );

@@ -20,6 +20,10 @@ extern crate alloc;
 use alloc::{boxed::Box, string::ToString, vec};
 use alloy_sol_types::SolType;
 use core::marker::PhantomData;
+use pallet_token_gateway::{
+	impls::{convert_to_balance, convert_to_erc20},
+	types::Body,
+};
 use pallet_token_governor::TokenGatewayParams;
 
 use frame_support::{
@@ -96,6 +100,16 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn params)]
 	pub type Params<T> = StorageValue<_, AssetGatewayParams, OptionQuery>;
+
+	/// The map of XCM location to asset Ids
+	#[pallet::storage]
+	pub type AssetIds<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId,
+		Location,
+		OptionQuery,
+	>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -231,7 +245,7 @@ where
 			amount: {
 				let amount: u128 = amount.into();
 				let mut bytes = [0u8; 32];
-				convert_to_erc20(amount).to_big_endian(&mut bytes);
+				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
 			asset_id,
@@ -273,22 +287,6 @@ where
 	}
 }
 
-alloy_sol_macro::sol! {
-	#![sol(all_derives)]
-	struct Body {
-		// Amount of the asset to be sent
-		uint256 amount;
-		// The asset identifier
-		bytes32 asset_id;
-		// Flag to redeem the erc20 asset on the destination
-		bool redeem;
-		// Sender address
-		bytes32 from;
-		// Recipient address
-		bytes32 to;
-	}
-}
-
 #[derive(Clone)]
 pub struct Module<T>(PhantomData<T>);
 
@@ -302,10 +300,9 @@ impl<T: Config> IsmpModule for Module<T>
 where
 	<T::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
 	u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
-	<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<Location>,
 	T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
 {
-	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), ismp::error::Error> {
+	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), anyhow::Error> {
 		let request = Request::Post(post.clone());
 		// Check that source module is equal to the known token gateway deployment address
 		ensure!(
@@ -360,15 +357,16 @@ where
 			}
 		);
 
-		let amount = convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
-			.map_err(|_| ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
-				meta: Meta {
-					source: request.source_chain(),
-					dest: request.dest_chain(),
-					nonce: request.nonce(),
-				},
-			})?;
+		let amount =
+			convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()), 18, 10)
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+					meta: Meta {
+						source: request.source_chain(),
+						dest: request.dest_chain(),
+						nonce: request.nonce(),
+					},
+				})?;
 
 		let asset_id = Location::parent();
 
@@ -410,7 +408,7 @@ where
 		Ok(())
 	}
 
-	fn on_response(&self, response: ismp::router::Response) -> Result<(), ismp::error::Error> {
+	fn on_response(&self, response: ismp::router::Response) -> Result<(), anyhow::Error> {
 		Err(ismp::error::Error::ModuleDispatchError {
 			msg: "Token Gateway does not accept responses".to_string(),
 			meta: Meta {
@@ -418,10 +416,11 @@ where
 				dest: response.dest_chain(),
 				nonce: response.nonce(),
 			},
-		})
+		}
+		.into())
 	}
 
-	fn on_timeout(&self, request: Timeout) -> Result<(), ismp::error::Error> {
+	fn on_timeout(&self, request: Timeout) -> Result<(), anyhow::Error> {
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
 		match request {
 			Timeout::Request(Request::Post(post)) => {
@@ -451,16 +450,19 @@ where
 				})?;
 				// Send xcm back to relaychain
 
-				let amount =
-					convert_to_balance(U256::from_big_endian(&body.amount.to_be_bytes::<32>()))
-						.map_err(|_| ismp::error::Error::ModuleDispatchError {
-							msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
-							meta: Meta {
-								source: request.source_chain(),
-								dest: request.dest_chain(),
-								nonce: request.nonce(),
-							},
-						})?;
+				let amount = convert_to_balance(
+					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
+					18,
+					10,
+				)
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+					meta: Meta {
+						source: request.source_chain(),
+						dest: request.dest_chain(),
+						nonce: request.nonce(),
+					},
+				})?;
 				// We do an xcm limited reserve transfer from the pallet custody account to the user
 				// on the relaychain;
 				let xcm_beneficiary: Location =
@@ -501,7 +503,8 @@ where
 			Timeout::Request(Request::Get(get)) => Err(ismp::error::Error::ModuleDispatchError {
 				msg: "Tried to timeout unsupported request type".to_string(),
 				meta: Meta { source: get.source, dest: get.dest, nonce: get.nonce },
-			}),
+			}
+			.into()),
 
 			Timeout::Response(response) => Err(ismp::error::Error::ModuleDispatchError {
 				msg: "Tried to timeout unsupported request type".to_string(),
@@ -510,67 +513,8 @@ where
 					dest: response.dest_chain(),
 					nonce: response.nonce(),
 				},
-			}),
+			}
+			.into()),
 		}
-	}
-}
-
-/// Converts an ERC20 U256 to a DOT u128
-pub fn convert_to_balance(value: U256) -> Result<u128, anyhow::Error> {
-	let dec_str = (value / U256::from(100_000_000u128)).to_string();
-	dec_str.parse().map_err(|e| anyhow::anyhow!("{e:?}"))
-}
-
-/// Converts a DOT u128 to an Erc20 denomination
-pub fn convert_to_erc20(value: u128) -> U256 {
-	U256::from(value) * U256::from(100_000_000u128)
-}
-
-#[cfg(test)]
-mod tests {
-	use sp_core::U256;
-	use sp_runtime::Permill;
-	use std::ops::Mul;
-
-	use crate::{convert_to_balance, convert_to_erc20};
-	#[test]
-	fn test_per_mill() {
-		let per_mill = Permill::from_parts(1_000);
-
-		println!("{}", per_mill.mul(20_000_000u128));
-	}
-
-	#[test]
-	fn balance_conversions() {
-		let supposedly_small_u256 = U256::from_dec_str("1000000000000000000").unwrap();
-		// convert erc20 value to dot value
-		let converted_balance = convert_to_balance(supposedly_small_u256).unwrap();
-		println!("{}", converted_balance);
-
-		let dot = 10_000_000_000u128;
-
-		assert_eq!(converted_balance, dot);
-
-		// Convert 1 dot to erc20
-
-		let dot = 10_000_000_000u128;
-		let erc_20_val = convert_to_erc20(dot);
-		assert_eq!(erc_20_val, U256::from_dec_str("1000000000000000000").unwrap());
-	}
-
-	#[test]
-	fn max_value_check() {
-		let max = U256::MAX;
-
-		let converted_balance = convert_to_balance(max);
-		assert!(converted_balance.is_err())
-	}
-
-	#[test]
-	fn min_value_check() {
-		let min = U256::from(1u128);
-
-		let converted_balance = convert_to_balance(min).unwrap();
-		assert_eq!(converted_balance, 0);
 	}
 }

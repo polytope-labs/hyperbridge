@@ -143,7 +143,9 @@ contract DeployScript is BaseScript {
             name: "Hyperbridge USD",
             symbol: "USD.h",
             beneficiary: address(0),
-            initialSupply: 0
+            initialSupply: 0,
+            decimal: 18,
+            minBalance: 0
         });
 
         // initialize gateway

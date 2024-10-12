@@ -225,7 +225,9 @@ contract TokenGatewayTest is BaseTest {
             name: "Hyperbridge USD",
             symbol: "USD",
             beneficiary: address(0),
-            initialSupply: 0
+            initialSupply: 0,
+            decimal: 18,
+            minBalance: 0
         });
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
@@ -260,7 +262,9 @@ contract TokenGatewayTest is BaseTest {
             name: "Hyperbridge USD",
             symbol: "USDH",
             beneficiary: address(0),
-            initialSupply: 0
+            initialSupply: 0,
+            decimal: 18,
+            minBalance: 0
         });
 
         vm.prank(address(host));
@@ -290,7 +294,9 @@ contract TokenGatewayTest is BaseTest {
             name: "Hyperbridge USD",
             symbol: "USD.h",
             beneficiary: address(0),
-            initialSupply: 0
+            initialSupply: 0,
+            decimal: 18,
+            minBalance: 0
         });
 
         vm.prank(address(host));

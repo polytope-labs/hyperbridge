@@ -26,7 +26,7 @@ use crate::{
 use alloc::{string::ToString, vec};
 
 /// This function handles verification of consensus messages for consensus clients
-pub fn update_client<H>(host: &H, msg: ConsensusMessage) -> Result<MessageResult, Error>
+pub fn update_client<H>(host: &H, msg: ConsensusMessage) -> Result<MessageResult, anyhow::Error>
 where
 	H: IsmpHost,
 {
@@ -88,7 +88,7 @@ where
 pub fn create_client<H>(
 	host: &H,
 	message: CreateConsensusState,
-) -> Result<ConsensusClientCreatedResult, Error>
+) -> Result<ConsensusClientCreatedResult, anyhow::Error>
 where
 	H: IsmpHost,
 {
@@ -123,7 +123,7 @@ where
 }
 
 /// Freeze a consensus client by providing a valid fraud proof.
-pub fn freeze_client<H>(host: &H, msg: FraudProofMessage) -> Result<MessageResult, Error>
+pub fn freeze_client<H>(host: &H, msg: FraudProofMessage) -> Result<MessageResult, anyhow::Error>
 where
 	H: IsmpHost,
 {

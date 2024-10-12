@@ -22,6 +22,7 @@ scale-info = { version = "2.3.1", default-features = false, features = ["derive"
 smallvec = "1.10.0"
 orml-xcm-support = { workspace = true  }
 orml-traits = { workspace = true  }
+anyhow = { workspace = true, default-features = false }
 
 # Substrate
 frame-benchmarking = { workspace = true, optional = true }
@@ -49,6 +50,7 @@ pallet-asset-rate = { workspace = true}
 pallet-collective = { workspace = true}
 
 sp-api = { workspace = true }
+sp-io = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-consensus-aura = { workspace = true }
 sp-core = { workspace = true }
@@ -159,6 +161,7 @@ std = [
 	"sp-runtime/std",
 	"sp-session/std",
 	"sp-std/std",
+	"sp-io/std",
 	"sp-transaction-pool/std",
 	"sp-version/std",
 	"sp-storage/std",
@@ -185,7 +188,8 @@ std = [
 	"sp-mmr-primitives/std",
 	"simnode-runtime-api/std",
 	"hyperbridge-client-machine/std",
-	"frame-metadata-hash-extension/std"
+	"frame-metadata-hash-extension/std",
+	"anyhow/std"
 ]
 
 runtime-benchmarks = [

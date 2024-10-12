@@ -396,6 +396,11 @@ export default defineConfig({
             link: "/developers/polkadot/delivery",
           },
 
+          {
+            text: "Token Gateway",
+            link: "/developers/polkadot/tokengateway",
+          },
+
           // {
           //   text: "Supported Networks",
           //   link: "/developers/polkadot/networks",

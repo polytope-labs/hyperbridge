@@ -340,7 +340,7 @@ impl<T: Config> Default for IsmpModuleCallback<T> {
 }
 
 impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
-	fn on_accept(&self, request: PostRequest) -> Result<(), IsmpError> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
 		let source_chain = request.source;
 
 		match source_chain {
@@ -372,7 +372,7 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 		Ok(())
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), IsmpError> {
+	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
 		match response {
 			Response::Post(_) => Err(IsmpError::Custom(
 				"Balance transfer protocol does not accept post responses".to_string(),
@@ -385,7 +385,7 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 		Ok(())
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), IsmpError> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
 		let request = match timeout {
 			Timeout::Request(Request::Post(post)) => Request::Post(post),
 			_ => Err(IsmpError::Custom("Only Post requests allowed, found Get".to_string()))?,

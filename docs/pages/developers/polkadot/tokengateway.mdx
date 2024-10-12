@@ -159,7 +159,7 @@ There are three scenarios that you need to understand when creating token gatewa
         This would instruct token gateway to not recreate the asset locally.<br/>
     *   **Registering entirely new assets on token gateway:**<br/>
         To register assets that do not exist locally on token gateway, leave the `local_id` field empty when dispatching the extrinsic. Token gateway will create the assets locally before dispatching a request to hyperbridge.<br/> 
-
+        This requires the `AssetAdmin` account configured for the pallet to have sufficient funds to pay for the asset metadata storage.
 Assets can also be updated in the same way by dispatching `update_erc6160_asset`.<br/>
 
 ## Asset Ids
@@ -167,7 +167,7 @@ Assets can also be updated in the same way by dispatching `update_erc6160_asset`
 
 ## Teleporting assets
 
-To make a crosschain transfer the `teleport` called must be dispatched with the required parameters.
+To make a crosschain transfer the `teleport` extrinsic should must be dispatched with the correct parameters.
 
 ```rust
 pub struct TeleportParams<AssetId, Balance> {

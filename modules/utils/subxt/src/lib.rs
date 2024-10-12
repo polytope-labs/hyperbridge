@@ -146,16 +146,17 @@ mod gargantua_conversion {
 	                           .0
 	                           .try_into()
 	                           .expect("Runtime will always provide bounded vec"),
-	                       fishermen: params
-	                           .fishermen
-	                           .0
-	                           .try_into()
-	                           .expect("Runtime will always provide bounded vec"),
+	                       // per_byte_fees: params
+	                       //     .fishermen
+	                       //     .0
+	                       //     .try_into()
+	                       //     .expect("Runtime will always provide bounded vec"),
 	                       hyperbridge: params
 	                           .hyperbridge
 	                           .0
 	                           .try_into()
 	                           .expect("Runtime will always provide bounded vec"),
+						   ..Default::default()
 	                   };
 	                   HostParam::EvmHostParam(evm)
 	               }

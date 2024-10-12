@@ -14,25 +14,6 @@ pub struct AuthoritySetCommitment {
 	pub len: ::ethers::core::types::U256,
 	pub root: [u8; 32],
 }
-///`DispatchGet(bytes,uint64,bytes[],uint64,uint256,bytes)`
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct DispatchGet {
-	pub dest: ::ethers::core::types::Bytes,
-	pub height: u64,
-	pub keys: ::std::vec::Vec<::ethers::core::types::Bytes>,
-	pub timeout: u64,
-	pub fee: ::ethers::core::types::U256,
-	pub context: ::ethers::core::types::Bytes,
-}
 ///`DispatchPost(bytes,bytes,bytes,uint64,uint256,address)`
 #[derive(
 	Clone,

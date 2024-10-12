@@ -53,7 +53,7 @@ contract CrossChainInscription is BaseIsmpModule {
             IDispatcher(_host).dispatch{value: msg.value}(request);
         } else {
             // try to pay for dispatch with fee token
-            uint256 fee = (IDispatcher(_host).perByteFee() * params.message.length) + params.relayerFee;
+            uint256 fee = (IDispatcher(_host).perByteFee(params.dest) * params.message.length) + params.relayerFee;
             IERC20(IDispatcher(_host).feeToken()).safeTransferFrom(msg.sender, address(this), fee);
             IDispatcher(_host).dispatch(request);
         }

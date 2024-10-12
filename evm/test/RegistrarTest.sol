@@ -35,7 +35,7 @@ contract TokenRegistrarTest is MainnetForkBaseTest {
         address mainnetEthHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
 
         // relayer fee + per-byte fee
-        uint256 messagingFee = 64 * host.perByteFee();
+        uint256 messagingFee = 64 * host.perByteFee(StateMachine.evm(97));
         uint256 registrationFee = _registrar.params().baseFee + messagingFee;
 
         address[] memory path = new address[](2);
@@ -59,7 +59,7 @@ contract TokenRegistrarTest is MainnetForkBaseTest {
         address mainnetEthHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
 
         // relayer fee + per-byte fee
-        uint256 messagingFee = 64 * host.perByteFee();
+        uint256 messagingFee = 64 * host.perByteFee(StateMachine.evm(97));
         uint256 registrationFee = _registrar.params().baseFee + messagingFee;
 
         vm.startPrank(mainnetEthHolder);

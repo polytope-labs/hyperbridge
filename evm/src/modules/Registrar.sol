@@ -21,6 +21,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 struct RequestBody {
     // The asset owner
@@ -99,7 +100,7 @@ contract TokenRegistrar is BaseIsmpModule {
     // The resulting request must be relayed to Hyperbridge as this module provides no refunds.
     function registerAsset(bytes32 assetId) public payable {
         address feeToken = IIsmpHost(_params.host).feeToken();
-        uint256 messagingFee = 64 * IIsmpHost(_params.host).perByteFee();
+        uint256 messagingFee = 64 * IIsmpHost(_params.host).perByteFee(bytes(""));
         uint256 baseFee = _params.baseFee;
         uint256 fee = baseFee + messagingFee;
 

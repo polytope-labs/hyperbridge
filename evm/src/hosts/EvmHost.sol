@@ -31,13 +31,20 @@ import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
+// Per-byte-fee for chains
+struct PerByteFee {
+    // keccak256 hash of the state machine id
+    bytes32 stateIdHash;
+    // Per byte fee for this destination chain
+    uint256 perByteFee;
+}
+
 // The EvmHost protocol parameters
 struct HostParams {
     // The default timeout in seconds for messages. If messages are dispatched
     // with a timeout value lower than this this value will be used instead
     uint256 defaultTimeout;
-    // The cost of cross-chain requests in the feeToken per byte,
-    // this is charged to the application initiating a request or response
+    // The default per byte fee.
     uint256 perByteFee;
     // The cost for applications to access the hyperbridge state commitment.
     // They might do so because the hyperbridge state contains the verified state commitments
@@ -66,8 +73,9 @@ struct HostParams {
     address consensusClient;
     // State machines whose state commitments are accepted
     uint256[] stateMachines;
-    // Privileged set of fishermen accounts
-    address[] fishermen;
+    // The cost of cross-chain requests charged in the feeToken, per byte.
+    // Different destination chains can have different per byte fees.
+    PerByteFee[] perByteFees;
     // The state machine identifier for hyperbridge
     bytes hyperbridge;
 }
@@ -148,13 +156,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // (stateMachineId => blockHeight)
     mapping(uint256 => uint256) private _latestStateMachineHeight;
 
-    // mapping of all known fishermen accounts
-    mapping(address => bool) private _fishermen;
-
     // mapping of state machine identifier to height vetoed to fisherman
     // useful for rewarding fishermen on hyperbridge
     // (stateMachineId => (blockHeight => fisherman))
     mapping(uint256 => mapping(uint256 => address)) private _vetoes;
+
+    // Mapping of destination stateIds to their perByteFee
+    // (keccak256(stateMachineId) => perByteFee)
+    mapping(bytes32 => uint256) private _perByteFees;
 
     // Parameters for the host
     HostParams private _hostParams;
@@ -377,9 +386,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Response has already been provided for this request
     error DuplicateResponse();
 
-    // Cannot exceed max fishermen count
-    error MaxFishermanCountExceeded();
-
     // Host manager address was zero, not a contract or didn't meet it's required ERC165 interface.
     error InvalidHostManager();
 
@@ -406,12 +412,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Cannot change the fee token without sweeping all funds from previous one
     error CannotChangeFeeToken();
-
-    // only permits fishermen
-    modifier onlyFishermen() {
-        if (!_fishermen[_msgSender()]) revert UnauthorizedAccount();
-        _;
-    }
 
     // restricts call to the provided `caller`
     modifier restrict(address caller) {
@@ -517,8 +517,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the per-byte fee for outgoing requests/responses.
      */
-    function perByteFee() external view returns (uint256) {
-        return _hostParams.perByteFee;
+    function perByteFee(bytes memory stateId) public view returns (uint256) {
+        uint256 overridden = _perByteFees[keccak256(stateId)];
+        if (overridden == 0) {
+            return _hostParams.perByteFee;
+        }
+        return overridden;
     }
 
     /**
@@ -715,18 +719,16 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // otherwise cannot process new consensus datagrams
             revert InvalidConsensusClient();
         }
-        uint256 stateMachinesLen = params.stateMachines.length;
-        uint256 newFishermenLength = params.fishermen.length;
 
         // otherwise cannot process new cross-chain governance requests
         if (keccak256(params.hyperbridge) == keccak256(bytes(""))) revert InvalidHyperbridgeId();
+
         // otherwise cannot process new datagrams
+        uint256 stateMachinesLen = params.stateMachines.length;
         if (stateMachinesLen == 0) revert InvalidStateMachinesLength();
+
         // otherwise cannot process new datagrams
         if (1 days > params.unStakingPeriod) revert InvalidUnstakingPeriod();
-
-        // maximum of 100 fishermen
-        if (newFishermenLength > 100) revert MaxFishermanCountExceeded();
 
         address oldFeeToken = feeToken();
         if (oldFeeToken != address(0) && oldFeeToken != params.feeToken) {
@@ -734,21 +736,31 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             if (balance != 0) revert CannotChangeFeeToken();
         }
 
+        // update all but .perByteFees, sigh solidity
+        _hostParams.defaultTimeout = params.defaultTimeout;
+        _hostParams.perByteFee = params.perByteFee;
+        _hostParams.stateCommitmentFee = params.stateCommitmentFee;
+        _hostParams.feeToken = params.feeToken;
+        _hostParams.admin = params.admin;
+        _hostParams.handler = params.handler;
+        _hostParams.hostManager = params.hostManager;
+        _hostParams.uniswapV2 = params.uniswapV2;
+        _hostParams.unStakingPeriod = params.unStakingPeriod;
+        _hostParams.challengePeriod = params.challengePeriod;
+        _hostParams.consensusClient = params.consensusClient;
+        _hostParams.stateMachines = params.stateMachines;
+        _hostParams.hyperbridge = params.hyperbridge;
+        // Error: Unimplemented feature: Copying of type struct PerByteFee memory[] memory to storage not yet supported.
+        // _hostParams.perByteFees = params.perByteFees;
+
         // safe to emit here because invariants have already been checked
         // and don't want to store a temp variable for the old params
         emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
 
-        // reset old fishermen
-        uint256 fishermenLength = _hostParams.fishermen.length;
-        for (uint256 i = 0; i < fishermenLength; ++i) {
-            delete _fishermen[_hostParams.fishermen[i]];
-        }
-
-        _hostParams = params;
-
-        // add new fishermen if any
-        for (uint256 i = 0; i < newFishermenLength; ++i) {
-            _fishermen[params.fishermen[i]] = true;
+        // Add the new per byte fees
+        uint256 len = params.perByteFees.length;
+        for (uint256 i = 0; i < len; ++i) {
+            _perByteFees[params.perByteFees[i].stateIdHash] = params.perByteFees[i].perByteFee;
         }
 
         // add whitelisted state machines
@@ -809,17 +821,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         address fisherman
     ) external restrict(_hostParams.handler) {
         deleteStateMachineCommitmentInternal(height, fisherman);
-    }
-
-    /**
-     * @dev A fisherman has determined that some [`StateCommitment`]
-     *  (which is ideally still in it's challenge period)
-     *  is infact fraudulent and misrepresentative of the state
-     *  changes at the provided height. This allows them to veto the state commitment.
-     *  At the moment, they aren't required to provide any proofs for this.
-     */
-    function vetoStateCommitment(StateMachineHeight memory height) public onlyFishermen {
-        deleteStateMachineCommitmentInternal(height, _msgSender());
     }
 
     /**
@@ -1079,7 +1080,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function dispatch(DispatchPost memory post) external payable notFrozen returns (bytes32 commitment) {
         // minimum charge is the size of one word
         uint256 length = 32 > post.body.length ? 32 : post.body.length;
-        uint256 fee = (_hostParams.perByteFee * length) + post.fee;
+        uint256 fee = (perByteFee(post.dest) * length) + post.fee;
 
         if (msg.value > 0) {
             address[] memory path = new address[](2);
@@ -1141,7 +1142,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchGet memory get) external payable notFrozen returns (bytes32 commitment) {
         // minimum charge is the size of one word
-        uint256 pbf = _hostParams.perByteFee;
+        uint256 pbf = perByteFee(host());
         uint256 minimumFee = 32 * pbf;
         uint256 totalFee = get.fee + (pbf * get.context.length);
         uint256 fee = minimumFee > totalFee ? minimumFee : totalFee;
@@ -1222,7 +1223,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // minimum charge is the size of one word
         uint256 length = 32 > post.response.length ? 32 : post.response.length;
-        uint256 fee = (_hostParams.perByteFee * length) + post.fee;
+        uint256 fee = (perByteFee(post.request.source) * length) + post.fee;
 
         if (msg.value > 0) {
             address[] memory path = new address[](2);

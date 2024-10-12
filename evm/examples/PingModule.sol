@@ -84,7 +84,7 @@ contract PingModule is IIsmpModule {
     }
 
     function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
-        uint256 perByteFee = IIsmpHost(_host).perByteFee();
+        uint256 perByteFee = IIsmpHost(_host).perByteFee(response.request.source);
         address feeToken = IIsmpHost(_host).feeToken();
         uint256 length = 32 > response.response.length ? 32 : response.response.length;
         uint256 fee = perByteFee * length;
@@ -101,7 +101,7 @@ contract PingModule is IIsmpModule {
     }
 
     function dispatch(PostRequest memory request) public returns (bytes32) {
-        uint256 perByteFee = IIsmpHost(_host).perByteFee();
+        uint256 perByteFee = IIsmpHost(_host).perByteFee(request.dest);
         address feeToken = IIsmpHost(_host).feeToken();
         uint256 length = 32 > request.body.length ? 32 : request.body.length;
         uint256 fee = perByteFee * length;
@@ -134,7 +134,7 @@ contract PingModule is IIsmpModule {
 
     function ping(PingMessage memory pingMessage) public {
         bytes memory body = bytes.concat("hello from ", IIsmpHost(_host).host());
-        uint256 perByteFee = IIsmpHost(_host).perByteFee();
+        uint256 perByteFee = IIsmpHost(_host).perByteFee(pingMessage.dest);
         address feeToken = IIsmpHost(_host).feeToken();
         uint256 length = 32 > body.length ? 32 : body.length;
         uint256 fee = (pingMessage.fee + (perByteFee * length)) * pingMessage.count;

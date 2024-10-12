@@ -61,10 +61,10 @@ contract DeployScript is BaseScript {
         stateMachines[0] = paraId;
 
         // EvmHost
-        address[] memory fishermen = new address[](0);
+        PerByteFee[] memory perByteFees = new PerByteFee[](0);
         HostParams memory params = HostParams({
             uniswapV2: address(0),
-            fishermen: fishermen,
+            perByteFees: perByteFees,
             admin: admin,
             hostManager: address(manager),
             handler: address(handler),

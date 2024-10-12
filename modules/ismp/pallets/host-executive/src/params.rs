@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use frame_support::{pallet_prelude::ConstU32, BoundedVec};
 use pallet_hyperbridge::VersionedHostParams;
-use primitive_types::{H160, U256};
+use primitive_types::{H160, H256, U256};
 use sp_runtime::RuntimeDebug;
 
 /// The host parameters of all connected chains
@@ -24,6 +24,17 @@ pub enum HostParamUpdate<T> {
 	SubstrateHostParam(VersionedHostParams<T>),
 	/// Host params updates for evm-based hosts
 	EvmHostParam(EvmHostParamUpdate),
+}
+
+/// Per-byte-fee for chains
+#[derive(
+	Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug, Default,
+)]
+pub struct PerByteFee {
+	/// keccak256 hash of the state machine id
+	pub state_id: H256,
+	/// The fee to charge per byte
+	pub per_byte_fee: U256,
 }
 
 /// The host parameters for evm-based hosts
@@ -58,8 +69,9 @@ pub struct EvmHostParam {
 	pub consensus_client: H160,
 	/// The state machine identifier for hyperbridge
 	pub state_machines: BoundedVec<u32, ConstU32<1_000>>,
-	/// List of fishermen
-	pub fishermen: BoundedVec<H160, ConstU32<1_000>>,
+	/// The cost of cross-chain requests charged in the feeToken, per byte.
+	/// Different destination chains can have different per byte fees.
+	pub per_byte_fees: BoundedVec<PerByteFee, ConstU32<1_000>>,
 	/// The state machine identifier for hyperbridge
 	pub hyperbridge: BoundedVec<u8, ConstU32<1_000>>,
 }
@@ -115,8 +127,8 @@ impl EvmHostParam {
 			self.state_machines = state_machine_whitelist;
 		}
 
-		if let Some(fishermen) = update.fishermen {
-			self.fishermen = fishermen;
+		if let Some(per_byte_fees) = update.per_byte_fees {
+			self.per_byte_fees = per_byte_fees;
 		}
 
 		if let Some(hyperbridge) = update.hyperbridge {
@@ -159,14 +171,23 @@ pub struct EvmHostParamUpdate {
 	pub consensus_client: Option<H160>,
 	/// The state machine identifier for hyperbridge
 	pub state_machines: Option<BoundedVec<u32, ConstU32<1_000>>>,
-	/// List of fishermen
-	pub fishermen: Option<BoundedVec<H160, ConstU32<1_000>>>,
+	/// The cost of cross-chain requests charged in the feeToken, per byte.
+	/// Different destination chains can have different per byte fees.
+	pub per_byte_fees: Option<BoundedVec<PerByteFee, ConstU32<1_000>>>,
 	/// The state machine identifier for hyperbridge
 	pub hyperbridge: Option<BoundedVec<u8, ConstU32<1_000>>>,
 }
 
 alloy_sol_macro::sol! {
 	#![sol(all_derives)]
+
+	// Per-byte-fee for chains
+	struct PerByteFeeAbi {
+		// keccak256 hash of the state machine id
+		bytes32 stateIdHash;
+		// Per byte fee for this destination chain
+		uint256 perByteFee;
+	}
 
 	// The IsmpHost parameters
 	struct EvmHostParamsAbi {
@@ -198,8 +219,9 @@ alloy_sol_macro::sol! {
 		address consensusClient;
 		// whitelisted state machines
 		uint256[] stateMachines;
-		// white list of fishermen accounts
-		address[] fishermen;
+		// The cost of cross-chain requests charged in the feeToken, per byte.
+		// Different destination chains can have different per byte fees.
+		PerByteFeeAbi[] perByteFees;
 		// state machine identifier for hyperbridge
 		bytes hyperbridge;
 	}
@@ -247,10 +269,19 @@ impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 				.map(|id| id.try_into().map_err(anyhow::Error::msg))
 				.collect::<Result<Vec<_>, anyhow::Error>>()?,
 			hyperbridge: value.hyperbridge.to_vec().into(),
-			fishermen: value
-				.fishermen
+			perByteFees: value
+				.per_byte_fees
 				.into_iter()
-				.map(|address| address.0.try_into().map_err(anyhow::Error::msg))
+				.map(|p| {
+					Ok::<_, anyhow::Error>(PerByteFeeAbi {
+						stateIdHash: p.state_id.0.try_into().map_err(anyhow::Error::msg)?,
+						perByteFee: {
+							let mut buf = [0u8; 32];
+							p.per_byte_fee.to_little_endian(&mut buf);
+							alloy_primitives::U256::from_le_bytes(buf)
+						},
+					})
+				})
 				.collect::<Result<Vec<_>, _>>()?,
 		})
 	}

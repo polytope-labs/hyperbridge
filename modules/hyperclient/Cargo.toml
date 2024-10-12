@@ -65,6 +65,7 @@ std = [
     "substrate-state-machine/std",
 ]
 testing = []
+tracing = []
 
 [dev-dependencies]
 json = { package = "serde_json", version = "1.0.114", default-features = false }

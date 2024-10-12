@@ -425,7 +425,7 @@ contract TokenGateway is BaseIsmpModule {
             commitment = IIsmpHost(_params.host).dispatch{value: teleportParams.nativeCost}(request);
         } else {
             // try to pay for dispatch with fee token
-            uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.relayerFee;
+            uint256 fee = (IIsmpHost(_params.host).perByteFee(teleportParams.dest) * data.length) + teleportParams.relayerFee;
             SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), fee);
             commitment = IIsmpHost(_params.host).dispatch(request);
         }

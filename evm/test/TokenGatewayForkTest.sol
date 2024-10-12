@@ -33,7 +33,7 @@ contract TeleportForkTest is MainnetForkBaseTest {
         address whaleAccount = address(0xa359Fc83C48277EedF375a5b6DC9Ec7D093aD3f2);
 
         // relayer fee + per-byte fee
-        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
+        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee(StateMachine.evm(97)));
 
         address[] memory path = new address[](2);
         path[0] = IUniswapV2Router02(IIsmpHost(gateway.params().host).uniswapV2Router()).WETH();
@@ -72,7 +72,7 @@ contract TeleportForkTest is MainnetForkBaseTest {
         address whaleAccount = address(0xa359Fc83C48277EedF375a5b6DC9Ec7D093aD3f2);
 
         // relayer fee + per-byte fee
-        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
+        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee(StateMachine.evm(97)));
 
         address[] memory path = new address[](2);
         path[0] = IUniswapV2Router02(IIsmpHost(gateway.params().host).uniswapV2Router()).WETH();

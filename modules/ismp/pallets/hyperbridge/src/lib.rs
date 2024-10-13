@@ -35,18 +35,16 @@
 //! messages from hyperbridge such as paramter updates or relayer fee withdrawals.
 //!
 //! ```rust,ignore
-//! use ismp::Error;
 //! use ismp::module::IsmpModule;
 //! use ismp::router::IsmpRouter;
-//! use pallet_hyperbridge::PALLET_HYPERBRIDGE_ID;
 //!
 //! #[derive(Default)]
 //! struct ModuleRouter;
 //!
 //! impl IsmpRouter for ModuleRouter {
-//!     fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+//!     fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 //!         return match id.as_slice() {
-//!             PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
+//!             pallet_hyperbridge::PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
 //!             _ => Err(Error::ModuleNotFound(id)),
 //!         };
 //!     }
@@ -58,7 +56,7 @@
 
 extern crate alloc;
 
-use alloc::format;
+use alloc::{collections::BTreeMap, format};
 use codec::{Decode, Encode};
 use frame_support::{
 	sp_runtime::traits::AccountIdConversion,
@@ -66,23 +64,30 @@ use frame_support::{
 };
 use ismp::{
 	dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
+	host::StateMachine,
 	module::IsmpModule,
 	router::{PostRequest, PostResponse, Response, Timeout},
 };
+pub use pallet::*;
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
 use primitive_types::H256;
 
-pub use pallet::*;
-
 pub mod child_trie;
 
+/// Host params for substrate based chains
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+pub struct SubstrateHostParams<B> {
+	/// The default per byte fee
+	pub default_per_byte_fee: B,
+	/// Per byte fee configured for specific chains
+	pub per_byte_fees: BTreeMap<StateMachine, B>,
+}
+
 /// Parameters that govern the working operations of this module. Versioned for ease of migration.
-#[derive(
-	Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, codec::MaxEncodedLen,
-)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum VersionedHostParams<Balance> {
 	/// The per-byte fee that hyperbridge charges for outgoing requests and responses.
-	V1(Balance),
+	V1(SubstrateHostParams<Balance>),
 }
 
 impl<Balance: Default> Default for VersionedHostParams<Balance> {
@@ -112,6 +117,7 @@ pub mod pallet {
 	}
 
 	#[pallet::pallet]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	/// The host parameters of the pallet-hyperbridge.
@@ -180,12 +186,15 @@ where
 	) -> Result<H256, anyhow::Error> {
 		let fees = match request {
 			DispatchRequest::Post(ref post) => {
-				let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
+				let VersionedHostParams::V1(params) = Self::host_params();
+				let per_byte_fee: u128 =
+					(*params.per_byte_fees.get(&post.dest).unwrap_or(&params.default_per_byte_fee))
+						.into();
 				// minimum fee is 32 bytes
 				let fees = if post.body.len() < 32 {
-					per_byte_fee.into() * 32 as u128
+					per_byte_fee * 32u128
 				} else {
-					per_byte_fee.into() * post.body.len() as u128
+					per_byte_fee * post.body.len() as u128
 				};
 
 				// collect protocol fees
@@ -221,12 +230,17 @@ where
 		fee: FeeMetadata<Self::Account, Self::Balance>,
 	) -> Result<H256, anyhow::Error> {
 		// collect protocol fees
-		let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
+		let VersionedHostParams::V1(params) = Self::host_params();
+		let per_byte_fee: u128 = (*params
+			.per_byte_fees
+			.get(&response.dest_chain())
+			.unwrap_or(&params.default_per_byte_fee))
+		.into();
 		// minimum fee is 32 bytes
 		let fees = if response.response.len() < 32 {
-			per_byte_fee.into() * 32 as u128
+			per_byte_fee * 32u128
 		} else {
-			per_byte_fee.into() * response.response.len() as u128
+			per_byte_fee * response.response.len() as u128
 		};
 
 		if fees != 0 {

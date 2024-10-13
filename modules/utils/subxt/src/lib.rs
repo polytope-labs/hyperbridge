@@ -29,7 +29,7 @@ mod gargantua_conversion {
 		consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 		host::StateMachine,
 	};
-	use pallet_ismp_host_executive::{EvmHostParam, HostParam};
+	use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 
 	impl From<runtime_types::ismp::consensus::StateCommitment> for StateCommitment {
 		fn from(commitment: runtime_types::ismp::consensus::StateCommitment) -> Self {
@@ -146,22 +146,32 @@ mod gargantua_conversion {
 	                           .0
 	                           .try_into()
 	                           .expect("Runtime will always provide bounded vec"),
-	                       // per_byte_fees: params
-	                       //     .fishermen
-	                       //     .0
-	                       //     .try_into()
-	                       //     .expect("Runtime will always provide bounded vec"),
+	                       per_byte_fees: params
+	                           .per_byte_fees
+							   .0
+							   .into_iter()
+							   .map(|p| {
+								   PerByteFee {
+									   state_id: p.state_id,
+									   per_byte_fee: {
+										   let alloy_value = alloy_primitives::U256::from_limbs(p.per_byte_fee.0);
+										   primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
+									   }
+								   }
+							   }).collect::<Vec<_>>().try_into().expect("Runtime will always provide bounded vec"),
 	                       hyperbridge: params
 	                           .hyperbridge
 	                           .0
 	                           .try_into()
 	                           .expect("Runtime will always provide bounded vec"),
-						   ..Default::default()
 	                   };
 	                   HostParam::EvmHostParam(evm)
 	               }
 	               runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(VersionedHostParams::V1(value)) => {
-	                   HostParam::SubstrateHostParam(pallet_hyperbridge::VersionedHostParams::V1(value))
+	                   HostParam::SubstrateHostParam(pallet_hyperbridge::VersionedHostParams::V1(pallet_hyperbridge::SubstrateHostParams {
+						   default_per_byte_fee: value.default_per_byte_fee,
+						   per_byte_fees: value.per_byte_fees.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+					   }))
 	               }
 	           }
 		}

@@ -9,7 +9,7 @@ use ismp::{
 	messaging::{Message, Proof, ResponseMessage},
 	router::{Request, RequestResponse},
 };
-use pallet_hyperbridge::VersionedHostParams;
+use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
 use pallet_ismp_demo as IsmpPalletDemo;
 use pallet_ismp_host_executive::HostParam;
 use sc_service::TaskManager;
@@ -167,7 +167,10 @@ async fn set_host_params(
 			.clone()
 			.set_host_params(BTreeMap::from([(
 				StateMachine::Kusama(2001),
-				HostParam::SubstrateHostParam(VersionedHostParams::V1(0)),
+				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
+					default_per_byte_fee: 0,
+					..Default::default()
+				})),
 			)]))
 			.await?;
 	} else {
@@ -176,7 +179,10 @@ async fn set_host_params(
 			.clone()
 			.set_host_params(BTreeMap::from([(
 				StateMachine::Kusama(2000),
-				HostParam::SubstrateHostParam(VersionedHostParams::V1(0)),
+				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
+					default_per_byte_fee: 0,
+					..Default::default()
+				})),
 			)]))
 			.await?;
 	}

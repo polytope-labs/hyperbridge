@@ -26,7 +26,7 @@ use crate::{
 use alloc::vec::Vec;
 
 /// Validate the state machine, verify the request message and dispatch the message to the modules
-pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
+pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, anyhow::Error>
 where
 	H: IsmpHost,
 {

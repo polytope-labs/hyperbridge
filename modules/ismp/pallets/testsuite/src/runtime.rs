@@ -39,16 +39,22 @@ use ismp::{
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{mmr::Leaf, ModuleId};
+use pallet_token_gateway::CreateAssetId;
+use pallet_token_governor::GatewayParams;
 use sp_core::{
 	crypto::AccountId32,
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H256,
+	H160, H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	BuildStorage,
 };
+
 use substrate_state_machine::SubstrateStateMachine;
+use xcm_simulator_example::ALICE;
+
+pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -75,6 +81,8 @@ frame_support::construct_runtime!(
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
 		IsmpSyncCommittee: ismp_sync_committee::pallet,
+		TokenGateway: pallet_token_gateway,
+		TokenGatewayInspector: pallet_token_gateway_inspector,
 	}
 );
 
@@ -203,6 +211,49 @@ impl pallet_hyperbridge::Config for Test {
 	type IsmpHost = Ismp;
 }
 
+parameter_types! {
+	pub const Decimals: u8 = 10;
+}
+
+pub struct AssetIdFactory;
+
+pub struct NativeAssetId;
+
+impl Get<H256> for NativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"NAND").into()
+	}
+}
+
+impl CreateAssetId<H256> for AssetIdFactory {
+	fn create_asset_id(symbol: Vec<u8>) -> Result<H256, anyhow::Error> {
+		Ok(sp_io::hashing::keccak_256(&symbol).into())
+	}
+}
+
+pub struct AssetAdmin;
+
+impl Get<<Test as frame_system::Config>::AccountId> for AssetAdmin {
+	fn get() -> <Test as frame_system::Config>::AccountId {
+		TokenGateway::pallet_account()
+	}
+}
+
+impl pallet_token_gateway::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Dispatcher = Ismp;
+	type Assets = Assets;
+	type Currency = Balances;
+	type NativeAssetId = NativeAssetId;
+	type AssetIdFactory = AssetIdFactory;
+	type Decimals = Decimals;
+	type AssetAdmin = AssetAdmin;
+}
+
+impl pallet_token_gateway_inspector::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+}
+
 impl ismp_sync_committee::pallet::Config for Test {
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IsmpHost = Ismp;
@@ -243,16 +294,16 @@ impl pallet_call_decompressor::Config for Test {
 pub struct ErrorModule;
 
 impl IsmpModule for ErrorModule {
-	fn on_accept(&self, _request: PostRequest) -> Result<(), Error> {
-		Err(Error::InsufficientProofHeight)
+	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
+		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), Error> {
-		Err(Error::InsufficientProofHeight)
+	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
-		Err(Error::InsufficientProofHeight)
+	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
+		Err(Error::InsufficientProofHeight.into())
 	}
 }
 
@@ -262,7 +313,7 @@ pub struct ModuleRouter;
 pub const ERROR_MODULE_ID: &'static [u8] = &[12, 24, 36, 48];
 
 impl IsmpRouter for ModuleRouter {
-	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+	fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		return match id.as_slice() {
 			ERROR_MODULE_ID => Ok(Box::new(ErrorModule)),
 			_ => Ok(Box::new(MockModule)),
@@ -290,15 +341,15 @@ where
 pub struct MockModule;
 
 impl IsmpModule for MockModule {
-	fn on_accept(&self, _request: PostRequest) -> Result<(), ismp::error::Error> {
+	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), ismp::error::Error> {
+	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), ismp::error::Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 }
@@ -424,7 +475,12 @@ where
 pub fn new_test_ext() -> sp_io::TestExternalities {
 	let _ = env_logger::builder().is_test(true).try_init();
 
-	let storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	let mut storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+	pallet_balances::GenesisConfig::<Test> {
+		balances: vec![(ALICE, INITIAL_BALANCE), (TokenGateway::pallet_account(), INITIAL_BALANCE)],
+	}
+	.assimilate_storage(&mut storage)
+	.unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(storage);
 	register_offchain_ext(&mut ext);
@@ -435,6 +491,25 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			pallet_token_governor::Params::<Balance> { registration_fee: Default::default() };
 
 		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
+		pallet_token_gateway::SupportedAssets::<Test>::insert(NativeAssetId::get(), H256::zero());
+		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), NativeAssetId::get());
+		pallet_token_gateway::Decimals::<Test>::insert(NativeAssetId::get(), 18);
+		pallet_token_gateway::TokenGatewayAddresses::<Test>::insert(
+			StateMachine::Evm(1),
+			H160::zero().0.to_vec(),
+		);
+		pallet_token_governor::StandaloneChainAssets::<Test>::insert(
+			StateMachine::Kusama(100),
+			H256::zero(),
+			true,
+		);
+
+		let params = GatewayParams {
+			address: H160::zero(),
+			host: H160::zero(),
+			call_dispatcher: H160::random(),
+		};
+		pallet_token_governor::TokenGatewayParams::<Test>::insert(StateMachine::Evm(1), params);
 	});
 	ext
 }

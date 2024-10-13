@@ -26,7 +26,7 @@ use crate::{
 use alloc::vec::Vec;
 
 /// This function handles timeouts
-pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
+pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, anyhow::Error>
 where
 	H: IsmpHost,
 {
@@ -104,7 +104,7 @@ where
 							host.store_request_receipt(&request, &signer.expect("Infaliible"))?;
 						}
 					}
-					Ok(res)
+					Ok::<_, anyhow::Error>(res)
 				})
 				.collect::<Result<Vec<_>, _>>()?
 		},
@@ -177,7 +177,7 @@ where
 							)?;
 						}
 					}
-					Ok(res)
+					Ok::<_, anyhow::Error>(res)
 				})
 				.collect::<Result<Vec<_>, _>>()?
 		},
@@ -218,7 +218,7 @@ where
 					if res.is_err() {
 						host.store_request_commitment(&request, meta)?;
 					}
-					Ok(res)
+					Ok::<_, anyhow::Error>(res)
 				})
 				.collect::<Result<Vec<_>, _>>()?
 		},

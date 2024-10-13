@@ -26,7 +26,7 @@ use crate::{
 use alloc::{vec, vec::Vec};
 
 /// Validate the state machine, verify the response message and dispatch the message to the modules
-pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
+pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, anyhow::Error>
 where
 	H: IsmpHost,
 {
@@ -100,7 +100,7 @@ where
 					if res.is_err() {
 						host.delete_response_receipt(&response)?;
 					}
-					Ok(res)
+					Ok::<_, anyhow::Error>(res)
 				})
 				.collect::<Result<Vec<_>, _>>()?
 		},
@@ -173,7 +173,7 @@ where
 					if res.is_err() {
 						host.delete_response_receipt(&response)?;
 					}
-					Ok(res)
+					Ok::<_, anyhow::Error>(res)
 				})
 				.collect::<Result<Vec<_>, _>>()?
 		},

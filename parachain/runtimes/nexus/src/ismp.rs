@@ -35,13 +35,15 @@ use ismp::{
 use pallet_asset_gateway::AssetGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
-use sp_core::crypto::AccountId32;
+use sp_core::{crypto::AccountId32, H256};
 
+use anyhow::anyhow;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_runtime::Permill;
 use sp_std::prelude::*;
+#[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
 
 #[derive(Default)]
@@ -134,10 +136,11 @@ impl pallet_token_governor::Config for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<Location> for XcmBenchmarkHelper {
-	fn create_asset_id_parameter(id: u32) -> Location {
+impl BenchmarkHelper<H256> for XcmBenchmarkHelper {
+	fn create_asset_id_parameter(id: u32) -> H256 {
+		use codec::Encode;
 		use staging_xcm::v4::Junction::Parachain;
-		Location::new(1, Parachain(id))
+		sp_io::hashing::keccak_256(&Location::new(1, Parachain(id)).encode()).into()
 	}
 }
 
@@ -152,8 +155,8 @@ parameter_types! {
 impl pallet_assets::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
-	type AssetId = Location;
-	type AssetIdParameter = Location;
+	type AssetId = H256;
+	type AssetIdParameter = H256;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;
@@ -173,7 +176,7 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl IsmpModule for ProxyModule {
-	fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
 		if request.dest != HostStateMachine::get() {
 			let token_gateway = Gateway::token_gateway_address(&request.dest);
 			if request.source.is_substrate() && request.from == token_gateway.0.to_vec() {
@@ -193,11 +196,11 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			id if id == token_gateway =>
 				pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
-			_ => Err(Error::Custom("Destination module not found".to_string())),
+			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), Error> {
+	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
 		if response.dest_chain() != HostStateMachine::get() {
 			Ismp::dispatch_response(
 				response,
@@ -206,10 +209,10 @@ impl IsmpModule for ProxyModule {
 			return Ok(());
 		}
 
-		Err(Error::Custom("Destination module not found".to_string()))
+		Err(anyhow!("Destination module not found"))
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), Error> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
 		let (from, source) = match &timeout {
 			Timeout::Request(Request::Post(post)) => (&post.from, &post.source),
 			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
@@ -231,7 +234,7 @@ impl IsmpModule for ProxyModule {
 pub struct Router;
 
 impl IsmpRouter for Router {
-	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		Ok(Box::new(ProxyModule::default()))
 	}
 }

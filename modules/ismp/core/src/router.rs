@@ -524,5 +524,5 @@ pub enum Timeout {
 pub trait IsmpRouter {
 	/// Return an instance of a configured [`IsmpModule`] associated with the provided module
 	/// identifier.
-	fn module_for_id(&self, bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error>;
+	fn module_for_id(&self, bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error>;
 }

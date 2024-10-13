@@ -320,6 +320,7 @@ use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
 use sp_runtime::traits::IdentityLookup;
+#[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
@@ -581,9 +582,9 @@ impl pallet_mmr::Config for Runtime {
 }
 
 parameter_types! {
-	pub const SpendingPeriod: BlockNumber = 6 * DAYS;
+	pub const SpendingPeriod: BlockNumber = 24 * DAYS;
 	pub const TreasuryPalletId: PalletId = PalletId(*b"hb/trsry");
-	pub const PayoutPeriod: BlockNumber = 14 * DAYS;
+	pub const PayoutPeriod: BlockNumber = 30 * DAYS;
 	pub const MaxBalance: Balance = Balance::max_value();
 	pub TreasuryAccount: AccountId = Treasury::account_id();
 	pub const TechnicalMotionDuration: BlockNumber = 5 * DAYS;
@@ -598,12 +599,18 @@ pub struct TreasuryAssetFactory {}
 #[cfg(feature = "runtime-benchmarks")]
 impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
 where
-	A: From<Location>,
+	A: From<[u8; 32]>,
 	B: FromEntropy,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
-			.into()
+		sp_io::hashing::keccak_256(
+			&Location {
+				parents: 0,
+				interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])),
+			}
+			.encode(),
+		)
+		.into()
 	}
 
 	fn create_beneficiary(seed: [u8; 32]) -> B {
@@ -614,11 +621,17 @@ where
 #[cfg(feature = "runtime-benchmarks")]
 impl<A> AssetKindFactory<A> for TreasuryAssetFactory
 where
-	A: From<Location>,
+	A: From<[u8; 32]>,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
-			.into()
+		sp_io::hashing::keccak_256(
+			&Location {
+				parents: 0,
+				interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])),
+			}
+			.encode(),
+		)
+		.into()
 	}
 }
 
@@ -635,7 +648,7 @@ impl pallet_treasury::Config for Runtime {
 	type SpendFunds = ();
 	type MaxApprovals = ConstU32<1>; // number of technical collectives
 	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
-	type AssetKind = Location;
+	type AssetKind = H256;
 	type Beneficiary = AccountId32;
 	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
 	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
@@ -652,7 +665,7 @@ impl pallet_asset_rate::Config for Runtime {
 	type RemoveOrigin = EnsureRoot<AccountId32>;
 	type UpdateOrigin = EnsureRoot<AccountId32>;
 	type Currency = Balances;
-	type AssetKind = Location;
+	type AssetKind = H256;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = TreasuryAssetFactory;
 }

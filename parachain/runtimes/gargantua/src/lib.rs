@@ -75,6 +75,8 @@ use pallet_ismp::mmr::Proof;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
+#[cfg(feature = "runtime-benchmarks")]
+use staging_xcm::latest::Location;
 use xcm::XcmOriginToTransactDispatchOrigin;
 
 #[cfg(any(feature = "std", test))]
@@ -103,7 +105,6 @@ use pallet_treasury::ArgumentsFactory;
 use pallet_ismp::mmr::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};
 use sp_runtime::traits::IdentityLookup;
-use staging_xcm::latest::Location;
 
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
@@ -232,7 +233,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("gargantua"),
 	impl_name: create_runtime_str!("gargantua"),
 	authoring_version: 1,
-	spec_version: 1130,
+	spec_version: 1140,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -571,9 +572,9 @@ impl pallet_utility::Config for Runtime {
 }
 
 parameter_types! {
-	pub const SpendingPeriod: BlockNumber = 6 * DAYS;
+	pub const SpendingPeriod: BlockNumber = 24 * DAYS;
 	pub const TreasuryPalletId: PalletId = PalletId(*b"hb/trsry");
-	pub const PayoutPeriod: BlockNumber = 14 * DAYS;
+	pub const PayoutPeriod: BlockNumber = 30 * DAYS;
 	pub const MaxBalance: Balance = Balance::max_value();
 	pub TreasuryAccount: AccountId = Treasury::account_id();
 	pub const TechnicalMotionDuration: BlockNumber = 5 * DAYS;
@@ -588,12 +589,19 @@ pub struct TreasuryAssetFactory {}
 #[cfg(feature = "runtime-benchmarks")]
 impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
 where
-	A: From<Location>,
+	A: From<[u8; 32]>,
 	B: FromEntropy,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
-			.into()
+		use codec::Encode;
+		sp_io::hashing::keccak_256(
+			&Location {
+				parents: 0,
+				interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])),
+			}
+			.encode(),
+		)
+		.into()
 	}
 
 	fn create_beneficiary(seed: [u8; 32]) -> B {
@@ -604,11 +612,18 @@ where
 #[cfg(feature = "runtime-benchmarks")]
 impl<A> AssetKindFactory<A> for TreasuryAssetFactory
 where
-	A: From<Location>,
+	A: From<[u8; 32]>,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location { parents: 0, interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])) }
-			.into()
+		use codec::Encode;
+		sp_io::hashing::keccak_256(
+			&Location {
+				parents: 0,
+				interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])),
+			}
+			.encode(),
+		)
+		.into()
 	}
 }
 
@@ -625,7 +640,7 @@ impl pallet_treasury::Config for Runtime {
 	type SpendFunds = ();
 	type MaxApprovals = ConstU32<1>; // number of technical collectives
 	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
-	type AssetKind = Location;
+	type AssetKind = H256;
 	type Beneficiary = AccountId32;
 	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
 	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
@@ -642,7 +657,7 @@ impl pallet_asset_rate::Config for Runtime {
 	type RemoveOrigin = EnsureRoot<AccountId32>;
 	type UpdateOrigin = EnsureRoot<AccountId32>;
 	type Currency = Balances;
-	type AssetKind = Location;
+	type AssetKind = H256;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = TreasuryAssetFactory;
 }
@@ -708,6 +723,7 @@ construct_runtime!(
 		TokenGovernor: pallet_token_governor = 59,
 		StateCoprocessor: pallet_state_coprocessor = 60,
 		Fishermen: pallet_fishermen = 61,
+		TokenGatewayInspector: pallet_token_gateway_inspector = 62,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,

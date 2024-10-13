@@ -27,12 +27,13 @@ use sp_core::{H160, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use crate::{
-	AssetMetadata, AssetMetadatas, AssetOwners, AssetRegistration, ChainWithSupply, Config,
-	ContractInstance, ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate, Error,
-	Event, GatewayParams, Pallet, PendingAsset, RegistrarParamsUpdate, SolAssetMetadata,
-	SolChangeAssetAdmin, SolContractInstance, SolDeregsiterAsset, SolRegistrarParams,
-	SolTokenGatewayParams, SupportedChains, TokenGatewayParams, TokenGatewayParamsUpdate,
-	TokenGatewayRequest, TokenRegistrarParams, UnsignedERC6160AssetRegistration, PALLET_ID,
+	token_gateway_id, AssetMetadata, AssetMetadatas, AssetOwners, AssetRegistration,
+	ChainWithSupply, Config, ContractInstance, ERC20AssetRegistration, ERC6160AssetRegistration,
+	ERC6160AssetUpdate, Error, Event, GatewayParams, Pallet, PendingAsset, RegistrarParamsUpdate,
+	SolAssetMetadata, SolChangeAssetAdmin, SolContractInstance, SolDeregsiterAsset,
+	SolRegistrarParams, SolTokenGatewayParams, SupportedChains, TokenGatewayParams,
+	TokenGatewayParamsUpdate, TokenGatewayRequest, TokenRegistrarParams,
+	UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
 impl<T: Config> Pallet<T>
@@ -68,8 +69,8 @@ where
 		let metadata = AssetMetadata {
 			name: asset.name.clone(),
 			symbol: asset.symbol.clone(),
-			logo: asset.logo.clone(),
-			..Default::default()
+			decimals: 18,
+			minimum_balance: asset.minimum_balance,
 		};
 
 		for ChainWithSupply { chain, supply } in asset.chains.clone() {
@@ -81,11 +82,16 @@ where
 				body.initialSupply = alloy_primitives::U256::from_limbs(supply.initial_supply.0);
 			}
 
-			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
-				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+			let address = if chain.is_substrate() {
+				token_gateway_id()
+			} else {
+				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+				address
+			};
 
 			let dispatcher = T::Dispatcher::default();
-			dispatcher
+			let commitment = dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
@@ -99,11 +105,11 @@ where
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 			// tracks which chains the asset is deployed on
 			SupportedChains::<T>::insert(asset_id, chain, true);
+			Self::deposit_event(Event::<T>::AssetRegistered { asset_id, commitment, dest: chain });
 		}
 
 		AssetMetadatas::<T>::insert(asset_id, metadata);
 		AssetOwners::<T>::insert(asset_id, who);
-		Self::deposit_event(Event::<T>::AssetRegistered { asset_id });
 
 		Ok(())
 	}
@@ -139,20 +145,14 @@ where
 
 	/// This allows the asset owner to update their Multi-chain native asset.
 	/// They are allowed to:
-	/// 1. Change the logo
-	/// 2. Dispatch a request to add the asset to any new chains
-	/// 3. Dispatch a request to delist the asset from the TokenGateway contract on any previously
+	///
+	/// 1. Dispatch a request to add the asset to any new chains
+	/// 2. Dispatch a request to delist the asset from the TokenGateway contract on any previously
 	///    supported chain (Should be used with caution)
-	/// 4. Dispatch a request to change the asset admin to another address.
+	/// 3. Dispatch a request to change the asset admin to another address.
 	pub fn update_erc6160_asset_impl(update: ERC6160AssetUpdate) -> Result<(), Error<T>> {
 		let metadata =
 			AssetMetadatas::<T>::get(&update.asset_id).ok_or_else(|| Error::<T>::UnknownAsset)?;
-
-		if let Some(logo) = update.logo {
-			AssetMetadatas::<T>::mutate(&update.asset_id, |metadata| {
-				metadata.as_mut().expect("Existence already checked; qed").logo = logo;
-			});
-		}
 
 		let dispatcher = T::Dispatcher::default();
 
@@ -162,8 +162,13 @@ where
 				continue;
 			}
 
-			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
-				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+			let address = if chain.is_substrate() {
+				token_gateway_id()
+			} else {
+				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+				address
+			};
 
 			let mut body: SolAssetMetadata =
 				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
@@ -195,8 +200,13 @@ where
 				continue;
 			}
 
-			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
-				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+			let address = if chain.is_substrate() {
+				token_gateway_id()
+			} else {
+				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
+				address
+			};
 
 			let body = SolDeregsiterAsset { assetIds: vec![update.asset_id.0.into()] };
 			dispatcher
@@ -365,14 +375,15 @@ where
 			Err(Error::<T>::AssetAlreadyExists)?
 		}
 
-		let metadata = AssetMetadata {
+		let mut metadata = AssetMetadata {
 			name: asset.name.clone(),
 			symbol: asset.symbol.clone(),
-			logo: asset.logo.clone(),
 			..Default::default()
 		};
 
-		for AssetRegistration { chain, erc20, erc6160 } in asset.chains {
+		for AssetRegistration { chain, erc20, erc6160, decimals } in asset.chains {
+			// Set the parent ERC20 asset's decimals value
+			metadata.decimals = decimals;
 			let mut body: SolAssetMetadata =
 				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
 
@@ -388,7 +399,7 @@ where
 				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
 
 			let dispatcher = T::Dispatcher::default();
-			dispatcher
+			let commitment = dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
 						dest: chain.clone(),
@@ -402,13 +413,13 @@ where
 				.map_err(|_| Error::<T>::DispatchFailed)?;
 			// tracks which chains the asset is deployed on
 			SupportedChains::<T>::insert(asset_id, chain, true);
+			Self::deposit_event(Event::<T>::AssetRegistered { asset_id, commitment, dest: chain });
 		}
 
 		AssetMetadatas::<T>::insert(asset_id, metadata);
 
 		let who: T::AccountId = PalletId(PALLET_ID).into_account_truncating();
 		AssetOwners::<T>::insert(asset_id, who);
-		Self::deposit_event(Event::<T>::AssetRegistered { asset_id });
 		Ok(())
 	}
 }

@@ -1,6 +1,6 @@
 [package]
 name = "ismp"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Rust implementation of the interoperable state machine protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -34,5 +34,6 @@ std = [
     "anyhow/std",
     "hex/std",
     "serde_json/std",
-    "serde-hex-utils/std"
+    "serde-hex-utils/std",
+    "anyhow/std"
 ]

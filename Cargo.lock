@@ -6065,6 +6065,7 @@ dependencies = [
 name = "gargantua-runtime"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "cumulus-pallet-aura-ext",
  "cumulus-pallet-dmp-queue",
  "cumulus-pallet-parachain-system",
@@ -6116,6 +6117,8 @@ dependencies = [
  "pallet-state-coprocessor",
  "pallet-sudo",
  "pallet-timestamp",
+ "pallet-token-gateway",
+ "pallet-token-gateway-inspector",
  "pallet-token-governor",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -6135,6 +6138,7 @@ dependencies = [
  "sp-core 34.0.0",
  "sp-genesis-builder 0.15.0",
  "sp-inherents 34.0.0",
+ "sp-io 38.0.0",
  "sp-mmr-primitives",
  "sp-offchain 34.0.0",
  "sp-runtime 39.0.0",
@@ -6579,7 +6583,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -6612,7 +6616,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier-primitives"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "finality-grandpa",
@@ -7655,7 +7659,7 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "ismp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -7691,7 +7695,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "ckb-merkle-mountain-range",
  "cumulus-primitives-core",
@@ -7715,7 +7719,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -7739,7 +7743,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7759,7 +7763,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-runtime-api"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "sp-api 34.0.0",
@@ -7854,6 +7858,7 @@ dependencies = [
 name = "ismp-testsuite"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "ismp",
  "once_cell",
  "parity-scale-codec",
@@ -10301,7 +10306,7 @@ dependencies = [
 
 [[package]]
 name = "mmr-primitives"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
@@ -10908,6 +10913,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 name = "nexus-runtime"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "cumulus-pallet-aura-ext",
  "cumulus-pallet-dmp-queue",
  "cumulus-pallet-parachain-system",
@@ -10975,6 +10981,7 @@ dependencies = [
  "sp-core 34.0.0",
  "sp-genesis-builder 0.15.0",
  "sp-inherents 34.0.0",
+ "sp-io 38.0.0",
  "sp-mmr-primitives",
  "sp-offchain 34.0.0",
  "sp-runtime 39.0.0",
@@ -11616,6 +11623,7 @@ dependencies = [
  "frame-system",
  "ismp",
  "pallet-ismp",
+ "pallet-token-gateway",
  "pallet-token-governor",
  "pallet-xcm",
  "parity-scale-codec",
@@ -12110,8 +12118,9 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
+ "anyhow",
  "frame-support 37.0.0",
  "frame-system",
  "ismp",
@@ -12178,8 +12187,9 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
+ "anyhow",
  "env_logger 0.10.2",
  "fortuples",
  "frame-benchmarking",
@@ -12205,6 +12215,7 @@ dependencies = [
 name = "pallet-ismp-demo"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "frame-support 37.0.0",
  "frame-system",
  "ismp",
@@ -12272,7 +12283,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -12300,7 +12311,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -12351,6 +12362,8 @@ dependencies = [
  "pallet-mmr 0.1.1",
  "pallet-sudo",
  "pallet-timestamp",
+ "pallet-token-gateway",
+ "pallet-token-gateway-inspector",
  "pallet-token-governor",
  "pallet-xcm",
  "parachains-common",
@@ -12932,6 +12945,51 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "serde",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+]
+
+[[package]]
+name = "pallet-token-gateway"
+version = "1.15.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-macro",
+ "alloy-sol-types",
+ "anyhow",
+ "frame-support 37.0.0",
+ "frame-system",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "pallet-token-governor",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+]
+
+[[package]]
+name = "pallet-token-gateway-inspector"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-macro",
+ "alloy-sol-types",
+ "anyhow",
+ "frame-support 37.0.0",
+ "frame-system",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "pallet-token-gateway",
+ "pallet-token-governor",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
  "sp-core 34.0.0",
  "sp-io 38.0.0",
  "sp-runtime 39.0.0",
@@ -19871,7 +19929,7 @@ dependencies = [
 
 [[package]]
 name = "serde-hex-utils"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "hex",
@@ -23056,7 +23114,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "frame-support 37.0.0",
  "hash-db",

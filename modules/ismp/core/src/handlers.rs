@@ -55,7 +55,10 @@ pub enum MessageResult {
 }
 
 /// This function serves as an entry point to handle the message types provided by the ISMP protocol
-pub fn handle_incoming_message<H>(host: &H, message: Message) -> Result<MessageResult, Error>
+pub fn handle_incoming_message<H>(
+	host: &H,
+	message: Message,
+) -> Result<MessageResult, anyhow::Error>
 where
 	H: IsmpHost,
 {

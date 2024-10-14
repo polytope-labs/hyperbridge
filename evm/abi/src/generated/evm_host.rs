@@ -5623,7 +5623,7 @@ pub mod evm_host {
 	)]
 	pub struct HostParams {
 		pub default_timeout: ::ethers::core::types::U256,
-		pub per_byte_fee: ::ethers::core::types::U256,
+		pub default_per_byte_fee: ::ethers::core::types::U256,
 		pub state_commitment_fee: ::ethers::core::types::U256,
 		pub fee_token: ::ethers::core::types::Address,
 		pub admin: ::ethers::core::types::Address,

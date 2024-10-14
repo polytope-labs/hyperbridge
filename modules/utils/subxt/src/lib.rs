@@ -125,7 +125,7 @@ mod gargantua_conversion {
 	               runtime_types::pallet_ismp_host_executive::params::HostParam::EvmHostParam(params) => {
 	                   let evm = EvmHostParam {
 	                       default_timeout: params.default_timeout,
-	                       per_byte_fee: {
+	                       default_per_byte_fee: {
 								let alloy_value = alloy_primitives::U256::from_limbs(params.per_byte_fee.0);
 								primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
 							},

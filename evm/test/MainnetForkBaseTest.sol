@@ -90,7 +90,7 @@ contract MainnetForkBaseTest is Test {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            perByteFee: 3 * 1e15, // $0.003/byte
+            defaultPerByteFee: 3 * 1e15, // $0.003/byte
             stateCommitmentFee: 10 * 1e18, // $10
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),

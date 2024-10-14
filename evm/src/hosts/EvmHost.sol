@@ -45,7 +45,7 @@ struct HostParams {
     // with a timeout value lower than this this value will be used instead
     uint256 defaultTimeout;
     // The default per byte fee.
-    uint256 perByteFee;
+    uint256 defaultPerByteFee;
     // The cost for applications to access the hyperbridge state commitment.
     // They might do so because the hyperbridge state contains the verified state commitments
     // for all chains and they want to directly read the state of these chains state bypassing
@@ -520,7 +520,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function perByteFee(bytes memory stateId) public view returns (uint256) {
         uint256 overridden = _perByteFees[keccak256(stateId)];
         if (overridden == 0) {
-            return _hostParams.perByteFee;
+            return _hostParams.defaultPerByteFee;
         }
         return overridden;
     }
@@ -738,7 +738,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // update all but .perByteFees, sigh solidity
         _hostParams.defaultTimeout = params.defaultTimeout;
-        _hostParams.perByteFee = params.perByteFee;
+        _hostParams.defaultPerByteFee = params.defaultPerByteFee;
         _hostParams.stateCommitmentFee = params.stateCommitmentFee;
         _hostParams.feeToken = params.feeToken;
         _hostParams.admin = params.admin;

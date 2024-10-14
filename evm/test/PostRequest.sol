@@ -40,7 +40,7 @@ contract PostRequestTest is BaseTest {
     ) public {
         feeToken.mint(address(this), 1_000_000_000 * 1e18);
         feeToken.approve(address(testModule), type(uint256).max);
-        uint256 fee = host.hostParams().perByteFee * (32 > request.body.length ? 32 : request.body.length);
+        uint256 fee = host.hostParams().defaultPerByteFee * (32 > request.body.length ? 32 : request.body.length);
         uint256 balanceBefore = feeToken.balanceOf(address(this));
 
         testModule.dispatch(request);

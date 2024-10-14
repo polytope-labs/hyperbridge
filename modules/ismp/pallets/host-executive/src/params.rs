@@ -45,7 +45,7 @@ pub struct EvmHostParam {
 	/// the minimum default timeout in seconds
 	pub default_timeout: u128,
 	/// The fee to charge per byte
-	pub per_byte_fee: U256,
+	pub default_per_byte_fee: U256,
 	/// The cost for applications to access the hyperbridge state commitment.
 	/// They might do so because the hyperbridge state contains the verified state commitments
 	/// for all chains and they want to directly read the state of these chains state bypassing
@@ -83,8 +83,8 @@ impl EvmHostParam {
 			self.default_timeout = default_timeout;
 		}
 
-		if let Some(per_byte_fee) = update.per_byte_fee {
-			self.per_byte_fee = per_byte_fee;
+		if let Some(per_byte_fee) = update.default_per_byte_fee {
+			self.default_per_byte_fee = per_byte_fee;
 		}
 
 		if let Some(state_commitment_fee) = update.state_commitment_fee {
@@ -144,8 +144,8 @@ impl EvmHostParam {
 pub struct EvmHostParamUpdate {
 	/// the minimum default timeout in seconds
 	pub default_timeout: Option<u128>,
-	/// The fee to charge per byte
-	pub per_byte_fee: Option<U256>,
+	/// The default per byte fee
+	pub default_per_byte_fee: Option<U256>,
 	/// The address of the fee token contract.
 	/// It's important that before changing this parameter,
 	/// that all funds have been drained from the previous feeToken
@@ -194,7 +194,7 @@ alloy_sol_macro::sol! {
 		// default timeout in seconds for requests.
 		uint256 defaultTimeout;
 		// cost of cross-chain requests in the fee token per byte
-		uint256 perByteFee;
+		uint256 defaultPerByteFee;
 		// The cost for applications to access the hyperbridge state commitment.
 		// They might do so because the hyperbridge state contains the verified state commitments
 		// for all chains and they want to directly read the state of these chains state bypassing
@@ -245,9 +245,9 @@ impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 	fn try_from(value: EvmHostParam) -> Result<Self, anyhow::Error> {
 		Ok(EvmHostParamsAbi {
 			defaultTimeout: value.default_timeout.try_into().map_err(anyhow::Error::msg)?,
-			perByteFee: {
+			defaultPerByteFee: {
 				let mut buf = [0u8; 32];
-				value.per_byte_fee.to_little_endian(&mut buf);
+				value.default_per_byte_fee.to_little_endian(&mut buf);
 				alloy_primitives::U256::from_le_bytes(buf)
 			},
 			stateCommitmentFee: {

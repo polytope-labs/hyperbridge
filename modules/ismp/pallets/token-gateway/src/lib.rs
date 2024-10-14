@@ -28,10 +28,11 @@ use frame_support::{
 	pallet_prelude::Weight,
 	traits::{
 		fungibles::{self, Mutate},
-		tokens::Preservation,
+		tokens::{fungible::Mutate as FungibleMutate, Preservation},
 		Currency, ExistenceRequirement,
 	},
 };
+
 use ismp::{
 	events::Meta,
 	router::{PostRequest, Request, Response, Timeout},
@@ -54,20 +55,22 @@ const MIN_BALANCE: u128 = 1_000_000_000;
 #[frame_support::pallet]
 pub mod pallet {
 	use alloc::collections::BTreeMap;
+	use pallet_hyperbridge::PALLET_HYPERBRIDGE;
+	use sp_runtime::traits::AccountIdConversion;
 
 	use super::*;
 	use frame_support::{
 		pallet_prelude::*,
-		traits::{fungible::Mutate as _, tokens::Preservation, Currency, ExistenceRequirement},
+		traits::{tokens::Preservation, Currency, ExistenceRequirement},
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
-	use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams, PALLET_HYPERBRIDGE};
+	use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
 	use pallet_token_governor::{ERC6160AssetUpdate, RemoteERC6160AssetRegistration};
-	use sp_runtime::traits::{AccountIdConversion, Zero};
+	use sp_runtime::traits::{Zero};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -95,7 +98,8 @@ pub mod pallet {
 		type Assets: fungibles::Mutate<Self::AccountId>
 			+ fungibles::Inspect<Self::AccountId>
 			+ fungibles::Create<Self::AccountId>
-			+ fungibles::metadata::Mutate<Self::AccountId>;
+			+ fungibles::metadata::Mutate<Self::AccountId>
+			+ fungibles::roles::Inspect<Self::AccountId>;
 
 		/// The native asset ID
 		type NativeAssetId: Get<AssetId<Self>>;
@@ -127,6 +131,11 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type TokenGatewayAddresses<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, Vec<u8>, OptionQuery>;
+
+	/// TokenGovernor protocol parameters.
+	#[pallet::storage]
+	pub type ProtocolParams<T: Config> =
+		StorageValue<_, Params<<T as pallet_ismp::Config>::Balance>, OptionQuery>;
 
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
@@ -188,6 +197,12 @@ pub mod pallet {
 		AssetCreationError,
 		/// Asset decimals not found
 		AssetDecimalsNotFound,
+		/// Protocol Params have not been initialized
+		NotInitialized,
+		/// Unknown Asset
+		UnknownAsset,
+		/// Only root or asset owner can update asset
+		NotAssetOwner,
 	}
 
 	#[pallet::call]
@@ -344,13 +359,13 @@ pub mod pallet {
 							.map_err(|_| Error::<T>::AssetCreationError)?;
 					<T::Assets as fungibles::Create<T::AccountId>>::create(
 						local_asset_id.clone(),
-						T::AssetAdmin::get(),
+						who.clone(),
 						true,
 						asset_map.reg.minimum_balance.unwrap_or(MIN_BALANCE).into(),
 					)?;
 					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
 						local_asset_id.clone(),
-						&T::AssetAdmin::get(),
+						&who,
 						asset_map.reg.name.to_vec(),
 						asset_map.reg.symbol.to_vec(),
 						18,
@@ -376,7 +391,7 @@ pub mod pallet {
 				},
 			};
 
-			let metadata = FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() };
+			let metadata = FeeMetadata { payer: who, fee: Default::default() };
 
 			let commitment = dispatcher
 				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
@@ -396,7 +411,12 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			assets: Vec<ERC6160AssetUpdate>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			let who = ensure_signed(origin)?;
+			for update in &assets {
+				let asset_id = LocalAssets::<T>::get(update.asset_id.clone())
+					.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
+				Self::ensure_admin(who.clone(), asset_id)?;
+			}
 
 			// charge hyperbridge fees
 
@@ -409,7 +429,7 @@ pub mod pallet {
 				body: { RemoteERC6160AssetRegistration::UpdateAssets(assets).encode() },
 			};
 
-			let metadata = FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() };
+			let metadata = FeeMetadata { payer: who, fee: Default::default() };
 
 			let commitment = dispatcher
 				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
@@ -670,4 +690,14 @@ where
 /// Static weights because benchmarks suck, and we'll be getting PolkaVM soon anyways
 fn weight() -> Weight {
 	Weight::from_parts(300_000_000, 0)
+}
+
+impl<T: Config> Pallet<T> {
+	/// Ensure the signer is the asset admin
+	pub fn ensure_admin(who: T::AccountId, asset_id: AssetId<T>) -> Result<(), Error<T>> {
+		let owner = <T::Assets as fungibles::roles::Inspect<T::AccountId>>::admin(asset_id)
+			.ok_or_else(|| Error::<T>::UnknownAsset)?;
+		ensure!(who == owner, Error::<T>::NotAssetOwner);
+		Ok(())
+	}
 }

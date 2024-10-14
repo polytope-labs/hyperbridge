@@ -27,6 +27,13 @@ use crate::Config;
 pub type AssetId<T> =
 	<<T as Config>::Assets as fungibles::Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
 
+/// Protocol parameters
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+pub struct Params<Balance> {
+	/// The asset registration fee in stable tokens, collected by the treasury
+	pub registration_fee: Balance,
+}
+
 /// Asset teleportation parameters
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct TeleportParams<AssetId, Balance> {

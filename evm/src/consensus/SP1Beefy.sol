@@ -32,7 +32,7 @@ contract SP1Beefy is IConsensusClient, ERC165 {
     using HeaderImpl for Header;
 
     // SP1 verification key
-    bytes32 verificationKey = bytes32(0x00b3830a7bcbd368596446801391435c29bb5319827319de0acb83fb7490ef49);
+    bytes32 public verificationKey = bytes32(0x00b3830a7bcbd368596446801391435c29bb5319827319de0acb83fb7490ef49);
 
     // Sp1 verifier contract
     ISP1Verifier internal _verifier;
@@ -57,6 +57,9 @@ contract SP1Beefy is IConsensusClient, ERC165 {
         return interfaceId == type(IConsensusClient).interfaceId || super.supportsInterface(interfaceId);
     }
 
+    /*
+    * @dev Given some opaque consensus proof, produce the new consensus state and newly finalized intermediate states.
+    */
     function verifyConsensus(
         bytes calldata encodedState,
         bytes calldata encodedProof
@@ -84,8 +87,7 @@ contract SP1Beefy is IConsensusClient, ERC165 {
     }
 
     /**
-     * @dev Verify the consensus proof and return the new trusted consensus state and any
-     * intermediate states finalized by this consensus proof.
+     * @dev Verifies an SP1 proof of consensus.
      */
     function verifyConsensus(
         BeefyConsensusState memory trustedState,

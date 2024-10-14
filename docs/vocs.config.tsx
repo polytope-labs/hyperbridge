@@ -398,7 +398,7 @@ export default defineConfig({
 
           {
             text: "Token Gateway",
-            link: "/developers/polkadot/tokengateway",
+            link: "/developers/polkadot/token-gateway",
           },
 
           // {

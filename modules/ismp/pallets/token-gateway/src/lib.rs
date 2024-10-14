@@ -240,8 +240,6 @@ pub mod pallet {
 				)
 			};
 
-			// Dispatch Ismp request
-			// Token gateway expected abi encoded address
 			let to = params.recepient.0;
 			let from: [u8; 32] = who.clone().into();
 			let erc_decimals = Decimals::<T>::get(params.asset_id)
@@ -399,7 +397,6 @@ pub mod pallet {
 			T::AdminOrigin::ensure_origin(origin)?;
 
 			// charge hyperbridge fees
-
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
 				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,

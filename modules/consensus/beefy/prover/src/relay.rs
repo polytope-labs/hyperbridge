@@ -19,7 +19,6 @@ use mmr_rpc::LeavesProof;
 use primitive_types::H256;
 use sp_consensus_beefy::{SignedCommitment, VersionedFinalityProof};
 use sp_storage::StorageKey;
-use std::collections::BTreeMap;
 use subxt::{
 	config::{substrate::SubstrateHeader, Header},
 	rpc::rpc_params,
@@ -27,15 +26,6 @@ use subxt::{
 };
 
 use crate::BEEFY_VALIDATOR_SET_ID;
-
-/// This contains the leaf indices of the relay chain blocks and a map of relay chain heights to a
-/// map of all parachain headers at those heights Used for generating [`ParaHeadsProof`]
-pub struct FinalizedParaHeads {
-	/// Block numbers
-	pub block_numbers: Vec<u32>,
-	/// Map of relay chain heights to map of para ids and parachain headers SCALE-encoded
-	pub raw_finalized_heads: BTreeMap<u64, BTreeMap<u32, Vec<u8>>>,
-}
 
 /// Get beefy justification for block_hash
 pub async fn fetch_latest_beefy_justification<T: Config>(

@@ -253,8 +253,6 @@ pub mod pallet {
 				)
 			};
 
-			// Dispatch Ismp request
-			// Token gateway expected abi encoded address
 			let to = params.recepient.0;
 			let from: [u8; 32] = who.clone().into();
 			let erc_decimals = Decimals::<T>::get(params.asset_id)

@@ -21,7 +21,6 @@ import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
 import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
-import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "@polytope-labs/ismp-solidity/IDispatcher.sol";
 import "../src/hosts/EvmHost.sol";
 import "@polytope-labs/ismp-solidity/Message.sol";

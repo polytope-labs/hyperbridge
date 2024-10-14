@@ -171,6 +171,7 @@ mod gargantua_conversion {
 	                   HostParam::SubstrateHostParam(pallet_hyperbridge::VersionedHostParams::V1(pallet_hyperbridge::SubstrateHostParams {
 						   default_per_byte_fee: value.default_per_byte_fee,
 						   per_byte_fees: value.per_byte_fees.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+						   asset_registration_fee: value.asset_registration_fee,
 					   }))
 	               }
 	           }

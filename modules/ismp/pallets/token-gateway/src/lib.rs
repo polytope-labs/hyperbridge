@@ -58,14 +58,16 @@ pub mod pallet {
 	use super::*;
 	use frame_support::{
 		pallet_prelude::*,
-		traits::{tokens::Preservation, Currency, ExistenceRequirement},
+		traits::{fungible::Mutate as _, tokens::Preservation, Currency, ExistenceRequirement},
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
+	use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams, PALLET_HYPERBRIDGE};
 	use pallet_token_governor::{ERC6160AssetUpdate, RemoteERC6160AssetRegistration};
+	use sp_runtime::traits::{AccountIdConversion, Zero};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -73,7 +75,9 @@ pub mod pallet {
 
 	/// The pallet's configuration trait.
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config {
+	pub trait Config:
+		frame_system::Config + pallet_ismp::Config + pallet_hyperbridge::Config
+	{
 		/// The overarching runtime event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -81,7 +85,7 @@ pub mod pallet {
 		type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
 
 		/// A currency implementation for interacting with the native asset
-		type Currency: Currency<Self::AccountId>;
+		type NativeCurrency: Currency<Self::AccountId>;
 
 		/// A funded account that would be set as asset admin and also make payments for asset
 		/// creation
@@ -135,7 +139,7 @@ pub mod pallet {
 			/// beneficiary account on destination
 			to: H256,
 			/// Amount transferred
-			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+			amount: <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
 			/// Destination chain
 			dest: StateMachine,
 			/// Request commitment
@@ -147,7 +151,7 @@ pub mod pallet {
 			/// beneficiary account on relaychain
 			beneficiary: T::AccountId,
 			/// Amount transferred
-			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+			amount: <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
 			/// Destination chain
 			source: StateMachine,
 		},
@@ -157,7 +161,7 @@ pub mod pallet {
 			/// beneficiary account on relaychain
 			beneficiary: T::AccountId,
 			/// Amount transferred
-			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+			amount: <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
 			/// Destination chain
 			source: StateMachine,
 		},
@@ -190,11 +194,11 @@ pub mod pallet {
 	impl<T: Config> Pallet<T>
 	where
 		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-		u128: From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
+		u128: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
 		<T as pallet_ismp::Config>::Balance:
-			From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
+			From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
 		<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance:
-			From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
+			From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
 		<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
 		[u8; 32]: From<<T as frame_system::Config>::AccountId>,
 	{
@@ -206,7 +210,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			params: TeleportParams<
 				AssetId<T>,
-				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+				<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
 			>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -216,7 +220,7 @@ pub mod pallet {
 				.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
 			let decimals = if params.asset_id == T::NativeAssetId::get() {
 				// Custody funds in pallet
-				<T as Config>::Currency::transfer(
+				<T as Config>::NativeCurrency::transfer(
 					&who,
 					&Self::pallet_account(),
 					params.amount,
@@ -308,7 +312,20 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			assets: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			let who = ensure_signed(origin)?;
+
+			// charge hyperbridge fees
+			let VersionedHostParams::V1(SubstrateHostParams { asset_registration_fee, .. }) =
+				pallet_hyperbridge::Pallet::<T>::host_params();
+
+			if asset_registration_fee != Zero::zero() {
+				T::Currency::transfer(
+					&who,
+					&PALLET_HYPERBRIDGE.into_account_truncating(),
+					asset_registration_fee.into(),
+					Preservation::Expendable,
+				)?;
+			}
 
 			for asset_map in assets.assets.clone() {
 				let asset_id: H256 =
@@ -381,6 +398,8 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
+			// charge hyperbridge fees
+
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
 				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
@@ -414,7 +433,7 @@ pub mod pallet {
 impl<T: Config> IsmpModule for Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-	<<T as Config>::Currency as Currency<T::AccountId>>::Balance: From<u128>,
+	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
 	<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
 {
 	fn on_accept(
@@ -529,7 +548,7 @@ where
 		})?;
 		let beneficiary: T::AccountId = body.to.0.into();
 		if local_asset_id == T::NativeAssetId::get() {
-			<T as Config>::Currency::transfer(
+			<T as Config>::NativeCurrency::transfer(
 				&Pallet::<T>::pallet_account(),
 				&beneficiary,
 				amount.into(),
@@ -600,7 +619,7 @@ where
 				})?;
 
 				if local_asset_id == T::NativeAssetId::get() {
-					<T as Config>::Currency::transfer(
+					<T as Config>::NativeCurrency::transfer(
 						&Pallet::<T>::pallet_account(),
 						&beneficiary,
 						amount.into(),

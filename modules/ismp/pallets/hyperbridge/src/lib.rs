@@ -81,6 +81,8 @@ pub struct SubstrateHostParams<B> {
 	pub default_per_byte_fee: B,
 	/// Per byte fee configured for specific chains
 	pub per_byte_fees: BTreeMap<StateMachine, B>,
+	/// Asset registration fee
+	pub asset_registration_fee: B,
 }
 
 /// Parameters that govern the working operations of this module. Versioned for ease of migration.

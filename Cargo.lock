@@ -12952,7 +12952,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-macro",
@@ -12962,6 +12962,7 @@ dependencies = [
  "frame-system",
  "ismp",
  "log",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-token-governor",
  "parity-scale-codec",

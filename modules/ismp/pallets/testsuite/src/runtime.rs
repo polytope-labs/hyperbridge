@@ -243,7 +243,7 @@ impl pallet_token_gateway::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Dispatcher = Ismp;
 	type Assets = Assets;
-	type Currency = Balances;
+	type NativeCurrency = Balances;
 	type NativeAssetId = NativeAssetId;
 	type AssetIdFactory = AssetIdFactory;
 	type Decimals = Decimals;

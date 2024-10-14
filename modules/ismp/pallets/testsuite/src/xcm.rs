@@ -22,13 +22,13 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::EnsureRoot;
-use pallet_asset_gateway::{
-	xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor},
-	AssetGatewayParams,
-};
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm::XcmPassthrough;
+use pallet_xcm_gateway::{
+	xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor},
+	AssetGatewayParams,
+};
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
 use sp_core::H256;
 use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Permill};
@@ -356,7 +356,7 @@ parameter_types! {
 	pub const TransferParams: AssetGatewayParams = AssetGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
 }
 
-impl pallet_asset_gateway::Config for Test {
+impl pallet_xcm_gateway::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
 	type Params = TransferParams;

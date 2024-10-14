@@ -41,7 +41,7 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::XcmExecutor;
 
-use pallet_asset_gateway::xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor};
+use pallet_xcm_gateway::xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor};
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();

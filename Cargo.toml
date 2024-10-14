@@ -300,7 +300,7 @@ pallet-ismp-demo = { path = "modules/ismp/pallets/demo", default-features = fals
 pallet-ismp-relayer = { path = "modules/ismp/pallets/relayer", default-features = false }
 pallet-ismp-host-executive = { path = "modules/ismp/pallets/host-executive", default-features = false }
 pallet-call-decompressor = { path = "modules/ismp/pallets/call-decompressor", default-features = false }
-pallet-asset-gateway = { path = "modules/ismp/pallets/asset-gateway", default-features = false }
+pallet-xcm-gateway = { path = "modules/ismp/pallets/asset-gateway", default-features = false }
 pallet-token-governor = { path = "modules/ismp/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/ismp/pallets/state-coprocessor", default-features = false }
 pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }

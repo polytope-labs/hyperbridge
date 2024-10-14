@@ -95,7 +95,7 @@ ismp-bsc = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
-pallet-asset-gateway = { workspace = true  }
+pallet-xcm-gateway = { workspace = true  }
 pallet-token-governor = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 
@@ -171,7 +171,7 @@ std = [
 	"pallet-ismp-relayer/std",
 	"pallet-ismp-host-executive/std",
 	"pallet-call-decompressor/std",
-	"pallet-asset-gateway/std",
+	"pallet-xcm-gateway/std",
 	"pallet-token-governor/std",
 	"pallet-assets/std",
 	"pallet-mmr/std",

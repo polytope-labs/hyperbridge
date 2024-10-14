@@ -32,9 +32,9 @@ use alloc::{format, vec};
 use codec::Encode;
 use ismp::module::IsmpModule;
 use primitive_types::{H160, H256};
-use token_gateway_primitives::{
-	token_gateway_id, RemoteERC6160AssetRegistration, REGISTRY as PALLET_ID,
-};
+use token_gateway_primitives::{token_gateway_id, RemoteERC6160AssetRegistration};
+
+pub use token_gateway_primitives::REGISTRY as PALLET_ID;
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;

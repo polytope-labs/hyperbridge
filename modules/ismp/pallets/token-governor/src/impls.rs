@@ -76,14 +76,6 @@ where
 		};
 
 		for ChainWithSupply { chain, supply } in asset.chains.clone() {
-			let mut body: SolAssetMetadata =
-				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
-
-			if let Some(supply) = supply {
-				body.beneficiary = supply.beneficiary.0.into();
-				body.initialSupply = alloy_primitives::U256::from_limbs(supply.initial_supply.0);
-			}
-
 			let address = if chain.is_substrate() {
 				token_gateway_id()
 			} else {
@@ -103,6 +95,14 @@ where
 						body: if chain.is_substrate() {
 							metadata.encode()
 						} else {
+							let mut body: SolAssetMetadata =
+								metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
+
+							if let Some(supply) = supply {
+								body.beneficiary = supply.beneficiary.0.into();
+								body.initialSupply =
+									alloy_primitives::U256::from_limbs(supply.initial_supply.0);
+							}
 							body.encode_request()
 						},
 					}),
@@ -176,14 +176,6 @@ where
 				address
 			};
 
-			let mut body: SolAssetMetadata =
-				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
-
-			if let Some(supply) = supply {
-				body.beneficiary = supply.beneficiary.0.into();
-				body.initialSupply = alloy_primitives::U256::from_limbs(supply.initial_supply.0);
-			}
-
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
@@ -194,6 +186,14 @@ where
 						body: if chain.is_substrate() {
 							metadata.encode()
 						} else {
+							let mut body: SolAssetMetadata =
+								metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
+
+							if let Some(supply) = supply {
+								body.beneficiary = supply.beneficiary.0.into();
+								body.initialSupply =
+									alloy_primitives::U256::from_limbs(supply.initial_supply.0);
+							}
 							body.encode_request()
 						},
 					}),
@@ -218,7 +218,6 @@ where
 				address
 			};
 
-			let body = SolDeregsiterAsset { assetIds: vec![update.asset_id.0.into()] };
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
@@ -232,6 +231,8 @@ where
 							}
 							.encode()
 						} else {
+							let body =
+								SolDeregsiterAsset { assetIds: vec![update.asset_id.0.into()] };
 							body.encode_request()
 						},
 					}),

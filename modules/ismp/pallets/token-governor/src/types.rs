@@ -25,19 +25,9 @@ use frame_support::pallet_prelude::*;
 use ismp::host::StateMachine;
 use pallet_ismp_host_executive::EvmHosts;
 use primitive_types::{H160, H256, U256};
-
-/// Holds metadata relevant to a multi-chain native asset
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
-pub struct AssetMetadata {
-	/// The asset name
-	pub name: BoundedVec<u8, ConstU32<20>>,
-	/// The asset symbol
-	pub symbol: BoundedVec<u8, ConstU32<20>>,
-	/// The asset decimals of the ERC6160 or ERC20 counterpart of this asset
-	pub decimals: u8,
-	/// Asset's minimum balance, only used by substrate chains
-	pub minimum_balance: Option<u128>,
-}
+use token_gateway_primitives::{
+	AssetMetadata, GatewayAssetRegistration as GatewayAssetReg, GatewayAssetUpdate,
+};
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
@@ -52,6 +42,37 @@ pub struct ERC6160AssetUpdate {
 	pub new_admins: BoundedVec<(StateMachine, H160), ConstU32<100>>,
 }
 
+impl From<GatewayAssetReg> for ERC6160AssetRegistration {
+	fn from(value: GatewayAssetReg) -> Self {
+		ERC6160AssetRegistration {
+			name: value.name,
+			symbol: value.symbol,
+			chains: value
+				.chains
+				.into_iter()
+				.map(|chain| ChainWithSupply { chain, supply: None })
+				.collect(),
+			minimum_balance: value.minimum_balance,
+		}
+	}
+}
+
+impl From<GatewayAssetUpdate> for ERC6160AssetUpdate {
+	fn from(value: GatewayAssetUpdate) -> Self {
+		ERC6160AssetUpdate {
+			asset_id: value.asset_id,
+			add_chains: value
+				.add_chains
+				.into_iter()
+				.map(|chain| ChainWithSupply { chain, supply: None })
+				.collect::<Vec<_>>()
+				.try_into()
+				.expect("Bothe vectors are bounded by the same value"),
+			remove_chains: value.remove_chains,
+			new_admins: value.new_admins,
+		}
+	}
+}
 /// Initial supply options on a per-chain basis
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct InitialSupply {
@@ -96,13 +117,6 @@ pub struct ERC6160AssetRegistration {
 	pub chains: Vec<ChainWithSupply>,
 	/// Minimum balance for the asset, for substrate chains,
 	pub minimum_balance: Option<u128>,
-}
-
-/// Holds data required for multi-chain native asset registration
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub enum RemoteERC6160AssetRegistration {
-	CreateAssets(Vec<ERC6160AssetRegistration>),
-	UpdateAssets(Vec<ERC6160AssetUpdate>),
 }
 
 /// Holds data required for multi-chain native asset registration (unsigned)
@@ -275,10 +289,6 @@ alloy_sol_macro::sol! {
 	   uint256 initialSupply;
 	   // Initial beneficiary of the total supply
 	   address beneficiary;
-	   // decimal
-	   uint8 decimal;
-	   // Minimum balance
-	   uint256 minbalance;
 	}
 
 	struct SolDeregsiterAsset {
@@ -351,12 +361,6 @@ impl TryFrom<AssetMetadata> for SolAssetMetadata {
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
 			symbol: String::from_utf8(value.symbol.as_slice().to_vec())
 				.map_err(|err| anyhow!("Name was not valid Utf8Error: {err:?}"))?,
-			decimal: value.decimals,
-			minbalance: {
-				let mut bytes = [0u8; 32];
-				U256::from(value.minimum_balance.unwrap_or_default()).to_big_endian(&mut bytes);
-				alloy_primitives::U256::from_be_bytes(bytes)
-			},
 			..Default::default()
 		};
 
@@ -425,10 +429,4 @@ impl TokenGatewayRequest for SolContractInstance {
 
 		[variant, encoded].concat()
 	}
-}
-/// Token Gateway Id for substrate chains
-/// Module Id is the last 20 bytes of the keccak hash of the pallet id
-pub fn token_gateway_id() -> H160 {
-	let hash = sp_io::hashing::keccak_256(b"tokengty");
-	H160::from_slice(&hash[12..32])
 }

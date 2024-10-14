@@ -32,12 +32,12 @@ use alloc::{format, vec};
 use codec::Encode;
 use ismp::module::IsmpModule;
 use primitive_types::{H160, H256};
+use token_gateway_primitives::{
+	token_gateway_id, RemoteERC6160AssetRegistration, REGISTRY as PALLET_ID,
+};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
-
-/// The module id for this pallet
-pub const PALLET_ID: [u8; 8] = *b"registry";
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -52,6 +52,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use ismp::{dispatcher::IsmpDispatcher, host::StateMachine};
 	use sp_runtime::traits::AccountIdConversion;
+	use token_gateway_primitives::AssetMetadata;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -414,25 +415,22 @@ where
 			let remote_reg: RemoteERC6160AssetRegistration = codec::Decode::decode(&mut &*data)
 				.map_err(|_| ismp::error::Error::Custom(format!("Failed to decode data")))?;
 			match remote_reg {
-				RemoteERC6160AssetRegistration::CreateAssets(assets) =>
-					for asset in assets {
-						let asset_id: H256 =
-							sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
-						Pallet::<T>::register_asset(
-							asset,
-							sp_io::hashing::keccak_256(&source.encode()).into(),
-						)
-						.map_err(|e| {
-							ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
-						})?;
-						StandaloneChainAssets::<T>::insert(source, asset_id, true);
-					},
-				RemoteERC6160AssetRegistration::UpdateAssets(assets) =>
-					for asset in assets {
-						Pallet::<T>::update_erc6160_asset_impl(asset).map_err(|e| {
-							ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
-						})?;
-					},
+				RemoteERC6160AssetRegistration::CreateAsset(asset) => {
+					let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
+					Pallet::<T>::register_asset(
+						asset.into(),
+						sp_io::hashing::keccak_256(&source.encode()).into(),
+					)
+					.map_err(|e| {
+						ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
+					})?;
+					StandaloneChainAssets::<T>::insert(source, asset_id, true);
+				},
+				RemoteERC6160AssetRegistration::UpdateAsset(asset) => {
+					Pallet::<T>::update_erc6160_asset_impl(asset.into()).map_err(|e| {
+						ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
+					})?;
+				},
 			}
 
 			return Ok(())

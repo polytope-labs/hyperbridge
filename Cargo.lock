@@ -12386,6 +12386,7 @@ dependencies = [
  "substrate-state-machine",
  "subxt",
  "subxt-utils",
+ "token-gateway-primitives",
  "tokio",
  "trie-db 0.29.1",
  "xcm-simulator",
@@ -12964,13 +12965,13 @@ dependencies = [
  "log",
  "pallet-hyperbridge",
  "pallet-ismp",
- "pallet-token-governor",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
  "sp-core 34.0.0",
  "sp-io 38.0.0",
  "sp-runtime 39.0.0",
+ "token-gateway-primitives",
 ]
 
 [[package]]
@@ -13016,6 +13017,7 @@ dependencies = [
  "sp-core 34.0.0",
  "sp-io 38.0.0",
  "sp-runtime 39.0.0",
+ "token-gateway-primitives",
 ]
 
 [[package]]
@@ -24076,6 +24078,27 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "token-gateway-primitives"
+version = "1.15.1"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-macro",
+ "alloy-sol-types",
+ "anyhow",
+ "frame-support 37.0.0",
+ "frame-system",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+]
 
 [[package]]
 name = "tokio"

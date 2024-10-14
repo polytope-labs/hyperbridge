@@ -31,7 +31,7 @@ alloy-primitives = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
-pallet-token-governor = { workspace = true }
+token-gateway-primitives = { workspace = true }
 pallet-hyperbridge = { workspace = true }
 
 [features]
@@ -49,7 +49,7 @@ std = [
     "scale-info/std",
     "anyhow/std",
     "alloy-primitives/std",
-    "pallet-token-governor/std",
     "pallet-hyperbridge/std",
+    "token-gateway-primitives/std"
 ]
 try-runtime = []

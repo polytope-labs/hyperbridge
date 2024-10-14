@@ -19,20 +19,12 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use frame_support::{pallet_prelude::*, traits::fungibles};
 use ismp::host::StateMachine;
-use pallet_token_governor::ERC6160AssetRegistration;
 use primitive_types::H256;
 
 use crate::Config;
 
 pub type AssetId<T> =
 	<<T as Config>::Assets as fungibles::Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
-
-/// Protocol parameters
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
-pub struct Params<Balance> {
-	/// The asset registration fee in stable tokens, collected by the treasury
-	pub registration_fee: Balance,
-}
 
 /// Asset teleportation parameters
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
@@ -55,19 +47,11 @@ pub struct TeleportParams<AssetId, Balance> {
 
 /// Local asset Id and its corresponding token gateway asset id
 #[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
-pub struct AssetMap<AssetId> {
-	/// Local Asset Id if the asset exists already
-	/// If the asset exists, it's metadata will not be changed
-	pub local_id: Option<AssetId>,
-	/// MNT Asset registration details
-	pub reg: ERC6160AssetRegistration,
-}
-
-/// A struct for registering some assets
-#[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
-#[scale_info(skip_type_params(T))]
 pub struct AssetRegistration<AssetId> {
-	pub assets: BoundedVec<AssetMap<AssetId>, ConstU32<10>>,
+	/// Local Asset Id should already exist
+	pub local_id: AssetId,
+	/// MNT Asset registration details
+	pub reg: token_gateway_primitives::GatewayAssetRegistration,
 }
 
 alloy_sol_macro::sol! {

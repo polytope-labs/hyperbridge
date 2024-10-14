@@ -23,6 +23,7 @@ pub mod types;
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
+use codec::Decode;
 use frame_support::{
 	ensure,
 	pallet_prelude::Weight,
@@ -37,9 +38,11 @@ use ismp::{
 	events::Meta,
 	router::{PostRequest, Request, Response, Timeout},
 };
-pub use pallet_token_governor::token_gateway_id;
-use pallet_token_governor::{SolAssetMetadata, SolDeregsiterAsset};
+
 use sp_core::{Get, U256};
+use token_gateway_primitives::{
+	token_gateway_id, token_governor_id, AssetMetadata, DeregisterAssets,
+};
 pub use types::*;
 
 use alloc::{string::ToString, vec, vec::Vec};
@@ -69,8 +72,8 @@ pub mod pallet {
 		host::StateMachine,
 	};
 	use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
-	use pallet_token_governor::{ERC6160AssetUpdate, RemoteERC6160AssetRegistration};
-	use sp_runtime::traits::{Zero};
+	use sp_runtime::traits::Zero;
+	use token_gateway_primitives::{GatewayAssetUpdate, RemoteERC6160AssetRegistration};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -131,11 +134,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type TokenGatewayAddresses<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, Vec<u8>, OptionQuery>;
-
-	/// TokenGovernor protocol parameters.
-	#[pallet::storage]
-	pub type ProtocolParams<T: Config> =
-		StorageValue<_, Params<<T as pallet_ismp::Config>::Balance>, OptionQuery>;
 
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
@@ -325,7 +323,7 @@ pub mod pallet {
 		#[pallet::weight(weight())]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
-			assets: AssetRegistration<AssetId<T>>,
+			asset: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
@@ -342,53 +340,22 @@ pub mod pallet {
 				)?;
 			}
 
-			for asset_map in assets.assets.clone() {
-				let asset_id: H256 =
-					sp_io::hashing::keccak_256(asset_map.reg.symbol.as_ref()).into();
-				// If the local asset id already exists we do not change it's metadata we only store
-				// the mapping to its token gateway asset id
-				if let Some(local_id) = asset_map.local_id.clone() {
-					SupportedAssets::<T>::insert(local_id.clone(), asset_id.clone());
-					LocalAssets::<T>::insert(asset_id, local_id.clone());
-					// All ERC6160 assets use 18 decimals
-					Decimals::<T>::insert(local_id, 18);
-				} else {
-					// Create the asset
-					let local_asset_id =
-						T::AssetIdFactory::create_asset_id(asset_map.reg.symbol.to_vec())
-							.map_err(|_| Error::<T>::AssetCreationError)?;
-					<T::Assets as fungibles::Create<T::AccountId>>::create(
-						local_asset_id.clone(),
-						who.clone(),
-						true,
-						asset_map.reg.minimum_balance.unwrap_or(MIN_BALANCE).into(),
-					)?;
-					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
-						local_asset_id.clone(),
-						&who,
-						asset_map.reg.name.to_vec(),
-						asset_map.reg.symbol.to_vec(),
-						18,
-					)?;
-					// All ERC6160 assets will use 18 decimals
-					Decimals::<T>::insert(local_asset_id.clone(), 18);
-					SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
-					LocalAssets::<T>::insert(asset_id, local_asset_id);
-				}
-			}
+			let asset_id: H256 = sp_io::hashing::keccak_256(asset.reg.symbol.as_ref()).into();
+			// If the local asset id already exists we do not change it's metadata we only store
+			// the mapping to its token gateway asset id
+
+			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
+			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
+			// All ERC6160 assets use 18 decimals
+			Decimals::<T>::insert(asset.local_id, 18);
 
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
 				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
 				from: token_gateway_id().0.to_vec(),
-				to: pallet_token_governor::PALLET_ID.to_vec(),
+				to: token_governor_id(),
 				timeout: 0,
-				body: {
-					RemoteERC6160AssetRegistration::CreateAssets(
-						assets.assets.into_iter().map(|asset_map| asset_map.reg).collect(),
-					)
-					.encode()
-				},
+				body: { RemoteERC6160AssetRegistration::CreateAsset(asset.reg).encode() },
 			};
 
 			let metadata = FeeMetadata { payer: who, fee: Default::default() };
@@ -409,24 +376,33 @@ pub mod pallet {
 		#[pallet::weight(weight())]
 		pub fn update_erc6160_asset(
 			origin: OriginFor<T>,
-			assets: Vec<ERC6160AssetUpdate>,
+			asset: GatewayAssetUpdate,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			for update in &assets {
-				let asset_id = LocalAssets::<T>::get(update.asset_id.clone())
-					.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
-				Self::ensure_admin(who.clone(), asset_id)?;
-			}
+			let asset_id = LocalAssets::<T>::get(asset.asset_id.clone())
+				.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
+			Self::ensure_admin(who.clone(), asset_id)?;
 
 			// charge hyperbridge fees
+			let VersionedHostParams::V1(SubstrateHostParams { asset_registration_fee, .. }) =
+				pallet_hyperbridge::Pallet::<T>::host_params();
+
+			if asset_registration_fee != Zero::zero() {
+				T::Currency::transfer(
+					&who,
+					&PALLET_HYPERBRIDGE.into_account_truncating(),
+					asset_registration_fee.into(),
+					Preservation::Expendable,
+				)?;
+			}
 
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
 				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
 				from: token_gateway_id().0.to_vec(),
-				to: pallet_token_governor::PALLET_ID.to_vec(),
+				to: token_governor_id(),
 				timeout: 0,
-				body: { RemoteERC6160AssetRegistration::UpdateAssets(assets).encode() },
+				body: { RemoteERC6160AssetRegistration::UpdateAsset(asset).encode() },
 			};
 
 			let metadata = FeeMetadata { payer: who, fee: Default::default() };
@@ -462,16 +438,16 @@ where
 	) -> Result<(), anyhow::Error> {
 		// The only requests allowed from token governor on Hyperbridge is asset creation, updating
 		// and deregistering
-		if &from == &pallet_token_governor::PALLET_ID && Some(source) == T::Coprocessor::get() {
-			if let Ok(metadata) = SolAssetMetadata::abi_decode(&mut &body[1..], true) {
-				let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_bytes()).into();
+		if from == token_governor_id() && Some(source) == T::Coprocessor::get() {
+			if let Ok(metadata) = AssetMetadata::decode(&mut &body[..]) {
+				let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_ref()).into();
 				// If the local aset Id exists, then  it must mean this is an update.
 				if let Some(local_asset_id) = LocalAssets::<T>::get(asset_id) {
 					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
 						local_asset_id.clone(),
 						&T::AssetAdmin::get(),
-						metadata.name.as_bytes().to_vec(),
-						metadata.symbol.as_bytes().to_vec(),
+						metadata.name.to_vec(),
+						metadata.symbol.to_vec(),
 						// We do not change the asset's native decimal
 						<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
 							local_asset_id.clone(),
@@ -479,18 +455,11 @@ where
 					)
 					.map_err(|e| anyhow!("{e:?}"))?;
 					// Note the asset's ERC counterpart decimal
-					Decimals::<T>::insert(local_asset_id, metadata.decimal);
+					Decimals::<T>::insert(local_asset_id, metadata.decimals);
 				} else {
-					let min_balance = {
-						let value = U256::from_big_endian(&metadata.minbalance.to_be_bytes::<32>());
-						if U256::zero() == value {
-							MIN_BALANCE
-						} else {
-							value.low_u128()
-						}
-					};
+					let min_balance = metadata.minimum_balance.unwrap_or(MIN_BALANCE);
 					let local_asset_id =
-						T::AssetIdFactory::create_asset_id(metadata.symbol.as_bytes().to_vec())?;
+						T::AssetIdFactory::create_asset_id(metadata.symbol.to_vec())?;
 					<T::Assets as fungibles::Create<T::AccountId>>::create(
 						local_asset_id.clone(),
 						T::AssetAdmin::get(),
@@ -501,21 +470,21 @@ where
 					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
 						local_asset_id.clone(),
 						&T::AssetAdmin::get(),
-						metadata.name.as_bytes().to_vec(),
-						metadata.symbol.as_bytes().to_vec(),
+						metadata.name.to_vec(),
+						metadata.symbol.to_vec(),
 						18,
 					)
 					.map_err(|e| anyhow!("{e:?}"))?;
 					SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
 					LocalAssets::<T>::insert(asset_id, local_asset_id.clone());
 					// Note the asset's ERC counterpart decimal
-					Decimals::<T>::insert(local_asset_id, metadata.decimal);
+					Decimals::<T>::insert(local_asset_id, metadata.decimals);
 				}
 				return Ok(())
 			}
 
-			if let Ok(meta) = SolDeregsiterAsset::abi_decode(&mut &body[1..], true) {
-				for asset_id in meta.assetIds {
+			if let Ok(meta) = DeregisterAssets::decode(&mut &body[..]) {
+				for asset_id in meta.asset_ids {
 					if let Some(local_asset_id) = LocalAssets::<T>::get(H256::from(asset_id.0)) {
 						SupportedAssets::<T>::remove(local_asset_id.clone());
 						LocalAssets::<T>::remove(H256::from(asset_id.0));

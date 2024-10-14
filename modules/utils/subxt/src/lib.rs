@@ -126,7 +126,7 @@ mod gargantua_conversion {
 	                   let evm = EvmHostParam {
 	                       default_timeout: params.default_timeout,
 	                       default_per_byte_fee: {
-								let alloy_value = alloy_primitives::U256::from_limbs(params.per_byte_fee.0);
+								let alloy_value = alloy_primitives::U256::from_limbs(params.default_per_byte_fee);
 								primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
 							},
 							state_commitment_fee: {

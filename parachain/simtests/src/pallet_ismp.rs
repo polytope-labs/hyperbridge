@@ -35,6 +35,7 @@ use subxt_utils::{
 					messaging::{Message, Proof, RequestMessage},
 				},
 				ismp_parachain::ParachainData,
+				pallet_hyperbridge::SubstrateHostParams,
 			},
 		},
 	},
@@ -84,8 +85,9 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
                         (
                             StateMachine::Kusama(para_id).into(),
                             runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(
-                                runtime_types::pallet_hyperbridge::VersionedHostParams::V1(0)
-                            )
+								runtime_types::pallet_hyperbridge::VersionedHostParams::V1(SubstrateHostParams { default_per_byte_fee: 0, ..Default::default() })
+
+							)
                         )
                     ]
                 }

@@ -21,7 +21,6 @@ import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
 import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
-import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "@polytope-labs/ismp-solidity/IDispatcher.sol";
 import "../src/hosts/EvmHost.sol";
 import "@polytope-labs/ismp-solidity/Message.sol";
@@ -38,7 +37,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
     function testCanDispatchPostRequestWithNative() public {
         // per-byte fee
-        uint256 messagingFee = 32 * host.perByteFee();
+        uint256 messagingFee = 32 * host.perByteFee(StateMachine.evm(421614));
 
         // dispatch request
         bytes32 commitment = host.dispatch{value: quote(messagingFee)}(
@@ -56,7 +55,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
     function testCanDispatchPostResponseWithNative() public {
         // per-byte fee
-        uint256 messagingFee = 32 * host.perByteFee();
+        uint256 messagingFee = 32 * host.perByteFee(host.host());
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -89,7 +88,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
     function testCanDispatchGetRequestWithNative() public {
         // per-byte fee
-        uint256 messagingFee = 32 * host.perByteFee();
+        uint256 messagingFee = 32 * host.perByteFee(StateMachine.evm(97));
 
         bytes[] memory keys = new bytes[](1);
         keys[0] = abi.encode(whaleAccount);
@@ -112,7 +111,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
     function testCanDispatchFundRequestWithNative() public {
         // per-byte fee
-        uint256 messagingFee = 32 * host.perByteFee();
+        uint256 messagingFee = 32 * host.perByteFee(StateMachine.evm(97));
 
         // dispatch request
         vm.prank(whaleAccount);
@@ -144,7 +143,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
     function testCanDispatchFundResponseWithNative() public {
         // per-byte fee
-        uint256 messagingFee = 32 * host.perByteFee();
+        uint256 messagingFee = 32 * host.perByteFee(StateMachine.evm(97));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),

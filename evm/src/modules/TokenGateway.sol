@@ -128,10 +128,6 @@ struct AssetMetadata {
     uint256 initialSupply;
     // Initial beneficiary of the total supply
     address beneficiary;
-    // Asset's decimal
-    uint8 decimal;
-    // Minimum balance
-    uint256 minBalance;
 }
 
 struct ChangeAssetAdmin {
@@ -321,8 +317,7 @@ contract TokenGateway is BaseIsmpModule {
         createAssets(teleportParams.assets);
 
         // infinite approval to save on gas
-        SafeERC20.safeIncreaseAllowance(
-            IERC20(IIsmpHost(_params.host).feeToken()),
+        IERC20(IIsmpHost(_params.host).feeToken()).approve(
             teleportParams.params.host,
             type(uint256).max
         );
@@ -430,7 +425,7 @@ contract TokenGateway is BaseIsmpModule {
             commitment = IIsmpHost(_params.host).dispatch{value: teleportParams.nativeCost}(request);
         } else {
             // try to pay for dispatch with fee token
-            uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length) + teleportParams.relayerFee;
+            uint256 fee = (IIsmpHost(_params.host).perByteFee(teleportParams.dest) * data.length) + teleportParams.relayerFee;
             SafeERC20.safeTransferFrom(IERC20(feeToken), msg.sender, address(this), fee);
             commitment = IIsmpHost(_params.host).dispatch(request);
         }

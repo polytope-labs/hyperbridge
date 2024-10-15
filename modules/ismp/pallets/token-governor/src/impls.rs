@@ -17,6 +17,7 @@
 
 use alloc::{collections::BTreeMap, vec};
 use alloy_sol_types::SolValue;
+use codec::Encode;
 use frame_support::{ensure, PalletId};
 use frame_system::{pallet_prelude::OriginFor, RawOrigin};
 use ismp::{
@@ -27,14 +28,15 @@ use sp_core::{H160, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use crate::{
-	token_gateway_id, AssetMetadata, AssetMetadatas, AssetOwners, AssetRegistration,
-	ChainWithSupply, Config, ContractInstance, ERC20AssetRegistration, ERC6160AssetRegistration,
-	ERC6160AssetUpdate, Error, Event, GatewayParams, Pallet, PendingAsset, RegistrarParamsUpdate,
-	SolAssetMetadata, SolChangeAssetAdmin, SolContractInstance, SolDeregsiterAsset,
-	SolRegistrarParams, SolTokenGatewayParams, SupportedChains, TokenGatewayParams,
-	TokenGatewayParamsUpdate, TokenGatewayRequest, TokenRegistrarParams,
-	UnsignedERC6160AssetRegistration, PALLET_ID,
+	AssetMetadatas, AssetOwners, AssetRegistration, ChainWithSupply, Config, ContractInstance,
+	ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate, Error, Event,
+	GatewayParams, Pallet, PendingAsset, RegistrarParamsUpdate, SolAssetMetadata,
+	SolChangeAssetAdmin, SolContractInstance, SolDeregsiterAsset, SolRegistrarParams,
+	SolTokenGatewayParams, SupportedChains, TokenGatewayParams, TokenGatewayParamsUpdate,
+	TokenGatewayRequest, TokenRegistrarParams, UnsignedERC6160AssetRegistration, PALLET_ID,
 };
+
+use token_gateway_primitives::{token_gateway_id, AssetMetadata};
 
 impl<T: Config> Pallet<T>
 where
@@ -74,14 +76,6 @@ where
 		};
 
 		for ChainWithSupply { chain, supply } in asset.chains.clone() {
-			let mut body: SolAssetMetadata =
-				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
-
-			if let Some(supply) = supply {
-				body.beneficiary = supply.beneficiary.0.into();
-				body.initialSupply = alloy_primitives::U256::from_limbs(supply.initial_supply.0);
-			}
-
 			let address = if chain.is_substrate() {
 				token_gateway_id()
 			} else {
@@ -98,7 +92,19 @@ where
 						from: PALLET_ID.to_vec(),
 						to: address.as_bytes().to_vec(),
 						timeout: 0,
-						body: body.encode_request(),
+						body: if chain.is_substrate() {
+							metadata.encode()
+						} else {
+							let mut body: SolAssetMetadata =
+								metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
+
+							if let Some(supply) = supply {
+								body.beneficiary = supply.beneficiary.0.into();
+								body.initialSupply =
+									alloy_primitives::U256::from_limbs(supply.initial_supply.0);
+							}
+							body.encode_request()
+						},
 					}),
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
@@ -170,14 +176,6 @@ where
 				address
 			};
 
-			let mut body: SolAssetMetadata =
-				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
-
-			if let Some(supply) = supply {
-				body.beneficiary = supply.beneficiary.0.into();
-				body.initialSupply = alloy_primitives::U256::from_limbs(supply.initial_supply.0);
-			}
-
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
@@ -185,7 +183,19 @@ where
 						from: PALLET_ID.to_vec(),
 						to: address.as_bytes().to_vec(),
 						timeout: 0,
-						body: body.encode_request(),
+						body: if chain.is_substrate() {
+							metadata.encode()
+						} else {
+							let mut body: SolAssetMetadata =
+								metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
+
+							if let Some(supply) = supply {
+								body.beneficiary = supply.beneficiary.0.into();
+								body.initialSupply =
+									alloy_primitives::U256::from_limbs(supply.initial_supply.0);
+							}
+							body.encode_request()
+						},
 					}),
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
@@ -208,7 +218,6 @@ where
 				address
 			};
 
-			let body = SolDeregsiterAsset { assetIds: vec![update.asset_id.0.into()] };
 			dispatcher
 				.dispatch_request(
 					DispatchRequest::Post(DispatchPost {
@@ -216,7 +225,16 @@ where
 						from: PALLET_ID.to_vec(),
 						to: address.as_bytes().to_vec(),
 						timeout: 0,
-						body: body.encode_request(),
+						body: if chain.is_substrate() {
+							token_gateway_primitives::DeregisterAssets {
+								asset_ids: vec![update.asset_id],
+							}
+							.encode()
+						} else {
+							let body =
+								SolDeregsiterAsset { assetIds: vec![update.asset_id.0.into()] };
+							body.encode_request()
+						},
 					}),
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)

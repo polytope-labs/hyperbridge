@@ -21,7 +21,7 @@ import {PingModule} from "../examples/PingModule.sol";
 import {HandlerV1} from "../src/modules/HandlerV1.sol";
 import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
-import {HostParams} from "../src/hosts/EvmHost.sol";
+import {HostParams, PerByteFee} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 import {TokenRegistrar, RegistrarParams} from "../src/modules/Registrar.sol";
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
@@ -78,10 +78,10 @@ contract MainnetForkBaseTest is Test {
         manager = new HostManager(gParams);
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
-        address[] memory fishermen = new address[](0);
+        PerByteFee[] memory perByteFees = new PerByteFee[](0);
         HostParams memory params = HostParams({
             uniswapV2: address(_uniswapV2Router),
-            fishermen: fishermen,
+            perByteFees: perByteFees,
             admin: address(0),
             hostManager: address(manager),
             handler: address(handler),
@@ -90,7 +90,7 @@ contract MainnetForkBaseTest is Test {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            perByteFee: 3 * 1e15, // $0.003/byte
+            defaultPerByteFee: 3 * 1e15, // $0.003/byte
             stateCommitmentFee: 10 * 1e18, // $10
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
@@ -110,9 +110,7 @@ contract MainnetForkBaseTest is Test {
             name: "Hyperbridge USD",
             symbol: "USD.h",
             beneficiary: address(0),
-            initialSupply: 0,
-            decimal: 18,
-            minBalance: 0
+            initialSupply: 0
         });
 
         assets[1] = AssetMetadata({
@@ -121,9 +119,7 @@ contract MainnetForkBaseTest is Test {
             name: "Wrapped ETH",
             symbol: "WETH",
             beneficiary: address(0),
-            initialSupply: 0,
-            decimal: 18,
-            minBalance: 0
+            initialSupply: 0
         });
 
         gateway.init(

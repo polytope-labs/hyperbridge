@@ -18,6 +18,7 @@ import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "@polytope-labs/ismp-solidity/Message.sol";
+import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 
 contract GetRequestTest is BaseTest {
     using Message for PostRequest;
@@ -28,7 +29,7 @@ contract GetRequestTest is BaseTest {
         GetRequest memory request,
         GetResponseMessage memory message
     ) public {
-        feeToken.mint(address(testModule), 32 * host.perByteFee());
+        feeToken.mint(address(testModule), 32 * host.perByteFee(StateMachine.evm(97)));
         bytes32 commitment = testModule.dispatch(request);
         assert(host.requestCommitments(commitment).sender == address(testModule));
 
@@ -44,7 +45,7 @@ contract GetRequestTest is BaseTest {
         GetRequest memory request,
         GetTimeoutMessage memory message
     ) public {
-        feeToken.mint(address(testModule), 32 * host.perByteFee());
+        feeToken.mint(address(testModule), 32 * host.perByteFee(StateMachine.evm(97)));
         testModule.dispatch(request);
         request.timeoutTimestamp += uint64(block.timestamp);
         assert(host.requestCommitments(request.hash()).sender != address(0));

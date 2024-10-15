@@ -22,14 +22,17 @@ use core::marker::PhantomData;
 
 use alloc::{collections::BTreeMap, format, vec::Vec};
 use codec::Decode;
-use sp_runtime::traits::{BlakeTwo256, Keccak256, Zero};
+use sp_runtime::{
+	traits::{BlakeTwo256, Keccak256, Zero},
+	Either,
+};
 use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
 
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, hash_response, Proof},
-	router::RequestResponse,
+	router::{Request, RequestResponse},
 	Error,
 };
 use pallet_hyperbridge::{
@@ -92,6 +95,7 @@ where
 						RequestCommitments::<T>::storage_key(commitment),
 						RequestPayments::storage_key(commitment),
 						request.body().unwrap_or_default().len() as u128,
+						Either::Left(request),
 					)
 				})
 				.collect::<Vec<_>>(),
@@ -103,12 +107,13 @@ where
 						ResponseCommitments::<T>::storage_key(commitment),
 						ResponsePayments::storage_key(commitment),
 						response.encode().len() as u128,
+						Either::Right(response),
 					)
 				})
 				.collect::<Vec<_>>(),
 		};
 
-		let Some(HostParam::SubstrateHostParam(VersionedHostParams::V1(per_byte_fee))) =
+		let Some(HostParam::SubstrateHostParam(VersionedHostParams::V1(params))) =
 			pallet_ismp_host_executive::Pallet::<T>::host_params(&self.state_machine)
 		else {
 			Err(Error::Custom(format!(
@@ -123,7 +128,7 @@ where
 					StorageProof::new(state_proof.storage_proof()).into_memory_db::<Keccak256>();
 				let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
 
-				for (commitment_key, payment_key, size) in commitments {
+				for (commitment_key, payment_key, size, item) in commitments {
 					trie.get(&commitment_key)
 						.map_err(|e| Error::Custom(format!("Error reading state proof: {e:?}")))?
 						.ok_or_else(|| {
@@ -131,6 +136,14 @@ where
 								"Request commitment not present in path: {commitment_key:?}",
 							))
 						})?;
+
+					let dest = match item {
+						Either::Left(Request::Post(req)) => req.dest,
+						Either::Right(response) => response.dest_chain(),
+						_ => continue,
+					};
+					let per_byte_fee =
+						*params.per_byte_fees.get(&dest).unwrap_or(&params.default_per_byte_fee);
 
 					// only check for payments if a fee is configured
 					if per_byte_fee > Zero::zero() {
@@ -169,7 +182,7 @@ where
 					StorageProof::new(state_proof.storage_proof()).into_memory_db::<BlakeTwo256>();
 				let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 
-				for (commitment_key, payment_key, size) in commitments {
+				for (commitment_key, payment_key, size, item) in commitments {
 					trie.get(&commitment_key)
 						.map_err(|e| Error::Custom(format!("Error reading state proof: {e:?}")))?
 						.ok_or_else(|| {
@@ -177,6 +190,14 @@ where
 								"Response commitment not present in path: {commitment_key:?}",
 							))
 						})?;
+
+					let dest = match item {
+						Either::Left(Request::Post(req)) => req.dest,
+						Either::Right(response) => response.dest_chain(),
+						_ => continue,
+					};
+					let per_byte_fee =
+						*params.per_byte_fees.get(&dest).unwrap_or(&params.default_per_byte_fee);
 
 					// only check for payments if a fee is configured
 					if per_byte_fee > Zero::zero() {

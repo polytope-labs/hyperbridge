@@ -708,7 +708,7 @@ construct_runtime!(
 		Relayer: pallet_ismp_relayer = 42,
 		HostExecutive: pallet_ismp_host_executive = 43,
 		CallDecompressor: pallet_call_decompressor = 44,
-		Gateway: pallet_asset_gateway = 45,
+		Gateway: pallet_xcm_gateway = 45,
 		Assets: pallet_assets = 46,
 		TokenGovernor: pallet_token_governor = 47,
 

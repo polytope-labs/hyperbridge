@@ -154,7 +154,7 @@ contract EvmHostTest is BaseTest {
         vm.prank(host.hostParams().handler);
         host.setFrozenState(FrozenStatus.None);
 
-        feeToken.mint(address(this), 32 * host.perByteFee());
+        feeToken.mint(address(this), 32 * host.perByteFee(StateMachine.evm(97)));
         bytes32 commitment = host.dispatch(
             DispatchPost({
                 body: abi.encodePacked(bytes32(0)),
@@ -214,7 +214,7 @@ contract EvmHostTest is BaseTest {
             })
         );
 
-        feeToken.mint(address(this), host.perByteFee() * 32);
+        feeToken.mint(address(this), host.perByteFee(StateMachine.evm(97)) * 32);
         bytes32 commitment = host.dispatch(
             DispatchPost({
                 body: new bytes(0), // empty body
@@ -241,7 +241,7 @@ contract EvmHostTest is BaseTest {
         host.dispatchIncoming(request, address(this));
         assert(host.requestReceipts(request.hash()) == address(this));
 
-        feeToken.mint(address(manager), host.perByteFee() * 32);
+        feeToken.mint(address(manager), host.perByteFee(StateMachine.evm(97)) * 32);
         vm.prank(address(manager));
         feeToken.approve(address(host), type(uint256).max);
         vm.prank(address(manager));
@@ -255,39 +255,7 @@ contract EvmHostTest is BaseTest {
             })
         );
         assert(host.responseCommitments(resp).sender == address(manager));
-        assert(feeToken.balanceOf(address(host)) == host.perByteFee() * 32 * 2);
-    }
-
-    function testVetoStateCommitment() public {
-        // add tx.origin to fishermen
-        HostParams memory params = host.hostParams();
-        address[] memory fishermen = new address[](1);
-        fishermen[0] = tx.origin;
-        params.fishermen = fishermen;
-        vm.prank(params.admin);
-        host.updateHostParams(params);
-
-        // create a state commitment
-        StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
-        vm.prank(params.handler);
-        host.storeStateMachineCommitment(
-            height,
-            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
-        );
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
-
-        // can't veto if not in fishermen set
-        vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
-        host.vetoStateCommitment(height);
-
-        // veto with fisherman
-        vm.prank(tx.origin);
-        host.vetoStateCommitment(height);
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 0);
+        assert(feeToken.balanceOf(address(host)) == host.perByteFee(StateMachine.evm(97)) * 32 * 2);
     }
 
     function testCanAddwhitelistedStateMachines() public {
@@ -317,82 +285,6 @@ contract EvmHostTest is BaseTest {
         assert(host.latestStateMachineHeight(height.stateMachineId) == 100);
         // should be set to 1
         assert(host.latestStateMachineHeight(2001) == 1);
-    }
-
-    function testCanAddandRemoveFishermen() public {
-        // add tx.origin & this to fishermen
-        HostParams memory params = host.hostParams();
-        address[] memory fishermen = new address[](2);
-        fishermen[0] = tx.origin;
-        fishermen[1] = address(this);
-        params.fishermen = fishermen;
-        vm.prank(params.admin);
-        host.updateHostParams(params);
-
-        // create a state commitment
-        StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
-        vm.prank(params.handler);
-        host.storeStateMachineCommitment(
-            height,
-            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
-        );
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
-
-        // veto with fisherman
-        vm.prank(tx.origin);
-        host.vetoStateCommitment(height);
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 0);
-
-        // create a state commitment
-        vm.prank(params.handler);
-        host.storeStateMachineCommitment(
-            height,
-            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
-        );
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
-
-        // veto with fisherman
-        host.vetoStateCommitment(height);
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 0);
-
-        // remove fishermen
-        address[] memory newFishermen = new address[](0);
-        params.fishermen = newFishermen;
-        vm.prank(params.admin);
-        host.updateHostParams(params);
-
-        // create a state commitment
-        vm.prank(params.handler);
-        host.storeStateMachineCommitment(
-            height,
-            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
-        );
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
-
-        // cannot veto
-        vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
-        host.vetoStateCommitment(height);
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
-
-        // cannot veto
-        vm.prank(tx.origin);
-        vm.expectRevert(EvmHost.UnauthorizedAccount.selector);
-        host.vetoStateCommitment(height);
-
-        vm.prank(params.handler);
-        assert(host.stateMachineCommitment(height).timestamp == 200);
     }
 
     function testHostStateMachineId() public {

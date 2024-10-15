@@ -15,8 +15,8 @@ use ismp::{
 	module::IsmpModule,
 	router::{PostRequest, Request, Timeout},
 };
-use pallet_asset_gateway::Module;
 use pallet_token_gateway::{impls::convert_to_erc20, types::Body};
+use pallet_xcm_gateway::Module;
 use sp_core::{ByteArray, H160, H256};
 use staging_xcm::v4::{Junction, Junctions, Location, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
@@ -62,7 +62,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 		dbg!(nonce);
 		assert_eq!(nonce, 1);
 
-		let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
 		let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
 		dbg!(&asset_id);
@@ -75,7 +75,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 			<Test as frame_system::Config>::AccountId,
 		>>::balance(
 			asset_id.clone(),
-			&pallet_asset_gateway::Pallet::<Test>::account_id(),
+			&pallet_xcm_gateway::Pallet::<Test>::account_id(),
 		);
 		dbg!(pallet_account_balance);
 		assert_eq!(custodied_amount, pallet_account_balance);
@@ -121,7 +121,7 @@ fn should_process_on_accept_module_callback_correctly() {
 		// Assert that a request was dispatched by checking the nonce, it should be 1
 		assert_eq!(nonce, 1);
 
-		let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
 		let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
 		let total_issuance = <pallet_assets::Pallet<Test> as Inspect<
@@ -132,7 +132,7 @@ fn should_process_on_accept_module_callback_correctly() {
 			<Test as frame_system::Config>::AccountId,
 		>>::balance(
 			asset_id.clone(),
-			&pallet_asset_gateway::Pallet::<Test>::account_id(),
+			&pallet_xcm_gateway::Pallet::<Test>::account_id(),
 		);
 		dbg!(pallet_account_balance);
 		assert_eq!(custodied_amount, pallet_account_balance);
@@ -140,7 +140,7 @@ fn should_process_on_accept_module_callback_correctly() {
 
 	// Process on accept call back
 	let transferred = ParaA::execute_with(|| {
-		let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
 		let amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 		let body = Body {
 			amount: {
@@ -149,7 +149,7 @@ fn should_process_on_accept_module_callback_correctly() {
 				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
-			asset_id: pallet_asset_gateway::Pallet::<Test>::dot_asset_id().0.into(),
+			asset_id: pallet_xcm_gateway::Pallet::<Test>::dot_asset_id().0.into(),
 			redeem: false,
 			from: alloy_primitives::B256::from_slice(ALICE.as_slice()),
 			to: alloy_primitives::B256::from_slice(ALICE.as_slice()),
@@ -229,7 +229,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 		// Assert that a request was dispatched by checking the nonce, it should be 1
 		assert_eq!(nonce, 1);
 
-		let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
 		let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
 		let total_issuance = <pallet_assets::Pallet<Test> as Inspect<
@@ -240,7 +240,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 			<Test as frame_system::Config>::AccountId,
 		>>::balance(
 			asset_id.clone(),
-			&pallet_asset_gateway::Pallet::<Test>::account_id(),
+			&pallet_xcm_gateway::Pallet::<Test>::account_id(),
 		);
 		dbg!(pallet_account_balance);
 		assert_eq!(custodied_amount, pallet_account_balance);
@@ -248,7 +248,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 
 	// Process on timeout call back
 	let transferred = ParaA::execute_with(|| {
-		let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
 		let amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 		println!("Refund {amount}");
 
@@ -259,7 +259,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
-			asset_id: pallet_asset_gateway::Pallet::<Test>::dot_asset_id().0.into(),
+			asset_id: pallet_xcm_gateway::Pallet::<Test>::dot_asset_id().0.into(),
 			redeem: false,
 			from: alloy_primitives::FixedBytes::<32>::from_slice(ALICE.as_slice()),
 			to: alloy_primitives::FixedBytes::<32>::from_slice(&[0u8; 32]),

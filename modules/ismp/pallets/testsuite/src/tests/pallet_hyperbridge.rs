@@ -25,7 +25,9 @@ use ismp::{
 	module::IsmpModule,
 	router::PostRequest,
 };
-use pallet_hyperbridge::{Message, VersionedHostParams, WithdrawalRequest, PALLET_HYPERBRIDGE};
+use pallet_hyperbridge::{
+	Message, SubstrateHostParams, VersionedHostParams, WithdrawalRequest, PALLET_HYPERBRIDGE,
+};
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
 
 use crate::runtime::{new_test_ext, Balances, Coprocessor, Hyperbridge, UNIT};
@@ -51,7 +53,10 @@ fn test_dispatch_fees() {
 			.unwrap_err();
 
 		// lets set the protocol fees
-		let params = VersionedHostParams::V1(10 * UNIT);
+		let params = VersionedHostParams::V1(SubstrateHostParams {
+			default_per_byte_fee: 10 * UNIT,
+			..Default::default()
+		});
 		let data = Message::<AccountId32, u128>::UpdateHostParams(params.clone()).encode();
 		hyperbridge
 			.on_accept(PostRequest {

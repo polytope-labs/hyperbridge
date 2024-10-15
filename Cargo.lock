@@ -4803,6 +4803,7 @@ dependencies = [
  "ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
+ "sp-crypto-hashing",
  "trie-db 0.29.1",
 ]
 
@@ -6094,7 +6095,6 @@ dependencies = [
  "log",
  "orml-traits",
  "orml-xcm-support",
- "pallet-asset-gateway",
  "pallet-asset-rate",
  "pallet-assets",
  "pallet-aura",
@@ -6124,6 +6124,7 @@ dependencies = [
  "pallet-treasury",
  "pallet-utility",
  "pallet-xcm",
+ "pallet-xcm-gateway",
  "parachains-common",
  "parity-scale-codec",
  "polkadot-parachain-primitives",
@@ -10941,7 +10942,6 @@ dependencies = [
  "log",
  "orml-traits",
  "orml-xcm-support",
- "pallet-asset-gateway",
  "pallet-asset-rate",
  "pallet-assets",
  "pallet-aura",
@@ -10967,6 +10967,7 @@ dependencies = [
  "pallet-treasury",
  "pallet-utility",
  "pallet-xcm",
+ "pallet-xcm-gateway",
  "parachains-common",
  "parity-scale-codec",
  "polkadot-parachain-primitives",
@@ -11610,33 +11611,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-asset-gateway"
-version = "0.1.1"
-dependencies = [
- "alloy-primitives",
- "alloy-rlp-derive",
- "alloy-sol-macro",
- "alloy-sol-types",
- "anyhow",
- "frame-support 37.0.0",
- "frame-system",
- "ismp",
- "pallet-ismp",
- "pallet-token-gateway",
- "pallet-token-governor",
- "pallet-xcm",
- "parity-scale-codec",
- "scale-info",
- "sp-core 34.0.0",
- "sp-io 38.0.0",
- "sp-runtime 39.0.0",
- "sp-std 14.0.0",
- "staging-xcm",
- "staging-xcm-builder",
- "staging-xcm-executor",
-]
-
-[[package]]
 name = "pallet-asset-rate"
 version = "16.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12117,7 +12091,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "anyhow",
  "frame-support 37.0.0",
@@ -12347,7 +12321,6 @@ dependencies = [
  "ismp-sync-committee",
  "ismp-testsuite",
  "mmr-primitives",
- "pallet-asset-gateway",
  "pallet-assets",
  "pallet-balances",
  "pallet-call-decompressor",
@@ -12365,6 +12338,7 @@ dependencies = [
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
  "pallet-xcm",
+ "pallet-xcm-gateway",
  "parachains-common",
  "parity-scale-codec",
  "polkadot-parachain-primitives",
@@ -12385,6 +12359,7 @@ dependencies = [
  "substrate-state-machine",
  "subxt",
  "subxt-utils",
+ "token-gateway-primitives",
  "tokio",
  "trie-db 0.29.1",
  "xcm-simulator",
@@ -12951,7 +12926,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-macro",
@@ -12961,14 +12936,15 @@ dependencies = [
  "frame-system",
  "ismp",
  "log",
+ "pallet-hyperbridge",
  "pallet-ismp",
- "pallet-token-governor",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
  "sp-core 34.0.0",
  "sp-io 38.0.0",
  "sp-runtime 39.0.0",
+ "token-gateway-primitives",
 ]
 
 [[package]]
@@ -13014,6 +12990,7 @@ dependencies = [
  "sp-core 34.0.0",
  "sp-io 38.0.0",
  "sp-runtime 39.0.0",
+ "token-gateway-primitives",
 ]
 
 [[package]]
@@ -13180,6 +13157,33 @@ dependencies = [
  "scale-info",
  "sp-io 38.0.0",
  "sp-runtime 39.0.0",
+ "staging-xcm",
+ "staging-xcm-builder",
+ "staging-xcm-executor",
+]
+
+[[package]]
+name = "pallet-xcm-gateway"
+version = "0.1.1"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp-derive",
+ "alloy-sol-macro",
+ "alloy-sol-types",
+ "anyhow",
+ "frame-support 37.0.0",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "pallet-token-gateway",
+ "pallet-token-governor",
+ "pallet-xcm",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+ "sp-std 14.0.0",
  "staging-xcm",
  "staging-xcm-builder",
  "staging-xcm-executor",
@@ -24074,6 +24078,27 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "token-gateway-primitives"
+version = "1.15.1"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-macro",
+ "alloy-sol-types",
+ "anyhow",
+ "frame-support 37.0.0",
+ "frame-system",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-core 34.0.0",
+ "sp-io 38.0.0",
+ "sp-runtime 39.0.0",
+]
 
 [[package]]
 name = "tokio"

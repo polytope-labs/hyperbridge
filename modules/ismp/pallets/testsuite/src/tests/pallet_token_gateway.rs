@@ -1,19 +1,20 @@
 #![cfg(test)]
 
 use alloy_sol_types::SolValue;
+use codec::Encode;
 use ismp::{
 	host::StateMachine,
 	router::{PostRequest, Request, Timeout},
 };
 use pallet_token_gateway::{
-	impls::convert_to_erc20, AssetMap, AssetRegistration, Body, CreateAssetId, TeleportParams,
+	impls::convert_to_erc20, AssetRegistration, Body, CreateAssetId, TeleportParams,
 };
-use pallet_token_governor::{
-	token_gateway_id, AssetMetadata, ChainWithSupply, ERC6160AssetRegistration, SolAssetMetadata,
-	TokenGatewayRequest,
-};
+
 use sp_core::{ByteArray, Get, H160, H256, U256};
 
+use token_gateway_primitives::{
+	token_gateway_id, token_governor_id, AssetMetadata, GatewayAssetRegistration,
+};
 use xcm_simulator_example::ALICE;
 
 use crate::runtime::{
@@ -308,16 +309,14 @@ fn receiving_remote_asset_creation() {
 			minimum_balance: None,
 		};
 
-		let body: SolAssetMetadata = asset_metadata.clone().try_into().unwrap();
-
 		let post = PostRequest {
 			source: StateMachine::Polkadot(3367),
 			dest: StateMachine::Kusama(100),
 			nonce: 0,
-			from: pallet_token_governor::PALLET_ID.to_vec(),
+			from: token_governor_id(),
 			to: token_gateway_id().0.to_vec(),
 			timeout_timestamp: 0,
-			body: body.encode_request(),
+			body: asset_metadata.encode(),
 		};
 
 		let module = TokenGateway::default();
@@ -336,20 +335,19 @@ fn receiving_remote_asset_creation() {
 #[test]
 fn dispatching_remote_asset_creation() {
 	new_test_ext().execute_with(|| {
-		let asset_map = AssetMap::<H256> {
-			local_id: None,
-			reg: ERC6160AssetRegistration {
+		let local_asset_id = AssetIdFactory::create_asset_id("MDG".as_bytes().to_vec()).unwrap();
+		let reg = AssetRegistration::<H256> {
+			local_id: local_asset_id,
+			reg: GatewayAssetRegistration {
 				name: "MOODENG".as_bytes().to_vec().try_into().unwrap(),
 				symbol: "MDG".as_bytes().to_vec().try_into().unwrap(),
-				chains: vec![ChainWithSupply { chain: StateMachine::Evm(97), supply: None }],
+				chains: vec![StateMachine::Evm(97)],
 				minimum_balance: None,
 			},
 		};
 
-		let reg = AssetRegistration { assets: vec![asset_map].try_into().unwrap() };
+		TokenGateway::create_erc6160_asset(RuntimeOrigin::signed(ALICE), reg).unwrap();
 
-		TokenGateway::create_erc6160_asset(RuntimeOrigin::root(), reg).unwrap();
-		let local_asset_id = AssetIdFactory::create_asset_id("MDG".as_bytes().to_vec()).unwrap();
 		let asset = pallet_token_gateway::SupportedAssets::<Test>::get(local_asset_id).unwrap();
 		// For the test we use the same asset id construction for local and token gateway, they
 		// should be equal

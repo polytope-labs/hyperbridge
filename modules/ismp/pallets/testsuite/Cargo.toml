@@ -45,13 +45,14 @@ substrate-state-machine = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }
 pallet-fishermen = { workspace = true, default-features = true }
 pallet-call-decompressor = { workspace = true, default-features = true }
-pallet-asset-gateway = { workspace = true, default-features = true }
+pallet-xcm-gateway = { workspace = true, default-features = true }
 pallet-token-gateway = { workspace = true, default-features = true }
 sp-state-machine = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr = { workspace = true, default-features = true }
 pallet-token-governor = { workspace = true, default-features = true }
 pallet-token-gateway-inspector = { workspace = true, default-features = true }
+token-gateway-primitives = { workspace = true, default-features = true }
 
 # Polkadot
 pallet-xcm = { workspace = true, default-features = true }

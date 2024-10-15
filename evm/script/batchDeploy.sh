@@ -4,5 +4,5 @@ declare -a arr=("sepolia" "arbitrum-sepolia" "optimism-sepolia" "base-sepolia" "
 
 for i in "${arr[@]}"
 do
-   "$(pwd)/script/deploy.sh" "$i" $1
+   "$(pwd)/script/deploy.sh" "$i" $1 $2
 done

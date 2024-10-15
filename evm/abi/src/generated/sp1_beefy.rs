@@ -130,6 +130,28 @@ pub mod sp1_beefy {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("verificationKey"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("verificationKey"),
+                            inputs: ::std::vec![],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes32"),
+                                    ),
+                                },
+                            ],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                        },
+                    ],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("verifyConsensus"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
@@ -279,6 +301,12 @@ pub mod sp1_beefy {
 		) -> ::ethers::contract::builders::ContractCall<M, bool> {
 			self.0
 				.method_hash([1, 255, 201, 167], interface_id)
+				.expect("method not found (this should never happen)")
+		}
+		///Calls the contract's `verificationKey` (0x7ddc907d) function
+		pub fn verification_key(&self) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
+			self.0
+				.method_hash([125, 220, 144, 125], ())
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `verifyConsensus` (0x7d755598) function
@@ -471,6 +499,20 @@ pub mod sp1_beefy {
 	pub struct SupportsInterfaceCall {
 		pub interface_id: [u8; 4],
 	}
+	///Container type for all input parameters for the `verificationKey` function with signature
+	/// `verificationKey()` and selector `0x7ddc907d`
+	#[derive(
+		Clone,
+		::ethers::contract::EthCall,
+		::ethers::contract::EthDisplay,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	#[ethcall(name = "verificationKey", abi = "verificationKey()")]
+	pub struct VerificationKeyCall;
 	///Container type for all input parameters for the `verifyConsensus` function with signature
 	/// `verifyConsensus(bytes,bytes)` and selector `0x7d755598`
 	#[derive(
@@ -493,6 +535,7 @@ pub mod sp1_beefy {
 	pub enum SP1BeefyCalls {
 		NoOp(NoOpCall),
 		SupportsInterface(SupportsInterfaceCall),
+		VerificationKey(VerificationKeyCall),
 		VerifyConsensus(VerifyConsensusCall),
 	}
 	impl ::ethers::core::abi::AbiDecode for SP1BeefyCalls {
@@ -509,6 +552,11 @@ pub mod sp1_beefy {
 				return Ok(Self::SupportsInterface(decoded));
 			}
 			if let Ok(decoded) =
+				<VerificationKeyCall as ::ethers::core::abi::AbiDecode>::decode(data)
+			{
+				return Ok(Self::VerificationKey(decoded));
+			}
+			if let Ok(decoded) =
 				<VerifyConsensusCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
 				return Ok(Self::VerifyConsensus(decoded));
@@ -521,6 +569,7 @@ pub mod sp1_beefy {
 			match self {
 				Self::NoOp(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::SupportsInterface(element) => ::ethers::core::abi::AbiEncode::encode(element),
+				Self::VerificationKey(element) => ::ethers::core::abi::AbiEncode::encode(element),
 				Self::VerifyConsensus(element) => ::ethers::core::abi::AbiEncode::encode(element),
 			}
 		}
@@ -530,6 +579,7 @@ pub mod sp1_beefy {
 			match self {
 				Self::NoOp(element) => ::core::fmt::Display::fmt(element, f),
 				Self::SupportsInterface(element) => ::core::fmt::Display::fmt(element, f),
+				Self::VerificationKey(element) => ::core::fmt::Display::fmt(element, f),
 				Self::VerifyConsensus(element) => ::core::fmt::Display::fmt(element, f),
 			}
 		}
@@ -542,6 +592,11 @@ pub mod sp1_beefy {
 	impl ::core::convert::From<SupportsInterfaceCall> for SP1BeefyCalls {
 		fn from(value: SupportsInterfaceCall) -> Self {
 			Self::SupportsInterface(value)
+		}
+	}
+	impl ::core::convert::From<VerificationKeyCall> for SP1BeefyCalls {
+		fn from(value: VerificationKeyCall) -> Self {
+			Self::VerificationKey(value)
 		}
 	}
 	impl ::core::convert::From<VerifyConsensusCall> for SP1BeefyCalls {
@@ -562,6 +617,19 @@ pub mod sp1_beefy {
 		Hash,
 	)]
 	pub struct SupportsInterfaceReturn(pub bool);
+	///Container type for all return fields from the `verificationKey` function with signature
+	/// `verificationKey()` and selector `0x7ddc907d`
+	#[derive(
+		Clone,
+		::ethers::contract::EthAbiType,
+		::ethers::contract::EthAbiCodec,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	pub struct VerificationKeyReturn(pub [u8; 32]);
 	///Container type for all return fields from the `verifyConsensus` function with signature
 	/// `verifyConsensus(bytes,bytes)` and selector `0x7d755598`
 	#[derive(

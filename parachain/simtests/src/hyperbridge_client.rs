@@ -32,6 +32,7 @@ use subxt_utils::{
 					messaging::{Message, Proof, RequestMessage},
 				},
 				ismp_parachain::ParachainData,
+				pallet_hyperbridge::SubstrateHostParams,
 			},
 		},
 	},
@@ -68,7 +69,7 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 						(
 							StateMachine::Kusama(para_id).into(),
 							runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(
-								runtime_types::pallet_hyperbridge::VersionedHostParams::V1(per_byte_fee)
+								runtime_types::pallet_hyperbridge::VersionedHostParams::V1(SubstrateHostParams {default_per_byte_fee: per_byte_fee, ..Default::default() })
 							)
 						)
 					],
@@ -261,7 +262,8 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 						(
 							StateMachine::Kusama(para_id).into(),
 							runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(
-								runtime_types::pallet_hyperbridge::VersionedHostParams::V1(per_byte_fee)
+								runtime_types::pallet_hyperbridge::VersionedHostParams::V1(SubstrateHostParams {default_per_byte_fee: per_byte_fee, ..Default::default() })
+
 							)
 						)
 					],
@@ -446,7 +448,7 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 						(
 							StateMachine::Kusama(para_id).into(),
 							runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(
-								runtime_types::pallet_hyperbridge::VersionedHostParams::V1(per_byte_fee)
+								runtime_types::pallet_hyperbridge::VersionedHostParams::V1(SubstrateHostParams { default_per_byte_fee: per_byte_fee, ..Default::default() })
 							)
 						)
 					],

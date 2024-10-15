@@ -32,7 +32,7 @@ use ismp::{
 	module::IsmpModule,
 	router::{IsmpRouter, PostRequest, Request, Response},
 };
-use pallet_asset_gateway::AssetGatewayParams;
+use pallet_xcm_gateway::AssetGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use sp_core::crypto::AccountId32;
@@ -123,7 +123,7 @@ impl pallet_token_governor::Config for Runtime {
 	type TreasuryAccount = ProtocolAccount;
 }
 
-impl pallet_asset_gateway::Config for Runtime {
+impl pallet_xcm_gateway::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
 	type Params = TransferParams;
@@ -188,7 +188,7 @@ impl IsmpModule for ProxyModule {
 		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address(&request.source));
 		match pallet_id {
 			id if id == token_gateway =>
-				pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
+				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
@@ -216,7 +216,7 @@ impl IsmpModule for ProxyModule {
 		let token_gateway = ModuleId::Evm(Gateway::token_gateway_address(source));
 		match pallet_id {
 			id if id == token_gateway =>
-				pallet_asset_gateway::Module::<Runtime>::default().on_timeout(timeout),
+				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(()),
 		}

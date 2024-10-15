@@ -228,3 +228,50 @@ pub fn get_value_from_proof<H: Keccak256 + Send + Sync>(
 
 	Ok(val)
 }
+
+// keccak256(uint256(4009) . keccak256(uint256(200_000_000) . uint256(STATE_COMMITMENT_SLOT)))
+pub fn state_comitment_key(state_machine_id: U256, block_height: U256) -> (H256, H256, H256) {
+	use sp_crypto_hashing::keccak_256;
+
+	const STATE_COMMITMENT_SLOT: u64 = 5;
+
+	// Parent map key
+	let mut slot = [0u8; 32];
+	U256::from(STATE_COMMITMENT_SLOT).to_big_endian(&mut slot);
+
+	let mut state_id = [0u8; 32];
+	state_machine_id.to_big_endian(&mut state_id);
+	let mut key = state_id.to_vec();
+	key.extend_from_slice(&slot);
+	let parent_map_key = keccak_256(&key);
+
+	// Commitment key
+	let mut bytes = [0u8; 32];
+	block_height.to_big_endian(&mut bytes);
+	let mut commitment_key = bytes.to_vec();
+	commitment_key.extend_from_slice(&parent_map_key);
+
+	let slot_hash = keccak_256(&commitment_key);
+
+	// Timestamp is at offset 0
+
+	// overlay root is at offset 1
+
+	let overlay_root_slot = {
+		let slot = U256::from_big_endian(&slot_hash) + U256::one();
+		let mut bytes = [0u8; 32];
+		slot.to_big_endian(&mut bytes);
+		H256::from_slice(&bytes)
+	};
+
+	// state root is at offset 2
+
+	let state_root_key = {
+		let slot = U256::from_big_endian(&slot_hash) + U256::one() + U256::one();
+		let mut bytes = [0u8; 32];
+		slot.to_big_endian(&mut bytes);
+		H256::from_slice(&bytes)
+	};
+
+	(slot_hash.into(), overlay_root_slot, state_root_key)
+}

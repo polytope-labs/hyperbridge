@@ -77,7 +77,7 @@ frame_support::construct_runtime!(
 		MessageQueue: pallet_message_queue,
 		PalletXcm: pallet_xcm,
 		Assets: pallet_assets,
-		Gateway: pallet_asset_gateway,
+		Gateway: pallet_xcm_gateway,
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
 		IsmpSyncCommittee: ismp_sync_committee::pallet,
@@ -243,7 +243,7 @@ impl pallet_token_gateway::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Dispatcher = Ismp;
 	type Assets = Assets;
-	type Currency = Balances;
+	type NativeCurrency = Balances;
 	type NativeAssetId = NativeAssetId;
 	type AssetIdFactory = AssetIdFactory;
 	type Decimals = Decimals;

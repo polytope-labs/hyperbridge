@@ -14,12 +14,11 @@
 // limitations under the License.
 
 // Pallet Implementations
-
-use crate::token_gateway_id;
 use alloc::string::ToString;
 use frame_support::PalletId;
 use sp_core::U256;
 use sp_runtime::traits::AccountIdConversion;
+use token_gateway_primitives::token_gateway_id;
 
 use crate::{Config, Pallet};
 

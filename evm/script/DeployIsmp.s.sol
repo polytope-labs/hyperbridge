@@ -37,7 +37,6 @@ bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
 contract DeployScript is BaseScript {
     using strings for *;
 
-    address private admin = vm.envAddress("ADMIN");
     address private pingDispatcher = vm.envAddress("DISPATCHER");
     uint256 private paraId = vm.envUint("PARA_ID");
 
@@ -62,10 +61,10 @@ contract DeployScript is BaseScript {
         stateMachines[0] = paraId;
 
         // EvmHost
-        address[] memory fishermen = new address[](0);
+        PerByteFee[] memory perByteFees = new PerByteFee[](0);
         HostParams memory params = HostParams({
             uniswapV2: address(0),
-            fishermen: fishermen,
+            perByteFees: perByteFees,
             admin: admin,
             hostManager: address(manager),
             handler: address(handler),
@@ -76,7 +75,7 @@ contract DeployScript is BaseScript {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            perByteFee: 3 * 1e15, // $0.003/byte
+            defaultPerByteFee: 3 * 1e15, // $0.003/byte
             stateCommitmentFee: 10 * 1e18, // $10
             hyperbridge: StateMachine.kusama(paraId),
             feeToken: address(feeToken),
@@ -143,9 +142,7 @@ contract DeployScript is BaseScript {
             name: "Hyperbridge USD",
             symbol: "USD.h",
             beneficiary: address(0),
-            initialSupply: 0,
-            decimal: 18,
-            minBalance: 0
+            initialSupply: 0
         });
 
         // initialize gateway

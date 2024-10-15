@@ -30,7 +30,7 @@ contract TokenGatewayTest is BaseTest {
 
     function testCanTeleportAssets() public {
         // relayer fee + per-byte fee
-        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
+        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee(StateMachine.evm(97)));
         uint256 totalFee = 1_000 * 1e18 + messagingFee;
         feeToken.mint(address(this), totalFee);
 
@@ -57,7 +57,7 @@ contract TokenGatewayTest is BaseTest {
 
     function testCanTeleportAssetsWithCall() public {
         // relayer fee + per-byte fee
-        uint256 messagingFee = (9 * 1e17) + (321 * host.perByteFee());
+        uint256 messagingFee = (9 * 1e17) + (321 * host.perByteFee(StateMachine.evm(97)));
         uint256 totalFee = 1_000 * 1e18 + messagingFee;
         feeToken.mint(address(this), totalFee);
 
@@ -225,9 +225,7 @@ contract TokenGatewayTest is BaseTest {
             name: "Hyperbridge USD",
             symbol: "USD",
             beneficiary: address(0),
-            initialSupply: 0,
-            decimal: 18,
-            minBalance: 0
+            initialSupply: 0
         });
 
         bytes memory hyperbridge = StateMachine.kusama(2000);
@@ -262,9 +260,7 @@ contract TokenGatewayTest is BaseTest {
             name: "Hyperbridge USD",
             symbol: "USDH",
             beneficiary: address(0),
-            initialSupply: 0,
-            decimal: 18,
-            minBalance: 0
+            initialSupply: 0
         });
 
         vm.prank(address(host));
@@ -294,9 +290,7 @@ contract TokenGatewayTest is BaseTest {
             name: "Hyperbridge USD",
             symbol: "USD.h",
             beneficiary: address(0),
-            initialSupply: 0,
-            decimal: 18,
-            minBalance: 0
+            initialSupply: 0
         });
 
         vm.prank(address(host));

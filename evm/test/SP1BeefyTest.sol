@@ -48,15 +48,6 @@ contract SP1BeefyTest is Test {
 
         SP1Beefy sp1Beefy = new SP1Beefy(sp1);
         sp1Beefy.verifyConsensus(abi.encode(state), encoded);
-
-        (
-            MiniCommitment memory commitment,
-            PartialBeefyMmrLeaf memory leaf,
-            ParachainHeader[] memory headers,
-            bytes memory plonkProof
-        ) = abi.decode(encoded, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes));
-
-        console.logBytes(headers[0].header);
     }
 
     function testPolkadotVerifier() public view {

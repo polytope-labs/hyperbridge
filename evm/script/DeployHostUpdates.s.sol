@@ -17,43 +17,44 @@ import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 contract DeployScript is BaseScript {
     using strings for *;
 
-
     function run() external {
         vm.startBroadcast(uint256(privateKey));
 
         // SP1Verifier verifier = new SP1Verifier();
         // SP1Beefy consensusClient = new SP1Beefy(verifier);
-        HandlerV1 handler = new HandlerV1();
+
+        // HandlerV1 handler = new HandlerV1();
+        BeefyV1 consensusClient = new BeefyV1{salt: salt}();
 
         if (equal(host, "sepolia") || host.toSlice().startsWith("eth".toSlice())) {
             HostParams memory params = EvmHost(SEPOLIA_HOST).hostParams();
-            // params.consensusClient = address(consensusClient);
-            params.handler = address(handler);
+            params.consensusClient = address(consensusClient);
+            // params.handler = address(handler);
             EvmHost(SEPOLIA_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
             HostParams memory params = EvmHost(ARB_SEPOLIA_HOST).hostParams();
-            // params.consensusClient = address(consensusClient);
-            params.handler = address(handler);
+            params.consensusClient = address(consensusClient);
+            // params.handler = address(handler);
             EvmHost(ARB_SEPOLIA_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("optimism".toSlice())) {
             HostParams memory params = EvmHost(OP_SEPOLIA_HOST).hostParams();
-            // params.consensusClient = address(consensusClient);
-            params.handler = address(handler);
+            params.consensusClient = address(consensusClient);
+            // params.handler = address(handler);
             EvmHost(OP_SEPOLIA_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("base".toSlice())) {
             HostParams memory params = EvmHost(BASE_SEPOLIA_HOST).hostParams();
-            // params.consensusClient = address(consensusClient);
-            params.handler = address(handler);
+            params.consensusClient = address(consensusClient);
+            // params.handler = address(handler);
             EvmHost(BASE_SEPOLIA_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("bsc".toSlice())) {
             HostParams memory params = EvmHost(BSC_TESTNET_HOST).hostParams();
-            // params.consensusClient = address(consensusClient);
-            params.handler = address(handler);
+            params.consensusClient = address(consensusClient);
+            // params.handler = address(handler);
             EvmHost(BSC_TESTNET_HOST).updateHostParams(params);
         } else if (host.toSlice().startsWith("chiado".toSlice())) {
             HostParams memory params = EvmHost(CHIADO_HOST).hostParams();
-            // params.consensusClient = address(consensusClient);
-            params.handler = address(handler);
+            params.consensusClient = address(consensusClient);
+            // params.handler = address(handler);
             EvmHost(CHIADO_HOST).updateHostParams(params);
         } else {
             revert("Unknown Host");

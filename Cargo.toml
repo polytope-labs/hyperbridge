@@ -260,7 +260,7 @@ ismp-solidity-abi = { path = "./evm/abi", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
 hyperclient = { path = "modules/hyperclient", default-features = false }
 subxt-utils = { path = "modules/utils/subxt", default-features = false }
-serde-hex-utils = { version = "0.1.1", path = "modules/utils/serde", default-features = false }
+serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
 
 # consensus provers & verifiers
 beefy-verifier-primitives = { path = "./modules/consensus/beefy/primitives", default-features = false }

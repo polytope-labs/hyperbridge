@@ -12091,7 +12091,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.15.2"
+version = "1.15.1"
 dependencies = [
  "anyhow",
  "frame-support 37.0.0",
@@ -12279,6 +12279,7 @@ dependencies = [
  "sp-runtime 39.0.0",
  "sp-storage 21.0.0",
  "sp-trie 37.0.0",
+ "tower",
  "trie-db 0.29.1",
 ]
 
@@ -19932,7 +19933,7 @@ dependencies = [
 
 [[package]]
 name = "serde-hex-utils"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "hex",

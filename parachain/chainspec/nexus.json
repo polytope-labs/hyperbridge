@@ -9,7 +9,9 @@
     "/dns4/boot.helikon.io/tcp/8610/p2p/12D3KooWNvVYuuHtV9KSpUXy7puERNvoNyAcRGizp3s2QpHQuuhq",
     "/dns4/boot.helikon.io/tcp/8612/wss/p2p/12D3KooWNvVYuuHtV9KSpUXy7puERNvoNyAcRGizp3s2QpHQuuhq",
     "/dns/hyperbridge-nexus-boot-ng.dwellir.com/tcp/30367/p2p/12D3KooWSQsd5E7SyPX184B7vPBWAiF5Wjn4DvhSt8TrRB6FQeDk",
-    "/dns/hyperbridge-nexus-boot-ng.dwellir.com/tcp/443/wss/p2p/12D3KooWSQsd5E7SyPX184B7vPBWAiF5Wjn4DvhSt8TrRB6FQeDk"
+    "/dns/hyperbridge-nexus-boot-ng.dwellir.com/tcp/443/wss/p2p/12D3KooWSQsd5E7SyPX184B7vPBWAiF5Wjn4DvhSt8TrRB6FQeDk",
+    "/dns/nexus-bootnode.radiumblock.com/tcp/30333/p2p/12D3KooWJ9J1a3ktfko2UBr8jyx2pQVYYyubfCcMqo3SSsQKQ81o",
+    "/dns/nexus-bootnode.radiumblock.com/tcp/30336/wss/p2p/12D3KooWJ9J1a3ktfko2UBr8jyx2pQVYYyubfCcMqo3SSsQKQ81o"
   ],
   "telemetryEndpoints": [
     [

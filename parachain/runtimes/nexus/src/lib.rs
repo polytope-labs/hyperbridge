@@ -558,7 +558,7 @@ impl pallet_collator_selection::Config for Runtime {
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ValidatorRegistration = Session;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_collator_selection::WeightInfo<Runtime>;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -698,7 +698,7 @@ impl pallet_multisig::Config for Runtime {
 	type DepositBase = DepositBase;
 	type DepositFactor = DepositFactor;
 	type MaxSignatories = MaxSignatories;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_multisig::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -784,7 +784,7 @@ impl pallet_proxy::Config for Runtime {
 	type ProxyDepositBase = ProxyDepositBase;
 	type ProxyDepositFactor = ProxyDepositFactor;
 	type MaxProxies = MaxProxies;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_proxy::WeightInfo<Runtime>;
 	type MaxPending = MaxPending;
 	type CallHasher = Keccak256;
 	type AnnouncementDepositBase = AnnouncementDepositBase;
@@ -859,7 +859,6 @@ mod benches {
 		[pallet_balances, Balances]
 		[pallet_session, SessionBench::<Runtime>]
 		[pallet_timestamp, Timestamp]
-		// benchmarks are broken in v1.6.0
 		[pallet_collator_selection, CollatorSelection]
 		// todo: benchmarking requires painful configuration steps
 		// [pallet_xcm, pallet_xcm::benchmarking::Pallet::<Runtime>]

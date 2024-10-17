@@ -94,6 +94,7 @@ impl pallet_ismp::Config for Runtime {
 			IsmpParachain,
 			HyperbridgeClientMachine<Runtime, Ismp>,
 		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Runtime>,
 	);
 	type Mmr = Mmr;
 	type WeightProvider = ();

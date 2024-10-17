@@ -177,7 +177,11 @@ where
 			let pallet_account = Pallet::<T>::account_id();
 			let protocol_percentage = Pallet::<T>::protocol_fee_percentage();
 
-			let protocol_fees = protocol_percentage * u128::from(amount);
+			// If destination is ETH mainnet charge a base fee of 2 DOT to cover expensive consensus
+			// messages
+			let base_fee =
+				if who.dest_state_machine == StateMachine::Evm(1) { 20_000_000_000u128 } else { 0 };
+			let protocol_fees = protocol_percentage * u128::from(amount) + base_fee;
 			let remainder = amount - protocol_fees.into();
 			// Mint protocol fees
 			T::Assets::mint_into(asset_id.clone(), &protocol_account, protocol_fees.into())

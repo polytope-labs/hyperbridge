@@ -10959,6 +10959,8 @@ dependencies = [
  "pallet-message-queue",
  "pallet-mmr 0.1.1",
  "pallet-mmr-runtime-api",
+ "pallet-multisig",
+ "pallet-proxy",
  "pallet-session",
  "pallet-state-coprocessor",
  "pallet-sudo",

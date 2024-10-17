@@ -208,11 +208,11 @@ impl IsmpModule for ProxyModule {
 		let pallet_id =
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
-		let token_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&request.source));
+		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&request.source));
 		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
-			id if id == token_gateway =>
+			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
 			id if id == token_governor => TokenGovernor::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
@@ -244,9 +244,9 @@ impl IsmpModule for ProxyModule {
 		};
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
-		let token_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(dest));
+		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(dest));
 		match pallet_id {
-			id if id == token_gateway =>
+			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(()),

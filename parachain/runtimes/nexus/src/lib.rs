@@ -40,7 +40,7 @@ use pallet_asset_rate::AssetKindFactory;
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, RuntimeDebug, H256};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
@@ -63,7 +63,7 @@ use frame_support::{
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
-	traits::{ConstU32, ConstU64, ConstU8, Everything},
+	traits::{ConstU32, ConstU64, ConstU8, Everything, InstanceFilter},
 	weights::{
 		constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
 		WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -217,7 +217,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("nexus"),
 	impl_name: create_runtime_str!("nexus"),
 	authoring_version: 1,
-	spec_version: 200,
+	spec_version: 1000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -683,6 +683,114 @@ impl pallet_collective::Config for Runtime {
 	type MaxProposalWeight = MaxCollectivesProposalWeight;
 }
 
+parameter_types! {
+	// One storage item; key size is 32; value is size 4+4+16+32 bytes = 56 bytes.
+	pub const DepositBase: Balance = EXISTENTIAL_DEPOSIT * 5;
+	// Additional storage item size of 32 bytes.
+	pub const DepositFactor: Balance = EXISTENTIAL_DEPOSIT * 2;
+	pub const MaxSignatories: u32 = 100;
+}
+
+impl pallet_multisig::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type Currency = Balances;
+	type DepositBase = DepositBase;
+	type DepositFactor = DepositFactor;
+	type MaxSignatories = MaxSignatories;
+	type WeightInfo = ();
+}
+
+parameter_types! {
+	// One storage item; key size 32, value size 8; .
+	pub const ProxyDepositBase: Balance = EXISTENTIAL_DEPOSIT * 5;
+	// Additional storage item size of 33 bytes.
+	pub const ProxyDepositFactor: Balance = EXISTENTIAL_DEPOSIT * 2;
+	pub const MaxProxies: u16 = 32;
+	// One storage item; key size 32, value size 16
+	pub const AnnouncementDepositBase: Balance = EXISTENTIAL_DEPOSIT * 5;
+	pub const AnnouncementDepositFactor: Balance = EXISTENTIAL_DEPOSIT * 2;
+	pub const MaxPending: u16 = 32;
+}
+
+/// The type used to represent the kinds of proxying allowed.
+#[derive(
+	Copy,
+	Clone,
+	Eq,
+	PartialEq,
+	Ord,
+	PartialOrd,
+	Encode,
+	Decode,
+	RuntimeDebug,
+	MaxEncodedLen,
+	scale_info::TypeInfo,
+)]
+pub enum ProxyType {
+	/// Fully permissioned proxy. Can execute any call on behalf of _proxied_.
+	Any,
+	/// Collator selection proxy. Can execute calls related to collator selection mechanism.
+	Collator,
+	/// Can execute any call that does not transfer funds or assets.
+	NonTransfer,
+	/// Proxy with the ability to reject time-delay proxy announcements.
+	CancelProxy,
+}
+
+impl Default for ProxyType {
+	fn default() -> Self {
+		Self::Any
+	}
+}
+
+impl InstanceFilter<RuntimeCall> for ProxyType {
+	fn filter(&self, c: &RuntimeCall) -> bool {
+		match self {
+			ProxyType::Any => true,
+			ProxyType::NonTransfer =>
+				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. }),
+			ProxyType::CancelProxy => matches!(
+				c,
+				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. }) |
+					RuntimeCall::Utility { .. } |
+					RuntimeCall::Multisig { .. }
+			),
+			ProxyType::Collator => matches!(
+				c,
+				RuntimeCall::CollatorSelection { .. } |
+					RuntimeCall::Utility { .. } |
+					RuntimeCall::Multisig { .. }
+			),
+		}
+	}
+
+	fn is_superset(&self, o: &Self) -> bool {
+		match (self, o) {
+			(x, y) if x == y => true,
+			(ProxyType::Any, _) => true,
+			(_, ProxyType::Any) => false,
+			(ProxyType::NonTransfer, ProxyType::Collator) => true,
+			_ => false,
+		}
+	}
+}
+
+impl pallet_proxy::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type Currency = Balances;
+	type ProxyType = ProxyType;
+	type ProxyDepositBase = ProxyDepositBase;
+	type ProxyDepositFactor = ProxyDepositFactor;
+	type MaxProxies = MaxProxies;
+	type WeightInfo = ();
+	type MaxPending = MaxPending;
+	type CallHasher = Keccak256;
+	type AnnouncementDepositBase = AnnouncementDepositBase;
+	type AnnouncementDepositFactor = AnnouncementDepositFactor;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime
@@ -699,6 +807,8 @@ construct_runtime!(
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>} = 11,
 		Treasury: pallet_treasury = 12,
 		AssetRate: pallet_asset_rate = 13,
+		Multisig: pallet_multisig = 14,
+		Proxy: pallet_proxy = 15,
 
 		// Collator support. The order of these 4 are important and shall not change.
 		Authorship: pallet_authorship::{Pallet, Storage} = 20,
@@ -720,7 +830,7 @@ construct_runtime!(
 		MessageQueue: pallet_message_queue = 42,
 
 		IsmpParachain: ismp_parachain = 50,
-		IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 51,
+		IsmpSyncCommittee: ismp_sync_committee::pallet = 51,
 		Relayer: pallet_ismp_relayer = 52,
 		HostExecutive: pallet_ismp_host_executive = 53,
 		CallDecompressor: pallet_call_decompressor = 54,
@@ -750,7 +860,7 @@ mod benches {
 		[pallet_session, SessionBench::<Runtime>]
 		[pallet_timestamp, Timestamp]
 		// benchmarks are broken in v1.6.0
-		// [pallet_collator_selection, CollatorSelection]
+		[pallet_collator_selection, CollatorSelection]
 		// todo: benchmarking requires painful configuration steps
 		// [pallet_xcm, pallet_xcm::benchmarking::Pallet::<Runtime>]
 		[cumulus_pallet_xcmp_queue, XcmpQueue]
@@ -761,6 +871,8 @@ mod benches {
 		[pallet_treasury, Treasury]
 		[pallet_asset_rate, AssetRate]
 		[pallet_collective, TechnicalCollective]
+		[pallet_multisig, Multisig]
+		[pallet_proxy, Proxy]
 		[cumulus_pallet_parachain_system, ParachainSystem]
 		[pallet_session, SessionBench::<Runtime>]
 	);

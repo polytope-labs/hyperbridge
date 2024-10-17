@@ -48,6 +48,8 @@ pallet-utility = { workspace = true }
 pallet-treasury = { workspace = true}
 pallet-asset-rate = { workspace = true}
 pallet-collective = { workspace = true}
+pallet-multisig = { workspace = true}
+pallet-proxy = { workspace = true}
 
 sp-api = { workspace = true }
 sp-io = { workspace = true }
@@ -196,7 +198,9 @@ std = [
 	"pallet-token-gateway-inspector/std",
 	"pallet-fishermen/std",
 	"pallet-state-coprocessor/std",
-	"ismp-grandpa/std"
+	"ismp-grandpa/std",
+	"pallet-multisig/std",
+	"pallet-proxy/std"
 ]
 
 runtime-benchmarks = [
@@ -221,7 +225,9 @@ runtime-benchmarks = [
 	"pallet-message-queue/runtime-benchmarks",
 	"pallet-assets/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
-	"parachains-common/runtime-benchmarks"
+	"parachains-common/runtime-benchmarks",
+	"pallet-multisig/runtime-benchmarks", 
+	"pallet-proxy/runtime-benchmarks"
 ]
 
 try-runtime = [

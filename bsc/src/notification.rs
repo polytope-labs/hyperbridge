@@ -7,7 +7,7 @@ use ethers::types::Block;
 use primitive_types::H256;
 use sp_core::H160;
 
-use std::sync::Arc;
+use std::{cmp::max, sync::Arc};
 use tesseract_primitives::IsmpProvider;
 
 use crate::{BscPosHost, KeccakHasher};
@@ -22,7 +22,8 @@ pub async fn consensus_notification<C: Config>(
 		.query_consensus_state(Some(counterparty_finalized), client.consensus_state_id)
 		.await?;
 	let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
-	let current_epoch = consensus_state.current_epoch;
+	let current_epoch =
+		max(compute_epoch(consensus_state.finalized_height), consensus_state.current_epoch);
 	let attested_header = client.prover.latest_header().await?;
 
 	let attested_epoch = compute_epoch(attested_header.number.low_u64());

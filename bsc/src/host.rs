@@ -24,7 +24,7 @@ use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 use ethers::providers::Middleware;
 use ismp_bsc::ConsensusState;
 use sp_core::H160;
-use std::{sync::Arc, time::Duration};
+use std::{cmp::max, sync::Arc, time::Duration};
 
 use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
@@ -74,7 +74,10 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 				let consensus_state = ConsensusState::decode(&mut &*consensus_state)
 					.expect("Consensus state should always decode correctly");
 
-				let current_epoch = consensus_state.current_epoch;
+				let current_epoch = max(
+					compute_epoch(consensus_state.finalized_height),
+					consensus_state.current_epoch,
+				);
 				let attested_header = if let Ok(header) = client.prover.latest_header().await {
 					header
 				} else {
@@ -120,6 +123,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						let header = if let Some(header) = header {
 							header
 						} else {
+							log::error!("Block does not found for {}", block);
 							// If header does not exist yet wait before continuing
 							tokio::time::sleep(Duration::from_secs(3)).await;
 							continue;
@@ -128,7 +132,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						match client
 							.prover
 							.fetch_bsc_update::<KeccakHasher>(
-								header,
+								header.clone(),
 								consensus_state.current_validators.len() as u64,
 								next_epoch,
 								false,
@@ -149,6 +153,10 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									consensus_state.finalized_height ||
 									res.is_err()
 								{
+									log::error!(
+										"Verification failed for block {}",
+										update.attested_header.number
+									);
 									block += 1;
 									continue;
 								}
@@ -162,7 +170,10 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									interval,
 								));
 							},
-							Ok(None) => block += 1,
+							Ok(None) => {
+								log::trace!("Valid Update not found for {:?}", header.number);
+								block += 1
+							},
 							Err(_) =>
 								return Some((
 									Err(anyhow!(

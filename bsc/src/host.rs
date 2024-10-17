@@ -24,7 +24,11 @@ use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 use ethers::providers::Middleware;
 use ismp_bsc::ConsensusState;
 use sp_core::H160;
-use std::{cmp::max, sync::Arc, time::Duration};
+use std::{
+	cmp::{max, min},
+	sync::Arc,
+	time::Duration,
+};
 
 use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
@@ -92,13 +96,13 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 
 				let attested_epoch = compute_epoch(attested_header.number.low_u64());
 				// Send a block that would enact authority set rotation
-				if attested_epoch > current_epoch && consensus_state.next_validators.is_some() {
+				if attested_epoch >= current_epoch && consensus_state.next_validators.is_some() {
 					log::trace!(
 						"Enacting Authority Set Rotation for {:?} on {}",
 						client.state_machine,
 						counterparty.state_machine_id().state_id
 					);
-					let next_epoch = current_epoch + 1;
+					let next_epoch = min(current_epoch + 1, attested_epoch);
 					let epoch_block_number = next_epoch * EPOCH_LENGTH;
 					let rotation_block = get_rotation_block(
 						epoch_block_number,

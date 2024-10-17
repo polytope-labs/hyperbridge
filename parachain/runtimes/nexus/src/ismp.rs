@@ -227,17 +227,7 @@ impl IsmpModule for ProxyModule {
 			return Ok(());
 		}
 
-		let request = &response.request();
-		let from = match &request {
-			Request::Post(post) => &post.from,
-			Request::Get(get) => &get.from,
-		};
-
-		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
-
-		match pallet_id {
-			_ => Err(anyhow!("Destination module not found")),
-		}
+		Err(anyhow!("Destination module not found"))
 	}
 
 	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {

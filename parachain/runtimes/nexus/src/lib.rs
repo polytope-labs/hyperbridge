@@ -217,7 +217,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("nexus"),
 	impl_name: create_runtime_str!("nexus"),
 	authoring_version: 1,
-	spec_version: 100,
+	spec_version: 200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -715,21 +715,26 @@ construct_runtime!(
 		// ISMP stuff
 		// Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
 		// setup the mmr
-		Mmr: pallet_mmr = 33,
-		Ismp: pallet_ismp = 34,
-		MessageQueue: pallet_message_queue = 35,
+		Mmr: pallet_mmr = 40,
+		Ismp: pallet_ismp = 41,
+		MessageQueue: pallet_message_queue = 42,
 
-		IsmpParachain: ismp_parachain = 40,
-		IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
-		Relayer: pallet_ismp_relayer = 42,
-		HostExecutive: pallet_ismp_host_executive = 43,
-		CallDecompressor: pallet_call_decompressor = 44,
-		XcmGateway: pallet_xcm_gateway = 45,
-		Assets: pallet_assets = 46,
-		TokenGovernor: pallet_token_governor = 47,
+		IsmpParachain: ismp_parachain = 50,
+		IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 51,
+		Relayer: pallet_ismp_relayer = 52,
+		HostExecutive: pallet_ismp_host_executive = 53,
+		CallDecompressor: pallet_call_decompressor = 54,
+		XcmGateway: pallet_xcm_gateway = 55,
+		Assets: pallet_assets = 56,
+		TokenGovernor: pallet_token_governor = 57,
+		StateCoprocessor: pallet_state_coprocessor = 58,
+		Fishermen: pallet_fishermen = 59,
+		TokenGatewayInspector: pallet_token_gateway_inspector = 60,
 
 		// Governance
-		TechnicalCollective: pallet_collective = 60
+		TechnicalCollective: pallet_collective = 80,
+		// consensus clients
+		IsmpGrandpa: ismp_grandpa = 255
 	}
 );
 

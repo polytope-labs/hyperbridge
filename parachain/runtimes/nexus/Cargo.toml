@@ -96,12 +96,15 @@ ismp-parachain = { workspace = true  }
 ismp-parachain-runtime-api = { workspace = true  }
 ismp-sync-committee = { workspace = true  }
 ismp-bsc = { workspace = true  }
+ismp-grandpa = { workspace = true }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
 pallet-xcm-gateway = { workspace = true  }
 pallet-token-governor = { workspace = true }
-
+pallet-fishermen = { workspace = true  }
+pallet-state-coprocessor = { workspace = true }
+pallet-token-gateway-inspector = { workspace = true  }
 
 pallet-mmr = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
@@ -189,7 +192,11 @@ std = [
 	"simnode-runtime-api/std",
 	"hyperbridge-client-machine/std",
 	"frame-metadata-hash-extension/std",
-	"anyhow/std"
+	"anyhow/std",
+	"pallet-token-gateway-inspector/std",
+	"pallet-fishermen/std",
+	"pallet-state-coprocessor/std",
+	"ismp-grandpa/std"
 ]
 
 runtime-benchmarks = [

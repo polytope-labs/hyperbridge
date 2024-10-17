@@ -32,7 +32,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 	let beneficiary: Location = Junctions::X3(Arc::new([
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
-			network: Some(NetworkId::Ethereum { chain_id: 1 }),
+			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
@@ -89,7 +89,7 @@ fn should_process_on_accept_module_callback_correctly() {
 	let beneficiary: Location = Junctions::X3(Arc::new([
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
-			network: Some(NetworkId::Ethereum { chain_id: 1 }),
+			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
@@ -197,7 +197,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 	let beneficiary: Location = Junctions::X3(Arc::new([
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
-			network: Some(NetworkId::Ethereum { chain_id: 1 }),
+			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [0u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
@@ -266,7 +266,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 		};
 		let post = PostRequest {
 			source: StateMachine::Kusama(100),
-			dest: StateMachine::Evm(1),
+			dest: StateMachine::Evm(97),
 			nonce: 0,
 			from: H160::zero().0.to_vec(),
 			to: H160::zero().0.to_vec(),

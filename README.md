@@ -104,7 +104,7 @@ git checkout ${LATEST_TAG}
 
 ### Install WebAssembly target
 
-Hyperbridge's blockchain runtime compiles to wasm which allows it's code to be forklessly upgraded. In order to build hyperbridge we need the wasm toolchain installed.
+Hyperbridge's blockchain runtime compiles to wasm which allows its code to be forklessly upgraded. In order to build hyperbridge we need the wasm toolchain installed.
 
 ```bash
 rustup update nightly

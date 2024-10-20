@@ -18,7 +18,7 @@ Once a relayer successfully completes a delivery, after winning the "relay race"
   - **State proofs of initial request/response**:
     Recall that users or applications can opt to provide a fee to incentivize the delivery of their cross-chain message. The relayer must provide state proofs of the initial request/response that was dispatched on the source chain. The state proof must reveal the associated fees that was provided by the user or application.
   - **State proofs of the request/response delivery**:
-     Successful deliveries are stored in the [`IsmpHost`](/protocol/ismp/host) alongside the account of the responsible relayer. This allows the `pallet-ismp-relayer` module to verify the delivery of the message and it's associated relayer.
+     Successful deliveries are stored in the [`IsmpHost`](/protocol/ismp/host) alongside the account of the responsible relayer. This allows the `pallet-ismp-relayer` module to verify the delivery of the message and its associated relayer.
 
      Once the `pallet-ismp-relayer` module verifies these proofs and confirms them to be valid, the module will "accumulate" the fees associated with the delivery. Storing the fees in the relayer's account. The relayer can then withdraw these fees at any time.
 

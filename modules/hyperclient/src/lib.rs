@@ -18,6 +18,7 @@
 pub mod internals;
 pub mod providers;
 use any_client::AnyClient;
+use ismp::messaging::{hash_post_response, hash_request};
 use providers::interface::Client;
 pub use subxt_utils::gargantua as runtime;
 pub mod any_client;
@@ -37,7 +38,7 @@ use crate::{
 };
 use ethers::{types::H256, utils::keccak256};
 use futures::StreamExt;
-use ismp::router::{GetRequest, PostRequest, PostResponse};
+use ismp::router::{GetRequest, PostRequest, PostResponse, Request};
 use subxt_utils::Hyperbridge;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
@@ -98,6 +99,49 @@ impl HyperClient {
 
 		lambda().await.map_err(|err: anyhow::Error| {
 			JsError::new(&format!("Could not create hyperclient: {err:?}"))
+		})
+	}
+
+	/// Returns the commitment for the provided POST request
+	pub fn post_request_commitment(post: JsValue) -> Result<JsValue, JsError> {
+		let lambda = || {
+			let post = serde_wasm_bindgen::from_value::<JsPost>(post.into()).unwrap();
+			let post: PostRequest = post.try_into()?;
+			let commitment = hash_request::<Keccak256>(&Request::Post(post));
+			Ok(serde_wasm_bindgen::to_value(&commitment).expect("Infallible"))
+		};
+
+		lambda().map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to derive request commitment: {err:?}",))
+		})
+	}
+
+	/// Returns the commitment for the provided GET request
+	pub fn get_request_commitment(get: JsValue) -> Result<JsValue, JsError> {
+		let lambda = || {
+			let get = serde_wasm_bindgen::from_value::<JsGet>(get.into()).unwrap();
+			let get: GetRequest = get.try_into()?;
+			let commitment = hash_request::<Keccak256>(&Request::Get(get));
+			Ok(serde_wasm_bindgen::to_value(&commitment).expect("Infallible"))
+		};
+
+		lambda().map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to derive request commitment: {err:?}",))
+		})
+	}
+
+	/// Returns the commitment for the provided POST response
+	pub fn post_response_commitment(response: JsValue) -> Result<JsValue, JsError> {
+		let lambda = || {
+			let response =
+				serde_wasm_bindgen::from_value::<JsPostResponse>(response.into()).unwrap();
+			let response: PostResponse = response.try_into()?;
+			let commitment = hash_post_response::<Keccak256>(&response);
+			Ok(serde_wasm_bindgen::to_value(&commitment).expect("Infallible"))
+		};
+
+		lambda().map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to derive request commitment: {err:?}",))
 		})
 	}
 

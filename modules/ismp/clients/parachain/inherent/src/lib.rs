@@ -21,6 +21,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use cumulus_relay_chain_interface::RelayChainInterface;
+use sp_api::ApiExt;
 use sp_runtime::{
 	generic::{BlockId, Header},
 	traits::{BlakeTwo256, Block as BlockT},
@@ -51,6 +52,12 @@ impl ConsensusInherentProvider {
 		C::Api: IsmpParachainApi<B> + IsmpRuntimeApi<B, B::Hash>,
 		B: BlockT,
 	{
+		// Check if it has the parachain runtime api
+		if !client.runtime_api().has_api::<dyn IsmpParachainApi<B>>(parent)? {
+			log::trace!("IsmpParachainApi not implemented");
+			return Ok(ConsensusInherentProvider(None));
+		}
+
 		let para_ids = client.runtime_api().para_ids(parent)?;
 
 		log::trace!("ParaIds from runtime: {para_ids:?}");

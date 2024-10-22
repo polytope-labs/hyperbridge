@@ -182,7 +182,10 @@ where
 			let base_fee =
 				if who.dest_state_machine == StateMachine::Evm(1) { 20_000_000_000u128 } else { 0 };
 			let protocol_fees = protocol_percentage * u128::from(amount) + base_fee;
-			let remainder = amount - protocol_fees.into();
+			let remainder = u128::from(amount)
+				.checked_sub(protocol_fees.into())
+				.ok_or_else(|| XcmError::Overflow)?
+				.into();
 			// Mint protocol fees
 			T::Assets::mint_into(asset_id.clone(), &protocol_account, protocol_fees.into())
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;

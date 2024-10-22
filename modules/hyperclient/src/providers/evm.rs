@@ -263,6 +263,8 @@ impl Client for EvmClient {
 					event: event.try_into()?,
 				})
 			})
+			// only care about events that can be deserialized
+			.filter(|event| event.is_ok())
 			.collect::<Result<Vec<_>, _>>()
 	}
 

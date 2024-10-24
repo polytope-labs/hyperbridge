@@ -26,7 +26,7 @@ use frame_system::EnsureRoot;
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm::XcmPassthrough;
 use pallet_xcm_gateway::{
-	xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor},
+	xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter},
 	AssetGatewayParams,
 };
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
@@ -332,7 +332,7 @@ impl pallet_xcm::Config for Test {
 	type XcmExecuteFilter = Everything;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmTeleportFilter = Nothing;
-	type XcmReserveTransferFilter = Everything;
+	type XcmReserveTransferFilter = ReserveTransferFilter;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;
 	type RuntimeOrigin = RuntimeOrigin;

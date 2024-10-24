@@ -41,7 +41,9 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::XcmExecutor;
 
-use pallet_xcm_gateway::xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor};
+use pallet_xcm_gateway::xcm_utilities::{
+	ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter,
+};
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();
@@ -187,7 +189,7 @@ impl pallet_xcm::Config for Runtime {
 	// Needs to be `Everything` for local testing.
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmTeleportFilter = Everything;
-	type XcmReserveTransferFilter = Everything;
+	type XcmReserveTransferFilter = ReserveTransferFilter;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;
 	type RuntimeOrigin = RuntimeOrigin;

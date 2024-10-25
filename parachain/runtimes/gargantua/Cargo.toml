@@ -104,7 +104,6 @@ sp-mmr-primitives = { workspace = true }
 simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true  }
-pallet-token-gateway = { workspace = true  }
 
 [features]
 default = [
@@ -179,7 +178,6 @@ std = [
 	"pallet-state-coprocessor/std",
 	"pallet-xcm-gateway/std",
 	"pallet-token-gateway-inspector/std",
-	"pallet-token-gateway/std",
 	"pallet-token-governor/std",
 	"pallet-assets/std",
 	"pallet-mmr/std",
@@ -247,3 +245,7 @@ try-runtime = [
 	"parachain-info/try-runtime",
 	"pallet-assets/runtime-benchmarks"
 ]
+
+
+# This must be used when buiding for a runtime upgrade so metadata hash verification is possible
+metadata-hash = ["substrate-wasm-builder/metadata-hash"]

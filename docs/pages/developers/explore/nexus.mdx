@@ -1,15 +1,15 @@
 ---
 title: Hyperbridge Nexus
-description: Hyperbridge is at it's fundamental level, a coprocessor for expensive cryptographic operations needed to confirm the validity of cross-chain messages.
+description: Hyperbridge is at its fundamental level, a coprocessor for expensive cryptographic operations needed to confirm the validity of cross-chain messages.
 ---
 
 # Hyperbridge Nexus
 
-The Hyperbridge blockchain is designed to be the Nexus of secure cross-chain interoperability. Hence the name. Hyperbridge is at it's fundamental level, a coprocessor for expensive cryptographic operations needed to confirm the validity of cross-chain messages.
+The Hyperbridge blockchain is designed to be the Nexus of secure cross-chain interoperability. Hence the name. Hyperbridge is at its fundamental level, a coprocessor for expensive cryptographic operations needed to confirm the validity of cross-chain messages.
 
 ## Crypto-Economic Coprocessor
 
-The Hyperbridge blockchain performs all the neccessary computation needed to certify the validity of cross-chain messages and presents a single proof to any chain to prove the finality of the aggregated messages. This architecture pioneered by Hyperbridge, introduces a new class of coprocessors called **crypto-economic coprocessors** that leverage their consensus proofs to attest to the correctness of the computations performed onchain (ie within it's state transition function).
+The Hyperbridge blockchain performs all the necessary computation needed to certify the validity of cross-chain messages and presents a single proof to any chain to prove the finality of the aggregated messages. This architecture pioneered by Hyperbridge, introduces a new class of coprocessors called **crypto-economic coprocessors** that leverage their consensus proofs to attest to the correctness of the computations performed onchain (ie within its state transition function).
 
 This crypto-economic coprocessor model is what enables Hyperbridge to scale trust-free interoperability to all blockchains. But it also places some requirements that must be met by the Hyperbridge blockchain to be scalable, fast and fully-secure. We've chosen the Polkadot relay chain as the base layer because it fully meets these requirements in a way that no other blockchain can.
 
@@ -20,7 +20,7 @@ The Nexus blockchain inherits the fast finality of the Polkadot relay chain. Thi
 
 ### Economic Security
 
-The Nexus blockchain is secured by the Polkadot relay chain. This economic security is **fully attributable**. Unlike restaked security models where economic security and validators are rehypothecated across multiple chains, the Polkadot relay chain provides a direct and fully attributable security model. In this model, it's validators are not overloaded across parachains for (obvious) security reasons. It means faults are isolated, attributable and therefore accountable. The offending validators can be slashed, permissionlessly (no committee approvals needed), without issue.
+The Nexus blockchain is secured by the Polkadot relay chain. This economic security is **fully attributable**. Unlike restaked security models where economic security and validators are rehypothecated across multiple chains, the Polkadot relay chain provides a direct and fully attributable security model. In this model, its validators are not overloaded across parachains for (obvious) security reasons. It means faults are isolated, attributable and therefore accountable. The offending validators can be slashed, permissionlessly (no committee approvals needed), without issue.
 
 
 ### Execution Sharding
@@ -34,7 +34,7 @@ Polkadot provides a sharded design that allows for the execution of multiple par
 
 ### Cheap Consensus Proofs
 
-Polkadot introduces [BEEFY](/protocol/consensus/beefy), a secondary consensus protocol that produces the cheapest consensus proofs of any blockchain. Since Hyperbridge uses Polkadot as it's consensus layer, this means that Polkadot's consensus proofs are what attest to the finality of Hyperbridge blocks. This consensus proof must be sent to the destination chain to prove the finality of the cross-chain messages that have been aggregated on the Hyperbridge blockchain. This is critical to it's crypto-economic coprocessor architecture, as it leverages the cheap consensus proofs of the Polkadot relay chain to attest to the correctness of the work done by the Hyperbridge blockchain.
+Polkadot introduces [BEEFY](/protocol/consensus/beefy), a secondary consensus protocol that produces the cheapest consensus proofs of any blockchain. Since Hyperbridge uses Polkadot as its consensus layer, this means that Polkadot's consensus proofs are what attest to the finality of Hyperbridge blocks. This consensus proof must be sent to the destination chain to prove the finality of the cross-chain messages that have been aggregated on the Hyperbridge blockchain. This is critical to its crypto-economic coprocessor architecture, as it leverages the cheap consensus proofs of the Polkadot relay chain to attest to the correctness of the work done by the Hyperbridge blockchain.
 
 
  ## Runtime Modules

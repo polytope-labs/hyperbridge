@@ -7,13 +7,13 @@ description: The ISMP module is the central module of the Hyperbridge blockchain
 
 The `pallet-ismp` is the central module of the Hyperbridge blockchain. It is the core innovation that makes the Hyperbridge protocol possible. It is responsible for:
 
- - Verifying the consensus proofs and managing the state commitments of it's connected chains through the use of "consensus clients".
+ - Verifying the consensus proofs and managing the state commitments of its connected chains through the use of "consensus clients".
  - Verifying and aggregating the cross-chain messages that are relayed from its connected chains.
- - Managing various consensus clients on behalf of it's connected chains.
+ - Managing various consensus clients on behalf of its connected chains.
 
  ## Consensus Clients
 
- The Hyperbridge blockchain uses "consensus clients" to verify the consensus proofs of it's connected chains. A consensus client is a module that is responsible for verifying the consensus proofs which attest to the finality of some state commitment of a specific blockchain. Any blockchain that produces consensus proofs can be connected to the Hyperbridge blockchain through a consensus client. The `pallet-ismp` module manages the consensus clients on behalf of the connected chains. The consensus clients currently supported by the Hyperbridge protocol are:
+ The Hyperbridge blockchain uses "consensus clients" to verify the consensus proofs of its connected chains. A consensus client is a module that is responsible for verifying the consensus proofs which attest to the finality of some state commitment of a specific blockchain. Any blockchain that produces consensus proofs can be connected to the Hyperbridge blockchain through a consensus client. The `pallet-ismp` module manages the consensus clients on behalf of the connected chains. The consensus clients currently supported by the Hyperbridge protocol are:
 
   - [Parachain Consensus Client](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/client)
   - [Sync Committee Consensus Client](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/sync-committee)

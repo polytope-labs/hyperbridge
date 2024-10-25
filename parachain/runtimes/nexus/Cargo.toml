@@ -48,6 +48,8 @@ pallet-utility = { workspace = true }
 pallet-treasury = { workspace = true}
 pallet-asset-rate = { workspace = true}
 pallet-collective = { workspace = true}
+pallet-multisig = { workspace = true}
+pallet-proxy = { workspace = true}
 
 sp-api = { workspace = true }
 sp-io = { workspace = true }
@@ -96,12 +98,15 @@ ismp-parachain = { workspace = true  }
 ismp-parachain-runtime-api = { workspace = true  }
 ismp-sync-committee = { workspace = true  }
 ismp-bsc = { workspace = true  }
+ismp-grandpa = { workspace = true }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
 pallet-xcm-gateway = { workspace = true  }
 pallet-token-governor = { workspace = true }
-
+pallet-fishermen = { workspace = true  }
+pallet-state-coprocessor = { workspace = true }
+pallet-token-gateway-inspector = { workspace = true  }
 
 pallet-mmr = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
@@ -189,7 +194,13 @@ std = [
 	"simnode-runtime-api/std",
 	"hyperbridge-client-machine/std",
 	"frame-metadata-hash-extension/std",
-	"anyhow/std"
+	"anyhow/std",
+	"pallet-token-gateway-inspector/std",
+	"pallet-fishermen/std",
+	"pallet-state-coprocessor/std",
+	"ismp-grandpa/std",
+	"pallet-multisig/std",
+	"pallet-proxy/std"
 ]
 
 runtime-benchmarks = [
@@ -214,7 +225,9 @@ runtime-benchmarks = [
 	"pallet-message-queue/runtime-benchmarks",
 	"pallet-assets/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
-	"parachains-common/runtime-benchmarks"
+	"parachains-common/runtime-benchmarks",
+	"pallet-multisig/runtime-benchmarks", 
+	"pallet-proxy/runtime-benchmarks"
 ]
 
 try-runtime = [
@@ -242,3 +255,6 @@ try-runtime = [
 	"pallet-xcm/try-runtime",
 	"parachain-info/try-runtime",
 ]
+
+# This must be used when building for a runtime upgrade so metadata hash verification is possible
+metadata-hash = ["substrate-wasm-builder/metadata-hash"]

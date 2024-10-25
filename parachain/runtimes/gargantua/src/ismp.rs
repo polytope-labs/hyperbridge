@@ -16,8 +16,8 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, XcmGateway,
-	EXISTENTIAL_DEPOSIT,
+	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
+	XcmGateway, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use frame_support::{
@@ -106,7 +106,7 @@ impl ismp_grandpa::Config for Runtime {
 impl pallet_token_governor::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Dispatcher = Ismp;
-	type TreasuryAccount = ProtocolAccount;
+	type TreasuryAccount = TreasuryPalletId;
 }
 
 impl pallet_ismp_demo::Config for Runtime {
@@ -140,10 +140,8 @@ impl pallet_fishermen::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
-// todo: set corrrect parameters
 parameter_types! {
 	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
-	pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
 	pub const TransferParams: AssetGatewayParams = AssetGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
 }
 
@@ -216,13 +214,13 @@ impl IsmpModule for ProxyModule {
 		let pallet_id =
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
-		let token_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&request.source));
+		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&request.source));
 		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
-			id if id == token_gateway =>
+			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
 			id if id == token_governor => TokenGovernor::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
@@ -254,23 +252,24 @@ impl IsmpModule for ProxyModule {
 	}
 
 	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
-		let (from, source) = match &timeout {
+		let (from, _source, dest) = match &timeout {
 			Timeout::Request(Request::Post(post)) => {
 				if post.source != HostStateMachine::get() {
 					TokenGatewayInspector::handle_timeout(post)?;
 				}
-				(&post.from, &post.source)
+				(&post.from, post.source.clone(), post.dest.clone())
 			},
-			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
-			Timeout::Response(res) => (&res.post.to, &res.post.dest),
+			Timeout::Request(Request::Get(get)) =>
+				(&get.from, get.source.clone(), get.dest.clone()),
+			Timeout::Response(res) => (&res.post.to, res.source_chain(), res.dest_chain()),
 		};
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
-		let token_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(source));
+		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&dest));
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
-			id if id == token_gateway =>
+			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(()),

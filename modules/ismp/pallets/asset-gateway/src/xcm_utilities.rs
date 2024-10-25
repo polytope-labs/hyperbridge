@@ -1,20 +1,23 @@
 use crate::{AssetIds, Config, Pallet};
+use alloc::vec::Vec;
 use codec::Encode;
 use core::marker::PhantomData;
-use frame_support::traits::fungibles::{self, Mutate};
+use frame_support::traits::{
+	fungibles::{self, Mutate},
+	Contains,
+};
 use ismp::host::StateMachine;
 use sp_core::{Get, H160};
 use sp_runtime::traits::MaybeEquivalence;
 use staging_xcm::v4::{
-	Asset, Error as XcmError, Junction, Junctions, Location, NetworkId, Result as XcmResult,
-	XcmContext,
+	Asset, Error as XcmError, Fungibility::Fungible, Junction, Junctions, Location, NetworkId,
+	Result as XcmResult, XcmContext,
 };
 use staging_xcm_builder::{AssetChecking, FungiblesMutateAdapter};
 use staging_xcm_executor::{
 	traits::{ConvertLocation, Error as MatchError, MatchesFungibles, TransactAsset},
 	AssetsInHolding,
 };
-
 pub struct WrappedNetworkId(pub NetworkId);
 
 impl TryFrom<WrappedNetworkId> for StateMachine {
@@ -101,6 +104,22 @@ where
 		AssetIds::<T>::get(converted)
 	}
 }
+
+pub struct ReserveTransferFilter;
+
+impl Contains<(Location, Vec<Asset>)> for ReserveTransferFilter {
+	fn contains(t: &(Location, Vec<Asset>)) -> bool {
+		let native = Location::parent();
+		t.1.iter().all(|asset| {
+			if let Asset { id: asset_id, fun: Fungible(_) } = asset {
+				asset_id.0 == native
+			} else {
+				false
+			}
+		})
+	}
+}
+
 pub struct HyperbridgeAssetTransactor<T, Matcher, AccountIdConverter, CheckAsset, CheckingAccount>(
 	PhantomData<(T, Matcher, AccountIdConverter, CheckAsset, CheckingAccount)>,
 );
@@ -177,8 +196,15 @@ where
 			let pallet_account = Pallet::<T>::account_id();
 			let protocol_percentage = Pallet::<T>::protocol_fee_percentage();
 
-			let protocol_fees = protocol_percentage * u128::from(amount);
-			let remainder = amount - protocol_fees.into();
+			// If destination is ETH mainnet charge a base fee of 2 DOT to cover expensive consensus
+			// messages
+			let base_fee =
+				if who.dest_state_machine == StateMachine::Evm(1) { 20_000_000_000u128 } else { 0 };
+			let protocol_fees = protocol_percentage * u128::from(amount) + base_fee;
+			let remainder = u128::from(amount)
+				.checked_sub(protocol_fees.into())
+				.ok_or_else(|| XcmError::Overflow)?
+				.into();
 			// Mint protocol fees
 			T::Assets::mint_into(asset_id.clone(), &protocol_account, protocol_fees.into())
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;

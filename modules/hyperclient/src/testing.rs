@@ -38,7 +38,11 @@ use crate::{
 };
 use futures::StreamExt;
 use hex_literal::hex;
-use ismp::{consensus::StateMachineId, host::StateMachine, router};
+use ismp::{
+	consensus::StateMachineId,
+	host::StateMachine,
+	router::{self, Request},
+};
 use ismp_solidity_abi::{
 	beefy::GetRequest,
 	erc20::ERC20,
@@ -274,8 +278,12 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	.await?;
 
 	// Obtaining the request stream and the timeout stream
-	let timed_out =
-		internals::message_timeout_stream(post.timeout_timestamp, hyperclient.source.clone()).await;
+	let timed_out = internals::message_timeout_stream(
+		post.timeout_timestamp,
+		hyperclient.source.clone(),
+		Request::Post(post.clone()),
+	)
+	.await;
 
 	let mut stream = futures::stream::select(request_status, timed_out);
 

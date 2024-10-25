@@ -97,7 +97,7 @@ impl HyperClient {
 			if config.tracing {
 				use tracing_subscriber_wasm::MakeConsoleWriter;
 
-				tracing_subscriber::fmt()
+				let _ = tracing_subscriber::fmt()
 					.with_max_level(tracing::Level::TRACE)
 					.with_writer(
 						// To avoide trace events in the browser from showing their
@@ -107,7 +107,7 @@ impl HyperClient {
 					// For some reason, if we don't do this in the browser, we get
 					// a runtime error.
 					.without_time()
-					.init();
+					.try_init();
 			}
 
 			HyperClient::new(config).await
@@ -343,23 +343,6 @@ pub fn start() -> Result<(), JsValue> {
 	// This is not needed for tracing_wasm to work, but it is a common tool for getting proper error
 	// line numbers for panics.
 	console_error_panic_hook::set_once();
-
-	#[cfg(feature = "tracing")]
-	{
-		use tracing_subscriber_wasm::MakeConsoleWriter;
-
-		tracing_subscriber::fmt()
-			.with_max_level(tracing::Level::TRACE)
-			.with_writer(
-				// To avoide trace events in the browser from showing their
-				// JS backtrace, which is very annoying, in my opinion
-				MakeConsoleWriter::default().map_trace_level_to(tracing::Level::INFO),
-			)
-			// For some reason, if we don't do this in the browser, we get
-			// a runtime error.
-			.without_time()
-			.init();
-	}
 
 	Ok(())
 }

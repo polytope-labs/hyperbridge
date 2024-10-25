@@ -102,6 +102,7 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 		dest: ChainConfig::Evm(dest_chain.clone()),
 		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
 		indexer: Some("http://localhost:3000".to_string()),
+		tracing: false,
 	};
 
 	let hyperclient = HyperClient::new(config).await.unwrap();
@@ -180,6 +181,7 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 		dest: ChainConfig::Evm(dest_chain.clone()),
 		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
 		indexer: Some("http://localhost:3000".to_string()),
+		tracing: false,
 	};
 
 	let hyperclient = HyperClient::new(config).await.unwrap();

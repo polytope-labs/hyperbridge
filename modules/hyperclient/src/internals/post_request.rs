@@ -640,6 +640,7 @@ pub async fn timeout_post_request_stream(
 							return Ok(Some((
 								Ok(TimeoutStatus::DestinationFinalized {
 									meta: Default::default(),
+									finalized_height: height,
 								}),
 								TimeoutStreamState::DestinationFinalized(height),
 							)));
@@ -673,14 +674,17 @@ pub async fn timeout_post_request_stream(
 						}
 						Ok(valid_proof_height.map(|ev| {
 							(
-								Ok(TimeoutStatus::DestinationFinalized { meta: ev.meta }),
+								Ok(TimeoutStatus::DestinationFinalized {
+									meta: ev.meta,
+									finalized_height: ev.event.latest_height,
+								}),
 								TimeoutStreamState::DestinationFinalized(ev.event.latest_height),
 							)
 						}))
 					},
 					TimeoutStreamState::DestinationFinalized(proof_height) => {
 						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
-						if relayer == H160::zero() {
+						if relayer == H160::zero() && req.source_chain().is_evm() {
 							// request was never delivered
 							let latest_height =
 								hyperbridge_client.client.rpc().header(None).await?.ok_or_else(
@@ -729,7 +733,9 @@ pub async fn timeout_post_request_stream(
 							)
 							.await?;
 						// check if the height has already been finalized
-						if latest_hyperbridge_height >= hyperbridge_height {
+						let (meta, finalized_height) = if latest_hyperbridge_height >=
+							hyperbridge_height
+						{
 							let latest_height = source_client.query_latest_block_height().await?;
 							let meta = source_client
 								.query_ismp_event((latest_height - 500)..=latest_height)
@@ -742,68 +748,46 @@ pub async fn timeout_post_request_stream(
 									_ => None,
 								});
 
-							let Some(meta) = meta else {
-								return Ok(Some((
-									Ok(TimeoutStatus::HyperbridgeFinalized {
-										meta: Default::default(),
-									}),
-									TimeoutStreamState::HyperbridgeFinalized(latest_height),
-								)));
-							};
-
-							return Ok(Some((
-								Ok(TimeoutStatus::HyperbridgeFinalized { meta: meta.clone() }),
-								TimeoutStreamState::HyperbridgeFinalized(meta.block_number),
-							)));
-						}
-
-						let mut state_machine_update_stream = source_client
-							.state_machine_update_notification(
-								hyperbridge_client.state_machine_id(),
-							)
-							.await?;
-
-						let mut valid_proof_height = None;
-						while let Some(event) = state_machine_update_stream.next().await {
-							match event {
-								Ok(ev) => {
-									let state_machine_height = StateMachineHeight {
-										id: ev.event.state_machine_id,
-										height: ev.event.latest_height,
-									};
-									let commitment = source_client
-										.query_state_machine_commitment(state_machine_height)
-										.await?;
-									if commitment.timestamp > post.timeout().as_secs() &&
-										ev.event.latest_height >= hyperbridge_height
-									{
-										valid_proof_height = Some(ev);
-										break;
+							(meta.unwrap_or_default(), latest_hyperbridge_height)
+						} else {
+							let mut state_machine_update_stream = source_client
+								.state_machine_update_notification(
+									hyperbridge_client.state_machine_id(),
+								)
+								.await?;
+							loop {
+								if let Some(event) = state_machine_update_stream.next().await {
+									match event {
+										Ok(ev) =>
+											if ev.event.latest_height >= hyperbridge_height {
+												break (ev.meta, ev.event.latest_height);
+											},
+										Err(e) =>
+											return Ok(Some((
+												Err(anyhow!(
+													"Encountered error in time out stream {e:?}"
+												)),
+												state,
+											))),
 									}
-								},
-								Err(e) =>
+								} else {
 									return Ok(Some((
-										Err(anyhow!("Encountered error in time out stream {e:?}")),
+										Err(anyhow!(
+											"Encountered error in time out stream: Stream unexpectedly terminated"
+										)),
 										state,
-									))),
+									)));
+								}
 							}
-						}
+						};
 
-						Ok(valid_proof_height.map(|event| {
-							(
-								Ok(TimeoutStatus::HyperbridgeFinalized { meta: event.meta }),
-								TimeoutStreamState::HyperbridgeFinalized(event.event.latest_height),
-							)
-						}))
-					},
-					TimeoutStreamState::HyperbridgeFinalized(proof_height) => {
 						let storage_key = hyperbridge_client.request_receipt_full_key(hash);
 						let proof = hyperbridge_client
-							.query_state_proof(proof_height, vec![storage_key])
+							.query_state_proof(finalized_height, vec![storage_key])
 							.await?;
 						let height = StateMachineHeight {
 							id: hyperbridge_client.state_machine,
-							height: proof_height,
+							height: finalized_height,
 						};
 						let message = Message::Timeout(TimeoutMessage::Post {
 							requests: vec![req],
@@ -819,7 +803,11 @@ pub async fn timeout_post_request_stream(
 						let calldata = source_client.encode(message)?;
 
 						Ok(Some((
-							Ok(TimeoutStatus::TimeoutMessage { calldata: calldata.into() }),
+							Ok(TimeoutStatus::HyperbridgeFinalized {
+								finalized_height,
+								meta,
+								calldata: calldata.into(),
+							}),
 							TimeoutStreamState::End,
 						)))
 					},

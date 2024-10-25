@@ -84,6 +84,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		dest: ChainConfig::Evm(dest_chain.clone()),
 		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
 		indexer: None,
+		tracing: false,
 	};
 	let hyperclient = HyperClient::new(config).await?;
 
@@ -187,6 +188,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		dest: ChainConfig::Evm(dest_chain.clone()),
 		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
 		indexer: None,
+		tracing: false,
 	};
 	let hyperclient = HyperClient::new(config).await?;
 
@@ -300,7 +302,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 			Ok(status) => {
 				tracing::info!("\nGot Status {:#?}\n", status);
 				match status {
-					TimeoutStatus::TimeoutMessage { calldata } => {
+					TimeoutStatus::HyperbridgeFinalized { calldata, .. } => {
 						let gas_price = client.get_gas_price().await?;
 						tracing::info!("Sending timeout to BSC");
 						let pending = client
@@ -361,6 +363,7 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 		dest: ChainConfig::Evm(dest_chain.clone()),
 		hyperbridge: ChainConfig::Substrate(hyperbrige_config),
 		indexer: None,
+		tracing: false,
 	};
 	let hyperclient = HyperClient::new(config).await?;
 

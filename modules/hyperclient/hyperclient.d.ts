@@ -216,7 +216,6 @@ export type TimeoutStatusWithMeta =
     | DestinationFinalizedWithMetadata
     | HyperbridgeVerifiedWithMetadata
     | HyperbridgeFinalizedWithMetadata
-    | TimeoutMessage
     | ErrorWithMetadata;
 
 // This event is emitted on hyperbridge
@@ -279,6 +278,8 @@ export interface TimeoutMessage {
 // This event is emitted on hyperbridge
 export interface DestinationFinalizedWithMetadata {
     kind: "DestinationFinalized";
+    // Block height of the destination chain that was finalized.
+    finalized_height: bigint;
     // The hash of the block where the event was emitted
     block_hash: HexString;
     // The hash of the extrinsic responsible for the event

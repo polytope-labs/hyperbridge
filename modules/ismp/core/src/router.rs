@@ -48,6 +48,7 @@ pub struct PostRequest {
 	#[serde(with = "serde_hex_utils::as_hex")]
 	pub to: Vec<u8>,
 	/// Timestamp which this request expires in seconds.
+	#[serde(rename = "timeoutTimestamp")]
 	pub timeout_timestamp: u64,
 	/// Encoded request body
 	#[serde(with = "serde_hex_utils::as_hex")]
@@ -127,6 +128,7 @@ pub struct GetRequest {
 	#[serde(with = "serde_hex_utils::as_hex")]
 	pub context: Vec<u8>,
 	/// Host timestamp at which this request expires in seconds
+	#[serde(rename = "timeoutTimestamp")]
 	pub timeout_timestamp: u64,
 }
 
@@ -297,6 +299,7 @@ pub struct PostResponse {
 	#[serde(with = "serde_hex_utils::as_hex")]
 	pub response: Vec<u8>,
 	/// Timestamp at which this response expires in seconds.
+	#[serde(rename = "timeoutTimestamp")]
 	pub timeout_timestamp: u64,
 }
 

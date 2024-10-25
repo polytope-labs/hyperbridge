@@ -11,7 +11,7 @@ publish = false
 targets = ["x86_64-unknown-linux-gnu"]
 
 [build-dependencies]
-substrate-wasm-builder = { workspace = true, features = ["metadata-hash"]}
+substrate-wasm-builder = { workspace = true }
 
 [dependencies]
 # crates.io
@@ -255,3 +255,6 @@ try-runtime = [
 	"pallet-xcm/try-runtime",
 	"parachain-info/try-runtime",
 ]
+
+# This must be used when building for a runtime upgrade so metadata hash verification is possible
+metadata-hash = ["substrate-wasm-builder/metadata-hash"]

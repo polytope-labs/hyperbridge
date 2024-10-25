@@ -50,6 +50,10 @@ use subxt::{
 	OnlineClient,
 };
 use subxt_utils::state_machine_update_time_storage_key;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::time::*;
+#[cfg(target_arch = "wasm32")]
+use wasmtimer::tokio::*;
 
 /// Contains a scale encoded Mmr Proof or Trie proof
 #[derive(Serialize, Deserialize)]
@@ -288,21 +292,21 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		commitment: H256,
 		initial_height: u64,
 	) -> Result<BoxStream<WithMetadata<Event>>, Error> {
-		let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
-		let stream = stream::unfold(
-			(initial_height, subscription, self.clone()),
-			move |(latest_height, mut subscription, client)| {
+		let stream =
+			stream::unfold((initial_height, self.clone()), move |(latest_height, client)| {
 				let commitment = commitment.clone();
 				async move {
-					let header = match subscription.next().await {
-						Some(Ok(header)) => header,
-						Some(Err(_err)) => {
+					sleep(Duration::from_secs(30)).await;
+
+					let header = match client.client.rpc().header(None).await {
+						Ok(Some(header)) => header,
+						Ok(None) => return Some((Ok(None), (latest_height, client))),
+						Err(_err) => {
 							tracing::error!(
-								"Error encountered while watching finalized heads: {_err:?}"
+								"Error encountered while querying latest head: {_err:?}"
 							);
-							return Some((Ok(None), (latest_height, subscription, client)));
+							return Some((Ok(None), (latest_height, client)));
 						},
-						None => return None,
 					};
 
 					let events =
@@ -313,20 +317,23 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 								tracing::error!(
 									"Error encountered while querying ismp events {_err:?}"
 								);
-								return Some((Ok(None), (latest_height, subscription, client)));
+								return Some((Ok(None), (latest_height, client)));
 							},
 						};
 
 					let event = events.into_iter().find_map(|event| {
 						let value = match event.event.clone() {
-							Event::PostRequest(post) =>
-								Some(hash_request::<Keccak256>(&Request::Post(post.clone()))),
-							Event::PostResponse(resp) =>
-								Some(hash_response::<Keccak256>(&Response::Post(resp))),
+							Event::PostRequest(post) => {
+								Some(hash_request::<Keccak256>(&Request::Post(post.clone())))
+							},
+							Event::PostResponse(resp) => {
+								Some(hash_response::<Keccak256>(&Response::Post(resp)))
+							},
 							Event::PostRequestHandled(post) => Some(post.commitment),
 							Event::PostResponseHandled(resp) => Some(resp.commitment),
-							Event::GetResponse(response) =>
-								Some(hash_request::<Keccak256>(&Request::Get(response.get))),
+							Event::GetResponse(response) => {
+								Some(hash_request::<Keccak256>(&Request::Get(response.get)))
+							},
 							_ => None,
 						};
 
@@ -338,22 +345,20 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					});
 
 					let value = match event {
-						Some(event) =>
-							Some((Ok(Some(event)), (header.number().into(), subscription, client))),
-						None => Some((Ok(None), (header.number().into(), subscription, client))),
+						Some(event) => Some((Ok(Some(event)), (header.number().into(), client))),
+						None => Some((Ok(None), (header.number().into(), client))),
 					};
 
 					return value;
 				}
-			},
-		)
-		.filter_map(|item| async move {
-			match item {
-				Ok(None) => None,
-				Ok(Some(event)) => Some(Ok(event)),
-				Err(err) => Some(Err(err)),
-			}
-		});
+			})
+			.filter_map(|item| async move {
+				match item {
+					Ok(None) => None,
+					Ok(Some(event)) => Some(Ok(event)),
+					Err(err) => Some(Err(err)),
+				}
+			});
 
 		Ok(Box::pin(stream))
 	}
@@ -405,20 +410,19 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<WithMetadata<StateMachineUpdated>>, Error> {
-		let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
 		let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
 		let stream = stream::unfold(
-			(initial_height, subscription, self.clone()),
-			move |(latest_height, mut subscription, client)| async move {
-				let header = match subscription.next().await {
-					Some(Ok(header)) => header,
-					Some(Err(_err)) => {
-						tracing::error!(
-							"Error encountered while fetching finalized header: {_err:?}"
-						);
-						return Some((Ok(None), (latest_height, subscription, client)));
+			(initial_height, self.clone()),
+			move |(latest_height, client)| async move {
+				sleep(Duration::from_secs(30)).await;
+
+				let header = match client.client.rpc().header(None).await {
+					Ok(Some(header)) => header,
+					Ok(None) => return Some((Ok(None), (latest_height, client))),
+					Err(_err) => {
+						tracing::error!("Error encountered while querying latest head: {_err:?}");
+						return Some((Ok(None), (latest_height, client)));
 					},
-					None => return None,
 				};
 
 				let events = match client
@@ -428,7 +432,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					Ok(e) => e,
 					Err(_err) => {
 						tracing::error!("Error encountered while querying ismp events {_err:?}");
-						return Some((Ok(None), (latest_height, subscription, client)));
+						return Some((Ok(None), (latest_height, client)));
 					},
 				};
 
@@ -437,7 +441,9 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					.filter_map(|event| match event.event {
 						Event::StateMachineUpdated(e)
 							if e.state_machine_id == counterparty_state_id =>
-							Some((e, event.meta)),
+						{
+							Some((e, event.meta))
+						},
 						_ => None,
 					})
 					.max_by(|x, y| x.0.latest_height.cmp(&y.0.latest_height));
@@ -445,9 +451,9 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				let value = match event {
 					Some((event, meta)) => Some((
 						Ok(Some(WithMetadata { event, meta })),
-						(header.number().into(), subscription, client),
+						(header.number().into(), client),
 					)),
-					None => Some((Ok(None), (header.number().into(), subscription, client))),
+					None => Some((Ok(None), (header.number().into(), client))),
 				};
 
 				return value;

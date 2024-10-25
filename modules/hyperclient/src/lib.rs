@@ -229,9 +229,12 @@ impl HyperClient {
 			let post: PostRequest = post.try_into()?;
 
 			// Obtaining the request stream and the timeout stream
-			let timed_out =
-				internals::message_timeout_stream(post.timeout_timestamp, self.source.clone())
-					.await;
+			let timed_out = internals::message_timeout_stream(
+				post.timeout_timestamp,
+				self.dest.clone(),
+				Request::Post(post.clone()),
+			)
+			.await;
 
 			let request_status = internals::post_request_status_stream(&self, post, state).await?;
 
@@ -270,9 +273,12 @@ impl HyperClient {
 				serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state).unwrap();
 
 			// Obtaining the request stream and the timeout stream
-			let timed_out =
-				internals::message_timeout_stream(get.timeout_timestamp, self.hyperbridge.clone())
-					.await;
+			let timed_out = internals::message_timeout_stream(
+				get.timeout_timestamp,
+				self.hyperbridge.clone(),
+				Request::Get(get.clone()),
+			)
+			.await;
 
 			let request_status = internals::get_request_status_stream(&self, get, state).await?;
 			let stream = futures::stream::select(request_status, timed_out).map(|res| {

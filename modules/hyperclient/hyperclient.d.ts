@@ -31,7 +31,7 @@ export interface IConfig {
     // Indexer url
     indexer?: string;
     // Flag to enable tracing console logs
-    tracing?: bool;
+    tracing?: boolean;
 }
 
 export interface IEvmConfig {
@@ -191,8 +191,7 @@ export interface MessageDispatched {
 export type TimeoutStreamState =
     | "Pending"
     | DestinationFinalizedState
-    | HyperbridgeVerifiedState
-    | HyperbridgeFinalizedState;
+    | HyperbridgeVerifiedState;
 
 // The possible initial states of a message status (request or response) stream
 export type MessageStatusStreamState =

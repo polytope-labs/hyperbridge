@@ -29,7 +29,9 @@ export interface IConfig {
     // confuration object for hyperbridge
     hyperbridge: IHyperbridgeConfig;
     // Indexer url
-    indexer: string;
+    indexer?: string;
+    // Flag to enable tracing console logs
+    tracing?: bool;
 }
 
 export interface IEvmConfig {
@@ -201,6 +203,7 @@ export type MessageStatusStreamState =
 
 // The possible states of an inflight request
 export type MessageStatusWithMeta =
+    | Pending
     | SourceFinalizedWithMetadata
     | HyperbridgeVerifiedWithMetadata
     | HyperbridgeFinalizedWithMetadata

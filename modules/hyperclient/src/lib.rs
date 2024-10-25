@@ -94,6 +94,22 @@ impl HyperClient {
 			let config = serde_wasm_bindgen::from_value::<JsClientConfig>(config).unwrap();
 			let config: ClientConfig = config.try_into()?;
 
+			if config.tracing {
+				use tracing_subscriber_wasm::MakeConsoleWriter;
+
+				tracing_subscriber::fmt()
+					.with_max_level(tracing::Level::TRACE)
+					.with_writer(
+						// To avoide trace events in the browser from showing their
+						// JS backtrace, which is very annoying, in my opinion
+						MakeConsoleWriter::default().map_trace_level_to(tracing::Level::INFO),
+					)
+					// For some reason, if we don't do this in the browser, we get
+					// a runtime error.
+					.without_time()
+					.init();
+			}
+
 			HyperClient::new(config).await
 		};
 
@@ -333,7 +349,7 @@ pub fn start() -> Result<(), JsValue> {
 		use tracing_subscriber_wasm::MakeConsoleWriter;
 
 		tracing_subscriber::fmt()
-			.with_max_level(tracing::Level::INFO)
+			.with_max_level(tracing::Level::TRACE)
 			.with_writer(
 				// To avoide trace events in the browser from showing their
 				// JS backtrace, which is very annoying, in my opinion

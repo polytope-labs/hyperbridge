@@ -120,8 +120,22 @@ pub async fn post_request_status_stream(
 			let lambda = || async {
 				match post_request_status {
 					MessageStatusStreamState::Dispatched(post_request_height) => {
-						let destination_current_timestamp = dest_client.query_timestamp().await?;
-						let relayer_address = dest_client.query_request_receipt(hash).await?;
+						let dest_finalized_height = hyperbridge_client
+							.query_latest_state_machine_height(source_client.state_machine_id())
+							.await?;
+						if dest_finalized_height >= post_request_height {
+							// we don't actually know when the block was finalized, so use this
+							// instead
+							let finalized_height =
+								hyperbridge_client.query_latest_block_height().await?;
+							return Ok(Some((
+								Ok(MessageStatusWithMetadata::SourceFinalized {
+									meta: Default::default(),
+									finalized_height: dest_finalized_height,
+								}),
+								MessageStatusStreamState::SourceFinalized(finalized_height),
+							)));
+						}
 
 						if let Some(ref msg_status) =
 							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
@@ -192,54 +206,6 @@ pub async fn post_request_status_stream(
 								},
 								_ => {},
 							}
-						}
-
-						if relayer_address != H160::zero() {
-							// This means the message has gotten to the destination chain
-							return Ok::<
-								Option<(Result<_, anyhow::Error>, MessageStatusStreamState)>,
-								anyhow::Error,
-							>(Some((
-								Ok(MessageStatusWithMetadata::DestinationDelivered {
-									meta: Default::default(),
-								}),
-								MessageStatusStreamState::End,
-							)));
-						}
-
-						if destination_current_timestamp.as_secs() >= post.timeout().as_secs() {
-							// Checking to see if the message has timed-out
-							return Ok(Some((
-								Ok(MessageStatusWithMetadata::Timeout),
-								MessageStatusStreamState::End,
-							)));
-						}
-
-						let hyperbridge_current_timestamp =
-							hyperbridge_client.query_timestamp().await?;
-						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
-
-						if relayer != H160::zero() {
-							// This means the message has gotten to hyperbridge
-							return Ok::<
-								Option<(Result<_, anyhow::Error>, MessageStatusStreamState)>,
-								anyhow::Error,
-							>(Some((
-								Ok(MessageStatusWithMetadata::HyperbridgeVerified {
-									meta: Default::default(),
-								}),
-								MessageStatusStreamState::HyperbridgeVerified(
-									hyperbridge_client.query_latest_block_height().await?,
-								),
-							)));
-						}
-
-						if hyperbridge_current_timestamp.as_secs() >= post.timeout().as_secs() {
-							// Checking to see if the message has timed-out
-							return Ok(Some((
-								Ok(MessageStatusWithMetadata::Timeout),
-								MessageStatusStreamState::End,
-							)));
 						}
 
 						let mut state_machine_updated_stream = hyperbridge_client
@@ -725,7 +691,7 @@ pub async fn timeout_post_request_stream(
 								TimeoutStreamState::HyperbridgeVerified(
 									latest_height.number.into(),
 								),
-							)))
+							)));
 						}
 
 						let storage_key = dest_client.request_receipt_full_key(hash);

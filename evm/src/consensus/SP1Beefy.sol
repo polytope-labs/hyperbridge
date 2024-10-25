@@ -32,7 +32,7 @@ contract SP1Beefy is IConsensusClient, ERC165 {
     using HeaderImpl for Header;
 
     // SP1 verification key
-    bytes32 public verificationKey = bytes32(0x00b3830a7bcbd368596446801391435c29bb5319827319de0acb83fb7490ef49);
+    bytes32 public verificationKey = bytes32(0x0071ba110ada2601c43635dabd6abea7180d3132fd75df662cac13505ade1f5d);
 
     // Sp1 verifier contract
     ISP1Verifier internal _verifier;

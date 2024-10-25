@@ -245,3 +245,7 @@ try-runtime = [
 	"parachain-info/try-runtime",
 	"pallet-assets/runtime-benchmarks"
 ]
+
+
+# This must be used when buiding for a runtime upgrade so metadata hash verification is possible
+metadata-hash = ["substrate-wasm-builder/metadata-hash"]

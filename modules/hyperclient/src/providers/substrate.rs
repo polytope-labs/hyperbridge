@@ -323,17 +323,14 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 					let event = events.into_iter().find_map(|event| {
 						let value = match event.event.clone() {
-							Event::PostRequest(post) => {
-								Some(hash_request::<Keccak256>(&Request::Post(post.clone())))
-							},
-							Event::PostResponse(resp) => {
-								Some(hash_response::<Keccak256>(&Response::Post(resp)))
-							},
+							Event::PostRequest(post) =>
+								Some(hash_request::<Keccak256>(&Request::Post(post.clone()))),
+							Event::PostResponse(resp) =>
+								Some(hash_response::<Keccak256>(&Response::Post(resp))),
 							Event::PostRequestHandled(post) => Some(post.commitment),
 							Event::PostResponseHandled(resp) => Some(resp.commitment),
-							Event::GetResponse(response) => {
-								Some(hash_request::<Keccak256>(&Request::Get(response.get)))
-							},
+							Event::GetResponse(response) =>
+								Some(hash_request::<Keccak256>(&Request::Get(response.get))),
 							_ => None,
 						};
 
@@ -441,9 +438,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					.filter_map(|event| match event.event {
 						Event::StateMachineUpdated(e)
 							if e.state_machine_id == counterparty_state_id =>
-						{
-							Some((e, event.meta))
-						},
+							Some((e, event.meta)),
 						_ => None,
 					})
 					.max_by(|x, y| x.0.latest_height.cmp(&y.0.latest_height));

@@ -85,9 +85,8 @@ pub async fn message_timeout_stream(
 			Ok(Some(true)) => Some((Ok(Some(MessageStatusWithMetadata::Timeout)), client)),
 			Ok(Some(false)) => Some((Ok(None), client)),
 			Ok(None) => None,
-			Err(e) => {
-				Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client))
-			},
+			Err(e) =>
+				Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client)),
 		};
 
 		return value;

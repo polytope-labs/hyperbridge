@@ -120,6 +120,8 @@ pub async fn post_request_status_stream(
 			let lambda = || async {
 				match post_request_status {
 					MessageStatusStreamState::Dispatched(post_request_height) => {
+						tracing::trace!("Entered state: Dispatched({post_request_height:?})");
+
 						let dest_finalized_height = hyperbridge_client
 							.query_latest_state_machine_height(source_client.state_machine_id())
 							.await?;
@@ -248,6 +250,8 @@ pub async fn post_request_status_stream(
 						Ok(None)
 					},
 					MessageStatusStreamState::SourceFinalized(finalized_height) => {
+						tracing::trace!("Entered state: SourceFinalized({finalized_height:?})");
+
 						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
@@ -353,6 +357,8 @@ pub async fn post_request_status_stream(
 						Ok(None)
 					},
 					MessageStatusStreamState::HyperbridgeVerified(height) => {
+						tracing::trace!("Entered state: HyperbridgeVerified({height:?})");
+
 						let res = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
@@ -507,6 +513,9 @@ pub async fn post_request_status_stream(
 						Ok(None)
 					},
 					MessageStatusStreamState::HyperbridgeFinalized(finalized_height) => {
+						tracing::trace!(
+							"Entered state: HyperbridgeFinalized({finalized_height:?})"
+						);
 						let res = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(msg_status) =
@@ -531,9 +540,9 @@ pub async fn post_request_status_stream(
 								_ => {},
 							}
 						}
-						let request_commitment =
-							hash_request::<Keccak256>(&Request::Post(post.clone()));
 						if res != H160::zero() {
+							let request_commitment =
+								hash_request::<Keccak256>(&Request::Post(post.clone()));
 							let latest_height = dest_client.query_latest_block_height().await?;
 							let meta = dest_client
 								.query_ismp_event(finalized_height..=latest_height)

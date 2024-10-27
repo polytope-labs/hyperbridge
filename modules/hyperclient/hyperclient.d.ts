@@ -313,21 +313,23 @@ export class HyperClient {
      * @param {IPostRequest} post
      * @returns {HexString}
      */
-    static post_request_commitment(post: IPostRequest): HexString;
+    static post_request_commitment(post: IPostRequest): Promise<HexString>;
 
     /**
      * Returns the commitment for the provided GET request
      * @param {IPostRequest} get
      * @returns {HexString}
      */
-    static get_request_commitment(get: IPostRequest): HexString;
+    static get_request_commitment(get: IPostRequest): Promise<HexString>;
 
     /**
      * Returns the commitment for the provided POST response
      * @param {IPostResponse} response
      * @returns {HexString}
      */
-    static post_response_commitment(response: IPostResponse): HexString;
+    static post_response_commitment(
+        response: IPostResponse,
+    ): Promise<HexString>;
 
     /**
      * Queries the status of a POST request`

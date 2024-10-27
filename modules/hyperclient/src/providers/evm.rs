@@ -296,6 +296,9 @@ impl Client for EvmClient {
 							(latest_height, client),
 						)),
 				};
+				tracing::trace!(
+					"Starting to query for PostRequestHandled: {initial_height}..{block_number}"
+				);
 
 				// in case we get old heights, best to ignore them
 				if block_number < latest_height {

@@ -44,9 +44,12 @@ use subxt_utils::Hyperbridge;
 
 use ismp::messaging::hash_response;
 use std::time::Duration;
+
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+use gloo_timers::future::*;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "nodejs"))]
 use wasmtimer::tokio::*;
 
 /// This returns a stream that yields when the provided timeout value is reached on the chain for
@@ -74,6 +77,7 @@ pub async fn message_timeout_stream(
 				Ok(Some(true))
 			} else {
 				let sleep_time = timeout - current_timestamp;
+				tracing::trace!("Sleeping for {sleep_time}s");
 				let _ = sleep(Duration::from_secs(sleep_time)).await;
 				Ok::<_, anyhow::Error>(Some(false))
 			};

@@ -50,9 +50,12 @@ use subxt::{
 	OnlineClient,
 };
 use subxt_utils::state_machine_update_time_storage_key;
+
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+use gloo_timers::future::*;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "nodejs"))]
 use wasmtimer::tokio::*;
 
 /// Contains a scale encoded Mmr Proof or Trie proof
@@ -296,6 +299,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 			stream::unfold((initial_height, self.clone()), move |(latest_height, client)| {
 				let commitment = commitment.clone();
 				async move {
+					tracing::trace!("Sleeping for 30s");
 					sleep(Duration::from_secs(30)).await;
 
 					let header = match client.client.rpc().header(None).await {
@@ -411,6 +415,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		let stream = stream::unfold(
 			(initial_height, self.clone()),
 			move |(latest_height, client)| async move {
+				tracing::trace!("Sleeping for 30s");
 				sleep(Duration::from_secs(30)).await;
 
 				let header = match client.client.rpc().header(None).await {

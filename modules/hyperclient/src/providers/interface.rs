@@ -29,9 +29,11 @@ use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
 use std::ops::RangeInclusive;
 
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+use gloo_timers::future::*;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "nodejs"))]
 use wasmtimer::tokio::*;
 
 #[derive(Eq, PartialEq, Clone)]
@@ -171,11 +173,14 @@ pub async fn wait_for_challenge_period<C: Client>(
 	last_consensus_update: Duration,
 	challenge_period: Duration,
 ) -> anyhow::Result<()> {
+	tracing::trace!("Sleeping for {challenge_period:?}");
+
 	sleep(challenge_period).await;
 	let current_timestamp = client.query_timestamp().await?;
 	let mut delay = current_timestamp.saturating_sub(last_consensus_update);
 
 	while delay <= challenge_period {
+		tracing::trace!("Sleeping for {:?}", challenge_period.saturating_sub(delay));
 		sleep(challenge_period.saturating_sub(delay)).await;
 		let current_timestamp = client.query_timestamp().await?;
 		delay = current_timestamp.saturating_sub(last_consensus_update);

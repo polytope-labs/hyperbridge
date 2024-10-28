@@ -20,7 +20,6 @@ pub mod providers;
 use any_client::AnyClient;
 use anyhow::anyhow;
 use ismp::messaging::{hash_post_response, hash_request};
-use providers::interface::Client;
 pub use subxt_utils::gargantua as runtime;
 pub mod any_client;
 pub mod types;

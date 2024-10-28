@@ -95,7 +95,7 @@ contract DeployScript is BaseScript {
     }
 
     function initHost(HostParams memory params) public returns (address) {
-        if (equal(host, "sepolia") || host.toSlice().startsWith("eth".toSlice())) {
+        if (host.toSlice().startsWith("ethereum".toSlice())) {
             EthereumHost h = new EthereumHost{salt: salt}(params);
             return address(h);
         } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
@@ -113,7 +113,7 @@ contract DeployScript is BaseScript {
         } else if (host.toSlice().startsWith("polygon".toSlice())) {
             PolygonHost h = new PolygonHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("chiado".toSlice())) {
+        } else if (host.toSlice().startsWith("gnosis".toSlice())) {
             GnosisHost h = new GnosisHost{salt: salt}(params);
             return address(h);
         }

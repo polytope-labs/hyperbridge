@@ -3,7 +3,7 @@
 
 pragma solidity ^0.8.17;
 
-import {BaseIsmpModule} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import {BaseIsmpModule, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {DispatchPost, IDispatcher} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
@@ -21,6 +21,12 @@ contract CrossChainInscription is BaseIsmpModule {
     // An inscription has been received
     event PostReceived(string message);
 
+    // An inscription has been received
+    event PostDispatched(string message, bytes32 commitment);
+
+    // An inscription has been received
+    event PostTimedOut(string message);
+
     // Call is unauthorized
     error Unauthorized();
 
@@ -33,6 +39,12 @@ contract CrossChainInscription is BaseIsmpModule {
 
     function setHost(address host) public {
         if (msg.sender != _admin) revert Unauthorized();
+        // infinite approval to save on gas
+        IERC20(IDispatcher(host).feeToken()).approve(
+            host,
+            type(uint256).max
+        );
+
         _host = host;
         _admin = address(0);
     }
@@ -48,14 +60,28 @@ contract CrossChainInscription is BaseIsmpModule {
             payer: address(this)
         });
 
+        bytes32 commitment;
         if (msg.value > 0) {
             // there's some native tokens left to pay for request dispatch
-            IDispatcher(_host).dispatch{value: msg.value}(request);
+            commitment = IDispatcher(_host).dispatch{value: msg.value}(request);
         } else {
             // try to pay for dispatch with fee token
-            uint256 fee = (IDispatcher(_host).perByteFee(params.dest) * params.message.length) + params.relayerFee;
+            uint256 length = 32 > params.message.length ? 32 : params.message.length;
+            uint256 fee = (IDispatcher(_host).perByteFee(params.dest) * length) + params.relayerFee;
             IERC20(IDispatcher(_host).feeToken()).safeTransferFrom(msg.sender, address(this), fee);
-            IDispatcher(_host).dispatch(request);
+            commitment = IDispatcher(_host).dispatch(request);
         }
+
+        emit PostReceived(string(params.message), commitment);
+    }
+
+    function onAccept(IncomingPostRequest memory incoming) external override {
+        if (msg.sender != _host) revert UnauthorizedCall();
+        emit PostReceived(string(incoming.request.body));
+    }
+
+    function onPostRequestTimeout(PostRequest calldata request) external override {
+        if (msg.sender != _host) revert UnauthorizedCall();
+        emit PostTimedOut(string(request.body));
     }
 }

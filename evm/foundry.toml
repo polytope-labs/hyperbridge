@@ -7,22 +7,22 @@ optimizer = true
 #via-ir = true
 
 [rpc_endpoints]
-sepolia = "${SEPOLIA_RPC_URL}"
+ethereum-sepolia = "${SEPOLIA_RPC_URL}"
 optimism-sepolia = "${OPTIMISM_SEPOLIA_RPC_URL}"
 arbitrum-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
 base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 polygon-mumbai = "${POLYGON_MUMBAI_RPC_URL}"
 bsc-testnet = "${BSC_TESTNET_RPC_URL}"
-chiado = "${CHIADO_RPC_URL}"
+gnosis-chiado = "${CHIADO_RPC_URL}"
 
 [etherscan]
 # testnet
-sepolia = { key = "${ETHEREUM_ETHERSCAN_API_KEY}", chain = 11155111, url = "https://api-sepolia.etherscan.io/api" }
+ethereum-sepolia = { key = "${ETHEREUM_ETHERSCAN_API_KEY}", chain = 11155111, url = "https://api-sepolia.etherscan.io/api" }
 optimism-sepolia = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", chain = 11155420, url = "https://api-sepolia-optimistic.etherscan.io/api" }
 arbitrum-sepolia = { key = "${ARBITRUM_ETHERSCAN_API_KEY}", chain = 421614, url = "https://api-sepolia.arbiscan.io/api" }
 base-sepolia = { key = "${BASE_ETHERSCAN_API_KEY}", chain = 84532, url = "https://api-sepolia.basescan.org/api" }
 polygon-mumbai = { key = "${POLYGON_ETHERSCAN_API_KEY}", chain = 80001, url = "https://api-testnet.polygonscan.com/api" }
 bsc-testnet = { key = "${BSC_ETHERSCAN_API_KEY}", chain = 97, url = "https://api-testnet.bscscan.com/api" }
-chiado = { key = "${GNOSIS_BLOCKSCOUT_API_KEY}", chain = 10200, url = "https://gnosis-chiado.blockscout.com/api" }
+gnosis-chiado = { key = "${GNOSIS_BLOCKSCOUT_API_KEY}", chain = 10200, url = "https://gnosis-chiado.blockscout.com/api" }
 
 # mainnet

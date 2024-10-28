@@ -19,6 +19,7 @@ codec = { workspace = true }
 tokio = { workspace = true, features = ["macros"]  }
 primitive-types = { workspace = true, features = ["serde"] }
 ethers = { workspace = true }
+reqwest = { version = "0.11.27", default-features = false }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, features = ["disable-panic-handler"] }
 evm-common = { workspace = true }
@@ -40,7 +41,7 @@ wasm-bindgen-futures = "0.4.40"
 wasm-streams = "0.4.0"
 js-sys = "0.3.68"
 web-sys = "0.3.68"
-wasmtimer = "0.2.0"
+wasmtimer = "0.4.0"
 hashbrown = { version = "0.14.3", features = ["serde"] }
 url = "2.5.1"
 gql_client = "=1.0.7"
@@ -71,7 +72,7 @@ tracing = []
 json = { package = "serde_json", version = "1.0.114", default-features = false }
 wasm-bindgen-test = "0.3.24"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+[target.'cfg(not(target_family="wasm"))'.dev-dependencies]
 ethers = { workspace = true, features = ["ws"], default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

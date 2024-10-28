@@ -7282,6 +7282,7 @@ dependencies = [
  "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
+ "reqwest 0.11.27",
  "serde",
  "serde-hex-utils",
  "serde-wasm-bindgen 0.6.5",
@@ -25892,9 +25893,9 @@ dependencies = [
 
 [[package]]
 name = "wasmtimer"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f656cd8858a5164932d8a90f936700860976ec21eb00e0fe2aa8cab13f6b4cf"
+checksum = "bb4f099acbc1043cc752b91615b24b02d7f6fcd975bd781fed9f50b3c3e15bf7"
 dependencies = [
  "futures",
  "js-sys",

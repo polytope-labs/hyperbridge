@@ -6,12 +6,12 @@ import "forge-std/Script.sol";
 abstract contract BaseScript is Script {
     bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
 
-    address payable internal SEPOLIA_HOST = payable(vm.envAddress("SEPOLIA_HOST"));
-    address payable internal ARB_SEPOLIA_HOST = payable(vm.envAddress("ARB_SEPOLIA_HOST"));
-    address payable internal OP_SEPOLIA_HOST = payable(vm.envAddress("OP_SEPOLIA_HOST"));
-    address payable internal BASE_SEPOLIA_HOST = payable(vm.envAddress("BASE_SEPOLIA_HOST"));
-    address payable internal BSC_TESTNET_HOST = payable(vm.envAddress("BSC_TESTNET_HOST"));
-    address payable internal CHIADO_HOST = payable(vm.envAddress("CHIADO_HOST"));
+    address payable internal ETHEREUM_HOST = payable(vm.envAddress("ETHEREUM_HOST"));
+    address payable internal ARBITRUM_HOST = payable(vm.envAddress("ARBITRUM_HOST"));
+    address payable internal OPTIMISM_HOST = payable(vm.envAddress("OPTIMISM_HOST"));
+    address payable internal BASE_HOST = payable(vm.envAddress("BASE_HOST"));
+    address payable internal BNB_HOST = payable(vm.envAddress("BNB_HOST"));
+    address payable internal GNOSIS_HOST = payable(vm.envAddress("GNOSIS_HOST"));
     address payable internal FEE_TOKEN = payable(vm.envAddress("FEE_TOKEN"));
 
     bytes32 internal privateKey = vm.envBytes32("PRIVATE_KEY");

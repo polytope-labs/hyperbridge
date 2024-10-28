@@ -41,9 +41,7 @@ wasm-bindgen-futures = "0.4.40"
 wasm-streams = "0.4.0"
 js-sys = "0.3.68"
 web-sys = "0.3.68"
-# this works in nodejs, sort of
 wasmtimer = { version = "0.4.0", optional = true }
-# this only works on the web, but is more reliable
 gloo-timers = { version =  "0.3.0", features = ["futures"], optional = true }
 hashbrown = { version = "0.14.3", features = ["serde"] }
 url = "2.5.1"
@@ -68,9 +66,11 @@ std = [
     "serde-hex-utils/std",
     "substrate-state-machine/std",
 ]
-web = ["wasm", "gloo-timers"]
-nodejs = ["wasm", "wasmtimer"]
-testing = []
+# Only works on the web, but is more reliable
+web = ["gloo-timers"]
+# wasmtimer works in nodejs, sort of
+nodejs = ["wasmtimer"]
+testing = ["nodejs"]
 tracing = []
 
 [dev-dependencies]

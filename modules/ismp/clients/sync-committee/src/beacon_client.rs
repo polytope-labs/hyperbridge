@@ -19,7 +19,7 @@ use codec::{Decode, Encode};
 use evm_common::construct_intermediate_state;
 
 use crate::{
-	pallet::{self, LayerTwos},
+	pallet::{self, SupportedStatemachines},
 	types::{BeaconClientUpdate, ConsensusState, L2Consensus},
 };
 use evm_common::EvmStateMachine;
@@ -42,14 +42,16 @@ pub use sync_committee_primitives::constants::{BEACON_CONSENSUS_ID, GNOSIS_CONSE
 pub struct SyncCommitteeConsensusClient<
 	H: IsmpHost,
 	C: Config,
-	T: pallet_ismp_host_executive::Config + crate::pallet::Config,
->(core::marker::PhantomData<(H, C, T)>);
+	T: pallet_ismp_host_executive::Config + crate::pallet::Config<I>,
+	I: 'static,
+>(core::marker::PhantomData<(H, C, T, I)>);
 
 impl<
 		H: IsmpHost + Send + Sync + Default + 'static,
 		C: Config + Send + Sync + Default + 'static,
-		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-	> Default for SyncCommitteeConsensusClient<H, C, T>
+		I: 'static,
+		T: pallet_ismp_host_executive::Config + pallet::Config<I> + 'static,
+	> Default for SyncCommitteeConsensusClient<H, C, T, I>
 {
 	fn default() -> Self {
 		Self(core::marker::PhantomData)
@@ -59,8 +61,9 @@ impl<
 impl<
 		H: IsmpHost + Send + Sync + Default + 'static,
 		C: Config + Send + Sync + Default + 'static,
-		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-	> Clone for SyncCommitteeConsensusClient<H, C, T>
+		I: 'static,
+		T: pallet_ismp_host_executive::Config + pallet::Config<I> + 'static,
+	> Clone for SyncCommitteeConsensusClient<H, C, T, I>
 {
 	fn clone(&self) -> Self {
 		Self(core::marker::PhantomData)
@@ -70,8 +73,9 @@ impl<
 impl<
 		H: IsmpHost + Send + Sync + Default + 'static,
 		C: Config + Send + Sync + Default + 'static,
-		T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-	> ConsensusClient for SyncCommitteeConsensusClient<H, C, T>
+		I: 'static,
+		T: pallet_ismp_host_executive::Config + pallet::Config<I> + 'static,
+	> ConsensusClient for SyncCommitteeConsensusClient<H, C, T, I>
 {
 	fn verify_consensus(
 		&self,
@@ -211,38 +215,10 @@ impl<
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-		match id {
-			StateMachine::Evm(chain_id)
-				if supported_chain_id(chain_id) || LayerTwos::<T>::contains_key(id) =>
-				Ok(Box::new(<EvmStateMachine<H, T>>::default())),
-			_ => Err(Error::Custom("State machine not supported".to_string())),
+		if SupportedStatemachines::<T, I>::contains_key(id) {
+			Ok(Box::new(<EvmStateMachine<H, T>>::default()))
+		} else {
+			Err(Error::Custom("State machine not supported".to_string()))
 		}
 	}
-}
-
-/// Mainnet and L2 chain Ids
-pub const ARBITRUM_CHAIN_ID: u32 = 42161;
-pub const OPTIMISM_CHAIN_ID: u32 = 10;
-pub const BASE_CHAIN_ID: u32 = 8453;
-pub const ETHEREUM_CHAIN_ID: u32 = 1;
-
-// Testnets
-pub const ARBITRUM_SEPOLIA_CHAIN_ID: u32 = 421614;
-pub const OPTIMISM_SEPOLIA_CHAIN_ID: u32 = 11155420;
-pub const BASE_SEPOLIA_CHAIN_ID: u32 = 84532;
-pub const SEPOLIA_CHAIN_ID: u32 = 11155111;
-/// Check if a Chain Id is supported
-/// Any subsequent l2 that is added will be checked using the LayerTwos storage map
-fn supported_chain_id(id: u32) -> bool {
-	[
-		ETHEREUM_CHAIN_ID,
-		SEPOLIA_CHAIN_ID,
-		BASE_CHAIN_ID,
-		BASE_SEPOLIA_CHAIN_ID,
-		OPTIMISM_CHAIN_ID,
-		OPTIMISM_SEPOLIA_CHAIN_ID,
-		ARBITRUM_CHAIN_ID,
-		ARBITRUM_SEPOLIA_CHAIN_ID,
-	]
-	.contains(&id)
 }

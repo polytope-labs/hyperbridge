@@ -29,11 +29,11 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
-	pub struct Pallet<T>(_);
+	pub struct Pallet<T, I = ()>(_);
 
 	/// The config trait
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config {
+	pub trait Config<I: 'static = ()>: frame_system::Config + pallet_ismp::Config {
 		/// Origin allowed to add or remove parachains in Consensus State
 		type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
 
@@ -42,7 +42,7 @@ pub mod pallet {
 	}
 
 	#[pallet::error]
-	pub enum Error<T> {
+	pub enum Error<T, I = ()> {
 		/// Contract Address Already Exists
 		ContractAddressAlreadyExists,
 		/// Error fetching consensus state
@@ -56,10 +56,11 @@ pub mod pallet {
 	/// Additional L2s added after the consensus client has been initialized
 	#[pallet::storage]
 	#[pallet::getter(fn layer_twos)]
-	pub type LayerTwos<T: Config> = StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
+	pub type SupportedStatemachines<T: Config<I>, I: 'static = ()> =
+		StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T>
+	impl<T: Config<I>, I: 'static> Pallet<T, I>
 	where
 		<T as frame_system::Config>::Hash: From<H256>,
 	{
@@ -71,24 +72,36 @@ pub mod pallet {
 			state_machine_id: StateMachineId,
 			l2_consensus: L2Consensus,
 		) -> DispatchResult {
-			<T as Config>::AdminOrigin::ensure_origin(origin)?;
+			<T as Config<I>>::AdminOrigin::ensure_origin(origin)?;
 
-			let host = <T as Config>::IsmpHost::default();
+			let host = <T as Config<I>>::IsmpHost::default();
 			let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
 
 			let encoded_consensus_state = host
 				.consensus_state(consensus_state_id)
-				.map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
+				.map_err(|_| Error::<T, I>::ErrorFetchingConsensusState)?;
 			let mut consensus_state: ConsensusState =
 				codec::Decode::decode(&mut &encoded_consensus_state[..])
-					.map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
+					.map_err(|_| Error::<T, I>::ErrorDecodingConsensusState)?;
 
 			consensus_state.l2_consensus.insert(state_machine, l2_consensus);
-			LayerTwos::<T>::insert(state_machine_id.state_id, true);
+			SupportedStatemachines::<T, I>::insert(state_machine_id.state_id, true);
 
 			let encoded_consensus_state = consensus_state.encode();
 			host.store_consensus_state(consensus_state_id, encoded_consensus_state)
-				.map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
+				.map_err(|_| Error::<T, I>::ErrorStoringConsensusState)?;
+			Ok(())
+		}
+
+		/// Add a new state machine
+		#[pallet::call_index(1)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads(1))]
+		pub fn add_state_machine(
+			origin: OriginFor<T>,
+			state_machine_id: StateMachineId,
+		) -> DispatchResult {
+			<T as Config<I>>::AdminOrigin::ensure_origin(origin)?;
+			SupportedStatemachines::<T, I>::insert(state_machine_id.state_id, true);
 			Ok(())
 		}
 	}

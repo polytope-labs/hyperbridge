@@ -217,7 +217,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("nexus"),
 	impl_name: create_runtime_str!("nexus"),
 	authoring_version: 1,
-	spec_version: 1200,
+	spec_version: 1300,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -830,7 +830,7 @@ construct_runtime!(
 		MessageQueue: pallet_message_queue = 42,
 
 		IsmpParachain: ismp_parachain = 50,
-		IsmpSyncCommittee: ismp_sync_committee::pallet = 51,
+		IsmpSyncCommitteeEth: ismp_sync_committee::pallet::<Instance1> = 51,
 		Relayer: pallet_ismp_relayer = 52,
 		HostExecutive: pallet_ismp_host_executive = 53,
 		CallDecompressor: pallet_call_decompressor = 54,
@@ -840,6 +840,7 @@ construct_runtime!(
 		StateCoprocessor: pallet_state_coprocessor = 58,
 		Fishermen: pallet_fishermen = 59,
 		TokenGatewayInspector: pallet_token_gateway_inspector = 60,
+		IsmpSyncCommitteeGno: ismp_sync_committee::pallet::<Instance2> = 61,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,

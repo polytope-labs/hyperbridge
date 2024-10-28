@@ -6,7 +6,7 @@ pragma solidity ^0.8.17;
 import {BaseIsmpModule, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {DispatchPost, IDispatcher} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {DispatchPost, IDispatcher, PostRequest} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
 
 struct CrossChainMessage {
     bytes dest;
@@ -72,7 +72,7 @@ contract CrossChainInscription is BaseIsmpModule {
             commitment = IDispatcher(_host).dispatch(request);
         }
 
-        emit PostReceived(string(params.message), commitment);
+        emit PostDispatched(string(params.message), commitment);
     }
 
     function onAccept(IncomingPostRequest memory incoming) external override {

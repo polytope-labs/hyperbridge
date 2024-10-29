@@ -70,7 +70,7 @@ std = [
 web = ["gloo-timers"]
 # wasmtimer works in nodejs, sort of
 nodejs = ["wasmtimer"]
-testing = ["wasmtimer"]
+testing = ["nodejs"]
 tracing = []
 
 [dev-dependencies]

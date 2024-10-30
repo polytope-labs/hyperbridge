@@ -17,9 +17,9 @@
   ],
   "protocolId": "gargantua",
   "properties": {
-    "ss58Format": 42,
+    "ss58Format": 0,
     "tokenDecimals": 12,
-    "tokenSymbol": "tNAND"
+    "tokenSymbol": "tBRIDGE"
   },
   "relay_chain": "paseo",
   "para_id": 4009,

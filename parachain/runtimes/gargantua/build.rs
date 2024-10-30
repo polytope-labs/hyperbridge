@@ -21,7 +21,7 @@ fn main() {
 		.with_current_project()
 		.export_heap_base()
 		.import_memory()
-		.enable_metadata_hash("NAND", 12)
+		.enable_metadata_hash("tBRIDGE", 12)
 		.build();
 }
 

@@ -221,7 +221,7 @@ pub struct NativeAssetId;
 
 impl Get<H256> for NativeAssetId {
 	fn get() -> H256 {
-		sp_io::hashing::keccak_256(b"NAND").into()
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
 	}
 }
 

@@ -83,7 +83,7 @@ pub fn gargantua_development_config(id: u32) -> ChainSpec {
 	let mut properties = sc_chain_spec::Properties::new();
 	properties.insert("tokenSymbol".into(), "DEV".into());
 	properties.insert("tokenDecimals".into(), 12.into());
-	properties.insert("ss58Format".into(), 42.into());
+	properties.insert("ss58Format".into(), 0.into());
 
 	ChainSpec::builder(
 		gargantua_runtime::WASM_BINARY.expect("WASM binary was not built, please build it!"),
@@ -133,7 +133,7 @@ pub fn nexus_development_config(id: u32) -> ChainSpec {
 	let mut properties = sc_chain_spec::Properties::new();
 	properties.insert("tokenSymbol".into(), "DEV".into());
 	properties.insert("tokenDecimals".into(), 12.into());
-	properties.insert("ss58Format".into(), 42.into());
+	properties.insert("ss58Format".into(), 0.into());
 
 	ChainSpec::builder(
 		nexus_runtime::WASM_BINARY.expect("WASM binary was not built, please build it!"),

@@ -199,7 +199,7 @@ impl pallet_ismp::Config for Test {
 	type Currency = Balances;
 	type ConsensusClients = (
 		MockConsensusClient,
-		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test>,
+		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test, ()>,
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
 	);
 	type Mmr = Mmr;
@@ -221,7 +221,7 @@ pub struct NativeAssetId;
 
 impl Get<H256> for NativeAssetId {
 	fn get() -> H256 {
-		sp_io::hashing::keccak_256(b"NAND").into()
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
 	}
 }
 

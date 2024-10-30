@@ -38,7 +38,6 @@ use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	events::Meta,
 	host::{IsmpHost, StateMachine},
-	messaging::hash_request,
 	module::IsmpModule,
 	router::{Request, Timeout},
 };
@@ -425,19 +424,6 @@ where
 		match request {
 			Timeout::Request(Request::Post(post)) => {
 				let request = Request::Post(post.clone());
-				let commitment = hash_request::<<T as Config>::IsmpHost>(&request);
-				let fee_metadata = pallet_ismp::child_trie::RequestCommitments::<T>::get(
-					commitment,
-				)
-				.ok_or_else(|| ismp::error::Error::ModuleDispatchError {
-					msg: "Token Gateway: Fee metadata could not be found for request".to_string(),
-					meta: Meta {
-						source: request.source_chain(),
-						dest: request.dest_chain(),
-						nonce: request.nonce(),
-					},
-				})?;
-				let beneficiary = fee_metadata.fee.payer;
 				let body = Body::abi_decode(&mut &post.body[1..], true).map_err(|_| {
 					ismp::error::Error::ModuleDispatchError {
 						msg: "Token Gateway: Failed to decode request body".to_string(),
@@ -448,8 +434,9 @@ where
 						},
 					}
 				})?;
-				// Send xcm back to relaychain
 
+				let beneficiary = body.from.0.into();
+				// Send xcm back to relaychain
 				let amount = convert_to_balance(
 					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
 					18,
@@ -466,7 +453,7 @@ where
 				// We do an xcm limited reserve transfer from the pallet custody account to the user
 				// on the relaychain;
 				let xcm_beneficiary: Location =
-					Junction::AccountId32 { network: None, id: beneficiary.clone().into() }.into();
+					Junction::AccountId32 { network: None, id: body.from.0 }.into();
 				let xcm_dest = VersionedLocation::V4(Location::parent());
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;

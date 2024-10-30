@@ -36,17 +36,20 @@ use ethers::prelude::H160;
 use futures::{stream, StreamExt};
 use ismp::{
 	consensus::StateMachineHeight,
-	messaging::{Message, Proof, RequestMessage, ResponseMessage},
-	router::{PostRequest, Response},
+	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage},
+	router::{PostRequest, Request, Response},
 };
 use sp_core::H256;
 use subxt_utils::Hyperbridge;
 
 use ismp::messaging::hash_response;
 use std::time::Duration;
+
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+use gloo_timers::future::*;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "nodejs"))]
 use wasmtimer::tokio::*;
 
 /// This returns a stream that yields when the provided timeout value is reached on the chain for
@@ -54,30 +57,38 @@ use wasmtimer::tokio::*;
 pub async fn message_timeout_stream(
 	timeout: u64,
 	client: impl Client + Clone,
+	request: Request,
 ) -> BoxStream<MessageStatusWithMetadata> {
 	if timeout == 0 {
 		// since it doesn't timeout, use stream pending here
 		return Box::pin(stream::pending());
 	}
 
+	let commitment = hash_request::<Keccak256>(&request);
 	let stream = stream::unfold(client, move |client| async move {
 		let lambda = || async {
-			let current_timestamp = client.query_timestamp().await?.as_secs();
+			let relayer = client.query_request_receipt(commitment).await?;
+			if relayer != Default::default() {
+				return Ok(None);
+			}
 
+			let current_timestamp = client.query_timestamp().await?.as_secs();
 			return if current_timestamp > timeout {
-				Ok(true)
+				Ok(Some(true))
 			} else {
 				let sleep_time = timeout - current_timestamp;
+				tracing::trace!("Sleeping for {sleep_time}s");
 				let _ = sleep(Duration::from_secs(sleep_time)).await;
-				Ok::<_, anyhow::Error>(false)
+				Ok::<_, anyhow::Error>(Some(false))
 			};
 		};
 
 		let response = lambda().await;
 
 		let value = match response {
-			Ok(true) => Some((Ok(Some(MessageStatusWithMetadata::Timeout)), client)),
-			Ok(false) => Some((Ok(None), client)),
+			Ok(Some(true)) => Some((Ok(Some(MessageStatusWithMetadata::Timeout)), client)),
+			Ok(Some(false)) => Some((Ok(None), client)),
+			Ok(None) => None,
 			Err(e) =>
 				Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client)),
 		};

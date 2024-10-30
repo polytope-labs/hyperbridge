@@ -18,7 +18,8 @@
 pub mod internals;
 pub mod providers;
 use any_client::AnyClient;
-use providers::interface::Client;
+use anyhow::anyhow;
+use ismp::messaging::{hash_post_response, hash_request};
 pub use subxt_utils::gargantua as runtime;
 pub mod any_client;
 pub mod types;
@@ -37,7 +38,7 @@ use crate::{
 };
 use ethers::{types::H256, utils::keccak256};
 use futures::StreamExt;
-use ismp::router::{GetRequest, PostRequest, PostResponse};
+use ismp::router::{GetRequest, PostRequest, PostResponse, Request};
 use subxt_utils::Hyperbridge;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
@@ -90,8 +91,25 @@ impl HyperClient {
 	/// Initialize the hyperclient
 	pub async fn init(config: JsValue) -> Result<HyperClient, JsError> {
 		let lambda = || async move {
-			let config = serde_wasm_bindgen::from_value::<JsClientConfig>(config).unwrap();
+			let config = serde_wasm_bindgen::from_value::<JsClientConfig>(config)
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
 			let config: ClientConfig = config.try_into()?;
+
+			if config.tracing {
+				use tracing_subscriber_wasm::MakeConsoleWriter;
+
+				let _ = tracing_subscriber::fmt()
+					.with_max_level(tracing::Level::TRACE)
+					.with_writer(
+						// To avoide trace events in the browser from showing their
+						// JS backtrace, which is very annoying, in my opinion
+						MakeConsoleWriter::default().map_trace_level_to(tracing::Level::INFO),
+					)
+					// For some reason, if we don't do this in the browser, we get
+					// a runtime error.
+					.without_time()
+					.try_init();
+			}
 
 			HyperClient::new(config).await
 		};
@@ -101,58 +119,88 @@ impl HyperClient {
 		})
 	}
 
+	/// Returns the commitment for the provided POST request
+	pub fn post_request_commitment(post: JsValue) -> Result<JsValue, JsError> {
+		let lambda = || {
+			let post = serde_wasm_bindgen::from_value::<JsPost>(post.into())
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
+			let post: PostRequest = post.try_into()?;
+			let commitment = hash_request::<Keccak256>(&Request::Post(post));
+			Ok(serde_wasm_bindgen::to_value(&commitment).expect("Infallible"))
+		};
+
+		lambda().map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to derive request commitment: {err:?}",))
+		})
+	}
+
+	/// Returns the commitment for the provided GET request
+	pub fn get_request_commitment(get: JsValue) -> Result<JsValue, JsError> {
+		let lambda = || {
+			let get = serde_wasm_bindgen::from_value::<JsGet>(get.into())
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
+			let get: GetRequest = get.try_into()?;
+			let commitment = hash_request::<Keccak256>(&Request::Get(get));
+			Ok(serde_wasm_bindgen::to_value(&commitment).expect("Infallible"))
+		};
+
+		lambda().map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to derive request commitment: {err:?}",))
+		})
+	}
+
+	/// Returns the commitment for the provided POST response
+	pub fn post_response_commitment(response: JsValue) -> Result<JsValue, JsError> {
+		let lambda = || {
+			let response = serde_wasm_bindgen::from_value::<JsPostResponse>(response.into())
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
+			let response: PostResponse = response.try_into()?;
+			let commitment = hash_post_response::<Keccak256>(&response);
+			Ok(serde_wasm_bindgen::to_value(&commitment).expect("Infallible"))
+		};
+
+		lambda().map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to derive request commitment: {err:?}",))
+		})
+	}
+
 	/// Queries the status of a request and returns `MessageStatusWithMetadata`
 	pub async fn query_post_request_status(&self, request: JsValue) -> Result<JsValue, JsError> {
 		let lambda = || async move {
-			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
+			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into())
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
 			let post: PostRequest = post.try_into()?;
 			let status = internals::query_post_request_status_internal(&self, post).await?;
 			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
 		};
 
-		lambda().await.map_err(|err: anyhow::Error| {
-			JsError::new(&format!(
-				"Failed to query request status for {:?}->{:?}: {err:?}",
-				self.source.state_machine_id().state_id,
-				self.dest.state_machine_id().state_id,
-			))
-		})
+		lambda().await.map_err(|err: anyhow::Error| JsError::new(&format!("{err:?}",)))
 	}
 
 	/// Queries the status of a request and returns `MessageStatusWithMetadata`
 	pub async fn query_get_request_status(&self, request: JsValue) -> Result<JsValue, JsError> {
 		let lambda = || async move {
-			let get = serde_wasm_bindgen::from_value::<JsGet>(request.into()).unwrap();
+			let get = serde_wasm_bindgen::from_value::<JsGet>(request.into())
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
 			let get: GetRequest = get.try_into()?;
 			let status = internals::query_get_request_status(&self, get).await?;
 			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
 		};
 
-		lambda().await.map_err(|err: anyhow::Error| {
-			JsError::new(&format!(
-				"Failed to query request status for {:?}->{:?}: {err:?}",
-				self.source.state_machine_id().state_id,
-				self.dest.state_machine_id().state_id,
-			))
-		})
+		lambda().await.map_err(|err: anyhow::Error| JsError::new(&format!("{err:?}",)))
 	}
 
 	/// Accepts a post response and returns a `MessageStatusWithMetadata`
 	pub async fn query_post_response_status(&self, response: JsValue) -> Result<JsValue, JsError> {
 		let lambda = || async move {
-			let post = serde_wasm_bindgen::from_value::<JsPostResponse>(response).unwrap();
+			let post = serde_wasm_bindgen::from_value::<JsPostResponse>(response)
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
 			let response: PostResponse = post.try_into()?;
 			let status = internals::query_response_status_internal(&self, response).await?;
 			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
 		};
 
-		lambda().await.map_err(|err: anyhow::Error| {
-			JsError::new(&format!(
-				"Failed to query response status for {:?}->{:?}: {err:?}",
-				self.source.state_machine_id().state_id,
-				self.dest.state_machine_id().state_id,
-			))
-		})
+		lambda().await.map_err(|err: anyhow::Error| JsError::new(&format!("{err:?}",)))
 	}
 
 	/// Return the status of a post request as a `ReadableStream` that yields
@@ -163,15 +211,19 @@ impl HyperClient {
 		initial_state: JsValue,
 	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
 		let lambda = || async move {
-			let post = serde_wasm_bindgen::from_value::<JsPost>(request).unwrap();
-			let state =
-				serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state).unwrap();
+			let post = serde_wasm_bindgen::from_value::<JsPost>(request)
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
+			let state = serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state)
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
 			let post: PostRequest = post.try_into()?;
 
 			// Obtaining the request stream and the timeout stream
-			let timed_out =
-				internals::message_timeout_stream(post.timeout_timestamp, self.source.clone())
-					.await;
+			let timed_out = internals::message_timeout_stream(
+				post.timeout_timestamp,
+				self.dest.clone(),
+				Request::Post(post.clone()),
+			)
+			.await;
 
 			let request_status = internals::post_request_status_stream(&self, post, state).await?;
 
@@ -204,15 +256,19 @@ impl HyperClient {
 		initial_state: JsValue,
 	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
 		let lambda = || async move {
-			let get = serde_wasm_bindgen::from_value::<JsGet>(request).unwrap();
+			let get = serde_wasm_bindgen::from_value::<JsGet>(request)
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
 			let get: GetRequest = get.try_into()?;
-			let state =
-				serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state).unwrap();
+			let state = serde_wasm_bindgen::from_value::<MessageStatusStreamState>(initial_state)
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
 
 			// Obtaining the request stream and the timeout stream
-			let timed_out =
-				internals::message_timeout_stream(get.timeout_timestamp, self.hyperbridge.clone())
-					.await;
+			let timed_out = internals::message_timeout_stream(
+				get.timeout_timestamp,
+				self.hyperbridge.clone(),
+				Request::Get(get.clone()),
+			)
+			.await;
 
 			let request_status = internals::get_request_status_stream(&self, get, state).await?;
 			let stream = futures::stream::select(request_status, timed_out).map(|res| {
@@ -246,9 +302,10 @@ impl HyperClient {
 		initial_state: JsValue,
 	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
 		let lambda = || async move {
-			let post = serde_wasm_bindgen::from_value::<JsPost>(request).unwrap();
-			let state =
-				serde_wasm_bindgen::from_value::<TimeoutStreamState>(initial_state).unwrap();
+			let post = serde_wasm_bindgen::from_value::<JsPost>(request)
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
+			let state = serde_wasm_bindgen::from_value::<TimeoutStreamState>(initial_state)
+				.map_err(|err| anyhow!("Deserialization error: {err:?}"))?;
 			let post: PostRequest = post.try_into()?;
 
 			let stream =
@@ -283,23 +340,6 @@ pub fn start() -> Result<(), JsValue> {
 	// This is not needed for tracing_wasm to work, but it is a common tool for getting proper error
 	// line numbers for panics.
 	console_error_panic_hook::set_once();
-
-	#[cfg(feature = "tracing")]
-	{
-		use tracing_subscriber_wasm::MakeConsoleWriter;
-
-		tracing_subscriber::fmt()
-			.with_max_level(tracing::Level::INFO)
-			.with_writer(
-				// To avoide trace events in the browser from showing their
-				// JS backtrace, which is very annoying, in my opinion
-				MakeConsoleWriter::default().map_trace_level_to(tracing::Level::INFO),
-			)
-			// For some reason, if we don't do this in the browser, we get
-			// a runtime error.
-			.without_time()
-			.init();
-	}
 
 	Ok(())
 }

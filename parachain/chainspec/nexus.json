@@ -25,9 +25,9 @@
   ],
   "protocolId": "nexus",
   "properties": {
-    "ss58Format": 42,
+    "ss58Format": 0,
     "tokenDecimals": 12,
-    "tokenSymbol": "NAND"
+    "tokenSymbol": "BRIDGE"
   },
   "relay_chain": "polkadot",
   "para_id": 3367,

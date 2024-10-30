@@ -53,7 +53,6 @@ library HeaderImpl {
 
     error TimestampNotFound();
     error ChildTrieRootNotFound();
-    error MmrRootHashNotFound();
 
     // Extracts the `StateCommitment` from the provided header.
     function stateCommitment(Header calldata self) public pure returns (StateCommitment memory) {
@@ -76,7 +75,6 @@ library HeaderImpl {
         // sanity check
         if (timestamp == 0) revert TimestampNotFound();
         if (childTrieRoot == bytes32(0)) revert ChildTrieRootNotFound();
-        if (mmrRoot == bytes32(0)) revert MmrRootHashNotFound();
 
         return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
     }

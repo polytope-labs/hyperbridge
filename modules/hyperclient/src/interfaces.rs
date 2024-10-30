@@ -56,7 +56,8 @@ pub struct JsClientConfig {
 	pub source: JsChainConfig,
 	pub dest: JsChainConfig,
 	pub hyperbridge: JsHyperbridgeConfig,
-	pub indexer: String,
+	pub indexer: Option<String>,
+	pub tracing: Option<bool>,
 }
 
 impl TryFrom<JsClientConfig> for ClientConfig {
@@ -116,10 +117,10 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 			},
 		};
 
-		let indexer = if value.indexer.is_empty() {
-			None
+		let indexer = if let Some(url) = value.indexer {
+			Some(url::Url::parse(&url)?.to_string())
 		} else {
-			Some(url::Url::parse(&value.indexer)?.to_string())
+			None
 		};
 
 		let to_hyperbridge_config = |val: &JsHyperbridgeConfig| {
@@ -136,7 +137,13 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 		let dest_config = to_config(&value.dest)?;
 		let hyperbridge = to_hyperbridge_config(&value.hyperbridge)?;
 
-		Ok(ClientConfig { source: source_config, dest: dest_config, hyperbridge, indexer })
+		Ok(ClientConfig {
+			source: source_config,
+			dest: dest_config,
+			hyperbridge,
+			indexer,
+			tracing: value.tracing.unwrap_or_default(),
+		})
 	}
 }
 
@@ -329,6 +336,7 @@ mod tests {
 			dest: ChainConfig::Evm(dest_chain.clone()),
 			hyperbridge: ChainConfig::Substrate(hyperbrige_config),
 			indexer: Some("http://localhost:3000/".to_string()),
+			tracing: false,
 		};
 
 		let js_source = JsEvmConfig {
@@ -351,7 +359,8 @@ mod tests {
 			source: JsChainConfig::Evm(js_source),
 			dest: JsChainConfig::Evm(js_dest),
 			hyperbridge: js_hyperbridge,
-			indexer: "http://localhost:3000/".to_string(),
+			indexer: Some("http://localhost:3000/".to_string()),
+			tracing: None,
 		};
 
 		assert_eq!(config, js_client_conf.try_into().unwrap());

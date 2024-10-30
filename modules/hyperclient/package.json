@@ -1,29 +1,29 @@
 {
-  "name": "@polytope-labs/hyperclient",
-  "description": "The hyperclient is a library for managing (in-flight) ISMP requests",
-  "version": "0.6.6",
-  "author": "Polytope Labs (hello@polytope.technology)",
-  "license": "Apache-2.0",
-  "bugs": {
-    "url": "https://github.com/polytope-labs/hyperbridge/issues"
-  },
-  "engines": {
-    "node": ">= 22.4.1"
-  },
-  "homepage": "https://docs.hyperbridge.network",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/polytope-labs/hyperbridge/tree/main/modules/hyperclient"
-  },
-  "files": [
-    "dist/**/*",
-    "hyperclient.d.ts",
-    "package.json"
-  ],
-  "scripts": {
-    "build": "./build.sh"
-  },
-  "main": "dist/node/hyperclient.js",
-  "browser": "dist/bundler/hyperclient.js",
-  "types": "hyperclient.d.ts"
+    "name": "@polytope-labs/hyperclient",
+    "description": "The hyperclient is a library for managing (in-flight) ISMP requests",
+    "version": "0.7.2",
+    "author": "Polytope Labs (hello@polytope.technology)",
+    "license": "Apache-2.0",
+    "bugs": {
+        "url": "https://github.com/polytope-labs/hyperbridge/issues"
+    },
+    "engines": {
+        "node": ">= 22.4.1"
+    },
+    "homepage": "https://docs.hyperbridge.network",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/polytope-labs/hyperbridge/tree/main/modules/hyperclient"
+    },
+    "files": [
+        "dist/**/*",
+        "hyperclient.d.ts",
+        "package.json"
+    ],
+    "scripts": {
+        "build": "./build.sh"
+    },
+    "main": "dist/node/hyperclient.js",
+    "browser": "dist/bundler/hyperclient.js",
+    "types": "hyperclient.d.ts"
 }

@@ -56,7 +56,15 @@ impl Get<StateMachine> for HostStateMachine {
 	}
 }
 
-impl ismp_sync_committee::pallet::Config for Runtime {
+pub type Ethereum = ismp_sync_committee::pallet::Instance1;
+pub type Gnosis = ismp_sync_committee::pallet::Instance2;
+
+impl ismp_sync_committee::pallet::Config<Ethereum> for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type IsmpHost = Ismp;
+}
+
+impl ismp_sync_committee::pallet::Config<Gnosis> for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type IsmpHost = Ismp;
 }
@@ -85,8 +93,8 @@ impl pallet_ismp::Config for Runtime {
 	type Router = Router;
 	type ConsensusClients = (
 		ismp_bsc::BscClient<Ismp, Runtime, ismp_bsc::Testnet>,
-		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Runtime>,
-		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, gnosis::Testnet, Runtime>,
+		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Runtime, Ethereum>,
+		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, gnosis::Testnet, Runtime, Gnosis>,
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,

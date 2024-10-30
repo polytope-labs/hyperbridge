@@ -89,6 +89,7 @@ pub struct ClientConfig {
 	pub dest: ChainConfig,
 	pub hyperbridge: ChainConfig,
 	pub indexer: Option<String>,
+	pub tracing: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Default, Copy)]
@@ -136,8 +137,6 @@ pub enum TimeoutStreamState {
 	/// The message time out has been verified by Hyperbridge, holds the block where the message
 	/// was verified
 	HyperbridgeVerified(u64),
-	/// Hyperbridge has been finalized on source chain
-	HyperbridgeFinalized(u64),
 	/// Stream has ended
 	End,
 }
@@ -212,6 +211,8 @@ pub enum TimeoutStatus {
 	Pending,
 	/// Destination state machine has been finalized the timeout on hyperbridge
 	DestinationFinalized {
+		/// Block height of the destination chain that was finalized.
+		finalized_height: u64,
 		/// Metadata about the event on hyperbridge
 		#[serde(flatten)]
 		meta: EventMetadata,
@@ -224,20 +225,19 @@ pub enum TimeoutStatus {
 	},
 	/// Hyperbridge has been finalized the timeout on source state machine
 	HyperbridgeFinalized {
-		/// Metadata about the event on the destination
+		/// Block height of hyperbridge chain that was finalized.
+		finalized_height: u64,
+		/// Metadata about the event on the destination chain
 		#[serde(flatten)]
 		meta: EventMetadata,
+		/// Calldata that encodes the proof for the message to be sent to the destination.
+		#[serde(with = "serde_hex_utils::as_hex")]
+		calldata: Bytes,
 	},
 	/// An error was encountered in the stream
 	Error {
 		/// Error description
 		description: String,
-	},
-	/// Encoded call data to be submitted to source chain
-	TimeoutMessage {
-		/// Calldata that encodes the proof for the timeout message on the source.
-		#[serde(with = "serde_hex_utils::as_hex")]
-		calldata: Bytes,
 	},
 }
 

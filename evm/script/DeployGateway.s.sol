@@ -2,6 +2,8 @@
 pragma solidity ^0.8.17;
 
 import "forge-std/Script.sol";
+import "stringutils/strings.sol";
+
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {IERC6160Ext20} from "@polytope-labs/erc6160/interfaces/IERC6160Ext20.sol";
 import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
@@ -11,37 +13,39 @@ import {BaseScript} from "./BaseScript.sol";
 import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
 
 contract DeployScript is BaseScript {
+    using strings for *;
+
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER ROLE");
 
-    function run() external  {
+    function run() external {
         // todo:
         address callDispatcher = address(1);
 
-        if (equal(host, "sepolia") || equal(host, "ethereum")) {
+        if (host.toSlice().startsWith("ethereum".toSlice())) {
             vm.startBroadcast(uint256(privateKey));
-            deployInscription(SEPOLIA_HOST, admin);
-            deployGateway(SEPOLIA_HOST, admin, callDispatcher);
-        } else if (equal(host, "arbitrum-sepolia")) {
+            deployInscription(ETHEREUM_HOST, admin);
+            deployGateway(ETHEREUM_HOST, admin, callDispatcher);
+        } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
             vm.startBroadcast(uint256(privateKey));
-            deployInscription(ARB_SEPOLIA_HOST, admin);
-            deployGateway(ARB_SEPOLIA_HOST, admin, callDispatcher);
-        } else if (equal(host, "optimism-sepolia")) {
+            deployInscription(ARBITRUM_HOST, admin);
+            deployGateway(ARBITRUM_HOST, admin, callDispatcher);
+        } else if (host.toSlice().startsWith("optimism".toSlice())) {
             vm.startBroadcast(uint256(privateKey));
-            deployInscription(OP_SEPOLIA_HOST, admin);
-            deployGateway(OP_SEPOLIA_HOST, admin, callDispatcher);
-        } else if (equal(host, "base-sepolia")) {
+            deployInscription(OPTIMISM_HOST, admin);
+            deployGateway(OPTIMISM_HOST, admin, callDispatcher);
+        } else if (host.toSlice().startsWith("base".toSlice())) {
             vm.startBroadcast(uint256(privateKey));
-            deployInscription(BASE_SEPOLIA_HOST, admin);
-            deployGateway(BASE_SEPOLIA_HOST, admin, callDispatcher);
-        } else if (equal(host, "bsc-testnet")) {
+            deployInscription(BASE_HOST, admin);
+            deployGateway(BASE_HOST, admin, callDispatcher);
+        } else if (host.toSlice().startsWith("bsc".toSlice())) {
             vm.startBroadcast(uint256(privateKey));
-            deployInscription(BSC_TESTNET_HOST, admin);
-            deployGateway(BSC_TESTNET_HOST, admin, callDispatcher);
-        } else if (equal(host, "chiado")) {
+            deployInscription(BNB_HOST, admin);
+            deployGateway(BNB_HOST, admin, callDispatcher);
+        } else if (host.toSlice().startsWith("gnosis".toSlice())) {
             vm.startBroadcast(uint256(privateKey));
-            deployInscription(CHIADO_HOST, admin);
-            deployGateway(CHIADO_HOST, admin, callDispatcher);
+            deployInscription(GNOSIS_HOST, admin);
+            deployGateway(GNOSIS_HOST, admin, callDispatcher);
         }
     }
 

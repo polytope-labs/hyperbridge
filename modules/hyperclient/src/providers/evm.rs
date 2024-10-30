@@ -57,9 +57,12 @@ use ismp_solidity_abi::{
 use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
+
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+use gloo_timers::future::*;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "nodejs"))]
 use wasmtimer::tokio::*;
 
 #[derive(Debug, Clone)]
@@ -263,6 +266,8 @@ impl Client for EvmClient {
 					event: event.try_into()?,
 				})
 			})
+			// only care about events that can be deserialized
+			.filter(|event| event.is_ok())
 			.collect::<Result<Vec<_>, _>>()
 	}
 
@@ -283,6 +288,7 @@ impl Client for EvmClient {
 		let stream =
 			stream::unfold((initial_height, client), move |(latest_height, client)| async move {
 				let state_machine = client.state_machine;
+				tracing::trace!("Sleeping for {}", "12s");
 				sleep(Duration::from_secs(12)).await;
 				let block_number = match client.client.get_block_number().await {
 					Ok(number) => number.low_u64(),
@@ -294,6 +300,9 @@ impl Client for EvmClient {
 							(latest_height, client),
 						)),
 				};
+				tracing::trace!(
+					"Starting to query for PostRequestHandled: {initial_height}..{block_number}"
+				);
 
 				// in case we get old heights, best to ignore them
 				if block_number < latest_height {
@@ -376,6 +385,7 @@ impl Client for EvmClient {
 			(initial_height, self.clone()),
 			move |(latest_height, client)| async move {
 				let state_machine = client.state_machine;
+				tracing::trace!("Sleeping for {}", "30s");
 				sleep(Duration::from_secs(30)).await;
 				let block_number = match client.client.get_block_number().await {
 					Ok(number) => number.low_u64(),

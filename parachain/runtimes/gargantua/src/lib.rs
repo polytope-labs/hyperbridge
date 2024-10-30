@@ -233,7 +233,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("gargantua"),
 	impl_name: create_runtime_str!("gargantua"),
 	authoring_version: 1,
-	spec_version: 1170,
+	spec_version: 1200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -713,7 +713,7 @@ construct_runtime!(
 
 		// supporting ismp pallets
 		IsmpParachain: ismp_parachain = 50,
-		IsmpSyncCommittee: ismp_sync_committee::pallet = 51,
+		IsmpSyncCommitteeEth: ismp_sync_committee::pallet::<Instance1> = 51,
 		IsmpDemo: pallet_ismp_demo = 52,
 		Relayer: pallet_ismp_relayer = 53,
 		HostExecutive: pallet_ismp_host_executive = 55,
@@ -724,6 +724,7 @@ construct_runtime!(
 		StateCoprocessor: pallet_state_coprocessor = 60,
 		Fishermen: pallet_fishermen = 61,
 		TokenGatewayInspector: pallet_token_gateway_inspector = 62,
+		IsmpSyncCommitteeGno: ismp_sync_committee::pallet::<Instance2> = 63,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,

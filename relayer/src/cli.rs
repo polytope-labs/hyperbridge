@@ -129,23 +129,21 @@ impl Cli {
 			);
 		}
 
-		// If there is a configuration for the maximum interval between consensus updates, then spawn monitoring task
-		if relayer.clone().maximum_update_intervals.is_some_and(|val| !val.is_empty())
-		{
+		// If there is a configuration for the maximum interval between consensus updates, then
+		// spawn monitoring task
+		if relayer.clone().maximum_update_intervals.is_some_and(|val| !val.is_empty()) {
 			log::info!("Initializing consensus update monitoring task");
-			task_manager
-				.spawn_essential_handle()
-				.spawn("monitoring", "consensus", {
-					async move {
-						let _res = monitor_clients(
-							hyperbridge_config,
-							relayer.maximum_update_intervals.expect("Is Some"),
-						)
-						.await;
-						log::error!(target: "tesseract", "monitoring task has terminated")
-					}
-					.boxed()
-				});
+			task_manager.spawn_essential_handle().spawn("monitoring", "consensus", {
+				async move {
+					let _res = monitor_clients(
+						hyperbridge_config,
+						relayer.maximum_update_intervals.expect("Is Some"),
+					)
+					.await;
+					log::error!(target: "tesseract", "monitoring task has terminated")
+				}
+				.boxed()
+			});
 		}
 
 		log::info!("Initialized consensus tasks");

@@ -21,7 +21,7 @@ pub async fn monitor_clients(
 
 	let lambda = || async {
 		for (id, max_interval) in configs.clone() {
-            log::info!(target: "tesseract", "Checking update interval for {:?}", id.state_id);
+			log::trace!(target: "tesseract", "Checking update interval for {:?}", id.state_id);
 			let latest_height = provider.query_latest_height(id).await?;
 			let state_machine_height = StateMachineHeight { id, height: latest_height.into() };
 			let last_state_machine_update_time =
@@ -34,7 +34,7 @@ pub async fn monitor_clients(
 				.saturating_sub(last_state_machine_update_time.as_secs()) >=
 				max_interval
 			{
-                log::info!(target: "tesseract", "{:?} Has stalled shutting down", id.state_id);
+				log::trace!(target: "tesseract", "{:?} Has stalled shutting down", id.state_id);
 				return Ok::<_, anyhow::Error>(HealthStat::Restart);
 			}
 		}
@@ -42,12 +42,13 @@ pub async fn monitor_clients(
 		Ok(HealthStat::Ok)
 	};
 
-	loop {
-		tokio::time::sleep(Duration::from_secs(180)).await;
+	// Sleep for some minutes to allow some initial updates before starting the monitoring
+	tokio::time::sleep(Duration::from_secs(600)).await;
 
+	loop {
 		match lambda().await {
 			Ok(HealthStat::Restart) => break,
-			_ => {},
+			_ => tokio::time::sleep(Duration::from_secs(180)).await,
 		}
 	}
 

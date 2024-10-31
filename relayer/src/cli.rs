@@ -17,8 +17,11 @@ use crate::{
 	any::AnyConfig,
 	config::{HyperbridgeConfig, RelayerConfig},
 	logging,
+	monitor::monitor_clients,
 	subcommand::Subcommand,
 };
+use futures::FutureExt;
+use sc_service::TaskManager;
 
 /// CLI interface for tesseract relayer.
 #[derive(Parser, Debug)]
@@ -52,8 +55,11 @@ impl Cli {
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, chains, .. } =
 			config.clone();
 
+		let tokio_handle = tokio::runtime::Handle::current();
+		let mut task_manager = TaskManager::new(tokio_handle, None)?;
+
 		let clients = create_client_map(config.clone()).await?;
-		let mut processes = vec![];
+
 		let hyperbridge = hyperbridge_config
 			.clone()
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
@@ -90,28 +96,63 @@ impl Cli {
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 				.await?;
-			processes.push(tokio::spawn({
-				let client = client.clone();
-				async move { hyperbridge.start_consensus(client.provider()).await }
-			}));
-			processes.push(tokio::spawn({
-				let hyperbridge = hyperbridge_config
-					.clone()
-					.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-					.await?;
-				async move { client.start_consensus(hyperbridge.provider()).await }
-			}));
+			let hyper_bridge_name = hyperbridge.provider().name();
+			let name =
+				format!("consensus-{}-{}", hyper_bridge_name.clone(), client.provider().name());
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name.clone())),
+				"consensus",
+				{
+					let client = client.clone();
+					async move {
+						let res = hyperbridge.start_consensus(client.provider()).await;
+						log::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+					}
+					.boxed()
+				},
+			);
+
+			let name = format!("consensus-{}-{}", client.provider().name(), hyper_bridge_name);
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name.clone())),
+				"consensus",
+				{
+					let hyperbridge = hyperbridge_config
+						.clone()
+						.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+						.await?;
+					async move {
+						let res = client.start_consensus(hyperbridge.provider()).await;
+						log::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+					}
+				},
+			);
+		}
+
+		// If there is a configuration for the maximum interval between consensus updates, then spawn monitoring task
+		if relayer.clone().maximum_update_intervals.is_some_and(|val| !val.is_empty())
+		{
+			log::info!("Initializing consensus update monitoring task");
+			task_manager
+				.spawn_essential_handle()
+				.spawn("monitoring", "consensus", {
+					async move {
+						let _res = monitor_clients(
+							hyperbridge_config,
+							relayer.maximum_update_intervals.expect("Is Some"),
+						)
+						.await;
+						log::error!(target: "tesseract", "monitoring task has terminated")
+					}
+					.boxed()
+				});
 		}
 
 		log::info!("Initialized consensus tasks");
 
-		let (_result, _index, tasks) = futures::future::select_all(processes).await;
+		task_manager.future().await?;
 
-		log::info!("Task {_index} aborted with result {_result:#?}");
-
-		for task in tasks {
-			task.abort();
-		}
+		log::info!("Consensus Tasks aborted, restart relayer");
 
 		Ok(())
 	}

@@ -1,6 +1,6 @@
 use crate::any::AnyConfig;
 use anyhow::anyhow;
-use ismp::host::StateMachine;
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tesseract_beefy::BeefyConfig;
@@ -9,10 +9,11 @@ use toml::Table;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RelayerConfig {
-	/// Run fisherman task
-	pub fisherman: Option<bool>,
 	/// Challenge period to be used when creating consensus states
 	pub challenge_period: Option<u64>,
+	/// The maximum interval in seconds allowed between consensus updates for each state machine
+	/// before the process should be restarted
+	pub maximum_update_intervals: Option<Vec<(StateMachineId, u64)>>,
 }
 
 /// Defines the format of the tesseract config.toml file.
@@ -62,4 +63,14 @@ impl HyperbridgeConfig {
 		}
 		Ok(Self { hyperbridge, chains, relayer })
 	}
+}
+
+#[tokio::test]
+async fn test_parsing() {
+	let config = HyperbridgeConfig::parse_conf(
+		"/home/david/open-source/tesseract-consensus/relayer/test-config.toml",
+	)
+	.await
+	.unwrap();
+	dbg!(config);
 }

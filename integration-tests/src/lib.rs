@@ -165,7 +165,7 @@ async fn sudo_upgrade_runtime() -> Result<(), anyhow::Error> {
 		max_rpc_payload_size: None,
 		hashing: Some(HashAlgorithm::Keccak),
 		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+		rpc_ws: "wss://nexus.ibp.network:443".to_string(),
 		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
 		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
 		latest_height: None,
@@ -173,7 +173,7 @@ async fn sudo_upgrade_runtime() -> Result<(), anyhow::Error> {
 	};
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
-	let code_blob = tokio::fs::read("../../hyperbridge/target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm").await?;
+	let code_blob = tokio::fs::read("../../hyperbridge/target/release/wbuild/nexus-runtime/nexus_runtime.compact.compressed.wasm").await?;
 	chain_a.runtime_upgrade(code_blob).await?;
 	Ok(())
 }

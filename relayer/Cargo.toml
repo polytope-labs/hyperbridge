@@ -29,10 +29,11 @@ serde = { version = "1.0.164", features = ["derive"] }
 json = { version = "1.0.112", package = "serde_json" }
 toml = "0.7.4"
 clap = { version = "4.3.5", features = ["derive"] }
-tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs", "io-std"] }
+tokio = { version = "1.32.0", features = ["full"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 primitive-types =  { workspace = true }
 subxt = { version = "0.30.1", default-features = false }
+sc-service = { workspace = true }
 
 subxt-utils = { workspace = true }
 tesseract-beefy = { workspace = true }

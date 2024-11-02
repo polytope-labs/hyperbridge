@@ -157,8 +157,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									consensus_state.finalized_height ||
 									res.is_err()
 								{
-									log::error!(
-										"Verification failed for block {}",
+									log::trace!(
+										"Skipping block {}, authority set not rotated yet",
 										update.attested_header.number
 									);
 									block += 1;

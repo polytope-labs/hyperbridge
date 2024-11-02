@@ -153,9 +153,9 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									&next_validators.validators,
 									update.clone(),
 								);
-								if update.source_header.number.low_u64()
-									<= consensus_state.finalized_height
-									|| res.is_err()
+								if update.source_header.number.low_u64() <=
+									consensus_state.finalized_height ||
+									res.is_err()
 								{
 									log::error!(
 										"Verification failed for block {}",
@@ -178,15 +178,14 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								log::trace!("Valid Update not found for {:?}", header.number);
 								block += 1
 							},
-							Err(_) => {
+							Err(_) =>
 								return Some((
 									Err(anyhow!(
 											"Not a fatal error: Error fetching authority enactment update for {}",
 											client.state_machine
 										)),
 									interval,
-								))
-							},
+								)),
 						}
 					}
 					log::trace!("No valid update found to enact authority set change");
@@ -241,8 +240,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 							.await
 						{
 							Ok(Some(update)) => {
-								if update.source_header.number.low_u64()
-									<= consensus_state.finalized_height
+								if update.source_header.number.low_u64() <=
+									consensus_state.finalized_height
 								{
 									block += 1;
 									continue;
@@ -266,8 +265,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 
 								// If we have an epoch ancestry or the source header that was
 								// finalized is the epoch block
-								if !update.epoch_header_ancestry.is_empty()
-									|| update.source_header.number.low_u64() == epoch_block_number
+								if !update.epoch_header_ancestry.is_empty() ||
+									update.source_header.number.low_u64() == epoch_block_number
 								{
 									return Some((
 										Ok(Some(ConsensusMessage {
@@ -285,15 +284,14 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								block += 1;
 								continue;
 							},
-							Err(err) => {
+							Err(err) =>
 								return Some((
 									Err(anyhow!(
 										"Not a fatal error: Error fetching sync update for {} \n {err:?}",
 										client.state_machine
 									)),
 									interval,
-								))
-							},
+								)),
 						}
 					}
 

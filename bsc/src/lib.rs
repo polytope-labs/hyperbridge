@@ -24,7 +24,7 @@ use ismp::{consensus::ConsensusStateId, host::StateMachine, messaging::Keccak256
 pub use ismp_bsc::ConsensusState;
 
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
@@ -100,15 +100,6 @@ impl<C: Config> BscPosHost<C> {
 	pub async fn get_consensus_state<I: Keccak256>(&self) -> Result<ConsensusState, anyhow::Error> {
 		let (header, current_validators) =
 			self.prover.fetch_finalized_state::<KeccakHasher>().await?;
-		let latest_header = self.prover.latest_header().await?;
-		if latest_header.number.low_u64() - header.number.low_u64() < 12 {
-			// We want to ensure the current validators are signing before creating the consensus
-			// state
-			tokio::time::sleep(Duration::from_secs(
-				(latest_header.number.low_u64() - header.number.low_u64()) * 12,
-			))
-			.await;
-		}
 
 		let chain_id = self.prover.client.get_chainid().await?;
 		let consensus_state = ConsensusState {

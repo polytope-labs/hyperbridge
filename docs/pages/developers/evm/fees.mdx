@@ -1,11 +1,11 @@
 ---
 title: Protocol Fees
-description: Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account calling the `IsmpDispatcher`.
+description: Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account called the `IsmpDispatcher`.
 ---
 
 # Protocol Fees
 
-Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account calling the `IsmpDispatcher`. Importantly, the contract must first approve the `EvmHost` to withdraw the exact amount before calling the dispatch function.
+Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account called the `IsmpDispatcher`. Importantly, the contract must first approve the `EvmHost` to withdraw the exact amount before calling the dispatch function.
 
 ### Expected Workflow:
 Contracts initiating a dispatch should:
@@ -19,7 +19,7 @@ The token accepted for protocol fee payments is readily available through `IIsmp
 The following snippet shows how to calculate the protocol fee for a post request.
 ```solidity showLineNumbers
     import {IIsmpHost} from "ismp/IIsmpHost.sol";
-    // _host is variable that contains the EvmHost contract address
+    // _host is a variable that contains the EvmHost contract address
     abstract contract Example {
         function hyperbridgeFee(bytes memory body) external view returns (uint256) {
             memory perByteFee = IIsmpHost(_host).perByteFee();

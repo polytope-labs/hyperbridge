@@ -4,9 +4,10 @@ out = "out"
 libs = ["lib"]
 auto_detect_solc = true
 optimizer = true
-#via-ir = true
+# via-ir = true
 
 [rpc_endpoints]
+# testnet
 ethereum-sepolia = "${SEPOLIA_RPC_URL}"
 optimism-sepolia = "${OPTIMISM_SEPOLIA_RPC_URL}"
 arbitrum-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
@@ -14,6 +15,14 @@ base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 polygon-mumbai = "${POLYGON_MUMBAI_RPC_URL}"
 bsc-testnet = "${BSC_TESTNET_RPC_URL}"
 gnosis-chiado = "${CHIADO_RPC_URL}"
+
+# mainnet
+ethereum = "${ETHEREUM_RPC_URL}"
+optimism = "${OPTIMISM_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+base = "${BASE_RPC_URL}"
+bsc = "${BSC_RPC_URL}"
+gnosis = "${GNOSIS_RPC_URL}"
 
 [etherscan]
 # testnet
@@ -26,3 +35,9 @@ bsc-testnet = { key = "${BSC_ETHERSCAN_API_KEY}", chain = 97, url = "https://api
 gnosis-chiado = { key = "${GNOSIS_BLOCKSCOUT_API_KEY}", chain = 10200, url = "https://gnosis-chiado.blockscout.com/api" }
 
 # mainnet
+ethereum = { key = "${ETHEREUM_ETHERSCAN_API_KEY}", chain = 1, url = "https://api.etherscan.io/api" }
+arbitrum = { key = "${ARBITRUM_ETHERSCAN_API_KEY}", chain = 42161, url = "https://api.arbiscan.io/api" }
+optimism = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", chain = 10, url = "https://api-optimistic.etherscan.io/api" }
+base = { key = "${BASE_ETHERSCAN_API_KEY}", chain = 8453, url = "https://api.basescan.org/api" }
+bsc = { key = "${BSC_ETHERSCAN_API_KEY}", chain = 56, url = "https://api.bscscan.com/api" }
+gnosis = { key = "${GNOSIS_ETHERSCAN_API_KEY}", chain = 100, url = "https://api.gnosisscan.io/api" }

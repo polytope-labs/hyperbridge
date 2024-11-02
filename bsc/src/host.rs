@@ -24,11 +24,7 @@ use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 use ethers::providers::Middleware;
 use ismp_bsc::ConsensusState;
 use sp_core::H160;
-use std::{
-	cmp::{max, min},
-	sync::Arc,
-	time::Duration,
-};
+use std::{cmp::max, sync::Arc, time::Duration};
 
 use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
@@ -96,14 +92,18 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 
 				let attested_epoch = compute_epoch(attested_header.number.low_u64());
 				// Send a block that would enact authority set rotation
-				if attested_epoch >= current_epoch && consensus_state.next_validators.is_some() {
+				if consensus_state.next_validators.is_some() {
+					let rotation_block =
+						consensus_state.next_validators.as_ref().expect("Valid").rotation_block;
+					let enactment_epoch = compute_epoch(rotation_block);
+
 					log::trace!(
 						"Enacting Authority Set Rotation for {:?} on {}",
 						client.state_machine,
 						counterparty.state_machine_id().state_id
 					);
-					let next_epoch = min(current_epoch + 1, attested_epoch);
-					let epoch_block_number = next_epoch * EPOCH_LENGTH;
+
+					let epoch_block_number = enactment_epoch * EPOCH_LENGTH;
 					let rotation_block = get_rotation_block(
 						epoch_block_number,
 						consensus_state.current_validators.len() as u64,
@@ -138,13 +138,13 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 							.fetch_bsc_update::<KeccakHasher>(
 								header.clone(),
 								consensus_state.current_validators.len() as u64,
-								next_epoch,
+								enactment_epoch,
 								false,
 							)
 							.await
 						{
 							Ok(Some(update)) => {
-								// We try to validate before seubmiting to be sure enactment has
+								// We try to validate before submiting to be sure enactment has
 								// taken place, we know the minimum block at which rotation
 								// should occur but sometimes It happens further in the future
 								let next_validators =
@@ -153,9 +153,9 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									&next_validators.validators,
 									update.clone(),
 								);
-								if update.source_header.number.low_u64() <=
-									consensus_state.finalized_height ||
-									res.is_err()
+								if update.source_header.number.low_u64()
+									<= consensus_state.finalized_height
+									|| res.is_err()
 								{
 									log::error!(
 										"Verification failed for block {}",
@@ -178,14 +178,15 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								log::trace!("Valid Update not found for {:?}", header.number);
 								block += 1
 							},
-							Err(_) =>
+							Err(_) => {
 								return Some((
 									Err(anyhow!(
-										"Not a fatal error: Error fetching authority enactment update for {}",
-										client.state_machine
-									)),
+											"Not a fatal error: Error fetching authority enactment update for {}",
+											client.state_machine
+										)),
 									interval,
-								)),
+								))
+							},
 						}
 					}
 					log::trace!("No valid update found to enact authority set change");
@@ -240,8 +241,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 							.await
 						{
 							Ok(Some(update)) => {
-								if update.source_header.number.low_u64() <=
-									consensus_state.finalized_height
+								if update.source_header.number.low_u64()
+									<= consensus_state.finalized_height
 								{
 									block += 1;
 									continue;
@@ -265,8 +266,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 
 								// If we have an epoch ancestry or the source header that was
 								// finalized is the epoch block
-								if !update.epoch_header_ancestry.is_empty() ||
-									update.source_header.number.low_u64() == epoch_block_number
+								if !update.epoch_header_ancestry.is_empty()
+									|| update.source_header.number.low_u64() == epoch_block_number
 								{
 									return Some((
 										Ok(Some(ConsensusMessage {
@@ -284,14 +285,15 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								block += 1;
 								continue;
 							},
-							Err(err) =>
+							Err(err) => {
 								return Some((
 									Err(anyhow!(
 										"Not a fatal error: Error fetching sync update for {} \n {err:?}",
 										client.state_machine
 									)),
 									interval,
-								)),
+								))
+							},
 						}
 					}
 

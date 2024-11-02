@@ -34,3 +34,4 @@ tesseract/*
 prover.toml
 relayer.toml
 messaging.toml
+mainnet-consensus.toml

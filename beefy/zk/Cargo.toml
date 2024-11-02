@@ -13,7 +13,7 @@ rs_merkle = "1.4.1"
 anyhow = "1.0.79"
 codec = { package = "parity-scale-codec", version = "3.2.2" }
 primitive-types = { workspace = true, features = ["serde"] }
-
+thiserror = "1.0.64"
 hex = { workspace = true }
 beefy-verifier-primitives = { workspace = true }
 beefy-prover = { workspace = true }

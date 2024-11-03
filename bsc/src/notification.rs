@@ -3,8 +3,6 @@ use ismp::messaging::{ConsensusMessage, Message};
 use ismp_bsc::ConsensusState;
 
 use bsc_verifier::primitives::{compute_epoch, BscClientUpdate, Config};
-use ethers::types::Block;
-use primitive_types::H256;
 use sp_core::H160;
 
 use std::{cmp::max, sync::Arc};
@@ -15,7 +13,6 @@ use crate::{BscPosHost, KeccakHasher};
 pub async fn consensus_notification<C: Config>(
 	client: &BscPosHost<C>,
 	counterparty: Arc<dyn IsmpProvider>,
-	_block: Block<H256>,
 ) -> Result<Option<BscClientUpdate>, anyhow::Error> {
 	let counterparty_finalized = counterparty.query_finalized_height().await?;
 	let consensus_state = counterparty

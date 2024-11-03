@@ -21,7 +21,6 @@ use codec::{Decode, Encode};
 use futures::{stream, StreamExt};
 use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 
-use ethers::providers::Middleware;
 use ismp_bsc::ConsensusState;
 use sp_core::H160;
 use std::{cmp::max, sync::Arc, time::Duration};
@@ -127,7 +126,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						let header = if let Some(header) = header {
 							header
 						} else {
-							log::error!("Block does not found for {}", block);
+							log::trace!("Block {} is not available, will try again", block);
 							// If header does not exist yet wait before continuing
 							tokio::time::sleep(Duration::from_secs(3)).await;
 							continue;
@@ -224,6 +223,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						let header = if let Some(header) = header {
 							header
 						} else {
+							log::trace!("Block {} is not available, will try again", block);
 							// If header does not exist yet wait before continuing
 							tokio::time::sleep(Duration::from_secs(3)).await;
 							continue;
@@ -302,16 +302,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 				interval.tick().await;
 
 				let lambda = || async {
-					let block_number = client.prover.client.get_block_number().await?;
-					let block =
-						client.prover.client.get_block(block_number).await?.ok_or_else(|| {
-							anyhow!(
-								"Block with number {block_number} not found for {}",
-								client.state_machine
-							)
-						})?;
-
-					let update = consensus_notification(&client, counterparty, block).await?;
+					let update = consensus_notification(&client, counterparty).await?;
 
 					let result = update.map(|update| ConsensusMessage {
 						consensus_proof: update.encode(),

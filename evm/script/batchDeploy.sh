@@ -2,7 +2,7 @@
 set -e
 
 declare -a testnet=("ethereum-sepolia" "arbitrum-sepolia" "optimism-sepolia" "base-sepolia" "bsc-testnet" "gnosis-chiado")
-declare -a mainnet=("gnosis")
+declare -a mainnet=("ethereum" "arbitrum" "optimism" "base" "bsc" "gnosis")
 
 if [ "$2" == "mainnet" ]; then
    for i in "${mainnet[@]}"; do

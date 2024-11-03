@@ -1,8 +1,15 @@
 #!/bin/bash
+set -e
 
-declare -a arr=("ethereum-sepolia" "arbitrum-sepolia" "optimism-sepolia" "base-sepolia" "bsc-testnet" "gnosis-chiado")
+declare -a testnet=("ethereum-sepolia" "arbitrum-sepolia" "optimism-sepolia" "base-sepolia" "bsc-testnet" "gnosis-chiado")
+declare -a mainnet=("ethereum" "arbitrum" "optimism" "base" "bsc" "gnosis")
 
-for i in "${arr[@]}"
-do
-   "$(pwd)/script/deploy.sh" "$i" $1 $2
-done
+if [ "$2" == "mainnet" ]; then
+   for i in "${mainnet[@]}"; do
+      "$(pwd)/script/deploy.sh" "$i" $1 mainnet
+   done
+else
+   for i in "${testnet[@]}"; do
+      "$(pwd)/script/deploy.sh" "$i" $1 testnet
+   done
+fi

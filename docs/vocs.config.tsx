@@ -353,7 +353,17 @@ export default defineConfig({
 
           {
             text: "Contract Addresses",
-            link: "/developers/evm/contract-addresses",
+            collapsed: false,
+            items: [
+              {
+                text: "Mainnet Addresses",
+                link: "/developers/evm/contracts/mainnet",
+              },
+              {
+                text: "Testnet Addresses",
+                link: "/developers/evm/contracts/testnet",
+              },
+            ],
           },
         ],
       },

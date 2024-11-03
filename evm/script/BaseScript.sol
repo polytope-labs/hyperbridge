@@ -12,7 +12,6 @@ abstract contract BaseScript is Script {
     address payable internal BASE_HOST = payable(vm.envAddress("BASE_HOST"));
     address payable internal BNB_HOST = payable(vm.envAddress("BNB_HOST"));
     address payable internal GNOSIS_HOST = payable(vm.envAddress("GNOSIS_HOST"));
-    address payable internal FEE_TOKEN = payable(vm.envAddress("FEE_TOKEN"));
 
     bytes32 internal privateKey = vm.envBytes32("PRIVATE_KEY");
     string internal host = vm.envString("HOST");

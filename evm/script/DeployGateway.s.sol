@@ -20,7 +20,7 @@ contract DeployScript is BaseScript {
 
     function run() external {
         // todo:
-        address callDispatcher = address(1);
+        address callDispatcher = address(0);
 
         if (host.toSlice().startsWith("ethereum".toSlice())) {
             vm.startBroadcast(uint256(privateKey));
@@ -55,21 +55,9 @@ contract DeployScript is BaseScript {
     }
 
     function deployGateway(address host, address admin, address callDispatcher) public {
-        IERC6160Ext20 feeToken = IERC6160Ext20(IIsmpHost(host).feeToken());
-
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
-        feeToken.grantRole(MINTER_ROLE, address(gateway));
-        feeToken.grantRole(BURNER_ROLE, address(gateway));
 
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = AssetMetadata({
-            erc20: address(0),
-            erc6160: address(feeToken),
-            name: "Hyperbridge USD",
-            symbol: "USDH",
-            beneficiary: address(0),
-            initialSupply: 0
-        });
+        AssetMetadata[] memory assets = new AssetMetadata[](0);
 
         gateway.init(
             TokenGatewayParamsExt({

@@ -23,8 +23,8 @@ import {PingModule} from "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 
-// import {SP1Verifier} from "@sp1-contracts/v3.0.0/SP1VerifierGroth16.sol";
-// import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
+import {SP1Verifier} from "@sp1-contracts/v3.0.0/SP1VerifierGroth16.sol";
+import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
@@ -43,14 +43,9 @@ contract DeployScript is BaseScript {
     function run() external {
         vm.startBroadcast(uint256(privateKey));
 
-        ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyper USD", "USD.h");
-        // mint $1b to the dispatcher for tests
-        feeToken.mint(pingDispatcher, 1_000_000_000 * 1e18);
-
         // consensus client
-        //        SP1Verifier verifier = new SP1Verifier();
-        //        SP1Beefy consensusClient = new SP1Beefy{salt: salt}(verifier);
-        BeefyV1 consensusClient = new BeefyV1{salt: salt}();
+        SP1Verifier verifier = new SP1Verifier();
+        SP1Beefy consensusClient = new SP1Beefy{salt: salt}(verifier);
 
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
@@ -60,36 +55,31 @@ contract DeployScript is BaseScript {
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
 
+        address uniswapV2 = vm.envAddress(string.concat(host, "_UNISWAP_V2"));
+        address feeToken = vm.envAddress(string.concat(host, "_DAI"));
+
         // EvmHost
         PerByteFee[] memory perByteFees = new PerByteFee[](0);
         HostParams memory params = HostParams({
-            uniswapV2: address(0),
+            uniswapV2: uniswapV2,
             perByteFees: perByteFees,
             admin: admin,
             hostManager: address(manager),
             handler: address(handler),
-            // 2hrs
-            defaultTimeout: 2 * 60 * 60,
-            // 21 days
+            defaultTimeout: 60 * 60,
             unStakingPeriod: 21 * (60 * 60 * 24),
-            // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
             defaultPerByteFee: 3 * 1e15, // $0.003/byte
             stateCommitmentFee: 10 * 1e18, // $10
-            hyperbridge: StateMachine.kusama(paraId),
-            feeToken: address(feeToken),
+            hyperbridge: StateMachine.polkadot(paraId),
+            feeToken: feeToken,
             stateMachines: stateMachines
         });
 
         address hostAddress = initHost(params);
         // set the host address on the host manager
         manager.setIsmpHost(hostAddress);
-
-        // deploy the call dispatcher
-        CallDispatcher dispatcher = new CallDispatcher{salt: salt}();
-
-        deployGateway(feeToken, hostAddress, address(dispatcher));
 
         vm.stopBroadcast();
     }
@@ -119,38 +109,5 @@ contract DeployScript is BaseScript {
         }
 
         revert("Unknown host");
-    }
-
-    function deployGateway(ERC6160Ext20 feeToken, address hostAddress, address dispatcher) public {
-        // deploy token gateway
-        TokenGateway gateway = new TokenGateway{salt: salt}(admin);
-        feeToken.grantRole(MINTER_ROLE, address(gateway));
-        feeToken.grantRole(BURNER_ROLE, address(gateway));
-
-        // and token faucet
-        TokenFaucet faucet = new TokenFaucet{salt: salt}();
-        feeToken.grantRole(MINTER_ROLE, address(faucet));
-
-        // deploy the ping module as well
-        PingModule module = new PingModule{salt: salt}(admin);
-        module.setIsmpHost(hostAddress, address(faucet));
-
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = AssetMetadata({
-            erc20: address(0),
-            erc6160: address(feeToken),
-            name: "Hyperbridge USD",
-            symbol: "USD.h",
-            beneficiary: address(0),
-            initialSupply: 0
-        });
-
-        // initialize gateway
-        gateway.init(
-            TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: hostAddress, dispatcher: dispatcher}),
-                assets: assets
-            })
-        );
     }
 }

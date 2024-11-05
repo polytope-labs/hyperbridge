@@ -376,7 +376,6 @@ impl IsmpProvider for EvmClient {
 			self.state_machine,
 			&self.config.etherscan_api_key.clone(),
 			self.client.clone(),
-			self.config.gas_price_buffer,
 		)
 		.await?;
 		let mut gas_estimates = vec![];

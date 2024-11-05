@@ -132,7 +132,6 @@ where
 				client.state_machine,
 				&client.config.etherscan_api_key.clone(),
 				client.client.clone(),
-				client.config.gas_price_buffer,
 			)
 			.await?
 			.gas_price * 2; // for good measure
@@ -228,18 +227,24 @@ pub async fn generate_contract_calls(
 	// Erigon does not support block overrides when tracing so we don't have the option of omiting
 	// the gas price by overriding the base fee
 	let set_gas_price = || !debug_trace || client.client_type.erigon();
-	let gas_price = if set_gas_price() {
+	let mut gas_price = if set_gas_price() {
 		get_current_gas_cost_in_usd(
 			client.state_machine,
 			&client.config.etherscan_api_key.clone(),
 			client.client.clone(),
-			client.config.gas_price_buffer,
 		)
 		.await?
 		.gas_price
 	} else {
 		Default::default()
 	};
+
+	// Only use gas price buffer when submitting transactions
+	if !debug_trace && client.config.gas_price_buffer.is_some() {
+		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
+			U256::from(100u32);
+		gas_price = gas_price + buffer
+	}
 
 	for message in messages {
 		match message {

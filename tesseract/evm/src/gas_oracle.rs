@@ -102,7 +102,6 @@ pub async fn get_current_gas_cost_in_usd(
 	chain: StateMachine,
 	api_keys: &str,
 	client: Arc<Provider<Http>>,
-	gas_price_buffer: Option<u32>,
 ) -> Result<GasBreakdown, Error> {
 	let mut gas_price_cost = U256::zero();
 	let mut gas_price = U256::zero();
@@ -288,11 +287,6 @@ pub async fn get_current_gas_cost_in_usd(
 		ethers::utils::format_units(gas_price, "gwei").unwrap()
 	);
 
-	let buffer = gas_price_buffer
-		.map(|buffer| (U256::from(buffer) * gas_price) / U256::from(100u32))
-		.unwrap_or_default();
-	gas_price = gas_price + buffer;
-
 	Ok(GasBreakdown { gas_price, gas_price_cost: gas_price_cost.into(), unit_wei_cost: unit_wei })
 }
 
@@ -423,7 +417,6 @@ mod test {
 			StateMachine::Evm(SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
-			None,
 		)
 		.await
 		.unwrap();
@@ -446,7 +439,6 @@ mod test {
 			StateMachine::Evm(SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
-			None,
 		)
 		.await
 		.unwrap();
@@ -469,7 +461,6 @@ mod test {
 			StateMachine::Evm(POLYGON_TESTNET_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
-			None,
 		)
 		.await
 		.unwrap();
@@ -486,14 +477,10 @@ mod test {
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
 
-		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(GNOSIS_CHAIN_ID),
-			"",
-			client.clone(),
-			None,
-		)
-		.await
-		.unwrap();
+		let ethereum_gas_cost_in_usd =
+			get_current_gas_cost_in_usd(StateMachine::Evm(GNOSIS_CHAIN_ID), "", client.clone())
+				.await
+				.unwrap();
 
 		println!("Ethereum Gas Cost Gnosis Mainnet: {:?}", ethereum_gas_cost_in_usd);
 	}
@@ -513,7 +500,6 @@ mod test {
 			StateMachine::Evm(POLYGON_TESTNET_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
-			None,
 		)
 		.await
 		.unwrap();
@@ -536,7 +522,6 @@ mod test {
 			StateMachine::Evm(BSC_TESTNET_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
-			None,
 		)
 		.await
 		.unwrap();
@@ -558,7 +543,6 @@ mod test {
 			StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
-			None,
 		)
 		.await
 		.unwrap();
@@ -580,7 +564,6 @@ mod test {
 			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
-			None,
 		)
 		.await
 		.unwrap();
@@ -601,7 +584,6 @@ mod test {
 			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
-			None,
 		)
 		.await
 		.unwrap();

@@ -51,6 +51,12 @@ pub mod pallet {
 	#[pallet::getter(fn whitelist)]
 	pub type Fishermen<T: Config> = StorageMap<_, Twox64Concat, T::AccountId, (), OptionQuery>;
 
+	/// Set of whitelisted fishermen accounts
+	#[pallet::storage]
+	#[pallet::getter(fn pending_vetoes)]
+	pub type PendingVetoes<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineHeight, T::AccountId, OptionQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Account Already Whitelisted
@@ -61,6 +67,8 @@ pub mod pallet {
 		UnauthorizedAction,
 		/// State commitment was not found
 		VetoFailed,
+		/// Invalid veto request
+		InvalidVeto,
 	}
 
 	#[pallet::event]
@@ -72,6 +80,8 @@ pub mod pallet {
 		Removed { account: T::AccountId },
 		/// The provided state commitment was vetoed `state_machine` is by account
 		StateCommitmentVetoed { height: StateMachineHeight, commitment: StateCommitment },
+		/// The vetoe has been noted by the runtime
+		VetoNoted { height: StateMachineHeight, fisherman: T::AccountId },
 	}
 
 	#[pallet::call]
@@ -109,6 +119,7 @@ pub mod pallet {
 		/// challenge period) is infact fraudulent and misrepresentative of the state
 		/// changes at the provided height. This allows them to veto the state commitment.
 		/// They aren't required to provide any proofs for this.
+		/// Successful veto requires two fishermen
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(2, 3))]
 		pub fn veto_state_commitment(
@@ -118,18 +129,29 @@ pub mod pallet {
 			let account = ensure_signed(origin.clone())?;
 			ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::UnauthorizedAction);
 
-			let ismp_host = <T as Config>::IsmpHost::default();
-			let commitment =
-				ismp_host.state_machine_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
-			ismp_host.delete_state_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
+			if let Some(prev_veto) = PendingVetoes::<T>::get(height) {
+				if account == prev_veto {
+					Err(Error::<T>::InvalidVeto)?
+				}
+				let ismp_host = <T as Config>::IsmpHost::default();
+				let commitment = ismp_host
+					.state_machine_commitment(height)
+					.map_err(|_| Error::<T>::VetoFailed)?;
+				ismp_host.delete_state_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
+				PendingVetoes::<T>::remove(height);
 
-			Self::deposit_event(Event::StateCommitmentVetoed { height, commitment });
-			pallet_ismp::Pallet::<T>::deposit_pallet_event(
-				ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
-					height,
-					fisherman: account.as_ref().to_vec(),
-				}),
-			);
+				Self::deposit_event(Event::StateCommitmentVetoed { height, commitment });
+				pallet_ismp::Pallet::<T>::deposit_pallet_event(
+					ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
+						height,
+						fisherman: account.as_ref().to_vec(),
+					}),
+				);
+			} else {
+				PendingVetoes::<T>::insert(height, account.clone());
+				Self::deposit_event(Event::VetoNoted { height, fisherman: account });
+			}
+
 			Ok(())
 		}
 	}

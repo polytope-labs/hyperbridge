@@ -85,19 +85,10 @@ where
 		rpc_url: String,
 		hashing: HashAlgorithm,
 		consensus_state_id: [u8; 4],
+		state_id: StateMachine,
 	) -> Result<Self, Error> {
 		let client = subxt_utils::client::ws_client(&rpc_url, 10 * 1024 * 1024).await?;
-		let para_id_key =
-			hex!("0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f").to_vec();
-		let response = client
-			.rpc()
-			.storage(&para_id_key, None)
-			.await?
-			.ok_or_else(|| anyhow!("Failed to fetch timestamp"))?;
-		let state_id: u32 = codec::Decode::decode(&mut response.0.as_slice())?;
-
-		let state_machine =
-			StateMachineId { state_id: StateMachine::Kusama(state_id), consensus_state_id };
+		let state_machine = StateMachineId { state_id, consensus_state_id };
 
 		Ok(Self { rpc_url, client, state_machine, hashing })
 	}

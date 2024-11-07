@@ -44,10 +44,12 @@ pub struct JsSubstrateConfig {
 	pub rpc_url: String,
 	pub consensus_state_id: String,
 	pub hash_algo: HashAlgorithm,
+	pub state_machine: String,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsHyperbridgeConfig {
+	pub state_machine: String,
 	pub rpc_url: String,
 }
 
@@ -97,8 +99,17 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 				Ok::<_, anyhow::Error>(ChainConfig::Evm(conf))
 			},
 			JsChainConfig::Substrate(val) => {
+				let state_machine = if val.state_machine.starts_with("0x") {
+					let bytes =
+						from_hex(&val.state_machine).map_err(|err| anyhow!("Hex: {err:?}"))?;
+					StateMachine::from_str(&String::from_utf8(bytes)?)
+						.map_err(|e| anyhow!("{e:?}"))?
+				} else {
+					StateMachine::from_str(&val.state_machine).map_err(|e| anyhow!("{e:?}"))?
+				};
 				let conf = SubstrateConfig {
 					rpc_url: val.rpc_url.clone(),
+					state_machine,
 					consensus_state_id: {
 						if val.consensus_state_id.len() != 4 {
 							Err(anyhow!(
@@ -124,8 +135,15 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 		};
 
 		let to_hyperbridge_config = |val: &JsHyperbridgeConfig| {
+			let state_machine = if val.state_machine.starts_with("0x") {
+				let bytes = from_hex(&val.state_machine).map_err(|err| anyhow!("Hex: {err:?}"))?;
+				StateMachine::from_str(&String::from_utf8(bytes)?).map_err(|e| anyhow!("{e:?}"))?
+			} else {
+				StateMachine::from_str(&val.state_machine).map_err(|e| anyhow!("{e:?}"))?
+			};
 			let conf = SubstrateConfig {
 				rpc_url: val.rpc_url.clone(),
+				state_machine,
 				consensus_state_id: [0u8; 4],
 				hash_algo: HashAlgorithm::Keccak,
 			};

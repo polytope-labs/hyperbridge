@@ -42,7 +42,7 @@ pub fn token_governor_id() -> Vec<u8> {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct AssetMetadata {
 	/// The asset name
-	pub name: BoundedVec<u8, ConstU32<20>>,
+	pub name: BoundedVec<u8, ConstU32<50>>,
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The asset decimals of the ERC6160 or ERC20 counterpart of this asset
@@ -61,7 +61,7 @@ pub struct DeregisterAssets {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct GatewayAssetRegistration {
 	/// The asset name
-	pub name: BoundedVec<u8, ConstU32<20>>,
+	pub name: BoundedVec<u8, ConstU32<50>>,
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The list of chains to create the asset on

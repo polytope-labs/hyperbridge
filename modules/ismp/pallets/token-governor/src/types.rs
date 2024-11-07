@@ -109,7 +109,7 @@ pub struct ParamsUpdate<Balance> {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ERC6160AssetRegistration {
 	/// The asset name
-	pub name: BoundedVec<u8, ConstU32<20>>,
+	pub name: BoundedVec<u8, ConstU32<50>>,
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// The list of chains to create the asset on along with their the initial supply on the
@@ -134,7 +134,7 @@ pub struct UnsignedERC6160AssetRegistration<AccountId> {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ERC20AssetRegistration {
 	/// The asset name
-	pub name: BoundedVec<u8, ConstU32<20>>,
+	pub name: BoundedVec<u8, ConstU32<50>>,
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// Chains to support as well as the current ERC20 address on that chain

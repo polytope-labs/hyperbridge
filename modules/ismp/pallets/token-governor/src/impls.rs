@@ -239,6 +239,9 @@ where
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
 				.map_err(|_| Error::<T>::DispatchFailed)?;
+
+			// skip if it already was dispatched to the provided chain
+			SupportedChains::<T>::remove(&update.asset_id, &chain)
 		}
 
 		for (chain, admin) in update.new_admins {

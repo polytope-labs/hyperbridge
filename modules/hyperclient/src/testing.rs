@@ -78,6 +78,8 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	};
 
 	let hyperbrige_config = SubstrateConfig {
+		state_machine: StateMachine::Kusama(4009),
+
 		rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		// rpc_url: "ws://127.0.0.1:9001".to_string(),
 		consensus_state_id: *b"PARA",
@@ -182,6 +184,8 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	};
 
 	let hyperbrige_config = SubstrateConfig {
+		state_machine: StateMachine::Kusama(4009),
+
 		rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		// rpc_url: "ws://127.0.0.1:9001".to_string(),
 		consensus_state_id: *b"PARA",
@@ -361,6 +365,8 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 	};
 
 	let hyperbrige_config = SubstrateConfig {
+		state_machine: StateMachine::Kusama(4009),
+
 		// rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		rpc_url: "ws://127.0.0.1:9001".to_string(),
 		consensus_state_id: *b"PARA",

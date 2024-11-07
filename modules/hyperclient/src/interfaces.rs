@@ -348,6 +348,7 @@ mod tests {
 			rpc_url: "ws://127.0.0.1:9990".to_string(),
 			consensus_state_id: [0u8; 4],
 			hash_algo: HashAlgorithm::Keccak,
+			state_machine: StateMachine::Kusama(4009),
 		};
 		let config = ClientConfig {
 			source: ChainConfig::Evm(source_chain.clone()),
@@ -371,7 +372,10 @@ mod tests {
 			consensus_state_id: "ETH0".to_string(),
 		};
 
-		let js_hyperbridge = JsHyperbridgeConfig { rpc_url: "ws://127.0.0.1:9990".to_string() };
+		let js_hyperbridge = JsHyperbridgeConfig {
+			rpc_url: "ws://127.0.0.1:9990".to_string(),
+			state_machine: "KUSAMA-4009".into(),
+		};
 
 		let js_client_conf = JsClientConfig {
 			source: JsChainConfig::Evm(js_source),

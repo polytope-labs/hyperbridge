@@ -92,6 +92,8 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 	};
 
 	let hyperbrige_config = SubstrateConfig {
+		state_machine: StateMachine::Kusama(4009),
+
 		rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		consensus_state_id: *b"PARA",
 		hash_algo: HashAlgorithm::Keccak,
@@ -171,6 +173,8 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 	};
 
 	let hyperbrige_config = SubstrateConfig {
+		state_machine: StateMachine::Kusama(4009),
+
 		rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		consensus_state_id: *b"PARA",
 		hash_algo: HashAlgorithm::Keccak,

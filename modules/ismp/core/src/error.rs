@@ -25,16 +25,20 @@ use core::time::Duration;
 use scale_info::TypeInfo;
 
 /// Errors that may be encountered by the ISMP module
-#[derive(Debug, Eq, PartialEq, Encode, Decode, TypeInfo)]
+#[derive(Debug, Eq, PartialEq, Encode, Decode, TypeInfo, displaydoc::Display, thiserror::Error)]
 pub enum Error {
-	/// The unbonding period for the given consensus client has elapsed and can no longer process
-	/// consensus updates.
+	/**
+	 * The unbonding period for the given consensus client has elapsed and can no longer
+	 * process consensus updates.
+	 */
 	UnbondingPeriodElapsed {
 		/// The consensus client identifier
 		consensus_state_id: ConsensusStateId,
 	},
-	/// The challange period for the given consensus client has not yet elapsed and cannot process
-	/// new consensus updates in the mean time.
+	/**
+	 * The challange period for the given consensus client has not yet elapsed and cannot
+	 * process new consensus updates in the mean time.
+	 */
 	ChallengePeriodNotElapsed {
 		/// The consensus client identifier
 		state_machine_id: StateMachineId,
@@ -207,19 +211,4 @@ pub enum Error {
 		/// The request metadata
 		meta: Meta,
 	},
-}
-
-impl core::fmt::Display for Error {
-	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		write!(f, "{self:?}")
-	}
-}
-
-impl core::error::Error for Error {}
-
-#[cfg(not(feature = "std"))]
-impl From<Error> for anyhow::Error {
-	fn from(value: Error) -> Self {
-		anyhow::Error::msg(value)
-	}
 }

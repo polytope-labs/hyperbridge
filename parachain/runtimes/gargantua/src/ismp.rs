@@ -226,10 +226,12 @@ impl IsmpModule for ProxyModule {
 		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
-			pallet_ismp_demo::PALLET_ID =>
-				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
-			id if id == xcm_gateway =>
-				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
+			pallet_ismp_demo::PALLET_ID => {
+				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request)
+			},
+			id if id == xcm_gateway => {
+				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request)
+			},
 			id if id == token_governor => TokenGovernor::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
@@ -253,32 +255,40 @@ impl IsmpModule for ProxyModule {
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
 
 		match pallet_id {
-			pallet_ismp_demo::PALLET_ID =>
-				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
+			pallet_ismp_demo::PALLET_ID => {
+				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response)
+			},
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
 
 	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
-		let (from, _source, dest) = match &timeout {
+		let (from, source, dest) = match &timeout {
 			Timeout::Request(Request::Post(post)) => {
 				if post.source != HostStateMachine::get() {
 					TokenGatewayInspector::handle_timeout(post)?;
 				}
 				(&post.from, post.source.clone(), post.dest.clone())
 			},
-			Timeout::Request(Request::Get(get)) =>
-				(&get.from, get.source.clone(), get.dest.clone()),
+			Timeout::Request(Request::Get(get)) => {
+				(&get.from, get.source.clone(), get.dest.clone())
+			},
 			Timeout::Response(res) => (&res.post.to, res.source_chain(), res.dest_chain()),
 		};
+
+		if *source != HostStateMachine::get() {
+			return Ok(());
+		}
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
 		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&dest));
 		match pallet_id {
-			pallet_ismp_demo::PALLET_ID =>
-				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
-			id if id == xcm_gateway =>
-				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
+			pallet_ismp_demo::PALLET_ID => {
+				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout)
+			},
+			id if id == xcm_gateway => {
+				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout)
+			},
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(()),
 		}

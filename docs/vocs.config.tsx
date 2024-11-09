@@ -49,10 +49,7 @@ export default defineConfig({
   // todo: add logo
   ogImageUrl:
     "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
-  logoUrl: {
-    light: "/logo-dark.svg",
-    dark: "/logo-light.svg",
-  },
+  logoUrl: "/logo.svg",
   head() {
     return (
       <>

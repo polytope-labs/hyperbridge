@@ -73,9 +73,38 @@ fn test_can_veto_state_commitments() {
 			}))
 		);
 
+		// Add another fisherman
+
+		let account_2: AccountId32 = H256::random().0.into();
+		pallet_fishermen::Pallet::<Test>::add(RuntimeOrigin::root(), account_2.clone()).unwrap();
+		assert_eq!(pallet_fishermen::Fishermen::<Test>::get(account_2.clone()), Some(()));
+
 		// actual veto
 		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
 			RuntimeOrigin::signed(account.clone()),
+			height,
+		);
+		assert_eq!(result, Ok(()));
+
+		assert_eq!(pallet_fishermen::PendingVetoes::<Test>::get(height), Some(account.clone()));
+
+		// veto with same account
+		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
+			RuntimeOrigin::signed(account.clone()),
+			height,
+		);
+
+		assert!(matches!(
+			result,
+			Err(sp_runtime::DispatchError::Module(ModuleError {
+				index: 9,
+				error: [4, 0, 0, 0,],
+				message: Some("InvalidVeto",),
+			}))
+		));
+
+		let result = pallet_fishermen::Pallet::<Test>::veto_state_commitment(
+			RuntimeOrigin::signed(account_2.clone()),
 			height,
 		);
 		assert_eq!(result, Ok(()));

@@ -321,3 +321,84 @@ hyperbridge is greater than or equal to the configured `minimum_withdrawal_amoun
 Any failed withdrawal attempts will be retried each time the withdrawal task is triggered.
 The manual processes described in the previous sections can be used as fallbacks
 when errors are encountered by their automated conterparts.
+
+## Relayer Errors
+
+List of commonly seen errors with their explanation and tips on how  to fix them.
+
+```manpage
+ERROR tesseract_messaging: Failed to submit transaction to Evm(42161): Middleware error: (code: -32000, message: insufficient funds for gas * price + value: address <your-relayer-address> have 0 want 323200000000000, data: None
+```
+
+```manpage
+ERROR tesseract_evm::provider: Debug trace frame not found!
+```
+
+```manpage
+ERROR tesseract_messaging: Error while handling POLKADOT-3367 on Evm(8453): Invalid name: please ensure the contract and method you're calling exist! failed to decode empty bytes. if you're using jsonrpc this is likely due to jsonrpc returning `0x` in case contract or method don't exist
+```
+
+```manpage
+ERROR tesseract: Messaging task Evm(56)->Polkadot(3367) encountered an error: StreamError("Error encountered while querying state_machine_update_time Middleware error: (code: -32000, message: header not found, data: None)")
+```
+
+```manpage
+ERROR tesseract_messaging: Failed to submit transaction to Polkadot(3367): Failed to submit unsigned extrinsic
+```
+
+```manpage
+ERROR tesseract_messaging: Error while handling POLKADOT-3367 on Evm(56): Middleware error: (code: -32601, message: The method debug_traceCall does not exist/is not available, data: None)
+```
+
+```manpage
+ERROR tesseract: Error waiting for challenge period in Evm(56) - Polkadot(3367) update stream
+```
+
+```manpage
+ERROR tesseract_messaging: Failed to submit transaction to Evm(10): Transaction reverted
+```
+
+```manpage
+ERROR tesseract_messaging: Error while handling POLKADOT-3367 on Evm(100): Middleware error: (code: -32053, message: API key is not allowed to access method, data: None)
+```
+
+```manpage
+ERROR tesseract: Messaging task Evm(56)->Polkadot(3367) encountered an error: StreamError("Error fetching latest block height on Evm(56) JsonRpcClientError(MiddlewareError(Middleware((code: -32603, message: request failed or timed out, data: None))))")
+```
+
+```manpage
+ERROR tesseract_evm::provider: Error while querying events in range 43812202..43812204 from Evm(56): Middleware error: (code: -32603, message: request failed or timed out, data: None)
+```
+
+```manpage
+ERROR tesseract_evm::provider: Error while querying events in range 43816145..43816147 from Evm(56): Middleware error: (code: -32603, message: internal server error, data: None)
+```
+
+```manpage
+ERROR tesseract: Messaging task Evm(56)->Polkadot(3367) encountered an error: StreamError("Error encountered while querying state_machine_update_time Invalid name: please ensure the contract and method you're calling exist! failed to decode empty bytes. if you're using jsonrpc this is likely due to jsonrpc returning `0x` in case contract or method don't exist")
+```
+
+```manpage
+ERROR tesseract_messaging: Error while handling POLKADOT-3367 on Evm(1): Middleware error: Deserialization Error: response must be either a success/error or notification object at line 1 column 237. Response: {"jsonrpc":"2.0","id":31327,"result":null,"error":{"code":-32000,"message":"tracing failed: insufficient funds for gas * price + value: address <address> have 411893340457544628 want 525945389500000000"}}
+```
+
+```manpage
+ERROR tesseract_messaging: Error accummulating some fees, receipts have been stored in the db, you can try again manually
+```
+
+```manpage
+ERROR tesseract: Messaging task Evm(56)->Polkadot(3367) encountered an error: StreamError("Error fetching latest block height on Evm(56) JsonRpcClientError(MiddlewareError(Middleware(Deserialization Error: expected value at line 1 column 1. Response: <html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n</body>\r\n</html>\r\n)))")
+```
+
+```manpage
+ERROR tesseract_evm::provider: Error while querying events in range 43876757..43876796 from Evm(56): Middleware error: Deserialization Error: expected value at line 1 column 1. Response: <html>
+```
+
+```manpage
+ERROR tesseract_messaging: Error while handling EVM-56 on Polkadot(3367): Middleware error: (code: -32000, message: missing trie node baf71a6410ba54b32b02056415efe6b22060c20aff9c399d9b6308d0a88c3d09 (path ) state 0xbaf71a6410ba54b32b02056415efe6b22060c20aff9c399d9b6308d0a88c3d09 is not available, data: None)
+```
+
+```manpage
+ERROR tesseract::cli: Disconnected from telemetry with: Text(
+```
+

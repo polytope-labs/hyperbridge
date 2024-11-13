@@ -654,7 +654,7 @@ pub mod pallet {
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.
 	#[cfg(feature = "unsigned")]
-	#[pallet::validate_unsigned]
+	#[cfg_attr(feature="unsigned", pallet::validate_unsigned)]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
 

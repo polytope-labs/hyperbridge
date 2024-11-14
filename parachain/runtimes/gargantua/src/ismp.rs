@@ -276,7 +276,7 @@ impl IsmpModule for ProxyModule {
 			Timeout::Response(res) => (&res.post.to, res.source_chain(), res.dest_chain()),
 		};
 
-		if *source != HostStateMachine::get() {
+		if source != HostStateMachine::get() {
 			return Ok(());
 		}
 

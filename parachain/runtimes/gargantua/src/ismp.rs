@@ -246,12 +246,12 @@ impl IsmpModule for ProxyModule {
 			return Ok(());
 		}
 
-		let from = match &response {
-			Response::Post(post) => &post.source_module(),
+		let dest = match &response {
+			Response::Post(post) => &post.destination_module(),
 			Response::Get(resp) => &resp.get.from,
 		};
 
-		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
+		let pallet_id = ModuleId::from_bytes(dest).map_err(|err| Error::Custom(err.to_string()))?;
 
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID => {

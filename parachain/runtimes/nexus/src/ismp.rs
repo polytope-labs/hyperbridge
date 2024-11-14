@@ -249,7 +249,7 @@ impl IsmpModule for ProxyModule {
 				(&post.from, &post.source, &post.dest)
 			},
 			Timeout::Request(Request::Get(get)) => (&get.from, &get.source, &get.dest),
-			Timeout::Response(res) => (&res.post.to, &res.post.dest, &res.post.dest),
+			Timeout::Response(res) => (&res.post.to, &res.source_chain(), &res.dest_chain()),
 		};
 
 		if *source != HostStateMachine::get() {

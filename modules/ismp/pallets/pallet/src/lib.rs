@@ -62,8 +62,7 @@
 //! ### Dispatchable Functions
 //!
 //! * `handle` - Handles incoming ISMP messages.
-//! * `handle_unsigned` Unsigned variant for handling incoming messages, enabled by `feature =
-//!   ["unsigned"]`
+//! * `handle_unsigned` Unsigned variant for handling incoming messages
 //! * `create_consensus_client` - Handles creation of various properties for a particular consensus
 //!   client. Can only be called by the `AdminOrigin`.
 //! * `update_consensus_state` - Updates consensus client properties in storage. Can only be called
@@ -229,8 +228,14 @@ pub mod pallet {
 		messaging::{CreateConsensusState, Message},
 		router::IsmpRouter,
 	};
+	use ismp::{
+		handlers::MessageResult,
+		messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
+		router::Request,
+	};
+
 	use sp_core::{storage::ChildInfo, H256};
-	#[cfg(feature = "unsigned")]
+
 	use sp_runtime::transaction_validity::{
 		InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
 		ValidTransaction,
@@ -383,6 +388,12 @@ pub mod pallet {
 	#[pallet::getter(fn responded)]
 	pub type Responded<T: Config> = StorageMap<_, Identity, H256, bool, ValueQuery>;
 
+	/// Should unsigned transactions be enabled. Preferred mode for testnet to simplify relayer
+	/// token acquisition, but this can be abused in production. Use with caution.
+	#[pallet::storage]
+	#[pallet::getter(fn enable_unsigned)]
+	pub type EnableUnsigned<T: Config> = StorageValue<_, bool, ValueQuery>;
+
 	/// Latest nonce for messages sent from this chain
 	#[pallet::storage]
 	#[pallet::getter(fn nonce)]
@@ -393,6 +404,24 @@ pub mod pallet {
 	#[pallet::getter(fn child_trie_root)]
 	pub type ChildTrieRoot<T: Config> =
 		StorageValue<_, <T as frame_system::Config>::Hash, ValueQuery>;
+
+	/// Genesis settings
+	#[pallet::genesis_config]
+	#[derive(frame_support::DefaultNoBound)]
+	pub struct GenesisConfig<T: Config> {
+		/// Should unsigned transactions be enabled. Preferred mode for testnet to simplify relayer
+		pub enable_unsigned_transactions: bool,
+		/// Phantom data
+		#[serde(skip)]
+		pub _phantom: PhantomData<T>,
+	}
+
+	#[pallet::genesis_build]
+	impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+		fn build(&self) {
+			EnableUnsigned::<T>::put(self.enable_unsigned_transactions);
+		}
+	}
 
 	// Pallet implements [`Hooks`] trait to define some logic to execute in some context.
 	#[pallet::hooks]
@@ -436,7 +465,6 @@ pub mod pallet {
 		/// - `messages`: the messages to handle or process.
 		///
 		/// Emits different message events based on the Message received if successful.
-		#[cfg(feature = "unsigned")]
 		#[pallet::weight(get_weight::<T>(&messages))]
 		#[pallet::call_index(0)]
 		#[frame_support::transactional]
@@ -457,7 +485,6 @@ pub mod pallet {
 		/// - `messages`: A set of ISMP [`Message`]s to handle or process.
 		///
 		/// Emits different message events based on the Message received if successful.
-		#[cfg(not(feature = "unsigned"))]
 		#[pallet::weight(get_weight::<T>(&messages))]
 		#[pallet::call_index(1)]
 		#[frame_support::transactional]
@@ -565,6 +592,18 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Change the activation of the Enable Unsigned feature. This feature allows relayers to submit ISMP messages without fees.
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
+		#[pallet::call_index(5)]
+		pub fn update_enable_unsigned(
+			origin: OriginFor<T>,
+			enable_unsigned_transactions: bool,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+			EnableUnsigned::<T>::put(enable_unsigned_transactions);
+			Ok(())
+		}
 	}
 
 	/// Pallet Events
@@ -654,7 +693,6 @@ pub mod pallet {
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.
-	#[cfg(feature = "unsigned")]
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
@@ -665,11 +703,9 @@ pub mod pallet {
 		}
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			use ismp::{
-				handlers::MessageResult,
-				messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
-				router::Request,
-			};
+			if !EnableUnsigned::<T>::get() {
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
+			}
 			let messages = match call {
 				Call::handle_unsigned { messages } => messages,
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,

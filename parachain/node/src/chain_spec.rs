@@ -205,6 +205,9 @@ fn testnet_genesis(
 			"invulnerables": invulnerables.iter().cloned().map(|(acc, _)| acc).collect::<Vec<_>>(),
 			"candidacyBond": EXISTENTIAL_DEPOSIT * 16,
 		},
+		"ismp": {
+			"enableUnsignedTransactions": true
+		},
 		"ismpParachain": {
 			"parachains": vec![sibling]
 		},

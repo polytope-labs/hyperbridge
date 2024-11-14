@@ -20,7 +20,7 @@ sp-api = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
-pallet-ismp = { workspace = true, features = ["unsigned"] }
+pallet-ismp = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 
 # crates.io

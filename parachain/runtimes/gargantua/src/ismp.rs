@@ -246,10 +246,9 @@ impl IsmpModule for ProxyModule {
 			return Ok(());
 		}
 
-		let request = &response.request();
-		let from = match &request {
-			Request::Post(post) => &post.from,
-			Request::Get(get) => &get.from,
+		let from = match &response {
+			Response::Post(post) => &post.source_module(),
+			Response::Get(resp) => &resp.get.from,
 		};
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
@@ -273,7 +272,7 @@ impl IsmpModule for ProxyModule {
 			Timeout::Request(Request::Get(get)) => {
 				(&get.from, get.source.clone(), get.dest.clone())
 			},
-			Timeout::Response(res) => (&res.post.to, res.source_chain(), res.dest_chain()),
+			Timeout::Response(res) => (&res.source_module(), res.source_chain(), res.dest_chain()),
 		};
 
 		if source != HostStateMachine::get() {

@@ -3,6 +3,7 @@ use std::str::FromStr;
 use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
 use anyhow::anyhow;
 use ismp::host::StateMachine;
+use std::sync::Arc;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tokio::io::AsyncWriteExt;
 
@@ -71,7 +72,15 @@ impl SetConsensusState {
 		log::info!("🧊 Fetching consensus state for {state_machine}");
 		let config = HyperbridgeConfig::parse_conf(&config_path).await?;
 
-		let clients = create_client_map(config).await?;
+		let hyperbridge = config
+			.hyperbridge
+			.clone()
+			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+			.await?;
+
+		let mut clients = create_client_map(config.clone()).await?;
+
+		clients.insert(config.hyperbridge.substrate.state_machine, Arc::new(hyperbridge));
 
 		let client = clients
 			.get(&state_machine)

@@ -415,6 +415,11 @@ pub async fn post_request_status_stream(
 								hyperbridge_client.state_machine_id(),
 							)
 							.await?;
+
+						tracing::trace!(
+							"\n\n\nLatest hyperbridge height: {latest_hyperbridge_height}"
+						);
+
 						// check if the height has already been finalized
 						if latest_hyperbridge_height >= height {
 							let latest_height = dest_client.query_latest_block_height().await?;

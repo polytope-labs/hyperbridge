@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set -o xtrace
 
 declare -a testnet=("ethereum-sepolia" "arbitrum-sepolia" "optimism-sepolia" "base-sepolia" "bsc-testnet" "gnosis-chiado")
 declare -a mainnet=("ethereum" "arbitrum" "optimism" "base" "bsc" "gnosis")

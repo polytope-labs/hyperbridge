@@ -14,7 +14,7 @@ forge-testsuite = { workspace = true }
 
 [dependencies]
 primitive-types = { workspace = true }
-anyhow = { workspace = true }
+anyhow = { workspace = true, default-features = true }
 
 ethers = { workspace = true }
 ismp = { workspace =  true }

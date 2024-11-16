@@ -52,11 +52,15 @@ export interface ISubstrateConfig {
     consensus_state_id: string;
     // consensus state identifier of this chain on hyperbridge
     hash_algo: "Keccak" | "Blake2";
+    // state machine identifier as a string
+    state_machine: string;
 }
 
 export interface IHyperbridgeConfig {
     // websocket rpc endpoint for hyperbridge
     rpc_url: string;
+    // state machine identifier as a string
+    state_machine: string;
 }
 
 export interface IPostRequest {

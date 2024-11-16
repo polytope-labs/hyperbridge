@@ -16,7 +16,7 @@ pallet-hyperbridge = { workspace = true }
 pallet-ismp-demo = {workspace = true}
 
 sc-consensus-manual-seal = { workspace = true }
-anyhow = "1.0.75"
+anyhow = { workspace = true }
 tracing = "0.1.40"
 percentage = "0.1.0"
 futures = "0.3.28"

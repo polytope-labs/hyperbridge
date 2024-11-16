@@ -1,6 +1,6 @@
 [package]
 name = "ismp"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Rust implementation of the interoperable state machine protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -17,10 +17,12 @@ codec = { workspace = true }
 primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
 serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
-derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
+derive_more = { workspace = true, default-features = false, features = ["from", "into", "display"] }
+displaydoc = { version = "0.2", default-features = false }
 serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
-anyhow = {workspace = true, default-features = false}
+anyhow = { workspace = true, default-features = false }
+thiserror = { workspace = true, default-features = false }
 serde-hex-utils = { workspace = true, default-features = false }
 
 [features]
@@ -35,5 +37,7 @@ std = [
     "hex/std",
     "serde_json/std",
     "serde-hex-utils/std",
+    "thiserror/std",
+    "displaydoc/std",
     "anyhow/std"
 ]

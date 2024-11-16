@@ -14,7 +14,7 @@ readme = "./README.md"
 # crates.io
 serde = { workspace = true, features = ["derive"] }
 hex = { version = "0.4.3", features = ["alloc"], default-features = false }
-anyhow = {workspace = true, default-features = false }
+anyhow = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]

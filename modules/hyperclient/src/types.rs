@@ -63,6 +63,7 @@ pub struct SubstrateConfig {
 	pub rpc_url: String,
 	pub consensus_state_id: ConsensusStateId,
 	pub hash_algo: HashAlgorithm,
+	pub state_machine: StateMachine,
 }
 
 impl SubstrateConfig {
@@ -71,6 +72,7 @@ impl SubstrateConfig {
 			self.rpc_url.clone(),
 			self.hash_algo,
 			self.consensus_state_id,
+			self.state_machine,
 		)
 		.await?;
 		Ok(client)

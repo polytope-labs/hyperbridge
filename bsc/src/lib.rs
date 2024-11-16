@@ -15,7 +15,7 @@
 
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{
-	primitives::{compute_epoch, BscClientUpdate, Config},
+	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config},
 	verify_bsc_header,
 };
 use ethers::providers::{Http, Middleware, Provider};

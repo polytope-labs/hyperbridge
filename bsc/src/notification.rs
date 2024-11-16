@@ -13,7 +13,7 @@ use crate::{BscPosHost, KeccakHasher};
 pub async fn consensus_notification<C: Config>(
 	client: &BscPosHost<C>,
 	counterparty: Arc<dyn IsmpProvider>,
-) -> Result<Option<BscClientUpdate>, anyhow::Error> {
+) -> Result<(Option<BscClientUpdate>, Option<ConsensusState>), anyhow::Error> {
 	let counterparty_finalized = counterparty.query_finalized_height().await?;
 	let consensus_state = counterparty
 		.query_consensus_state(Some(counterparty_finalized), client.consensus_state_id)
@@ -28,7 +28,7 @@ pub async fn consensus_notification<C: Config>(
 		attested_epoch > current_epoch ||
 		consensus_state.finalized_height >= attested_header.number.low_u64()
 	{
-		return Ok(None);
+		return Ok((None, None));
 	}
 
 	let mut bsc_client_update = client
@@ -53,11 +53,11 @@ pub async fn consensus_notification<C: Config>(
 	} else {
 		false
 	};
+	let cs_state = dry_run_result.then(|| consensus_state);
 	// If the dry run failed, we skip the update
 	if !dry_run_result {
 		log::info!(target: "tesseract", "Skipping invalid update in bsc client");
 		bsc_client_update = None
 	}
-
-	return Ok(bsc_client_update);
+	return Ok((bsc_client_update, cs_state));
 }

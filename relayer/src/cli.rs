@@ -197,9 +197,7 @@ async fn initialize_consensus_clients(
 					.map(|(key, _)| (key, relayer.challenge_period.unwrap_or_default()))
 					.collect();
 
-				if let AnyHost::Beefy(beefy) = hyperbridge {
-					beefy.client().create_consensus_state(consensus_state).await?;
-				}
+				hyperbridge.client().create_consensus_state(consensus_state).await?;
 			}
 		}
 
@@ -224,28 +222,21 @@ async fn initialize_consensus_clients(
 				})
 				.collect::<BTreeMap<StateMachine, H160>>();
 
-			if let AnyHost::Beefy(beefy) = hyperbridge {
-				let substrate_client = beefy.client();
-
-				let signer = InMemorySigner {
-					account_id: MultiSigner::Sr25519(substrate_client.signer.public())
-						.into_account()
-						.into(),
-					signer: substrate_client.signer.clone(),
-				};
-				let encoded_call =
-					Extrinsic::new("HostExecutive", "update_evm_hosts", params.encode())
-						.encode_call_data(&substrate_client.client.metadata())?;
-				let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-				send_extrinsic(&substrate_client.client, signer, tx, Some(PlainTip::new(100)))
-					.await?;
-			}
+			let substrate_client = hyperbridge.client();
+			let signer = InMemorySigner {
+				account_id: MultiSigner::Sr25519(substrate_client.signer.public())
+					.into_account()
+					.into(),
+				signer: substrate_client.signer.clone(),
+			};
+			let encoded_call = Extrinsic::new("HostExecutive", "update_evm_hosts", params.encode())
+				.encode_call_data(&substrate_client.client.metadata())?;
+			let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
+			send_extrinsic(&substrate_client.client, signer, tx, Some(PlainTip::new(100))).await?;
 		}
 
-		if let AnyHost::Beefy(beefy) = hyperbridge {
-			log::info!("setting host params on on hyperbridge");
-			beefy.client().set_host_params(params).await?;
-		}
+		log::info!("setting host params on on hyperbridge");
+		hyperbridge.client().set_host_params(params).await?;
 	}
 
 	Ok(())

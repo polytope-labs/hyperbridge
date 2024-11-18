@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::{any::AnyHost, cli::create_client_map, config::HyperbridgeConfig, logging};
+use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
 use anyhow::anyhow;
 use ismp::host::StateMachine;
 use std::sync::Arc;
@@ -59,15 +59,7 @@ impl SetConsensusState {
 			.map(|(key, _)| (key, challenge_period))
 			.collect();
 
-		match hyperbridge {
-			AnyHost::Beefy(beefy) => {
-				beefy.client().create_consensus_state(consensus_state).await?;
-			},
-
-			AnyHost::Grandpa(grandpa) => {
-				grandpa.substrate_client.create_consensus_state(consensus_state).await?;
-			},
-		}
+		hyperbridge.client().create_consensus_state(consensus_state).await?;
 
 		Ok(())
 	}

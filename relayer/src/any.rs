@@ -54,6 +54,20 @@ pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
 	Grandpa(GrandpaHost<R, P>),
 }
 
+impl<R, P> AnyHost<R, P>
+where
+	R: subxt::Config + Send + Sync + Clone,
+	P: subxt::Config + Send + Sync + Clone,
+{
+	/// Retuns a reference to underlying [`SubstrateClient`] instance
+	pub fn client(&self) -> &SubstrateClient<P> {
+		match self {
+			AnyHost::Beefy(beefy) => &beefy.client,
+			AnyHost::Grandpa(grandpa) => &grandpa.substrate_client,
+		}
+	}
+}
+
 #[async_trait::async_trait]
 impl<R, P> IsmpHost for AnyHost<R, P>
 where
@@ -111,15 +125,12 @@ where
 #[serde(tag = "type")]
 pub enum ConsensusHost {
 	Beefy {
-		#[serde(flatten)]
 		// Substrate state machine config
 		substrate: SubstrateConfig,
 		// Configuration options for the BEEFY prover
-		#[serde(flatten)]
 		prover: ProverConfig,
-		// Host options for
-		#[serde(flatten)]
-		host: BeefyHostConfig,
+		// Host options for BEEFY
+		beefy: BeefyHostConfig,
 	},
 	Grandpa(GrandpaConfig),
 }
@@ -127,6 +138,7 @@ pub enum ConsensusHost {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperbridgeHostConfig {
 	/// Configuration options for the beefy prover and host
+	#[serde(flatten)]
 	pub host: ConsensusHost,
 }
 
@@ -153,13 +165,14 @@ impl HyperbridgeHostConfig {
 		R::AccountId: From<crypto::AccountId32> + Into<R::Address> + Clone + 'static + Send + Sync,
 	{
 		let host = match self.host {
-			ConsensusHost::Beefy { substrate, prover, host } => {
+			ConsensusHost::Beefy { substrate, prover, beefy } => {
 				let client = SubstrateClient::<P>::new(substrate).await?;
 				let prover = Prover::<R, P>::new(prover.clone()).await?;
-				AnyHost::Beefy(BeefyHost::<R, P>::new(host, prover, client).await?)
+				AnyHost::Beefy(BeefyHost::<R, P>::new(beefy, prover, client).await?)
 			},
-			ConsensusHost::Grandpa(grandpa) =>
-				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&grandpa).await?),
+			ConsensusHost::Grandpa(grandpa) => {
+				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&grandpa).await?)
+			},
 		};
 
 		Ok(host)

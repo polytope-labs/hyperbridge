@@ -59,8 +59,14 @@ impl SetConsensusState {
 			.map(|(key, _)| (key, challenge_period))
 			.collect();
 
-		if let AnyHost::Beefy(beefy) = hyperbridge {
-			beefy.client().create_consensus_state(consensus_state).await?;
+		match hyperbridge {
+			AnyHost::Beefy(beefy) => {
+				beefy.client().create_consensus_state(consensus_state).await?;
+			},
+
+			AnyHost::Grandpa(grandpa) => {
+				grandpa.substrate_client.create_consensus_state(consensus_state).await?;
+			},
 		}
 
 		Ok(())

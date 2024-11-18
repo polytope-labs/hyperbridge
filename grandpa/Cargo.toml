@@ -26,6 +26,7 @@ grandpa-prover = { workspace = true }
 grandpa-verifier-primitives = { workspace = true }
 ismp-grandpa = { workspace = true }
 polkadot-core-primitives = { workspace = true }
+serde-hex-utils = { workspace = true }
 
 tesseract-substrate = {  workspace = true }
 tesseract-primitives = {  workspace = true }

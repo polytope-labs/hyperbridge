@@ -17585,6 +17585,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-core-primitives",
  "serde",
+ "serde-hex-utils",
  "sp-core 21.0.0",
  "subxt",
  "tesseract-primitives",

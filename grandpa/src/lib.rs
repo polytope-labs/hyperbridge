@@ -74,20 +74,12 @@ impl GrandpaConfig {
 pub struct HostConfig {
 	/// RPC url for a standalone chain or relay chain
 	pub rpc: String,
-	/// State machine Identifier for this client on it's counterparties.
-	pub state_machine: StateMachine,
-	/// Consensus state id on counterparty chain
-	pub consensus_state_id: ConsensusStateId,
 	/// slot duration of the chain
 	pub slot_duration: u64,
 	/// Update frequency
 	pub consensus_update_frequency: Option<u64>,
 	/// para ids
 	pub para_ids: Vec<u32>,
-	/// Raw storage key for the babe epoch start storage value
-	pub babe_epoch_start_key: Option<Vec<u8>>,
-	/// Raw Storage key for the current set id in pallet grandpa
-	pub current_set_id_key: Option<Vec<u8>>,
 }
 
 #[derive(Clone)]
@@ -135,21 +127,24 @@ where
 			&config.host.rpc,
 			config.host.para_ids.clone(),
 			config.substrate.state_machine,
-			config
-				.host
-				.babe_epoch_start_key
-				.clone()
-				.unwrap_or(default_babe_epoch_start_key.to_vec()),
-			config
-				.host
-				.current_set_id_key
-				.clone()
-				.unwrap_or(default_current_set_id_key.to_vec()),
+			default_babe_epoch_start_key.to_vec(),
+			default_current_set_id_key.to_vec(),
 		)
 		.await?;
 		let substrate_client = SubstrateClient::<C>::new(config.substrate.clone()).await?;
 		Ok(GrandpaHost {
-			consensus_state_id: config.host.consensus_state_id.clone(),
+			consensus_state_id: {
+				let mut consensus_state_id: ConsensusStateId = Default::default();
+				consensus_state_id.copy_from_slice(
+					config
+						.substrate
+						.consensus_state_id
+						.clone()
+						.expect("Expected consensus state id")
+						.as_bytes(),
+				);
+				consensus_state_id
+			},
 			state_machine: config.substrate.state_machine,
 			client,
 			substrate_client,

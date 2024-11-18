@@ -71,6 +71,7 @@ mmr-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "
 pallet-ismp-demo = { git = "https://github.com/polytope-labs/hyperbridge", rev = "67ba3c5b2200a120baab672af07606c2f7829ef2" }
 
 subxt-utils = { git ="https://github.com/polytope-labs/hyperbridge", rev = "67ba3c5b2200a120baab672af07606c2f7829ef2" }
+serde-hex-utils = { git ="https://github.com/polytope-labs/hyperbridge", rev = "67ba3c5b2200a120baab672af07606c2f7829ef2" }
 pallet-mmr = { version = "37.0.0" }
 substrate-state-machine = { git = "https://github.com/polytope-labs/hyperbridge", rev = "67ba3c5b2200a120baab672af07606c2f7829ef2" }
 ismp-testsuite = { git = "https://github.com/polytope-labs/hyperbridge", rev = "67ba3c5b2200a120baab672af07606c2f7829ef2" }

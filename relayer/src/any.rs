@@ -158,9 +158,8 @@ impl HyperbridgeHostConfig {
 				let prover = Prover::<R, P>::new(prover.clone()).await?;
 				AnyHost::Beefy(BeefyHost::<R, P>::new(host, prover, client).await?)
 			},
-			ConsensusHost::Grandpa(grandpa) => {
-				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&grandpa).await?)
-			},
+			ConsensusHost::Grandpa(grandpa) =>
+				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&grandpa).await?),
 		};
 
 		Ok(host)

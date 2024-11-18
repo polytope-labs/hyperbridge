@@ -76,7 +76,7 @@ where
 		let client = GrandpaHost::clone(&self);
 
 		let interval = tokio::time::interval(Duration::from_secs(
-			self.config.host.consensus_update_frequency.unwrap_or(300),
+			self.config.grandpa.consensus_update_frequency.unwrap_or(300),
 		));
 
 		let counterparty_clone = counterparty.clone();
@@ -269,7 +269,7 @@ where
 		let finalized_hash = self.client.rpc().finalized_head().await?;
 		let consensus_state: ConsensusState = self
 			.prover
-			.initialize_consensus_state(self.config.host.slot_duration, finalized_hash)
+			.initialize_consensus_state(self.config.grandpa.slot_duration, finalized_hash)
 			.await?;
 
 		Ok(Some(CreateConsensusState {

@@ -40,7 +40,7 @@ pub struct GrandpaConfig {
 	/// substrate config options
 	pub substrate: SubstrateConfig,
 	/// Host config
-	pub host: HostConfig,
+	pub grandpa: HostConfig,
 }
 
 impl GrandpaConfig {
@@ -118,14 +118,14 @@ where
 	H256: From<<C as subxt::Config>::Hash>,
 {
 	pub async fn new(config: &GrandpaConfig) -> Result<Self, anyhow::Error> {
-		let client = OnlineClient::from_url(&config.host.rpc).await?;
+		let client = OnlineClient::from_url(&config.grandpa.rpc).await?;
 		let default_babe_epoch_start_key: [u8; 32] =
 			hex!("1cb6f36e027abb2091cfb5110ab5087fe90e2fbf2d792cb324bffa9427fe1f0e");
 		let default_current_set_id_key: [u8; 32] =
 			hex!("5f9cc45b7a00c5899361e1c6099678dc8a2d09463effcc78a22d75b9cb87dffc");
 		let prover = GrandpaProver::new(
-			&config.host.rpc,
-			config.host.para_ids.clone(),
+			&config.grandpa.rpc,
+			config.grandpa.para_ids.clone(),
 			config.substrate.state_machine,
 			default_babe_epoch_start_key.to_vec(),
 			default_current_set_id_key.to_vec(),

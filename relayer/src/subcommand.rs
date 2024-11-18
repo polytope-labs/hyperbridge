@@ -4,6 +4,7 @@ use crate::{any::AnyHost, cli::create_client_map, config::HyperbridgeConfig, log
 use anyhow::anyhow;
 use ismp::host::StateMachine;
 use std::sync::Arc;
+use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 
 #[derive(Debug, clap::Subcommand)]
@@ -82,7 +83,7 @@ impl SetConsensusState {
 
 		let mut clients = create_client_map(config.clone()).await?;
 
-		clients.insert(config.hyperbridge.substrate.state_machine, Arc::new(hyperbridge));
+		clients.insert(hyperbridge.provider().state_machine_id().state_id, Arc::new(hyperbridge));
 
 		let client = clients
 			.get(&state_machine)

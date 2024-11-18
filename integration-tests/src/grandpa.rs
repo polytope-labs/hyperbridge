@@ -29,7 +29,7 @@ async fn setup_clients() -> Result<
 			max_rpc_payload_size: None,
 			max_concurent_queries: None,
 		},
-		host: HostConfig {
+		grandpa: HostConfig {
 			rpc: "ws://localhost:9922".to_string(),
 			slot_duration: 12,
 			consensus_update_frequency: Some(60),
@@ -50,7 +50,7 @@ async fn setup_clients() -> Result<
 			max_rpc_payload_size: None,
 			max_concurent_queries: None,
 		},
-		host: HostConfig {
+		grandpa: HostConfig {
 			rpc: "ws://localhost:9922".to_string(),
 			slot_duration: 12,
 			consensus_update_frequency: Some(60),

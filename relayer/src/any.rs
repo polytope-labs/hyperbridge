@@ -111,6 +111,9 @@ where
 #[serde(tag = "type")]
 pub enum ConsensusHost {
 	Beefy {
+		#[serde(flatten)]
+		// Substrate state machine config
+		substrate: SubstrateConfig,
 		// Configuration options for the BEEFY prover
 		#[serde(flatten)]
 		prover: ProverConfig,
@@ -125,9 +128,6 @@ pub enum ConsensusHost {
 pub struct HyperbridgeHostConfig {
 	/// Configuration options for the beefy prover and host
 	pub host: ConsensusHost,
-	/// substrate config
-	#[serde(flatten)]
-	pub substrate: SubstrateConfig,
 }
 
 impl HyperbridgeHostConfig {
@@ -153,8 +153,8 @@ impl HyperbridgeHostConfig {
 		R::AccountId: From<crypto::AccountId32> + Into<R::Address> + Clone + 'static + Send + Sync,
 	{
 		let host = match self.host {
-			ConsensusHost::Beefy { prover, host } => {
-				let client = SubstrateClient::<P>::new(self.substrate).await?;
+			ConsensusHost::Beefy { substrate, prover, host } => {
+				let client = SubstrateClient::<P>::new(substrate).await?;
 				let prover = Prover::<R, P>::new(prover.clone()).await?;
 				AnyHost::Beefy(BeefyHost::<R, P>::new(host, prover, client).await?)
 			},

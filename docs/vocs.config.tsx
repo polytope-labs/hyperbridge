@@ -49,7 +49,10 @@ export default defineConfig({
   // todo: add logo
   ogImageUrl:
     "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
-  logoUrl: "/logo.svg",
+  logoUrl: {
+    light: "/logo_black.svg",
+    dark: "/logo_white.svg",
+  },
   head() {
     return (
       <>
@@ -334,20 +337,17 @@ export default defineConfig({
             link: "/developers/evm/getting-started",
           },
           {
+            text: "Dispatching",
+            link: "/developers/evm/dispatching",
+          },
+          {
             text: "Fees",
             link: "/developers/evm/fees",
           },
-
           {
-            text: "Message Delivery",
-            link: "/developers/evm/delivery",
+            text: "Receiving",
+            link: "/developers/evm/receiving",
           },
-
-          {
-            text: "Supported Networks",
-            link: "/developers/evm/networks",
-          },
-
           {
             text: "Contract Addresses",
             collapsed: false,

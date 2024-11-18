@@ -1,71 +1,104 @@
 ---
-title: Protocol Fees
+title: Fees
 description: Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account calling the `IsmpDispatcher`.
 ---
 
-# Protocol Fees
+# Fees
 
-Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account calling the `IsmpDispatcher`. Importantly, the contract must first approve the `EvmHost` to withdraw the exact amount before calling the dispatch function.
+Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account calling the `IDispatcher`. Fees can be paid in either the native token, or the `IDispatcher`'s configured `feeToken`. Modules may also opt to pay a delivery fee for their messages to incentivize 3rd party relayers to deliver and execute their requests on the destination chain.
 
-### Expected Workflow:
-Contracts initiating a dispatch should:
-* Withdraw the protocol fee from the user's account.
-* Grant the `EvmHost` approval to withdraw the same amount.
-* Call the dispatch function on the host.
 
-### Finding the Fee Token:
-The token accepted for protocol fee payments is readily available through `IIsmpHost(_host).feeToken()`.
+## Native Token Payments
 
-The following snippet shows how to calculate the protocol fee for a post request.
+
+The `IDispatcher` contract can be called with some `msg.value` to be used to pay for both the Hyperbridge protocol fees and relayer fees. Lets understand how this value is calculated. First we must understand that Hyperbridge ultimately collects it's fees in stablecoins. The configured stablecoin for fees is accessible by: 
+
 ```solidity showLineNumbers
-    import {IIsmpHost} from "ismp/IIsmpHost.sol";
-    // _host is variable that contains the EvmHost contract address
-    abstract contract Example {
-        function hyperbridgeFee(bytes memory body) external view returns (uint256) {
-            memory perByteFee = IIsmpHost(_host).perByteFee();
-            uint256 protocolFee = perByteFee * body.length;
-            return protocolFee;
-        }
-
-        function feeToken() external view returns (address) {
-            return IIsmpHost(_host).feeToken()
-        }
-    }
+address feeToken = IDispatcher(host()).feeToken();
 ```
-In the case of Post responses the protocol fee is calculated from the size of the response.
 
-## Hyperbridge Relayer Fees
+So when you use the native token to pay for fees, The `IDispatcher` actually swaps this native token for the `feeToken` using UniswapV2 underneath.
+So to quote the amount that's required for fees, you will need to call the following methods **offchain**:
 
-The relayer fee is an optional incentive provided by users initiating cross-chain transactions. It compensates Hyperbridge's decentralized relayers for delivering messages to the destination chain.
+```solidity showLineNumbers
+uint256 perByteFee = IDispatcher(host()).perByteFee();
+uint256 protocolFees = request.body.length * perByteFee;
+uint256 fees = protocolFees + request.fee;
+address[] memory path = new address[](2);
+path[0] = IUniswapV2Router02(_uniswap).WETH();
+path[1] = address(IDispatcher(host()).feeToken());
+uint256 nativeCost = IUniswapV2Router02(_uniswap).getAmountsIn(fees, path)[0];
+```
+
+Alternatively If your module extends the `BaseIsmpModule`, then you already have access to a convenient method `quoteNative` for this.
+
+```solidity showLineNumbers
+uint256 nativeCost = YourModule(moduleAddress).quoteNative(request);
+```
+
+:::danger[Please Note]
+It would be prudent to add at least 0.5% slippage to this quoted amount to prevent failed transactions.
+:::
+
+## Stable Coin Payments
+
+Alternatively, you might want to make payments directly in the configured `feeToken`. This would save on a considerable amount of gas, and as a result save your application users some money. To do this, ensure that your application has approved the host contract to spend infinitely, not to worry here. The host contract is immutable, ie not upgradeable, so you don't have to worry about getting drained.
+
+In your contract constructor you should execute the following:
+
+```solidity showLineNumbers
+constructor() {
+    // approve the host infintely
+    address feeToken = IDispatcher(host()).feeToken();
+    IERC20(feeToken).approve(host(), type(uint256).max);
+}
+```
+
+Now that your contract has approved the `host`. You can now call dispatch without the `msg.value`. The host will withdraw the exact amount for it's protocol fees and any relayer fees from your contract's balance in the `feeToken`.
+
+You can estimate the cost of a request through
+
+```solidity showLineNumbers
+uint256 perByteFee = IDispatcher(host()).perByteFee();
+uint256 protocolFees = request.body.length * perByteFee;
+uint256 fees = protocolFees + request.fee;
+```
+
+Alternatively If your module extends the `BaseIsmpModule`, then a convenient method `quote` is provided for this.
+
+```solidity showLineNumbers
+uint256 feeTokenCost = YourModule(moduleAddress).quote(request);
+```
+
+:::danger[Please Note]
+It might be prudent to withdraw this fee from your user's account before dispatching messages.
+:::
+
+
+## Relayer Fees
+
+The relayer fee is an optional incentive provided by applications initiating cross-chain transactions. It compensates Hyperbridge's decentralized relayers for delivering messages to the destination chain.
 
 ### Components
 
-The fee consists of two parts:
- - **Gas fee**:
-    This covers the cost of executing the message on the destination chain.
+The fee consists of three parts:
+
+ - **Proof verification cost**: For a cross-chain message to be delivered and executed, it must first be authenticated through state proofs. The expected cost for state proof verification is 150k gas. Contracts should account for this cost when setting the relayer fee.
+
+ - **Message execution gas cost**:
+    After proof verification, the receiving module is handed the request to be executed. This will consume some gas which should also be accounted for
+
  - **Relayer service fee**:
     This additional amount rewards relayers for their services. Relayers are profit-Driven mediators and they will prioritize messages with fees that ensure profitability.
 
-#### Setting the Fee
+Calculating the relayer fee can be expressed as follows:
 
-To account for potential gas price fluctuations during message delivery, consider the following:
-
- - **Proof verification cost**: For a cross-chain message to be delivered and executed, it must first be authenticated through state proofs. The expected cost for state proof verification is 120k gas. Contracts should account for the stablecoin equivalent cost when setting the relayer fee.
- - **Message execution gas cost**:
-    The usd equivalent for the gas cost of executing the message
- - **Gas price buffer**:
-    Include a buffer to accommodate gas price spikes.
- - **Relayer service charge**:
-    Factor in a reasonable amount to compensate relayers.
- - **Self-Relay Option**:
-    Users can choose to self-relay messages by omitting the relayer fee.
-
-### Collecting Relayer Fees
-If a user provides a non-zero relayer fee, then the contract should withdraw the fee from the user's account.
-When the contract calls `dispatch`, the  `EvmHost` will attempt to withdraw the relayer fee from the contract's account. Ensure the contract approves the EvmHost for the amount specified as the relayer fee before calling `dispatch`.
+```
+relayer_fee = gas_to_usd(destination_gas_price * (150_000 + receiving_module_gas_cost)) + relayer_tip
+```
 
 
-## Mitigating Gas Cost Spikes
+### Mitigating Gas Cost Spikes
 
 During periods of high gas prices on the destination chain, you can increase the relayer fee for in-flight requests and responses to incentivize their delivery.
-The `EvmHost` contract provides the `fundRequest` and `fundResponse` functions for this purpose. Simply call the appropriate function with the request/response commitment and the desired fee increase amount.
+The `IDispatcher` interface provides the `fundRequest` and `fundResponse` methods for this purpose. Simply call the appropriate function with the request/response commitment and the desired fee increase amount.

@@ -9,8 +9,13 @@ use tesseract_grandpa::{GrandpaConfig, GrandpaHost, HostConfig};
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::{config::Blake2SubstrateChain, SubstrateConfig};
 
-async fn setup_clients(
-) -> Result<(GrandpaHost<Blake2SubstrateChain>, GrandpaHost<Blake2SubstrateChain>), anyhow::Error> {
+async fn setup_clients() -> Result<
+	(
+		GrandpaHost<Blake2SubstrateChain, Blake2SubstrateChain>,
+		GrandpaHost<Blake2SubstrateChain, Blake2SubstrateChain>,
+	),
+	anyhow::Error,
+> {
 	let config_a = GrandpaConfig {
 		substrate: SubstrateConfig {
 			state_machine: StateMachine::Substrate(*b"SOLO"),
@@ -24,15 +29,11 @@ async fn setup_clients(
 			max_rpc_payload_size: None,
 			max_concurent_queries: None,
 		},
-		host: HostConfig {
+		grandpa: HostConfig {
 			rpc: "ws://localhost:9922".to_string(),
-			state_machine: StateMachine::Substrate(*b"SOLO"),
-			consensus_state_id: *b"GRNP",
 			slot_duration: 12,
 			consensus_update_frequency: Some(60),
 			para_ids: vec![],
-			babe_epoch_start_key: None,
-			current_set_id_key: None,
 		},
 	};
 
@@ -49,22 +50,18 @@ async fn setup_clients(
 			max_rpc_payload_size: None,
 			max_concurent_queries: None,
 		},
-		host: HostConfig {
+		grandpa: HostConfig {
 			rpc: "ws://localhost:9922".to_string(),
-			state_machine: StateMachine::Kusama(2001),
-			consensus_state_id: *b"GRNP",
 			slot_duration: 12,
 			consensus_update_frequency: Some(60),
 			para_ids: vec![2001],
-			babe_epoch_start_key: None,
-			current_set_id_key: None,
 		},
 	};
-	let chain_a = GrandpaHost::<Blake2SubstrateChain>::new(&config_a).await?;
+	let chain_a = GrandpaHost::<Blake2SubstrateChain, Blake2SubstrateChain>::new(&config_a).await?;
 
 	let message_for_b = chain_a.query_initial_consensus_state().await?.unwrap();
 
-	let chain_b = GrandpaHost::<Blake2SubstrateChain>::new(&config_b).await?;
+	let chain_b = GrandpaHost::<Blake2SubstrateChain, Blake2SubstrateChain>::new(&config_b).await?;
 
 	let message_for_a = chain_b.query_initial_consensus_state().await?.unwrap();
 	log::info!("🧊 Setting consensus states");

@@ -30,7 +30,7 @@ use ismp_grandpa::{
 };
 
 use grandpa_verifier_primitives::justification::GrandpaJustification;
-use sp_core::crypto;
+use sp_core::{crypto, H256};
 use subxt::config::{
 	extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 };
@@ -47,21 +47,27 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 pub type Justification = GrandpaJustification<polkadot_core_primitives::Header>;
 
 #[async_trait::async_trait]
-impl<T> IsmpHost for GrandpaHost<T>
+impl<H, C> IsmpHost for GrandpaHost<H, C>
 where
-	T: subxt::Config + Send + Sync + Clone,
-	T::Header: Send + Sync,
-	<T::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One,
-	u32: From<<T::Header as Header>::Number>,
-	sp_core::H256: From<T::Hash>,
-	T::Header: codec::Decode,
-	<T::Hasher as subxt::config::Hasher>::Output: From<T::Hash>,
-	T::Hash: From<<T::Hasher as subxt::config::Hasher>::Output>,
-	<T as subxt::Config>::Hash: From<sp_core::H256>,
-	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
-	T::Signature: From<MultiSignature> + Send + Sync,
-	T::AccountId: From<crypto::AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
+	H: subxt::Config + Send + Sync + Clone,
+	C: subxt::Config + Send + Sync + Clone,
+	<H::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One,
+	u32: From<<H::Header as Header>::Number>,
+	sp_core::H256: From<H::Hash>,
+	H::Header: codec::Decode,
+	<H::Hasher as subxt::config::Hasher>::Output: From<H::Hash>,
+	H::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
+	<H as subxt::Config>::Hash: From<sp_core::H256>,
+	<H::ExtrinsicParams as ExtrinsicParams<H::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<H, PlainTip>>,
+	H::Signature: From<MultiSignature> + Send + Sync,
+	H::AccountId: From<crypto::AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
+
+	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	C::Signature: From<MultiSignature> + Send + Sync,
+	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	async fn start_consensus(
 		&self,
@@ -70,7 +76,7 @@ where
 		let client = GrandpaHost::clone(&self);
 
 		let interval = tokio::time::interval(Duration::from_secs(
-			self.config.host.consensus_update_frequency.unwrap_or(300),
+			self.config.grandpa.consensus_update_frequency.unwrap_or(300),
 		));
 
 		let counterparty_clone = counterparty.clone();
@@ -173,7 +179,7 @@ where
                                 let finalized_hash = client.client.rpc().finalized_head().await?;
                                 let latest_finalized_head: u64 = client.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
 
-                                // We ensure there's a new finalized block before trying to query a finality proof 
+                                // We ensure there's a new finalized block before trying to query a finality proof
                                 if latest_finalized_head <= consensus_state.latest_height.into() {
                                     return Ok(None)
                                 }
@@ -263,7 +269,7 @@ where
 		let finalized_hash = self.client.rpc().finalized_head().await?;
 		let consensus_state: ConsensusState = self
 			.prover
-			.initialize_consensus_state(self.config.host.slot_duration, finalized_hash)
+			.initialize_consensus_state(self.config.grandpa.slot_duration, finalized_hash)
 			.await?;
 
 		Ok(Some(CreateConsensusState {

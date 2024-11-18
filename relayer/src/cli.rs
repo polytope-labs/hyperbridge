@@ -7,14 +7,14 @@ use std::{
 	str::FromStr,
 	sync::Arc,
 };
+use substrate_state_machine::HashAlgorithm;
 use subxt::config::polkadot::PlainTip;
-use tesseract_beefy::host::BeefyHost;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Config;
 
 use crate::{
-	any::AnyConfig,
+	any::{AnyConfig, AnyHost},
 	config::{HyperbridgeConfig, RelayerConfig},
 	logging,
 	monitor::monitor_clients,
@@ -88,7 +88,10 @@ impl Cli {
 				client.provider().query_consensus_state(None, *b"PARA").await?;
 			let consensus_state =
 				tesseract_beefy::ConsensusState::decode(&mut &consensus_state_bytes[..])?;
-			hyperbridge.hydrate_initial_consensus_state(Some(consensus_state)).await?;
+
+			if let AnyHost::Beefy(beefy) = hyperbridge {
+				beefy.hydrate_initial_consensus_state(Some(consensus_state)).await?;
+			}
 		}
 
 		for (_, client) in clients {
@@ -158,7 +161,7 @@ impl Cli {
 
 /// Initializes the consensus state across all connected chains.
 async fn initialize_consensus_clients(
-	hyperbridge: &BeefyHost<Blake2SubstrateChain, KeccakSubstrateChain>,
+	hyperbridge: &AnyHost<Blake2SubstrateChain, KeccakSubstrateChain>,
 	chains: &HashMap<StateMachine, Arc<dyn IsmpHost>>,
 	relayer: &RelayerConfig,
 	setup_eth: bool,
@@ -166,14 +169,16 @@ async fn initialize_consensus_clients(
 	configs: HashMap<StateMachine, AnyConfig>,
 ) -> anyhow::Result<()> {
 	if setup_eth {
-		let initial_state = hyperbridge.hydrate_initial_consensus_state(None).await?;
-
-		// write this consensus state to redis
-		for (state_machine, chain) in chains {
-			let provider = chain.provider();
-			log::info!("setting consensus state on {state_machine}");
-			if let Err(err) = provider.set_initial_consensus_state(initial_state.clone()).await {
-				log::error!("Failed to set initial consensus state on {state_machine}: {err:?}")
+		if let AnyHost::Beefy(beefy) = hyperbridge {
+			let initial_state = beefy.hydrate_initial_consensus_state(None).await?;
+			// write this consensus state to redis
+			for (state_machine, chain) in chains {
+				let provider = chain.provider();
+				log::info!("setting consensus state on {state_machine}");
+				if let Err(err) = provider.set_initial_consensus_state(initial_state.clone()).await
+				{
+					log::error!("Failed to set initial consensus state on {state_machine}: {err:?}")
+				}
 			}
 		}
 	}
@@ -191,6 +196,7 @@ async fn initialize_consensus_clients(
 					.into_iter()
 					.map(|(key, _)| (key, relayer.challenge_period.unwrap_or_default()))
 					.collect();
+
 				hyperbridge.client().create_consensus_state(consensus_state).await?;
 			}
 		}
@@ -217,7 +223,6 @@ async fn initialize_consensus_clients(
 				.collect::<BTreeMap<StateMachine, H160>>();
 
 			let substrate_client = hyperbridge.client();
-
 			let signer = InMemorySigner {
 				account_id: MultiSigner::Sr25519(substrate_client.signer.public())
 					.into_account()
@@ -303,9 +308,17 @@ pub async fn create_client_map(
 				client
 			},
 
-			AnyConfig::Grandpa(config) => {
-				let client = config.into_client().await?;
-				client
+			AnyConfig::Grandpa(config) => match config.substrate.hashing {
+				Some(HashAlgorithm::Keccak) => {
+					let client =
+						config.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>().await?;
+					client
+				},
+				_ => {
+					let client =
+						config.into_client::<Blake2SubstrateChain, Blake2SubstrateChain>().await?;
+					client
+				},
 			},
 		};
 		clients.insert(state_machine, client);

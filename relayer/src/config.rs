@@ -1,9 +1,8 @@
-use crate::any::AnyConfig;
+use crate::any::{AnyConfig, HyperbridgeHostConfig};
 use anyhow::anyhow;
 use ismp::{consensus::StateMachineId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tesseract_beefy::BeefyConfig;
 
 use toml::Table;
 
@@ -15,12 +14,11 @@ pub struct RelayerConfig {
 	/// before the process should be restarted
 	pub maximum_update_intervals: Option<Vec<(StateMachineId, u64)>>,
 }
-
 /// Defines the format of the tesseract config.toml file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperbridgeConfig {
 	/// Configuration options for hyperbridge.
-	pub hyperbridge: BeefyConfig,
+	pub hyperbridge: HyperbridgeHostConfig,
 	/// Chains
 	pub chains: HashMap<StateMachine, AnyConfig>,
 	/// Additional Relayer configuration
@@ -41,7 +39,7 @@ impl HyperbridgeConfig {
 			Err(anyhow!("Missing Hyperbridge Config, Check your toml file"))?
 		}
 
-		let hyperbridge: BeefyConfig = table
+		let hyperbridge: HyperbridgeHostConfig = table
 			.get(HYPERRIDGE)
 			.cloned()
 			.expect("Hyperbridge Config is Present")

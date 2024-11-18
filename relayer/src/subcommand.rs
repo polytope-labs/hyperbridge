@@ -4,8 +4,8 @@ use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
 use anyhow::anyhow;
 use ismp::host::StateMachine;
 use std::sync::Arc;
+use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
-use tokio::io::AsyncWriteExt;
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {
@@ -58,6 +58,7 @@ impl SetConsensusState {
 			.into_iter()
 			.map(|(key, _)| (key, challenge_period))
 			.collect();
+
 		hyperbridge.client().create_consensus_state(consensus_state).await?;
 
 		Ok(())
@@ -80,7 +81,7 @@ impl SetConsensusState {
 
 		let mut clients = create_client_map(config.clone()).await?;
 
-		clients.insert(config.hyperbridge.substrate.state_machine, Arc::new(hyperbridge));
+		clients.insert(hyperbridge.provider().state_machine_id().state_id, Arc::new(hyperbridge));
 
 		let client = clients
 			.get(&state_machine)
@@ -91,10 +92,7 @@ impl SetConsensusState {
 			.await?
 			.ok_or_else(|| anyhow!("The state machine provided does not have a consensus state"))?;
 
-		let json_string = json::to_string(&consensus_state)?;
-
-		let mut stdout = tokio::io::stdout();
-		stdout.write_all(json_string.as_bytes()).await?;
+		println!("ConsensusState: {}", hex::encode(&consensus_state.consensus_state));
 
 		Ok(())
 	}

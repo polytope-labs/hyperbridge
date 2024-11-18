@@ -1,11 +1,12 @@
 use ismp::consensus::{StateMachineHeight, StateMachineId};
 use std::time::Duration;
-use tesseract_beefy::BeefyConfig;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 
+use crate::any::HyperbridgeHostConfig;
+
 pub async fn monitor_clients(
-	hyperbridge_config: BeefyConfig,
+	hyperbridge_config: HyperbridgeHostConfig,
 	configs: Vec<(StateMachineId, u64)>,
 ) -> anyhow::Result<()> {
 	let hyperbridge = hyperbridge_config

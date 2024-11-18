@@ -21,6 +21,9 @@ path = "bins/prover.rs"
 log = "0.4.19"
 env_logger = "0.10.0"
 hex = "0.4.3"
+async-trait = "0.1.53"
+finality-grandpa = "0.16.2"
+substrate-state-machine = { workspace = true }
 
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 anyhow = "1.0.71"
@@ -34,6 +37,8 @@ codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive
 primitive-types =  { workspace = true }
 subxt = { version = "0.30.1", default-features = false }
 sc-service = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
 
 subxt-utils = { workspace = true }
 tesseract-beefy = { workspace = true }

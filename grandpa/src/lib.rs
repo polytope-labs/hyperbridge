@@ -19,31 +19,53 @@ use grandpa_prover::GrandpaProver;
 use hex_literal::hex;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
-use sp_core::crypto;
+use sp_core::{crypto, H256};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
-	ext::sp_runtime::{traits::Zero, MultiSignature},
+	ext::sp_runtime::{
+		traits::{One, Zero},
+		MultiSignature,
+	},
 	OnlineClient,
 };
 use tesseract_primitives::IsmpHost;
-use tesseract_substrate::{config::Blake2SubstrateChain, SubstrateClient, SubstrateConfig};
+use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
 mod host;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrandpaConfig {
 	/// substrate config options
-	#[serde(flatten)]
 	pub substrate: SubstrateConfig,
 	/// Host config
 	pub host: HostConfig,
 }
 
 impl GrandpaConfig {
-	pub async fn into_client(&self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let host = GrandpaHost::<Blake2SubstrateChain>::new(&self).await?;
+	pub async fn into_client<H, C>(&self) -> anyhow::Result<Arc<dyn IsmpHost>>
+	where
+		H: subxt::Config + Send + Sync + Clone,
+		C: subxt::Config + Send + Sync + Clone,
+		<H::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One,
+		u32: From<<H::Header as Header>::Number>,
+		sp_core::H256: From<H::Hash>,
+		H::Header: codec::Decode,
+		<H::Hasher as subxt::config::Hasher>::Output: From<H::Hash>,
+		H::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
+		<H as subxt::Config>::Hash: From<sp_core::H256>,
+		<H::ExtrinsicParams as ExtrinsicParams<H::Hash>>::OtherParams:
+			Default + Send + Sync + From<BaseExtrinsicParamsBuilder<H, PlainTip>>,
+		H::Signature: From<MultiSignature> + Send + Sync,
+		H::AccountId: From<crypto::AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
+		<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+			Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+		C::Signature: From<MultiSignature> + Send + Sync,
+		C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+		H256: From<<C as subxt::Config>::Hash>,
+	{
+		let host = GrandpaHost::<H, C>::new(&self).await?;
 		Ok(Arc::new(host))
 	}
 }
@@ -69,32 +91,39 @@ pub struct HostConfig {
 }
 
 #[derive(Clone)]
-pub struct GrandpaHost<T: subxt::Config> {
+pub struct GrandpaHost<H: subxt::Config, C: subxt::Config> {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this chain.
 	pub state_machine: StateMachine,
 	/// Subxt client for the chain.
-	pub client: OnlineClient<T>,
+	pub client: OnlineClient<H>,
 	/// Grandpa prover
-	pub prover: GrandpaProver<T>,
+	pub prover: GrandpaProver<H>,
 	/// Grandpa config
 	pub config: GrandpaConfig,
 	/// The underlying substrate client
-	pub(crate) substrate_client: SubstrateClient<T>,
+	pub substrate_client: SubstrateClient<C>,
 }
 
-impl<T> GrandpaHost<T>
+impl<H, C> GrandpaHost<H, C>
 where
-	T: subxt::Config + Send + Sync + Clone,
-	<T::Header as Header>::Number: Ord + Zero,
-	u32: From<<T::Header as Header>::Number>,
-	sp_core::H256: From<T::Hash>,
-	T::Header: codec::Decode,
-	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
-	T::Signature: From<MultiSignature> + Send + Sync,
-	T::AccountId: From<crypto::AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
+	H: subxt::Config + Send + Sync + Clone,
+	C: subxt::Config + Send + Sync + Clone,
+	<H::Header as Header>::Number: Ord + Zero,
+	u32: From<<H::Header as Header>::Number>,
+	sp_core::H256: From<H::Hash>,
+	H::Header: codec::Decode,
+	<H::ExtrinsicParams as ExtrinsicParams<H::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<H, PlainTip>>,
+	H::Signature: From<MultiSignature> + Send + Sync,
+	H::AccountId: From<crypto::AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
+
+	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	C::Signature: From<MultiSignature> + Send + Sync,
+	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	H256: From<<C as subxt::Config>::Hash>,
 {
 	pub async fn new(config: &GrandpaConfig) -> Result<Self, anyhow::Error> {
 		let client = OnlineClient::from_url(&config.host.rpc).await?;
@@ -118,7 +147,7 @@ where
 				.unwrap_or(default_current_set_id_key.to_vec()),
 		)
 		.await?;
-		let substrate_client = SubstrateClient::<T>::new(config.substrate.clone()).await?;
+		let substrate_client = SubstrateClient::<C>::new(config.substrate.clone()).await?;
 		Ok(GrandpaHost {
 			consensus_state_id: config.host.consensus_state_id.clone(),
 			state_machine: config.substrate.state_machine,

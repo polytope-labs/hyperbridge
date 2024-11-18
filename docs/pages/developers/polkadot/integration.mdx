@@ -340,6 +340,24 @@ impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for
 
 While ISMP can be used independently, connecting to hyperbridge provides access to all its connected chains. In the next sections we'll look into how you can integrate with hyperbridge as a parachain or solochain.
 
+### Signed Extensions
+
+The teseract messaging relayer expects the following signed extensions to be present in the runtime in the same order listed below
+
+```rust
+/// The SignedExtension to the basic transaction logic.
+pub type SignedExtra = (
+	frame_system::CheckNonZeroSender<Runtime>,
+	frame_system::CheckSpecVersion<Runtime>,
+	frame_system::CheckTxVersion<Runtime>,
+	frame_system::CheckGenesis<Runtime>,
+	frame_system::CheckEra<Runtime>,
+	frame_system::CheckNonce<Runtime>,
+	frame_system::CheckWeight<Runtime>,
+	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+);
+```
 
 ## Implementation
 

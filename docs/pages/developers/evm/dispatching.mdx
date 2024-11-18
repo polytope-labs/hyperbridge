@@ -4,7 +4,7 @@ This section explores the means by which applications may leverage Hyperbridge t
 
 ## POST Request
 
-A POST request is simply a cross-chain message to executed by some `IIsmpModule` on a destination. It's important to understand that **EOAs should not dispatch** POST requests directly, instead an application must be responsible for the dispatch. This way if the request delivery or execution fails on the destination, modules can "catch" this failure similar to the try/catch pattern and handle the failure case in the `onPostRequestTimeout` callback.
+A POST request is simply a cross-chain message to be executed by some `IIsmpModule` on a destination. It's important to understand that **EOAs should not dispatch** POST requests directly, instead an application must be responsible for the dispatch. This way if the request delivery or execution fails on the destination, modules can "catch" this failure similar to the try/catch pattern and handle the failure case in the `onPostRequestTimeout` callback.
 
 A post request is created using the `DispatchPost` struct
 

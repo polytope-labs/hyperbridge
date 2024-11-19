@@ -122,7 +122,7 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ConsensusHost {
 	Beefy {
 		// Substrate state machine config

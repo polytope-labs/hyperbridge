@@ -49,6 +49,7 @@ use tokio::sync::Mutex;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyHostConfig {
 	/// Redis configuration for message queues
+	#[serde(flatten)]
 	pub redis: RedisConfig,
 	/// Consensus state id for the host on the counterparty
 	pub consensus_state_id: ConsensusStateId,

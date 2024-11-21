@@ -4,10 +4,9 @@ To receive ISMP messages a contract must implement the [`IIsmpModule`](https://g
 
 The required methods for the [`IIsmpModule`](https://github.com/polytope-labs/ismp-solidity/blob/main/interfaces/IIsmpModule.sol#L42) is described in detail below:
 
-
 ## `onAccept`
 
-This is the callback method for new POST requests that have been verified by Hyperbridge. After the `IHandler` verifies the neccessary proofs of this request, they are passed on to the host, which in turn calls the `onAccept` method for the intended modules. The arguments provided `IncomingPostRequest` holds both the request object itself and the account that initally called the Handler contract, this may be either a 3rd party relayer or a user who is self-relaying.
+This is the callback method for new POST requests that have been verified by Hyperbridge. After the `IHandler` verifies the necessary proofs of this request, they are passed on to the host, which in turn calls the `onAccept` method for the intended modules. The arguments provided `IncomingPostRequest` holds both the request object itself and the account that initally called the Handler contract, this may be either a 3rd party relayer or a user who is self-relaying.
 
 `IIsmpModule`'s should ensure that is method is only callable by the `host` or risk critical vulnerabilies from unauthorized calls to this method by malicious actors. A modifier `onlyHost` is provided as part of the `BaseIsmpModule` for this.
 
@@ -15,11 +14,11 @@ This is the callback method for new POST requests that have been verified by Hyp
 
 In the event that some initially dispatched request was unable to be delivered. Whether as a result of insufficient fees provided to the relayers, Or a revert during request execution on the destination chain. Then Hyperbridge allows this request to gracefully timeout, and this timeout can be reported back to the sending module on the source chain.
 
-This callback is provided as a way to execute some logic in the event that some request times out. This can be seen as a *catch* block in a try/catch for cross-chain messages. Typically you'll want to revert any state changes that were made prior to dispatching the request.
+This callback is provided as a way to execute some logic in the event that some request times out. This can be seen as a _catch_ block in a try/catch for cross-chain messages. Typically you'll want to revert any state changes that were made prior to dispatching the request.
 
 ## `onPostResponse`
 
-This is the callback method for new POST responses that have been verified by Hyperbridge. After the `IHandler` verifies the neccessary proofs of this response, they are passed on to the host, which in turn calls the `onPostResponse` method for the intended modules. The arguments provided `IncomingPostResponse` holds both the resopnse object itself and the account that initally called the Handler contract, this may be either a 3rd party relayer or a user who is self-relaying.
+This is the callback method for new POST responses that have been verified by Hyperbridge. After the `IHandler` verifies the necessary proofs of this response, they are passed on to the host, which in turn calls the `onPostResponse` method for the intended modules. The arguments provided `IncomingPostResponse` holds both the resopnse object itself and the account that initally called the Handler contract, this may be either a 3rd party relayer or a user who is self-relaying.
 
 `IIsmpModule`'s should ensure that is method is only callable by the `host` or risk critical vulnerabilies from unauthorized calls to this method by malicious actors. A modifier `onlyHost` is provided as part of the `BaseIsmpModule` for this.
 
@@ -27,11 +26,11 @@ This is the callback method for new POST responses that have been verified by Hy
 
 In the event that some initially dispatched response was unable to be delivered. Whether as a result of insufficient fees provided to the relayers, Or a revert during response execution on the destination chain. Then Hyperbridge allows this response to gracefully timeout, and this timeout can be reported back to the sending module on the source chain.
 
-This callback is provided as a way to execute some logic in the event that some response times out. This can be seen as a *catch* block in a try/catch for cross-chain messages. Typically you'll want to revert any state changes that were made prior to dispatching the response.
+This callback is provided as a way to execute some logic in the event that some response times out. This can be seen as a _catch_ block in a try/catch for cross-chain messages. Typically you'll want to revert any state changes that were made prior to dispatching the response.
 
 ## `onGetResponse`
 
-This is the callback method for new GET responses that have been verified by Hyperbridge. After the `IHandler` verifies the neccessary proofs of this response, they are passed on to the host, which in turn calls the `onGetResponse` method for the intended modules. The arguments provided `IncomingGetResponse` holds both the resopnse object itself and the account that initally called the Handler contract, this may be either a 3rd party relayer or a user who is self-relaying.
+This is the callback method for new GET responses that have been verified by Hyperbridge. After the `IHandler` verifies the necessary proofs of this response, they are passed on to the host, which in turn calls the `onGetResponse` method for the intended modules. The arguments provided `IncomingGetResponse` holds both the resopnse object itself and the account that initally called the Handler contract, this may be either a 3rd party relayer or a user who is self-relaying.
 
 `IIsmpModule`'s should ensure that is method is only callable by the `host` or risk critical vulnerabilies from unauthorized calls to this method by malicious actors. A modifier `onlyHost` is provided as part of the `BaseIsmpModule` for this.
 
@@ -39,8 +38,7 @@ This is the callback method for new GET responses that have been verified by Hyp
 
 In the event that some GET request is unable to be processed. Likely as a result of insufficient fees provided. Then Hyperbridge allows this request to gracefully timeout, and this timeout can be reported back to the sending module on the source chain.
 
-This callback is provided as a way to execute some logic in the event that some request times out. This can be seen as a *catch* block in a try/catch for cross-chain messages. Typically you'll want to revert any state changes that were made prior to dispatching the request.
-
+This callback is provided as a way to execute some logic in the event that some request times out. This can be seen as a _catch_ block in a try/catch for cross-chain messages. Typically you'll want to revert any state changes that were made prior to dispatching the request.
 
 ## Example `IIsmpModule`
 
@@ -90,43 +88,66 @@ contract Example is BaseIsmpModule {
         return IDispatcher(host).dispatch{value: msg.value}(post);
     }
 
-    function onAccept(IncomingPostRequest memory incoming) external override onlyHost {
+    function onAccept(IncomingPostRequest memory incoming)
+        external
+        override
+        onlyHost
+    {
         // decode request body
-        // Check that decoded value can be executed successfully
-        // Make state changes
+        // make any necessary state changes
         emit PostReceived();
     }
 
-    function onPostRequestTimeout(PostRequest memory request) external override onlyHost {
-        // revert any state changes made when post request was dispatched
+    function onPostRequestTimeout(PostRequest memory request)
+        external
+        override
+        onlyHost
+    {
+        // revert any state changes made
+        // when post request was dispatched
         emit PostTimeoutReceived();
     }
 
-    function onPostResponse(IncomingPostResponse memory) external override onlyHost {
+    function onPostResponse(IncomingPostResponse memory)
+        external
+        override
+        onlyHost
+    {
         // decode response
-        // Check that decoded value can be executed successfully
-        // Make state changes
+        // make any necessary state changes
         emit PostResponseReceived();
     }
 
-    function onPostResponseTimeout(PostResponse memory) external override onlyHost {
-        // revert any state changes made when post response was dispatched
+    function onPostResponseTimeout(PostResponse memory)
+        external
+        override
+        onlyHost
+    {
+        // revert any state changes made
+        // when post response was dispatched
         emit PostResponseTimeoutReceived();
     }
 
-    function onGetResponse(IncomingGetResponse memory) external override onlyHost {
+    function onGetResponse(IncomingGetResponse memory)
+        external
+        override
+        onlyHost
+    {
         emit GetResponseReceived();
     }
 
-    function onGetTimeout(GetRequest memory) external override onlyHost {
-        // revert any state changes made when get request was dispatched
+    function onGetTimeout(GetRequest memory)
+        external
+        override
+        onlyHost
+    {
+        // revert any state changes
+        // made when get request was dispatched
         emit GetTimeoutReceived();
     }
 }
 ```
 
-
 ## Security Considerations
 
-* Limit the caller of these functions to the `IIsmpHost` contract only. This prevents unauthorized messages from being executed.
-
+- Limit the caller of these functions to the `IIsmpHost` contract only. This prevents unauthorized messages from being executed.

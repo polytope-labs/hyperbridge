@@ -1,63 +1,170 @@
 # Solochain Integration
 
-For a solochain that wants to integrate with hyperbridge all that is required is to configure either the BEEFY consensus client or GRANDPA consensus client and set hyperbridge as the coprocessor.
+For solochains that want to integrate with hyperbridge a GRANDPA consensus client is provided as a way to track the finality of the Hyperbridge parachain through Polkadot. A consensus relayer is also provided, which is responsible for exchanging finality proofs of cross-chain messages.
+
+## Runtime Integration
+
+In your runtime, you should configure Hyperbridge as the coprocessor and add a GRANDPA consensus client to the list of consensus clients. The host state machine should be assigned a unique value for each solochain connected to Hyperbridge.
+
+Every other configuration detail remains unchanged as described in the previous sections
+
+```rust showLineNumbers [runtime.rs]
+parameter_types! {
+    // The hyperbridge parachain on Polkadot
+    pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
+    // The host state machine of this pallet, this must be unique to all every solochain
+    pub const HostStateMachine: StateMachine = StateMachine::Substrate(*b"solo"); // your unique chain id here
+}
+
+impl pallet_ismp::Config for Runtime {
+    // ...
+    type Coprocessor = Coprocessor;
+    // Supported consensus clients
+    type ConsensusClients = (
+        // Add the grandpa consensus client here
+        ismp_grandpa::GrandpaConsensusClient<Runtime>,
+    );
+    // ...
+}
+
+construct_runtime! {
+    // ...
+    Ismp: pallet_ismp
+    IsmpGrandpa: ismp_grandpa
+}
+```
+
+### Whitelisting State Machines
+
+The `ismp-grandpa` pallet requires state machines to be whitelisted before any consensus proofs can be accepted, Hyperbridge included. This ensures that solochains are not spammed with consensus proofs of unwanted chains.
+
+<img src="/add_state_machine.png" />
+
+## Calls
+
+* ###  `add_state_machines`
+
+This adds new state machines which produce GRANDPA consensus proofs to the pallet whitelist, enabling trustless cross-chain communication with the state machines in question.
+
+* ###  `remove_state_machines`
+
+This removes the provided state machines from the pallet whitelist, terminating the trustless connection with the state machines in question. They can always be re-added.
+
 
 ## Consensus Relayer
 
-A solochain requires a consensus relayer to send consensus updates between Hyperbridge and itself. Tesseract consensus relayer is built to handle this.
+Solochains require an offchain consensus relayer to exchange consensus proofs with Hyperbridge. The Tesseract consensus relayer is built to handle this. This version of the relayer, is different from the publicly available messaging relayer and is closed-source at this time, but is available as a docker image.
 
-## Beefy or Grandpa
+### Docker
 
-Choosing between Beefy and GRANDPA is just a matter of preference, BEEFY is a much leaner consensus client to maintain with a little finality lag since it piggy packs on top of GRANDPA.
-A GRANDPA consensus client would offer reduced latency as GRANDPA finalizes before BEEFY.
+You can pull in the tesseract consensus relayer like so
 
-## Connecting to Hyperbrige as a Solochain
-
-In your runtime you should add Hyperbridge as a Coprocessor and add a GRANDPA or BEEFY Consensus client to the list of supported clients, whichever client is added would determine the mode the consensus
-relayer would operate.
-
-The host state machine should reflect the consensus protocol of the solochain either GRANDPA or BEEFY and it must be unique to every solochain connected to Hyperbridge.
-Every other configuration detail remains unchanged as described in the previous sections
-
-```rust showLineNumbers
-    parameter_types! {
-        // The hyperbridge parachain on Polkadot
-        pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
-        // The host state machine of this pallet, this must be unique to all every solochain
-        pub const HostStateMachine: StateMachine = StateMachine::Grandpa(*b"solo"); // your unique chain id here
-    }
-
-    impl pallet_ismp::Config for Runtime {
-        // configure the runtime event
-        type RuntimeEvent = RuntimeEvent;
-        // Permissioned origin who can create or update consensus clients
-        type AdminOrigin = EnsureRoot<AccountId>;
-        // The state machine identifier for this state machine
-        type HostStateMachine = HostStateMachine;
-        // The pallet_timestamp pallet
-        type TimestampProvider = Timestamp;
-        // The currency implementation that is offered to relayers
-        type Currency = Balances;
-        // The balance type for the currency implementation
-        type Balance = Balance;
-        // Router implementation for routing requests/responses to their respective modules
-        type Router = Router;
-        // Optional coprocessor for incoming requests/responses
-        type Coprocessor = Coprocessor;
-        // Supported consensus clients
-        type ConsensusClients = (
-            // Add the grandpa or beefy consensus client here
-            ismp_grandpa::GrandpaConsensusClient<Runtime>,
-        );
-        // Optional merkle mountain range overlay tree, for cheaper outgoing request proofs.
-        // You most likely don't need it, just use the `NoOpMmrTree`
-        type Mmr = NoOpMmrTree<Runtime>;
-        // Weight provider for local modules
-        type WeightProvider = ();
-    }
-
-    construct_runtime! {
-        // ...
-        Ismp: pallet_ismp
-    }
+```bash
+docker pull polytopelabs/tesseract-consensus:latest
 ```
+
+### Configuring the relayer
+
+The tesseract consensus relayer must be configured to relay consensus messages between a solochain and Hyperbridge. The configuration file is a `toml` that should look like:
+
+```toml [consensus.toml]
+# Required
+[hyperbridge]
+type = "grandpa"
+
+[hyperbridge.grandpa]
+# Hyperbridge's relay chain websocket RPC
+rpc = "" 
+# Hyperbridge's slot duration
+slot_duration = 6
+# How frequently to exchange consensus proofs
+consensus_update_frequency = 60
+# Hyperbridge's paraId on the provided relay chain
+# For Paseo Testnet: para_ids = [4009]
+# For Polkadot Mainnet: para_ids = [3367]
+para_ids = []
+
+[hyperbridge.substrate]
+# Hyperbridge's relay chain websocket RPC
+rpc_ws = ""
+# Hyperbridge's hashing algorithm
+hashing = "Keccak"
+# Hyperbridge's consensus state id
+# For Paseo Testnet: PAS0
+# For Polkadot Mainnet: DOT0
+consensus_state_id = ""
+# Hyperbridge's state machine ID
+# For Paseo Testnet: KUSAMA-4009
+# For Polkadot Mainnet: POLKADOT-3367
+state_machine = ""
+
+# can use any key here
+[YourSolochain]
+type = "grandpa"
+
+[YourSolochain.substrate]
+# Solochains's websocket RPC
+rpc_ws = ""
+# Hashing can be "Keccak" or "Blake2"
+hashing = "Blake2"
+# Solochains's consensus state id on Hyperbridge
+# should be 4 utf-8 chars chosen by solochain
+consensus_state_id = ""
+# Solochains's state machine id. eg
+state_machine = "SUBSTRATE-myid"
+
+[YourSolochain.grandpa]
+# Solochains's websocket RPC
+rpc = ""
+# Solochains's slot duration
+slot_duration = 6
+# How frequently to exchange consensus proofs
+consensus_update_frequency = 60
+# Any para ids to prove if solochain is actually a relay chain
+para_ids = []
+```
+
+### Consensus State Initialization
+
+Before running the relayer, you must first initialize Hyperbridge's consensus state on your solochain. The consensus relayer can query Hyperbridge to retrieve this initial state for you. For instance, here's how you can log the consensus state of the Hyperbridge testnet on Paseo:
+
+```bash
+docker run -v /path/to/consensus.toml:/root/consensus.toml polyopelabs/tesseract-consensus:latest --config=/root/consensus.toml log-consensus-state=KUSAMA-4009
+```
+
+This should print out a potentially long hex string. Next you'll use this hex string to initialize the Hyperbridge consensus state on your solochain through an extrinsic as shown below.
+
+<img src="/grnp_init.png" />
+
+- **`consensusState`**: This is the initial, trusted consensus state for the Hyperbridge consensus on your solochain. It contains the current and next validator set keys, as well as the latest finalized block. It is the value printed by the `log-consensus-state` subcommand on the tesseract consensus relayer.
+
+- **`consensusClientId`**: This is the consensus client identifier for the GRANDPA consensus client. It will always be `GRNP`
+
+- **`consensusStateId`**: This is the consensus state id for Hyperbridge on your solochain, refer to the configuration section on what this value should be.
+
+- **`unbondingPeriod`**: This is the unbonding period for the Hyperbridge relay chain and is used to [mitigate long fork attacks](/protocol/interoperability/consensus-proofs#long-range-attacks).
+
+- **`challengePeriod`**: This is period you want state commitments to stay pending for, even after they have been verified by the consensus client, allowing fishermen to check for byzantine behaviour and submit fraud proofs, if any. Polkadot has high economic security which disincentivizes this sort of behaviour so for Hyperbridge, you can leave set this to zero.
+
+
+Once this is completed on your solochain, the same will need to also be executed on Hyperbridge. In similar fashion you can log the initial consensus of your solochain and [create an issue on our github](https://github.com/polytope-labs/hyperbridge/issues/new) to be added to the Hyperbridge testnet. On Hyperbridge mainnet, you'll instead submit a governance proposal for this.
+
+### Running the relayer
+
+Once all consensus states are set up, running the relayer is as easy as:
+
+```bash
+docker run -v /path/to/consensus.toml:/root/consensus.toml polyopelabs/tesseract-consensus:latest --config=/root/consensus.toml log-consensus-state=KUSAMA-4009
+```
+
+You will of course need to pair this with the [messaging relayer](/developers/network/relayer) which actually relays cross-chain messages.
+
+## Miscallenous
+
+Some random things to note
+
+### Slot Numbers
+
+The GRANDPA consensus client relies on digest items in the header to communicate the current slot number. These digest items must be identified as either `BABE` or `AURA`. Solochains using custom block production algorithms must include the `AURA` digest item to ensure compatibility with the GRANDPA consensus client for producing valid consensus proofs.
+
+

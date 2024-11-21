@@ -102,7 +102,8 @@ rustup component add rust-src
 Download a local copy of the repo and checkout the latest release tag
 
 ```bash
-export LATEST_TAG=hyperbridge-v0.5.0
+# fetch the latest tag from docker hub
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/hyperbridge/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
 git clone https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbridge
 git checkout ${LATEST_TAG}
@@ -160,28 +161,6 @@ hyperbridge \
     --out-peers=32 \
     -- \
     --sync=fast-unsafe
-```
-
-### Kusama
-
-Hyperbridge is live on Kusama with a chainId of `messier` and ParaId of `3340`. We do not recommend joining the kusama network at this time.
-
-```bash
-export PUBLIC_IP_ADDRESS=<your-node-public-ip-address>
-hyperbridge \
-    --base-path=$HOME/.hyperbridge \
-    --pruning=archive \
-    --name="Your node name here"  \
-    --rpc-cors=all \
-    --rpc-port=9944 \
-    --unsafe-rpc-external \
-    --rpc-methods=unsafe \
-    --chain=messier \
-    --no-mdns \
-    --listen-addr=/ip4/0.0.0.0/tcp/30333 \
-    --listen-addr=/ip6/::/tcp/30333 \
-    --public-addr=/ip4/$PUBLIC_IP_ADDRESS/tcp/30333 \
-    --out-peers=32
 ```
 
 ### Polkadot

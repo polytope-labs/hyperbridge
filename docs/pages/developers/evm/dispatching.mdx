@@ -9,7 +9,7 @@ A POST request is simply a cross-chain message to be executed by some `IIsmpModu
 A post request is created using the `DispatchPost` struct
 
 ```solidity showLineNumbers
-// An object for dispatching post requests to the IsmpDispatcher
+// An object for dispatching post requests 
 struct DispatchPost {
     // Use the StateMachine library to create this
     bytes dest;
@@ -19,14 +19,15 @@ struct DispatchPost {
     bytes body;
     // timeout for this request in seconds
     uint64 timeout;
-    // The amount put up to be paid to the relayer, this is in $DAI and charged to tx.origin
+    // The amount put up to be paid to the relayer, 
+    // this is in DAI and charged to msg.sender
     uint256 fee;
     // who pays for this request?
     address payer;
 }
 ```
 
-### Dispatch Parameters:
+### Dispatch Parameters
 
 - `dest`: Destination chain, for this you'll use the `StateMachine` library eg `StateMachine.evm(1)` for Ethereum Mainnet.
 
@@ -38,7 +39,8 @@ struct DispatchPost {
 
 - `body`: Serialized byte representation of the message (to be decoded by the receiving contract).
   <br />
-- `timeout`: Relative time in seconds for message validity. Messages exceeding this timeout cannot be processed on the destination and require user action (timeout message) to revert changes.
+- `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
+  (timeout message) to revert changes.
   <br />
 - `fee`: Optional relayer fees, this can also be set to zero if the application developers prefer to self-relay.
   <br />
@@ -71,7 +73,7 @@ Dispatching a POST response, going by it's name is, well, a response to a previo
 A post response dispatch has the following fields:
 
 ```solidity showLineNumbers
-// An object for dispatching post responses to the IsmpDispatcher
+// An object for dispatching post responses 
 struct DispatchPostResponse {
     // The request that initiated this response
     PostRequest request;
@@ -79,14 +81,15 @@ struct DispatchPostResponse {
     bytes response;
     // timeout for this response in seconds
     uint64 timeout;
-    // the amount put up to be paid to the relayer, this is in $DAI and charged to tx.origin
+    // The amount put up to be paid to the relayer, 
+    // this is in DAI and charged to msg.sender
     uint256 fee;
     // who pays for this request?
     address payer;
 }
 ```
 
-### Dispatch Parameters:
+### Dispatch Parameters
 
 - `request`: The request object that was previously received.
 
@@ -96,7 +99,7 @@ struct DispatchPostResponse {
 
   <br />
 
-- `timeout`: Relative time in seconds for message validity. Messages exceeding this timeout cannot be processed on the destination and require user action
+- `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
   (timeout message) to revert changes.
 
   <br />
@@ -136,7 +139,7 @@ When dispatching get requests,
 you specify the storage keys you need to read and the block height at which you need to read these storage entries.
 
 ```solidity
-// An object for dispatching get requests to the IsmpDispatcher
+// An object for dispatching get requests 
 struct DispatchGet {
     // bytes representation of the destination state machine
     bytes dest;
@@ -153,7 +156,7 @@ struct DispatchGet {
 }
 ```
 
-### Dispatch Parameters:
+### Dispatch Parameters
 
 - `dest`: The chain whose database should be read (e.g., `StateMachine.evm(1)` for Ethereum Mainnet).
 
@@ -167,8 +170,8 @@ struct DispatchGet {
 
   <br />
 
-- `timeout`: Relative time in seconds for message validity. Responses exceeding this timeout cannot be processed on the source and require user action (timeout
-  message) to revert changes.
+- `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
+  (timeout message) to revert changes.
 
   <br />
 

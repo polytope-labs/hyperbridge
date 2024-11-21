@@ -337,7 +337,7 @@ export default defineConfig({
             link: "/developers/evm/getting-started",
           },
           {
-            text: "Dispatching",
+            text: "Dispatching Messages",
             link: "/developers/evm/dispatching",
           },
           {
@@ -345,7 +345,7 @@ export default defineConfig({
             link: "/developers/evm/fees",
           },
           {
-            text: "Receiving",
+            text: "Receiving Messages",
             link: "/developers/evm/receiving",
           },
           {
@@ -353,11 +353,11 @@ export default defineConfig({
             collapsed: false,
             items: [
               {
-                text: "Mainnet Addresses",
+                text: "Mainnet",
                 link: "/developers/evm/contracts/mainnet",
               },
               {
-                text: "Testnet Addresses",
+                text: "Testnet",
                 link: "/developers/evm/contracts/testnet",
               },
             ],
@@ -369,13 +369,45 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-            text: "Pallet ISMP",
-            link: "/developers/polkadot/integration",
+            text: "Getting Started",
+            link: "/developers/polkadot/getting-started",
           },
+
+          {
+            text: "Pallet ISMP",
+            link: "/developers/polkadot/pallet-ismp",
+            items: [
+              {
+                text: "Runtime API",
+                link: "/developers/polkadot/pallet-ismp-runtime-api",
+              },
+              {
+                text: "RPC Interface",
+                link: "/developers/polkadot/pallet-ismp-rpc",
+              },
+            ]
+          },
+
 
           {
             text: "Parachains",
             link: "/developers/polkadot/parachains",
+            items: [
+              {
+                text: "Runtime API",
+                link: "/developers/polkadot/ismp-parachain-runtime-api",
+              },
+              {
+                text: "Inherent Provider",
+                link: "/developers/polkadot/ismp-parachain-inherent",
+              },
+            ]
+          },
+
+
+          {
+            text: "Solochains (GRANDPA)",
+            link: "/developers/polkadot/solochains",
           },
 
           // {
@@ -384,13 +416,8 @@ export default defineConfig({
           // },
 
           {
-            text: "ISMP Modules",
-            link: "/developers/polkadot/modules",
-          },
-
-          {
-            text: "RPC Interface",
-            link: "/developers/polkadot/rpc",
+            text: "Dispatching Messages",
+            link: "/developers/polkadot/delivery",
           },
 
           {
@@ -399,8 +426,8 @@ export default defineConfig({
           },
 
           {
-            text: "Message Delivery",
-            link: "/developers/polkadot/delivery",
+            text: "Receiving Messages",
+            link: "/developers/polkadot/modules",
           },
 
           {

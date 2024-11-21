@@ -515,8 +515,9 @@ where
 			tokio::task::spawn(async move {
 				let mut latest_height = latest_height;
 				let state_machine = client.state_machine;
+				let poll_interval = client.config.poll_interval.unwrap_or(10);
 				loop {
-					tokio::time::sleep(Duration::from_secs(10)).await;
+					tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 					let header = match client.client.rpc().finalized_head().await {
 						Ok(hash) => match client.client.rpc().header(Some(hash)).await {
 							Ok(Some(header)) => header,
@@ -665,8 +666,8 @@ where
 			let compressed_call_len = zstd_safe::compress(&mut buffer[..], &encoded_call, 3)
 				.map_err(|_| anyhow!("Call compression failed"))?;
 			// If compression saving is less than 15% submit the uncompressed call
-			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) <
-				20usize
+			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len)
+				< 20usize
 			{
 				log::trace!(target: "tesseract", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
@@ -700,7 +701,7 @@ where
 		};
 		for msg in messages {
 			match msg {
-				Message::Request(req_msg) =>
+				Message::Request(req_msg) => {
 					for post in req_msg.requests {
 						let req = Request::Post(post);
 						let commitment = hash_request::<Hasher>(&req);
@@ -717,11 +718,12 @@ where
 
 							results.push(tx_receipt);
 						}
-					},
+					}
+				},
 				Message::Response(ResponseMessage {
 					datagram: RequestResponse::Response(resp),
 					..
-				}) =>
+				}) => {
 					for res in resp {
 						let commitment = hash_response::<Hasher>(&res);
 						let request_commitment = hash_request::<Hasher>(&res.request());
@@ -739,7 +741,8 @@ where
 
 							results.push(tx_receipt);
 						}
-					},
+					}
+				},
 				_ => {},
 			}
 		}
@@ -829,7 +832,7 @@ where
 		let key = fisherman_storage_key(self.address());
 		let raw_params = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
 		if raw_params.is_none() {
-			return Ok(())
+			return Ok(());
 		}
 
 		let signer = InMemorySigner {

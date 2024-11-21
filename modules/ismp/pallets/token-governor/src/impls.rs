@@ -330,13 +330,13 @@ where
 				ContractInstance { chain: state_machine, module_id: address }.into();
 
 			for (chain, GatewayParams { address, .. }) in TokenGatewayParams::<T>::iter() {
-				if chain == state_machine {
+				if chain == state_machine || chain.is_substrate() {
 					continue;
 				}
 				dispatcher
 					.dispatch_request(
 						DispatchRequest::Post(DispatchPost {
-							dest: state_machine.clone(),
+							dest: chain.clone(),
 							from: PALLET_ID.to_vec(),
 							to: address.as_bytes().to_vec(),
 							timeout: 0,

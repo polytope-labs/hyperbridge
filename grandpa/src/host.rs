@@ -117,8 +117,8 @@ where
 								let consensus_state: ConsensusState =
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
-                                let finalized_hash = client.client.rpc().finalized_head().await?;
-                                let latest_finalized_head: u64 = client.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
+                                let finalized_hash = client.prover.client.rpc().finalized_head().await?;
+                                let latest_finalized_head: u64 = client.prover.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
 
                                 if latest_finalized_head <= consensus_state.latest_height.into() {
                                     return Ok(None)
@@ -141,7 +141,6 @@ where
 								let parachain_headers_with_proof = client
 									.prover
 									.query_finalized_parachain_headers_with_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-										consensus_state.latest_height.clone(),
 										justification.commit.target_number,
 										finality_proof.clone(),
 									)
@@ -176,8 +175,8 @@ where
 								let consensus_state: ConsensusState =
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
-                                let finalized_hash = client.client.rpc().finalized_head().await?;
-                                let latest_finalized_head: u64 = client.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
+                                let finalized_hash = client.prover.client.rpc().finalized_head().await?;
+                                let latest_finalized_head: u64 = client.prover.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
 
                                 // We ensure there's a new finalized block before trying to query a finality proof
                                 if latest_finalized_head <= consensus_state.latest_height.into() {
@@ -266,7 +265,7 @@ where
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
-		let finalized_hash = self.client.rpc().finalized_head().await?;
+		let finalized_hash = self.prover.client.rpc().finalized_head().await?;
 		let consensus_state: ConsensusState = self
 			.prover
 			.initialize_consensus_state(self.config.grandpa.slot_duration, finalized_hash)

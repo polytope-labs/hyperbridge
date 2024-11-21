@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 hex = "0.4.3"
+hex-literal = "0.4.1"
 anyhow.workspace = true
 serde = { workspace  = true, default-features = true}
 subxt = { workspace = true, default-features = true }

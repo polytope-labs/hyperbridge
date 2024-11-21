@@ -6598,6 +6598,7 @@ dependencies = [
  "finality-grandpa",
  "grandpa-verifier-primitives",
  "hex",
+ "hex-literal 0.4.1",
  "ismp",
  "jsonrpsee 0.23.2",
  "jsonrpsee-ws-client 0.23.2",

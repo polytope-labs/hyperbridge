@@ -15,7 +15,7 @@
 #![allow(clippy::all)]
 #![deny(missing_docs)]
 
-//! GRANDPA prover utilities
+//! GRANDPA consensus prover utilities
 
 use anyhow::anyhow;
 use codec::{Decode, Encode};
@@ -44,16 +44,16 @@ pub struct GrandpaProver<T: Config> {
 	pub para_ids: Vec<u32>,
 	/// State machine identifier for the chain
 	pub state_machine: StateMachine,
-	/// Storage for babe epoch start
-	pub babe_epoch_start: Vec<u8>,
-	/// Storage key for current set id
-	pub current_set_id: Vec<u8>,
 }
 
-// We redefine these here because we want the header to be bounded by subxt::config::Header in the
-// prover
-/// Commit
+/// We redefine these here because we want the header to be bounded by subxt::config::Header in the
+/// prover
 pub type Commit = finality_grandpa::Commit<H256, u32, AuthoritySignature, AuthorityId>;
+
+/// This is the storage key for the grandpa.currentSetId storage item in the runtime. Ideally the
+/// grandpa pallet is always referred to as "grandpa" in the construct runtime macro.
+pub const GRANDPA_CURRENT_SET_ID: [u8; 32] =
+	hex_literal::hex!("5f9cc45b7a00c5899361e1c6099678dc8a2d09463effcc78a22d75b9cb87dffc");
 
 /// Justification
 #[cfg_attr(test, derive(Debug))]
@@ -65,6 +65,19 @@ pub struct GrandpaJustification<H: Header + codec::Decode> {
 	pub commit: Commit,
 	/// Contains the path from a [`PreCommit`]'s target hash to the GHOST finalized block.
 	pub votes_ancestries: Vec<H>,
+}
+
+/// Options for initializing the GRANDPA consensus prover.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ProverOptions<'a> {
+	/// The ws url to the node
+	pub ws_url: &'a str,
+	/// Parachain Ids if this GRANDPA consensus hosts parachains
+	pub para_ids: Vec<u32>,
+	/// State machine identifier for the chain
+	pub state_machine: StateMachine,
+	/// Max rpc payload for websocket connections
+	pub max_rpc_payload_size: u32,
 }
 
 /// An encoded justification proving that the given header has been finalized
@@ -79,18 +92,13 @@ where
 	sp_core::H256: From<T::Hash>,
 	T::Header: codec::Decode,
 {
-	/// Initializes the parachain and relay chain clients given the ws urls.
-	pub async fn new(
-		ws_url: &str,
-		para_ids: Vec<u32>,
-		state_machine: StateMachine,
-		babe_epoch_start: Vec<u8>,
-		current_set_id: Vec<u8>,
-	) -> Result<Self, anyhow::Error> {
-		let max_rpc_payload_size = 15 * 1024 * 1024;
+	/// Initializes the GRANDPA prover given the parameters. Internally connects over WS to the
+	/// provided RPC
+	pub async fn new(options: ProverOptions<'_>) -> Result<Self, anyhow::Error> {
+		let ProverOptions { max_rpc_payload_size, ws_url, state_machine, para_ids } = options;
 		let client = subxt_utils::client::ws_client(ws_url, max_rpc_payload_size).await?;
 
-		Ok(Self { client, para_ids, state_machine, babe_epoch_start, current_set_id })
+		Ok(Self { client, para_ids, state_machine })
 	}
 
 	/// Construct the initial consensus state.
@@ -112,7 +120,7 @@ where
 				.client
 				.storage()
 				.at(hash)
-				.fetch_raw(&self.current_set_id[..])
+				.fetch_raw(&GRANDPA_CURRENT_SET_ID[..])
 				.await
 				.ok()
 				.flatten()
@@ -220,7 +228,6 @@ where
 	/// Returns the proof for parachain headers finalized by the provided finality proof
 	pub async fn query_finalized_parachain_headers_with_proof<H>(
 		&self,
-		_previous_finalized_height: u32,
 		latest_finalized_height: u32,
 		finality_proof: FinalityProof<H>,
 	) -> Result<ParachainHeadersWithFinalityProof<H>, anyhow::Error>
@@ -264,42 +271,5 @@ where
 			finality_proof,
 			parachain_headers: parachain_headers_with_proof,
 		})
-	}
-
-	/// Queries the block at which the epoch for the given block belongs to ends.
-	pub async fn session_start_and_end_for_block(
-		&self,
-		block: u32,
-	) -> Result<(u32, u32), anyhow::Error> {
-		let block_hash = self
-			.client
-			.rpc()
-			.block_hash(Some(block.into()))
-			.await?
-			.ok_or(anyhow!("Failed to fetch block hash"))?;
-		let bytes = self
-			.client
-			.storage()
-			.at(block_hash)
-			.fetch_raw(&self.babe_epoch_start[..])
-			.await?
-			.ok_or_else(|| anyhow!("Failed to fetch epoch information"))?;
-
-		let (previous_epoch_start, current_epoch_start): (u32, u32) =
-			codec::Decode::decode(&mut &*bytes)?;
-		Ok((
-			current_epoch_start,
-			current_epoch_start + (current_epoch_start - previous_epoch_start),
-		))
-	}
-
-	/// Returns the session length in blocks
-	pub async fn session_length(&self) -> Result<u32, anyhow::Error> {
-		let metadata = self.client.rpc().metadata().await?;
-		let metadata = metadata
-			.pallet_by_name_err("Babe")?
-			.constant_by_name("EpochDuration")
-			.ok_or(anyhow!("Failed to fetch constant"))?;
-		Ok(Decode::decode(&mut metadata.value())?)
 	}
 }

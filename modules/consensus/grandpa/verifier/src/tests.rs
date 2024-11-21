@@ -1,7 +1,10 @@
+#![cfg(test)]
+
 use crate::verify_parachain_headers_with_grandpa_finality_proof;
+use anyhow::anyhow;
 use codec::{Decode, Encode};
 use futures::StreamExt;
-use grandpa_prover::GrandpaProver;
+use grandpa_prover::{GrandpaProver, ProverOptions};
 use grandpa_verifier_primitives::{
 	justification::GrandpaJustification, ParachainHeadersWithFinalityProof,
 };
@@ -10,13 +13,25 @@ use polkadot_core_primitives::Header;
 use serde::{Deserialize, Serialize};
 use subxt::{
 	config::substrate::{BlakeTwo256, SubstrateHeader},
-	rpc_params,
+	rpc_params, OnlineClient,
 };
 pub type Justification = GrandpaJustification<Header>;
 
 /// An encoded justification proving that the given header has been finalized
 #[derive(Clone, Serialize, Deserialize)]
 pub struct JustificationNotification(sp_core::Bytes);
+
+/// Returns the session length in blocks
+pub async fn session_length<T: subxt::Config>(
+	client: &OnlineClient<T>,
+) -> Result<u32, anyhow::Error> {
+	let metadata = client.rpc().metadata().await?;
+	let metadata = metadata
+		.pallet_by_name_err("Babe")?
+		.constant_by_name("EpochDuration")
+		.ok_or(anyhow!("Failed to fetch constant"))?;
+	Ok(Decode::decode(&mut metadata.value())?)
+}
 
 #[ignore]
 #[tokio::test]
@@ -29,29 +44,22 @@ async fn follow_grandpa_justifications() {
 	let relay_ws_url = std::env::var("RELAY_HOST")
 		.unwrap_or_else(|_| "wss://hyperbridge-paseo-relay.blockops.network:443".to_string());
 
-	// let relay_ws_url = format!("ws://{relay}:9944");
-
 	let para_ids = vec![2000];
-	let babe_epoch_start_key =
-		hex::decode("1cb6f36e027abb2091cfb5110ab5087fe90e2fbf2d792cb324bffa9427fe1f0e").unwrap();
-	let current_set_id_key =
-		hex::decode("5f9cc45b7a00c5899361e1c6099678dc8a2d09463effcc78a22d75b9cb87dffc").unwrap();
 
 	println!("Connecting to relay chain {relay_ws_url}");
-	let prover = GrandpaProver::<subxt_utils::BlakeSubstrateChain>::new(
-		&relay_ws_url,
+	let prover = GrandpaProver::<subxt_utils::BlakeSubstrateChain>::new(ProverOptions {
+		ws_url: &relay_ws_url,
 		para_ids,
-		StateMachine::Polkadot(0),
-		babe_epoch_start_key,
-		current_set_id_key,
-	)
+		state_machine: StateMachine::Polkadot(0),
+		max_rpc_payload_size: u32::MAX,
+	})
 	.await
 	.unwrap();
 
 	println!("Connected to relay chain");
 
 	println!("Waiting for grandpa proofs to become available");
-	let session_length = prover.session_length().await.unwrap();
+	let session_length = session_length(&prover.client).await.unwrap();
 	prover
 		.client
 		.blocks()
@@ -104,7 +112,6 @@ async fn follow_grandpa_justifications() {
 
 		let proof = prover
 			.query_finalized_parachain_headers_with_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-				consensus_state.latest_height,
 				justification.commit.target_number,
 				finality_proof.clone(),
 			)

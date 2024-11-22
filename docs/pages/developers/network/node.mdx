@@ -24,7 +24,8 @@ docker pull polytopelabs/hyperbridge:latest
 You can install a prebuilt binary for the hyperbridge node with the following bash script
 
 ```bash
-wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/hyperbridge-v0.5.0/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/hyperbridge/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/hyperbridge-$LATEST_TAG/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 # copy to $PATH
 cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
@@ -33,7 +34,8 @@ cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
 or a 1-liner shell script
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/hyperbridge-v0.5.0/hyperbridge-installer.sh | sh
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/hyperbridge/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/hyperbridge-$LATEST_TAG/hyperbridge-installer.sh | sh
 ```
 
 ## Building from source

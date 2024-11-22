@@ -58,20 +58,16 @@ Let's go through some of the ISMP specific components of the configuration.
 
 * `HostStateMachine`:
 This is the state machine identifier for your chain, it will be used as the **source value for all requests that are dispatched from this chain** For parachains, this should be your parachain id e.g `StateMachine::Polkadot(1000)`.
-<br />
 
 * `Coprocessor`:
 ISMP is built around the idea of a coprocessor that aggregates consensus and state proofs from multiple state machines into a more succinct proof that is cheaply verifiable.
 This component defines the state machine identifier of the supported coprocessor, Hyperbridge is a coprocessor for ISMP.
-<br />
 
 * `ConsensusClients`:
 This is a tuple of types that implement the `ConsensusClient` interface, it defines all the consensus algorithms supported by this deployment of the protocol.
-<br />
 
 * `Mmr`:
  This type allows us to use mmr tree as an overlay for cheaper proofs for requests and responses instead of the merkle patricia trie proofs.
-<br />
 
 * `Router`:
 The router is a type that provides an `IsmpModule` implementation for a module id.

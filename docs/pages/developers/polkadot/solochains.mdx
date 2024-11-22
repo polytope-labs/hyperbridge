@@ -1,6 +1,6 @@
 # Solochain Integration
 
-For solochains that want to integrate with hyperbridge a GRANDPA consensus client is provided as a way to track the finality of the Hyperbridge parachain through Polkadot. A consensus relayer is also provided, which is responsible for exchanging finality proofs of cross-chain messages.
+For solochains that want to integrate with hyperbridge, a GRANDPA consensus client is provided as a way to track the finality of the Hyperbridge parachain through Polkadot. A consensus relayer is also provided, which is responsible for exchanging finality proofs of cross-chain messages.
 
 ## Runtime Integration
 
@@ -31,6 +31,7 @@ construct_runtime! {
     // ...
     Ismp: pallet_ismp
     IsmpGrandpa: ismp_grandpa
+    // ...
 }
 ```
 
@@ -53,11 +54,11 @@ This removes the provided state machines from the pallet whitelist, terminating 
 
 ## Consensus Relayer
 
-Solochains require an offchain consensus relayer to exchange consensus proofs with Hyperbridge. The Tesseract consensus relayer is built to handle this. This version of the relayer, is different from the publicly available messaging relayer and is closed-source at this time, but is available as a docker image.
+Solochains require an offchain consensus relayer to exchange consensus proofs with Hyperbridge. The Tesseract consensus relayer is built to handle this. This version of the relayer, is different from the publicly available messaging relayer.
 
 ### Docker
 
-You can pull in the tesseract consensus relayer like so
+The tesseract consensus relayer is closed-source at this time, but is available as a docker image at the official docker repository [polytopelabs/tesseract-consensus](https://hub.docker.com/r/polytopelabs/tesseract-consensus)
 
 ```bash
 docker pull polytopelabs/tesseract-consensus:latest
@@ -129,7 +130,12 @@ para_ids = []
 Before running the relayer, you must first initialize Hyperbridge's consensus state on your solochain. The consensus relayer can query Hyperbridge to retrieve this initial state for you. For instance, here's how you can log the consensus state of the Hyperbridge testnet on Paseo:
 
 ```bash
-docker run -v /path/to/consensus.toml:/root/consensus.toml polyopelabs/tesseract-consensus:latest --config=/root/consensus.toml log-consensus-state=KUSAMA-4009
+docker run \
+--network=host \
+-v /path/to/consensus.toml:/root/consensus.toml \
+polytopelabs/tesseract-consensus:latest \
+--config=/root/consensus.toml \
+log-consensus-state KUSAMA-4009
 ```
 
 This should print out a potentially long hex string. Next you'll use this hex string to initialize the Hyperbridge consensus state on your solochain through an extrinsic as shown below.
@@ -154,14 +160,16 @@ Once this is completed on your solochain, the same will need to also be executed
 Once all consensus states are set up, running the relayer is as easy as:
 
 ```bash
-docker run -v /path/to/consensus.toml:/root/consensus.toml polyopelabs/tesseract-consensus:latest --config=/root/consensus.toml log-consensus-state=KUSAMA-4009
+docker run \
+--network=host \
+-v /path/to/consensus.toml:/root/consensus.toml \
+polytopelabs/tesseract-consensus:latest \
+--config=/root/consensus.toml
 ```
 
 You will of course need to pair this with the [messaging relayer](/developers/network/relayer) which actually relays cross-chain messages.
 
 ## Miscallenous
-
-Some random things to note
 
 ### Slot Numbers
 

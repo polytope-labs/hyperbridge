@@ -21,7 +21,7 @@ So when you use the native token to pay for fees, The `IDispatcher` actually swa
 So to quote the amount that's required for fees, you will need to call the following methods **offchain**:
 
 ```solidity showLineNumbers
-uint256 perByteFee = IDispatcher(host()).perByteFee();
+uint256 perByteFee = IDispatcher(host()).perByteFee(request.dest);
 uint256 protocolFees = request.body.length * perByteFee;
 uint256 fees = protocolFees + request.fee;
 address[] memory path = new address[](2);
@@ -34,6 +34,12 @@ Alternatively If your module extends the `BaseIsmpModule`, then you already have
 
 ```solidity showLineNumbers
 uint256 nativeCost = YourModule(moduleAddress).quoteNative(request);
+```
+
+Now you can simply dispatch the request while paying with the native token
+
+```solidity showLineNumbers
+IDispatcher(host()).dispatch{value: nativeCost}(request);
 ```
 
 :::danger[Please Note]
@@ -59,7 +65,7 @@ Now that your contract has approved the `host`. You can now call dispatch withou
 You can estimate the cost of a request through
 
 ```solidity showLineNumbers
-uint256 perByteFee = IDispatcher(host()).perByteFee();
+uint256 perByteFee = IDispatcher(host()).perByteFee(request.dest);
 uint256 protocolFees = request.body.length * perByteFee;
 uint256 fees = protocolFees + request.fee;
 ```
@@ -70,9 +76,15 @@ Alternatively If your module extends the `BaseIsmpModule`, then a convenient met
 uint256 feeTokenCost = YourModule(moduleAddress).quote(request);
 ```
 
-:::danger[Please Note]
-It might be prudent to withdraw this fee from your user's account before dispatching messages.
-:::
+Now you can simply dispatch the request without the `msg.value`. If this request is the side-effect of a user transaction, then you should withdraw the `feeToken` from the user's account before dispatching.
+
+```solidity showLineNumbers
+using SafeERC20 for IERC20;
+
+address feeToken = IDispatcher(host()).feeToken();
+IERC20(feeToken).safeTransferFrom(msg.sender, address(this), feeTokenCost);
+IDispatcher(host()).dispatch(request);
+```
 
 
 ## Relayer Fees
@@ -94,7 +106,8 @@ The fee consists of three parts:
 Calculating the relayer fee can be expressed as follows:
 
 ```
-relayer_fee = gas_to_usd(destination_gas_price * (150_000 + receiving_module_gas_cost)) + relayer_tip
+destination_gas_cost = 150_000 + receiving_module_gas_cost
+relayer_fee = gas_price_to_usd(destination_gas_price * destination_gas_cost) + relayer_tip_usd
 ```
 
 

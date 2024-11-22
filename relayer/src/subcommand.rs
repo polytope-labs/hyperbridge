@@ -92,7 +92,7 @@ impl SetConsensusState {
 			.await?
 			.ok_or_else(|| anyhow!("The state machine provided does not have a consensus state"))?;
 
-		println!("ConsensusState: {}", hex::encode(&consensus_state.consensus_state));
+		println!("ConsensusState for {state_machine}:\n0x{}", hex::encode(&consensus_state.consensus_state));
 
 		Ok(())
 	}

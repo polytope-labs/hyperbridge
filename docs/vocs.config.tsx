@@ -305,16 +305,16 @@ export default defineConfig({
             link: "/developers/explore/relayers",
           },
           {
+            text: "Fishermen",
+            link: "/developers/explore/fishermen",
+          },
+          {
             text: "Hyperbridge Nexus",
             link: "/developers/explore/nexus",
             items: [
               {
                 text: "ISMP",
                 link: "/developers/explore/modules/ismp",
-              },
-              {
-                text: "Fishermen",
-                link: "/developers/explore/modules/fishermen",
               },
               {
                 text: "Host Executive",

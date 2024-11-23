@@ -92,7 +92,12 @@ impl SetConsensusState {
 			.await?
 			.ok_or_else(|| anyhow!("The state machine provided does not have a consensus state"))?;
 
-		println!("ConsensusState for {state_machine}:\n0x{}", hex::encode(&consensus_state.consensus_state));
+		// todo: use polkadotjs extrinsic link https://dotapps-io.ipns.dweb.link/?rpc=wss%3A%2F%2Fhusky-witty-highly.ngrok-free.app%3A443#/extrinsics/decode/0x0000147364667364
+
+		println!(
+			"ConsensusState for {state_machine}:\n0x{}",
+			hex::encode(&consensus_state.consensus_state)
+		);
 
 		Ok(())
 	}

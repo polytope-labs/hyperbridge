@@ -208,7 +208,6 @@ where
 			Prover::ZK(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
 				let encoded = AbiEncode::encode(message);
-				tracing::trace!("Encoded Sp1BeefyProof: {}", hex::encode(&encoded));
 				encoded
 			},
 		};
@@ -327,8 +326,9 @@ where
 		start: u64,
 	) -> anyhow::Result<Option<SignedCommitment<u32, Signature>>> {
 		let relay_client = self.prover.inner().relay.clone();
+		tracing::info!("Scanning for BEEFY justifications at {start}");
 
-		for i in start..=(start + 50) {
+		for i in start..=(start + 2400) {
 			let hash = if let Some(hash) = relay_client.rpc().block_hash(Some(i.into())).await? {
 				hash
 			} else {
@@ -342,6 +342,13 @@ where
 				.ok_or_else(|| anyhow!("failed to find block for {hash:?}"))?
 				.justifications
 			{
+				tracing::info!(
+					"Found some justification at block: {i}: {:?}",
+					justifications
+						.iter()
+						.map(|(id, _)| String::from_utf8(id.as_slice().to_vec()))
+						.collect::<Result<Vec<_>, _>>()
+				);
 				let beefy = justifications
 					.into_iter()
 					.find(|justfication| justfication.0 == sp_consensus_beefy::BEEFY_ENGINE_ID);
@@ -352,6 +359,8 @@ where
 							.expect("Beefy justification should decode correctly");
 					return Ok(Some(commitment));
 				}
+			} else {
+				tracing::trace!("No BEEFY justifications found at {i}");
 			}
 		}
 
@@ -386,7 +395,7 @@ where
 							.await?
 							.expect("Epoch change header exists");
 						if let Some(commitment) = self
-							.epoch_justification_for(epoch_change_header.number().into() + 1)
+							.epoch_justification_for(epoch_change_header.number().into())
 							.await?
 						{
 							tracing::info!(

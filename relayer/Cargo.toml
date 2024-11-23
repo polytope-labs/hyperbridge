@@ -48,3 +48,6 @@ ismp = { workspace = true  }
 tesseract-substrate = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-primitives = { workspace = true }
+
+[features]
+cuda = ["tesseract-beefy/cuda"]

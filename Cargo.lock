@@ -2574,6 +2574,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctrlc"
+version = "3.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90eeab0aa92f3f9b4e87f258c72b139c207d251f9cbc1080a0086b86a8870dd3"
+dependencies = [
+ "nix 0.29.0",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "cuid"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8914,6 +8924,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+dependencies = [
+ "bitflags 2.5.0",
+ "cfg-if",
+ "cfg_aliases 0.2.1",
+ "libc",
+]
+
+[[package]]
 name = "no-std-compat"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12447,7 +12469,7 @@ dependencies = [
  "log",
  "netlink-packet-route",
  "netlink-proto",
- "nix",
+ "nix 0.24.3",
  "thiserror 1.0.66",
  "tokio",
 ]
@@ -16190,6 +16212,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sp1-cuda"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90f33383529c3194b1095259ed94497feb92680cb950862e2f3f83557c7ee56e"
+dependencies = [
+ "bincode",
+ "ctrlc",
+ "prost 0.13.3",
+ "serde",
+ "sp1-core-machine",
+ "sp1-prover",
+ "tokio",
+ "tracing",
+ "twirp-rs",
+]
+
+[[package]]
 name = "sp1-curves"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -16437,6 +16476,7 @@ dependencies = [
  "serde",
  "sp1-core-executor",
  "sp1-core-machine",
+ "sp1-cuda",
  "sp1-primitives",
  "sp1-prover",
  "sp1-stark",
@@ -17399,7 +17439,7 @@ checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
 name = "tesseract"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "arb-host",

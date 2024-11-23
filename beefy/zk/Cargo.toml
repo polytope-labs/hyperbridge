@@ -12,7 +12,7 @@ tokio = { version = "1.35.1", features = ["fs", "macros", "rt-multi-thread"] }
 rs_merkle = "1.4.1"
 anyhow = "1.0.79"
 codec = { package = "parity-scale-codec", version = "3.2.2" }
-primitive-types = { workspace = true, features = ["serde"] }
+primitive-types = { workspace = true, features = ["serde", "codec"] }
 thiserror = "1.0.64"
 hex = { workspace = true }
 beefy-verifier-primitives = { workspace = true }
@@ -33,3 +33,6 @@ hex-literal = "0.4.1"
 sp-runtime = { workspace = true }
 subxt-utils = { workspace = true }
 hex = { version = "0.4.3", features = [] }
+
+[features]
+cuda = ["sp1-beefy/cuda"]

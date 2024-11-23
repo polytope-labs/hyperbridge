@@ -5,7 +5,7 @@ mod tests;
 use anyhow::anyhow;
 use beefy_prover::util::hash_authority_addresses;
 use beefy_verifier_primitives::ConsensusState;
-use codec::Encode;
+use codec::{Decode, Encode};
 use ismp_solidity_abi::sp1_beefy::Sp1BeefyProof;
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
@@ -50,8 +50,8 @@ where
 		};
 
 		let message = self.inner.consensus_proof(signed_commitment.clone()).await?;
-		let num: subxt::rpc::types::BlockNumber =
-			(signed_commitment.commitment.block_number - 1).into();
+
+		let num: subxt::rpc::types::BlockNumber = signed_commitment.commitment.block_number.into();
 		let block_hash = self
 			.inner
 			.relay
@@ -78,7 +78,11 @@ where
 		};
 
 		let (para_header_witness, paras_len) = {
-			let paras = self.inner.paras_parachains(Some(block_hash)).await?;
+			let block_hash = message.mmr.latest_mmr_leaf.parent_number_and_hash.1;
+			let paras = self
+				.inner
+				.paras_parachains(Some(R::Hash::decode(&mut &*block_hash.encode())?))
+				.await?;
 			let leaf_hashes = paras.iter().map(|l| keccak_256(&l.encode())).collect::<Vec<_>>();
 			let tree = MerkleTree::<KeccakHasher>::from_leaves(&leaf_hashes);
 

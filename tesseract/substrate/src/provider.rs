@@ -666,8 +666,8 @@ where
 			let compressed_call_len = zstd_safe::compress(&mut buffer[..], &encoded_call, 3)
 				.map_err(|_| anyhow!("Call compression failed"))?;
 			// If compression saving is less than 15% submit the uncompressed call
-			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len)
-				< 20usize
+			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) <
+				20usize
 			{
 				log::trace!(target: "tesseract", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
@@ -701,7 +701,7 @@ where
 		};
 		for msg in messages {
 			match msg {
-				Message::Request(req_msg) => {
+				Message::Request(req_msg) =>
 					for post in req_msg.requests {
 						let req = Request::Post(post);
 						let commitment = hash_request::<Hasher>(&req);
@@ -718,12 +718,11 @@ where
 
 							results.push(tx_receipt);
 						}
-					}
-				},
+					},
 				Message::Response(ResponseMessage {
 					datagram: RequestResponse::Response(resp),
 					..
-				}) => {
+				}) =>
 					for res in resp {
 						let commitment = hash_response::<Hasher>(&res);
 						let request_commitment = hash_request::<Hasher>(&res.request());
@@ -741,8 +740,7 @@ where
 
 							results.push(tx_receipt);
 						}
-					}
-				},
+					},
 				_ => {},
 			}
 		}

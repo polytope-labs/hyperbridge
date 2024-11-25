@@ -30,7 +30,7 @@ pub mod xcm;
 use alloc::sync::Arc;
 
 use cumulus_primitives_core::AggregateMessageOrigin;
-use frame_support::traits::TransformOrigin;
+use frame_support::traits::{EverythingBut, TransformOrigin};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use codec::{Decode, Encode, MaxEncodedLen};
@@ -63,7 +63,7 @@ use frame_support::{
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
-	traits::{ConstU32, ConstU64, ConstU8, Everything, InstanceFilter},
+	traits::{ConstU32, ConstU64, ConstU8, InstanceFilter},
 	weights::{
 		constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
 		WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -311,7 +311,10 @@ parameter_types! {
 // Configure FRAME pallets to include in runtime.
 
 use ::ismp::host::StateMachine;
-use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
+use frame_support::{
+	derive_impl,
+	traits::{tokens::pay::PayAssetFromAccount, Contains},
+};
 use pallet_collective::PrimeDefaultVote;
 use pallet_ismp::mmr::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
@@ -324,6 +327,18 @@ use sp_runtime::traits::IdentityLookup;
 use staging_xcm::latest::Location;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
+
+/// A type to identify calls to the treasury pallet and filter all spend related calls.
+pub struct IsTreasurySpend;
+impl Contains<RuntimeCall> for IsTreasurySpend {
+	fn contains(c: &RuntimeCall) -> bool {
+		matches!(
+			c,
+			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. }) |
+				RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
+		)
+	}
+}
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
@@ -360,7 +375,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = Everything;
+	type BaseCallFilter = EverythingBut<IsTreasurySpend>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -748,20 +763,19 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
 	fn filter(&self, c: &RuntimeCall) -> bool {
 		match self {
 			ProxyType::Any => true,
-			ProxyType::NonTransfer => {
-				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. })
-			},
+			ProxyType::NonTransfer =>
+				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. }),
 			ProxyType::CancelProxy => matches!(
 				c,
-				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. })
-					| RuntimeCall::Utility { .. }
-					| RuntimeCall::Multisig { .. }
+				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. }) |
+					RuntimeCall::Utility { .. } |
+					RuntimeCall::Multisig { .. }
 			),
 			ProxyType::Collator => matches!(
 				c,
-				RuntimeCall::CollatorSelection { .. }
-					| RuntimeCall::Utility { .. }
-					| RuntimeCall::Multisig { .. }
+				RuntimeCall::CollatorSelection { .. } |
+					RuntimeCall::Utility { .. } |
+					RuntimeCall::Multisig { .. }
 			),
 		}
 	}

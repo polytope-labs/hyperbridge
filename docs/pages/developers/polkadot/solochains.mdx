@@ -1,3 +1,8 @@
+---
+title: Solochain Integration
+description: For solochains that want to integrate with hyperbridge, a GRANDPA consensus client is provided as a way to track the finality of the Hyperbridge parachain through Polkadot. A consensus relayer is also provided, which is responsible for exchanging finality proofs of cross-chain messages.
+---
+
 # Solochain Integration
 
 For solochains that want to integrate with hyperbridge, a GRANDPA consensus client is provided as a way to track the finality of the Hyperbridge parachain through Polkadot. A consensus relayer is also provided, which is responsible for exchanging finality proofs of cross-chain messages.
@@ -155,6 +160,15 @@ This should print out a potentially long hex string. Next you'll use this hex st
 
 Once this is completed on your solochain, the same will need to also be executed on Hyperbridge. In similar fashion you can log the initial consensus of your solochain and [create an issue on our github](https://github.com/polytope-labs/hyperbridge/issues/new) to be added to the Hyperbridge testnet. On Hyperbridge mainnet, you'll instead submit a governance proposal for this.
 
+```bash
+docker run \
+--network=host \
+-v /path/to/consensus.toml:/root/consensus.toml \
+polytopelabs/tesseract-consensus:latest \
+--config=/root/consensus.toml \
+log-consensus-state SUBSTRATE-myid
+```
+
 ### Running the relayer
 
 Once all consensus states are set up, running the relayer is as easy as:
@@ -174,5 +188,10 @@ You will of course need to pair this with the [messaging relayer](/developers/ne
 ### Slot Numbers
 
 The GRANDPA consensus client relies on digest items in the header to communicate the current slot number. These digest items must be identified as either `BABE` or `AURA`. Solochains using custom block production algorithms must include the `AURA` digest item to ensure compatibility with the GRANDPA consensus client for producing valid consensus proofs.
+
+## Implementations
+
+- [ismp-grandpa](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/grandpa)
+- [grandpa-verifier](https://github.com/polytope-labs/hyperbridge/tree/main/modules/consensus/grandpa/verifier)
 
 

@@ -1,24 +1,24 @@
+---
+title: Hyperbridge Fees
+description: Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. For parachains and solochains that intend to send messages through Hyperbridge there are a few ways to make the fee payments required by the Hyperbridge protocol.
+---
 # Hyperbridge Fees
 
-For parachains and solochains that intend to send messages through Hyperbridge it is required that they make protocol fee payments for each request and response dispatched.
-Hyperbridge will only accept messages with state proofs of protocol fee payments, we provide a pallet that handles this.
+Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. For parachains and solochains that intend to send messages through Hyperbridge there are a few ways to make the fee payments required by the Hyperbridge protocol.
 
 ## Pallet Hyperbridge
 
-This pallet provides an Ismp dispatcher that handles protocol fee collection, it must be added to the runtime of any substrate chain that wishes to use Hyperbridge as a Coprocessor.
-Protocol fees are charged per byte of data in the request or response body.
+This pallet provides an `IsmpDispatcher` implementation that handles both protocol and relayer fee collection. These fees are collected using the `Currency` implementation provided to `pallet-ismp`. This `Currency` implementation is ideally a stablecoin, which can be gotten from asset-hub for parachains, or bridged in using `pallet-token-gateway` for solochains.
 
-The pallet implements `IsmpModule` that must be integrated with your `IsmpRouter` implementation, this module allows this pallet receive parameter updates from hyperbridge and also process relayer fee withdrawals.
+The pallet also implements the `IsmpModule` and must be integrated with your `IsmpRouter`. This enables the pallet receive parameter updates from hyperbridge and also process relayer fee withdrawals.
 
 ```rust showLineNumbers
 impl pallet_hyperbridge::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    // pallet-ismp implements the IsmpHost
-    type IsmpHost = Ismp;
+    type IsmpHost = pallet_ismp::Pallet<Runtime>;
 }
 
 // ...
-
 construct_runtime! {
     // ...
     Ismp: pallet_ismp,
@@ -37,37 +37,59 @@ impl IsmpRouter for ModuleRouter {
         };
     }
 }
+
+// somewhere in your runtime
+#[pallet::weight(T::dispatch())]
+#[pallet::call_index(0)]
+pub fn send_message(
+    origin: OriginFor<T>,
+    post: DispatchPost,
+    fee: T::Balance,
+) -> DispatchResultWithPostInfo {
+    let signer = ensure_signed(origin)?;
+    // use pallet_hyperbridge as the dispatcher
+    let dispatcher = pallet_hyperbridge::Pallet::<Runtime>::default();
+    let commitment = dispatcher.dispatch_request(
+        DispatchRequest::Post(post),
+        FeeMetadata {
+            payer: signer,
+            fee,
+        }
+    )?;
+
+    Ok(())
+}
 ```
 
-## Protocol Fees
+### Relayer Fees
 
-Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the user account that dispatched the request.
+The relayer fee is an optional incentive provided by applications initiating cross-chain transactions. It compensates Hyperbridge's decentralized relayers for delivering messages to the destination chain.
+
+#### Components
+
+The fee consists of three parts:
+
+ - **Proof verification cost**: For a cross-chain message to be delivered and executed, it must first be authenticated through state proofs. The expected cost for state proof verification on Evm chains is 150k gas. Modules should account for this cost when setting the relayer fee.
+
+ - **Message execution gas cost**:
+    After proof verification, the receiving module is handed the request to be executed. This will consume some gas which should also be accounted for
+
+ - **Relayer service fee**:
+    This additional amount rewards relayers for their services. Relayers are profit-Driven mediators and they will prioritize messages with fees that ensure profitability.
+
+Calculating the relayer fee can be expressed as follows:
+
+```
+destination_gas_cost = 150_000 + receiving_module_gas_cost
+relayer_fee = gas_price_to_usd(destination_gas_price * destination_gas_cost) + relayer_tip_usd
+```
 
 
-## Relayer Fees
+## Pay in BRIDGE tokens 
 
-The relayer fee is an optional incentive provided by users initiating cross-chain transactions. It compensates Hyperbridge's decentralized relayers for delivering messages to the destination chain.
+The easiest way to pay Hyperbridge, will be simply to set up your own [relayer](/developers/network/relayer) and pays Hyperbridge in it's native token: BRIDGE. In this manner, you don't have to pay for dispatching requests on your chain, and payments for request happen entirely offchain at the point of relaying requests to Hyperbridge. This has a few upsides such as fewer pallets in your runtime and less configuration overhead, at the cost of maintaining your own offchain relayer.
 
-### Components
-The fee consists of two parts:
-* Gas fee
-    This covers the cost of executing the message on the destination chain.
-* Relayer service fee
-    This additional amount rewards relayers for their services.
-    Relayers are profit-Driven mediators and they will prioritize messages with fees that ensure profitability.
-
-#### Setting the Fee
-To account for potential gas price fluctuations during message delivery, consider the following:
-* Proof verification gas cost
-    Base the fee on the typical gas required for state proof verification (around 120k gas in USD equivalent).
-* Message execution gas cost
-    The usd equivalent for the gas cost of executing the message
-* Gas price buffer
-    Include a buffer to accommodate gas price spikes.
-* Relayer service charge
-    Factor in a reasonable amount to compensate relayers.
-* Self-Relay Option
-    Users can choose to self-relay messages by omitting the relayer fee.
+This is because without `pallet-hyperbridge`, your runtime has no way of incentivizing 3rd party relayers to relay messages on your behalf.
 
 
 ## Implementation

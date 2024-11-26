@@ -1,8 +1,8 @@
 # Dispatching Requests & Responses
 
-This section explores the means by which applications may leverage Hyperbridge to dispatch cross-chain message. It's important to understand that in Hyperbridge paralance, there are 3 different kinds of cross-chain messages. We'll explore each of them Below.
+This section explores the means by which applications may leverage Hyperbridge to dispatch cross-chain messages. It's important to understand that in Hyperbridge protocol, there are 3 different kinds of cross-chain messages. We'll explore each of them Below.
 
-## POST Request
+## POST Requests
 
 A POST request is simply a cross-chain message to be executed by some `IIsmpModule` on a destination. It's important to understand that **EOAs should not dispatch** POST requests directly, instead an application must be responsible for the dispatch. This way if the request delivery or execution fails on the destination, modules can "catch" this failure similar to the try/catch pattern and handle the failure case in the `onPostRequestTimeout` callback.
 
@@ -30,20 +30,11 @@ struct DispatchPost {
 ### Dispatch Parameters
 
 - `dest`: Destination chain, for this you'll use the `StateMachine` library eg `StateMachine.evm(1)` for Ethereum Mainnet.
-
-  <br />
-
 - `to`: Receiving module/contract address on the destination chain.
-
-  <br />
-
 - `body`: Serialized byte representation of the message (to be decoded by the receiving contract).
-  <br />
 - `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
   (timeout message) to revert changes.
-  <br />
 - `fee`: Optional relayer fees, this can also be set to zero if the application developers prefer to self-relay.
-  <br />
 - `payer`: The account that should receive a refund of the relayer fees if the request times out.
 
 ```solidity showLineNumbers
@@ -92,24 +83,11 @@ struct DispatchPostResponse {
 ### Dispatch Parameters
 
 - `request`: The request object that was previously received.
-
-  <br />
-
 - `response`: Opaque byte representation of the response message (to be decoded by the receiving contract).
-
-  <br />
-
 - `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
   (timeout message) to revert changes.
-
-  <br />
-
 - `fee`: Optional relayer incentive (zero for self-relay).
-
-  <br />
-
 - `payer`: The account that should receive a refund of the relayer fees if the request times out.
-  <br />
 
 ```solidity showLineNumbers
 // _host is variable that contains the EvmHost contract address
@@ -159,28 +137,12 @@ struct DispatchGet {
 ### Dispatch Parameters
 
 - `dest`: The chain whose database should be read (e.g., `StateMachine.evm(1)` for Ethereum Mainnet).
-
-  <br />
-
 - `height`: Block height at which the values should be fetched.
-
-  <br />
-
 - `keys`: Storage keys whose values need to be fetched.
-
-  <br />
-
 - `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
   (timeout message) to revert changes.
-
-  <br />
-
 - `fee`: Hyperbridge protocol fees for processing the request.
-
-  <br />
-
 - `sender`: The account initiating this request.
-  <br />
 
 ```solidity
 // _host is variable that contains the EvmHost contract address

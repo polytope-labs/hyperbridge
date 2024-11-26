@@ -1,3 +1,8 @@
+---
+title: Pallet ISMP
+description: This is the implementation of ISMP for substrate chains. It is the foundational component that allows communication over ISMP. It correctly composes the various ISMP components in the runtime.
+---
+
 # Pallet ISMP
 
 This is the implementation of ISMP for substrate chains. It is the foundational component that allows communication over ISMP. It correctly composes the various ISMP components in the runtime.
@@ -223,7 +228,7 @@ In this method, relayers and users will need to pay the native token for executi
 
 ### Offchain Indexing
 
-The `pallet-ismp` only stores "commitments" of hashes of requests onchain for storage proofs, while the full requests are stored offchain and using the [offchain indexing api](https://docs.rs/sp-io/38.0.0/sp_io/offchain/index.html). It would be prudent to enable offchain indexing by default in the node, so all nodes on the network store all requests offchain. You can do this in your `run` function in `command.rs`. [Here's an example](https://github.com/polytope-labs/hyperbridge/blob/main/parachain/node/src/command.rs#L168-L170)
+The `pallet-ismp` only stores "commitments" (hashes) of requests onchain for storage proofs, while the full requests are stored offchain and using the [offchain indexing api](https://docs.rs/sp-io/38.0.0/sp_io/offchain/index.html). It would be prudent to enable offchain indexing by default in the node, so all nodes on the network store all requests offchain. You can do this in your `run` function in `command.rs`. [Here's an example](https://github.com/polytope-labs/hyperbridge/blob/main/parachain/node/src/command.rs#L168-L170)
 
 ```rust showLineNumbers [command.rs]
 /// Parse command line arguments into service configuration.

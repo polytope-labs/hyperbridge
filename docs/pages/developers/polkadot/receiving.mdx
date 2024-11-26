@@ -1,8 +1,13 @@
-# ISMP Modules
+---
+title: Receiving cross chain messages
+description: To receive ISMP messages, pallets must implement the [`IIsmpModule`](https://docs.rs/ismp/latest/ismp/module/trait.IsmpModule.html) interface, this interface allows the `IsmpRouter` to dispatch verified cross chain messages to the pallet for execution.
+---
 
-This section will provide an in depth guide on how to build an ismp module. Usually in substrate an ismp module is going to be a pallet.
+# Receiving cross chain messages
 
-## Defining a Module Id
+To receive ISMP messages, pallets must implement the [`IIsmpModule`](https://docs.rs/ismp/latest/ismp/module/trait.IsmpModule.html) interface, this interface allows the `IsmpRouter` to dispatch verified cross chain messages to the pallet for execution.
+
+## Define a Module Id
 
 Ismp uses a unique module id to identify ismp modules and route messages correctly, in contract environments this module id is the contract address.
 For a substrate pallet, you will need to define an 8 byte module id that is unique to the pallet
@@ -69,7 +74,7 @@ pub mod pallet {
 		pub module: sp_core::H160,
 
 		/// Destination EVM host
-		pub destination: Ethereum,
+		pub destination: u32,
 
 		/// Timeout timestamp on destination chain in seconds
 		pub timeout: u64
@@ -86,7 +91,7 @@ pub mod pallet {
 		pub fn dispatch_to_evm(origin: OriginFor<T>, params: Params<T::Balance>) -> DispatchResult {
 			let origin = ensure_signed(origin)?;
 			let post = DispatchPost {
-				dest: StateMachine::Ethereum(params.destination),
+				dest: StateMachine::Evm(params.destination),
 				from: EXAMPLE_MODULE_ID.to_bytes(),
 				to: params.module.0.to_vec(),
 				timeout: params.timeout,
@@ -141,14 +146,15 @@ Now the pallet needs to be added to the runtime and also the `IsmpRouter`.
 ```rust showLineNumbers
 impl pallet_hyperbridge::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    // pallet-ismp implements the IsmpHost
     type IsmpHost = Ismp;
 }
 
 impl pallet_example::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    // Set pallet hyperbridge as the dispatcher
-    type IsmpDispatcher = Hyperbridge;
+    // you can either use pallet_ismp or 
+	// pallet_hyperbridge depending on your
+	// fee payment strategy
+    type IsmpDispatcher = pallet_hyperbridge::Pallet<Runtime>;
 }
 
 // ... omitted impl blocks
@@ -176,11 +182,12 @@ impl IsmpRouter for ModuleRouter {
 ```
 
 ## Security Considerations
-* Irreversible Changes:
 
-The `IsmpHost` doesn't store receipts for failed messages, ensure irreversible state changes occur only after a message effectively meets all success criteria.
+:::danger[Replay Attack Warning]
 
+The `IsmpHost` does not store receipts for failed messages. ie messages whose `IsmpModule` returns `Err`. This effectively allows messages to be re-executed until they time out. **Therefore you should ensure irreversible state changes occur only after a message effectively meets all success criteria**.
+:::
 
 ## Sample Implementation
 
- - [pallet-ismp-demo](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/demo/src/lib.rs)
+- [pallet-ismp-demo](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/demo/src/lib.rs)

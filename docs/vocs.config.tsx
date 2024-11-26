@@ -48,7 +48,7 @@ export default defineConfig({
     "Hyperbridge is a coprocessor for cryptographically secure interoperability",
   // todo: add logo
   ogImageUrl:
-    "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
+    "https://docs.hyperbridge.network/og.png",
   logoUrl: {
     light: "/logo_black.svg",
     dark: "/logo_white.svg",
@@ -417,7 +417,7 @@ export default defineConfig({
 
           {
             text: "Dispatching Messages",
-            link: "/developers/polkadot/delivery",
+            link: "/developers/polkadot/dispatching",
           },
 
           {
@@ -427,7 +427,7 @@ export default defineConfig({
 
           {
             text: "Receiving Messages",
-            link: "/developers/polkadot/modules",
+            link: "/developers/polkadot/receiving",
           },
 
           {
@@ -453,6 +453,12 @@ export default defineConfig({
           {
             text: "Running a Relayer",
             link: "/developers/network/relayer",
+            items: [
+              {
+                text: "Common Errors",
+                link: "/developers/network/relayer/errors",
+              },
+            ]
           },
         ],
       },

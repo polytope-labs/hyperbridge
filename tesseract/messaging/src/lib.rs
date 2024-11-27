@@ -102,10 +102,14 @@ where
 					chain_b,
 					hyperbridge,
 					tx_payment,
-					config,
+					config.clone(),
 					coprocessor,
 					client_map,
-					Some(sender),
+					if !config.disable_fee_accumulation.unwrap_or_default() {
+						Some(sender)
+					} else {
+						None
+					},
 					None,
 				)
 				.await;
@@ -117,21 +121,23 @@ where
 
 	// Fee accumulation background task
 	{
-		let hyperbridge = hyperbridge.clone();
-		let dest = chain_b.clone();
-		let client_map = client_map.clone();
-		let tx_payment = tx_payment.clone();
-		let name = format!("fee-acc-{}-{}", dest.name(), hyperbridge.name());
-		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
-			"fees",
-			async move {
-				let res =
-					fee_accumulation(receiver, dest, hyperbridge, client_map, tx_payment).await;
-				tracing::error!("{name} terminated with result {res:?}");
-			}
-			.boxed(),
-		);
+		if !config.disable_fee_accumulation.unwrap_or_default() {
+			let hyperbridge = hyperbridge.clone();
+			let dest = chain_b.clone();
+			let client_map = client_map.clone();
+			let tx_payment = tx_payment.clone();
+			let name = format!("fee-acc-{}-{}", dest.name(), hyperbridge.name());
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name.clone())),
+				"fees",
+				async move {
+					let res =
+						fee_accumulation(receiver, dest, hyperbridge, client_map, tx_payment).await;
+					tracing::error!("{name} terminated with result {res:?}");
+				}
+				.boxed(),
+			);
+		}
 	}
 
 	{

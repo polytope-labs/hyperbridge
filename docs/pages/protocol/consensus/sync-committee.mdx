@@ -10,7 +10,7 @@ import Algorithm from '../../../components/Algorithm';
 
 This technical specification assumes that you’re already aware of [the sync committee protocol](https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#introduction) introduced in altair, the first hard fork of the ethereum beacon chain. If not, tl;dr: The original attestation protocol unfortunately did not include succint BLS public key aggregation, which would’ve made it cheap to verify by light clients given that there are now almost [500k authorities](https://beaconscan.com/) actively validating blocks on the beacon chain.
 
-This hypothetical succint BLS public key aggreation scheme, would’ve allowed us to verify the Casper FFG attestation protocol directly by aggregating all 500k validators’ public keys into a smaller set of BLS public keys. But unfortunately, it doesn’t exist.
+This hypothetical succicnt BLS public key aggregation scheme, would’ve allowed us to verify the Casper FFG attestation protocol directly by aggregating all 500k validators’ public keys into a smaller set of BLS public keys. But unfortunately, it doesn’t exist.
 
 Some napkin math reveals:
 

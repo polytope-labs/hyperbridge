@@ -1,0 +1,63 @@
+---
+title: ISMP Parachain Inherent Provider
+description: The parachain inherent provider turns collators into consensus relayers for parachains.
+---
+
+# ISMP Parachain Inherent Provider
+
+
+This module leverages the [`ProvideInherent`](https://docs.rs/frame-support/latest/frame_support/inherent/trait.ProvideInherent.html) functionality to submit consensus update messages. This approach offers a significant advantage:
+
+ - **Eliminating Off-chain Consensus Relayer** : By utilizing inherent messages for receiving consensus messages about finalized parachain block headers, the need for a separate off-chain consensus relayer is eliminated.
+ - **Simplified Architecture** : This reduces the overall system complexity by removing an external component (the off-chain consensus relayer).
+ - **Improved Efficiency** : Inherents are a built-in mechanism within the polkadot-sdk, allowing the collator to act as the consensus relayer.
+
+The inherent provider module needs to be added to the collator's client subsystems as shown in the code below
+
+```rust showLineNumbers
+fn start_consensus(
+    client: Arc<FullClient>,
+    backend: Arc<FullBackend>,
+    block_import: ParachainBlockImport,
+    prometheus_registry: Option<&Registry>,
+    telemetry: Option<TelemetryHandle>,
+    task_manager: &TaskManager,
+    relay_chain_interface: Arc<dyn RelayChainInterface>,
+    transaction_pool: Arc<sc_transaction_pool::FullPool<opaque::Block, FullClient>>,
+    sync_oracle: Arc<SyncingService<opaque::Block>>,
+    keystore: KeystorePtr,
+    relay_chain_slot_duration: Duration,
+    para_id: ParaId,
+    collator_key: CollatorPair,
+    overseer_handle: OverseerHandle,
+    announce_block: Arc<dyn Fn(opaque::Hash, Option<Vec<u8>>) + Send + Sync>,
+) {
+    // .. omitted calls
+
+    let (client_clone, relay_chain_interface_clone) =
+        (client.clone(), relay_chain_interface.clone());
+    let params = lookahead::Params {
+        create_inherent_data_providers: move |parent, ()| {
+            let client = client_clone.clone();
+            let relay_chain_interface = relay_chain_interface_clone.clone();
+            async move {
+                let inherent = ismp_parachain_inherent::ConsensusInherentProvider::create(
+                    parent,
+                    client,
+                    relay_chain_interface,
+                ).await?;
+
+                Ok(inherent)
+            }
+        },
+        ..Default::default()
+        // omitted fields
+    };
+
+    // ..omitted calls
+}
+```
+
+## Implementation
+
+ - [ismp-parachain-inherent](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/inherent/src/lib.rs)

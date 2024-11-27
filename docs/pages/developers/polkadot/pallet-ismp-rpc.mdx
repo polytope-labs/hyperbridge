@@ -1,3 +1,8 @@
+---
+title: Pallet ISMP RPC
+description: This is the RPC interface of ISMP for offchain clients.
+---
+
 # RPC Interface
 
 ISMP leverages a combination of on-chain and off-chain components to facilitate interoperability. Here's a breakdown of their roles:
@@ -18,7 +23,7 @@ Query results obtained through this interface are formatted in JSON (JavaScript 
 
 For offchain components that need to read the state of pallet-ismp, an rpc client is provided, this should be added to the rpc server in the substrate node.
 
-```rust showLineNumbers
+```rust showLineNumbers [rpc.rs]
 // RPC API Implementation for pallet-ismp
 /// Full client dependencies
 pub struct FullDeps<C, P, B> {

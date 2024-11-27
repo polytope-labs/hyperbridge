@@ -97,7 +97,7 @@ async fn relay_get_response_message(
 	.await
 	{
 		tx_res_hash = tx_hash;
-		break
+		break;
 	}
 
 	let get_resp_event = chain_a_client
@@ -131,8 +131,9 @@ async fn create_clients(
 		signer: Some(
 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 		),
-		latest_height: None,
+		initial_height: None,
 		max_concurent_queries: None,
+		poll_interval: None,
 	};
 
 	let chain_b_config = SubstrateConfig {
@@ -144,8 +145,9 @@ async fn create_clients(
 		signer: Some(
 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 		),
-		latest_height: None,
+		initial_height: None,
 		max_concurent_queries: None,
+		poll_interval: None,
 	};
 
 	// setup state machines

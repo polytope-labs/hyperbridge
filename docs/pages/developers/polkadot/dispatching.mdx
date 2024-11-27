@@ -1,0 +1,204 @@
+---
+title: Dispatching Requests & Responses
+description: This section explores the means by which pallets may leverage Hyperbridge to dispatch cross-chain messages. It's important to understand that in Hyperbridge protocol, there are 3 different kinds of cross-chain messages.
+---
+
+# Dispatching Requests & Responses
+
+This section explores the means by which pallets may leverage Hyperbridge to dispatch cross-chain messages. It's important to understand that in Hyperbridge protocol, there are 3 different kinds of cross-chain messages. We'll explore each of them Below.
+
+## POST Requests
+
+A POST request is simply a cross-chain message to be executed by some `IIsmpModule` on a destination. A POST request may also timeout, potentially as a result of liveness failures of the destination chain or failure to execute the message successfully. Through this mechanism, modules can "catch" this failure similar to the try/catch pattern and handle the failure case in the `on_timeout` callback.
+
+
+```rust showLineNumbers
+pub struct DispatchPost {
+    pub dest: StateMachine,
+    pub from: Vec<u8>,
+    pub to: Vec<u8>,
+    pub timeout: u64,
+    pub body: Vec<u8>,
+}
+
+struct FeeMetadata<T> {
+    pub payer: <T as Config>::AccountId,
+    pub fee: <T as Config>::Balance,
+}
+
+pub enum DispatchRequest {
+    Post(DispatchPost),
+    Get(DispatchGet),
+}
+
+trait IsmpDispatcher  {
+    fn dispatch_request(
+        &self,
+        request: DispatchRequest,
+        fee: FeeMetadata<T>,
+    ) -> Result<H256, Error>;
+
+    // ...
+}
+```
+
+### Dispatch Parameters
+
+- `dest`: Destination chain, for this you'll use the `StateMachine` enum eg `StateMachine::Evm(1)` for Ethereum Mainnet.
+- `from`: The initiaing module identifier on the source chain.
+- `to`: Receiving module/contract address on the destination chain.
+- `body`: Serialized byte representation of the message (to be decoded by the receiving contract).
+- `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
+  (timeout message) to revert changes.
+- `fee`: Optional relayer fees, should only be used if `pallet-hyperbridge` is the `IsmpDispatcher`. This can be set to zero if the application developers or users prefer to self-relay. If not this will withdraw the provided fee from the `Currency` implementation configured on `pallet-ismp`.
+- `payer`: The account that should receive a refund of the relayer fees if the request times out.
+
+```rust showLineNumbers
+#[pallet::weight(T::dispatch())]
+#[pallet::call_index(0)]
+pub fn send_message(
+    origin: OriginFor<T>,
+    post: DispatchPost,
+    fee: T::Balance,
+) -> DispatchResultWithPostInfo {
+    let signer = ensure_signed(origin)?;
+    let dispatcher = pallet_ismp::Pallet::<Runtime>::default();
+    let commitment = dispatcher.dispatch_request(
+        DispatchRequest::Post(post),
+        FeeMetadata {
+            payer: signer,
+            fee,
+        }
+    )?;
+
+    Ok(())
+}
+```
+
+## POST Responses
+
+Dispatching a POST response, going by it's name is, well, a response to a previously received POST request. Dispatching a POST response requires that the module has indeed received a post request from a counterparty chain in a previous transaction.
+
+```rust showLineNumbers
+pub struct PostResponse {
+    pub post: PostRequest,
+    pub response: Vec<u8>,
+    pub timeout_timestamp: u64,
+}
+
+trait IsmpDispatcher {
+    fn dispatch_response(
+        &self,
+        request: PostResponse,
+        fee: FeeMetadata<T>,
+    ) -> Result<H256, Error>;
+
+    // ...
+}
+```
+### Dispatch Parameters
+
+- `post`: The previously received request object. The full object is required to authenticate if the response is eligible for dispatch.
+- `response`: Serialized byte representation of the response message (to be decoded by the receiving contract).
+- `timeout_timestamp`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
+  (timeout message) to revert changes.
+- `fee`: Optional relayer fees, should only be used if `pallet-hyperbridge` is the `IsmpDispatcher`. This can be set to zero if the application developers or users prefer to self-relay. If not this will withdraw the provided fee from the `Currency` implementation configured on `pallet-ismp`.
+- `payer`: The account that should receive a refund of the relayer fees if the request times out.
+
+```rust showLineNumbers
+#[pallet::weight(T::dispatch())]
+#[pallet::call_index(0)]
+pub fn send_response(
+    origin: OriginFor<T>,
+    request: PostRequest,
+    fee: T::Balance,
+) -> DispatchResultWithPostInfo {
+    let signer = ensure_signed(origin)?;
+    let dispatcher = pallet_ismp::Pallet::<Runtime>::default();
+    let commitment = dispatcher.dispatch_response(
+        PostResponse {
+            post: request, 
+            response: *b"Hello there".to_vec(),
+            timeout_timestamp: 0, // no timeout
+        },
+        FeeMetadata {
+            payer: signer,
+            fee,
+        }
+    )?;
+
+    Ok(())
+}
+```
+
+## GET Requests
+
+GET requests allow modules to perform asynchronous reads of a counterparty blockchain's state. This can be used to read either the [`Account`](https://github.com/ethereumjs/ethereumjs-monorepo/tree/master/packages/util#module-account) object, which is stored in the world state, or even storage slots in a contract storage. Eg reading the price of a Uniswap pair on a remote chain.
+
+When dispatching get requests, you specify the storage keys you need to read and the block height at which you need to read these storage entries.
+
+```rust showLineNumbers
+pub struct DispatchGet {
+    pub dest: StateMachine,
+    pub from: Vec<u8>,
+    pub keys: Vec<Vec<u8>>,
+    pub height: u64,
+    pub context: Vec<u8>,
+    pub timeout: u64,
+}
+
+struct FeeMetadata<T> {
+    pub payer: <T as Config>::AccountId,
+    pub fee: <T as Config>::Balance,
+}
+
+pub enum DispatchRequest {
+    Post(DispatchPost),
+    Get(DispatchGet),
+}
+
+trait IsmpDispatcher  {
+    fn dispatch_request(
+        &self,
+        request: DispatchRequest,
+        fee: FeeMetadata<T>,
+    ) -> Result<H256, Error>;
+    // ...
+}
+```
+
+### Dispatch Parameters
+
+- `dest`: The chain whose database should be read (e.g., `StateMachine::Evm(1)` for Ethereum Mainnet).
+- `from`: The initiaing module identifier on the source chain.
+- `height`: Block height at which the provided keys should be fetched.
+- `keys`: Storage keys whose values should be fetched and verified.
+- `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
+  (timeout message) to revert changes.
+- `fee`: Hyperbridge protocol fees for processing the request. This should only be used if `pallet-hyperbridge` is the `IsmpDispatcher`. If non-zero this will withdraw the provided fee from the `Currency` implementation configured on `pallet-ismp`.
+- `payer`: The account initiating this request.
+
+
+```rust showLineNumbers
+#[pallet::weight(T::dispatch())]
+#[pallet::call_index(0)]
+pub fn read_state(
+    origin: OriginFor<T>,
+    get: DispatchGet,
+    fee: T::Balance,
+) -> DispatchResultWithPostInfo {
+    let signer = ensure_signed(origin)?;
+    let dispatcher = pallet_ismp::Pallet::<Runtime>::default();
+    let commitment = dispatcher.dispatch_request(
+        DispatchRequest::Get(get),
+        FeeMetadata {
+            payer: signer,
+            fee,
+        }
+    )?;
+
+    Ok(())
+}
+```
+
+In the next section we'll look at how Hyperbridge collects it's fees.

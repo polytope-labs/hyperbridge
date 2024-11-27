@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vocs dev --host",
+    "dev": "while true; do vocs dev --host && break; done",
     "build": "vocs build && node ./fixTrailingSlash.js",
     "preview": "vocs preview"
   },

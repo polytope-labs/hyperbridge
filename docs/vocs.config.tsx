@@ -48,8 +48,11 @@ export default defineConfig({
     "Hyperbridge is a coprocessor for cryptographically secure interoperability",
   // todo: add logo
   ogImageUrl:
-    "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
-  logoUrl: "/logo.svg",
+    "https://docs.hyperbridge.network/og.png",
+  logoUrl: {
+    light: "/logo_black.svg",
+    dark: "/logo_white.svg",
+  },
   head() {
     return (
       <>
@@ -302,16 +305,16 @@ export default defineConfig({
             link: "/developers/explore/relayers",
           },
           {
+            text: "Fishermen",
+            link: "/developers/explore/fishermen",
+          },
+          {
             text: "Hyperbridge Nexus",
             link: "/developers/explore/nexus",
             items: [
               {
                 text: "ISMP",
                 link: "/developers/explore/modules/ismp",
-              },
-              {
-                text: "Fishermen",
-                link: "/developers/explore/modules/fishermen",
               },
               {
                 text: "Host Executive",
@@ -334,30 +337,27 @@ export default defineConfig({
             link: "/developers/evm/getting-started",
           },
           {
+            text: "Dispatching Messages",
+            link: "/developers/evm/dispatching",
+          },
+          {
             text: "Fees",
             link: "/developers/evm/fees",
           },
-
           {
-            text: "Message Delivery",
-            link: "/developers/evm/delivery",
+            text: "Receiving Messages",
+            link: "/developers/evm/receiving",
           },
-
-          {
-            text: "Supported Networks",
-            link: "/developers/evm/networks",
-          },
-
           {
             text: "Contract Addresses",
             collapsed: false,
             items: [
               {
-                text: "Mainnet Addresses",
+                text: "Mainnet",
                 link: "/developers/evm/contracts/mainnet",
               },
               {
-                text: "Testnet Addresses",
+                text: "Testnet",
                 link: "/developers/evm/contracts/testnet",
               },
             ],
@@ -369,13 +369,45 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-            text: "Pallet ISMP",
-            link: "/developers/polkadot/integration",
+            text: "Getting Started",
+            link: "/developers/polkadot/getting-started",
           },
+
+          {
+            text: "Pallet ISMP",
+            link: "/developers/polkadot/pallet-ismp",
+            items: [
+              {
+                text: "Runtime API",
+                link: "/developers/polkadot/pallet-ismp-runtime-api",
+              },
+              {
+                text: "RPC Interface",
+                link: "/developers/polkadot/pallet-ismp-rpc",
+              },
+            ]
+          },
+
 
           {
             text: "Parachains",
             link: "/developers/polkadot/parachains",
+            items: [
+              {
+                text: "Runtime API",
+                link: "/developers/polkadot/ismp-parachain-runtime-api",
+              },
+              {
+                text: "Inherent Provider",
+                link: "/developers/polkadot/ismp-parachain-inherent",
+              },
+            ]
+          },
+
+
+          {
+            text: "Solochains (GRANDPA)",
+            link: "/developers/polkadot/solochains",
           },
 
           // {
@@ -384,13 +416,8 @@ export default defineConfig({
           // },
 
           {
-            text: "ISMP Modules",
-            link: "/developers/polkadot/modules",
-          },
-
-          {
-            text: "RPC Interface",
-            link: "/developers/polkadot/rpc",
+            text: "Dispatching Messages",
+            link: "/developers/polkadot/dispatching",
           },
 
           {
@@ -399,8 +426,8 @@ export default defineConfig({
           },
 
           {
-            text: "Message Delivery",
-            link: "/developers/polkadot/delivery",
+            text: "Receiving Messages",
+            link: "/developers/polkadot/receiving",
           },
 
           {
@@ -426,6 +453,12 @@ export default defineConfig({
           {
             text: "Running a Relayer",
             link: "/developers/network/relayer",
+            items: [
+              {
+                text: "Common Errors",
+                link: "/developers/network/relayer/errors",
+              },
+            ]
           },
         ],
       },

@@ -1,0 +1,30 @@
+---
+title: ISMP Parachain Runtime API
+description: This is required by the `ismp-parachain-inherent`. It is used to access the whitelist of sibling parachains to produce consensus proofs for.
+---
+
+# ISMP Parachain Runtime API
+
+This is required by the `ismp-parachain-inherent`. It is used to access the whitelist of sibling parachains to produce consensus proofs for. 
+
+To use this, Include the `ismp-parachain-runtime-api` implementation in your `impl_runtime_apis` section.
+
+```rust showLineNumbers [runtime.rs]
+use ismp_parachain_runtime_api::IsmpParachainApi;
+
+impl_runtime_apis! {
+    impl IsmpParachainApi<Block> for Runtime {
+        fn para_ids() -> Vec<u32> {
+            ismp_parachain::Pallet::<Runtime>::para_ids()
+        }
+
+        fn current_relay_chain_state() -> RelayChainState {
+            ismp_parachain::Pallet::<Runtime>::current_relay_chain_state()
+        }
+    }
+}
+```
+
+## Implementation
+
+ - [ismp-parachain-runtime-api](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/runtime-api/src/lib.rs)

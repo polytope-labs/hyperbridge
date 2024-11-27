@@ -115,7 +115,7 @@ $$
 L(x) = \sum^{n-1}_{i = 0} \mathcal{L}_i(x)
 $$
 
-This allows us create a KZG commitment to this polynomial $\textmd{g}^{L(s)}$ as part of the KZG set up ceremony. Since we know that $L(x_i) - \mathcal{L}_i(x_i) = 0$, thus the prover can can compute a KZG proof for the $x_i$-th coordinate using the quotient.
+This allows us create a KZG commitment to this polynomial $\textmd{g}^{L(s)}$ as part of the KZG set up ceremony. Since we know that $L(x_i) - \mathcal{L}_i(x_i) = 0$, thus the prover can compute a KZG proof for the $x_i$-th coordinate using the quotient.
 
 $$
 \psi(x) = \frac{L(x) - \mathcal{L}_i(x_i)}{(x - x_i)}

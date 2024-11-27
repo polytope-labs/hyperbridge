@@ -37,4 +37,6 @@ pub struct RelayerConfig {
 	pub deliver_failed: Option<bool>,
 	/// Start fisherman task?
 	pub fisherman: Option<bool>,
+	/// Should the relayer run the fee accumulation task?
+	pub disable_fee_accumulation: Option<bool>,
 }

@@ -12,6 +12,12 @@ body,
   font-size: var(--vocs-fontSize_root);
 }
 
+.vocs_NavLogo_logoImage {
+  height: 70px !important;
+  position: relative;
+  left: -20px;
+}
+
 code {
   font-family: "Berkeley Mono", monospace;
 }

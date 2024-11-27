@@ -5,14 +5,15 @@ description: Running the Hyperbridge relayer
 
 # Running a Relayer
 
-The Hyperbridge relayer (tesseract) can be obtained through a variety of ways. For now only release artifacts for x86 linux environments are  officially distributed. You can also build the relayer from source if you prefer.
+The Hyperbridge relayer (tesseract) can be obtained through a variety of ways. For now only release artifacts for x86 linux environments are officially distributed. You can also build the relayer from source if you prefer.
 
 ## Prebuilt binaries
 
 You can install a prebuilt binary for the Tesseract relayer with the following bash script
 
 ```bash
-wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-v0.3.3/tesseract-x86_64-unknown-linux-gnu.tar.gz
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-$LATEST_TAG/tesseract-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf tesseract-x86_64-unknown-linux-gnu.tar.gz
 # copy to $PATH
 cp tesseract-x86_64-unknown-linux-gnu/tesseract $HOME/.local/bin/
@@ -21,7 +22,8 @@ cp tesseract-x86_64-unknown-linux-gnu/tesseract $HOME/.local/bin/
 or a 1-liner
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-v0.3.3/tesseract-installer.sh | sh
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-$LATEST_TAG/tesseract-installer.sh | sh
 ```
 
 ## Docker
@@ -84,13 +86,14 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### Clone the repo
 
-Download a local copy of the repo and checkout the latest release tag
+Download a local copy of the repo and checkout the latest release version.
 
 ```bash
-export LATEST_TAG=tesseract-v0.3.3
+# fetch the latest tag from docker hub
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
 git clone https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbridge
-git checkout ${LATEST_TAG}
+git checkout tesseract-${LATEST_TAG}
 ```
 
 ### Build the tesseract relayer
@@ -102,7 +105,9 @@ cargo build --release -p tesseract
 The Tesseract relayer will now be available at `target/release/tesseract`, You can move the binary to your `$PATH` so you can run it directly.
 
 <br />
-Update your path to include `${HOME}/.local/bin`. If you are using Bash, run the following. Alternatively, replace `${HOME}/.bashrc` with `${HOME}/.zshrc` if using Zsh. Replace `source` with `.` if necessary.
+Update your path to include `${HOME}/.local/bin`. If you are using Bash, run the
+following. Alternatively, replace `${HOME}/.bashrc` with `${HOME}/.zshrc` if
+using Zsh. Replace `source` with `.` if necessary.
 
 ```bash
 # add .local/bin to path if it doesn't exist
@@ -146,7 +151,7 @@ At the minimum, the hyperbridge relayer should be run on a machine with at least
 
 A community member has graciously provided their ansible playbook for running the hyperbridge relayer. You can find it here:
 
- - [schmiatz/hyperbridge-relayer](https://github.com/schmiatz/hyperbridge-relayer)
+- [schmiatz/hyperbridge-relayer](https://github.com/schmiatz/hyperbridge-relayer)
 
 ## Configuration
 
@@ -160,6 +165,13 @@ state_machine = "KUSAMA-4009"
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 # Sets the maximum size of an rpc request or response in bytes defaults to 150mb
 max_rpc_payload_size = 150000000
+# (Optional) initial height
+# This sets the height at which to start querying messages,
+# This exists for testing and development, wrong use can cause the rpc to be overloaded with queries
+# initial_height = 1000
+
+# (Optional) Frequency with which to query the chain for new state machine updates,
+poll_interval = 10
 
 # Relayer config, required
 [relayer]
@@ -182,13 +194,17 @@ delivery_endpoints = [
     "EVM-84532",
     "EVM-97"
 ]
+# (Optional)Disable fee accumulation task
+# If this value is true, fee accumulation will be disabled.
+# This should only be enabled when running a private relayer
+disable_fee_accumulation = false
 
 # Here you'll declare a new chain entry for every chain you want to support.
 # eg ethereum
 [ethereum]
 # configuration type can be either "evm" or "substrate"
 type = "evm"
-# State machine identifier for the this evm chain. 
+# State machine identifier for this evm chain.
 # Must be specified as:
 # - "EVM-{chainId}"
 
@@ -252,6 +268,13 @@ gas_price_buffer = 1
 # client_type = Erigon
 # If this field is not set, the default is Geth
 client_type = "Geth"
+# (Optional) initial height
+# This sets the height at which to start querying messages,
+# This exists for testing and development, wrong use can cause the rpc to be overloaded with queries
+# initial_height = 1000
+
+# (Optional) Frequency with which to query the chain for new state machine updates
+poll_interval = 10
 
 [substrate]
 type = "substrate"
@@ -269,6 +292,12 @@ max_rpc_payload_size = 150000000 # 150MB
 consensus_state_id = "PARA"
 # hex-encoded private key for the relayer account on this chain
 signer = ""
+# (Optional) Frequency with which to query the chain for new state machine updates,
+poll_interval = 10
+# (Optional) initial height
+# This sets the height at which to start querying messages,
+# This exists for testing and development, wrong use can cause the rpc to be overloaded with queries
+# initial_height = 1000
 ```
 
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
@@ -277,7 +306,7 @@ You can obtain the required etherscan API key by following [this guide](https://
 
 ### Contract addresses
 
-You can find the up-to-date contract addresses for the `Handler` & `IsmpHost` contracts [here](/developers/evm/contract-addresses#gargantua-v2-paseo)
+You can find the addresses for the `IsmpHost` contracts for [mainnet](developers/evm/contracts/mainnet) and [testnet](developers/evm/contracts/testnet)
 
 ## Withdrawing Fees
 
@@ -314,10 +343,11 @@ tesseract --config=$HOME/config.toml --db=$HOME/tesseract.db accumulate-fees --w
 The relayer also runs background tasks for automatic fee accumulation and withdrawals. Whenever a batch of messages is successfully delivered, the fee accumulation task receives the delivery receipts and starts the process of accumulating the fees on hyperbridge. This process happens concurrently for all successfully delivered message batches. For redundancy, the delivery receipts are stored in the database prior to accumulation so they can be retried manually if any error is encountered.
 
 <br />
-Withdrawing fees from hyperbridge is triggered at fixed intervals based on the configured
-`withdrawal_frequency` and `minimum_withdrawal_amount`. Feel free to the adjust these
-values as desired. The task will only make a withdrawal attempt if your balance on
-hyperbridge is greater than or equal to the configured `minimum_withdrawal_amount`.
-Any failed withdrawal attempts will be retried each time the withdrawal task is triggered.
-The manual processes described in the previous sections can be used as fallbacks
-when errors are encountered by their automated conterparts.
+Withdrawing fees from hyperbridge is triggered at fixed intervals based on the
+configured `withdrawal_frequency` and `minimum_withdrawal_amount`. Feel free to
+the adjust these values as desired. The task will only make a withdrawal attempt
+if your balance on hyperbridge is greater than or equal to the configured
+`minimum_withdrawal_amount`. Any failed withdrawal attempts will be retried each
+time the withdrawal task is triggered. The manual processes described in the
+previous sections can be used as fallbacks when errors are encountered by their
+automated conterparts.

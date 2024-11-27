@@ -81,6 +81,8 @@ pub struct EvmConfig {
 	pub gas_price_buffer: Option<u32>,
 	/// The client type the rpc is running, defaults to Geth
 	pub client_type: Option<ClientType>,
+	/// Initial height from which to start querying messages
+	pub initial_height: Option<u64>,
 }
 
 impl EvmConfig {
@@ -110,6 +112,7 @@ impl Default for EvmConfig {
 			poll_interval: Default::default(),
 			gas_price_buffer: Default::default(),
 			client_type: Default::default(),
+			initial_height: Default::default(),
 		}
 	}
 }
@@ -174,7 +177,11 @@ impl EvmClient {
 			consensus_state_id
 		};
 
-		let latest_height = client.get_block_number().await?.as_u64();
+		let latest_height = if let Some(initial_height) = config.initial_height {
+			initial_height
+		} else {
+			client.get_block_number().await?.as_u64()
+		};
 		let mut partial_client = Self {
 			client,
 			signer,
@@ -249,8 +256,10 @@ impl EvmClient {
 		&mut self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		self.initial_height =
-			counterparty.query_latest_height(self.state_machine_id()).await?.into();
+		if self.config.initial_height.is_none() {
+			self.initial_height =
+				counterparty.query_latest_height(self.state_machine_id()).await?.into();
+		}
 
 		log::info!("Initialized height for {:?} at {}", self.state_machine, self.initial_height);
 

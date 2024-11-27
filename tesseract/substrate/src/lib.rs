@@ -61,10 +61,12 @@ pub struct SubstrateConfig {
 	pub max_rpc_payload_size: Option<u32>,
 	/// Relayer account seed
 	pub signer: Option<String>,
-	/// Latest state machine height
-	pub latest_height: Option<u64>,
+	/// Initial height from which to start querying messages
+	pub initial_height: Option<u64>,
 	/// Max concurrent rpc requests allowed
 	pub max_concurent_queries: Option<u64>,
+	/// Frequency at which state machine updates will be queried in seconds
+	pub poll_interval: Option<u64>,
 }
 
 /// Core substrate client.
@@ -81,7 +83,7 @@ pub struct SubstrateClient<C: subxt::Config> {
 	pub signer: sr25519::Pair,
 	/// Public Address
 	pub address: Vec<u8>,
-	/// Latest state machine height.
+	/// Initial height from which to start querying messages
 	initial_height: u64,
 	/// Max concurrent rpc requests allowed
 	max_concurent_queries: Option<u64>,
@@ -91,6 +93,8 @@ pub struct SubstrateClient<C: subxt::Config> {
 			Option<tokio::sync::broadcast::Sender<Result<StateMachineUpdated, StreamError>>>,
 		>,
 	>,
+	/// Substrate config
+	config: SubstrateConfig,
 }
 
 impl<C> SubstrateClient<C>
@@ -108,8 +112,8 @@ where
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height
-		let latest_height = if let Some(latest_height) = config.latest_height {
-			latest_height
+		let initial_height = if let Some(initial_height) = config.initial_height {
+			initial_height
 		} else {
 			client
 				.rpc()
@@ -121,12 +125,13 @@ where
 		};
 		let bytes = config
 			.signer
+			.clone()
 			.and_then(|seed| from_hex(&seed).ok())
 			.unwrap_or(H256::random().0.to_vec());
 		let signer = sr25519::Pair::from_seed_slice(&bytes)?;
 		let mut consensus_state_id: ConsensusStateId = Default::default();
 		consensus_state_id
-			.copy_from_slice(config.consensus_state_id.unwrap_or("PARA".into()).as_bytes());
+			.copy_from_slice(config.consensus_state_id.clone().unwrap_or("PARA".into()).as_bytes());
 		let address = signer.public().0.to_vec();
 		Ok(Self {
 			client,
@@ -135,9 +140,10 @@ where
 			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
 			signer,
 			address,
-			initial_height: latest_height,
+			initial_height,
 			max_concurent_queries: config.max_concurent_queries,
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
+			config,
 		})
 	}
 
@@ -154,7 +160,9 @@ where
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let name = counterparty.name();
-		self.initial_height = self.query_finalized_height().await?.into();
+		if self.config.initial_height.is_none() {
+			self.initial_height = self.query_finalized_height().await?.into();
+		}
 		log::info!(
 			"Initialized height for {:?}->{name} at {}",
 			self.state_machine,
@@ -192,6 +200,7 @@ impl<C: subxt::Config> Clone for SubstrateClient<C> {
 			initial_height: self.initial_height,
 			max_concurent_queries: self.max_concurent_queries,
 			state_machine_update_sender: self.state_machine_update_sender.clone(),
+			config: self.config.clone(),
 		}
 	}
 }

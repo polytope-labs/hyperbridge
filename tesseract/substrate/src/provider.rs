@@ -515,8 +515,9 @@ where
 			tokio::task::spawn(async move {
 				let mut latest_height = latest_height;
 				let state_machine = client.state_machine;
+				let poll_interval = client.config.poll_interval.unwrap_or(10);
 				loop {
-					tokio::time::sleep(Duration::from_secs(10)).await;
+					tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 					let header = match client.client.rpc().finalized_head().await {
 						Ok(hash) => match client.client.rpc().header(Some(hash)).await {
 							Ok(Some(header)) => header,
@@ -829,7 +830,7 @@ where
 		let key = fisherman_storage_key(self.address());
 		let raw_params = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
 		if raw_params.is_none() {
-			return Ok(())
+			return Ok(());
 		}
 
 		let signer = InMemorySigner {

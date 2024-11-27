@@ -1,0 +1,170 @@
+# Dispatching Requests & Responses
+
+This section explores the means by which applications may leverage Hyperbridge to dispatch cross-chain messages. It's important to understand that in Hyperbridge protocol, there are 3 different kinds of cross-chain messages. We'll explore each of them Below.
+
+## POST Requests
+
+A POST request is simply a cross-chain message to be executed by some `IIsmpModule` on a destination. It's important to understand that **EOAs should not dispatch** POST requests directly, instead an application must be responsible for the dispatch. This way if the request delivery or execution fails on the destination, modules can "catch" this failure similar to the try/catch pattern and handle the failure case in the `onPostRequestTimeout` callback.
+
+A post request is created using the `DispatchPost` struct
+
+```solidity showLineNumbers
+// An object for dispatching post requests 
+struct DispatchPost {
+    // Use the StateMachine library to create this
+    bytes dest;
+    // The destination module
+    bytes to;
+    // The request body
+    bytes body;
+    // timeout for this request in seconds
+    uint64 timeout;
+    // The amount put up to be paid to the relayer, 
+    // this is in DAI and charged to msg.sender
+    uint256 fee;
+    // who pays for this request?
+    address payer;
+}
+```
+
+### Dispatch Parameters
+
+- `dest`: Destination chain, for this you'll use the `StateMachine` library eg `StateMachine.evm(1)` for Ethereum Mainnet.
+- `to`: Receiving module/contract address on the destination chain.
+- `body`: Serialized byte representation of the message (to be decoded by the receiving contract).
+- `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
+  (timeout message) to revert changes.
+- `fee`: Optional relayer fees, this can also be set to zero if the application developers prefer to self-relay.
+- `payer`: The account that should receive a refund of the relayer fees if the request times out.
+
+```solidity showLineNumbers
+function send_message(
+    bytes memory message,
+    uint64 timeout,
+    address to,
+    uint256 relayerFee
+) public payable returns (bytes32) {
+    DispatchPost memory post = DispatchPost({
+        body: message,
+        dest: StateMachine.evm(1),
+        timeout: timeout,
+        to: abi.encodePacked(to),
+        fee: relayerFee,
+        payer: tx.origin
+    });
+
+    return IDispatcher(_host).dispatch{value: msg.value}(post);
+}
+```
+
+## POST Responses
+
+Dispatching a POST response, going by it's name is, well, a response to a previously received POST request. Dispatching a POST response requires that the contract has indeed received a post request from a counterparty chain in a previous transaction.
+
+A post response dispatch has the following fields:
+
+```solidity showLineNumbers
+// An object for dispatching post responses 
+struct DispatchPostResponse {
+    // The request that initiated this response
+    PostRequest request;
+    // bytes for post response
+    bytes response;
+    // timeout for this response in seconds
+    uint64 timeout;
+    // The amount put up to be paid to the relayer, 
+    // this is in DAI and charged to msg.sender
+    uint256 fee;
+    // who pays for this request?
+    address payer;
+}
+```
+
+### Dispatch Parameters
+
+- `request`: The request object that was previously received.
+- `response`: Opaque byte representation of the response message (to be decoded by the receiving contract).
+- `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
+  (timeout message) to revert changes.
+- `fee`: Optional relayer incentive (zero for self-relay).
+- `payer`: The account that should receive a refund of the relayer fees if the request times out.
+
+```solidity showLineNumbers
+// _host is variable that contains the EvmHost contract address
+function sendResponse(
+    PostRequest memory request,
+    bytes memory response,
+    uint64 timeout,
+    uint256 relayerFee
+) public payable returns (bytes32) {
+    DispatchPostResponse memory postResponse = DispatchPostResponse({
+        request: request,
+        response: response,
+        timeout: timeout,
+        fee: relayerFee,
+        payer: msg.sender
+    });
+
+    return IDispatcher(_host).dispatch{value: msg.value}(postResponse);
+}
+```
+
+## GET Requests
+
+GET requests allow contracts to perform asynchronous reads of a counterparty blockchain's state. This can be used to read either the [`Account`](https://github.com/ethereumjs/ethereumjs-monorepo/tree/master/packages/util#module-account) object, which is stored in the world state, or even storage slots in a contract storage. Eg reading the price of a Uniswap pair on a remote chain.
+
+When dispatching get requests,
+you specify the storage keys you need to read and the block height at which you need to read these storage entries.
+
+```solidity
+// An object for dispatching get requests 
+struct DispatchGet {
+    // bytes representation of the destination state machine
+    bytes dest;
+    // height at which to read the state machine
+    uint64 height;
+    // Storage keys to read
+    bytes[] keys;
+    // timeout for this request in seconds
+    uint64 timeout;
+    // The initiator of this request
+    address sender;
+    // Hyperbridge protocol fees for processing this request.
+    uint256 fee;
+}
+```
+
+### Dispatch Parameters
+
+- `dest`: The chain whose database should be read (e.g., `StateMachine.evm(1)` for Ethereum Mainnet).
+- `height`: Block height at which the values should be fetched.
+- `keys`: Storage keys whose values need to be fetched.
+- `timeout`: Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action
+  (timeout message) to revert changes.
+- `fee`: Hyperbridge protocol fees for processing the request.
+- `sender`: The account initiating this request.
+
+```solidity
+// _host is variable that contains the EvmHost contract address
+function readState(
+    bytes memory dest,
+    bytes[] memory keys,
+    uint64 timeout,
+    uint256 fee,
+    uint256 height
+) public payable returns (bytes32) {
+
+    DispatchGet memory getRequest = DispatchGet({
+        dest: dest,
+        keys: keys
+        height: height
+        timeout: timeout,
+        fee: fee,
+        sender: tx.origin
+    });
+
+    return IDispatcher(_host).dispatch{value: msg.value}(getRequest);
+}
+```
+
+In the next section we'll look at how Hyperbridge collects it's fees.

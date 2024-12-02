@@ -22,13 +22,14 @@ log = "0.4.19"
 sp-core = { workspace = true,  features = ["full_crypto"] }
 async-trait = "0.1.53"
 futures = "0.3.28"
-
+tokio = { version = "1.32.0", features = ["full"] }
+tokio-stream = "0.1.14"
+alloy-primitives = { workspace = true, features = ["rlp"] }
 
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }
 alloy-rlp-derive = { workspace = true }
-alloy-primitives = { workspace = true, features = ["rlp"] }
 hex = "0.4.3"
 dotenv = "0.15.0"
 tesseract-evm = { workspace = true, features = ["testing"] }

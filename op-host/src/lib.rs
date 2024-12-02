@@ -5,8 +5,11 @@ use abi::{
 use anyhow::anyhow;
 use ethabi::ethereum_types::{H256, U256};
 use ethers::{
+	core::k256::{ecdsa::SigningKey, SecretKey},
+	middleware::{MiddlewareBuilder, SignerMiddleware},
 	prelude::Provider,
 	providers::{Http, Middleware},
+	signers::{LocalWallet, Signer, Wallet},
 	types::H160,
 };
 use geth_primitives::Header;
@@ -16,7 +19,7 @@ use op_verifier::{
 	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT,
 };
 use serde::{Deserialize, Serialize};
-use sp_core::keccak_256;
+use sp_core::{bytes::from_hex, keccak_256, Pair};
 use std::sync::Arc;
 use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider};
@@ -49,6 +52,10 @@ pub struct HostConfig {
 	pub respected_game_type: Option<u32>,
 	/// Withdrawals Message Passer contract address on L2
 	pub message_parser: H160,
+	/// Confirmation delay
+	pub confirmation_delay: Option<u64>,
+	/// Proposer account, private key
+	pub proposer: String,
 }
 
 impl OpConfig {
@@ -84,6 +91,8 @@ pub struct OpHost {
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
 	pub provider: Arc<dyn IsmpProvider>,
+	/// Transaction signer
+	pub proposer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
 }
 
 pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
@@ -114,6 +123,20 @@ impl OpHost {
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
 
+		let bytes = match from_hex(host.proposer.as_str()) {
+			Ok(bytes) => bytes,
+			Err(_) => {
+				// it's probably a file.
+				let contents = tokio::fs::read_to_string(host.proposer.as_str()).await?;
+				from_hex(contents.as_str())?
+			},
+		};
+		let chain_id = beacon_client.get_chainid().await?.low_u64();
+		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
+		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
+			.with_chain_id(chain_id);
+		let proposer = Arc::new(beacon_client.clone().with_signer(signer));
+
 		Ok(Self {
 			op_execution_client: Arc::new(el),
 			beacon_execution_client: Arc::new(beacon_client),
@@ -128,6 +151,7 @@ impl OpHost {
 				consensus_state_id
 			},
 			provider,
+			proposer,
 		})
 	}
 

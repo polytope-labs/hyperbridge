@@ -175,10 +175,6 @@ The `pallet_ismp::Pallet<T>` implements the neccessary interfaces for the ISMP f
 
  - [`IsmpDispatcher`](/protocol/ismp/dispatcher): It implements `IsmpDispatcher` allowing it to dispatch requests and responses. This is the low-level ISMP framework dispatcher. It can be used to dispatch requests that are not addressed to Hyperbridge and perhaps meant for other state machines. Dispatching requests to be Hyperbridge should be done throught the [`pallet-hyperbridge`](/developers/polkadot/fees#pallet-hyperbridge) module. Which also implements the `IsmpDispatcher` interface but collects the necessary fees.
 
- :::danger[IMPORTANT]
- Once the Hyperbridge token goes live, requests or responses that are not dispatched by `pallet-hyperbridge` will not be processed by Hyperbridge. They will fail transaction pool validation and will not be included in blocks.
- :::
-
 
 ## Calls
 

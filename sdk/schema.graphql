@@ -1,0 +1,465 @@
+# To improve query performance, we strongly suggest adding indexes to any field that you plan to filter or sort by
+# Add the `@index` or `@index(unique: true)` annotation after any non-key field
+# https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
+
+"""
+Assets currently supported by hyperbridge
+"""
+enum SupportedAssets {
+  WETH
+  WBTC
+  USDT
+  USDC
+  DAI
+  DOT
+}
+
+"""
+Supported Event Types
+"""
+enum EventType {
+  EVM_HOST_POST_REQUEST_HANDLED
+  EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED
+  EVM_HOST_POST_RESPONSE_HANDLED
+  EVM_HOST_POST_RESPONSE_TIMEOUT_HANDLED
+  EVM_HOST_GET_REQUEST_HANDLED
+  EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED
+  HANDLER_V1_STATE_MACHINE_UPDATED
+}
+
+"""
+The status of a request
+"""
+enum Status {
+  SOURCE
+  MESSAGE_RELAYED
+  DEST
+  TIMED_OUT
+}
+
+"""
+Types of participants in the Hyperbridge Protocol
+"""
+enum ProtocolParticipant {
+  RELAYER
+  FILLER
+  USER
+}
+
+"""
+System activity types related to reward points
+"""
+enum RewardPointsActivityType {
+  REWARD_POINTS_EARNED
+}
+
+"""
+Important Hyperbridge Stats for a specific chain
+"""
+type HyperBridgeChainStats @entity {
+  """
+  The chain the metrics are for
+  """
+  id: ID!
+
+  """
+  Total number of messages sent on Hyperbridge on this chain
+  """
+  numberOfMessagesSent: BigInt!
+
+  """
+  Total number of messages delivered by Hyperbridge on this chain
+  """
+  numberOfDeliveredMessages: BigInt!
+
+  """
+  Total number of failed messages sent by Hyperbridge on this chain
+  """
+  numberOfFailedDeliveries: BigInt!
+
+  """
+  Total number of timed out messages on this chain
+  """
+  numberOfTimedOutMessages: BigInt!
+
+  """
+  The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fee + relayer fee)
+  """
+  totalTransfersIn: BigInt!
+
+  """
+  Total amount of fees earned by Hyperbridge on the chain (protocol fees)
+  """
+  protocolFeesEarned: BigInt!
+
+  """
+  Total amount of fees payed out by Hyperbridge to relayers on the chain (relayer fees)
+  """
+  feesPayedOutToRelayers: BigInt!
+}
+
+"""
+Hyperbridge Stats for a specific Relayer on a specific chain
+"""
+type RelayerStatsPerChain @entity {
+  """
+  Unique identifier of the RelayerChainMetrics entry.
+  """
+  id: ID!
+
+  """
+  The relayer the metrics are for
+  """
+  relayer: Relayer!
+
+  """
+  The chain the metrics are for
+  """
+  chain: String!
+
+  """
+  Total number of successful post requests or post responses handled by the Relayer
+  """
+  numberOfSuccessfulMessagesDelivered: BigInt!
+
+  """
+  Total number of failed post requests handled by the Relayer
+  """
+  numberOfFailedMessagesDelivered: BigInt!
+
+  """
+  Amount of gas spent on successful messages (Gas Cost)
+  """
+  gasUsedForSuccessfulMessages: BigInt!
+
+  """
+  Amount of gas spent on failed messages (Gas Cost)
+  """
+  gasUsedForFailedMessages: BigInt!
+
+  """
+  Gas fee spent on successful post requests (Gas Cost * Gas Price)
+  """
+  gasFeeForSuccessfulMessages: BigInt!
+
+  """
+  Gas fee spent on failed post requests (Gas Cost * Gas Price)
+  """
+  gasFeeForFailedMessages: BigInt!
+
+  """
+  The USD value of the gas fee spent on successful post requests (Gas Fee * USD Value of Eth at the time of the transaction)
+  """
+  usdGasFeeForSuccessfulMessages: BigInt!
+
+  """
+  The USD value of the gas fee spent on failed post requests (Gas Fee * USD Value of Eth at the time of the transaction)
+  """
+  usdGasFeeForFailedMessages: BigInt!
+
+  """
+  Total fees earned by the relayer
+  """
+  feesEarned: BigInt!
+}
+
+"""
+A Hyperbridge Relayer
+"""
+type Relayer @entity {
+  """
+  Unique identifier of the Relayer (also the relayer's address)
+  """
+  id: ID!
+
+  """
+  A list of important stats for the Relayer on every network that they support
+  """
+  perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
+}
+
+"""
+Transfers made from/to the Hyperbridge Host
+- The host transfers fees to Relayers
+- The host receives fees from protocol users
+"""
+type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
+  """
+  Unique identifier of the Transfer
+  """
+  id: ID!
+
+  """
+  The chain on which the transfer was made
+  """
+  chain: String!
+
+  """
+  The amount transferred
+  """
+  amount: BigInt!
+
+  """
+  The address that made the transfer (the hyperbridge host address)
+  """
+  from: String! @index
+
+  """
+  The address that received the transfer (the relayer address)
+  """
+  to: String! @index
+}
+
+"""
+An event that has occured on an EVM Host
+"""
+type Event @entity {
+  """
+  The ID of the event (also the event commitment)
+  """
+  id: ID!
+  type: EventType!
+  chain: String!
+  blockHash: String!
+  blockNumber: BigInt!
+  transactionHash: String!
+  transactionIndex: BigInt!
+  data: String!
+  destination: String
+  createdAt: Date!
+}
+
+"""
+A StateMachine Update Event
+"""
+type StateMachineUpdateEvent @entity {
+  """
+  The ID of the StateMachineUpdate  (hash of concatenation of stateMachineId and height)
+  """
+  id: ID!
+  stateMachineId: String!
+  height: Int!
+  chain: String!
+  blockHash: String!
+  blockNumber: BigInt!
+  transactionHash: String!
+  transactionIndex: BigInt!
+  createdAt: Date!
+}
+
+"""
+A Hyperbridge Request
+"""
+type Request @entity {
+  """
+  Unique identifier of the Request (This is the request commitment)
+  """
+  id: ID!
+
+  """
+  The chain on which the request was made
+  """
+  chain: String!
+
+  """
+  This is the statemachine id where this request originated from
+  """
+  source: String
+
+  """
+  This is the statemachine where this request is been dispatched to
+  """
+  dest: String
+
+  """
+  This is the timestamp when the request would timeout
+  """
+  timeoutTimestamp: BigInt
+
+  """
+  The address that dispatched this request
+  """
+  from: String @index
+
+  """
+  The address receiving this request
+  """
+  to: String @index
+
+  """
+  Nonce of the request
+  """
+  nonce: BigInt @index
+
+  """
+  Body of the request
+  """
+  body: String @index
+
+  """
+  This is the fee set for this request
+  """
+  fee: BigInt @index
+
+  """
+  Status of the request
+  """
+  status: Status!
+
+  """
+  Metatdata about the request's progression through different statuses
+  """
+  statusMetadata: [RequestStatusMetadata]! @derivedFrom(field: "request")
+}
+
+"""
+Metadata about the status of a Request
+"""
+type RequestStatusMetadata @entity {
+  id: ID!
+  status: Status!
+  chain: String!
+  timestamp: BigInt!
+  blockNumber: String!
+  blockHash: String!
+  transactionHash: String!
+  request: Request!
+}
+
+"""
+A Hyperbridge Response
+"""
+type Response @entity {
+  """
+  Unique identifier of the Response (This is the response commitment)
+  """
+  id: ID!
+
+  """
+  The chain on which the response was made
+  """
+  chain: String!
+
+  """
+  The response message
+  """
+  response_message: String
+
+  """
+  The Timestamp at which this response expires in seconds
+  """
+  responseTimeoutTimestamp: BigInt
+
+  """
+  Status of the response
+  """
+  status: Status!
+
+  """
+  The request that triggered this response
+  """
+  request: Request
+
+  """
+  Metatdata about the response's progression through different statuses
+  """
+  statusMetadata: [ResponseStatusMetadata]! @derivedFrom(field: "response")
+}
+
+"""
+Metadata about the status of a Response
+"""
+type ResponseStatusMetadata @entity {
+  id: ID!
+  status: Status!
+  chain: String!
+  timestamp: BigInt!
+  blockNumber: String!
+  blockHash: String!
+  transactionHash: String!
+  response: Response!
+}
+
+"""
+Bids placed by fillers to fulfill requests
+"""
+type Bid @entity {
+  id: ID!
+  assetId: String!
+  bid: BigInt!
+  bidder: String!
+  commitment: String!
+  chain: String!
+}
+
+"""
+Bids that have been refunded after the associated request has timed out
+"""
+type BidRefund @entity {
+  id: ID!
+  assetId: String!
+  bidder: String!
+  commitment: String!
+  chain: String!
+}
+
+"""
+Liquidity requests fulfilled by a filler
+"""
+type FulfilledRequest @entity {
+  id: ID!
+  assetId: String!
+  bidder: String!
+  amount: BigInt!
+  chain: String!
+}
+
+"""
+Asset received by a user
+"""
+type AssetReceived @entity {
+  id: ID!
+  amount: BigInt!
+  assetId: String!
+  beneficiary: String!
+  chain: String!
+  commitment: String!
+  from: String!
+}
+
+"""
+Asset sent by a user
+"""
+type AssetTeleported @entity {
+  id: ID!
+  amount: BigInt!
+  assetId: String!
+  chain: String!
+  commitment: String!
+  from: String!
+  to: String!
+  redeem: Boolean!
+}
+
+"""
+Reward points earned by participants in the hyperbridge protocol
+"""
+type RewardPoints @entity {
+  id: ID!
+  address: String!
+  chain: String!
+  points: BigInt!
+  earnerType: ProtocolParticipant!
+}
+
+type RewardPointsActivityLog @entity {
+  id: ID!
+  chain: String!
+  points: BigInt!
+  transactionHash: String!
+  earnerAddress: String!
+  earnerType: ProtocolParticipant!
+  activityType: RewardPointsActivityType!
+  description: String!
+  createdAt: Date!
+}

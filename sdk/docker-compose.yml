@@ -1,0 +1,251 @@
+version: "3"
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: ./docker/pg-Dockerfile
+    ports:
+      - 5432:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  subquery-node-hyperbridge-gargantua:
+    image: onfinality/subql-node:v4.5.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/hyperbridge-gargantua.yaml
+      - --db-schema=app
+      - --workers=5
+      - --batch-size=10
+      - --disable-historical
+      - --multi-chain
+      - --log-level=info
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://subquery-node-hyperbridge-gargantua:3000/ready",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-ethereum-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/ethereum-sepolia.yaml
+      - --db-schema=app
+      - --workers=5
+      - --batch-size=10
+      - --disable-historical
+      - --multi-chain
+      - --log-level=info
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://subquery-node-ethereum-sepolia:3000/ready",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-base-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/base-sepolia.yaml
+      - --db-schema=app
+      - --workers=5
+      - --batch-size=10
+      - --disable-historical
+      - --multi-chain
+      - --log-level=info
+    healthcheck:
+      test:
+        ["CMD", "curl", "-f", "http://subquery-node-base-sepolia:3000/ready"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-optimism-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/optimism-sepolia.yaml
+      - --db-schema=app
+      - --workers=5
+      - --batch-size=10
+      - --disable-historical
+      - --multi-chain
+      - --log-level=info
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://subquery-node-optimism-sepolia:3000/ready",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-arbitrum-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/arbitrum-sepolia.yaml
+      - --db-schema=app
+      - --workers=5
+      - --batch-size=10
+      - --disable-historical
+      - --multi-chain
+      - --log-level=info
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://subquery-node-arbitrum-sepolia:3000/ready",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-bsc-chapel:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/bsc-chapel.yaml
+      - --db-schema=app
+      - --workers=5
+      - --batch-size=10
+      - --disable-historical
+      - --multi-chain
+      - --log-level=info
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel:3000/ready"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  graphql-engine:
+    image: subquerynetwork/subql-query:v2.9.0
+    ports:
+      - 3000:3000
+    depends_on:
+      "postgres":
+        condition: service_healthy
+      "subquery-node-ethereum-sepolia":
+        condition: service_healthy
+      "subquery-node-base-sepolia":
+        condition: service_healthy
+      "subquery-node-optimism-sepolia":
+        condition: service_healthy
+      "subquery-node-arbitrum-sepolia":
+        condition: service_healthy
+      "subquery-node-bsc-chapel":
+        condition: service_healthy
+      "subquery-node-hyperbridge-gargantua":
+        condition: service_healthy
+    restart: always
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    command:
+      - --name=app
+      - --playground
+
+volumes:
+  postgres_data:

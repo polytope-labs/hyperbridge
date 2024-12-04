@@ -8,6 +8,10 @@ use geth_primitives::Header;
 use ismp::{events::Event, messaging::CreateConsensusState};
 use op_verifier::{calculate_output_root, CANNON};
 use sp_core::{H160, H256, U256};
+use tesseract_evm::{
+	gas_oracle::get_current_gas_cost_in_usd,
+	tx::{get_chain_gas_limit, wait_for_success},
+};
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated};
 
 use crate::{
@@ -45,6 +49,8 @@ impl IsmpHost for OpHost {
 				let client = client.clone();
 				async move {
 					let mut latest_height = initial_height;
+					log::trace!(target: "tesseract", "Started Proposer for {:?} at {latest_height}", client.evm.state_machine());
+
 					loop {
 						tokio::time::sleep(Duration::from_secs(30)).await;
 						match lambda(&client, &mut latest_height, dispute_game_factory_address)
@@ -53,7 +59,7 @@ impl IsmpHost for OpHost {
 							Ok(Some(proposal)) => match tx.send(proposal) {
 								Ok(_) => {},
 								Err(err) => {
-									log::error!(
+									log::error!(target: "tesseract",
 										"Failed to send state proposal over channel {err:?}"
 									);
 									return;
@@ -61,7 +67,7 @@ impl IsmpHost for OpHost {
 							},
 							Ok(_) => {},
 							Err(e) => {
-								log::error!("Encountered error fetching state proposal {e:?}");
+								log::error!(target: "tesseract","Encountered error fetching state proposal {e:?}");
 							},
 						}
 					}
@@ -72,7 +78,7 @@ impl IsmpHost for OpHost {
 			while let Some(proposal) = stream.next().await {
 				match proposal {
 					Ok(proposal) => {
-						log::trace!(
+						log::trace!(target: "tesseract",
 							"Proposing state commitment for {:?}, block {:?}",
 							self.provider.state_machine_id().state_id,
 							proposal.block_number
@@ -89,39 +95,47 @@ impl IsmpHost for OpHost {
 						);
 						let call = call.value(proposal.bond);
 
-						let gas = call.estimate_gas().await;
+						let gas_limit = call
+							.estimate_gas()
+							.await
+							.unwrap_or(get_chain_gas_limit(self.host.l1_state_machine).into());
 
 						// Fetch gas price and use wait_for_success
+						let gas_price = get_current_gas_cost_in_usd(
+							self.host.l1_state_machine,
+							&self.host.l1_etherscan_api_key,
+							self.beacon_execution_client.clone(),
+						)
+						.await;
 
-						match gas {
-							Ok(gas) => match call.gas(gas).send().await {
-								// let evs = wait_for_success(client, progress, gas_price,
-								// retry).await?;
-								Ok(pending) => match pending.await {
-									Ok(Some(receipt)) => {
-										log::info!(
-											"Tx submitted successfully {:?}",
-											receipt.transaction_hash
-										)
-									},
-									Ok(None) => {
-										log::error!("Receipt not found for transaction");
-									},
-									Err(e) => {
-										log::error!("Error waiting for receipt");
-									},
+						match gas_price {
+							Ok(gas_price) => match call.clone().gas(gas_limit).send().await {
+								Ok(tx) => {
+									if let Err(err) = wait_for_success(
+										&self.host.l1_state_machine,
+										&self.host.l1_etherscan_api_key,
+										self.beacon_execution_client.clone(),
+										self.proposer.clone(),
+										tx,
+										Some(gas_price.gas_price),
+										Some(call.clone().gas(gas_limit)),
+									)
+									.await
+									{
+										log::error!("{err:?}");
+									}
 								},
 								Err(err) => {
-									log::error!("Error broadcasting state proposal");
+									log::error!(target: "tesseract","Error broadcasting state proposal {err:?}");
 								},
 							},
 							Err(err) => {
-								log::error!("Gas estimation for state proposal failed");
+								log::error!(target: "tesseract","Failed to fetch gas price {err:?}");
 							},
 						}
 					},
 					Err(e) => {
-						log::error!("Stream returned error {e:?}")
+						log::error!(target: "tesseract","Stream returned error {e:?}")
 					},
 				}
 			}
@@ -162,7 +176,6 @@ async fn lambda(
 		state_machine_id: client.provider.state_machine_id(),
 		latest_height: block_number,
 	};
-
 	let events = client.provider.query_ismp_events(*latest_height, event).await?;
 	*latest_height = block_number;
 	let event = events.into_iter().find(|ev| match &ev {
@@ -172,11 +185,11 @@ async fn lambda(
 
 	if event.is_some() {
 		// Wait for the chain to advance by a couple blocks
-		let confirmation_delay = client.host.confirmation_delay.unwrap_or(200);
-		log::trace!(
+		let confirmation_delay = client.host.confirmation_delay.unwrap_or(50);
+		log::trace!(target: "tesseract",
 			"Waiting for {} blocks before proposing {:?} state commitment",
 			confirmation_delay,
-			client.provider.state_machine_id()
+			client.provider.state_machine_id().state_id
 		);
 
 		let proposal = loop {
@@ -205,7 +218,7 @@ async fn lambda(
 					l2_block_hash,
 				);
 
-				let extra_data = alloy_primitives::U256::from(l2_block_number.as_u64())
+				let extra_data = alloy_primitives::U256::from(commitment_block_number)
 					.to_be_bytes::<32>()
 					.to_vec();
 
@@ -222,6 +235,7 @@ async fn lambda(
 				let latest_l2_block_number = game.l_2_block_number().call().await?.low_u64();
 				// If the latest game block number is greater than our block, exit
 				if latest_l2_block_number > commitment_block_number {
+					log::trace!(target: "tesseract","Latest proposed block {latest_l2_block_number} > commitment block{commitment_block_number}");
 					break None;
 				}
 
@@ -231,6 +245,8 @@ async fn lambda(
 				let bond = contract.init_bonds(CANNON).call().await?;
 				// If game exists exit
 				if proxy_addr != H160::zero() {
+					log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
+
 					break None;
 				}
 
@@ -247,6 +263,5 @@ async fn lambda(
 		};
 		return Ok(proposal);
 	}
-
 	Ok(None)
 }

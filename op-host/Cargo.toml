@@ -25,6 +25,7 @@ futures = "0.3.28"
 tokio = { version = "1.32.0", features = ["full"] }
 tokio-stream = "0.1.14"
 alloy-primitives = { workspace = true, features = ["rlp"] }
+serde-hex-utils = { workspace = true }
 
 
 [dev-dependencies]

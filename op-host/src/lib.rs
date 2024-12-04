@@ -56,6 +56,11 @@ pub struct HostConfig {
 	pub confirmation_delay: Option<u64>,
 	/// Proposer account, private key
 	pub proposer: String,
+	/// L1 state machine
+	#[serde(with = "serde_hex_utils::as_string")]
+	pub l1_state_machine: StateMachine,
+	/// Etherscan API key
+	pub l1_etherscan_api_key: String,
 }
 
 impl OpConfig {

@@ -27,7 +27,7 @@ use tx::handle_message_submission;
 
 pub mod abi;
 mod byzantine;
-mod gas_oracle;
+pub mod gas_oracle;
 pub mod provider;
 
 #[cfg(test)]

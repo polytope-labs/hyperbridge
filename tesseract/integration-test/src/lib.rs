@@ -1,5 +1,4 @@
 #![cfg(test)]
-#![deny(missing_docs, unused_imports)]
 
 use anyhow::anyhow;
 use futures::{FutureExt, StreamExt};

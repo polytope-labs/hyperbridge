@@ -5,8 +5,9 @@ use crate::{
 use anyhow::anyhow;
 use codec::Decode;
 use ethers::{
+	abi::Detokenize,
 	contract::{parse_log, FunctionCall},
-	core::k256::ecdsa,
+	core::k256::ecdsa::{self, SigningKey},
 	middleware::SignerMiddleware,
 	prelude::{
 		signer::SignerMiddlewareError, transaction::eip2718::TypedTransaction, ContractError, Log,
@@ -30,7 +31,7 @@ use ismp_solidity_abi::{
 };
 use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
-use primitive_types::{H160, H256, U256};
+use primitive_types::{H256, U256};
 use sp_mmr_primitives::utils::NodesUtils;
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt};
@@ -38,10 +39,10 @@ use tesseract_primitives::{Hasher, Query, TxReceipt};
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 
 /// Type alias
-type SolidityFunctionCall = FunctionCall<
+type SolidityFunctionCall<T> = FunctionCall<
 	Arc<SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>>,
 	SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>,
-	(),
+	T,
 >;
 
 #[async_recursion::async_recursion]
@@ -60,7 +61,16 @@ pub async fn submit_messages(
 				} else {
 					None
 				};
-				let evs = wait_for_success(client, progress, gas_price, retry).await?;
+				let evs = wait_for_success(
+					&client.config.state_machine,
+					&client.config.etherscan_api_key,
+					client.client.clone(),
+					client.signer.clone(),
+					progress,
+					gas_price,
+					retry,
+				)
+				.await?;
 				events.extend(evs);
 			},
 			Err(err) => {
@@ -96,23 +106,27 @@ pub async fn submit_messages(
 }
 
 #[async_recursion::async_recursion]
-async fn wait_for_success<'a>(
-	client: &EvmClient,
+pub async fn wait_for_success<'a, T>(
+	state_machine: &StateMachine,
+	etherscan_api_key: &String,
+	provider: Arc<Provider<Http>>,
+	signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
 	tx: PendingTransaction<'a, Http>,
 	gas_price: Option<U256>,
-	retry: Option<SolidityFunctionCall>,
+	retry: Option<SolidityFunctionCall<T>>,
 ) -> Result<BTreeSet<H256>, anyhow::Error>
 where
 	'a: 'async_recursion,
+	T: Detokenize + Send + Sync,
 {
 	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| -> Result<(), anyhow::Error> {
 		let prelude = if cancelled { "Cancellation Tx" } else { "Tx" };
 		if matches!(receipt.status.as_ref().map(|f| f.low_u64()), Some(1)) {
-			log::info!("{prelude} for {:?} succeeded", client.state_machine);
+			log::info!("{prelude} for {:?} succeeded", state_machine);
 		} else {
 			log::info!(
 				"{prelude} for {:?} with hash {:?} reverted",
-				client.state_machine,
+				state_machine,
 				receipt.transaction_hash
 			);
 			Err(anyhow!("Transaction reverted"))?
@@ -121,37 +135,48 @@ where
 		Ok(())
 	};
 
-	let client_clone = client.clone();
+	let client_clone = provider.clone();
+	let signer_clone = signer.clone();
+	let state_machine_clone = state_machine.clone();
+	let etherscan_api_key_clone = etherscan_api_key.clone();
 
 	let handle_failed_tx = move || async move {
-		log::info!("No receipt for transaction on {:?}", client_clone.state_machine);
+		log::info!("No receipt for transaction on {:?}", state_machine_clone);
 
 		if let Some(call) = retry {
 			// lets retry
 			let gas_price = get_current_gas_cost_in_usd(
-				client.state_machine,
-				&client.config.etherscan_api_key.clone(),
-				client.client.clone(),
+				state_machine_clone,
+				&etherscan_api_key_clone,
+				client_clone.clone(),
 			)
 			.await?
 			.gas_price * 2; // for good measure
 			log::info!(
 				"Retrying consensus message on {:?} with gas {}",
-				client_clone.state_machine,
+				state_machine_clone,
 				ethers::utils::format_units(gas_price, "gwei")?
 			);
 			let call = call.gas_price(gas_price);
 			let pending = call.send().await?;
 
 			// don't retry in the next callstack
-			wait_for_success(client, pending, Some(gas_price), None).await
+			wait_for_success::<()>(
+				&state_machine_clone,
+				&etherscan_api_key_clone,
+				client_clone.clone(),
+				signer_clone.clone(),
+				pending,
+				Some(gas_price),
+				None,
+			)
+			.await
 		} else {
 			// cancel the transaction here
-			let pending = client_clone
-				.signer
+			let pending = signer_clone
 				.send_transaction(
 					TypedTransaction::Legacy(TransactionRequest {
-						to: Some(NameOrAddress::Address(H160::from_slice(&client_clone.address))),
+						to: Some(NameOrAddress::Address(signer_clone.address())),
 						value: Some(Default::default()),
 						gas_price: gas_price.map(|price| price * 10), // experiment with higher?
 						..Default::default()
@@ -167,7 +192,7 @@ where
 				}
 			}
 
-			Err(anyhow!("Transaction to {:?} was cancelled!", client.state_machine))?
+			Err(anyhow!("Transaction to {:?} was cancelled!", state_machine_clone))?
 		}
 	};
 
@@ -202,7 +227,7 @@ where
 					return handle_failed_tx().await;
 				},
 				Err(err) => {
-					log::error!("Error broadcasting transaction to {:?}: {err:?}", client.state_machine);
+					log::error!("Error broadcasting transaction to {:?}: {err:?}", state_machine);
 					Err(err)?
 				},
 			}
@@ -216,7 +241,7 @@ pub async fn generate_contract_calls(
 	client: &EvmClient,
 	messages: Vec<Message>,
 	debug_trace: bool,
-) -> anyhow::Result<Vec<SolidityFunctionCall>> {
+) -> anyhow::Result<Vec<SolidityFunctionCall<()>>> {
 	let handler = client.handler().await?;
 	let contract = IsmpHandler::new(handler, client.signer.clone());
 	let ismp_host = client.config.ismp_host;

@@ -126,8 +126,7 @@ where
 		);
 
 		let root = match T::Coprocessor::get() {
-			Some(id) if id == proof.height.id.state_id => state.state_root, /* child root on */
-			// hyperbridge
+			Some(id) if id == proof.height.id.state_id => state.state_root,
 			_ => state.overlay_root.ok_or_else(|| {
 				Error::Custom(
 					"Child trie root is not available for provided state commitment".into(),

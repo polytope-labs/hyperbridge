@@ -17,7 +17,7 @@
 
 use crate::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments},
-	mmr::LeafIndexAndPos,
+	offchain::LeafIndexAndPos,
 	Config, Pallet, RELAYER_FEE_ACCOUNT,
 };
 use alloc::{boxed::Box, format, vec::Vec};
@@ -94,7 +94,9 @@ where
 					timeout_timestamp: if dispatch_get.timeout == 0 {
 						0
 					} else {
-						<T::TimestampProvider as UnixTime>::now().as_secs() + dispatch_get.timeout
+						<T::TimestampProvider as UnixTime>::now()
+							.as_secs()
+							.saturating_add(dispatch_get.timeout)
 					},
 				};
 				Request::Get(get)

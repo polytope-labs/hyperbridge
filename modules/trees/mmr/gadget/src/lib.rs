@@ -46,7 +46,7 @@ mod offchain_mmr;
 use crate::offchain_mmr::OffchainMmr;
 use futures::StreamExt;
 use log::{error, trace, warn};
-use pallet_ismp::mmr::Leaf;
+use pallet_ismp::offchain::Leaf;
 use pallet_mmr_runtime_api::MmrRuntimeApi;
 use sc_client_api::{Backend, BlockchainEvents, FinalityNotification, FinalityNotifications};
 use sc_offchain::OffchainDb;

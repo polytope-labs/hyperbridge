@@ -14,7 +14,7 @@ use ismp_solidity_abi::{
 	shared_types::GetRequest,
 };
 use mmr_primitives::DataOrHash;
-use pallet_ismp::mmr::Leaf;
+use pallet_ismp::offchain::Leaf;
 use primitive_types::H256;
 use std::{env, path::PathBuf};
 

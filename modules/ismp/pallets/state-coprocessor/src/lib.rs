@@ -32,8 +32,8 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use impls::GetRequestsWithProof;
 	use ismp::{host::IsmpHost, messaging::hash_request, router::Request};
-	use mmr_primitives::MerkleMountainRangeTree;
-	use pallet_ismp::mmr::Leaf;
+	use mmr_primitives::OffchainDBProvider;
+	use pallet_ismp::offchain::Leaf;
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
@@ -49,7 +49,7 @@ pub mod pallet {
 		/// Merkle mountain range overlay tree implementation.
 		///
 		/// Verified GetResponse(s) are stored in the mmr
-		type Mmr: MerkleMountainRangeTree<Leaf = Leaf>;
+		type Mmr: OffchainDBProvider<Leaf = Leaf>;
 	}
 
 	#[pallet::error]

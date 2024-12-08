@@ -48,7 +48,7 @@ use crate::runtime::{
 };
 use ismp_bsc::BSC_CONSENSUS_ID;
 use ismp_sync_committee::BEACON_CONSENSUS_ID;
-use pallet_ismp::{dispatcher::RequestMetadata, mmr::LeafIndexAndPos};
+use pallet_ismp::{dispatcher::RequestMetadata, offchain::LeafIndexAndPos};
 
 #[test]
 fn test_withdrawal_proof() {

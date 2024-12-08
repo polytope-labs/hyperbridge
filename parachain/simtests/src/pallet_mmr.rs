@@ -13,7 +13,7 @@ use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160};
 
 use merkle_mountain_range::util::MemMMR;
 use mmr_primitives::{DataOrHash, FullLeaf};
-use pallet_ismp::mmr::{Leaf, ProofKeys};
+use pallet_ismp::offchain::{Leaf, ProofKeys};
 use pallet_mmr::mmr::Hasher as MmrHasher;
 use subxt_utils::{
 	gargantua, gargantua::api::runtime_types::pallet_ismp_demo::pallet::EvmParams, Hyperbridge,
@@ -405,7 +405,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	let params = rpc_params![at, keys];
 	let response: pallet_ismp_rpc::Proof =
 		client.rpc().request("ismp_queryMmrProof", params).await?;
-	let proof: pallet_ismp::mmr::Proof<H256> = Decode::decode(&mut &*response.proof)?;
+	let proof: pallet_ismp::offchain::Proof<H256> = Decode::decode(&mut &*response.proof)?;
 
 	let merkle_proof = MerkleProof::<DataOrHash<Keccak256, Leaf>, MmrHasher<Keccak256, Leaf>>::new(
 		mmr.mmr_size(),

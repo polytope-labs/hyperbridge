@@ -65,7 +65,7 @@ use sp_core::H256;
 use sp_runtime::traits::{self, One};
 use sp_std::prelude::*;
 
-use mmr_primitives::{DataOrHash, LeafMetadata, MerkleMountainRangeTree};
+use mmr_primitives::{DataOrHash, LeafMetadata, OffchainDBProvider};
 pub use pallet::*;
 use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
 pub use sp_mmr_primitives::{
@@ -174,7 +174,7 @@ pub mod pallet {
 	}
 }
 
-impl<T, I> MerkleMountainRangeTree for Pallet<T, I>
+impl<T, I> OffchainDBProvider for Pallet<T, I>
 where
 	I: 'static,
 	T: Config<I>,
@@ -182,11 +182,11 @@ where
 {
 	type Leaf = T::Leaf;
 
-	fn leaf_count() -> LeafIndex {
+	fn count() -> LeafIndex {
 		NumberOfLeaves::<T, I>::get()
 	}
 
-	fn generate_proof(
+	fn proof(
 		indices: Vec<LeafIndex>,
 	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), Error> {
 		let (leaves, proof) = Pallet::<T, I>::generate_proof(indices)?;
@@ -252,7 +252,7 @@ where
 		Ok(root.into())
 	}
 
-	fn get_leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, Error> {
+	fn leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, Error> {
 		let store = Storage::<OffchainStorage, T, _, Self::Leaf>::default();
 		store
 			.get_elem(pos)
@@ -263,30 +263,6 @@ where
 				})
 			})
 			.map_err(|_| Error::LeafNotFound)
-	}
-}
-
-/// Stateless MMR proof verification for batch of leaves.
-///
-/// This function can be used to verify received MMR [primitives::Proof] (`proof`)
-/// for given leaves set (`leaves`) against a known MMR root hash (`root`).
-/// Note, the leaves should be sorted such that corresponding leaves and leaf indices have the
-/// same position in both the `leaves` vector and the `leaf_indices` vector contained in the
-/// [primitives::Proof].
-pub fn verify_leaves_proof<H, L>(
-	root: H::Output,
-	leaves: Vec<mmr::Node<H, L>>,
-	proof: primitives::LeafProof<H::Output>,
-) -> Result<(), primitives::Error>
-where
-	H: traits::Hash,
-	L: mmr_primitives::FullLeaf,
-{
-	let is_valid = mmr::verify_leaves_proof::<H, L>(root, leaves, proof)?;
-	if is_valid {
-		Ok(())
-	} else {
-		Err(primitives::Error::Verify.log_debug(("The proof is incorrect.", root)))
 	}
 }
 
@@ -332,32 +308,5 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 		let leaves_count = NumberOfLeaves::<T, I>::get();
 		let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(leaves_count);
 		mmr.generate_proof(indices)
-	}
-
-	/// Verify MMR proof for given `leaves`.
-	///
-	/// This method is safe to use within the runtime code.
-	/// It will return `Ok(())` if the proof is valid
-	/// and an `Err(..)` if MMR is inconsistent (some leaves are missing)
-	/// or the proof is invalid.
-	pub fn verify_leaves(
-		leaves: Vec<LeafOf<T, I>>,
-		proof: primitives::LeafProof<HashOf<T, I>>,
-	) -> Result<(), primitives::Error> {
-		if proof.leaf_count > NumberOfLeaves::<T, I>::get() ||
-			proof.leaf_count == 0 ||
-			(proof.items.len().saturating_add(leaves.len())) as u64 > proof.leaf_count
-		{
-			return Err(primitives::Error::Verify
-				.log_debug("The proof has incorrect number of leaves or proof items."));
-		}
-
-		let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(proof.leaf_count);
-		let is_valid = mmr.verify_leaves_proof(leaves, proof)?;
-		if is_valid {
-			Ok(())
-		} else {
-			Err(primitives::Error::Verify.log_debug("The proof is incorrect."))
-		}
 	}
 }

@@ -74,7 +74,7 @@ where
 		// unless the MMR client gadget has a delay.
 		let key = Pallet::<T, I>::node_canon_offchain_key(pos);
 		debug!(
-			target: "pallet-mmr::offchain", "offchain db get {}: canon key {:?}",
+			target: "pallet-mmr", "offchain db get {}: canon key {:?}",
 			pos, key
 		);
 		// Try to retrieve the element from Off-chain DB.

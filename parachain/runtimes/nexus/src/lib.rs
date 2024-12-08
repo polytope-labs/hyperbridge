@@ -74,7 +74,7 @@ use frame_system::{
 	limits::{BlockLength, BlockWeights},
 	EnsureRoot, EnsureRootWithSuccess,
 };
-use pallet_ismp::mmr::{Proof, ProofKeys};
+use pallet_ismp::offchain::{Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -316,7 +316,7 @@ use frame_support::{
 	traits::{tokens::pay::PayAssetFromAccount, Contains},
 };
 use pallet_collective::PrimeDefaultVote;
-use pallet_ismp::mmr::Leaf;
+use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
 use sp_core::crypto::AccountId32;

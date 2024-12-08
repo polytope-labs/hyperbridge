@@ -75,7 +75,7 @@ use ismp::{
 use jsonrpsee::types::ErrorObjectOwned;
 use pallet_ismp::{
 	child_trie::CHILD_TRIE_PREFIX,
-	mmr::{Leaf, LeafIndexQuery, ProofKeys},
+	offchain::{Leaf, LeafIndexQuery, ProofKeys},
 };
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{Backend, BlockBackend, ChildInfo, ProofProvider, StateBackend};
@@ -280,7 +280,7 @@ where
 			.ok()
 			.flatten()
 			.ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
-		let (_, proof): (Vec<Leaf>, pallet_ismp::mmr::Proof<Block::Hash>) = api
+		let (_, proof): (Vec<Leaf>, pallet_ismp::offchain::Proof<Block::Hash>) = api
 			.generate_proof(at, keys)
 			.map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
 			.map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;

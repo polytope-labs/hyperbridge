@@ -59,19 +59,20 @@ where
 			Err(Error::InvalidRequestDestination { meta: req.clone().into() })?
 		}
 
-		// check if the source chain does not match the proof metadata in which case
-		// the proof metadata must be the configured proxy
-		// and we must not have a configured state machine client for the destination
-		if req.source_chain() != msg.proof.height.id.state_id &&
-			!(host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-				check_state_machine_client(req.source_chain()))
-		{
+		let source_chain = req.source_chain();
+
+		// in order to allow proxies, the host must configure the given state machine
+		// as it's proxy and must not have a state machine client for the source chain
+		let allow_proxy = host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+			check_state_machine_client(source_chain);
+
+		// check if the request is allowed to be proxied
+		if source_chain != msg.proof.height.id.state_id && !allow_proxy {
 			Err(Error::RequestProxyProhibited { meta: req.clone().into() })?
 		}
 	}
 
 	// Verify membership proof
-
 	let state = host.state_machine_commitment(msg.proof.height)?;
 	state_machine.verify_membership(
 		host,

@@ -505,7 +505,7 @@ where
 						// using swap remove should be fine unless the node is in an inconsistent
 						// state
 						.swap_remove(index as usize);
-					let ext_bytes = serde_json::to_string(&extrinsic).map_err(|err| {
+					let ext_bytes = json::to_string(&extrinsic).map_err(|err| {
 						runtime_error_into_rpc_error(format!(
 							"Failed to serialize extrinsic: {err:?}"
 						))

@@ -1,9 +1,9 @@
+use alloc::{vec, vec::Vec};
 use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, Encode};
 use ismp::{host::StateMachine, messaging::Proof};
 use sp_core::{H160, H256, U256};
-use sp_std::prelude::*;
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum Key {

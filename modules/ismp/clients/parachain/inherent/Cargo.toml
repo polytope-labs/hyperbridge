@@ -32,4 +32,4 @@ ismp = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
 ismp-parachain-runtime-api = { workspace = true, default-features = true }
 pallet-ismp-runtime-api = { workspace = true, default-features = true }
-log = "0.4.21"
+log = { workspace = true }

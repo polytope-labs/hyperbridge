@@ -13,8 +13,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 anyhow.workspace = true
 primitive-types = { workspace = true, features = ["codec"] }
-codec = { package = "parity-scale-codec", version = "3.0.0", features = ["derive"] }
-derive_more = { version = "0.99.17", features = ["from"]  }
+codec = { workspace = true, features = ["derive"], default-features = true }
+derive_more = { workspace = true, features = ["from"], default-features = true  }
 rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }
 hex-literal = "0.4.1"
 
@@ -31,7 +31,6 @@ mmr-rpc = { workspace = true }
 
 # Optional deps
 subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
-serde_json = { version = "1.0.74" }
 
 hex = { version = "0.4.3" }
 beefy-verifier-primitives = {  path = "../primitives" }

@@ -13,28 +13,32 @@ readme = "./README.md"
 [dependencies]
 trie-db = { workspace = true }
 hash-db = {  workspace = true }
-memory-db = {  workspace = true }
+memory-db = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
-
-rlp = { version = "0.5.1", default-features = false }
-primitive-types = { version = "0.12.0", default-features = false }
+rlp = { workspace = true }
+thiserror = { workspace = true }
+derive_more = { workspace = true, features = ["from"] }
+anyhow = { workspace = true }
+primitive-types = { workspace = true, features = ["rlp"] }
 hash256-std-hasher = { version = "0.15.2", optional = true }
 tiny-keccak = { version = "2.0.2", features = ["keccak"],  optional = true }
 
 [dev-dependencies]
 hex = "0.4.3"
 hex-literal = "0.3.4"
-primitive-types = { version = "0.12.0", features = ["rlp"] }
 rlp-derive = "0.1.0"
 
 [features]
 default = ["std"]
 std = [
-    "tiny-keccak",
-    "hash256-std-hasher",
     "trie-db/std",
     "hash-db/std",
+    "memory-db/std",
+    "codec/std",
+    "thiserror/std",
     "rlp/std",
+    "anyhow/std",
     "primitive-types/std",
-    "codec/std"
+    "hash256-std-hasher",
+    "tiny-keccak",
 ]

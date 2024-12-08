@@ -14,7 +14,10 @@
 // limitations under the License.
 
 use crate::Commit;
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::{
+	collections::{BTreeMap, BTreeSet},
+	vec,
+};
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use finality_grandpa::voter_set::VoterSet;
@@ -117,7 +120,7 @@ where
 			)?;
 
 			if base_hash == signed.precommit.target_hash {
-				continue
+				continue;
 			}
 
 			let route = ancestry_chain
@@ -276,7 +279,7 @@ where
 			if $equivocation.first.0.target_hash == $equivocation.second.0.target_hash &&
 				$equivocation.first.0.target_number == $equivocation.second.0.target_number
 			{
-				return Err(anyhow!("both votes have the same target!"))
+				return Err(anyhow!("both votes have the same target!"));
 			}
 
 			// check signatures on both votes are valid

@@ -220,7 +220,7 @@ async fn test_prover() {
 	while let Some(event) = es.next().await {
 		match event {
 			Ok(reqwest_eventsource::Event::Message(msg)) => {
-				let message: EventResponse = serde_json::from_str(&msg.data).unwrap();
+				let message: EventResponse = json::from_str(&msg.data).unwrap();
 				let checkpoint =
 					Checkpoint { epoch: message.epoch.parse().unwrap(), root: message.block };
 				let light_client_update = if let Some(update) = sync_committee_prover

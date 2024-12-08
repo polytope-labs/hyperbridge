@@ -9,6 +9,7 @@ pub enum Error {
 	InvalidMerkleBranch(String),
 	InvalidRoot(String),
 	MerkleizationError(String),
+	BlsError(bls::errors::BLSError),
 	SignatureVerification,
 }
 
@@ -20,6 +21,7 @@ impl Display for Error {
 			},
 			Error::InvalidUpdate(err) => write!(f, "Invalid update {err:?}"),
 			Error::DomainError => write!(f, "Couldn't get domain"),
+			Error::BlsError(err) => write!(f, "BlsError: {err:?}"),
 			Error::InvalidMerkleBranch(err) => write!(f, "Invalid merkle branch {err:?}"),
 			Error::InvalidRoot(err) => write!(f, "Invalid root {err:?}"),
 			Error::MerkleizationError(err) => write!(f, "Merkleization error {err:?}"),

@@ -3,20 +3,16 @@
 #[warn(unused_variables)]
 use alloc::vec::Vec;
 use anyhow::anyhow;
-use ark_ec::AffineRepr;
+use bls::{point_to_pubkey, types::G1ProjectivePoint};
+use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
 use primitives::{parse_extra, BscClientUpdate, Config, EPOCH_LENGTH, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
-use sync_committee_verifier::crypto::{pairing, pubkey_to_projective};
-pub mod primitives;
-use bls::{
-	point_to_pubkey, pubkey_to_point,
-	types::{G1AffinePoint, G1ProjectivePoint, Signature},
-	DST_ETHEREUM,
-};
-use geth_primitives::{CodecHeader, Header};
 use ssz_rs::{Bitvector, Deserialize};
 use sync_committee_primitives::constants::BlsPublicKey;
+use sync_committee_verifier::crypto::pubkey_to_projective;
+
+pub mod primitives;
 
 extern crate alloc;
 
@@ -69,17 +65,20 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		.filter_map(|(validator, bit)| if *bit { Some(validator.clone()) } else { None })
 		.collect();
 
-	let aggregate_public_key = aggregate_public_keys(&participants)
-		.as_slice()
-		.try_into()
-		.map_err(|_| anyhow!("Could not aggregate public keys"))?;
-
+	let aggregate_public_key = aggregate_public_keys(&participants);
 	let msg = H::keccak256(alloy_rlp::encode(extra_data.vote_data.clone()).as_slice());
-
 	let signature = extra_data.agg_signature;
 
-	verify_aggregate_signature(&aggregate_public_key, msg.0.to_vec(), signature.to_vec().as_ref())
-		.map_err(|_| anyhow!("Could not verify aggregate signature"))?;
+	let verify = bls::verify(
+		&aggregate_public_key,
+		&msg.as_ref().to_vec(),
+		signature.to_vec().as_ref(),
+		&bls::DST_ETHEREUM.as_bytes().to_vec(),
+	);
+
+	if !verify {
+		Err(anyhow!("Could not verify aggregate signature"))?
+	}
 
 	let next_validator_addresses: Option<NextValidators> =
         // If an epoch ancestry was provided, we try to extract the next validator set from it
@@ -153,36 +152,4 @@ pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
 		.fold(G1ProjectivePoint::default(), |acc, next| acc + next);
 
 	point_to_pubkey(aggregate.into())
-}
-
-// we need a bls-utils crate
-pub fn verify_aggregate_signature(
-	aggregate: &BlsPublicKey,
-	msg: Vec<u8>,
-	signature: &Signature,
-) -> anyhow::Result<()> {
-	let aggregate_key_point: G1AffinePoint =
-		pubkey_to_point(aggregate).map_err(|_| anyhow!("Could not convert public key to point"))?;
-	let signature = bls::signature_to_point(signature).map_err(|e| anyhow!("{:?}", e))?;
-
-	if !bls::signature_subgroup_check(signature) {
-		Err(anyhow!("Signature not in subgroup"))?
-	}
-
-	let q = bls::hash_to_point(&msg, &DST_ETHEREUM.as_bytes().to_vec());
-	let c1 = pairing(q, aggregate_key_point);
-
-	// From the spec:
-	// > When the signature variant is minimal-pubkey-size, P is the distinguished point P1 that
-	// > generates the group G1.
-	// <https://www.ietf.org/archive/id/draft-irtf-cfrg-bls-signature-05.html#section-2.2>
-	let p = G1AffinePoint::generator();
-
-	let c2 = pairing(signature, p);
-
-	if c1 == c2 {
-		Ok(())
-	} else {
-		Err(anyhow!("Aggregate signature verification failed"))
-	}
 }

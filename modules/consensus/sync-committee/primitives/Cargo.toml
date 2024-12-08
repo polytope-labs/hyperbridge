@@ -16,9 +16,6 @@ serde-hex-utils = { workspace = true, default-features = false }
 
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 
-ark-ec = { version = "0.4.2", default-features = false }
-ark-bls12-381 = { version = "0.4.0", default-features = false }
-bls_on_arkworks = { version = "0.2.2", default-features = false }
 
 [features]
 default = ["std"]
@@ -28,9 +25,6 @@ std = [
     'codec/std',
     "primitive-types/std",
     "anyhow/std",
-    "ark-ec/std",
-    "bls_on_arkworks/std",
-    "ark-bls12-381/std",
     "primitive-types/std",
     "serde",
     "serde-hex-utils/std"

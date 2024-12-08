@@ -20,11 +20,10 @@ ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 sync-committee-verifier = { workspace = true, default-features = false }
 sync-committee-primitives  = { workspace = true, default-features = false }
-ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
-bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
-ark-ec = { version = "0.4.2", default-features = false }
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
+bls = { workspace = true }
+ark-ec = { workspace = true }
 sp-runtime = { workspace = true }
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 
 [features]
 default = ["std"]
@@ -36,7 +35,6 @@ std = [
     "ismp/std",
     "alloy-primitives/std",
     "alloy-rlp/std",
-    "ark-bls12-381/std",
     "bls/std",
     "sync-committee-verifier/std",
     "sync-committee-primitives/std",

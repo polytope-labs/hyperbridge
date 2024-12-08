@@ -55,7 +55,7 @@ use ismp_solidity_abi::{
 	},
 };
 use mmr_primitives::mmr_position_to_k_index;
-use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
+use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]

@@ -49,10 +49,6 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
-use ::ismp::{
-	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
-	router::{Request, Response},
-};
 use frame_support::{
 	construct_runtime,
 	dispatch::DispatchClass,
@@ -69,7 +65,11 @@ use frame_system::{
 	limits::{BlockLength, BlockWeights},
 	EnsureRoot, EnsureRootWithSuccess,
 };
-use pallet_ismp::mmr::{Proof, ProofKeys};
+use ismp::{
+	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
+	router::{Request, Response},
+};
+use pallet_ismp::offchain::{Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -84,10 +84,10 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
-use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
+use staging_xcm::latest::prelude::BodyId;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -305,12 +305,12 @@ parameter_types! {
 
 // Configure FRAME pallets to include in runtime.
 
-use ::ismp::host::StateMachine;
 use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
+use ismp::host::StateMachine;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
 use pallet_collective::PrimeDefaultVote;
-use pallet_ismp::mmr::Leaf;
+use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
 use sp_core::crypto::AccountId32;

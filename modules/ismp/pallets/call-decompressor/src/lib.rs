@@ -223,7 +223,7 @@ where
 		if let Some(call) = IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned() {
 			match call {
 				pallet_ismp::Call::handle_unsigned { messages } =>
-					<pallet_ismp::Pallet<T>>::handle_messages(messages)
+					<pallet_ismp::Pallet<T>>::execute(messages)
 						.map_err(|_| Error::<T>::ErrorExecutingCall)?,
 				_ => Err(Error::<T>::CallNotSupported)?,
 			};

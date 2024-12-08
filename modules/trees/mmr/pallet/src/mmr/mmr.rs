@@ -26,40 +26,6 @@ use crate::{
 use sp_mmr_primitives::utils::NodesUtils;
 use sp_std::prelude::*;
 
-/// Stateless verification of the proof for a batch of leaves.
-/// Note, the leaves should be sorted such that corresponding leaves and leaf indices have the
-/// same position in both the `leaves` vector and the `leaf_indices` vector contained in the
-/// [primitives::Proof]
-pub fn verify_leaves_proof<H, L>(
-	root: H::Output,
-	leaves: Vec<Node<H, L>>,
-	proof: primitives::LeafProof<H::Output>,
-) -> Result<bool, Error>
-where
-	H: sp_runtime::traits::Hash,
-	L: mmr_primitives::FullLeaf,
-{
-	let size = NodesUtils::new(proof.leaf_count).size();
-
-	if leaves.len() != proof.leaf_indices.len() {
-		return Err(Error::Verify.log_debug("Proof leaf_indices not same length with leaves"));
-	}
-
-	let leaves_and_position_data = proof
-		.leaf_indices
-		.into_iter()
-		.map(|index| merkle_mountain_range::leaf_index_to_pos(index))
-		.zip(leaves.into_iter())
-		.collect();
-
-	let p = merkle_mountain_range::MerkleProof::<Node<H, L>, Hasher<H, L>>::new(
-		size,
-		proof.items.into_iter().map(Node::Hash).collect(),
-	);
-	p.verify(Node::Hash(root), leaves_and_position_data)
-		.map_err(|e| Error::Verify.log_debug(e))
-}
-
 /// A wrapper around an MMR library to expose limited functionality.
 ///
 /// Available functions depend on the storage kind ([Runtime](crate::mmr::storage::RuntimeStorage)
@@ -90,36 +56,6 @@ where
 	pub fn new(leaves: NodeIndex) -> Self {
 		let size = NodesUtils::new(leaves).size();
 		Self { mmr: merkle_mountain_range::MMR::new(size, Default::default()), leaves }
-	}
-
-	/// Verify proof for a set of leaves.
-	/// Note, the leaves should be sorted such that corresponding leaves and leaf indices have
-	/// the same position in both the `leaves` vector and the `leaf_indices` vector contained in the
-	/// [primitives::Proof]
-	pub fn verify_leaves_proof(
-		&self,
-		leaves: Vec<L>,
-		proof: primitives::LeafProof<HashOf<T, I>>,
-	) -> Result<bool, Error> {
-		let p =
-			merkle_mountain_range::MerkleProof::<NodeOf<T, I, L>, Hasher<HashingOf<T, I>, L>>::new(
-				self.mmr.mmr_size(),
-				proof.items.into_iter().map(Node::Hash).collect(),
-			);
-
-		if leaves.len() != proof.leaf_indices.len() {
-			return Err(Error::Verify.log_debug("Proof leaf_indices not same length with leaves"));
-		}
-
-		let leaves_positions_and_data = proof
-			.leaf_indices
-			.into_iter()
-			.map(|index| merkle_mountain_range::leaf_index_to_pos(index))
-			.zip(leaves.into_iter().map(|leaf| Node::Data(leaf)))
-			.collect();
-		let root = self.mmr.get_root().map_err(|e| Error::GetRoot.log_error(e))?;
-		p.verify(root, leaves_positions_and_data)
-			.map_err(|e| Error::Verify.log_debug(e))
 	}
 
 	/// Return the internal size of the MMR (number of nodes).

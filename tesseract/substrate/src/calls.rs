@@ -11,7 +11,7 @@ use ismp::{
 	host::StateMachine,
 	messaging::CreateConsensusState,
 };
-use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, mmr::LeafIndexAndPos};
+use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, offchain::LeafIndexAndPos};
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,

@@ -48,7 +48,7 @@ The following example shows how to configure `pallet-ismp` in your runtime
 use frame_support::parameter_types;
 use frame_system::EnsureRoot;
 use ismp::Error;
-use pallet_ismp::NoOpMmrTree;
+use pallet_ismp::TransparentOffchainDB;
 use ismp::host::StateMachine;
 use ismp::module::IsmpModule;
 use ismp::router::{IsmpRouter, Post, Response, Timeout};
@@ -82,9 +82,9 @@ impl pallet_ismp::Config for Runtime {
         // as an example, the parachain consensus client
         ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
     );
-    // Optional merkle mountain range overlay tree, for cheaper outgoing request proofs.
-    // You most likely don't need it, just use the `NoOpMmrTree`
-    type Mmr = NoOpMmrTree;
+		/// Offchain database implementation. Outgoing requests and responses are
+		/// inserted in this database, while their commitments are stored onchain.
+    type OffchainDB = TransparentOffchainDB;
     // Weight provider for local modules
     type WeightProvider = ();
 }

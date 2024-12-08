@@ -23,7 +23,7 @@
 
 use crate::{aux_schema, HashFor, MmrClient, LOG_TARGET};
 use log::{debug, error, info, trace, warn};
-use pallet_ismp::mmr::Leaf;
+use pallet_ismp::offchain::Leaf;
 use pallet_mmr_runtime_api::MmrRuntimeApi;
 use sc_client_api::{Backend, FinalityNotification};
 use sc_offchain::OffchainDb;

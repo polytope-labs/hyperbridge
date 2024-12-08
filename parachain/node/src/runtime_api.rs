@@ -86,7 +86,7 @@ pub trait BaseHostRuntimeApis:
 		opaque::Block,
 		H256,
 		opaque::BlockNumber,
-		pallet_ismp::mmr::Leaf,
+		pallet_ismp::offchain::Leaf,
 	> + simnode_runtime_api::CreateTransactionApi<
 		opaque::Block,
 		gargantua_runtime::RuntimeCall,
@@ -113,7 +113,7 @@ impl<Api> BaseHostRuntimeApis for Api where
 			opaque::Block,
 			H256,
 			opaque::BlockNumber,
-			pallet_ismp::mmr::Leaf,
+			pallet_ismp::offchain::Leaf,
 		> + simnode_runtime_api::CreateTransactionApi<
 			opaque::Block,
 			gargantua_runtime::RuntimeCall,

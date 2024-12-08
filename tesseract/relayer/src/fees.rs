@@ -479,7 +479,7 @@ mod tests {
 		router::Request,
 	};
 	use itertools::Itertools;
-	use pallet_ismp::mmr::LeafIndexQuery;
+	use pallet_ismp::offchain::LeafIndexQuery;
 	use pallet_ismp_host_executive::HostParam;
 	use sp_core::H160;
 	use subxt::rpc_params;

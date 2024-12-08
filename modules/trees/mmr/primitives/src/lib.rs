@@ -34,42 +34,39 @@ pub struct LeafMetadata {
 }
 
 /// Public interface for this pallet. Other runtime pallets will use this interface to insert leaves
-/// into the tree. They can insert as many as they need and request the computed root hash at a
-/// later time. This is so that the mmr root is only computed once per block.
+/// into the offchain db. This allows for batch insertions and asychronous root hash computation
+/// This is so that the root is only computed once per block.
 ///
 /// Internally, the pallet makes use of temporary storage item where it places leaves that have not
 /// yet been finalized.
-pub trait MerkleMountainRangeTree {
-	/// Associated leaf type.
+pub trait OffchainDBProvider {
+	/// Concrete leaf type used by the implementation.
 	type Leaf;
 
-	/// Returns the total number of leaves that have been committed to the tree.
-	fn leaf_count() -> u64;
+	/// Returns the total number of leaves that have been persisted to the db.
+	fn count() -> u64;
 
-	/// Generate an MMR proof for the given `leaf_indices`.
-	/// Generates a proof for the MMR at the current block height.
-	fn generate_proof(
-		indices: Vec<u64>,
-	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), primitives::Error>;
-
-	/// Push a new leaf into the MMR. Doesn't actually perform any expensive tree recomputation.
-	/// Simply adds the leaves to a buffer where they can be recalled when the tree actually
-	/// needs to be finalized.
+	/// Push a new leaf into the offchain db.
 	fn push(leaf: Self::Leaf) -> LeafMetadata;
 
-	/// Finalize the tree and compute it's new root hash. Ideally this should only be called once a
-	/// block. This will pull the leaves from the buffer and commit them to the underlying tree.
+	/// Merkelize the offchain db and compute it's new root hash. This should only be called once a
+	/// block. This should pull the leaves from the buffer and commit them.
 	fn finalize() -> Result<H256, primitives::Error>;
 
-	/// Given the leaf position, it should return the leaf from the mmr store
-	fn get_leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error>;
+	/// Given the leaf position, return the leaf from the offchain db
+	fn leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error>;
+
+	/// Generate a proof for the given leaf indices. The implementation should provide
+	/// a proof for the leaves at the current block height.
+	fn proof(
+		indices: Vec<NodeIndex>,
+	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), primitives::Error>;
 }
 
-/// NoOp tree can be used as a drop in replacement for when the underlying mmr tree is unneeded.
-/// This will store leaves directly in the offchain db using the leaf commitment as the key
-pub struct NoOpTree<T, H>(PhantomData<(T, H)>);
+/// The `PlainOffChainDB` simply persists requests and responses directly to the offchain-db.
+pub struct PlainOffChainDB<T, H>(PhantomData<(T, H)>);
 
-impl<T, H> NoOpTree<T, H> {
+impl<T, H> PlainOffChainDB<T, H> {
 	/// Offchain key for storing requests using the commitment as identifiers
 	pub fn offchain_key(commitment: H256) -> Vec<u8> {
 		let prefix = b"no_op";
@@ -77,14 +74,14 @@ impl<T, H> NoOpTree<T, H> {
 	}
 }
 
-impl<T: FullLeaf, H: ismp::messaging::Keccak256> MerkleMountainRangeTree for NoOpTree<T, H> {
+impl<T: FullLeaf, H: ismp::messaging::Keccak256> OffchainDBProvider for PlainOffChainDB<T, H> {
 	type Leaf = T;
 
-	fn leaf_count() -> u64 {
+	fn count() -> u64 {
 		0
 	}
 
-	fn generate_proof(
+	fn proof(
 		_indices: Vec<u64>,
 	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), primitives::Error> {
 		Err(primitives::Error::GenerateProof)?
@@ -102,7 +99,7 @@ impl<T: FullLeaf, H: ismp::messaging::Keccak256> MerkleMountainRangeTree for NoO
 		Ok(H256::default())
 	}
 
-	fn get_leaf(_pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error> {
+	fn leaf(_pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error> {
 		Ok(None)
 	}
 }

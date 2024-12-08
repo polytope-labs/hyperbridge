@@ -1662,7 +1662,6 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
- "ark-bls12-381",
  "ark-ec",
  "bls_on_arkworks",
  "geth-primitives",
@@ -23512,9 +23511,6 @@ name = "sync-committee-primitives"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "ark-bls12-381",
- "ark-ec",
- "bls_on_arkworks",
  "hex",
  "hex-literal 0.4.1",
  "parity-scale-codec",
@@ -23529,8 +23525,6 @@ name = "sync-committee-prover"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "ark-bls12-381",
- "ark-ec",
  "async-trait",
  "base2",
  "bls_on_arkworks",
@@ -23560,10 +23554,10 @@ name = "sync-committee-verifier"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "ark-bls12-381",
  "ark-ec",
  "bls_on_arkworks",
  "hex",
+ "hex-literal 0.4.1",
  "log",
  "ssz-rs",
  "sync-committee-primitives",

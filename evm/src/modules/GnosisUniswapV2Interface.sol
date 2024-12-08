@@ -52,7 +52,6 @@ contract GnosisUniswapV2Interface {
         return out;
     }
 
-
     /**
      * @dev Returns the quoted amount for the dispatch.
      */

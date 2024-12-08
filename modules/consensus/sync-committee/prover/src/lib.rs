@@ -16,7 +16,7 @@ use crate::{
 	routes::*,
 };
 use anyhow::anyhow;
-use bls_on_arkworks::{point_to_pubkey, types::G1ProjectivePoint};
+use bls::{point_to_pubkey, types::G1ProjectivePoint};
 use log::trace;
 use primitive_types::H256;
 use reqwest::{Client, Url};

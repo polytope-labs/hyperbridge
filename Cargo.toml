@@ -250,6 +250,11 @@ hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"
 rlp = { version = "0.5.1", default-features = false }
 
+# arkworks
+ark-ec = { version = "0.4.2", default-features = false }
+bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
+
+
 orml-xcm-support = { version = "=1.0.0", default-features = false }
 orml-traits = { version = "=1.0.0", default-features = false }
 primitive-types = { version = "0.12.2", default-features = false }

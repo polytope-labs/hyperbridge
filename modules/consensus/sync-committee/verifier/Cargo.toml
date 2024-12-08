@@ -10,9 +10,8 @@ sync-committee-primitives = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
-ark-ec = { version = "0.4.2", default-features = false }
-ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
-bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
+bls = { workspace = true }
+ark-ec = { workspace = true }
 
 [features]
 default = ["std"]
@@ -22,10 +21,10 @@ std = [
     "sync-committee-primitives/std",
     "log/std",
     "anyhow/std",
+    "bls/std",
     "ark-ec/std",
-    "ark-bls12-381/std",
-    "bls/std"
 ]
 
 [dev-dependencies]
 hex = "0.4.3"
+hex-literal = { workspace = true, default-features = true }

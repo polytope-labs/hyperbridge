@@ -44,9 +44,9 @@ impl pallet_ismp::Config for Runtime {
         // as an example, the parachain consensus client
         ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
     );
-    // Optional merkle mountain range overlay tree, for cheaper outgoing request proofs.
-    // You most likely don't need it, just use the `NoOpMmrTree`
-    type Mmr = pallet_ismp::NoOpMmrTree<Runtime>;
+    // Offchain database implementation. Outgoing requests and responses are
+		// inserted in this database, while their commitments are stored onchain.
+    type OffchainDB = TransparentOffchainDB;
     // Weight provider for local modules
     type WeightProvider = ();
 }
@@ -71,15 +71,15 @@ This component defines the state machine identifier of the supported coprocessor
 * `ConsensusClients`:
 This is a tuple of types that implement the `ConsensusClient` interface, it defines all the consensus algorithms supported by this deployment of the protocol.
 
-* `Mmr`:
- This type allows us to use mmr tree as an overlay for cheaper proofs for requests and responses instead of the merkle patricia trie proofs.
+* `OffchainDB`:
+ This implementation provides the interface for persisting requests and responses to the offchain db. Only commitments of requests and responses are stored onchain
 
 * `Router`:
 The router is a type that provides an `IsmpModule` implementation for a module id.
 
 ### Router
 
-The `IsmpRouter` is a module which produces an `IsmpModule` implementation for a given module identifier. 
+The `IsmpRouter` is a module which produces an `IsmpModule` implementation for a given module identifier.
 
 ```rust showLineNumbers [runtime.rs]
 #[derive(Default)]
@@ -212,10 +212,10 @@ Should not be called on a message that has been completed (delivered or timed-ou
 Pallet ISMP offers a two different approaches to transaction fees.
 
 ### Unsigned
- 
+
 This essentially means all cross-chain messages received are executed for free as unsigned transactions. The upside to this is that it cannot be exploited as a spam vector, since the transaction pool will check if the submitted extrinsics are valid before they are included in the pool. This validity check ensures that the transaction can be successfully executed and contains valid proofs. Malformed messages or those with invalid proofs are filtered out by the transaction pool validation logic preventing unnecessary processing and potential network congestion.
 
-### Signed 
+### Signed
 
 In this method, relayers and users will need to pay the native token for executing cross-chain messages. This is likely more preferrable but requires that the token be widely available.
 

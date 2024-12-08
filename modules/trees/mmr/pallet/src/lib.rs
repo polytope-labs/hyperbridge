@@ -56,6 +56,8 @@
 //! NOTE This pallet is experimental and not proven to work in production.
 #![cfg_attr(not(feature = "std"), no_std)]
 
+extern crate alloc;
+
 use core::marker::PhantomData;
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log;

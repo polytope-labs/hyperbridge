@@ -16,7 +16,7 @@ sp-api = { workspace = true }
 primitive-types = { workspace = true }
 pallet-ismp = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
-serde = { version = "1.0.136", features = ["derive"], optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
 sp-mmr-primitives = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
 

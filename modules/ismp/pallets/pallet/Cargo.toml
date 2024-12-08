@@ -31,7 +31,7 @@ anyhow = { workspace = true, default-features = false }
 # crates.io
 fortuples = "0.9.1"
 log = { version = "0.4.17", default-features = false }
-serde = { version = "1.0.136", features = ["derive"], default-features = false }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 env_logger = "0.10.0"

@@ -10,13 +10,13 @@ ismp = { workspace = true }
 sp-crypto-hashing = { workspace = true }
 codec = { workspace = true }
 anyhow = { workspace = true }
-futures = "0.3.30"
 reconnecting-jsonrpsee-ws-client = { workspace = true }
 primitive-types = { workspace = true }
 alloy-primitives = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
-derivative ={ version = "2.2.0" }
+derivative = { version = "2.2.0" }
+futures = "0.3.30"
 
 [features]
 default = ["std"]

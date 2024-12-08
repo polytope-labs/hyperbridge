@@ -183,7 +183,7 @@ fn testnet_genesis(
 	endowed_accounts: Vec<AccountId>,
 	root: AccountId,
 	id: u32,
-) -> serde_json::Value {
+) -> json::Value {
 	let asset_id: H256 = sp_io::hashing::keccak_256(&MultiLocation::parent().encode()).into();
 	let para_id: ParaId = id.into();
 
@@ -194,7 +194,7 @@ fn testnet_genesis(
 		_ => ParachainData { id: 1000, slot_duration: 6000 }, /* default to assethub */
 	};
 
-	serde_json::json!({
+	json::json!({
 		"balances": {
 			"balances": endowed_accounts.iter().cloned().map(|k| (k, 1u64 << 60)).collect::<Vec<_>>(),
 		},

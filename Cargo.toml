@@ -236,19 +236,23 @@ serde = { version = "1", default-features = false }
 trie-db = { version = "0.29.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
-codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false }
-log = { version = "0.4.21", default-features = false }
-anyhow = { version = "1.0.93", default-features = false }
+codec = { version = "3.6", package = "parity-scale-codec", default-features = false }
+log = { version = "0.4", default-features = false }
+anyhow = { version = "1.0", default-features = false }
 derive_more = { version = "1.0", default-features = false }
 thiserror = { version = "2", default-features = false }
 alloy-rlp = { version = "0.3.7", default-features = false }
 alloy-rlp-derive = "0.3.7"
 alloy-sol-macro = "0.7.7"
 alloy-sol-types = { version = "0.7.7", default-features = false }
+json = { package = "serde_json", version = "1.0.99", default-features = false }
+hex = { version = "0.4.3", default-features = false }
+hex-literal = "0.4.1"
+rlp = { version = "0.5.1", default-features = false }
 
 orml-xcm-support = { version = "=1.0.0", default-features = false }
 orml-traits = { version = "=1.0.0", default-features = false }
-primitive-types = { version = "0.12.1", default-features = false }
+primitive-types = { version = "0.12.2", default-features = false }
 sc-simnode = { version = "1.15.0" }
 simnode-runtime-api = { version = "1.15.0", default-features = false }
 subxt = { version = "0.30.1", default-features = false }
@@ -320,7 +324,6 @@ mmr-primitives = { version = "1.15.1", path = "modules/trees/mmr/primitives", de
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
-#messier-runtime = { path = "./parachain/runtimes/messier", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
 
 # tesseract

@@ -16,7 +16,7 @@ readme = "./README.md"
 serde = { workspace = true, features = ["derive"], optional = false }
 codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
-hex-literal = "0.4.1"
+hex-literal = { workspace = true }
 primitive-types = { workspace = true }
 log = { workspace = true }
 

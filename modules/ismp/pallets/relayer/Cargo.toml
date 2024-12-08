@@ -13,7 +13,6 @@ frame-support = { workspace = true }
 frame-system = { workspace = true }
 sp-runtime = { workspace = true }
 sp-core = { workspace = true }
-sp-std = { workspace = true }
 sp-io = { workspace = true }
 pallet-ismp = { workspace = true }
 evm-common = { workspace = true }
@@ -24,15 +23,14 @@ pallet-hyperbridge = { workspace = true }
 ismp = { workspace = true }
 
 # crates.io
-codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
-log = { version = "0.4.17", default-features = false }
+codec = { workspace = true, default-features = false }
+log = { workspace = true, default-features = false }
 hashbrown = { version = "0.14.3" }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
-ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
-
+ethabi = { workspace = true }
 
 [dev-dependencies]
 pallet-ismp = { workspace = true, features = [ "testing" ] }
@@ -56,7 +54,6 @@ std = [
     "log/std",
     "scale-info/std",
     "sp-runtime/std",
-    "sp-std/std",
     "sp-core/std",
     "sp-io/std",
     "ismp/std",

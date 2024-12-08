@@ -17,6 +17,7 @@
 
 //! An MMR storage implementation.
 
+use alloc::{vec, vec::Vec};
 use codec::Encode;
 use log::{debug, trace};
 use merkle_mountain_range::helper;
@@ -25,8 +26,6 @@ use sp_core::offchain::StorageKind;
 use sp_io::offchain_index;
 use sp_mmr_primitives::utils::NodesUtils;
 use sp_std::iter::Peekable;
-#[cfg(not(feature = "std"))]
-use sp_std::prelude::*;
 
 use crate::{
 	mmr::{Node, NodeOf},

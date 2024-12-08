@@ -19,10 +19,9 @@ serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 derive_more = { workspace = true, default-features = false, features = ["from", "into", "display"] }
 displaydoc = { version = "0.2", default-features = false }
-serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }
-hex = { version = "0.4.3", features = ["alloc"], default-features = false }
+hex = { workspace = true, features = ["alloc"] }
 anyhow = { workspace = true, default-features = false }
-thiserror = { workspace = true, default-features = false }
+thiserror = { workspace = true }
 serde-hex-utils = { workspace = true, default-features = false }
 
 [features]
@@ -35,7 +34,6 @@ std = [
     "serde/std",
     "anyhow/std",
     "hex/std",
-    "serde_json/std",
     "serde-hex-utils/std",
     "thiserror/std",
     "displaydoc/std",

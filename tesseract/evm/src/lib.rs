@@ -10,7 +10,7 @@ use ethers::{
 use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::Message};
 
-use evm_common::presets::{
+use evm_state_machine::presets::{
 	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
 	RESPONSE_RECEIPTS_SLOT,
 };

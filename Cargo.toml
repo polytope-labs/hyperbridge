@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     # runtime
     "parachain/runtimes/gargantua",
-#    "parachain/runtimes/messier",
     "parachain/runtimes/nexus",
 
     # node
@@ -27,19 +26,16 @@ members = [
     "modules/ismp/pallets/token-gateway-inspector",
     "modules/ismp/pallets/hyperbridge",
     "modules/ismp/pallets/state-coprocessor",
-    "modules/ismp/testsuite",
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",
     "modules/ismp/clients/parachain/client",
     "modules/ismp/clients/parachain/inherent",
     "modules/ismp/clients/parachain/runtime-api",
-    "modules/ismp/state-machines/substrate",
-    "modules/ismp/state-machines/hyperbridge",
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
-    "modules/ismp/clients/sync-committee/evm-common",
     "modules/ismp/clients/bsc",
     "modules/ismp/clients/grandpa",
+    "modules/ismp/testsuite",
 
     # cryptography
     "modules/consensus/sync-committee/prover",
@@ -58,6 +54,9 @@ members = [
     "modules/trees/mmr/primitives",
     "modules/trees/mmr/gadget",
     "modules/trees/mmr/pallet/runtime-api",
+    "modules/ismp/state-machines/evm",
+    "modules/ismp/state-machines/substrate",
+    "modules/ismp/state-machines/hyperbridge",
 
     # evm stuff
     "evm/integration-tests",
@@ -84,8 +83,6 @@ members = [
     "tesseract/telemetry",
     "tesseract/config",
     "tesseract/fisherman",
-
-    # integration tests
     "tesseract/integration-test",
 ]
 
@@ -295,11 +292,11 @@ ismp-parachain = { version = "1.15.1", path = "./modules/ismp/clients/parachain/
 ismp-parachain-inherent = { version = "1.15.1", path = "./modules/ismp/clients/parachain/inherent" }
 ismp-parachain-runtime-api = { version = "1.15.1", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
-evm-common = { path = "./modules/ismp/clients/sync-committee/evm-common", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 
 # state machine clients
+evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
 substrate-state-machine = { version = "1.15.1", path = "modules/ismp/state-machines/substrate", default-features = false }
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 

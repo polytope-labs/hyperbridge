@@ -11,7 +11,7 @@ publish = false
 ismp = { workspace = true  }
 ethereum-triedb = { workspace = true  }
 geth-primitives = { workspace = true  }
-evm-common = { workspace = true }
+evm-state-machine =  { workspace = true }
 
 # crates.io
 alloy-rlp = { workspace = true }
@@ -35,5 +35,5 @@ std = [
     "ethabi/std",
     "hex/std",
     "geth-primitives/std",
-    "evm-common/std"
+    "evm-state-machine/std"
 ]

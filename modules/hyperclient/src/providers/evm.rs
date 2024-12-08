@@ -17,7 +17,7 @@ use crate::{providers::interface::Client, types::BoxStream};
 use codec::{Decode, Encode};
 use ethereum_triedb::StorageProof;
 use ethers::prelude::Middleware;
-use evm_common::{
+use evm_state_machine::{
 	presets::{
 		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
 		RESPONSE_RECEIPTS_SLOT,
@@ -29,7 +29,7 @@ use sp_mmr_primitives::utils::NodesUtils;
 use super::interface::Query;
 use crate::{
 	providers::interface::WithMetadata,
-	types::{EventMetadata, EvmStateProof, SubstrateStateProof},
+	types::{EventMetadata, SubstrateStateProof},
 };
 use anyhow::{anyhow, Context, Error};
 use core::time::Duration;
@@ -38,6 +38,7 @@ use ethers::{
 	providers::{Http, Provider},
 	utils::keccak256,
 };
+use evm_state_machine::types::EvmStateProof;
 use futures::{stream, StreamExt};
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},

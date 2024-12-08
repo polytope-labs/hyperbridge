@@ -27,7 +27,7 @@ use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
 use ethabi::ethereum_types::H256;
-use evm_common::{
+use evm_state_machine::{
 	presets::{
 		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
 		RESPONSE_RECEIPTS_SLOT,

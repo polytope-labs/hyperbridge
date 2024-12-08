@@ -42,7 +42,7 @@ geth-primitives = { workspace = true, default-features = true }
 ismp-sync-committee = { workspace = true, default-features = true }
 ethereum-triedb = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
-evm-common = { workspace = true, default-features = true }
+evm-state-machine =  { workspace = true, default-features = true }
 sp-mmr-primitives = { workspace = true, default-features = true }
 
 tesseract-primitives = { workspace = true, default-features = true  }

@@ -20,7 +20,6 @@ use crate::{
 use anyhow::anyhow;
 use core::{fmt, pin::Pin};
 use ethers::types::H160;
-pub use evm_common::types::EvmStateProof;
 use futures::Stream;
 use hex_fmt::HexFmt;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};

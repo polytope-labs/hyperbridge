@@ -20,7 +20,7 @@ primitive-types = { workspace = true, features = ["serde"] }
 ethers = { workspace = true }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, features = ["disable-panic-handler"] }
-evm-common = { workspace = true }
+evm-state-machine =  { workspace = true }
 sp-core = { workspace = true, features = ["serde"]}
 substrate-state-machine = { workspace = true }
 ismp-solidity-abi = { workspace = true }

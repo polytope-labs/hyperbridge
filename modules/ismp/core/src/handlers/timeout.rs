@@ -48,7 +48,7 @@ where
 				let dest_chain = request.dest_chain();
 
 				// in order to allow proxies, the host must configure the given state machine
-				// as it's proxy and must not have a state machine client for the source chain
+				// as it's proxy and must not have a state machine client for the destination chain
 				let allow_proxy = host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
 					check_state_machine_client(dest_chain);
 
@@ -117,7 +117,7 @@ where
 				let dest_chain = response.dest_chain();
 
 				// in order to allow proxies, the host must configure the given state machine
-				// as it's proxy and must not have a state machine client for the source chain
+				// as it's proxy and must not have a state machine client for the destination chain
 				let allow_proxy = host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
 					check_state_machine_client(dest_chain);
 

@@ -31,7 +31,7 @@ hash-db = { workspace = true }
 xcm-simulator-example = { workspace = true }
 xcm-simulator = { workspace = true }
 pallet-assets = { workspace = true, default-features = true }
-evm-common = { workspace = true, default-features = true}
+evm-state-machine =  { workspace = true, default-features = true}
 
 ismp = { workspace = true, default-features = true }
 ismp-testsuite = { workspace = true, default-features = true }

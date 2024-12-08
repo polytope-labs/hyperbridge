@@ -20,7 +20,7 @@ extern crate alloc;
 use alloc::format;
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U128, U256};
-use evm_common::{
+use evm_state_machine::{
 	derive_array_item_key, derive_map_key, get_contract_account, get_value_from_proof, prelude::*,
 };
 use geth_primitives::{CodecHeader, Header};

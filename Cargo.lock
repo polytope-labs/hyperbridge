@@ -357,7 +357,7 @@ dependencies = [
  "ethabi",
  "ethereum-triedb",
  "ethers",
- "evm-common",
+ "evm-state-machine",
  "geth-primitives",
  "hex",
  "hex-literal 0.4.1",
@@ -4809,7 +4809,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "evm-common"
+name = "evm-state-machine"
 version = "0.1.1"
 dependencies = [
  "alloy-primitives",
@@ -7300,7 +7300,7 @@ dependencies = [
  "console_error_panic_hook",
  "ethereum-triedb",
  "ethers",
- "evm-common",
+ "evm-state-machine",
  "futures",
  "getrandom 0.2.15",
  "gloo-timers 0.3.0",
@@ -7713,7 +7713,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "bsc-verifier",
- "evm-common",
+ "evm-state-machine",
  "geth-primitives",
  "ismp",
  "log",
@@ -7869,7 +7869,7 @@ dependencies = [
  "arbitrum-verifier",
  "ethabi",
  "ethereum-triedb",
- "evm-common",
+ "evm-state-machine",
  "frame-support 37.0.0",
  "frame-system",
  "geth-primitives",
@@ -11383,7 +11383,7 @@ dependencies = [
  "alloy-rlp-derive",
  "ethabi",
  "ethereum-triedb",
- "evm-common",
+ "evm-state-machine",
  "geth-primitives",
  "hex",
  "hex-literal 0.4.1",
@@ -12283,7 +12283,7 @@ dependencies = [
  "alloy-rlp-derive",
  "ethabi",
  "ethereum-triedb",
- "evm-common",
+ "evm-state-machine",
  "frame-support 37.0.0",
  "frame-system",
  "hash-db",
@@ -12365,7 +12365,7 @@ dependencies = [
  "dotenv",
  "env_logger 0.11.5",
  "ethereum-triedb",
- "evm-common",
+ "evm-state-machine",
  "frame-support 37.0.0",
  "frame-system",
  "futures",
@@ -12891,7 +12891,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
- "evm-common",
+ "evm-state-machine",
  "frame-support 37.0.0",
  "frame-system",
  "ismp",
@@ -23802,7 +23802,7 @@ dependencies = [
  "ethereum-triedb",
  "ethers",
  "ethers-contract-abigen",
- "evm-common",
+ "evm-state-machine",
  "frame-support 37.0.0",
  "futures",
  "geth-primitives",

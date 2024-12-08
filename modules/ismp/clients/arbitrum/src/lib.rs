@@ -23,7 +23,7 @@ mod tests;
 use alloc::format;
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U256};
-use evm_common::{derive_map_key, get_contract_account, get_value_from_proof, prelude::*};
+use evm_state_machine::{derive_map_key, get_contract_account, get_value_from_proof, prelude::*};
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
 	consensus::{

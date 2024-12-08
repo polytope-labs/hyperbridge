@@ -16,13 +16,13 @@
 use alloc::{collections::BTreeMap, format, string::ToString};
 use arbitrum_verifier::verify_arbitrum_payload;
 use codec::{Decode, Encode};
-use evm_common::construct_intermediate_state;
+use evm_state_machine::construct_intermediate_state;
 
 use crate::{
 	pallet::{self, SupportedStatemachines},
 	types::{BeaconClientUpdate, ConsensusState, L2Consensus},
 };
-use evm_common::EvmStateMachine;
+use evm_state_machine::EvmStateMachine;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineClient,

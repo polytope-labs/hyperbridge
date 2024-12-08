@@ -1,7 +1,7 @@
 use crate::{EvmClient, EvmConfig};
 use codec::Decode;
 use ethers::providers::Middleware;
-use evm_common::{
+use evm_state_machine::{
 	get_contract_account, get_value_from_proof, types::EvmStateProof, verify_membership,
 };
 use hex_literal::hex;

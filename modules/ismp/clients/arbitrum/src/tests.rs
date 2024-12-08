@@ -18,7 +18,7 @@ use ethers::prelude::*;
 use hex_literal::hex;
 
 use crate::NODES_SLOT;
-use evm_common::derive_map_key;
+use evm_state_machine::derive_map_key;
 use ismp_testsuite::mocks::Host;
 use sp_core::{H160, H256};
 

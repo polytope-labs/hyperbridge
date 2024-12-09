@@ -35,19 +35,17 @@ dataSources:
           handler: handlePostRequestEvent
           filter:
             topics:
-              - >-
-                PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256)
+              - 'PostRequestEvent(string,string,address,bytes,uint256,uint256,bytes,uint256)'
         - kind: ethereum/LogHandler
           handler: handlePostResponseEvent
           filter:
             topics:
-              - >-
-                PostResponseEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,bytes,uint256,uint256)
+              - 'PostResponseEvent(string,string,address,bytes,uint256,uint256,bytes,bytes,uint256,uint256)'
         - kind: ethereum/LogHandler
           handler: handlePostRequestHandledEvent
           filter:
             topics:
-              - 'PostRequestHandled(bytes32, address)'
+              - 'PostRequestHandled(bytes32,address)'
         - kind: ethereum/LogHandler
           handler: handlePostResponseHandledEvent
           filter:
@@ -57,12 +55,12 @@ dataSources:
           handler: handlePostRequestTimeoutHandledEvent
           filter:
             topics:
-              - 'PostRequestTimeoutHandled(bytes32, bytes)'
+              - 'PostRequestTimeoutHandled(bytes32,string)'
         - kind: ethereum/LogHandler
           handler: handlePostResponseTimeoutHandledEvent
           filter:
             topics:
-              - 'PostResponseTimeoutHandled(bytes32, bytes)'
+              - 'PostResponseTimeoutHandled(bytes32,string)'
         - kind: ethereum/LogHandler
           handler: handleGetRequestHandledEvent
           filter:
@@ -72,12 +70,12 @@ dataSources:
           handler: handleGetRequestTimeoutHandledEvent
           filter:
             topics:
-              - 'GetRequestTimeoutHandled(bytes32, bytes)'
+              - 'GetRequestTimeoutHandled(bytes32,string)'
         - kind: ethereum/LogHandler
           handler: handleStateMachineUpdatedEvent
           filter:
             topics:
-              - 'StateMachineUpdated(bytes,uint256)'
+              - 'StateMachineUpdated(string,uint256)'
   - kind: ethereum/Runtime
     startBlock: 13464107
     options:
@@ -109,12 +107,12 @@ dataSources:
       handlers:
         - handler: handlePostRequestTransactionHandler
           kind: ethereum/TransactionHandler
-          filter:
-            function: '0x9d38eb35'
+          function: >-
+              handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
         - handler: handlePostResponseTransactionHandler
           kind: ethereum/TransactionHandler
-          filter:
-            function: '0x72becccd'
+          function: >-
+              handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
   - kind: ethereum/Runtime
     startBlock: 13464107
     options:
@@ -130,7 +128,7 @@ dataSources:
           handler: handleBidPlacedEvent
           filter:
             topics:
-              - 'BidPlaced(bytes32,bytes32,uint256,address)'
+              - 'BidPlaced(bytes32,uint256,bytes32,address)'
         - kind: ethereum/LogHandler
           handler: handleBidRefundedEvent
           filter:
@@ -140,15 +138,15 @@ dataSources:
           handler: handleRequestFulfilledEvent
           filter:
             topics:
-              - 'RequestFulfilled(address,uint256,bytes32)'
+              - 'RequestFulfilled(uint256,address,bytes32)'
         - kind: ethereum/LogHandler
           handler: handleAssetReceivedEvent
           filter:
             topics:
-              - 'AssetReceived(bytes32,address,address,uint256,bytes32)'
+              - 'AssetReceived(uint256,bytes32,bytes32,address,bytes32)'
         - kind: ethereum/LogHandler
           handler: handleAssetTeleportedEvent
           filter:
             topics:
-              - 'AssetTeleported(bytes32,address,bytes32,uint256,bytes32,bool)'
+              - 'AssetTeleported(bytes32,string,uint256,bytes32,address,bytes32,bool)'
 repository: 'https://github.com/polytope-labs/hyperbridge'

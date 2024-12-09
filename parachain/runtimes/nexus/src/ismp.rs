@@ -104,7 +104,7 @@ impl pallet_ismp::Config for Runtime {
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<Runtime>,
 	);
-	type Mmr = Mmr;
+	type OffchainDB = Mmr;
 	type WeightProvider = ();
 }
 

@@ -37,7 +37,7 @@ use ismp_testsuite::{
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts},
-	mmr::Leaf,
+	offchain::Leaf,
 	FundMessageParams, MessageCommitment, RELAYER_FEE_ACCOUNT,
 };
 
@@ -200,7 +200,7 @@ fn should_handle_get_request_timeouts_correctly() {
 		let timeout_msg = TimeoutMessage::Get { requests: requests.clone() };
 
 		set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
-		pallet_ismp::Pallet::<Test>::handle_messages(vec![Message::Timeout(timeout_msg)]).unwrap();
+		pallet_ismp::Pallet::<Test>::execute(vec![Message::Timeout(timeout_msg)]).unwrap();
 		for request in requests {
 			// commitments should not be found in storage after timeout has been processed
 			let commitment = hash_request::<Ismp>(&request);
@@ -271,7 +271,7 @@ fn should_handle_get_request_responses_correctly() {
 			signer: vec![],
 		};
 
-		pallet_ismp::Pallet::<Test>::handle_messages(vec![Message::Response(response)]).unwrap();
+		pallet_ismp::Pallet::<Test>::execute(vec![Message::Response(response)]).unwrap();
 
 		for request in requests {
 			let Request::Get(get) = request else { panic!("Shouldn't be possible") };

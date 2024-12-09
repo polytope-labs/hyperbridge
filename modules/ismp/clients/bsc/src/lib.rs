@@ -12,7 +12,7 @@ use bsc_verifier::{
 	verify_bsc_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
-use evm_common::EvmStateMachine;
+use evm_state_machine::EvmStateMachine;
 use geth_primitives::Header;
 use ismp::{
 	consensus::{

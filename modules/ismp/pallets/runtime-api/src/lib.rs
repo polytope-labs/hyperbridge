@@ -26,7 +26,7 @@ use ismp::{
 	host::StateMachine,
 	router::{Request, Response},
 };
-use pallet_ismp::mmr::{Leaf, Proof, ProofKeys};
+use pallet_ismp::offchain::{Leaf, Proof, ProofKeys};
 use primitive_types::H256;
 use sp_mmr_primitives::Error;
 

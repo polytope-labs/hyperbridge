@@ -78,7 +78,7 @@ This method accepts a list of request commitments and responds with the requests
 		.await.unwrap();
    // Use an actual request commitment that exists
    let commitment = H256::random();
-   let params = rpc_params![pallet_ismp::mmr::LeafIndexQuery { commitment }];
+   let params = rpc_params![pallet_ismp::offchain::LeafIndexQuery { commitment }];
    let requests: Vec<Request> = client.rpc().request("ismp_queryRequests", params).await.unwrap();
 ```
 
@@ -90,7 +90,7 @@ This method accepts a list of response commitments and responds with the request
 		.await.unwrap();
    // Use an actual response commitment that exists
    let commitment = H256::random();
-   let params = rpc_params![pallet_ismp::mmr::LeafIndexQuery { commitment }];
+   let params = rpc_params![pallet_ismp::offchain::LeafIndexQuery { commitment }];
    let requests: Vec<Request> = client.rpc().request("ismp_queryResponses", params).await.unwrap();
 ```
 
@@ -104,7 +104,7 @@ This method queries the mmr proof a list of request or response commitments, it 
    let commitment = H256::random();
    // Block height at which proof should be queried
    let at = 100;
-   let params = rpc_params![at, pallet_ismp::mmr::ProofKeys::Requests(vec![commitment])];
+   let params = rpc_params![at, pallet_ismp::offchain::ProofKeys::Requests(vec![commitment])];
    let requests: Proof = client.rpc().request("ismp_queryMmrProof", params).await.unwrap();
 ```
 

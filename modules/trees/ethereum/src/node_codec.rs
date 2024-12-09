@@ -37,6 +37,13 @@ const HASHED_NULL_NODE: [u8; 32] = [
 	0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0, 0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
 ];
 
+/// The error type for this crate
+#[derive(Debug, thiserror::Error, derive_more::From)]
+pub enum Error {
+	#[error("DecodeError: {_0}")]
+	DecodeError(DecoderError),
+}
+
 // NOTE: what we'd really like here is:
 // `impl<H: Hasher> NodeCodec<H> for RlpNodeCodec<H> where H::Out: Decodable`
 // but due to the current limitations of Rust const evaluation we can't
@@ -45,7 +52,7 @@ impl<H> NodeCodec for RlpNodeCodec<H>
 where
 	H: Hasher<Out = H256>,
 {
-	type Error = DecoderError;
+	type Error = Error;
 	type HashOut = H::Out;
 
 	fn hashed_null_node() -> H::Out {
@@ -135,7 +142,7 @@ where
 			// an empty branch index.
 			Prototype::Data(0) => Ok(NodePlan::Empty),
 			// something went wrong.
-			_ => Err(DecoderError::Custom("Rlp is not valid.")),
+			_ => Err(DecoderError::Custom("Rlp is not valid."))?,
 		}
 	}
 

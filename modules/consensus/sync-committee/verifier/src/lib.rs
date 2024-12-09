@@ -6,8 +6,10 @@ extern crate alloc;
 pub mod crypto;
 pub mod error;
 
-use crate::{crypto::verify_aggregate_signature, error::Error};
+use crate::error::Error;
 use alloc::vec::Vec;
+use ark_ec::CurveGroup;
+use crypto::subtract_points_from_aggregate;
 use ssz_rs::{
 	calculate_multi_merkle_root, prelude::is_valid_merkle_branch, GeneralizedIndex, Merkleized,
 	Node,
@@ -97,13 +99,21 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let signing_root = compute_signing_root(&mut update.attested_header, domain)
 		.map_err(|_| Error::InvalidRoot("Failed to compute signing root".into()))?;
 
-	verify_aggregate_signature(
+	let aggregate = subtract_points_from_aggregate(
 		&sync_committee.aggregate_public_key,
 		&non_participant_pubkeys,
-		signing_root.as_bytes().to_vec(),
+	)?;
+
+	let verify = bls::verify(
+		&bls::point_to_pubkey(aggregate.into_affine()),
+		&signing_root.as_bytes().to_vec(),
 		&update.sync_aggregate.sync_committee_signature,
-	)
-	.map_err(|_| Error::SignatureVerification)?;
+		&bls::DST_ETHEREUM.as_bytes().to_vec(),
+	);
+
+	if !verify {
+		Err(Error::SignatureVerification)?
+	}
 
 	// Verify that the `finality_branch` confirms `finalized_header`
 	// to match the finalized checkpoint root saved in the state of `attested_header`.

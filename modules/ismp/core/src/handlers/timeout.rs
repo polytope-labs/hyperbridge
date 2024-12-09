@@ -45,13 +45,15 @@ where
 			let state = host.state_machine_commitment(timeout_proof.height)?;
 
 			for request in &requests {
-				// check if the destination chain does not match the proof metadata in which case
-				// the proof metadata must be the configured proxy
-				// and we must not have a configured state machine client for the destination
-				if request.dest_chain() != timeout_proof.height.id.state_id &&
-					!(host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-						check_state_machine_client(request.dest_chain()))
-				{
+				let dest_chain = request.dest_chain();
+
+				// in order to allow proxies, the host must configure the given state machine
+				// as it's proxy and must not have a state machine client for the destination chain
+				let allow_proxy = host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+					check_state_machine_client(dest_chain);
+
+				// check if the timeout is allowed to be proxied
+				if dest_chain != timeout_proof.height.id.state_id && !allow_proxy {
 					Err(Error::RequestProxyProhibited { meta: request.into() })?
 				}
 
@@ -112,17 +114,20 @@ where
 			let state_machine = validate_state_machine(host, timeout_proof.height)?;
 			let state = host.state_machine_commitment(timeout_proof.height)?;
 			for response in &responses {
-				// check if the destination chain does not match the proof metadata in which case
-				// the proof metadata must be the configured proxy
-				// and we must not have a configured state machine client for the destination
-				if response.dest_chain() != timeout_proof.height.id.state_id &&
-					!(host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-						check_state_machine_client(response.dest_chain()))
-				{
+				let dest_chain = response.dest_chain();
+
+				// in order to allow proxies, the host must configure the given state machine
+				// as it's proxy and must not have a state machine client for the destination chain
+				let allow_proxy = host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+					check_state_machine_client(dest_chain);
+
+				// check if the response is allowed to be proxied
+				if dest_chain != timeout_proof.height.id.state_id && !allow_proxy {
 					Err(Error::ResponseProxyProhibited {
 						meta: Response::Post(response.clone()).into(),
 					})?
 				}
+
 				// Ensure a commitment exists for all responses in the batch
 				let commitment = hash_post_response::<H>(response);
 				if host.response_commitment(commitment).is_err() {

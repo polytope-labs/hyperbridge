@@ -11,7 +11,7 @@ use ethers::{
 	providers::Middleware,
 	types::{CallFrame, GethDebugTracingCallOptions, GethTrace, GethTraceFrame},
 };
-use evm_common::types::EvmStateProof;
+use evm_state_machine::types::EvmStateProof;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::{Event, StateCommitmentVetoed},

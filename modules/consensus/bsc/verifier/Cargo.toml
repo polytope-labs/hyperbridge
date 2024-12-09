@@ -8,23 +8,22 @@ publish = false
 
 
 [dependencies]
-log = { version = "0.4.17", default-features = false }
+log = { workspace = true }
 anyhow = { workspace = true, default-features = false }
-sp-core = {workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
-codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
-ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
-ismp = { path = "../../../ismp/core", default-features = false }
-geth-primitives = { path = "../../geth-primitives", default-features = false }
-sync-committee-verifier = { path = "../../sync-committee/verifier", default-features = false }
-sync-committee-primitives  = { path = "../../sync-committee/primitives", default-features = false }
-ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
-bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
-ark-ec = { version = "0.4.2", default-features = false }
+primitive-types = { workspace = true }
+codec = { workspace = true }
+ismp = { workspace = true, default-features = false }
+geth-primitives = { workspace = true, default-features = false }
+sync-committee-verifier = { workspace = true, default-features = false }
+sync-committee-primitives  = { workspace = true, default-features = false }
+bls = { workspace = true }
+ark-ec = { workspace = true }
+sp-runtime = { workspace = true }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
-sp-runtime.workspace = true
 
 [features]
 default = ["std"]
@@ -36,8 +35,6 @@ std = [
     "ismp/std",
     "alloy-primitives/std",
     "alloy-rlp/std",
-    "ethabi/std",
-    "ark-bls12-381/std",
     "bls/std",
     "sync-committee-verifier/std",
     "sync-committee-primitives/std",

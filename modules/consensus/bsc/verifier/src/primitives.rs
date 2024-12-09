@@ -4,9 +4,9 @@ use alloy_rlp::Decodable;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::H160;
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
+use primitive_types::H160;
 use sp_runtime::traits::ConstU32;
 
 pub const EPOCH_LENGTH: u64 = 200;

@@ -8,9 +8,9 @@ publish = false
 
 
 [dependencies]
-log = { version = "0.4.17", default-features = false }
+log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
-codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
+codec = { workspace = true, default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
 sp-core = {workspace = true, default-features = false }
@@ -18,7 +18,7 @@ ismp = { workspace = true }
 bsc-verifier = { workspace = true }
 sync-committee-primitives = { workspace = true }
 geth-primitives = { workspace = true }
-evm-common = { workspace = true }
+evm-state-machine =  { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 
 [features]
@@ -32,6 +32,6 @@ std = [
     "bsc-verifier/std",
     "ismp/std",
     "sync-committee-primitives/std",
-    "evm-common/std",
+    "evm-state-machine/std",
     "pallet-ismp-host-executive/std"
 ]

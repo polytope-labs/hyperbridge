@@ -38,7 +38,7 @@ use pallet_ismp::{
 	child_trie::{
 		request_commitment_storage_key, response_commitment_storage_key, CHILD_TRIE_PREFIX,
 	},
-	mmr::ProofKeys,
+	offchain::ProofKeys,
 	ResponseReceipt,
 };
 use serde::{Deserialize, Serialize};

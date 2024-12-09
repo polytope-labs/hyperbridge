@@ -5,22 +5,17 @@ edition = "2021"
 authors = ["Polytope Labs"]
 publish = false
 
-
-
 [dependencies]
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
-hex-literal = { package = "hex-literal", version = "0.4.1", default-features = false }
-codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = [
-    "derive"
-] }
-primitive-types = { version = "0.12.1", default-features = false, features = ["serde_no_std", "impl-codec"] }
-serde = { version = "1.0.185", optional = true, features = ["derive"] }
-hex = { version = "0.4.3", default-features = false, features = ["alloc"] }
+hex-literal = { workspace = true }
+codec = { workspace = true, features = ["derive"] }
+primitive-types = { workspace = true, features = ["serde_no_std", "impl-codec"] }
+serde = { workspace = true, optional = true, features = ["derive"] }
+hex = { workspace = true, default-features = false, features = ["alloc"] }
 anyhow = { workspace = true, default-features = false}
-ark-ec = { version = "0.4.2", default-features = false }
-ark-bls12-381 = { version = "0.4.0", default-features = false }
-bls_on_arkworks = { version = "0.2.2", default-features = false }
 serde-hex-utils = { workspace = true, default-features = false }
+
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
+
 
 [features]
 default = ["std"]
@@ -30,9 +25,6 @@ std = [
     'codec/std',
     "primitive-types/std",
     "anyhow/std",
-    "ark-ec/std",
-    "bls_on_arkworks/std",
-    "ark-bls12-381/std",
     "primitive-types/std",
     "serde",
     "serde-hex-utils/std"

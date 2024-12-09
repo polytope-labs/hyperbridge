@@ -3,4 +3,4 @@ query:
   name: '@subql/query'
   version: '*'
 projects:
-  - ./src/chains/testnet/ethereum-sepolia.yaml
+  - ./ethereum-sepolia.yaml

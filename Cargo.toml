@@ -264,7 +264,7 @@ jsonrpsee = { version = "0.23" }
 jsonrpsee-core = { version = "0.23" }
 
 # local crates
-ismp = { version = "0.2.1", path = "./modules/ismp/core", default-features = false }
+ismp = { version = "0.2.2", path = "./modules/ismp/core", default-features = false }
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
 ismp-solidity-abi = { path = "./evm/abi", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
@@ -300,11 +300,15 @@ evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-featur
 substrate-state-machine = { version = "1.15.1", path = "modules/ismp/state-machines/substrate", default-features = false }
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
-# pallets
-pallet-ismp = { version = "1.15.1", path = "modules/ismp/pallets/pallet", default-features = false }
-pallet-ismp-rpc = { version = "1.15.1", path = "modules/ismp/pallets/rpc" }
-pallet-ismp-runtime-api = { version = "1.15.1", path = "modules/ismp/pallets/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "1.15.1", path = "modules/ismp/pallets/hyperbridge", default-features = false }
+# published pallets
+pallet-ismp = { version = "1.15.2", path = "modules/ismp/pallets/pallet", default-features = false }
+pallet-ismp-rpc = { version = "1.15.2", path = "modules/ismp/pallets/rpc" }
+pallet-ismp-runtime-api = { version = "1.15.2", path = "modules/ismp/pallets/runtime-api", default-features = false }
+pallet-hyperbridge = { version = "1.15.2", path = "modules/ismp/pallets/hyperbridge", default-features = false }
+pallet-token-gateway = { version = "1.15.2", path = "modules/ismp/pallets/token-gateway", default-features = false }
+token-gateway-primitives = { version = "1.15.2", path = "modules/ismp/pallets/token-gateway/primitives", default-features = false }
+
+# ismp modules
 pallet-fishermen = { path = "modules/ismp/pallets/fishermen", default-features = false }
 pallet-ismp-demo = { path = "modules/ismp/pallets/demo", default-features = false }
 pallet-ismp-relayer = { path = "modules/ismp/pallets/relayer", default-features = false }
@@ -314,8 +318,6 @@ pallet-xcm-gateway = { path = "modules/ismp/pallets/asset-gateway", default-feat
 pallet-token-governor = { path = "modules/ismp/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/ismp/pallets/state-coprocessor", default-features = false }
 pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
-pallet-token-gateway = { version = "1.15.1", path = "modules/ismp/pallets/token-gateway", default-features = false }
-token-gateway-primitives = { version = "1.15.1", path = "modules/ismp/pallets/token-gateway/primitives", default-features = false }
 pallet-token-gateway-inspector = { path = "modules/ismp/pallets/token-gateway-inspector", default-features = false }
 
 # merkle trees

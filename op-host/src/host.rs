@@ -16,7 +16,7 @@ use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated};
 
 use crate::{
 	abi::{dispute_game_factory::DisputeGameFactory, fault_dispute_game::FaultDisputeGame},
-	OpHost,
+	OpHost, ProposerConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -39,7 +39,20 @@ impl IsmpHost for OpHost {
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		if let Some(dispute_game_factory_address) = self.dispute_game_factory.clone() {
+		if self.dispute_game_factory.is_none() || self.proposer.is_none() {
+			let mut stream = Box::pin(futures::stream::pending::<()>());
+			while let Some(_) = stream.next().await {}
+		} else {
+			let dispute_game_factory_address = self
+				.dispute_game_factory
+				.clone()
+				.ok_or_else(|| anyhow!("Expected dispute game factory address"))?;
+			let proposer_config = self
+				.host
+				.proposer_config
+				.clone()
+				.ok_or_else(|| anyhow!("Expected proposer config"))?;
+			let proposer = self.proposer.clone().ok_or_else(|| anyhow!("Expected proposer"))?;
 			let (tx, recv) = tokio::sync::broadcast::channel(512);
 			let client = self.clone();
 			let initial_height = client.op_execution_client.get_block_number().await?.low_u64();
@@ -47,14 +60,21 @@ impl IsmpHost for OpHost {
 			// propose commitment after a confirmation delay
 			tokio::task::spawn({
 				let client = client.clone();
+				let dispute_game_factory_address = dispute_game_factory_address.clone();
+				let proposer_config = proposer_config.clone();
 				async move {
 					let mut latest_height = initial_height;
 					log::trace!(target: "tesseract", "Started Proposer for {:?} at {latest_height}", client.evm.state_machine());
 
 					loop {
 						tokio::time::sleep(Duration::from_secs(30)).await;
-						match lambda(&client, &mut latest_height, dispute_game_factory_address)
-							.await
+						match lambda(
+							&client,
+							&mut latest_height,
+							dispute_game_factory_address,
+							&proposer_config,
+						)
+						.await
 						{
 							Ok(Some(proposal)) => match tx.send(proposal) {
 								Ok(_) => {},
@@ -83,10 +103,8 @@ impl IsmpHost for OpHost {
 							self.provider.state_machine_id().state_id,
 							proposal.block_number
 						);
-						let contract = DisputeGameFactory::new(
-							dispute_game_factory_address,
-							self.proposer.clone(),
-						);
+						let contract =
+							DisputeGameFactory::new(dispute_game_factory_address, proposer.clone());
 
 						let call = contract.create(
 							proposal.game_type,
@@ -98,12 +116,12 @@ impl IsmpHost for OpHost {
 						let gas_limit = call
 							.estimate_gas()
 							.await
-							.unwrap_or(get_chain_gas_limit(self.host.l1_state_machine).into());
+							.unwrap_or(get_chain_gas_limit(self.l1_state_machine).into());
 
 						// Fetch gas price and use wait_for_success
 						let gas_price = get_current_gas_cost_in_usd(
-							self.host.l1_state_machine,
-							&self.host.l1_etherscan_api_key,
+							self.l1_state_machine,
+							&proposer_config.l1_etherscan_api_key,
 							self.beacon_execution_client.clone(),
 						)
 						.await;
@@ -112,10 +130,10 @@ impl IsmpHost for OpHost {
 							Ok(gas_price) => match call.clone().gas(gas_limit).send().await {
 								Ok(tx) => {
 									if let Err(err) = wait_for_success(
-										&self.host.l1_state_machine,
-										&self.host.l1_etherscan_api_key,
+										&self.l1_state_machine,
+										&proposer_config.l1_etherscan_api_key,
 										self.beacon_execution_client.clone(),
-										self.proposer.clone(),
+										proposer.clone(),
 										tx,
 										Some(gas_price.gas_price),
 										Some(call.clone().gas(gas_limit)),
@@ -139,10 +157,7 @@ impl IsmpHost for OpHost {
 					},
 				}
 			}
-		} else {
-			let mut stream = Box::pin(futures::stream::pending::<()>());
-			while let Some(_) = stream.next().await {}
-		};
+		}
 
 		Err(anyhow!(
 			"{}-{} consensus task has failed, Please restart relayer",
@@ -166,6 +181,7 @@ async fn lambda(
 	client: &OpHost,
 	latest_height: &mut u64,
 	dispute_game_factory_address: H160,
+	proposer_config: &ProposerConfig,
 ) -> Result<Option<StateProposal>, anyhow::Error> {
 	let block_number = client.op_execution_client.get_block_number().await?.as_u64();
 	if block_number <= *latest_height {
@@ -185,7 +201,7 @@ async fn lambda(
 
 	if event.is_some() {
 		// Wait for the chain to advance by a couple blocks
-		let confirmation_delay = client.host.confirmation_delay.unwrap_or(50);
+		let confirmation_delay = proposer_config.confirmation_delay.unwrap_or(50);
 		log::trace!(target: "tesseract",
 			"Waiting for {} blocks before proposing {:?} state commitment",
 			confirmation_delay,

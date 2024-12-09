@@ -22,7 +22,7 @@ async fn test_payload_proof_verification() {
 		message_parser: H160::from(MESSAGE_PARSER),
 		dispute_game_factory: Some(H160::from(DISPUTE_GAME_FACTORY)),
 		respected_game_type: Some(0),
-		confirmation_delay: None,
+		proposer_config: None,
 	};
 	let config = OpConfig {
 		host: host.clone(),
@@ -76,7 +76,7 @@ async fn test_dispute_game_proof_verification() {
 		message_parser: H160::from(MESSAGE_PARSER),
 		dispute_game_factory: Some(H160::from(DISPUTE_GAME_FACTORY)),
 		respected_game_type: Some(0),
-		confirmation_delay: None,
+		proposer_config: None,
 	};
 	let config = OpConfig {
 		host: host.clone(),

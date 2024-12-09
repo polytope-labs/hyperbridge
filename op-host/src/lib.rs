@@ -52,13 +52,16 @@ pub struct HostConfig {
 	pub respected_game_type: Option<u32>,
 	/// Withdrawals Message Passer contract address on L2
 	pub message_parser: H160,
+	/// proposer config
+	pub proposer_config: Option<ProposerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProposerConfig {
 	/// Confirmation delay
 	pub confirmation_delay: Option<u64>,
 	/// Proposer account, private key
 	pub proposer: String,
-	/// L1 state machine
-	#[serde(with = "serde_hex_utils::as_string")]
-	pub l1_state_machine: StateMachine,
 	/// Etherscan API key
 	pub l1_etherscan_api_key: String,
 }
@@ -97,7 +100,9 @@ pub struct OpHost {
 	/// Ismp provider
 	pub provider: Arc<dyn IsmpProvider>,
 	/// Transaction signer
-	pub proposer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
+	pub proposer: Option<Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>>,
+	/// L1 state machine id
+	pub l1_state_machine: StateMachine,
 }
 
 pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
@@ -125,22 +130,29 @@ impl OpHost {
 			host.beacon_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
 			None,
 		));
+		let l1_chain_id = beacon_client.get_chainid().await?.low_u64();
+		let l1_state_machine = StateMachine::Evm(l1_chain_id as u32);
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
 
-		let bytes = match from_hex(host.proposer.as_str()) {
-			Ok(bytes) => bytes,
-			Err(_) => {
-				// it's probably a file.
-				let contents = tokio::fs::read_to_string(host.proposer.as_str()).await?;
-				from_hex(contents.as_str())?
-			},
+		let proposer = if let Some(proposer_config) = host.proposer_config.clone() {
+			let bytes = match from_hex(proposer_config.proposer.as_str()) {
+				Ok(bytes) => bytes,
+				Err(_) => {
+					// it's probably a file.
+					let contents =
+						tokio::fs::read_to_string(proposer_config.proposer.as_str()).await?;
+					from_hex(contents.as_str())?
+				},
+			};
+
+			let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
+			let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
+				.with_chain_id(l1_chain_id);
+			Some(Arc::new(beacon_client.clone().with_signer(signer)))
+		} else {
+			None
 		};
-		let chain_id = beacon_client.get_chainid().await?.low_u64();
-		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
-		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
-			.with_chain_id(chain_id);
-		let proposer = Arc::new(beacon_client.clone().with_signer(signer));
 
 		Ok(Self {
 			op_execution_client: Arc::new(el),
@@ -157,6 +169,7 @@ impl OpHost {
 			},
 			provider,
 			proposer,
+			l1_state_machine,
 		})
 	}
 

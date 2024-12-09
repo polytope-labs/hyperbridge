@@ -25,7 +25,7 @@ codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive
 sp-core = { workspace = true,  features = ["full_crypto"] }
 log = "0.4.19"
 ethers = { workspace = true, features = ["rustls"] }
-ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
+ethabi = { workspace = true, features = ["full-serde"] }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-stream = { workspace = true }
 frame-support = { workspace = true, default-features = true  }
@@ -42,7 +42,7 @@ geth-primitives = { workspace = true, default-features = true }
 ismp-sync-committee = { workspace = true, default-features = true }
 ethereum-triedb = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
-evm-common = { workspace = true, default-features = true }
+evm-state-machine =  { workspace = true, default-features = true }
 sp-mmr-primitives = { workspace = true, default-features = true }
 
 tesseract-primitives = { workspace = true, default-features = true  }

@@ -84,7 +84,7 @@
 //! use frame_support::parameter_types;
 //! use frame_system::EnsureRoot;
 //! use ismp::Error;
-//! use pallet_ismp::NoOpMmrTree;
+//! use pallet_ismp::TransparentOffchainDB;
 //! use ismp::host::StateMachine;
 //! use ismp::module::IsmpModule;
 //! use ismp::router::{IsmpRouter, Post, Response, Timeout};
@@ -118,9 +118,9 @@
 //!         // as an example, the parachain consensus client
 //!         ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
 //!     );
-//!     // Optional merkle mountain range overlay tree, for cheaper outgoing request proofs.
-//!     // You most likely don't need it, just use the `NoOpMmrTree`
-//!     type Mmr = NoOpMmrTree<Runtime>;
+//!     // Offchain database implementation. Outgoing requests and responses are
+//!     // inserted in this database, while their commitments are stored onchain.
+//!     type OffchainDB = TransparentOffchainDB;
 //!     // Weight provider for local modules
 //!     type WeightProvider = ();
 //! }
@@ -161,7 +161,7 @@
 //!
 //!     /// Called by the ISMP hanlder, to notify module of requests that were previously
 //!     /// sent but have now timed-out
-//! 	fn on_timeout(&self, request: Timeout) -> Result<(), Error> {
+//!     fn on_timeout(&self, request: Timeout) -> Result<(), Error> {
 //!         // revert any state changes that were made prior to dispatching the request
 //!         Ok(())
 //!     }
@@ -181,23 +181,20 @@ pub mod errors;
 pub mod events;
 pub mod host;
 mod impls;
-pub mod mmr;
+pub mod offchain;
 mod utils;
 pub mod weights;
 
-use crate::mmr::Leaf;
-use mmr_primitives::{MerkleMountainRangeTree, NoOpTree};
+use crate::offchain::Leaf;
+use mmr_primitives::{OffchainDBProvider, PlainOffChainDB};
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 
-/// No-op mmr implementation for runtimes that don't want to build an offchain mmr tree. This
-/// implementation does not panic for any runtime called methods, eg `push` or `finalize`
-/// It will always return the default values for those methods.
-///
-/// Additionally this implementation stores the requests and responses directly inside the offchain
+/// The `TransparentOffchainDB` stores the requests and responses directly inside the offchain
 /// db using the commitment as the offchain key
+///
 /// *NOTE* it will return an error if you try to generate proofs.
-pub type NoOpMmrTree<T> = NoOpTree<Leaf, Pallet<T>>;
+pub type TransparentOffchainDB<T> = PlainOffChainDB<Leaf, Pallet<T>>;
 
 // Definition of the pallet logic, to be aggregated at runtime definition through
 // `construct_runtime`.
@@ -308,11 +305,12 @@ pub mod pallet {
 		/// their benchmarks.
 		type WeightProvider: WeightProvider;
 
-		/// Merkle mountain range overlay tree implementation. Outgoing requests and responses are
-		/// inserted in this "overlay tree" to enable cheap proofs for messages.
+		/// Offchain database implementation. Outgoing requests and responses are
+		/// inserted in this database, while their commitments are stored onchain.
 		///
-		/// State machines that do not need this can simply use the `NoOpMmrTree`
-		type Mmr: MerkleMountainRangeTree<Leaf = Leaf>;
+		/// This offchain DB is also allowed to "merkelize" and "generate proofs" for messages.
+		/// Most state machines will likey not need this can default to the `TransparentOffchainDB`
+		type OffchainDB: OffchainDBProvider<Leaf = Leaf>;
 	}
 
 	// Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and
@@ -407,9 +405,9 @@ pub mod pallet {
 			);
 
 			let child_trie_root = H256::from_slice(&child_trie_root);
-			ChildTrieRoot::<T>::put::<<T as frame_system::Config>::Hash>(child_trie_root.into());
+			ChildTrieRoot::<T>::put::<T::Hash>(child_trie_root.into());
 			// Only finalize if mmr was modified
-			let root = match T::Mmr::finalize() {
+			let root = match T::OffchainDB::finalize() {
 				Ok(root) => root,
 				Err(e) => {
 					log::error!(target:"ismp", "Failed to finalize MMR {e:?}");
@@ -446,7 +444,7 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			Self::handle_messages(messages)
+			Self::execute(messages)
 		}
 
 		/// Execute the provided batch of ISMP messages. This call will short-circuit and revert if
@@ -464,7 +462,7 @@ pub mod pallet {
 		pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResultWithPostInfo {
 			ensure_signed(origin)?;
 
-			Self::handle_messages(messages)
+			Self::execute(messages)
 		}
 
 		/// Create a consensus client, using a subjectively chosen consensus state. This can also

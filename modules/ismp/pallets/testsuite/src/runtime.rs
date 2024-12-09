@@ -38,7 +38,7 @@ use ismp::{
 	Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{mmr::Leaf, ModuleId};
+use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_gateway::CreateAssetId;
 use pallet_token_governor::GatewayParams;
 use sp_core::{
@@ -202,7 +202,7 @@ impl pallet_ismp::Config for Test {
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test, ()>,
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
 	);
-	type Mmr = Mmr;
+	type OffchainDB = Mmr;
 	type WeightProvider = ();
 }
 

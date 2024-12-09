@@ -29,7 +29,7 @@ use ismp_solidity_abi::{
 	},
 };
 use mmr_primitives::mmr_position_to_k_index;
-use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
+use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use primitive_types::{H160, H256, U256};
 use sp_mmr_primitives::utils::NodesUtils;
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
@@ -241,8 +241,8 @@ pub async fn generate_contract_calls(
 
 	// Only use gas price buffer when submitting transactions
 	if !debug_trace && client.config.gas_price_buffer.is_some() {
-		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
-			U256::from(100u32);
+		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price)
+			/ U256::from(100u32);
 		gas_price = gas_price + buffer
 	}
 
@@ -287,8 +287,9 @@ pub async fn generate_contract_calls(
 						height: StateMachineHeight {
 							state_machine_id: {
 								match msg.proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-										id.into(),
+									StateMachine::Polkadot(id) | StateMachine::Kusama(id) => {
+										id.into()
+									},
 									_ => {
 										panic!("Expected polkadot or kusama state machines");
 									},
@@ -346,8 +347,8 @@ pub async fn generate_contract_calls(
 									height: StateMachineHeight {
 										state_machine_id: {
 											match proof.height.id.state_id {
-												StateMachine::Polkadot(id) |
-												StateMachine::Kusama(id) => id.into(),
+												StateMachine::Polkadot(id)
+												| StateMachine::Kusama(id) => id.into(),
 												_ => {
 													log::error!("Expected polkadot or kusama state machines");
 													continue;
@@ -375,8 +376,9 @@ pub async fn generate_contract_calls(
 							contract.handle_post_responses(ismp_host, message).gas(gas_limit)
 						}
 					},
-					RequestResponse::Request(..) =>
-						Err(anyhow!("Get requests are not supported by relayer"))?,
+					RequestResponse::Request(..) => {
+						Err(anyhow!("Get requests are not supported by relayer"))?
+					},
 				};
 
 				calls.push(call);
@@ -391,8 +393,9 @@ pub async fn generate_contract_calls(
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
-		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
-			32_000_000,
+		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) => {
+			32_000_000
+		},
 		StateMachine::Evm(GNOSIS_CHAIN_ID) | StateMachine::Evm(CHIADO_CHAIN_ID) => 16_000_000,
 		StateMachine::Evm(_) => 20_000_000,
 		_ => Default::default(),
@@ -408,7 +411,7 @@ pub async fn handle_message_submission(
 	let mut results = vec![];
 	for msg in messages {
 		match msg {
-			Message::Request(req_msg) =>
+			Message::Request(req_msg) => {
 				for post in req_msg.requests {
 					let req = Request::Post(post);
 					let commitment = hash_request::<Hasher>(&req);
@@ -425,11 +428,12 @@ pub async fn handle_message_submission(
 
 						results.push(tx_receipt);
 					}
-				},
+				}
+			},
 			Message::Response(ResponseMessage {
 				datagram: RequestResponse::Response(resp),
 				..
-			}) =>
+			}) => {
 				for res in resp {
 					let commitment = hash_response::<Hasher>(&res);
 					let request_commitment = hash_request::<Hasher>(&res.request());
@@ -447,7 +451,8 @@ pub async fn handle_message_submission(
 
 						results.push(tx_receipt);
 					}
-				},
+				}
+			},
 			_ => {},
 		}
 	}

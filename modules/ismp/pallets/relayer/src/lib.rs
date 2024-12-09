@@ -23,11 +23,11 @@ extern crate alloc;
 pub mod withdrawal;
 
 use crate::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
 use ethabi::ethereum_types::H256;
-use evm_common::{
+use evm_state_machine::{
 	presets::{
 		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
 		RESPONSE_RECEIPTS_SLOT,
@@ -48,7 +48,6 @@ use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};
 use sp_core::U256;
 use sp_runtime::{AccountId32, DispatchError};
-use sp_std::prelude::*;
 
 pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
 

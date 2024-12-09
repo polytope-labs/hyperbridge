@@ -1,11 +1,11 @@
 [package]
 name = "pallet-ismp-runtime-api"
-version = "1.15.1"
+version = "1.15.2"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
 repository = "https://github.com/polytope-labs/hyperbridge"
-homepage = "https://docs.hyperbridge.network/developers/polkadot/integration"
+homepage = "https://docs.hyperbridge.network/developers/polkadot/getting-started"
 documentation = "https://docs.rs/pallet-ismp"
 description = "The substrate runtime API for pallet-ismp"
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
@@ -16,7 +16,7 @@ sp-api = { workspace = true }
 primitive-types = { workspace = true }
 pallet-ismp = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
-serde = { version = "1.0.136", features = ["derive"], optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
 sp-mmr-primitives = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
 

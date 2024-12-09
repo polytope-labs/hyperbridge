@@ -119,9 +119,7 @@ pub mod pallet {
 
 			// Handling error will prevent this inherent from breaking block production if there's a
 			// reorg and it's no longer valid
-			if let Err(err) =
-				pallet_ismp::Pallet::<T>::handle_messages(vec![Message::Consensus(data)])
-			{
+			if let Err(err) = pallet_ismp::Pallet::<T>::execute(vec![Message::Consensus(data)]) {
 				log::trace!(target: "ismp", "Parachain inherent consensus update failed {err:?}");
 			} else {
 				ConsensusUpdated::<T>::put(true);

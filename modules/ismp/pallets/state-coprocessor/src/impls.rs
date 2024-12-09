@@ -18,7 +18,7 @@
 use super::{Config, Pallet};
 use alloc::{string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
-use evm_common::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
+use evm_state_machine::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
 	events::RequestResponseHandled,
 	handlers::validate_state_machine,
@@ -27,11 +27,11 @@ use ismp::{
 	router::{GetRequest, GetResponse, Request, RequestResponse, Response, StorageValue},
 	Error,
 };
-use mmr_primitives::MerkleMountainRangeTree;
+use mmr_primitives::OffchainDBProvider;
 use pallet_ismp::{
 	child_trie::RequestCommitments,
 	dispatcher::{FeeMetadata, RequestMetadata},
-	mmr::{Leaf, LeafIndexAndPos},
+	offchain::{Leaf, LeafIndexAndPos},
 };
 use sp_core::U256;
 

@@ -46,7 +46,6 @@ export default defineConfig({
   title: "Hyperbridge Documentation",
   description:
     "Hyperbridge is a coprocessor for cryptographically secure interoperability",
-  // todo: add logo
   ogImageUrl:
     "https://docs.hyperbridge.network/og.png",
   logoUrl: {

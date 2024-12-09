@@ -15,16 +15,16 @@ sync-committee-verifier = { workspace = true, default-features = false }
 ethereum-triedb = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
-evm-common = { workspace = true }
+evm-state-machine =  { workspace = true }
 arbitrum-verifier = { workspace = true }
 op-verifier = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 
 # crates.io
-hex = { version = "0.4.3", default-features = false }
-hex-literal = "0.3.4"
-ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
-codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
+hex = { workspace = true, default-features = false }
+hex-literal = { workspace = true }
+ethabi = { workspace = true }
+codec = { workspace = true, default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
 frame-support = { workspace = true }
@@ -52,7 +52,7 @@ std = [
     "sp-core/std",
     "pallet-ismp/std",
     "geth-primitives/std",
-    "evm-common/std",
+    "evm-state-machine/std",
     "arbitrum-verifier/std",
     "op-verifier/std"
 ]

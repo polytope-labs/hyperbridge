@@ -14,17 +14,16 @@ dist = true
 [dependencies]
 # crates.io
 clap = { version = "4.0.32", features = ["derive"] }
-log = "0.4.17"
-codec = { package = "parity-scale-codec", version = "3.0.0" }
-serde = { version = "1.0.152", features = ["derive"] }
-jsonrpsee = { workspace = true, features = ["server"] }
+log = { workspace = true, default-features = true }
+codec = { workspace = true, default-features = true }
+serde = { workspace = true, default-features = true }
+jsonrpsee = { workspace = true }
 futures = "0.3.28"
-serde_json = "1.0.121"
+json = { workspace = true, default-features = true }
 
 # local
-gargantua-runtime = { path = "../runtimes/gargantua" }
-#messier-runtime = { path = "../runtimes/messier" }
-nexus-runtime = { path = "../runtimes/nexus" }
+gargantua-runtime = { workspace = true, default-features = true }
+nexus-runtime = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 mmr-gadget = { workspace = true }

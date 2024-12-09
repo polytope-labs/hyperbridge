@@ -18,9 +18,9 @@
 use crate::{
 	child_trie::{RequestCommitments, ResponseCommitments},
 	dispatcher::{FeeMetadata, RequestMetadata},
-	mmr::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
+	offchain::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
 	weights::get_weight,
-	Config, Error, Event, NoOpMmrTree, Pallet, Responded,
+	Config, Error, Event, Pallet, Responded, TransparentOffchainDB,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use codec::Decode;
@@ -31,8 +31,7 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message},
 	router::{Request, Response},
 };
-use log::debug;
-use mmr_primitives::{ForkIdentifier, MerkleMountainRangeTree};
+use mmr_primitives::{ForkIdentifier, OffchainDBProvider};
 use sp_core::{offchain::StorageKind, H256};
 
 impl<T: Config> Pallet<T> {
@@ -71,7 +70,7 @@ impl<T: Config> Pallet<T> {
 		};
 		let indices =
 			leaf_indices_and_positions.iter().map(|val| val.leaf_index).collect::<Vec<_>>();
-		let (leaves, proof) = T::Mmr::generate_proof(indices)?;
+		let (leaves, proof) = T::OffchainDB::proof(indices)?;
 		let proof = Proof {
 			leaf_indices_and_pos: leaf_indices_and_positions,
 			leaf_count: proof.leaf_count,
@@ -81,8 +80,8 @@ impl<T: Config> Pallet<T> {
 		Ok((leaves, proof))
 	}
 
-	/// Provides a way to handle messages.
-	pub fn handle_messages(messages: Vec<Message>) -> DispatchResultWithPostInfo {
+	/// Execute the provided ISMP datagrams, this will short circuit if any messages are invalid.
+	pub fn execute(messages: Vec<Message>) -> DispatchResultWithPostInfo {
 		// Define a host
 		let host = Pallet::<T>::default();
 		let events = messages
@@ -108,7 +107,7 @@ impl<T: Config> Pallet<T> {
 					.collect::<Result<Vec<_>, _>>()
 			})
 			.map_err(|err| {
-				debug!(target: "ismp", "Handling Error {:?}", err);
+				log::debug!(target: "ismp", "Handling Error {:?}", err);
 				Pallet::<T>::deposit_event(Event::<T>::Errors { errors: vec![err.into()] });
 				Error::<T>::InvalidMessage
 			})?;
@@ -134,7 +133,7 @@ impl<T: Config> Pallet<T> {
 
 		let (dest_chain, source_chain, nonce) =
 			(request.dest_chain(), request.source_chain(), request.nonce());
-		let leaf_index_and_pos = T::Mmr::push(Leaf::Request(request));
+		let leaf_index_and_pos = T::OffchainDB::push(Leaf::Request(request));
 		// Deposit Event
 		Pallet::<T>::deposit_event(Event::Request {
 			request_nonce: nonce,
@@ -174,7 +173,7 @@ impl<T: Config> Pallet<T> {
 		let (dest_chain, source_chain, nonce) =
 			(response.dest_chain(), response.source_chain(), response.nonce());
 
-		let leaf_index_and_pos = T::Mmr::push(Leaf::Response(response));
+		let leaf_index_and_pos = T::OffchainDB::push(Leaf::Response(response));
 
 		Pallet::<T>::deposit_event(Event::Response {
 			request_nonce: nonce,
@@ -201,11 +200,11 @@ impl<T: Config> Pallet<T> {
 	/// Gets the request from the offchain storage
 	pub fn request(commitment: H256) -> Option<Request> {
 		let pos = RequestCommitments::<T>::get(commitment)?.mmr.pos;
-		match T::Mmr::get_leaf(pos) {
+		match T::OffchainDB::leaf(pos) {
 			Ok(Some(Leaf::Request(req))) => Some(req),
 			_ => {
-				// Try getting the request from the offchain db using `NoOpMmrTree`
-				let offchain_key = NoOpMmrTree::<T>::offchain_key(commitment);
+				// Try getting the request from the offchain db using `TransparentOffchainDB`
+				let offchain_key = TransparentOffchainDB::<T>::offchain_key(commitment);
 				let Some(elem) =
 					sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &offchain_key)
 				else {
@@ -222,11 +221,11 @@ impl<T: Config> Pallet<T> {
 	/// Gets the response from the offchain storage
 	pub fn response(commitment: H256) -> Option<Response> {
 		let pos = ResponseCommitments::<T>::get(commitment)?.mmr.pos;
-		match T::Mmr::get_leaf(pos) {
+		match T::OffchainDB::leaf(pos) {
 			Ok(Some(Leaf::Response(res))) => Some(res),
 			_ => {
-				// Try getting the response from the offchain db using the `NoOpMmrTree`
-				let offchain_key = NoOpMmrTree::<T>::offchain_key(commitment);
+				// Try getting the response from the offchain db using the `TransparentOffchainDB`
+				let offchain_key = TransparentOffchainDB::<T>::offchain_key(commitment);
 				let Some(elem) =
 					sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &offchain_key)
 				else {

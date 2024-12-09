@@ -1,3 +1,5 @@
+//! Tesseract integration tests
+
 #![cfg(test)]
 #![deny(missing_docs, unused_imports)]
 
@@ -434,8 +436,8 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	Ok(())
 }
 
-// #[tokio::test(flavor = "multi_thread")]
-// #[ignore]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
 async fn run_integration_tests() -> Result<(), anyhow::Error> {
 	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;

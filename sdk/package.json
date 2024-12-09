@@ -12,8 +12,12 @@
     "test": "subql build && subql-node-ethereum -f=ethereum-sepolia.yaml test"
   },
   "homepage": "https://hyperbridge.network/",
-  "repository": "https://github.com/polytope-labs/hyperbridge",
-  "files": ["dist", "schema.graphql", "subquery-multichain.yaml"],
+  "repository": "https://github.com/polytope-labs/hyperbridge-indexer",
+  "files": [
+    "dist",
+    "schema.graphql",
+    "subquery-multichain.yaml"
+  ],
   "author": "Polytope Labs",
   "license": "MIT",
   "dependencies": {
@@ -31,6 +35,7 @@
     "@subql/node-ethereum": "latest",
     "@subql/testing": "latest",
     "@subql/types": "latest",
+    "@types/pino": "^7.0.4",
     "ethers": "^5.7.2",
     "typescript": "latest"
   },

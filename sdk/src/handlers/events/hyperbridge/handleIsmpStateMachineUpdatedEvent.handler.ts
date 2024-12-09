@@ -1,8 +1,8 @@
 import { SubstrateEvent } from "@subql/types";
-import { StateMachineService } from "../../../services/stateMachine.service";
 import assert from "assert";
-import { extractStateMachineIdFromSubstrateEventData } from "../../../utils/substrate.helpers";
 import { HYPERBRIDGE } from "../../../constants";
+import { StateMachineService } from "../../../services/stateMachine.service";
+import { extractStateMachineIdFromSubstrateEventData } from "../../../utils/substrate.helpers";
 
 export async function handleIsmpStateMachineUpdatedEvent(
   event: SubstrateEvent
@@ -38,7 +38,7 @@ export async function handleIsmpStateMachineUpdatedEvent(
         transactionIndex: extrinsic.idx,
         blockNumber: blockNumber.toNumber(),
         blockHash: blockHash.toString(),
-        timestamp: Date.parse(timestamp.toString()),
+        timestamp: timestamp ? (Date.parse(timestamp.toString())) : 0,
         stateMachineId,
         height: Number(latest_height.toString()),
       },

@@ -10,11 +10,15 @@
     "outDir": "dist",
     "rootDir": "src",
     "target": "es2017",
-    "strict": true
+    "strict": true,
+    "skipLibCheck": true,
+    "noImplicitAny": false,
   },
   "include": [
     "src/**/*",
+    "src/types/global.d.ts",
     "node_modules/@subql/types-core/dist/global.d.ts",
     "node_modules/@subql/types-ethereum/dist/global.d.ts"
-  ]
+, "src/chains"  ],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }

@@ -1,10 +1,10 @@
 import assert from "assert";
+import { GET_HOST_ADDRESSES } from "../../../addresses/state-machine.addresses";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RelayerService } from "../../../services/relayer.service";
 import { TransferService } from "../../../services/transfer.service";
 import { TransferLog } from "../../../types/abi-interfaces/ERC6160Ext20Abi";
 import StateMachineHelpers from "../../../utils/stateMachine.helpers";
-import { GET_HOST_ADDRESSES } from "../../../addresses/state-machine.addresses";
 
 /**
  * Handles the Transfer event from the Fee Token contract

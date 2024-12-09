@@ -1,18 +1,16 @@
 use alloc::vec::Vec;
-use anyhow::anyhow;
-use bls::types::G1ProjectivePoint;
+use bls::{errors::BLSError, types::G1ProjectivePoint};
 use sync_committee_primitives::constants::BlsPublicKey;
 
-pub fn pubkey_to_projective(compressed_key: &BlsPublicKey) -> anyhow::Result<G1ProjectivePoint> {
-	let affine_point =
-		bls::pubkey_to_point(&compressed_key.to_vec()).map_err(|e| anyhow!("{:?}", e))?;
+pub fn pubkey_to_projective(compressed_key: &BlsPublicKey) -> Result<G1ProjectivePoint, BLSError> {
+	let affine_point = bls::pubkey_to_point(&compressed_key.to_vec())?;
 	Ok(affine_point.into())
 }
 
 pub fn subtract_points_from_aggregate(
 	aggregate: &BlsPublicKey,
 	points: &[BlsPublicKey],
-) -> anyhow::Result<G1ProjectivePoint> {
+) -> Result<G1ProjectivePoint, BLSError> {
 	let aggregate = pubkey_to_projective(aggregate)?;
 	let points = points
 		.iter()

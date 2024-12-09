@@ -119,7 +119,7 @@
 //!         ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
 //!     );
 //!     // Offchain database implementation. Outgoing requests and responses are
-//! 	// inserted in this database, while their commitments are stored onchain.
+//!     // inserted in this database, while their commitments are stored onchain.
 //!     type OffchainDB = TransparentOffchainDB;
 //!     // Weight provider for local modules
 //!     type WeightProvider = ();
@@ -161,7 +161,7 @@
 //!
 //!     /// Called by the ISMP hanlder, to notify module of requests that were previously
 //!     /// sent but have now timed-out
-//! 	fn on_timeout(&self, request: Timeout) -> Result<(), Error> {
+//!     fn on_timeout(&self, request: Timeout) -> Result<(), Error> {
 //!         // revert any state changes that were made prior to dispatching the request
 //!         Ok(())
 //!     }
@@ -534,9 +534,8 @@ pub mod pallet {
 
 			let metadata = match message.commitment {
 				MessageCommitment::Request(commitment) => RequestCommitments::<T>::get(commitment),
-				MessageCommitment::Response(commitment) => {
-					ResponseCommitments::<T>::get(commitment)
-				},
+				MessageCommitment::Response(commitment) =>
+					ResponseCommitments::<T>::get(commitment),
 			};
 
 			let Some(mut metadata) = metadata else {
@@ -686,11 +685,10 @@ pub mod pallet {
 				// check that requests will be successfully dispatched
 				// so we can not be spammed with failing txs
 				.map(|result| match result {
-					MessageResult::Request(results)
-					| MessageResult::Response(results)
-					| MessageResult::Timeout(results) => {
-						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>()
-					},
+					MessageResult::Request(results) |
+					MessageResult::Response(results) |
+					MessageResult::Timeout(results) =>
+						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>(),
 					MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => {
 						vec![Ok(())]
 					},

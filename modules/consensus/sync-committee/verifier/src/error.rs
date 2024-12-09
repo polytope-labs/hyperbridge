@@ -13,6 +13,12 @@ pub enum Error {
 	SignatureVerification,
 }
 
+impl From<bls::errors::BLSError> for Error {
+	fn from(value: bls::errors::BLSError) -> Self {
+		Error::BlsError(value)
+	}
+}
+
 impl Display for Error {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
 		match self {

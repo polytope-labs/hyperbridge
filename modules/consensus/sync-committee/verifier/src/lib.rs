@@ -102,8 +102,7 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let aggregate = subtract_points_from_aggregate(
 		&sync_committee.aggregate_public_key,
 		&non_participant_pubkeys,
-	)
-	.map_err(|_| Error::SignatureVerification)?;
+	)?;
 
 	let verify = bls::verify(
 		&bls::point_to_pubkey(aggregate.into_affine()),

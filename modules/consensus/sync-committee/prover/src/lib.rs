@@ -1,4 +1,4 @@
-mod middleware;
+pub mod middleware;
 #[warn(unused_imports)]
 #[warn(unused_variables)]
 pub mod responses;

@@ -38,52 +38,52 @@ ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", r
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2" }
 
 # hyperbridge
-beefy-verifier-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-beefy-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+beefy-verifier-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+beefy-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 
-polygon-pos-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-polygon-pos-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-ismp-polygon-pos = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+polygon-pos-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+polygon-pos-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+ismp-polygon-pos = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 
-sync-committee-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-sync-committee-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-sync-committee-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-ismp-sync-committee = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-arbitrum-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-op-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-evm-common = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+sync-committee-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+sync-committee-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+sync-committee-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+ismp-sync-committee = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+arbitrum-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+op-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+evm-common = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 
-bsc-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-bsc-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-ismp-bsc = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+bsc-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+bsc-verifier = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+ismp-bsc = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 
 
-grandpa-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-grandpa-verifier-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-ismp-grandpa = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+grandpa-prover = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+grandpa-verifier-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+ismp-grandpa = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-pallet-ismp-rpc = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-ismp-solidity-abi = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-geth-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-mmr-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-pallet-ismp-demo = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+ismp = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+pallet-ismp-rpc = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+ismp-solidity-abi = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+geth-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+mmr-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+pallet-ismp-demo = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 
-subxt-utils = { git ="https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-serde-hex-utils = { git ="https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+subxt-utils = { git ="https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+serde-hex-utils = { git ="https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 pallet-mmr = { version = "37.0.0" }
-substrate-state-machine = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-ismp-testsuite = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+substrate-state-machine = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+ismp-testsuite = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 
 
 # tesseract
-tesseract-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-tesseract-messaging = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-transaction-fees = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-tesseract-config = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-tesseract-substrate = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
-tesseract-evm = { git = "https://github.com/polytope-labs/hyperbridge", rev = "a87770127ab849000baaf088600f7ba33466d593" }
+tesseract-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+tesseract-messaging = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+transaction-fees = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+tesseract-config = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+tesseract-substrate = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
+tesseract-evm = { git = "https://github.com/polytope-labs/hyperbridge", rev = "4a0554ba7af30d617355023d928d1bce46290dc2" }
 
 sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "6a31ddf40e96371a6b9ff838837a09a66324d587" }
 sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "6a31ddf40e96371a6b9ff838837a09a66324d587" }

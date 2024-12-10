@@ -346,11 +346,12 @@ where
 						// non-fatal error, keep trying. This will pull it from the queue once more
 						continue;
 					};
+
 					tracing::info!(
 						"Submitted mandatory proof to {counterparty_state_machine} for {set_id}"
 					);
-					self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal
-					                                                      // error
+					// this would be a fatal error
+					self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?;
 				}
 			}
 

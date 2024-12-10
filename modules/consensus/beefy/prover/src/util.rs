@@ -106,42 +106,6 @@ pub async fn fetch_timestamp_extrinsic_with_proof<T: Config>(
 	Ok(TimeStampExtWithProof { ext, proof })
 }
 
-/// Get the proof for authority set that signed this commitment
-pub fn prove_authority_set(
-	signed_commitment: &sp_consensus_beefy::SignedCommitment<
-		u32,
-		sp_consensus_beefy::ecdsa_crypto::Signature,
-	>,
-	authority_address_hashes: Vec<Hash>,
-) -> Result<AuthorityProofWithSignatures, anyhow::Error> {
-	let signatures = signed_commitment
-		.signatures
-		.iter()
-		.enumerate()
-		.map(|(index, x)| {
-			if let Some(sig) = x {
-				let mut temp = [0u8; 65];
-				if sig.len() == 65 {
-					temp.copy_from_slice(&*sig.encode());
-					let last = temp.last_mut().unwrap();
-					*last = *last + 27;
-					Some(SignatureWithAuthorityIndex { index: index as u32, signature: temp })
-				} else {
-					None
-				}
-			} else {
-				None
-			}
-		})
-		.filter_map(|x| x)
-		.collect::<Vec<_>>();
-
-	let signature_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-	let authority_proof = merkle_proof(&authority_address_hashes, &signature_indices);
-
-	Ok(AuthorityProofWithSignatures { authority_proof, signatures })
-}
-
 /// Hash encoded authority public keys
 pub fn hash_authority_addresses(
 	encoded_public_keys: Vec<Vec<u8>>,

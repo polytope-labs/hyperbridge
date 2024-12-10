@@ -10355,7 +10355,7 @@ dependencies = [
 
 [[package]]
 name = "mmr-primitives"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",

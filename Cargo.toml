@@ -324,7 +324,7 @@ pallet-token-gateway-inspector = { path = "modules/ismp/pallets/token-gateway-in
 pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
 mmr-gadget = { path = "modules/trees/mmr/gadget" }
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
-mmr-primitives = { version = "1.15.1", path = "modules/trees/mmr/primitives", default-features = false }
+mmr-primitives = { version = "1.15.2", path = "modules/trees/mmr/primitives", default-features = false }
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }

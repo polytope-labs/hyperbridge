@@ -302,7 +302,7 @@ pub mod pallet {
 		/// inserted in this database, while their commitments are stored onchain.
 		///
 		/// This offchain DB is also allowed to "merkelize" and "generate proofs" for messages.
-		/// Most state machines will likey not need this can just provide `()`
+		/// Most state machines will likey not need this and can just provide `()`
 		type OffchainDB: OffchainDBProvider<Leaf = Leaf>;
 	}
 

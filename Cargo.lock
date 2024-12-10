@@ -7730,7 +7730,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "ckb-merkle-mountain-range",
  "cumulus-primitives-core",
@@ -7754,7 +7754,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -7778,7 +7778,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -12147,7 +12147,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "anyhow",
  "frame-support 37.0.0",
@@ -12216,7 +12216,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "anyhow",
  "env_logger 0.10.2",
@@ -12310,7 +12310,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -12339,7 +12339,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -12982,7 +12982,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-macro",
@@ -23202,7 +23202,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "frame-support 37.0.0",
  "hash-db",
@@ -24190,7 +24190,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "token-gateway-primitives"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-macro",

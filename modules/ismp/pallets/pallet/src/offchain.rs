@@ -13,15 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Mmr utilities
-
-use core::marker::PhantomData;
+//! Offchain DB interfaces and utilities
 
 use codec::{Decode, Encode};
-use frame_support::__private::RuntimeDebug;
 use ismp::router::{Request, Response};
 use scale_info::TypeInfo;
-use sp_core::H256;
+use sp_core::{RuntimeDebug, H256};
 use sp_mmr_primitives::NodeIndex;
 use sp_std::prelude::*;
 
@@ -54,7 +51,7 @@ pub struct LeafIndexAndPos {
 	pub pos: u64,
 }
 
-/// A concrete Leaf for the MMR
+/// A concrete Leaf for the offchain DB
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 pub enum Leaf {
 	/// A request variant
@@ -94,12 +91,9 @@ pub struct LeafMetadata {
 	pub position: u64,
 }
 
-/// Public interface for this pallet. Other runtime pallets will use this interface to insert leaves
-/// into the offchain db. This allows for batch insertions and asychronous root hash computation
-/// This is so that the root is only computed once per block.
-///
-/// Internally, the pallet makes use of temporary storage item where it places leaves that have not
-/// yet been finalized.
+/// The pallet-ismp will use this interface to insert leaves into the offchain db.
+/// This allows for batch insertions and asychronous root hash computation, so that
+/// the root is only computed once per block.
 pub trait OffchainDBProvider {
 	/// Concrete leaf type used by the implementation.
 	type Leaf;
@@ -124,19 +118,14 @@ pub trait OffchainDBProvider {
 	) -> Result<(Vec<Self::Leaf>, sp_mmr_primitives::LeafProof<H256>), sp_mmr_primitives::Error>;
 }
 
-/// The `PlainOffChainDB` simply persists requests and responses directly to the offchain-db.
-pub struct PlainOffChainDB<T, H>(PhantomData<(T, H)>);
-
-impl<T, H> PlainOffChainDB<T, H> {
-	/// Offchain key for storing requests using the commitment as identifiers
-	pub fn offchain_key(commitment: H256) -> Vec<u8> {
-		let prefix = b"no_op";
-		(prefix, commitment).encode()
-	}
+/// Offchain key for storing requests using the commitment as identifiers
+pub fn default_key(commitment: H256) -> Vec<u8> {
+	let prefix = b"no_op";
+	(prefix, commitment).encode()
 }
 
-impl<T: FullLeaf, H: ismp::messaging::Keccak256> OffchainDBProvider for PlainOffChainDB<T, H> {
-	type Leaf = T;
+impl OffchainDBProvider for () {
+	type Leaf = Leaf;
 
 	fn count() -> u64 {
 		0
@@ -148,10 +137,10 @@ impl<T: FullLeaf, H: ismp::messaging::Keccak256> OffchainDBProvider for PlainOff
 		Err(sp_mmr_primitives::Error::GenerateProof)?
 	}
 
-	fn push(leaf: T) -> LeafMetadata {
+	fn push(leaf: Self::Leaf) -> LeafMetadata {
 		let encoded = leaf.preimage();
-		let commitment = H::keccak256(&encoded);
-		let offchain_key = Self::offchain_key(commitment);
+		let commitment = sp_io::hashing::keccak_256(&encoded);
+		let offchain_key = default_key(commitment.into());
 		sp_io::offchain_index::set(&offchain_key, &leaf.encode());
 		Default::default()
 	}

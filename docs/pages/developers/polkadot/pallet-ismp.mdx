@@ -46,7 +46,9 @@ impl pallet_ismp::Config for Runtime {
     );
     // Offchain database implementation. Outgoing requests and responses are
 		// inserted in this database, while their commitments are stored onchain.
-    type OffchainDB = TransparentOffchainDB;
+		//
+		// The default implementation for `()` should suffice
+    type OffchainDB = ();
     // Weight provider for local modules
     type WeightProvider = ();
 }

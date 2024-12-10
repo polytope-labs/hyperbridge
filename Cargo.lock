@@ -7730,7 +7730,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "ckb-merkle-mountain-range",
  "cumulus-primitives-core",
@@ -7754,7 +7754,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -7778,7 +7778,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -23202,7 +23202,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "frame-support 37.0.0",
  "hash-db",

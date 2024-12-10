@@ -34,7 +34,7 @@ pub struct Mmr<StorageType, T, I, L>
 where
 	T: Config<I>,
 	I: 'static,
-	L: mmr_primitives::FullLeaf,
+	L: pallet_ismp::offchain::FullLeaf,
 	Storage<StorageType, T, I, L>: merkle_mountain_range::MMRStore<NodeOf<T, I, L>>,
 {
 	mmr: merkle_mountain_range::MMR<
@@ -49,7 +49,7 @@ impl<StorageType, T, I, L> Mmr<StorageType, T, I, L>
 where
 	T: Config<I>,
 	I: 'static,
-	L: mmr_primitives::FullLeaf,
+	L: pallet_ismp::offchain::FullLeaf,
 	Storage<StorageType, T, I, L>: merkle_mountain_range::MMRStore<NodeOf<T, I, L>>,
 {
 	/// Create a pointer to an existing MMR with given number of leaves.
@@ -70,7 +70,7 @@ impl<T, I, L> Mmr<RuntimeStorage, T, I, L>
 where
 	T: Config<I>,
 	I: 'static,
-	L: mmr_primitives::FullLeaf,
+	L: pallet_ismp::offchain::FullLeaf,
 {
 	/// Push another item to the MMR.
 	///
@@ -98,7 +98,7 @@ impl<T, I, L> Mmr<OffchainStorage, T, I, L>
 where
 	T: Config<I>,
 	I: 'static,
-	L: mmr_primitives::FullLeaf,
+	L: pallet_ismp::offchain::FullLeaf,
 {
 	/// Generate a proof for given leaf indices.
 	///

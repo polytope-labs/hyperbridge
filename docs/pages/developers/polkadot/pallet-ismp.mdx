@@ -45,8 +45,10 @@ impl pallet_ismp::Config for Runtime {
         ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
     );
     // Offchain database implementation. Outgoing requests and responses are
-		// inserted in this database, while their commitments are stored onchain.
-    type OffchainDB = TransparentOffchainDB;
+    // inserted in this database, while their commitments are stored onchain.
+    //
+    // The default implementation for `()` should suffice
+    type OffchainDB = ();
     // Weight provider for local modules
     type WeightProvider = ();
 }

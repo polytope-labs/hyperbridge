@@ -23,16 +23,10 @@ pub mod relay;
 /// Helper functions and types
 pub mod util;
 
-/// Some consensus related constants
-pub mod constants {
-
-	/// Block at which BEEFY was activated on rococo
-	pub const ROCOCO_BEEFY_ACTIVATION_BLOCK: u32 = 3_804_028;
-}
-
 use anyhow::anyhow;
 use beefy_verifier_primitives::{
-	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof, SignedCommitment,
+	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
+	SignatureWithAuthorityIndex, SignedCommitment,
 };
 use codec::{Decode, Encode};
 use hex_literal::hex;
@@ -46,7 +40,7 @@ use sp_consensus_beefy::{
 use sp_io::hashing::keccak_256;
 use sp_mmr_primitives::LeafProof;
 use subxt::{rpc_params, Config, OnlineClient};
-use util::{hash_authority_addresses, prove_authority_set, AuthorityProofWithSignatures};
+use util::hash_authority_addresses;
 
 /// This contains methods for fetching BEEFY proofs for parachain headers.
 #[derive(Clone, Debug)]
@@ -208,30 +202,49 @@ impl<R: Config, P: Config> Prover<R, P> {
 		&self,
 		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
 	) -> Result<ConsensusMessage, anyhow::Error> {
-		let subxt_block_number: subxt::rpc::types::BlockNumber =
-			(signed_commitment.commitment.block_number - 1).into();
+		let block_number: subxt::rpc::types::NumberOrHex =
+			signed_commitment.commitment.block_number.into();
 		let block_hash = self
 			.relay
 			.rpc()
-			.block_hash(Some(subxt_block_number))
+			.block_hash(Some(block_number.into()))
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
-
 		// Current LeafIndex
-		let block_number = signed_commitment.commitment.block_number;
-		let leaf_proof = fetch_mmr_proof(&self.relay, block_number.into()).await?;
+		let leaf_proof = fetch_mmr_proof(&self.relay, block_number.try_into()?).await?;
 		let leaves: Vec<Vec<u8>> = codec::Decode::decode(&mut &*leaf_proof.leaves.0)?;
 		let latest_leaf: MmrLeaf<u32, H256, H256, H256> = codec::Decode::decode(&mut &*leaves[0])?;
 		let mmr_proof: LeafProof<H256> = Decode::decode(&mut &*leaf_proof.proof.0)?;
 
+		// create authorities proof
+		let signatures = signed_commitment
+			.signatures
+			.iter()
+			.enumerate()
+			.map(|(index, x)| {
+				if let Some(sig) = x {
+					let mut temp = [0u8; 65];
+					if sig.len() == 65 {
+						temp.copy_from_slice(&*sig.encode());
+						let last = temp.last_mut().unwrap();
+						*last = *last + 27;
+						Some(SignatureWithAuthorityIndex { index: index as u32, signature: temp })
+					} else {
+						None
+					}
+				} else {
+					None
+				}
+			})
+			.filter_map(|x| x)
+			.collect::<Vec<_>>();
+		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
-
-		let AuthorityProofWithSignatures { authority_proof, signatures } =
-			prove_authority_set(&signed_commitment, authority_address_hashes)?;
+		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
+		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -243,8 +256,11 @@ impl<R: Config, P: Config> Prover<R, P> {
 			authority_proof,
 		};
 
-		let heads = self.paras_parachains(Some(block_hash)).await?;
-
+		let heads = self
+			.paras_parachains(Some(R::Hash::decode(
+				&mut &*latest_leaf.parent_number_and_hash.1.encode(),
+			)?))
+			.await?;
 		let (parachains, indices): (Vec<_>, Vec<_>) = self
 			.para_ids
 			.iter()

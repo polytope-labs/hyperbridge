@@ -18,9 +18,9 @@
 use crate::{
 	child_trie::{RequestCommitments, ResponseCommitments},
 	dispatcher::{FeeMetadata, RequestMetadata},
-	offchain::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
+	offchain::{self, ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider, Proof, ProofKeys},
 	weights::get_weight,
-	Config, Error, Event, Pallet, Responded, TransparentOffchainDB,
+	Config, Error, Event, Pallet, Responded,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use codec::Decode;
@@ -31,7 +31,6 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message},
 	router::{Request, Response},
 };
-use mmr_primitives::{ForkIdentifier, OffchainDBProvider};
 use sp_core::{offchain::StorageKind, H256};
 
 impl<T: Config> Pallet<T> {
@@ -203,10 +202,8 @@ impl<T: Config> Pallet<T> {
 		match T::OffchainDB::leaf(pos) {
 			Ok(Some(Leaf::Request(req))) => Some(req),
 			_ => {
-				// Try getting the request from the offchain db using `TransparentOffchainDB`
-				let offchain_key = TransparentOffchainDB::<T>::offchain_key(commitment);
-				let Some(elem) =
-					sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &offchain_key)
+				let key = offchain::default_key(commitment);
+				let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key)
 				else {
 					None?
 				};
@@ -224,10 +221,8 @@ impl<T: Config> Pallet<T> {
 		match T::OffchainDB::leaf(pos) {
 			Ok(Some(Leaf::Response(res))) => Some(res),
 			_ => {
-				// Try getting the response from the offchain db using the `TransparentOffchainDB`
-				let offchain_key = TransparentOffchainDB::<T>::offchain_key(commitment);
-				let Some(elem) =
-					sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &offchain_key)
+				let key = offchain::default_key(commitment);
+				let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key)
 				else {
 					None?
 				};

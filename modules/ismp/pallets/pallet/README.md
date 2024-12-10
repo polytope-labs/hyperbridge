@@ -48,7 +48,6 @@ The following example shows how to configure `pallet-ismp` in your runtime
 use frame_support::parameter_types;
 use frame_system::EnsureRoot;
 use ismp::Error;
-use pallet_ismp::TransparentOffchainDB;
 use ismp::host::StateMachine;
 use ismp::module::IsmpModule;
 use ismp::router::{IsmpRouter, Post, Response, Timeout};
@@ -84,7 +83,7 @@ impl pallet_ismp::Config for Runtime {
     );
     // Offchain database implementation. Outgoing requests and responses are
     // inserted in this database, while their commitments are stored onchain.
-    type OffchainDB = TransparentOffchainDB;
+    type OffchainDB = ();
     // Weight provider for local modules
     type WeightProvider = ();
 }

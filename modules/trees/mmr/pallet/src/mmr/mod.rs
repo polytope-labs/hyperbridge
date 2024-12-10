@@ -18,7 +18,8 @@
 mod mmr;
 pub mod storage;
 
-use mmr_primitives::{DataOrHash, FullLeaf};
+use mmr_primitives::DataOrHash;
+use pallet_ismp::offchain::FullLeaf;
 use sp_runtime::traits;
 
 pub use self::mmr::Mmr;

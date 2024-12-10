@@ -1,5 +1,5 @@
-import { Status } from "../types/enums";
 import { solidityKeccak256 } from "ethers/lib/utils";
+import { Status } from "../types/enums";
 import { Request, RequestStatusMetadata } from "../types/models";
 
 export interface ICreateRequestArgs {
@@ -74,6 +74,10 @@ export class RequestService {
         status,
         timeoutTimestamp,
         to,
+        sourceTransactionHash: transactionHash,
+        hyperbridgeTransactionHash: undefined,
+        destinationTransactionHash: undefined,
+        commitment
       });
 
       await request.save();
@@ -127,6 +131,16 @@ export class RequestService {
         );
 
         request.status = status;
+
+        switch (status) {
+          case Status.MESSAGE_RELAYED:
+            request.hyperbridgeTransactionHash = transactionHash;
+            break;
+          case Status.DEST:
+            request.destinationTransactionHash = transactionHash;
+            break;
+        }
+        
         await request.save();
       }
 

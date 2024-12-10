@@ -1,5 +1,5 @@
 import { solidityKeccak256 } from "ethers/lib/utils";
-import { Request, Status, Response, ResponseStatusMetadata } from "../types";
+import { Request, Response, ResponseStatusMetadata, Status } from "../types";
 
 export interface ICreateResponseArgs {
   chain: string;
@@ -53,11 +53,15 @@ export class ResponseService {
     if (typeof response === "undefined") {
       response = Response.create({
         id: commitment,
+        commitment,
         chain,
         response_message,
         requestId: request?.id,
         status,
         responseTimeoutTimestamp,
+        sourceTransactionHash: transactionHash,
+        hyperbridgeTransactionHash: undefined,
+        destinationTransactionHash: undefined,
       });
 
       await response.save();
@@ -102,6 +106,16 @@ export class ResponseService {
         RESPONSE_STATUS_WEIGHTS[response.status]
       ) {
         response.status = status;
+
+        switch (status) {
+          case Status.MESSAGE_RELAYED:
+            response.hyperbridgeTransactionHash = transactionHash;
+            break;
+          case Status.DEST:
+            response.destinationTransactionHash = transactionHash;
+            break;
+        }
+        
         await response.save();
       }
 

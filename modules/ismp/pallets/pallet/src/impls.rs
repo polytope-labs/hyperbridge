@@ -18,7 +18,7 @@
 use crate::{
 	child_trie::{RequestCommitments, ResponseCommitments},
 	dispatcher::{FeeMetadata, RequestMetadata},
-	offchain::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
+	offchain::{ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider, Proof, ProofKeys},
 	weights::get_weight,
 	Config, Error, Event, Pallet, Responded, TransparentOffchainDB,
 };
@@ -31,7 +31,6 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message},
 	router::{Request, Response},
 };
-use mmr_primitives::{ForkIdentifier, OffchainDBProvider};
 use sp_core::{offchain::StorageKind, H256};
 
 impl<T: Config> Pallet<T> {

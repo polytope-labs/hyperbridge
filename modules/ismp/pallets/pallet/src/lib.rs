@@ -186,7 +186,7 @@ mod utils;
 pub mod weights;
 
 use crate::offchain::Leaf;
-use mmr_primitives::{OffchainDBProvider, PlainOffChainDB};
+use offchain::{OffchainDBProvider, PlainOffChainDB};
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 

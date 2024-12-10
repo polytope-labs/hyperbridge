@@ -15,10 +15,11 @@
 
 //! Mmr utilities
 
+use core::marker::PhantomData;
+
 use codec::{Decode, Encode};
 use frame_support::__private::RuntimeDebug;
 use ismp::router::{Request, Response};
-use mmr_primitives::FullLeaf;
 use scale_info::TypeInfo;
 use sp_core::H256;
 use sp_mmr_primitives::NodeIndex;
@@ -69,6 +70,112 @@ impl FullLeaf for Leaf {
 			Leaf::Response(res) => res.encode(),
 		}
 	}
+}
+
+/// Leaf index and position
+#[derive(
+	codec::Encode,
+	codec::Decode,
+	scale_info::TypeInfo,
+	Ord,
+	PartialOrd,
+	Eq,
+	PartialEq,
+	Clone,
+	Copy,
+	RuntimeDebug,
+	Default,
+)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub struct LeafMetadata {
+	/// Leaf index in the tree
+	pub index: u64,
+	/// Leaf node position in the tree
+	pub position: u64,
+}
+
+/// Public interface for this pallet. Other runtime pallets will use this interface to insert leaves
+/// into the offchain db. This allows for batch insertions and asychronous root hash computation
+/// This is so that the root is only computed once per block.
+///
+/// Internally, the pallet makes use of temporary storage item where it places leaves that have not
+/// yet been finalized.
+pub trait OffchainDBProvider {
+	/// Concrete leaf type used by the implementation.
+	type Leaf;
+
+	/// Returns the total number of leaves that have been persisted to the db.
+	fn count() -> u64;
+
+	/// Push a new leaf into the offchain db.
+	fn push(leaf: Self::Leaf) -> LeafMetadata;
+
+	/// Merkelize the offchain db and compute it's new root hash. This should only be called once a
+	/// block. This should pull the leaves from the buffer and commit them.
+	fn finalize() -> Result<H256, sp_mmr_primitives::Error>;
+
+	/// Given the leaf position, return the leaf from the offchain db
+	fn leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, sp_mmr_primitives::Error>;
+
+	/// Generate a proof for the given leaf indices. The implementation should provide
+	/// a proof for the leaves at the current block height.
+	fn proof(
+		indices: Vec<NodeIndex>,
+	) -> Result<(Vec<Self::Leaf>, sp_mmr_primitives::LeafProof<H256>), sp_mmr_primitives::Error>;
+}
+
+/// The `PlainOffChainDB` simply persists requests and responses directly to the offchain-db.
+pub struct PlainOffChainDB<T, H>(PhantomData<(T, H)>);
+
+impl<T, H> PlainOffChainDB<T, H> {
+	/// Offchain key for storing requests using the commitment as identifiers
+	pub fn offchain_key(commitment: H256) -> Vec<u8> {
+		let prefix = b"no_op";
+		(prefix, commitment).encode()
+	}
+}
+
+impl<T: FullLeaf, H: ismp::messaging::Keccak256> OffchainDBProvider for PlainOffChainDB<T, H> {
+	type Leaf = T;
+
+	fn count() -> u64 {
+		0
+	}
+
+	fn proof(
+		_indices: Vec<u64>,
+	) -> Result<(Vec<Self::Leaf>, sp_mmr_primitives::LeafProof<H256>), sp_mmr_primitives::Error> {
+		Err(sp_mmr_primitives::Error::GenerateProof)?
+	}
+
+	fn push(leaf: T) -> LeafMetadata {
+		let encoded = leaf.preimage();
+		let commitment = H::keccak256(&encoded);
+		let offchain_key = Self::offchain_key(commitment);
+		sp_io::offchain_index::set(&offchain_key, &leaf.encode());
+		Default::default()
+	}
+
+	fn finalize() -> Result<H256, sp_mmr_primitives::Error> {
+		Ok(H256::default())
+	}
+
+	fn leaf(_pos: NodeIndex) -> Result<Option<Self::Leaf>, sp_mmr_primitives::Error> {
+		Ok(None)
+	}
+}
+
+/// A full leaf content stored in the offchain-db.
+pub trait FullLeaf: Clone + PartialEq + core::fmt::Debug + codec::FullCodec {
+	/// Compute the leaf preimage to be hashed.
+	fn preimage(&self) -> Vec<u8>;
+}
+
+/// This trait should provide a hash that is unique to each block
+/// This hash will be used as an identifier when creating the non canonical offchain key
+pub trait ForkIdentifier<T: frame_system::Config> {
+	/// Returns a unique identifier for the current block
+	fn identifier() -> T::Hash;
 }
 
 /// Distinguish between requests and responses

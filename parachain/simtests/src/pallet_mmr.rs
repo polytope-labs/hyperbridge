@@ -12,8 +12,8 @@ use sp_runtime::traits::Keccak256;
 use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160};
 
 use merkle_mountain_range::util::MemMMR;
-use mmr_primitives::{DataOrHash, FullLeaf};
-use pallet_ismp::offchain::{Leaf, ProofKeys};
+use mmr_primitives::DataOrHash;
+use pallet_ismp::offchain::{FullLeaf, Leaf, ProofKeys};
 use pallet_mmr::mmr::Hasher as MmrHasher;
 use subxt_utils::{
 	gargantua, gargantua::api::runtime_types::pallet_ismp_demo::pallet::EvmParams, Hyperbridge,

@@ -67,8 +67,9 @@ use sp_core::H256;
 use sp_runtime::traits::{self, One};
 use sp_std::prelude::*;
 
-use mmr_primitives::{DataOrHash, LeafMetadata, OffchainDBProvider};
+use mmr_primitives::DataOrHash;
 pub use pallet::*;
+use pallet_ismp::offchain::{ForkIdentifier, FullLeaf, LeafMetadata, OffchainDBProvider};
 use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
 pub use sp_mmr_primitives::{
 	self as primitives, utils::NodesUtils, Error, LeafDataProvider, LeafIndex, NodeIndex,
@@ -93,7 +94,6 @@ pub(crate) type HashOf<T, I> = <<T as Config<I>>::Hashing as traits::Hash>::Outp
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
-	use mmr_primitives::ForkIdentifier;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -125,7 +125,7 @@ pub mod pallet {
 		type Hashing: traits::Hash;
 
 		/// Generic leaf type to be inserted into the MMR.
-		type Leaf: mmr_primitives::FullLeaf + scale_info::TypeInfo;
+		type Leaf: FullLeaf + scale_info::TypeInfo;
 
 		/// A type that returns a hash unique to every block as a fork identifer for offchain keys
 		type ForkIdentifierProvider: ForkIdentifier<Self>;

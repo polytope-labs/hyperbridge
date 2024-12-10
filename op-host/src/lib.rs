@@ -18,9 +18,13 @@ use op_verifier::{
 	calculate_output_root, get_game_uuid, OptimismDisputeGameProof, OptimismPayloadProof, CANNON,
 	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT,
 };
+use reqwest::Client;
+use reqwest_chain::ChainMiddleware;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair};
 use std::sync::Arc;
+use sync_committee_prover::middleware::SwitchProviderMiddleware;
 use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider};
 
@@ -58,12 +62,12 @@ pub struct HostConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProposerConfig {
-	/// Confirmation delay
-	pub confirmation_delay: Option<u64>,
 	/// Proposer account, private key
 	pub proposer: String,
 	/// Etherscan API key
 	pub l1_etherscan_api_key: String,
+	/// beacon consensus client rpc
+	pub beacon_consensus_rpcs: Vec<String>,
 }
 
 impl OpConfig {
@@ -103,6 +107,8 @@ pub struct OpHost {
 	pub proposer: Option<Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>>,
 	/// L1 state machine id
 	pub l1_state_machine: StateMachine,
+	/// beacon consensus client
+	pub beacon_consensus_client: Option<ClientWithMiddleware>,
 }
 
 pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
@@ -135,24 +141,32 @@ impl OpHost {
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
 
-		let proposer = if let Some(proposer_config) = host.proposer_config.clone() {
-			let bytes = match from_hex(proposer_config.proposer.as_str()) {
-				Ok(bytes) => bytes,
-				Err(_) => {
-					// it's probably a file.
-					let contents =
-						tokio::fs::read_to_string(proposer_config.proposer.as_str()).await?;
-					from_hex(contents.as_str())?
-				},
-			};
+		let (proposer, beacon_consensus_client) =
+			if let Some(proposer_config) = host.proposer_config.clone() {
+				let bytes = match from_hex(proposer_config.proposer.as_str()) {
+					Ok(bytes) => bytes,
+					Err(_) => {
+						// it's probably a file.
+						let contents =
+							tokio::fs::read_to_string(proposer_config.proposer.as_str()).await?;
+						from_hex(contents.as_str())?
+					},
+				};
 
-			let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
-			let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
-				.with_chain_id(l1_chain_id);
-			Some(Arc::new(beacon_client.clone().with_signer(signer)))
-		} else {
-			None
-		};
+				let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
+				let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
+					.with_chain_id(l1_chain_id);
+
+				let client = ClientBuilder::new(Client::new())
+					.with(ChainMiddleware::new(SwitchProviderMiddleware::_new(
+						proposer_config.beacon_consensus_rpcs,
+					)))
+					.build();
+
+				(Some(Arc::new(beacon_client.clone().with_signer(signer))), Some(client))
+			} else {
+				(None, None)
+			};
 
 		Ok(Self {
 			op_execution_client: Arc::new(el),
@@ -170,6 +184,7 @@ impl OpHost {
 			provider,
 			proposer,
 			l1_state_machine,
+			beacon_consensus_client,
 		})
 	}
 

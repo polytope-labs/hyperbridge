@@ -2,12 +2,20 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 
-use ethers::providers::Middleware;
+use ethers::{
+	core::k256::ecdsa::SigningKey,
+	middleware::SignerMiddleware,
+	providers::{Http, Middleware, Provider},
+	signers::Wallet,
+};
 use futures::StreamExt;
 use geth_primitives::Header;
 use ismp::{events::Event, messaging::CreateConsensusState};
 use op_verifier::{calculate_output_root, CANNON};
+use reqwest::Url;
 use sp_core::{H160, H256, U256};
+use sync_committee_primitives::consensus_types::BeaconBlockHeader;
+use sync_committee_prover::{responses, routes::header_route};
 use tesseract_evm::{
 	gas_oracle::get_current_gas_cost_in_usd,
 	tx::{get_chain_gas_limit, wait_for_success},
@@ -39,7 +47,7 @@ impl IsmpHost for OpHost {
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		if self.dispute_game_factory.is_none() || self.proposer.is_none() {
+		if self.dispute_game_factory.is_none() || self.host.proposer_config.is_none() {
 			let mut stream = Box::pin(futures::stream::pending::<()>());
 			while let Some(_) = stream.next().await {}
 		} else {
@@ -68,7 +76,7 @@ impl IsmpHost for OpHost {
 
 					loop {
 						tokio::time::sleep(Duration::from_secs(30)).await;
-						match lambda(
+						match construct_state_proposal(
 							&client,
 							&mut latest_height,
 							dispute_game_factory_address,
@@ -98,58 +106,16 @@ impl IsmpHost for OpHost {
 			while let Some(proposal) = stream.next().await {
 				match proposal {
 					Ok(proposal) => {
-						log::trace!(target: "tesseract",
-							"Proposing state commitment for {:?}, block {:?}",
-							self.provider.state_machine_id().state_id,
-							proposal.block_number
-						);
-						let contract =
-							DisputeGameFactory::new(dispute_game_factory_address, proposer.clone());
-
-						let call = contract.create(
-							proposal.game_type,
-							proposal.root_claim.0,
-							proposal.extra_data.into(),
-						);
-						let call = call.value(proposal.bond);
-
-						let gas_limit = call
-							.estimate_gas()
-							.await
-							.unwrap_or(get_chain_gas_limit(self.l1_state_machine).into());
-
-						// Fetch gas price and use wait_for_success
-						let gas_price = get_current_gas_cost_in_usd(
-							self.l1_state_machine,
-							&proposer_config.l1_etherscan_api_key,
-							self.beacon_execution_client.clone(),
+						if let Err(err) = submit_state_proposal(
+							&self,
+							dispute_game_factory_address,
+							proposer.clone(),
+							&proposer_config,
+							proposal,
 						)
-						.await;
-
-						match gas_price {
-							Ok(gas_price) => match call.clone().gas(gas_limit).send().await {
-								Ok(tx) => {
-									if let Err(err) = wait_for_success(
-										&self.l1_state_machine,
-										&proposer_config.l1_etherscan_api_key,
-										self.beacon_execution_client.clone(),
-										proposer.clone(),
-										tx,
-										Some(gas_price.gas_price),
-										Some(call.clone().gas(gas_limit)),
-									)
-									.await
-									{
-										log::error!("{err:?}");
-									}
-								},
-								Err(err) => {
-									log::error!(target: "tesseract","Error broadcasting state proposal {err:?}");
-								},
-							},
-							Err(err) => {
-								log::error!(target: "tesseract","Failed to fetch gas price {err:?}");
-							},
+						.await
+						{
+							log::error!(target: "tesseract", "Error submitting state proposal {err:?}")
 						}
 					},
 					Err(e) => {
@@ -177,7 +143,7 @@ impl IsmpHost for OpHost {
 	}
 }
 
-async fn lambda(
+async fn construct_state_proposal(
 	client: &OpHost,
 	latest_height: &mut u64,
 	dispute_game_factory_address: H160,
@@ -200,20 +166,29 @@ async fn lambda(
 	});
 
 	if event.is_some() {
-		// Wait for the chain to advance by a couple blocks
-		let confirmation_delay = proposer_config.confirmation_delay.unwrap_or(50);
+		// Wait for end of current l1 epoch
+		let current_beacon_block = fetch_beacon_header(client, proposer_config, "head").await?;
+		let epoch = current_beacon_block.slot / 32;
+		let epoch_end = (epoch * 32) + 31;
+
 		log::trace!(target: "tesseract",
-			"Waiting for {} blocks before proposing {:?} state commitment",
-			confirmation_delay,
-			client.provider.state_machine_id().state_id
+			"{} Proposer: waiting until end of current l1 epoch, Epoch -> {epoch}, Current Slot {}, Epoch end {epoch_end}",
+			client.provider.state_machine_id().state_id,
+			current_beacon_block.slot,
 		);
 
 		let proposal = loop {
-			tokio::time::sleep(Duration::from_secs(30)).await;
-			let l2_block_number = client.op_execution_client.get_block_number().await?;
-			if l2_block_number.low_u64().saturating_sub(*latest_height) >= confirmation_delay {
-				// Generate commitment for latest_block - (confirmation_delay / 4)
-				let commitment_block_number = l2_block_number.low_u64() - (confirmation_delay / 4);
+			let current_beacon_block = fetch_beacon_header(client, proposer_config, "head").await?;
+			// Propose a state commitment when the current epoch is in it's last quarter
+			let epoch_quarter = 32 / 4;
+			if epoch_end.saturating_sub(current_beacon_block.slot) <= epoch_quarter {
+				log::trace!(target: "tesseract", "Constructing state proposal for {:?}, Beacon slot {:?}", client.provider.state_machine_id().state_id, current_beacon_block.slot);
+				let l2_block_number = client.op_execution_client.get_block_number().await?;
+				// We don't propose the latest l2 block, propose a block that has some descendants
+				let confirmation_delay =
+					l2_block_number.as_u64().saturating_sub(*latest_height) / 4;
+				let commitment_block_number =
+					l2_block_number.low_u64().saturating_sub(confirmation_delay);
 				let block = client
 					.op_execution_client
 					.get_block(commitment_block_number)
@@ -276,8 +251,90 @@ async fn lambda(
 					bond,
 				});
 			}
+
+			tokio::time::sleep(Duration::from_secs(12)).await;
 		};
 		return Ok(proposal);
 	}
 	Ok(None)
+}
+
+async fn submit_state_proposal(
+	client: &OpHost,
+	dispute_game_factory_address: H160,
+	proposer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
+	proposer_config: &ProposerConfig,
+	proposal: StateProposal,
+) -> Result<(), anyhow::Error> {
+	log::trace!(target: "tesseract",
+		"Proposing state commitment for {:?}, block {:?}",
+		client.provider.state_machine_id().state_id,
+		proposal.block_number
+	);
+	let contract = DisputeGameFactory::new(dispute_game_factory_address, proposer.clone());
+
+	let call =
+		contract.create(proposal.game_type, proposal.root_claim.0, proposal.extra_data.into());
+	let call = call.value(proposal.bond);
+
+	let gas_limit = call
+		.estimate_gas()
+		.await
+		.unwrap_or(get_chain_gas_limit(client.l1_state_machine).into());
+
+	// Fetch L1 gas price
+	let gas_breakdown = get_current_gas_cost_in_usd(
+		client.l1_state_machine,
+		&proposer_config.l1_etherscan_api_key,
+		client.beacon_execution_client.clone(),
+	)
+	.await?;
+
+	let call = call.gas_price(gas_breakdown.gas_price).gas(gas_limit);
+
+	let tx = call.send().await?;
+	wait_for_success(
+		&client.l1_state_machine,
+		&proposer_config.l1_etherscan_api_key,
+		client.beacon_execution_client.clone(),
+		proposer.clone(),
+		tx,
+		Some(gas_breakdown.gas_price),
+		Some(call.clone().gas(gas_limit)),
+	)
+	.await?;
+
+	Ok(())
+}
+
+async fn fetch_beacon_header(
+	client: &OpHost,
+	proposer_config: &ProposerConfig,
+	block_id: &str,
+) -> Result<BeaconBlockHeader, anyhow::Error> {
+	let beacon_consensus_client = client
+		.beacon_consensus_client
+		.clone()
+		.expect("Expected consensus client to be available");
+	let primary_url = proposer_config
+		.beacon_consensus_rpcs
+		.get(0)
+		.cloned()
+		.ok_or_else(|| anyhow!("Missing beacon rpc urls"))?;
+	let path = header_route(block_id);
+	let full_url = Url::parse(&format!("{}{}", primary_url, path))?;
+	let response = beacon_consensus_client
+		.get(full_url)
+		.send()
+		.await
+		.map_err(|e| anyhow!("Failed to fetch header with id {block_id} due to error {e:?}"))?;
+
+	let response_data = response
+		.json::<responses::beacon_block_header_response::Response>()
+		.await
+		.map_err(|e| anyhow!("Failed to fetch header with id {block_id} due to error {e:?}"))?;
+
+	let beacon_block_header = response_data.data.header.message;
+
+	Ok(beacon_block_header)
 }

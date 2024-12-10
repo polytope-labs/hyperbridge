@@ -509,15 +509,6 @@ where
 					let (latest_parachain_height, messages) =
 						self.latest_ismp_message_events(latest_beefy_header.hash()).await?;
 
-					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}");
-
-					let (commitment, _) =
-						fetch_latest_beefy_justification(&relay_client, latest_beefy_header.hash())
-							.await?;
-					let consensus_proof = self
-						.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
-						.await?;
-
 					let state_machines = messages
 						.iter()
 						.filter_map(|e| {
@@ -536,6 +527,21 @@ where
 							Some(event)
 						})
 						.collect::<HashSet<_>>();
+
+					if state_machines.len() == 0 {
+						tracing::trace!("No new messages in the range: {lowest_message_height}..{latest_parachain_height}");
+
+						continue;
+					}
+
+					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}");
+
+					let (commitment, _) =
+						fetch_latest_beefy_justification(&relay_client, latest_beefy_header.hash())
+							.await?;
+					let consensus_proof = self
+						.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
+						.await?;
 
 					let set_id = relay_client
 						.rpc()

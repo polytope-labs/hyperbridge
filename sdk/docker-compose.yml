@@ -68,7 +68,7 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
-      - -f=/app/src/chains/testnet/ethereum-sepolia.yaml
+      - -f=/app/ethereum-sepolia.yaml
       - --db-schema=app
       - --workers=5
       - --batch-size=10

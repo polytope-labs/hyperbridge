@@ -2,7 +2,7 @@ use sync_committee_primitives::consensus_types::BeaconBlockHeader;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Response {
-	pub(crate) data: ResponseData,
+	pub data: ResponseData,
 	execution_optimistic: bool,
 }
 
@@ -10,7 +10,7 @@ pub struct Response {
 pub struct ResponseData {
 	root: String,
 	canonical: bool,
-	pub(crate) header: ResponseDataBeaconBlockHeaderMessage,
+	pub header: ResponseDataBeaconBlockHeaderMessage,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -21,7 +21,7 @@ use alloc::{vec, vec::Vec};
 use codec::Encode;
 use log::{debug, trace};
 use merkle_mountain_range::helper;
-use mmr_primitives::ForkIdentifier;
+use pallet_ismp::offchain::ForkIdentifier;
 use sp_core::offchain::StorageKind;
 use sp_io::offchain_index;
 use sp_mmr_primitives::utils::NodesUtils;
@@ -65,7 +65,7 @@ impl<T, I, L> merkle_mountain_range::MMRStore<NodeOf<T, I, L>> for Storage<Offch
 where
 	T: Config<I>,
 	I: 'static,
-	L: mmr_primitives::FullLeaf,
+	L: pallet_ismp::offchain::FullLeaf,
 {
 	fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<NodeOf<T, I, L>>> {
 		// We should only get here when trying to generate proofs. The client requests
@@ -98,7 +98,7 @@ impl<T, I, L> merkle_mountain_range::MMRStore<NodeOf<T, I, L>> for Storage<Runti
 where
 	T: Config<I>,
 	I: 'static,
-	L: mmr_primitives::FullLeaf,
+	L: pallet_ismp::offchain::FullLeaf,
 {
 	fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<NodeOf<T, I, L>>> {
 		Ok(Nodes::<T, I>::get(pos).map(Node::Hash))
@@ -169,7 +169,7 @@ impl<T, I, L> Storage<RuntimeStorage, T, I, L>
 where
 	T: Config<I>,
 	I: 'static,
-	L: mmr_primitives::FullLeaf,
+	L: pallet_ismp::offchain::FullLeaf,
 {
 	fn store_to_offchain(
 		pos: NodeIndex,

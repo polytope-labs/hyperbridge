@@ -32,8 +32,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use impls::GetRequestsWithProof;
 	use ismp::{host::IsmpHost, messaging::hash_request, router::Request};
-	use mmr_primitives::OffchainDBProvider;
-	use pallet_ismp::offchain::Leaf;
+	use pallet_ismp::offchain::{Leaf, OffchainDBProvider};
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);

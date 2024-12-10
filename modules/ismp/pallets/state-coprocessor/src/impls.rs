@@ -27,11 +27,10 @@ use ismp::{
 	router::{GetRequest, GetResponse, Request, RequestResponse, Response, StorageValue},
 	Error,
 };
-use mmr_primitives::OffchainDBProvider;
 use pallet_ismp::{
 	child_trie::RequestCommitments,
 	dispatcher::{FeeMetadata, RequestMetadata},
-	offchain::{Leaf, LeafIndexAndPos},
+	offchain::{Leaf, LeafIndexAndPos, OffchainDBProvider},
 };
 use sp_core::U256;
 

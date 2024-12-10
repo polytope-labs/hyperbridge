@@ -84,7 +84,6 @@
 //! use frame_support::parameter_types;
 //! use frame_system::EnsureRoot;
 //! use ismp::Error;
-//! use pallet_ismp::TransparentOffchainDB;
 //! use ismp::host::StateMachine;
 //! use ismp::module::IsmpModule;
 //! use ismp::router::{IsmpRouter, Post, Response, Timeout};
@@ -120,7 +119,7 @@
 //!     );
 //!     // Offchain database implementation. Outgoing requests and responses are
 //!     // inserted in this database, while their commitments are stored onchain.
-//!     type OffchainDB = TransparentOffchainDB;
+//!     type OffchainDB = ();
 //!     // Weight provider for local modules
 //!     type WeightProvider = ();
 //! }
@@ -186,15 +185,9 @@ mod utils;
 pub mod weights;
 
 use crate::offchain::Leaf;
-use mmr_primitives::{OffchainDBProvider, PlainOffChainDB};
+use offchain::OffchainDBProvider;
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
-
-/// The `TransparentOffchainDB` stores the requests and responses directly inside the offchain
-/// db using the commitment as the offchain key
-///
-/// *NOTE* it will return an error if you try to generate proofs.
-pub type TransparentOffchainDB<T> = PlainOffChainDB<Leaf, Pallet<T>>;
 
 // Definition of the pallet logic, to be aggregated at runtime definition through
 // `construct_runtime`.
@@ -309,7 +302,7 @@ pub mod pallet {
 		/// inserted in this database, while their commitments are stored onchain.
 		///
 		/// This offchain DB is also allowed to "merkelize" and "generate proofs" for messages.
-		/// Most state machines will likey not need this can default to the `TransparentOffchainDB`
+		/// Most state machines will likey not need this and can just provide `()`
 		type OffchainDB: OffchainDBProvider<Leaf = Leaf>;
 	}
 

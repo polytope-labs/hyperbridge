@@ -7704,7 +7704,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "1.15.1"
+version = "1.15.3"
 dependencies = [
  "ckb-merkle-mountain-range",
  "cumulus-primitives-core",
@@ -7728,7 +7728,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "1.15.1"
+version = "1.15.3"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -7752,7 +7752,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.15.1"
+version = "1.15.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -10328,11 +10328,12 @@ dependencies = [
 
 [[package]]
 name = "mmr-primitives"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
  "ismp",
+ "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -12090,7 +12091,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "anyhow",
  "frame-support 37.0.1",
@@ -12156,7 +12157,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "anyhow",
  "env_logger 0.10.2",
@@ -12167,7 +12168,6 @@ dependencies = [
  "ismp",
  "ismp-testsuite",
  "log",
- "mmr-primitives",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
@@ -12251,7 +12251,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -12280,7 +12280,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -12411,6 +12411,7 @@ dependencies = [
  "itertools 0.10.5",
  "log",
  "mmr-primitives",
+ "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -12893,7 +12894,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-macro",
@@ -24179,7 +24180,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "1.15.1"
+version = "1.15.3"
 dependencies = [
  "frame-support 37.0.1",
  "hash-db",
@@ -25165,7 +25166,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "token-gateway-primitives"
-version = "1.15.2"
+version = "1.15.3"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-macro",

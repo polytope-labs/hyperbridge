@@ -14,8 +14,11 @@ use ismp::{events::Event, messaging::CreateConsensusState};
 use op_verifier::{calculate_output_root, CANNON};
 use reqwest::Url;
 use sp_core::{H160, H256, U256};
-use sync_committee_primitives::consensus_types::BeaconBlockHeader;
-use sync_committee_prover::{responses, routes::header_route};
+use sync_committee_primitives::consensus_types::{BeaconBlockHeader, Checkpoint};
+use sync_committee_prover::{
+	responses::{self, finality_checkpoint_response::FinalityCheckpoint},
+	routes::{finality_checkpoints, header_route},
+};
 use tesseract_evm::{
 	gas_oracle::get_current_gas_cost_in_usd,
 	tx::{get_chain_gas_limit, wait_for_success},
@@ -167,44 +170,42 @@ async fn construct_state_proposal(
 
 	if event.is_some() {
 		// Wait for end of current l1 epoch
-		let current_beacon_block = fetch_beacon_header(client, proposer_config, "head").await?;
-		let epoch = current_beacon_block.slot / 32;
-		let epoch_end = (epoch * 32) + 31;
-
+		let l2_header = client
+			.op_execution_client
+			.get_block(*latest_height)
+			.await?
+			.ok_or_else(|| anyhow!(" Block should exist"))?;
+		let l2_header = l2_header.into();
+		let l2_block_hash = Header::from(&l2_header).hash::<Hasher>();
+		let parent_beacon_root = l2_header
+			.parent_beacon_root
+			.ok_or_else(|| anyhow!("Parent beacon root should be present"))?;
+		let beacon_block_id = get_block_id(parent_beacon_root);
+		let beacon_header = fetch_beacon_header(client, proposer_config, &beacon_block_id).await?;
+		let parent_beacon_epoch = beacon_header.slot / 32;
 		log::trace!(target: "tesseract",
-			"{} Proposer: waiting until end of current l1 epoch, Epoch -> {epoch}, Current Slot {}, Epoch end {epoch_end}",
+			"{} Proposer: waiting until parent beacon block is finalized before proposing;  beacon block header -> {:?}",
 			client.provider.state_machine_id().state_id,
-			current_beacon_block.slot,
+			parent_beacon_root
 		);
 
 		let proposal = loop {
-			let current_beacon_block = fetch_beacon_header(client, proposer_config, "head").await?;
-			// Propose a state commitment when the current epoch is in it's last quarter
-			let epoch_quarter = 32 / 4;
-			if epoch_end.saturating_sub(current_beacon_block.slot) <= epoch_quarter {
-				log::trace!(target: "tesseract", "Constructing state proposal for {:?}, Beacon slot {:?}", client.provider.state_machine_id().state_id, current_beacon_block.slot);
-				let l2_block_number = client.op_execution_client.get_block_number().await?;
-				// We don't propose the latest l2 block, propose a block that has some descendants
-				let confirmation_delay =
-					l2_block_number.as_u64().saturating_sub(*latest_height) / 4;
-				let commitment_block_number =
-					l2_block_number.low_u64().saturating_sub(confirmation_delay);
-				let block = client
-					.op_execution_client
-					.get_block(commitment_block_number)
-					.await?
-					.ok_or_else(|| anyhow!("Failed to fetch block header"))?;
+			// We can only propose a state commitment when it is derived from a finalized beacon
+			// block
+			let finalized_epoch =
+				fetch_finalized_checkpoint(client, proposer_config, "head").await?.epoch;
+			if finalized_epoch >= parent_beacon_epoch {
+				log::trace!(target: "tesseract", "Constructing state proposal for {:?} at block {:?}", client.provider.state_machine_id().state_id, latest_height);
+				let commitment_block_number = *latest_height;
 
 				let message_parser_proof = client
 					.op_execution_client
 					.get_proof(client.message_parser, vec![], Some(commitment_block_number.into()))
 					.await?;
 
-				let header = block.into();
-				let l2_block_hash = Header::from(&header).hash::<Hasher>();
 				let root_claim = calculate_output_root::<Hasher>(
 					H256::zero(),
-					header.state_root,
+					l2_header.state_root,
 					message_parser_proof.storage_hash,
 					l2_block_hash,
 				);
@@ -223,10 +224,39 @@ async fn construct_state_proposal(
 					contract.game_at_index(latest_game_index).call().await?;
 				let game =
 					FaultDisputeGame::new(dispute_proxy, client.beacon_execution_client.clone());
-				let latest_l2_block_number = game.l_2_block_number().call().await?.low_u64();
-				// If the latest game block number is greater than our block, exit
-				if latest_l2_block_number > commitment_block_number {
-					log::trace!(target: "tesseract","Latest proposed block {latest_l2_block_number} > commitment block{commitment_block_number}");
+				let latest_claim = game.root_claim().call().await?;
+				let latest_claim_l2_block_number = game.l_2_block_number().call().await?.low_u64();
+
+				let latest_claim_header = client
+					.op_execution_client
+					.get_block(latest_claim_l2_block_number)
+					.await?
+					.ok_or_else(|| anyhow!(" Block should exist"))?;
+				let latest_claim_header = latest_claim_header.into();
+				let latest_claim_message_parser_proof = client
+					.op_execution_client
+					.get_proof(
+						client.message_parser,
+						vec![],
+						Some(latest_claim_l2_block_number.into()),
+					)
+					.await?;
+				let latest_claim_header_block_hash =
+					Header::from(&latest_claim_header).hash::<Hasher>();
+
+				let calculated_latest_root_claim = calculate_output_root::<Hasher>(
+					H256::zero(),
+					latest_claim_header.state_root,
+					latest_claim_message_parser_proof.storage_hash,
+					latest_claim_header_block_hash,
+				);
+
+				// If the latest game block number is greater than our block and its root claim is
+				// correct exit
+				if latest_claim_l2_block_number > commitment_block_number &&
+					calculated_latest_root_claim.0 == latest_claim
+				{
+					log::trace!(target: "tesseract","Latest proposed block {latest_claim_l2_block_number} > commitment block{commitment_block_number}");
 					break None;
 				}
 
@@ -237,11 +267,8 @@ async fn construct_state_proposal(
 				// If game exists exit
 				if proxy_addr != H160::zero() {
 					log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
-
 					break None;
 				}
-
-				*latest_height = commitment_block_number;
 
 				break Some(StateProposal {
 					root_claim,
@@ -252,7 +279,7 @@ async fn construct_state_proposal(
 				});
 			}
 
-			tokio::time::sleep(Duration::from_secs(12)).await;
+			tokio::time::sleep(Duration::from_secs(30)).await;
 		};
 		return Ok(proposal);
 	}
@@ -337,4 +364,47 @@ async fn fetch_beacon_header(
 	let beacon_block_header = response_data.data.header.message;
 
 	Ok(beacon_block_header)
+}
+
+async fn fetch_finalized_checkpoint(
+	client: &OpHost,
+	proposer_config: &ProposerConfig,
+	block_id: &str,
+) -> Result<Checkpoint, anyhow::Error> {
+	let beacon_consensus_client = client
+		.beacon_consensus_client
+		.clone()
+		.expect("Expected consensus client to be available");
+	let primary_url = proposer_config
+		.beacon_consensus_rpcs
+		.get(0)
+		.cloned()
+		.ok_or_else(|| anyhow!("Missing beacon rpc urls"))?;
+	let path = finality_checkpoints(block_id);
+	let full_url = Url::parse(&format!("{}{}", primary_url, path))?;
+	let response = beacon_consensus_client
+		.get(full_url)
+		.send()
+		.await
+		.map_err(|e| anyhow!("Failed to fetch header with id {block_id} due to error {e:?}"))?;
+
+	#[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+	struct CheckpointResponse {
+		execution_optimistic: bool,
+		data: FinalityCheckpoint,
+	}
+	let response_data = response
+		.json::<CheckpointResponse>()
+		.await
+		.map_err(|e| anyhow!("Failed to fetch header with id {block_id} due to error {e:?}"))?;
+
+	let checkpoint = response_data.data.finalized;
+
+	Ok(checkpoint)
+}
+
+fn get_block_id(root: H256) -> String {
+	let mut block_id = ethers::utils::hex::encode(root.0.to_vec());
+	block_id.insert_str(0, "0x");
+	block_id
 }

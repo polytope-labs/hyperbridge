@@ -6,9 +6,7 @@ global.URL = URL;
 import "@ethersproject/shims";
 
 // @ts-ignore
-import { logger } from '@subql/types-core';
+// import { logger } from '@subql/types-core';
 
 //Exports all handler functions
 export * from "./mappings/mappingHandlers";
-
-logger.info("Hello, world!");

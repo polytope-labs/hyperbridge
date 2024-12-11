@@ -24,6 +24,7 @@
     "@ethersproject/shims": "^5.7.0",
     "@polkadot/api": "latest",
     "@subql/common": "latest",
+    "@subql/common-ethereum": "^4.5.5",
     "@subql/types-ethereum": "latest",
     "@subql/validator": "latest",
     "assert": "^2.0.0"

@@ -18,7 +18,8 @@
     "src/**/*",
     "src/types/global.d.ts",
     "node_modules/@subql/types-core/dist/global.d.ts",
-    "node_modules/@subql/types-ethereum/dist/global.d.ts"
-, "src/chains"  ],
+    "node_modules/@subql/types-ethereum/dist/global.d.ts",
+    "node_modules/@subql/types/dist/global.d.ts"
+],
   "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }

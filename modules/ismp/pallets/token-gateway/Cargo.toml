@@ -34,6 +34,19 @@ alloy-sol-types = { workspace = true }
 token-gateway-primitives = { workspace = true }
 pallet-hyperbridge = { workspace = true }
 
+pallet-balances = { workspace = true }
+pallet-timestamp = { workspace = true }
+ismp-parachain = { workspace = true }
+cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
+pallet-message-queue = { workspace = true}
+polkadot-parachain-primitives = { workspace = true}
+cumulus-primitives-core = { workspace = true}
+polkadot-core-primitives = { workspace = true}
+pallet-mmr = { workspace = true }
+sp-mmr-primitives = { workspace = true }
+hyperbridge-client-machine = { workspace = true}
+pallet-ismp-host-executive = { workspace = true}
+
 [features]
 default = ["std"]
 std = [
@@ -50,6 +63,18 @@ std = [
     "anyhow/std",
     "alloy-primitives/std",
     "pallet-hyperbridge/std",
-    "token-gateway-primitives/std"
+    "token-gateway-primitives/std",
+    "pallet-balances/std",
+    "pallet-timestamp/std",
+    "ismp-parachain/std",
+    "cumulus-pallet-parachain-system/std",
+    "pallet-message-queue/std",
+    "polkadot-parachain-primitives/std",
+    "cumulus-primitives-core/std",
+    "polkadot-core-primitives/std",
+    "pallet-mmr/std",
+    "sp-mmr-primitives/std",
+    "hyperbridge-client-machine/std",
+    "pallet-ismp-host-executive/std"
 ]
 try-runtime = []

@@ -20,6 +20,8 @@ extern crate alloc;
 
 pub mod impls;
 pub mod types;
+mod mock;
+
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;

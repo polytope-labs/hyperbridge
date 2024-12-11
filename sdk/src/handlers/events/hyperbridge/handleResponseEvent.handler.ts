@@ -1,8 +1,8 @@
 import { SubstrateEvent } from "@subql/types";
 import assert from "assert";
+import { HYPERBRIDGE } from "../../../constants";
 import { ResponseService } from "../../../services/response.service";
 import { Status } from "../../../types";
-import { HYPERBRIDGE } from "../../../constants";
 
 export async function handleHyperbridgeResponseEvent(
   event: SubstrateEvent
@@ -28,7 +28,7 @@ export async function handleHyperbridgeResponseEvent(
     chain: HYPERBRIDGE,
     blockNumber: blockNumber.toString(),
     blockHash: blockHash.toString(),
-    blockTimestamp: BigInt(Date.parse(timestamp.toString())),
+    blockTimestamp: timestamp ? BigInt(Date.parse(timestamp.toString())) : BigInt(0),
     status: Status.MESSAGE_RELAYED,
     transactionHash: extrinsic.extrinsic.hash.toString(),
   });

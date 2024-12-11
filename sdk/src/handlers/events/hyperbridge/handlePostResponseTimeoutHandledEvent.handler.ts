@@ -1,8 +1,8 @@
 import { SubstrateEvent } from "@subql/types";
-import { Status } from "../../../types";
 import assert from "assert";
-import { ResponseService } from "../../../services/response.service";
 import { HYPERBRIDGE } from "../../../constants";
+import { ResponseService } from "../../../services/response.service";
+import { Status } from "../../../types";
 
 export async function handleHyperbridgePostResponseTimeoutHandledEvent(
   event: SubstrateEvent
@@ -32,7 +32,7 @@ export async function handleHyperbridgePostResponseTimeoutHandledEvent(
     chain: HYPERBRIDGE,
     blockNumber: blockNumber.toString(),
     blockHash: blockHash.toString(),
-    blockTimestamp: BigInt(Date.parse(timestamp.toString())),
+    blockTimestamp: timestamp ? BigInt(Date.parse(timestamp.toString())) : BigInt(0),
     status: Status.TIMED_OUT,
     transactionHash: extrinsic.extrinsic.hash.toString(),
   });

@@ -1,22 +1,23 @@
+# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
 name: hyperbridge-parachain
 description: Hyperbridge ParaChain Indexer
 runner:
   node:
-    name: "@subql/node"
-    version: ">=4.0.0"
+    name: '@subql/node'
+    version: '>=4.0.0'
   query:
-    name: "@subql/query"
-    version: "*"
+    name: '@subql/query'
+    version: '*'
 schema:
   file: ./schema.graphql
 network:
-  chainId: "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73"
+  chainId: '0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73'
   endpoint:
-    - "wss://hyperbridge-paseo-rpc.blockops.network"
+    - 'wss://hyperbridge-paseo-rpc.blockops.network'
   chaintypes:
-    file: "./dist/hyperbridge-chaintypes.js"
+    file: ./dist/hyperbridge-chaintypes.js
 dataSources:
   - kind: substrate/Runtime
     startBlock: 695
@@ -48,5 +49,4 @@ dataSources:
           filter:
             module: ismp
             method: PostResponseTimeoutHandled
-
-repository: "https://github.com/polytope-labs/hyperbridge"
+repository: 'https://github.com/polytope-labs/hyperbridge'

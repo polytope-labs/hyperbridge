@@ -257,6 +257,26 @@ type Request @entity {
   id: ID!
 
   """
+  The commitment of the request
+  """
+  commitment: String! @index
+
+  """
+  The transaction hash of the source transaction
+  """
+  sourceTransactionHash: String @index
+
+  """
+  The transaction hash of the hyperbridge transaction
+  """
+  hyperbridgeTransactionHash: String @index
+
+  """
+  The transaction hash of the destination transaction
+  """
+  destinationTransactionHash: String @index
+
+  """
   The chain on which the request was made
   """
   chain: String!
@@ -339,6 +359,26 @@ type Response @entity {
   The chain on which the response was made
   """
   chain: String!
+
+    """
+  The commitment of the response
+  """
+  commitment: String! @index
+
+  """
+  The transaction hash of the source transaction
+  """
+  sourceTransactionHash: String @index
+
+  """
+  The transaction hash of the hyperbridge transaction
+  """
+  hyperbridgeTransactionHash: String @index
+
+  """
+  The transaction hash of the destination transaction
+  """
+  destinationTransactionHash: String @index
 
   """
   The response message

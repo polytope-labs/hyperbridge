@@ -60,3 +60,4 @@ Thumbs.db
 .DS_Store
 
 .env
+.tsconfig.tsbuildinfo

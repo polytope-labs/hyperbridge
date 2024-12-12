@@ -421,29 +421,6 @@ type ResponseStatusMetadata @entity {
 }
 
 """
-Bids placed by fillers to fulfill requests
-"""
-type Bid @entity {
-  id: ID!
-  assetId: String!
-  bid: BigInt!
-  bidder: String!
-  commitment: String!
-  chain: String!
-}
-
-"""
-Bids that have been refunded after the associated request has timed out
-"""
-type BidRefund @entity {
-  id: ID!
-  assetId: String!
-  bidder: String!
-  commitment: String!
-  chain: String!
-}
-
-"""
 Liquidity requests fulfilled by a filler
 """
 type FulfilledRequest @entity {

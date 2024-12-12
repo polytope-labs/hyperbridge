@@ -211,21 +211,57 @@ type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
 }
 
 """
-An event that has occured on an EVM Host
+An event that has occured
 """
 type Event @entity {
   """
   The ID of the event (also the event commitment)
   """
   id: ID!
+
+  """
+  The type of the event
+  """
   type: EventType!
+
+  """
+  The chain on which the event occured
+  """
   chain: String!
+
+  """
+  The hash of the block in which the event occured
+  """
   blockHash: String!
+
+  """
+  The number of the block in which the event occured
+  """
   blockNumber: BigInt!
+
+  """
+  The hash of the transaction in which the event occured
+  """
   transactionHash: String!
+
+  """
+  The index of the transaction in the block
+  """
   transactionIndex: BigInt!
+
+  """
+  The data of the event
+  """
   data: String!
+
+  """
+  The address of the destination of the event
+  """
   destination: String
+
+  """
+  The timestamp of the event
+  """
   createdAt: Date!
 }
 
@@ -237,13 +273,45 @@ type StateMachineUpdateEvent @entity {
   The ID of the StateMachineUpdate  (hash of concatenation of stateMachineId and height)
   """
   id: ID!
+
+  """
+  The ID of the StateMachine
+  """
   stateMachineId: String!
+
+  """
+  The height of the block in which the event occured
+  """
   height: Int!
+
+  """
+  The chain on which the event occured
+  """
   chain: String!
+
+  """
+  The hash of the block in which the event occured
+  """
   blockHash: String!
+
+  """
+  The number of the block in which the event occured
+  """
   blockNumber: BigInt!
+
+  """
+  The hash of the transaction in which the event occured
+  """
   transactionHash: String!
+
+  """
+  The index of the transaction in the block
+  """
   transactionIndex: BigInt!
+
+  """
+  The timestamp of the event
+  """
   createdAt: Date!
 }
 
@@ -336,13 +404,44 @@ type Request @entity {
 Metadata about the status of a Request
 """
 type RequestStatusMetadata @entity {
+  """
+  The ID of the RequestStatusMetadata
+  """
   id: ID!
+
+  """
+  The status of the request
+  """
   status: Status!
+
+  """
+  The chain on which the request occured
+  """
   chain: String!
+
+  """
+  The timestamp of the event
+  """
   timestamp: BigInt!
+
+  """
+  The number of the block in which the event occured
+  """
   blockNumber: String!
+
+  """
+  The hash of the block in which the event occured
+  """
   blockHash: String!
+
+  """
+  The hash of the transaction in which the event occured
+  """
   transactionHash: String!
+
+  """
+  The request that owns this status change
+  """
   request: Request!
 }
 
@@ -410,13 +509,44 @@ type Response @entity {
 Metadata about the status of a Response
 """
 type ResponseStatusMetadata @entity {
+  """
+  The ID of the ResponseStatusMetadata
+  """
   id: ID!
+
+  """
+  The status of the response
+  """
   status: Status!
+
+  """
+  The chain on which the response occured
+  """
   chain: String!
+
+  """
+  The timestamp of the event
+  """
   timestamp: BigInt!
+
+  """
+  The number of the block in which the event occured
+  """
   blockNumber: String!
+
+  """
+  The hash of the block in which the event occured
+  """
   blockHash: String!
+
+  """
+  The hash of the transaction in which the event occured
+  """
   transactionHash: String!
+
+  """
+  The response that owns this status change
+  """
   response: Response!
 }
 

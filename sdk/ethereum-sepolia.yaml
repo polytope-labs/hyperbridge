@@ -130,16 +130,6 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleBidPlacedEvent
-          filter:
-            topics:
-              - 'BidPlaced(bytes32,uint256,bytes32,address)'
-        - kind: ethereum/LogHandler
-          handler: handleBidRefundedEvent
-          filter:
-            topics:
-              - 'BidRefunded(bytes32,bytes32,address)'
-        - kind: ethereum/LogHandler
           handler: handleRequestFulfilledEvent
           filter:
             topics:

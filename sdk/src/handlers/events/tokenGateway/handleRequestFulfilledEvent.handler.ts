@@ -1,9 +1,9 @@
 import assert from "assert";
-import { ProtocolParticipant } from "../../../types";
-import { RequestFulfilledLog } from "../../../types/abi-interfaces/TokenGatewayAbi";
-import { BidService } from "../../../services/bid.service";
+import { FulfilledRequestService } from "../../../services/fullfilledRequest.service";
 import { RewardPointsService } from "../../../services/reward-points.service";
 import { TokenGatewayService } from "../../../services/tokenGateway.service";
+import { ProtocolParticipant } from "../../../types";
+import { RequestFulfilledLog } from "../../../types/abi-interfaces/TokenGatewayAbi";
 import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 
 /**
@@ -33,7 +33,7 @@ export async function handleRequestFulfilledEvent(
   const chain: string =
     StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
 
-  await BidService.createFulfilledRequest({
+  await FulfilledRequestService.createFulfilledRequest({
     id: transactionHash,
     amount: BigInt(amount.toString()),
     assetId,

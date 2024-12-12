@@ -1,4 +1,3 @@
-import { Bid } from "../types/models";
 import {
   AssetReceived,
   AssetReceivedProps,
@@ -7,24 +6,8 @@ import {
   AssetTeleported,
   AssetTeleportedProps,
 } from "../types/models/AssetTeleported";
-import { BidProps } from "../types/models/Bid";
 
 export class AssetService {
-  /**
-   * Create a new bid
-   */
-  static async createBid(data: BidProps) {
-    let bid = await Bid.get(data.id);
-
-    if (typeof bid === "undefined") {
-      bid = Bid.create(data);
-      await bid.save();
-    } else {
-      logger.info(
-        `Attempted to create new bid with commitment ${data.id}, but a bid already exists with this commitment`,
-      );
-    }
-  }
 
   /**
    * Create a new received asset entity

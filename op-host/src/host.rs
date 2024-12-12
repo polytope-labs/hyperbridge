@@ -337,10 +337,13 @@ async fn construct_state_proposal(
 						extra_data: extra_data.clone(),
 						bond,
 					});
+
+					break
 				}
 
 				// If all recent games are invalid we yield our game
 				if invalid_recent_games == len {
+					log::trace!(target: "tesseract","Last three recent games are invalid, moving ahead with proposal for {commitment_block_number}");
 					let bond = contract.init_bonds(respected_game_type).call().await?;
 					proposal = Some(StateProposal {
 						root_claim,

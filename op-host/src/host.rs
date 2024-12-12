@@ -9,7 +9,7 @@ use ethers::{
 	signers::Wallet,
 };
 use futures::StreamExt;
-use geth_primitives::Header;
+use geth_primitives::{CodecHeader, Header};
 use ismp::{events::Event, messaging::CreateConsensusState};
 use op_verifier::{calculate_output_root, CANNON};
 use reqwest::Url;
@@ -175,8 +175,7 @@ async fn construct_state_proposal(
 			.get_block(*latest_height)
 			.await?
 			.ok_or_else(|| anyhow!(" Block should exist"))?;
-		let l2_header = l2_header.into();
-		let l2_block_hash = Header::from(&l2_header).hash::<Hasher>();
+		let l2_header: CodecHeader = l2_header.into();
 		let parent_beacon_root = l2_header
 			.parent_beacon_root
 			.ok_or_else(|| anyhow!("Parent beacon root should be present"))?;
@@ -196,6 +195,14 @@ async fn construct_state_proposal(
 				fetch_finalized_checkpoint(client, proposer_config, "head").await?.epoch;
 			if finalized_epoch >= parent_beacon_epoch {
 				log::trace!(target: "tesseract", "Constructing state proposal for {:?} at block {:?}", client.provider.state_machine_id().state_id, latest_height);
+				// refetch the l2 header incase there has been a reorg
+				let l2_header = client
+					.op_execution_client
+					.get_block(*latest_height)
+					.await?
+					.ok_or_else(|| anyhow!(" Block should exist"))?;
+				let l2_header = l2_header.into();
+				let l2_block_hash = Header::from(&l2_header).hash::<Hasher>();
 				let commitment_block_number = *latest_height;
 
 				let message_parser_proof = client
@@ -285,8 +292,8 @@ async fn construct_state_proposal(
 
 					// If the latest game block number is greater than our block and its root claim
 					// is correct exit
-					if latest_claim_l2_block_number > commitment_block_number &&
-						calculated_latest_root_claim.0 == latest_claim
+					if latest_claim_l2_block_number > commitment_block_number
+						&& calculated_latest_root_claim.0 == latest_claim
 					{
 						log::trace!(target: "tesseract","Latest proposed block {latest_claim_l2_block_number} > commitment block{commitment_block_number}");
 						break;
@@ -321,11 +328,11 @@ async fn construct_state_proposal(
 					// If the time since the last proposal is greater than 3/4 of the proposal
 					// interval then it doesn't make economic sense to continue with this
 					// proposal
-					if creator.0.to_vec() == op_proposer &&
-						diff >= (3 * proposer_config.proposer_interval / 4)
+					if creator.0.to_vec() == op_proposer
+						&& diff >= (3 * proposer_config.proposer_interval / 4)
 					{
 						log::trace!(target: "tesseract","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal soon");
-						break
+						break;
 					}
 
 					let bond = contract.init_bonds(respected_game_type).call().await?;
@@ -338,12 +345,12 @@ async fn construct_state_proposal(
 						bond,
 					});
 
-					break
+					break;
 				}
 
 				// If all recent games are invalid we yield our game
 				if invalid_recent_games == len {
-					log::trace!(target: "tesseract","Last three recent games are invalid, moving ahead with proposal for {commitment_block_number}");
+					log::trace!(target: "tesseract","Last three recent({len}) games are invalid({invalid_recent_games}), moving ahead with proposal for {commitment_block_number}");
 					let bond = contract.init_bonds(respected_game_type).call().await?;
 					proposal = Some(StateProposal {
 						root_claim,
@@ -354,7 +361,7 @@ async fn construct_state_proposal(
 					});
 				}
 
-				break proposal
+				break proposal;
 			}
 
 			tokio::time::sleep(Duration::from_secs(30)).await;

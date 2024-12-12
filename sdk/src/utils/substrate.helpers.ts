@@ -28,6 +28,8 @@ export const extractStateMachineIdFromSubstrateEventData = (
           return "BEEFY-".concat(value);
         case "GRANDPA":
           return "GRANDPA-".concat(value);
+        case "BSC":
+          return "BSC-".concat(value);
         default:
           throw new Error(
             `Unknown state machine ID ${main_key} encountered in extractStateMachineIdFromSubstrateEventData`

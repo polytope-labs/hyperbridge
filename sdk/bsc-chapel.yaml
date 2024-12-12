@@ -15,7 +15,9 @@ schema:
 network:
   chainId: '97'
   endpoint:
-    - 'https://public.stackup.sh/api/v1/node/bsc-testnet'
+    - 'https://bsc-testnet.publicnode.com'
+    - 'https://rpc.ankr.com/bsc_testnet_chapel'
+    - 'https://bsc-testnet.blockpi.network/v1/rpc/public'
 dataSources:
   - kind: ethereum/Runtime
     startBlock: 42661624

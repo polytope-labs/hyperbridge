@@ -433,7 +433,7 @@ where
 				},
 			}
 
-			return Ok(())
+			return Ok(());
 		}
 		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
 			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;

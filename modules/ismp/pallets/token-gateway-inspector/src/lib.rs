@@ -88,7 +88,7 @@ pub mod pallet {
 			// As long as the initial deployment is valid
 			// it's impossible to send malicious requests
 			if source.is_evm() && dest.is_evm() {
-				return Ok(())
+				return Ok(());
 			}
 
 			if let Some(body) = Self::is_token_gateway_request(&body) {
@@ -142,7 +142,7 @@ pub mod pallet {
 			// As long as the initial deployment is valid
 			// it's impossible to send malicious requests
 			if source.is_evm() && dest.is_evm() {
-				return Ok(())
+				return Ok(());
 			}
 
 			if let Some(body) = Self::is_token_gateway_request(&body) {

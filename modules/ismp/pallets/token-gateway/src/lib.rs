@@ -18,9 +18,11 @@
 
 extern crate alloc;
 
+mod benchmarks;
 pub mod impls;
-pub mod types;
+#[cfg(test)]
 mod mock;
+pub mod types;
 
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
@@ -480,7 +482,7 @@ where
 					// Note the asset's ERC counterpart decimal
 					Decimals::<T>::insert(local_asset_id, metadata.decimals);
 				}
-				return Ok(())
+				return Ok(());
 			}
 
 			if let Ok(meta) = DeregisterAssets::decode(&mut &body[..]) {

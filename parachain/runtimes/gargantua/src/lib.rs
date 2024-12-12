@@ -571,6 +571,24 @@ impl pallet_utility::Config for Runtime {
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
 }
 
+// impl pallet_token_gateway::Config for Test {
+// 	type RuntimeEvent = RuntimeEvent;
+//
+// 	type Dispatcher = Ismp;
+//
+// 	type NativeCurrency = Balances;
+//
+// 	type AssetAdmin = TreasuryAccount;
+//
+// 	type Assets = Assets;
+//
+// 	type NativeAssetId = NativeAssetId;
+//
+// 	type AssetIdFactory = ();
+//
+// 	type Decimals = Decimals;
+// }
+
 parameter_types! {
 	pub const SpendingPeriod: BlockNumber = 24 * DAYS;
 	pub const TreasuryPalletId: PalletId = PalletId(*b"hb/trsry");
@@ -581,6 +599,9 @@ parameter_types! {
 	pub const TechnicalMaxProposals: u32 = 100;
 	pub const TechnicalMaxMembers: u32 = 10;
 	pub MaxCollectivesProposalWeight: Weight = Perbill::from_percent(50) * RuntimeBlockWeights::get().max_block;
+	pub const NativeAssetId: u32 = 0;
+	// Set the correct precision for the native currency
+	pub const Decimals: u8 = 12;
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -725,6 +746,7 @@ construct_runtime!(
 		Fishermen: pallet_fishermen = 61,
 		TokenGatewayInspector: pallet_token_gateway_inspector = 62,
 		IsmpSyncCommitteeGno: ismp_sync_committee::pallet::<Instance2> = 63,
+		//TokenGateway: pallet_token_gateway = 64,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,

@@ -37,6 +37,9 @@ pallet-hyperbridge = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-timestamp = { workspace = true }
 ismp-parachain = { workspace = true }
+frame-benchmarking = { optional = true, workspace = true }
+
+[dev-dependencies]
 cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
 pallet-message-queue = { workspace = true}
 polkadot-parachain-primitives = { workspace = true}
@@ -46,11 +49,17 @@ pallet-mmr = { workspace = true }
 sp-mmr-primitives = { workspace = true }
 hyperbridge-client-machine = { workspace = true}
 pallet-ismp-host-executive = { workspace = true}
+ismp-testsuite = { workspace = true }
+pallet-assets = {workspace = true}
+frame-benchmarking = { workspace = true, features = ["runtime-benchmarks"] }
+frame-support = { workspace = true, features = ["runtime-benchmarks"] }
+frame-system = { workspace = true, features = ["runtime-benchmarks"] }
 
 [features]
 default = ["std"]
 std = [
     "frame-support/std",
+    "frame-benchmarking?/std",
     "frame-system/std",
     "sp-runtime/std",
     "sp-core/std",
@@ -75,6 +84,15 @@ std = [
     "pallet-mmr/std",
     "sp-mmr-primitives/std",
     "hyperbridge-client-machine/std",
-    "pallet-ismp-host-executive/std"
+    "pallet-ismp-host-executive/std",
+    "pallet-assets/std"
 ]
+
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
+
 try-runtime = []

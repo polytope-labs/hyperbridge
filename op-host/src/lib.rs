@@ -68,6 +68,12 @@ pub struct ProposerConfig {
 	pub l1_etherscan_api_key: String,
 	/// beacon consensus client rpc
 	pub beacon_consensus_rpcs: Vec<String>,
+	/// Proposer interval
+	/// This represents the interval which the opstack proposer uses to propose output roots in
+	/// seconds
+	pub proposer_interval: u64,
+	/// Address of the official op-proposer
+	pub op_proposer: String,
 }
 
 impl OpConfig {

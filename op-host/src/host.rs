@@ -13,7 +13,7 @@ use geth_primitives::Header;
 use ismp::{events::Event, messaging::CreateConsensusState};
 use op_verifier::{calculate_output_root, CANNON};
 use reqwest::Url;
-use sp_core::{H160, H256, U256};
+use sp_core::{bytes::from_hex, H160, H256, U256};
 use sync_committee_primitives::consensus_types::{BeaconBlockHeader, Checkpoint};
 use sync_committee_prover::{
 	responses::{self, finality_checkpoint_response::FinalityCheckpoint},
@@ -214,69 +214,144 @@ async fn construct_state_proposal(
 					.to_be_bytes::<32>()
 					.to_vec();
 
+				let respected_game_type = client.host.respected_game_type.unwrap_or(CANNON);
+
 				// Check that our commitment block is greater than the latest game
 				let contract = DisputeGameFactory::new(
 					dispute_game_factory_address,
 					client.beacon_execution_client.clone(),
 				);
+				// Find the latest valid root claim with the respected game type,
+				// We only yield a new state proposal if
+				// 1. The most recent 3 games are invalid
+				// 2. The latest valid game is for a block less than our commitment block number
+				// 3. The op-proposer interval for proposing is not yet in its last quarter
 				let latest_game_index = contract.game_count().call().await? - U256::one();
-				let (_, _, dispute_proxy) =
-					contract.game_at_index(latest_game_index).call().await?;
-				let game =
-					FaultDisputeGame::new(dispute_proxy, client.beacon_execution_client.clone());
-				let latest_claim = game.root_claim().call().await?;
-				let latest_claim_l2_block_number = game.l_2_block_number().call().await?.low_u64();
+				let mut proposal = None;
+				let mut invalid_recent_games = 0;
+				// We would inspect the first five most recent games
+				let range =
+					(latest_game_index.low_u64().saturating_sub(2))..=latest_game_index.low_u64();
+				let len = range.end().saturating_sub(*range.start()) + 1;
+				for game_index in range.rev() {
+					let (_, _, dispute_proxy) =
+						contract.game_at_index(game_index.into()).call().await?;
 
-				let latest_claim_header = client
-					.op_execution_client
-					.get_block(latest_claim_l2_block_number)
-					.await?
-					.ok_or_else(|| anyhow!(" Block should exist"))?;
-				let latest_claim_header = latest_claim_header.into();
-				let latest_claim_message_parser_proof = client
-					.op_execution_client
-					.get_proof(
-						client.message_parser,
-						vec![],
-						Some(latest_claim_l2_block_number.into()),
-					)
-					.await?;
-				let latest_claim_header_block_hash =
-					Header::from(&latest_claim_header).hash::<Hasher>();
+					let game = FaultDisputeGame::new(
+						dispute_proxy,
+						client.beacon_execution_client.clone(),
+					);
 
-				let calculated_latest_root_claim = calculate_output_root::<Hasher>(
-					H256::zero(),
-					latest_claim_header.state_root,
-					latest_claim_message_parser_proof.storage_hash,
-					latest_claim_header_block_hash,
-				);
+					let latest_game_type = game.game_type().await?;
+					// If this game is not the respected game type we continue our search
+					if latest_game_type != respected_game_type {
+						invalid_recent_games += 1;
+						continue;
+					}
 
-				// If the latest game block number is greater than our block and its root claim is
-				// correct exit
-				if latest_claim_l2_block_number > commitment_block_number &&
-					calculated_latest_root_claim.0 == latest_claim
-				{
-					log::trace!(target: "tesseract","Latest proposed block {latest_claim_l2_block_number} > commitment block{commitment_block_number}");
-					break None;
+					let latest_claim = game.root_claim().call().await?;
+					let latest_claim_l2_block_number =
+						game.l_2_block_number().call().await?.low_u64();
+
+					let latest_claim_header = client
+						.op_execution_client
+						.get_block(latest_claim_l2_block_number)
+						.await?
+						.ok_or_else(|| anyhow!(" Block should exist"))?;
+					let latest_claim_header = latest_claim_header.into();
+					let latest_claim_message_parser_proof = client
+						.op_execution_client
+						.get_proof(
+							client.message_parser,
+							vec![],
+							Some(latest_claim_l2_block_number.into()),
+						)
+						.await?;
+					let latest_claim_header_block_hash =
+						Header::from(&latest_claim_header).hash::<Hasher>();
+
+					let calculated_latest_root_claim = calculate_output_root::<Hasher>(
+						H256::zero(),
+						latest_claim_header.state_root,
+						latest_claim_message_parser_proof.storage_hash,
+						latest_claim_header_block_hash,
+					);
+
+					// If the claim in the game is incorrect we continue
+					if calculated_latest_root_claim.0 != latest_claim {
+						invalid_recent_games += 1;
+						continue;
+					}
+
+					// If the latest game block number is greater than our block and its root claim
+					// is correct exit
+					if latest_claim_l2_block_number > commitment_block_number &&
+						calculated_latest_root_claim.0 == latest_claim
+					{
+						log::trace!(target: "tesseract","Latest proposed block {latest_claim_l2_block_number} > commitment block{commitment_block_number}");
+						break;
+					}
+
+					let (proxy_addr, _) = contract
+						.games(respected_game_type, root_claim.0, extra_data.clone().into())
+						.call()
+						.await?;
+
+					// If game exists exit
+					if proxy_addr != H160::zero() {
+						log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
+						break;
+					}
+
+					// When was the last claim submitted
+					let creation_time = game.created_at().call().await?;
+					let current_block_num =
+						client.beacon_execution_client.get_block_number().await?;
+					let current_block_header = client
+						.beacon_execution_client
+						.get_block(current_block_num.as_u64())
+						.await?
+						.ok_or_else(|| anyhow!("Failed to fetch latest L1 header"))?;
+					let diff =
+						current_block_header.timestamp.low_u64().saturating_sub(creation_time);
+
+					let creator = game.game_creator().call().await?;
+					let op_proposer = from_hex(&proposer_config.op_proposer)?;
+
+					// If the time since the last proposal is greater than 3/4 of the proposal
+					// interval then it doesn't make economic sense to continue with this
+					// proposal
+					if creator.0.to_vec() == op_proposer &&
+						diff >= (3 * proposer_config.proposer_interval / 4)
+					{
+						log::trace!(target: "tesseract","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal soon");
+						break
+					}
+
+					let bond = contract.init_bonds(respected_game_type).call().await?;
+
+					proposal = Some(StateProposal {
+						root_claim,
+						game_type: respected_game_type,
+						block_number: commitment_block_number,
+						extra_data: extra_data.clone(),
+						bond,
+					});
 				}
 
-				let (proxy_addr, _) =
-					contract.games(CANNON, root_claim.0, extra_data.clone().into()).call().await?;
-
-				let bond = contract.init_bonds(CANNON).call().await?;
-				// If game exists exit
-				if proxy_addr != H160::zero() {
-					log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
-					break None;
+				// If all recent games are invalid we yield our game
+				if invalid_recent_games == len {
+					let bond = contract.init_bonds(respected_game_type).call().await?;
+					proposal = Some(StateProposal {
+						root_claim,
+						game_type: respected_game_type,
+						block_number: commitment_block_number,
+						extra_data: extra_data.clone(),
+						bond,
+					});
 				}
 
-				break Some(StateProposal {
-					root_claim,
-					game_type: CANNON,
-					block_number: commitment_block_number,
-					extra_data,
-					bond,
-				});
+				break proposal
 			}
 
 			tokio::time::sleep(Duration::from_secs(30)).await;

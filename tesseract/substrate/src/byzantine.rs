@@ -60,7 +60,7 @@ where
 			);
 			counterparty.veto_state_commitment(height).await?;
 
-			return Ok(())
+			return Ok(());
 		};
 		let header = self
 			.client

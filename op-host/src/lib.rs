@@ -5,8 +5,11 @@ use abi::{
 use anyhow::anyhow;
 use ethabi::ethereum_types::{H256, U256};
 use ethers::{
+	core::k256::{ecdsa::SigningKey, SecretKey},
+	middleware::{MiddlewareBuilder, SignerMiddleware},
 	prelude::Provider,
 	providers::{Http, Middleware},
+	signers::{LocalWallet, Signer, Wallet},
 	types::H160,
 };
 use geth_primitives::Header;
@@ -15,9 +18,13 @@ use op_verifier::{
 	calculate_output_root, get_game_uuid, OptimismDisputeGameProof, OptimismPayloadProof, CANNON,
 	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT,
 };
+use reqwest::Client;
+use reqwest_chain::ChainMiddleware;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use serde::{Deserialize, Serialize};
-use sp_core::keccak_256;
+use sp_core::{bytes::from_hex, keccak_256, Pair};
 use std::sync::Arc;
+use sync_committee_prover::middleware::SwitchProviderMiddleware;
 use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider};
 
@@ -49,6 +56,24 @@ pub struct HostConfig {
 	pub respected_game_type: Option<u32>,
 	/// Withdrawals Message Passer contract address on L2
 	pub message_parser: H160,
+	/// proposer config
+	pub proposer_config: Option<ProposerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProposerConfig {
+	/// Proposer account, private key
+	pub proposer: String,
+	/// Etherscan API key
+	pub l1_etherscan_api_key: String,
+	/// beacon consensus client rpc
+	pub beacon_consensus_rpcs: Vec<String>,
+	/// Proposer interval
+	/// This represents the interval which the opstack proposer uses to propose output roots in
+	/// seconds
+	pub proposer_interval: u64,
+	/// Address of the official op-proposer
+	pub op_proposer: String,
 }
 
 impl OpConfig {
@@ -84,6 +109,12 @@ pub struct OpHost {
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
 	pub provider: Arc<dyn IsmpProvider>,
+	/// Transaction signer
+	pub proposer: Option<Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>>,
+	/// L1 state machine id
+	pub l1_state_machine: StateMachine,
+	/// beacon consensus client
+	pub beacon_consensus_client: Option<ClientWithMiddleware>,
 }
 
 pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
@@ -111,8 +142,37 @@ impl OpHost {
 			host.beacon_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
 			None,
 		));
+		let l1_chain_id = beacon_client.get_chainid().await?.low_u64();
+		let l1_state_machine = StateMachine::Evm(l1_chain_id as u32);
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
+
+		let (proposer, beacon_consensus_client) =
+			if let Some(proposer_config) = host.proposer_config.clone() {
+				let bytes = match from_hex(proposer_config.proposer.as_str()) {
+					Ok(bytes) => bytes,
+					Err(_) => {
+						// it's probably a file.
+						let contents =
+							tokio::fs::read_to_string(proposer_config.proposer.as_str()).await?;
+						from_hex(contents.as_str())?
+					},
+				};
+
+				let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
+				let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
+					.with_chain_id(l1_chain_id);
+
+				let client = ClientBuilder::new(Client::new())
+					.with(ChainMiddleware::new(SwitchProviderMiddleware::_new(
+						proposer_config.beacon_consensus_rpcs,
+					)))
+					.build();
+
+				(Some(Arc::new(beacon_client.clone().with_signer(signer))), Some(client))
+			} else {
+				(None, None)
+			};
 
 		Ok(Self {
 			op_execution_client: Arc::new(el),
@@ -128,6 +188,9 @@ impl OpHost {
 				consensus_state_id
 			},
 			provider,
+			proposer,
+			l1_state_machine,
+			beacon_consensus_client,
 		})
 	}
 

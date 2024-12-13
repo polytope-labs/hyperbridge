@@ -19,6 +19,16 @@ use serde::de::DeserializeOwned;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use tesseract_primitives::Cost;
 
+
+
+
+#[derive(Debug)]
+pub struct OptimismGasComponents {
+    pub l1_data_fee: U256,
+    pub l2_execution_fee: U256,
+    pub blob_fee: Option<U256>,
+}
+
 #[derive(Debug, Default, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct GasResult {
@@ -295,29 +305,61 @@ fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
 	eth_usd / eth_to_wei
 }
 
-/// Returns the L2 data cost for a given transaction data in usd
+/// Returns the L2 data cost for a given transaction data in USD.
+/// Implementation follows Optimism's Ecotone gas model:
+/// - Base implementation: https://github.com/ethereum-optimism/optimism/blob/develop/packages/contracts-bedrock/contracts/L2/GasPriceOracle.sol
+/// - Ecotone upgrade specs: https://github.com/ethereum-optimism/optimism/blob/develop/specs/protocol/fees.md
+/// 
+/// The total cost consists of:
+/// 1. L1 data fee: calculated using L1 base fee and the base fee scalar
+/// 2. Blob fee (Ecotone only): additional fee for blob data based on blob base fee and scalar
 pub async fn get_l2_data_cost(
-	rlp_tx: Bytes,
-	chain: StateMachine,
-	client: Arc<Provider<Http>>,
-	// Unit wei cost in 27 decimals
-	unit_wei_cost: U256,
+    rlp_tx: Bytes,
+    chain: StateMachine,
+    client: Arc<Provider<Http>>,
+    unit_wei_cost: U256,
 ) -> Result<Cost, anyhow::Error> {
-	let mut data_cost = U256::zero();
-	match chain {
-		StateMachine::Evm(inner_evm) => match inner_evm {
-			id if is_op_stack(id) => {
-				let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
-				let data_cost_bytes = ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?; // this is in wei
-				data_cost = data_cost_bytes * unit_wei_cost
-			},
+    let mut data_cost = U256::zero();
+    match chain {
+        StateMachine::Evm(inner_evm) => match inner_evm {
+            id if is_op_stack(id) => {
+                let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client.clone());
+                
+                // Get L1 gas used first
+                let l1_gas_used = ovm_gas_price_oracle.get_l1_gas_used(rlp_tx.clone()).await?;
+                let l1_base_fee = ovm_gas_price_oracle.l_1_base_fee().await?;
+                let base_fee_scalar = ovm_gas_price_oracle.base_fee_scalar().await?;
+                
+                // Calculate L1 fee based on gas used
+                let l1_fee = l1_gas_used * l1_base_fee * U256::from(base_fee_scalar);
+                
+                data_cost = l1_fee;
+                
+                // Get Ecotone blob fees if enabled
+                let is_ecotone = ovm_gas_price_oracle.is_ecotone().await?;
+                if is_ecotone {
+                    let blob_base_fee = ovm_gas_price_oracle.blob_base_fee().await?;
+                    let blob_scalar = ovm_gas_price_oracle.blob_base_fee_scalar().await?;
+                    let blob_size = U256::from((rlp_tx.len() + 31) / 32); // Round up to nearest 32 bytes
+                    let blob_fee = blob_base_fee * U256::from(blob_scalar) * blob_size;
+                    data_cost += blob_fee;
+                }
 
-			_ => {},
-		},
-		_ => Err(anyhow!("Unknown chain: {chain:?}"))?,
-	}
+                println!("RLP TX length: {} bytes", rlp_tx.len());
+                println!("L1 gas used: {} gas", l1_gas_used);
+                println!("L1 base fee: {} wei", l1_base_fee);
+                println!("Base fee scalar: {}", base_fee_scalar);
+                println!("Is Ecotone: {}", is_ecotone);
+                println!("Total data cost: {} wei", data_cost);
+                
+                data_cost = data_cost * unit_wei_cost;
+            },
+            _ => {},
+        },
+        _ => Err(anyhow!("Unknown chain: {chain:?}"))?,
+    }
 
-	Ok(convert_27_decimals_to_18_decimals(data_cost)?.into())
+    Ok(convert_27_decimals_to_18_decimals(data_cost)?.into())
 }
 
 async fn make_request<T: DeserializeOwned>(url: &str, header_map: HeaderMap) -> anyhow::Result<T> {
@@ -645,4 +687,57 @@ mod test {
 		dbg!(Cost(cost));
 		assert!(cost > U256::zero())
 	}
+	#[tokio::test]
+async fn test_optimism_sepolia_gas_calculation() {
+	dotenv::dotenv().ok();
+    let optimism_rpc = std::env::var("OP_URL").expect("OP_URL must be set");  // Changed from OPSEPOLIA_RPC
+    let provider = Arc::new(Provider::<Http>::try_from(optimism_rpc).unwrap());
+    let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_ETHEREUM_KEY")
+        .expect("ETHERSCAN_ETHEREUM_KEY must be set");
+    
+    // Get base gas costs
+    let gas_breakdown = get_current_gas_cost_in_usd(
+        StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
+        &ethereum_etherscan_api_key,
+        provider.clone(),
+    )
+    .await
+    .unwrap();
+
+    println!("\nTesting with small calldata...");
+    let test_calldata = vec![0u8; 128];
+    println!("Small calldata size: {} bytes", test_calldata.len());
+    
+    let data_cost = get_l2_data_cost(
+        test_calldata.into(),
+        StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
+        provider.clone(),
+        gas_breakdown.unit_wei_cost,
+    )
+    .await
+    .unwrap();
+
+    println!("\nTesting with large calldata...");
+    let large_calldata = vec![0u8; 1024];
+    println!("Large calldata size: {} bytes", large_calldata.len());
+    
+    let large_data_cost = get_l2_data_cost(
+        large_calldata.into(),
+        StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
+        provider.clone(),
+        gas_breakdown.unit_wei_cost,
+    )
+    .await
+    .unwrap();
+
+    println!("\nComparison:");
+    println!("Small data cost: {} USD", data_cost);
+    println!("Large data cost: {} USD", large_data_cost);
+
+    assert!(gas_breakdown.gas_price > U256::zero(), "Gas price should be non-zero");
+    assert!(gas_breakdown.gas_price_cost > Cost(U256::zero()), "Gas cost should be non-zero");
+    assert!(data_cost > Cost(U256::zero()), "Data cost should be non-zero");
+    assert!(large_data_cost > data_cost, "Large data cost should be greater than small data cost");
+}
+
 }

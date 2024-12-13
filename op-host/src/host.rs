@@ -188,6 +188,11 @@ async fn construct_state_proposal(
 			parent_beacon_root
 		);
 
+		struct LatestGameData {
+			l2_block_number: u64,
+			game: FaultDisputeGame<Provider<Http>>,
+		}
+
 		let proposal = loop {
 			// We can only propose a state commitment when it is derived from a finalized beacon
 			// block
@@ -235,11 +240,10 @@ async fn construct_state_proposal(
 				// 3. The op-proposer interval for proposing is not yet in its last quarter
 				let latest_game_index = contract.game_count().call().await? - U256::one();
 				let mut proposal = None;
-				let mut invalid_recent_games = 0;
+				let mut latest_valid_game = None;
 				// We would inspect the first five most recent games
 				let range =
 					(latest_game_index.low_u64().saturating_sub(2))..=latest_game_index.low_u64();
-				let len = range.end().saturating_sub(*range.start()) + 1;
 				for game_index in range.rev() {
 					let (_, _, dispute_proxy) =
 						contract.game_at_index(game_index.into()).call().await?;
@@ -252,7 +256,6 @@ async fn construct_state_proposal(
 					let latest_game_type = game.game_type().await?;
 					// If this game is not the respected game type we continue our search
 					if latest_game_type != respected_game_type {
-						invalid_recent_games += 1;
 						continue;
 					}
 
@@ -286,17 +289,23 @@ async fn construct_state_proposal(
 
 					// If the claim in the game is incorrect we continue
 					if calculated_latest_root_claim.0 != latest_claim {
-						invalid_recent_games += 1;
 						continue;
 					}
 
+					latest_valid_game = Some(LatestGameData {
+						game,
+						l2_block_number: latest_claim_l2_block_number,
+					});
+
+					break;
+				}
+
+				if let Some(latest_valid_game) = latest_valid_game {
 					// If the latest game block number is greater than our block and its root claim
 					// is correct exit
-					if latest_claim_l2_block_number > commitment_block_number
-						&& calculated_latest_root_claim.0 == latest_claim
-					{
-						log::trace!(target: "tesseract","Latest proposed block {latest_claim_l2_block_number} > commitment block{commitment_block_number}");
-						break;
+					if latest_valid_game.l2_block_number > commitment_block_number {
+						log::trace!(target: "tesseract","Latest proposed block {} > commitment block{commitment_block_number}", latest_valid_game.l2_block_number);
+						break proposal;
 					}
 
 					let (proxy_addr, _) = contract
@@ -307,11 +316,11 @@ async fn construct_state_proposal(
 					// If game exists exit
 					if proxy_addr != H160::zero() {
 						log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
-						break;
+						break proposal;
 					}
 
 					// When was the last claim submitted
-					let creation_time = game.created_at().call().await?;
+					let creation_time = latest_valid_game.game.created_at().call().await?;
 					let current_block_num =
 						client.beacon_execution_client.get_block_number().await?;
 					let current_block_header = client
@@ -322,17 +331,18 @@ async fn construct_state_proposal(
 					let diff =
 						current_block_header.timestamp.low_u64().saturating_sub(creation_time);
 
-					let creator = game.game_creator().call().await?;
+					let creator = latest_valid_game.game.game_creator().call().await?;
 					let op_proposer = from_hex(&proposer_config.op_proposer)?;
 
 					// If the time since the last proposal is greater than 3/4 of the proposal
 					// interval then it doesn't make economic sense to continue with this
 					// proposal
-					if creator.0.to_vec() == op_proposer
-						&& diff >= (3 * proposer_config.proposer_interval / 4)
+					if creator.0.to_vec() == op_proposer &&
+						diff >= (3 * proposer_config.proposer_interval / 4)
 					{
-						log::trace!(target: "tesseract","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal soon");
-						break;
+						log::trace!(target: "tesseract","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal in {} seconds", 
+							proposer_config.proposer_interval.saturating_sub((3 * proposer_config.proposer_interval )/ 4));
+						break proposal;
 					}
 
 					let bond = contract.init_bonds(respected_game_type).call().await?;
@@ -345,12 +355,9 @@ async fn construct_state_proposal(
 						bond,
 					});
 
-					break;
-				}
-
-				// If all recent games are invalid we yield our game
-				if invalid_recent_games == len {
-					log::trace!(target: "tesseract","Last three recent({len}) games are invalid({invalid_recent_games}), moving ahead with proposal for {commitment_block_number}");
+					break proposal;
+				} else {
+					log::trace!(target: "tesseract","Recent games are invalid, moving ahead with proposal for {commitment_block_number}");
 					let bond = contract.init_bonds(respected_game_type).call().await?;
 					proposal = Some(StateProposal {
 						root_claim,
@@ -359,9 +366,9 @@ async fn construct_state_proposal(
 						extra_data: extra_data.clone(),
 						bond,
 					});
-				}
 
-				break proposal;
+					break proposal
+				}
 			}
 
 			tokio::time::sleep(Duration::from_secs(30)).await;

@@ -758,6 +758,7 @@ mod benches {
 		[pallet_collective, TechnicalCollective]
 		[cumulus_pallet_parachain_system, ParachainSystem]
 		[pallet_session, SessionBench::<Runtime>]
+		[ismp_parachain, IsmpParachain]
 	);
 }
 

@@ -890,6 +890,7 @@ mod benches {
 		[pallet_proxy, Proxy]
 		[cumulus_pallet_parachain_system, ParachainSystem]
 		[pallet_session, SessionBench::<Runtime>]
+		[ismp_parachain, IsmpParachain]
 	);
 }
 

@@ -7758,6 +7758,7 @@ version = "1.15.3"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
+ "frame-benchmarking",
  "frame-support 37.0.0",
  "frame-system",
  "hex-literal 0.4.1",

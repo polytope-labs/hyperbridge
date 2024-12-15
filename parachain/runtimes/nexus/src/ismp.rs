@@ -84,6 +84,12 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 
+impl ismp_grandpa::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type IsmpHost = pallet_ismp::Pallet<Runtime>;
+    type WeightInfo = ismp_grandpa::weights::WeightInfo<Runtime>;
+}
+
 impl pallet_ismp::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type AdminOrigin = EnsureRoot<AccountId>;
@@ -108,10 +114,7 @@ impl pallet_ismp::Config for Runtime {
 	type WeightProvider = ();
 }
 
-impl ismp_grandpa::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type IsmpHost = Ismp;
-}
+
 
 impl pallet_ismp_relayer::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;

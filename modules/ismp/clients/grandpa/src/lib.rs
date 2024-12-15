@@ -15,13 +15,27 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+#[cfg(feature = "runtime-benchmarks")]
+pub mod benchmarking;
+
 pub mod consensus;
 pub mod messages;
 
 use alloc::vec::Vec;
+use frame_support::pallet_prelude::Weight;
 use ismp::host::StateMachine;
 pub use pallet::*;
+pub trait WeightInfo {
+	/// Weight for adding state machines, scaled by the number of machines
+	/// * n: The number of machines being added
+	fn add_state_machines(n: u32) -> Weight;
 
+	/// Weight for removing state machines, scaled by the number of machines
+	/// * n: The number of machines being removed
+	fn remove_state_machines(n: u32) -> Weight;
+}
+
+pub mod weights;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -41,6 +55,7 @@ pub mod pallet {
 
 		/// IsmpHost implementation
 		type IsmpHost: IsmpHost + Default;
+		type WeightInfo: WeightInfo;
 	}
 
 	/// Events emitted by this pallet
@@ -69,7 +84,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Add some a state machine to the list of supported state machines
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::DbWeight::get().writes(new_state_machines.len() as u64))]
+		#[pallet::weight(T::WeightInfo::add_state_machines(new_state_machines.len() as u32))]
 		pub fn add_state_machines(
 			origin: OriginFor<T>,
 			new_state_machines: Vec<AddStateMachine>,
@@ -89,7 +104,7 @@ pub mod pallet {
 
 		/// Remove a state machine from the list of supported state machines
 		#[pallet::call_index(1)]
-		#[pallet::weight(T::DbWeight::get().writes(state_machines.len() as u64))]
+		#[pallet::weight(T::WeightInfo::remove_state_machines(state_machines.len() as u32))]
 		pub fn remove_state_machines(
 			origin: OriginFor<T>,
 			state_machines: Vec<StateMachine>,

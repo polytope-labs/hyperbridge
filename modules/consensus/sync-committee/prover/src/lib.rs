@@ -251,8 +251,8 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 		finality_checkpoint: Checkpoint,
 		latest_block_id: Option<&str>,
 	) -> Result<Option<VerifierStateUpdate>, anyhow::Error> {
-		if finality_checkpoint.root == Node::default() ||
-			client_state.latest_finalized_epoch >= finality_checkpoint.epoch
+		if finality_checkpoint.root == Node::default()
+			|| client_state.latest_finalized_epoch >= finality_checkpoint.epoch
 		{
 			trace!(target: "sync-committee-prover", "No new epoch finalized yet {}", finality_checkpoint.epoch);
 			return Ok(None);
@@ -287,9 +287,9 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 
 			let signature_period = compute_sync_committee_period_at_slot::<C>(block.slot);
 
-			if num_signatures >= min_signatures &&
-				(state_period..=state_period + 1).contains(&signature_period) &&
-				parent_block_finality_checkpoint.epoch > client_state.latest_finalized_epoch
+			if num_signatures >= min_signatures
+				&& (state_period..=state_period + 1).contains(&signature_period)
+				&& parent_block_finality_checkpoint.epoch > client_state.latest_finalized_epoch
 			{
 				break;
 			}
@@ -354,10 +354,10 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 		period: u64,
 	) -> Result<VerifierStateUpdate, anyhow::Error> {
 		trace!(target: "sync-committee-prover", "latest_update_for_period {period}");
-		let mut higest_slot_in_epoch = ((period * C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD) *
-			C::SLOTS_PER_EPOCH) +
-			(C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD * C::SLOTS_PER_EPOCH) -
-			1;
+		let mut higest_slot_in_epoch = ((period * C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD)
+			* C::SLOTS_PER_EPOCH)
+			+ (C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD * C::SLOTS_PER_EPOCH)
+			- 1;
 		let mut count = 0;
 		// Some slots are empty so we'll use a loop to fetch the highest available slot in an epoch
 		let mut block = loop {
@@ -494,8 +494,8 @@ pub fn prove_block_roots_proof<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 	let epoch_for_header = compute_epoch_at_slot::<C>(header.slot) as usize;
 	let epoch_for_state = compute_epoch_at_slot::<C>(state.slot) as usize;
 
-	if epoch_for_state.saturating_sub(epoch_for_header) >=
-		SLOTS_PER_HISTORICAL_ROOT / C::SLOTS_PER_EPOCH as usize
+	if epoch_for_state.saturating_sub(epoch_for_header)
+		>= SLOTS_PER_HISTORICAL_ROOT / C::SLOTS_PER_EPOCH as usize
 	{
 		// todo:  Historical root proofs
 		unimplemented!()

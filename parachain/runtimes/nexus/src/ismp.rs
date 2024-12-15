@@ -135,6 +135,7 @@ impl pallet_fishermen::Config for Runtime {
 impl ismp_parachain::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
+	type WeightInfo = ismp_parachain::weights::WeightInfo<Runtime>;
 }
 
 parameter_types! {

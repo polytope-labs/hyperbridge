@@ -21,58 +21,49 @@ use frame_system::RawOrigin;
 
 #[benchmarks]
 mod benchmarks {
-    use ismp::messaging::{ConsensusMessage, Message};
-    use super::*;
+	use super::*;
+	use ismp::messaging::{ConsensusMessage, Message};
 
-    #[benchmark]
-    fn add_parachain() -> Result<(), BenchmarkError> {
-        let state_machines: Vec<ParachainData> = (0..10)
-            .map(|i| ParachainData {
-                id: i,
-                slot_duration: 6000,
-            })
-            .collect();
+	#[benchmark]
+	fn add_parachain() -> Result<(), BenchmarkError> {
+		let state_machines: Vec<ParachainData> =
+			(0..10).map(|i| ParachainData { id: i, slot_duration: 6000 }).collect();
 
-        #[block]
-        {
-            Pallet::<T>::add_parachain(RawOrigin::Root.into(), state_machines)?;
-        }
+		#[block]
+		{
+			Pallet::<T>::add_parachain(RawOrigin::Root.into(), state_machines)?;
+		}
 
-        Ok(())
-    }
+		Ok(())
+	}
 
-    #[benchmark]
-    fn remove_parachain() -> Result<(), BenchmarkError> {
-        let state_machines: Vec<ParachainData> = (0..10)
-            .map(|i| ParachainData {
-                id: i,
-                slot_duration: 6000,
-            })
-            .collect();
+	#[benchmark]
+	fn remove_parachain() -> Result<(), BenchmarkError> {
+		let state_machines: Vec<ParachainData> =
+			(0..10).map(|i| ParachainData { id: i, slot_duration: 6000 }).collect();
 
-        #[block]
-        {
-            Pallet::<T>::add_parachain(RawOrigin::Root.into(), state_machines)?;
-            Pallet::<T>::remove_parachain(RawOrigin::Root.into(), vec![0, 1, 2, 3, 4])?;
-        }
+		#[block]
+		{
+			Pallet::<T>::add_parachain(RawOrigin::Root.into(), state_machines)?;
+			Pallet::<T>::remove_parachain(RawOrigin::Root.into(), vec![0, 1, 2, 3, 4])?;
+		}
 
-        Ok(())
-    }
+		Ok(())
+	}
 
-    #[benchmark]
-    fn update_parachain_consensus() -> Result<(), BenchmarkError> {
-        let consensus_message = ConsensusMessage {
-            consensus_proof: vec![],
-            consensus_state_id: *b"PARA",
-            signer: vec![],
-        };
+	#[benchmark]
+	fn update_parachain_consensus() -> Result<(), BenchmarkError> {
+		let consensus_message = ConsensusMessage {
+			consensus_proof: vec![],
+			consensus_state_id: *b"PARA",
+			signer: vec![],
+		};
 
-        #[block]
-        {
-            Pallet::<T>::update_parachain_consensus(RawOrigin::None.into(), consensus_message)?;
-        }
+		#[block]
+		{
+			Pallet::<T>::update_parachain_consensus(RawOrigin::None.into(), consensus_message)?;
+		}
 
-        Ok(())
-    }
-
+		Ok(())
+	}
 }

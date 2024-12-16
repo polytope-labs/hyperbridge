@@ -11,6 +11,7 @@ use frame_support::{
 		AsEnsureOriginWithArg, ConstU64, OnTimestampSet, ProcessMessage, ProcessMessageError,
 	},
 	weights::WeightMeter,
+	BoundedVec,
 };
 use frame_system::EnsureRoot;
 use ismp::{host::StateMachine, router::IsmpRouter};
@@ -40,7 +41,6 @@ frame_support::construct_runtime!(
 		CumulusParachain: cumulus_pallet_parachain_system,
 		Assets: pallet_assets,
 		TokenGateway: pallet_token_gateway::{Pallet, Storage, Call, Event<T>}
-		// HostExecutive: pallet_ismp_host_executive
 	}
 );
 
@@ -253,10 +253,6 @@ impl pallet_mmr::Config for Test {
 	type ForkIdentifierProvider = Ismp;
 }
 
-// impl pallet_ismp_host_executive::Config for Test {
-//     type RuntimeEvent = RuntimeEvent;
-//     type IsmpHost = Ismp;
-// }
 impl pallet_ismp::Config for Test {
 	// configure the runtime event
 	type RuntimeEvent = RuntimeEvent;
@@ -320,7 +316,7 @@ impl Config for Test {
 parameter_types! {
 	pub const AssetAdmin: AccountId32 = AccountId32::new([0u8;32]);
 	// A constant that should represent the native asset id
-	pub const NativeAssetId: u32 = 0;
+	pub const NativeAssetId: H256 = H256::zero();
 	// Set the correct precision for the native currency
 	pub const Decimals: u8 = 12;
 }
@@ -329,8 +325,8 @@ impl pallet_assets::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = u128;
 	type RemoveItemsLimit = ConstU32<5>;
-	type AssetId = u32;
-	type AssetIdParameter = u32;
+	type AssetId = H256;
+	type AssetIdParameter = H256;
 	type AssetDeposit = ConstU128<1>;
 	type AssetAccountDeposit = ConstU128<10>;
 	type MetadataDepositBase = ConstU128<1>;
@@ -347,17 +343,33 @@ impl pallet_assets::Config for Test {
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
+	let asset_id: H256 = H256::zero();
+
 	let t = RuntimeGenesisConfig {
-		// We use default for brevity, but you can configure as desired if needed.
 		system: Default::default(),
-		balances: Default::default(),
-		ismp_parachain: Default::default(),
-		assets: Default::default(),
-		cumulus_parachain: Default::default(),
+		balances: pallet_balances::GenesisConfig {
+			balances: vec![(AccountId32::from([0u8; 32]), 10000)],
+		},
+		assets: pallet_assets::GenesisConfig {
+			assets: vec![
+				// id, owner, is_sufficient, min_balance
+				(asset_id, AccountId32::from([0u8; 32]), true, 0),
+			],
+			metadata: vec![
+				// id, name, symbol, decimals
+				(asset_id, "Spectre".into(), "SPC".into(), 10),
+			],
+			accounts: vec![
+				// id, account_id, balance
+				(asset_id, AccountId32::from([0u8; 32]), 1000),
+			],
+			next_asset_id: None,
+		},
 	}
 	.build_storage()
 	.unwrap();
-	clear_captured_moment();
 
-	t.into()
+	let mut ext = sp_io::TestExternalities::new(t);
+	ext.execute_with(|| System::set_block_number(1));
+	ext
 }

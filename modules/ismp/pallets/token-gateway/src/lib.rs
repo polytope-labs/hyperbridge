@@ -18,10 +18,10 @@
 
 extern crate alloc;
 
-mod benchmarks;
+mod benchmarking;
 pub mod impls;
 #[cfg(test)]
-mod mock;
+pub mod mock;
 pub mod types;
 
 use crate::impls::{convert_to_balance, convert_to_erc20};
@@ -310,7 +310,8 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			addresses: BTreeMap<StateMachine, Vec<u8>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			ensure_signed(origin)?;
+			//T::AdminOrigin::ensure_origin(origin)?;
 			for (chain, address) in addresses {
 				TokenGatewayAddresses::<T>::insert(chain, address.clone());
 			}

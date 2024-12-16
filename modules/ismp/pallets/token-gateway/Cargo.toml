@@ -38,6 +38,7 @@ pallet-balances = { workspace = true }
 pallet-timestamp = { workspace = true }
 ismp-parachain = { workspace = true }
 frame-benchmarking = { optional = true, workspace = true }
+pallet-assets = {workspace = true}
 
 [dev-dependencies]
 cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
@@ -51,9 +52,7 @@ hyperbridge-client-machine = { workspace = true}
 pallet-ismp-host-executive = { workspace = true}
 ismp-testsuite = { workspace = true }
 pallet-assets = {workspace = true}
-frame-benchmarking = { workspace = true, features = ["runtime-benchmarks"] }
-frame-support = { workspace = true, features = ["runtime-benchmarks"] }
-frame-system = { workspace = true, features = ["runtime-benchmarks"] }
+log  = { workspace = true}
 
 [features]
 default = ["std"]
@@ -85,7 +84,7 @@ std = [
     "sp-mmr-primitives/std",
     "hyperbridge-client-machine/std",
     "pallet-ismp-host-executive/std",
-    "pallet-assets/std"
+    "pallet-assets/std",
 ]
 
 runtime-benchmarks = [

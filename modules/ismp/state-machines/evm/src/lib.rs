@@ -96,7 +96,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			ismp_address
 		} else if key.len() == 20 {
 			contract_account_queries.push(H160::from_slice(&key));
-			continue
+			continue;
 		} else {
 			Err(Error::Custom(
 				"Unsupported Key type, found a key whose length is not one of 20, 32 or 52"

@@ -12,15 +12,18 @@ keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability", "GRANDPA"]
 readme = "./README.md"
 
 [dependencies]
+anyhow = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
 primitive-types = { workspace = true }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 merkle-mountain-range = { workspace = true }
 finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false }
+frame-benchmarking = { workspace = true, optional = true }
+sp-std = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
-grandpa-verifier-primitives = { workspace = true  }
+grandpa-verifier-primitives = { workspace = true }
 grandpa-verifier = { workspace = true }
 pallet-ismp = { workspace = true }
 
@@ -40,6 +43,7 @@ substrate-state-machine = { workspace = true }
 [features]
 default = ["std"]
 std = [
+    "sp-std/std",
     "codec/std",
     "frame-support/std",
     "frame-system/std",
@@ -60,3 +64,10 @@ std = [
     "finality-grandpa/std",
 ]
 try-runtime = []
+
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-ismp/runtime-benchmarks",
+]

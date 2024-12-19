@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(non_local_definitions)]
 #![cfg_attr(not(feature = "std"), no_std)]
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit = "256"]
@@ -572,6 +571,30 @@ impl pallet_utility::Config for Runtime {
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
 }
 
+impl pallet_hyperbridge::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+}
+
+impl pallet_token_gateway::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+
+	type Dispatcher = Ismp;
+
+	type NativeCurrency = Balances;
+
+	type AssetAdmin = TreasuryAccount;
+
+	type Assets = Assets;
+
+	type NativeAssetId = NativeAssetId;
+
+	type AssetIdFactory = ();
+
+	type Decimals = Decimals;
+	type WeightInfo = pallet_token_gateway::TokenGatewayWeightInfo<Runtime>;
+}
+
 parameter_types! {
 	pub const SpendingPeriod: BlockNumber = 24 * DAYS;
 	pub const TreasuryPalletId: PalletId = PalletId(*b"hb/trsry");
@@ -582,6 +605,9 @@ parameter_types! {
 	pub const TechnicalMaxProposals: u32 = 100;
 	pub const TechnicalMaxMembers: u32 = 10;
 	pub MaxCollectivesProposalWeight: Weight = Perbill::from_percent(50) * RuntimeBlockWeights::get().max_block;
+	pub const NativeAssetId: H256 = H256::zero();
+	// Set the correct precision for the native currency
+	pub const Decimals: u8 = 12;
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -726,6 +752,8 @@ construct_runtime!(
 		Fishermen: pallet_fishermen = 61,
 		TokenGatewayInspector: pallet_token_gateway_inspector = 62,
 		IsmpSyncCommitteeGno: ismp_sync_committee::pallet::<Instance2> = 63,
+		TokenGateway: pallet_token_gateway = 64,
+		HyperBridge: pallet_hyperbridge = 65,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,
@@ -759,8 +787,7 @@ mod benches {
 		[pallet_collective, TechnicalCollective]
 		[cumulus_pallet_parachain_system, ParachainSystem]
 		[pallet_session, SessionBench::<Runtime>]
-		[ismp_grandpa, IsmpGrandpa]
-
+		[pallet_token_gateway,TokenGateway]
 	);
 }
 

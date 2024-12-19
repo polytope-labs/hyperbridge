@@ -29,19 +29,19 @@ pub async fn query_get_request_status(
 	let source_relayer = source_client.query_response_receipt(commitment).await?;
 	if source_relayer != Default::default() {
 		// request has been completed
-		return Ok(MessageStatusWithMetadata::DestinationDelivered { meta: Default::default() })
+		return Ok(MessageStatusWithMetadata::DestinationDelivered { meta: Default::default() });
 	}
 
 	let relayer = client.hyperbridge.query_request_receipt(commitment).await?;
 	if relayer != Default::default() {
 		// request has been handled by hyperbridge
-		return Ok(MessageStatusWithMetadata::HyperbridgeVerified { meta: Default::default() })
+		return Ok(MessageStatusWithMetadata::HyperbridgeVerified { meta: Default::default() });
 	}
 
 	let timestamp = client.hyperbridge.latest_timestamp().await?.as_secs();
 	if get.timeout_timestamp > timestamp {
 		// request has timed out
-		return Ok(MessageStatusWithMetadata::Timeout)
+		return Ok(MessageStatusWithMetadata::Timeout);
 	}
 
 	Ok(MessageStatusWithMetadata::Pending)

@@ -104,6 +104,8 @@ sp-mmr-primitives = { workspace = true }
 simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true  }
+pallet-token-gateway = { workspace = true}
+pallet-hyperbridge = { workspace = true}
 
 [features]
 default = [
@@ -188,7 +190,9 @@ std = [
 	"simnode-runtime-api/std",
 	"hyperbridge-client-machine/std",
 	"frame-metadata-hash-extension/std",
-	"anyhow/std"
+	"anyhow/std",
+	"pallet-token-gateway/std",
+	"pallet-hyperbridge/std"
 ]
 
 runtime-benchmarks = [
@@ -214,8 +218,8 @@ runtime-benchmarks = [
 	"pallet-message-queue/runtime-benchmarks",
 	"pallet-assets/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
-	"parachains-common/runtime-benchmarks",
-	"ismp-grandpa/runtime-benchmarks",
+	"pallet-token-gateway/runtime-benchmarks",
+	"parachains-common/runtime-benchmarks"
 ]
 
 try-runtime = [
@@ -244,7 +248,8 @@ try-runtime = [
 	"pallet-xcm/try-runtime",
 	"pallet-mmr/try-runtime",
 	"parachain-info/try-runtime",
-	"pallet-assets/runtime-benchmarks"
+	"pallet-assets/runtime-benchmarks",
+	"pallet-token-gateway/runtime-benchmarks"
 ]
 
 

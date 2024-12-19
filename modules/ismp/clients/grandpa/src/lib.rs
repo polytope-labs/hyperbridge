@@ -20,25 +20,25 @@ pub mod benchmarking;
 
 pub mod consensus;
 pub mod messages;
+pub mod weights;
 
-use alloc::vec::Vec;
-use frame_support::pallet_prelude::Weight;
 use ismp::host::StateMachine;
 pub use pallet::*;
-pub trait WeightInfo {
-	/// Weight for adding state machines, scaled by the number of machines
-	/// * n: The number of machines being added
-	fn add_state_machines(n: u32) -> Weight;
+pub use weights::WeightInfo;
 
-	/// Weight for removing state machines, scaled by the number of machines
-	/// * n: The number of machines being removed
-	fn remove_state_machines(n: u32) -> Weight;
+/// Update the state machine whitelist
+#[derive(Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, Debug, PartialEq, Eq)]
+pub struct AddStateMachine {
+	/// State machine to add
+	pub state_machine: StateMachine,
+	/// It's slot duration
+	pub slot_duration: u64,
 }
 
-pub mod weights;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloc::vec::Vec;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use ismp::host::IsmpHost;
@@ -55,6 +55,8 @@ pub mod pallet {
 
 		/// IsmpHost implementation
 		type IsmpHost: IsmpHost + Default;
+
+		/// Weight information for dispatchable extrinsics
 		type WeightInfo: WeightInfo;
 	}
 
@@ -120,13 +122,4 @@ pub mod pallet {
 			Ok(())
 		}
 	}
-}
-
-/// Update the state machine whitelist
-#[derive(Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, Debug, PartialEq, Eq)]
-pub struct AddStateMachine {
-	/// State machine to add
-	pub state_machine: StateMachine,
-	/// It's slot duration
-	pub slot_duration: u64,
 }

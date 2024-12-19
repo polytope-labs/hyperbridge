@@ -13,37 +13,15 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU General Public License for more details.
 
-#![cfg_attr(rustfmt, rustfmt_skip)]
-#![allow(unused_parens)]
-#![allow(unused_imports)]
+use frame_support::weights::Weight;
 
-use frame_support::{traits::Get, weights::{Weight, constants::RocksDbWeight}};
-use sp_std::marker::PhantomData;
+/// The weight information provider trait for dispatchable extrinsics
+pub trait WeightInfo {
+	/// Weight for adding state machines, scaled by the number of machines
+	/// * n: The number of machines being added
+	fn add_state_machines(n: u32) -> Weight;
 
-/// Weights for ismp_grandpa
-pub struct WeightInfo<T>(PhantomData<T>);
-
-/// Weight functions for ismp-parachain pallet extrinsics.
-impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
-    /// Weight for adding state machines, scaled by the number of machines.
-    /// Values based on measured benchmarks:
-    /// - Base Weight: 5.525 µs
-    /// - Additional Weight per item: 1.458 µs
-    /// - DB Weight: n writes
-    fn add_state_machines(n: u32) -> Weight {
-        Weight::from_parts(5_525, 0)
-            .saturating_add(Weight::from_parts(1_458, 0).saturating_mul(n as u64))
-            .saturating_add(T::DbWeight::get().writes(n as u64))
-    }
-
-    /// Weight for removing state machines, scaled by the number of machines.
-    /// Values based on measured benchmarks:
-    /// - Base Weight: 4.914 µs
-    /// - Additional Weight per item: 1.419 µs
-    /// - DB Weight: n writes
-    fn remove_state_machines(n: u32) -> Weight {
-        Weight::from_parts(4_914, 0)
-            .saturating_add(Weight::from_parts(1_419, 0).saturating_mul(n as u64))
-            .saturating_add(T::DbWeight::get().writes(n as u64))
-    }
+	/// Weight for removing state machines, scaled by the number of machines
+	/// * n: The number of machines being removed
+	fn remove_state_machines(n: u32) -> Weight;
 }

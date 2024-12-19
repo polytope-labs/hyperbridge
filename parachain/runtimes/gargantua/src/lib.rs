@@ -592,6 +592,7 @@ impl pallet_token_gateway::Config for Runtime {
 	type AssetIdFactory = ();
 
 	type Decimals = Decimals;
+	type WeightInfo = pallet_token_gateway::TokenGatewayWeightInfo<Runtime>;
 }
 
 parameter_types! {

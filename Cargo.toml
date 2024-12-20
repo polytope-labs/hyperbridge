@@ -10,22 +10,22 @@ members = [
 
     # ismp
     "modules/ismp/core",
-    "modules/ismp/pallets/pallet",
-    "modules/ismp/pallets/relayer",
-    "modules/ismp/pallets/fishermen",
-    "modules/ismp/pallets/host-executive",
-    "modules/ismp/pallets/rpc",
-    "modules/ismp/pallets/runtime-api",
-    "modules/ismp/pallets/demo",
-    "modules/ismp/pallets/testsuite",
-    "modules/ismp/pallets/call-decompressor",
-    "modules/ismp/pallets/asset-gateway",
-    "modules/ismp/pallets/token-governor",
-    "modules/ismp/pallets/token-gateway",
-    "modules/ismp/pallets/token-gateway/primitives",
-    "modules/ismp/pallets/token-gateway-inspector",
-    "modules/ismp/pallets/hyperbridge",
-    "modules/ismp/pallets/state-coprocessor",
+    "modules/pallets/ismp",
+    "modules/pallets/relayer",
+    "modules/pallets/fishermen",
+    "modules/pallets/host-executive",
+    "modules/pallets/rpc",
+    "modules/pallets/runtime-api",
+    "modules/pallets/demo",
+    "modules/pallets/testsuite",
+    "modules/pallets/call-decompressor",
+    "modules/pallets/asset-gateway",
+    "modules/pallets/token-governor",
+    "modules/pallets/token-gateway",
+    "modules/pallets/token-gateway/primitives",
+    "modules/pallets/token-gateway-inspector",
+    "modules/pallets/hyperbridge",
+    "modules/pallets/state-coprocessor",
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",
     "modules/ismp/clients/parachain/client",
@@ -301,24 +301,24 @@ substrate-state-machine = { version = "1.15.3", path = "modules/ismp/state-machi
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # published pallets
-pallet-ismp = { version = "1.15.3", path = "modules/ismp/pallets/pallet", default-features = false }
-pallet-ismp-rpc = { version = "1.15.3", path = "modules/ismp/pallets/rpc" }
-pallet-ismp-runtime-api = { version = "1.15.3", path = "modules/ismp/pallets/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "1.15.3", path = "modules/ismp/pallets/hyperbridge", default-features = false }
-pallet-token-gateway = { version = "1.15.3", path = "modules/ismp/pallets/token-gateway", default-features = false }
-token-gateway-primitives = { version = "1.15.3", path = "modules/ismp/pallets/token-gateway/primitives", default-features = false }
+pallet-ismp = { version = "1.15.3", path = "modules/pallets/ismp", default-features = false }
+pallet-ismp-rpc = { version = "1.15.3", path = "modules/pallets/rpc" }
+pallet-ismp-runtime-api = { version = "1.15.3", path = "modules/pallets/runtime-api", default-features = false }
+pallet-hyperbridge = { version = "1.15.3", path = "modules/pallets/hyperbridge", default-features = false }
+pallet-token-gateway = { version = "1.15.3", path = "modules/pallets/token-gateway", default-features = false }
+token-gateway-primitives = { version = "1.15.3", path = "modules/pallets/token-gateway/primitives", default-features = false }
 
 # ismp modules
-pallet-fishermen = { path = "modules/ismp/pallets/fishermen", default-features = false }
-pallet-ismp-demo = { path = "modules/ismp/pallets/demo", default-features = false }
-pallet-ismp-relayer = { path = "modules/ismp/pallets/relayer", default-features = false }
-pallet-ismp-host-executive = { path = "modules/ismp/pallets/host-executive", default-features = false }
-pallet-call-decompressor = { path = "modules/ismp/pallets/call-decompressor", default-features = false }
-pallet-xcm-gateway = { path = "modules/ismp/pallets/asset-gateway", default-features = false }
-pallet-token-governor = { path = "modules/ismp/pallets/token-governor", default-features = false }
-pallet-state-coprocessor = { path = "modules/ismp/pallets/state-coprocessor", default-features = false }
+pallet-fishermen = { path = "modules/pallets/fishermen", default-features = false }
+pallet-ismp-demo = { path = "modules/pallets/demo", default-features = false }
+pallet-ismp-relayer = { path = "modules/pallets/relayer", default-features = false }
+pallet-ismp-host-executive = { path = "modules/pallets/host-executive", default-features = false }
+pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default-features = false }
+pallet-xcm-gateway = { path = "modules/pallets/asset-gateway", default-features = false }
+pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
+pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
 pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
-pallet-token-gateway-inspector = { path = "modules/ismp/pallets/token-gateway-inspector", default-features = false }
+pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }

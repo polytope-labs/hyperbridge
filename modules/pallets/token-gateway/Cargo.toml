@@ -1,15 +1,15 @@
 [package]
-name = "token-gateway-primitives"
+name = "pallet-token-gateway"
 version = "1.15.3"
 edition = "2021"
-description = "A collection of types used by token gateway"
+description = "A substrate implementation of the token gateway protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
 repository = "https://github.com/polytope-labs/hyperbridge"
 homepage = "https://docs.hyperbridge.network/developers/polkadot/tokengateway"
 documentation = "https://docs.rs/pallet-token-gateway"
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability", "pallet-assets"]
-readme = "./README.md"
+readme = "README.md"
 
 [dependencies]
 frame-support = { workspace = true }
@@ -31,6 +31,8 @@ alloy-primitives = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
+token-gateway-primitives = { workspace = true }
+pallet-hyperbridge = { workspace = true }
 
 [features]
 default = ["std"]
@@ -47,5 +49,7 @@ std = [
     "scale-info/std",
     "anyhow/std",
     "alloy-primitives/std",
+    "pallet-hyperbridge/std",
+    "token-gateway-primitives/std"
 ]
 try-runtime = []

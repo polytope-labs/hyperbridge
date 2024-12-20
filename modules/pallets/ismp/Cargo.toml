@@ -9,7 +9,7 @@ homepage = "https://docs.hyperbridge.network/developers/polkadot/getting-started
 documentation = "https://docs.rs/pallet-ismp"
 description = "The substrate runtime implementation of the Interoperable State Machine Protocol"
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
-readme = "./README.md"
+readme = "README.md"
 
 [dependencies]
 # substrate
@@ -35,7 +35,7 @@ serde = { workspace = true, features = ["derive"] }
 [dev-dependencies]
 env_logger = "0.10.0"
 pallet-timestamp = { workspace = true, features = ["default"] }
-ismp-testsuite = { path = "../../testsuite" }
+ismp-testsuite = { path = "../../ismp/testsuite" }
 
 [features]
 default = ["std"]

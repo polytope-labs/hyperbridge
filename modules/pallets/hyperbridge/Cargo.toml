@@ -9,7 +9,7 @@ homepage = "https://docs.hyperbridge.network/developers/polkadot/getting-started
 documentation = "https://docs.rs/pallet-hyperbridge"
 description = "Pallet hyperbridge mediates the connection between hyperbridge and substrate-based chains."
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
-readme = "./README.md"
+readme = "README.md"
 
 [dependencies]
 ismp = { workspace = true }

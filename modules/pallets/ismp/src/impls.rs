@@ -106,7 +106,7 @@ impl<T: Config> Pallet<T> {
 					.collect::<Result<Vec<_>, _>>()
 			})
 			.map_err(|err| {
-				log::debug!(target: "ismp", "Handling Error {:?}", err);
+				log::debug!(target: "ismp", "Handling Error {:#?}", err);
 				Pallet::<T>::deposit_event(Event::<T>::Errors { errors: vec![err.into()] });
 				Error::<T>::InvalidMessage
 			})?;

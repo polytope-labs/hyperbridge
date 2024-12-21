@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::anyhow;
 use reqwest::{StatusCode, Url};
@@ -69,11 +69,13 @@ impl Chainer for SwitchProviderMiddleware {
 				let _ = next_state(None)?;
 			},
 		}
-
+		// Sleep before retrying the chain
+		tokio::time::sleep(Duration::from_secs(15)).await;
 		Ok(None)
 	}
 
 	fn max_chain_length(&self) -> u32 {
-		u32::MAX
+		// At least three retries for each provider
+		(self.providers.len() * 3) as u32
 	}
 }

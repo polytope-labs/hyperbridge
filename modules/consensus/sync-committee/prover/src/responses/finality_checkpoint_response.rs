@@ -1,7 +1,7 @@
 use sync_committee_primitives::consensus_types::Checkpoint;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct Response {
+pub struct Response {
 	execution_optimistic: bool,
 	pub data: FinalityCheckpoint,
 }

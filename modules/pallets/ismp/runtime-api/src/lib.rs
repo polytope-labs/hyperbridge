@@ -26,20 +26,13 @@ use ismp::{
 	host::StateMachine,
 	router::{Request, Response},
 };
-use pallet_ismp::offchain::{Leaf, Proof, ProofKeys};
 use primitive_types::H256;
-use sp_mmr_primitives::Error;
 
 sp_api::decl_runtime_apis! {
 	/// Required runtime APIs needed for client subsystems like the RPC
 	pub trait IsmpRuntimeApi<Hash: codec::Codec> {
 		/// Should return the host's state machine identifier
 		fn host_state_machine() -> StateMachine;
-
-		/// Generate a proof for the provided leaf indices
-		fn generate_proof(
-			commitments: ProofKeys
-		) -> Result<(Vec<Leaf>, Proof<Hash>), Error>;
 
 		/// Fetch all ISMP events
 		fn block_events() -> Vec<ismp::events::Event>;

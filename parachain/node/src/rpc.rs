@@ -66,11 +66,18 @@ where
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
 	C::Api: BlockBuilder<Block>,
 	C::Api: pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>,
+	C::Api: pallet_mmr_runtime_api::MmrRuntimeApi<
+		opaque::Block,
+		H256,
+		opaque::BlockNumber,
+		pallet_ismp::offchain::Leaf,
+	>,
 	P: TransactionPool + Sync + Send + 'static,
 	B: sc_client_api::Backend<Block> + Send + Sync + 'static,
 	B::State: sc_client_api::StateBackend<sp_runtime::traits::HashingFor<Block>>,
 {
 	use pallet_ismp_rpc::{IsmpApiServer, IsmpRpcHandler};
+	use pallet_mmr_rpc::{MmrApiServer, MmrRpcHandler};
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
 
@@ -79,7 +86,8 @@ where
 
 	module.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
-	module.merge(IsmpRpcHandler::new(client, backend.clone())?.into_rpc())?;
+	module.merge(IsmpRpcHandler::new(client.clone(), backend.clone())?.into_rpc())?;
+	module.merge(MmrRpcHandler::new(client, backend.clone())?.into_rpc())?;
 
 	Ok(module)
 }

@@ -403,8 +403,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		chain_a_commitments.into_iter().map(|(.., commitment)| commitment).collect(),
 	);
 	let params = rpc_params![at, keys];
-	let response: pallet_ismp_rpc::Proof =
-		client.rpc().request("ismp_queryMmrProof", params).await?;
+	let response: pallet_ismp_rpc::Proof = client.rpc().request("mmr_queryProof", params).await?;
 	let proof: pallet_ismp::offchain::Proof<H256> = Decode::decode(&mut &*response.proof)?;
 
 	let merkle_proof = MerkleProof::<DataOrHash<Keccak256, Leaf>, MmrHasher<Keccak256, Leaf>>::new(

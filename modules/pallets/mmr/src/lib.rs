@@ -69,7 +69,10 @@ use sp_std::prelude::*;
 
 use mmr_primitives::DataOrHash;
 pub use pallet::*;
-use pallet_ismp::offchain::{ForkIdentifier, FullLeaf, LeafMetadata, OffchainDBProvider};
+use pallet_ismp::{
+	child_trie,
+	offchain::{ForkIdentifier, FullLeaf, LeafMetadata, OffchainDBProvider, Proof, ProofKeys},
+};
 use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
 pub use sp_mmr_primitives::{
 	self as primitives, utils::NodesUtils, Error, LeafDataProvider, LeafIndex, NodeIndex,
@@ -101,7 +104,7 @@ pub mod pallet {
 
 	/// This pallet's configuration trait
 	#[pallet::config]
-	pub trait Config<I: 'static = ()>: frame_system::Config {
+	pub trait Config<I: 'static = ()>: frame_system::Config + pallet_ismp::Config {
 		/// Prefix for elements stored in the Off-chain DB via Indexing API.
 		///
 		/// Each node of the MMR is inserted both on-chain and off-chain via Indexing API.
@@ -191,7 +194,9 @@ where
 	fn proof(
 		indices: Vec<LeafIndex>,
 	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), Error> {
-		let (leaves, proof) = Pallet::<T, I>::generate_proof(indices)?;
+		let leaves_count = NumberOfLeaves::<T, I>::get();
+		let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(leaves_count);
+		let (leaves, proof) = mmr.generate_proof(indices)?;
 		let proof_nodes = proof.items.into_iter().map(Into::into).collect();
 		let new_proof = primitives::LeafProof {
 			leaf_indices: proof.leaf_indices,
@@ -268,7 +273,12 @@ where
 	}
 }
 
-impl<T: Config<I>, I: 'static> Pallet<T, I> {
+impl<T, I> Pallet<T, I>
+where
+	I: 'static,
+	T: Config<I>,
+	HashOf<T, I>: Into<H256>,
+{
 	/// Build offchain key from a combination of a fork resistant hash, position and indexing prefix
 	///
 	/// This combination makes the offchain (key,value) entry resilient to chain forks.
@@ -298,17 +308,42 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
 	}
 
 	/// Generate an MMR proof for the given `leaf_indices`.
-	/// Generates a proof for the MMR at the current block height.
-	///
 	/// Note this method can only be used from an off-chain context
 	/// (Offchain Worker or Runtime API call), since it requires
 	/// all the leaves to be present.
 	/// It may return an error or panic if used incorrectly.
 	pub fn generate_proof(
-		indices: Vec<LeafIndex>,
-	) -> Result<(Vec<LeafOf<T, I>>, primitives::LeafProof<HashOf<T, I>>), primitives::Error> {
-		let leaves_count = NumberOfLeaves::<T, I>::get();
-		let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(leaves_count);
-		mmr.generate_proof(indices)
+		keys: ProofKeys,
+	) -> Result<(Vec<T::Leaf>, Proof<H256>), sp_mmr_primitives::Error> {
+		let leaf_indices_and_positions = match keys {
+			ProofKeys::Requests(commitments) => commitments
+				.into_iter()
+				.map(|commitment| {
+					let val = child_trie::RequestCommitments::<T>::get(commitment)
+						.ok_or_else(|| sp_mmr_primitives::Error::LeafNotFound)?
+						.mmr;
+					Ok(val)
+				})
+				.collect::<Result<Vec<_>, _>>()?,
+			ProofKeys::Responses(commitments) => commitments
+				.into_iter()
+				.map(|commitment| {
+					let val = child_trie::ResponseCommitments::<T>::get(commitment)
+						.ok_or_else(|| sp_mmr_primitives::Error::LeafNotFound)?
+						.mmr;
+					Ok(val)
+				})
+				.collect::<Result<Vec<_>, _>>()?,
+		};
+		let indices =
+			leaf_indices_and_positions.iter().map(|val| val.leaf_index).collect::<Vec<_>>();
+		let (leaves, proof) = Self::proof(indices)?;
+		let proof = Proof {
+			leaf_indices_and_pos: leaf_indices_and_positions,
+			leaf_count: proof.leaf_count,
+			items: proof.items,
+		};
+
+		Ok((leaves, proof))
 	}
 }

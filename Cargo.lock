@@ -7228,6 +7228,7 @@ dependencies = [
  "pallet-ismp",
  "pallet-ismp-rpc",
  "pallet-ismp-runtime-api",
+ "pallet-mmr-rpc",
  "pallet-mmr-runtime-api",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
@@ -12506,9 +12507,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-mmr-rpc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "jsonrpsee 0.23.2",
+ "pallet-ismp",
+ "pallet-ismp-rpc",
+ "pallet-mmr-runtime-api",
+ "parity-scale-codec",
+ "sc-client-api 37.0.0",
+ "sp-api 34.0.0",
+ "sp-blockchain 37.0.0",
+ "sp-core 34.0.0",
+ "sp-mmr-primitives",
+ "sp-runtime 39.0.0",
+]
+
+[[package]]
 name = "pallet-mmr-runtime-api"
 version = "0.1.1"
 dependencies = [
+ "pallet-ismp",
  "parity-scale-codec",
  "serde",
  "sp-api 34.0.0",

@@ -14,8 +14,8 @@ members = [
     "modules/pallets/relayer",
     "modules/pallets/fishermen",
     "modules/pallets/host-executive",
-    "modules/pallets/rpc",
-    "modules/pallets/runtime-api",
+    "modules/pallets/ismp/rpc",
+    "modules/pallets/ismp/runtime-api",
     "modules/pallets/demo",
     "modules/pallets/testsuite",
     "modules/pallets/call-decompressor",
@@ -50,10 +50,11 @@ members = [
     "modules/consensus/grandpa/primitives",
     "modules/consensus/grandpa/verifier",
     "modules/trees/ethereum",
-    "modules/trees/mmr/pallet",
-    "modules/trees/mmr/primitives",
-    "modules/trees/mmr/gadget",
-    "modules/trees/mmr/pallet/runtime-api",
+    "modules/pallets/mmr",
+    "modules/pallets/mmr/primitives",
+    "modules/pallets/mmr/gadget",
+    "modules/pallets/mmr/runtime-api",
+    "modules/pallets/mmr/rpc",
     "modules/ismp/state-machines/evm",
     "modules/ismp/state-machines/substrate",
     "modules/ismp/state-machines/hyperbridge",
@@ -302,8 +303,8 @@ hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge",
 
 # published pallets
 pallet-ismp = { version = "1.15.3", path = "modules/pallets/ismp", default-features = false }
-pallet-ismp-rpc = { version = "1.15.3", path = "modules/pallets/rpc" }
-pallet-ismp-runtime-api = { version = "1.15.3", path = "modules/pallets/runtime-api", default-features = false }
+pallet-ismp-rpc = { version = "1.15.3", path = "modules/pallets/ismp/rpc" }
+pallet-ismp-runtime-api = { version = "1.15.3", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-hyperbridge = { version = "1.15.3", path = "modules/pallets/hyperbridge", default-features = false }
 pallet-token-gateway = { version = "1.15.3", path = "modules/pallets/token-gateway", default-features = false }
 token-gateway-primitives = { version = "1.15.3", path = "modules/pallets/token-gateway/primitives", default-features = false }
@@ -317,14 +318,15 @@ pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default
 pallet-xcm-gateway = { path = "modules/pallets/asset-gateway", default-features = false }
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
-pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
-mmr-primitives = { path = "modules/trees/mmr/primitives", default-features = false }
-pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
-mmr-gadget = { path = "modules/trees/mmr/gadget" }
+pallet-mmr = { path = "modules/pallets/mmr", default-features = false }
+pallet-mmr-rpc = { path = "modules/pallets/mmr/rpc", default-features = false }
+mmr-primitives = { path = "modules/pallets/mmr/primitives", default-features = false }
+pallet-mmr-runtime-api = { path = "modules/pallets/mmr/runtime-api", default-features = false }
+mmr-gadget = { path = "modules/pallets/mmr/gadget" }
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }

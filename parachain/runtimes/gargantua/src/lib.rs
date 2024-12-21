@@ -930,6 +930,13 @@ impl_runtime_apis! {
 		fn fork_identifier() -> Result<Hash, sp_mmr_primitives::Error> {
 			Ok(Ismp::child_trie_root())
 		}
+
+		/// Generate a proof for the provided leaf indices
+		fn generate_proof(
+			keys: ProofKeys
+		) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
+			Mmr::generate_proof(keys)
+		}
 	}
 
 	impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
@@ -939,13 +946,6 @@ impl_runtime_apis! {
 
 		fn challenge_period(state_machine_id: StateMachineId) -> Option<u64> {
 			Ismp::challenge_period(state_machine_id)
-		}
-
-		/// Generate a proof for the provided leaf indices
-		fn generate_proof(
-			keys: ProofKeys
-		) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
-			Ismp::generate_proof(keys)
 		}
 
 		/// Fetch all ISMP events in the block, should only be called from runtime-api.

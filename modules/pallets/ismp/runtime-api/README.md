@@ -18,13 +18,6 @@ sp_api::impl_runtime_apis! {
             pallet_ismp::Pallet::<Runtime>::challenge_period(consensus_state_id)
         }
 
-        /// Generate a proof for the provided leaf indices
-        fn generate_proof(
-            keys: ProofKeys
-        ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
-            pallet_ismp::Pallet::<Runtime>::generate_proof(keys)
-        }
-
         /// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.
         fn block_events() -> Vec<ismp::events::Event> {
             pallet_ismp::Pallet::<Runtime>::block_events()

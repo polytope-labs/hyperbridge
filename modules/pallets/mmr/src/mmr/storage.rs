@@ -22,7 +22,7 @@ use codec::Encode;
 use log::{debug, trace};
 use merkle_mountain_range::helper;
 use pallet_ismp::offchain::ForkIdentifier;
-use sp_core::offchain::StorageKind;
+use sp_core::{offchain::StorageKind, H256};
 use sp_io::offchain_index;
 use sp_mmr_primitives::utils::NodesUtils;
 use sp_std::iter::Peekable;
@@ -30,7 +30,7 @@ use sp_std::iter::Peekable;
 use crate::{
 	mmr::{Node, NodeOf},
 	primitives::NodeIndex,
-	Config, Nodes, NumberOfLeaves, Pallet,
+	Config, HashOf, Nodes, NumberOfLeaves, Pallet,
 };
 
 /// A marker type for runtime-specific storage implementation.
@@ -66,6 +66,7 @@ where
 	T: Config<I>,
 	I: 'static,
 	L: pallet_ismp::offchain::FullLeaf,
+	HashOf<T, I>: Into<H256>,
 {
 	fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<NodeOf<T, I, L>>> {
 		// We should only get here when trying to generate proofs. The client requests
@@ -99,6 +100,7 @@ where
 	T: Config<I>,
 	I: 'static,
 	L: pallet_ismp::offchain::FullLeaf,
+	HashOf<T, I>: Into<H256>,
 {
 	fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<NodeOf<T, I, L>>> {
 		Ok(Nodes::<T, I>::get(pos).map(Node::Hash))
@@ -170,6 +172,7 @@ where
 	T: Config<I>,
 	I: 'static,
 	L: pallet_ismp::offchain::FullLeaf,
+	HashOf<T, I>: Into<H256>,
 {
 	fn store_to_offchain(
 		pos: NodeIndex,

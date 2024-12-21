@@ -201,8 +201,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				let keys =
 					ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
-				let response: Proof =
-					self.client.rpc().request("ismp_queryMmrProof", params).await?;
+				let response: Proof = self.client.rpc().request("mmr_queryProof", params).await?;
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
@@ -241,8 +240,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				let keys =
 					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
-				let response: Proof =
-					self.client.rpc().request("ismp_queryMmrProof", params).await?;
+				let response: Proof = self.client.rpc().request("mmr_queryProof", params).await?;
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains

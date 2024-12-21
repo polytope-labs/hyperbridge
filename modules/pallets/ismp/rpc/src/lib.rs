@@ -73,10 +73,7 @@ use ismp::{
 	router::{Request, Response},
 };
 use jsonrpsee::types::ErrorObjectOwned;
-use pallet_ismp::{
-	child_trie::CHILD_TRIE_PREFIX,
-	offchain::{Leaf, LeafIndexQuery, ProofKeys},
-};
+use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, offchain::LeafIndexQuery};
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{Backend, BlockBackend, ChildInfo, ProofProvider, StateBackend};
 use serde::{Deserialize, Serialize};
@@ -120,7 +117,7 @@ pub struct Proof {
 }
 
 /// Converts a runtime trap into an RPC error.
-fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
+pub fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
 	ErrorObject::owned(
 		9876, // no real reason for this value
 		"Something wrong",
@@ -161,10 +158,6 @@ where
 	/// Query full response data from the ismp pallet
 	#[method(name = "ismp_queryResponses")]
 	fn query_responses(&self, query: Vec<LeafIndexQuery>) -> RpcResult<Vec<Response>>;
-
-	/// Query mmr proof for some commitments
-	#[method(name = "ismp_queryMmrProof")]
-	fn query_mmr_proof(&self, height: u32, keys: ProofKeys) -> RpcResult<Proof>;
 
 	/// Query state proof from global state trie
 	#[method(name = "ismp_queryStateProof")]
@@ -269,22 +262,6 @@ where
 		let at = self.client.info().best_hash;
 		api.responses(at, query.into_iter().map(|query| query.commitment).collect())
 			.map_err(|_| runtime_error_into_rpc_error("Error fetching responses"))
-	}
-
-	fn query_mmr_proof(&self, height: u32, keys: ProofKeys) -> RpcResult<Proof> {
-		let mut api = self.client.runtime_api();
-		api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
-		let at = self
-			.client
-			.block_hash(height.into())
-			.ok()
-			.flatten()
-			.ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
-		let (_, proof): (Vec<Leaf>, pallet_ismp::offchain::Proof<Block::Hash>) = api
-			.generate_proof(at, keys)
-			.map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
-			.map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
-		Ok(Proof { proof: proof.encode(), height })
 	}
 
 	fn query_state_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> RpcResult<Proof> {

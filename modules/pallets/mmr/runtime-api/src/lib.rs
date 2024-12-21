@@ -19,6 +19,10 @@
 #![allow(clippy::too_many_arguments)]
 #![deny(missing_docs)]
 
+extern crate alloc;
+
+use alloc::vec::Vec;
+use pallet_ismp::offchain::{Proof, ProofKeys};
 use sp_mmr_primitives::{Error, LeafIndex};
 
 sp_api::decl_runtime_apis! {
@@ -35,5 +39,10 @@ sp_api::decl_runtime_apis! {
 
 		/// Return the unique hash used as the offchain prefix at a particular block
 		fn fork_identifier() -> Result<Hash, Error>;
+
+		/// Generate a proof for the provided leaf indices
+		fn generate_proof(
+			commitments: ProofKeys
+		) -> Result<(Vec<Leaf>, Proof<Hash>), Error>;
 	}
 }

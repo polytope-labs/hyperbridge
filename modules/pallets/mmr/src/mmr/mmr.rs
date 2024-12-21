@@ -23,6 +23,7 @@ use crate::{
 	primitives::{self, Error, NodeIndex},
 	Config, HashOf, HashingOf,
 };
+use sp_core::H256;
 use sp_mmr_primitives::utils::NodesUtils;
 use sp_std::prelude::*;
 
@@ -71,6 +72,7 @@ where
 	T: Config<I>,
 	I: 'static,
 	L: pallet_ismp::offchain::FullLeaf,
+	HashOf<T, I>: Into<H256>,
 {
 	/// Push another item to the MMR.
 	///
@@ -99,6 +101,7 @@ where
 	T: Config<I>,
 	I: 'static,
 	L: pallet_ismp::offchain::FullLeaf,
+	HashOf<T, I>: Into<H256>,
 {
 	/// Generate a proof for given leaf indices.
 	///

@@ -9,7 +9,7 @@ homepage = "https://docs.hyperbridge.network/developers/polkadot/getting-started
 documentation = "https://docs.rs/ismp-parachain"
 description = "Merkle mountain range primitives for pallet-ismp"
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
-readme = "./README.md"
+readme = "README.md"
 publish = false
 
 [dependencies]

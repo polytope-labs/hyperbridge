@@ -19,7 +19,7 @@ use crate::{
 	runtime::{
 		new_test_ext, Ismp, RuntimeCall, RuntimeOrigin, Test, Timestamp, MOCK_CONSENSUS_STATE_ID,
 	},
-	tests::pallet_ismp_relayer::{encode_accumulate_fees_call, read_file_string},
+	tests::pallet_ismp_relayer::encode_accumulate_fees_call,
 };
 use codec::Encode;
 use frame_support::traits::Time;
@@ -29,52 +29,9 @@ use ismp::{
 	messaging::{Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
 	router::{PostResponse, Request, RequestResponse},
 };
-use ruzstd::StreamingDecoder;
 use sp_core::{H256, H512};
 use sp_runtime::{DispatchError, ModuleError};
-use std::{
-	io::Read,
-	time::{Duration, Instant},
-};
-use zstd_safe::WriteBuf;
-
-#[test]
-fn compress_benchmark_with_zstd_safe() {
-	new_test_ext().execute_with(|| {
-		let start_time = Instant::now();
-		let mut buffer = [0u8; 256000];
-		let proof_str = read_file_string("src/tests/proofs/accumulate_fee_proof.txt");
-		let compressed_proof = zstd_safe::compress(&mut buffer, proof_str.as_bytes(), 3).unwrap();
-		let compressed_proof = &buffer[..compressed_proof];
-		let end_time = Instant::now();
-		let duration = end_time - start_time;
-		println!("time taken for compression with zstd_safe {:?}", duration);
-		assert!(proof_str.as_bytes().to_vec().len() > compressed_proof.len());
-
-		let start_time = Instant::now();
-		let mut buffer = vec![0u8; 25600000000];
-		let written = zstd_safe::decompress(&mut buffer[..], compressed_proof).unwrap();
-		let decompressed_data = &buffer[..written];
-		let end_time = Instant::now();
-
-		let duration = end_time - start_time;
-		println!("time taken for decompression with zstd_safe {:?}", duration);
-
-		let start_time = Instant::now();
-		let mut decoder = StreamingDecoder::new(compressed_proof.as_slice()).unwrap();
-		let mut result = vec![0u8; 2000000];
-		let read = decoder.read(&mut result).unwrap();
-		dbg!(read / 1000);
-
-		let end_time = Instant::now();
-		let duration = end_time - start_time;
-		println!("time taken for decompression with ruzstd {:?}", duration);
-
-		dbg!(decompressed_data.len() / 1000);
-		assert_eq!(proof_str.as_bytes().to_vec(), decompressed_data);
-		assert_eq!(proof_str.as_bytes(), &result[..read]);
-	});
-}
+use std::time::Duration;
 
 #[test]
 #[ignore]

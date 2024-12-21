@@ -84,8 +84,10 @@ where
 			.ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
 		let (_, proof): (Vec<Leaf>, pallet_ismp::offchain::Proof<B::Hash>) = api
 			.generate_proof(at, keys)
-			.map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
-			.map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
+			.map_err(|e| runtime_error_into_rpc_error(format!("Error calling runtime api: {e:?}")))?
+			.map_err(|e| {
+				runtime_error_into_rpc_error(format!("Error generating mmr proof: {e:?}"))
+			})?;
 		Ok(Proof { proof: proof.encode(), height })
 	}
 }

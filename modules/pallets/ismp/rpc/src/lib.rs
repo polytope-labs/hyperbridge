@@ -272,7 +272,9 @@ where
 			.client
 			.read_proof(at, &mut keys.iter().map(|key| key.as_slice()))
 			.map(|proof| proof.into_iter_nodes().collect())
-			.map_err(|_| runtime_error_into_rpc_error("Error generating state proof"))?;
+			.map_err(|e| {
+				runtime_error_into_rpc_error(format!("Error generating state proof: {e:?}"))
+			})?;
 		Ok(Proof { proof: proof.encode(), height })
 	}
 
@@ -284,11 +286,12 @@ where
 		let storage_proof = self
 			.client
 			.read_child_proof(at, &child_info, &mut keys.iter().map(|key| key.as_slice()))
-			.map_err(|_| runtime_error_into_rpc_error("Error generating child trie proof"))?;
-		let state = self
-			.backend
-			.state_at(at)
-			.map_err(|_| runtime_error_into_rpc_error("Error accessing state backend"))?;
+			.map_err(|e| {
+				runtime_error_into_rpc_error(format!("Error generating child trie proof: {e:?}"))
+			})?;
+		let state = self.backend.state_at(at).map_err(|e| {
+			runtime_error_into_rpc_error(format!("Error accessing state backend: {e:?}"))
+		})?;
 		let child_root = state
 			.storage(child_info.prefixed_storage_key().as_slice())
 			.map_err(|err| runtime_error_into_rpc_error(format!("Storage Read Error: {err:?}")))?
@@ -310,9 +313,9 @@ where
 				.with_recorder(&mut recorder)
 				.build();
 		for key in keys {
-			let _ = trie
-				.get(&key)
-				.map_err(|_| runtime_error_into_rpc_error("Error generating child trie proof"))?;
+			let _ = trie.get(&key).map_err(|e| {
+				runtime_error_into_rpc_error(format!("Error generating child trie proof: {e:?}"))
+			})?;
 		}
 
 		let proof_nodes = recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();

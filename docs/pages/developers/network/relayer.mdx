@@ -162,7 +162,7 @@ The configuration file is a toml file that at the moment, that expects the follo
 [hyperbridge]
 state_machine = "KUSAMA-4009"
 # Hyperbridge node ws rpc endpoint.
-rpc_ws = "ws://127.0.0.1:9944" # example endpoint
+rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 # Sets the maximum size of an rpc request or response in bytes defaults to 150mb
 max_rpc_payload_size = 150000000
 # (Optional) initial height
@@ -175,7 +175,7 @@ poll_interval = 10
 
 # Relayer config, required
 [relayer]
-# Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc.
+# Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc.
 minimum_profit_percentage = 0
 # (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address/pallet ids)
 module_filter = []
@@ -206,7 +206,7 @@ disable_fee_accumulation = false
 type = "evm"
 # State machine identifier for this evm chain.
 # Must be specified as:
-# - "EVM-{chainId}"
+# - "EVM-{chainId}"
 
 # The possible values:
 
@@ -247,7 +247,7 @@ ismp_host = ""
 # and will be queried at once. This might be needed if you encounter rate limits
 # from your rpc provider.
 query_batch_size = 1000
-# hex-encoded private key for the relayer account on this chain
+# hex-encoded private key for the relayer account on this chain
 signer = ""
 # (Optional)
 # Maximum number of concurrent rpc requests that can be used when tracing. If not supplied
@@ -278,21 +278,21 @@ poll_interval = 10
 
 [substrate]
 type = "substrate"
-# The state machine identifier for this substrate based chain.
-# must be one of:
-# - "POLKADOT-{paraId}"
-# - "KUSAMA-{paraId}"
+# The state machine identifier for this substrate based chain.
+# must be one of:
+#  "POLKADOT-{paraId}"
+#  "KUSAMA-{paraId}"
 state_machine = "KUSAMA-4009"
 # Hashing can be "Keccak" or "Blake2"
 hashing = "Blake2"
 # substrate node ws(s) rpc endpoint.
-rpc_ws = "ws://127.0.0.1:9944" # example endpoint
+rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 # Configures the maximum size of an rpc request/response in bytes
 max_rpc_payload_size = 150000000 # 150MB
 # The consensus state identifier for this chain on hyperbridge.
-# Only parachains are supported for now
+# Only parachains are supported for now
 consensus_state_id = "PARA"
-# hex-encoded private key for the relayer account on this chain
+# hex-encoded private key for the relayer account on this chain
 signer = ""
 # (Optional) Frequency with which to query the chain for new state machine updates,
 poll_interval = 10
@@ -305,6 +305,15 @@ poll_interval = 10
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
 
 You can obtain the required etherscan API key by following [this guide](https://docs.etherscan.io/getting-started/viewing-api-usage-statistics) for the appropriate network. Do note that since Ethereum and its L2s all use Ether as the gas token. They can all share the same etherscan API key.
+
+### RPC Endpoint Requirements
+
+The tesseract relayer makes use of rpc methods that may not be exposed by default. For evm chains, ensure that the RPC API supports the following namespaces:
+
+ - [`debug`](https://geth.ethereum.org/docs/interacting-with-geth/rpc/ns-debug)
+ - [`eth`](https://geth.ethereum.org/docs/interacting-with-geth/rpc/ns-eth)
+
+For substrate chains, ensure the RPC [enables unsafe rpc methods](https://docs.substrate.io/build/remote-procedure-calls/#safe-and-unsafe-rpc-methods).
 
 ### Contract addresses
 

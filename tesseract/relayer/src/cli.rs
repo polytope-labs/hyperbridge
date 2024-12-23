@@ -84,10 +84,13 @@ impl Cli {
 
 		// messaging tasks
 		for (state_machine, client) in &clients {
+			if *state_machine == hyperbridge_config.state_machine {
+				continue;
+			}
 			// If the delivery endpoint is not empty then we only spawn tasks for chains
 			// explicitly mentioned in the config
-			if !config.relayer.delivery_endpoints.is_empty() &&
-				!config.relayer.delivery_endpoints.contains(&state_machine.to_string())
+			if !config.relayer.delivery_endpoints.is_empty()
+				&& !config.relayer.delivery_endpoints.contains(&state_machine.to_string())
 			{
 				continue;
 			}

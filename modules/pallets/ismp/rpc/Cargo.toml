@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-rpc"
-version = "1.15.3"
+version = "15.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -27,7 +27,6 @@ tower = { version = "0.4.13", features = ["util"] }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-ismp-runtime-api = { workspace = true, default-features = true }
-sp-mmr-primitives = { workspace = true, default-features = true }
 
 frame-system = { workspace = true, default-features = true }
 sc-client-api = { workspace = true, default-features = true }

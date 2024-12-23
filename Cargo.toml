@@ -288,26 +288,26 @@ grandpa-prover = { path = "./modules/consensus/grandpa/prover" }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
-ismp-grandpa = { version = "1.15.3", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "1.15.3", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { version = "1.15.3", path = "./modules/ismp/clients/parachain/inherent" }
-ismp-parachain-runtime-api = { version = "1.15.1", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
+ismp-grandpa = { version = "15.0.0", path = "./modules/ismp/clients/grandpa", default-features = false }
+ismp-parachain = { version = "15.0.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain-inherent = { version = "15.0.0", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain-runtime-api = { version = "15.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
-substrate-state-machine = { version = "1.15.3", path = "modules/ismp/state-machines/substrate", default-features = false }
+substrate-state-machine = { version = "15.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # published pallets
-pallet-ismp = { version = "1.15.3", path = "modules/pallets/ismp", default-features = false }
-pallet-ismp-rpc = { version = "1.15.3", path = "modules/pallets/ismp/rpc" }
-pallet-ismp-runtime-api = { version = "1.15.3", path = "modules/pallets/ismp/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "1.15.3", path = "modules/pallets/hyperbridge", default-features = false }
-pallet-token-gateway = { version = "1.15.3", path = "modules/pallets/token-gateway", default-features = false }
-token-gateway-primitives = { version = "1.15.3", path = "modules/pallets/token-gateway/primitives", default-features = false }
+pallet-ismp = { version = "15.0.0", path = "modules/pallets/ismp", default-features = false }
+pallet-ismp-rpc = { version = "15.0.0", path = "modules/pallets/ismp/rpc" }
+pallet-ismp-runtime-api = { version = "15.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
+pallet-hyperbridge = { version = "15.0.0", path = "modules/pallets/hyperbridge", default-features = false }
+pallet-token-gateway = { version = "15.0.0", path = "modules/pallets/token-gateway", default-features = false }
+token-gateway-primitives = { version = "15.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
 
 # ismp modules
 pallet-fishermen = { path = "modules/pallets/fishermen", default-features = false }

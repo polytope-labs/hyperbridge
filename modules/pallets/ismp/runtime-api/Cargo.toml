@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-runtime-api"
-version = "1.15.3"
+version = "15.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -13,21 +13,20 @@ readme = "README.md"
 
 [dependencies]
 sp-api = { workspace = true }
-primitive-types = { workspace = true }
-pallet-ismp = { workspace = true, default-features = false }
-ismp = { workspace = true, default-features = false }
 serde = { workspace = true, features = ["derive"], optional = true }
-sp-mmr-primitives = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
+primitive-types = { workspace = true }
+
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
 
 [features]
 default = ["std"]
 std = [
     "sp-api/std",
-    "codec/std",
-    "pallet-ismp/std",
-    "ismp/std",
     "serde",
+    "codec/std",
     "primitive-types/std",
-    "sp-mmr-primitives/std",
+    "ismp/std",
+    "pallet-ismp/std",
 ]

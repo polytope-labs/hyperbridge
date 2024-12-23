@@ -159,7 +159,7 @@ where
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
                             Error::Custom(format!(
-                                "Error reading state proof: {e:?}"
+                                "SubstrateStateMachine: Error reading Keccak state proof: {e:?}"
                             ))
                         })?.ok_or_else(|| Error::Custom(format!(
                             "Every key in a membership proof should have a value, found a key {:?} with None", key
@@ -177,7 +177,7 @@ where
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
                             Error::Custom(format!(
-                                "Error reading state proof: {e:?}"
+                                "SubstrateStateMachine: Error reading Blake2 state proof: {e:?}"
                             ))
                         })?.ok_or_else(|| Error::Custom(format!(
                             "Every key in a membership proof should have a value, found a key {:?} with None", key
@@ -194,7 +194,7 @@ where
 	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
 		let mut keys = vec![];
 		match items {
-			RequestResponse::Request(requests) =>
+			RequestResponse::Request(requests) => {
 				for req in requests {
 					match req {
 						Request::Post(post) => {
@@ -204,8 +204,9 @@ where
 						},
 						Request::Get(_) => continue,
 					}
-				},
-			RequestResponse::Response(responses) =>
+				}
+			},
+			RequestResponse::Response(responses) => {
 				for res in responses {
 					match res {
 						Response::Post(post_response) => {
@@ -215,7 +216,8 @@ where
 						},
 						Response::Get(_) => continue,
 					}
-				},
+				}
+			},
 		};
 
 		keys

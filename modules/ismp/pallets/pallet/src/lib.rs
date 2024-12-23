@@ -394,7 +394,7 @@ pub mod pallet {
 		fn on_finalize(_n: BlockNumberFor<T>) {
 			let child_trie_root = storage::child::root(
 				&ChildInfo::new_default(CHILD_TRIE_PREFIX),
-				Default::default(),
+				sp_core::storage::StateVersion::V0,
 			);
 
 			let child_trie_root = H256::from_slice(&child_trie_root);

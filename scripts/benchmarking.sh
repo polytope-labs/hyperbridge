@@ -12,43 +12,33 @@ declare -a arr=(
 "pallet_utility"
 "cumulus_pallet_parachain_system"
 "pallet_session"
+"ismp_grandpa"
 )
 
 # nexus runtime
 for i in "${arr[@]}"
 do
-    target/release/hyperbridge benchmark pallet \
-        --chain=nexus-2000 \
+    cargo run -F=runtime-benchmarks -rp hyperbridge benchmark pallet \
         --wasm-execution=compiled \
-        --pallet "$i" \
-        --extrinsic "*" \
-        --steps 50 \
-        --repeat 20 \
+        --pallet="$i" \
+        --extrinsic="*" \
+        --steps=50 \
+        --repeat=20 \
+        --genesis-builder=runtime \
+        --runtime=./target/release/wbuild/nexus-runtime/nexus_runtime.compact.wasm \
         --output "parachain/runtimes/nexus/src/weights/$i.rs"
 done
-
-# messier runtime
-# for i in "${arr[@]}"
-# do
-#     target/release/hyperbridge benchmark pallet \
-#         --chain=messier-2000 \
-#         --wasm-execution=compiled \
-#         --pallet "$i" \
-#         --extrinsic "*" \
-#         --steps 50 \
-#         --repeat 20 \
-#         --output "parachain/runtimes/messier/src/weights/$i.rs"
-# done
 
 # gargantua runtime
 for i in "${arr[@]}"
 do
-    target/release/hyperbridge benchmark pallet \
-        --chain=gargantua-2000 \
+    cargo run -F=runtime-benchmarks -rp hyperbridge benchmark pallet \
         --wasm-execution=compiled \
-        --pallet "$i" \
-        --extrinsic "*" \
-        --steps 50 \
-        --repeat 20 \
-        --output "parachain/runtimes/gargantua/src/weights/$i.rs"
+        --pallet="$i" \
+        --extrinsic="*" \
+        --steps=50 \
+        --repeat=20 \
+        --genesis-builder=runtime \
+        --runtime=./target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.wasm \
+        --output="parachain/runtimes/gargantua/src/weights/$i.rs"
 done

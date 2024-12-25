@@ -108,7 +108,8 @@ impl pallet_ismp::Config for Runtime {
 
 impl ismp_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type IsmpHost = Ismp;
+	type IsmpHost = pallet_ismp::Pallet<Runtime>;
+	type WeightInfo = weights::ismp_grandpa::WeightInfo<Runtime>;
 }
 
 impl pallet_token_governor::Config for Runtime {

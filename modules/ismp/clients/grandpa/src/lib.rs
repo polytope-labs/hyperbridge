@@ -15,16 +15,30 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+#[cfg(feature = "runtime-benchmarks")]
+pub mod benchmarking;
+
 pub mod consensus;
 pub mod messages;
+pub mod weights;
 
-use alloc::vec::Vec;
 use ismp::host::StateMachine;
 pub use pallet::*;
+pub use weights::WeightInfo;
+
+/// Update the state machine whitelist
+#[derive(Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, Debug, PartialEq, Eq)]
+pub struct AddStateMachine {
+	/// State machine to add
+	pub state_machine: StateMachine,
+	/// It's slot duration
+	pub slot_duration: u64,
+}
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloc::vec::Vec;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use ismp::host::IsmpHost;
@@ -41,6 +55,9 @@ pub mod pallet {
 
 		/// IsmpHost implementation
 		type IsmpHost: IsmpHost + Default;
+
+		/// Weight information for dispatchable extrinsics
+		type WeightInfo: WeightInfo;
 	}
 
 	/// Events emitted by this pallet
@@ -69,7 +86,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Add some a state machine to the list of supported state machines
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::DbWeight::get().writes(new_state_machines.len() as u64))]
+		#[pallet::weight(T::WeightInfo::add_state_machines(new_state_machines.len() as u32))]
 		pub fn add_state_machines(
 			origin: OriginFor<T>,
 			new_state_machines: Vec<AddStateMachine>,
@@ -89,7 +106,7 @@ pub mod pallet {
 
 		/// Remove a state machine from the list of supported state machines
 		#[pallet::call_index(1)]
-		#[pallet::weight(T::DbWeight::get().writes(state_machines.len() as u64))]
+		#[pallet::weight(T::WeightInfo::remove_state_machines(state_machines.len() as u32))]
 		pub fn remove_state_machines(
 			origin: OriginFor<T>,
 			state_machines: Vec<StateMachine>,
@@ -105,13 +122,4 @@ pub mod pallet {
 			Ok(())
 		}
 	}
-}
-
-/// Update the state machine whitelist
-#[derive(Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, Debug, PartialEq, Eq)]
-pub struct AddStateMachine {
-	/// State machine to add
-	pub state_machine: StateMachine,
-	/// It's slot duration
-	pub slot_duration: u64,
 }

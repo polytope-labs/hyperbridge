@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(non_local_definitions)]
 #![cfg_attr(not(feature = "std"), no_std)]
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit = "256"]
@@ -890,6 +891,7 @@ mod benches {
 		[pallet_proxy, Proxy]
 		[cumulus_pallet_parachain_system, ParachainSystem]
 		[pallet_session, SessionBench::<Runtime>]
+		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
 	);
 }

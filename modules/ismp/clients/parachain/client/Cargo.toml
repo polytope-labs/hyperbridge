@@ -30,6 +30,7 @@ sp-inherents = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-consensus-aura = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
 
 # cumulus
 cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
@@ -71,4 +72,11 @@ try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"sp-runtime/try-runtime",
+]
+
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-ismp/runtime-benchmarks",
 ]

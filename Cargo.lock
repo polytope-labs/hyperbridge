@@ -7730,11 +7730,13 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "1.15.3"
+version = "1.15.4"
 dependencies = [
+ "anyhow",
  "ckb-merkle-mountain-range",
  "cumulus-primitives-core",
  "finality-grandpa",
+ "frame-benchmarking",
  "frame-support 37.0.0",
  "frame-system",
  "grandpa-verifier",
@@ -7748,6 +7750,7 @@ dependencies = [
  "sp-core 34.0.0",
  "sp-io 38.0.0",
  "sp-runtime 39.0.0",
+ "sp-std 14.0.0",
  "sp-trie 37.0.0",
  "substrate-state-machine",
 ]

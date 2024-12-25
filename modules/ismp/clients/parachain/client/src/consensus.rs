@@ -22,7 +22,6 @@ use codec::{Decode, Encode};
 use core::fmt::Debug;
 use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 use frame_support::traits::Get;
-use log::log;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -81,16 +80,11 @@ where
 		state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		log::info!("IN VERIFY PARACHAIN CONSENSUS");
 		let update: ParachainConsensusProof =
 			codec::Decode::decode(&mut &proof[..]).map_err(|e| {
-				log::info!("Cannot decode parachain consensus proof");
 				Error::Custom(format!("Cannot decode parachain consensus proof: {e:?}"))
 			})?;
 
-		let relay_state = RelaychainDataProvider::<T>::current_relay_chain_state();
-		log::info!("state is {:?}", relay_state.number);
-		log::info!("state root is {:?}", relay_state.state_root);
 		// first check our oracle's registry
 		let root = R::state_root(update.relay_height)
 			// not in our registry? ask parachain_system.
@@ -105,41 +99,28 @@ where
 			})
 			// well, we couldn't find it
 			.ok_or_else(|| {
-				log::info!("CANNOT FIND RELAY CHAIN HEIGHT: {}", update.relay_height);
 				Error::Custom(format!("Cannot find relay chain height: {}", update.relay_height))
 			})?;
 
 		let storage_proof = StorageProof::new(update.storage_proof);
-		log::info!("STORAGE PROOF {:?}", storage_proof.len());
 		let mut intermediates = BTreeMap::new();
 
 		let header_keys = Parachains::<T>::iter_keys().map(|id| parachain_header_storage_key(id).0);
 		let headers = read_proof_check::<BlakeTwo256, _>(&root, storage_proof, header_keys)
-			.map_err(|e| {
-				log::info!("Error verifying parachain header: {:?}", e);
-				Error::Custom(format!("Error verifying parachain header {e:?}",))
-			})?;
-		log::info!("headers are {:?}", headers);
+			.map_err(|e| Error::Custom(format!("Error verifying parachain header {e:?}",)))?;
 
 		for (key, header) in headers.into_iter() {
 			let Some(header) = header else { continue };
 			let mut state_commitments_vec = Vec::new();
 
 			let id = codec::Decode::decode(&mut &key[(key.len() - 4)..])
-				.map_err(|e| {
-					log::info!("Error decoding parachain header: {:?}", e);
-					Error::Custom(format!("Error decoding parachain header: {e}"))
-				})?;
-
-			log::info!("gettting slot duration");
+				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
 			let slot_duration = Parachains::<T>::get(id).expect("Parachain with ID exists; qed");
 
 			// ideally all parachain headers are the same
 			let header = Header::<u32, BlakeTwo256>::decode(&mut &*header)
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
-
-			log::info!("gettting digest in header");
 
 			let (mut timestamp, mut overlay_root, mut mmr_root) =
 				(0, H256::default(), H256::default());
@@ -205,7 +186,6 @@ where
 			state_commitments_vec.push(intermediate);
 			intermediates.insert(state_id, state_commitments_vec);
 		}
-		log::info!("STATE {:?}, COMMITMENT {:?}", state.clone(), intermediates.clone());
 
 		Ok((state, intermediates))
 	}

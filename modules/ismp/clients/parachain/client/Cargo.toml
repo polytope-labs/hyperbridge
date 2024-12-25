@@ -17,6 +17,7 @@ serde = { workspace = true, features = ["derive"], optional = false }
 codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 hex-literal = { workspace = true }
+hex = { workspace = true }
 primitive-types = { workspace = true }
 log = { workspace = true }
 

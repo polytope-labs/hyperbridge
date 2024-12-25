@@ -21,12 +21,11 @@ use frame_system::RawOrigin;
 
 #[benchmarks]
 mod benchmarks {
-	use cumulus_primitives_core::PersistedValidationData;
-	use cumulus_primitives_core::relay_chain::HeadData;
+	use super::*;
+	use cumulus_primitives_core::{relay_chain::HeadData, PersistedValidationData};
+	use ismp::messaging::{ConsensusMessage, Message};
 	use primitive_types::H256;
 	use sp_trie::StorageProof;
-	use super::*;
-	use ismp::messaging::{ConsensusMessage, Message};
 
 	/// Benchmark for add_parachain extrinsic
 	/// The benchmark creates n parachains and measures the time to add them
@@ -36,14 +35,8 @@ mod benchmarks {
 	/// - `n`: Number of parachains to add in a single call
 	#[benchmark]
 	fn add_parachain(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let parachains: Vec<ParachainData> = (0..n)
-			.map(|i| {
-				ParachainData {
-					id: i,
-					slot_duration: 6000u64,
-				}
-			})
-			.collect();
+		let parachains: Vec<ParachainData> =
+			(0..n).map(|i| ParachainData { id: i, slot_duration: 6000u64 }).collect();
 
 		#[block]
 		{
@@ -61,14 +54,8 @@ mod benchmarks {
 	/// - `n`: Number of parachains to remove in a single call
 	#[benchmark]
 	fn remove_parachain(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let parachains: Vec<ParachainData> = (0..n)
-			.map(|i| {
-				ParachainData {
-					id: i,
-					slot_duration: 6000u64,
-				}
-			})
-			.collect();
+		let parachains: Vec<ParachainData> =
+			(0..n).map(|i| ParachainData { id: i, slot_duration: 6000u64 }).collect();
 
 		#[block]
 		{
@@ -98,7 +85,10 @@ mod benchmarks {
 			parent_head,
 			relay_parent_number: 4412290,
 			max_pov_size: 5242880,
-			relay_parent_storage_root: H256::from_slice(&hex::decode("70af557e788862e2cb91eb6a79e828e8b067ab02082ef72e1dcec55972111f7e").expect("Invalid root")),
+			relay_parent_storage_root: H256::from_slice(
+				&hex::decode("70af557e788862e2cb91eb6a79e828e8b067ab02082ef72e1dcec55972111f7e")
+					.expect("Invalid root"),
+			),
 		};
 
 		cumulus_pallet_parachain_system::ValidationData::<T>::put(validation_data);

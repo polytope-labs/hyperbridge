@@ -16,13 +16,12 @@
 use frame_support::weights::Weight;
 /// The weight information provider trait for dispatchable extrinsics
 pub trait WeightInfo {
-    /// Weight for adding parachains, scaled by the number of machines
-    /// * n: The number of parachains being added
-    fn add_parachain(n: u32) -> Weight;
-    /// Weight for removing parachains, scaled by the number of machines
-    /// * n: The number of parachains being removed
-    fn remove_parachain(n: u32) -> Weight;
-    /// Weight for updating a parachain's consensus
-    fn update_parachain_consensus() -> Weight;
-
+	/// Weight for adding parachains, scaled by the number of machines
+	/// * n: The number of parachains being added
+	fn add_parachain(n: u32) -> Weight;
+	/// Weight for removing parachains, scaled by the number of machines
+	/// * n: The number of parachains being removed
+	fn remove_parachain(n: u32) -> Weight;
+	/// Weight for updating a parachain's consensus
+	fn update_parachain_consensus() -> Weight;
 }

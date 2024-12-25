@@ -28,33 +28,60 @@ mod benchmarks {
 	use super::*;
 	use ismp::messaging::{ConsensusMessage, Message};
 
+	/// Benchmark for add_parachain extrinsic
+	/// The benchmark creates n parachains and measures the time to add them
+	/// to the whitelist.
+	///
+	/// Parameters:
+	/// - `n`: Number of parachains to add in a single call
 	#[benchmark]
-	fn add_parachain() -> Result<(), BenchmarkError> {
-		let state_machines: Vec<ParachainData> =
-			(0..10).map(|i| ParachainData { id: i, slot_duration: 6000 }).collect();
+	fn add_parachain(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let parachains: Vec<ParachainData> = (0..n)
+			.map(|i| {
+				ParachainData {
+					id: i,
+					slot_duration: 6000u64,
+				}
+			})
+			.collect();
 
 		#[block]
 		{
-			Pallet::<T>::add_parachain(RawOrigin::Root.into(), state_machines)?;
+			Pallet::<T>::add_parachain(RawOrigin::Root.into(), parachains)?;
 		}
 
 		Ok(())
 	}
 
+	/// Benchmark for remove_parachain extrinsic
+	/// The benchmark first adds n parachains, then measures the time to remove them
+	/// from the whitelist.
+	///
+	/// Parameters:
+	/// - `n`: Number of parachains to remove in a single call
 	#[benchmark]
-	fn remove_parachain() -> Result<(), BenchmarkError> {
-		let state_machines: Vec<ParachainData> =
-			(0..10).map(|i| ParachainData { id: i, slot_duration: 6000 }).collect();
+	fn remove_parachain(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let parachains: Vec<ParachainData> = (0..n)
+			.map(|i| {
+				ParachainData {
+					id: i,
+					slot_duration: 6000u64,
+				}
+			})
+			.collect();
 
 		#[block]
 		{
-			Pallet::<T>::add_parachain(RawOrigin::Root.into(), state_machines)?;
+			Pallet::<T>::add_parachain(RawOrigin::Root.into(), parachains)?;
 			Pallet::<T>::remove_parachain(RawOrigin::Root.into(), vec![0, 1, 2, 3, 4])?;
 		}
 
 		Ok(())
 	}
 
+	/// Benchmark for update_parachain_consensus extrinsic
+	/// The benchmark first insert a Parachain, then sets the ValidationData,
+	/// afterward proceed to update the parachain consensus.
 	#[benchmark]
 	fn update_parachain_consensus() -> Result<(), BenchmarkError> {
 		let consensus_message = ConsensusMessage {

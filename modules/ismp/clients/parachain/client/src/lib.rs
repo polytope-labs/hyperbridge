@@ -25,6 +25,7 @@ mod migration;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+/// weights trait crate
 pub mod weights;
 
 pub use consensus::*;
@@ -37,7 +38,7 @@ use cumulus_pallet_parachain_system::{
 use cumulus_primitives_core::relay_chain;
 use ismp::{handlers, messaging::CreateConsensusState};
 pub use pallet::*;
-pub use weights::WeightInfoTrait;
+pub use weights::WeightInfo;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -68,7 +69,7 @@ pub mod pallet {
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + Default;
 		/// WeightInfo
-		type WeightInfo: WeightInfoTrait;
+		type WeightInfo: WeightInfo;
 	}
 
 	/// Mapping of relay chain heights to it's state commitment. The state commitment of the parent

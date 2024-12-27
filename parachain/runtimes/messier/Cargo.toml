@@ -203,8 +203,7 @@ runtime-benchmarks = [
 	"cumulus-pallet-xcmp-queue/runtime-benchmarks",
 	"pallet-message-queue/runtime-benchmarks",
 	"pallet-assets/runtime-benchmarks",
-	"parachains-common/runtime-benchmarks",
-	"ismp-parachain/runtime-benchmarks",
+	"parachains-common/runtime-benchmarks"
 ]
 
 try-runtime = [

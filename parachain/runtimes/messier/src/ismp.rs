@@ -104,7 +104,6 @@ impl pallet_ismp_host_executive::Config for Runtime {
 impl ismp_parachain::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
-	type WeightInfo = weights::ismp_parachain::WeightInfo<Runtime>;
 }
 
 impl pallet_call_decompressor::Config for Runtime {

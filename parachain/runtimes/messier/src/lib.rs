@@ -730,7 +730,6 @@ mod benches {
 		[pallet_timestamp, Timestamp]
 		[pallet_collator_selection, CollatorSelection]
 		[cumulus_pallet_xcmp_queue, XcmpQueue]
-		[ismp_parachain, IsmpParachain]
 	);
 }
 

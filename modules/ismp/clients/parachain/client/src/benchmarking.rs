@@ -67,7 +67,7 @@ mod benchmarks {
 	}
 
 	/// Benchmark for update_parachain_consensus extrinsic
-	/// The benchmark first insert a Parachain, then sets the ValidationData,
+	/// The benchmark first inserts a Parachain, then sets the ValidationData,
 	/// afterward proceed to update the parachain consensus.
 	#[benchmark]
 	fn update_parachain_consensus() -> Result<(), BenchmarkError> {

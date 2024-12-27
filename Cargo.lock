@@ -7699,6 +7699,7 @@ dependencies = [
  "derive_more 1.0.0",
  "displaydoc",
  "hex",
+ "log",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",

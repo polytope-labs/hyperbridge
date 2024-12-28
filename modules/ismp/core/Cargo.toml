@@ -23,7 +23,6 @@ hex = { workspace = true, features = ["alloc"] }
 anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 serde-hex-utils = { workspace = true, default-features = false }
-log = "0.4.22"
 
 [features]
 default = ["std"]

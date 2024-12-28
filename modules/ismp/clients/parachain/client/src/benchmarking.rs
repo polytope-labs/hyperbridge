@@ -57,9 +57,10 @@ mod benchmarks {
 		let parachains: Vec<ParachainData> =
 			(0..n).map(|i| ParachainData { id: i, slot_duration: 6000u64 }).collect();
 
+		Pallet::<T>::add_parachain(RawOrigin::Root.into(), parachains)?;
+
 		#[block]
 		{
-			Pallet::<T>::add_parachain(RawOrigin::Root.into(), parachains)?;
 			Pallet::<T>::remove_parachain(RawOrigin::Root.into(), vec![0, 1, 2, 3, 4])?;
 		}
 

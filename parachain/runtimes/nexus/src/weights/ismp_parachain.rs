@@ -52,41 +52,42 @@ pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> ismp_parachain::WeightInfo for WeightInfo<T> {
     /// Storage: `ParachainInfo::ParachainId` (r:1 w:0)
     /// Proof: `ParachainInfo::ParachainId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-    /// Storage: `IsmpParachain::Parachains` (r:0 w:10)
+    /// Storage: `IsmpParachain::Parachains` (r:0 w:100)
     /// Proof: `IsmpParachain::Parachains` (`max_values`: None, `max_size`: Some(12), added: 2487, mode: `MaxEncodedLen`)
-    /// Storage: `Ismp::ChallengePeriod` (r:0 w:10)
+    /// Storage: `Ismp::ChallengePeriod` (r:0 w:100)
     /// Proof: `Ismp::ChallengePeriod` (`max_values`: None, `max_size`: None, mode: `Measured`)
-    fn add_parachain(n: u32,) -> Weight {
+    /// The range of component `n` is `[1, 100]`.
+    fn add_parachain(n: u32, ) -> Weight {
         // Proof Size summary in bytes:
-        //  Measured:  `103`
+        //  Measured:  `0`
         //  Estimated: `1489`
-        // Minimum execution time: 48_000_000 picoseconds.
-        Weight::from_parts(48_000_000, 0)
+        // Minimum execution time: 8_000_000 picoseconds.
+        Weight::from_parts(4_785_858, 0)
             .saturating_add(Weight::from_parts(0, 1489))
+            // Standard Error: 1_391
+            .saturating_add(Weight::from_parts(3_694_141, 0).saturating_mul(n.into()))
             .saturating_add(T::DbWeight::get().reads(1))
-            .saturating_add(T::DbWeight::get().writes(20))
+            .saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(n.into())))
     }
-    /// Storage: `ParachainInfo::ParachainId` (r:1 w:0)
-    /// Proof: `ParachainInfo::ParachainId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-    /// Storage: `IsmpParachain::Parachains` (r:0 w:10)
+    /// Storage: `IsmpParachain::Parachains` (r:0 w:5)
     /// Proof: `IsmpParachain::Parachains` (`max_values`: None, `max_size`: Some(12), added: 2487, mode: `MaxEncodedLen`)
-    /// Storage: `Ismp::ChallengePeriod` (r:0 w:10)
-    /// Proof: `Ismp::ChallengePeriod` (`max_values`: None, `max_size`: None, mode: `Measured`)
-    fn remove_parachain(n: u32,) -> Weight {
+    /// The range of component `n` is `[1, 100]`.
+    fn remove_parachain(n: u32, ) -> Weight {
         // Proof Size summary in bytes:
-        //  Measured:  `103`
-        //  Estimated: `1489`
-        // Minimum execution time: 58_000_000 picoseconds.
-        Weight::from_parts(58_000_000, 0)
-            .saturating_add(Weight::from_parts(0, 1489))
-            .saturating_add(T::DbWeight::get().reads(1))
-            .saturating_add(T::DbWeight::get().writes(20))
+        //  Measured:  `0`
+        //  Estimated: `0`
+        // Minimum execution time: 10_000_000 picoseconds.
+        Weight::from_parts(10_994_949, 0)
+            .saturating_add(Weight::from_parts(0, 0))
+            // Standard Error: 721
+            .saturating_add(Weight::from_parts(5_050, 0).saturating_mul(n.into()))
+            .saturating_add(T::DbWeight::get().writes(5))
     }
     /// Storage: `IsmpParachain::ConsensusUpdated` (r:1 w:0)
     /// Proof: `IsmpParachain::ConsensusUpdated` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
     /// Storage: `Ismp::ConsensusStateClient` (r:1 w:0)
     /// Proof: `Ismp::ConsensusStateClient` (`max_values`: None, `max_size`: None, mode: `Measured`)
-    /// Storage: `Ismp::ConsensusStates` (r:1 w:0)
+    /// Storage: `Ismp::ConsensusStates` (r:1 w:1)
     /// Proof: `Ismp::ConsensusStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
     /// Storage: `Ismp::FrozenConsensusClients` (r:1 w:0)
     /// Proof: `Ismp::FrozenConsensusClients` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -94,15 +95,31 @@ impl<T: frame_system::Config> ismp_parachain::WeightInfo for WeightInfo<T> {
     /// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
     /// Storage: `Ismp::UnbondingPeriod` (r:1 w:0)
     /// Proof: `Ismp::UnbondingPeriod` (`max_values`: None, `max_size`: None, mode: `Measured`)
-    /// Storage: `Ismp::ConsensusClientUpdateTime` (r:1 w:0)
+    /// Storage: `Ismp::ConsensusClientUpdateTime` (r:1 w:1)
     /// Proof: `Ismp::ConsensusClientUpdateTime` (`max_values`: None, `max_size`: None, mode: `Measured`)
+    /// Storage: `IsmpParachain::RelayChainStateCommitments` (r:1 w:0)
+    /// Proof: `IsmpParachain::RelayChainStateCommitments` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
+    /// Storage: `ParachainSystem::ValidationData` (r:1 w:0)
+    /// Proof: `ParachainSystem::ValidationData` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+    /// Storage: `IsmpParachain::Parachains` (r:2 w:0)
+    /// Proof: `IsmpParachain::Parachains` (`max_values`: None, `max_size`: Some(12), added: 2487, mode: `MaxEncodedLen`)
+    /// Storage: `ParachainInfo::ParachainId` (r:1 w:0)
+    /// Proof: `ParachainInfo::ParachainId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+    /// Storage: `Ismp::LatestStateMachineHeight` (r:1 w:1)
+    /// Proof: `Ismp::LatestStateMachineHeight` (`max_values`: None, `max_size`: None, mode: `Measured`)
+    /// Storage: `Ismp::StateCommitments` (r:1 w:1)
+    /// Proof: `Ismp::StateCommitments` (`max_values`: None, `max_size`: None, mode: `Measured`)
+    /// Storage: `Ismp::StateMachineUpdateTime` (r:0 w:1)
+    /// Proof: `Ismp::StateMachineUpdateTime` (`max_values`: None, `max_size`: None, mode: `Measured`)
+    /// Storage: UNKNOWN KEY `0x7374617465c5e35c1ebc4a47117ca326df225ec6be34a190413187eb4e5f91af` (r:1 w:1)
+    /// Proof: UNKNOWN KEY `0x7374617465c5e35c1ebc4a47117ca326df225ec6be34a190413187eb4e5f91af` (r:1 w:1)
     fn update_parachain_consensus() -> Weight {
         // Proof Size summary in bytes:
-        //  Measured:  `333`
-        //  Estimated: `3798`
-        // Minimum execution time: 42_000_000 picoseconds.
-        Weight::from_parts(42_000_000, 0)
-            .saturating_add(Weight::from_parts(0, 3798))
-            .saturating_add(T::DbWeight::get().reads(7))
+        //  Measured:  `15`
+        //  Estimated: `5964`
+        // Minimum execution time: 10_000_000 picoseconds.
+        Weight::from_parts(11_000_000, 0)
+            .saturating_add(Weight::from_parts(0, 5964))
+            .saturating_add(T::DbWeight::get().reads(2))
     }
 }

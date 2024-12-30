@@ -236,8 +236,8 @@ where
 				let dest = match &event.event {
 					Event::PostRequest(post) => post.dest.clone(),
 					Event::PostResponse(resp) => resp.dest_chain(),
-					Event::PostRequestTimeoutHandled(timeout)
-					| Event::PostResponseTimeoutHandled(timeout) => timeout.dest.clone(),
+					Event::PostRequestTimeoutHandled(timeout) |
+					Event::PostResponseTimeoutHandled(timeout) => timeout.dest.clone(),
 					Event::GetResponse(resp) => resp.get.source.clone(),
 					_ => None?,
 				};
@@ -523,14 +523,10 @@ where
 								Event::GetResponse(res) => res.get.source,
 								Event::PostRequestTimeoutHandled(req)
 									if req.source != hyperbridge =>
-								{
-									req.source
-								},
+									req.source,
 								Event::PostResponseTimeoutHandled(res)
 									if res.source != hyperbridge =>
-								{
-									res.source
-								},
+									res.source,
 								_ => None?,
 							};
 							Some(event)

@@ -190,6 +190,14 @@ where
 		);
 		// Indexing API is used to store the full node content.
 		offchain_index::set(&temp_key, &encoded_node);
+
+		// if its a leaf, make it immediately available
+		if let Node::Data(leaf) = node {
+			let encoded = leaf.preimage();
+			let commitment = sp_io::hashing::keccak_256(&encoded);
+			let offchain_key = pallet_ismp::offchain::leaf_default_key(commitment.into());
+			sp_io::offchain_index::set(&offchain_key, &leaf.encode());
+		}
 	}
 }
 

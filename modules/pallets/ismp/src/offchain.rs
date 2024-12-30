@@ -119,7 +119,7 @@ pub trait OffchainDBProvider {
 }
 
 /// Offchain key for storing requests using the commitment as identifiers
-pub fn default_key(commitment: H256) -> Vec<u8> {
+pub fn leaf_default_key(commitment: H256) -> Vec<u8> {
 	let prefix = b"no_op";
 	(prefix, commitment).encode()
 }
@@ -140,7 +140,7 @@ impl OffchainDBProvider for () {
 	fn push(leaf: Self::Leaf) -> LeafMetadata {
 		let encoded = leaf.preimage();
 		let commitment = sp_io::hashing::keccak_256(&encoded);
-		let offchain_key = default_key(commitment.into());
+		let offchain_key = leaf_default_key(commitment.into());
 		sp_io::offchain_index::set(&offchain_key, &leaf.encode());
 		Default::default()
 	}

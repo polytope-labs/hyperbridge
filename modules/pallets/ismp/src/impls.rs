@@ -202,7 +202,7 @@ impl<T: Config> Pallet<T> {
 		match T::OffchainDB::leaf(pos) {
 			Ok(Some(Leaf::Request(req))) => Some(req),
 			_ => {
-				let key = offchain::default_key(commitment);
+				let key = offchain::leaf_default_key(commitment);
 				let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key)
 				else {
 					None?
@@ -221,7 +221,7 @@ impl<T: Config> Pallet<T> {
 		match T::OffchainDB::leaf(pos) {
 			Ok(Some(Leaf::Response(res))) => Some(res),
 			_ => {
-				let key = offchain::default_key(commitment);
+				let key = offchain::leaf_default_key(commitment);
 				let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key)
 				else {
 					None?

@@ -233,17 +233,17 @@ where
 		let events = events
 			.into_iter()
 			.filter_map(|event| {
-				if matches!(
-					event.event,
-					Event::PostRequest(_) |
-						Event::PostResponse(_) |
-						Event::PostRequestTimeoutHandled(_) |
-						Event::PostResponseTimeoutHandled(_) |
-						Event::GetResponse(_)
-				) {
-					return Some(event);
-				}
-				None
+				let dest = match &event.event {
+					Event::PostRequest(post) => post.dest.clone(),
+					Event::PostResponse(resp) => resp.dest_chain(),
+					Event::PostRequestTimeoutHandled(timeout)
+					| Event::PostResponseTimeoutHandled(timeout) => timeout.dest.clone(),
+					Event::GetResponse(resp) => resp.get.source.clone(),
+					_ => None?,
+				};
+
+				// filter out destinations that the prover isn't configured for
+				self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
 			})
 			.collect::<Vec<_>>();
 
@@ -459,6 +459,11 @@ where
 					let (latest_parachain_height, messages) =
 						self.latest_ismp_message_events(latest_beefy_header.hash()).await?;
 
+					// let messages = messages.into_iter()
+					//    .
+
+					// todo: filter out messages to state machines that require beefy update.
+
 					if messages.is_empty() {
 						self.consensus_state.finalized_parachain_height = latest_parachain_height;
 						self.connection
@@ -518,10 +523,14 @@ where
 								Event::GetResponse(res) => res.get.source,
 								Event::PostRequestTimeoutHandled(req)
 									if req.source != hyperbridge =>
-									req.source,
+								{
+									req.source
+								},
 								Event::PostResponseTimeoutHandled(res)
 									if res.source != hyperbridge =>
-									res.source,
+								{
+									res.source
+								},
 								_ => None?,
 							};
 							Some(event)

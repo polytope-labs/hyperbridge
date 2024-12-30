@@ -15,7 +15,7 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![deny(missing_docs, unused_imports)]
+#![deny(unused_imports)]
 
 extern crate alloc;
 extern crate core;
@@ -405,7 +405,7 @@ pub mod pallet {
 
 	/// Pallet Events
 	#[pallet::event]
-	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	#[pallet::generate_deposit(pub fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// Emitted when a state machine is successfully updated to a new height
 		StateMachineUpdated {

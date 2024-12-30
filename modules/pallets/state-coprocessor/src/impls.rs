@@ -209,13 +209,13 @@ where
 			},
 		);
 		pallet_ismp::Responded::<T>::insert(req_commitment, true);
-		pallet_ismp::Pallet::<T>::deposit_pallet_event(event);
+		pallet_ismp::Pallet::<T>::deposit_event(event.into());
 		let event = pallet_ismp::Event::GetRequestHandled(RequestResponseHandled {
 			commitment: req_commitment,
 			relayer: address.clone(),
 		});
 
-		pallet_ismp::Pallet::<T>::deposit_pallet_event(event);
+		pallet_ismp::Pallet::<T>::deposit_event(event.into());
 
 		Ok(())
 	}

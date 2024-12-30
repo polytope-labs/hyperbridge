@@ -141,11 +141,12 @@ pub mod pallet {
 				PendingVetoes::<T>::remove(height);
 
 				Self::deposit_event(Event::StateCommitmentVetoed { height, commitment });
-				pallet_ismp::Pallet::<T>::deposit_pallet_event(
+				pallet_ismp::Pallet::<T>::deposit_event(
 					ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
 						height,
 						fisherman: account.as_ref().to_vec(),
-					}),
+					})
+					.into(),
 				);
 			} else {
 				PendingVetoes::<T>::insert(height, account.clone());

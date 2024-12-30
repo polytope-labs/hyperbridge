@@ -256,9 +256,13 @@ pub mod pallet {
 			host.store_state_machine_update_time(height, host.timestamp()).unwrap();
 
 			// deposit the event
-			pallet_ismp::Pallet::<T>::deposit_pallet_event(Event::StateMachineUpdated(
-				StateMachineUpdated { state_machine_id: height.id, latest_height: height.height },
-			));
+			pallet_ismp::Pallet::<T>::deposit_event(
+				Event::StateMachineUpdated(StateMachineUpdated {
+					state_machine_id: height.id,
+					latest_height: height.height,
+				})
+				.into(),
+			);
 
 			Ok(())
 		}

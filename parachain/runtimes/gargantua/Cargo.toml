@@ -216,6 +216,7 @@ runtime-benchmarks = [
 	"pallet-sudo/runtime-benchmarks",
 	"parachains-common/runtime-benchmarks",
 	"ismp-grandpa/runtime-benchmarks",
+    "ismp-parachain/runtime-benchmarks",
 ]
 
 try-runtime = [

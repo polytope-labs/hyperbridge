@@ -194,7 +194,7 @@ where
 	fn receipts_state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
 		let mut keys = vec![];
 		match items {
-			RequestResponse::Request(requests) => {
+			RequestResponse::Request(requests) =>
 				for req in requests {
 					match req {
 						Request::Post(post) => {
@@ -204,9 +204,8 @@ where
 						},
 						Request::Get(_) => continue,
 					}
-				}
-			},
-			RequestResponse::Response(responses) => {
+				},
+			RequestResponse::Response(responses) =>
 				for res in responses {
 					match res {
 						Response::Post(post_response) => {
@@ -216,8 +215,7 @@ where
 						},
 						Response::Get(_) => continue,
 					}
-				}
-			},
+				},
 		};
 
 		keys

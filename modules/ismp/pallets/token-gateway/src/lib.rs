@@ -20,19 +20,22 @@ extern crate alloc;
 
 pub mod impls;
 pub mod types;
+
+mod benchmarking;
+mod weights;
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use codec::Decode;
 use frame_support::{
 	ensure,
-	pallet_prelude::Weight,
 	traits::{
 		fungibles::{self, Mutate},
 		tokens::{fungible::Mutate as FungibleMutate, Preservation},
 		Currency, ExistenceRequirement,
 	},
 };
+pub use weights::WeightInfo;
 
 use ismp::{
 	events::Meta,
@@ -82,7 +85,7 @@ pub mod pallet {
 	/// The pallet's configuration trait.
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + pallet_hyperbridge::Config
+	frame_system::Config + pallet_ismp::Config + pallet_hyperbridge::Config
 	{
 		/// The overarching runtime event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -99,10 +102,10 @@ pub mod pallet {
 
 		/// Fungible asset implementation
 		type Assets: fungibles::Mutate<Self::AccountId>
-			+ fungibles::Inspect<Self::AccountId>
-			+ fungibles::Create<Self::AccountId>
-			+ fungibles::metadata::Mutate<Self::AccountId>
-			+ fungibles::roles::Inspect<Self::AccountId>;
+		+ fungibles::Inspect<Self::AccountId>
+		+ fungibles::Create<Self::AccountId>
+		+ fungibles::metadata::Mutate<Self::AccountId>
+		+ fungibles::roles::Inspect<Self::AccountId>;
 
 		/// The native asset ID
 		type NativeAssetId: Get<AssetId<Self>>;
@@ -113,13 +116,16 @@ pub mod pallet {
 		/// The decimals of the native currency
 		#[pallet::constant]
 		type Decimals: Get<u8>;
+
+		/// weights
+		type WeightInfo: WeightInfo;
 	}
 
 	/// Assets supported by this instance of token gateway
 	/// A map of the local asset id to the token gateway asset id
 	#[pallet::storage]
 	pub type SupportedAssets<T: Config> =
-		StorageMap<_, Blake2_128Concat, AssetId<T>, H256, OptionQuery>;
+	StorageMap<_, Blake2_128Concat, AssetId<T>, H256, OptionQuery>;
 
 	/// Assets supported by this instance of token gateway
 	/// A map of the token gateway asset id to the local asset id
@@ -133,7 +139,7 @@ pub mod pallet {
 	/// The token gateway adresses on different chains
 	#[pallet::storage]
 	pub type TokenGatewayAddresses<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachine, Vec<u8>, OptionQuery>;
+	StorageMap<_, Blake2_128Concat, StateMachine, Vec<u8>, OptionQuery>;
 
 	/// Pallet events that functions in this pallet can emit.
 	#[pallet::event]
@@ -205,20 +211,20 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T>
-	where
-		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-		u128: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-		<T as pallet_ismp::Config>::Balance:
+		where
+			<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+			u128: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
+			<T as pallet_ismp::Config>::Balance:
 			From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-		<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance:
+			<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance:
 			From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-		<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
-		[u8; 32]: From<<T as frame_system::Config>::AccountId>,
+			<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
+			[u8; 32]: From<<T as frame_system::Config>::AccountId>,
 	{
 		/// Teleports a registered asset
 		/// locks the asset and dispatches a request to token gateway on the destination
 		#[pallet::call_index(0)]
-		#[pallet::weight(weight())]
+		#[pallet::weight(T::WeightInfo::teleport())]
 		pub fn teleport(
 			origin: OriginFor<T>,
 			params: TeleportParams<
@@ -301,7 +307,7 @@ pub mod pallet {
 
 		/// Set the token gateway address for specified chains
 		#[pallet::call_index(1)]
-		#[pallet::weight(weight())]
+		#[pallet::weight(T::WeightInfo::set_token_gateway_addresses(addresses.len() as u32))]
 		pub fn set_token_gateway_addresses(
 			origin: OriginFor<T>,
 			addresses: BTreeMap<StateMachine, Vec<u8>>,
@@ -318,7 +324,7 @@ pub mod pallet {
 		/// This works by dispatching a request to the TokenGateway module on each requested chain
 		/// to create the asset.
 		#[pallet::call_index(2)]
-		#[pallet::weight(weight())]
+		#[pallet::weight(T::WeightInfo::create_erc6160_asset())]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
@@ -371,7 +377,7 @@ pub mod pallet {
 		/// This works by dispatching a request to the TokenGateway module on each requested chain
 		/// to create the asset.
 		#[pallet::call_index(3)]
-		#[pallet::weight(weight())]
+		#[pallet::weight(T::WeightInfo::update_erc6160_asset())]
 		pub fn update_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: GatewayAssetUpdate,
@@ -425,10 +431,10 @@ pub mod pallet {
 }
 
 impl<T: Config> IsmpModule for Pallet<T>
-where
-	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
-	<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
+	where
+		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+		<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
+		<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
 {
 	fn on_accept(
 		&self,
@@ -451,7 +457,7 @@ where
 							local_asset_id.clone(),
 						),
 					)
-					.map_err(|e| anyhow!("{e:?}"))?;
+						.map_err(|e| anyhow!("{e:?}"))?;
 					// Note the asset's ERC counterpart decimal
 					Decimals::<T>::insert(local_asset_id, metadata.decimals);
 				} else {
@@ -464,7 +470,7 @@ where
 						true,
 						min_balance.into(),
 					)
-					.map_err(|e| anyhow!("{e:?}"))?;
+						.map_err(|e| anyhow!("{e:?}"))?;
 					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
 						local_asset_id.clone(),
 						&T::AssetAdmin::get(),
@@ -472,7 +478,7 @@ where
 						metadata.symbol.to_vec(),
 						18,
 					)
-					.map_err(|e| anyhow!("{e:?}"))?;
+						.map_err(|e| anyhow!("{e:?}"))?;
 					SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
 					LocalAssets::<T>::insert(asset_id, local_asset_id.clone());
 					// Note the asset's ERC counterpart decimal
@@ -529,10 +535,10 @@ where
 			erc_decimals,
 			decimals,
 		)
-		.map_err(|_| ismp::error::Error::ModuleDispatchError {
-			msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
-			meta: Meta { source, dest, nonce },
-		})?;
+			.map_err(|_| ismp::error::Error::ModuleDispatchError {
+				msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+				meta: Meta { source, dest, nonce },
+			})?;
 		let beneficiary: T::AccountId = body.to.0.into();
 		if local_asset_id == T::NativeAssetId::get() {
 			<T as Config>::NativeCurrency::transfer(
@@ -541,10 +547,10 @@ where
 				amount.into(),
 				ExistenceRequirement::AllowDeath,
 			)
-			.map_err(|_| ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Failed to complete asset transfer".to_string(),
-				meta: Meta { source, dest, nonce },
-			})?;
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+					meta: Meta { source, dest, nonce },
+				})?;
 		} else {
 			<T as Config>::Assets::transfer(
 				local_asset_id,
@@ -553,10 +559,10 @@ where
 				amount.into(),
 				Preservation::Protect,
 			)
-			.map_err(|_| ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Failed to complete asset transfer".to_string(),
-				meta: Meta { source, dest, nonce },
-			})?;
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+					meta: Meta { source, dest, nonce },
+				})?;
 		}
 
 		Self::deposit_event(Event::<T>::AssetReceived {
@@ -600,10 +606,10 @@ where
 					erc_decimals,
 					decimals,
 				)
-				.map_err(|_| ismp::error::Error::ModuleDispatchError {
-					msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
-					meta: Meta { source, dest, nonce },
-				})?;
+					.map_err(|_| ismp::error::Error::ModuleDispatchError {
+						msg: "Token Gateway: Trying to withdraw Invalid amount".to_string(),
+						meta: Meta { source, dest, nonce },
+					})?;
 
 				if local_asset_id == T::NativeAssetId::get() {
 					<T as Config>::NativeCurrency::transfer(
@@ -612,10 +618,10 @@ where
 						amount.into(),
 						ExistenceRequirement::AllowDeath,
 					)
-					.map_err(|_| ismp::error::Error::ModuleDispatchError {
-						msg: "Token Gateway: Failed to complete asset transfer".to_string(),
-						meta: Meta { source, dest, nonce },
-					})?;
+						.map_err(|_| ismp::error::Error::ModuleDispatchError {
+							msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+							meta: Meta { source, dest, nonce },
+						})?;
 				} else {
 					<T as Config>::Assets::transfer(
 						local_asset_id,
@@ -624,10 +630,10 @@ where
 						amount.into(),
 						Preservation::Protect,
 					)
-					.map_err(|_| ismp::error::Error::ModuleDispatchError {
-						msg: "Token Gateway: Failed to complete asset transfer".to_string(),
-						meta: Meta { source, dest, nonce },
-					})?;
+						.map_err(|_| ismp::error::Error::ModuleDispatchError {
+							msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+							meta: Meta { source, dest, nonce },
+						})?;
 				}
 
 				Pallet::<T>::deposit_event(Event::<T>::AssetRefunded {
@@ -652,11 +658,6 @@ where
 		}
 		Ok(())
 	}
-}
-
-/// Static weights because benchmarks suck, and we'll be getting PolkaVM soon anyways
-fn weight() -> Weight {
-	Weight::from_parts(300_000_000, 0)
 }
 
 impl<T: Config> Pallet<T> {

@@ -34,6 +34,8 @@ alloy-sol-types = { workspace = true }
 
 token-gateway-primitives = { workspace = true }
 pallet-hyperbridge = { workspace = true }
+
+[dev-dependencies]
 pallet-balances = { workspace = true }
 pallet-assets = { workspace = true}
 

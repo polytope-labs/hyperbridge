@@ -61,7 +61,7 @@ impl<StorageType, T, I, L> Default for Storage<StorageType, T, I, L> {
 	}
 }
 
-impl<T, I, L> merkle_mountain_range::MMRStore<NodeOf<T, I, L>> for Storage<OffchainStorage, T, I, L>
+impl<T, I, L> merkle_mountain_range::MMRStoreReadOps<NodeOf<T, I, L>> for Storage<OffchainStorage, T, I, L>
 where
 	T: Config<I>,
 	I: 'static,
@@ -84,7 +84,14 @@ where
 			Err(merkle_mountain_range::Error::InconsistentStore)?
 		}
 	}
+}
 
+impl<T, I, L> merkle_mountain_range::MMRStoreWriteOps<NodeOf<T, I, L>> for Storage<OffchainStorage, T, I, L>
+where
+	T: Config<I>,
+	I: 'static,
+	L: pallet_ismp::offchain::FullLeaf,
+{
 	fn append(
 		&mut self,
 		_: NodeIndex,
@@ -94,7 +101,7 @@ where
 	}
 }
 
-impl<T, I, L> merkle_mountain_range::MMRStore<NodeOf<T, I, L>> for Storage<RuntimeStorage, T, I, L>
+impl<T, I, L> merkle_mountain_range::MMRStoreReadOps<NodeOf<T, I, L>> for Storage<RuntimeStorage, T, I, L>
 where
 	T: Config<I>,
 	I: 'static,
@@ -103,7 +110,15 @@ where
 	fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<NodeOf<T, I, L>>> {
 		Ok(Nodes::<T, I>::get(pos).map(Node::Hash))
 	}
+}
 
+
+impl<T, I, L> merkle_mountain_range::MMRStoreWriteOps<NodeOf<T, I, L>> for Storage<RuntimeStorage, T, I, L>
+where
+	T: Config<I>,
+	I: 'static,
+	L: pallet_ismp::offchain::FullLeaf,
+{
 	fn append(
 		&mut self,
 		pos: NodeIndex,

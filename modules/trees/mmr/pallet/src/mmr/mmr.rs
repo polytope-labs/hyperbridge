@@ -35,7 +35,7 @@ where
 	T: Config<I>,
 	I: 'static,
 	L: pallet_ismp::offchain::FullLeaf,
-	Storage<StorageType, T, I, L>: merkle_mountain_range::MMRStore<NodeOf<T, I, L>>,
+	Storage<StorageType, T, I, L>: merkle_mountain_range::MMRStoreReadOps<NodeOf<T, I, L>> + merkle_mountain_range::MMRStoreWriteOps<NodeOf<T, I, L>>,
 {
 	mmr: merkle_mountain_range::MMR<
 		NodeOf<T, I, L>,
@@ -50,7 +50,7 @@ where
 	T: Config<I>,
 	I: 'static,
 	L: pallet_ismp::offchain::FullLeaf,
-	Storage<StorageType, T, I, L>: merkle_mountain_range::MMRStore<NodeOf<T, I, L>>,
+	Storage<StorageType, T, I, L>: merkle_mountain_range::MMRStoreReadOps<NodeOf<T, I, L>> + merkle_mountain_range::MMRStoreWriteOps<NodeOf<T, I, L>>,
 {
 	/// Create a pointer to an existing MMR with given number of leaves.
 	pub fn new(leaves: NodeIndex) -> Self {
@@ -86,7 +86,7 @@ where
 
 	/// Commit the changes to underlying storage, return current number of leaves and
 	/// calculate the new MMR's root hash.
-	pub fn finalize(self) -> Result<(NodeIndex, HashOf<T, I>), Error> {
+	pub fn finalize(mut self) -> Result<(NodeIndex, HashOf<T, I>), Error> {
 		let root = self.mmr.get_root().map_err(|e| Error::GetRoot.log_error(e))?;
 		self.mmr.commit().map_err(|e| Error::Commit.log_error(e))?;
 		Ok((self.leaves, root.hash()))
@@ -115,7 +115,7 @@ where
 		let store = <Storage<OffchainStorage, T, I, L>>::default();
 		let leaves = positions
 			.iter()
-			.map(|pos| match merkle_mountain_range::MMRStore::get_elem(&store, *pos) {
+			.map(|pos| match merkle_mountain_range::MMRStoreReadOps::get_elem(&store, *pos) {
 				Ok(Some(Node::Data(leaf))) => Ok(leaf),
 				e => Err(Error::LeafNotFound.log_debug(e)),
 			})

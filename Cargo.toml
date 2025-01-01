@@ -371,11 +371,11 @@ rev = "1db7f747d7033a760c747fabbeef706576c88e34"
 
 [workspace.dependencies.merkle-mountain-range]
 package = "ckb-merkle-mountain-range"
-version = "0.5.2"
+version = "0.6.0"
 default-features = false
 
 [workspace.dependencies.alloy-primitives]
-version = "0.7.7"
+version = "0.8.15"
 default-features = false
 features = ["rlp"]
 

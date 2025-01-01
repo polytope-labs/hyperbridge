@@ -61,7 +61,7 @@ extern crate alloc;
 use core::marker::PhantomData;
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log;
-use merkle_mountain_range::MMRStore;
+use merkle_mountain_range::MMRStoreReadOps;
 use sp_core::H256;
 
 use sp_runtime::traits::{self, One};

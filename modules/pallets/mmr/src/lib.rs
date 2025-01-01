@@ -321,7 +321,7 @@ where
 				.map(|commitment| {
 					let val = child_trie::RequestCommitments::<T>::get(commitment)
 						.ok_or_else(|| sp_mmr_primitives::Error::LeafNotFound)?
-						.mmr;
+						.offchain;
 					Ok(val)
 				})
 				.collect::<Result<Vec<_>, _>>()?,
@@ -330,7 +330,7 @@ where
 				.map(|commitment| {
 					let val = child_trie::ResponseCommitments::<T>::get(commitment)
 						.ok_or_else(|| sp_mmr_primitives::Error::LeafNotFound)?
-						.mmr;
+						.offchain;
 					Ok(val)
 				})
 				.collect::<Result<Vec<_>, _>>()?,

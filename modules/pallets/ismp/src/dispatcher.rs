@@ -42,7 +42,7 @@ use sp_runtime::traits::{AccountIdConversion, Zero};
 #[scale_info(skip_type_params(T))]
 pub struct RequestMetadata<T: Config> {
 	/// Information about where it's stored in the offchain db
-	pub mmr: LeafIndexAndPos,
+	pub offchain: LeafIndexAndPos,
 	/// Other metadata about the request
 	pub fee: FeeMetadata<T>,
 	/// Has fee been claimed?

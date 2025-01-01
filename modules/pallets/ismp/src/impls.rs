@@ -48,7 +48,7 @@ impl<T: Config> Pallet<T> {
 				.map(|commitment| {
 					let val = RequestCommitments::<T>::get(commitment)
 						.ok_or_else(|| sp_mmr_primitives::Error::LeafNotFound)?
-						.mmr;
+						.offchain;
 					Ok(val)
 				})
 				.collect::<Result<Vec<_>, _>>()?,
@@ -57,7 +57,7 @@ impl<T: Config> Pallet<T> {
 				.map(|commitment| {
 					let val = ResponseCommitments::<T>::get(commitment)
 						.ok_or_else(|| sp_mmr_primitives::Error::LeafNotFound)?
-						.mmr;
+						.offchain;
 					Ok(val)
 				})
 				.collect::<Result<Vec<_>, _>>()?,
@@ -139,7 +139,7 @@ impl<T: Config> Pallet<T> {
 		RequestCommitments::<T>::insert(
 			commitment,
 			RequestMetadata {
-				mmr: LeafIndexAndPos {
+				offchain: LeafIndexAndPos {
 					leaf_index: leaf_index_and_pos.index,
 					pos: leaf_index_and_pos.position,
 				},
@@ -179,7 +179,7 @@ impl<T: Config> Pallet<T> {
 		ResponseCommitments::<T>::insert(
 			commitment,
 			RequestMetadata {
-				mmr: LeafIndexAndPos {
+				offchain: LeafIndexAndPos {
 					leaf_index: leaf_index_and_pos.index,
 					pos: leaf_index_and_pos.position,
 				},
@@ -193,7 +193,7 @@ impl<T: Config> Pallet<T> {
 
 	/// Gets the request from the offchain storage
 	pub fn request(commitment: H256) -> Option<Request> {
-		let pos = RequestCommitments::<T>::get(commitment)?.mmr.pos;
+		let pos = RequestCommitments::<T>::get(commitment)?.offchain.pos;
 		match T::OffchainDB::leaf(pos) {
 			Ok(Some(Leaf::Request(req))) => Some(req),
 			_ => {
@@ -212,7 +212,7 @@ impl<T: Config> Pallet<T> {
 
 	/// Gets the response from the offchain storage
 	pub fn response(commitment: H256) -> Option<Response> {
-		let pos = ResponseCommitments::<T>::get(commitment)?.mmr.pos;
+		let pos = ResponseCommitments::<T>::get(commitment)?.offchain.pos;
 		match T::OffchainDB::leaf(pos) {
 			Ok(Some(Leaf::Response(res))) => Some(res),
 			_ => {

@@ -110,7 +110,7 @@ fn test_withdrawal_proof() {
 			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
 			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
 			let leaf_meta = RequestMetadata {
-				mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
 				fee: fee_metadata,
 				claimed: false,
 			};
@@ -124,7 +124,7 @@ fn test_withdrawal_proof() {
 			let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
 			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
 			let leaf_meta = RequestMetadata {
-				mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
 				fee: fee_metadata,
 				claimed: false,
 			};
@@ -423,7 +423,7 @@ fn test_evm_accumulate_fees() {
 			match key {
 				Key::Request(req) => {
 					let leaf_meta = RequestMetadata {
-						mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+						offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
 						fee: FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() },
 						claimed: false,
 					};
@@ -431,7 +431,7 @@ fn test_evm_accumulate_fees() {
 				},
 				Key::Response { response_commitment, .. } => {
 					let leaf_meta = RequestMetadata {
-						mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+						offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
 						fee: FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() },
 						claimed: false,
 					};
@@ -628,7 +628,7 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 		match key {
 			Key::Request(req) => {
 				let leaf_meta = RequestMetadata {
-					mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+					offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
 					fee: FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() },
 					claimed: false,
 				};
@@ -636,7 +636,7 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 			},
 			Key::Response { response_commitment, .. } => {
 				let leaf_meta = RequestMetadata {
-					mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+					offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
 					fee: FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() },
 					claimed: false,
 				};

@@ -200,7 +200,7 @@ where
 		pallet_ismp::child_trie::ResponseCommitments::<T>::insert(
 			commitment,
 			RequestMetadata {
-				mmr: LeafIndexAndPos {
+				offchain: LeafIndexAndPos {
 					leaf_index: leaf_index_and_pos.index,
 					pos: leaf_index_and_pos.position,
 				},

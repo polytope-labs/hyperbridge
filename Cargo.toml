@@ -240,8 +240,8 @@ derive_more = { version = "1.0", default-features = false }
 thiserror = { version = "2", default-features = false }
 alloy-rlp = { version = "0.3.7", default-features = false }
 alloy-rlp-derive = "0.3.7"
-alloy-sol-macro = "0.7.7"
-alloy-sol-types = { version = "0.7.7", default-features = false }
+alloy-sol-macro = "0.8.15"
+alloy-sol-types = { version = "0.8.15", default-features = false }
 json = { package = "serde_json", version = "1.0.99", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"

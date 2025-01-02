@@ -126,25 +126,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c6cb57a04249c6480766f7f7cef5467412af1490f8d1e243141daddada3264f"
 
 [[package]]
-name = "alloy-primitives"
-version = "0.7.7"
+name = "alloy-json-abi"
+version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccb3ead547f4532bc8af961649942f0b9c16ee9226e26caa3f38420651cc0bf4"
+checksum = "c357da577dfb56998d01f574d81ad7a1958d248740a7981b205d69d65a7da404"
 dependencies = [
- "alloy-rlp",
- "bytes",
- "cfg-if",
- "const-hex",
- "derive_more 0.99.18",
- "hex-literal 0.4.1",
- "itoa",
- "k256",
- "keccak-asm",
- "proptest",
- "rand 0.8.5",
- "ruint",
+ "alloy-primitives",
+ "alloy-sol-type-parser",
  "serde",
- "tiny-keccak",
+ "serde_json",
 ]
 
 [[package]]
@@ -198,13 +188,13 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro"
-version = "0.7.7"
+version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b40397ddcdcc266f59f959770f601ce1280e699a91fc1862f29cef91707cd09"
+checksum = "c6d1a14b4a9f6078ad9132775a2ebb465b06b387d60f7413ddc86d7bf7453408"
 dependencies = [
  "alloy-sol-macro-expander",
  "alloy-sol-macro-input",
- "proc-macro-error",
+ "proc-macro-error2",
  "proc-macro2",
  "quote",
  "syn 2.0.87",
@@ -212,15 +202,15 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro-expander"
-version = "0.7.7"
+version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "867a5469d61480fea08c7333ffeca52d5b621f5ca2e44f271b117ec1fc9a0525"
+checksum = "4436b4b96d265eb17daea26eb31525c3076d024d10901e446790afbd2f7eeaf5"
 dependencies = [
  "alloy-sol-macro-input",
  "const-hex",
  "heck 0.5.0",
  "indexmap 2.7.0",
- "proc-macro-error",
+ "proc-macro-error2",
  "proc-macro2",
  "quote",
  "syn 2.0.87",
@@ -230,9 +220,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro-input"
-version = "0.7.7"
+version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e482dc33a32b6fadbc0f599adea520bd3aaa585c141a80b404d0a3e3fa72528"
+checksum = "e5f58698a18b96faa8513519de112b79a96010b4ff84264ce54a217c52a8e98b"
 dependencies = [
  "const-hex",
  "dunce",
@@ -244,12 +234,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "alloy-sol-types"
-version = "0.7.7"
+name = "alloy-sol-type-parser"
+version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a91ca40fa20793ae9c3841b83e74569d1cc9af29a2f5237314fd3452d51e38c7"
+checksum = "1f3d6d2c490f650c5abd65a9a583b09a8c8931c265d3a55b18a8e349dd6d9d84"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "serde",
+ "winnow 0.6.18",
+]
+
+[[package]]
+name = "alloy-sol-types"
+version = "0.8.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1174cafd6c6d810711b4e00383037bdb458efc4fe3dbafafa16567e0320c54d8"
+dependencies = [
+ "alloy-json-abi",
+ "alloy-primitives",
  "alloy-sol-macro",
  "const-hex",
  "serde",
@@ -379,7 +380,7 @@ checksum = "7d5a26814d8dcb93b0e5a0ff3c6d80a8843bafb21b39e8e18a6f05471870e110"
 name = "arbitrum-verifier"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -1686,7 +1687,7 @@ dependencies = [
 name = "bsc-verifier"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -4840,7 +4841,7 @@ dependencies = [
 name = "evm-state-machine"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -6246,7 +6247,7 @@ dependencies = [
 name = "geth-primitives"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -6833,6 +6834,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
 dependencies = [
  "foldhash",
+ "serde",
 ]
 
 [[package]]
@@ -7573,6 +7575,7 @@ checksum = "62f822373a4fe84d4bb149bf54e584a7f4abec90e072ed49cda0edea5b95471f"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.2",
+ "serde",
 ]
 
 [[package]]
@@ -7872,7 +7875,7 @@ dependencies = [
 name = "ismp-solidity-tests"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "anyhow",
  "beefy-prover",
  "beefy-verifier-primitives",
@@ -11427,7 +11430,7 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 name = "op-verifier"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -12307,7 +12310,7 @@ dependencies = [
 name = "pallet-ismp-host-executive"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",
@@ -12326,7 +12329,7 @@ dependencies = [
 name = "pallet-ismp-relayer"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -12402,7 +12405,7 @@ dependencies = [
 name = "pallet-ismp-testsuite"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
  "ckb-merkle-mountain-range",
@@ -12938,7 +12941,7 @@ dependencies = [
 name = "pallet-state-coprocessor"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp",
  "evm-state-machine",
  "frame-support 37.0.0",
@@ -13032,7 +13035,7 @@ dependencies = [
 name = "pallet-token-gateway"
 version = "1.15.3"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",
@@ -13055,7 +13058,7 @@ dependencies = [
 name = "pallet-token-gateway-inspector"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",
@@ -13078,7 +13081,7 @@ dependencies = [
 name = "pallet-token-governor"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",
@@ -13270,7 +13273,7 @@ dependencies = [
 name = "pallet-xcm-gateway"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp-derive",
  "alloy-sol-macro",
  "alloy-sol-types",
@@ -15409,6 +15412,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro-error-attr2"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96de42df36bb9bba5542fe9f1a054b8cc87e172759a1868aa05c1f3acc89dfc5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
+name = "proc-macro-error2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11ec05c52be0a07b08061f7dd003e7d7092e0472bc731b4af7bb1ef876109802"
+dependencies = [
+ "proc-macro-error-attr2",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
+]
+
+[[package]]
 name = "proc-macro-warning"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -16052,6 +16077,7 @@ dependencies = [
  "libc",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
+ "serde",
 ]
 
 [[package]]
@@ -23468,7 +23494,7 @@ dependencies = [
 name = "subxt-utils"
 version = "0.1.1"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "anyhow",
  "derivative",
  "futures",
@@ -23539,9 +23565,9 @@ dependencies = [
 
 [[package]]
 name = "syn-solidity"
-version = "0.7.7"
+version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c837dc8852cb7074e46b444afb81783140dab12c58867b49fb3898fbafedf7ea"
+checksum = "c74af950d86ec0f5b2ae2d7f1590bbfbcf4603a0a15742d8f98132ac4fe3efd4"
 dependencies = [
  "paste",
  "proc-macro2",
@@ -23843,7 +23869,7 @@ dependencies = [
 name = "tesseract-evm"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -24246,7 +24272,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 name = "token-gateway-primitives"
 version = "1.15.3"
 dependencies = [
- "alloy-primitives 0.8.15",
+ "alloy-primitives",
  "alloy-sol-macro",
  "alloy-sol-types",
  "anyhow",

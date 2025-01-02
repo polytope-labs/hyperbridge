@@ -218,7 +218,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("nexus"),
 	impl_name: create_runtime_str!("nexus"),
 	authoring_version: 1,
-	spec_version: 1900,
+	spec_version: 2_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1077,6 +1077,13 @@ impl_runtime_apis! {
 		fn fork_identifier() -> Result<Hash, sp_mmr_primitives::Error> {
 			Ok(Ismp::child_trie_root())
 		}
+
+		/// Generate a proof for the provided leaf indices
+		fn generate_proof(
+			keys: ProofKeys
+		) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
+			Mmr::generate_proof(keys)
+		}
 	}
 
 	impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
@@ -1086,13 +1093,6 @@ impl_runtime_apis! {
 
 		fn challenge_period(id: StateMachineId) -> Option<u64> {
 			Ismp::challenge_period(id)
-		}
-
-		/// Generate a proof for the provided leaf indices
-		fn generate_proof(
-			keys: ProofKeys
-		) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
-			Ismp::generate_proof(keys)
 		}
 
 		/// Fetch all ISMP events and their extrinsic metadata

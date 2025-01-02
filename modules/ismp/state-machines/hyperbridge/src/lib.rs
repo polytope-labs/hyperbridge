@@ -130,7 +130,11 @@ where
 
 				for (commitment_key, payment_key, size, item) in commitments {
 					trie.get(&commitment_key)
-						.map_err(|e| Error::Custom(format!("Error reading state proof: {e:?}")))?
+						.map_err(|e| {
+							Error::Custom(format!(
+								"HyperbridgeClientMachine: Error reading Keccak state proof: {e:?}"
+							))
+						})?
 						.ok_or_else(|| {
 							Error::Custom(format!(
 								"Request commitment not present in path: {commitment_key:?}",
@@ -150,7 +154,7 @@ where
 						let paid = trie
 							.get(&payment_key)
 							.map_err(|e| {
-								Error::Custom(format!("Error reading state proof: {e:?}"))
+								Error::Custom(format!("HyperbridgeClientMachine: Error reading Keccak payment proof {e:?}"))
 							})?
 							.map(|value| u128::decode(&mut &value[..]))
 							.transpose()
@@ -184,7 +188,11 @@ where
 
 				for (commitment_key, payment_key, size, item) in commitments {
 					trie.get(&commitment_key)
-						.map_err(|e| Error::Custom(format!("Error reading state proof: {e:?}")))?
+						.map_err(|e| {
+							Error::Custom(format!(
+								"HyperbridgeClientMachine: Error reading Blake2 state proof: {e:?}"
+							))
+						})?
 						.ok_or_else(|| {
 							Error::Custom(format!(
 								"Response commitment not present in path: {commitment_key:?}",
@@ -204,7 +212,7 @@ where
 						let paid = trie
 							.get(&payment_key)
 							.map_err(|e| {
-								Error::Custom(format!("Error reading state proof: {e:?}"))
+								Error::Custom(format!("HyperbridgeClientMachine: Error reading Blake2 payment proof: {e:?}"))
 							})?
 							.map(|value| u128::decode(&mut &value[..]))
 							.transpose()

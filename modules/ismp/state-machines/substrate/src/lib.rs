@@ -159,7 +159,7 @@ where
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
                             Error::Custom(format!(
-                                "Error reading state proof: {e:?}"
+                                "SubstrateStateMachine: Error reading Keccak state proof: {e:?}"
                             ))
                         })?.ok_or_else(|| Error::Custom(format!(
                             "Every key in a membership proof should have a value, found a key {:?} with None", key
@@ -177,7 +177,7 @@ where
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
                             Error::Custom(format!(
-                                "Error reading state proof: {e:?}"
+                                "SubstrateStateMachine: Error reading Blake2 state proof: {e:?}"
                             ))
                         })?.ok_or_else(|| Error::Custom(format!(
                             "Every key in a membership proof should have a value, found a key {:?} with None", key

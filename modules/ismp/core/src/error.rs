@@ -103,11 +103,11 @@ pub enum Error {
 	},
 	/// Cannot handle the given message
 	CannotHandleMessage,
-	/// Membership proof verification failed
+	/// Membership proof verification failed: {0}
 	MembershipProofVerificationFailed(String),
-	/// Non-membership proof verification failed
+	/// Non-membership proof verification failed: {0}
 	NonMembershipProofVerificationFailed(String),
-	/// Some custom error message
+	/// Custom error: {0}
 	Custom(String),
 	/// A consensus client with the given identifier already exists
 	CannotCreateAlreadyExistingConsensusClient {

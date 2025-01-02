@@ -50,17 +50,18 @@ pub const KUSAMA_CONSENSUS_STATE_ID: ConsensusStateId = *b"ksma";
 /// [`ConsensusClientId`] for GRANDPA consensus
 pub const GRANDPA_CONSENSUS_ID: ConsensusClientId = *b"GRNP";
 
-pub struct GrandpaConsensusClient<T>(PhantomData<T>);
+pub struct GrandpaConsensusClient<T, S = SubstrateStateMachine<T>>(PhantomData<(T, S)>);
 
-impl<T> Default for GrandpaConsensusClient<T> {
+impl<T, S> Default for GrandpaConsensusClient<T, S> {
 	fn default() -> Self {
 		Self(PhantomData)
 	}
 }
 
-impl<T> ConsensusClient for GrandpaConsensusClient<T>
+impl<T, S> ConsensusClient for GrandpaConsensusClient<T, S>
 where
 	T: pallet_ismp::Config + super::Config,
+	S: StateMachineClient + From<StateMachine> + 'static,
 {
 	fn verify_consensus(
 		&self,
@@ -319,7 +320,7 @@ where
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		if SupportedStateMachines::<T>::contains_key(id) {
-			Ok(Box::new(SubstrateStateMachine::<T>::default()))
+			Ok(Box::new(S::from(id)))
 		} else {
 			Err(Error::Custom(format!("Unsupported State Machine {id:?}")))
 		}

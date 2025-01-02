@@ -92,21 +92,7 @@ This method accepts a list of response commitments and responds with the request
    let commitment = H256::random();
    let params = rpc_params![pallet_ismp::offchain::LeafIndexQuery { commitment }];
    let requests: Vec<Request> = client.rpc().request("ismp_queryResponses", params).await.unwrap();
-```
-
-### `query_mmr_proof`
-This method queries the mmr proof a list of request or response commitments, it responds with a `Proof` struct which contains the scale encoded `sp_mmr_primitives::primitives::Proof<H256>`.
-
-```rust showLineNumbers
-   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
-		.await.unwrap();
-   // Use an actual request commitment that exists
-   let commitment = H256::random();
-   // Block height at which proof should be queried
-   let at = 100;
-   let params = rpc_params![at, pallet_ismp::offchain::ProofKeys::Requests(vec![commitment])];
-   let requests: Proof = client.rpc().request("ismp_queryMmrProof", params).await.unwrap();
-```
+```mmr_queryProof
 
 ### `query_child_trie_proof`
 This method accepts a list of keys and generates a merkle patricia trie proof from palle-ismp's child trie. It responds with a proof struct which contains the scale encoded proof noded `Vec<Vec<u8>>`.

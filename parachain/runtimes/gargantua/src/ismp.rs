@@ -100,7 +100,10 @@ impl pallet_ismp::Config for Runtime {
 			IsmpParachain,
 			HyperbridgeClientMachine<Runtime, Ismp>,
 		>,
-		ismp_grandpa::consensus::GrandpaConsensusClient<Runtime>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<
+			Runtime,
+			HyperbridgeClientMachine<Runtime, Ismp>,
+		>,
 	);
 	type OffchainDB = Mmr;
 	type WeightProvider = ();

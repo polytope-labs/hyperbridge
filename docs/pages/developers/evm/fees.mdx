@@ -86,6 +86,16 @@ IERC20(feeToken).safeTransferFrom(msg.sender, address(this), feeTokenCost);
 IDispatcher(host()).dispatch(request);
 ```
 
+## Testnet Fees
+
+The IsmpHost on testnet is not configured to accept dispatch fees in the native token. This is because it would require creating a uniswap pool with it's native token and `feeToken`. Therefore only `feeToken` payments are accepted on testnet. To get the `feeToken` for dispatch payments you can call the `tokenFaucet` like so:
+
+```solidity
+TokenFaucet(faucetAddress).drip(feeTokenAddress);
+```
+
+This will drip 1,000 feeTokens to the caller. This method can only be called once a day. Now you can dispatch using the "stable coin" payment method.
+
 
 ## Relayer Fees
 

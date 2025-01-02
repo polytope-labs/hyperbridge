@@ -346,7 +346,7 @@ fn dispatching_remote_asset_creation() {
 			},
 		};
 
-		TokenGateway::create_erc6160_asset(RuntimeOrigin::signed(ALICE), reg).unwrap();
+		TokenGateway::create_erc6160_asset(RuntimeOrigin::signed(ALICE), reg, true).unwrap();
 
 		let asset = pallet_token_gateway::SupportedAssets::<Test>::get(local_asset_id).unwrap();
 		// For the test we use the same asset id construction for local and token gateway, they

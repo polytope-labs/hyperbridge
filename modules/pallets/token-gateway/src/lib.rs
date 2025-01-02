@@ -64,7 +64,10 @@ pub mod pallet {
 	use super::*;
 	use frame_support::{
 		pallet_prelude::*,
-		traits::{tokens::Preservation, Currency, ExistenceRequirement},
+		traits::{
+			tokens::{Fortitude, Precision, Preservation},
+			Currency, ExistenceRequirement,
+		},
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
@@ -120,6 +123,11 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type SupportedAssets<T: Config> =
 		StorageMap<_, Blake2_128Concat, AssetId<T>, H256, OptionQuery>;
+
+	/// Assets that originate from this chain
+	#[pallet::storage]
+	pub type NativeAssets<T: Config> =
+		StorageMap<_, Blake2_128Concat, AssetId<T>, bool, ValueQuery>;
 
 	/// Assets supported by this instance of token gateway
 	/// A map of the token gateway asset id to the local asset id
@@ -237,17 +245,31 @@ pub mod pallet {
 					&who,
 					&Self::pallet_account(),
 					params.amount,
-					ExistenceRequirement::KeepAlive,
+					ExistenceRequirement::AllowDeath,
 				)?;
 				T::Decimals::get()
 			} else {
-				<T as Config>::Assets::transfer(
-					params.asset_id.clone(),
-					&who,
-					&Self::pallet_account(),
-					params.amount.into(),
-					Preservation::Protect,
-				)?;
+				let is_native = NativeAssets::<T>::get(params.asset_id.clone());
+				if is_native {
+					<T as Config>::Assets::transfer(
+						params.asset_id.clone(),
+						&who,
+						&Self::pallet_account(),
+						params.amount.into(),
+						Preservation::Expendable,
+					)?;
+				} else {
+					// Assets that do not originate from this chain are burned
+					<T as Config>::Assets::burn_from(
+						params.asset_id.clone(),
+						&who,
+						params.amount.into(),
+						Preservation::Expendable,
+						Precision::Exact,
+						Fortitude::Polite,
+					)?;
+				}
+
 				<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
 					params.asset_id.clone(),
 				)
@@ -317,11 +339,13 @@ pub mod pallet {
 		///
 		/// This works by dispatching a request to the TokenGateway module on each requested chain
 		/// to create the asset.
+		/// `native` should be true if this asset originates from this chain
 		#[pallet::call_index(2)]
 		#[pallet::weight(weight())]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
+			native: bool,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
@@ -343,6 +367,7 @@ pub mod pallet {
 			// the mapping to its token gateway asset id
 
 			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
+			NativeAssets::<T>::insert(asset.local_id.clone(), native);
 			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
 			// All ERC6160 assets use 18 decimals
 			Decimals::<T>::insert(asset.local_id, 18);
@@ -478,7 +503,7 @@ where
 					// Note the asset's ERC counterpart decimal
 					Decimals::<T>::insert(local_asset_id, metadata.decimals);
 				}
-				return Ok(())
+				return Ok(());
 			}
 
 			if let Ok(meta) = DeregisterAssets::decode(&mut &body[..]) {
@@ -546,17 +571,27 @@ where
 				meta: Meta { source, dest, nonce },
 			})?;
 		} else {
-			<T as Config>::Assets::transfer(
-				local_asset_id,
-				&Pallet::<T>::pallet_account(),
-				&beneficiary,
-				amount.into(),
-				Preservation::Protect,
-			)
-			.map_err(|_| ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Failed to complete asset transfer".to_string(),
-				meta: Meta { source, dest, nonce },
-			})?;
+			// Assets that do not originate from this chain are minted
+			let is_native = NativeAssets::<T>::get(local_asset_id.clone());
+			if is_native {
+				<T as Config>::Assets::transfer(
+					local_asset_id,
+					&Pallet::<T>::pallet_account(),
+					&beneficiary,
+					amount.into(),
+					Preservation::Expendable,
+				)
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+					meta: Meta { source, dest, nonce },
+				})?;
+			} else {
+				<T as Config>::Assets::mint_into(local_asset_id, &beneficiary, amount.into())
+					.map_err(|_| ismp::error::Error::ModuleDispatchError {
+						msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+						meta: Meta { source, dest, nonce },
+					})?;
+			}
 		}
 
 		Self::deposit_event(Event::<T>::AssetReceived {

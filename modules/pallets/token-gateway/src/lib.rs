@@ -652,17 +652,31 @@ where
 						meta: Meta { source, dest, nonce },
 					})?;
 				} else {
-					<T as Config>::Assets::transfer(
-						local_asset_id,
-						&Pallet::<T>::pallet_account(),
-						&beneficiary,
-						amount.into(),
-						Preservation::Protect,
-					)
-					.map_err(|_| ismp::error::Error::ModuleDispatchError {
-						msg: "Token Gateway: Failed to complete asset transfer".to_string(),
-						meta: Meta { source, dest, nonce },
-					})?;
+					// Assets that do not originate from this chain are minted
+					let is_native = NativeAssets::<T>::get(local_asset_id.clone());
+					if is_native {
+						<T as Config>::Assets::transfer(
+							local_asset_id,
+							&Pallet::<T>::pallet_account(),
+							&beneficiary,
+							amount.into(),
+							Preservation::Protect,
+						)
+						.map_err(|_| ismp::error::Error::ModuleDispatchError {
+							msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+							meta: Meta { source, dest, nonce },
+						})?;
+					} else {
+						<T as Config>::Assets::mint_into(
+							local_asset_id,
+							&beneficiary,
+							amount.into(),
+						)
+						.map_err(|_| ismp::error::Error::ModuleDispatchError {
+							msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+							meta: Meta { source, dest, nonce },
+						})?;
+					}
 				}
 
 				Pallet::<T>::deposit_event(Event::<T>::AssetRefunded {

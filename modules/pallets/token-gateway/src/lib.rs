@@ -660,7 +660,7 @@ where
 							&Pallet::<T>::pallet_account(),
 							&beneficiary,
 							amount.into(),
-							Preservation::Protect,
+							Preservation::Expendable,
 						)
 						.map_err(|_| ismp::error::Error::ModuleDispatchError {
 							msg: "Token Gateway: Failed to complete asset transfer".to_string(),

@@ -178,6 +178,7 @@ pub mod child_trie;
 pub mod dispatcher;
 pub mod errors;
 pub mod events;
+mod fee;
 pub mod host;
 mod impls;
 pub mod offchain;
@@ -197,12 +198,13 @@ pub mod pallet {
 	use crate::{
 		child_trie::{RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX},
 		errors::HandlingError,
+		fee::HandleFee,
 		weights::{get_weight, WeightProvider},
 	};
 	use codec::{Codec, Encode};
 	use core::fmt::Debug;
 	use frame_support::{
-		dispatch::{DispatchResult, DispatchResultWithPostInfo},
+		dispatch::{DispatchResult, DispatchResultWithPostInfo, PostDispatchInfo},
 		pallet_prelude::*,
 		traits::{fungible::Mutate, tokens::Preservation, Get, UnixTime},
 		PalletId,
@@ -304,6 +306,9 @@ pub mod pallet {
 		/// This offchain DB is also allowed to "merkelize" and "generate proofs" for messages.
 		/// Most state machines will likey not need this and can just provide `()`
 		type OffchainDB: OffchainDBProvider<Leaf = Leaf>;
+
+		/// FeeHandler with custom fee logic
+		type FeeHandler: HandleFee<Self>;
 	}
 
 	// Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and
@@ -437,7 +442,12 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			Self::execute(messages)
+			Self::execute(messages.clone())?;
+
+			Ok(PostDispatchInfo {
+				actual_weight: Some(get_weight::<T>(&messages)),
+				pays_fee: Pays::No,
+			})
 		}
 
 		/// Execute the provided batch of ISMP messages. This call will short-circuit and revert if
@@ -453,9 +463,11 @@ pub mod pallet {
 		#[pallet::call_index(1)]
 		#[frame_support::transactional]
 		pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResultWithPostInfo {
-			ensure_signed(origin)?;
+			let signer = ensure_signed(origin)?;
 
-			Self::execute(messages)
+			Self::execute(messages.clone())?;
+
+			T::FeeHandler::handle_fee(messages.as_slice(), signer)
 		}
 
 		/// Create a consensus client, using a subjectively chosen consensus state. This can also

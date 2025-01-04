@@ -19,12 +19,11 @@ use crate::{
 	child_trie::{RequestCommitments, ResponseCommitments},
 	dispatcher::{FeeMetadata, RequestMetadata},
 	offchain::{self, ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider, Proof, ProofKeys},
-	weights::get_weight,
 	Config, Error, Event, Pallet, Responded,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use codec::Decode;
-use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
+use frame_support::dispatch::DispatchResult;
 use frame_system::Phase;
 use ismp::{
 	handlers::{handle_incoming_message, MessageResult},
@@ -80,7 +79,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Execute the provided ISMP datagrams, this will short circuit if any messages are invalid.
-	pub fn execute(messages: Vec<Message>) -> DispatchResultWithPostInfo {
+	pub fn execute(messages: Vec<Message>) -> DispatchResult {
 		// Define a host
 		let host = Pallet::<T>::default();
 		let events = messages
@@ -116,10 +115,7 @@ impl<T: Config> Pallet<T> {
 			Pallet::<T>::deposit_event(event.into())
 		}
 
-		Ok(PostDispatchInfo {
-			actual_weight: Some(get_weight::<T>(&messages)),
-			pays_fee: Pays::Yes,
-		})
+		Ok(())
 	}
 
 	/// Dispatch an outgoing request, returns the request commitment

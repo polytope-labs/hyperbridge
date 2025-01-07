@@ -15,47 +15,43 @@
 
 //! Utilities for providing the static weights for module callbacks
 
-use crate::{utils::ModuleId, Config};
-use alloc::boxed::Box;
-use frame_support::weights::Weight;
+use crate::Config;
+use frame_support::weights::{constants::RocksDbWeight, Weight};
 use ismp::{
 	messaging::{Message, TimeoutMessage},
-	router::{GetResponse, PostRequest, Request, RequestResponse, Response, Timeout},
+	router::{GetResponse, PostRequest, RequestResponse, Response, Timeout},
 };
 
 /// Interface for providing the weight information about [`IsmpModule`](ismp::module::IsmpModule)
 /// callbacks
 pub trait IsmpModuleWeight {
 	/// Should return the weight used in processing this request
-	fn on_accept(&self, request: &PostRequest) -> Weight;
+	fn on_accept(request: &PostRequest) -> Weight;
 	/// Should return the weight used in processing this timeout
-	fn on_timeout(&self, request: &Timeout) -> Weight;
+	fn on_timeout(request: &Timeout) -> Weight;
 	/// Should return the weight used in processing this response
-	fn on_response(&self, response: &Response) -> Weight;
+	fn on_response(response: &Response) -> Weight;
 }
 
+/// Just by estimation, require benchmark to generate weight for production in runtimes
 impl IsmpModuleWeight for () {
-	fn on_accept(&self, _request: &PostRequest) -> Weight {
-		Weight::zero()
+	fn on_accept(_request: &PostRequest) -> Weight {
+		Weight::from_parts(63_891_000, 0)
+			.saturating_add(Weight::from_parts(0, 52674))
+			.saturating_add(RocksDbWeight::get().reads(6))
+			.saturating_add(RocksDbWeight::get().writes(1))
 	}
-	fn on_timeout(&self, _request: &Timeout) -> Weight {
-		Weight::zero()
+	fn on_timeout(_request: &Timeout) -> Weight {
+		Weight::from_parts(63_891_000, 0)
+			.saturating_add(Weight::from_parts(0, 52674))
+			.saturating_add(RocksDbWeight::get().reads(6))
+			.saturating_add(RocksDbWeight::get().writes(1))
 	}
-	fn on_response(&self, _response: &Response) -> Weight {
-		Weight::zero()
-	}
-}
-
-/// An interface for querying the [`IsmpModuleWeight`] for a given
-/// [`IsmpModule`](ismp::module::IsmpModule)
-pub trait WeightProvider {
-	/// Returns a reference to the weight provider for a module
-	fn module_callback(dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>>;
-}
-
-impl WeightProvider for () {
-	fn module_callback(_dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>> {
-		None
+	fn on_response(_response: &Response) -> Weight {
+		Weight::from_parts(63_891_000, 0)
+			.saturating_add(Weight::from_parts(0, 52674))
+			.saturating_add(RocksDbWeight::get().reads(6))
+			.saturating_add(RocksDbWeight::get().writes(1))
 	}
 }
 
@@ -63,45 +59,23 @@ impl WeightProvider for () {
 pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
 	messages.into_iter().fold(Weight::zero(), |acc, msg| match msg {
 		Message::Request(msg) => {
-			let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {
-				let dest_module = ModuleId::from_bytes(req.to.as_slice()).ok();
-				let handle = dest_module
-					.map(|id| <T as Config>::WeightProvider::module_callback(id))
-					.flatten()
-					.unwrap_or(Box::new(()));
-				acc + handle.on_accept(&req)
-			});
+			let cb_weight = msg
+				.requests
+				.iter()
+				.fold(Weight::zero(), |acc, req| acc + T::WeightProvider::on_accept(&req));
 			acc + cb_weight
 		},
 		Message::Response(msg) => match &msg.datagram {
 			RequestResponse::Response(responses) => {
-				let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
-					let dest_module = match res {
-						Response::Post(ref post) =>
-							ModuleId::from_bytes(post.post.from.as_slice()).ok(),
-						_ => return acc,
-					};
-
-					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
-						.flatten()
-						.unwrap_or(Box::new(()));
-					acc + handle.on_response(&res)
-				});
+				let cb_weight = responses
+					.iter()
+					.fold(Weight::zero(), |acc, res| acc + T::WeightProvider::on_response(&res));
 
 				acc + cb_weight
 			},
 			RequestResponse::Request(requests) => {
 				let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
-					let dest_module = match req {
-						Request::Get(ref get) => ModuleId::from_bytes(get.from.as_slice()).ok(),
-						_ => return acc,
-					};
-					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
-						.flatten()
-						.unwrap_or(Box::new(()));
-					acc + handle.on_response(&Response::Get(GetResponse {
+					acc + T::WeightProvider::on_response(&Response::Get(GetResponse {
 						get: req.get_request().expect("Infallible"),
 						values: Default::default(),
 					}))
@@ -113,42 +87,21 @@ pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
 		Message::Timeout(msg) => match msg {
 			TimeoutMessage::Post { requests, .. } => {
 				let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
-					let dest_module = match req {
-						Request::Post(ref post) => ModuleId::from_bytes(post.from.as_slice()).ok(),
-						_ => return acc,
-					};
-					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
-						.flatten()
-						.unwrap_or(Box::new(()));
-					acc + handle.on_timeout(&Timeout::Request(req.clone()))
+					acc + T::WeightProvider::on_timeout(&Timeout::Request(req.clone()))
 				});
 
 				acc + cb_weight
 			},
 			TimeoutMessage::PostResponse { responses, .. } => {
 				let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
-					let dest_module = ModuleId::from_bytes(&res.post.to).ok();
-					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
-						.flatten()
-						.unwrap_or(Box::new(()));
-					acc + handle.on_timeout(&Timeout::Response(res.clone()))
+					acc + T::WeightProvider::on_timeout(&Timeout::Response(res.clone()))
 				});
 
 				acc + cb_weight
 			},
 			TimeoutMessage::Get { requests } => {
 				let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
-					let dest_module = match req {
-						Request::Get(ref get) => ModuleId::from_bytes(get.from.as_slice()).ok(),
-						_ => return acc,
-					};
-					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
-						.flatten()
-						.unwrap_or(Box::new(()));
-					acc + handle.on_timeout(&Timeout::Request(req.clone()))
+					acc + T::WeightProvider::on_timeout(&Timeout::Request(req.clone()))
 				});
 				acc + cb_weight
 			},

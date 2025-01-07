@@ -199,7 +199,7 @@ pub mod pallet {
 		child_trie::{RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX},
 		errors::HandlingError,
 		fee::HandleFee,
-		weights::{get_weight, WeightProvider},
+		weights::{get_weight, IsmpModuleWeight},
 	};
 	use codec::{Codec, Encode};
 	use core::fmt::Debug;
@@ -295,10 +295,6 @@ pub mod pallet {
 		/// subsystems.
 		type ConsensusClients: ConsensusClientProvider;
 
-		/// This implementation should provide the weight consumed by `IsmpModule` callbacks from
-		/// their benchmarks.
-		type WeightProvider: WeightProvider;
-
 		/// Offchain database implementation. Outgoing requests and responses are
 		/// inserted in this database, while their commitments are stored onchain.
 		///
@@ -308,6 +304,10 @@ pub mod pallet {
 
 		/// FeeHandler with custom fee logic
 		type FeeHandler: HandleFee<Self>;
+
+		/// This implementation should provide the weight consumed by `IsmpModuleWeight` from
+		/// their benchmarks.
+		type WeightProvider: IsmpModuleWeight;
 	}
 
 	// Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and

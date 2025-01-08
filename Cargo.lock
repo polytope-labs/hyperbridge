@@ -10326,7 +10326,9 @@ version = "29.0.1"
 dependencies = [
  "futures",
  "log",
+ "mmr-primitives",
  "pallet-ismp",
+ "pallet-mmr 0.1.1",
  "pallet-mmr-runtime-api",
  "parity-scale-codec",
  "sc-client-api 37.0.0",

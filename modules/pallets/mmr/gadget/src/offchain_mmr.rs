@@ -22,16 +22,21 @@
 #![warn(missing_docs)]
 
 use crate::{aux_schema, HashFor, MmrClient, LOG_TARGET};
+use codec::Decode;
 use log::{debug, error, info, trace, warn};
-use pallet_ismp::offchain::Leaf;
+use mmr_primitives::DataOrHash;
+use pallet_ismp::offchain::{FullLeaf, Leaf};
 use pallet_mmr_runtime_api::MmrRuntimeApi;
 use sc_client_api::{Backend, FinalityNotification};
 use sc_offchain::OffchainDb;
 use sp_blockchain::{CachedHeaderMetadata, ForkBackend};
-use sp_core::offchain::{DbExternalities, StorageKind};
+use sp_core::{
+	keccak_256,
+	offchain::{DbExternalities, StorageKind},
+};
 use sp_mmr_primitives::{utils::NodesUtils, LeafIndex, NodeIndex};
 use sp_runtime::{
-	traits::{Block, Header, NumberFor, One},
+	traits::{Block, Header, Keccak256, NumberFor, One},
 	Saturating,
 };
 use std::{collections::VecDeque, sync::Arc};
@@ -236,6 +241,20 @@ where
 				let canon_key = self.node_canon_offchain_key(pos);
 				self.offchain_db.local_storage_set(StorageKind::PERSISTENT, &canon_key, &elem);
 				self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
+				// if it's a leaf node, also clear the duplicate that was added to no_op storage
+				if let Ok(data) = pallet_mmr::mmr::Node::<Keccak256, Leaf>::decode(&mut &*elem) {
+					match data {
+						DataOrHash::Data(leaf) => {
+							let pre_image = leaf.preimage();
+							let commitment = keccak_256(&pre_image);
+							let duplicate_key =
+								pallet_ismp::offchain::leaf_default_key(commitment.into());
+							self.offchain_db
+								.local_storage_clear(StorageKind::PERSISTENT, &duplicate_key);
+						},
+						_ => {},
+					}
+				}
 				debug!(
 					target: LOG_TARGET,
 					"Moved elem at pos {}, fork_identifier {:?} header_hash {:?} to canon key {:?}",

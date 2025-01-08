@@ -18,7 +18,7 @@
 use crate::{
 	child_trie::{RequestCommitments, ResponseCommitments},
 	dispatcher::{FeeMetadata, RequestMetadata},
-	offchain::{self, ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider, Proof, ProofKeys},
+	offchain::{self, ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider},
 	weights::get_weight,
 	Config, Error, Event, Pallet, Responded,
 };
@@ -48,11 +48,12 @@ impl<T: Config> Pallet<T> {
 					// check that requests will be successfully dispatched
 					// so we can not be spammed with failing txs
 					.map(|result| match result {
-						MessageResult::Request(results) |
-						MessageResult::Response(results) |
-						MessageResult::Timeout(results) => results,
-						MessageResult::ConsensusMessage(events) =>
-							events.into_iter().map(Ok).collect(),
+						MessageResult::Request(results)
+						| MessageResult::Response(results)
+						| MessageResult::Timeout(results) => results,
+						MessageResult::ConsensusMessage(events) => {
+							events.into_iter().map(Ok).collect()
+						},
 						MessageResult::FrozenClient(_) => {
 							vec![]
 						},

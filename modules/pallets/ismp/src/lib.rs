@@ -1,4 +1,4 @@
-// Copyright (c) 2024 Polytope Labs.
+// Copyright (c) 2025 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -245,7 +245,6 @@ pub mod pallet {
 
 			let child_trie_root = H256::from_slice(&child_trie_root);
 			ChildTrieRoot::<T>::put::<T::Hash>(child_trie_root.into());
-			// Only finalize if mmr was modified
 			let root = match T::OffchainDB::finalize() {
 				Ok(root) => root,
 				Err(e) => {

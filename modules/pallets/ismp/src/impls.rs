@@ -1,4 +1,4 @@
-// Copyright (c) 2024 Polytope Labs.
+// Copyright (c) 2025 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,46 +34,6 @@ use ismp::{
 use sp_core::{offchain::StorageKind, H256};
 
 impl<T: Config> Pallet<T> {
-	/// Generate an MMR proof for the given `leaf_indices`.
-	/// Note this method can only be used from an off-chain context
-	/// (Offchain Worker or Runtime API call), since it requires
-	/// all the leaves to be present.
-	/// It may return an error or panic if used incorrectly.
-	pub fn generate_proof(
-		keys: ProofKeys,
-	) -> Result<(Vec<Leaf>, Proof<H256>), sp_mmr_primitives::Error> {
-		let leaf_indices_and_positions = match keys {
-			ProofKeys::Requests(commitments) => commitments
-				.into_iter()
-				.map(|commitment| {
-					let val = RequestCommitments::<T>::get(commitment)
-						.ok_or_else(|| sp_mmr_primitives::Error::LeafNotFound)?
-						.offchain;
-					Ok(val)
-				})
-				.collect::<Result<Vec<_>, _>>()?,
-			ProofKeys::Responses(commitments) => commitments
-				.into_iter()
-				.map(|commitment| {
-					let val = ResponseCommitments::<T>::get(commitment)
-						.ok_or_else(|| sp_mmr_primitives::Error::LeafNotFound)?
-						.offchain;
-					Ok(val)
-				})
-				.collect::<Result<Vec<_>, _>>()?,
-		};
-		let indices =
-			leaf_indices_and_positions.iter().map(|val| val.leaf_index).collect::<Vec<_>>();
-		let (leaves, proof) = T::OffchainDB::proof(indices)?;
-		let proof = Proof {
-			leaf_indices_and_pos: leaf_indices_and_positions,
-			leaf_count: proof.leaf_count,
-			items: proof.items,
-		};
-
-		Ok((leaves, proof))
-	}
-
 	/// Execute the provided ISMP datagrams, this will short circuit if any messages are invalid.
 	pub fn execute(messages: Vec<Message>) -> DispatchResultWithPostInfo {
 		// Define a host

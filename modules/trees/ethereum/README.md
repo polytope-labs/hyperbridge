@@ -67,4 +67,4 @@ This library also supports `no_std`, simply add `default-features = false` to th
 
 ## License
 
-This library is licensed under the Apache 2.0 License, Copyright (c) 2024 Polytope Labs.
+This library is licensed under the Apache 2.0 License, Copyright (c) 2025 Polytope Labs.

@@ -242,18 +242,13 @@ where
 				self.offchain_db.local_storage_set(StorageKind::PERSISTENT, &canon_key, &elem);
 				self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
 				// if it's a leaf node, also clear the duplicate that was added to no_op storage
-				if let Ok(data) = pallet_mmr::mmr::Node::<Keccak256, Leaf>::decode(&mut &*elem) {
-					match data {
-						DataOrHash::Data(leaf) => {
-							let pre_image = leaf.preimage();
-							let commitment = keccak_256(&pre_image);
-							let duplicate_key =
-								pallet_ismp::offchain::leaf_default_key(commitment.into());
-							self.offchain_db
-								.local_storage_clear(StorageKind::PERSISTENT, &duplicate_key);
-						},
-						_ => {},
-					}
+				if let Ok(DataOrHash::Data(leaf)) =
+					pallet_mmr::mmr::Node::<Keccak256, Leaf>::decode(&mut &*elem)
+				{
+					let pre_image = leaf.preimage();
+					let commitment = keccak_256(&pre_image);
+					let duplicate_key = pallet_ismp::offchain::leaf_default_key(commitment.into());
+					self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &duplicate_key);
 				}
 				debug!(
 					target: LOG_TARGET,

@@ -48,6 +48,8 @@ pub struct SyncCommitteeConfig {
 	/// General ethereum config
 	#[serde[flatten]]
 	pub evm_config: EvmConfig,
+	/// Supported L2s
+	pub layer_twos: Option<Vec<StateMachine>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

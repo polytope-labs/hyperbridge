@@ -391,8 +391,9 @@ fn should_receive_asset_with_call_correctly() {
 
 		let (pair, ..) = sp_core::sr25519::Pair::generate();
 		let beneficiary = pair.public().0;
+		let payload = (0u64, runtime_call.clone()).encode();
 
-		let message = sp_core::keccak_256(&runtime_call);
+		let message = sp_core::keccak_256(&payload);
 
 		let raw_signature = pair.sign(&message);
 
@@ -428,10 +429,14 @@ fn should_receive_asset_with_call_correctly() {
 			},
 		};
 
-		module.on_accept(post).unwrap();
+		module.on_accept(post.clone()).unwrap();
 		let recipient: AccountId32 = final_recepient.0.into();
 		let new_balance = pallet_balances::Pallet::<Test>::free_balance(recipient);
 
 		assert_eq!(new_balance, SEND_AMOUNT);
+
+		// try to replay call
+		let res = module.on_accept(post);
+		assert!(res.is_err());
 	});
 }

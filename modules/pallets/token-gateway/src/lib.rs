@@ -23,7 +23,7 @@ pub mod types;
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
-use codec::Decode;
+use codec::{Decode, Encode};
 use frame_support::{
 	ensure,
 	pallet_prelude::Weight,
@@ -634,8 +634,9 @@ where
 		if let Some(call_data) = body.data {
 			let substrate_data = SubstrateCalldata::decode(&mut &call_data.0[..])?;
 			// Verify signature against encoded runtime call
-			let message =
-				<<T as frame_system::Config>::Hashing as Hash>::hash(&substrate_data.runtime_call);
+			let nonce = frame_system::Pallet::<T>::account_nonce(beneficiary.clone());
+			let payload = (nonce, substrate_data.runtime_call.clone()).encode();
+			let message = <<T as frame_system::Config>::Hashing as Hash>::hash(&payload);
 
 			let multi_signature = MultiSignature::decode(&mut &*substrate_data.signature)?;
 
@@ -684,6 +685,8 @@ where
 			runtime_call
 				.dispatch(RawOrigin::Signed(beneficiary.clone()).into())
 				.map_err(|e| anyhow!("Call dispatch executed with error {:?}", e.error))?;
+			// Increase account nonce to ensure the call cannot be replayed
+			frame_system::Pallet::<T>::inc_account_nonce(beneficiary.clone());
 		}
 
 		Self::deposit_event(Event::<T>::AssetReceived {

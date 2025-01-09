@@ -7,11 +7,13 @@ use ismp::{
 	router::{PostRequest, Request, Timeout},
 };
 use pallet_token_gateway::{
-	impls::convert_to_erc20, AssetRegistration, Body, CreateAssetId, TeleportParams,
+	impls::convert_to_erc20, AssetRegistration, Body, BodyWithCall, CreateAssetId,
+	SubstrateCalldata, TeleportParams,
 };
 
-use sp_core::{ByteArray, Get, H160, H256, U256};
+use sp_core::{ByteArray, Get, Pair, H160, H256, U256};
 
+use sp_runtime::{AccountId32, MultiSignature};
 use token_gateway_primitives::{
 	token_gateway_id, token_governor_id, AssetMetadata, GatewayAssetRegistration,
 };
@@ -36,6 +38,7 @@ fn should_teleport_asset_correctly() {
 			amount: SEND_AMOUNT,
 			token_gateway: H160::zero().0.to_vec(),
 			relayer_fee: Default::default(),
+			call_data: None,
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -57,6 +60,7 @@ fn should_receive_asset_correctly() {
 			amount: SEND_AMOUNT,
 			token_gateway: H160::zero().0.to_vec(),
 			relayer_fee: Default::default(),
+			call_data: None,
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -110,6 +114,7 @@ fn should_timeout_request_correctly() {
 			amount: SEND_AMOUNT,
 			token_gateway: H160::zero().0.to_vec(),
 			relayer_fee: Default::default(),
+			call_data: None,
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -353,4 +358,80 @@ fn dispatching_remote_asset_creation() {
 		// should be equal
 		assert_eq!(local_asset_id, asset);
 	})
+}
+
+#[test]
+fn should_receive_asset_with_call_correctly() {
+	new_test_ext().execute_with(|| {
+		let params = TeleportParams {
+			asset_id: NativeAssetId::get(),
+			destination: StateMachine::Evm(1),
+			recepient: H256::random(),
+			timeout: 0,
+			amount: SEND_AMOUNT,
+			token_gateway: H160::zero().0.to_vec(),
+			relayer_fee: Default::default(),
+			call_data: None,
+		};
+
+		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
+
+		let new_balance = pallet_balances::Pallet::<Test>::free_balance(ALICE);
+
+		assert_eq!(new_balance, INITIAL_BALANCE - SEND_AMOUNT);
+
+		let final_recepient = H256::random();
+
+		let runtime_call =
+			crate::runtime::RuntimeCall::Balances(pallet_balances::Call::transfer_allow_death {
+				dest: final_recepient.0.into(),
+				value: SEND_AMOUNT.into(),
+			})
+			.encode();
+
+		let (pair, ..) = sp_core::sr25519::Pair::generate();
+		let beneficiary = pair.public().0;
+
+		let message = sp_core::keccak_256(&runtime_call);
+
+		let raw_signature = pair.sign(&message);
+
+		let multisignature = MultiSignature::Sr25519(raw_signature).encode();
+
+		let substrate_data = SubstrateCalldata { signature: multisignature, runtime_call };
+
+		let module = TokenGateway::default();
+		let post = PostRequest {
+			source: StateMachine::Evm(1),
+			dest: StateMachine::Kusama(100),
+			nonce: 0,
+			from: H160::zero().0.to_vec(),
+			to: H160::zero().0.to_vec(),
+			timeout_timestamp: 1000,
+			body: {
+				let body = BodyWithCall {
+					amount: {
+						let mut bytes = [0u8; 32];
+						// Module callback will convert to ten decimals
+						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
+						alloy_primitives::U256::from_be_bytes(bytes)
+					},
+					asset_id: H256::zero().0.into(),
+					redeem: false,
+					from: alloy_primitives::B256::from_slice(ALICE.as_slice()),
+					to: alloy_primitives::B256::from_slice(beneficiary.as_slice()),
+					data: substrate_data.encode().into(),
+				};
+
+				let encoded = vec![vec![0], BodyWithCall::abi_encode(&body)].concat();
+				encoded
+			},
+		};
+
+		module.on_accept(post).unwrap();
+		let recipient: AccountId32 = final_recepient.0.into();
+		let new_balance = pallet_balances::Pallet::<Test>::free_balance(recipient);
+
+		assert_eq!(new_balance, SEND_AMOUNT);
+	});
 }

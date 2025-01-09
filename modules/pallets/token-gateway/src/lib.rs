@@ -39,13 +39,18 @@ use ismp::{
 	router::{PostRequest, Request, Response, Timeout},
 };
 
-use sp_core::{Get, U256};
+use sp_core::{Get, H160, U256};
+use sp_runtime::{
+	traits::{Dispatchable, Hash},
+	MultiSignature,
+};
 use token_gateway_primitives::{
 	token_gateway_id, token_governor_id, AssetMetadata, DeregisterAssets,
 };
 pub use types::*;
 
 use alloc::{string::ToString, vec, vec::Vec};
+use frame_system::RawOrigin;
 use ismp::module::IsmpModule;
 use primitive_types::H256;
 
@@ -116,6 +121,9 @@ pub mod pallet {
 		/// The decimals of the native currency
 		#[pallet::constant]
 		type Decimals: Get<u8>;
+
+		/// A trait that converts an evm address to a substrate account
+		type EvmToSubstrate: EvmToSubstrate<Self>;
 	}
 
 	/// Assets supported by this instance of token gateway
@@ -235,7 +243,6 @@ pub mod pallet {
 			>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let asset_id = SupportedAssets::<T>::get(params.asset_id.clone())
 				.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
@@ -280,17 +287,49 @@ pub mod pallet {
 			let erc_decimals = Decimals::<T>::get(params.asset_id)
 				.ok_or_else(|| Error::<T>::AssetDecimalsNotFound)?;
 
-			let body = Body {
-				amount: {
-					let amount: u128 = params.amount.into();
-					let mut bytes = [0u8; 32];
-					convert_to_erc20(amount, erc_decimals, decimals).to_big_endian(&mut bytes);
-					alloy_primitives::U256::from_be_bytes(bytes)
+			let body = match params.call_data {
+				Some(data) => {
+					let body = BodyWithCall {
+						amount: {
+							let amount: u128 = params.amount.into();
+							let mut bytes = [0u8; 32];
+							convert_to_erc20(amount, erc_decimals, decimals)
+								.to_big_endian(&mut bytes);
+							alloy_primitives::U256::from_be_bytes(bytes)
+						},
+						asset_id: asset_id.0.into(),
+						redeem: false,
+						from: from.into(),
+						to: to.into(),
+						data: data.into(),
+					};
+
+					// Prefix with the handleIncomingAsset enum variant
+					let mut encoded = vec![0];
+					encoded.extend_from_slice(&BodyWithCall::abi_encode(&body));
+					encoded
 				},
-				asset_id: asset_id.0.into(),
-				redeem: false,
-				from: from.into(),
-				to: to.into(),
+
+				None => {
+					let body = Body {
+						amount: {
+							let amount: u128 = params.amount.into();
+							let mut bytes = [0u8; 32];
+							convert_to_erc20(amount, erc_decimals, decimals)
+								.to_big_endian(&mut bytes);
+							alloy_primitives::U256::from_be_bytes(bytes)
+						},
+						asset_id: asset_id.0.into(),
+						redeem: false,
+						from: from.into(),
+						to: to.into(),
+					};
+
+					// Prefix with the handleIncomingAsset enum variant
+					let mut encoded = vec![0];
+					encoded.extend_from_slice(&Body::abi_encode(&body));
+					encoded
+				},
 			};
 
 			let dispatch_post = DispatchPost {
@@ -298,12 +337,7 @@ pub mod pallet {
 				from: token_gateway_id().0.to_vec(),
 				to: params.token_gateway,
 				timeout: params.timeout,
-				body: {
-					// Prefix with the handleIncomingAsset enum variant
-					let mut encoded = vec![0];
-					encoded.extend_from_slice(&Body::abi_encode(&body));
-					encoded
-				},
+				body,
 			};
 
 			let metadata = FeeMetadata { payer: who.clone(), fee: params.relayer_fee.into() };
@@ -514,6 +548,8 @@ where
 						Decimals::<T>::remove(local_asset_id.clone());
 					}
 				}
+
+				return Ok(());
 			}
 		}
 		ensure!(
@@ -525,12 +561,13 @@ where
 			}
 		);
 
-		let body = Body::abi_decode(&mut &body[1..], true).map_err(|_| {
-			ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Failed to decode request body".to_string(),
-				meta: Meta { source, dest, nonce },
-			}
-		})?;
+		let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
+			body.into()
+		} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..], true) {
+			body.into()
+		} else {
+			Err(anyhow!("Token Gateway: Failed to decode request body"))?
+		};
 
 		let local_asset_id =
 			LocalAssets::<T>::get(H256::from(body.asset_id.0)).ok_or_else(|| {
@@ -594,6 +631,61 @@ where
 			}
 		}
 
+		if let Some(call_data) = body.data {
+			let substrate_data = SubstrateCalldata::decode(&mut &call_data.0[..])?;
+			// Verify signature against encoded runtime call
+			let message =
+				<<T as frame_system::Config>::Hashing as Hash>::hash(&substrate_data.runtime_call);
+
+			let multi_signature = MultiSignature::decode(&mut &*substrate_data.signature)?;
+
+			match multi_signature {
+				MultiSignature::Ed25519(sig) => {
+					let pub_key = body.to.0.as_slice().try_into().map_err(|_| {
+						anyhow!("Failed to decode beneficiary as Ed25519 public key")
+					})?;
+					if !sp_io::crypto::ed25519_verify(&sig, message.as_ref(), &pub_key) {
+						Err(anyhow!(
+							"Failed to verify ed25519 signature before dispatching token gateway call"
+						))?
+					}
+				},
+				MultiSignature::Sr25519(sig) => {
+					let pub_key = body.to.0.as_slice().try_into().map_err(|_| {
+						anyhow!("Failed to decode beneficiary as Sr25519 public key")
+					})?;
+					if !sp_io::crypto::sr25519_verify(&sig, message.as_ref(), &pub_key) {
+						Err(anyhow!(
+							"Failed to verify sr25519 signature before dispatching token gateway call"
+						))?
+					}
+				},
+				MultiSignature::Ecdsa(sig) => {
+					let mut msg = [0u8; 32];
+					msg.copy_from_slice(message.as_ref());
+					let pub_key =
+						sp_io::crypto::secp256k1_ecdsa_recover(&sig.0, &msg).map_err(|_| {
+							anyhow!("Failed to recover ecdsa public key from signature")
+						})?;
+					let eth_address =
+						H160::from_slice(&sp_io::hashing::keccak_256(&pub_key[..])[12..]);
+					let substrate_account = T::EvmToSubstrate::convert(eth_address);
+					if substrate_account != beneficiary {
+						Err(anyhow!(
+							"Failed to verify signature before dispatching token gateway call"
+						))?
+					}
+				},
+			}
+
+			let runtime_call = <<T as frame_system::Config>::RuntimeCall as codec::Decode>::decode(
+				&mut &*substrate_data.runtime_call,
+			)?;
+			runtime_call
+				.dispatch(RawOrigin::Signed(beneficiary.clone()).into())
+				.map_err(|e| anyhow!("Call dispatch executed with error {:?}", e.error))?;
+		}
+
 		Self::deposit_event(Event::<T>::AssetReceived {
 			beneficiary,
 			amount: amount.into(),
@@ -609,12 +701,13 @@ where
 	fn on_timeout(&self, request: Timeout) -> Result<(), anyhow::Error> {
 		match request {
 			Timeout::Request(Request::Post(PostRequest { body, source, dest, nonce, .. })) => {
-				let body = Body::abi_decode(&mut &body[1..], true).map_err(|_| {
-					ismp::error::Error::ModuleDispatchError {
-						msg: "Token Gateway: Failed to decode request body".to_string(),
-						meta: Meta { source, dest, nonce },
-					}
-				})?;
+				let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
+					body.into()
+				} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..], true) {
+					body.into()
+				} else {
+					Err(anyhow!("Token Gateway: Failed to decode request body"))?
+				};
 				let beneficiary = body.from.0.into();
 				let local_asset_id = LocalAssets::<T>::get(H256::from(body.asset_id.0))
 					.ok_or_else(|| ismp::error::Error::ModuleDispatchError {

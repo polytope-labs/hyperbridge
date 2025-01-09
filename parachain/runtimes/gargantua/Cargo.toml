@@ -12,12 +12,14 @@ substrate-wasm-builder = { workspace = true }
 [dependencies]
 # crates.io
 codec = { workspace = true, features = ["derive"] }
-hex-literal = {  workspace = true, optional = true }
-log = {  workspace = true }
-scale-info = { version = "2.3.1", default-features = false, features = ["derive"] }
+hex-literal = { workspace = true, optional = true }
+log = { workspace = true }
+scale-info = { version = "2.3.1", default-features = false, features = [
+    "derive",
+] }
 smallvec = "1.10.0"
-orml-xcm-support = { workspace = true  }
-orml-traits = { workspace = true  }
+orml-xcm-support = { workspace = true }
+orml-traits = { workspace = true }
 anyhow = { workspace = true, default-features = false }
 
 # Substrate
@@ -39,9 +41,9 @@ pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 pallet-message-queue = { workspace = true }
-pallet-treasury = { workspace = true}
-pallet-asset-rate = { workspace = true}
-pallet-collective = { workspace = true}
+pallet-treasury = { workspace = true }
+pallet-asset-rate = { workspace = true }
+pallet-collective = { workspace = true }
 sp-api = { workspace = true }
 sp-block-builder = { workspace = true }
 sp-consensus-aura = { workspace = true }
@@ -70,7 +72,7 @@ staging-xcm-executor = { workspace = true }
 cumulus-pallet-aura-ext = { workspace = true }
 cumulus-pallet-dmp-queue = { workspace = true }
 cumulus-pallet-parachain-system = { workspace = true }
-cumulus-pallet-session-benchmarking = {workspace = true }
+cumulus-pallet-session-benchmarking = { workspace = true }
 cumulus-pallet-xcm = { workspace = true }
 cumulus-pallet-xcmp-queue = { workspace = true }
 cumulus-primitives-core = { workspace = true }
@@ -79,172 +81,171 @@ cumulus-primitives-aura = { workspace = true }
 cumulus-primitives-utility = { workspace = true }
 pallet-collator-selection = { workspace = true }
 parachain-info = { workspace = true }
-parachains-common = { workspace = true  }
+parachains-common = { workspace = true }
 
 # local modules
-ismp = { workspace = true  }
-pallet-ismp = { workspace = true, features = ["unsigned"]  }
-pallet-fishermen = { workspace = true  }
-pallet-ismp-demo = { workspace = true  }
-pallet-ismp-runtime-api = { workspace = true  }
-ismp-sync-committee = { workspace = true  }
-ismp-bsc = { workspace = true  }
-ismp-parachain = { workspace = true  }
+ismp = { workspace = true }
+pallet-ismp = { workspace = true, features = ["unsigned"] }
+pallet-fishermen = { workspace = true }
+pallet-ismp-demo = { workspace = true }
+pallet-ismp-runtime-api = { workspace = true }
+ismp-sync-committee = { workspace = true }
+ismp-bsc = { workspace = true }
+ismp-parachain = { workspace = true }
 ismp-grandpa = { workspace = true }
-ismp-parachain-runtime-api = { workspace = true  }
-pallet-ismp-relayer = { workspace = true  }
-pallet-ismp-host-executive = { workspace = true  }
+ismp-parachain-runtime-api = { workspace = true }
+pallet-ismp-relayer = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
-pallet-xcm-gateway = { workspace = true  }
+pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 pallet-mmr = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 sp-mmr-primitives = { workspace = true }
 simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
-pallet-token-gateway-inspector = { workspace = true  }
+pallet-token-gateway-inspector = { workspace = true }
+pallet-token-gateway = { workspace = true }
 
 [features]
-default = [
-	"std",
-]
+default = ["std"]
 std = [
-	"codec/std",
-	"log/std",
-	"scale-info/std",
-	"ismp/std",
-	"cumulus-pallet-aura-ext/std",
-	"cumulus-pallet-dmp-queue/std",
-	"cumulus-pallet-parachain-system/std",
-	"cumulus-pallet-xcm/std",
-	"cumulus-pallet-xcmp-queue/std",
-	"cumulus-primitives-core/std",
-	"cumulus-primitives-aura/std",
-	"cumulus-primitives-timestamp/std",
-	"cumulus-primitives-utility/std",
-	"frame-executive/std",
-	"frame-support/std",
-	"frame-system-rpc-runtime-api/std",
-	"frame-system/std",
-	"pallet-aura/std",
-	"pallet-authorship/std",
-	"pallet-balances/std",
-	"pallet-collator-selection/std",
-	"pallet-session/std",
-	"pallet-sudo/std",
-	"pallet-utility/std",
-	"pallet-timestamp/std",
-	"pallet-transaction-payment-rpc-runtime-api/std",
-	"pallet-transaction-payment/std",
-	"pallet-xcm/std",
-	"pallet-treasury/std",
-	"pallet-fishermen/std",
-	"pallet-asset-rate/std",
-	"pallet-collective/std",
-	"pallet-ismp/std",
-	"pallet-ismp-runtime-api/std",
-	"pallet-ismp-demo/std",
-	"parachain-info/std",
-	"polkadot-parachain-primitives/std",
-	"polkadot-runtime-common/std",
-	"sp-api/std",
-	"sp-block-builder/std",
-	"sp-consensus-aura/std",
-	"sp-core/std",
-	"sp-inherents/std",
-	"sp-offchain/std",
-	"sp-runtime/std",
-	"sp-session/std",
-	"sp-std/std",
-	"sp-transaction-pool/std",
-	"sp-version/std",
-	"sp-storage/std",
-	"sp-io/std",
-	"staging-xcm-builder/std",
-	"staging-xcm-executor/std",
-	"staging-xcm/std",
-	"ismp-sync-committee/std",
-	"pallet-message-queue/std",
-	"parachains-common/std",
-	"sp-genesis-builder/std",
-	"ismp-bsc/std",
-	"ismp-grandpa/std",
-	"ismp-parachain/std",
-	"ismp-parachain-runtime-api/std",
-	"pallet-ismp-relayer/std",
-	"pallet-ismp-host-executive/std",
-	"pallet-call-decompressor/std",
-	"pallet-state-coprocessor/std",
-	"pallet-xcm-gateway/std",
-	"pallet-token-gateway-inspector/std",
-	"pallet-token-governor/std",
-	"pallet-assets/std",
-	"pallet-mmr/std",
-	"orml-xcm-support/std",
-	"orml-traits/std",
-	"pallet-mmr-runtime-api/std",
-	"sp-mmr-primitives/std",
-	"simnode-runtime-api/std",
-	"hyperbridge-client-machine/std",
-	"frame-metadata-hash-extension/std",
-	"anyhow/std"
+    "codec/std",
+    "log/std",
+    "scale-info/std",
+    "ismp/std",
+    "cumulus-pallet-aura-ext/std",
+    "cumulus-pallet-dmp-queue/std",
+    "cumulus-pallet-parachain-system/std",
+    "cumulus-pallet-xcm/std",
+    "cumulus-pallet-xcmp-queue/std",
+    "cumulus-primitives-core/std",
+    "cumulus-primitives-aura/std",
+    "cumulus-primitives-timestamp/std",
+    "cumulus-primitives-utility/std",
+    "frame-executive/std",
+    "frame-support/std",
+    "frame-system-rpc-runtime-api/std",
+    "frame-system/std",
+    "pallet-aura/std",
+    "pallet-authorship/std",
+    "pallet-balances/std",
+    "pallet-collator-selection/std",
+    "pallet-session/std",
+    "pallet-sudo/std",
+    "pallet-utility/std",
+    "pallet-timestamp/std",
+    "pallet-transaction-payment-rpc-runtime-api/std",
+    "pallet-transaction-payment/std",
+    "pallet-xcm/std",
+    "pallet-treasury/std",
+    "pallet-fishermen/std",
+    "pallet-asset-rate/std",
+    "pallet-collective/std",
+    "pallet-ismp/std",
+    "pallet-ismp-runtime-api/std",
+    "pallet-ismp-demo/std",
+    "parachain-info/std",
+    "polkadot-parachain-primitives/std",
+    "polkadot-runtime-common/std",
+    "sp-api/std",
+    "sp-block-builder/std",
+    "sp-consensus-aura/std",
+    "sp-core/std",
+    "sp-inherents/std",
+    "sp-offchain/std",
+    "sp-runtime/std",
+    "sp-session/std",
+    "sp-std/std",
+    "sp-transaction-pool/std",
+    "sp-version/std",
+    "sp-storage/std",
+    "sp-io/std",
+    "staging-xcm-builder/std",
+    "staging-xcm-executor/std",
+    "staging-xcm/std",
+    "ismp-sync-committee/std",
+    "pallet-message-queue/std",
+    "parachains-common/std",
+    "sp-genesis-builder/std",
+    "ismp-bsc/std",
+    "ismp-grandpa/std",
+    "ismp-parachain/std",
+    "ismp-parachain-runtime-api/std",
+    "pallet-ismp-relayer/std",
+    "pallet-ismp-host-executive/std",
+    "pallet-call-decompressor/std",
+    "pallet-state-coprocessor/std",
+    "pallet-xcm-gateway/std",
+    "pallet-token-gateway-inspector/std",
+    "pallet-token-governor/std",
+    "pallet-assets/std",
+    "pallet-mmr/std",
+    "orml-xcm-support/std",
+    "orml-traits/std",
+    "pallet-mmr-runtime-api/std",
+    "sp-mmr-primitives/std",
+    "simnode-runtime-api/std",
+    "hyperbridge-client-machine/std",
+    "frame-metadata-hash-extension/std",
+    "anyhow/std",
 ]
 
 runtime-benchmarks = [
-	"hex-literal",
-	"frame-benchmarking/runtime-benchmarks",
-	"frame-support/runtime-benchmarks",
-	"frame-system-benchmarking/runtime-benchmarks",
-	"frame-system/runtime-benchmarks",
-	"cumulus-pallet-parachain-system/runtime-benchmarks",
-	"pallet-balances/runtime-benchmarks",
-	"pallet-collator-selection/runtime-benchmarks",
-	"pallet-timestamp/runtime-benchmarks",
-	"pallet-xcm/runtime-benchmarks",
-	"pallet-utility/runtime-benchmarks",
-	"pallet-treasury/runtime-benchmarks",
-	"pallet-collective/runtime-benchmarks",
-	"pallet-asset-rate/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
-	"staging-xcm-builder/runtime-benchmarks",
-	"pallet-xcm/runtime-benchmarks",
-	"cumulus-pallet-session-benchmarking/runtime-benchmarks",
-	"cumulus-pallet-xcmp-queue/runtime-benchmarks",
-	"pallet-message-queue/runtime-benchmarks",
-	"pallet-assets/runtime-benchmarks",
-	"pallet-sudo/runtime-benchmarks",
-	"parachains-common/runtime-benchmarks",
-	"ismp-grandpa/runtime-benchmarks",
+    "hex-literal",
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system-benchmarking/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "cumulus-pallet-parachain-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-collator-selection/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "pallet-xcm/runtime-benchmarks",
+    "pallet-utility/runtime-benchmarks",
+    "pallet-treasury/runtime-benchmarks",
+    "pallet-collective/runtime-benchmarks",
+    "pallet-asset-rate/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "staging-xcm-builder/runtime-benchmarks",
+    "pallet-xcm/runtime-benchmarks",
+    "cumulus-pallet-session-benchmarking/runtime-benchmarks",
+    "cumulus-pallet-xcmp-queue/runtime-benchmarks",
+    "pallet-message-queue/runtime-benchmarks",
+    "pallet-assets/runtime-benchmarks",
+    "pallet-sudo/runtime-benchmarks",
+    "parachains-common/runtime-benchmarks",
+    "ismp-grandpa/runtime-benchmarks",
 ]
 
 try-runtime = [
-	"cumulus-pallet-aura-ext/try-runtime",
-	"cumulus-pallet-dmp-queue/try-runtime",
-	"cumulus-pallet-parachain-system/try-runtime",
-	"cumulus-pallet-xcm/try-runtime",
-	"cumulus-pallet-xcmp-queue/try-runtime",
-	"frame-executive/try-runtime",
-	"frame-system/try-runtime",
-	"frame-try-runtime/try-runtime",
-	"pallet-aura/try-runtime",
-	"pallet-authorship/try-runtime",
-	"pallet-balances/try-runtime",
-	"pallet-collator-selection/try-runtime",
-	"pallet-ismp/try-runtime",
-	"ismp-sync-committee/try-runtime",
-	"pallet-ismp-demo/try-runtime",
-	"pallet-ismp-relayer/try-runtime",
-	"pallet-ismp-host-executive/try-runtime",
-	"pallet-session/try-runtime",
-	"pallet-sudo/try-runtime",
-	"pallet-utility/try-runtime",
-	"pallet-timestamp/try-runtime",
-	"pallet-transaction-payment/try-runtime",
-	"pallet-xcm/try-runtime",
-	"pallet-mmr/try-runtime",
-	"parachain-info/try-runtime",
-	"pallet-assets/runtime-benchmarks"
+    "cumulus-pallet-aura-ext/try-runtime",
+    "cumulus-pallet-dmp-queue/try-runtime",
+    "cumulus-pallet-parachain-system/try-runtime",
+    "cumulus-pallet-xcm/try-runtime",
+    "cumulus-pallet-xcmp-queue/try-runtime",
+    "frame-executive/try-runtime",
+    "frame-system/try-runtime",
+    "frame-try-runtime/try-runtime",
+    "pallet-aura/try-runtime",
+    "pallet-authorship/try-runtime",
+    "pallet-balances/try-runtime",
+    "pallet-collator-selection/try-runtime",
+    "pallet-ismp/try-runtime",
+    "ismp-sync-committee/try-runtime",
+    "pallet-ismp-demo/try-runtime",
+    "pallet-ismp-relayer/try-runtime",
+    "pallet-ismp-host-executive/try-runtime",
+    "pallet-session/try-runtime",
+    "pallet-sudo/try-runtime",
+    "pallet-utility/try-runtime",
+    "pallet-timestamp/try-runtime",
+    "pallet-transaction-payment/try-runtime",
+    "pallet-xcm/try-runtime",
+    "pallet-mmr/try-runtime",
+    "parachain-info/try-runtime",
+    "pallet-assets/runtime-benchmarks",
 ]
 
 

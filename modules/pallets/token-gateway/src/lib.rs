@@ -20,19 +20,22 @@ extern crate alloc;
 
 pub mod impls;
 pub mod types;
+
+mod benchmarking;
+mod weights;
 use crate::impls::{convert_to_balance, convert_to_erc20};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use frame_support::{
 	ensure,
-	pallet_prelude::Weight,
 	traits::{
 		fungibles::{self, Mutate},
 		tokens::{fungible::Mutate as FungibleMutate, Preservation},
 		Currency, ExistenceRequirement,
 	},
 };
+pub use weights::WeightInfo;
 
 use ismp::{
 	events::Meta,
@@ -121,6 +124,9 @@ pub mod pallet {
 
 		/// A trait that converts an evm address to a substrate account
 		type EvmToSubstrate: EvmToSubstrate<Self>;
+
+		/// Weight information for extrinsics in this pallet
+		type WeightInfo: WeightInfo;
 	}
 
 	/// Assets supported by this instance of token gateway
@@ -231,7 +237,7 @@ pub mod pallet {
 		/// Teleports a registered asset
 		/// locks the asset and dispatches a request to token gateway on the destination
 		#[pallet::call_index(0)]
-		#[pallet::weight(weight())]
+		#[pallet::weight(T::WeightInfo::teleport())]
 		pub fn teleport(
 			origin: OriginFor<T>,
 			params: TeleportParams<
@@ -354,7 +360,7 @@ pub mod pallet {
 
 		/// Set the token gateway address for specified chains
 		#[pallet::call_index(1)]
-		#[pallet::weight(weight())]
+		#[pallet::weight(T::WeightInfo::set_token_gateway_addresses(addresses.len() as u32))]
 		pub fn set_token_gateway_addresses(
 			origin: OriginFor<T>,
 			addresses: BTreeMap<StateMachine, Vec<u8>>,
@@ -372,11 +378,10 @@ pub mod pallet {
 		/// to create the asset.
 		/// `native` should be true if this asset originates from this chain
 		#[pallet::call_index(2)]
-		#[pallet::weight(weight())]
+		#[pallet::weight(T::WeightInfo::create_erc6160_asset())]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
-			native: bool,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
@@ -398,7 +403,7 @@ pub mod pallet {
 			// the mapping to its token gateway asset id
 
 			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
-			NativeAssets::<T>::insert(asset.local_id.clone(), native);
+			NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
 			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
 			// All ERC6160 assets use 18 decimals
 			Decimals::<T>::insert(asset.local_id, 18);
@@ -427,7 +432,7 @@ pub mod pallet {
 		/// This works by dispatching a request to the TokenGateway module on each requested chain
 		/// to create the asset.
 		#[pallet::call_index(3)]
-		#[pallet::weight(weight())]
+		#[pallet::weight(T::WeightInfo::update_erc6160_asset())]
 		pub fn update_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: GatewayAssetUpdate,
@@ -792,11 +797,6 @@ where
 		}
 		Ok(())
 	}
-}
-
-/// Static weights because benchmarks suck, and we'll be getting PolkaVM soon anyways
-fn weight() -> Weight {
-	Weight::from_parts(300_000_000, 0)
 }
 
 impl<T: Config> Pallet<T> {

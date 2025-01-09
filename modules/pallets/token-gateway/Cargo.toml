@@ -14,6 +14,7 @@ readme = "README.md"
 [dependencies]
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+frame-benchmarking = { workspace = true }
 sp-runtime = { workspace = true }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
@@ -39,6 +40,7 @@ default = ["std"]
 std = [
     "frame-support/std",
     "frame-system/std",
+    "frame-benchmarking/std",
     "sp-runtime/std",
     "sp-core/std",
     "sp-io/std",
@@ -50,6 +52,12 @@ std = [
     "anyhow/std",
     "alloy-primitives/std",
     "pallet-hyperbridge/std",
-    "token-gateway-primitives/std"
+    "token-gateway-primitives/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
 ]
 try-runtime = []

@@ -55,6 +55,8 @@ pub struct AssetRegistration<AssetId> {
 	pub local_id: AssetId,
 	/// MNT Asset registration details
 	pub reg: token_gateway_primitives::GatewayAssetRegistration,
+	/// Flag for if this asset is native
+	pub native: bool,
 }
 
 alloy_sol_macro::sol! {

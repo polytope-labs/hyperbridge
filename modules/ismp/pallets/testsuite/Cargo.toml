@@ -20,7 +20,7 @@ frame-system = { workspace = true, default-features = true }
 pallet-balances = { workspace = true, default-features = true }
 pallet-timestamp = { workspace = true, default-features = true }
 pallet-sudo = { workspace = true, default-features = true }
-sp-core = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true, features = ["full_crypto"]}
 sp-io = { workspace = true, default-features = true }
 sp-std = { workspace = true, default-features = true }
 sp-trie = { workspace = true, default-features = true }

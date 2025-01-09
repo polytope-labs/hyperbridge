@@ -248,6 +248,7 @@ impl pallet_token_gateway::Config for Test {
 	type AssetIdFactory = AssetIdFactory;
 	type Decimals = Decimals;
 	type AssetAdmin = AssetAdmin;
+	type EvmToSubstrate = ();
 }
 
 impl pallet_token_gateway_inspector::Config for Test {

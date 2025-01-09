@@ -40,10 +40,7 @@ use ismp::{
 };
 
 use sp_core::{Get, H160, U256};
-use sp_runtime::{
-	traits::{Dispatchable, Hash},
-	MultiSignature,
-};
+use sp_runtime::{traits::Dispatchable, MultiSignature};
 use token_gateway_primitives::{
 	token_gateway_id, token_governor_id, AssetMetadata, DeregisterAssets,
 };
@@ -636,7 +633,7 @@ where
 			// Verify signature against encoded runtime call
 			let nonce = frame_system::Pallet::<T>::account_nonce(beneficiary.clone());
 			let payload = (nonce, substrate_data.runtime_call.clone()).encode();
-			let message = <<T as frame_system::Config>::Hashing as Hash>::hash(&payload);
+			let message = sp_io::hashing::keccak_256(&payload);
 
 			let multi_signature = MultiSignature::decode(&mut &*substrate_data.signature)?;
 
@@ -662,10 +659,8 @@ where
 					}
 				},
 				MultiSignature::Ecdsa(sig) => {
-					let mut msg = [0u8; 32];
-					msg.copy_from_slice(message.as_ref());
-					let pub_key =
-						sp_io::crypto::secp256k1_ecdsa_recover(&sig.0, &msg).map_err(|_| {
+					let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig.0, &message)
+						.map_err(|_| {
 							anyhow!("Failed to recover ecdsa public key from signature")
 						})?;
 					let eth_address =

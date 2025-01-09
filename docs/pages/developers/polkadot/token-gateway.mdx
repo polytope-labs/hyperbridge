@@ -23,6 +23,7 @@ Let's look at the pallet specific components of the configuration trait: <br/><b
  - `AssetIdFactory`: This type should be configured with a component that implements `pallet_token_gateway::types::CreateAssetId`. It should return a unique asset id each time the `AssetIdFactory::create_asset_id` is called.<br/><br/>
  - `NativeAssetId`: A constant value that represents the identifier of the native asset.<br/><br/>
  - `Decimals`: A constant that represents the precision of the native currency. <br/><br/>
+ - `EvmToSubstrate`: A type that allows conversion of an EVM account to a substrate account. <br/><br/>
 
 ## Calls
 
@@ -77,6 +78,8 @@ impl pallet_token_gateway::Config for Runtime {
     type AssetIdFactory = ();
     // The precision of the native asset
     type Decimals = Decimals;
+    // An implementation that converts an evm account to a substrate account
+    type EvmToSubstrate = ();
 }
 
 // Add the token gateway pallet to your ISMP router
@@ -166,6 +169,8 @@ pub struct TeleportParams<AssetId, Balance> {
 	pub token_gateway: Vec<u8>,
 	/// Relayer fee
 	pub relayer_fee: Balance,
+    /// Optional call data
+    pub call_data: Option<Vec<u8>>
 }
 ```
 Let's explore what each parameter holds: 

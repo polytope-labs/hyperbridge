@@ -156,16 +156,17 @@ sp-genesis-builder = { version = "0.15.0", default-features = false }
 pallet-xcm = { version = "16.0.0", default-features = false }
 polkadot-parachain-primitives = { version = "14.0.0", default-features = false }
 polkadot-runtime-common = { version = "16.0.0", default-features = false }
-staging-xcm = { version = "14.1.0", default-features = false }
+staging-xcm = { version = "=14.1.0", default-features = false }
 staging-xcm-builder = { version = "16.0.0", default-features = false }
 staging-xcm-executor = { version = "16.0.0", default-features = false }
 cumulus-primitives-aura = { version = "0.15.0", default-features = false }
 cumulus-pallet-session-benchmarking = { version = "18.0.0", default-features = false }
 cumulus-pallet-aura-ext = { version = "0.16.0", default-features = false }
 cumulus-pallet-dmp-queue = { version = "0.16.0", default-features = false }
+cumulus-pallet-parachain-system = { version = "=0.16.0", default-features = false }
 cumulus-pallet-xcm = { version = "0.16.0", default-features = false }
 cumulus-pallet-xcmp-queue = { version = "0.16.0", default-features = false }
-cumulus-primitives-core = { version = "0.15.0", default-features = false }
+cumulus-primitives-core = { version = "=0.15.0", default-features = false }
 cumulus-primitives-timestamp = { version = "0.15.0", default-features = false }
 cumulus-primitives-utility = { version = "0.16.0", default-features = false }
 pallet-collator-selection = { version = "18.0.0", default-features = false }
@@ -343,7 +344,6 @@ tesseract = { path = "tesseract/relayer" }
 transaction-fees = { path = "tesseract/fees" }
 telemetry-server = { path = "tesseract/telemetry" }
 tesseract-config = { path = "tesseract/config" }
-cumulus-pallet-parachain-system = { version = "0.16.0", default-features = false }
 
 [workspace.dependencies.ethabi]
 version = "18.0.0"

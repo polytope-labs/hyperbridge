@@ -7736,7 +7736,6 @@ version = "15.0.0"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
- "cumulus-primitives-core",
  "finality-grandpa",
  "frame-benchmarking",
  "frame-support 37.0.0",

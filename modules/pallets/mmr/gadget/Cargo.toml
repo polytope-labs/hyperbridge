@@ -7,9 +7,6 @@ homepage = "https://substrate.io"
 edition = "2021"
 publish = false
 
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 codec = { workspace = true, default-features = true }
 futures = "0.3.30"
@@ -25,4 +22,3 @@ pallet-mmr-runtime-api = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-mmr = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
-

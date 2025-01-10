@@ -37,7 +37,6 @@ sp-consensus-aura = { workspace = true }
 sp-core = { workspace = true }
 
 # cumulus
-cumulus-primitives-core = { workspace = true }
 substrate-state-machine = { workspace = true }
 
 [features]
@@ -48,7 +47,6 @@ std = [
     "frame-support/std",
     "frame-system/std",
     "scale-info/std",
-    "cumulus-primitives-core/std",
     "ismp/std",
     "sp-trie/std",
     "sp-consensus-aura/std",

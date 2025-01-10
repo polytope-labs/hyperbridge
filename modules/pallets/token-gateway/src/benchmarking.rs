@@ -1,6 +1,6 @@
 #![cfg(feature = "runtime-benchmarks")]
 
-use crate::*;
+use crate::{types::*, *};
 use frame_benchmarking::v2::*;
 use frame_support::{
 	traits::{fungible, fungibles},

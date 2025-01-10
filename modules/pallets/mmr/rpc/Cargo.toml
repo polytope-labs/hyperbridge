@@ -9,7 +9,6 @@ homepage = "https://docs.hyperbridge.network/developers/polkadot/getting-started
 documentation = "https://docs.rs/pallet-ismp-rpc"
 description = "RPC apis for pallet-ismp"
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
-readme = "README.md"
 publish = false
 
 [package.metadata.docs.rs]

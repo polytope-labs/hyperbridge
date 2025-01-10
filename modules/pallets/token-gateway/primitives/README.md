@@ -1,6 +1,6 @@
 # Token Gateway Primitives
 
-A collection of types used by token gateway
+A collection of types used by [pallet-token-gateway](https://crates.io/crates/pallet-token-gateway)
 
 ## License
 

@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This library contains types shared with token gateway and other pallets
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use alloy_primitives::hex;
@@ -49,6 +49,7 @@ pub struct AssetMetadata {
 /// A struct for deregistering asset id on pallet-token-gateway
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
 pub struct DeregisterAssets {
+	/// List of asset ids to deregister
 	pub asset_ids: Vec<H256>,
 }
 
@@ -81,6 +82,8 @@ pub struct GatewayAssetUpdate {
 /// Holds data required for multi-chain native asset registration
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum RemoteERC6160AssetRegistration {
+	/// Asset creation message
 	CreateAsset(GatewayAssetRegistration),
+	/// Asset modification message
 	UpdateAsset(GatewayAssetUpdate),
 }

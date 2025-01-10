@@ -32,9 +32,9 @@ use alloc::{format, vec};
 use codec::Encode;
 use ismp::module::IsmpModule;
 use primitive_types::{H160, H256};
-use token_gateway_primitives::{token_gateway_id, RemoteERC6160AssetRegistration};
+use token_gateway_primitives::{RemoteERC6160AssetRegistration, PALLET_TOKEN_GATEWAY_ID};
 
-pub use token_gateway_primitives::REGISTRY as PALLET_ID;
+pub use token_gateway_primitives::TOKEN_GOVERNOR_ID as PALLET_ID;
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -411,7 +411,7 @@ where
 		PostRequest { body: data, from, source, .. }: PostRequest,
 	) -> Result<(), anyhow::Error> {
 		// Only substrate chains are allowed to fully register assets remotely
-		if source.is_substrate() && from == token_gateway_id().0.to_vec() {
+		if source.is_substrate() && &from == &PALLET_TOKEN_GATEWAY_ID[..] {
 			let remote_reg: RemoteERC6160AssetRegistration = codec::Decode::decode(&mut &*data)
 				.map_err(|_| ismp::error::Error::Custom(format!("Failed to decode data")))?;
 			match remote_reg {
@@ -433,7 +433,7 @@ where
 				},
 			}
 
-			return Ok(())
+			return Ok(());
 		}
 		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
 			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;

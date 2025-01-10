@@ -39,7 +39,7 @@ use ismp::{
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
-use pallet_token_gateway::CreateAssetId;
+use pallet_token_gateway::types::CreateAssetId;
 use pallet_token_governor::GatewayParams;
 use sp_core::{
 	crypto::AccountId32,

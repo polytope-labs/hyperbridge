@@ -34,7 +34,7 @@ pub mod pallet {
 	use frame_support::{pallet_prelude::*, Blake2_128Concat};
 
 	use ismp::host::StateMachine;
-	use pallet_token_gateway::Body;
+	use pallet_token_gateway::types::Body;
 	use pallet_token_governor::StandaloneChainAssets;
 
 	#[pallet::pallet]
@@ -88,7 +88,7 @@ pub mod pallet {
 			// As long as the initial deployment is valid
 			// it's impossible to send malicious requests
 			if source.is_evm() && dest.is_evm() {
-				return Ok(())
+				return Ok(());
 			}
 
 			if let Some(body) = Self::is_token_gateway_request(&body) {
@@ -142,7 +142,7 @@ pub mod pallet {
 			// As long as the initial deployment is valid
 			// it's impossible to send malicious requests
 			if source.is_evm() && dest.is_evm() {
-				return Ok(())
+				return Ok(());
 			}
 
 			if let Some(body) = Self::is_token_gateway_request(&body) {

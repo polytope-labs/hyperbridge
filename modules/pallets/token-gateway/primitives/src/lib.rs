@@ -16,6 +16,7 @@
 //! This library contains types shared with token gateway and other pallets
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use alloy_primitives::hex;
 use ismp::host::StateMachine;
 use sp_core::{ConstU32, H160, H256};
 use sp_runtime::BoundedVec;
@@ -24,19 +25,13 @@ extern crate alloc;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
-/// The token registry Id
-pub const REGISTRY: [u8; 8] = *b"registry";
+/// Pallet Token Governor's module ID for ISMP requests
+pub const TOKEN_GOVERNOR_ID: [u8; 8] = *b"registry";
 
-/// Token Gateway Id for substrate chains
-/// Module Id is the last 20 bytes of the keccak hash of the pallet id
-pub fn token_gateway_id() -> H160 {
-	let hash = sp_io::hashing::keccak_256(b"tokengty");
-	H160::from_slice(&hash[12..32])
-}
-
-pub fn token_governor_id() -> Vec<u8> {
-	REGISTRY.to_vec()
-}
+/// Pallet Token Gateway's module ID for ISMP requests
+///
+/// Derived from `keccak_256(b"tokengty")[12..]`
+pub const PALLET_TOKEN_GATEWAY_ID: [u8; 20] = hex!("a09b1c60e8650245f92518c8a17314878c4043ed");
 
 /// Holds metadata relevant to a multi-chain native asset
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]

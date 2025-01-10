@@ -45,9 +45,11 @@ use ismp::{
 use sp_core::{Get, H160, U256};
 use sp_runtime::{traits::Dispatchable, MultiSignature};
 use token_gateway_primitives::{
-	token_gateway_id, token_governor_id, AssetMetadata, DeregisterAssets,
+	AssetMetadata, DeregisterAssets, PALLET_TOKEN_GATEWAY_ID, TOKEN_GOVERNOR_ID,
 };
-pub use types::*;
+use types::{
+	AssetId, Body, BodyWithCall, CreateAssetId, EvmToSubstrate, RequestBody, SubstrateCalldata,
+};
 
 use alloc::{string::ToString, vec, vec::Vec};
 use frame_system::RawOrigin;
@@ -65,6 +67,7 @@ pub mod pallet {
 	use alloc::collections::BTreeMap;
 	use pallet_hyperbridge::PALLET_HYPERBRIDGE;
 	use sp_runtime::traits::AccountIdConversion;
+	use types::{AssetRegistration, TeleportParams};
 
 	use super::*;
 	use frame_support::{
@@ -123,6 +126,7 @@ pub mod pallet {
 		type Decimals: Get<u8>;
 
 		/// A trait that converts an evm address to a substrate account
+		/// Used for authenticating incoming cross-chain runtime calls.
 		type EvmToSubstrate: EvmToSubstrate<Self>;
 
 		/// Weight information for extrinsics in this pallet
@@ -160,12 +164,12 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// An asset has been teleported
 		AssetTeleported {
-			/// Source account on the relaychain
+			/// Source account
 			from: T::AccountId,
 			/// beneficiary account on destination
 			to: H256,
 			/// Amount transferred
-			amount: <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
+			amount: <T::NativeCurrency as Currency<T::AccountId>>::Balance,
 			/// Destination chain
 			dest: StateMachine,
 			/// Request commitment
@@ -337,7 +341,7 @@ pub mod pallet {
 
 			let dispatch_post = DispatchPost {
 				dest: params.destination,
-				from: token_gateway_id().0.to_vec(),
+				from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
 				to: params.token_gateway,
 				timeout: params.timeout,
 				body,
@@ -411,8 +415,8 @@ pub mod pallet {
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
 				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
-				from: token_gateway_id().0.to_vec(),
-				to: token_governor_id(),
+				from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
+				to: TOKEN_GOVERNOR_ID.to_vec(),
 				timeout: 0,
 				body: { RemoteERC6160AssetRegistration::CreateAsset(asset.reg).encode() },
 			};
@@ -458,8 +462,8 @@ pub mod pallet {
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
 				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
-				from: token_gateway_id().0.to_vec(),
-				to: token_governor_id(),
+				from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
+				to: TOKEN_GOVERNOR_ID.to_vec(),
 				timeout: 0,
 				body: { RemoteERC6160AssetRegistration::UpdateAsset(asset).encode() },
 			};
@@ -497,7 +501,7 @@ where
 	) -> Result<(), anyhow::Error> {
 		// The only requests allowed from token governor on Hyperbridge is asset creation, updating
 		// and deregistering
-		if from == token_governor_id() && Some(source) == T::Coprocessor::get() {
+		if &from == &TOKEN_GOVERNOR_ID[..] && Some(source) == T::Coprocessor::get() {
 			if let Ok(metadata) = AssetMetadata::decode(&mut &body[..]) {
 				let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_ref()).into();
 				// If the local aset Id exists, then  it must mean this is an update.
@@ -554,9 +558,10 @@ where
 				return Ok(());
 			}
 		}
+		let expected = TokenGatewayAddresses::<T>::get(source)
+			.ok_or_else(|| anyhow!("Not configured to receive assets from {source:?}"))?;
 		ensure!(
-			from == TokenGatewayAddresses::<T>::get(source).unwrap_or_default().to_vec() ||
-				from == token_gateway_id().0.to_vec(),
+			from == expected,
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Unknown source contract address".to_string(),
 				meta: Meta { source, dest, nonce },
@@ -634,13 +639,15 @@ where
 		}
 
 		if let Some(call_data) = body.data {
-			let substrate_data = SubstrateCalldata::decode(&mut &call_data.0[..])?;
+			let substrate_data = SubstrateCalldata::decode(&mut &call_data.0[..])
+				.map_err(|err| anyhow!("Calldata decode error: {err:?}"))?;
 			// Verify signature against encoded runtime call
 			let nonce = frame_system::Pallet::<T>::account_nonce(beneficiary.clone());
 			let payload = (nonce, substrate_data.runtime_call.clone()).encode();
 			let message = sp_io::hashing::keccak_256(&payload);
 
-			let multi_signature = MultiSignature::decode(&mut &*substrate_data.signature)?;
+			let multi_signature = MultiSignature::decode(&mut &*substrate_data.signature)
+				.map_err(|err| anyhow!("Signature decode error: {err:?}"))?;
 
 			match multi_signature {
 				MultiSignature::Ed25519(sig) => {
@@ -679,9 +686,8 @@ where
 				},
 			}
 
-			let runtime_call = <<T as frame_system::Config>::RuntimeCall as codec::Decode>::decode(
-				&mut &*substrate_data.runtime_call,
-			)?;
+			let runtime_call = T::RuntimeCall::decode(&mut &*substrate_data.runtime_call)
+				.map_err(|err| anyhow!("RuntimeCall decode error: {err:?}"))?;
 			runtime_call
 				.dispatch(RawOrigin::Signed(beneficiary.clone()).into())
 				.map_err(|e| anyhow!("Call dispatch executed with error {:?}", e.error))?;

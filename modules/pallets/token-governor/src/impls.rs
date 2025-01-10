@@ -36,7 +36,7 @@ use crate::{
 	TokenGatewayRequest, TokenRegistrarParams, UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
-use token_gateway_primitives::{token_gateway_id, AssetMetadata};
+use token_gateway_primitives::{AssetMetadata, PALLET_TOKEN_GATEWAY_ID};
 
 impl<T: Config> Pallet<T>
 where
@@ -77,7 +77,7 @@ where
 
 		for ChainWithSupply { chain, supply } in asset.chains.clone() {
 			let address = if chain.is_substrate() {
-				token_gateway_id()
+				H160(PALLET_TOKEN_GATEWAY_ID)
 			} else {
 				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
 					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
@@ -169,7 +169,7 @@ where
 			}
 
 			let address = if chain.is_substrate() {
-				token_gateway_id()
+				H160(PALLET_TOKEN_GATEWAY_ID)
 			} else {
 				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
 					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
@@ -211,7 +211,7 @@ where
 			}
 
 			let address = if chain.is_substrate() {
-				token_gateway_id()
+				H160(PALLET_TOKEN_GATEWAY_ID)
 			} else {
 				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
 					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;

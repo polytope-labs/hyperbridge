@@ -7,15 +7,17 @@ use ismp::{
 	router::{PostRequest, Request, Timeout},
 };
 use pallet_token_gateway::{
-	impls::convert_to_erc20, AssetRegistration, Body, BodyWithCall, CreateAssetId,
-	SubstrateCalldata, TeleportParams,
+	impls::convert_to_erc20,
+	types::{
+		AssetRegistration, Body, BodyWithCall, CreateAssetId, SubstrateCalldata, TeleportParams,
+	},
 };
 
 use sp_core::{ByteArray, Get, Pair, H160, H256, U256};
 
 use sp_runtime::{AccountId32, MultiSignature};
 use token_gateway_primitives::{
-	token_gateway_id, token_governor_id, AssetMetadata, GatewayAssetRegistration,
+	AssetMetadata, GatewayAssetRegistration, PALLET_TOKEN_GATEWAY_ID, TOKEN_GOVERNOR_ID,
 };
 use xcm_simulator_example::ALICE;
 
@@ -165,7 +167,7 @@ fn inspector_should_intercept_illegal_request() {
 			source: StateMachine::Kusama(100),
 			dest: StateMachine::Evm(1),
 			nonce: 0,
-			from: token_gateway_id().0.to_vec(),
+			from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000,
 			body: {
@@ -256,7 +258,7 @@ fn inspector_should_handle_timeout_correctly() {
 			source: StateMachine::Kusama(100),
 			dest: StateMachine::Evm(1),
 			nonce: 0,
-			from: token_gateway_id().0.to_vec(),
+			from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000,
 			body: {
@@ -318,8 +320,8 @@ fn receiving_remote_asset_creation() {
 			source: StateMachine::Polkadot(3367),
 			dest: StateMachine::Kusama(100),
 			nonce: 0,
-			from: token_governor_id(),
-			to: token_gateway_id().0.to_vec(),
+			from: TOKEN_GOVERNOR_ID.to_vec(),
+			to: PALLET_TOKEN_GATEWAY_ID.to_vec(),
 			timeout_timestamp: 0,
 			body: asset_metadata.encode(),
 		};

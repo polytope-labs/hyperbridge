@@ -249,6 +249,7 @@ impl pallet_token_gateway::Config for Test {
 	type Decimals = Decimals;
 	type AssetAdmin = AssetAdmin;
 	type EvmToSubstrate = ();
+	type WeightInfo = ();
 }
 
 impl pallet_token_gateway_inspector::Config for Test {

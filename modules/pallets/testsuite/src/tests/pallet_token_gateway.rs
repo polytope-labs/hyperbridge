@@ -349,9 +349,10 @@ fn dispatching_remote_asset_creation() {
 				chains: vec![StateMachine::Evm(97)],
 				minimum_balance: None,
 			},
+			native: true,
 		};
 
-		TokenGateway::create_erc6160_asset(RuntimeOrigin::signed(ALICE), reg, true).unwrap();
+		TokenGateway::create_erc6160_asset(RuntimeOrigin::signed(ALICE), reg).unwrap();
 
 		let asset = pallet_token_gateway::SupportedAssets::<Test>::get(local_asset_id).unwrap();
 		// For the test we use the same asset id construction for local and token gateway, they

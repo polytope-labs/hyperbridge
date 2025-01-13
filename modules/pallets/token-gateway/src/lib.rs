@@ -106,10 +106,7 @@ pub mod pallet {
 
 		/// Fungible asset implementation
 		type Assets: fungibles::Mutate<Self::AccountId>
-			+ fungibles::Inspect<Self::AccountId>
-			+ fungibles::Create<Self::AccountId>
-			+ fungibles::metadata::Mutate<Self::AccountId>
-			+ fungibles::roles::Inspect<Self::AccountId>;
+			+ fungibles::metadata::Mutate<Self::AccountId>;
 
 		/// The native asset ID
 		type NativeAssetId: Get<AssetId<Self>>;

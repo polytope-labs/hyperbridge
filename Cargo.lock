@@ -7758,7 +7758,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "15.0.0"
+version = "15.0.1"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",

@@ -348,10 +348,7 @@ tesseract-config = { path = "tesseract/config" }
 [workspace.dependencies.ethabi]
 version = "18.0.0"
 default-features = false
-features = [
-    "rlp",
-    "parity-codec",
-]
+features = ["rlp", "parity-codec"]
 
 [workspace.dependencies.ethers]
 git = "https://github.com/polytope-labs/ethers-rs"

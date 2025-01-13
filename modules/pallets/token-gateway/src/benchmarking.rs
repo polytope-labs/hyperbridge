@@ -3,7 +3,7 @@
 use crate::{types::*, *};
 use frame_benchmarking::v2::*;
 use frame_support::{
-	traits::{fungible, fungibles},
+	traits::{fungible, fungibles, Currency},
 	BoundedVec,
 };
 use frame_system::RawOrigin;
@@ -11,34 +11,6 @@ use ismp::host::StateMachine;
 use scale_info::prelude::collections::BTreeMap;
 use sp_runtime::AccountId32;
 use token_gateway_primitives::{GatewayAssetRegistration, GatewayAssetUpdate};
-
-fn dummy_teleport_asset<T>(
-	asset_id: AssetId<T>,
-) -> TeleportParams<AssetId<T>, <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>
-where
-	T: Config,
-	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
-{
-	TeleportParams {
-		asset_id,
-		destination: StateMachine::Evm(100),
-		recepient: H256::from([1u8; 32]),
-		amount: 1100000000u128.into(),
-		timeout: 10,
-		token_gateway: vec![1, 2, 3, 4, 5],
-		relayer_fee: 1000000002u128.into(),
-		call_data: None,
-	}
-}
-
-fn create_dummy_asset<T: Config>(
-	asset_details: GatewayAssetRegistration,
-) -> AssetRegistration<AssetId<T>>
-where
-{
-	let local_id = T::AssetIdFactory::create_asset_id(asset_details.symbol.to_vec()).unwrap();
-	AssetRegistration { local_id, reg: asset_details, native: true }
-}
 
 #[benchmarks(
     where
@@ -65,7 +37,11 @@ mod benches {
 			chains: vec![StateMachine::Evm(100)],
 			minimum_balance: Some(10),
 		};
-		let asset = create_dummy_asset::<T>(asset_details);
+		let asset = AssetRegistration {
+			local_id: T::NativeAssetId::get(),
+			reg: asset_details,
+			native: true,
+		};
 
 		<T::Currency as fungible::Mutate<T::AccountId>>::set_balance(&account, u128::MAX.into());
 
@@ -79,30 +55,43 @@ mod benches {
 	fn teleport() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 
-		let asset_details = GatewayAssetRegistration {
-			name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
-			symbol: BoundedVec::try_from(b"SPC".to_vec()).unwrap(),
-			chains: vec![StateMachine::Evm(100)],
-			minimum_balance: None,
-		};
-		let asset = create_dummy_asset::<T>(asset_details);
+		let asset_id = T::NativeAssetId::get();
 
 		Pallet::<T>::create_erc6160_asset(
 			RawOrigin::Signed(account.clone()).into(),
-			asset.clone(),
+			AssetRegistration {
+				local_id: asset_id.clone(),
+				reg: GatewayAssetRegistration {
+					name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
+					symbol: BoundedVec::try_from(b"SPC".to_vec()).unwrap(),
+					chains: vec![StateMachine::Evm(100)],
+					minimum_balance: None,
+				},
+				native: true,
+			},
 		)?;
 
-		let dummy_teleport_params = dummy_teleport_asset::<T>(asset.local_id);
-
-		<T::Currency as fungible::Mutate<T::AccountId>>::set_balance(&account, u128::MAX.into());
+		let _ = T::NativeCurrency::deposit_creating(&account, u128::MAX.into());
+		let teleport_params = TeleportParams {
+			asset_id,
+			destination: StateMachine::Evm(100),
+			recepient: H256::from([1u8; 32]),
+			amount: 10_000_000_000_000u128.into(),
+			timeout: 0,
+			token_gateway: vec![1, 2, 3, 4, 5],
+			relayer_fee: 0u128.into(),
+			call_data: None,
+		};
 
 		#[extrinsic_call]
-		teleport(RawOrigin::Signed(account), dummy_teleport_params);
+		_(RawOrigin::Signed(account), teleport_params);
 		Ok(())
 	}
 
 	#[benchmark]
-	fn set_token_gateway_addresses(x: Linear<5, 100>) -> Result<(), BenchmarkError> {
+	fn set_token_gateway_addresses(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let account: T::AccountId = whitelisted_caller();
+
 		let mut addresses = BTreeMap::new();
 		for i in 0..x {
 			let addr = i.to_string().as_bytes().to_vec();
@@ -110,46 +99,39 @@ mod benches {
 		}
 
 		#[extrinsic_call]
-		_(RawOrigin::Root, addresses);
+		_(RawOrigin::Signed(account), addresses);
 		Ok(())
 	}
 
 	#[benchmark]
 	fn update_erc6160_asset() -> Result<(), BenchmarkError> {
-		let acc_origin: T::AccountId = whitelisted_caller();
+		let account: T::AccountId = whitelisted_caller();
 
-		let asset_details = GatewayAssetRegistration {
-			name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
-			symbol: BoundedVec::try_from(b"SPC".to_vec()).unwrap(),
-			chains: vec![StateMachine::Evm(100)],
-			minimum_balance: None,
-		};
-		let asset = create_dummy_asset::<T>(asset_details.clone());
-
-		// set balances
-		<T::Currency as fungible::Mutate<T::AccountId>>::set_balance(&acc_origin, u128::MAX.into());
-		let asset_id = T::AssetIdFactory::create_asset_id(asset_details.symbol.to_vec()).unwrap();
-		<T::Assets as fungibles::Create<T::AccountId>>::create(
-			asset_id.into(),
-			acc_origin.clone(),
-			true,
-			1000000000u128.into(),
-		)?;
+		let local_id = T::NativeAssetId::get();
 
 		Pallet::<T>::create_erc6160_asset(
-			RawOrigin::Signed(acc_origin.clone()).into(),
-			asset.clone(),
+			RawOrigin::Signed(account.clone()).into(),
+			AssetRegistration {
+				local_id,
+				reg: GatewayAssetRegistration {
+					name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
+					symbol: BoundedVec::try_from(b"SPC".to_vec()).unwrap(),
+					chains: vec![StateMachine::Evm(100)],
+					minimum_balance: None,
+				},
+				native: true,
+			},
 		)?;
 
 		let asset_update = GatewayAssetUpdate {
-			asset_id: H256::zero(),
+			asset_id: sp_io::hashing::keccak_256(b"SPC".as_ref()).into(),
 			add_chains: BoundedVec::try_from(vec![StateMachine::Evm(200)]).unwrap(),
 			remove_chains: BoundedVec::try_from(Vec::new()).unwrap(),
 			new_admins: BoundedVec::try_from(Vec::new()).unwrap(),
 		};
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(acc_origin), asset_update);
+		_(RawOrigin::Signed(account), asset_update);
 		Ok(())
 	}
 }

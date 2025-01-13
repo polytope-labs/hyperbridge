@@ -23,7 +23,7 @@ use frame_support::{
 	traits::{ConstU32, ConstU64, Get},
 	PalletId,
 };
-use frame_system::{EnsureRoot, EventRecord};
+use frame_system::{EnsureRoot, EnsureSigned, EventRecord};
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
@@ -245,7 +245,7 @@ impl pallet_token_gateway::Config for Test {
 	type Assets = Assets;
 	type NativeCurrency = Balances;
 	type NativeAssetId = NativeAssetId;
-	type AssetIdFactory = AssetIdFactory;
+	type CreateOrigin = EnsureSigned<AccountId32>;
 	type Decimals = Decimals;
 	type AssetAdmin = AssetAdmin;
 	type EvmToSubstrate = ();

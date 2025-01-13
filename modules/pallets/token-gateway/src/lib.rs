@@ -44,12 +44,8 @@ use ismp::{
 
 use sp_core::{Get, H160, U256};
 use sp_runtime::{traits::Dispatchable, MultiSignature};
-use token_gateway_primitives::{
-	AssetMetadata, DeregisterAssets, PALLET_TOKEN_GATEWAY_ID, TOKEN_GOVERNOR_ID,
-};
-use types::{
-	AssetId, Body, BodyWithCall, CreateAssetId, EvmToSubstrate, RequestBody, SubstrateCalldata,
-};
+use token_gateway_primitives::{PALLET_TOKEN_GATEWAY_ID, TOKEN_GOVERNOR_ID};
+use types::{AssetId, Body, BodyWithCall, EvmToSubstrate, RequestBody, SubstrateCalldata};
 
 use alloc::{string::ToString, vec, vec::Vec};
 use frame_system::RawOrigin;
@@ -58,9 +54,6 @@ use primitive_types::H256;
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
-
-/// Minimum balance for token gateway assets
-const MIN_BALANCE: u128 = 1_000_000_000;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -108,6 +101,9 @@ pub mod pallet {
 		/// creation
 		type AssetAdmin: Get<Self::AccountId>;
 
+		/// Account that is authorized to create and update assets.
+		type CreateOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
 		/// Fungible asset implementation
 		type Assets: fungibles::Mutate<Self::AccountId>
 			+ fungibles::Inspect<Self::AccountId>
@@ -117,9 +113,6 @@ pub mod pallet {
 
 		/// The native asset ID
 		type NativeAssetId: Get<AssetId<Self>>;
-
-		/// A trait that can be used to create new asset Ids
-		type AssetIdFactory: CreateAssetId<AssetId<Self>>;
 
 		/// The decimals of the native currency
 		#[pallet::constant]
@@ -369,7 +362,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			addresses: BTreeMap<StateMachine, Vec<u8>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::CreateOrigin::ensure_origin(origin)?;
 			for (chain, address) in addresses {
 				TokenGatewayAddresses::<T>::insert(chain, address.clone());
 			}
@@ -387,8 +380,8 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-
+			T::CreateOrigin::ensure_origin(origin)?;
+			let who = T::AssetAdmin::get();
 			// charge hyperbridge fees
 			let VersionedHostParams::V1(SubstrateHostParams { asset_registration_fee, .. }) =
 				pallet_hyperbridge::Pallet::<T>::host_params();
@@ -441,10 +434,8 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset: GatewayAssetUpdate,
 		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			let asset_id = LocalAssets::<T>::get(asset.asset_id.clone())
-				.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
-			Self::ensure_admin(who.clone(), asset_id)?;
+			T::CreateOrigin::ensure_origin(origin)?;
+			let who = T::AssetAdmin::get();
 
 			// charge hyperbridge fees
 			let VersionedHostParams::V1(SubstrateHostParams { asset_registration_fee, .. }) =
@@ -499,65 +490,6 @@ where
 		&self,
 		PostRequest { body, from, source, dest, nonce, .. }: PostRequest,
 	) -> Result<(), anyhow::Error> {
-		// The only requests allowed from token governor on Hyperbridge is asset creation, updating
-		// and deregistering
-		if &from == &TOKEN_GOVERNOR_ID[..] && Some(source) == T::Coprocessor::get() {
-			if let Ok(metadata) = AssetMetadata::decode(&mut &body[..]) {
-				let asset_id: H256 = sp_io::hashing::keccak_256(metadata.symbol.as_ref()).into();
-				// If the local aset Id exists, then  it must mean this is an update.
-				if let Some(local_asset_id) = LocalAssets::<T>::get(asset_id) {
-					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
-						local_asset_id.clone(),
-						&T::AssetAdmin::get(),
-						metadata.name.to_vec(),
-						metadata.symbol.to_vec(),
-						// We do not change the asset's native decimal
-						<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
-							local_asset_id.clone(),
-						),
-					)
-					.map_err(|e| anyhow!("{e:?}"))?;
-					// Note the asset's ERC counterpart decimal
-					Decimals::<T>::insert(local_asset_id, metadata.decimals);
-				} else {
-					let min_balance = metadata.minimum_balance.unwrap_or(MIN_BALANCE);
-					let local_asset_id =
-						T::AssetIdFactory::create_asset_id(metadata.symbol.to_vec())?;
-					<T::Assets as fungibles::Create<T::AccountId>>::create(
-						local_asset_id.clone(),
-						T::AssetAdmin::get(),
-						true,
-						min_balance.into(),
-					)
-					.map_err(|e| anyhow!("{e:?}"))?;
-					<T::Assets as fungibles::metadata::Mutate<T::AccountId>>::set(
-						local_asset_id.clone(),
-						&T::AssetAdmin::get(),
-						metadata.name.to_vec(),
-						metadata.symbol.to_vec(),
-						18,
-					)
-					.map_err(|e| anyhow!("{e:?}"))?;
-					SupportedAssets::<T>::insert(local_asset_id.clone(), asset_id.clone());
-					LocalAssets::<T>::insert(asset_id, local_asset_id.clone());
-					// Note the asset's ERC counterpart decimal
-					Decimals::<T>::insert(local_asset_id, metadata.decimals);
-				}
-				return Ok(());
-			}
-
-			if let Ok(meta) = DeregisterAssets::decode(&mut &body[..]) {
-				for asset_id in meta.asset_ids {
-					if let Some(local_asset_id) = LocalAssets::<T>::get(H256::from(asset_id.0)) {
-						SupportedAssets::<T>::remove(local_asset_id.clone());
-						LocalAssets::<T>::remove(H256::from(asset_id.0));
-						Decimals::<T>::remove(local_asset_id.clone());
-					}
-				}
-
-				return Ok(());
-			}
-		}
 		let expected = TokenGatewayAddresses::<T>::get(source)
 			.ok_or_else(|| anyhow!("Not configured to receive assets from {source:?}"))?;
 		ensure!(
@@ -801,16 +733,6 @@ where
 				},
 			})?,
 		}
-		Ok(())
-	}
-}
-
-impl<T: Config> Pallet<T> {
-	/// Ensure the signer is the asset admin
-	pub fn ensure_admin(who: T::AccountId, asset_id: AssetId<T>) -> Result<(), Error<T>> {
-		let owner = <T::Assets as fungibles::roles::Inspect<T::AccountId>>::admin(asset_id)
-			.ok_or_else(|| Error::<T>::UnknownAsset)?;
-		ensure!(who == owner, Error::<T>::NotAssetOwner);
 		Ok(())
 	}
 }

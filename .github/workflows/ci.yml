@@ -7,9 +7,9 @@ on:
             - seun/relayer-docs
     # pull_request_target:
     #   types: [opened, synchronize]
-    # pull_request:
-    #     branches:
-    #         - main
+    pull_request:
+        branches:
+            - seun/pull_request
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}

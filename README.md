@@ -1,4 +1,4 @@
-![Hyperbridge Coprocessor](./docs/public/coprocessor.png)
+![Hyperbridge Coprocessor](./docs/public/coprocessor.gif)
 
 # Hyperbridge
 

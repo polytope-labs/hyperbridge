@@ -60,14 +60,14 @@ pub mod pallet {
 	use alloc::collections::BTreeMap;
 	use pallet_hyperbridge::PALLET_HYPERBRIDGE;
 	use sp_runtime::traits::AccountIdConversion;
-	use types::{AssetRegistration, TeleportParams};
+	use types::{AssetRegistration, NativeAssetLocation, TeleportParams};
 
 	use super::*;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
 			tokens::{Fortitude, Precision, Preservation},
-			Currency, ExistenceRequirement,
+			Currency, ExistenceRequirement, WithdrawReasons,
 		},
 	};
 	use frame_system::pallet_prelude::*;
@@ -109,7 +109,7 @@ pub mod pallet {
 			+ fungibles::metadata::Mutate<Self::AccountId>;
 
 		/// The native asset ID
-		type NativeAssetId: Get<AssetId<Self>>;
+		type NativeAssetId: Get<NativeAssetLocation<AssetId<Self>>>;
 
 		/// The decimals of the native currency
 		#[pallet::constant]
@@ -141,7 +141,15 @@ pub mod pallet {
 
 	/// The decimals used by the EVM counterpart of this asset
 	#[pallet::storage]
-	pub type Decimals<T: Config> = StorageMap<_, Blake2_128Concat, AssetId<T>, u8, OptionQuery>;
+	pub type Decimals<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		AssetId<T>,
+		Blake2_128Concat,
+		StateMachine,
+		u8,
+		OptionQuery,
+	>;
 
 	/// The token gateway adresses on different chains
 	#[pallet::storage]
@@ -243,14 +251,28 @@ pub mod pallet {
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let asset_id = SupportedAssets::<T>::get(params.asset_id.clone())
 				.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
-			let decimals = if params.asset_id == T::NativeAssetId::get() {
+			let decimals = if params.asset_id == T::NativeAssetId::get().asset_id() {
 				// Custody funds in pallet
-				<T as Config>::NativeCurrency::transfer(
-					&who,
-					&Self::pallet_account(),
-					params.amount,
-					ExistenceRequirement::AllowDeath,
-				)?;
+				if T::NativeAssetId::get().is_local() {
+					<T as Config>::NativeCurrency::transfer(
+						&who,
+						&Self::pallet_account(),
+						params.amount,
+						ExistenceRequirement::AllowDeath,
+					)?;
+				} else {
+					// Reduce total supply
+					let imbalance = <T as Config>::NativeCurrency::burn(params.amount);
+					// Burn amount from account
+					<T as Config>::NativeCurrency::settle(
+						&who,
+						imbalance,
+						WithdrawReasons::TRANSFER,
+						ExistenceRequirement::AllowDeath,
+					)
+					.map_err(|_| Error::<T>::AssetTeleportError)?;
+				}
+
 				T::Decimals::get()
 			} else {
 				let is_native = NativeAssets::<T>::get(params.asset_id.clone());
@@ -281,7 +303,7 @@ pub mod pallet {
 
 			let to = params.recepient.0;
 			let from: [u8; 32] = who.clone().into();
-			let erc_decimals = Decimals::<T>::get(params.asset_id)
+			let erc_decimals = Decimals::<T>::get(params.asset_id, params.destination)
 				.ok_or_else(|| Error::<T>::AssetDecimalsNotFound)?;
 
 			let body = match params.call_data {
@@ -372,7 +394,7 @@ pub mod pallet {
 		/// to create the asset.
 		/// `native` should be true if this asset originates from this chain
 		#[pallet::call_index(2)]
-		#[pallet::weight(T::WeightInfo::create_erc6160_asset())]
+		#[pallet::weight(T::WeightInfo::create_erc6160_asset(asset.precision.len() as u32))]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
@@ -399,8 +421,9 @@ pub mod pallet {
 			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
 			NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
 			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
-			// All ERC6160 assets use 18 decimals
-			Decimals::<T>::insert(asset.local_id, 18);
+			for (state_machine, precision) in asset.precision {
+				Decimals::<T>::insert(asset.local_id.clone(), state_machine, precision);
+			}
 
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let dispatch_post = DispatchPost {
@@ -513,14 +536,14 @@ where
 				}
 			})?;
 
-		let decimals = if local_asset_id == T::NativeAssetId::get() {
+		let decimals = if local_asset_id == T::NativeAssetId::get().asset_id() {
 			T::Decimals::get()
 		} else {
 			<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
 				local_asset_id.clone(),
 			)
 		};
-		let erc_decimals = Decimals::<T>::get(local_asset_id.clone())
+		let erc_decimals = Decimals::<T>::get(local_asset_id.clone(), source)
 			.ok_or_else(|| anyhow!("Asset decimals not configured"))?;
 		let amount = convert_to_balance(
 			U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
@@ -532,17 +555,24 @@ where
 			meta: Meta { source, dest, nonce },
 		})?;
 		let beneficiary: T::AccountId = body.to.0.into();
-		if local_asset_id == T::NativeAssetId::get() {
-			<T as Config>::NativeCurrency::transfer(
-				&Pallet::<T>::pallet_account(),
-				&beneficiary,
-				amount.into(),
-				ExistenceRequirement::AllowDeath,
-			)
-			.map_err(|_| ismp::error::Error::ModuleDispatchError {
-				msg: "Token Gateway: Failed to complete asset transfer".to_string(),
-				meta: Meta { source, dest, nonce },
-			})?;
+		if local_asset_id == T::NativeAssetId::get().asset_id() {
+			if T::NativeAssetId::get().is_local() {
+				<T as Config>::NativeCurrency::transfer(
+					&Pallet::<T>::pallet_account(),
+					&beneficiary,
+					amount.into(),
+					ExistenceRequirement::AllowDeath,
+				)
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+					msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+					meta: Meta { source, dest, nonce },
+				})?;
+			} else {
+				// Increase total supply
+				let imbalance = <T as Config>::NativeCurrency::issue(amount.into());
+				// Mint into the beneficiary account
+				<T as Config>::NativeCurrency::resolve_creating(&beneficiary, imbalance);
+			}
 		} else {
 			// Assets that do not originate from this chain are minted
 			let is_native = NativeAssets::<T>::get(local_asset_id.clone());
@@ -652,14 +682,14 @@ where
 						msg: "Token Gateway: Unknown asset".to_string(),
 						meta: Meta { source, dest, nonce },
 					})?;
-				let decimals = if local_asset_id == T::NativeAssetId::get() {
+				let decimals = if local_asset_id == T::NativeAssetId::get().asset_id() {
 					T::Decimals::get()
 				} else {
 					<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
 						local_asset_id.clone(),
 					)
 				};
-				let erc_decimals = Decimals::<T>::get(local_asset_id.clone())
+				let erc_decimals = Decimals::<T>::get(local_asset_id.clone(), dest)
 					.ok_or_else(|| anyhow!("Asset decimals not configured"))?;
 				let amount = convert_to_balance(
 					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
@@ -671,17 +701,22 @@ where
 					meta: Meta { source, dest, nonce },
 				})?;
 
-				if local_asset_id == T::NativeAssetId::get() {
-					<T as Config>::NativeCurrency::transfer(
-						&Pallet::<T>::pallet_account(),
-						&beneficiary,
-						amount.into(),
-						ExistenceRequirement::AllowDeath,
-					)
-					.map_err(|_| ismp::error::Error::ModuleDispatchError {
-						msg: "Token Gateway: Failed to complete asset transfer".to_string(),
-						meta: Meta { source, dest, nonce },
-					})?;
+				if local_asset_id == T::NativeAssetId::get().asset_id() {
+					if T::NativeAssetId::get().is_local() {
+						<T as Config>::NativeCurrency::transfer(
+							&Pallet::<T>::pallet_account(),
+							&beneficiary,
+							amount.into(),
+							ExistenceRequirement::AllowDeath,
+						)
+						.map_err(|_| ismp::error::Error::ModuleDispatchError {
+							msg: "Token Gateway: Failed to complete asset transfer".to_string(),
+							meta: Meta { source, dest, nonce },
+						})?;
+					} else {
+						let imbalance = <T as Config>::NativeCurrency::issue(amount.into());
+						<T as Config>::NativeCurrency::resolve_creating(&beneficiary, imbalance);
+					}
 				} else {
 					// Assets that do not originate from this chain are minted
 					let is_native = NativeAssets::<T>::get(local_asset_id.clone());

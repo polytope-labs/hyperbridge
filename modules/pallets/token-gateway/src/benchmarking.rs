@@ -28,7 +28,7 @@ mod benches {
 	use super::*;
 
 	#[benchmark]
-	fn create_erc6160_asset() -> Result<(), BenchmarkError> {
+	fn create_erc6160_asset(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 
 		let asset_details = GatewayAssetRegistration {
@@ -37,10 +37,17 @@ mod benches {
 			chains: vec![StateMachine::Evm(100)],
 			minimum_balance: Some(10),
 		};
+
+		let mut precision = BTreeMap::new();
+		for i in 0..x {
+			precision.insert(StateMachine::Evm(i as u32), 18);
+		}
+
 		let asset = AssetRegistration {
-			local_id: T::NativeAssetId::get(),
+			local_id: T::NativeAssetId::get().asset_id(),
 			reg: asset_details,
 			native: true,
+			precision,
 		};
 
 		<T::Currency as fungible::Mutate<T::AccountId>>::set_balance(&account, u128::MAX.into());
@@ -55,7 +62,7 @@ mod benches {
 	fn teleport() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 
-		let asset_id = T::NativeAssetId::get();
+		let asset_id = T::NativeAssetId::get().asset_id();
 
 		Pallet::<T>::create_erc6160_asset(
 			RawOrigin::Signed(account.clone()).into(),
@@ -68,6 +75,7 @@ mod benches {
 					minimum_balance: None,
 				},
 				native: true,
+				precision: vec![(StateMachine::Evm(100), 18)].into_iter().collect(),
 			},
 		)?;
 
@@ -107,7 +115,7 @@ mod benches {
 	fn update_erc6160_asset() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 
-		let local_id = T::NativeAssetId::get();
+		let local_id = T::NativeAssetId::get().asset_id();
 
 		Pallet::<T>::create_erc6160_asset(
 			RawOrigin::Signed(account.clone()).into(),
@@ -120,6 +128,7 @@ mod benches {
 					minimum_balance: None,
 				},
 				native: true,
+				precision: Default::default(),
 			},
 		)?;
 

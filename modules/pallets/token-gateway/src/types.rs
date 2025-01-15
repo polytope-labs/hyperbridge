@@ -15,8 +15,7 @@
 
 //! Pallet types
 
-use alloc::vec::Vec;
-use anyhow::anyhow;
+use alloc::{collections::BTreeMap, vec::Vec};
 use frame_support::{pallet_prelude::*, traits::fungibles};
 use ismp::host::StateMachine;
 use primitive_types::H256;
@@ -26,6 +25,28 @@ use crate::Config;
 
 pub type AssetId<T> =
 	<<T as Config>::Assets as fungibles::Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
+
+/// A type that describes where the chain's native asset is custodied
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub enum NativeAssetLocation<AssetId> {
+	/// Use this when the native asset is custodied on this chain
+	Local(AssetId),
+	/// Use this if the native asset is custodied on a remote chain
+	Remote(AssetId),
+}
+
+impl<AssetId: Clone> NativeAssetLocation<AssetId> {
+	pub fn asset_id(&self) -> AssetId {
+		match &self {
+			NativeAssetLocation::Local(id) => id.clone(),
+			NativeAssetLocation::Remote(id) => id.clone(),
+		}
+	}
+
+	pub fn is_local(&self) -> bool {
+		matches!(&self, NativeAssetLocation::Local(_))
+	}
+}
 
 /// Asset teleportation parameters
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
@@ -55,8 +76,10 @@ pub struct AssetRegistration<AssetId> {
 	pub local_id: AssetId,
 	/// MNT Asset registration details
 	pub reg: token_gateway_primitives::GatewayAssetRegistration,
-	/// Flag for if this asset is native
+	/// Flag that asserts if this asset is custodied and originally minted on this chain
 	pub native: bool,
+	/// Precision of asset on supported chains
+	pub precision: BTreeMap<StateMachine, u8>,
 }
 
 alloy_sol_macro::sol! {
@@ -132,18 +155,6 @@ impl From<BodyWithCall> for RequestBody {
 			to: value.to,
 			data: Some(value.data),
 		}
-	}
-}
-
-/// A trait that helps in creating new asset ids in the runtime
-pub trait CreateAssetId<AssetId> {
-	/// Should return a unique asset id
-	fn create_asset_id(symbol: Vec<u8>) -> Result<AssetId, anyhow::Error>;
-}
-
-impl<AssetId> CreateAssetId<AssetId> for () {
-	fn create_asset_id(_symbol: Vec<u8>) -> Result<AssetId, anyhow::Error> {
-		Err(anyhow!("Unimplemented"))
 	}
 }
 

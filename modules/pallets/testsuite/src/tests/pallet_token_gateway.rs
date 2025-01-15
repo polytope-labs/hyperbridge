@@ -8,9 +8,7 @@ use ismp::{
 };
 use pallet_token_gateway::{
 	impls::convert_to_erc20,
-	types::{
-		AssetRegistration, Body, BodyWithCall, CreateAssetId, SubstrateCalldata, TeleportParams,
-	},
+	types::{AssetRegistration, Body, BodyWithCall, SubstrateCalldata, TeleportParams},
 };
 
 use sp_core::{ByteArray, Get, Pair, H160, H256, U256};
@@ -20,8 +18,8 @@ use token_gateway_primitives::{GatewayAssetRegistration, PALLET_TOKEN_GATEWAY_ID
 use xcm_simulator_example::ALICE;
 
 use crate::runtime::{
-	new_test_ext, AssetIdFactory, NativeAssetId, RuntimeOrigin, Test, TokenGateway,
-	TokenGatewayInspector, INITIAL_BALANCE,
+	new_test_ext, NativeAssetId, RuntimeOrigin, Test, TokenGateway, TokenGatewayInspector,
+	INITIAL_BALANCE,
 };
 use ismp::module::IsmpModule;
 
@@ -31,7 +29,7 @@ const SEND_AMOUNT: u128 = 1000_000_000_0000;
 fn should_teleport_asset_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: NativeAssetId::get(),
+			asset_id: NativeAssetId::get().asset_id(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -53,7 +51,7 @@ fn should_teleport_asset_correctly() {
 fn should_receive_asset_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: NativeAssetId::get(),
+			asset_id: NativeAssetId::get().asset_id(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -107,7 +105,7 @@ fn should_receive_asset_correctly() {
 fn should_timeout_request_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: NativeAssetId::get(),
+			asset_id: NativeAssetId::get().asset_id(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -125,8 +123,8 @@ fn should_timeout_request_correctly() {
 
 		let module = TokenGateway::default();
 		let post = PostRequest {
-			source: StateMachine::Evm(1),
-			dest: StateMachine::Kusama(100),
+			source: StateMachine::Evm(97),
+			dest: StateMachine::Evm(1),
 			nonce: 0,
 			from: H160::zero().0.to_vec(),
 			to: H160::zero().0.to_vec(),
@@ -307,16 +305,17 @@ fn inspector_should_handle_timeout_correctly() {
 #[test]
 fn dispatching_remote_asset_creation() {
 	new_test_ext().execute_with(|| {
-		let local_asset_id = AssetIdFactory::create_asset_id("MDG".as_bytes().to_vec()).unwrap();
+		let local_asset_id = sp_io::hashing::keccak_256("MDG".as_bytes()).into();
 		let reg = AssetRegistration::<H256> {
 			local_id: local_asset_id,
 			reg: GatewayAssetRegistration {
 				name: "MOODENG".as_bytes().to_vec().try_into().unwrap(),
 				symbol: "MDG".as_bytes().to_vec().try_into().unwrap(),
-				chains: vec![StateMachine::Evm(97)],
+				chains: vec![StateMachine::Evm(1)],
 				minimum_balance: None,
 			},
 			native: true,
+			precision: vec![(StateMachine::Evm(1), 18)].into_iter().collect(),
 		};
 
 		TokenGateway::create_erc6160_asset(RuntimeOrigin::signed(ALICE), reg).unwrap();
@@ -332,7 +331,7 @@ fn dispatching_remote_asset_creation() {
 fn should_receive_asset_with_call_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: NativeAssetId::get(),
+			asset_id: NativeAssetId::get().asset_id(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,

@@ -5,7 +5,7 @@
 > Hyperbridge is a hyper-scalable coprocessor for verifiable, cross-chain interoperability.
 
 
-## Join the network.
+## Join the network
 
 Hyperbridge is the first fully permissionless and decentralized cross-chain protocol powered by interoperability proofs.
 It allows **anyone** to run a relayer which transmits messages across chains without any staking or whitelisting. [Learn more about relayers.](https://docs.hyperbridge.network/developers/explore/relayers)

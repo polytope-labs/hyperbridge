@@ -493,7 +493,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			H256::zero(),
 			NativeAssetId::get().asset_id(),
 		);
-		pallet_token_gateway::Decimals::<Test>::insert(
+		pallet_token_gateway::Precisions::<Test>::insert(
 			NativeAssetId::get().asset_id(),
 			StateMachine::Evm(1),
 			18,

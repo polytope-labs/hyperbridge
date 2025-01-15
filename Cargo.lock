@@ -7765,6 +7765,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support 37.0.0",
  "frame-system",
+ "hex",
  "hex-literal 0.4.1",
  "ismp",
  "log",

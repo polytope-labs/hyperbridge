@@ -892,6 +892,7 @@ mod benches {
 		[cumulus_pallet_parachain_system, ParachainSystem]
 		[pallet_session, SessionBench::<Runtime>]
 		[ismp_grandpa, IsmpGrandpa]
+		[ismp_parachain, IsmpParachain]
 	);
 }
 

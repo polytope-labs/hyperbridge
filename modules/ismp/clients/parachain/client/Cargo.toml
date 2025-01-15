@@ -17,18 +17,19 @@ serde = { workspace = true, features = ["derive"], optional = false }
 codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 hex-literal = { workspace = true }
+hex = { workspace = true }
 primitive-types = { workspace = true }
 log = { workspace = true }
 
 # substrate
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+frame-benchmarking = { optional = true, workspace = true }
 sp-trie = { workspace = true }
 sp-inherents = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-consensus-aura = { workspace = true }
-frame-benchmarking = { workspace = true, optional = true }
 
 # cumulus
 cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
@@ -45,6 +46,7 @@ std = [
     "codec/std",
     "frame-support/std",
     "frame-system/std",
+    "frame-benchmarking?/std",
     "scale-info/std",
     "cumulus-pallet-parachain-system/std",
     "cumulus-primitives-core/std",
@@ -59,6 +61,7 @@ std = [
     "pallet-ismp/std",
     "substrate-state-machine/std"
 ]
+
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
@@ -70,4 +73,5 @@ runtime-benchmarks = [
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "pallet-ismp/runtime-benchmarks",
+    "cumulus-pallet-parachain-system/runtime-benchmarks",
 ]

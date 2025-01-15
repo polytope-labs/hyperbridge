@@ -193,30 +193,31 @@ std = [
 ]
 
 runtime-benchmarks = [
-    "hex-literal",
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-support/runtime-benchmarks",
-    "frame-system-benchmarking/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
-    "cumulus-pallet-parachain-system/runtime-benchmarks",
-    "pallet-balances/runtime-benchmarks",
-    "pallet-collator-selection/runtime-benchmarks",
-    "pallet-timestamp/runtime-benchmarks",
-    "pallet-xcm/runtime-benchmarks",
-    "pallet-utility/runtime-benchmarks",
-    "pallet-treasury/runtime-benchmarks",
-    "pallet-collective/runtime-benchmarks",
-    "pallet-asset-rate/runtime-benchmarks",
-    "sp-runtime/runtime-benchmarks",
-    "staging-xcm-builder/runtime-benchmarks",
-    "pallet-xcm/runtime-benchmarks",
-    "cumulus-pallet-session-benchmarking/runtime-benchmarks",
-    "cumulus-pallet-xcmp-queue/runtime-benchmarks",
-    "pallet-message-queue/runtime-benchmarks",
-    "pallet-assets/runtime-benchmarks",
-    "pallet-sudo/runtime-benchmarks",
-    "parachains-common/runtime-benchmarks",
-    "ismp-grandpa/runtime-benchmarks",
+	"hex-literal",
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system-benchmarking/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"cumulus-pallet-parachain-system/runtime-benchmarks",
+	"pallet-balances/runtime-benchmarks",
+	"pallet-collator-selection/runtime-benchmarks",
+	"pallet-timestamp/runtime-benchmarks",
+	"pallet-xcm/runtime-benchmarks",
+	"pallet-utility/runtime-benchmarks",
+	"pallet-treasury/runtime-benchmarks",
+	"pallet-collective/runtime-benchmarks",
+	"pallet-asset-rate/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+	"staging-xcm-builder/runtime-benchmarks",
+	"pallet-xcm/runtime-benchmarks",
+	"cumulus-pallet-session-benchmarking/runtime-benchmarks",
+	"cumulus-pallet-xcmp-queue/runtime-benchmarks",
+	"pallet-message-queue/runtime-benchmarks",
+	"pallet-assets/runtime-benchmarks",
+	"pallet-sudo/runtime-benchmarks",
+	"parachains-common/runtime-benchmarks",
+	"ismp-grandpa/runtime-benchmarks",
+   "ismp-parachain/runtime-benchmarks",
 ]
 
 try-runtime = [
@@ -247,7 +248,6 @@ try-runtime = [
     "parachain-info/try-runtime",
     "pallet-assets/runtime-benchmarks",
 ]
-
 
 # This must be used when buiding for a runtime upgrade so metadata hash verification is possible
 metadata-hash = ["substrate-wasm-builder/metadata-hash"]

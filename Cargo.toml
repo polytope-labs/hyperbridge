@@ -10,22 +10,22 @@ members = [
 
     # ismp
     "modules/ismp/core",
-    "modules/ismp/pallets/pallet",
-    "modules/ismp/pallets/relayer",
-    "modules/ismp/pallets/fishermen",
-    "modules/ismp/pallets/host-executive",
-    "modules/ismp/pallets/rpc",
-    "modules/ismp/pallets/runtime-api",
-    "modules/ismp/pallets/demo",
-    "modules/ismp/pallets/testsuite",
-    "modules/ismp/pallets/call-decompressor",
-    "modules/ismp/pallets/asset-gateway",
-    "modules/ismp/pallets/token-governor",
-    "modules/ismp/pallets/token-gateway",
-    "modules/ismp/pallets/token-gateway/primitives",
-    "modules/ismp/pallets/token-gateway-inspector",
-    "modules/ismp/pallets/hyperbridge",
-    "modules/ismp/pallets/state-coprocessor",
+    "modules/pallets/ismp",
+    "modules/pallets/relayer",
+    "modules/pallets/fishermen",
+    "modules/pallets/host-executive",
+    "modules/pallets/ismp/rpc",
+    "modules/pallets/ismp/runtime-api",
+    "modules/pallets/demo",
+    "modules/pallets/testsuite",
+    "modules/pallets/call-decompressor",
+    "modules/pallets/asset-gateway",
+    "modules/pallets/token-governor",
+    "modules/pallets/token-gateway",
+    "modules/pallets/token-gateway/primitives",
+    "modules/pallets/token-gateway-inspector",
+    "modules/pallets/hyperbridge",
+    "modules/pallets/state-coprocessor",
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",
     "modules/ismp/clients/parachain/client",
@@ -50,10 +50,11 @@ members = [
     "modules/consensus/grandpa/primitives",
     "modules/consensus/grandpa/verifier",
     "modules/trees/ethereum",
-    "modules/trees/mmr/pallet",
-    "modules/trees/mmr/primitives",
-    "modules/trees/mmr/gadget",
-    "modules/trees/mmr/pallet/runtime-api",
+    "modules/pallets/mmr",
+    "modules/pallets/mmr/primitives",
+    "modules/pallets/mmr/gadget",
+    "modules/pallets/mmr/runtime-api",
+    "modules/pallets/mmr/rpc",
     "modules/ismp/state-machines/evm",
     "modules/ismp/state-machines/substrate",
     "modules/ismp/state-machines/hyperbridge",
@@ -155,16 +156,17 @@ sp-genesis-builder = { version = "0.15.0", default-features = false }
 pallet-xcm = { version = "16.0.0", default-features = false }
 polkadot-parachain-primitives = { version = "14.0.0", default-features = false }
 polkadot-runtime-common = { version = "16.0.0", default-features = false }
-staging-xcm = { version = "14.1.0", default-features = false }
+staging-xcm = { version = "=14.1.0", default-features = false }
 staging-xcm-builder = { version = "16.0.0", default-features = false }
 staging-xcm-executor = { version = "16.0.0", default-features = false }
 cumulus-primitives-aura = { version = "0.15.0", default-features = false }
 cumulus-pallet-session-benchmarking = { version = "18.0.0", default-features = false }
 cumulus-pallet-aura-ext = { version = "0.16.0", default-features = false }
 cumulus-pallet-dmp-queue = { version = "0.16.0", default-features = false }
+cumulus-pallet-parachain-system = { version = "=0.16.0", default-features = false }
 cumulus-pallet-xcm = { version = "0.16.0", default-features = false }
 cumulus-pallet-xcmp-queue = { version = "0.16.0", default-features = false }
-cumulus-primitives-core = { version = "0.15.0", default-features = false }
+cumulus-primitives-core = { version = "=0.15.0", default-features = false }
 cumulus-primitives-timestamp = { version = "0.15.0", default-features = false }
 cumulus-primitives-utility = { version = "0.16.0", default-features = false }
 pallet-collator-selection = { version = "18.0.0", default-features = false }
@@ -287,44 +289,45 @@ grandpa-prover = { path = "./modules/consensus/grandpa/prover" }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
-ismp-grandpa = { version = "1.15.3", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "1.15.3", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { version = "1.15.3", path = "./modules/ismp/clients/parachain/inherent" }
-ismp-parachain-runtime-api = { version = "1.15.1", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
+ismp-grandpa = { version = "15.0.0", path = "./modules/ismp/clients/grandpa", default-features = false }
+ismp-parachain = { version = "15.0.1", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain-inherent = { version = "15.0.0", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain-runtime-api = { version = "15.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
-substrate-state-machine = { version = "1.15.3", path = "modules/ismp/state-machines/substrate", default-features = false }
+substrate-state-machine = { version = "15.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # published pallets
-pallet-ismp = { version = "1.15.3", path = "modules/ismp/pallets/pallet", default-features = false }
-pallet-ismp-rpc = { version = "1.15.3", path = "modules/ismp/pallets/rpc" }
-pallet-ismp-runtime-api = { version = "1.15.3", path = "modules/ismp/pallets/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "1.15.3", path = "modules/ismp/pallets/hyperbridge", default-features = false }
-pallet-token-gateway = { version = "1.15.3", path = "modules/ismp/pallets/token-gateway", default-features = false }
-token-gateway-primitives = { version = "1.15.3", path = "modules/ismp/pallets/token-gateway/primitives", default-features = false }
+pallet-ismp = { version = "15.0.0", path = "modules/pallets/ismp", default-features = false }
+pallet-ismp-rpc = { version = "15.0.0", path = "modules/pallets/ismp/rpc" }
+pallet-ismp-runtime-api = { version = "15.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
+pallet-hyperbridge = { version = "15.0.0", path = "modules/pallets/hyperbridge", default-features = false }
+pallet-token-gateway = { version = "15.0.0", path = "modules/pallets/token-gateway", default-features = false }
+token-gateway-primitives = { version = "15.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
 
 # ismp modules
-pallet-fishermen = { path = "modules/ismp/pallets/fishermen", default-features = false }
-pallet-ismp-demo = { path = "modules/ismp/pallets/demo", default-features = false }
-pallet-ismp-relayer = { path = "modules/ismp/pallets/relayer", default-features = false }
-pallet-ismp-host-executive = { path = "modules/ismp/pallets/host-executive", default-features = false }
-pallet-call-decompressor = { path = "modules/ismp/pallets/call-decompressor", default-features = false }
-pallet-xcm-gateway = { path = "modules/ismp/pallets/asset-gateway", default-features = false }
-pallet-token-governor = { path = "modules/ismp/pallets/token-governor", default-features = false }
-pallet-state-coprocessor = { path = "modules/ismp/pallets/state-coprocessor", default-features = false }
-pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
-pallet-token-gateway-inspector = { path = "modules/ismp/pallets/token-gateway-inspector", default-features = false }
+pallet-fishermen = { path = "modules/pallets/fishermen", default-features = false }
+pallet-ismp-demo = { path = "modules/pallets/demo", default-features = false }
+pallet-ismp-relayer = { path = "modules/pallets/relayer", default-features = false }
+pallet-ismp-host-executive = { path = "modules/pallets/host-executive", default-features = false }
+pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default-features = false }
+pallet-xcm-gateway = { path = "modules/pallets/asset-gateway", default-features = false }
+pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
+pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
+pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
-mmr-primitives = { path = "modules/trees/mmr/primitives", default-features = false }
-pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
-mmr-gadget = { path = "modules/trees/mmr/gadget" }
+pallet-mmr = { path = "modules/pallets/mmr", default-features = false }
+pallet-mmr-rpc = { path = "modules/pallets/mmr/rpc", default-features = false }
+mmr-primitives = { path = "modules/pallets/mmr/primitives", default-features = false }
+pallet-mmr-runtime-api = { path = "modules/pallets/mmr/runtime-api", default-features = false }
+mmr-gadget = { path = "modules/pallets/mmr/gadget" }
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
@@ -341,15 +344,11 @@ tesseract = { path = "tesseract/relayer" }
 transaction-fees = { path = "tesseract/fees" }
 telemetry-server = { path = "tesseract/telemetry" }
 tesseract-config = { path = "tesseract/config" }
-cumulus-pallet-parachain-system = { version = "0.16.0", default-features = false }
 
 [workspace.dependencies.ethabi]
 version = "18.0.0"
 default-features = false
-features = [
-    "rlp",
-    "parity-codec",
-]
+features = ["rlp", "parity-codec"]
 
 [workspace.dependencies.ethers]
 git = "https://github.com/polytope-labs/ethers-rs"

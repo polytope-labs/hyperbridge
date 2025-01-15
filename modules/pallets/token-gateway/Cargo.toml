@@ -1,0 +1,69 @@
+[package]
+name = "pallet-token-gateway"
+version = "15.2.0"
+edition = "2021"
+description = "A substrate implementation of the token gateway protocol"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge"
+homepage = "https://docs.hyperbridge.network/developers/polkadot/token-gateway"
+documentation = "https://docs.rs/pallet-token-gateway"
+keywords = [
+    "substrate",
+    "polkadot-sdk",
+    "ISMP",
+    "interoperability",
+    "pallet-assets",
+]
+readme = "README.md"
+
+[dependencies]
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+primitive-types = { workspace = true }
+
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+
+log = { workspace = true }
+codec = { workspace = true }
+scale-info = { workspace = true }
+anyhow = { workspace = true }
+
+alloy-primitives = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-sol-types = { workspace = true }
+
+token-gateway-primitives = { workspace = true }
+pallet-hyperbridge = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "frame-support/std",
+    "frame-system/std",
+    "frame-benchmarking/std",
+    "sp-runtime/std",
+    "sp-core/std",
+    "sp-io/std",
+    "primitive-types/std",
+    "ismp/std",
+    "pallet-ismp/std",
+    "log/std",
+    "scale-info/std",
+    "anyhow/std",
+    "alloy-primitives/std",
+    "pallet-hyperbridge/std",
+    "token-gateway-primitives/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
+try-runtime = []

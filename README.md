@@ -1,156 +1,34 @@
+![Hyperbridge Coprocessor](./docs/public/coprocessor.png)
+
 # Hyperbridge
 
-Hyperbridge is a hyper-scalable coprocessor for cryptographically secure, cross-chain interoperability. Join the network.
+> Hyperbridge is a hyper-scalable coprocessor for verifiable, cross-chain interoperability.
 
-## Docker
 
-Hyperbridge is available at the official docker repository [`polytopelabs/hyperbridge`](https://hub.docker.com/r/polytopelabs/hyperbridge)
+## Join the network
 
-```bash
-docker run -d \
---name=hyperbridge \
---network=host \
---restart=always \
---volume=/$HOME:/home/root \
-polytopelabs/hyperbridge:latest \
---base-path=/home/root/.nexus \
---pruning=archive \
---name="${YOUR_NODE_NAME_HERE}"  \
---rpc-cors=all \
---rpc-methods=unsafe \
---chain=nexus \
---out-peers=32 \
-```
+Hyperbridge is the first fully permissionless and decentralized cross-chain protocol powered by interoperability proofs.
+It allows **anyone** to run a relayer which transmits messages across chains without any staking or whitelisting. [Learn more about relayers.](https://docs.hyperbridge.network/developers/explore/relayers)
 
-## Prebuilt Binaries
+ - [Run a relayer](https://docs.hyperbridge.network/developers/network/relayer)
+ - [Run a node](https://docs.hyperbridge.network/developers/network/node)
 
-You can install a prebuilt binary for the hyperbridge node with the following bash script
 
-```bash
-wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/${latest-tag}/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
-tar -xvzf hyperbridge-x86_64-unknown-linux-gnu.tar.gz
-# copy to $PATH
-cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
-```
+## Developers
 
-or a 1-liner shell script
+Onchain application developers can leverage Hyperbridge for mission-critical cross-chain applications which do not have the luxury of centralized or trusted security models.
 
-```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/${latest-tag}/hyperbridge-installer.sh | sh
-```
+ - [Evm Developers](https://docs.hyperbridge.network/developers/evm/getting-started)
+ - [Polkadot-sdk Developers](https://docs.hyperbridge.network/developers/polkadot/getting-started)
 
-## Building from source
+## Projects using Hyperbridge
 
-You can follow the steps below if you'd prefer to build the hyperbridge node from source:
+The growing list of teams that are choosing Hyperbridge for verifiable interoperability.
 
-### Install Dependencies
+- [RegionX](https://github.com/RegionX-Labs/RegionX)
+- [zkVerify](https://github.com/HorizenLabs/zkVerify)
+- [Bifrost](https://github.com/bifrost-io/bifrost)
+- [Cere Network](https://github.com/Cerebellum-Network/blockchain-node)
+- [Argon Protocol](https://github.com/argonprotocol/mainchain)
 
-Building the hyperbridge node requires some dependencies
-
-- git
-- clang
-- curl
-- make
-- build-essential
-- libssl-dev
-- llvm
-- libudev-dev
-- protobuf-compiler
-
-Debian/Ubuntu
-
-```bash
-sudo apt update
-sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
-```
-
-Arch
-
-```bash
-pacman -Syu --needed --noconfirm curl git clang make protobuf
-```
-
-Fedora
-
-```bash
-sudo dnf update
-sudo dnf install clang curl git openssl-devel make protobuf-compiler
-```
-
-Opensuse
-
-```bash
-sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
-```
-
-### Install rust compiler
-
-If you don't have an already existing rust installation, you can install it using the one-liner below. Follow the prompts displayed to proceed with a default installation.
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-### Clone the repo
-
-Download a local copy of the repo and checkout the latest release tag
-
-```bash
-export LATEST_TAG=v0.4.6
-git clone https://github.com/polytope-labs/hyperbridge.git
-cd ./hyperbridge
-git checkout ${LATEST_TAG}
-```
-
-### Install WebAssembly target
-
-Hyperbridge's blockchain runtime compiles to wasm which allows its code to be forklessly upgraded. In order to build hyperbridge we need the wasm toolchain installed.
-
-```bash
-rustup update nightly
-rustup target add wasm32-unknown-unknown
-rustup target add wasm32-unknown-unknown --toolchain nightly
-rustup component add rust-src
-```
-
-### Build the node
-
-```bash
-cargo build --release -p hyperbridge
-```
-
-## Running the node
-
-```bash
-hyperbridge --chain=nexus --base-path=$HOME/.hyperbridge --pruning-archive
-```
-
-> Note: `--enable-offchain-indexing` is enabled by default
-
-## Running a local testnet with zombienet
-
-Download the zombienet binary for your operating system [here](https://github.com/paritytech/zombienet).
-
-```bash
-zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml
-```
-
-## Running a local testnet with docker
-
-Build and run the hyperbridge docker image locally by running
-
-```bash
-docker build -t hyperbridge -f ./scripts/docker/Dockerfile .
-cd scripts/parachain-launch
-docker compose up
-```
-
-## Building HyperClient Javascript SDK
-
-To build hyperclient
-
-```bash
-cargo install wasm-pack
-cd client
-wasm-pack build --no-default-features --features wasm
-```
+Please feel free to add your project to this list via a pull request!

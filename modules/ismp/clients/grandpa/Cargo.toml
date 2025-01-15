@@ -1,6 +1,6 @@
 [package]
 name = "ismp-grandpa"
-version = "1.15.4"
+version = "15.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -37,7 +37,6 @@ sp-consensus-aura = { workspace = true }
 sp-core = { workspace = true }
 
 # cumulus
-cumulus-primitives-core = { workspace = true }
 substrate-state-machine = { workspace = true }
 
 [features]
@@ -48,7 +47,6 @@ std = [
     "frame-support/std",
     "frame-system/std",
     "scale-info/std",
-    "cumulus-primitives-core/std",
     "ismp/std",
     "sp-trie/std",
     "sp-consensus-aura/std",

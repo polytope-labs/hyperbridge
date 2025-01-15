@@ -1,0 +1,90 @@
+[package]
+name = "pallet-ismp-testsuite"
+version = "0.1.1"
+edition = "2021"
+description = "Testsuite for the ismp pallet crates"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+
+[dependencies]
+env_logger = "0.11.3"
+codec = { workspace = true, default-features = true }
+scale-info = { workspace = true, default-features = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+anyhow = { workspace = true }
+
+frame-support = { workspace = true, default-features = true }
+frame-system = { workspace = true, default-features = true }
+pallet-balances = { workspace = true, default-features = true }
+pallet-timestamp = { workspace = true, default-features = true }
+pallet-sudo = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true, features = ["full_crypto"]}
+sp-io = { workspace = true, default-features = true }
+sp-std = { workspace = true, default-features = true }
+sp-trie = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+merkle-mountain-range = { workspace = true, default-features = true }
+trie-db = { workspace = true }
+hash-db = { workspace = true }
+xcm-simulator-example = { workspace = true }
+xcm-simulator = { workspace = true }
+pallet-assets = { workspace = true, default-features = true }
+evm-state-machine =  { workspace = true, default-features = true}
+
+ismp = { workspace = true, default-features = true }
+ismp-testsuite = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+ismp-sync-committee = { workspace = true, default-features = true }
+ismp-bsc = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true, features = ["testing"] }
+pallet-hyperbridge = { workspace = true, default-features = true }
+ethereum-triedb = { workspace = true, default-features = true }
+substrate-state-machine = { workspace = true, default-features = true }
+pallet-ismp-relayer = { workspace = true, default-features = true }
+pallet-fishermen = { workspace = true, default-features = true }
+pallet-call-decompressor = { workspace = true, default-features = true }
+pallet-xcm-gateway = { workspace = true, default-features = true }
+pallet-token-gateway = { workspace = true, default-features = true }
+sp-state-machine = { workspace = true, default-features = true }
+mmr-primitives = { workspace = true, default-features = true }
+pallet-mmr = { workspace = true, default-features = true }
+pallet-token-governor = { workspace = true, default-features = true }
+pallet-token-gateway-inspector = { workspace = true, default-features = true }
+token-gateway-primitives = { workspace = true, default-features = true }
+
+# Polkadot
+pallet-xcm = { workspace = true, default-features = true }
+polkadot-parachain-primitives = { workspace = true, default-features = true }
+polkadot-runtime-common = { workspace = true, default-features = true }
+staging-xcm = { workspace = true, default-features = true }
+staging-xcm-builder = { workspace = true, default-features = true }
+staging-xcm-executor = { workspace = true, default-features = true }
+polkadot-runtime-parachains = { workspace = true, default-features = true }
+pallet-message-queue = { workspace = true, default-features = true }
+parachains-common = { workspace = true, default-features = true  }
+
+
+# Cumulus
+cumulus-pallet-xcm = { workspace = true, default-features = true }
+parachain-info = { workspace = true, default-features = true }
+cumulus-primitives-core = { workspace = true, default-features = true }
+cumulus-pallet-xcmp-queue = { workspace = true, default-features = true }
+cumulus-pallet-parachain-system = { workspace = true, default-features = true }
+subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
+subxt-utils = { workspace = true, default-features = true }
+
+[dev-dependencies]
+hex = "0.4.3"
+zstd-safe = { version = "7.1.0" }
+ruzstd = "0.6.0"
+anyhow.workspace = true
+tokio = { workspace = true }
+dotenv = "0.15.0"
+futures = "0.3.28"
+pallet-ismp-rpc = { workspace = true }
+
+
+[features]
+runtime-benchmarks = ["xcm-simulator-example/runtime-benchmarks", "pallet-assets/runtime-benchmarks"]

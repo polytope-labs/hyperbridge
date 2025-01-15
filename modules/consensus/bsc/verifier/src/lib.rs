@@ -46,7 +46,9 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	)
 	.map_err(|_| anyhow!("Could not deseerialize vote address set"))?;
 
-	if validators_bit_set.iter().as_bitslice().count_ones() < (2 * current_validators.len() / 3) {
+	if validators_bit_set.iter().as_bitslice().count_ones() <
+		((2 * current_validators.len() / 3) + 1)
+	{
 		Err(anyhow!("Not enough participants"))?
 	}
 

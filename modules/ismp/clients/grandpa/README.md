@@ -11,11 +11,11 @@ The Pallet allows the [`AdminOrigin`](https://docs.rs/pallet-ismp/latest/pallet_
 ## Setting up
 
 When using this consensus client the following should be done in order:
-  
+
 - Create the consensus state using [`create_consensus_client`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/dispatchables/fn.create_consensus_client.html)
 
 -   The supported state machine identifiers should be whitelisted in the pallet by calling `add_state_machines` from the [`AdminOrigin`].</br>
-    
+
 ## Note
 
 If a state machine identifier is not found in the whitelist, ismp datagrams from that chain will be rejected.
@@ -27,4 +27,4 @@ If a state machine identifier is not found in the whitelist, ismp datagrams from
 
 ## License
 
-This library is licensed under the Apache 2.0 License, Copyright (c) 2024 Polytope Labs.
+This library is licensed under the Apache 2.0 License, Copyright (c) 2025 Polytope Labs.

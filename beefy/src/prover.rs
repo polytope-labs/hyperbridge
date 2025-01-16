@@ -809,8 +809,9 @@ mod tests {
 			rpc_ws: "ws://localhost:9902".to_string(),
 			max_rpc_payload_size: None,
 			signer: None,
-			latest_height: None,
+			initial_height: None,
 			max_concurent_queries: None,
+			poll_interval: None,
 		};
 		let substrate_client =
 			SubstrateClient::<KeccakSubstrateChain>::new(substrate_config.clone()).await?;

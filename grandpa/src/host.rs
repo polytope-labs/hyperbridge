@@ -239,8 +239,12 @@ where
 						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
-					let res =
-						counterparty.submit(vec![Message::Consensus(consensus_message)]).await;
+					let res = counterparty
+						.submit(
+							vec![Message::Consensus(consensus_message)],
+							counterparty.state_machine_id().state_id,
+						)
+						.await;
 					if let Err(err) = res {
 						log::error!(
 							"Failed to submit transaction to {}: {err:?}",

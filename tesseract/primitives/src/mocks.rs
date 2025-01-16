@@ -203,7 +203,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn submit(&self, _messages: Vec<Message>) -> Result<Vec<TxReceipt>, Error> {
+	async fn submit(
+		&self,
+		_messages: Vec<Message>,
+		_coprocessor: StateMachine,
+	) -> Result<Vec<TxReceipt>, Error> {
 		todo!()
 	}
 

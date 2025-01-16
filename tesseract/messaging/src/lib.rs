@@ -351,7 +351,7 @@ async fn handle_update(
 			chain_b.name(), chain_a.name()
 		);
 
-		let res = chain_a.submit(messages.clone()).await;
+		let res = chain_a.submit(messages.clone(), coprocessor).await;
 		match res {
 			Ok(receipts) => {
 				if let Some(sender) = fee_acc_sender {

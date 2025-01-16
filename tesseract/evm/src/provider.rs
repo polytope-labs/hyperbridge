@@ -717,7 +717,11 @@ impl IsmpProvider for EvmClient {
 		Ok(Box::pin(stream))
 	}
 
-	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, Error> {
+	async fn submit(
+		&self,
+		messages: Vec<Message>,
+		_coprocessor: StateMachine,
+	) -> Result<Vec<TxReceipt>, Error> {
 		let queue = self
 			.queue
 			.as_ref()

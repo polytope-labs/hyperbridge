@@ -448,7 +448,10 @@ async fn deliver_post_request<D: IsmpProvider>(
 
 	let mut count = 5;
 	while count != 0 {
-		if let Err(e) = dest_chain.submit(vec![Message::Request(msg.clone())]).await {
+		if let Err(e) = dest_chain
+			.submit(vec![Message::Request(msg.clone())], hyperbridge.state_machine_id().state_id)
+			.await
+		{
 			log::info!(
 					"Encountered error trying to submit withdrawal request to {}.\n{e:?}\nWill retry {count} more times.",
 					dest_chain.state_machine_id().state_id
@@ -688,7 +691,12 @@ mod tests {
 							dest_chain.state_machine_id().state_id
 						);
 
-						let result = dest_chain.submit(vec![Message::Request(msg.clone())]).await;
+						let result = dest_chain
+							.submit(
+								vec![Message::Request(msg.clone())],
+								hyperbridge.state_machine_id().state_id,
+							)
+							.await;
 
 						tracing::info!("result for {dest}: {result:?}")
 					}

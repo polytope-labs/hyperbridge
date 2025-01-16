@@ -4,7 +4,7 @@ This allows polkadot-sdk chains make cross-chain asset transfers to and from eac
 
 ## Overview
 
-The Pallet allows the [`CreateOrigin`](https://docs.rs/pallet-token-gateway/15.1.1/pallet_token_gateway/pallet/trait.Config.html#associatedtype.CreateOrigin) to dispatch calls for setting token gateway addresses, creating and updating assets.
+The Pallet allows the [`CreateOrigin`](https://docs.rs/pallet-token-gateway/latest/pallet_token_gateway/pallet/trait.Config.html#associatedtype.CreateOrigin) to dispatch calls for setting token gateway addresses, creating and updating assets.
 This enables receiving assets from those configured chains. Assets can also be received with a runtime call to be dispatched. This call must be signed by the beneficiary of the incoming assets. Assets can also be sent with some calldata, this calldata is an opaque blob of bytes
 whose interpretation is left up to the recipient token gateway implementation. For polkadot-sdk chains, it must be a scale-encoded runtime call, for EVM chains it must be an abi-encoded contract call.
 

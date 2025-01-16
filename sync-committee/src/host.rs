@@ -194,8 +194,12 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
-					let res =
-						counterparty.submit(vec![Message::Consensus(consensus_message)]).await;
+					let res = counterparty
+						.submit(
+							vec![Message::Consensus(consensus_message)],
+							counterparty.state_machine_id().state_id,
+						)
+						.await;
 					if let Err(err) = res {
 						log::error!(
 							"Failed to submit transaction to {}: {err:?}",

@@ -338,7 +338,13 @@ where
 						continue;
 					}
 
-					if let Err(err) = counterparty.submit(vec![Message::Consensus(message)]).await {
+					if let Err(err) = counterparty
+						.submit(
+							vec![Message::Consensus(message)],
+							self.client.state_machine_id().state_id,
+						)
+						.await
+					{
 						tracing::error!(
 							"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
 						);
@@ -424,7 +430,13 @@ where
 					}
 				}
 
-				if let Err(err) = counterparty.submit(vec![Message::Consensus(message)]).await {
+				if let Err(err) = counterparty
+					.submit(
+						vec![Message::Consensus(message)],
+						self.client.state_machine_id().state_id,
+					)
+					.await
+				{
 					tracing::error!(
 						"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
 					);

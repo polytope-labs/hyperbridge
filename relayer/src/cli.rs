@@ -244,10 +244,14 @@ async fn initialize_consensus_clients(
 
 /// Extract all Eth L2 configs from the configurations provided
 fn extract_l2_configs(
+	supported_l2s: Vec<String>,
 	config_map: HashMap<StateMachine, AnyConfig>,
 ) -> BTreeMap<StateMachine, L2Config> {
 	let mut map = BTreeMap::new();
-	for (state_machine, config) in config_map {
+	for (state_machine, config) in config_map
+		.into_iter()
+		.filter(|(state_machine, ..)| supported_l2s.contains(&state_machine.to_string()))
+	{
 		match config {
 			AnyConfig::ArbitrumOrbit(arb_orbit_config) => {
 				map.insert(state_machine, L2Config::ArbitrumOrbit(arb_orbit_config));
@@ -272,12 +276,18 @@ pub async fn create_client_map(
 	for (state_machine, config) in chains.clone() {
 		let client = match config {
 			AnyConfig::Sepolia(config) => {
-				let l2_configs = extract_l2_configs(chains.clone());
+				let l2_configs = extract_l2_configs(
+					config.layer_twos.clone().unwrap_or_default(),
+					chains.clone(),
+				);
 				let client = config.into_sepolia(l2_configs).await?;
 				client
 			},
 			AnyConfig::Ethereum(config) => {
-				let l2_configs = extract_l2_configs(chains.clone());
+				let l2_configs = extract_l2_configs(
+					config.layer_twos.clone().unwrap_or_default(),
+					chains.clone(),
+				);
 				let client = config.into_mainnet(l2_configs).await?;
 				client
 			},

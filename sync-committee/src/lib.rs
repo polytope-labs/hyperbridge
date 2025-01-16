@@ -49,7 +49,7 @@ pub struct SyncCommitteeConfig {
 	#[serde[flatten]]
 	pub evm_config: EvmConfig,
 	/// Supported L2s
-	pub layer_twos: Option<Vec<StateMachine>>,
+	pub layer_twos: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

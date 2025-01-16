@@ -244,13 +244,13 @@ async fn initialize_consensus_clients(
 
 /// Extract all Eth L2 configs from the configurations provided
 fn extract_l2_configs(
-	supported_l2s: Vec<StateMachine>,
+	supported_l2s: Vec<String>,
 	config_map: HashMap<StateMachine, AnyConfig>,
 ) -> BTreeMap<StateMachine, L2Config> {
 	let mut map = BTreeMap::new();
 	for (state_machine, config) in config_map
 		.into_iter()
-		.filter(|(state_machine, ..)| supported_l2s.contains(state_machine))
+		.filter(|(state_machine, ..)| supported_l2s.contains(&state_machine.to_string()))
 	{
 		match config {
 			AnyConfig::ArbitrumOrbit(arb_orbit_config) => {

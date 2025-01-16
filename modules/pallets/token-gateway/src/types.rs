@@ -82,6 +82,15 @@ pub struct AssetRegistration<AssetId> {
 	pub precision: BTreeMap<StateMachine, u8>,
 }
 
+/// Update the precision of an asset
+#[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
+pub struct PrecisionUpdate<AssetId> {
+	/// Asset Id
+	pub asset_id: AssetId,
+	/// New precisions
+	pub precisions: BTreeMap<StateMachine, u8>,
+}
+
 alloy_sol_macro::sol! {
 	#![sol(all_derives)]
 	struct Body {

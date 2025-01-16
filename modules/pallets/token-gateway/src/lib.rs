@@ -60,7 +60,7 @@ pub mod pallet {
 	use alloc::collections::BTreeMap;
 	use pallet_hyperbridge::PALLET_HYPERBRIDGE;
 	use sp_runtime::traits::AccountIdConversion;
-	use types::{AssetRegistration, NativeAssetLocation, TeleportParams};
+	use types::{AssetRegistration, NativeAssetLocation, PrecisionUpdate, TeleportParams};
 
 	use super::*;
 	use frame_support::{
@@ -141,7 +141,7 @@ pub mod pallet {
 
 	/// The decimals used by the EVM counterpart of this asset
 	#[pallet::storage]
-	pub type Decimals<T: Config> = StorageDoubleMap<
+	pub type Precisions<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
 		AssetId<T>,
@@ -303,7 +303,7 @@ pub mod pallet {
 
 			let to = params.recepient.0;
 			let from: [u8; 32] = who.clone().into();
-			let erc_decimals = Decimals::<T>::get(params.asset_id, params.destination)
+			let erc_decimals = Precisions::<T>::get(params.asset_id, params.destination)
 				.ok_or_else(|| Error::<T>::AssetDecimalsNotFound)?;
 
 			let body = match params.call_data {
@@ -422,7 +422,7 @@ pub mod pallet {
 			NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
 			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
 			for (state_machine, precision) in asset.precision {
-				Decimals::<T>::insert(asset.local_id.clone(), state_machine, precision);
+				Precisions::<T>::insert(asset.local_id.clone(), state_machine, precision);
 			}
 
 			let dispatcher = <T as Config>::Dispatcher::default();
@@ -488,6 +488,20 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Update the precision for an existing asset
+		#[pallet::call_index(4)]
+		#[pallet::weight(T::WeightInfo::update_asset_precision(update.precisions.len() as u32))]
+		pub fn update_asset_precision(
+			origin: OriginFor<T>,
+			update: PrecisionUpdate<AssetId<T>>,
+		) -> DispatchResult {
+			T::CreateOrigin::ensure_origin(origin)?;
+			for (chain, precision) in update.precisions {
+				Precisions::<T>::insert(update.asset_id.clone(), chain, precision);
+			}
+			Ok(())
+		}
 	}
 
 	// Hack for implementing the [`Default`] bound needed for
@@ -543,7 +557,7 @@ where
 				local_asset_id.clone(),
 			)
 		};
-		let erc_decimals = Decimals::<T>::get(local_asset_id.clone(), source)
+		let erc_decimals = Precisions::<T>::get(local_asset_id.clone(), source)
 			.ok_or_else(|| anyhow!("Asset decimals not configured"))?;
 		let amount = convert_to_balance(
 			U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
@@ -689,7 +703,7 @@ where
 						local_asset_id.clone(),
 					)
 				};
-				let erc_decimals = Decimals::<T>::get(local_asset_id.clone(), dest)
+				let erc_decimals = Precisions::<T>::get(local_asset_id.clone(), dest)
 					.ok_or_else(|| anyhow!("Asset decimals not configured"))?;
 				let amount = convert_to_balance(
 					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),

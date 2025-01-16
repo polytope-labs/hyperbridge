@@ -143,4 +143,20 @@ mod benches {
 		_(RawOrigin::Signed(account), asset_update);
 		Ok(())
 	}
+
+	#[benchmark]
+	fn update_asset_precision(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let account: T::AccountId = whitelisted_caller();
+
+		let mut precisions = BTreeMap::new();
+		for i in 0..x {
+			precisions.insert(StateMachine::Evm(i as u32), 18);
+		}
+
+		let update = PrecisionUpdate { asset_id: T::NativeAssetId::get().asset_id(), precisions };
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(account), update);
+		Ok(())
+	}
 }

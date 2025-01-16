@@ -312,7 +312,11 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	///
 	/// Should only return Ok if the transaction was successfully inserted into a block.
 	/// Should return a list of requests and responses that where successfully processed
-	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, anyhow::Error>;
+	async fn submit(
+		&self,
+		messages: Vec<Message>,
+		coprocessor: StateMachine,
+	) -> Result<Vec<TxReceipt>, anyhow::Error>;
 
 	/// This method should return the key used to be used to query the state proof for the request
 	/// commitment

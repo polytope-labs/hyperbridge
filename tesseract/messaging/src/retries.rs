@@ -267,7 +267,7 @@ pub async fn retry_unprofitable_messages(
 					target: "tesseract",
 					"Unprofitable Messages Retries: 🛰️ Transmitting ismp messages from {} to {}", hyperbridge.name(), dest.name()
 				);
-				if let Ok(receipts) = dest.submit(outgoing_messages).await {
+				if let Ok(receipts) = dest.submit(outgoing_messages, coprocessor).await {
 					if !receipts.is_empty() {
 						// Store receipts in database before auto accumulation
 						tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), hyperbridge.name(), dest.name());

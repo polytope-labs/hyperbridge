@@ -14,13 +14,10 @@ Let's look at the pallet specific components of the configuration trait: <br/><b
 
  - `Dispatcher`: The should be an implementation of the [`IsmpDispatcher`](/protocol/ismp/dispatcher), it will be used by this pallet dispatch cross-chain requests.<br/><br/>
  - `Assets`: This type should be configured with a component that implements the following interfaces, typically this will be `pallet-assets`
-    - [`fungibles::Create`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/trait.Create.html)
-    - [`fungibles::Inspect`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/trait.Inspect.html)
     - [`fungibles::Mutate`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/trait.Mutate.html)
     - [`fungibles::metadata::Mutate`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/metadata/trait.Mutate.html) <br/><br/>
  - `Currency`: This type should be configured with a component that implements [`Currency`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/currency/trait.Currency.html) interface, typically `pallet-balances`.<br/><br/>
  - `AssetAdmin`: This pallet has some functionality for creating new assets. The account configured for this type would be the asset admin and also be responsible for paying the asset registration fees, therefore it should be funded before attempting to create any assets.<br/><br/>
- - `AssetIdFactory`: This type should be configured with a component that implements `pallet_token_gateway::types::CreateAssetId`. It should return a unique asset id each time the `AssetIdFactory::create_asset_id` is called.<br/><br/>
  - `NativeAssetId`: A constant value that represents the identifier of the native asset.<br/><br/>
  - `Decimals`: A constant that represents the precision of the native currency. <br/><br/>
  - `EvmToSubstrate`: A type that allows conversion of an EVM account to a substrate account. <br/><br/>
@@ -31,8 +28,9 @@ Let's look at the pallet specific components of the configuration trait: <br/><b
 - `set_token_gateway_addresses`: This priviledged call is used to set the token gateway address for EVM chains.
 - `create_erc6160_asset`: This call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments
 - `update_erc6160_asset`: This call dispatches a request to Hyperbridge to update multi chain native assets on token gateway deployments
+- `update_asset_precision`: This priviledged call is used to set or update the precision of an asset deployed on some remote chains.
 
-Priviledged calls must be dispatched by [`AdminOrigin`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/trait.Config.html#associatedtype.AdminOrigin) configured in [`pallet-ismp`](https://docs.rs/pallet-ismp/latest/pallet_ismp).
+Priviledged calls must be dispatched by [`CreateOrigin`](https://docs.rs/pallet-token-gateway/latest/pallet_token_gateway/pallet/trait.Config.html#associatedtype.CreateOrigin).
 
 
 ## Integrating the pallet into the Runtime
@@ -85,9 +83,6 @@ impl pallet_token_gateway::Config for Runtime {
     type CreateOrigin = frame_system::EnsureSigned<AccountId>
     // The Native asset Id
 	type NativeAssetId = NativeAssetId;
-    // A type that provides a function for creating unique asset ids
-    // A concrete implementation for your specific runtime is required
-    type AssetIdFactory = ();
     // The precision of the native asset
     type Decimals = Decimals;
     // An implementation that converts an evm account to a substrate account

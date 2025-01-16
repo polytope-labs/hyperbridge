@@ -648,14 +648,20 @@ where
 		Ok(Box::pin(stream))
 	}
 
-	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, anyhow::Error> {
+	async fn submit(
+		&self,
+		messages: Vec<Message>,
+		coprocessor: StateMachine,
+	) -> Result<Vec<TxReceipt>, anyhow::Error> {
 		let mut futs = vec![];
+		let is_hyperbridge = self.state_machine == coprocessor;
 		for msg in messages.clone() {
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
 			let call = vec![msg].encode();
 			let extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
 			// We don't compress consensus messages
-			if is_consensus_message {
+			// We only consider compression for hyperbridge
+			if is_consensus_message || !is_hyperbridge {
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false));
 				continue;
 			}

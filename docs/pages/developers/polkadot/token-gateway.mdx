@@ -165,6 +165,7 @@ Assets can also be updated in the same way by dispatching `update_erc6160_asset`
 
 Asset precision is used to note the precision an asset is configured with on a remote chain, this allows the pallet to handle balance conversions correctly.
 To update or set the precision of an asset on dispatch `update_asset_precision` with the values that need to be set.
+The precision for ERC6160 assets deployed on EVM should always be set to 18.
 
 ## Teleporting assets
 
@@ -187,7 +188,9 @@ pub struct TeleportParams<AssetId, Balance> {
 	/// Relayer fee
 	pub relayer_fee: Balance,
     /// Optional call data
-    pub call_data: Option<Vec<u8>>
+    pub call_data: Option<Vec<u8>>,
+	/// Redeem erc20 tokens
+	pub redeem: bool
 }
 ```
 Let's explore what each parameter holds: 
@@ -199,5 +202,7 @@ Let's explore what each parameter holds:
  - `timeout`: The request timeout, this is the time after which the request cannot be delivered to the destination. It should represent the cumulative time for finalization on the source chain and hyperbridge with some additional buffer.<br/>
  - `token_gateway`: The address of the token gateway module on the destination chain.<br/>
  - `relayer_fee`: The amount to be paid to relayers for delivering the request, a value of zero means the dispatcher is responsible for relaying the request.<br/>
+ - `redeem`: This value should be set to true if bridging an asset that has an ERC20 deployment on the destination, it should be false in any other case.<br/>
+
 
 Funds from undelivered requests can be recovered by submitting a timeout message for the request through `pallet-ismp`.

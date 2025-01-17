@@ -37,6 +37,7 @@ fn should_teleport_asset_correctly() {
 			token_gateway: H160::zero().0.to_vec(),
 			relayer_fee: Default::default(),
 			call_data: None,
+			redeem: false,
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -59,6 +60,7 @@ fn should_receive_asset_correctly() {
 			token_gateway: H160::zero().0.to_vec(),
 			relayer_fee: Default::default(),
 			call_data: None,
+			redeem: false,
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -113,6 +115,7 @@ fn should_timeout_request_correctly() {
 			token_gateway: H160::zero().0.to_vec(),
 			relayer_fee: Default::default(),
 			call_data: None,
+			redeem: false,
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();
@@ -339,6 +342,7 @@ fn should_receive_asset_with_call_correctly() {
 			token_gateway: H160::zero().0.to_vec(),
 			relayer_fee: Default::default(),
 			call_data: None,
+			redeem: false,
 		};
 
 		TokenGateway::teleport(RuntimeOrigin::signed(ALICE), params).unwrap();

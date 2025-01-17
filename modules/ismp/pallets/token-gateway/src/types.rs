@@ -46,6 +46,8 @@ pub struct TeleportParams<AssetId, Balance> {
 	pub relayer_fee: Balance,
 	/// Optional call data to be executed on the destination chain
 	pub call_data: Option<Vec<u8>>,
+	/// Redeem native erc20 assets
+	pub redeem: bool,
 }
 
 /// Local asset Id and its corresponding token gateway asset id

@@ -317,7 +317,7 @@ pub mod pallet {
 							alloy_primitives::U256::from_be_bytes(bytes)
 						},
 						asset_id: asset_id.0.into(),
-						redeem: false,
+						redeem: params.redeem,
 						from: from.into(),
 						to: to.into(),
 						data: data.into(),
@@ -339,7 +339,7 @@ pub mod pallet {
 							alloy_primitives::U256::from_be_bytes(bytes)
 						},
 						asset_id: asset_id.0.into(),
-						redeem: false,
+						redeem: params.redeem,
 						from: from.into(),
 						to: to.into(),
 					};

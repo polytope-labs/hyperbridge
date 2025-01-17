@@ -89,6 +89,7 @@ mod benches {
 			token_gateway: vec![1, 2, 3, 4, 5],
 			relayer_fee: 0u128.into(),
 			call_data: None,
+			redeem: false
 		};
 
 		#[extrinsic_call]

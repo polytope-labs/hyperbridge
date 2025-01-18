@@ -60,7 +60,7 @@ pub mod pallet {
 	use alloc::collections::BTreeMap;
 	use pallet_hyperbridge::PALLET_HYPERBRIDGE;
 	use sp_runtime::traits::AccountIdConversion;
-	use types::{AssetRegistration, NativeAssetLocation, PrecisionUpdate, TeleportParams};
+	use types::{AssetRegistration, PrecisionUpdate, TeleportParams};
 
 	use super::*;
 	use frame_support::{
@@ -109,7 +109,7 @@ pub mod pallet {
 			+ fungibles::metadata::Mutate<Self::AccountId>;
 
 		/// The native asset ID
-		type NativeAssetId: Get<NativeAssetLocation<AssetId<Self>>>;
+		type NativeAssetId: Get<AssetId<Self>>;
 
 		/// The decimals of the native currency
 		#[pallet::constant]
@@ -251,9 +251,10 @@ pub mod pallet {
 			let dispatcher = <T as Config>::Dispatcher::default();
 			let asset_id = SupportedAssets::<T>::get(params.asset_id.clone())
 				.ok_or_else(|| Error::<T>::UnregisteredAsset)?;
-			let decimals = if params.asset_id == T::NativeAssetId::get().asset_id() {
+			let decimals = if params.asset_id == T::NativeAssetId::get() {
 				// Custody funds in pallet
-				if T::NativeAssetId::get().is_local() {
+				let is_native = NativeAssets::<T>::get(T::NativeAssetId::get());
+				if is_native {
 					<T as Config>::NativeCurrency::transfer(
 						&who,
 						&Self::pallet_account(),
@@ -550,7 +551,7 @@ where
 				}
 			})?;
 
-		let decimals = if local_asset_id == T::NativeAssetId::get().asset_id() {
+		let decimals = if local_asset_id == T::NativeAssetId::get() {
 			T::Decimals::get()
 		} else {
 			<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
@@ -569,8 +570,9 @@ where
 			meta: Meta { source, dest, nonce },
 		})?;
 		let beneficiary: T::AccountId = body.to.0.into();
-		if local_asset_id == T::NativeAssetId::get().asset_id() {
-			if T::NativeAssetId::get().is_local() {
+		if local_asset_id == T::NativeAssetId::get() {
+			let is_native = NativeAssets::<T>::get(T::NativeAssetId::get());
+			if is_native {
 				<T as Config>::NativeCurrency::transfer(
 					&Pallet::<T>::pallet_account(),
 					&beneficiary,
@@ -696,7 +698,7 @@ where
 						msg: "Token Gateway: Unknown asset".to_string(),
 						meta: Meta { source, dest, nonce },
 					})?;
-				let decimals = if local_asset_id == T::NativeAssetId::get().asset_id() {
+				let decimals = if local_asset_id == T::NativeAssetId::get() {
 					T::Decimals::get()
 				} else {
 					<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
@@ -715,8 +717,9 @@ where
 					meta: Meta { source, dest, nonce },
 				})?;
 
-				if local_asset_id == T::NativeAssetId::get().asset_id() {
-					if T::NativeAssetId::get().is_local() {
+				if local_asset_id == T::NativeAssetId::get() {
+					let is_native = NativeAssets::<T>::get(T::NativeAssetId::get());
+					if is_native {
 						<T as Config>::NativeCurrency::transfer(
 							&Pallet::<T>::pallet_account(),
 							&beneficiary,

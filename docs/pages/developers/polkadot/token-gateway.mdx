@@ -41,7 +41,6 @@ The first step is to implement the pallet config for the runtime.
 use frame_support::parameter_types;
 use ismp::module::IsmpModule;
 use ismp::router::IsmpRouter;
-use pallet_token_gateway::types::NativeAssetLocation;
 
 parameter_types! {
     // Set the correct decimals for the native currency
@@ -49,15 +48,7 @@ parameter_types! {
 }
 
 /// A constant value that represents the native asset
-/// `NativeAssetLocation::Local` indicates the native asset is custodied locally.
-/// `NativeAssetLocation::Remote` indicates that the native asset is custodied on some remote chain.
-pub struct NativeAssetId;
-
-impl Get<NativeAssetLocation<u32>> for NativeAssetId {
-	fn get() -> NativeAssetLocation<u32> {
-		NativeAssetLocation::Local(0)
-	}
-}
+pub const NativeAssetId: u32 = 0;
 
 /// Should provide an account that is funded and can be used to pay for asset creation
 pub struct AssetAdmin;

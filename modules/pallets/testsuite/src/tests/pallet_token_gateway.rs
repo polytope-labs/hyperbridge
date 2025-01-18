@@ -29,7 +29,7 @@ const SEND_AMOUNT: u128 = 1000_000_000_0000;
 fn should_teleport_asset_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: NativeAssetId::get().asset_id(),
+			asset_id: NativeAssetId::get(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -52,7 +52,7 @@ fn should_teleport_asset_correctly() {
 fn should_receive_asset_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: NativeAssetId::get().asset_id(),
+			asset_id: NativeAssetId::get(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -107,7 +107,7 @@ fn should_receive_asset_correctly() {
 fn should_timeout_request_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: NativeAssetId::get().asset_id(),
+			asset_id: NativeAssetId::get(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,
@@ -334,7 +334,7 @@ fn dispatching_remote_asset_creation() {
 fn should_receive_asset_with_call_correctly() {
 	new_test_ext().execute_with(|| {
 		let params = TeleportParams {
-			asset_id: NativeAssetId::get().asset_id(),
+			asset_id: NativeAssetId::get(),
 			destination: StateMachine::Evm(1),
 			recepient: H256::random(),
 			timeout: 0,

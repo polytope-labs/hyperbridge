@@ -25,15 +25,8 @@ parameter_types! {
 
 
 /// A constant value that represents the native asset
-/// `NativeAssetLocation::Local` indicates the native asset is custodied locally.
-/// `NativeAssetLocation::Remote` indicates that the native asset is custodied on some remote chain.
-pub struct NativeAssetId;
+const NativeAssetId: u32 = 0;
 
-impl Get<NativeAssetLocation<u32>> for NativeAssetId {
-	fn get() -> NativeAssetLocation<u32> {
-		NativeAssetLocation::Local(0)
-	}
-}
 
 /// Should provide an account that is funded and can be used to pay for asset creation
 pub struct AssetAdmin;

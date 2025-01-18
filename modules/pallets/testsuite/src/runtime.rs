@@ -39,7 +39,6 @@ use ismp::{
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
-use pallet_token_gateway::types::NativeAssetLocation;
 use pallet_token_governor::GatewayParams;
 use sp_core::{
 	crypto::AccountId32,
@@ -217,9 +216,9 @@ parameter_types! {
 
 pub struct NativeAssetId;
 
-impl Get<NativeAssetLocation<H256>> for NativeAssetId {
-	fn get() -> NativeAssetLocation<H256> {
-		NativeAssetLocation::Local(sp_io::hashing::keccak_256(b"BRIDGE").into())
+impl Get<H256> for NativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
 	}
 }
 
@@ -485,16 +484,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			pallet_token_governor::Params::<Balance> { registration_fee: Default::default() };
 
 		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
-		pallet_token_gateway::SupportedAssets::<Test>::insert(
-			NativeAssetId::get().asset_id(),
-			H256::zero(),
-		);
-		pallet_token_gateway::LocalAssets::<Test>::insert(
-			H256::zero(),
-			NativeAssetId::get().asset_id(),
-		);
+		pallet_token_gateway::SupportedAssets::<Test>::insert(NativeAssetId::get(), H256::zero());
+		pallet_token_gateway::NativeAssets::<Test>::insert(NativeAssetId::get(), true);
+		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), NativeAssetId::get());
 		pallet_token_gateway::Precisions::<Test>::insert(
-			NativeAssetId::get().asset_id(),
+			NativeAssetId::get(),
 			StateMachine::Evm(1),
 			18,
 		);

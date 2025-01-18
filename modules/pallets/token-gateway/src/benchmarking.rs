@@ -44,7 +44,7 @@ mod benches {
 		}
 
 		let asset = AssetRegistration {
-			local_id: T::NativeAssetId::get().asset_id(),
+			local_id: T::NativeAssetId::get(),
 			reg: asset_details,
 			native: true,
 			precision,
@@ -62,7 +62,7 @@ mod benches {
 	fn teleport() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 
-		let asset_id = T::NativeAssetId::get().asset_id();
+		let asset_id = T::NativeAssetId::get();
 
 		Pallet::<T>::create_erc6160_asset(
 			RawOrigin::Signed(account.clone()).into(),
@@ -116,7 +116,7 @@ mod benches {
 	fn update_erc6160_asset() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 
-		let local_id = T::NativeAssetId::get().asset_id();
+		let local_id = T::NativeAssetId::get();
 
 		Pallet::<T>::create_erc6160_asset(
 			RawOrigin::Signed(account.clone()).into(),
@@ -154,7 +154,7 @@ mod benches {
 			precisions.insert(StateMachine::Evm(i as u32), 18);
 		}
 
-		let update = PrecisionUpdate { asset_id: T::NativeAssetId::get().asset_id(), precisions };
+		let update = PrecisionUpdate { asset_id: T::NativeAssetId::get(), precisions };
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(account), update);

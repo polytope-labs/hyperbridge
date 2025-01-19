@@ -26,28 +26,6 @@ use crate::Config;
 pub type AssetId<T> =
 	<<T as Config>::Assets as fungibles::Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
 
-/// A type that describes where the chain's native asset is custodied
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub enum NativeAssetLocation<AssetId> {
-	/// Use this when the native asset is custodied on this chain
-	Local(AssetId),
-	/// Use this if the native asset is custodied on a remote chain
-	Remote(AssetId),
-}
-
-impl<AssetId: Clone> NativeAssetLocation<AssetId> {
-	pub fn asset_id(&self) -> AssetId {
-		match &self {
-			NativeAssetLocation::Local(id) => id.clone(),
-			NativeAssetLocation::Remote(id) => id.clone(),
-		}
-	}
-
-	pub fn is_local(&self) -> bool {
-		matches!(&self, NativeAssetLocation::Local(_))
-	}
-}
-
 /// Asset teleportation parameters
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct TeleportParams<AssetId, Balance> {

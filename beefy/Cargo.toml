@@ -54,4 +54,3 @@ redis-async = { version = "0.17.1", features = ["with-rustls"] }
 [features]
 # a feature that tells the tests to write a new consensus state
 new-consensus-state = []
-cuda = ["zk-beefy/cuda"]

@@ -31,7 +31,7 @@ where
 	P: subxt::Config,
 {
 	pub fn new(prover: beefy_prover::Prover<R, P>) -> Self {
-		Self { inner: prover, sp1_beefy: Arc::new(Sp1Beefy::new()) }
+		Self { inner: prover, sp1_beefy: Arc::new(Sp1Beefy::new(true)) }
 	}
 
 	pub async fn consensus_proof(

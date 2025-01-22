@@ -44,7 +44,8 @@ pub async fn setup_clients(
 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 		),
 
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 	let chain_a = SubstrateClient::new(config_a).await?;
@@ -59,7 +60,8 @@ pub async fn setup_clients(
 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 		),
 
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 	let chain_b = SubstrateClient::new(config_b).await?;
@@ -168,7 +170,8 @@ async fn sudo_upgrade_runtime() -> Result<(), anyhow::Error> {
 		rpc_ws: "wss://nexus.ibp.network:443".to_string(),
 		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
 		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 
@@ -189,7 +192,8 @@ async fn sudo_transfer_tokens() -> Result<(), anyhow::Error> {
 		rpc_ws: "wss://hyperbridge-nexus-rpc.blockops.network:443".to_string(),
 		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
 		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 
@@ -228,7 +232,8 @@ async fn set_host_manager() -> Result<(), anyhow::Error> {
 		consensus_state_id: Some("PARA".to_string()),
 		rpc_ws: "ws://192.168.1.197:9990".to_string(),
 		signer: std::env::var("SIGNING_KEY").ok(),
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 
@@ -247,7 +252,8 @@ async fn test_state_machine_notifs() -> Result<(), anyhow::Error> {
 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 		),
 
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 
@@ -274,7 +280,8 @@ async fn set_invulnerables() -> Result<(), anyhow::Error> {
 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 		),
 
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 
@@ -298,7 +305,8 @@ async fn dispatch_to_evm() -> Result<(), anyhow::Error> {
 		consensus_state_id: Some("PARA".to_string()),
 		rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 

@@ -27,7 +27,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 anyhow = "1.0.93"
 futures = "0.3.28"
 serde = { version = "1.0.164", features = ["derive"] }
-json = { version = "1.0.112", package = "serde_json" }
+json = { version = "1.0.132", package = "serde_json" }
 toml = "0.7.4"
 clap = { version = "4.3.5", features = ["derive"] }
 tokio = { version = "1.32.0", features = ["full"] }
@@ -48,6 +48,3 @@ ismp = { workspace = true  }
 tesseract-substrate = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-primitives = { workspace = true }
-
-[features]
-cuda = ["tesseract-beefy/cuda"]

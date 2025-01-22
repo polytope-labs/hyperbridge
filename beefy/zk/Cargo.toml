@@ -33,6 +33,3 @@ hex-literal = "0.4.1"
 sp-runtime = { workspace = true }
 subxt-utils = { workspace = true }
 hex = { version = "0.4.3", features = [] }
-
-[features]
-cuda = ["sp1-beefy/cuda"]

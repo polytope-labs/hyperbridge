@@ -1,39 +1,21 @@
 use crate::util::{setup_logging, Hyperbridge};
 
-use arb_host::{ArbHost, HostConfig as ArbHostConfig};
-use codec::{Decode, Encode};
-use ethers::abi::AbiEncode;
-use futures::StreamExt;
 use hex_literal::hex;
-use ismp::{consensus::StateMachineId, host::StateMachine, messaging::CreateConsensusState};
-use op_host::OpConfig;
-use pallet_ismp_demo::EvmParams;
-use primitive_types::H160;
-use std::{
-	collections::BTreeMap,
-	sync::Arc,
-	time::{SystemTime, UNIX_EPOCH},
-};
+use ismp::host::StateMachine;
+use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
-use sync_committee_primitives::constants::{sepolia::Sepolia, Config, ETH1_DATA_VOTES_BOUND_GNO};
-use tesseract_beefy::host::BeefyHost;
+use sync_committee_primitives::constants::ETH1_DATA_VOTES_BOUND_GNO;
 
-use tesseract_evm::{
-	abi::{BeefyConsensusState, PingModule, PostReceivedFilter},
-	EvmClient, EvmConfig,
-};
-use tesseract_primitives::{IsmpHost, IsmpProvider};
-use tesseract_substrate::{config::Blake2SubstrateChain, SubstrateClient, SubstrateConfig};
-use tesseract_sync_committee::{
-	ConsensusState, GetConsensusStateParams, HostConfig as SyncHostConfig, L2Config,
-	SyncCommitteeHost,
-};
-use tokio::join;
-use transaction_fees::TransactionPayment;
+use tesseract_evm::EvmConfig;
+use tesseract_primitives::IsmpHost;
+use tesseract_substrate::{SubstrateClient, SubstrateConfig};
+use tesseract_sync_committee::{HostConfig as SyncHostConfig, SyncCommitteeHost};
 
-const ISMP_HANDLER: H160 = H160(hex!("574f5260097C90c30427846A560Ae7696A287C56"));
-const TEST_HOST: H160 = H160(hex!("3C51029d8b53f00384272AaFd92BA5c50F94EE6E"));
-const MOCK_MODULE: H160 = H160(hex!("3F076aE33723b2F61656166D40a78d409e350625"));
+// const ISMP_HANDLER: primitive_types::H160 =
+// primitive_types::H160(hex!("574f5260097C90c30427846A560Ae7696A287C56")); const TEST_HOST:
+// primitive_types::H160 = primitive_types::H160(hex!("3C51029d8b53f00384272AaFd92BA5c50F94EE6E"));
+// const MOCK_MODULE: primitive_types::H160 =
+// primitive_types::H160(hex!("3F076aE33723b2F61656166D40a78d409e350625"));
 
 // #[tokio::test]
 // async fn beefy_consensus_updates() -> anyhow::Result<()> {
@@ -666,7 +648,8 @@ async fn sync_committee_tests() -> Result<(), anyhow::Error> {
 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 		),
 
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 
@@ -715,8 +698,9 @@ async fn sync_committee_tests() -> Result<(), anyhow::Error> {
 // 		signer: Some(
 // 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 // 		),
-// 		latest_height: None,
-// 	};
+// 		initial_height: None,
+// 	};poll_interval: None,
+//
 // 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
 
 // 	let consensus_state = chain_a.query_consensus_state(None, *b"ETH0").await.unwrap();

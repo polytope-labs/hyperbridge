@@ -24,7 +24,8 @@ async fn setup_clients() -> Result<
 			signer: Some(
 				"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 			),
-			latest_height: None,
+			initial_height: None,
+			poll_interval: None,
 			rpc_ws: "ws://localhost:9990".to_string(),
 			max_rpc_payload_size: None,
 			max_concurent_queries: None,
@@ -45,7 +46,8 @@ async fn setup_clients() -> Result<
 			signer: Some(
 				"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 			),
-			latest_height: None,
+			initial_height: None,
+			poll_interval: None,
 			rpc_ws: "ws://localhost:9991".to_string(),
 			max_rpc_payload_size: None,
 			max_concurent_queries: None,

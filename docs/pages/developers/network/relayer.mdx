@@ -175,15 +175,23 @@ max_rpc_payload_size = 150000000
 # misuse can cause the rpc to be overloaded with queries
 # initial_height = 1000
 
-# (Optional) Frequency in seconds to poll the chain 
+# (Optional) Frequency in seconds to poll the chain
 # for new state machine update events
 # poll_interval = 10
 
+# (Optional) Hyperbridge's consensus state id
+# Only add this if relaying to a solochain.
+# Relaying between solochains and parachains with the
+# same relayer instance is not supported.
+# For Paseo Testnet: PAS0
+# For Polkadot Mainnet: DOT0
+# consensus_state_id = "PAS0"
+
 # Relayer config, required
 [relayer]
-# Define your profitability configuration. 
+# Define your profitability configuration.
 # 0 -> 0% i.e relay all requests, even unprofitable ones.
-# 1 -> 1%. ie fees provided for requests must be 
+# 1 -> 1%. ie fees provided for requests must be
 # profitable by at least 1%. etc.
 minimum_profit_percentage = 0
 
@@ -195,23 +203,25 @@ withdrawal_frequency = 86400
 # defaults to $100
 minimum_withdrawal_amount = 100
 
-# If not empty, tesseract will only deliver requests 
+# If not empty, tesseract will only deliver requests
 # to the specified state-machines
 delivery_endpoints = [
     "EVM-11155111",
     "EVM-421614",
     "EVM-11155420",
     "EVM-84532",
-    "EVM-97"
+    "EVM-97",
+    "SUBSTRATE-myid",
+    "POLKADOT-2100"
 ]
 
-# (Optional) 
+# (Optional)
 # If not empty, will filter requests to be delivered
 # by originating module identifier (eg contract address/pallet ids)
 # module_filter = []
 
-# (Optional) 
-# How frequently to retry unprofitable or 
+# (Optional)
+# How frequently to retry unprofitable or
 # failed messages in seconds.
 # If this is value not supplied retries will not be enabled.
 # unprofitable_retry_frequency = 600
@@ -256,9 +266,9 @@ consensus_state_id = "ETH0"
 
 # Etherscan api key for querying the
 # state machine's native token price.
-# Do note that ethereum and all 
+# Do note that ethereum and all
 # its L2's use ETH as the native token
-# So they can all share the same key 
+# So they can all share the same key
 #
 # Bsc on the other hand uses the BNB token
 # and would need its own API key from bscscan
@@ -268,7 +278,7 @@ etherscan_api_key = ""
 ismp_host = ""
 
 # (Optional)
-# Maximum block range that should be used to query eth_getLogs 
+# Maximum block range that should be used to query eth_getLogs
 # in a single rpc call. if this parameter is not supplied,
 # the range will not be split into smaller chunks
 # and will be queried at once. This might be needed
@@ -278,7 +288,7 @@ ismp_host = ""
 # hex-encoded private key for the relayer account on this chain
 signer = ""
 
-# (Optional) 
+# (Optional)
 # Maximum number of concurrent requests to be used for tx tracing.
 # If not supplied will trace entire tx batches at once.
 # This increases tracing speeds by tracing txs concurrently
@@ -287,20 +297,20 @@ signer = ""
 # If using an rpc provider, ensure that they support a
 # large number of `debug_traceCall` requests/sec.
 #
-# Note: if you use the same provider for all your endpoints 
+# Note: if you use the same provider for all your endpoints
 # then a very high request/sec threshold is required (> 1000 / sec)
 #
 # eg 5 transactions would be traced concurrently on this client
 # tracing_batch_size = 5
 
-# (Optional) 
+# (Optional)
 # Percentage buffer to add to gas prices
 # to increase likelihood of the transactions
 # going through e.g 1%, 2%
 # gas_price_buffer = 1
 
 # (Optional)
-# The execution client implementation, 
+# The execution client implementation,
 # only Geth or Erigon are fully supported
 # The possible values: "Geth" | "Erigon"
 # If this field is not set, the default is "Geth"
@@ -312,7 +322,7 @@ signer = ""
 # misuse can cause the rpc to be overloaded with queries
 # initial_height = 1000
 
-# (Optional) Frequency in seconds to poll the chain 
+# (Optional) Frequency in seconds to poll the chain
 # for new state machine update events
 # poll_interval = 10
 
@@ -333,6 +343,7 @@ hashing = "Blake2"
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 
 # The consensus state identifier for this chain on hyperbridge.
+# "PARA" for parachains
 consensus_state_id = "PARA"
 
 # (Optional)
@@ -344,13 +355,13 @@ consensus_state_id = "PARA"
 # Unneeded if the chain uses unsigned extrinsics for pallet-ismp
 # signer = ""
 
-# (Optional) Frequency in seconds to poll the chain 
+# (Optional) Frequency in seconds to poll the chain
 # for new state machine update events
 # poll_interval = 10
 
 # (Optional) initial height
 # This sets the height at which to start querying messages,
-# This exists for testing and development, 
+# This exists for testing and development,
 # misuse can cause the rpc to be overloaded with queries
 # initial_height = 1000
 ```

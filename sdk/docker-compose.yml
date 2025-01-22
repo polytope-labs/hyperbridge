@@ -33,7 +33,7 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=app/hyperbridge-gargantua.yaml
+      - -f=/app/hyperbridge-gargantua.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-5}
@@ -71,7 +71,7 @@ services:
       - -f=/app/ethereum-sepolia.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -103,10 +103,10 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=app/base-sepolia.yaml
+      - -f=/app/base-sepolia.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -133,10 +133,10 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=app/optimism-sepolia.yaml
+      - -f=/app/optimism-sepolia.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -168,10 +168,10 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=app/arbitrum-sepolia.yaml
+      - -f=/app/arbitrum-sepolia.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -203,10 +203,10 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=app/bsc-chapel.yaml
+      - -f=/app/bsc-chapel.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --disable-historical
       - --multi-chain
       - --log-level=info

@@ -76,7 +76,6 @@ pallet-mmr = { version = "37.0.0" }
 substrate-state-machine = { git = "https://github.com/polytope-labs/hyperbridge", rev = "73c4a820ab586aa9a5e561acf70cfb734124f880" }
 ismp-testsuite = { git = "https://github.com/polytope-labs/hyperbridge", rev = "73c4a820ab586aa9a5e561acf70cfb734124f880" }
 
-
 # tesseract
 tesseract-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "73c4a820ab586aa9a5e561acf70cfb734124f880" }
 tesseract-messaging = { git = "https://github.com/polytope-labs/hyperbridge", rev = "73c4a820ab586aa9a5e561acf70cfb734124f880" }
@@ -85,11 +84,10 @@ tesseract-config = { git = "https://github.com/polytope-labs/hyperbridge", rev =
 tesseract-substrate = { git = "https://github.com/polytope-labs/hyperbridge", rev = "73c4a820ab586aa9a5e561acf70cfb734124f880" }
 tesseract-evm = { git = "https://github.com/polytope-labs/hyperbridge", rev = "73c4a820ab586aa9a5e561acf70cfb734124f880" }
 
-sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "6a31ddf40e96371a6b9ff838837a09a66324d587" }
-sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "6a31ddf40e96371a6b9ff838837a09a66324d587" }
+sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
+sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
 
 rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
-
 
 tesseract-beefy = { path = "./beefy" }
 tesseract-sync-committee = { path = "./sync-committee" }

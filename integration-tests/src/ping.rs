@@ -1,5 +1,5 @@
 use ismp_solidity_abi::shared_types;
-use pallet_ismp::mmr::LeafIndexQuery;
+use pallet_ismp::offchain::LeafIndexQuery;
 use std::{
 	sync::Arc,
 	time::{SystemTime, UNIX_EPOCH},
@@ -66,7 +66,8 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 		// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		rpc_ws: "ws://127.0.0.1:9001".to_string(),
 		signer: None,
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 
@@ -103,6 +104,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 						tracing_batch_size: Default::default(),
 						query_batch_size: Default::default(),
 						poll_interval: Default::default(),
+						initial_height: None,
 						gas_price_buffer: Default::default(),
 						client_type: None,
 					};
@@ -229,7 +231,8 @@ async fn test_ping_get_request() -> anyhow::Result<()> {
 		// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		rpc_ws: "ws://127.0.0.1:9001".to_string(),
 		signer: None,
-		latest_height: None,
+		initial_height: None,
+		poll_interval: None,
 		max_concurent_queries: None,
 	};
 
@@ -247,6 +250,7 @@ async fn test_ping_get_request() -> anyhow::Result<()> {
 		query_batch_size: Default::default(),
 		poll_interval: Default::default(),
 		gas_price_buffer: Default::default(),
+		initial_height: None,
 		client_type: None,
 	};
 	let sepolia_client = config.into_client().await?;

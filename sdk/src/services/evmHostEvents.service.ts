@@ -1,20 +1,20 @@
-import { Event } from "../types/models";
-import { EventType } from "../types";
+import { Event } from '../types/models';
+import { EventType } from '../types';
 
 export interface IEvmHostEventArgs {
-  blockHash: string;
-  blockNumber: number;
-  transactionHash: string;
-  transactionIndex: number;
-  timestamp: number;
+ blockHash: string;
+ blockNumber: number;
+ transactionHash: string;
+ transactionIndex: number;
+ timestamp: number;
 }
 
 // Arguments to functions that create EvmHost events
 export interface ICreateEvmHostEventArgs extends IEvmHostEventArgs {
-  type: EventType;
-  commitment: string;
-  data: string;
-  dest?: string;
+ type: EventType;
+ commitment: string;
+ data: string;
+ dest?: string;
 }
 
 export class EvmHostEventsService {
@@ -54,26 +54,6 @@ export class EvmHostEventsService {
  }
 
  /**
-  * Get events by type
-  */
- static async getEventsByType(type: EventType) {
-  return Event.getByType(type, {
-   orderBy: 'blockNumber',
-   limit: -1,
-  });
- }
-
- /**
-  * Get events by block hash
-  */
- static async getEventsByBlockHash(blockHash: string) {
-  return Event.getByBlockHash(blockHash, {
-   orderBy: 'transactionIndex',
-   limit: -1,
-  });
- }
-
- /**
   * Get events by block number
   */
  static async getEventsByBlockNumber(blockNumber: bigint) {
@@ -89,16 +69,6 @@ export class EvmHostEventsService {
  static async getEventsByTransactionHash(transactionHash: string) {
   return Event.getByTransactionHash(transactionHash, {
    orderBy: 'transactionIndex',
-   limit: -1,
-  });
- }
-
- /**
-  * Get events by transaction index
-  */
- static async getEventsByTransactionIndex(transactionIndex: bigint) {
-  return Event.getByTransactionIndex(transactionIndex, {
-   orderBy: 'blockNumber',
    limit: -1,
   });
  }

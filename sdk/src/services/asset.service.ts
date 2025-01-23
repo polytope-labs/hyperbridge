@@ -95,21 +95,4 @@ export class AssetService {
    limit: -1,
   });
  }
-
- /**
-  * Get assets by asset ID and chain
-  */
- static async getAssetsByType(assetId: string, chain: string) {
-  const [received, teleported] = await Promise.all([
-   AssetReceived.getByAssetId(assetId, {
-    orderBy: 'chain',
-    limit: -1,
-   }),
-   AssetTeleported.getByAssetId(assetId, {
-    orderBy: 'chain',
-    limit: -1,
-   }),
-  ]);
-  return { received, teleported };
- }
 }

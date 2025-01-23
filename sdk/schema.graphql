@@ -106,7 +106,6 @@ type RelayerStatsPerChain
  @compositeIndexes(
   fields: [
    ["relayer", "chain"]
-   ["numberOfSuccessfulMessagesDelivered", "chain"]
    ["feesEarned", "chain"]
   ]
  ) {
@@ -128,42 +127,42 @@ type RelayerStatsPerChain
  """
  Total number of successful post requests or post responses handled by the Relayer
  """
- numberOfSuccessfulMessagesDelivered: BigInt! @index
+ numberOfSuccessfulMessagesDelivered: BigInt!
 
  """
  Total number of failed post requests handled by the Relayer
  """
- numberOfFailedMessagesDelivered: BigInt! @index
+ numberOfFailedMessagesDelivered: BigInt!
 
  """
  Amount of gas spent on successful messages (Gas Cost)
  """
- gasUsedForSuccessfulMessages: BigInt! @index
+ gasUsedForSuccessfulMessages: BigInt!
 
  """
  Amount of gas spent on failed messages (Gas Cost)
  """
- gasUsedForFailedMessages: BigInt! @index
+ gasUsedForFailedMessages: BigInt!
 
  """
  Gas fee spent on successful post requests (Gas Cost * Gas Price)
  """
- gasFeeForSuccessfulMessages: BigInt! @index
+ gasFeeForSuccessfulMessages: BigInt!
 
  """
  Gas fee spent on failed post requests (Gas Cost * Gas Price)
  """
- gasFeeForFailedMessages: BigInt! @index
+ gasFeeForFailedMessages: BigInt!
 
  """
  The USD value of the gas fee spent on successful post requests
  """
- usdGasFeeForSuccessfulMessages: BigInt! @index
+ usdGasFeeForSuccessfulMessages: BigInt!
 
  """
  The USD value of the gas fee spent on failed post requests
  """
- usdGasFeeForFailedMessages: BigInt! @index
+ usdGasFeeForFailedMessages: BigInt!
 
  """
  Total fees earned by the relayer
@@ -242,7 +241,7 @@ type Event
  """
  The type of the event
  """
- type: EventType! @index
+ type: EventType!
 
  """
  The chain on which the event occured
@@ -252,7 +251,7 @@ type Event
  """
  The hash of the block in which the event occured
  """
- blockHash: String! @index
+ blockHash: String!
 
  """
  The number of the block in which the event occured
@@ -267,12 +266,12 @@ type Event
  """
  The index of the transaction in the block
  """
- transactionIndex: BigInt! @index
+ transactionIndex: BigInt!
 
  """
  The data of the event
  """
- data: String! @index
+ data: String!
 
  """
  The address of the destination of the event
@@ -320,7 +319,7 @@ type StateMachineUpdateEvent
  """
  The hash of the block in which the event occured
  """
- blockHash: String! @index
+ blockHash: String!
 
  """
  The number of the block in which the event occured
@@ -330,12 +329,12 @@ type StateMachineUpdateEvent
  """
  The hash of the transaction in which the event occured
  """
- transactionHash: String! @index
+ transactionHash: String!
 
  """
  The index of the transaction in the block
  """
- transactionIndex: BigInt! @index
+ transactionIndex: BigInt!
 
  """
  The timestamp of the event
@@ -354,7 +353,6 @@ type Request
    ["sourceTransactionHash", "chain"]
    ["hyperbridgeTransactionHash", "chain"]
    ["destinationTransactionHash", "chain"]
-   ["from", "to", "chain"]
   ]
  ) {
  """
@@ -390,47 +388,47 @@ type Request
  """
  This is the statemachine id where this request originated from
  """
- source: String @index
+ source: String
 
  """
  This is the statemachine where this request is been dispatched to
  """
- dest: String @index
+ dest: String
 
  """
  This is the timestamp when the request would timeout
  """
- timeoutTimestamp: BigInt @index
+ timeoutTimestamp: BigInt
 
  """
  The address that dispatched this request
  """
- from: String! @index
+ from: String!
 
  """
  The address receiving this request
  """
- to: String! @index
+ to: String!
 
  """
  Nonce of the request
  """
- nonce: BigInt! @index
+ nonce: BigInt!
 
  """
  Body of the request
  """
- body: String! @index
+ body: String!
 
  """
  This is the fee set for this request
  """
- fee: BigInt! @index
+ fee: BigInt!
 
  """
  Status of the request
  """
- status: Status! @index
+ status: Status!
 
  """
  Metatdata about the request's progression through different statuses
@@ -529,22 +527,22 @@ type Response
  """
  The response message
  """
- response_message: String @index
+ response_message: String
 
  """
  The Timestamp at which this response expires in seconds
  """
- responseTimeoutTimestamp: BigInt @index
+ responseTimeoutTimestamp: BigInt
 
  """
  Status of the response
  """
- status: Status! @index
+ status: Status!
 
  """
  The request that triggered this response
  """
- request: Request @index
+ request: Request
 
  """
  Metatdata about the response's progression through different statuses
@@ -610,8 +608,8 @@ type AssetReceived
   ]
  ) {
  id: ID!
- amount: BigInt! @index
- assetId: String! @index
+ amount: BigInt!
+ assetId: String!
  beneficiary: String! @index
  chain: String! @index
  commitment: String! @index
@@ -632,13 +630,13 @@ type AssetTeleported
   ]
  ) {
  id: ID!
- amount: BigInt! @index
- assetId: String! @index
+ amount: BigInt!
+ assetId: String!
  chain: String! @index
  commitment: String! @index
  from: String! @index
  to: String! @index
- redeem: Boolean! @index
+ redeem: Boolean!
 }
 
 """
@@ -651,7 +649,7 @@ type RewardPoints
  address: String! @index
  chain: String! @index
  points: BigInt! @index
- earnerType: ProtocolParticipant! @index
+ earnerType: ProtocolParticipant!
 }
 
 type RewardPointsActivityLog
@@ -668,8 +666,8 @@ type RewardPointsActivityLog
  points: BigInt! @index
  transactionHash: String! @index
  earnerAddress: String! @index
- earnerType: ProtocolParticipant! @index
- activityType: RewardPointsActivityType! @index
+ earnerType: ProtocolParticipant!
+ activityType: RewardPointsActivityType!
  description: String!
  createdAt: Date! @index
 }

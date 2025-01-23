@@ -1,37 +1,37 @@
 import {
-  ProtocolParticipant,
-  RewardPoints,
-  RewardPointsActivityLog,
-  RewardPointsActivityType,
-} from "../types";
-import { TokenGatewayService } from "./tokenGateway.service";
+ ProtocolParticipant,
+ RewardPoints,
+ RewardPointsActivityLog,
+ RewardPointsActivityType,
+} from '../types';
+import { TokenGatewayService } from './tokenGateway.service';
 
 export interface IAssignRewardPointsForFulfilledRequestInput {
-  address: string;
-  chain: string;
-  amount: bigint;
-  earnerType: ProtocolParticipant;
-  asset_id: string;
-  contract_address: string;
-  transaction_hash: string;
+ address: string;
+ chain: string;
+ amount: bigint;
+ earnerType: ProtocolParticipant;
+ asset_id: string;
+ contract_address: string;
+ transaction_hash: string;
 }
 
 export interface IAssignRewardPointsToRelayerInput {
-  relayer_address: string;
-  chain: string;
-  is_success: boolean;
-  earnerType: ProtocolParticipant;
-  transaction_hash: string;
+ relayer_address: string;
+ chain: string;
+ is_success: boolean;
+ earnerType: ProtocolParticipant;
+ transaction_hash: string;
 }
 
 export interface IAssignRewardPointsForAssetTransferInput {
-  address: string;
-  chain: string;
-  amount: bigint;
-  earnerType: ProtocolParticipant;
-  asset_id: string;
-  contract_address: string;
-  transaction_hash: string;
+ address: string;
+ chain: string;
+ amount: bigint;
+ earnerType: ProtocolParticipant;
+ asset_id: string;
+ contract_address: string;
+ transaction_hash: string;
 }
 
 const REWARD_POINTS_TO_RELAYER_ON_SUCCESSFUL_TRANSACTION = BigInt(10);
@@ -218,16 +218,6 @@ export class RewardPointsService {
   */
  static async getByPoints(points: bigint) {
   return RewardPoints.getByPoints(points, {
-   orderBy: 'points',
-   limit: -1,
-  });
- }
-
- /**
-  * Get reward points by earner type
-  */
- static async getByEarnerType(earnerType: ProtocolParticipant) {
-  return RewardPoints.getByEarnerType(earnerType, {
    orderBy: 'points',
    limit: -1,
   });

@@ -252,36 +252,6 @@ export class ResponseService {
  }
 
  /**
-  * Find responses by response message
-  */
- static async findByResponseMessage(response_message: string) {
-  return Response.getByResponse_message(response_message, {
-   orderBy: 'id',
-   limit: -1,
-  });
- }
-
- /**
-  * Find responses by timeout timestamp
-  */
- static async findByResponseTimeoutTimestamp(responseTimeoutTimestamp: bigint) {
-  return Response.getByResponseTimeoutTimestamp(responseTimeoutTimestamp, {
-   orderBy: 'id',
-   limit: -1,
-  });
- }
-
- /**
-  * Find responses by status
-  */
- static async findByStatus(status: Status) {
-  return Response.getByStatus(status, {
-   orderBy: 'id',
-   limit: -1,
-  });
- }
-
- /**
   * Find responses by request ID
   */
  static async findByRequestId(requestId: string) {

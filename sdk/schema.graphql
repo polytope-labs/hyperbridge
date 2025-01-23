@@ -598,19 +598,6 @@ type ResponseStatusMetadata @entity {
 }
 
 """
-Liquidity requests fulfilled by a filler
-"""
-type FulfilledRequest
- @entity
- @compositeIndexes(fields: [["bidder", "chain"], ["assetId", "chain"]]) {
- id: ID!
- assetId: String! @index
- bidder: String! @index
- amount: BigInt! @index
- chain: String! @index
-}
-
-"""
 Asset received by a user
 """
 type AssetReceived

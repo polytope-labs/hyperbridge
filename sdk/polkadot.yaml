@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: hyperbridge-gargantua-chain
-description: Hyperbridge-gargantua Chain Indexer
+name: polkadot-chain
+description: Polkadot Chain Indexer
 runner:
   node:
     name: '@subql/node'
@@ -13,9 +13,10 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73'
+  chainId: '0x91b171bb158e2d3848fa23a9f1c25182fb8e20313b2c1eb49219da7a70ce90c3'
   endpoint:
-    - 'wss://hyperbridge-paseo-rpc.blockops.network'
+    - 'wss://polkadot.api.onfinality.io/public-ws'
+    - 'wss://rpc.polkadot.io'
   chaintypes:
     file: ./dist/substrate-chaintypes.js
 dataSources:

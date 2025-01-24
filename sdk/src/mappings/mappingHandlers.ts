@@ -17,12 +17,13 @@ export { handleStateMachineUpdatedEvent } from '../handlers/events/evmHost/state
 export { handlePostRequestTransactionHandler } from '../handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler';
 export { handlePostResponseTransactionHandler } from '../handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler';
 
-// Hyperbridge Handlers
-export { handleIsmpStateMachineUpdatedEvent } from '../handlers/events/hyperbridge/handleIsmpStateMachineUpdatedEvent.handler';
-export { handleHyperbridgePostRequestTimeoutHandledEvent } from '../handlers/events/hyperbridge/handlePostRequestTimeoutHandledEvent.handler';
-export { handleHyperbridgePostResponseTimeoutHandledEvent } from '../handlers/events/hyperbridge/handlePostResponseTimeoutHandledEvent.handler';
-export { handleHyperbridgeRequestEvent } from '../handlers/events/hyperbridge/handleRequestEvent.handler';
-export { handleHyperbridgeResponseEvent } from '../handlers/events/hyperbridge/handleResponseEvent.handler';
+// Substrate Chains Handlers
+export { handleIsmpStateMachineUpdatedEvent } from '../handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler';
+export { handleSubstratePostRequestTimeoutHandledEvent } from '../handlers/events/substrateChains/handlePostRequestTimeoutHandledEvent.handler';
+export { handleSubstratePostResponseTimeoutHandledEvent } from '../handlers/events/substrateChains/handlePostResponseTimeoutHandledEvent.handler';
+export { handleSubstrateRequestEvent } from '../handlers/events/substrateChains/handleRequestEvent.handler';
+export { handleSubstrateResponseEvent } from '../handlers/events/substrateChains/handleResponseEvent.handler';
+export { handleSubstrateAssetEvent } from '../handlers/events/substrateChains/handleAssetEvent.handler';
 
 // TokenGateway Handlers
 export { handleAssetReceivedEvent } from '../handlers/events/tokenGateway/handleAssetReceivedEvent.handler';

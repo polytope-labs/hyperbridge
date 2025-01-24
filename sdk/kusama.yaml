@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: hyperbridge-gargantua-chain
-description: Hyperbridge-gargantua Chain Indexer
+name: kusama-chain
+description: Kusama Chain Indexer
 runner:
   node:
     name: '@subql/node'
@@ -13,9 +13,10 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73'
+  chainId: '0xb0a8d493285c2df73290dfb7e61f870f17b41801197a149ca93654499ea3dafe'
   endpoint:
-    - 'wss://hyperbridge-paseo-rpc.blockops.network'
+    - 'wss://kusama.api.onfinality.io/public-ws'
+    - 'wss://kusama-rpc.polkadot.io'
   chaintypes:
     file: ./dist/substrate-chaintypes.js
 dataSources:

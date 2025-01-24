@@ -6,8 +6,9 @@
   "scripts": {
     "build": "subql build",
     "codegen": "subql codegen",
-    "start:docker": "docker-compose pull && docker-compose up --remove-orphans",
-    "dev": "subql codegen && subql build && docker-compose pull && docker-compose up --remove-orphans",
+    "generate-configs": "node generate-chain-yamls.js && node generate-compose.js",
+    "start:docker": "npm run generate-configs && docker-compose pull && docker-compose up --remove-orphans",
+    "dev": "subql codegen && subql build && npm run generate-configs && docker-compose pull && docker-compose up --remove-orphans",
     "prepack": "rm -rf dist && npm run build",
     "test": "subql build && subql-node-ethereum -f=ethereum-sepolia.yaml test"
   },
@@ -16,7 +17,8 @@
   "files": [
     "dist",
     "schema.graphql",
-    "subquery-multichain.yaml"
+    "subquery-multichain.yaml",
+    "chain-configs.json"
   ],
   "author": "Polytope Labs",
   "license": "MIT",
@@ -41,6 +43,6 @@
     "typescript": "latest"
   },
   "exports": {
-    "hyperbridge-chaintypes": "src/hyperbridge-chaintypes.ts"
+    "substrate-chaintypes": "src/substrate-chaintypes.ts"
   }
 }

@@ -1,4 +1,10 @@
-version: "3"
+version: '3'
+
+networks:
+  substrate-net:
+    driver: bridge
+  evm-net:
+    driver: bridge
 
 services:
   postgres:
@@ -11,16 +17,81 @@ services:
       - postgres_data:/var/lib/postgresql/data
     environment:
       POSTGRES_PASSWORD: postgres
+    networks:
+      - substrate-net
+      - evm-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
       timeout: 5s
       retries: 5
 
-  subquery-node-hyperbridge-gargantua:
-    image: onfinality/subql-node:v4.5.0
+  subquery-node-polkadot:
+    image: subquerynetwork/subql-node-substrate:latest
+    networks:
+      - substrate-net
     depends_on:
-      "postgres":
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/polkadot.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-1}
+      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --multi-chain
+      - --log-level=info
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-polkadot:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-kusama:
+    image: subquerynetwork/subql-node-substrate:latest
+    networks:
+      - substrate-net
+    depends_on:
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/kusama.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-1}
+      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --multi-chain
+      - --log-level=info
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-kusama:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-hyperbridge-gargantua:
+    image: subquerynetwork/subql-node-substrate:latest
+    networks:
+      - substrate-net
+    depends_on:
+      'postgres':
         condition: service_healthy
     restart: unless-stopped
     environment:
@@ -37,25 +108,20 @@ services:
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-5}
-      - --disable-historical
       - --multi-chain
       - --log-level=info
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://subquery-node-hyperbridge-gargantua:3000/ready",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-hyperbridge-gargantua:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
   subquery-node-ethereum-sepolia:
     image: subquerynetwork/subql-node-ethereum:v3.11.0
+    networks:
+      - evm-net
     depends_on:
-      "postgres":
+      'postgres':
         condition: service_healthy
     restart: unless-stopped
     environment:
@@ -72,25 +138,20 @@ services:
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
       - --log-level=info
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://subquery-node-ethereum-sepolia:3000/ready",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-ethereum-sepolia:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
   subquery-node-base-sepolia:
     image: subquerynetwork/subql-node-ethereum:v3.11.0
+    networks:
+      - evm-net
     depends_on:
-      "postgres":
+      'postgres':
         condition: service_healthy
     restart: unless-stopped
     environment:
@@ -107,20 +168,20 @@ services:
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
       - --log-level=info
     healthcheck:
-      test:
-        ["CMD", "curl", "-f", "http://subquery-node-base-sepolia:3000/ready"]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-base-sepolia:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
   subquery-node-optimism-sepolia:
     image: subquerynetwork/subql-node-ethereum:v3.11.0
+    networks:
+      - evm-net
     depends_on:
-      "postgres":
+      'postgres':
         condition: service_healthy
     restart: unless-stopped
     environment:
@@ -137,25 +198,20 @@ services:
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
       - --log-level=info
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://subquery-node-optimism-sepolia:3000/ready",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-optimism-sepolia:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
   subquery-node-arbitrum-sepolia:
     image: subquerynetwork/subql-node-ethereum:v3.11.0
+    networks:
+      - evm-net
     depends_on:
-      "postgres":
+      'postgres':
         condition: service_healthy
     restart: unless-stopped
     environment:
@@ -172,25 +228,20 @@ services:
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
       - --log-level=info
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://subquery-node-arbitrum-sepolia:3000/ready",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-arbitrum-sepolia:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
   subquery-node-bsc-chapel:
     image: subquerynetwork/subql-node-ethereum:v3.11.0
+    networks:
+      - evm-net
     depends_on:
-      "postgres":
+      'postgres':
         condition: service_healthy
     restart: unless-stopped
     environment:
@@ -207,33 +258,39 @@ services:
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
       - --log-level=info
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel:3000/ready"]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-bsc-chapel:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
   graphql-engine:
     image: subquerynetwork/subql-query:v2.9.0
+    networks:
+      - substrate-net
+      - evm-net
     ports:
       - 3000:3000
     depends_on:
-      "postgres":
+      'postgres':
         condition: service_healthy
-      "subquery-node-ethereum-sepolia":
+      'subquery-node-polkadot':
         condition: service_healthy
-      "subquery-node-base-sepolia":
+      'subquery-node-kusama':
         condition: service_healthy
-      "subquery-node-optimism-sepolia":
+      'subquery-node-hyperbridge-gargantua':
         condition: service_healthy
-      "subquery-node-arbitrum-sepolia":
+      'subquery-node-ethereum-sepolia':
         condition: service_healthy
-      "subquery-node-bsc-chapel":
+      'subquery-node-base-sepolia':
         condition: service_healthy
-      "subquery-node-hyperbridge-gargantua":
+      'subquery-node-optimism-sepolia':
+        condition: service_healthy
+      'subquery-node-arbitrum-sepolia':
+        condition: service_healthy
+      'subquery-node-bsc-chapel':
         condition: service_healthy
     restart: always
     environment:

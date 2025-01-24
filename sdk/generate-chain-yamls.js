@@ -1,8 +1,19 @@
-# // Auto-generated , DO NOT EDIT
+#!/usr/bin/env node
+
+const fs = require('fs');
+const configs = require('./chain-configs.json');
+
+// Generate chain-specific YAML files
+Object.entries(configs).forEach(([chain, config]) => {
+ const endpoints = config.endpoints
+  .map((endpoint) => `    - '${endpoint}'`)
+  .join('\n');
+
+ const yaml = `# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: hyperbridge-gargantua-chain
-description: Hyperbridge-gargantua Chain Indexer
+name: ${chain}-chain
+description: ${chain.charAt(0).toUpperCase() + chain.slice(1)} Chain Indexer
 runner:
   node:
     name: '@subql/node'
@@ -13,9 +24,9 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73'
+  chainId: '${config.chainId}'
   endpoint:
-    - 'wss://hyperbridge-paseo-rpc.blockops.network'
+${endpoints}
   chaintypes:
     file: ./dist/substrate-chaintypes.js
 dataSources:
@@ -50,4 +61,8 @@ dataSources:
             module: ismp
             method: PostResponseTimeoutHandled
 
-repository: 'https://github.com/polytope-labs/hyperbridge'
+repository: 'https://github.com/polytope-labs/hyperbridge'`.trim();
+
+ fs.writeFileSync(`${chain}.yaml`, yaml);
+ console.log(`Generated ${chain}.yaml`);
+});

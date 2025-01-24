@@ -43,7 +43,7 @@ export class StateMachineService {
  /**
   * Create a new Hyperbridge StateMachineUpdated event entity
   */
- static async createHyperbridgeStateMachineUpdatedEvent(
+ static async createSubstrateStateMachineUpdatedEvent(
   args: ICreateStateMachineUpdatedEventArgs,
   chain: string
  ): Promise<void> {

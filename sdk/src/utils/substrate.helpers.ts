@@ -55,6 +55,10 @@ export const extractStateMachineIdFromSubstrateEventData = (
     return 'GRANDPA-'.concat(value);
    case 'BSC':
     return 'BSC-'.concat(value);
+   case 'SUBSTRATE':
+    return 'SUBSTRATE-'.concat(value);
+   case 'TENDERMINT':
+    return 'TENDERMINT-'.concat(value);
    default:
     throw new Error(
      `Unknown state machine ID ${main_key} encountered in extractStateMachineIdFromSubstrateEventData. `

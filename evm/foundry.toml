@@ -23,6 +23,7 @@ arbitrum = "${ARBITRUM_RPC_URL}"
 base = "${BASE_RPC_URL}"
 bsc = "${BSC_RPC_URL}"
 gnosis = "${GNOSIS_RPC_URL}"
+soneium = "${SONEIUM_RPC_URL}"
 
 [etherscan]
 # testnet
@@ -41,3 +42,4 @@ optimism = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", chain = 10, url = "https://a
 base = { key = "${BASE_ETHERSCAN_API_KEY}", chain = 8453, url = "https://api.basescan.org/api" }
 bsc = { key = "${BSC_ETHERSCAN_API_KEY}", chain = 56, url = "https://api.bscscan.com/api" }
 gnosis = { key = "${GNOSIS_ETHERSCAN_API_KEY}", chain = 100, url = "https://api.gnosisscan.io/api" }
+soneium = { key = "${SONEIUM_BLOCKSCOUT_API_KEY}", chain = 1868, url = "https://soneium.blockscout.com/api" }

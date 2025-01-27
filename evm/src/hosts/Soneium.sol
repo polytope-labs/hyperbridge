@@ -17,16 +17,16 @@ pragma solidity ^0.8.17;
 import {EvmHost, HostParams} from "./EvmHost.sol";
 
 /**
- * @title The ArbitrumHost
+ * @title The SoneiumHost
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice The IsmpHost and IsmpDispatcher implementation for the Arbitrum state machine.
+ * @notice The IsmpHost and IsmpDispatcher implementation for the Soneium state machine.
  * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
  */
 contract SoneiumHost is EvmHost {
     constructor(HostParams memory params) EvmHost(params) {}
 
-    /// chainId for the Aoneium mainnet
+    /// chainId for the Soneium mainnet
     uint256 public constant CHAIN_ID = 1868;
 
     function chainId() public pure override returns (uint256) {

@@ -1,19 +1,8 @@
-#!/usr/bin/env node
-
-const fs = require('fs');
-const configs = require('./chain-configs.json');
-
-// Generate chain-specific YAML files
-Object.entries(configs).forEach(([chain, config]) => {
- const endpoints = config.endpoints
-  .map((endpoint) => `    - '${endpoint}'`)
-  .join('\n');
-
- const yaml = `# // Auto-generated , DO NOT EDIT
+# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: ${chain}-chain
-description: ${chain.charAt(0).toUpperCase() + chain.slice(1)} Chain Indexer
+name: bifrost-paseo-chain
+description: Bifrost-paseo Chain Indexer
 runner:
   node:
     name: '@subql/node'
@@ -24,14 +13,15 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '${config.chainId}'
+  chainId: '0x9f28c6a68e0fc9646eff64935684f6eeeece527e37bbe1f213d22caa1d9d6bed'
   endpoint:
-${endpoints}
+    - 'wss://bifrost-parachain.api.onfinality.io/public-ws'
+    - 'wss://bifrost-rpc.liebi.com/ws'
   chaintypes:
     file: ./dist/substrate-chaintypes.js
 dataSources:
   - kind: substrate/Runtime
-    startBlock: ${config.startBlock}
+    startBlock: 6033754
     mapping:
       file: ./dist/index.js
       handlers:
@@ -71,8 +61,4 @@ dataSources:
             module: ismp
             method: PostResponseTimeoutHandled
 
-repository: 'https://github.com/polytope-labs/hyperbridge'`.trim();
-
- fs.writeFileSync(`${chain}.yaml`, yaml);
- console.log(`Generated ${chain}.yaml`);
-});
+repository: 'https://github.com/polytope-labs/hyperbridge'

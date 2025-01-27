@@ -14,12 +14,12 @@ export async function handleIsmpStateMachineUpdatedEvent(
  event: SubstrateEvent
 ): Promise<void> {
  const chainId = getChainIdFromEvent(event);
- 
-  const stateMachineId = extractStateMachineIdFromSubstrateEventData(
-   event.event.data.toString()
-  );
- 
-  if (typeof stateMachineId === 'undefined') return;
+
+ const stateMachineId = extractStateMachineIdFromSubstrateEventData(
+  event.event.data.toString()
+ );
+
+ if (typeof stateMachineId === 'undefined') return;
 
  try {
   if (!SubstrateEventValidator.validateChainMetadata(chainId, stateMachineId)) {
@@ -31,6 +31,9 @@ export async function handleIsmpStateMachineUpdatedEvent(
   }
 
   if (!SubstrateEventValidator.validateStateMachineEvent(event)) {
+   logger.error(
+    `Invalid state machine event data: ${JSON.stringify(event.event)}`
+   );
    throw new StateMachineError(
     'Invalid state machine event data',
     chainId,
@@ -46,11 +49,16 @@ export async function handleIsmpStateMachineUpdatedEvent(
   const { method, data } = event.event;
 
   const timestamp = Math.floor(event.block.timestamp!.getTime() / 1000);
-  const height = Number(data[0].toString());
+  const height = Number(data[1].toString());
   const blockNumber = event.block.block.header.number.toNumber();
   const blockHash = event.block.block.header.hash.toString();
   const transactionHash = event.extrinsic?.extrinsic?.hash?.toString() || '';
   const transactionIndex = event.extrinsic?.idx || 0;
+
+  if (isNaN(height)) {
+   logger.error(`Invalid height value in event data: ${data[1].toString()}`);
+   return;
+  }
 
   switch (method) {
    case 'StateMachineUpdated':
@@ -66,29 +74,6 @@ export async function handleIsmpStateMachineUpdatedEvent(
      },
      chainId
     );
-    break;
-
-   case 'MessageProcessed':
-    const messageId = data[0].toString();
-    const messageStatus = data[1].toString();
-    const messageHeight = Number(data[2].toString());
-
-    await RequestService.updateStatus({
-     commitment: messageId,
-     chain: chainId,
-     blockNumber: blockNumber.toString(),
-     blockHash,
-     status: messageStatus as Status,
-     transactionHash,
-     blockTimestamp: BigInt(timestamp),
-    });
-
-    logger.info('Message processed', {
-     messageId,
-     status: messageStatus,
-     height: messageHeight,
-     chainId,
-    });
     break;
 
    default:
@@ -110,5 +95,3 @@ export async function handleIsmpStateMachineUpdatedEvent(
   throw error;
  }
 }
-
-

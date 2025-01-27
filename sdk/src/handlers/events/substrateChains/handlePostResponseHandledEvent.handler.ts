@@ -1,18 +1,17 @@
 import { SubstrateEvent } from '@subql/types';
-import { RequestService } from '../../../services/request.service';
+import { ResponseService } from '../../../services/response.service';
 import { Status } from '../../../types';
 import {
  extractStateMachineIdFromSubstrateEventData,
  getChainIdFromEvent,
 } from '../../../utils/substrate.helpers';
 
-export async function handleSubstrateRequestEvent(
+export async function handleSubstratePostResponseHandledEvent(
  event: SubstrateEvent
 ): Promise<void> {
- logger.info(`Handling ISMP Request Event`);
+ logger.info(`Handling ISMP PostResponseHandled Event`);
 
  const chainId = getChainIdFromEvent(event);
-
  const stateMachineId = extractStateMachineIdFromSubstrateEventData(
   event.event.data.toString()
  );
@@ -21,7 +20,13 @@ export async function handleSubstrateRequestEvent(
 
  const {
   event: {
-   data: [dest_chain, source_chain, request_nonce, commitment],
+   data: [
+    dest_chain,
+    source_chain,
+    request_nonce,
+    commitment,
+    response_commitment,
+   ],
   },
   extrinsic,
   block: {
@@ -32,20 +37,15 @@ export async function handleSubstrateRequestEvent(
   },
  } = event;
 
- let transactionHash = '';
- if (extrinsic) {
-  transactionHash = extrinsic.extrinsic.hash.toString();
- }
-
- await RequestService.updateStatus({
-  commitment: commitment.toString(),
+ await ResponseService.updateStatus({
+  commitment: response_commitment.toString(),
   chain: chainId,
   blockNumber: blockNumber.toString(),
   blockHash: blockHash.toString(),
   blockTimestamp: timestamp
    ? BigInt(Date.parse(timestamp.toString()))
    : BigInt(0),
-  status: Status.SOURCE,
-  transactionHash,
+  status: Status.MESSAGE_RELAYED,
+  transactionHash: extrinsic?.extrinsic.hash.toString() || '',
  });
 }

@@ -23,7 +23,8 @@ export { handleSubstratePostRequestTimeoutHandledEvent } from '../handlers/event
 export { handleSubstratePostResponseTimeoutHandledEvent } from '../handlers/events/substrateChains/handlePostResponseTimeoutHandledEvent.handler';
 export { handleSubstrateRequestEvent } from '../handlers/events/substrateChains/handleRequestEvent.handler';
 export { handleSubstrateResponseEvent } from '../handlers/events/substrateChains/handleResponseEvent.handler';
-export { handleSubstrateAssetEvent } from '../handlers/events/substrateChains/handleAssetEvent.handler';
+export { handleSubstratePostRequestHandledEvent } from '../handlers/events/substrateChains/handlePostRequestHandledEvent.handler';
+export { handleSubstratePostResponseHandledEvent } from '../handlers/events/substrateChains/handlePostResponseHandledEvent.handler';
 
 // TokenGateway Handlers
 export { handleAssetReceivedEvent } from '../handlers/events/tokenGateway/handleAssetReceivedEvent.handler';

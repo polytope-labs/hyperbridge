@@ -49,12 +49,6 @@ export const extractStateMachineIdFromSubstrateEventData = (
     return 'POLKADOT-'.concat(value);
    case 'KUSAMA':
     return 'KUSAMA-'.concat(value);
-   case 'BEEFY':
-    return 'BEEFY-'.concat(value);
-   case 'GRANDPA':
-    return 'GRANDPA-'.concat(value);
-   case 'BSC':
-    return 'BSC-'.concat(value);
    case 'SUBSTRATE':
     return 'SUBSTRATE-'.concat(value);
    case 'TENDERMINT':
@@ -126,41 +120,22 @@ export class SubstrateEventValidator {
 
   switch (method) {
    case 'StateMachineUpdated':
-    return (
-     data.length >= 1 &&
-     typeof Number(data[0].toString()) === 'function' &&
-     !isNaN(Number(data[0].toString()))
-    );
+    // Check data array exists and has required elements
+    if (!Array.isArray(data) || data.length < 2) return false;
 
-   case 'MessageProcessed':
-    return (
-     data.length >= 3 &&
-     typeof data[0].toString === 'function' &&
-     typeof data[1].toString === 'function' &&
-     typeof Number(data[2].toString()) === 'function'
-    );
+    // Validate first element has stateId and consensusStateId
+    const stateData = data[0].toJSON();
+    if (
+     typeof stateData !== 'object' ||
+     !stateData ||
+     !('stateId' in stateData) ||
+     !('consensusStateId' in stateData)
+    )
+     return false;
 
-   default:
-    return false;
-  }
- }
-
- /**
-  * Validate asset event data
-  */
- static validateAssetEvent(event: SubstrateEvent): boolean {
-  const { data, method } = event.event;
-
-  switch (method) {
-   case 'AssetTransferred':
-    return (
-     data.length >= 5 &&
-     typeof data[0].toString === 'function' && // commitment
-     typeof data[1].toString === 'function' && // amount
-     typeof data[2].toString === 'function' && // assetId
-     typeof data[3].toString === 'function' && // to address
-     typeof data[4].toString === 'function' // from address
-    );
+    // Validate second element is a number (height)
+    const height = Number(data[1].toString());
+    return !isNaN(height);
 
    default:
     return false;

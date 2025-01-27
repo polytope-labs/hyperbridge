@@ -23,6 +23,8 @@
   "author": "Polytope Labs",
   "license": "MIT",
   "dependencies": {
+    "@bifrost-finance/type-definitions": "^1.11.9",
+    "@open-web3/orml-type-definitions": "^2.0.1",
     "@ethersproject/shims": "^5.7.0",
     "@polkadot/api": "latest",
     "@subql/common": "latest",

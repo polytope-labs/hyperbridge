@@ -1,3 +1,4 @@
+import { typesBundleForPolkadot } from '@bifrost-finance/type-definitions';
 import { URL } from 'url';
 // @ts-ignore
 global.URL = URL;
@@ -6,18 +7,16 @@ const definitions = {
  gargantua: {
   hasher: 'keccakAsU8a',
  },
-
- polkadot: {
-  hasher: 'blake2AsU8a',
- },
-
- kusama: {
-  hasher: 'blake2AsU8a',
- },
 };
 
 export default {
  typesBundle: {
-  spec: definitions,
+  spec: {
+   ...definitions,
+   bifrost: typesBundleForPolkadot,
+  },
+ },
+ types: {
+  DispatchError: 'DispatchErrorPre6First',
  },
 };

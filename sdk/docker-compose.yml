@@ -26,66 +26,6 @@ services:
       timeout: 5s
       retries: 5
 
-  subquery-node-polkadot:
-    image: subquerynetwork/subql-node-substrate:latest
-    networks:
-      - substrate-net
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - ${SUB_COMMAND:-}
-      - -f=/app/polkadot.yaml
-      - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-5}
-      - --multi-chain
-      - --log-level=info
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-polkadot:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
-  subquery-node-kusama:
-    image: subquerynetwork/subql-node-substrate:latest
-    networks:
-      - substrate-net
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - ${SUB_COMMAND:-}
-      - -f=/app/kusama.yaml
-      - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-5}
-      - --multi-chain
-      - --log-level=info
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-kusama:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
   subquery-node-hyperbridge-gargantua:
     image: subquerynetwork/subql-node-substrate:latest
     networks:
@@ -112,6 +52,36 @@ services:
       - --log-level=info
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-hyperbridge-gargantua:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-bifrost-paseo:
+    image: subquerynetwork/subql-node-substrate:latest
+    networks:
+      - substrate-net
+    depends_on:
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/bifrost-paseo.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-1}
+      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --multi-chain
+      - --log-level=info
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-bifrost-paseo:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
@@ -276,11 +246,9 @@ services:
     depends_on:
       'postgres':
         condition: service_healthy
-      'subquery-node-polkadot':
-        condition: service_healthy
-      'subquery-node-kusama':
-        condition: service_healthy
       'subquery-node-hyperbridge-gargantua':
+        condition: service_healthy
+      'subquery-node-bifrost-paseo':
         condition: service_healthy
       'subquery-node-ethereum-sepolia':
         condition: service_healthy

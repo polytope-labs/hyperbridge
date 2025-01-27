@@ -6,13 +6,12 @@ import {
  getChainIdFromEvent,
 } from '../../../utils/substrate.helpers';
 
-export async function handleSubstrateRequestEvent(
+export async function handleSubstratePostRequestHandledEvent(
  event: SubstrateEvent
 ): Promise<void> {
- logger.info(`Handling ISMP Request Event`);
+ logger.info(`Handling ISMP PostRequestHandled Event`);
 
  const chainId = getChainIdFromEvent(event);
-
  const stateMachineId = extractStateMachineIdFromSubstrateEventData(
   event.event.data.toString()
  );
@@ -32,11 +31,6 @@ export async function handleSubstrateRequestEvent(
   },
  } = event;
 
- let transactionHash = '';
- if (extrinsic) {
-  transactionHash = extrinsic.extrinsic.hash.toString();
- }
-
  await RequestService.updateStatus({
   commitment: commitment.toString(),
   chain: chainId,
@@ -45,7 +39,7 @@ export async function handleSubstrateRequestEvent(
   blockTimestamp: timestamp
    ? BigInt(Date.parse(timestamp.toString()))
    : BigInt(0),
-  status: Status.SOURCE,
-  transactionHash,
+  status: Status.MESSAGE_RELAYED,
+  transactionHash: extrinsic?.extrinsic.hash.toString() || '',
  });
 }

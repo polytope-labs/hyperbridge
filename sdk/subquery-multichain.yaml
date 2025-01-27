@@ -9,5 +9,4 @@ projects:
   - ./optimism-sepolia.yaml
   - ./bsc-chapel.yaml
   - ./hyperbridge-gargantua.yaml
-  - ./kusama.yaml
-  - ./polkadot.yaml
+  - ./bifrost-paseo.yaml

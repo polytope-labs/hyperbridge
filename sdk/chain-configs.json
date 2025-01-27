@@ -1,22 +1,17 @@
 {
- "polkadot": {
-  "chainId": "0x91b171bb158e2d3848fa23a9f1c25182fb8e20313b2c1eb49219da7a70ce90c3",
-  "endpoints": [
-   "wss://polkadot.api.onfinality.io/public-ws",
-   "wss://rpc.polkadot.io"
-  ]
- },
- "kusama": {
-  "chainId": "0xb0a8d493285c2df73290dfb7e61f870f17b41801197a149ca93654499ea3dafe",
-  "endpoints": [
-   "wss://kusama.api.onfinality.io/public-ws",
-   "wss://kusama-rpc.polkadot.io"
-  ]
- },
  "hyperbridge-gargantua": {
   "chainId": "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73",
+  "startBlock": 2000000,
   "endpoints": [
    "wss://hyperbridge-paseo-rpc.blockops.network"
+  ]
+ },
+ "bifrost-paseo": {
+  "chainId": "0x9f28c6a68e0fc9646eff64935684f6eeeece527e37bbe1f213d22caa1d9d6bed",
+  "startBlock": 6033754,
+  "endpoints": [
+   "wss://bifrost-parachain.api.onfinality.io/public-ws",
+   "wss://bifrost-rpc.liebi.com/ws"
   ]
  }
 }

@@ -218,7 +218,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("nexus"),
 	impl_name: create_runtime_str!("nexus"),
 	authoring_version: 1,
-	spec_version: 2_100,
+	spec_version: 2_200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -335,8 +335,8 @@ impl Contains<RuntimeCall> for IsTreasurySpend {
 	fn contains(c: &RuntimeCall) -> bool {
 		matches!(
 			c,
-			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. }) |
-				RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
+			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. })
+				| RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
 		)
 	}
 }
@@ -764,19 +764,20 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
 	fn filter(&self, c: &RuntimeCall) -> bool {
 		match self {
 			ProxyType::Any => true,
-			ProxyType::NonTransfer =>
-				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. }),
+			ProxyType::NonTransfer => {
+				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. })
+			},
 			ProxyType::CancelProxy => matches!(
 				c,
-				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. }) |
-					RuntimeCall::Utility { .. } |
-					RuntimeCall::Multisig { .. }
+				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. })
+					| RuntimeCall::Utility { .. }
+					| RuntimeCall::Multisig { .. }
 			),
 			ProxyType::Collator => matches!(
 				c,
-				RuntimeCall::CollatorSelection { .. } |
-					RuntimeCall::Utility { .. } |
-					RuntimeCall::Multisig { .. }
+				RuntimeCall::CollatorSelection { .. }
+					| RuntimeCall::Utility { .. }
+					| RuntimeCall::Multisig { .. }
 			),
 		}
 	}

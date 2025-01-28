@@ -247,14 +247,16 @@ where
 	let buf = (message, round, set_id).encode();
 
 	let signature_bytes: &[u8] = signature.as_ref();
-	let sp_finality_signature: ed25519::Signature =
-		signature_bytes.try_into().map_err(|_| anyhow!("Could not fetch signature"))?;
+	let sp_finality_signature: ed25519::Signature = signature_bytes
+		.try_into()
+		.map_err(|err| anyhow!("Failed to convert ed25519 signature: {err:#?}"))?;
 
 	let id_bytes: &[u8] = id.as_ref();
-	let pub_key: ed25519::Public =
-		id_bytes.try_into().map_err(|_| anyhow!("Could not fetch public key"))?;
+	let pub_key: ed25519::Public = id_bytes
+		.try_into()
+		.map_err(|err| anyhow!("Failed to convert public key: {err:#?}"))?;
 
-	if sp_io::crypto::ed25519_verify(&sp_finality_signature, &buf, &pub_key) {
+	if !sp_io::crypto::ed25519_verify(&sp_finality_signature, &buf, &pub_key) {
 		Err(anyhow!("invalid signature for precommit in grandpa justification"))?
 	}
 

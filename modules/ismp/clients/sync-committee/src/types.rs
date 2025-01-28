@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use alloc::collections::BTreeMap;
-use arbitrum_verifier::ArbitrumPayloadProof;
+use arbitrum_verifier::{ArbitrumBoldProof, ArbitrumPayloadProof};
 use codec::{Decode, Encode};
 use ethabi::ethereum_types::H160;
 use ismp::host::StateMachine;
@@ -34,6 +34,7 @@ pub struct BeaconClientUpdate {
 	pub l2_oracle_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
 	pub dispute_game_payload: BTreeMap<StateMachine, OptimismDisputeGameProof>,
 	pub arbitrum_payload: BTreeMap<StateMachine, ArbitrumPayloadProof>,
+	pub arbitrum_bold: BTreeMap<StateMachine, ArbitrumBoldProof>,
 }
 
 /// Description of the various consensus mechanics supported for ethereum L2s
@@ -45,4 +46,6 @@ pub enum L2Consensus {
 	OpL2Oracle(H160),
 	/// Op Stack Dispute game factory address and the respected game type
 	OpFaultProofs((H160, u32)),
+	/// Arbitrum Bold chains Rollup Core Address
+	ArbitrumBold(H160),
 }

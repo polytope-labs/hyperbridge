@@ -354,6 +354,10 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
+ "alloy-sol-macro",
+ "alloy-sol-types",
+ "anyhow",
+ "dotenv",
  "ethabi",
  "ethereum-triedb",
  "ethers",
@@ -365,6 +369,7 @@ dependencies = [
  "ismp-testsuite",
  "parity-scale-codec",
  "sp-core 34.0.0",
+ "sp-io 38.0.0",
  "tokio",
 ]
 

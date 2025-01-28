@@ -43,7 +43,6 @@ export const extractStateMachineIdFromSubstrateEventData = (
 
   switch (main_key) {
    case 'EVM':
-   case 'ETHEREUM':
     return 'EVM-'.concat(value);
    case 'POLKADOT':
     return 'POLKADOT-'.concat(value);

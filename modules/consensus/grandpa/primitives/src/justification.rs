@@ -25,7 +25,6 @@ use sp_consensus_grandpa::{
 	AuthorityId, AuthorityList, AuthoritySignature, ConsensusLog, Equivocation, RoundNumber,
 	ScheduledChange, SetId, GRANDPA_ENGINE_ID,
 };
-use sp_core::ed25519;
 use sp_runtime::{generic::OpaqueDigestItemId, traits::Header as HeaderT, RuntimeAppPublic};
 use sp_std::prelude::*;
 

@@ -4,7 +4,7 @@ use std::{env, fs};
 fn main() -> anyhow::Result<()> {
 	let base_dir = env::current_dir()?.display().to_string();
 
-	let sources = vec![("IRollup", format!("{base_dir}/abis/IRollupCore.json"))];
+	let sources = vec![("IRollup", format!("{base_dir}/abis/IRollupCore.json")), ("IRollupBold", format!("{base_dir}/abis/IRollupCoreBold.json"))];
 
 	MultiAbigen::new(sources)
 		.unwrap()

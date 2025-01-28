@@ -14,6 +14,7 @@ import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
 import "../src/hosts/Gnosis.sol";
+import "../src/hosts/Soneium.sol";
 
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
@@ -30,6 +31,7 @@ import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
 import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
 bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -44,7 +46,7 @@ contract DeployScript is BaseScript {
         vm.startBroadcast(uint256(privateKey));
 
         // consensus client
-        SP1Verifier verifier = new SP1Verifier();
+        SP1Verifier verifier = new SP1Verifier{salt: salt}();
         SP1Beefy consensusClient = new SP1Beefy{salt: salt}(verifier);
 
         // handler
@@ -56,7 +58,8 @@ contract DeployScript is BaseScript {
         stateMachines[0] = paraId;
 
         address uniswapV2 = vm.envAddress(string.concat(host, "_UNISWAP_V2"));
-        address feeToken = vm.envAddress(string.concat(host, "_DAI"));
+        address feeToken = vm.envAddress(string.concat(host, "_FEE_TOKEN"));
+        uint256 decimals = IERC20Metadata(feeToken).decimals();
 
         // EvmHost
         PerByteFee[] memory perByteFees = new PerByteFee[](0);
@@ -66,12 +69,12 @@ contract DeployScript is BaseScript {
             admin: admin,
             hostManager: address(manager),
             handler: address(handler),
-            defaultTimeout: 60 * 60,
+            defaultTimeout: 2 * 60 * 60,
             unStakingPeriod: 21 * (60 * 60 * 24),
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            defaultPerByteFee: 3 * 1e15, // $0.003/byte
-            stateCommitmentFee: 10 * 1e18, // $10
+            defaultPerByteFee: 3 * (10 ** (decimals - 2)), // $0.003/byte
+            stateCommitmentFee: 10 * (10 ** decimals), // $10
             hyperbridge: StateMachine.polkadot(paraId),
             feeToken: feeToken,
             stateMachines: stateMachines
@@ -105,6 +108,9 @@ contract DeployScript is BaseScript {
             return address(h);
         } else if (host.toSlice().startsWith("gnosis".toSlice())) {
             GnosisHost h = new GnosisHost{salt: salt}(params);
+            return address(h);
+        } else if (host.toSlice().startsWith("soneium".toSlice())) {
+            SoneiumHost h = new SoneiumHost{salt: salt}(params);
             return address(h);
         }
 

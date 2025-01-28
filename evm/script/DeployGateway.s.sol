@@ -46,6 +46,10 @@ contract DeployScript is BaseScript {
             vm.startBroadcast(uint256(privateKey));
             deployInscription(GNOSIS_HOST, admin);
             deployGateway(GNOSIS_HOST, admin, callDispatcher);
+        } else if (host.toSlice().startsWith("soneium".toSlice())) {
+            vm.startBroadcast(uint256(privateKey));
+            deployInscription(SONEIUM_HOST, admin);
+            deployGateway(SONEIUM_HOST, admin, callDispatcher);
         }
     }
 

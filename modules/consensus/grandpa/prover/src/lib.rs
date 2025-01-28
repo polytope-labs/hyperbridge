@@ -158,7 +158,7 @@ where
 
 		Ok(ConsensusState {
 			current_authorities,
-			current_set_id: current_set_id + 1,
+			current_set_id,
 			latest_height,
 			latest_hash: hash.into(),
 			slot_duration,

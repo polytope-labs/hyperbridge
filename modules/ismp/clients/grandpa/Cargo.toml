@@ -1,6 +1,6 @@
 [package]
 name = "ismp-grandpa"
-version = "15.0.0"
+version = "15.0.1"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -15,9 +15,7 @@ readme = "./README.md"
 anyhow = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
 primitive-types = { workspace = true }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 merkle-mountain-range = { workspace = true }
-finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false }
 frame-benchmarking = { workspace = true, optional = true }
 sp-std = { workspace = true }
 
@@ -38,6 +36,16 @@ sp-core = { workspace = true }
 
 # cumulus
 substrate-state-machine = { workspace = true }
+
+[dependencies.scale-info]
+version = "2.1.1"
+default-features = false
+features = ["derive"]
+
+[dependencies.finality-grandpa]
+version = "0.16.0"
+features = ["derive-codec"]
+default-features = false
 
 [features]
 default = ["std"]

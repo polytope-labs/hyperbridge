@@ -26,7 +26,7 @@ use sp_consensus_grandpa::{
 	ScheduledChange, SetId, GRANDPA_ENGINE_ID,
 };
 use sp_core::ed25519;
-use sp_runtime::{generic::OpaqueDigestItemId, traits::Header as HeaderT};
+use sp_runtime::{generic::OpaqueDigestItemId, traits::Header as HeaderT, RuntimeAppPublic};
 use sp_std::prelude::*;
 
 /// A GRANDPA justification for block finality, it includes a commit message and
@@ -243,20 +243,9 @@ where
 	H: Encode,
 	N: Encode,
 {
-	log::trace!(target: "pallet_grandpa", "Justification Message {:?}", (round, set_id));
 	let buf = (message, round, set_id).encode();
 
-	let signature_bytes: &[u8] = signature.as_ref();
-	let sp_finality_signature: ed25519::Signature = signature_bytes
-		.try_into()
-		.map_err(|err| anyhow!("Failed to convert ed25519 signature: {err:#?}"))?;
-
-	let id_bytes: &[u8] = id.as_ref();
-	let pub_key: ed25519::Public = id_bytes
-		.try_into()
-		.map_err(|err| anyhow!("Failed to convert public key: {err:#?}"))?;
-
-	if !sp_io::crypto::ed25519_verify(&sp_finality_signature, &buf, &pub_key) {
+	if !id.verify(&buf, signature) {
 		Err(anyhow!("invalid signature for precommit in grandpa justification"))?
 	}
 

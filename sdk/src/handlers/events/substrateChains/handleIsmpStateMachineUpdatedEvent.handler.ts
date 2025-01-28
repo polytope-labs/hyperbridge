@@ -7,8 +7,6 @@ import {
  StateMachineError,
  SubstrateEventValidator,
 } from '../../../utils/substrate.helpers';
-import { RequestService } from '../../../services/request.service';
-import { Status } from '../../../types';
 
 export async function handleIsmpStateMachineUpdatedEvent(
  event: SubstrateEvent

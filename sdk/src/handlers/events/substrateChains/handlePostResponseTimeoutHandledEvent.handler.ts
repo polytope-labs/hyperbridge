@@ -6,6 +6,7 @@ import {
  extractStateMachineIdFromSubstrateEventData,
  getChainIdFromEvent,
 } from '../../../utils/substrate.helpers';
+import { HYPERBRIDGE } from '../../../constants';
 
 export async function handleSubstratePostResponseTimeoutHandledEvent(
  event: SubstrateEvent
@@ -32,6 +33,9 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
   },
  } = event;
 
+ const timeoutStatus =
+  chainId === HYPERBRIDGE ? Status.HYPERBRIDGE_TIMED_OUT : Status.TIMED_OUT;
+
  const eventData = data.toJSON();
  const timeoutData = Array.isArray(eventData)
   ? (eventData[0] as { commitment: any; source: any; dest: any })
@@ -46,7 +50,7 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
   blockTimestamp: timestamp
    ? BigInt(Date.parse(timestamp.toString()))
    : BigInt(0),
-  status: Status.TIMED_OUT,
+  status: timeoutStatus,
   transactionHash: extrinsic.extrinsic.hash.toString(),
  });
 }

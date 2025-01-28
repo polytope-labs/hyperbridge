@@ -5,6 +5,7 @@ import {
  extractStateMachineIdFromSubstrateEventData,
  getChainIdFromEvent,
 } from '../../../utils/substrate.helpers';
+import { HYPERBRIDGE } from '../../../constants';
 
 export async function handleSubstratePostRequestHandledEvent(
  event: SubstrateEvent
@@ -31,6 +32,9 @@ export async function handleSubstratePostRequestHandledEvent(
   },
  } = event;
 
+  const status =
+   chainId === HYPERBRIDGE ? Status.MESSAGE_RELAYED : Status.DEST;
+
  await RequestService.updateStatus({
   commitment: commitment.toString(),
   chain: chainId,
@@ -39,7 +43,7 @@ export async function handleSubstratePostRequestHandledEvent(
   blockTimestamp: timestamp
    ? BigInt(Date.parse(timestamp.toString()))
    : BigInt(0),
-  status: Status.MESSAGE_RELAYED,
+  status,
   transactionHash: extrinsic?.extrinsic.hash.toString() || '',
  });
 }

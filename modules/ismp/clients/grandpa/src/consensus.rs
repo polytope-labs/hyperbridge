@@ -99,7 +99,9 @@ where
 						consensus_state,
 						headers_with_finality_proof,
 					)
-					.map_err(|_| Error::Custom("Error verifying parachain headers".into()))?;
+					.map_err(|err| {
+						Error::Custom(format!("Error verifying parachain headers: {err:#?}"))
+					})?;
 
 				let parachain_headers = parachain_headers
 					.into_iter()
@@ -171,7 +173,9 @@ where
 					consensus_state,
 					standalone_chain_message.finality_proof,
 				)
-				.map_err(|_| Error::Custom("Error verifying grandpa header".parse().unwrap()))?;
+				.map_err(|err| {
+					Error::Custom(format!("Error verifying grandpa header: {err:#?}"))
+				})?;
 				let digest_result = fetch_overlay_root_and_timestamp(
 					header.digest(),
 					consensus_state.slot_duration,

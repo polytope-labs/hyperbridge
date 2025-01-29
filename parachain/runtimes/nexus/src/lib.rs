@@ -218,7 +218,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("nexus"),
 	impl_name: create_runtime_str!("nexus"),
 	authoring_version: 1,
-	spec_version: 2_000,
+	spec_version: 2_200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,

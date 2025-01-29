@@ -44,7 +44,7 @@ async fn follow_grandpa_justifications() {
 	let relay_ws_url = std::env::var("RELAY_HOST")
 		.unwrap_or_else(|_| "wss://hyperbridge-paseo-relay.blockops.network:443".to_string());
 
-	let para_ids = vec![2000];
+	let para_ids = vec![1000];
 
 	println!("Connecting to relay chain {relay_ws_url}");
 	let prover = GrandpaProver::<subxt_utils::BlakeSubstrateChain>::new(ProverOptions {
@@ -85,7 +85,7 @@ async fn follow_grandpa_justifications() {
 
 	// slot duration in milliseconds for parachains
 	let slot_duration = 6000;
-	let hash = prover.client.rpc().block_hash(Some(10u64.into())).await.unwrap().unwrap();
+	let hash = prover.client.rpc().finalized_head().await.unwrap();
 	let mut consensus_state = prover.initialize_consensus_state(slot_duration, hash).await.unwrap();
 	println!("Grandpa proofs are now available");
 	while let Some(Ok(_)) = subscription.next().await {

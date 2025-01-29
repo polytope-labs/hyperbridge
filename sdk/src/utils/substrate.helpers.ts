@@ -14,7 +14,7 @@ export const extractStateMachineIdFromSubstrateEventData = (
   if (Array.isArray(parsed)) {
    // Find the object containing stateId or ethereum/bsc keys
    const stateObject = parsed.find(
-    (item) => item?.stateId || item?.ethereum || item?.bsc
+    (item) => item?.stateId
    );
 
    if (!stateObject) return undefined;

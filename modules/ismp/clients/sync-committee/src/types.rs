@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, vec::Vec};
 use arbitrum_verifier::{ArbitrumBoldProof, ArbitrumPayloadProof};
 use codec::{Decode, Encode};
 use ethabi::ethereum_types::H160;
@@ -46,6 +46,8 @@ pub enum L2Consensus {
 	OpL2Oracle(H160),
 	/// Op Stack Dispute game factory address and the respected game type
 	OpFaultProofs((H160, u32)),
+	/// Op Stack Dispute game factory address and the respected game types
+	OpFaultProofGames((H160, Vec<u32>)),
 	/// Arbitrum Bold chains Rollup Core Address
 	ArbitrumBold(H160),
 }

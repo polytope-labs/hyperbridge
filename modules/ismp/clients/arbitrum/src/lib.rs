@@ -198,7 +198,8 @@ pub struct ArbitrumBoldProof {
 	pub after_state: AssertionState,
 	/// Previous assertion hash
 	pub previous_assertion_hash: H256,
-	/// Sequencer batch acc as recorded in the AssertionCreated event that was emitted for this node
+	/// Sequencer batch acc as recorded in the AssertionCreated event that was emitted for this
+	/// node
 	pub sequencer_batch_acc: H256,
 	/// Proof for the assertion hash field in the _assertions map in the
 	/// RollupCore
@@ -304,9 +305,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 
 	let header: Header = payload.arbitrum_header.as_ref().into();
 	if &payload.after_state.global_state.send_root[..] != &payload.arbitrum_header.extra_data {
-		Err(anyhow!(
-			"Arbitrum header extra data does not match send root in global state",
-		))?
+		Err(anyhow!("Arbitrum header extra data does not match send root in global state",))?
 	}
 
 	let block_number = payload.arbitrum_header.number.low_u64();
@@ -315,9 +314,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 
 	let header_hash = header.hash::<H>();
 	if payload.after_state.global_state.block_hash != header_hash {
-		Err(anyhow!(
-			"Arbitrum header hash does not match block hash in global state",
-		))?
+		Err(anyhow!("Arbitrum header hash does not match block hash in global state",))?
 	}
 
 	let assertion_hash = compute_assertion_hash(
@@ -332,16 +329,14 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 	// A Some() value from the proof asserts that this assertion is valid and exists in storage
 	// https://github.com/OffchainLabs/nitro-contracts/blob/94999b3e2d3b4b7f8e771cc458b9eb229620dd8f/src/rollup/RollupCore.sol#L542
 
-	get_value_from_proof::<H>(
-		assertion_hash_key.0.to_vec(),
-		storage_root,
-		payload.storage_proof,
-	)?.ok_or_else(|| anyhow!("Assertion provided is invalid"))?;
+	get_value_from_proof::<H>(assertion_hash_key.0.to_vec(), storage_root, payload.storage_proof)?
+		.ok_or_else(|| anyhow!("Assertion provided is invalid"))?;
 
 	Ok(IntermediateState {
 		height: StateMachineHeight {
 			id: StateMachineId {
-				// note: This default state machine id should not be used to store the state commitment
+				// note: This default state machine id should not be used to store the state
+				// commitment
 				state_id: StateMachine::Evm(Default::default()),
 				consensus_state_id,
 			},

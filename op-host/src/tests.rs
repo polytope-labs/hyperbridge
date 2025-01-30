@@ -96,7 +96,7 @@ async fn test_dispute_game_proof_verification() {
 	assert!(events.len() >= 1);
 
 	let _payload_proof = op_client
-		.fetch_dispute_game_payload(5524180, 0, events)
+		.fetch_dispute_game_payload(5524180, vec![0], events)
 		.await
 		.expect("Error fetching payload proof")
 		.unwrap();

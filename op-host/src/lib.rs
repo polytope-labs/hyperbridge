@@ -252,7 +252,7 @@ impl OpHost {
 	pub async fn fetch_dispute_game_payload(
 		&self,
 		at: u64,
-		respected_game_type: u32,
+		respected_game_types: Vec<u32>,
 		events: Vec<DisputeGameCreatedFilter>,
 	) -> Result<Option<OptimismDisputeGameProof>, anyhow::Error> {
 		let mut payloads = vec![];
@@ -275,7 +275,7 @@ impl OpHost {
 				continue;
 			}
 
-			if event.game_type != respected_game_type {
+			if !respected_game_types.contains(&event.game_type) {
 				log::trace!(target: "tesseract", "Found a dispute game event with wrong game type {event:?}");
 				continue;
 			}

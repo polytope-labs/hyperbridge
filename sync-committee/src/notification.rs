@@ -109,7 +109,28 @@ pub async fn get_beacon_update<
 					let payload = op_client
 						.fetch_dispute_game_payload(
 							consensus_update.execution_payload.block_number,
-							respected_game_type,
+							vec![respected_game_type],
+							latest_events,
+						)
+						.await?;
+					if let Some(payload) = payload {
+						dispute_game_payload.insert(state_machine, payload);
+					}
+				},
+				(
+					L2Host::OpStack(op_client),
+					L2Consensus::OpFaultProofGames((_, respected_game_types)),
+				) => {
+					let latest_events = op_client
+						.latest_dispute_games(
+							latest_height,
+							consensus_update.execution_payload.block_number,
+						)
+						.await?;
+					let payload = op_client
+						.fetch_dispute_game_payload(
+							consensus_update.execution_payload.block_number,
+							respected_game_types,
 							latest_events,
 						)
 						.await?;

@@ -18,15 +18,11 @@
 use crate::{config::HyperbridgeConfig, fees, fees::Subcommand, logging};
 use anyhow::{anyhow, Context};
 use clap::Parser;
-use codec::Encode;
 use ethers::prelude::H160;
 use futures::FutureExt;
 use ismp::host::StateMachine;
-use rust_socketio::asynchronous::ClientBuilder;
 use sc_service::TaskManager;
-use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
-use telemetry_server::Message;
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use transaction_fees::TransactionPayment;

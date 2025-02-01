@@ -15149,9 +15149,9 @@ dependencies = [
 
 [[package]]
 name = "polkadot-service"
-version = "17.0.1"
+version = "17.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fe2358dece71b78a73e193300f4a8e6b21c10c792a44586d5e4dd965553b5df"
+checksum = "6830e9a654ad121888688c0cfb86d910e99b8190491e5bbd321ce4651a615df7"
 dependencies = [
  "async-trait",
  "frame-benchmarking",
@@ -21596,9 +21596,9 @@ dependencies = [
 
 [[package]]
 name = "sp-consensus-beefy"
-version = "22.1.0"
+version = "22.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1d97e8cd75d85d15cda6f1923cf3834e848f80d5a6de1cf4edbbc5f0ad607eb"
+checksum = "695e79d2fb8d9b00f3674721ca155acd089b1da743950434c907e76fee3a9b90"
 dependencies = [
  "lazy_static",
  "parity-scale-codec",
@@ -21612,7 +21612,6 @@ dependencies = [
  "sp-keystore 0.40.0",
  "sp-mmr-primitives",
  "sp-runtime 39.0.5",
- "sp-weights 31.0.0",
  "strum 0.26.3",
 ]
 

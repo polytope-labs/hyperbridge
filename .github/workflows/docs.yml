@@ -2,64 +2,64 @@
 name: Deploy Documentation
 
 on:
-  # Runs on pushes targeting the default branch
-  push:
-    branches: ['main']
+    # Runs on pushes targeting the default branch
+    push:
+        branches: ["main"]
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
+    # Allows you to run this workflow manually from the Actions tab
+    workflow_dispatch:
 
 # Sets the GITHUB_TOKEN permissions to allow deployment to GitHub Pages
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+    contents: read
+    pages: write
+    id-token: write
 
 # Allow one concurrent deployment
 concurrency:
-  group: 'pages'
-  cancel-in-progress: true
+    group: "pages"
+    cancel-in-progress: true
 
 env:
-  GA_ID: ${{ secrets.GA_ID }}
+    GA_ID: ${{ secrets.GA_ID }}
 
 jobs:
-  # Single deploy job since we're just deploying
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./docs
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    # Single deploy job since we're just deploying
+    deploy:
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: ./docs
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v3
+            - name: Set up Node
+              uses: actions/setup-node@v3
 
-        with:
-          node-version: 18
-          cache: "npm"
-          cache-dependency-path: "docs"
+              with:
+                  node-version: 18
+                  cache: "npm"
+                  cache-dependency-path: "docs"
 
-      - name: Install dependencies
-        run: npm install
+            - name: Install dependencies
+              run: npm install
 
-      - name: Build
-        run: npm run build
+            - name: Build
+              run: npm run build
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v3
+            - name: Setup Pages
+              uses: actions/configure-pages@v5
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          # Upload dist repository
-          path: './docs/dist'
+            - name: Upload artifact
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  # Upload dist repository
+                  path: "./docs/dist"
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v2
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@v4

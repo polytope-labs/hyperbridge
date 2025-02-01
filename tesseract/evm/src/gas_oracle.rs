@@ -80,8 +80,15 @@ pub fn is_orbit_chain(id: u32) -> bool {
 	[ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID].contains(&id)
 }
 
+pub fn read_op_registry() -> Result<Vec<superchain_registry::Chain>, anyhow::Error> {
+	let chain_list = include_str!("../op-registry/chainList.json");
+	let chains = serde_json::from_str::<Vec<superchain_registry::Chain>>(chain_list)?;
+	Ok(chains)
+}
+
 fn is_op_stack(id: u32) -> bool {
-	let chain_ids = superchain_registry::CHAINS
+	let chain_ids = read_op_registry()
+		.expect("Failed to read chain list")
 		.iter()
 		.map(|chain| chain.chain_id)
 		.collect::<Vec<_>>();
@@ -394,8 +401,9 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 mod test {
 	use crate::gas_oracle::{
 		convert_27_decimals_to_18_decimals, get_cost_of_one_wei, get_current_gas_cost_in_usd,
-		get_l2_data_cost, parse_to_27_decimals, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_TESTNET_CHAIN_ID,
-		GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
+		get_l2_data_cost, parse_to_27_decimals, read_op_registry, ARBITRUM_SEPOLIA_CHAIN_ID,
+		BSC_TESTNET_CHAIN_ID, GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID,
+		SEPOLIA_CHAIN_ID,
 	};
 	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
 	use ismp::host::StateMachine;

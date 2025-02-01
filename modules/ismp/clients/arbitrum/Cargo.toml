@@ -18,16 +18,21 @@ evm-state-machine =  { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-rlp-derive = { workspace = true }
 alloy-primitives = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-sol-types = { workspace = true }
 hex = { workspace = true, default-features = false }
 hex-literal = { workspace = true }
 codec = { workspace = true, default-features = false }
 ethabi = { workspace = true }
+sp-io = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
 ethers = { workspace = true, features = ["default"] }
 tokio = { workspace = true, features = ["full"] }
 ismp-testsuite = { path = "../../testsuite" }
 sp-core = { workspace = true }
+dotenv = "0.15.0"
 
 [features]
 default = ["std"]
@@ -40,5 +45,8 @@ std = [
     "ethabi/std",
     "hex/std",
     "geth-primitives/std",
-    "evm-state-machine/std"
+    "evm-state-machine/std",
+    "sp-io/std",
+    "anyhow/std",
+    "alloy-sol-types/std"
 ]

@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use alloc::{collections::BTreeMap, format, string::ToString};
-use arbitrum_verifier::verify_arbitrum_payload;
+use arbitrum_verifier::{verify_arbitrum_bold, verify_arbitrum_payload};
 use codec::{Decode, Encode};
 use evm_state_machine::construct_intermediate_state;
 
@@ -89,6 +89,7 @@ impl<
 			mut dispute_game_payload,
 			consensus_update,
 			mut arbitrum_payload,
+			mut arbitrum_bold,
 		} = BeaconClientUpdate::decode(&mut &consensus_proof[..])
 			.map_err(|_| Error::Custom("Cannot decode beacon client update".to_string()))?;
 
@@ -147,6 +148,27 @@ impl<
 						state_machine_map.insert(state_machine, state_commitment_vec);
 					}
 				},
+
+				L2Consensus::ArbitrumBold(rollup_core_address) => {
+					if let Some(arbitrum_payload) = arbitrum_bold.remove(&state_machine) {
+						let state = verify_arbitrum_bold::<H>(
+							arbitrum_payload,
+							state_root,
+							rollup_core_address,
+							consensus_state_id.clone(),
+						)
+						.map_err(|e| Error::Custom(e.to_string()))?;
+
+						let arbitrum_state_commitment_height = StateCommitmentHeight {
+							commitment: state.commitment,
+							height: state.height.height,
+						};
+
+						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+						state_commitment_vec.push(arbitrum_state_commitment_height);
+						state_machine_map.insert(state_machine, state_commitment_vec);
+					}
+				},
 				L2Consensus::OpL2Oracle(l2_oracle) => {
 					if let Some(payload) = l2_oracle_payload.remove(&state_machine) {
 						let state = verify_optimism_payload::<H>(
@@ -172,7 +194,27 @@ impl<
 							payload,
 							state_root,
 							dispute_game_factory,
-							respected_game_type,
+							vec![respected_game_type],
+							consensus_state_id.clone(),
+						)?;
+
+						let state_commitment_height = StateCommitmentHeight {
+							commitment: state.commitment,
+							height: state.height.height,
+						};
+
+						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+						state_commitment_vec.push(state_commitment_height);
+						state_machine_map.insert(state_machine, state_commitment_vec);
+					},
+
+				L2Consensus::OpFaultProofGames((dispute_game_factory, respected_game_types)) =>
+					if let Some(payload) = dispute_game_payload.remove(&state_machine) {
+						let state = verify_optimism_dispute_game_proof::<H>(
+							payload,
+							state_root,
+							dispute_game_factory,
+							respected_game_types,
 							consensus_state_id.clone(),
 						)?;
 

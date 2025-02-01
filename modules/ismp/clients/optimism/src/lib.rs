@@ -214,11 +214,11 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 	payload: OptimismDisputeGameProof,
 	root: H256,
 	dispute_factory_address: H160,
-	respected_game_type: u32,
+	respected_game_types: Vec<u32>,
 	consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
-	// Is the game type the respected game type?
-	if payload.game_type != respected_game_type {
+	// Is the game type the respected game types?
+	if !respected_game_types.contains(&payload.game_type) {
 		Err(Error::MembershipProofVerificationFailed(
 			"Game type must be the respected game type".to_string(),
 		))?;

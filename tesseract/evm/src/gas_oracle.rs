@@ -251,26 +251,16 @@ pub async fn get_current_gas_cost_in_usd(
 					let uri = format!(
 						"https://api.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
 					);
-
-					if inner_evm == BSC_TESTNET_CHAIN_ID {
-						gas_price = client.get_gas_price().await?;
-						let response_json =
-							make_request::<GasResponse>(&uri, Default::default()).await?;
-						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-						let unit_wei = get_cost_of_one_wei(eth_usd);
-						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-					} else {
-						let node_gas_price: U256 = client.get_gas_price().await?;
-						// Mainnet
-						let response_json =
-							make_request::<GasResponse>(&uri, Default::default()).await?;
-						let oracle_gas_price =
-							parse_units(response_json.result.safe_gas_price, "gwei")?.into();
-						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
-						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-						unit_wei = get_cost_of_one_wei(eth_usd);
-						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-					};
+					let node_gas_price: U256 = client.get_gas_price().await?;
+					let response_json = make_request::<GasResponse>(&uri, Default::default())
+						.await
+						.unwrap_or_default();
+					let oracle_gas_price =
+						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
+					gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+					let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+					unit_wei = get_cost_of_one_wei(eth_usd);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				// op stack chains
 				chain_id if is_op_stack(chain_id) => {
@@ -401,9 +391,8 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 mod test {
 	use crate::gas_oracle::{
 		convert_27_decimals_to_18_decimals, get_cost_of_one_wei, get_current_gas_cost_in_usd,
-		get_l2_data_cost, parse_to_27_decimals, read_op_registry, ARBITRUM_SEPOLIA_CHAIN_ID,
-		BSC_TESTNET_CHAIN_ID, GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID,
-		SEPOLIA_CHAIN_ID,
+		get_l2_data_cost, parse_to_27_decimals, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_TESTNET_CHAIN_ID,
+		GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
 	};
 	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
 	use ismp::host::StateMachine;

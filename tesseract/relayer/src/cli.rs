@@ -18,15 +18,11 @@
 use crate::{config::HyperbridgeConfig, fees, fees::Subcommand, logging};
 use anyhow::{anyhow, Context};
 use clap::Parser;
-use codec::Encode;
 use ethers::prelude::H160;
 use futures::FutureExt;
 use ismp::host::StateMachine;
-use rust_socketio::asynchronous::ClientBuilder;
 use sc_service::TaskManager;
-use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
-use telemetry_server::Message;
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use transaction_fees::TransactionPayment;
@@ -141,44 +137,7 @@ impl Cli {
 
 		log::info!("💬 Initialized messaging tasks");
 
-		let socket = {
-			if let Some(key) = option_env!("TELEMETRY_SECRET_KEY") {
-				let bytes = hex::decode(key)?;
-				let pair = ecdsa::Pair::from_seed_slice(&bytes)
-					.expect("TELEMETRY_SECRET_KEY must be 64 chars!");
-				let mut message = Message { signature: vec![], metadata };
-				message.signature = pair.sign(message.metadata.encode().as_slice()).to_raw_vec();
-				// todo: use compile-time env for telemetry url
-				let client = ClientBuilder::new("https://hyperbridge-telemetry.blockops.network/")
-					.namespace("/")
-					.auth(json::to_value(message.clone())?)
-					.reconnect(true)
-					.reconnect_on_disconnect(true)
-					.max_reconnect_attempts(u8::MAX)
-					.on("open", |_, _| async move { log::info!("Connected to telemetry") }.boxed())
-					.on("error", |_err, _| {
-						async move {
-							log::error!(
-								"Disconnected from telemetry with: {:#?}, reconnecting.",
-								_err
-							)
-						}
-						.boxed()
-					})
-					.connect()
-					.await?;
-
-				Some(client)
-			} else {
-				None
-			}
-		};
-
 		task_manager.future().await?;
-
-		if let Some(socket) = socket {
-			socket.disconnect().await?;
-		}
 
 		Ok(())
 	}

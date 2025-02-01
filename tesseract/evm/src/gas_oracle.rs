@@ -62,8 +62,6 @@ const OP_GAS_ORACLE: [u8; 20] = hex!("420000000000000000000000000000000000000F")
 // Supported EVM chains
 // Mainnets
 pub const ARBITRUM_CHAIN_ID: u32 = 42161;
-pub const OPTIMISM_CHAIN_ID: u32 = 10;
-pub const BASE_CHAIN_ID: u32 = 8453;
 pub const ETHEREUM_CHAIN_ID: u32 = 1;
 pub const BSC_CHAIN_ID: u32 = 56;
 pub const POLYGON_CHAIN_ID: u32 = 137;
@@ -82,9 +80,19 @@ pub fn is_orbit_chain(id: u32) -> bool {
 	[ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID].contains(&id)
 }
 
-pub fn is_op_stack(id: u32) -> bool {
-	[OPTIMISM_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, BASE_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID]
-		.contains(&id)
+pub fn read_op_registry() -> Result<Vec<superchain_registry::Chain>, anyhow::Error> {
+	let chain_list = include_str!("../op-registry/chainList.json");
+	let chains = serde_json::from_str::<Vec<superchain_registry::Chain>>(chain_list)?;
+	Ok(chains)
+}
+
+fn is_op_stack(id: u32) -> bool {
+	let chain_ids = read_op_registry()
+		.expect("Failed to read chain list")
+		.iter()
+		.map(|chain| chain.chain_id)
+		.collect::<Vec<_>>();
+	chain_ids.contains(&(id as u64))
 }
 
 #[derive(Debug)]
@@ -239,31 +247,20 @@ pub async fn get_current_gas_cost_in_usd(
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 					};
 				},
-
 				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => {
 					let uri = format!(
 						"https://api.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
 					);
-
-					if inner_evm == BSC_TESTNET_CHAIN_ID {
-						gas_price = client.get_gas_price().await?;
-						let response_json =
-							make_request::<GasResponse>(&uri, Default::default()).await?;
-						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-						let unit_wei = get_cost_of_one_wei(eth_usd);
-						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-					} else {
-						let node_gas_price: U256 = client.get_gas_price().await?;
-						// Mainnet
-						let response_json =
-							make_request::<GasResponse>(&uri, Default::default()).await?;
-						let oracle_gas_price =
-							parse_units(response_json.result.safe_gas_price, "gwei")?.into();
-						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
-						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-						unit_wei = get_cost_of_one_wei(eth_usd);
-						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-					};
+					let node_gas_price: U256 = client.get_gas_price().await?;
+					let response_json = make_request::<GasResponse>(&uri, Default::default())
+						.await
+						.unwrap_or_default();
+					let oracle_gas_price =
+						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
+					gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+					let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+					unit_wei = get_cost_of_one_wei(eth_usd);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				// op stack chains
 				chain_id if is_op_stack(chain_id) => {

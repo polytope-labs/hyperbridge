@@ -39,6 +39,7 @@ pub async fn get_beacon_update<
 	let mut l2_oracle_payload = BTreeMap::new();
 	let mut dispute_game_payload = BTreeMap::new();
 	let mut arbitrum_payload = BTreeMap::new();
+	let mut arbitrum_bold = BTreeMap::new();
 
 	for (state_machine, consensus_mechanic) in l2_consensus {
 		if let Some(client) = client.l2_clients.get(&state_machine) {
@@ -58,6 +59,24 @@ pub async fn get_beacon_update<
 							)
 							.await?;
 						arbitrum_payload.insert(state_machine, payload);
+					}
+				},
+
+				(L2Host::ArbitrumOrbit(orbit_client), L2Consensus::ArbitrumBold(_)) => {
+					let latest_event = orbit_client
+						.latest_assertion_event(
+							latest_height,
+							consensus_update.execution_payload.block_number,
+						)
+						.await?;
+					if let Some(event) = latest_event {
+						let payload = orbit_client
+							.fetch_arbitrum_bold_payload(
+								consensus_update.execution_payload.block_number,
+								event,
+							)
+							.await?;
+						arbitrum_bold.insert(state_machine, payload);
 					}
 				},
 				(L2Host::OpStack(op_client), L2Consensus::OpL2Oracle(_)) => {
@@ -90,7 +109,28 @@ pub async fn get_beacon_update<
 					let payload = op_client
 						.fetch_dispute_game_payload(
 							consensus_update.execution_payload.block_number,
-							respected_game_type,
+							vec![respected_game_type],
+							latest_events,
+						)
+						.await?;
+					if let Some(payload) = payload {
+						dispute_game_payload.insert(state_machine, payload);
+					}
+				},
+				(
+					L2Host::OpStack(op_client),
+					L2Consensus::OpFaultProofGames((_, respected_game_types)),
+				) => {
+					let latest_events = op_client
+						.latest_dispute_games(
+							latest_height,
+							consensus_update.execution_payload.block_number,
+						)
+						.await?;
+					let payload = op_client
+						.fetch_dispute_game_payload(
+							consensus_update.execution_payload.block_number,
+							respected_game_types,
 							latest_events,
 						)
 						.await?;
@@ -111,6 +151,7 @@ pub async fn get_beacon_update<
 		l2_oracle_payload,
 		arbitrum_payload,
 		dispute_game_payload,
+		arbitrum_bold,
 	};
 	Ok(message)
 }

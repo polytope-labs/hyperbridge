@@ -210,9 +210,11 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeHost<C, ETH1_DA
 			l2_consensus.insert(state_machine, L2Consensus::OpL2Oracle(address));
 		}
 
-		for (state_machine, (address, respected_game_type)) in params.dispute_factory_address {
-			l2_consensus
-				.insert(state_machine, L2Consensus::OpFaultProofs((address, respected_game_type)));
+		for (state_machine, (address, respected_game_types)) in params.dispute_factory_address {
+			l2_consensus.insert(
+				state_machine,
+				L2Consensus::OpFaultProofGames((address, respected_game_types)),
+			);
 		}
 
 		for (state_machine, address) in params.rollup_core_address {
@@ -266,5 +268,5 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> Clone
 pub struct GetConsensusStateParams {
 	pub l2_oracle_address: BTreeMap<StateMachine, H160>,
 	pub rollup_core_address: BTreeMap<StateMachine, H160>,
-	pub dispute_factory_address: BTreeMap<StateMachine, (H160, u32)>,
+	pub dispute_factory_address: BTreeMap<StateMachine, (H160, Vec<u32>)>,
 }

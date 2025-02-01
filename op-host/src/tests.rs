@@ -21,7 +21,6 @@ async fn test_payload_proof_verification() {
 		l2_oracle: Some(H160::from(L2_ORACLE)),
 		message_parser: H160::from(MESSAGE_PARSER),
 		dispute_game_factory: Some(H160::from(DISPUTE_GAME_FACTORY)),
-		respected_game_type: Some(0),
 		proposer_config: None,
 	};
 	let config = OpConfig {
@@ -75,7 +74,6 @@ async fn test_dispute_game_proof_verification() {
 		l2_oracle: Some(H160::from(L2_ORACLE)),
 		message_parser: H160::from(MESSAGE_PARSER),
 		dispute_game_factory: Some(H160::from(DISPUTE_GAME_FACTORY)),
-		respected_game_type: Some(0),
 		proposer_config: None,
 	};
 	let config = OpConfig {
@@ -96,7 +94,7 @@ async fn test_dispute_game_proof_verification() {
 	assert!(events.len() >= 1);
 
 	let _payload_proof = op_client
-		.fetch_dispute_game_payload(5524180, 0, events)
+		.fetch_dispute_game_payload(5524180, vec![0], events)
 		.await
 		.expect("Error fetching payload proof")
 		.unwrap();

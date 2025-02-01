@@ -1,6 +1,12 @@
-use abi::i_rollup::*;
+use abi::{
+	i_rollup::*,
+	i_rollup_bold::{AssertionCreatedFilter, IRollupBold},
+};
 use anyhow::anyhow;
-use arbitrum_verifier::{ArbitrumPayloadProof, GlobalState as RustGlobalState, NODES_SLOT};
+use arbitrum_verifier::{
+	ArbitrumBoldProof, ArbitrumPayloadProof, AssertionState, GlobalState as RustGlobalState,
+	ASSERTIONS_SLOT, NODES_SLOT,
+};
 use ethabi::ethereum_types::U256;
 use ethers::{
 	prelude::Provider,
@@ -130,6 +136,29 @@ impl ArbHost {
 		Ok(events.last().cloned())
 	}
 
+	pub async fn latest_assertion_event(
+		&self,
+		from: u64,
+		to: u64,
+	) -> Result<Option<AssertionCreatedFilter>, anyhow::Error> {
+		if from > to {
+			return Ok(None);
+		}
+		let client = Arc::new(self.beacon_execution_client.clone());
+		let contract = IRollupBold::new(self.rollup_core, client);
+		let events = contract
+			.event::<AssertionCreatedFilter>()
+			.address(self.rollup_core.into())
+			.from_block(from)
+			.to_block(to)
+			.query()
+			.await?
+			.into_iter()
+			.collect::<Vec<_>>();
+
+		Ok(events.last().cloned())
+	}
+
 	pub async fn fetch_arbitrum_payload(
 		&self,
 		at: u64,
@@ -163,6 +192,59 @@ impl ArbHost {
 				.get(0)
 				.cloned()
 				.ok_or_else(|| anyhow!("Storage proof not found for arbitrum state_hash"))?
+				.proof
+				.into_iter()
+				.map(|node| node.0.into())
+				.collect(),
+			contract_proof: proof.account_proof.into_iter().map(|node| node.0.into()).collect(),
+		};
+
+		Ok(payload)
+	}
+
+	pub async fn fetch_arbitrum_bold_payload(
+		&self,
+		at: u64,
+		event: AssertionCreatedFilter,
+	) -> Result<ArbitrumBoldProof, anyhow::Error> {
+		let assertion_hash_key =
+			derive_map_key(event.assertion_hash.into(), ASSERTIONS_SLOT as u64);
+		let proof = self
+			.beacon_execution_client
+			.get_proof(self.rollup_core, vec![assertion_hash_key], Some(at.into()))
+			.await?;
+		let arb_block_hash = event.assertion.after_state.global_state.bytes_32_vals[0].into();
+		let arbitrum_header = self.fetch_header(arb_block_hash).await?;
+		let global_state = RustGlobalState {
+			block_hash: arb_block_hash,
+			send_root: event.assertion.after_state.global_state.bytes_32_vals[1].into(),
+			inbox_position: event.assertion.after_state.global_state.u_64_vals[0],
+			position_in_message: event.assertion.after_state.global_state.u_64_vals[1],
+		};
+
+		let machine_status = event
+			.assertion
+			.after_state
+			.machine_status
+			.try_into()
+			.map_err(|_| anyhow!("Failed conversion"))?;
+
+		let after_state = AssertionState {
+			global_state,
+			machine_status,
+			end_history_root: event.assertion.after_state.end_history_root.into(),
+		};
+
+		let payload = ArbitrumBoldProof {
+			arbitrum_header,
+			after_state,
+			previous_assertion_hash: event.parent_assertion_hash.into(),
+			sequencer_batch_acc: event.after_inbox_batch_acc.into(),
+			storage_proof: proof
+				.storage_proof
+				.get(0)
+				.cloned()
+				.ok_or_else(|| anyhow!("Storage proof not found for arbitrum assertion hash"))?
 				.proof
 				.into_iter()
 				.map(|node| node.0.into())

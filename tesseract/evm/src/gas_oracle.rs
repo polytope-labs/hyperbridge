@@ -62,8 +62,6 @@ const OP_GAS_ORACLE: [u8; 20] = hex!("420000000000000000000000000000000000000F")
 // Supported EVM chains
 // Mainnets
 pub const ARBITRUM_CHAIN_ID: u32 = 42161;
-pub const OPTIMISM_CHAIN_ID: u32 = 10;
-pub const BASE_CHAIN_ID: u32 = 8453;
 pub const ETHEREUM_CHAIN_ID: u32 = 1;
 pub const BSC_CHAIN_ID: u32 = 56;
 pub const POLYGON_CHAIN_ID: u32 = 137;
@@ -82,9 +80,12 @@ pub fn is_orbit_chain(id: u32) -> bool {
 	[ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID].contains(&id)
 }
 
-pub fn is_op_stack(id: u32) -> bool {
-	[OPTIMISM_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, BASE_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID]
-		.contains(&id)
+fn is_op_stack(id: u32) -> bool {
+	let chain_ids = superchain_registry::CHAINS
+		.iter()
+		.map(|chain| chain.chain_id)
+		.collect::<Vec<_>>();
+	chain_ids.contains(&(id as u64))
 }
 
 #[derive(Debug)]
@@ -239,7 +240,6 @@ pub async fn get_current_gas_cost_in_usd(
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 					};
 				},
-
 				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => {
 					let uri = format!(
 						"https://api.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"

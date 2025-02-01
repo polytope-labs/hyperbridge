@@ -89,8 +89,8 @@ impl Cli {
 			}
 			// If the delivery endpoint is not empty then we only spawn tasks for chains
 			// explicitly mentioned in the config
-			if !config.relayer.delivery_endpoints.is_empty() &&
-				!config.relayer.delivery_endpoints.contains(&state_machine.to_string())
+			if !config.relayer.delivery_endpoints.is_empty()
+				&& !config.relayer.delivery_endpoints.contains(&state_machine.to_string())
 			{
 				continue;
 			}
@@ -141,44 +141,7 @@ impl Cli {
 
 		log::info!("💬 Initialized messaging tasks");
 
-		let socket = {
-			if let Some(key) = option_env!("TELEMETRY_SECRET_KEY") {
-				let bytes = hex::decode(key)?;
-				let pair = ecdsa::Pair::from_seed_slice(&bytes)
-					.expect("TELEMETRY_SECRET_KEY must be 64 chars!");
-				let mut message = Message { signature: vec![], metadata };
-				message.signature = pair.sign(message.metadata.encode().as_slice()).to_raw_vec();
-				// todo: use compile-time env for telemetry url
-				let client = ClientBuilder::new("https://hyperbridge-telemetry.blockops.network/")
-					.namespace("/")
-					.auth(json::to_value(message.clone())?)
-					.reconnect(true)
-					.reconnect_on_disconnect(true)
-					.max_reconnect_attempts(u8::MAX)
-					.on("open", |_, _| async move { log::info!("Connected to telemetry") }.boxed())
-					.on("error", |_err, _| {
-						async move {
-							log::error!(
-								"Disconnected from telemetry with: {:#?}, reconnecting.",
-								_err
-							)
-						}
-						.boxed()
-					})
-					.connect()
-					.await?;
-
-				Some(client)
-			} else {
-				None
-			}
-		};
-
 		task_manager.future().await?;
-
-		if let Some(socket) = socket {
-			socket.disconnect().await?;
-		}
 
 		Ok(())
 	}

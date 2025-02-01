@@ -226,7 +226,7 @@ async fn construct_state_proposal(
 					.to_be_bytes::<32>()
 					.to_vec();
 
-				let respected_game_type = client.host.respected_game_type.unwrap_or(CANNON);
+				let respected_game_type = CANNON;
 
 				// Check that our commitment block is greater than the latest game
 				let contract = DisputeGameFactory::new(

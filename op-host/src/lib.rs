@@ -52,8 +52,6 @@ pub struct HostConfig {
 	pub l2_oracle: Option<H160>,
 	/// DisputeGameFactory contract address on L1
 	pub dispute_game_factory: Option<H160>,
-	/// Dispute factory's respected game type
-	pub respected_game_type: Option<u32>,
 	/// Withdrawals Message Passer contract address on L2
 	pub message_parser: H160,
 	/// proposer config

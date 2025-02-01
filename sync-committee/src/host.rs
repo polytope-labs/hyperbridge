@@ -28,6 +28,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use sync_committee_primitives::{constants::Config, util::compute_sync_committee_period};
 
 use crate::notification::{consensus_notification, get_beacon_update};
+use op_verifier::{CANNON, _PERMISSIONED};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
@@ -254,12 +255,15 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 					));
 				},
 				L2Host::OpStack(host) => {
-					if let Some((dispute_factory, respected_game_type)) =
-						host.host.dispute_game_factory.and_then(|addr| {
-							host.host.respected_game_type.map(|game_type| (addr, game_type))
-						}) {
-						dispute_factory_address
-							.insert(host.evm.state_machine, (dispute_factory, respected_game_type));
+					if let Some((dispute_factory, respected_game_types)) = host
+						.host
+						.dispute_game_factory
+						.map(|addr| (addr, vec![CANNON, _PERMISSIONED]))
+					{
+						dispute_factory_address.insert(
+							host.evm.state_machine,
+							(dispute_factory, respected_game_types),
+						);
 					}
 
 					if let Some(l2_oracle_address) = host.host.l2_oracle {

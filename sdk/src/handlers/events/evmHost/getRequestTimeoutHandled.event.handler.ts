@@ -10,7 +10,7 @@ import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 export async function handleGetRequestTimeoutHandledEvent(
   event: GetRequestTimeoutHandledLog
 ): Promise<void> {
-  assert(event.args, "No handleGetRequestTimeoutHandledEvent args");
+ if(!event.args) return;
 
   const {
     args,

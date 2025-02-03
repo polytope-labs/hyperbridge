@@ -11,7 +11,7 @@ import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 export async function handlePostRequestEvent(
   event: PostRequestEventLog
 ): Promise<void> {
-  assert(event.args, "No handlePostRequestEvent args");
+ if (!event.args) return;
 
   const { transaction, blockNumber, transactionHash, args, block } = event;
   let { dest, fee, from, nonce, source, timeoutTimestamp, to, body } = args;

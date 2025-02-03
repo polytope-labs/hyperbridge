@@ -1,5 +1,5 @@
 import { SubstrateEvent } from '@subql/types';
-import { CHAIN_IDS_BY_GENESIS } from '../constants';
+import { CHAIN_IDS_BY_GENESIS, HYPERBRIDGE } from '../constants';
 
 /**
  * Get the StateMachineID parsing the stringified object which substrate provides
@@ -80,6 +80,10 @@ export function getHostStateMachine(genesis_hash: string): string {
   throw new Error(`Unknown genesis hash: ${genesis_hash}`);
  }
  return chainId;
+}
+
+export function isHyperbridge(host: string): boolean {
+ return host === HYPERBRIDGE.mainnet || host === HYPERBRIDGE.testnet;
 }
 
 /**

@@ -44,7 +44,6 @@ const generateSubstrateServices = () => {
       - --multi-chain
       - --unsafe
       - --log-level=info
-      - --source-chain=${chain}
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-${chain}:3000/ready']
       interval: 3s

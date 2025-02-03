@@ -12,7 +12,7 @@ import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 export async function handlePostResponseEvent(
   event: PostResponseEventLog
 ): Promise<void> {
-  assert(event.args, "No handlePostResponseEvent args");
+  if (!event.args) return;
 
   const { transaction, blockNumber, transactionHash, args, block } = event;
   let {

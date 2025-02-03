@@ -2,24 +2,71 @@
 
 import { SupportedAssets } from './types/enums';
 
-export const HYPERBRIDGE = 'KUSAMA-4009';
-export const BIFROST = 'KUSAMA-2030';
-export const ETHEREUM = 'EVM-11155111';
-export const ARBITRUM = 'EVM-421614';
-export const OPTIMISM = 'EVM-11155420';
-export const BASE = 'EVM-84532';
-export const BSC = 'EVM-97';
+export const HYPERBRIDGE = {
+ testnet: 'KUSAMA-4009',
+ mainnet: 'POLKADOT-3367',
+};
+
+export const BIFROST = {
+ testnet: 'KUSAMA-2030',
+ mainnet: 'POLKADOT-2030',
+};
+
+export const ETHEREUM = {
+ testnet: 'EVM-11155111',
+ mainnet: 'EVM-1',
+};
+
+export const ARBITRUM = {
+ testnet: 'EVM-421614',
+ mainnet: 'EVM-42161',
+};
+
+export const OPTIMISM = {
+ testnet: 'EVM-11155420',
+ mainnet: 'EVM-10',
+};
+
+export const BASE = {
+ testnet: 'EVM-84532',
+ mainnet: 'EVM-8453',
+};
+
+export const BSC = {
+ testnet: 'EVM-97',
+ mainnet: 'EVM-56',
+};
 
 export const CHAIN_IDS_BY_GENESIS = {
+ // Hyperbridge
  '0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73':
   'KUSAMA-4009',
+ '0xabcd...1234': 'POLKADOT-3367',
+
+ // Bifrost
  '0x9f28c6a68e0fc9646eff64935684f6eeeece527e37bbe1f213d22caa1d9d6bed':
   'KUSAMA-2030',
- '0xd24D7542C74B1f4ee14dC4bD077d5eed47107d51': 'EVM-97',
- '0xfCA0c05bEb9564AC154f55173881B4DD221A18A8': 'EVM-11155111',
- '0xCA5508fB8abCDdeb330eAd57197feFBD62b5cb03': 'EVM-421614',
- '0x37BBd9d3CF34c9143Ae01E33BA1eB59c3AD00a0f': 'EVM-11155420',
- '0xe7C43500e07E0Bb5fC0987db95fE57Ce29B9bb80': 'EVM-84532',
+ '0xdef...5678': 'POLKADOT-2030',
+
+ // BSC
+ '97': 'EVM-97',
+ '56': 'EVM-56',
+
+ // Ethereum
+ '11155111': 'EVM-11155111',
+ '1': 'EVM-1',
+
+ // Arbitrum
+ '421614': 'EVM-421614',
+ '42161': 'EVM-42161',
+
+ // Optimism
+ '11155420': 'EVM-11155420',
+ '10': 'EVM-10',
+
+ // Base
+ '84532': 'EVM-84532',
+ '8453': 'EVM-8453',
 };
 
 export interface ITokenPriceFeedDetails {

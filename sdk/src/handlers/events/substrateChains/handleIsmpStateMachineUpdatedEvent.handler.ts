@@ -1,9 +1,7 @@
-import assert from 'assert';
 import { SubstrateEvent } from '@subql/types';
 import { StateMachineService } from '../../../services/stateMachine.service';
 import {
  extractStateMachineIdFromSubstrateEventData,
- getChainIdFromEvent,
  StateMachineError,
  SubstrateEventValidator,
 } from '../../../utils/substrate.helpers';
@@ -37,7 +35,10 @@ export async function handleIsmpStateMachineUpdatedEvent(
    );
   }
 
-  assert(event.extrinsic);
+  if (!event.extrinsic) {
+   return;
+  }
+
   logger.info(
    `Handling ISMP StateMachineUpdatedEvent. Block Number: ${event.block.block.header.number.toNumber()}`
   );

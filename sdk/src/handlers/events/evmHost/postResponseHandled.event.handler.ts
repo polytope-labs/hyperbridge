@@ -1,4 +1,5 @@
 import assert from 'assert';
+
 import { HyperBridgeService } from '../../../services/hyperbridge.service';
 import { EventType, Status } from '../../../types';
 import { PostResponseHandledLog } from '../../../types/abi-interfaces/EthereumHostAbi';
@@ -12,7 +13,7 @@ import StateMachineHelpers from '../../../utils/stateMachine.helpers';
 export async function handlePostResponseHandledEvent(
  event: PostResponseHandledLog
 ): Promise<void> {
- assert(event.args, 'No handlePostResponseHandledEvent args');
+ if (!event.args) return;
 
  const {
   args,

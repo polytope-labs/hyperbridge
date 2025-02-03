@@ -1,10 +1,12 @@
 import { SubstrateEvent } from '@subql/types';
 import assert from 'assert';
+
 import { ResponseService } from '../../../services/response.service';
 import { Status } from '../../../types';
 import {
  extractStateMachineIdFromSubstrateEventData,
  getChainIdFromEvent,
+ getHostStateMachine,
 } from '../../../utils/substrate.helpers';
 import { HYPERBRIDGE } from '../../../constants';
 
@@ -13,7 +15,7 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
 ): Promise<void> {
  logger.info(`Handling ISMP PostResponseTimeoutHandled Event`);
 
- const chainId = getChainIdFromEvent(event);
+ const host = getHostStateMachine(chainId);
 
  const stateMachineId = extractStateMachineIdFromSubstrateEventData(
   event.event.data.toString()
@@ -21,7 +23,8 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
 
  if (typeof stateMachineId === 'undefined') return;
 
- assert(event.extrinsic);
+ if (!event.extrinsic) return;
+
  const {
   event: { data },
   extrinsic,
@@ -34,17 +37,20 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
  } = event;
 
  const timeoutStatus =
-  chainId === HYPERBRIDGE ? Status.HYPERBRIDGE_TIMED_OUT : Status.TIMED_OUT;
+  host === HYPERBRIDGE.mainnet || HYPERBRIDGE.testnet
+   ? Status.HYPERBRIDGE_TIMED_OUT
+   : Status.TIMED_OUT;
 
  const eventData = data.toJSON();
  const timeoutData = Array.isArray(eventData)
   ? (eventData[0] as { commitment: any; source: any; dest: any })
   : undefined;
- assert(timeoutData);
+
+ if (!timeoutData) return;
 
  await ResponseService.updateStatus({
   commitment: timeoutData.commitment.toString(),
-  chain: chainId,
+  chain: host,
   blockNumber: blockNumber.toString(),
   blockHash: blockHash.toString(),
   blockTimestamp: timestamp

@@ -20,10 +20,7 @@ export class HyperBridgeService {
     chain: string,
     event: PostRequestEventLog | PostResponseEventLog
   ): Promise<void> {
-    assert(
-      event.args,
-      "No handlePostRequestEvent/handlePostResponseEvent args"
-    );
+    if(!event.args) return;
 
     const { args, address } = event;
     let { body } = args;

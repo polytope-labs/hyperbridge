@@ -12,7 +12,7 @@ import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 export async function handlePostRequestTimeoutHandledEvent(
   event: PostRequestTimeoutHandledLog
 ): Promise<void> {
-  assert(event.args, "No handlePostRequestTimeoutHandledEvent args");
+  if (!event.args) return;
 
   const {
     args,

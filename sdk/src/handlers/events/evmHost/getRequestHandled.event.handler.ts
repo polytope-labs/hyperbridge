@@ -10,7 +10,7 @@ import StateMachineHelpers from "../../../utils/stateMachine.helpers";
 export async function handleGetRequestHandledEvent(
   event: GetRequestHandledLog
 ): Promise<void> {
-  assert(event.args, "No handleGetRequestHandledEvent args");
+  if(!event.args) return;
 
   const {
     args,

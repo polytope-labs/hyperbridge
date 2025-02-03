@@ -4,8 +4,8 @@ import { Status } from '../../../types';
 import {
  extractStateMachineIdFromSubstrateEventData,
  getHostStateMachine,
+ isHyperbridge,
 } from '../../../utils/substrate.helpers';
-import { HYPERBRIDGE } from '../../../constants';
 
 export async function handleSubstratePostResponseHandledEvent(
  event: SubstrateEvent
@@ -37,20 +37,21 @@ export async function handleSubstratePostResponseHandledEvent(
   },
  } = event;
 
-const host = getHostStateMachine(chainId);
- // Determine the status based on the chainId
- const status =
-  host === HYPERBRIDGE ? Status.HYPERBRIDGE_DELIVERED : Status.DESTINATION;
+ const host = getHostStateMachine(chainId);
+
+  if (isHyperbridge(host)) {
+   return;
+  }
 
  await ResponseService.updateStatus({
   commitment: response_commitment.toString(),
-  chain: chainId,
+  chain: host,
   blockNumber: blockNumber.toString(),
   blockHash: blockHash.toString(),
   blockTimestamp: timestamp
    ? BigInt(Date.parse(timestamp.toString()))
    : BigInt(0),
-  status,
+  status: Status.DESTINATION,
   transactionHash: extrinsic?.extrinsic.hash.toString() || '',
  });
 }

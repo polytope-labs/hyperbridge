@@ -25,7 +25,3 @@ export { handleSubstrateRequestEvent } from '../handlers/events/substrateChains/
 export { handleSubstrateResponseEvent } from '../handlers/events/substrateChains/handleResponseEvent.handler';
 export { handleSubstratePostRequestHandledEvent } from '../handlers/events/substrateChains/handlePostRequestHandledEvent.handler';
 export { handleSubstratePostResponseHandledEvent } from '../handlers/events/substrateChains/handlePostResponseHandledEvent.handler';
-
-// TokenGateway Handlers
-export { handleAssetReceivedEvent } from '../handlers/events/tokenGateway/handleAssetReceivedEvent.handler';
-export { handleAssetTeleportedEvent } from '../handlers/events/tokenGateway/handleAssetTeleportedEvent.handler';

@@ -1,12 +1,11 @@
 import { SubstrateEvent } from '@subql/types';
-import assert from 'assert';
 import { ResponseService } from '../../../services/response.service';
 import { Status } from '../../../types';
 import {
  extractStateMachineIdFromSubstrateEventData,
  getHostStateMachine,
+ isHyperbridge,
 } from '../../../utils/substrate.helpers';
-import { HYPERBRIDGE } from '../../../constants';
 
 export async function handleSubstrateResponseEvent(
  event: SubstrateEvent
@@ -19,21 +18,24 @@ export async function handleSubstrateResponseEvent(
 
  if (typeof stateMachineId === 'undefined') return;
 
- assert(event.extrinsic);
+ if (!event.extrinsic) return;
+
  const [source_chain, dest_chain, request_nonce, commitment, req_commitment] =
   event.event.data;
 
  const host = getHostStateMachine(chainId);
 
- if (host !== HYPERBRIDGE) {
+  if (isHyperbridge(host)) {
+  return;
+ }
+
   await ResponseService.findOrCreate({
-   chain: chainId,
+   chain: host,
    commitment: commitment.toString(),
-   status: Status.DESTINATION,
+   status: Status.SOURCE,
    blockNumber: event.block.block.header.number.toString(),
    blockHash: event.block.block.header.hash.toString(),
    transactionHash: event.extrinsic?.extrinsic.hash.toString() || '',
    blockTimestamp: BigInt(event.block.timestamp!.getTime()),
   });
- }
 }

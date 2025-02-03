@@ -21,7 +21,7 @@ use clap::Parser;
 use ethers::prelude::H160;
 use futures::FutureExt;
 use ismp::host::StateMachine;
-use sc_service::TaskManager;
+use polkadot_sdk::sc_service::TaskManager;
 use std::{collections::HashMap, sync::Arc};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
@@ -29,6 +29,7 @@ use transaction_fees::TransactionPayment;
 
 /// CLI interface for tesseract relayer.
 #[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
 pub struct Cli {
 	#[command(subcommand)]
 	pub subcommand: Option<Subcommand>,

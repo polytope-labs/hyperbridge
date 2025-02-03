@@ -20,11 +20,11 @@ use crate::{
 		storage::{OffchainStorage, RuntimeStorage, Storage},
 		Hasher, Node, NodeOf,
 	},
-	primitives::{self, Error, NodeIndex},
 	Config, HashOf, HashingOf,
 };
+use polkadot_sdk::*;
 use sp_core::H256;
-use sp_mmr_primitives::utils::NodesUtils;
+use sp_mmr_primitives::{utils::NodesUtils, Error, LeafProof, NodeIndex};
 use sp_std::prelude::*;
 
 /// A wrapper around an MMR library to expose limited functionality.
@@ -110,7 +110,7 @@ where
 	pub fn generate_proof(
 		&self,
 		leaf_indices: Vec<NodeIndex>,
-	) -> Result<(Vec<L>, primitives::LeafProof<HashOf<T, I>>), Error> {
+	) -> Result<(Vec<L>, LeafProof<HashOf<T, I>>), Error> {
 		let positions = leaf_indices
 			.iter()
 			.map(|index| merkle_mountain_range::leaf_index_to_pos(*index))
@@ -128,7 +128,7 @@ where
 		self.mmr
 			.gen_proof(positions)
 			.map_err(|e| Error::GenerateProof.log_error(e))
-			.map(|p| primitives::LeafProof {
+			.map(|p| LeafProof {
 				leaf_indices,
 				leaf_count,
 				items: p.proof_items().iter().map(|x| x.hash()).collect(),

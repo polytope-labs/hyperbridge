@@ -1,6 +1,6 @@
 [package]
 name = "token-gateway-primitives"
-version = "15.0.0"
+version = "16.0.0"
 edition = "2021"
 description = "A collection of types used by token gateway"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -8,15 +8,16 @@ license = "Apache-2.0"
 repository = "https://github.com/polytope-labs/hyperbridge"
 homepage = "https://docs.hyperbridge.network/developers/polkadot/tokengateway"
 documentation = "https://docs.rs/pallet-token-gateway"
-keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability", "pallet-assets"]
+keywords = [
+    "substrate",
+    "polkadot-sdk",
+    "ISMP",
+    "interoperability",
+    "pallet-assets",
+]
 readme = "README.md"
 
 [dependencies]
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-sp-runtime = { workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
 primitive-types = { workspace = true }
 
 ismp = { workspace = true }
@@ -31,15 +32,14 @@ alloy-primitives = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-runtime", "sp-core", "sp-io"]
 
 [features]
 default = ["std"]
 std = [
-    "frame-support/std",
-    "frame-system/std",
-    "sp-runtime/std",
-    "sp-core/std",
-    "sp-io/std",
+    "polkadot-sdk/std",
     "primitive-types/std",
     "ismp/std",
     "pallet-ismp/std",
@@ -48,4 +48,4 @@ std = [
     "anyhow/std",
     "alloy-primitives/std",
 ]
-try-runtime = []
+try-runtime = ["polkadot-sdk/try-runtime"]

@@ -24,17 +24,18 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 extern crate alloc;
 
+mod genesis_config;
 mod ismp;
 mod weights;
 pub mod xcm;
-#[cfg(feature = "runtime-benchmarks")]
-use alloc::sync::Arc;
+
 use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
+use polkadot_sdk::*;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
@@ -52,6 +53,7 @@ use sp_version::RuntimeVersion;
 
 use ::ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
+	host::StateMachine,
 	router::{Request, Response},
 };
 
@@ -89,8 +91,6 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
-use ::ismp::host::StateMachine;
-use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::{
 	derive_impl,
@@ -98,6 +98,7 @@ use frame_support::{
 };
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
+use staging_xcm::latest::prelude::BodyId;
 
 use pallet_collective::PrimeDefaultVote;
 #[cfg(feature = "runtime-benchmarks")]
@@ -441,7 +442,7 @@ type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
 impl cumulus_pallet_parachain_system::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type OnSystemEvent = ();
-	type SelfParaId = parachain_info::Pallet<Runtime>;
+	type SelfParaId = staging_parachain_info::Pallet<Runtime>;
 	type OutboundXcmpMessageSource = XcmpQueue;
 	type ReservedDmpWeight = ReservedDmpWeight;
 	type XcmpMessageHandler = XcmpQueue;
@@ -452,7 +453,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type ConsensusHook = ConsensusHook;
 }
 
-impl parachain_info::Config for Runtime {}
+impl staging_parachain_info::Config for Runtime {}
 
 impl cumulus_pallet_aura_ext::Config for Runtime {}
 
@@ -598,7 +599,7 @@ where
 		sp_io::hashing::keccak_256(
 			&Location {
 				parents: 0,
-				interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])),
+				interior: X1(alloc::sync::Arc::new([Junction::GeneralIndex(seed as u128)])),
 			}
 			.encode(),
 		)
@@ -620,7 +621,7 @@ where
 		sp_io::hashing::keccak_256(
 			&Location {
 				parents: 0,
-				interior: X1(Arc::new([Junction::GeneralIndex(seed as u128)])),
+				interior: X1(alloc::sync::Arc::new([Junction::GeneralIndex(seed as u128)])),
 			}
 			.encode(),
 		)
@@ -683,7 +684,7 @@ construct_runtime!(
 		System: frame_system = 0,
 		Timestamp: pallet_timestamp = 1,
 		ParachainSystem: cumulus_pallet_parachain_system = 2,
-		ParachainInfo: parachain_info = 3,
+		ParachainInfo: staging_parachain_info = 3,
 		Utility: pallet_utility = 4,
 
 		// Monetary stuff.
@@ -1077,11 +1078,11 @@ impl_runtime_apis! {
 		}
 
 		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
-			get_preset::<RuntimeGenesisConfig>(id, |_| None)
+			get_preset::<RuntimeGenesisConfig>(id, crate::genesis_config::get_preset)
 		}
 
 		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
-			vec![]
+			crate::genesis_config::preset_names()
 		}
 	}
 

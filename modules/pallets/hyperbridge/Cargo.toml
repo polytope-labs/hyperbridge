@@ -1,6 +1,6 @@
 [package]
 name = "pallet-hyperbridge"
-version = "15.0.0"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -13,26 +13,25 @@ readme = "README.md"
 
 [dependencies]
 ismp = { workspace = true }
-frame-support = { workspace = true }
-frame-system = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
 pallet-ismp = { workspace = true }
-sp-std = { workspace = true }
 primitive-types = { workspace = true }
 anyhow = { workspace = true, default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-std"]
 
 [features]
 default = ["std"]
 std = [
     "ismp/std",
-    "frame-support/std",
-    "frame-system/std",
+    "polkadot-sdk/std",
     "codec/std",
     "scale-info/std",
     "pallet-ismp/std",
-    "sp-std/std",
     "primitive-types/std",
-    "anyhow/std"
+    "anyhow/std",
 ]
-try-runtime = []
+try-runtime = ["polkadot-sdk/try-runtime"]

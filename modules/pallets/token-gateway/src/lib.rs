@@ -35,6 +35,7 @@ use frame_support::{
 		Currency, ExistenceRequirement,
 	},
 };
+use polkadot_sdk::*;
 pub use weights::WeightInfo;
 
 use ismp::{
@@ -86,10 +87,11 @@ pub mod pallet {
 	/// The pallet's configuration trait.
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + pallet_hyperbridge::Config
+		polkadot_sdk::frame_system::Config + pallet_ismp::Config + pallet_hyperbridge::Config
 	{
 		/// The overarching runtime event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The [`IsmpDispatcher`] for dispatching cross-chain requests
 		type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;

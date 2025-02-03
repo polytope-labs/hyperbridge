@@ -25,6 +25,7 @@ use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use frame_support::pallet_prelude::Weight;
 use ismp::router::{PostRequest, Response, Timeout};
+use polkadot_sdk::*;
 
 pub use types::*;
 
@@ -61,10 +62,13 @@ pub mod pallet {
 	/// The pallet's configuration trait.
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + pallet_ismp_host_executive::Config
+		polkadot_sdk::frame_system::Config
+		+ pallet_ismp::Config
+		+ pallet_ismp_host_executive::Config
 	{
 		/// The overarching runtime event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The [`IsmpDispatcher`] for dispatching cross-chain requests
 		type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;

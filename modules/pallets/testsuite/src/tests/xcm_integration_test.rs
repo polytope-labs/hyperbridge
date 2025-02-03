@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use polkadot_sdk::*;
 use std::{collections::HashMap, sync::Arc};
 
 use alloy_sol_types::SolType;

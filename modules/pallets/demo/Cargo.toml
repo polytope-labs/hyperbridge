@@ -11,41 +11,32 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 # crates.io
-codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+codec = { workspace = true }
+scale-info = { workspace = true }
 anyhow = { workspace = true, default-features = false }
 
 # polytope labs
 ismp = { workspace = true, default-features = false }
-
-# substrate
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-pallet-balances = { workspace = true }
-sp-runtime = { workspace = true }
-sp-core = { workspace = true }
-
-# local
 pallet-ismp = { workspace = true, default-features = false }
 
-[dev-dependencies]
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "pallet-balances",
+    "sp-runtime",
+    "sp-core",
+]
 
 [features]
 default = ["std"]
 std = [
     "codec/std",
-    "frame-support/std",
-    "frame-system/std",
-    "sp-runtime/std",
     "scale-info/std",
     "ismp/std",
     "pallet-ismp/std",
-    "pallet-balances/std",
-    "anyhow/std"
+    "anyhow/std",
+    "polkadot-sdk/std",
 ]
-
-try-runtime = [
-	"frame-support/try-runtime",
-	"frame-system/try-runtime",
-	"sp-runtime/try-runtime",
-]
+try-runtime = ["polkadot-sdk/try-runtime"]

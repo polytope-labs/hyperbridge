@@ -6,7 +6,6 @@ description = "Simnode integration tests for the hyperbridge node subsystems"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
-
 [dependencies]
 subxt = { workspace = true, default-features = true }
 anyhow.workspace = true
@@ -15,17 +14,16 @@ tokio = { workspace = true, features = ["macros"] }
 indicatif = "0.17.8"
 
 codec = { workspace = true, features = ["derive"], default-features = true }
-sp-core = { workspace = true, features = ["full_crypto", "serde"], default-features = true }
-sp-keyring = { workspace = true }
+sp-core = { workspace = true, features = [
+    "full_crypto",
+    "serde",
+], default-features = true }
 substrate-state-machine = { workspace = true }
 primitive-types = { workspace = true }
-sp-runtime = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
-sc-consensus-manual-seal = { workspace = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-hyperbridge = { workspace = true, default-features = true }
-sp-mmr-primitives = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
@@ -33,7 +31,17 @@ merkle-mountain-range = { workspace = true }
 jsonrpsee-core = { workspace = true, features = ["client"] }
 trie-db = { workspace = true }
 hash-db = { workspace = true }
-sp-trie = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = [
+    "sp-trie",
+    "sp-runtime",
+    "sp-keyring",
+    "sc-consensus-manual-seal",
+    "sp-mmr-primitives",
+]
 
 [features]
 stress-test = []

@@ -22,7 +22,7 @@ mod retries;
 use anyhow::anyhow;
 use get_requests::process_get_request_events;
 use itertools::Itertools;
-use sc_service::TaskManager;
+use polkadot_sdk::sc_service::TaskManager;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{Receiver, Sender};
 

@@ -15,6 +15,8 @@
 
 //! Pallet method definitions
 
+use polkadot_sdk::*;
+
 use super::{Config, Pallet};
 use alloc::{string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};

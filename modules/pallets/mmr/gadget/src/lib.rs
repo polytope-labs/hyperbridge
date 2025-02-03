@@ -37,9 +37,6 @@
 
 #![warn(missing_docs)]
 
-extern crate pallet_mmr_runtime_api;
-extern crate sp_runtime;
-
 mod aux_schema;
 mod offchain_mmr;
 
@@ -48,6 +45,7 @@ use futures::StreamExt;
 use log::{error, trace, warn};
 use pallet_ismp::offchain::Leaf;
 use pallet_mmr_runtime_api::MmrRuntimeApi;
+use polkadot_sdk::*;
 use sc_client_api::{Backend, BlockchainEvents, FinalityNotification, FinalityNotifications};
 use sc_offchain::OffchainDb;
 use sp_api::ProvideRuntimeApi;

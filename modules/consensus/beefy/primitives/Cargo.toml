@@ -12,23 +12,19 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 codec = { workspace = true, features = ["derive"] }
-derive_more = { workspace = true, features = ["from"]  }
+derive_more = { workspace = true, features = ["from"] }
 serde = { workspace = true, features = ["derive"], optional = true }
 
-sp-std = { workspace =  true }
-sp-core = { workspace =  true}
-sp-consensus-beefy = { workspace =  true }
-sp-mmr-primitives = { workspace =  true }
-sp-io = { workspace =  true}
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "sp-std",
+    "sp-core",
+    "sp-consensus-beefy",
+    "sp-mmr-primitives",
+    "sp-io",
+]
 
 [features]
 default = ["std"]
-std = [
-    "sp-std/std",
-    "sp-core/std",
-    "sp-io/std",
-    "sp-consensus-beefy/std",
-    "codec/std",
-    "sp-mmr-primitives/std",
-    "serde"
-]
+std = ["polkadot-sdk/std", "codec/std", "serde"]

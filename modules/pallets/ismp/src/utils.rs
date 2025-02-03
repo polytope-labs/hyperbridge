@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! Pallet utilities
+use polkadot_sdk::*;
 
 use alloc::collections::BTreeMap;
 

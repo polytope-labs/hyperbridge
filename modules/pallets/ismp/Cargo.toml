@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp"
-version = "15.0.0"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -12,60 +12,56 @@ keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
 readme = "README.md"
 
 [dependencies]
-# substrate
-frame-benchmarking = { workspace = true, optional = true }
-frame-support = { workspace = true }
-frame-system = { workspace = true }
 sp-io = { workspace = true }
-sp-runtime = { workspace = true }
-sp-core = { workspace = true }
-sp-std = { workspace = true }
-sp-api = { workspace = true }
+
+anyhow = { workspace = true, default-features = false }
 ismp = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
-sp-mmr-primitives = { workspace = true }
-anyhow = { workspace = true, default-features = false }
-
-# crates.io
 fortuples = "0.9.1"
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-runtime",
+    "sp-core",
+    "sp-std",
+    "sp-api",
+    "sp-mmr-primitives",
+]
+
 [dev-dependencies]
 env_logger = "0.10.0"
-pallet-timestamp = { workspace = true, features = ["default"] }
+polkadot-sdk = { workspace = true, features = [
+    "pallet-timestamp",
+], default-features = true }
 ismp-testsuite = { path = "../../ismp/testsuite" }
 
 [features]
 default = ["std"]
 std = [
     "codec/std",
-    "frame-benchmarking/std",
-    "frame-support/std",
-    "frame-system/std",
+    "polkadot-sdk/std",
+    "sp-io/std",
     "log/std",
     "scale-info/std",
-    "sp-io/std",
-    "sp-runtime/std",
-    "sp-std/std",
-    "sp-core/std",
     "ismp/std",
-    "sp-api/std",
     "serde/default",
-    "sp-mmr-primitives/std",
-    "anyhow/std"
+    "anyhow/std",
 ]
-disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]
-testing = ["pallet-timestamp/std"]
+disable-panic-handler = [
+    "sp-io/disable_panic_handler",
+    "sp-io/disable_oom",
+    "sp-io/disable_allocator",
+]
+testing = []
 runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
-    "frame-support/runtime-benchmarks"
+    "polkadot-sdk/runtime-benchmarks",
+    "polkadot-sdk/frame-benchmarking",
 ]
-try-runtime = [
-	"frame-support/try-runtime",
-	"frame-system/try-runtime",
-	"sp-runtime/try-runtime",
-]
+try-runtime = ["polkadot-sdk/try-runtime"]
 unsigned = []

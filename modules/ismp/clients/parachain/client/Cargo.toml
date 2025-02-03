@@ -1,6 +1,6 @@
 [package]
 name = "ismp-parachain"
-version = "15.0.1"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -21,57 +21,40 @@ hex = { workspace = true }
 primitive-types = { workspace = true }
 log = { workspace = true }
 
-# substrate
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-frame-benchmarking = { optional = true, workspace = true }
-sp-trie = { workspace = true }
-sp-inherents = { workspace = true }
-sp-io = { workspace = true }
-sp-runtime = { workspace = true }
-sp-consensus-aura = { workspace = true }
-
-# cumulus
-cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
-cumulus-primitives-core = { workspace = true, default-features = false }
-
 # local
 substrate-state-machine = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-trie",
+    "sp-inherents",
+    "sp-io",
+    "sp-runtime",
+    "sp-consensus-aura",
+    "cumulus-pallet-parachain-system",
+    "cumulus-primitives-core",
+]
+
 [features]
 default = ["std"]
 std = [
     "codec/std",
-    "frame-support/std",
-    "frame-system/std",
-    "frame-benchmarking?/std",
+    "polkadot-sdk/std",
     "scale-info/std",
-    "cumulus-pallet-parachain-system/std",
-    "cumulus-primitives-core/std",
     "ismp/std",
     "log/std",
-    "sp-trie/std",
-    "sp-consensus-aura/std",
-    "sp-runtime/std",
-    "sp-io/std",
-    "sp-inherents/std",
     "primitive-types/std",
     "pallet-ismp/std",
-    "substrate-state-machine/std"
+    "substrate-state-machine/std",
 ]
-
-try-runtime = [
-	"frame-support/try-runtime",
-	"frame-system/try-runtime",
-	"sp-runtime/try-runtime",
-]
-
+try-runtime = ["polkadot-sdk/try-runtime"]
 runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-support/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
+    "polkadot-sdk/frame-benchmarking",
+    "polkadot-sdk/runtime-benchmarks",
     "pallet-ismp/runtime-benchmarks",
-    "cumulus-pallet-parachain-system/runtime-benchmarks",
 ]

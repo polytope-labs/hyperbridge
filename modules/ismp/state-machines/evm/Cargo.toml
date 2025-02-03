@@ -8,9 +8,9 @@ publish = false
 
 [dependencies]
 # polytope labs
-ismp = { workspace = true  }
-ethereum-triedb = { workspace = true  }
-geth-primitives = { workspace = true  }
+ismp = { workspace = true }
+ethereum-triedb = { workspace = true }
+geth-primitives = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 
 # crates.io
@@ -19,12 +19,12 @@ hash-db = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-rlp-derive = { workspace = true }
 alloy-primitives = { workspace = true }
-hex = {  workspace = true, default-features = false }
+hex = { workspace = true, default-features = false }
 hex-literal = { workspace = true }
 ethabi = { workspace = true }
 hash256-std-hasher = { version = "0.15.2", default-features = false }
 codec = { workspace = true, default-features = false }
-sp-crypto-hashing = { workspace = true, default-features = false }
+polkadot-sdk = { workspace = true, features = ["sp-crypto-hashing"] }
 
 [features]
 default = ["std"]
@@ -41,5 +41,5 @@ std = [
     "hex/std",
     "geth-primitives/std",
     "pallet-ismp-host-executive/std",
-    "sp-crypto-hashing/std"
+    "polkadot-sdk/std",
 ]

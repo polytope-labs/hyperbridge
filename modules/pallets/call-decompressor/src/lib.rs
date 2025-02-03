@@ -15,7 +15,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-
 use alloc::{vec, vec::Vec};
 use codec::DecodeLimit;
 use frame_support::{
@@ -23,6 +22,7 @@ use frame_support::{
 	traits::{Get, IsSubType},
 };
 pub use pallet::*;
+use polkadot_sdk::*;
 #[cfg(feature = "std")]
 use ruzstd::io::Read;
 #[cfg(not(feature = "std"))]
@@ -59,7 +59,7 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + pallet_ismp_relayer::Config
+		polkadot_sdk::frame_system::Config + pallet_ismp::Config + pallet_ismp_relayer::Config
 	{
 		/// Represents the maximum call size in megabytes(MB)
 		type MaxCallSize: Get<u32>;

@@ -1,6 +1,6 @@
 [package]
 name = "ismp-grandpa"
-version = "15.0.1"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -16,26 +16,26 @@ anyhow = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
 primitive-types = { workspace = true }
 merkle-mountain-range = { workspace = true }
-frame-benchmarking = { workspace = true, optional = true }
-sp-std = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
 grandpa-verifier-primitives = { workspace = true }
 grandpa-verifier = { workspace = true }
 pallet-ismp = { workspace = true }
-
-# substrate
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-sp-trie = { workspace = true }
-sp-io = { workspace = true }
-sp-runtime = { workspace = true }
-sp-consensus-aura = { workspace = true }
-sp-core = { workspace = true }
-
-# cumulus
 substrate-state-machine = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-trie",
+    "sp-io",
+    "sp-runtime",
+    "sp-consensus-aura",
+    "sp-core",
+    "sp-std",
+]
 
 [dependencies.scale-info]
 version = "2.1.1"
@@ -50,30 +50,21 @@ default-features = false
 [features]
 default = ["std"]
 std = [
-    "sp-std/std",
     "codec/std",
-    "frame-support/std",
-    "frame-system/std",
     "scale-info/std",
     "ismp/std",
-    "sp-trie/std",
-    "sp-consensus-aura/std",
-    "sp-runtime/std",
-    "sp-io/std",
+    "polkadot-sdk/std",
     "primitive-types/std",
     "pallet-ismp/std",
-    "sp-core/std",
     "grandpa-verifier-primitives/std",
     "grandpa-verifier/std",
     "merkle-mountain-range/std",
     "substrate-state-machine/std",
     "finality-grandpa/std",
 ]
-try-runtime = []
-
+try-runtime = ["polkadot-sdk/try-runtime"]
 runtime-benchmarks = [
-    "frame-benchmarking/runtime-benchmarks",
-    "frame-support/runtime-benchmarks",
-    "frame-system/runtime-benchmarks",
+    "polkadot-sdk/frame-benchmarking",
+    "polkadot-sdk/runtime-benchmarks",
     "pallet-ismp/runtime-benchmarks",
 ]

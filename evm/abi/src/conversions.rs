@@ -49,6 +49,7 @@ mod beefy {
 	};
 	use beefy_verifier_primitives::{ConsensusMessage, ConsensusState, MmrProof};
 	use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
+	use polkadot_sdk::*;
 	use primitive_types::H256;
 	use sp_consensus_beefy::mmr::BeefyNextAuthoritySet;
 

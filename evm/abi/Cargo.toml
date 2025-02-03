@@ -17,21 +17,24 @@ primitive-types = { workspace = true }
 anyhow = { workspace = true, default-features = true }
 
 ethers = { workspace = true }
-ismp = { workspace =  true }
+ismp = { workspace = true }
 
 mmr-primitives = { workspace = true, default-features = true, optional = true }
-sp-consensus-beefy = { workspace =  true, default-features = true, optional = true }
 merkle-mountain-range = { workspace = true, default-features = true, optional = true }
-beefy-verifier-primitives = { workspace =  true, default-features = true, optional = true }
+beefy-verifier-primitives = { workspace = true, default-features = true, optional = true }
 
+[dependencies.polkadot-sdk]
+workspace = true
+optional = true
+features = ["sp-consensus-beefy"]
 
 [features]
 default = ["beefy", "std"]
-std = [
-    "primitive-types/std",
-    "anyhow/std",
-    "ethers/default",
-    "ismp/std",
-]
+std = ["primitive-types/std", "anyhow/std", "ethers/default", "ismp/std"]
 build-abi = []
-beefy = ["merkle-mountain-range", "sp-consensus-beefy", "beefy-verifier-primitives", "mmr-primitives"]
+beefy = [
+    "merkle-mountain-range",
+    "polkadot-sdk",
+    "beefy-verifier-primitives",
+    "mmr-primitives",
+]

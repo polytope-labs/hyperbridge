@@ -231,7 +231,7 @@ pub fn get_value_from_proof<H: Keccak256 + Send + Sync>(
 
 // keccak256(uint256(4009) . keccak256(uint256(200_000_000) . uint256(STATE_COMMITMENT_SLOT)))
 pub fn state_comitment_key(state_machine_id: U256, block_height: U256) -> (H256, H256, H256) {
-	use sp_crypto_hashing::keccak_256;
+	use polkadot_sdk::sp_crypto_hashing::keccak_256;
 
 	const STATE_COMMITMENT_SLOT: u64 = 5;
 

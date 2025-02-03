@@ -33,6 +33,7 @@ use ismp::{
 };
 pub use pallet::*;
 use pallet_ismp::ModuleId;
+use polkadot_sdk::*;
 use sp_core::H160;
 
 /// Constant Pallet ID
@@ -61,9 +62,10 @@ pub mod pallet {
 
 	/// Pallet Configuration
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config {
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		/// Overarching event
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 		/// Native balance
 		type Balance: Balance
 			+ Into<<Self::NativeCurrency as Inspect<Self::AccountId>>::Balance>

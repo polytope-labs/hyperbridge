@@ -8,54 +8,47 @@ publish = false
 
 
 [dependencies]
-# substrate
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-sp-runtime = { workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
 pallet-ismp = { workspace = true }
-evm-state-machine =  { workspace = true }
+evm-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
-
-# polytope labs
 ismp = { workspace = true }
 
 # crates.io
-codec = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 hashbrown = { version = "0.14.3" }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+codec = { workspace = true }
+scale-info = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
 ethabi = { workspace = true }
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-runtime", "sp-core", "sp-io"]
+
 [dev-dependencies]
-pallet-ismp = { workspace = true, features = [ "testing" ] }
-pallet-timestamp = { workspace = true }
-pallet-balances = { workspace = true }
+pallet-ismp = { workspace = true, features = ["testing"] }
 ethereum-triedb = { workspace = true }
 trie-db = { workspace = true }
 hash-db = { workspace = true }
 ismp-bsc = { workspace = true }
 ismp-sync-committee = { workspace = true }
-sp-trie = { workspace = true }
 substrate-state-machine = { workspace = true }
 hex = "0.4.3"
+
+[dev-dependencies.polkadot-sdk]
+workspace = true
+features = ["pallet-timestamp", "pallet-balances", "sp-trie"]
 
 [features]
 default = ["std"]
 std = [
     "codec/std",
-    "frame-support/std",
-    "frame-system/std",
+    "polkadot-sdk/std",
     "log/std",
     "scale-info/std",
-    "sp-runtime/std",
-    "sp-core/std",
-    "sp-io/std",
     "ismp/std",
     "pallet-ismp/std",
     "pallet-hyperbridge/std",
@@ -63,11 +56,6 @@ std = [
     "alloy-rlp/std",
     "ethabi/std",
     "evm-state-machine/std",
-    "pallet-ismp-host-executive/std"
+    "pallet-ismp-host-executive/std",
 ]
-
-try-runtime = [
-	"frame-support/try-runtime",
-	"frame-system/try-runtime",
-	"sp-runtime/try-runtime",
-]
+try-runtime = ["polkadot-sdk/try-runtime"]

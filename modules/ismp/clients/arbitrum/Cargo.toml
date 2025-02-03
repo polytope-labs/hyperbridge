@@ -9,10 +9,10 @@ publish = false
 
 [dependencies]
 # polytope labs
-ismp = { workspace = true  }
-ethereum-triedb = { workspace = true  }
-geth-primitives = { workspace = true  }
-evm-state-machine =  { workspace = true }
+ismp = { workspace = true }
+ethereum-triedb = { workspace = true }
+geth-primitives = { workspace = true }
+evm-state-machine = { workspace = true }
 
 # crates.io
 alloy-rlp = { workspace = true }
@@ -24,15 +24,22 @@ hex = { workspace = true, default-features = false }
 hex-literal = { workspace = true }
 codec = { workspace = true, default-features = false }
 ethabi = { workspace = true }
-sp-io = { workspace = true }
 anyhow = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-io"]
 
 [dev-dependencies]
 ethers = { workspace = true, features = ["default"] }
 tokio = { workspace = true, features = ["full"] }
 ismp-testsuite = { path = "../../testsuite" }
-sp-core = { workspace = true }
 dotenv = "0.15.0"
+
+[dev-dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sp-core"]
 
 [features]
 default = ["std"]
@@ -46,7 +53,7 @@ std = [
     "hex/std",
     "geth-primitives/std",
     "evm-state-machine/std",
-    "sp-io/std",
+    "polkadot-sdk/std",
     "anyhow/std",
-    "alloy-sol-types/std"
+    "alloy-sol-types/std",
 ]

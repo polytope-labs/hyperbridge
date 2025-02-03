@@ -15,6 +15,7 @@
 #![allow(missing_docs, dead_code)]
 
 extern crate alloc;
+use polkadot_sdk::*;
 
 use alloc::collections::BTreeMap;
 use cumulus_pallet_parachain_system::ParachainSetCode;
@@ -62,7 +63,7 @@ frame_support::construct_runtime!(
 	pub enum Test {
 		System: frame_system,
 		ParachainSystem: cumulus_pallet_parachain_system,
-		ParachainInfo: parachain_info,
+		ParachainInfo: staging_parachain_info,
 		Timestamp: pallet_timestamp,
 		Mmr: pallet_mmr,
 		Ismp: pallet_ismp,

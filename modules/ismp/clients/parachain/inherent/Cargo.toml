@@ -1,6 +1,6 @@
 [package]
 name = "ismp-parachain-inherent"
-version = "15.0.0"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -12,24 +12,26 @@ keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
 readme = "./README.md"
 
 [dependencies]
- # crates.io
+# crates.io
 async-trait = { version = "0.1.63" }
-codec = { workspace = true, features = [ "derive" ], default-features = true }
+codec = { workspace = true, features = ["derive"], default-features = true }
 anyhow = { workspace = true }
-
-# Substrate
-sp-inherents = { workspace = true, default-features = true }
-sp-api = { workspace = true, default-features = true }
-sp-blockchain = { workspace = true, default-features = true }
-sp-runtime = { workspace = true, default-features = true }
-
-# Cumulus
-cumulus-primitives-core = {  workspace = true, default-features = true }
-cumulus-relay-chain-interface = {  workspace = true, default-features = true }
+log = { workspace = true }
 
 # local
 ismp = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
 ismp-parachain-runtime-api = { workspace = true, default-features = true }
 pallet-ismp-runtime-api = { workspace = true, default-features = true }
-log = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = [
+    "sp-inherents",
+    "sp-api",
+    "sp-blockchain",
+    "sp-runtime",
+    "cumulus-primitives-core",
+    "cumulus-relay-chain-interface",
+]

@@ -6,36 +6,31 @@ description = "The host executive is responsible for tracking all connected host
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
-
 [dependencies]
-# substrate
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-sp-runtime = { workspace = true }
-primitive-types = { workspace = true }
-
 # polytope labs
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 pallet-hyperbridge = { workspace = true }
 
-alloy-primitives = { workspace = true }
-alloy-sol-macro = { workspace = true }
-alloy-sol-types = { workspace = true }
-
 # crates.io
 codec = { workspace = true }
 scale-info = { workspace = true }
 anyhow = { workspace = true }
+primitive-types = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-sol-types = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-runtime"]
 
 [features]
 default = ["std"]
 std = [
     "codec/std",
     "scale-info/std",
-    "frame-support/std",
-    "frame-system/std",
-    "sp-runtime/std",
+    "polkadot-sdk/std",
     "alloy-primitives/std",
     "ismp/std",
     "anyhow/std",
@@ -43,9 +38,4 @@ std = [
     "pallet-hyperbridge/std",
     "primitive-types/std",
 ]
-
-try-runtime = [
-    "frame-support/try-runtime",
-    "frame-system/try-runtime",
-    "sp-runtime/try-runtime",
-]
+try-runtime = ["polkadot-sdk/try-runtime"]

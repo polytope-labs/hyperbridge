@@ -21,7 +21,6 @@
 extern crate alloc;
 
 pub mod withdrawal;
-
 use crate::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
@@ -46,6 +45,7 @@ pub use pallet::*;
 use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};
+use polkadot_sdk::*;
 use sp_core::U256;
 use sp_runtime::{AccountId32, DispatchError};
 
@@ -69,10 +69,13 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + pallet_ismp_host_executive::Config
+		polkadot_sdk::frame_system::Config
+		+ pallet_ismp::Config
+		+ pallet_ismp_host_executive::Config
 	{
 		/// The overarching event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;

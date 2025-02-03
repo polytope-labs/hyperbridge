@@ -6,7 +6,6 @@ description = "Primitives for geth client"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
-
 [dependencies]
 anyhow = { workspace = true, default-features = false }
 alloy-rlp = { workspace = true }
@@ -16,7 +15,7 @@ codec = { workspace = true }
 ethabi = { workspace = true }
 ismp = { workspace = true }
 scale-info = { workspace = true }
-ethers = { workspace = true, optional = true, features = ["default"] }
+ethers-core = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
@@ -28,5 +27,5 @@ std = [
     "alloy-rlp/std",
     "ethabi/std",
     "scale-info/std",
-    "ethers"
+    "ethers-core",
 ]

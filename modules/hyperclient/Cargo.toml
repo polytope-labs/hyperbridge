@@ -15,22 +15,22 @@ crate-type = ["cdylib", "rlib"]
 subxt = { workspace = true }
 anyhow = { workspace = true }
 codec = { workspace = true }
-tokio = { workspace = true, features = ["macros"]  }
+tokio = { workspace = true, features = ["macros"] }
 primitive-types = { workspace = true, features = ["serde"] }
 ethers = { workspace = true }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, features = ["disable-panic-handler"] }
-evm-state-machine =  { workspace = true }
-sp-core = { workspace = true, features = ["serde"]}
+evm-state-machine = { workspace = true }
 substrate-state-machine = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 ethereum-triedb = { workspace = true }
 subxt-utils = { workspace = true }
 mmr-primitives = { workspace = true }
-sp-mmr-primitives = { workspace = true }
 serde-hex-utils = { workspace = true }
 hex = { workspace = true }
 hex-literal = { workspace = true }
+
+sp-core = { workspace = true, features = ["serde"] }
 
 # crates.io
 wasm-bindgen = { version = "0.2.90" }
@@ -44,7 +44,7 @@ wasm-streams = "0.4.0"
 js-sys = "0.3.68"
 web-sys = "0.3.68"
 wasmtimer = { version = "0.4.0", optional = true }
-gloo-timers = { version =  "0.3.0", features = ["futures"], optional = true }
+gloo-timers = { version = "0.3.0", features = ["futures"], optional = true }
 hashbrown = { version = "0.14.3", features = ["serde"] }
 url = "2.5.1"
 gql_client = "=1.0.7"
@@ -55,10 +55,15 @@ tracing-wasm = "0.2.1"
 tracing-subscriber = { version = "0.3", features = ["registry"], default-features = false }
 tracing-subscriber-wasm = "0.1.0"
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-mmr-primitives"]
+
 [features]
 default = ["std"]
 wasm = ["subxt/web", "subxt/jsonrpsee", "subxt-utils/wasm"]
 std = [
+    "polkadot-sdk/std",
     "subxt/native",
     "subxt/jsonrpsee",
     "subxt-utils/std",
@@ -81,4 +86,4 @@ wasm-bindgen-test = "0.3.24"
 ethers = { workspace = true, features = ["ws"], default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"]  }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -22,6 +22,7 @@
 mod tests;
 
 extern crate alloc;
+use polkadot_sdk::*;
 
 use alloc::collections::BTreeMap;
 use anyhow::anyhow;

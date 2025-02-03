@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! Pallet event conversions to the core ISMP event
+use polkadot_sdk::*;
 
 use crate::{Config, Event as PalletEvent, Pallet};
 use frame_support::BoundedVec;

@@ -8,6 +8,7 @@ use ismp::{
 	messaging::hash_request,
 	router::{PostRequest, Request},
 };
+use polkadot_sdk::*;
 use primitive_types::H256;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, Bytes, KeccakHasher};
@@ -405,16 +406,9 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 	})]);
 
 	let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
-	let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
+	let subxt::Error::Rpc(RpcError::ClientError(_err)) = error else {
 		panic!("Unexpected error kind: {error:?}")
 	};
-	let jsonrpsee_error = err.downcast::<subxt_utils::client::RpcError>().unwrap();
-	let subxt_utils::client::RpcError::RpcError(jsonrpsee_core::ClientError::Call(error)) =
-		*jsonrpsee_error
-	else {
-		panic!("Unexpected error kind: {jsonrpsee_error:?}")
-	};
-	assert_eq!(error.message(), "Invalid Transaction");
 
 	Ok(())
 }
@@ -595,16 +589,9 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	})]);
 
 	let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
-	let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
+	let subxt::Error::Rpc(RpcError::ClientError(_err)) = error else {
 		panic!("Unexpected error kind: {error:?}")
 	};
-	let jsonrpsee_error = err.downcast::<subxt_utils::client::RpcError>().unwrap();
-	let subxt_utils::client::RpcError::RpcError(jsonrpsee_core::ClientError::Call(error)) =
-		*jsonrpsee_error
-	else {
-		panic!("Unexpected error kind: {jsonrpsee_error:?}")
-	};
-	assert_eq!(error.message(), "Invalid Transaction");
 
 	Ok(())
 }

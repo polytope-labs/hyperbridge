@@ -21,6 +21,7 @@ extern crate alloc;
 
 use alloy_sol_types::SolValue;
 use ismp::router::PostRequest;
+use polkadot_sdk::*;
 
 use alloc::{format, vec};
 use primitive_types::{H256, U256};
@@ -44,10 +45,11 @@ pub mod pallet {
 	/// The pallet's configuration trait.
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + pallet_token_governor::Config
+		polkadot_sdk::frame_system::Config + pallet_ismp::Config + pallet_token_governor::Config
 	{
 		/// The overarching runtime event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 	}
 
 	/// Balances for net inflow of non native assets into a standalone chain

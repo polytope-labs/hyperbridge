@@ -14,6 +14,7 @@
 // limitations under the License.
 
 #![cfg(test)]
+use polkadot_sdk::*;
 
 use crate::runtime::{new_test_ext, Ismp, RuntimeOrigin, Test};
 use ismp::{

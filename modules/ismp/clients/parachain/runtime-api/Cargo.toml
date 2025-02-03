@@ -1,6 +1,6 @@
 [package]
 name = "ismp-parachain-runtime-api"
-version = "15.0.0"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -11,10 +11,10 @@ description = "Substrate runtime API for the ISMP Parachain consensus client"
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
 readme = "./README.md"
 
-[dependencies]
-sp-api = { workspace = true, default-features = false }
-cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-api", "cumulus-pallet-parachain-system"]
 
 [features]
 default = ["std"]
-std = ["sp-api/std", "cumulus-pallet-parachain-system/std"]
+std = ["polkadot-sdk/std"]

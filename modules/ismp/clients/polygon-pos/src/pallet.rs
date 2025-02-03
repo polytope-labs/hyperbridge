@@ -17,20 +17,20 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use frame_support::pallet_prelude::*;
-    use geth_primitives::CodecHeader;
-    use sp_core::H256;
+	use frame_support::pallet_prelude::*;
+	use geth_primitives::CodecHeader;
+	use sp_core::H256;
 
-    #[pallet::pallet]
-    #[pallet::without_storage_info]
-    pub struct Pallet<T>(_);
+	#[pallet::pallet]
+	#[pallet::without_storage_info]
+	pub struct Pallet<T>(_);
 
-    /// The config trait
-    #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_ismp::Config {}
+	/// The config trait
+	#[pallet::config]
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {}
 
-    /// Polygon block headers
-    #[pallet::storage]
-    #[pallet::getter(fn headers)]
-    pub type Headers<T: Config> = StorageMap<_, Identity, H256, CodecHeader, OptionQuery>;
+	/// Polygon block headers
+	#[pallet::storage]
+	#[pallet::getter(fn headers)]
+	pub type Headers<T: Config> = StorageMap<_, Identity, H256, CodecHeader, OptionQuery>;
 }

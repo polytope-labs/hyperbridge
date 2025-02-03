@@ -14,7 +14,7 @@ readme = "./README.md"
 trie-db = { workspace = true }
 hash-db = {  workspace = true }
 memory-db = { workspace = true }
-codec = { workspace = true, features = ["derive"] }
+codec = { workspace = true }
 rlp = { workspace = true }
 thiserror = { workspace = true }
 derive_more = { workspace = true, features = ["from"] }

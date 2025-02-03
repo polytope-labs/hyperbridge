@@ -17,9 +17,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true, default-features = false }
 serde = { workspace = true, features = ["derive"] }
-derive_more = { version = "0.99.17", default-features = false, features = [
-    "from",
-] }
+derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 grandpa-verifier-primitives = { workspace = true }
 substrate-state-machine = { workspace = true }
 
@@ -43,9 +41,7 @@ features = ["derive-codec"]
 default-features = false
 
 [dev-dependencies]
-subxt = { workspace = true, features = [
-    "substrate-compat",
-], default-features = true }
+subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
 futures = "0.3.24"
 hex = "0.4.3"
 env_logger = "0.9.0"

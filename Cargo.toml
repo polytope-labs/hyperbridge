@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    # # runtime
+    # runtime
     "parachain/runtimes/gargantua",
     "parachain/runtimes/nexus",
 
@@ -137,7 +137,6 @@ serde = { version = "1", default-features = false }
 trie-db = { version = "0.29.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
-codec = { version = "3.6", package = "parity-scale-codec", default-features = false }
 log = { version = "0.4", default-features = false }
 anyhow = { version = "1.0", default-features = false }
 derive_more = { version = "1.0", default-features = false }
@@ -240,6 +239,12 @@ tesseract = { path = "tesseract/relayer" }
 transaction-fees = { path = "tesseract/fees" }
 telemetry-server = { path = "tesseract/telemetry" }
 tesseract-config = { path = "tesseract/config" }
+
+[workspace.dependencies.codec]
+package = "parity-scale-codec"
+version = "3.6"
+default-features = false
+features = ["derive"]
 
 [workspace.dependencies.ethabi]
 version = "18.0.0"

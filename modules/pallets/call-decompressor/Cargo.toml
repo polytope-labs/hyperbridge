@@ -9,10 +9,8 @@ publish = false
 
 [dependencies]
 # crates.io
-codec = { workspace = true, default-features = false }
-scale-info = { version = "2.1.1", default-features = false, features = [
-    "derive",
-] }
+codec = { workspace = true }
+scale-info = { workspace = true }
 ruzstd = { version = "0.6.0", default-features = false }
 log = { workspace = true }
 

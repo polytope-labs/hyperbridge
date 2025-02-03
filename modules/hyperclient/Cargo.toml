@@ -52,9 +52,7 @@ console_error_panic_hook = "0.1.7"
 hex_fmt = { version = "0.3.0", default-features = false }
 tracing = { version = "0.1.40", default-features = false }
 tracing-wasm = "0.2.1"
-tracing-subscriber = { version = "0.3", features = [
-    "registry",
-], default-features = false }
+tracing-subscriber = { version = "0.3", features = ["registry"], default-features = false }
 tracing-subscriber-wasm = "0.1.0"
 
 [dependencies.polkadot-sdk]

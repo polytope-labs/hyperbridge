@@ -15,12 +15,10 @@ pallet-hyperbridge = { workspace = true }
 ismp = { workspace = true }
 
 # crates.io
-codec = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 hashbrown = { version = "0.14.3" }
-scale-info = { version = "2.1.1", default-features = false, features = [
-    "derive",
-] }
+codec = { workspace = true }
+scale-info = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }

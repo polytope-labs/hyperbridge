@@ -11,12 +11,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 # crates.io
-codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = [
-    "derive",
-] }
-scale-info = { version = "2.1.1", default-features = false, features = [
-    "derive",
-] }
+codec = { workspace = true }
+scale-info = { workspace = true }
 anyhow = { workspace = true, default-features = false }
 
 # polytope labs

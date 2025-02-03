@@ -25,9 +25,7 @@ hex = { workspace = true, default-features = false }
 hex-literal = { workspace = true }
 ethabi = { workspace = true }
 codec = { workspace = true, default-features = false }
-scale-info = { version = "2.1.1", default-features = false, features = [
-    "derive",
-] }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 sp-io = { workspace = true }
 
 [dependencies.polkadot-sdk]

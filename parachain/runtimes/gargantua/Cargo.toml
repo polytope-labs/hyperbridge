@@ -13,9 +13,8 @@ substrate-wasm-builder = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
 hex-literal = { workspace = true, optional = true }
 log = { workspace = true }
-scale-info = { version = "2.3.1", default-features = false, features = [
-    "derive",
-] }
+json = { workspace = true }
+scale-info = { version = "2.3.1", default-features = false, features = ["derive"] }
 smallvec = "1.10.0"
 orml-xcm-support = { workspace = true }
 orml-traits = { workspace = true }
@@ -74,6 +73,7 @@ features = [
     "sp-mmr-primitives",
     "sp-core",
     "sp-inherents",
+    "sp-keyring",
     "sp-offchain",
     "sp-runtime",
     "sp-session",
@@ -110,6 +110,7 @@ default = ["std"]
 std = [
     "codec/std",
     "log/std",
+    "json/std",
     "scale-info/std",
     "ismp/std",
     "polkadot-sdk/std",

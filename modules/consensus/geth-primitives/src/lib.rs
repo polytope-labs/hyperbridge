@@ -33,6 +33,7 @@ pub struct Header {
 	pub blob_gas_used: Option<u64>,
 	pub excess_blob_gas_used: Option<u64>,
 	pub parent_beacon_root: Option<B256>,
+	pub requests_hash: Option<B256>,
 }
 
 #[derive(codec::Encode, codec::Decode, Debug, Clone, scale_info::TypeInfo)]
@@ -57,6 +58,7 @@ pub struct CodecHeader {
 	pub blob_gas_used: Option<u64>,
 	pub excess_blob_gas_used: Option<u64>,
 	pub parent_beacon_root: Option<H256>,
+	pub requests_hash: Option<H256>,
 }
 
 impl AsRef<CodecHeader> for CodecHeader {
@@ -98,6 +100,13 @@ impl From<Block<H256>> for CodecHeader {
 				.other
 				.get_deserialized::<H256>("parentBeaconBlockRoot")
 				.and_then(|val| val.ok()),
+			requests_hash: {
+				if let Some(request_root) = block.other.get_deserialized::<H256>("requestsRoot") {
+					request_root.ok()
+				} else {
+					block.other.get_deserialized::<H256>("requestsHash").and_then(|val| val.ok())
+				}
+			},
 		}
 	}
 }
@@ -137,6 +146,7 @@ impl From<&CodecHeader> for Header {
 			blob_gas_used: value.blob_gas_used,
 			excess_blob_gas_used: value.excess_blob_gas_used,
 			parent_beacon_root: value.parent_beacon_root.map(|val| val.0.into()),
+			requests_hash: value.requests_hash.map(|val| val.0.into()),
 		}
 	}
 }

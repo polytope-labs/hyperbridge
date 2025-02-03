@@ -17,6 +17,7 @@
 use anyhow::anyhow;
 use ethers::prelude::*;
 use hex_literal::hex;
+use polkadot_sdk::*;
 
 use crate::{verify_arbitrum_bold, ArbitrumBoldProof, ASSERTIONS_SLOT};
 use evm_state_machine::derive_unhashed_map_key;

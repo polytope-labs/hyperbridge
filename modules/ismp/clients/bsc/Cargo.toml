@@ -11,27 +11,32 @@ publish = false
 log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+scale-info = { version = "2.1.1", default-features = false, features = [
+    "derive",
+] }
 
-sp-core = {workspace = true, default-features = false }
 ismp = { workspace = true }
 bsc-verifier = { workspace = true }
 sync-committee-primitives = { workspace = true }
 geth-primitives = { workspace = true }
-evm-state-machine =  { workspace = true }
+evm-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-core"]
 
 [features]
 default = ["std"]
 std = [
     "log/std",
     "anyhow/std",
-    "sp-core/std",
+    "polkadot-sdk/std",
     "codec/std",
     "scale-info/std",
     "bsc-verifier/std",
     "ismp/std",
     "sync-committee-primitives/std",
     "evm-state-machine/std",
-    "pallet-ismp-host-executive/std"
+    "pallet-ismp-host-executive/std",
 ]

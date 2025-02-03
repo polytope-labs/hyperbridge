@@ -18,14 +18,14 @@
 use super::*;
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
+use polkadot_sdk::*;
 
 #[benchmarks]
 mod benchmarks {
 	use super::*;
 	use cumulus_primitives_core::{relay_chain::HeadData, PersistedValidationData};
-	use ismp::messaging::{ConsensusMessage, Message};
+	use ismp::messaging::ConsensusMessage;
 	use primitive_types::H256;
-	use sp_trie::StorageProof;
 
 	/// Benchmark for add_parachain extrinsic
 	/// The benchmark creates n parachains and measures the time to add them

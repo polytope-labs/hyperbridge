@@ -16,6 +16,7 @@
 
 use cumulus_primitives_core::CollectCollationInfo;
 use pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi;
+use polkadot_sdk::*;
 use sp_api::{ApiExt, Metadata};
 use sp_block_builder::BlockBuilder;
 use sp_consensus_aura::{sr25519, AuraApi};
@@ -30,6 +31,7 @@ use substrate_frame_rpc_system::AccountNonceApi;
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
 /// to even the core data structures.
 pub mod opaque {
+	use super::*;
 	use sp_runtime::{
 		generic,
 		traits::{Hash as HashT, Keccak256},

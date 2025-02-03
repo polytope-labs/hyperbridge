@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-runtime-api"
-version = "15.0.0"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -12,7 +12,6 @@ keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
 readme = "README.md"
 
 [dependencies]
-sp-api = { workspace = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 codec = { workspace = true, features = ["derive"] }
 primitive-types = { workspace = true }
@@ -20,10 +19,14 @@ primitive-types = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-api"]
+
 [features]
 default = ["std"]
 std = [
-    "sp-api/std",
+    "polkadot-sdk/std",
     "serde",
     "codec/std",
     "primitive-types/std",

@@ -16,6 +16,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 // std
+use polkadot_sdk::*;
 use std::{sync::Arc, time::Duration};
 
 use cumulus_client_cli::CollatorOptions;
@@ -180,14 +181,15 @@ where
 		sc_client_api::StateBackend<Keccak256>,
 {
 	let parachain_config = prepare_node_config(parachain_config);
-	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config);
+	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config.executor);
 	let params = new_partial::<Runtime, _>(&parachain_config, executor)?;
 	let (block_import, mut telemetry, telemetry_worker_handle) = params.other;
-	let net_config = sc_network::config::FullNetworkConfiguration::<
-		_,
-		_,
-		sc_network::NetworkWorker<opaque::Block, opaque::Hash>,
-	>::new(&parachain_config.network);
+	let net_config =
+		sc_network::config::FullNetworkConfiguration::<
+			_,
+			_,
+			sc_network::NetworkWorker<opaque::Block, opaque::Hash>,
+		>::new(&parachain_config.network, parachain_config.prometheus_registry().cloned());
 
 	let client = params.client.clone();
 	let backend = params.backend.clone();
@@ -251,11 +253,10 @@ where
 		let backend = backend.clone();
 		let transaction_pool = transaction_pool.clone();
 
-		Box::new(move |deny_unsafe, _| {
+		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
 				pool: transaction_pool.clone(),
-				deny_unsafe,
 				backend: backend.clone(),
 			};
 
@@ -293,7 +294,7 @@ where
 		//     _ => {},
 		// }
 
-		match SUBSTRATE_REFERENCE_HARDWARE.check_hardware(&hwbench) {
+		match SUBSTRATE_REFERENCE_HARDWARE.check_hardware(&hwbench, validator) {
 			Err(err) if validator => {
 				log::warn!(
 				"⚠️  The hardware does not meet the minimal requirements {} for role 'Authority' find out more at:\n\

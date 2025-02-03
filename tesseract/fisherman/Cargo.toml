@@ -16,5 +16,9 @@ sp-core = { workspace = true, features = ["full_crypto"] }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 
-tesseract-primitives = { workspace = true  }
-sc-service = { workspace = true }
+tesseract-primitives = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sc-service"]

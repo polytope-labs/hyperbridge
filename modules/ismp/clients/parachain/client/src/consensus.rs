@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! The parachain consensus client module
+use polkadot_sdk::*;
 
 use core::{marker::PhantomData, time::Duration};
 

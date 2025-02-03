@@ -30,6 +30,7 @@ use pallet_xcm_gateway::{
 	AssetGatewayParams,
 };
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
+use polkadot_sdk::*;
 use sp_core::H256;
 use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Permill};
 use staging_xcm::{latest::prelude::*, VersionedXcm};
@@ -134,8 +135,11 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 		next_asset_id: None,
 	};
 
-	let para_config: parachain_info::GenesisConfig<Test> =
-		parachain_info::GenesisConfig { _config: Default::default(), parachain_id: para_id.into() };
+	let para_config: staging_parachain_info::GenesisConfig<Test> =
+		staging_parachain_info::GenesisConfig {
+			_config: Default::default(),
+			parachain_id: para_id.into(),
+		};
 
 	config.assimilate_storage(&mut t).unwrap();
 	para_config.assimilate_storage(&mut t).unwrap();
@@ -261,12 +265,12 @@ parameter_types! {
 	pub const RelayOrigin: AggregateMessageOrigin = AggregateMessageOrigin::Parent;
 }
 
-impl parachain_info::Config for Test {}
+impl staging_parachain_info::Config for Test {}
 
 impl cumulus_pallet_parachain_system::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type OnSystemEvent = ();
-	type SelfParaId = parachain_info::Pallet<Test>;
+	type SelfParaId = staging_parachain_info::Pallet<Test>;
 	type OutboundXcmpMessageSource = XcmpQueue;
 	type ReservedDmpWeight = ReservedDmpWeight;
 	type XcmpMessageHandler = XcmpQueue;

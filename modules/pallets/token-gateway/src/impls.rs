@@ -16,6 +16,7 @@
 // Pallet Implementations
 use alloc::string::ToString;
 use frame_support::PalletId;
+use polkadot_sdk::*;
 use sp_core::U256;
 use sp_runtime::traits::AccountIdConversion;
 use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
@@ -53,6 +54,7 @@ pub fn convert_to_erc20(value: u128, erc_decimals: u8, decimals: u8) -> U256 {
 
 #[cfg(test)]
 mod tests {
+	use polkadot_sdk::*;
 	use sp_core::U256;
 	use sp_runtime::Permill;
 	use std::ops::Mul;

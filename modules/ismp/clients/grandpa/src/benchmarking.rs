@@ -13,6 +13,7 @@
 // See the License for the specific lang
 
 //! Benchmarks for the ISMP GRANDPA pallet operations
+use polkadot_sdk::*;
 
 use super::*;
 use frame_benchmarking::v2::*;

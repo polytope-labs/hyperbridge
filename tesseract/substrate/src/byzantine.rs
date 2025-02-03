@@ -60,7 +60,7 @@ where
 			);
 			counterparty.veto_state_commitment(height).await?;
 
-			return Ok(())
+			return Ok(());
 		};
 		let header = self
 			.client
@@ -71,7 +71,8 @@ where
 
 		let header = SubstrateHeader::<u32, C::Hasher>::decode(&mut &*header.encode())?;
 
-		let digest = sp_runtime::generic::Digest::decode(&mut &*header.digest.encode())?;
+		let digest =
+			polkadot_sdk::sp_runtime::generic::Digest::decode(&mut &*header.digest.encode())?;
 		let digest_result = fetch_overlay_root_and_timestamp(&digest, Default::default())
 			.map_err(|_| anyhow!("Failed to extract disgest logs in byzantine handler"))?;
 

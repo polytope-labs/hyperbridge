@@ -12,12 +12,12 @@ pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
 substrate-state-machine = { workspace = true }
 log = { workspace = true, default-features = false }
-
-sp-trie = { workspace = true }
-sp-runtime = { workspace = true }
 hash-db = { workspace = true, default-features = false }
-
 codec = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-trie", "sp-runtime"]
 
 [features]
 default = ["std"]
@@ -27,8 +27,7 @@ std = [
     "pallet-ismp-host-executive/std",
     "pallet-hyperbridge/std",
     "substrate-state-machine/std",
-    "sp-trie/std",
-    "sp-runtime/std",
+    "polkadot-sdk/std",
     "hash-db/std",
     "codec/std",
     "log/std",

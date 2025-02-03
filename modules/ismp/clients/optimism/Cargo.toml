@@ -8,10 +8,10 @@ publish = false
 
 [dependencies]
 # polytope labs
-ismp = { workspace = true  }
-ethereum-triedb = { workspace = true  }
-geth-primitives = { workspace = true  }
-evm-state-machine =  { workspace = true }
+ismp = { workspace = true }
+ethereum-triedb = { workspace = true }
+geth-primitives = { workspace = true }
+evm-state-machine = { workspace = true }
 
 # crates.io
 alloy-rlp = { workspace = true }
@@ -21,8 +21,6 @@ hex = { workspace = true, default-features = false }
 hex-literal = { workspace = true }
 ethabi = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
-
-
 
 [features]
 default = ["std"]
@@ -35,5 +33,5 @@ std = [
     "ethabi/std",
     "hex/std",
     "geth-primitives/std",
-    "evm-state-machine/std"
+    "evm-state-machine/std",
 ]

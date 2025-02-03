@@ -15,7 +15,7 @@ log = "0.4.17"
 
 serde = { version = "1.0.164", features = ["derive"] }
 primitive-types = "0.12.1"
-tracing="0.1.40"
+tracing = "0.1.40"
 parity-scale-codec = "3.2.2"
 ismp-solidity-abi = { workspace = true, default-features = true }
 
@@ -24,7 +24,6 @@ ismp = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 pallet-state-coprocessor = { workspace = true, default-features = true }
-
 
 [features]
 testing = []

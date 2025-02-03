@@ -29,6 +29,7 @@ mod benchmarking;
 pub mod weights;
 
 pub use consensus::*;
+use polkadot_sdk::*;
 
 use alloc::{vec, vec::Vec};
 use codec::{Decode, Encode, MaxEncodedLen};
@@ -61,10 +62,13 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + cumulus_pallet_parachain_system::Config
+		polkadot_sdk::frame_system::Config
+		+ pallet_ismp::Config
+		+ cumulus_pallet_parachain_system::Config
 	{
 		/// The overarching event type
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + Default;

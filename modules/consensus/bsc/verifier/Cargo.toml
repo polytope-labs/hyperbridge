@@ -10,7 +10,6 @@ publish = false
 [dependencies]
 log = { workspace = true }
 anyhow = { workspace = true, default-features = false }
-sp-core = { workspace = true, default-features = false }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
@@ -19,18 +18,21 @@ codec = { workspace = true }
 ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 sync-committee-verifier = { workspace = true, default-features = false }
-sync-committee-primitives  = { workspace = true, default-features = false }
+sync-committee-primitives = { workspace = true, default-features = false }
 bls = { workspace = true }
 ark-ec = { workspace = true }
-sp-runtime = { workspace = true }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime", "sp-core"]
 
 [features]
 default = ["std"]
 std = [
     "log/std",
     "anyhow/std",
-    "sp-core/std",
+    "polkadot-sdk/std",
     "codec/std",
     "ismp/std",
     "alloy-primitives/std",
@@ -41,5 +43,4 @@ std = [
     "geth-primitives/std",
     "ark-ec/std",
     "ssz-rs/std",
-    "sp-runtime/std"
 ]

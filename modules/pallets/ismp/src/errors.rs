@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! Pallet error definitions and conversions
+use polkadot_sdk::*;
 
 use alloc::string::ToString;
 use codec::{Decode, Encode};

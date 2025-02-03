@@ -1,4 +1,5 @@
 //! Relay chain runtime mock.
+use polkadot_sdk::*;
 
 use frame_support::{
 	construct_runtime, derive_impl, parameter_types,
@@ -39,7 +40,7 @@ impl frame_system::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type Nonce = u64;
 	type Hash = H256;
-	type Hashing = ::sp_runtime::traits::BlakeTwo256;
+	type Hashing = sp_runtime::traits::BlakeTwo256;
 	type AccountId = AccountId;
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Block = Block;

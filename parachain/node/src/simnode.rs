@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! [`sc_simnode::ChainInfo`] implementations for the hyperbridge runtimes
+use polkadot_sdk::*;
 
 pub struct GargantuaRuntimeInfo;
 

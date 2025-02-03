@@ -15,17 +15,22 @@ serde = { workspace = true, features = ["derive"], default-features = false }
 codec = { workspace = true }
 log = { workspace = true }
 scale-info = { workspace = true }
-frame-benchmarking = { workspace = true, optional = true }
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
-sp-mmr-primitives = { workspace = true }
+
 mmr-primitives = { workspace = true }
-sp-runtime = { workspace = true }
-sp-std = { workspace = true }
 merkle-mountain-range = { workspace = true }
 pallet-ismp = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-core",
+    "sp-io",
+    "sp-mmr-primitives",
+    "sp-runtime",
+    "sp-std",
+]
 
 [dev-dependencies]
 array-bytes = "6.1"
@@ -35,30 +40,17 @@ itertools = "0.10.3"
 [features]
 default = ["std"]
 std = [
-	"codec/std",
-	"frame-benchmarking?/std",
-	"frame-support/std",
-	"frame-system/std",
-	"log/std",
-	"scale-info/std",
-	"sp-core/std",
-	"sp-io/std",
-	"sp-mmr-primitives/std",
-	"mmr-primitives/std",
-	"sp-runtime/std",
-	"sp-std/std",
-	"merkle-mountain-range/std",
-	"serde/default",
-	"pallet-ismp/std",
+    "codec/std",
+    "log/std",
+    "scale-info/std",
+    "mmr-primitives/std",
+    "merkle-mountain-range/std",
+    "serde/default",
+    "pallet-ismp/std",
+    "polkadot-sdk/std",
 ]
 runtime-benchmarks = [
-	"frame-benchmarking/runtime-benchmarks",
-	"frame-support/runtime-benchmarks",
-	"frame-system/runtime-benchmarks",
-	"sp-runtime/runtime-benchmarks",
+    "polkadot-sdk/frame-benchmarking",
+    "polkadot-sdk/runtime-benchmarks",
 ]
-try-runtime = [
-	"frame-support/try-runtime",
-	"frame-system/try-runtime",
-	"sp-runtime/try-runtime",
-]
+try-runtime = ["polkadot-sdk/try-runtime"]

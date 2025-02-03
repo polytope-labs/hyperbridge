@@ -14,30 +14,30 @@ publish = false
 [dependencies]
 merkle-mountain-range = { workspace = true }
 codec = { workspace = true }
-sp-core = { workspace = true }
-sp-runtime = { workspace = true }
-sp-std = { workspace = true }
-sp-mmr-primitives = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true }
-frame-system = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
-sp-io = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "sp-core",
+    "sp-runtime",
+    "sp-std",
+    "sp-mmr-primitives",
+    "sp-io",
+    "frame-system",
+]
 
 [features]
 default = ["std"]
 std = [
     "codec/std",
-    "sp-core/std",
-    "sp-runtime/std",
-    "sp-std/std",
+    "polkadot-sdk/std",
     "serde/default",
     "scale-info/std",
-    "sp-mmr-primitives/std",
     "merkle-mountain-range/std",
-    "frame-system/std",
     "ismp/std",
     "pallet-ismp/std",
-    "sp-io/std"
 ]

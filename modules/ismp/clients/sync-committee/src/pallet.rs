@@ -14,9 +14,11 @@
 // limitations under the License.
 
 pub use pallet::*;
+use polkadot_sdk::*;
 
 #[frame_support::pallet]
 pub mod pallet {
+	use super::*;
 	use crate::types::{ConsensusState, L2Consensus};
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
@@ -33,7 +35,9 @@ pub mod pallet {
 
 	/// The config trait
 	#[pallet::config]
-	pub trait Config<I: 'static = ()>: frame_system::Config + pallet_ismp::Config {
+	pub trait Config<I: 'static = ()>:
+		polkadot_sdk::frame_system::Config + pallet_ismp::Config
+	{
 		/// Origin allowed to add or remove parachains in Consensus State
 		type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
 

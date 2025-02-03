@@ -25,6 +25,7 @@
 #![allow(unused_imports)]
 #![allow(missing_docs)]
 
+use polkadot_sdk::*;
 use frame_support::{traits::Get, weights::Weight};
 use core::marker::PhantomData;
 
@@ -504,5 +505,9 @@ impl<T: frame_system::Config> pallet_assets::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(0, 3703))
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(T::DbWeight::get().writes(1))
+	}
+
+	fn transfer_all() -> Weight {
+	   Default::default()
 	}
 }

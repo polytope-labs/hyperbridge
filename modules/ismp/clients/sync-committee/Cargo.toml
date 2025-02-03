@@ -15,7 +15,7 @@ sync-committee-verifier = { workspace = true, default-features = false }
 ethereum-triedb = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
-evm-state-machine =  { workspace = true }
+evm-state-machine = { workspace = true }
 arbitrum-verifier = { workspace = true }
 op-verifier = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
@@ -25,14 +25,14 @@ hex = { workspace = true, default-features = false }
 hex-literal = { workspace = true }
 ethabi = { workspace = true }
 codec = { workspace = true, default-features = false }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
-
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-sp-trie = { workspace = true }
+scale-info = { version = "2.1.1", default-features = false, features = [
+    "derive",
+] }
 sp-io = { workspace = true }
-sp-runtime = { workspace = true }
-sp-core = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-trie", "sp-runtime", "sp-core"]
 
 [features]
 default = ["std"]
@@ -44,23 +44,19 @@ std = [
     "hex/std",
     "sync-committee-primitives/std",
     "sync-committee-verifier/std",
-    "frame-support/std",
-    "frame-system/std",
+    "polkadot-sdk/std",
     "scale-info/std",
-    "sp-runtime/std",
-    "sp-io/std",
-    "sp-core/std",
     "pallet-ismp/std",
     "geth-primitives/std",
     "evm-state-machine/std",
     "arbitrum-verifier/std",
-    "op-verifier/std"
+    "op-verifier/std",
 ]
 
-disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]
-
-try-runtime = [
-	"frame-support/try-runtime",
-	"frame-system/try-runtime",
-	"sp-runtime/try-runtime",
+disable-panic-handler = [
+    "sp-io/disable_panic_handler",
+    "sp-io/disable_oom",
+    "sp-io/disable_allocator",
 ]
+
+try-runtime = ["polkadot-sdk/try-runtime"]

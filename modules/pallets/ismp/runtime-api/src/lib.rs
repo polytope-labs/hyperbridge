@@ -26,6 +26,7 @@ use ismp::{
 	host::StateMachine,
 	router::{Request, Response},
 };
+use polkadot_sdk::*;
 use primitive_types::H256;
 
 sp_api::decl_runtime_apis! {

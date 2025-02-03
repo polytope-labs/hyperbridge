@@ -24,7 +24,7 @@ use evm_state_machine::{
 	},
 	state_comitment_key,
 };
-use sp_mmr_primitives::utils::NodesUtils;
+use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
 
 use super::interface::Query;
 use crate::{

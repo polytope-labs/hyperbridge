@@ -1,16 +1,15 @@
 {
  "hyperbridge-gargantua": {
   "chainId": "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73",
-  "startBlock": 2000000,
+  "startBlock": 3000000,
   "endpoints": [
    "wss://hyperbridge-paseo-rpc.blockops.network"
   ]
  },
  "bifrost-paseo": {
   "chainId": "0x9f28c6a68e0fc9646eff64935684f6eeeece527e37bbe1f213d22caa1d9d6bed",
-  "startBlock": 6033754,
+  "startBlock": 1215000,
   "endpoints": [
-   "wss://bifrost-parachain.api.onfinality.io/public-ws",
    "wss://bifrost-rpc.liebi.com/ws"
   ]
  }

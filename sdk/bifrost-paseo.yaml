@@ -15,13 +15,12 @@ schema:
 network:
   chainId: '0x9f28c6a68e0fc9646eff64935684f6eeeece527e37bbe1f213d22caa1d9d6bed'
   endpoint:
-    - 'wss://bifrost-parachain.api.onfinality.io/public-ws'
     - 'wss://bifrost-rpc.liebi.com/ws'
   chaintypes:
-    file: ./dist/substrate-chaintypes.js
+    file: ./dist/substrate-chaintypes/bifrost.js
 dataSources:
   - kind: substrate/Runtime
-    startBlock: 6033754
+    startBlock: 1215000
     mapping:
       file: ./dist/index.js
       handlers:

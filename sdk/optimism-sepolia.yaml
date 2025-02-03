@@ -19,7 +19,7 @@ network:
     - 'https://optimism-sepolia-rpc.publicnode.com'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 15446807
+    startBlock: 15446808
     options:
       abi: ethereumHost
       address: '0x37BBd9d3CF34c9143Ae01E33BA1eB59c3AD00a0f'

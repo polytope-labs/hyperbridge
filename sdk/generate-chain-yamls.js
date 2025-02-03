@@ -3,11 +3,30 @@
 const fs = require('fs');
 const configs = require('./chain-configs.json');
 
+const getChainTypesPath = (chain) => {
+ // Extract base chain name before the hyphen
+ const baseChainName = chain.split('-')[0];
+
+ const chainTypesMap = {
+  hyperbridge: './dist/substrate-chaintypes/hyperbridge.js',
+  bifrost: './dist/substrate-chaintypes/bifrost.js',
+ };
+
+ return chainTypesMap[baseChainName.toLowerCase()] || null;
+};
+
 // Generate chain-specific YAML files
 Object.entries(configs).forEach(([chain, config]) => {
+ const chainTypesConfig = getChainTypesPath(chain);
  const endpoints = config.endpoints
   .map((endpoint) => `    - '${endpoint}'`)
   .join('\n');
+
+ const chainTypesSection = chainTypesConfig
+  ? `
+  chaintypes:
+    file: ${chainTypesConfig}`
+  : '';
 
  const yaml = `# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
@@ -26,9 +45,7 @@ schema:
 network:
   chainId: '${config.chainId}'
   endpoint:
-${endpoints}
-  chaintypes:
-    file: ./dist/substrate-chaintypes.js
+${endpoints}${chainTypesSection}
 dataSources:
   - kind: substrate/Runtime
     startBlock: ${config.startBlock}

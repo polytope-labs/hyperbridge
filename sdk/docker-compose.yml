@@ -49,7 +49,9 @@ services:
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-5}
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --source-chain=hyperbridge-gargantua
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-hyperbridge-gargantua:3000/ready']
       interval: 3s
@@ -79,7 +81,9 @@ services:
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-5}
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --source-chain=bifrost-paseo
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-bifrost-paseo:3000/ready']
       interval: 3s
@@ -109,6 +113,7 @@ services:
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --multi-chain
+      - --unsafe
       - --log-level=info
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-ethereum-sepolia:3000/ready']
@@ -139,6 +144,7 @@ services:
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --multi-chain
+      - --unsafe
       - --log-level=info
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-base-sepolia:3000/ready']
@@ -169,6 +175,7 @@ services:
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --multi-chain
+      - --unsafe
       - --log-level=info
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-optimism-sepolia:3000/ready']
@@ -199,6 +206,7 @@ services:
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --multi-chain
+      - --unsafe
       - --log-level=info
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-arbitrum-sepolia:3000/ready']
@@ -229,6 +237,7 @@ services:
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --multi-chain
+      - --unsafe
       - --log-level=info
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-bsc-chapel:3000/ready']

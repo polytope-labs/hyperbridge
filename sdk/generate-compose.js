@@ -42,7 +42,9 @@ const generateSubstrateServices = () => {
       - --workers=\${SUBQL_WORKERS:-1}
       - --batch-size=\${SUBQL_BATCH_SIZE:-5}
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --source-chain=${chain}
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-${chain}:3000/ready']
       interval: 3s
@@ -79,6 +81,7 @@ const generateEvmServices = () => {
       - --workers=\${SUBQL_WORKERS:-1}
       - --batch-size=\${SUBQL_BATCH_SIZE:-3}
       - --multi-chain
+      - --unsafe
       - --log-level=info
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-${chain}:3000/ready']

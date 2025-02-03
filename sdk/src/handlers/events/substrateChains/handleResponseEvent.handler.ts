@@ -2,14 +2,16 @@ import { SubstrateEvent } from '@subql/types';
 import assert from 'assert';
 import { ResponseService } from '../../../services/response.service';
 import { Status } from '../../../types';
-import { extractStateMachineIdFromSubstrateEventData, getChainIdFromEvent } from '../../../utils/substrate.helpers';
+import {
+ extractStateMachineIdFromSubstrateEventData,
+ getHostStateMachine,
+} from '../../../utils/substrate.helpers';
+import { HYPERBRIDGE } from '../../../constants';
 
 export async function handleSubstrateResponseEvent(
  event: SubstrateEvent
 ): Promise<void> {
  logger.info(`Handling ISMP Response Event`);
-
- const chainId = getChainIdFromEvent(event);
 
  const stateMachineId = extractStateMachineIdFromSubstrateEventData(
   event.event.data.toString()
@@ -18,28 +20,30 @@ export async function handleSubstrateResponseEvent(
  if (typeof stateMachineId === 'undefined') return;
 
  assert(event.extrinsic);
- const {
-  event: {
-   data: [dest_chain, source_chain, request_nonce, commitment, req_commitment],
-  },
-  extrinsic,
-  block: {
-   timestamp,
-   block: {
-    header: { number: blockNumber, hash: blockHash },
-   },
-  },
- } = event;
+ const [source_chain, dest_chain, request_nonce, commitment, req_commitment] =
+  event.event.data;
 
- await ResponseService.updateStatus({
-  commitment: commitment.toString(),
-  chain: chainId,
-  blockNumber: blockNumber.toString(),
-  blockHash: blockHash.toString(),
-  blockTimestamp: timestamp
-   ? BigInt(Date.parse(timestamp.toString()))
-   : BigInt(0),
-  status: Status.MESSAGE_RELAYED,
-  transactionHash: extrinsic.extrinsic.hash.toString(),
- });
+ const host = getHostStateMachine(chainId);
+
+ if (host === HYPERBRIDGE) {
+  await ResponseService.updateStatus({
+   commitment: commitment.toString(),
+   chain: chainId,
+   blockNumber: event.block.block.header.number.toString(),
+   blockHash: event.block.block.header.hash.toString(),
+   blockTimestamp: BigInt(event.block.timestamp!.getTime()),
+   status: Status.HYPERBRIDGE_DELIVERED,
+   transactionHash: event.extrinsic?.extrinsic.hash.toString() || '',
+  });
+ } else {
+  await ResponseService.findOrCreate({
+   chain: chainId,
+   commitment: commitment.toString(),
+   status: Status.DESTINATION,
+   blockNumber: event.block.block.header.number.toString(),
+   blockHash: event.block.block.header.hash.toString(),
+   transactionHash: event.extrinsic?.extrinsic.hash.toString() || '',
+   blockTimestamp: BigInt(event.block.timestamp!.getTime()),
+  });
+ }
 }

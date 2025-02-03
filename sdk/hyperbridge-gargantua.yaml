@@ -17,10 +17,10 @@ network:
   endpoint:
     - 'wss://hyperbridge-paseo-rpc.blockops.network'
   chaintypes:
-    file: ./dist/substrate-chaintypes.js
+    file: ./dist/substrate-chaintypes/hyperbridge.js
 dataSources:
   - kind: substrate/Runtime
-    startBlock: 2000000
+    startBlock: 3000000
     mapping:
       file: ./dist/index.js
       handlers:

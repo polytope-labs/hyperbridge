@@ -1,4 +1,5 @@
 import { SubstrateEvent } from '@subql/types';
+import { CHAIN_IDS_BY_GENESIS } from '../constants';
 
 /**
  * Get the StateMachineID parsing the stringified object which substrate provides
@@ -13,9 +14,7 @@ export const extractStateMachineIdFromSubstrateEventData = (
   // Handle array format with direct objects
   if (Array.isArray(parsed)) {
    // Find the object containing stateId or ethereum/bsc keys
-   const stateObject = parsed.find(
-    (item) => item?.stateId
-   );
+   const stateObject = parsed.find((item) => item?.stateId);
 
    if (!stateObject) return undefined;
 
@@ -72,6 +71,14 @@ export function getChainIdFromEvent(event: SubstrateEvent): string {
    ? event.block.block.header.parentHash.toString() // Parachain
    : event.block.block.header.hash.toString(); // Standalone chain
 
+ return chainId;
+}
+
+export function getHostStateMachine(genesis_hash: string): string {
+ const chainId = CHAIN_IDS_BY_GENESIS[genesis_hash];
+ if (!chainId) {
+  throw new Error(`Unknown genesis hash: ${genesis_hash}`);
+ }
  return chainId;
 }
 

@@ -3,7 +3,7 @@ import { ResponseService } from '../../../services/response.service';
 import { Status } from '../../../types';
 import {
  extractStateMachineIdFromSubstrateEventData,
- getChainIdFromEvent,
+ getHostStateMachine,
 } from '../../../utils/substrate.helpers';
 import { HYPERBRIDGE } from '../../../constants';
 
@@ -12,7 +12,6 @@ export async function handleSubstratePostResponseHandledEvent(
 ): Promise<void> {
  logger.info(`Handling ISMP PostResponseHandled Event`);
 
- const chainId = getChainIdFromEvent(event);
  const stateMachineId = extractStateMachineIdFromSubstrateEventData(
   event.event.data.toString()
  );
@@ -38,8 +37,10 @@ export async function handleSubstratePostResponseHandledEvent(
   },
  } = event;
 
+const host = getHostStateMachine(chainId);
+ // Determine the status based on the chainId
  const status =
-    chainId === HYPERBRIDGE ? Status.MESSAGE_RELAYED : Status.DEST;
+  host === HYPERBRIDGE ? Status.HYPERBRIDGE_DELIVERED : Status.DESTINATION;
 
  await ResponseService.updateStatus({
   commitment: response_commitment.toString(),

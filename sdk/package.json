@@ -24,14 +24,15 @@
   "license": "MIT",
   "dependencies": {
     "@bifrost-finance/type-definitions": "^1.11.9",
-    "@open-web3/orml-type-definitions": "^2.0.1",
     "@ethersproject/shims": "^5.7.0",
+    "@open-web3/orml-type-definitions": "^2.0.1",
     "@polkadot/api": "latest",
     "@subql/common": "latest",
     "@subql/common-ethereum": "^4.5.5",
     "@subql/types-ethereum": "latest",
     "@subql/validator": "latest",
-    "assert": "^2.0.0"
+    "assert": "^2.0.0",
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "@subql/cli": "latest",
@@ -45,6 +46,7 @@
     "typescript": "latest"
   },
   "exports": {
-    "substrate-chaintypes": "src/substrate-chaintypes.ts"
+    "substrate-chaintypes/hyperbridge": "src/substrate-chaintypes/hyperbridge.ts",
+    "substrate-chaintypes/bifrost": "src/substrate-chaintypes/bifrost.ts"
   }
 }

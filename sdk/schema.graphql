@@ -32,8 +32,8 @@ The status of a request
 """
 enum Status {
  SOURCE
- MESSAGE_RELAYED
- DEST
+ HYPERBRIDGE_DELIVERED
+ DESTINATION
  TIMED_OUT
  HYPERBRIDGE_TIMED_OUT
 }
@@ -104,12 +104,7 @@ Hyperbridge Stats for a specific Relayer on a specific chain
 """
 type RelayerStatsPerChain
  @entity
- @compositeIndexes(
-  fields: [
-   ["relayer", "chain"]
-   ["feesEarned", "chain"]
-  ]
- ) {
+ @compositeIndexes(fields: [["relayer", "chain"], ["feesEarned", "chain"]]) {
  """
  Unique identifier of the RelayerChainMetrics entry.
  """

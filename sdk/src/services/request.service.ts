@@ -32,8 +32,8 @@ export interface IUpdateRequestStatusArgs {
 
 const REQUEST_STATUS_WEIGHTS = {
  [Status.SOURCE]: 1,
- [Status.MESSAGE_RELAYED]: 2,
- [Status.DEST]: 3,
+ [Status.HYPERBRIDGE_DELIVERED]: 2,
+ [Status.DESTINATION]: 3,
  [Status.TIMED_OUT]: 4,
 };
 
@@ -132,10 +132,10 @@ export class RequestService {
     request.status = status;
 
     switch (status) {
-     case Status.MESSAGE_RELAYED:
+     case Status.HYPERBRIDGE_DELIVERED:
       request.hyperbridgeTransactionHash = transactionHash;
       break;
-     case Status.DEST:
+     case Status.DESTINATION:
       request.destinationTransactionHash = transactionHash;
       break;
     }

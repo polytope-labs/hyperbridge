@@ -11,8 +11,6 @@ import {
 export async function handleIsmpStateMachineUpdatedEvent(
  event: SubstrateEvent
 ): Promise<void> {
- const chainId = getChainIdFromEvent(event);
-
  const stateMachineId = extractStateMachineIdFromSubstrateEventData(
   event.event.data.toString()
  );

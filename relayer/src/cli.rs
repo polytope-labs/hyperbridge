@@ -170,10 +170,19 @@ async fn initialize_consensus_clients(
 ) -> anyhow::Result<()> {
 	if setup_eth {
 		if let AnyHost::Beefy(beefy) = hyperbridge {
-			let initial_state = beefy.hydrate_initial_consensus_state(None).await?;
 			// write this consensus state to redis
+			let initial_state = beefy.hydrate_initial_consensus_state(None).await?;
 			for (state_machine, chain) in chains {
+				if !matches!(state_machine, StateMachine::Evm(_)) {
+					continue;
+				}
 				let provider = chain.provider();
+				let consensus_state =
+					provider.query_consensus_state(None, Default::default()).await?;
+				if !consensus_state.is_empty() {
+					continue;
+				}
+
 				log::info!("setting consensus state on {state_machine}");
 				if let Err(err) = provider.set_initial_consensus_state(initial_state.clone()).await
 				{

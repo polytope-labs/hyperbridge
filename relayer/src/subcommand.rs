@@ -1,9 +1,12 @@
-use std::str::FromStr;
+use std::{collections::BTreeMap, str::FromStr};
 
 use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
 use anyhow::anyhow;
+use codec::{Compact, Encode};
 use ismp::host::StateMachine;
 use std::sync::Arc;
+use subxt::tx::TxPayload;
+use subxt_utils::Extrinsic;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 
@@ -13,6 +16,8 @@ pub enum Subcommand {
 	SetConsensusState(SetConsensusState),
 	/// Output the json serialized `CreateConsensusState` Message for a client
 	LogConsensusState(SetConsensusState),
+	/// Output the scale-encoded HostExecutive::update_evm_hosts extrinsic for an evm state machine
+	LogHostParams(SetConsensusState),
 }
 
 #[derive(Debug, clap::Parser)]
@@ -24,6 +29,8 @@ pub enum Subcommand {
 pub struct SetConsensusState {
 	/// State Machine whose consensus state should be generated
 	state_machine: String,
+	/// Wrap the call in the sudo extrinsic
+	sudo: Option<bool>,
 }
 
 impl SetConsensusState {
@@ -64,6 +71,69 @@ impl SetConsensusState {
 		Ok(())
 	}
 
+	pub async fn log_host_param(&self, config_path: String) -> Result<(), anyhow::Error> {
+		// using env_logger because tracing subscriber does not allow the output to be piped
+		logging::setup()?;
+
+		let state_machine = StateMachine::from_str(&self.state_machine)
+			.map_err(|_| anyhow!("Failed to deserialize state machine"))?;
+
+		let mut config = HyperbridgeConfig::parse_conf(&config_path).await?;
+
+		// remove all other chains
+		config.chains.retain(|s, _| state_machine == *s);
+
+		let hyperbridge = config
+			.hyperbridge
+			.clone()
+			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+			.await?;
+
+		let clients = create_client_map(config.clone()).await?;
+		let client = clients
+			.get(&state_machine)
+			.ok_or_else(|| anyhow!("Client for provided state machine was not found"))?;
+
+		log::info!("Fetching host params for {state_machine}");
+		let host_param = client.provider().query_host_params(state_machine).await?;
+		let host_params: BTreeMap<_, _> = vec![(state_machine, host_param)].into_iter().collect();
+
+		let host_address = config
+			.chains
+			.get(&state_machine)
+			.ok_or_else(|| anyhow!("Config for {state_machine:?} not found"))?
+			.host_address()
+			.ok_or_else(|| anyhow!("Missing host address for {state_machine:?}"))?;
+		let evm_hosts: BTreeMap<_, _> = vec![(state_machine, host_address)].into_iter().collect();
+
+		// Call to set the HostParams
+		let set_host_params =
+			Extrinsic::new("HostExecutive", "set_host_params", host_params.encode())
+				.encode_call_data(&hyperbridge.client().client.metadata())?;
+		// Call to set the Host address
+		let update_evm_hosts =
+			Extrinsic::new("HostExecutive", "update_evm_hosts", evm_hosts.encode())
+				.encode_call_data(&hyperbridge.client().client.metadata())?;
+		// batch them both
+		let batch = Extrinsic::new(
+			"Utility",
+			"batch_all",
+			vec![Compact(2u32).encode(), set_host_params, update_evm_hosts].concat(),
+		)
+		.encode_call_data(&hyperbridge.client().client.metadata())?;
+
+		let proposal = if self.sudo.unwrap_or_default() {
+			Extrinsic::new("Sudo", "sudo", batch)
+				.encode_call_data(&hyperbridge.client().client.metadata())?
+		} else {
+			batch
+		};
+
+		log::info!("HostExecutive call for {state_machine:?}:\n0x{}", hex::encode(&proposal));
+
+		Ok(())
+	}
+
 	pub async fn log_consensus_state(&self, config_path: String) -> Result<(), anyhow::Error> {
 		// using env_logger because tracing subscriber does not allow the output to be piped
 		env_logger::init();
@@ -92,9 +162,7 @@ impl SetConsensusState {
 			.await?
 			.ok_or_else(|| anyhow!("The state machine provided does not have a consensus state"))?;
 
-		// todo: use polkadotjs extrinsic link https://dotapps-io.ipns.dweb.link/?rpc=wss%3A%2F%2Fhusky-witty-highly.ngrok-free.app%3A443#/extrinsics/decode/0x0000147364667364
-
-		println!(
+		log::info!(
 			"ConsensusState for {state_machine}:\n0x{}",
 			hex::encode(&consensus_state.consensus_state)
 		);

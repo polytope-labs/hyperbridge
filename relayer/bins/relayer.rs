@@ -27,8 +27,11 @@ async fn main() -> Result<(), anyhow::Error> {
 			Subcommand::LogConsensusState(set_consensus_state) => {
 				set_consensus_state.log_consensus_state(cli.config.clone()).await?;
 			},
+			Subcommand::LogHostParams(set_consensus_state) => {
+				set_consensus_state.log_host_param(cli.config.clone()).await?;
+			},
 		}
-		return Ok(())
+		return Ok(());
 	}
 
 	cli.start_consensus().await

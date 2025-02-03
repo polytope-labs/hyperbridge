@@ -25,17 +25,7 @@ export async function handleSubstrateResponseEvent(
 
  const host = getHostStateMachine(chainId);
 
- if (host === HYPERBRIDGE) {
-  await ResponseService.updateStatus({
-   commitment: commitment.toString(),
-   chain: chainId,
-   blockNumber: event.block.block.header.number.toString(),
-   blockHash: event.block.block.header.hash.toString(),
-   blockTimestamp: BigInt(event.block.timestamp!.getTime()),
-   status: Status.HYPERBRIDGE_DELIVERED,
-   transactionHash: event.extrinsic?.extrinsic.hash.toString() || '',
-  });
- } else {
+ if (host !== HYPERBRIDGE) {
   await ResponseService.findOrCreate({
    chain: chainId,
    commitment: commitment.toString(),

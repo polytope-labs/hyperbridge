@@ -36,7 +36,7 @@ export async function handleTransferEvent(event: TransferLog): Promise<void> {
 
   if (HOST_ADDRESSES.includes(from)) {
    try {
-    await RelayerService.updateFeesEarned(transfer);
+    // await RelayerService.updateFeesEarned(transfer);
     await HyperBridgeService.handleTransferOutOfHostAccounts(transfer, chain);
    } catch (error) {
     logger.error(

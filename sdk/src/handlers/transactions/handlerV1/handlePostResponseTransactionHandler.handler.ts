@@ -30,10 +30,10 @@ export async function handlePostResponseTransactionHandler(
  logger.info(`Chain: ${chain}`);
 
  try {
-  await RelayerService.handlePostRequestOrResponseTransaction(
-   chain,
-   transaction
-  );
+  // await RelayerService.handlePostRequestOrResponseTransaction(
+  //  chain,
+  //  transaction
+  // );
   await HyperBridgeService.handlePostRequestOrResponseTransaction(
    chain,
    transaction

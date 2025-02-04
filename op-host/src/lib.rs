@@ -15,7 +15,7 @@ use ethers::{
 use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use op_verifier::{
-	calculate_output_root, get_game_uuid, OptimismDisputeGameProof, OptimismPayloadProof, CANNON,
+	calculate_output_root, get_game_uuid, OptimismDisputeGameProof, OptimismPayloadProof,
 	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT,
 };
 use reqwest::Client;
@@ -223,6 +223,7 @@ impl OpHost {
 		&self,
 		from: u64,
 		to: u64,
+		respected_game_types: Vec<u32>,
 	) -> Result<Vec<DisputeGameCreatedFilter>, anyhow::Error> {
 		if from > to {
 			return Ok(Default::default());
@@ -243,7 +244,10 @@ impl OpHost {
 			.into_iter()
 			.collect::<Vec<_>>();
 
-		let events = events.into_iter().filter(|a| a.game_type == CANNON).collect::<Vec<_>>();
+		let events = events
+			.into_iter()
+			.filter(|a| respected_game_types.contains(&a.game_type))
+			.collect::<Vec<_>>();
 
 		Ok(events)
 	}

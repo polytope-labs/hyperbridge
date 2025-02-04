@@ -104,6 +104,7 @@ pub async fn get_beacon_update<
 						.latest_dispute_games(
 							latest_height,
 							consensus_update.execution_payload.block_number,
+							vec![respected_game_type],
 						)
 						.await?;
 					let payload = op_client
@@ -125,6 +126,7 @@ pub async fn get_beacon_update<
 						.latest_dispute_games(
 							latest_height,
 							consensus_update.execution_payload.block_number,
+							respected_game_types.clone(),
 						)
 						.await?;
 					let payload = op_client

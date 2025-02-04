@@ -1,9 +1,6 @@
-import assert from 'assert';
-
 import { HyperBridgeService } from '../../../services/hyperbridge.service';
 import { RelayerService } from '../../../services/relayer.service';
 import { HandlePostRequestsTransaction } from '../../../types/abi-interfaces/HandlerV1Abi';
-import StateMachineHelpers from '../../../utils/stateMachine.helpers';
 import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
 /**

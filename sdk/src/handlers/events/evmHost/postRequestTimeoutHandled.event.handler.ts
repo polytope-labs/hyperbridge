@@ -1,10 +1,9 @@
-import assert from "assert";
 import { EventType, Status } from "../../../types";
 import { PostRequestTimeoutHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RequestService } from "../../../services/request.service";
-import StateMachineHelpers from "../../../utils/stateMachine.helpers";
+import { getHostStateMachine } from "../../../utils/substrate.helpers";
 
 /**
  * Handles the PostRequestTimeoutHandled event
@@ -33,8 +32,7 @@ export async function handlePostRequestTimeoutHandledEvent(
     })}`
   );
 
-  const chain: string =
-    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
+  const chain: string = getHostStateMachine(chainId);
 
   Promise.all([
     await EvmHostEventsService.createEvent(

@@ -1,10 +1,9 @@
-import assert from "assert";
 import { Status, Request } from "../../../types";
 import { PostResponseEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { ResponseService } from "../../../services/response.service";
 import { RequestService } from "../../../services/request.service";
-import StateMachineHelpers from "../../../utils/stateMachine.helpers";
+import { getHostStateMachine } from "../../../utils/substrate.helpers";
 
 /**
  * Handles the PostResponse event from Evm Hosts
@@ -35,8 +34,7 @@ export async function handlePostResponseEvent(
     })}`
   );
 
-  const chain: string =
-    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
+  const chain: string = getHostStateMachine(chainId);
 
   await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event);
 

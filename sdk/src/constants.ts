@@ -41,12 +41,14 @@ export const CHAIN_IDS_BY_GENESIS = {
  // Hyperbridge
  '0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73':
   'KUSAMA-4009',
- '0xabcd...1234': 'POLKADOT-3367',
+ '0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540':
+  'POLKADOT-3367',
 
  // Bifrost
  '0x9f28c6a68e0fc9646eff64935684f6eeeece527e37bbe1f213d22caa1d9d6bed':
   'KUSAMA-2030',
- '0xdef...5678': 'POLKADOT-2030',
+ '0x262e1b2ad728475fd6fe88e62d34c200abe6fd693931ddad144059b1eb884e5b':
+  'POLKADOT-2030',
 
  // BSC
  '97': 'EVM-97',

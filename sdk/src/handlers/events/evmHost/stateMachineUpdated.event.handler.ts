@@ -1,8 +1,6 @@
-import assert from 'assert';
-
 import { StateMachineUpdatedLog } from '../../../types/abi-interfaces/EthereumHostAbi';
 import { StateMachineService } from '../../../services/stateMachine.service';
-import StateMachineHelpers from '../../../utils/stateMachine.helpers';
+import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
 /**
  * Handle the StateMachineUpdated event
@@ -30,8 +28,7 @@ export async function handleStateMachineUpdatedEvent(
   })}`
  );
 
- const chain: string =
-  StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
+ const chain: string = getHostStateMachine(chainId);
  await StateMachineService.createEvmStateMachineUpdatedEvent(
   {
    transactionHash,

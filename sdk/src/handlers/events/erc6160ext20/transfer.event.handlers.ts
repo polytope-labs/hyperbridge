@@ -1,11 +1,9 @@
-import assert from 'assert';
-
 import { GET_HOST_ADDRESSES } from '../../../addresses/state-machine.addresses';
 import { HyperBridgeService } from '../../../services/hyperbridge.service';
 import { RelayerService } from '../../../services/relayer.service';
 import { TransferService } from '../../../services/transfer.service';
 import { TransferLog } from '../../../types/abi-interfaces/ERC6160Ext20Abi';
-import StateMachineHelpers from '../../../utils/stateMachine.helpers';
+import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
 /**
  * Handles the Transfer event from the Fee Token contract
@@ -24,8 +22,7 @@ export async function handleTransferEvent(event: TransferLog): Promise<void> {
   })}`
  );
 
- const chain: string =
-  StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
+ const chain: string = getHostStateMachine(chainId);
 
  // Only store transfers from/to the Hyperbridge host contracts
  if (HOST_ADDRESSES.includes(from) || HOST_ADDRESSES.includes(to)) {

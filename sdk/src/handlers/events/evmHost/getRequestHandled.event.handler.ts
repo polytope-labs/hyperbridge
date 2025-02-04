@@ -1,8 +1,7 @@
-import assert from "assert";
 import { EventType } from "../../../types";
 import { GetRequestHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
-import StateMachineHelpers from "../../../utils/stateMachine.helpers";
+import { getHostStateMachine } from "../../../utils/substrate.helpers";
 
 /**
  * Handles the GetRequestHandled event
@@ -31,8 +30,7 @@ export async function handleGetRequestHandledEvent(
     })}`
   );
 
-  const chain: string =
-    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
+  const chain: string = getHostStateMachine(chainId);
 
   await EvmHostEventsService.createEvent(
     {

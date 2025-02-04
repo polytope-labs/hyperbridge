@@ -22,7 +22,7 @@ use sp_core::H256;
 use std::{
 	pin::Pin,
 	sync::Arc,
-	time::{SystemTime, UNIX_EPOCH},
+	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
@@ -42,7 +42,7 @@ use ismp::{
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
 use redis_async::client::PubsubConnection;
-use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqMessage};
+use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError, RsmqMessage};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tokio::sync::Mutex;
 
@@ -98,6 +98,43 @@ where
 		let rsmq = Arc::new(Mutex::new(redis_utils::rsmq_client(&config.redis).await?));
 
 		Ok(BeefyHost { pubsub, rsmq, prover, client, config })
+	}
+
+	/// Initialize all the relevant queues for the configured state machines.
+	pub async fn init_queues(
+		&self,
+		state_machines: Vec<StateMachine>,
+	) -> Result<(), anyhow::Error> {
+		for state_machine in state_machines.iter() {
+			let mut rsmq = self.rsmq.lock().await;
+			let result = rsmq
+				.create_queue(
+					self.config.redis.mandatory_queue(state_machine).as_str(),
+					Some(Duration::ZERO),
+					Some(Duration::ZERO),
+					Some(-1),
+				)
+				.await;
+
+			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
+				result.context(format!("Failed to create mandatory queue for {state_machine}"))?
+			}
+
+			let result = rsmq
+				.create_queue(
+					self.config.redis.messages_queue(state_machine).as_str(),
+					Some(Duration::ZERO),
+					Some(Duration::ZERO),
+					Some(-1),
+				)
+				.await;
+
+			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
+				result.context(format!("Failed to create messages queue for {state_machine}"))?
+			}
+		}
+
+		Ok(())
 	}
 
 	/// Construct notifications for the queue for the given counterparty state machine.
@@ -404,8 +441,8 @@ where
 					continue;
 				}
 
-				if set_id != consensus_state.current_authorities.id &&
-					set_id != consensus_state.next_authorities.id
+				if set_id != consensus_state.current_authorities.id
+					&& set_id != consensus_state.next_authorities.id
 				{
 					tracing::info!(
 						"{counterparty_state_machine} saw proof for unknown set_id {set_id}, current: {}, next: {}",

@@ -8,14 +8,13 @@ use std::{
 	sync::Arc,
 };
 use substrate_state_machine::HashAlgorithm;
-use subxt::config::polkadot::PlainTip;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Config;
 
 use crate::{
 	any::{AnyConfig, AnyHost},
-	config::{HyperbridgeConfig, RelayerConfig},
+	config::HyperbridgeConfig,
 	logging,
 	monitor::monitor_clients,
 	subcommand::Subcommand,
@@ -23,22 +22,18 @@ use crate::{
 use futures::FutureExt;
 use sc_service::TaskManager;
 
-/// CLI interface for tesseract relayer.
+/// The tesseract multi-chain consensus relayer.
+///
+/// Tesseract consensus queries consensus proofs for multiple chains to be submitted to the
+/// Hyperbridge blockchain.
 #[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
 pub struct Cli {
 	#[command(subcommand)]
 	pub subcommand: Option<Subcommand>,
 	/// Path to the relayer config file
 	#[arg(short, long)]
 	pub config: String,
-
-	/// Should we initialize the relevant consensus states on Eth chains?
-	#[arg(long)]
-	setup_eth: bool,
-
-	/// Should we initialize the relevant Consensus state on hyperbridge?
-	#[arg(long)]
-	setup_para: bool,
 
 	/// Optional base state machine to use for consensus initialization
 	#[arg(long)]
@@ -58,26 +53,21 @@ impl Cli {
 		let tokio_handle = tokio::runtime::Handle::current();
 		let mut task_manager = TaskManager::new(tokio_handle, None)?;
 
-		let clients = create_client_map(config.clone()).await?;
-
 		let hyperbridge = hyperbridge_config
 			.clone()
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
-		let relayer = relayer.unwrap_or_default();
-		// set up initial consensus states
-		if self.setup_eth || self.setup_para {
-			initialize_consensus_clients(
-				&hyperbridge,
-				&clients,
-				&relayer,
-				self.setup_eth,
-				self.setup_para,
-				chains,
-			)
-			.await?;
-			log::info!("Initialized consensus states");
+
+		// initialize the beefy proof queues for all evm state machines
+		if let AnyHost::Beefy(ref beefy_host) = hyperbridge {
+			let state_machines =
+				chains.keys().cloned().filter(|s| matches!(s, StateMachine::Evm(_))).collect();
+
+			beefy_host.init_queues(state_machines).await?;
 		}
+
+		let clients = create_client_map(config.clone()).await?;
+		let relayer = relayer.unwrap_or_default();
 
 		if let Some(ref state_machine_str) = self.base {
 			let state_machine = StateMachine::from_str(state_machine_str.as_str())
@@ -157,98 +147,6 @@ impl Cli {
 
 		Ok(())
 	}
-}
-
-/// Initializes the consensus state across all connected chains.
-async fn initialize_consensus_clients(
-	hyperbridge: &AnyHost<Blake2SubstrateChain, KeccakSubstrateChain>,
-	chains: &HashMap<StateMachine, Arc<dyn IsmpHost>>,
-	relayer: &RelayerConfig,
-	setup_eth: bool,
-	setup_para: bool,
-	configs: HashMap<StateMachine, AnyConfig>,
-) -> anyhow::Result<()> {
-	if setup_eth {
-		if let AnyHost::Beefy(beefy) = hyperbridge {
-			// write this consensus state to redis
-			let initial_state = beefy.hydrate_initial_consensus_state(None).await?;
-			for (state_machine, chain) in chains {
-				if !matches!(state_machine, StateMachine::Evm(_)) {
-					continue;
-				}
-				let provider = chain.provider();
-				let consensus_state =
-					provider.query_consensus_state(None, Default::default()).await?;
-				if !consensus_state.is_empty() {
-					continue;
-				}
-
-				log::info!("setting consensus state on {state_machine}");
-				if let Err(err) = provider.set_initial_consensus_state(initial_state.clone()).await
-				{
-					log::error!("Failed to set initial consensus state on {state_machine}: {err:?}")
-				}
-			}
-		}
-	}
-
-	if setup_para {
-		let mut params = BTreeMap::new();
-		for (state_machine, client) in chains {
-			let provider = client.provider();
-			log::info!("setting consensus state for {state_machine} on hyperbridge");
-			let host_param = provider.query_host_params(*state_machine).await?;
-			params.insert(*state_machine, host_param);
-			if let Some(mut consensus_state) = client.query_initial_consensus_state().await? {
-				consensus_state.challenge_periods = consensus_state
-					.challenge_periods
-					.into_iter()
-					.map(|(key, _)| (key, relayer.challenge_period.unwrap_or_default()))
-					.collect();
-
-				hyperbridge.client().create_consensus_state(consensus_state).await?;
-			}
-		}
-
-		// hack to set the EvmHost addresses on Hyperbridge
-		{
-			use codec::Encode;
-			use primitive_types::H160;
-			use subxt::{
-				ext::{
-					sp_core::Pair,
-					sp_runtime::{traits::IdentifyAccount, MultiSigner},
-				},
-				tx::TxPayload,
-			};
-			use subxt_utils::{send_extrinsic, Extrinsic, InMemorySigner};
-
-			let params = configs
-				.into_iter()
-				.filter_map(|(s, c)| match c.host_address() {
-					Some(addr) => Some((s, addr)),
-					_ => None,
-				})
-				.collect::<BTreeMap<StateMachine, H160>>();
-
-			let substrate_client = hyperbridge.client();
-			let signer = InMemorySigner {
-				account_id: MultiSigner::Sr25519(substrate_client.signer.public())
-					.into_account()
-					.into(),
-				signer: substrate_client.signer.clone(),
-			};
-			let encoded_call = Extrinsic::new("HostExecutive", "update_evm_hosts", params.encode())
-				.encode_call_data(&substrate_client.client.metadata())?;
-			let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-			send_extrinsic(&substrate_client.client, signer, tx, Some(PlainTip::new(100))).await?;
-		}
-
-		log::info!("setting host params on on hyperbridge");
-		hyperbridge.client().set_host_params(params).await?;
-	}
-
-	Ok(())
 }
 
 /// Extract all Eth L2 configs from the configurations provided

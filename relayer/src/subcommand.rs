@@ -33,7 +33,6 @@ pub struct LogMetatdata {
 
 impl LogMetatdata {
 	pub async fn log_host_param(&self, config_path: String) -> Result<(), anyhow::Error> {
-		// using env_logger because tracing subscriber does not allow the output to be piped
 		logging::setup()?;
 
 		let state_machine = StateMachine::from_str(&self.state_machine)
@@ -96,8 +95,8 @@ impl LogMetatdata {
 	}
 
 	pub async fn log_consensus_state(&self, config_path: String) -> Result<(), anyhow::Error> {
-		// using env_logger because tracing subscriber does not allow the output to be piped
-		env_logger::init();
+		logging::setup()?;
+
 		let state_machine = StateMachine::from_str(&self.state_machine)
 			.map_err(|_| anyhow!("Failed to deserialize state machine"))?;
 

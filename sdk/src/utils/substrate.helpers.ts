@@ -62,18 +62,6 @@ export const extractStateMachineIdFromSubstrateEventData = (
  }
 };
 
-/**
- * Get the chainId from the event
- */
-export function getChainIdFromEvent(event: SubstrateEvent): string {
- const chainId =
-  event.block.block.header.parentHash.toString().length > 0
-   ? event.block.block.header.parentHash.toString() // Parachain
-   : event.block.block.header.hash.toString(); // Standalone chain
-
- return chainId;
-}
-
 export function getHostStateMachine(chainId: string): string {
  const host = CHAIN_IDS_BY_GENESIS[chainId];
  if (!host) {

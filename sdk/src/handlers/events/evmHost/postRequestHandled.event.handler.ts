@@ -1,7 +1,5 @@
-import assert from 'assert';
-
 import { HyperBridgeService } from '../../../services/hyperbridge.service';
-import {  Status } from '../../../types';
+import { Status } from '../../../types';
 import { PostRequestHandledLog } from '../../../types/abi-interfaces/EthereumHostAbi';
 import { RequestService } from '../../../services/request.service';
 import { getHostStateMachine } from '../../../utils/substrate.helpers';
@@ -35,11 +33,12 @@ export async function handlePostRequestHandledEvent(
 
  const chain = getHostStateMachine(chainId);
 
- Promise.all([
+ try {
   await HyperBridgeService.handlePostRequestOrResponseHandledEvent(
    relayer_id,
    chain
-  ),
+  );
+
   await RequestService.updateStatus({
    commitment,
    chain,
@@ -48,6 +47,8 @@ export async function handlePostRequestHandledEvent(
    blockTimestamp: block.timestamp,
    status: Status.DESTINATION,
    transactionHash,
-  }),
- ]);
+  });
+ } catch (error) {
+  `Error handling PostRequestHandled event: ${JSON.stringify(error)}`;
+ }
 }

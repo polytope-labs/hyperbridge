@@ -35,10 +35,17 @@ export async function handleTransferEvent(event: TransferLog): Promise<void> {
   });
 
   if (HOST_ADDRESSES.includes(from)) {
-   Promise.all([
-    await RelayerService.updateFeesEarned(transfer),
-    await HyperBridgeService.handleTransferOutOfHostAccounts(transfer, chain),
-   ]);
+   try {
+    await RelayerService.updateFeesEarned(transfer);
+    await HyperBridgeService.handleTransferOutOfHostAccounts(transfer, chain);
+   } catch (error) {
+    logger.error(
+     `Error handling transfer event: ${JSON.stringify({
+      error,
+      transfer,
+     })}`
+    );
+   }
   }
 
   if (HOST_ADDRESSES.includes(to)) {

@@ -21,15 +21,21 @@ export async function handlePostRequestTransactionHandler(
  );
 
  const chain: string = getHostStateMachine(chainId);
+ logger.info(`Chain: ${chain}`);
 
- Promise.all([
+ try {
   await RelayerService.handlePostRequestOrResponseTransaction(
    chain,
    transaction
-  ),
+  );
+
   await HyperBridgeService.handlePostRequestOrResponseTransaction(
    chain,
    transaction
-  ),
- ]);
+  );
+ } catch (error) {
+  logger.error(
+   `Error while handling PostRequest transaction: ${JSON.stringify(error)}`
+  );
+ }
 }

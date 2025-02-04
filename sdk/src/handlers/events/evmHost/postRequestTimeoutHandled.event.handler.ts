@@ -1,63 +1,53 @@
-import { EventType, Status } from "../../../types";
-import { PostRequestTimeoutHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
-import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
-import { HyperBridgeService } from "../../../services/hyperbridge.service";
-import { RequestService } from "../../../services/request.service";
-import { getHostStateMachine } from "../../../utils/substrate.helpers";
+import { Status } from '../../../types';
+import { PostRequestTimeoutHandledLog } from '../../../types/abi-interfaces/EthereumHostAbi';
+import { HyperBridgeService } from '../../../services/hyperbridge.service';
+import { RequestService } from '../../../services/request.service';
+import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
 /**
  * Handles the PostRequestTimeoutHandled event
  */
 export async function handlePostRequestTimeoutHandledEvent(
-  event: PostRequestTimeoutHandledLog
+ event: PostRequestTimeoutHandledLog
 ): Promise<void> {
-  if (!event.args) return;
+ if (!event.args) return;
 
-  const {
-    args,
-    block,
-    transaction,
-    transactionHash,
-    transactionIndex,
-    blockHash,
-    blockNumber,
-    data,
-  } = event;
-  const { commitment, dest } = args;
+ const {
+  args,
+  block,
+  transaction,
+  transactionHash,
+  transactionIndex,
+  blockHash,
+  blockNumber,
+  data,
+ } = event;
+ const { commitment, dest } = args;
 
-  logger.info(
-    `Handling PostRequestTimeoutHandled Event: ${JSON.stringify({
-      blockNumber,
-      transactionHash,
-    })}`
+ logger.info(
+  `Handling PostRequestTimeoutHandled Event: ${JSON.stringify({
+   blockNumber,
+   transactionHash,
+  })}`
+ );
+
+ const chain: string = getHostStateMachine(chainId);
+
+ try {
+  await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain);
+
+  await RequestService.updateStatus({
+   commitment,
+   chain,
+   blockNumber: blockNumber.toString(),
+   blockHash: block.hash,
+   blockTimestamp: block.timestamp,
+   status: Status.TIMED_OUT,
+   transactionHash,
+  });
+ } catch (error) {
+  logger.error(
+   `Error updating handling post request timeout: ${JSON.stringify(error)}`
   );
-
-  const chain: string = getHostStateMachine(chainId);
-
-  Promise.all([
-    await EvmHostEventsService.createEvent(
-      {
-        data,
-        commitment,
-        transactionHash,
-        transactionIndex,
-        blockHash,
-        blockNumber,
-        dest,
-        timestamp: Number(block.timestamp),
-        type: EventType.EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED,
-      },
-      chain
-    ),
-    await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain),
-    await RequestService.updateStatus({
-      commitment,
-      chain,
-      blockNumber: blockNumber.toString(),
-      blockHash: block.hash,
-      blockTimestamp: block.timestamp,
-      status: Status.TIMED_OUT,
-      transactionHash,
-    }),
-  ]);
+ }
 }

@@ -79,7 +79,7 @@ export function getHostStateMachine(chainId: string): string {
  if (!host) {
   throw new Error(`Unknown genesis hash: ${chainId}`);
  }
- return chainId;
+ return host;
 }
 
 export function isHyperbridge(host: string): boolean {

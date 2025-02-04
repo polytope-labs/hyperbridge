@@ -1,7 +1,6 @@
 import { HyperBridgeService } from '../../../services/hyperbridge.service';
-import { EventType, Status } from '../../../types';
+import { Status } from '../../../types';
 import { PostResponseHandledLog } from '../../../types/abi-interfaces/EthereumHostAbi';
-import { EvmHostEventsService } from '../../../services/evmHostEvents.service';
 import { ResponseService } from '../../../services/response.service';
 import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
@@ -34,24 +33,11 @@ export async function handlePostResponseHandledEvent(
 
  const chain: string = getHostStateMachine(chainId);
 
- Promise.all([
-  await EvmHostEventsService.createEvent(
-   {
-    data,
-    commitment,
-    transactionHash,
-    transactionIndex,
-    blockHash,
-    blockNumber,
-    timestamp: Number(block.timestamp),
-    type: EventType.EVM_HOST_POST_RESPONSE_HANDLED,
-   },
-   chain
-  ),
+ try {
   await HyperBridgeService.handlePostRequestOrResponseHandledEvent(
    relayer_id,
    chain
-  ),
+  );
 
   await ResponseService.updateStatus({
    commitment,
@@ -61,6 +47,10 @@ export async function handlePostResponseHandledEvent(
    blockHash: block.hash,
    status: Status.DESTINATION,
    transactionHash,
-  }),
- ]);
+  });
+ } catch (error) {
+  logger.error(
+   `Error updating handling post response: ${JSON.stringify(error)}`
+  );
+ }
 }

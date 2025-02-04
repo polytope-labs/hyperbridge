@@ -74,7 +74,7 @@ export function getChainIdFromEvent(event: SubstrateEvent): string {
  return chainId;
 }
 
-export function getHostStateMachine(genesis_hash: string): string {
+export function getHostStateMachine(chainId: string): string {
  const chainId = CHAIN_IDS_BY_GENESIS[genesis_hash];
  if (!chainId) {
   throw new Error(`Unknown genesis hash: ${genesis_hash}`);

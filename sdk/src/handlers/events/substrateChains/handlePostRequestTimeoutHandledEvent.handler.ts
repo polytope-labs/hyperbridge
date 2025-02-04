@@ -2,7 +2,6 @@ import { SubstrateEvent } from '@subql/types';
 import { RequestService } from '../../../services/request.service';
 import { Status } from '../../../types';
 import {
- extractStateMachineIdFromSubstrateEventData,
  getHostStateMachine,
 } from '../../../utils/substrate.helpers';
 import { HYPERBRIDGE } from '../../../constants';
@@ -13,12 +12,6 @@ export async function handleSubstratePostRequestTimeoutHandledEvent(
  logger.info(`Handling ISMP PostRequestTimeoutHandled Event`);
 
  const host = getHostStateMachine(chainId);
-
- const stateMachineId = extractStateMachineIdFromSubstrateEventData(
-  event.event.data.toString()
- );
-
- if (typeof stateMachineId === 'undefined') return;
 
  if (!event.extrinsic) return;
 

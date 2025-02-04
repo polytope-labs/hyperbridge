@@ -2,7 +2,6 @@ import { SubstrateEvent } from '@subql/types';
 import { ResponseService } from '../../../services/response.service';
 import { Status } from '../../../types';
 import {
- extractStateMachineIdFromSubstrateEventData,
  getHostStateMachine,
  isHyperbridge,
 } from '../../../utils/substrate.helpers';
@@ -12,11 +11,7 @@ export async function handleSubstratePostResponseHandledEvent(
 ): Promise<void> {
  logger.info(`Handling ISMP PostResponseHandled Event`);
 
- const stateMachineId = extractStateMachineIdFromSubstrateEventData(
-  event.event.data.toString()
- );
-
- if (typeof stateMachineId === 'undefined') return;
+ if (!event.extrinsic && event.event.data) return;
 
  const {
   event: {

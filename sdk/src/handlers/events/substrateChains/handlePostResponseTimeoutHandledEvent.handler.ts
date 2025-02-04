@@ -4,8 +4,6 @@ import assert from 'assert';
 import { ResponseService } from '../../../services/response.service';
 import { Status } from '../../../types';
 import {
- extractStateMachineIdFromSubstrateEventData,
- getChainIdFromEvent,
  getHostStateMachine,
 } from '../../../utils/substrate.helpers';
 import { HYPERBRIDGE } from '../../../constants';
@@ -17,13 +15,7 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
 
  const host = getHostStateMachine(chainId);
 
- const stateMachineId = extractStateMachineIdFromSubstrateEventData(
-  event.event.data.toString()
- );
-
- if (typeof stateMachineId === 'undefined') return;
-
- if (!event.extrinsic) return;
+ if (!event.extrinsic && event.event.data) return;
 
  const {
   event: { data },
@@ -57,6 +49,6 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
    ? BigInt(Date.parse(timestamp.toString()))
    : BigInt(0),
   status: timeoutStatus,
-  transactionHash: extrinsic.extrinsic.hash.toString(),
+  transactionHash: extrinsic!.extrinsic.hash.toString(),
  });
 }

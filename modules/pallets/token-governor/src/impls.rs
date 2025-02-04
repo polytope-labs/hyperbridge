@@ -17,7 +17,6 @@
 
 use alloc::{collections::BTreeMap, vec};
 use alloy_sol_types::SolValue;
-use codec::Encode;
 use frame_support::{ensure, PalletId};
 use frame_system::{pallet_prelude::OriginFor, RawOrigin};
 use ismp::{
@@ -37,7 +36,7 @@ use crate::{
 	TokenGatewayRequest, TokenRegistrarParams, UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
-use token_gateway_primitives::{AssetMetadata, PALLET_TOKEN_GATEWAY_ID};
+use token_gateway_primitives::AssetMetadata;
 
 impl<T: Config> Pallet<T>
 where
@@ -69,16 +68,11 @@ where
 			Err(Error::<T>::AssetAlreadyExists)?
 		}
 
-		let metadata = AssetMetadata {
-			name: asset.name.clone(),
-			symbol: asset.symbol.clone(),
-			decimals: 18,
-			minimum_balance: asset.minimum_balance,
-		};
+		let metadata = AssetMetadata { name: asset.name.clone(), symbol: asset.symbol.clone() };
 
 		for ChainWithSupply { chain, supply } in asset.chains.clone() {
 			let address = if chain.is_substrate() {
-				H160(PALLET_TOKEN_GATEWAY_ID)
+				continue;
 			} else {
 				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
 					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
@@ -93,9 +87,7 @@ where
 						from: PALLET_ID.to_vec(),
 						to: address.as_bytes().to_vec(),
 						timeout: 0,
-						body: if chain.is_substrate() {
-							metadata.encode()
-						} else {
+						body: {
 							let mut body: SolAssetMetadata =
 								metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
 
@@ -165,17 +157,13 @@ where
 
 		for ChainWithSupply { chain, supply } in update.add_chains {
 			// skip if it already was dispatched to the provided chain
-			if SupportedChains::<T>::get(&update.asset_id, &chain).is_some() {
+			if SupportedChains::<T>::get(&update.asset_id, &chain).is_some() || chain.is_substrate()
+			{
 				continue;
 			}
 
-			let address = if chain.is_substrate() {
-				H160(PALLET_TOKEN_GATEWAY_ID)
-			} else {
-				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
-					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
-				address
-			};
+			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
 
 			dispatcher
 				.dispatch_request(
@@ -184,9 +172,7 @@ where
 						from: PALLET_ID.to_vec(),
 						to: address.as_bytes().to_vec(),
 						timeout: 0,
-						body: if chain.is_substrate() {
-							metadata.encode()
-						} else {
+						body: {
 							let mut body: SolAssetMetadata =
 								metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
 
@@ -207,17 +193,13 @@ where
 
 		for chain in update.remove_chains {
 			// skip if it already was dispatched to the provided chain
-			if SupportedChains::<T>::get(&update.asset_id, &chain).is_none() {
+			if SupportedChains::<T>::get(&update.asset_id, &chain).is_none() || chain.is_substrate()
+			{
 				continue;
 			}
 
-			let address = if chain.is_substrate() {
-				H160(PALLET_TOKEN_GATEWAY_ID)
-			} else {
-				let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
-					.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
-				address
-			};
+			let GatewayParams { address, .. } = TokenGatewayParams::<T>::get(&chain)
+				.ok_or_else(|| Error::<T>::UnknownTokenGateway)?;
 
 			dispatcher
 				.dispatch_request(
@@ -226,12 +208,7 @@ where
 						from: PALLET_ID.to_vec(),
 						to: address.as_bytes().to_vec(),
 						timeout: 0,
-						body: if chain.is_substrate() {
-							token_gateway_primitives::DeregisterAssets {
-								asset_ids: vec![update.asset_id],
-							}
-							.encode()
-						} else {
+						body: {
 							let body =
 								SolDeregsiterAsset { assetIds: vec![update.asset_id.0.into()] };
 							body.encode_request()
@@ -247,7 +224,8 @@ where
 
 		for (chain, admin) in update.new_admins {
 			// skip if it doesn't exist on the provided chain
-			if SupportedChains::<T>::get(&update.asset_id, &chain).is_none() {
+			if SupportedChains::<T>::get(&update.asset_id, &chain).is_none() || chain.is_substrate()
+			{
 				continue;
 			}
 
@@ -397,15 +375,13 @@ where
 			Err(Error::<T>::AssetAlreadyExists)?
 		}
 
-		let mut metadata = AssetMetadata {
-			name: asset.name.clone(),
-			symbol: asset.symbol.clone(),
-			..Default::default()
-		};
+		let metadata = AssetMetadata { name: asset.name.clone(), symbol: asset.symbol.clone() };
 
-		for AssetRegistration { chain, erc20, erc6160, decimals } in asset.chains {
+		for AssetRegistration { chain, erc20, erc6160 } in asset.chains {
+			if chain.is_substrate() {
+				continue;
+			}
 			// Set the parent ERC20 asset's decimals value
-			metadata.decimals = decimals;
 			let mut body: SolAssetMetadata =
 				metadata.clone().try_into().map_err(|_| Error::<T>::InvalidUtf8)?;
 

@@ -41,10 +41,6 @@ pub struct AssetMetadata {
 	pub name: BoundedVec<u8, ConstU32<50>>,
 	/// The asset symbol
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
-	/// The asset decimals of the ERC6160 or ERC20 counterpart of this asset
-	pub decimals: u8,
-	/// Asset's minimum balance, only used by substrate chains
-	pub minimum_balance: Option<u128>,
 }
 
 /// A struct for deregistering asset id on pallet-token-gateway

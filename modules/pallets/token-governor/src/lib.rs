@@ -164,6 +164,8 @@ pub mod pallet {
 		},
 		/// Native asset IDs have been deregistered
 		NativeAssetsDeregistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
+		/// Native asset IDs have been registered
+		NativeAssetsRegistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -350,6 +352,26 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Register the native token asset ids for standalone chains
+		#[pallet::call_index(9)]
+		#[pallet::weight(weight())]
+		pub fn register_standalone_chain_native_assets(
+			origin: OriginFor<T>,
+			assets: BTreeMap<StateMachine, BTreeSet<H256>>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			for (state_machine, new_asset_ids) in assets.clone() {
+				new_asset_ids
+					.into_iter()
+					.for_each(|id| StandaloneChainAssets::<T>::insert(state_machine, id, true))
+			}
+
+			Self::deposit_event(Event::<T>::NativeAssetsRegistered { assets });
+
+			Ok(())
+		}
 	}
 
 	/// This allows users to create assets from any chain using the TokenRegistrar.
@@ -420,7 +442,6 @@ where
 				.map_err(|_| ismp::error::Error::Custom(format!("Failed to decode data")))?;
 			match remote_reg {
 				RemoteERC6160AssetRegistration::CreateAsset(asset) => {
-					let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
 					Pallet::<T>::register_asset(
 						asset.into(),
 						sp_io::hashing::keccak_256(&source.encode()).into(),
@@ -428,7 +449,6 @@ where
 					.map_err(|e| {
 						ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
 					})?;
-					StandaloneChainAssets::<T>::insert(source, asset_id, true);
 				},
 				RemoteERC6160AssetRegistration::UpdateAsset(asset) => {
 					Pallet::<T>::update_erc6160_asset_impl(asset.into()).map_err(|e| {

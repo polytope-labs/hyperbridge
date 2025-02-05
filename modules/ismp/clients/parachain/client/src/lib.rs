@@ -208,6 +208,9 @@ pub mod pallet {
 	/// The identifier for the parachain consensus update inherent.
 	pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"paraismp";
 
+	/// The identifier for the relay chain GET request data inherent.
+	pub const RELAY_CHAIN_GET_REQUEST_DATA_IDENTIFIER: InherentIdentifier = *b"relayget";
+
 	#[pallet::inherent]
 	impl<T: Config> ProvideInherent for Pallet<T> {
 		type Call = Call<T>;

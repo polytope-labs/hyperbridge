@@ -1,31 +1,17 @@
-use crate::{
-	consensus_types::{
-		AttestationData, AttesterSlashing, Deposit, Eth1Data, ExecutionPayload, ProposerSlashing,
-		SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
-	},
-	constants::{
-		BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, ValidatorIndex,
-	},
-	deneb::KzgCommitment,
+use crate::constants::{
+	BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, Slot, ValidatorIndex,
 };
-use ssz_rs::{prelude::*, Bitlist, Bitvector, Deserialize};
-
-#[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct Attestation<const MAX_VALIDATORS_PER_SLOT: usize, const MAX_COMMITTEES_PER_SLOT: usize> {
-	pub aggregation_bits: Bitlist<MAX_VALIDATORS_PER_SLOT>,
-	pub data: AttestationData,
-	pub signature: BlsSignature,
-	pub committee_bits: Bitvector<MAX_COMMITTEES_PER_SLOT>,
-}
+use ssz_rs::{prelude::*, Deserialize};
 
 #[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct DepositRequest {
 	pub pub_key: BlsPublicKey,
 	pub withdrawal_credentials: Bytes32,
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub amount: Gwei,
 	pub signature: BlsSignature,
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub index: u64,
 }
 
@@ -34,6 +20,7 @@ pub struct DepositRequest {
 pub struct WithdrawalRequest {
 	pub source_address: ExecutionAddress,
 	pub validator_pubkey: BlsPublicKey,
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub amount: Gwei,
 }
 
@@ -59,63 +46,32 @@ pub struct ExecutionRequests<
 
 #[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct BeaconBlockBody<
-	const MAX_PROPOSER_SLASHINGS: usize,
-	const MAX_VALIDATORS_PER_SLOT: usize,
-	const MAX_COMMITTEES_PER_SLOT: usize,
-	const MAX_ATTESTER_SLASHINGS: usize,
-	const MAX_ATTESTATIONS: usize,
-	const MAX_DEPOSITS: usize,
-	const MAX_VOLUNTARY_EXITS: usize,
-	const SYNC_COMMITTEE_SIZE: usize,
-	const BYTES_PER_LOGS_BLOOM: usize,
-	const MAX_EXTRA_DATA_BYTES: usize,
-	const MAX_BYTES_PER_TRANSACTION: usize,
-	const MAX_TRANSACTIONS_PER_PAYLOAD: usize,
-	const MAX_WITHDRAWALS_PER_PAYLOAD: usize,
-	const MAX_BLS_TO_EXECUTION_CHANGES: usize,
-	const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize,
-	const MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: usize,
-	const MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: usize,
-	const MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: usize,
-> {
-	pub randao_reveal: BlsSignature,
-	pub eth1_data: Eth1Data,
-	pub graffiti: Bytes32,
-	pub proposer_slashings: List<ProposerSlashing, MAX_PROPOSER_SLASHINGS>,
-	pub attester_slashings: List<AttesterSlashing<MAX_VALIDATORS_PER_SLOT>, MAX_ATTESTER_SLASHINGS>,
-	pub attestations:
-		List<Attestation<MAX_VALIDATORS_PER_SLOT, MAX_COMMITTEES_PER_SLOT>, MAX_ATTESTATIONS>,
-	pub deposits: List<Deposit, MAX_DEPOSITS>,
-	pub voluntary_exits: List<SignedVoluntaryExit, MAX_VOLUNTARY_EXITS>,
-	pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
-	pub execution_payload: ExecutionPayload<
-		BYTES_PER_LOGS_BLOOM,
-		MAX_EXTRA_DATA_BYTES,
-		MAX_BYTES_PER_TRANSACTION,
-		MAX_TRANSACTIONS_PER_PAYLOAD,
-		MAX_WITHDRAWALS_PER_PAYLOAD,
-	>,
-	pub bls_to_execution_changes: List<SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES>,
-	pub blob_kzg_commitments: List<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
-	pub execution_requests: ExecutionRequests<
-		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
-		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
-		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
-	>,
-}
-
-#[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct PendingPartialWithdrawal {
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub validator_index: ValidatorIndex,
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub amount: Gwei,
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub withdrawable_epoch: Epoch,
 }
 
 #[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct PendingConsolidation {
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub source_index: ValidatorIndex,
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub target_index: ValidatorIndex,
+}
+
+#[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct PendingDeposit {
+	pub pubkey: BlsPublicKey,
+	pub withdrawal_credentials: Bytes32,
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	pub amount: Gwei,
+	pub signature: BlsSignature,
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	pub slot: Slot,
 }

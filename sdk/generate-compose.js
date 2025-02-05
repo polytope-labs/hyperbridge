@@ -4,25 +4,16 @@ const fs = require('fs');
 const configs = require('./chain-configs.json');
 
 const SUBSTRATE_IMAGE = 'subquerynetwork/subql-node-substrate:latest';
-const EVM_IMAGE = 'subquerynetwork/subql-node-ethereum:v3.11.0';
+const EVM_IMAGE = 'subquerynetwork/subql-node-ethereum:v5.4.0';
 const GRAPHQL_IMAGE = 'subquerynetwork/subql-query:v2.9.0';
 
-const evmChains = [
- 'ethereum-sepolia',
- 'base-sepolia',
- 'optimism-sepolia',
- 'arbitrum-sepolia',
- 'bsc-chapel',
-];
-
-const generateSubstrateServices = () => {
- return Object.keys(configs)
-  .map(
-   (chain) => `
+const generateNodeServices = () => {
+ return Object.entries(configs)
+  .map(([chain, config]) => {
+   const image = config.type === 'substrate' ? SUBSTRATE_IMAGE : EVM_IMAGE;
+   return `
   subquery-node-${chain}:
-    image: ${SUBSTRATE_IMAGE}
-    networks:
-      - substrate-net
+    image: ${image}
     depends_on:
       'postgres':
         condition: service_healthy
@@ -40,68 +31,26 @@ const generateSubstrateServices = () => {
       - -f=/app/${chain}.yaml
       - --db-schema=app
       - --workers=\${SUBQL_WORKERS:-1}
-      - --batch-size=\${SUBQL_BATCH_SIZE:-5}
+      - --batch-size=\${SUBQL_BATCH_SIZE:-${
+       config.type === 'substrate' ? '5' : '3'
+      }}
       - --multi-chain
       - --unsafe
       - --log-level=info
+      - --historical=false${
+       config.type === 'evm' ? '\n      - --block-confirmations=10' : ''
+      }
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-${chain}:3000/ready']
       interval: 3s
       timeout: 5s
-      retries: 10`
-  )
+      retries: 10`;
+  })
   .join('\n');
 };
 
-const generateEvmServices = () => {
- return evmChains
-  .map(
-   (chain) => `
-  subquery-node-${chain}:
-    image: ${EVM_IMAGE}
-    networks:
-      - evm-net
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - \${SUB_COMMAND:-}
-      - -f=/app/${chain}.yaml
-      - --db-schema=app
-      - --workers=\${SUBQL_WORKERS:-1}
-      - --batch-size=\${SUBQL_BATCH_SIZE:-3}
-      - --multi-chain
-      - --unsafe
-      - --log-level=info
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-${chain}:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10`
-  )
-  .join('\n');
-};
-
-const generateSubstrateDependencies = () => {
+const generateDependencies = () => {
  return Object.keys(configs)
-  .map(
-   (chain) => `      'subquery-node-${chain}':
-        condition: service_healthy`
-  )
-  .join('\n');
-};
-
-const generateEvmDependencies = () => {
- return evmChains
   .map(
    (chain) => `      'subquery-node-${chain}':
         condition: service_healthy`
@@ -110,12 +59,6 @@ const generateEvmDependencies = () => {
 };
 
 const dockerCompose = `version: '3'
-
-networks:
-  substrate-net:
-    driver: bridge
-  evm-net:
-    driver: bridge
 
 services:
   postgres:
@@ -128,29 +71,21 @@ services:
       - postgres_data:/var/lib/postgresql/data
     environment:
       POSTGRES_PASSWORD: postgres
-    networks:
-      - substrate-net
-      - evm-net
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
       timeout: 5s
       retries: 5
-${generateSubstrateServices()}
-${generateEvmServices()}
+${generateNodeServices()}
 
   graphql-engine:
     image: ${GRAPHQL_IMAGE}
-    networks:
-      - substrate-net
-      - evm-net
     ports:
       - 3000:3000
     depends_on:
       'postgres':
         condition: service_healthy
-${generateSubstrateDependencies()}
-${generateEvmDependencies()}
+${generateDependencies()}
     restart: always
     environment:
       DB_USER: postgres

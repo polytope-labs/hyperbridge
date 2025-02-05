@@ -16,19 +16,17 @@ const getChainTypesPath = (chain) => {
 };
 
 // Generate chain-specific YAML files
-Object.entries(configs).forEach(([chain, config]) => {
+const generateSubstrateYaml = (chain, config) => {
  const chainTypesConfig = getChainTypesPath(chain);
  const endpoints = config.endpoints
   .map((endpoint) => `    - '${endpoint}'`)
   .join('\n');
 
  const chainTypesSection = chainTypesConfig
-  ? `
-  chaintypes:
-    file: ${chainTypesConfig}`
+  ? `\n  chaintypes:\n    file: ${chainTypesConfig}`
   : '';
 
- const yaml = `# // Auto-generated , DO NOT EDIT
+ return `# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
 name: ${chain}-chain
@@ -87,8 +85,121 @@ dataSources:
           filter:
             module: ismp
             method: PostResponseTimeoutHandled
+            
+repository: 'https://github.com/polytope-labs/hyperbridge'`;
+};
 
-repository: 'https://github.com/polytope-labs/hyperbridge'`.trim();
+const generateEvmYaml = (chain, config) => {
+ const endpoints = config.endpoints
+  .map((endpoint) => `    - '${endpoint}'`)
+  .join('\n');
+
+ return `# // Auto-generated , DO NOT EDIT
+specVersion: 1.0.0
+version: 0.0.1
+name: ${chain}
+description: ${chain.charAt(0).toUpperCase() + chain.slice(1)} Indexer
+runner:
+  node:
+    name: '@subql/node-ethereum'
+    version: '>=3.0.0'
+  query:
+    name: '@subql/query'
+    version: '*'
+schema:
+  file: ./schema.graphql
+network:
+  chainId: '${config.chainId}'
+  endpoint:
+${endpoints}
+dataSources:
+  - kind: ethereum/Runtime
+    startBlock: ${config.startBlock}
+    options:
+      abi: ethereumHost
+      address: '${config.contracts.ethereumHost}'
+    assets:
+      ethereumHost:
+        file: ./abis/EthereumHost.abi.json
+      chainLinkAggregatorV3:
+        file: ./abis/ChainLinkAggregatorV3.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handlePostRequestEvent
+          filter:
+            topics:
+              - 'PostRequestEvent(string,string,address,bytes,uint256,uint256,bytes,uint256)'
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseEvent
+          filter:
+            topics:
+              - 'PostResponseEvent(string,string,address,bytes,uint256,uint256,bytes,bytes,uint256,uint256)'
+        - kind: ethereum/LogHandler
+          handler: handlePostRequestHandledEvent
+          filter:
+            topics:
+              - 'PostRequestHandled(bytes32,address)'
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseHandledEvent
+          filter:
+            topics:
+              - 'PostResponseHandled(bytes32,address)'
+        - kind: ethereum/LogHandler
+          handler: handlePostRequestTimeoutHandledEvent
+          filter:
+            topics:
+              - 'PostRequestTimeoutHandled(bytes32,string)'
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseTimeoutHandledEvent
+          filter:
+            topics:
+              - 'PostResponseTimeoutHandled(bytes32,string)'
+  - kind: ethereum/Runtime
+    startBlock: ${config.startBlock}
+    options:
+      abi: erc6160ext20
+      address: '${config.contracts.erc6160ext20}'
+    assets:
+      erc6160ext20:
+        file: ./abis/ERC6160Ext20.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleTransferEvent
+          filter:
+            topics:
+              - 'Transfer(address indexed from, address indexed to, uint256 amount)'
+  - kind: ethereum/Runtime
+    startBlock: ${config.startBlock}
+    options:
+      abi: handlerV1
+      address: '${config.contracts.handlerV1}'
+    assets:
+      handlerV1:
+        file: ./abis/HandlerV1.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handlePostRequestTransactionHandler
+          kind: ethereum/TransactionHandler
+          function: >-
+            handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
+        - handler: handlePostResponseTransactionHandler
+          kind: ethereum/TransactionHandler
+          function: >-
+            handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
+
+repository: 'https://github.com/polytope-labs/hyperbridge'`;
+};
+
+Object.entries(configs).forEach(([chain, config]) => {
+ const yaml =
+  config.type === 'substrate'
+   ? generateSubstrateYaml(chain, config)
+   : generateEvmYaml(chain, config);
 
  fs.writeFileSync(`${chain}.yaml`, yaml);
  console.log(`Generated ${chain}.yaml`);

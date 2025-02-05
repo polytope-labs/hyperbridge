@@ -4,7 +4,6 @@ import {
 } from '../types/abi-interfaces/EthereumHostAbi';
 import { Relayer, Transfer } from '../types/models';
 import { HyperBridgeChainStatsService } from './hyperbridgeChainStats.service';
-import assert from 'assert';
 import { isHexString } from 'ethers/lib/utils';
 import { EthereumHostAbi__factory } from '../types/contracts';
 import {
@@ -23,9 +22,13 @@ export class HyperBridgeService {
   if (!event.args) return;
 
   const { args, address } = event;
-  let { body } = args;
+  let { body, dest } = args;
 
-  const protocolFee = await this.computeProtocolFeeFromHexData(address, body);
+  const protocolFee = await this.computeProtocolFeeFromHexData(
+   address,
+   body,
+   dest
+  );
   try {
    await this.incrementProtocolFeesEarned(protocolFee, chain);
    await this.incrementNumberOfSentMessages(chain);
@@ -56,7 +59,7 @@ export class HyperBridgeService {
   */
  static async handlePostRequestOrResponseTransaction(
   chain: string,
-  transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction
+  transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
  ): Promise<void> {
   const { status } = await transaction.receipt();
 
@@ -69,6 +72,7 @@ export class HyperBridgeService {
   * Increment the total number of messages sent on hyperbridge
   */
  static async incrementNumberOfSentMessages(chain: string): Promise<void> {
+  logger.info(`Incrementing number of messages sent on hyperbridge`);
   // Update the specific chain stats
   let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(
    chain
@@ -126,6 +130,9 @@ export class HyperBridgeService {
   amount: bigint,
   chain: string
  ): Promise<void> {
+  logger.info(
+   `Incrementing protocol fees earned by ${amount} on chain ${chain}`
+  );
   // Update the specific chain stats
   let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(
    chain
@@ -173,7 +180,8 @@ export class HyperBridgeService {
 
  static async computeProtocolFeeFromHexData(
   contract_address: string,
-  data: string
+  data: string,
+  stateId: string
  ): Promise<bigint> {
   data = isHexString(data) ? data.slice(2) : data;
   const noOfBytesInData = data.length / 2;
@@ -181,7 +189,16 @@ export class HyperBridgeService {
    contract_address,
    api
   );
-  const perByteFee = await evmHostContract.perByteFee();
+  logger.info(
+   `Computing protocol fee for data: ${JSON.stringify({
+    data,
+    noOfBytesInData,
+    stateId,
+   })}`
+  );
+  const encoder = new TextEncoder();
+  const stateIdByte = encoder.encode(stateId);
+  const perByteFee = await evmHostContract.perByteFee(stateIdByte);
   return perByteFee.mul(noOfBytesInData).toBigInt();
  }
 }

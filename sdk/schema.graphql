@@ -320,7 +320,7 @@ type StateMachineUpdateEvent
  """
  The number of the block in which the event occured
  """
- blockNumber: BigInt! @index
+ blockNumber: Int! @index
 
  """
  The hash of the transaction in which the event occured
@@ -330,7 +330,7 @@ type StateMachineUpdateEvent
  """
  The index of the transaction in the block
  """
- transactionIndex: BigInt!
+ transactionIndex: Int!
 
  """
  The timestamp of the event

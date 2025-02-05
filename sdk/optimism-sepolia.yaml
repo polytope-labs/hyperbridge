@@ -2,7 +2,7 @@
 specVersion: 1.0.0
 version: 0.0.1
 name: optimism-sepolia
-description: Optimism Sepolia Chain Indexer
+description: Optimism-sepolia Indexer
 runner:
   node:
     name: '@subql/node-ethereum'
@@ -15,14 +15,13 @@ schema:
 network:
   chainId: '11155420'
   endpoint:
-    - 'https://sepolia.optimism.io'
-    - 'https://optimism-sepolia-rpc.publicnode.com'
+    - 'https://smart-weathered-wildflower.optimism-sepolia.quiknode.pro/19d99779dcc7790e1ac84d7f4d6f5c98a846d630'
 dataSources:
   - kind: ethereum/Runtime
     startBlock: 15446808
     options:
       abi: ethereumHost
-      address: '0x37BBd9d3CF34c9143Ae01E33BA1eB59c3AD00a0f'
+      address: '0x6d51b678836d8060d980605d2999eF211809f3C2'
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -61,26 +60,11 @@ dataSources:
           filter:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
-        - kind: ethereum/LogHandler
-          handler: handleGetRequestHandledEvent
-          filter:
-            topics:
-              - 'GetRequestHandled(bytes32,address)'
-        - kind: ethereum/LogHandler
-          handler: handleGetRequestTimeoutHandledEvent
-          filter:
-            topics:
-              - 'GetRequestTimeoutHandled(bytes32,string)'
-        - kind: ethereum/LogHandler
-          handler: handleStateMachineUpdatedEvent
-          filter:
-            topics:
-              - 'StateMachineUpdated(string,uint256)'
   - kind: ethereum/Runtime
-    startBlock: 15446807
+    startBlock: 15446808
     options:
       abi: erc6160ext20
-      address: '0x83aF3a8a53bf0E379c17A8611AD697401A5970fD'
+      address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
     assets:
       erc6160ext20:
         file: ./abis/ERC6160Ext20.abi.json
@@ -91,14 +75,12 @@ dataSources:
           handler: handleTransferEvent
           filter:
             topics:
-              - >-
-                Transfer(address indexed from, address indexed to, uint256
-                amount)
+              - 'Transfer(address indexed from, address indexed to, uint256 amount)'
   - kind: ethereum/Runtime
-    startBlock: 15446807
+    startBlock: 15446808
     options:
       abi: handlerV1
-      address: '0xd1461c180876A02Ee2b6Da6e788C758C71B23504'
+      address: '0x39c4085CcAe262fb8970578A2c703a87ed9842eF'
     assets:
       handlerV1:
         file: ./abis/HandlerV1.abi.json
@@ -108,35 +90,10 @@ dataSources:
         - handler: handlePostRequestTransactionHandler
           kind: ethereum/TransactionHandler
           function: >-
-              handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
+            handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
         - handler: handlePostResponseTransactionHandler
           kind: ethereum/TransactionHandler
           function: >-
-              handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
-  - kind: ethereum/Runtime
-    startBlock: 15446807
-    options:
-      abi: tokenGateway
-      address: '0x41867Dd678E3055649c04Fa10180ba90229cAd9F'
-    assets:
-      tokenGateway:
-        file: ./abis/TokenGateway.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - kind: ethereum/LogHandler
-          handler: handleRequestFulfilledEvent
-          filter:
-            topics:
-              - 'RequestFulfilled(uint256,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetReceivedEvent
-          filter:
-            topics:
-              - 'AssetReceived(uint256,bytes32,bytes32,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetTeleportedEvent
-          filter:
-            topics:
-              - 'AssetTeleported(bytes32,string,uint256,bytes32,address,bytes32,bool)'
+            handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
+
 repository: 'https://github.com/polytope-labs/hyperbridge'

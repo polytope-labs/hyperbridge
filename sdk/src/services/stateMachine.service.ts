@@ -25,15 +25,21 @@ export class StateMachineService {
    height,
   } = args;
 
+  logger.info(
+   `Creating StateMachineUpdated Event: ${JSON.stringify({
+    args,
+   })}`
+  );
+
   const event = StateMachineUpdateEvent.create({
    id: `${chain}_${transactionHash}_${stateMachineId}_${height}`,
    stateMachineId,
    height,
    chain,
    transactionHash,
-   transactionIndex: BigInt(transactionIndex),
+   transactionIndex: Number(transactionIndex),
    blockHash,
-   blockNumber: BigInt(blockNumber),
+   blockNumber: Number(blockNumber),
    createdAt: new Date(timestamp * 1000),
   });
 
@@ -57,15 +63,21 @@ export class StateMachineService {
    height,
   } = args;
 
+  logger.info(
+   `Creating StateMachineUpdated Event: ${JSON.stringify({
+    args,
+   })}`
+  );
+
   const event = StateMachineUpdateEvent.create({
    id: `${stateMachineId}-${transactionHash}-${height}`,
    stateMachineId,
    height,
    chain,
    transactionHash,
-   transactionIndex: BigInt(transactionIndex),
+   transactionIndex: Number(transactionIndex),
    blockHash,
-   blockNumber: BigInt(blockNumber),
+   blockNumber: Number(blockNumber),
    createdAt: new Date(timestamp * 1000),
   });
 
@@ -95,7 +107,7 @@ export class StateMachineService {
  /**
   * Get updates by block number
   */
- static async getByBlockNumber(blockNumber: bigint) {
+ static async getByBlockNumber(blockNumber: number) {
   return StateMachineUpdateEvent.getByBlockNumber(blockNumber, {
    orderBy: 'transactionIndex',
    limit: -1,

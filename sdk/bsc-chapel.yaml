@@ -2,7 +2,7 @@
 specVersion: 1.0.0
 version: 0.0.1
 name: bsc-chapel
-description: BNB Smart Chain Testnet Indexer
+description: Bsc-chapel Indexer
 runner:
   node:
     name: '@subql/node-ethereum'
@@ -15,15 +15,13 @@ schema:
 network:
   chainId: '97'
   endpoint:
-    - 'https://bsc-testnet.publicnode.com'
-    - 'https://rpc.ankr.com/bsc_testnet_chapel'
-    - 'https://bsc-testnet.blockpi.network/v1/rpc/public'
+    - 'https://chaotic-snowy-spree.bsc-testnet.quiknode.pro/56a4c649c843a845d7d4fa3bdc6a33d632084bf2'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 42661624
+    startBlock: 48014315
     options:
       abi: ethereumHost
-      address: '0xd24D7542C74B1f4ee14dC4bD077d5eed47107d51'
+      address: '0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7'
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -62,26 +60,11 @@ dataSources:
           filter:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
-        - kind: ethereum/LogHandler
-          handler: handleGetRequestHandledEvent
-          filter:
-            topics:
-              - 'GetRequestHandled(bytes32,address)'
-        - kind: ethereum/LogHandler
-          handler: handleGetRequestTimeoutHandledEvent
-          filter:
-            topics:
-              - 'GetRequestTimeoutHandled(bytes32,string)'
-        - kind: ethereum/LogHandler
-          handler: handleStateMachineUpdatedEvent
-          filter:
-            topics:
-              - 'StateMachineUpdated(string,uint256)'
   - kind: ethereum/Runtime
-    startBlock: 42661624
+    startBlock: 48014315
     options:
       abi: erc6160ext20
-      address: '0x83aF3a8a53bf0E379c17A8611AD697401A5970fD'
+      address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
     assets:
       erc6160ext20:
         file: ./abis/ERC6160Ext20.abi.json
@@ -92,14 +75,12 @@ dataSources:
           handler: handleTransferEvent
           filter:
             topics:
-              - >-
-                Transfer(address indexed from, address indexed to, uint256
-                amount)
+              - 'Transfer(address indexed from, address indexed to, uint256 amount)'
   - kind: ethereum/Runtime
-    startBlock: 42661624
+    startBlock: 48014315
     options:
       abi: handlerV1
-      address: '0x878F329319e0AE11F605468183bB5C6a8A642141'
+      address: '0xb45A4078A2D0B036C324A0046C2845aD59e769F6'
     assets:
       handlerV1:
         file: ./abis/HandlerV1.abi.json
@@ -109,35 +90,10 @@ dataSources:
         - handler: handlePostRequestTransactionHandler
           kind: ethereum/TransactionHandler
           function: >-
-              handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
+            handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
         - handler: handlePostResponseTransactionHandler
           kind: ethereum/TransactionHandler
           function: >-
-              handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
-  - kind: ethereum/Runtime
-    startBlock: 42661624
-    options:
-      abi: tokenGateway
-      address: '0x41867Dd678E3055649c04Fa10180ba90229cAd9F'
-    assets:
-      tokenGateway:
-        file: ./abis/TokenGateway.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - kind: ethereum/LogHandler
-          handler: handleRequestFulfilledEvent
-          filter:
-            topics:
-              - 'RequestFulfilled(uint256,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetReceivedEvent
-          filter:
-            topics:
-              - 'AssetReceived(uint256,bytes32,bytes32,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetTeleportedEvent
-          filter:
-            topics:
-              - 'AssetTeleported(bytes32,string,uint256,bytes32,address,bytes32,bool)'
+            handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
+
 repository: 'https://github.com/polytope-labs/hyperbridge'

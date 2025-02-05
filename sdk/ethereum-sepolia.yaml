@@ -23,7 +23,7 @@ dataSources:
     startBlock: 6429539
     options:
       abi: ethereumHost
-      address: '0xfCA0c05bEb9564AC154f55173881B4DD221A18A8'
+      address: '0x2EdB74C269948b60ec1000040E104cef0eABaae8'
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -83,7 +83,7 @@ dataSources:
     startBlock: 6429539
     options:
       abi: erc6160ext20
-      address: '0x83aF3a8a53bf0E379c17A8611AD697401A5970fD'
+      address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
     assets:
       erc6160ext20:
         file: ./abis/ERC6160Ext20.abi.json
@@ -101,7 +101,7 @@ dataSources:
     startBlock: 6429539
     options:
       abi: handlerV1
-      address: '0x3a3A8BF5454a5ad98a3ca6b095cD6929aD441D7f'
+      address: '0xBf814fb3fD3eAaEB6a08C5A245c92da8b586f670'
     assets:
       handlerV1:
         file: ./abis/HandlerV1.abi.json
@@ -118,31 +118,31 @@ dataSources:
           filter:
             function: >-
               handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
-  - kind: ethereum/Runtime
-    startBlock: 6429539
-    options:
-      abi: tokenGateway
-      address: '0x41867Dd678E3055649c04Fa10180ba90229cAd9F'
-    assets:
-      tokenGateway:
-        file: ./abis/TokenGateway.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - kind: ethereum/LogHandler
-          handler: handleRequestFulfilledEvent
-          filter:
-            topics:
-              - 'RequestFulfilled(uint256,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetReceivedEvent
-          filter:
-            topics:
-              - 'AssetReceived(uint256,bytes32,bytes32,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetTeleportedEvent
-          filter:
-            topics:
-              - >-
-                AssetTeleported(bytes32,string,uint256,bytes32,address,bytes32,bool)
+  # - kind: ethereum/Runtime
+  #   startBlock: 6429539
+  #   options:
+  #     abi: tokenGateway
+  #     address: '0x41867Dd678E3055649c04Fa10180ba90229cAd9F'
+  #   assets:
+  #     tokenGateway:
+  #       file: ./abis/TokenGateway.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - kind: ethereum/LogHandler
+  #         handler: handleRequestFulfilledEvent
+  #         filter:
+  #           topics:
+  #             - 'RequestFulfilled(uint256,address,bytes32)'
+  #       - kind: ethereum/LogHandler
+  #         handler: handleAssetReceivedEvent
+  #         filter:
+  #           topics:
+  #             - 'AssetReceived(uint256,bytes32,bytes32,address,bytes32)'
+  #       - kind: ethereum/LogHandler
+  #         handler: handleAssetTeleportedEvent
+  #         filter:
+  #           topics:
+  #             - >-
+  #               AssetTeleported(bytes32,string,uint256,bytes32,address,bytes32,bool)
 repository: 'https://github.com/polytope-labs/hyperbridge'

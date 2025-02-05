@@ -1,5 +1,6 @@
 import { solidityKeccak256 } from 'ethers/lib/utils';
 import { Request, Response, ResponseStatusMetadata, Status } from '../types';
+import { ethers } from 'ethers';
 
 export interface ICreateResponseArgs {
  chain: string;
@@ -50,6 +51,14 @@ export class ResponseService {
   } = args;
   let response = await Response.get(commitment);
 
+    logger.info(
+     `Creating PostResponse Event: ${JSON.stringify({
+      commitment,
+      transactionHash,
+      status,
+     })}`
+    );
+
   if (typeof response === 'undefined') {
    response = Response.create({
     id: commitment,
@@ -65,6 +74,14 @@ export class ResponseService {
    });
 
    await response.save();
+
+   logger.info(
+    `Created new response with details ${JSON.stringify({
+     commitment,
+     transactionHash,
+     status,
+    })}`
+   );
 
    let responseStatusMetadata = ResponseStatusMetadata.create({
     id: `${commitment}.${status}`,
@@ -170,6 +187,24 @@ export class ResponseService {
   response: string,
   responseTimeoutTimestamp: bigint
  ): string {
+  logger.info(
+   `Computing response commitment with details ${JSON.stringify({
+    source,
+    dest,
+    nonce: nonce.toString(),
+    timeoutTimestamp: timeoutTimestamp.toString(),
+    responseTimeoutTimestamp: responseTimeoutTimestamp.toString(),
+    response,
+    from,
+    to,
+    body,
+   })}`
+  );
+
+  // Convert source, dest, from, to, body to bytes
+  const sourceByte = ethers.utils.toUtf8Bytes(source);
+  const destByte = ethers.utils.toUtf8Bytes(dest);
+
   let hash = solidityKeccak256(
    [
     'bytes',
@@ -183,8 +218,8 @@ export class ResponseService {
     'uint64',
    ],
    [
-    source,
-    dest,
+    sourceByte,
+    destByte,
     nonce,
     timeoutTimestamp,
     from,

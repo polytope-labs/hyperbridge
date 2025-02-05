@@ -34,9 +34,13 @@ export async function handleSubstratePostResponseHandledEvent(
 
  const host = getHostStateMachine(chainId);
 
-  if (isHyperbridge(host)) {
-   return;
-  }
+ let status: Status;
+
+ if (isHyperbridge(host)) {
+  status = Status.HYPERBRIDGE_DELIVERED;
+ } else {
+  status = Status.DESTINATION;
+ }
 
  await ResponseService.updateStatus({
   commitment: response_commitment.toString(),
@@ -46,7 +50,7 @@ export async function handleSubstratePostResponseHandledEvent(
   blockTimestamp: timestamp
    ? BigInt(Date.parse(timestamp.toString()))
    : BigInt(0),
-  status: Status.DESTINATION,
+  status,
   transactionHash: extrinsic?.extrinsic.hash.toString() || '',
  });
 }

@@ -1,11 +1,5 @@
 version: '3'
 
-networks:
-  substrate-net:
-    driver: bridge
-  evm-net:
-    driver: bridge
-
 services:
   postgres:
     build:
@@ -17,9 +11,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     environment:
       POSTGRES_PASSWORD: postgres
-    networks:
-      - substrate-net
-      - evm-net
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
@@ -28,8 +19,6 @@ services:
 
   subquery-node-hyperbridge-gargantua:
     image: subquerynetwork/subql-node-substrate:latest
-    networks:
-      - substrate-net
     depends_on:
       'postgres':
         condition: service_healthy
@@ -51,6 +40,7 @@ services:
       - --multi-chain
       - --unsafe
       - --log-level=info
+      - --historical=false
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-hyperbridge-gargantua:3000/ready']
       interval: 3s
@@ -59,8 +49,6 @@ services:
 
   subquery-node-bifrost-paseo:
     image: subquerynetwork/subql-node-substrate:latest
-    networks:
-      - substrate-net
     depends_on:
       'postgres':
         condition: service_healthy
@@ -82,140 +70,15 @@ services:
       - --multi-chain
       - --unsafe
       - --log-level=info
+      - --historical=false
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-bifrost-paseo:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
-  subquery-node-ethereum-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    networks:
-      - evm-net
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - ${SUB_COMMAND:-}
-      - -f=/app/ethereum-sepolia.yaml
-      - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --multi-chain
-      - --unsafe
-      - --log-level=info
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-ethereum-sepolia:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
-  subquery-node-base-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    networks:
-      - evm-net
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - ${SUB_COMMAND:-}
-      - -f=/app/base-sepolia.yaml
-      - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --multi-chain
-      - --unsafe
-      - --log-level=info
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-base-sepolia:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
-  subquery-node-optimism-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    networks:
-      - evm-net
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - ${SUB_COMMAND:-}
-      - -f=/app/optimism-sepolia.yaml
-      - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --multi-chain
-      - --unsafe
-      - --log-level=info
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-optimism-sepolia:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
-  subquery-node-arbitrum-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    networks:
-      - evm-net
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - ${SUB_COMMAND:-}
-      - -f=/app/arbitrum-sepolia.yaml
-      - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --multi-chain
-      - --unsafe
-      - --log-level=info
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-arbitrum-sepolia:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
   subquery-node-bsc-chapel:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    networks:
-      - evm-net
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
     depends_on:
       'postgres':
         condition: service_healthy
@@ -237,17 +100,78 @@ services:
       - --multi-chain
       - --unsafe
       - --log-level=info
+      - --historical=false
+      - --block-confirmations=10
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-bsc-chapel:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
+  subquery-node-base-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
+    depends_on:
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/base-sepolia.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-1}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+      - --block-confirmations=10
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-base-sepolia:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-optimism-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
+    depends_on:
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/optimism-sepolia.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-1}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+      - --block-confirmations=10
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-optimism-sepolia:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
   graphql-engine:
     image: subquerynetwork/subql-query:v2.9.0
-    networks:
-      - substrate-net
-      - evm-net
     ports:
       - 3000:3000
     depends_on:
@@ -257,15 +181,11 @@ services:
         condition: service_healthy
       'subquery-node-bifrost-paseo':
         condition: service_healthy
-      'subquery-node-ethereum-sepolia':
+      'subquery-node-bsc-chapel':
         condition: service_healthy
       'subquery-node-base-sepolia':
         condition: service_healthy
       'subquery-node-optimism-sepolia':
-        condition: service_healthy
-      'subquery-node-arbitrum-sepolia':
-        condition: service_healthy
-      'subquery-node-bsc-chapel':
         condition: service_healthy
     restart: always
     environment:

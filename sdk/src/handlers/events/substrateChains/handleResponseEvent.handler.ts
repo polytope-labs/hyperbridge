@@ -16,6 +16,16 @@ export async function handleSubstrateResponseEvent(
  const [source_chain, dest_chain, request_nonce, commitment, req_commitment] =
   event.event.data;
 
+ logger.info(
+  `Handling ISMP Response Event: ${JSON.stringify({
+   source_chain,
+   dest_chain,
+   request_nonce,
+   commitment,
+   req_commitment,
+  })}`
+ );
+
  const host = getHostStateMachine(chainId);
 
  if (isHyperbridge(host)) {

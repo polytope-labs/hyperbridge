@@ -2,6 +2,7 @@ import { SubstrateEvent } from '@subql/types';
 import { StateMachineService } from '../../../services/stateMachine.service';
 import {
  extractStateMachineIdFromSubstrateEventData,
+ getHostStateMachine,
  StateMachineError,
  SubstrateEventValidator,
 } from '../../../utils/substrate.helpers';
@@ -13,13 +14,15 @@ export async function handleIsmpStateMachineUpdatedEvent(
   event.event.data.toString()
  );
 
+ const host = getHostStateMachine(chainId)
+
  if (typeof stateMachineId === 'undefined') return;
 
  try {
-  if (!SubstrateEventValidator.validateChainMetadata(chainId, stateMachineId)) {
+  if (!SubstrateEventValidator.validateChainMetadata(host, stateMachineId)) {
    throw new StateMachineError(
     'Invalid chain metadata',
-    chainId,
+    host,
     event.block.block.header.number.toNumber()
    );
   }
@@ -30,7 +33,7 @@ export async function handleIsmpStateMachineUpdatedEvent(
    );
    throw new StateMachineError(
     'Invalid state machine event data',
-    chainId,
+    host,
     event.block.block.header.number.toNumber()
    );
   }
@@ -40,8 +43,8 @@ export async function handleIsmpStateMachineUpdatedEvent(
   }
 
   logger.info(
-   `Handling ISMP StateMachineUpdatedEvent. Block Number: ${event.block.block.header.number.toNumber()}`
-  );
+    `Handling ISMP StateMachineUpdatedEvent. Block Number: ${event.block.block.header.number.toNumber()}`
+   );
 
   const { method, data } = event.event;
 
@@ -69,21 +72,21 @@ export async function handleIsmpStateMachineUpdatedEvent(
       stateMachineId,
       height,
      },
-     chainId
+     host
     );
     break;
 
    default:
     throw new StateMachineError(
      `Unsupported method: ${method}`,
-     chainId,
+     host,
      event.block.block.header.number.toNumber()
     );
   }
  } catch (error) {
   logger.error('State machine event processing failed', {
    error: error instanceof Error ? error.message : 'Unknown error',
-   chainId,
+   host,
    blockNumber: event.block.block.header.number.toNumber(),
    method: event.event.method,
   });

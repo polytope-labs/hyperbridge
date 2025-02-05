@@ -62,6 +62,22 @@ export const extractStateMachineIdFromSubstrateEventData = (
  }
 };
 
+/**
+ * Format chain data
+ */
+export const formatChain = (chain: any) => {
+ // Handle stringified JSON
+ const chainObj = typeof chain === 'string' ? JSON.parse(chain) : chain;
+
+ // Get the first key of the object (evm, substrate, etc)
+ const chainType = Object.keys(chainObj)[0];
+ if (chainType) {
+  // Convert chainType to uppercase and combine with chain ID
+  return `${chainType.toUpperCase()}-${chainObj[chainType]}`;
+ }
+ return chain;
+};
+
 export function getHostStateMachine(chainId: string): string {
  const host = CHAIN_IDS_BY_GENESIS[chainId];
  if (!host) {

@@ -1,6 +1,7 @@
 import { solidityKeccak256 } from 'ethers/lib/utils';
 import { Status } from '../types/enums';
 import { Request, RequestStatusMetadata } from '../types/models';
+import { ethers } from 'ethers';
 
 export interface ICreateRequestArgs {
  chain: string;
@@ -61,6 +62,14 @@ export class RequestService {
   } = args;
   let request = await Request.get(commitment);
 
+  logger.info(
+   `Creating PostRequest Event: ${JSON.stringify({
+    commitment,
+    transactionHash,
+    status,
+   })}`
+  );
+
   if (typeof request === 'undefined') {
    request = Request.create({
     id: commitment,
@@ -81,6 +90,14 @@ export class RequestService {
    });
 
    await request.save();
+
+   logger.info(
+    `Created new request with details ${JSON.stringify({
+     commitment,
+     transactionHash,
+     status,
+    })}`
+   );
 
    let requestStatusMetadata = RequestStatusMetadata.create({
     id: `${commitment}.${status}`,
@@ -113,6 +130,14 @@ export class RequestService {
    transactionHash,
    chain,
   } = args;
+
+  logger.info(
+   `Updating Request Status: ${JSON.stringify({
+    commitment,
+    transactionHash,
+    status,
+   })}`
+  );
 
   let request = await Request.get(commitment);
 
@@ -195,9 +220,25 @@ export class RequestService {
   to: string,
   body: string
  ): string {
+  logger.info(
+   `Computing request commitment with details ${JSON.stringify({
+    source,
+    dest,
+    nonce: nonce.toString(),
+    timeoutTimestamp: timeoutTimestamp.toString(),
+    from,
+    to,
+    body,
+   })}`
+  );
+
+  // Convert source, dest, from, to, body to bytes
+  const sourceByte = ethers.utils.toUtf8Bytes(source);
+  const destByte = ethers.utils.toUtf8Bytes(dest);
+
   let hash = solidityKeccak256(
    ['bytes', 'bytes', 'uint64', 'uint64', 'bytes', 'bytes', 'bytes'],
-   [source, dest, nonce, timeoutTimestamp, from, to, body]
+   [sourceByte, destByte, nonce, timeoutTimestamp, from, to, body]
   );
   return hash;
  }

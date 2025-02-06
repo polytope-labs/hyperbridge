@@ -379,12 +379,12 @@ type Request
  """
  The timeout transaction hash of the hyperbridge transaction
  """
- hyperbridge_timeout_transaction_hash: String
+ hyperbridgeTimeoutTransactionHash: String
 
  """
  The timeout transaction hash of the destination transaction
  """
- destination_timeout_transaction_hash: String
+ destinationTimeoutTransactionHash: String
 
  """
  The chain on which the request was made
@@ -533,13 +533,12 @@ type Response
  """
  The timeout transaction hash of the hyperbridge transaction
  """
- hyperbridge_timeout_transaction_hash: String
+ hyperbridgeTimeoutTransactionHash: String
 
  """
  The timeout transaction hash of the destination transaction
  """
- destination_timeout_transaction_hash: String
-
+ destinationTimeoutTransactionHash: String
  """
  The response message
  """

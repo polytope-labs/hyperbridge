@@ -13,8 +13,8 @@ export interface ICreateRequestArgs {
  nonce?: bigint | undefined;
  source?: string | undefined;
  timeoutTimestamp?: bigint | undefined;
- destination_timeout_transaction_hash?: string | undefined;
- hyperbridge_timeout_transaction_hash?: string | undefined;
+ destinationTimeoutTransactionHash?: string | undefined;
+ hyperbridgeTimeoutTransactionHash?: string | undefined;
  to?: string | undefined;
  status: Status;
  blockNumber: string;
@@ -90,8 +90,10 @@ export class RequestService {
     sourceTransactionHash: transactionHash,
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
-    destination_timeout_transaction_hash: '',
-    hyperbridge_timeout_transaction_hash: '',
+    destinationTimeoutTransactionHash:
+     status === Status.TIMED_OUT ? transactionHash : '',
+    hyperbridgeTimeoutTransactionHash:
+     status === Status.TIMED_OUT ? transactionHash : '',
     commitment,
    });
 
@@ -134,7 +136,6 @@ export class RequestService {
    blockTimestamp,
    status,
    transactionHash,
-   timeoutHash,
    chain,
   } = args;
 
@@ -170,14 +171,11 @@ export class RequestService {
      case Status.DESTINATION:
       request.destinationTransactionHash = transactionHash;
       break;
-    }
-
-    switch (timeoutHash) {
-     case 'hyperbridge_timeout':
-      request.hyperbridge_timeout_transaction_hash = transactionHash;
+     case Status.HYPERBRIDGE_TIMED_OUT:
+      request.hyperbridgeTimeoutTransactionHash = transactionHash;
       break;
-     case 'destination_timeout':
-      request.destination_timeout_transaction_hash = transactionHash;
+     case Status.TIMED_OUT:
+      request.destinationTimeoutTransactionHash = transactionHash;
       break;
     }
 
@@ -214,10 +212,10 @@ export class RequestService {
     blockTimestamp,
     status,
     transactionHash,
-    destination_timeout_transaction_hash:
-     timeoutHash === 'destination_timeout' ? transactionHash : undefined,
-    hyperbridge_timeout_transaction_hash:
-     timeoutHash === 'hyperbridge_timeout' ? transactionHash : undefined,
+    destinationTimeoutTransactionHash:
+     status === Status.TIMED_OUT ? transactionHash : undefined,
+    hyperbridgeTimeoutTransactionHash:
+     status === Status.HYPERBRIDGE_TIMED_OUT ? transactionHash : undefined,
    });
 
    logger.info(

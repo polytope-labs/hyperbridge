@@ -31,9 +31,6 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
   ? Status.HYPERBRIDGE_TIMED_OUT
   : Status.TIMED_OUT;
 
- const timeoutHash =
-  timeoutStatus === Status.HYPERBRIDGE_TIMED_OUT ? 'hyperbridge_timeout' : 'destination_timeout';
-
  const eventData = data.toJSON();
  const timeoutData = Array.isArray(eventData)
   ? (eventData[0] as { commitment: any; source: any; dest: any })
@@ -51,6 +48,5 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(
    : BigInt(0),
   status: timeoutStatus,
   transactionHash: extrinsic!.extrinsic.hash.toString(),
-  timeoutHash,
  });
 }

@@ -187,7 +187,7 @@ services:
         condition: service_healthy
       'subquery-node-optimism-sepolia':
         condition: service_healthy
-    restart: always
+    restart: unless-stopped
     environment:
       DB_USER: postgres
       DB_PASS: postgres

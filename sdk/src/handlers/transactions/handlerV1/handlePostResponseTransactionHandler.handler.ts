@@ -18,14 +18,6 @@ export async function handlePostResponseTransactionHandler(
   })}`
  );
 
- const { status } = await transaction.receipt();
-
- // Check if transaction has revert data
- if (!status) {
-  logger.info(`Transaction ${hash} was reverted, skipping processing`);
-  return;
- }
-
  const chain: string = getHostStateMachine(chainId);
  logger.info(`Chain: ${chain}`);
 

@@ -7,6 +7,8 @@ export interface ICreateResponseArgs {
  commitment: string;
  response_message?: string | undefined;
  responseTimeoutTimestamp?: bigint | undefined;
+ destination_timeout_transaction_hash?: string | undefined;
+ hyperbridge_timeout_transaction_hash?: string | undefined;
  request?: Request | undefined;
  status: Status;
  blockNumber: string;
@@ -21,6 +23,7 @@ export interface IUpdateResponseStatusArgs {
  blockNumber: string;
  blockHash: string;
  transactionHash: string;
+ timeoutHash?: string;
  blockTimestamp: bigint;
  chain: string;
 }
@@ -29,7 +32,8 @@ const RESPONSE_STATUS_WEIGHTS = {
  [Status.SOURCE]: 1,
  [Status.HYPERBRIDGE_DELIVERED]: 2,
  [Status.DESTINATION]: 3,
- [Status.TIMED_OUT]: 4,
+ [Status.HYPERBRIDGE_TIMED_OUT]: 4,
+ [Status.TIMED_OUT]: 5,
 };
 
 export class ResponseService {
@@ -51,13 +55,13 @@ export class ResponseService {
   } = args;
   let response = await Response.get(commitment);
 
-    logger.info(
-     `Creating PostResponse Event: ${JSON.stringify({
-      commitment,
-      transactionHash,
-      status,
-     })}`
-    );
+  logger.info(
+   `Creating PostResponse Event: ${JSON.stringify({
+    commitment,
+    transactionHash,
+    status,
+   })}`
+  );
 
   if (typeof response === 'undefined') {
    response = Response.create({
@@ -71,6 +75,8 @@ export class ResponseService {
     sourceTransactionHash: transactionHash,
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
+    destination_timeout_transaction_hash: '',
+    hyperbridge_timeout_transaction_hash: '',
    });
 
    await response.save();
@@ -112,6 +118,7 @@ export class ResponseService {
    blockTimestamp,
    status,
    transactionHash,
+   timeoutHash,
    chain,
   } = args;
 
@@ -129,6 +136,15 @@ export class ResponseService {
       break;
      case Status.DESTINATION:
       response.destinationTransactionHash = transactionHash;
+      break;
+    }
+
+    switch (timeoutHash) {
+     case 'hyperbridge_timeout':
+      response.hyperbridge_timeout_transaction_hash = transactionHash;
+      break;
+     case 'destination_timeout':
+      response.destination_timeout_transaction_hash = transactionHash;
       break;
     }
 
@@ -159,6 +175,10 @@ export class ResponseService {
     request: undefined,
     responseTimeoutTimestamp: undefined,
     response_message: undefined,
+    destination_timeout_transaction_hash:
+     timeoutHash === 'destination_timeout' ? transactionHash : undefined,
+    hyperbridge_timeout_transaction_hash:
+     timeoutHash === 'hyperbridge_timeout' ? transactionHash : undefined,
    });
 
    logger.error(

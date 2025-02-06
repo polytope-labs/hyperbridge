@@ -377,6 +377,16 @@ type Request
  destinationTransactionHash: String! @index
 
  """
+ The timeout transaction hash of the hyperbridge transaction
+ """
+ hyperbridge_timeout_transaction_hash: String
+
+ """
+ The timeout transaction hash of the destination transaction
+ """
+ destination_timeout_transaction_hash: String
+
+ """
  The chain on which the request was made
  """
  chain: String! @index
@@ -519,6 +529,16 @@ type Response
  The transaction hash of the destination transaction
  """
  destinationTransactionHash: String! @index
+
+ """
+ The timeout transaction hash of the hyperbridge transaction
+ """
+ hyperbridge_timeout_transaction_hash: String
+
+ """
+ The timeout transaction hash of the destination transaction
+ """
+ destination_timeout_transaction_hash: String
 
  """
  The response message

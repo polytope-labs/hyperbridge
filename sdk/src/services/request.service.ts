@@ -13,6 +13,8 @@ export interface ICreateRequestArgs {
  nonce?: bigint | undefined;
  source?: string | undefined;
  timeoutTimestamp?: bigint | undefined;
+ destination_timeout_transaction_hash?: string | undefined;
+ hyperbridge_timeout_transaction_hash?: string | undefined;
  to?: string | undefined;
  status: Status;
  blockNumber: string;
@@ -27,6 +29,7 @@ export interface IUpdateRequestStatusArgs {
  blockNumber: string;
  blockHash: string;
  transactionHash: string;
+ timeoutHash?: string;
  blockTimestamp: bigint;
  chain: string;
 }
@@ -35,7 +38,8 @@ const REQUEST_STATUS_WEIGHTS = {
  [Status.SOURCE]: 1,
  [Status.HYPERBRIDGE_DELIVERED]: 2,
  [Status.DESTINATION]: 3,
- [Status.TIMED_OUT]: 4,
+ [Status.HYPERBRIDGE_TIMED_OUT]: 4,
+ [Status.TIMED_OUT]: 5,
 };
 
 export class RequestService {
@@ -86,6 +90,8 @@ export class RequestService {
     sourceTransactionHash: transactionHash,
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
+    destination_timeout_transaction_hash: '',
+    hyperbridge_timeout_transaction_hash: '',
     commitment,
    });
 
@@ -128,6 +134,7 @@ export class RequestService {
    blockTimestamp,
    status,
    transactionHash,
+   timeoutHash,
    chain,
   } = args;
 
@@ -165,6 +172,15 @@ export class RequestService {
       break;
     }
 
+    switch (timeoutHash) {
+     case 'hyperbridge_timeout':
+      request.hyperbridge_timeout_transaction_hash = transactionHash;
+      break;
+     case 'destination_timeout':
+      request.destination_timeout_transaction_hash = transactionHash;
+      break;
+    }
+
     await request.save();
    }
 
@@ -198,6 +214,10 @@ export class RequestService {
     blockTimestamp,
     status,
     transactionHash,
+    destination_timeout_transaction_hash:
+     timeoutHash === 'destination_timeout' ? transactionHash : undefined,
+    hyperbridge_timeout_transaction_hash:
+     timeoutHash === 'hyperbridge_timeout' ? transactionHash : undefined,
    });
 
    logger.info(

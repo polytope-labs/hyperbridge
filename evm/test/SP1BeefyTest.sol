@@ -27,6 +27,31 @@ contract SP1BeefyTest is Test {
         sp1 = new SP1Verifier();
     }
 
+    function testDecodeConsensusState() public view {
+        bytes memory encodedState = hex"0000000000000000000000000000000000000000000000000000000001771a6a00000000000000000000000000000000000000000000000000000000012a5318000000000000000000000000000000000000000000000000000000000000083a00000000000000000000000000000000000000000000000000000000000001f442c444bf993527f25cdeb8cca93b6632fbcacb30cf3e037748e5ca8f39ef9ade000000000000000000000000000000000000000000000000000000000000083b00000000000000000000000000000000000000000000000000000000000001f442c444bf993527f25cdeb8cca93b6632fbcacb30cf3e037748e5ca8f39ef9ade";
+
+        BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
+
+
+        console.log("latestHeight: ");
+        console.log(consensusState.latestHeight);
+
+        console.log("currentAuthoritySet.id: ");
+        console.log(consensusState.currentAuthoritySet.id);
+        console.log("currentAuthoritySet.len: ");
+        console.log(consensusState.currentAuthoritySet.len);
+        console.log("currentAuthoritySet.root: ");
+        console.logBytes32(consensusState.currentAuthoritySet.root);
+
+        console.log("nextAuthoritySet.id: ");
+        console.log(consensusState.nextAuthoritySet.id);
+        console.log("nextAuthoritySet.len: ");
+        console.log(consensusState.nextAuthoritySet.len);
+        console.log("nextAuthoritySet.root: ");
+        console.logBytes32(consensusState.nextAuthoritySet.root);
+
+    }
+
     function testPolkadotVerifier() public view {
         bytes
             memory proof = hex"11b6a09d0602783a739ff23a34879d0f31c9742293407605ad35b2ab9f2112445436251c2929a1f895ee9c0a7185734a57da30feaa42de756ef44ac2383ad0146f525ed41ea56e5485fe3d329cec126256c2c19918560e93fea6e69d6c1287aba55359e020f8368e1be185cabcaf87407e6e700be708bb4f0e3d800fea43e7e06f95d8a7141f29d97bbdec0ead4c051dc1a8ff931bf470e7f48bf8edba580d1a1e7f93bf2c7fc4b3124ccbbcaa0cb0243a3be77001d71fc4eb020bfce79d88ce520a9cf611b8032714b5f7429e0bd89c76474f67e0b8f02c0a1cc9fd3cbc8fdf6039a89904236d309f7153c388b5c66d5e5bdc484f4272b71aa246b121bbac05fd50bbe5";

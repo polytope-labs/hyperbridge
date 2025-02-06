@@ -140,8 +140,6 @@ pub struct ERC20AssetRegistration {
 	pub symbol: BoundedVec<u8, ConstU32<20>>,
 	/// Chains to support as well as the current ERC20 address on that chain
 	pub chains: Vec<AssetRegistration>,
-	/// Minimum balance for the asset, for substrate chains,
-	pub minimum_balance: Option<u128>,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
@@ -152,8 +150,6 @@ pub struct AssetRegistration {
 	pub erc20: Option<H160>,
 	/// Optional ERC6160 address
 	pub erc6160: Option<H160>,
-	/// Current decimals value of the Erc20 asset on it's parent chain
-	pub decimals: u8,
 }
 
 /// Protocol Parameters for the TokenRegistrar contract

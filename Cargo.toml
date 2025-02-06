@@ -114,7 +114,7 @@ inherits = "release"
 lto = "thin"
 
 [workspace.dependencies]
-polkadot-sdk = { version = "0.7.0", default-features = false }
+polkadot-sdk = { version = "0.9.0", default-features = false }
 
 # crates that can't be used in polkadot-sdk
 sp-core = { version = "34.0.0", default-features = false }

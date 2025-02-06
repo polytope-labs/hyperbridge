@@ -164,6 +164,8 @@ pub mod pallet {
 		},
 		/// Native asset IDs have been deregistered
 		NativeAssetsDeregistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
+		/// Native asset IDs have been registered
+		NativeAssetsRegistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -347,6 +349,26 @@ pub mod pallet {
 			}
 
 			Self::deposit_event(Event::<T>::NativeAssetsDeregistered { assets });
+
+			Ok(())
+		}
+
+		/// Register the native token asset ids for standalone chains
+		#[pallet::call_index(9)]
+		#[pallet::weight(weight())]
+		pub fn register_standalone_chain_native_assets(
+			origin: OriginFor<T>,
+			assets: BTreeMap<StateMachine, BTreeSet<H256>>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			for (state_machine, new_asset_ids) in assets.clone() {
+				new_asset_ids
+					.into_iter()
+					.for_each(|id| StandaloneChainAssets::<T>::insert(state_machine, id, true))
+			}
+
+			Self::deposit_event(Event::<T>::NativeAssetsRegistered { assets });
 
 			Ok(())
 		}

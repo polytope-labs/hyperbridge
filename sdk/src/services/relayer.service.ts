@@ -1,10 +1,10 @@
 import { ProtocolParticipant } from '../types/enums';
 import { Relayer, Transfer } from '../types/models';
 import { RelayerChainStatsService } from './relayerChainStats.service';
-import {
- HandlePostRequestsTransaction,
- HandlePostResponsesTransaction,
-} from '../types/abi-interfaces/HandlerV1Abi';
+// import {
+//  HandlePostRequestsTransaction,
+//  HandlePostResponsesTransaction,
+// } from '../types/abi-interfaces/HandlerV1Abi';
 import { RewardPointsService } from './reward-points.service';
 import PriceHelper from '../utils/price.helpers';
 import { GET_ETHEREUM_L2_STATE_MACHINES } from '../addresses/state-machine.addresses';
@@ -54,7 +54,7 @@ export class RelayerService {
   */
  static async handlePostRequestOrResponseTransaction(
   chain: string,
-  transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction
+  transaction: any
  ): Promise<void> {
   const { from: relayer_id, hash: transaction_hash } = transaction;
   const receipt = await transaction.receipt();

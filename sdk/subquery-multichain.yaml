@@ -3,7 +3,6 @@ query:
   name: '@subql/query'
   version: '*'
 projects:
-  - ./base-sepolia.yaml
-  - ./optimism-sepolia.yaml
-  - ./bsc-chapel.yaml
-  - ./hyperbridge-gargantua.yaml
+  - ./hyperbridge-nexus.yaml
+  - ./bsc-mainnet.yaml
+  - ./base-mainnet.yaml

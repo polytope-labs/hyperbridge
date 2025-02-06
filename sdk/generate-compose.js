@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
+require('dotenv').config();
+
 const fs = require('fs');
-const configs = require('./chain-configs.json');
+const currentEnv = process.env.CURRENT_ENV || 'test';
+const configs = require(`./chain-configs-${currentEnv}.json`);
 
 const SUBSTRATE_IMAGE = 'subquerynetwork/subql-node-substrate:latest';
 const EVM_IMAGE = 'subquerynetwork/subql-node-ethereum:v5.4.0';

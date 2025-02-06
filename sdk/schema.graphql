@@ -3,18 +3,6 @@
 # https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
 
 """
-Assets currently supported by hyperbridge
-"""
-enum SupportedAssets {
- WETH
- WBTC
- USDT
- USDC
- DAI
- DOT
-}
-
-"""
 Supported Event Types
 """
 enum EventType {
@@ -215,69 +203,6 @@ type Transfer
  The address that received the transfer (the relayer address)
  """
  to: String! @index
-}
-
-"""
-An event that has occured
-"""
-type Event
- @entity
- @compositeIndexes(
-  fields: [
-   ["type", "chain"]
-   ["blockNumber", "chain"]
-   ["transactionHash", "chain"]
-  ]
- ) {
- """
- The ID of the event (also the event commitment)
- """
- id: ID!
-
- """
- The type of the event
- """
- type: EventType!
-
- """
- The chain on which the event occured
- """
- chain: String! @index
-
- """
- The hash of the block in which the event occured
- """
- blockHash: String!
-
- """
- The number of the block in which the event occured
- """
- blockNumber: BigInt! @index
-
- """
- The hash of the transaction in which the event occured
- """
- transactionHash: String! @index
-
- """
- The index of the transaction in the block
- """
- transactionIndex: BigInt!
-
- """
- The data of the event
- """
- data: String!
-
- """
- The address of the destination of the event
- """
- destination: String @index
-
- """
- The timestamp of the event
- """
- createdAt: Date! @index
 }
 
 """
@@ -608,50 +533,6 @@ type ResponseStatusMetadata @entity {
  The response that owns this status change
  """
  response: Response!
-}
-
-"""
-Asset received by a user
-"""
-type AssetReceived
- @entity
- @compositeIndexes(
-  fields: [
-   ["beneficiary", "chain"]
-   ["assetId", "chain"]
-   ["commitment", "chain"]
-  ]
- ) {
- id: ID!
- amount: BigInt!
- assetId: String!
- beneficiary: String! @index
- chain: String! @index
- commitment: String! @index
- from: String! @index
-}
-
-"""
-Asset sent by a user
-"""
-type AssetTeleported
- @entity
- @compositeIndexes(
-  fields: [
-   ["from", "chain"]
-   ["to", "chain"]
-   ["assetId", "chain"]
-   ["commitment", "chain"]
-  ]
- ) {
- id: ID!
- amount: BigInt!
- assetId: String!
- chain: String! @index
- commitment: String! @index
- from: String! @index
- to: String! @index
- redeem: Boolean!
 }
 
 """

@@ -1,10 +1,14 @@
 import { StateMachineUpdateEvent } from '../types';
-import { IEvmHostEventArgs } from './evmHostEvents.service';
 
 // Arguments to functions that create StateMachineUpdated events
-export interface ICreateStateMachineUpdatedEventArgs extends IEvmHostEventArgs {
+export interface ICreateStateMachineUpdatedEventArgs {
  stateMachineId: string;
  height: number;
+ blockHash: string;
+ blockNumber: number;
+ transactionHash: string;
+ transactionIndex: number;
+ timestamp: number;
 }
 
 export class StateMachineService {

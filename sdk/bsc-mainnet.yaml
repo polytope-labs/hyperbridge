@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: bsc-chapel
-description: Bsc-chapel Indexer
+name: bsc-mainnet
+description: Bsc-mainnet Indexer
 runner:
   node:
     name: '@subql/node-ethereum'
@@ -13,12 +13,12 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '97'
+  chainId: '56'
   endpoint:
-    - 'https://wandering-delicate-silence.bsc-testnet.quiknode.pro/74d3977082e2021a0e005e12dbdcbb6732ed74ee'
+    - 'https://magical-quaint-layer.bsc.quiknode.pro/af55e23565b897ff463e1804389ca69988d826ed/'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 48039086
+    startBlock: 46424521
     options:
       abi: ethereumHost
       address: '0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7'
@@ -61,7 +61,7 @@ dataSources:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
   - kind: ethereum/Runtime
-    startBlock: 48039086
+    startBlock: 46424521
     options:
       abi: erc6160ext20
       address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'

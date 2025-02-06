@@ -4,6 +4,9 @@ export default {
    gargantua: {
     hasher: 'keccakAsU8a',
    },
+   nexus: {
+    hasher: 'keccakAsU8a',
+   },
   },
  },
 };

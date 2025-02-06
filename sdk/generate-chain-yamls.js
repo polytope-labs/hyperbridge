@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+require('dotenv').config();
 
 const fs = require('fs');
-const configs = require('./chain-configs.json');
+const currentEnv = process.env.CURRENT_ENV || 'test';
+const configs = require(`./chain-configs-${currentEnv}.json`);
 
 const getChainTypesPath = (chain) => {
  // Extract base chain name before the hyphen
@@ -18,9 +20,9 @@ const getChainTypesPath = (chain) => {
 // Generate chain-specific YAML files
 const generateSubstrateYaml = (chain, config) => {
  const chainTypesConfig = getChainTypesPath(chain);
- const endpoints = config.endpoints
-  .map((endpoint) => `    - '${endpoint}'`)
-  .join('\n');
+ const envKey = chain.replace(/-/g, '_').toUpperCase();
+ const endpoint = process.env[envKey];
+ const endpoints = `    - '${endpoint}'`;
 
  const chainTypesSection = chainTypesConfig
   ? `\n  chaintypes:\n    file: ${chainTypesConfig}`
@@ -90,9 +92,9 @@ repository: 'https://github.com/polytope-labs/hyperbridge'`;
 };
 
 const generateEvmYaml = (chain, config) => {
- const endpoints = config.endpoints
-  .map((endpoint) => `    - '${endpoint}'`)
-  .join('\n');
+ const envKey = chain.replace(/-/g, '_').toUpperCase();
+ const endpoint = process.env[envKey];
+ const endpoints = `    - '${endpoint}'`;
 
  return `# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
@@ -172,27 +174,43 @@ dataSources:
           filter:
             topics:
               - 'Transfer(address indexed from, address indexed to, uint256 amount)'
-  - kind: ethereum/Runtime
-    startBlock: ${config.startBlock}
-    options:
-      abi: handlerV1
-      address: '${config.contracts.handlerV1}'
-    assets:
-      handlerV1:
-        file: ./abis/HandlerV1.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - handler: handlePostRequestTransactionHandler
-          kind: ethereum/TransactionHandler
-          function: >-
-            handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
-        - handler: handlePostResponseTransactionHandler
-          kind: ethereum/TransactionHandler
-          function: >-
-            handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
+  # - kind: ethereum/Runtime
+  #   startBlock: 21535312
+  #   options:
+  #     abi: handlerV1
+  #     address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
+  #   assets:
+  #     handlerV1:
+  #       file: ./abis/HandlerV1.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - handler: handlePostRequestTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
+  #       - handler: handlePostResponseTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
 
 repository: 'https://github.com/polytope-labs/hyperbridge'`;
+};
+
+const generateMultichainYaml = () => {
+ const projects = Object.keys(configs)
+  .map((chain) => `  - ./${chain}.yaml`)
+  .join('\n');
+
+ const yaml = `specVersion: 1.0.0
+query:
+  name: '@subql/query'
+  version: '*'
+projects:
+${projects}`;
+
+ fs.writeFileSync('subquery-multichain.yaml', yaml);
+ console.log('Generated subquery-multichain.yaml');
 };
 
 Object.entries(configs).forEach(([chain, config]) => {
@@ -204,3 +222,5 @@ Object.entries(configs).forEach(([chain, config]) => {
  fs.writeFileSync(`${chain}.yaml`, yaml);
  console.log(`Generated ${chain}.yaml`);
 });
+
+generateMultichainYaml();

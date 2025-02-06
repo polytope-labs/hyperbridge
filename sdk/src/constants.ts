@@ -1,6 +1,13 @@
 // Purpose: Contains all the constants used in the application.
 
-import { SupportedAssets } from './types/enums';
+enum SupportedAssets {
+ WETH,
+ WBTC,
+ USDT,
+ USDC,
+ DAI,
+ DOT,
+}
 
 export const HYPERBRIDGE = {
  testnet: 'KUSAMA-4009',

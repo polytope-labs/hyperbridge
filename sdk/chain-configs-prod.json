@@ -1,0 +1,27 @@
+{
+ "hyperbridge-nexus": {
+  "type": "substrate",
+  "chainId": "0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540",
+  "startBlock": 3894470
+ },
+ "bsc-mainnet": {
+  "type": "evm",
+  "chainId": "56",
+  "startBlock": 46424521,
+  "contracts": {
+   "ethereumHost": "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
+   "erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
+   "handlerV1": "0x089248E869AEcd66199b64637207D366D6Cfe92D"
+  }
+ },
+ "base-mainnet": {
+  "type": "evm",
+  "chainId": "8453",
+  "startBlock": 26032778,
+  "contracts": {
+   "ethereumHost": "0x6FFe92e4d7a9D589549644544780e6725E84b248",
+   "erc6160ext20": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
+   "handlerV1": "0x089248E869AEcd66199b64637207D366D6Cfe92D"
+  }
+ }
+}

@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 5
 
-  subquery-node-hyperbridge-gargantua:
+  subquery-node-hyperbridge-nexus:
     image: subquerynetwork/subql-node-substrate:latest
     depends_on:
       'postgres':
@@ -33,7 +33,7 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/hyperbridge-gargantua.yaml
+      - -f=/app/hyperbridge-nexus.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-5}
@@ -42,12 +42,12 @@ services:
       - --log-level=info
       - --historical=false
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-hyperbridge-gargantua:3000/ready']
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-hyperbridge-nexus:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
-  subquery-node-bsc-chapel:
+  subquery-node-bsc-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
     depends_on:
       'postgres':
@@ -63,7 +63,7 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/bsc-chapel.yaml
+      - -f=/app/bsc-mainnet.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
@@ -73,12 +73,12 @@ services:
       - --historical=false
       - --block-confirmations=10
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-bsc-chapel:3000/ready']
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-bsc-mainnet:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
-  subquery-node-base-sepolia:
+  subquery-node-base-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
     depends_on:
       'postgres':
@@ -94,7 +94,7 @@ services:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/base-sepolia.yaml
+      - -f=/app/base-mainnet.yaml
       - --db-schema=app
       - --workers=${SUBQL_WORKERS:-1}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
@@ -104,38 +104,7 @@ services:
       - --historical=false
       - --block-confirmations=10
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-base-sepolia:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
-  subquery-node-optimism-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v5.4.0
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - ${SUB_COMMAND:-}
-      - -f=/app/optimism-sepolia.yaml
-      - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --multi-chain
-      - --unsafe
-      - --log-level=info
-      - --historical=false
-      - --block-confirmations=10
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-optimism-sepolia:3000/ready']
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-base-mainnet:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
@@ -147,13 +116,11 @@ services:
     depends_on:
       'postgres':
         condition: service_healthy
-      'subquery-node-hyperbridge-gargantua':
+      'subquery-node-hyperbridge-nexus':
         condition: service_healthy
-      'subquery-node-bsc-chapel':
+      'subquery-node-bsc-mainnet':
         condition: service_healthy
-      'subquery-node-base-sepolia':
-        condition: service_healthy
-      'subquery-node-optimism-sepolia':
+      'subquery-node-base-mainnet':
         condition: service_healthy
     restart: always
     environment:

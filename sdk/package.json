@@ -8,9 +8,10 @@
     "codegen": "subql codegen",
     "generate-configs": "node generate-chain-yamls.js && node generate-compose.js",
     "start:docker": "npm run generate-configs && docker-compose pull && docker-compose up --remove-orphans",
-    "dev": "subql codegen && subql build && npm run generate-configs && docker-compose pull && docker-compose up --remove-orphans",
+    "dev": "export CURRENT_ENV=test subql codegen && subql build && npm run start:docker",
+    "prod": "export CURRENT_ENV=prod subql codegen && subql build && npm run start:docker",
     "prepack": "rm -rf dist && npm run build",
-    "test": "subql build && subql-node-ethereum -f=ethereum-sepolia.yaml test"
+    "test": "subql build && subql-node-ethereum -f=base-sepolia.yaml test"
   },
   "homepage": "https://hyperbridge.network/",
   "repository": "https://github.com/polytope-labs/hyperbridge-indexer",
@@ -18,7 +19,8 @@
     "dist",
     "schema.graphql",
     "subquery-multichain.yaml",
-    "chain-configs.json"
+    "chain-configs-prod.json",
+    "chain-configs-test.json"
   ],
   "author": "Polytope Labs",
   "license": "MIT",

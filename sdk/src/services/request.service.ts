@@ -13,8 +13,6 @@ export interface ICreateRequestArgs {
  nonce?: bigint | undefined;
  source?: string | undefined;
  timeoutTimestamp?: bigint | undefined;
- destinationTimeoutTransactionHash?: string | undefined;
- hyperbridgeTimeoutTransactionHash?: string | undefined;
  to?: string | undefined;
  status: Status;
  blockNumber: string;
@@ -90,12 +88,23 @@ export class RequestService {
     sourceTransactionHash: transactionHash,
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
-    destinationTimeoutTransactionHash:
-     status === Status.TIMED_OUT ? transactionHash : '',
-    hyperbridgeTimeoutTransactionHash:
-     status === Status.TIMED_OUT ? transactionHash : '',
     commitment,
    });
+
+   switch (status) {
+    case Status.HYPERBRIDGE_DELIVERED:
+     request.hyperbridgeTransactionHash = transactionHash;
+     break;
+    case Status.DESTINATION:
+     request.destinationTransactionHash = transactionHash;
+     break;
+    case Status.HYPERBRIDGE_TIMED_OUT:
+     request.hyperbridgeTimeoutTransactionHash = transactionHash;
+     break;
+    case Status.TIMED_OUT:
+     request.destinationTimeoutTransactionHash = transactionHash;
+     break;
+   }
 
    await request.save();
 
@@ -212,10 +221,6 @@ export class RequestService {
     blockTimestamp,
     status,
     transactionHash,
-    destinationTimeoutTransactionHash:
-     status === Status.TIMED_OUT ? transactionHash : undefined,
-    hyperbridgeTimeoutTransactionHash:
-     status === Status.HYPERBRIDGE_TIMED_OUT ? transactionHash : undefined,
    });
 
    logger.info(

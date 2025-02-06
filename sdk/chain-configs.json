@@ -7,14 +7,6 @@
    "wss://hyperbridge-paseo-rpc.blockops.network"
   ]
  },
- "bifrost-paseo": {
-  "type": "substrate",
-  "chainId": "0x9f28c6a68e0fc9646eff64935684f6eeeece527e37bbe1f213d22caa1d9d6bed",
-  "startBlock": 1215000,
-  "endpoints": [
-   "wss://bifrost-rpc.liebi.com/ws"
-  ]
- },
  "bsc-chapel": {
   "type": "evm",
   "chainId": "97",

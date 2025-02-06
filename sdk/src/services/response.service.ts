@@ -7,8 +7,6 @@ export interface ICreateResponseArgs {
  commitment: string;
  response_message?: string | undefined;
  responseTimeoutTimestamp?: bigint | undefined;
- destinationTimeoutTransactionHash?: string | undefined;
- hyperbridgeTimeoutTransactionHash?: string | undefined;
  request?: Request | undefined;
  status: Status;
  blockNumber: string;
@@ -75,11 +73,21 @@ export class ResponseService {
     sourceTransactionHash: transactionHash,
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
-    destinationTimeoutTransactionHash:
-     status === Status.TIMED_OUT ? transactionHash : '',
-    hyperbridgeTimeoutTransactionHash:
-     status === Status.HYPERBRIDGE_TIMED_OUT ? transactionHash : '',
    });
+
+   switch (status) {
+    case Status.HYPERBRIDGE_DELIVERED:
+     response.hyperbridgeTransactionHash = transactionHash;
+     break;
+    case Status.DESTINATION:
+     response.destinationTransactionHash = transactionHash;
+     break;
+    case Status.HYPERBRIDGE_TIMED_OUT:
+     response.hyperbridgeTimeoutTransactionHash = transactionHash;
+     break;
+    case Status.TIMED_OUT:
+     response.destinationTimeoutTransactionHash = transactionHash;
+   }
 
    await response.save();
 
@@ -172,10 +180,6 @@ export class ResponseService {
     request: undefined,
     responseTimeoutTimestamp: undefined,
     response_message: undefined,
-    destinationTimeoutTransactionHash:
-     status === Status.TIMED_OUT ? transactionHash : undefined,
-    hyperbridgeTimeoutTransactionHash:
-     status === Status.HYPERBRIDGE_TIMED_OUT ? transactionHash : undefined,
    });
 
    logger.error(

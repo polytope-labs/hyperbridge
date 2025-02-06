@@ -7,4 +7,3 @@ projects:
   - ./optimism-sepolia.yaml
   - ./bsc-chapel.yaml
   - ./hyperbridge-gargantua.yaml
-  - ./bifrost-paseo.yaml

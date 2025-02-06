@@ -47,36 +47,6 @@ services:
       timeout: 5s
       retries: 10
 
-  subquery-node-bifrost-paseo:
-    image: subquerynetwork/subql-node-substrate:latest
-    depends_on:
-      'postgres':
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
-    volumes:
-      - ./:/app
-    command:
-      - ${SUB_COMMAND:-}
-      - -f=/app/bifrost-paseo.yaml
-      - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
-      - --batch-size=${SUBQL_BATCH_SIZE:-5}
-      - --multi-chain
-      - --unsafe
-      - --log-level=info
-      - --historical=false
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://subquery-node-bifrost-paseo:3000/ready']
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
   subquery-node-bsc-chapel:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
     depends_on:
@@ -179,15 +149,13 @@ services:
         condition: service_healthy
       'subquery-node-hyperbridge-gargantua':
         condition: service_healthy
-      'subquery-node-bifrost-paseo':
-        condition: service_healthy
       'subquery-node-bsc-chapel':
         condition: service_healthy
       'subquery-node-base-sepolia':
         condition: service_healthy
       'subquery-node-optimism-sepolia':
         condition: service_healthy
-    restart: unless-stopped
+    restart: always
     environment:
       DB_USER: postgres
       DB_PASS: postgres

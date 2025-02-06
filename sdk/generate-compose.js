@@ -33,7 +33,7 @@ const generateNodeServices = () => {
       - \${SUB_COMMAND:-}
       - -f=/app/${chain}.yaml
       - --db-schema=app
-      - --workers=\${SUBQL_WORKERS:-1}
+      - --workers=\${SUBQL_WORKERS:-2}
       - --batch-size=\${SUBQL_BATCH_SIZE:-${
        config.type === 'substrate' ? '5' : '3'
       }}
@@ -41,7 +41,7 @@ const generateNodeServices = () => {
       - --unsafe
       - --log-level=info
       - --historical=false${
-       config.type === 'evm' ? '\n      - --block-confirmations=10' : ''
+       config.type === 'evm' ? '\n      - --block-confirmations=5' : ''
       }
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-${chain}:3000/ready']

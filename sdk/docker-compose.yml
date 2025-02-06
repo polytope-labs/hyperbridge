@@ -35,7 +35,7 @@ services:
       - ${SUB_COMMAND:-}
       - -f=/app/hyperbridge-nexus.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-5}
       - --multi-chain
       - --unsafe
@@ -65,13 +65,13 @@ services:
       - ${SUB_COMMAND:-}
       - -f=/app/bsc-mainnet.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --multi-chain
       - --unsafe
       - --log-level=info
       - --historical=false
-      - --block-confirmations=10
+      - --block-confirmations=5
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-bsc-mainnet:3000/ready']
       interval: 3s
@@ -96,13 +96,13 @@ services:
       - ${SUB_COMMAND:-}
       - -f=/app/base-mainnet.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
       - --multi-chain
       - --unsafe
       - --log-level=info
       - --historical=false
-      - --block-confirmations=10
+      - --block-confirmations=5
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://subquery-node-base-mainnet:3000/ready']
       interval: 3s

@@ -2,7 +2,7 @@
  "hyperbridge-gargantua": {
   "type": "substrate",
   "chainId": "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73",
-  "startBlock": 3595590,
+  "startBlock": 3607590,
   "endpoints": [
    "wss://hyperbridge-paseo-rpc.blockops.network"
   ]
@@ -10,7 +10,7 @@
  "bsc-chapel": {
   "type": "evm",
   "chainId": "97",
-  "startBlock": 48014315,
+  "startBlock": 48039086,
   "endpoints": [
    "https://chaotic-snowy-spree.bsc-testnet.quiknode.pro/56a4c649c843a845d7d4fa3bdc6a33d632084bf2"
   ],
@@ -23,7 +23,7 @@
  "base-sepolia": {
   "type": "evm",
   "chainId": "84532",
-  "startBlock": 21498200,
+  "startBlock": 21535312,
   "endpoints": [
    "https://clean-necessary-card.base-sepolia.quiknode.pro/4395b33cdb26dc0d66eec74b3039cdc073efb3ba"
   ],
@@ -36,7 +36,7 @@
  "optimism-sepolia": {
   "type": "evm",
   "chainId": "11155420",
-  "startBlock": 15446808,
+  "startBlock": 23518161,
   "endpoints": [
    "https://smart-weathered-wildflower.optimism-sepolia.quiknode.pro/19d99779dcc7790e1ac84d7f4d6f5c98a846d630"
   ],

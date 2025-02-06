@@ -20,7 +20,7 @@ network:
     file: ./dist/substrate-chaintypes/hyperbridge.js
 dataSources:
   - kind: substrate/Runtime
-    startBlock: 3595590
+    startBlock: 3607590
     mapping:
       file: ./dist/index.js
       handlers:

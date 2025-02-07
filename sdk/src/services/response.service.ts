@@ -70,9 +70,10 @@ export class ResponseService {
     requestId: request?.id,
     status,
     responseTimeoutTimestamp,
-    sourceTransactionHash: transactionHash,
+    sourceTransactionHash: '',
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
+    destinationTimeoutTransactionHash: ''
    });
 
    switch (status) {

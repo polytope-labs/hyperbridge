@@ -85,9 +85,10 @@ export class RequestService {
     status,
     timeoutTimestamp: timeoutTimestamp || BigInt(0),
     to: to || '',
-    sourceTransactionHash: transactionHash,
+    sourceTransactionHash: '',
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
+    destinationTimeoutTransactionHash: '',
     commitment,
    });
 

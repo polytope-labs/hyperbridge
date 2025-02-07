@@ -3,19 +3,6 @@
 # https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
 
 """
-Supported Event Types
-"""
-enum EventType {
- EVM_HOST_POST_REQUEST_HANDLED
- EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED
- EVM_HOST_POST_RESPONSE_HANDLED
- EVM_HOST_POST_RESPONSE_TIMEOUT_HANDLED
- EVM_HOST_GET_REQUEST_HANDLED
- EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED
- HANDLER_V1_STATE_MACHINE_UPDATED
-}
-
-"""
 The status of a request
 """
 enum Status {

@@ -6,10 +6,10 @@ import { Relayer, Transfer } from '../types/models';
 import { HyperBridgeChainStatsService } from './hyperbridgeChainStats.service';
 import { isHexString } from 'ethers/lib/utils';
 import { EthereumHostAbi__factory } from '../types/contracts';
-// import {
-//  HandlePostRequestsTransaction,
-//  HandlePostResponsesTransaction,
-// } from '../types/abi-interfaces/HandlerV1Abi';
+import {
+ HandlePostRequestsTransaction,
+ HandlePostResponsesTransaction,
+} from '../types/abi-interfaces/HandlerV1Abi';
 
 export class HyperBridgeService {
  /**
@@ -59,8 +59,13 @@ export class HyperBridgeService {
   */
  static async handlePostRequestOrResponseTransaction(
   chain: string,
-  transaction: any,
+  transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
  ): Promise<void> {
+  logger.info(
+   `Creating PostRequest or PostResponse transaction update: ${JSON.stringify({
+    transaction,
+   })}`
+  );
   const { status } = await transaction.receipt();
 
   if (status === false) {

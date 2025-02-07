@@ -11,8 +11,8 @@ export { handleTransferEvent } from '../handlers/events/erc6160ext20/transfer.ev
 export { handleStateMachineUpdatedEvent } from '../handlers/events/evmHost/stateMachineUpdated.event.handler';
 
 // HandlerV1 Handlers
-// export { handlePostRequestTransactionHandler } from '../handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler';
-// export { handlePostResponseTransactionHandler } from '../handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler';
+export { handlePostRequestTransactionHandler } from '../handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler';
+export { handlePostResponseTransactionHandler } from '../handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler';
 
 // Substrate Chains Handlers
 export { handleIsmpStateMachineUpdatedEvent } from '../handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler';

@@ -1,10 +1,10 @@
 import { ProtocolParticipant } from '../types/enums';
 import { Relayer, Transfer } from '../types/models';
 import { RelayerChainStatsService } from './relayerChainStats.service';
-// import {
-//  HandlePostRequestsTransaction,
-//  HandlePostResponsesTransaction,
-// } from '../types/abi-interfaces/HandlerV1Abi';
+import {
+ HandlePostRequestsTransaction,
+ HandlePostResponsesTransaction,
+} from '../types/abi-interfaces/HandlerV1Abi';
 import { RewardPointsService } from './reward-points.service';
 import PriceHelper from '../utils/price.helpers';
 import { GET_ETHEREUM_L2_STATE_MACHINES } from '../addresses/state-machine.addresses';
@@ -54,7 +54,7 @@ export class RelayerService {
   */
  static async handlePostRequestOrResponseTransaction(
   chain: string,
-  transaction: any
+  transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction
  ): Promise<void> {
   const { from: relayer_id, hash: transaction_hash } = transaction;
   const receipt = await transaction.receipt();
@@ -80,6 +80,20 @@ export class RelayerService {
 
   const _gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
   const usdFee = (gasFee * nativeCurrencyPrice) / BigInt(10 ** 18);
+
+  logger.info(
+   `Handling PostRequest/PostResponse Transaction Relayer Update: ${JSON.stringify(
+    {
+     relayer_id,
+     chain,
+     transaction_hash,
+     status,
+     gasUsed,
+     gasFee: _gasFeeInEth,
+     usdFee,
+    }
+   )}`
+  );
 
   try {
    let relayer = await RelayerService.findOrCreate(relayer_id, chain);
@@ -116,9 +130,13 @@ export class RelayerService {
 
    await relayer.save();
    await relayer_chain_stats.save();
+
+   logger.info(
+    `Relayer: ${relayer_id} updated successfully for chain: ${chain}`
+   );
   } catch (error) {
    logger.error(
-    `Error while handling PostRequest/PostResponse transaction: ${JSON.stringify(
+    `Error while handling PostRequest/PostResponse transaction relayer updates: ${JSON.stringify(
      error
     )}`
    );

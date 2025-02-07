@@ -26,7 +26,7 @@ use polkadot_sdk::*;
 
 use alloc::collections::BTreeMap;
 use anyhow::anyhow;
-use codec::Decode;
+use codec::DecodeAll;
 use finality_grandpa::Chain;
 use grandpa_verifier_primitives::{
 	justification::{find_scheduled_change, AncestryChain, GrandpaJustification},
@@ -62,8 +62,9 @@ where
 		Err(anyhow!("Latest finalized block should be highest block in unknown_headers"))?;
 	}
 
-	let justification = GrandpaJustification::<H>::decode(&mut &finality_proof.justification[..])
-		.map_err(|e| anyhow!("Failed to decode justificatio {:?}", e))?;
+	let justification =
+		GrandpaJustification::<H>::decode_all(&mut &finality_proof.justification[..])
+			.map_err(|e| anyhow!("Failed to decode justification {:?}", e))?;
 
 	if justification.commit.target_hash != finality_proof.block {
 		Err(anyhow!("Justification target hash and finality proof block hash mismatch"))?;

@@ -36,11 +36,8 @@ use ismp_parachain_runtime_api::IsmpParachainApi;
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
 
 /// Implements [`InherentDataProvider`](sp_inherents::InherentDataProvider) for providing parachain
-/// consensus updates and relay chain Get request responses as inherents.
-pub struct ConsensusInherentProvider{
-	consensus_message: Option<ConsensusMessage>,
-	get_responses: Option<Vec<u8>>,
-}
+/// consensus updates as inherents.
+pub struct ConsensusInherentProvider(Option<ConsensusMessage>);
 
 impl ConsensusInherentProvider {
 	/// Create the [`ConsensusMessage`] for the latest height. Will be [`None`] if no para ids have
@@ -58,10 +55,7 @@ impl ConsensusInherentProvider {
 		// Check if it has the parachain runtime api
 		if !client.runtime_api().has_api::<dyn IsmpParachainApi<B>>(parent)? {
 			log::trace!("IsmpParachainApi not implemented");
-			return Ok(ConsensusInherentProvider {
-				consensus_message: None,
-				get_responses: None,
-			});
+			return Ok(ConsensusInherentProvider(None));
 		}
 
 		let para_ids = client.runtime_api().para_ids(parent)?;
@@ -69,10 +63,7 @@ impl ConsensusInherentProvider {
 		log::trace!("ParaIds from runtime: {para_ids:?}");
 
 		if para_ids.is_empty() {
-			return Ok(ConsensusInherentProvider {
-				consensus_message: None,
-				get_responses: None,
-			});
+			return Ok(ConsensusInherentProvider(None));
 		}
 
 		let state = client.runtime_api().current_relay_chain_state(parent)?;
@@ -80,10 +71,7 @@ impl ConsensusInherentProvider {
 
 		// parachain is just starting
 		if state.number == 0u32 {
-			return Ok(ConsensusInherentProvider {
-				consensus_message: None,
-				get_responses: None,
-			});
+			return Ok(ConsensusInherentProvider(None));
 		}
 
 		let relay_header = if let Ok(Some(header)) =
@@ -92,10 +80,7 @@ impl ConsensusInherentProvider {
 			header
 		} else {
 			log::trace!("Relay chain header not available for {}", state.number);
-			return Ok(ConsensusInherentProvider {
-				consensus_message: None,
-				get_responses: None,
-			});
+			return Ok(ConsensusInherentProvider(None));
 		};
 
 		let mut para_ids_to_fetch = vec![];
@@ -138,10 +123,7 @@ impl ConsensusInherentProvider {
 		}
 
 		if para_ids_to_fetch.is_empty() {
-			return Ok(ConsensusInherentProvider {
-				consensus_message: None,
-				get_responses: None,
-			});
+			return Ok(ConsensusInherentProvider(None));
 		}
 
 		let keys = para_ids_to_fetch.iter().map(|id| parachain_header_storage_key(*id).0).collect();
@@ -158,25 +140,32 @@ impl ConsensusInherentProvider {
 			signer: Default::default(),
 		};
 
-		let get_requests = client.runtime_api().get_relay_chain_requests()?;
-		let mut get_responses = Vec::new();
+		// Fetch GetRequests addressed to the relay chain
+		let get_requests = client.runtime_api().get_requests_to_relay_chain(parent)?;
+		log::trace!("GetRequests to relay chain: {:?}", get_requests);
+
+		let mut responses = Vec::new();
 
 		for request in get_requests {
-			match relay_chain_interface.get_storage_by_key(relay_header.hash(), request.storage_key.as_ref()).await {
-				Ok(Some(data)) => {
-					get_responses.push((request, data));
-				}
-				Err(err) => {
-					log::error!("Failed to fetch data for request: {:?}, error: {:?}", request, err);
-				}
-				_ => log::trace!("Failed to fetch data for request: {:?}", request),
+			// Extract the key or data identifier from the GetRequest
+			let key = request.keys(); 
+
+			// Fetch the data from the relay chain using the relay_chain_interface
+			let relay_chain_data = relay_chain_interface
+				.get_storage_by_key(relay_header.hash(), key.as_ref())
+				.await?;
+
+			// Handle the fetched data
+			if let Some(data) = relay_chain_data {
+				log::trace!("Fetched data from relay chain for key {:?}: {:?}", key, data);
+
+				// todo
+			} else {
+				log::warn!("No data found in relay chain for key {:?}", key);
 			}
 		}
 
-		Ok(ConsensusInherentProvider {
-			consensus_message: Some(message),
-			get_responses: Some(get_responses),
-		})
+		Ok(ConsensusInherentProvider(Some(message)))
 	}
 }
 
@@ -186,27 +175,20 @@ impl sp_inherents::InherentDataProvider for ConsensusInherentProvider {
 		&self,
 		inherent_data: &mut sp_inherents::InherentData,
 	) -> Result<(), sp_inherents::Error> {
-		if let Some(ref message) = self.consensus_message {
+		if let Some(ref message) = self.0 {
 			inherent_data.put_data(ismp_parachain::INHERENT_IDENTIFIER, message)?;
 		}
 
-		if let Some(ref responses) = self.get_responses {
-			inherent_data.put_data(ismp_parachain::RELAY_CHAIN_GET_REQUEST_DATA_IDENTIFIER, responses)?;
-		}
+		// inherent_data.put_data(ismp_parachain::RELAY_CHAIN_GET_REQUEST_DATA_IDENTIFIER, responses)?;
 
 		Ok(())
 	}
 
 	async fn try_handle_error(
 		&self,
-		identifier: &sp_inherents::InherentIdentifier,
-		error_data: &[u8],
+		_: &sp_inherents::InherentIdentifier,
+		_: &[u8],
 	) -> Option<Result<(), sp_inherents::Error>> {
-		if identifier == &ismp_parachain::RELAY_CHAIN_GET_REQUEST_DATA_IDENTIFIER {
-			log::error!("Error handling relay chain response: {:?}", error_data);
-			Some(Err(sp_inherents::Error::DecodingFailed(codec::Error::from("Error handling relay chain response"), *identifier)))
-		} else {
-			None
-		}
+		None
 	}
 }

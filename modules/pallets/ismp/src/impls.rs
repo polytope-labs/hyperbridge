@@ -235,6 +235,8 @@ impl<T: Config> Pallet<T> {
 	pub fn responses(commitments: Vec<H256>) -> Vec<Response> {
 		commitments.into_iter().filter_map(|cm| Self::response(cm)).collect()
 	}
+
+	pub fn get_requests_to_relay_chain() -> Vec<Request>;
 }
 
 impl<T: Config> ForkIdentifier<T> for Pallet<T> {

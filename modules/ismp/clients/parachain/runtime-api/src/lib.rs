@@ -33,8 +33,5 @@ sp_api::decl_runtime_apis! {
 
 		/// Return the current relay chain state.
 		fn current_relay_chain_state() -> RelayChainState;
-
-		/// Return the relay chain requests.
-		fn get_relay_chain_requests() -> Vec<u8>;
 	}
 }

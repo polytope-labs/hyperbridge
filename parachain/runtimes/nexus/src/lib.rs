@@ -1131,6 +1131,11 @@ impl_runtime_apis! {
 		fn responses(commitments: Vec<H256>) -> Vec<Response> {
 			Ismp::responses(commitments)
 		}
+
+		/// Fetch all GetRequests
+		fn get_requests_to_relay_chain() -> Vec<Request> {
+			Ismp::get_requests_to_relay_chain()
+		}
 	}
 
 	impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {

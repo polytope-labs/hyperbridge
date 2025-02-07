@@ -58,5 +58,8 @@ sp_api::decl_runtime_apis! {
 
 		/// Fetch the responses for the given commitments.
 		fn responses(response_commitments: Vec<H256>) -> Vec<Response>;
+
+		/// Fetch all GetRequests addressed to the relay chain
+		fn get_requests_to_relay_chain() -> Vec<Request>;
 	}
 }

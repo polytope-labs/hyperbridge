@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: base-mainnet
-description: Base-mainnet Indexer
+name: gnosis-mainnet
+description: Gnosis-mainnet Indexer
 runner:
   node:
     name: '@subql/node-ethereum'
@@ -13,15 +13,15 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '8453'
+  chainId: '100'
   endpoint:
-    - 'https://dawn-warmhearted-borough.base-mainnet.quiknode.pro/45653a3f04fbde2a3f5fb5ac2903c4023a290c36'
+    - 'https://silent-weathered-cloud.xdai.quiknode.pro/1edabf8e4a7d3417cd9161e0bb6cdd2717ab3780/'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 26032778
+    startBlock: 13000000
     options:
       abi: ethereumHost
-      address: '0x6FFe92e4d7a9D589549644544780e6725E84b248'
+      address: '0x50c236247447B9d4Ee0561054ee596fbDa7791b1'
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -61,10 +61,10 @@ dataSources:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
   - kind: ethereum/Runtime
-    startBlock: 26032778
+    startBlock: 13000000
     options:
       abi: erc6160ext20
-      address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb'
+      address: '0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d'
     assets:
       erc6160ext20:
         file: ./abis/ERC6160Ext20.abi.json

@@ -6,3 +6,7 @@ projects:
   - ./hyperbridge-nexus.yaml
   - ./bsc-mainnet.yaml
   - ./base-mainnet.yaml
+  - ./ethereum-mainnet.yaml
+  - ./arbitrum-mainnet.yaml
+  - ./optimism-mainnet.yaml
+  - ./gnosis-mainnet.yaml

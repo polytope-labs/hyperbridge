@@ -109,6 +109,130 @@ services:
       timeout: 5s
       retries: 10
 
+  subquery-node-ethereum-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
+    depends_on:
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/ethereum-mainnet.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-2}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-ethereum-mainnet:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-arbitrum-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
+    depends_on:
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/arbitrum-mainnet.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-2}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-arbitrum-mainnet:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-optimism-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
+    depends_on:
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/optimism-mainnet.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-2}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-optimism-mainnet:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-gnosis-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
+    depends_on:
+      'postgres':
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/gnosis-mainnet.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-2}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-gnosis-mainnet:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
   graphql-engine:
     image: subquerynetwork/subql-query:v2.9.0
     ports:
@@ -116,12 +240,7 @@ services:
     depends_on:
       'postgres':
         condition: service_healthy
-      'subquery-node-hyperbridge-nexus':
-        condition: service_healthy
-      'subquery-node-bsc-mainnet':
-        condition: service_healthy
-      'subquery-node-base-mainnet':
-        condition: service_healthy
+
     restart: always
     environment:
       DB_USER: postgres

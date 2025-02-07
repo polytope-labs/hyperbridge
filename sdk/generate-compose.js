@@ -12,6 +12,10 @@ const GRAPHQL_IMAGE = 'subquerynetwork/subql-query:v2.9.0';
 
 const generateNodeServices = () => {
  return Object.entries(configs)
+  .filter(([chain]) => {
+   const envKey = chain.replace(/-/g, '_').toUpperCase();
+   return !!process.env[envKey];
+  })
   .map(([chain, config]) => {
    const image = config.type === 'substrate' ? SUBSTRATE_IMAGE : EVM_IMAGE;
    return `
@@ -54,6 +58,10 @@ const generateNodeServices = () => {
 
 const generateDependencies = () => {
  return Object.keys(configs)
+  .filter(([chain]) => {
+   const envKey = chain.replace(/-/g, '_').toUpperCase();
+   return !!process.env[envKey];
+  })
   .map(
    (chain) => `      'subquery-node-${chain}':
         condition: service_healthy`

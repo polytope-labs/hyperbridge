@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: base-mainnet
-description: Base-mainnet Indexer
+name: optimism-mainnet
+description: Optimism-mainnet Indexer
 runner:
   node:
     name: '@subql/node-ethereum'
@@ -13,15 +13,15 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '8453'
+  chainId: '10'
   endpoint:
-    - 'https://dawn-warmhearted-borough.base-mainnet.quiknode.pro/45653a3f04fbde2a3f5fb5ac2903c4023a290c36'
+    - 'https://proportionate-morning-sunset.optimism.quiknode.pro/41000a019275b473de4783a118666d608ae26b22/'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 26032778
+    startBlock: 0
     options:
       abi: ethereumHost
-      address: '0x6FFe92e4d7a9D589549644544780e6725E84b248'
+      address: '0x78c8A5F27C06757EA0e30bEa682f1FD5C8d7645d'
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -61,10 +61,10 @@ dataSources:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
   - kind: ethereum/Runtime
-    startBlock: 26032778
+    startBlock: 0
     options:
       abi: erc6160ext20
-      address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb'
+      address: '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1'
     assets:
       erc6160ext20:
         file: ./abis/ERC6160Ext20.abi.json

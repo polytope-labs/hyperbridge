@@ -174,32 +174,53 @@ dataSources:
           filter:
             topics:
               - 'Transfer(address indexed from, address indexed to, uint256 amount)'
-  - kind: ethereum/Runtime
-    startBlock: 21535312
-    options:
-      abi: handlerV1
-      address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
-    assets:
-      handlerV1:
-        file: ./abis/HandlerV1.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - handler: handlePostRequestTransactionHandler
-          kind: ethereum/TransactionHandler
-          function: >-
-            handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
-        - handler: handlePostResponseTransactionHandler
-          kind: ethereum/TransactionHandler
-          function: >-
-            handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
+  # - kind: ethereum/Runtime
+  #   startBlock: 21535312
+  #   options:
+  #     abi: handlerV1
+  #     address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
+  #   assets:
+  #     handlerV1:
+  #       file: ./abis/HandlerV1.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - handler: handlePostRequestTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
+  #       - handler: handlePostResponseTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
 
 repository: 'https://github.com/polytope-labs/hyperbridge'`;
 };
 
+const validChains = Object.entries(configs).filter(([chain, config]) => {
+ const envKey = chain.replace(/-/g, '_').toUpperCase();
+ const endpoint = process.env[envKey];
+
+ if (!endpoint) {
+  console.log(`Skipping ${chain}.yaml - No endpoint configured in environment`);
+  return false;
+ }
+ return true;
+});
+
+validChains.forEach(([chain, config]) => {
+ const yaml =
+  config.type === 'substrate'
+   ? generateSubstrateYaml(chain, config)
+   : generateEvmYaml(chain, config);
+
+ fs.writeFileSync(`${chain}.yaml`, yaml);
+ console.log(`Generated ${chain}.yaml`);
+});
+
 const generateMultichainYaml = () => {
- const projects = Object.keys(configs)
-  .map((chain) => `  - ./${chain}.yaml`)
+ const projects = validChains
+  .map(([chain]) => `  - ./${chain}.yaml`)
   .join('\n');
 
  const yaml = `specVersion: 1.0.0
@@ -213,14 +234,6 @@ ${projects}`;
  console.log('Generated subquery-multichain.yaml');
 };
 
-Object.entries(configs).forEach(([chain, config]) => {
- const yaml =
-  config.type === 'substrate'
-   ? generateSubstrateYaml(chain, config)
-   : generateEvmYaml(chain, config);
-
- fs.writeFileSync(`${chain}.yaml`, yaml);
- console.log(`Generated ${chain}.yaml`);
-});
-
 generateMultichainYaml();
+
+

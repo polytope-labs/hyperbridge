@@ -15,10 +15,10 @@ schema:
 network:
   chainId: '10'
   endpoint:
-    - 'https://proportionate-morning-sunset.optimism.quiknode.pro/41000a019275b473de4783a118666d608ae26b22/'
+    - 'https://proportionate-morning-sunset.optimism.quiknode.pro/41000a019275b473de4783a118666d608ae26b22'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 0
+    startBlock: 131672087
     options:
       abi: ethereumHost
       address: '0x78c8A5F27C06757EA0e30bEa682f1FD5C8d7645d'
@@ -61,7 +61,7 @@ dataSources:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
   - kind: ethereum/Runtime
-    startBlock: 0
+    startBlock: 131672087
     options:
       abi: erc6160ext20
       address: '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1'

@@ -1,34 +1,19 @@
 version: '3'
 
 services:
-  postgres:
-    build:
-      context: .
-      dockerfile: ./docker/pg-Dockerfile
-    ports:
-      - 5432:5432
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_PASSWORD: postgres
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   subquery-node-hyperbridge-nexus:
     image: subquerynetwork/subql-node-substrate:latest
-    depends_on:
-      'postgres':
-        condition: service_healthy
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
@@ -49,16 +34,16 @@ services:
 
   subquery-node-bsc-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
-    depends_on:
-      'postgres':
-        condition: service_healthy
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
@@ -80,16 +65,16 @@ services:
 
   subquery-node-base-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
-    depends_on:
-      'postgres':
-        condition: service_healthy
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
@@ -111,16 +96,16 @@ services:
 
   subquery-node-ethereum-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
-    depends_on:
-      'postgres':
-        condition: service_healthy
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
@@ -142,16 +127,16 @@ services:
 
   subquery-node-arbitrum-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
-    depends_on:
-      'postgres':
-        condition: service_healthy
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
@@ -173,16 +158,16 @@ services:
 
   subquery-node-optimism-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
-    depends_on:
-      'postgres':
-        condition: service_healthy
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
@@ -204,16 +189,16 @@ services:
 
   subquery-node-gnosis-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
-    depends_on:
-      'postgres':
-        condition: service_healthy
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
@@ -237,17 +222,16 @@ services:
     image: subquerynetwork/subql-query:v2.9.0
     ports:
       - 3000:3000
-    depends_on:
-      'postgres':
-        condition: service_healthy
 
     restart: always
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: ${DB_PORT}
     command:
       - --name=app
       - --playground

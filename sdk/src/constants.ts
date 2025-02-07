@@ -44,6 +44,16 @@ export const BSC = {
  mainnet: 'EVM-56',
 };
 
+export const GNOSIS = {
+ testnet: 'EVM-10200',
+ mainnet: 'EVM-100',
+};
+
+export const SONEMIUM = {
+ testnet: 'EVM-1946',
+ mainnet: 'EVM-1868',
+};
+
 export const CHAIN_IDS_BY_GENESIS = {
  // Hyperbridge
  '0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73':
@@ -76,6 +86,14 @@ export const CHAIN_IDS_BY_GENESIS = {
  // Base
  '84532': 'EVM-84532',
  '8453': 'EVM-8453',
+
+ // Gnosis
+ '10200': 'EVM-10200',
+ '100': 'EVM-100',
+
+ //Sonemium
+ '1946': 'EVM-1946',
+ '1868': 'EVM-1868',
 };
 
 export const CHAINS_BY_ISMP_HOST = {
@@ -98,6 +116,14 @@ export const CHAINS_BY_ISMP_HOST = {
  // Ethereum
  'EVM-11155111': '0x2EdB74C269948b60ec1000040E104cef0eABaae8',
  'EVM-1': '0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20',
+
+ // Gnosis
+ 'EVM-10200': '0x58A41B89F4871725E5D898d98eF4BF917601c5eB',
+ 'EVM-100': '0x50c236247447B9d4Ee0561054ee596fbDa7791b1',
+
+ // Sonemium
+ 'EVM-1946': '',
+ 'EVM-1868': '0x7F0165140D0f3251c8f6465e94E9d12C7FD40711',
 };
 
 export interface ITokenPriceFeedDetails {

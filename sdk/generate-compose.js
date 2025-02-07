@@ -21,16 +21,16 @@ const generateNodeServices = () => {
    return `
   subquery-node-${chain}:
     image: ${image}
-    depends_on:
-      'postgres':
-        condition: service_healthy
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: \${DB_USER}
+      DB_PASS: \${DB_PASS}
+      DB_DATABASE: \${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: \${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
@@ -72,38 +72,22 @@ const generateDependencies = () => {
 const dockerCompose = `version: '3'
 
 services:
-  postgres:
-    build:
-      context: .
-      dockerfile: ./docker/pg-Dockerfile
-    ports:
-      - 5432:5432
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_PASSWORD: postgres
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
-      interval: 5s
-      timeout: 5s
-      retries: 5
 ${generateNodeServices()}
 
   graphql-engine:
     image: ${GRAPHQL_IMAGE}
     ports:
       - 3000:3000
-    depends_on:
-      'postgres':
-        condition: service_healthy
 ${generateDependencies()}
     restart: always
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: \${DB_USER}
+      DB_PASS: \${DB_PASS}
+      DB_DATABASE: \${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: \${DB_PORT}
     command:
       - --name=app
       - --playground

@@ -15,10 +15,10 @@ schema:
 network:
   chainId: '42161'
   endpoint:
-    - 'https://tiniest-responsive-asphalt.arbitrum-mainnet.quiknode.pro/3611cf78ffd6acd257d5585ddbbab2a7d719354a/'
+    - 'https://tiniest-responsive-asphalt.arbitrum-mainnet.quiknode.pro/3611cf78ffd6acd257d5585ddbbab2a7d719354a'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 0
+    startBlock: 303623734
     options:
       abi: ethereumHost
       address: '0xE05AFD4Eb2ce6d65c40e1048381BD0Ef8b4B299e'
@@ -61,7 +61,7 @@ dataSources:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
   - kind: ethereum/Runtime
-    startBlock: 0
+    startBlock: 303623734
     options:
       abi: erc6160ext20
       address: '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1'

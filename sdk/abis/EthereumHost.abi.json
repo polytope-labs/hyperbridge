@@ -10,7 +10,7 @@
           },
           {
             "internalType": "uint256",
-            "name": "perByteFee",
+            "name": "defaultPerByteFee",
             "type": "uint256"
           },
           {
@@ -18,15 +18,31 @@
             "name": "stateCommitmentFee",
             "type": "uint256"
           },
-          { "internalType": "address", "name": "feeToken", "type": "address" },
-          { "internalType": "address", "name": "admin", "type": "address" },
-          { "internalType": "address", "name": "handler", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "feeToken",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "admin",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "handler",
+            "type": "address"
+          },
           {
             "internalType": "address",
             "name": "hostManager",
             "type": "address"
           },
-          { "internalType": "address", "name": "uniswapV2", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "uniswapV2",
+            "type": "address"
+          },
           {
             "internalType": "uint256",
             "name": "unStakingPeriod",
@@ -48,11 +64,27 @@
             "type": "uint256[]"
           },
           {
-            "internalType": "address[]",
-            "name": "fishermen",
-            "type": "address[]"
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "stateIdHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256",
+                "name": "perByteFee",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct PerByteFee[]",
+            "name": "perByteFees",
+            "type": "tuple[]"
           },
-          { "internalType": "bytes", "name": "hyperbridge", "type": "bytes" }
+          {
+            "internalType": "bytes",
+            "name": "hyperbridge",
+            "type": "bytes"
+          }
         ],
         "internalType": "struct HostParams",
         "name": "params",
@@ -62,23 +94,86 @@
     "stateMutability": "nonpayable",
     "type": "constructor"
   },
-  { "inputs": [], "name": "CannotChangeFeeToken", "type": "error" },
-  { "inputs": [], "name": "DuplicateResponse", "type": "error" },
-  { "inputs": [], "name": "FrozenHost", "type": "error" },
-  { "inputs": [], "name": "InvalidAddressLength", "type": "error" },
-  { "inputs": [], "name": "InvalidConsensusClient", "type": "error" },
-  { "inputs": [], "name": "InvalidHandler", "type": "error" },
-  { "inputs": [], "name": "InvalidHostManager", "type": "error" },
-  { "inputs": [], "name": "InvalidHyperbridgeId", "type": "error" },
-  { "inputs": [], "name": "InvalidStateMachinesLength", "type": "error" },
-  { "inputs": [], "name": "InvalidUnstakingPeriod", "type": "error" },
-  { "inputs": [], "name": "MaxFishermanCountExceeded", "type": "error" },
-  { "inputs": [], "name": "UnauthorizedAccount", "type": "error" },
-  { "inputs": [], "name": "UnauthorizedAction", "type": "error" },
-  { "inputs": [], "name": "UnauthorizedResponse", "type": "error" },
-  { "inputs": [], "name": "UnknownRequest", "type": "error" },
-  { "inputs": [], "name": "UnknownResponse", "type": "error" },
-  { "inputs": [], "name": "WithdrawalFailed", "type": "error" },
+  {
+    "inputs": [],
+    "name": "CannotChangeFeeToken",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "DuplicateResponse",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "FrozenHost",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidAddressLength",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidConsensusClient",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidHandler",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidHostManager",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidHyperbridgeId",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidStateMachinesLength",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidUnstakingPeriod",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "UnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "UnauthorizedAction",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "UnauthorizedResponse",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "UnknownRequest",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "UnknownResponse",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "WithdrawalFailed",
+    "type": "error"
+  },
   {
     "anonymous": false,
     "inputs": [
@@ -123,6 +218,12 @@
         "internalType": "uint256",
         "name": "timeoutTimestamp",
         "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "context",
+        "type": "bytes"
       },
       {
         "indexed": false,
@@ -197,7 +298,7 @@
           },
           {
             "internalType": "uint256",
-            "name": "perByteFee",
+            "name": "defaultPerByteFee",
             "type": "uint256"
           },
           {
@@ -205,15 +306,31 @@
             "name": "stateCommitmentFee",
             "type": "uint256"
           },
-          { "internalType": "address", "name": "feeToken", "type": "address" },
-          { "internalType": "address", "name": "admin", "type": "address" },
-          { "internalType": "address", "name": "handler", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "feeToken",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "admin",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "handler",
+            "type": "address"
+          },
           {
             "internalType": "address",
             "name": "hostManager",
             "type": "address"
           },
-          { "internalType": "address", "name": "uniswapV2", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "uniswapV2",
+            "type": "address"
+          },
           {
             "internalType": "uint256",
             "name": "unStakingPeriod",
@@ -235,11 +352,27 @@
             "type": "uint256[]"
           },
           {
-            "internalType": "address[]",
-            "name": "fishermen",
-            "type": "address[]"
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "stateIdHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256",
+                "name": "perByteFee",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct PerByteFee[]",
+            "name": "perByteFees",
+            "type": "tuple[]"
           },
-          { "internalType": "bytes", "name": "hyperbridge", "type": "bytes" }
+          {
+            "internalType": "bytes",
+            "name": "hyperbridge",
+            "type": "bytes"
+          }
         ],
         "indexed": false,
         "internalType": "struct HostParams",
@@ -255,7 +388,7 @@
           },
           {
             "internalType": "uint256",
-            "name": "perByteFee",
+            "name": "defaultPerByteFee",
             "type": "uint256"
           },
           {
@@ -263,15 +396,31 @@
             "name": "stateCommitmentFee",
             "type": "uint256"
           },
-          { "internalType": "address", "name": "feeToken", "type": "address" },
-          { "internalType": "address", "name": "admin", "type": "address" },
-          { "internalType": "address", "name": "handler", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "feeToken",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "admin",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "handler",
+            "type": "address"
+          },
           {
             "internalType": "address",
             "name": "hostManager",
             "type": "address"
           },
-          { "internalType": "address", "name": "uniswapV2", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "uniswapV2",
+            "type": "address"
+          },
           {
             "internalType": "uint256",
             "name": "unStakingPeriod",
@@ -293,11 +442,27 @@
             "type": "uint256[]"
           },
           {
-            "internalType": "address[]",
-            "name": "fishermen",
-            "type": "address[]"
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "stateIdHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256",
+                "name": "perByteFee",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct PerByteFee[]",
+            "name": "perByteFees",
+            "type": "tuple[]"
           },
-          { "internalType": "bytes", "name": "hyperbridge", "type": "bytes" }
+          {
+            "internalType": "bytes",
+            "name": "hyperbridge",
+            "type": "bytes"
+          }
         ],
         "indexed": false,
         "internalType": "struct HostParams",
@@ -605,13 +770,21 @@
       },
       {
         "components": [
-          { "internalType": "uint256", "name": "timestamp", "type": "uint256" },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
           {
             "internalType": "bytes32",
             "name": "overlayRoot",
             "type": "bytes32"
           },
-          { "internalType": "bytes32", "name": "stateRoot", "type": "bytes32" }
+          {
+            "internalType": "bytes32",
+            "name": "stateRoot",
+            "type": "bytes32"
+          }
         ],
         "indexed": false,
         "internalType": "struct StateCommitment",
@@ -650,49 +823,91 @@
   {
     "inputs": [],
     "name": "CHAIN_ID",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "admin",
-    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "chainId",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "pure",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "challengePeriod",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "consensusClient",
-    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "consensusState",
-    "outputs": [{ "internalType": "bytes", "name": "", "type": "bytes" }],
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "consensusUpdateTime",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -705,13 +920,21 @@
             "name": "stateMachineId",
             "type": "uint256"
           },
-          { "internalType": "uint256", "name": "height", "type": "uint256" }
+          {
+            "internalType": "uint256",
+            "name": "height",
+            "type": "uint256"
+          }
         ],
         "internalType": "struct StateMachineHeight",
         "name": "height",
         "type": "tuple"
       },
-      { "internalType": "address", "name": "fisherman", "type": "address" }
+      {
+        "internalType": "address",
+        "name": "fisherman",
+        "type": "address"
+      }
     ],
     "name": "deleteStateMachineCommitment",
     "outputs": [],
@@ -721,7 +944,13 @@
   {
     "inputs": [],
     "name": "feeToken",
-    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -729,15 +958,27 @@
     "inputs": [],
     "name": "frozen",
     "outputs": [
-      { "internalType": "enum FrozenStatus", "name": "", "type": "uint8" }
+      {
+        "internalType": "enum FrozenStatus",
+        "name": "",
+        "type": "uint8"
+      }
     ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" },
-      { "internalType": "uint256", "name": "amount", "type": "uint256" }
+      {
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
     ],
     "name": "fundRequest",
     "outputs": [],
@@ -746,8 +987,16 @@
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" },
-      { "internalType": "uint256", "name": "amount", "type": "uint256" }
+      {
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
     ],
     "name": "fundResponse",
     "outputs": [],
@@ -757,7 +1006,13 @@
   {
     "inputs": [],
     "name": "host",
-    "outputs": [{ "internalType": "bytes", "name": "", "type": "bytes" }],
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -774,7 +1029,7 @@
           },
           {
             "internalType": "uint256",
-            "name": "perByteFee",
+            "name": "defaultPerByteFee",
             "type": "uint256"
           },
           {
@@ -782,15 +1037,31 @@
             "name": "stateCommitmentFee",
             "type": "uint256"
           },
-          { "internalType": "address", "name": "feeToken", "type": "address" },
-          { "internalType": "address", "name": "admin", "type": "address" },
-          { "internalType": "address", "name": "handler", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "feeToken",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "admin",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "handler",
+            "type": "address"
+          },
           {
             "internalType": "address",
             "name": "hostManager",
             "type": "address"
           },
-          { "internalType": "address", "name": "uniswapV2", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "uniswapV2",
+            "type": "address"
+          },
           {
             "internalType": "uint256",
             "name": "unStakingPeriod",
@@ -812,11 +1083,27 @@
             "type": "uint256[]"
           },
           {
-            "internalType": "address[]",
-            "name": "fishermen",
-            "type": "address[]"
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "stateIdHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256",
+                "name": "perByteFee",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct PerByteFee[]",
+            "name": "perByteFees",
+            "type": "tuple[]"
           },
-          { "internalType": "bytes", "name": "hyperbridge", "type": "bytes" }
+          {
+            "internalType": "bytes",
+            "name": "hyperbridge",
+            "type": "bytes"
+          }
         ],
         "internalType": "struct HostParams",
         "name": "",
@@ -829,41 +1116,89 @@
   {
     "inputs": [],
     "name": "hyperbridge",
-    "outputs": [{ "internalType": "bytes", "name": "", "type": "bytes" }],
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "uint256", "name": "id", "type": "uint256" }],
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      }
+    ],
     "name": "latestStateMachineHeight",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "nonce",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "perByteFee",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" }
+      {
+        "internalType": "bytes",
+        "name": "stateId",
+        "type": "bytes"
+      }
+    ],
+    "name": "perByteFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      }
     ],
     "name": "requestCommitments",
     "outputs": [
       {
         "components": [
-          { "internalType": "uint256", "name": "fee", "type": "uint256" },
-          { "internalType": "address", "name": "sender", "type": "address" }
+          {
+            "internalType": "uint256",
+            "name": "fee",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "sender",
+            "type": "address"
+          }
         ],
         "internalType": "struct FeeMetadata",
         "name": "",
@@ -875,32 +1210,64 @@
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" }
+      {
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      }
     ],
     "name": "requestReceipts",
-    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" }
+      {
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      }
     ],
     "name": "responded",
-    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" }
+      {
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      }
     ],
     "name": "responseCommitments",
     "outputs": [
       {
         "components": [
-          { "internalType": "uint256", "name": "fee", "type": "uint256" },
-          { "internalType": "address", "name": "sender", "type": "address" }
+          {
+            "internalType": "uint256",
+            "name": "fee",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "sender",
+            "type": "address"
+          }
         ],
         "internalType": "struct FeeMetadata",
         "name": "",
@@ -912,7 +1279,11 @@
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "commitment", "type": "bytes32" }
+      {
+        "internalType": "bytes32",
+        "name": "commitment",
+        "type": "bytes32"
+      }
     ],
     "name": "responseReceipts",
     "outputs": [
@@ -923,7 +1294,11 @@
             "name": "responseCommitment",
             "type": "bytes32"
           },
-          { "internalType": "address", "name": "relayer", "type": "address" }
+          {
+            "internalType": "address",
+            "name": "relayer",
+            "type": "address"
+          }
         ],
         "internalType": "struct ResponseReceipt",
         "name": "",
@@ -935,7 +1310,11 @@
   },
   {
     "inputs": [
-      { "internalType": "bytes", "name": "state", "type": "bytes" },
+      {
+        "internalType": "bytes",
+        "name": "state",
+        "type": "bytes"
+      },
       {
         "components": [
           {
@@ -943,7 +1322,11 @@
             "name": "stateMachineId",
             "type": "uint256"
           },
-          { "internalType": "uint256", "name": "height", "type": "uint256" }
+          {
+            "internalType": "uint256",
+            "name": "height",
+            "type": "uint256"
+          }
         ],
         "internalType": "struct StateMachineHeight",
         "name": "height",
@@ -951,13 +1334,21 @@
       },
       {
         "components": [
-          { "internalType": "uint256", "name": "timestamp", "type": "uint256" },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
           {
             "internalType": "bytes32",
             "name": "overlayRoot",
             "type": "bytes32"
           },
-          { "internalType": "bytes32", "name": "stateRoot", "type": "bytes32" }
+          {
+            "internalType": "bytes32",
+            "name": "stateRoot",
+            "type": "bytes32"
+          }
         ],
         "internalType": "struct StateCommitment",
         "name": "commitment",
@@ -985,7 +1376,13 @@
   {
     "inputs": [],
     "name": "stateCommitmentFee",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -998,7 +1395,11 @@
             "name": "stateMachineId",
             "type": "uint256"
           },
-          { "internalType": "uint256", "name": "height", "type": "uint256" }
+          {
+            "internalType": "uint256",
+            "name": "height",
+            "type": "uint256"
+          }
         ],
         "internalType": "struct StateMachineHeight",
         "name": "height",
@@ -1009,13 +1410,21 @@
     "outputs": [
       {
         "components": [
-          { "internalType": "uint256", "name": "timestamp", "type": "uint256" },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
           {
             "internalType": "bytes32",
             "name": "overlayRoot",
             "type": "bytes32"
           },
-          { "internalType": "bytes32", "name": "stateRoot", "type": "bytes32" }
+          {
+            "internalType": "bytes32",
+            "name": "stateRoot",
+            "type": "bytes32"
+          }
         ],
         "internalType": "struct StateCommitment",
         "name": "",
@@ -1034,7 +1443,11 @@
             "name": "stateMachineId",
             "type": "uint256"
           },
-          { "internalType": "uint256", "name": "height", "type": "uint256" }
+          {
+            "internalType": "uint256",
+            "name": "height",
+            "type": "uint256"
+          }
         ],
         "internalType": "struct StateMachineHeight",
         "name": "height",
@@ -1042,22 +1455,48 @@
       }
     ],
     "name": "stateMachineCommitmentUpdateTime",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [
-      { "internalType": "bytes", "name": "parachainId", "type": "bytes" },
-      { "internalType": "uint256", "name": "id", "type": "uint256" }
+      {
+        "internalType": "bytes",
+        "name": "parachainId",
+        "type": "bytes"
+      },
+      {
+        "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      }
     ],
     "name": "stateMachineId",
-    "outputs": [{ "internalType": "string", "name": "", "type": "string" }],
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
     "stateMutability": "pure",
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "bytes", "name": "state", "type": "bytes" }],
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "state",
+        "type": "bytes"
+      }
+    ],
     "name": "storeConsensusState",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -1072,7 +1511,11 @@
             "name": "stateMachineId",
             "type": "uint256"
           },
-          { "internalType": "uint256", "name": "height", "type": "uint256" }
+          {
+            "internalType": "uint256",
+            "name": "height",
+            "type": "uint256"
+          }
         ],
         "internalType": "struct StateMachineHeight",
         "name": "height",
@@ -1080,13 +1523,21 @@
       },
       {
         "components": [
-          { "internalType": "uint256", "name": "timestamp", "type": "uint256" },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
           {
             "internalType": "bytes32",
             "name": "overlayRoot",
             "type": "bytes32"
           },
-          { "internalType": "bytes32", "name": "stateRoot", "type": "bytes32" }
+          {
+            "internalType": "bytes32",
+            "name": "stateRoot",
+            "type": "bytes32"
+          }
         ],
         "internalType": "struct StateCommitment",
         "name": "commitment",
@@ -1101,21 +1552,39 @@
   {
     "inputs": [],
     "name": "timestamp",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "unStakingPeriod",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "uniswapV2Router",
-    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -1130,7 +1599,7 @@
           },
           {
             "internalType": "uint256",
-            "name": "perByteFee",
+            "name": "defaultPerByteFee",
             "type": "uint256"
           },
           {
@@ -1138,15 +1607,31 @@
             "name": "stateCommitmentFee",
             "type": "uint256"
           },
-          { "internalType": "address", "name": "feeToken", "type": "address" },
-          { "internalType": "address", "name": "admin", "type": "address" },
-          { "internalType": "address", "name": "handler", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "feeToken",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "admin",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "handler",
+            "type": "address"
+          },
           {
             "internalType": "address",
             "name": "hostManager",
             "type": "address"
           },
-          { "internalType": "address", "name": "uniswapV2", "type": "address" },
+          {
+            "internalType": "address",
+            "name": "uniswapV2",
+            "type": "address"
+          },
           {
             "internalType": "uint256",
             "name": "unStakingPeriod",
@@ -1168,11 +1653,27 @@
             "type": "uint256[]"
           },
           {
-            "internalType": "address[]",
-            "name": "fishermen",
-            "type": "address[]"
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "stateIdHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256",
+                "name": "perByteFee",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct PerByteFee[]",
+            "name": "perByteFees",
+            "type": "tuple[]"
           },
-          { "internalType": "bytes", "name": "hyperbridge", "type": "bytes" }
+          {
+            "internalType": "bytes",
+            "name": "hyperbridge",
+            "type": "bytes"
+          }
         ],
         "internalType": "struct HostParams",
         "name": "params",
@@ -1187,31 +1688,24 @@
   {
     "inputs": [
       {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "stateMachineId",
-            "type": "uint256"
-          },
-          { "internalType": "uint256", "name": "height", "type": "uint256" }
-        ],
-        "internalType": "struct StateMachineHeight",
+        "internalType": "uint256",
+        "name": "paraId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
         "name": "height",
-        "type": "tuple"
+        "type": "uint256"
       }
     ],
-    "name": "vetoStateCommitment",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "paraId", "type": "uint256" },
-      { "internalType": "uint256", "name": "height", "type": "uint256" }
-    ],
     "name": "vetoes",
-    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -1224,8 +1718,16 @@
             "name": "beneficiary",
             "type": "address"
           },
-          { "internalType": "uint256", "name": "amount", "type": "uint256" },
-          { "internalType": "bool", "name": "native", "type": "bool" }
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "native",
+            "type": "bool"
+          }
         ],
         "internalType": "struct WithdrawParams",
         "name": "params",
@@ -1237,5 +1739,8 @@
     "stateMutability": "nonpayable",
     "type": "function"
   },
-  { "stateMutability": "payable", "type": "receive" }
+  {
+    "stateMutability": "payable",
+    "type": "receive"
+  }
 ]

@@ -1,6 +1,7 @@
 import { solidityKeccak256 } from 'ethers/lib/utils';
 import { Status } from '../types/enums';
 import { Request, RequestStatusMetadata } from '../types/models';
+import { ethers } from 'ethers';
 
 export interface ICreateRequestArgs {
  chain: string;
@@ -26,15 +27,17 @@ export interface IUpdateRequestStatusArgs {
  blockNumber: string;
  blockHash: string;
  transactionHash: string;
+ timeoutHash?: string;
  blockTimestamp: bigint;
  chain: string;
 }
 
 const REQUEST_STATUS_WEIGHTS = {
  [Status.SOURCE]: 1,
- [Status.MESSAGE_RELAYED]: 2,
- [Status.DEST]: 3,
- [Status.TIMED_OUT]: 4,
+ [Status.HYPERBRIDGE_DELIVERED]: 2,
+ [Status.DESTINATION]: 3,
+ [Status.HYPERBRIDGE_TIMED_OUT]: 4,
+ [Status.TIMED_OUT]: 5,
 };
 
 export class RequestService {
@@ -61,6 +64,14 @@ export class RequestService {
   } = args;
   let request = await Request.get(commitment);
 
+  logger.info(
+   `Creating PostRequest Event: ${JSON.stringify({
+    commitment,
+    transactionHash,
+    status,
+   })}`
+  );
+
   if (typeof request === 'undefined') {
    request = Request.create({
     id: commitment,
@@ -74,13 +85,37 @@ export class RequestService {
     status,
     timeoutTimestamp: timeoutTimestamp || BigInt(0),
     to: to || '',
-    sourceTransactionHash: transactionHash,
+    sourceTransactionHash: '',
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
+    destinationTimeoutTransactionHash: '',
     commitment,
    });
 
+   switch (status) {
+    case Status.HYPERBRIDGE_DELIVERED:
+     request.hyperbridgeTransactionHash = transactionHash;
+     break;
+    case Status.DESTINATION:
+     request.destinationTransactionHash = transactionHash;
+     break;
+    case Status.HYPERBRIDGE_TIMED_OUT:
+     request.hyperbridgeTimeoutTransactionHash = transactionHash;
+     break;
+    case Status.TIMED_OUT:
+     request.destinationTimeoutTransactionHash = transactionHash;
+     break;
+   }
+
    await request.save();
+
+   logger.info(
+    `Created new request with details ${JSON.stringify({
+     commitment,
+     transactionHash,
+     status,
+    })}`
+   );
 
    let requestStatusMetadata = RequestStatusMetadata.create({
     id: `${commitment}.${status}`,
@@ -114,6 +149,14 @@ export class RequestService {
    chain,
   } = args;
 
+  logger.info(
+   `Updating Request Status: ${JSON.stringify({
+    commitment,
+    transactionHash,
+    status,
+   })}`
+  );
+
   let request = await Request.get(commitment);
 
   if (request) {
@@ -132,11 +175,17 @@ export class RequestService {
     request.status = status;
 
     switch (status) {
-     case Status.MESSAGE_RELAYED:
+     case Status.HYPERBRIDGE_DELIVERED:
       request.hyperbridgeTransactionHash = transactionHash;
       break;
-     case Status.DEST:
+     case Status.DESTINATION:
       request.destinationTransactionHash = transactionHash;
+      break;
+     case Status.HYPERBRIDGE_TIMED_OUT:
+      request.hyperbridgeTimeoutTransactionHash = transactionHash;
+      break;
+     case Status.TIMED_OUT:
+      request.destinationTimeoutTransactionHash = transactionHash;
       break;
     }
 
@@ -195,9 +244,25 @@ export class RequestService {
   to: string,
   body: string
  ): string {
+  logger.info(
+   `Computing request commitment with details ${JSON.stringify({
+    source,
+    dest,
+    nonce: nonce.toString(),
+    timeoutTimestamp: timeoutTimestamp.toString(),
+    from,
+    to,
+    body,
+   })}`
+  );
+
+  // Convert source, dest, from, to, body to bytes
+  const sourceByte = ethers.utils.toUtf8Bytes(source);
+  const destByte = ethers.utils.toUtf8Bytes(dest);
+
   let hash = solidityKeccak256(
    ['bytes', 'bytes', 'uint64', 'uint64', 'bytes', 'bytes', 'bytes'],
-   [source, dest, nonce, timeoutTimestamp, from, to, body]
+   [sourceByte, destByte, nonce, timeoutTimestamp, from, to, body]
   );
   return hash;
  }

@@ -1,52 +1,55 @@
-import assert from "assert";
-import { GET_HOST_ADDRESSES } from "../../../addresses/state-machine.addresses";
-import { HyperBridgeService } from "../../../services/hyperbridge.service";
-import { RelayerService } from "../../../services/relayer.service";
-import { TransferService } from "../../../services/transfer.service";
-import { TransferLog } from "../../../types/abi-interfaces/ERC6160Ext20Abi";
-import StateMachineHelpers from "../../../utils/stateMachine.helpers";
+import { GET_HOST_ADDRESSES } from '../../../addresses/state-machine.addresses';
+import { HyperBridgeService } from '../../../services/hyperbridge.service';
+import { RelayerService } from '../../../services/relayer.service';
+import { TransferService } from '../../../services/transfer.service';
+import { TransferLog } from '../../../types/abi-interfaces/ERC6160Ext20Abi';
+import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
 /**
  * Handles the Transfer event from the Fee Token contract
  */
 export async function handleTransferEvent(event: TransferLog): Promise<void> {
-  assert(event.args, "No handleTransferEvent args");
-  const { args, transactionHash, transaction, blockNumber } = event;
-  const { from, to, value } = args;
-  const HOST_ADDRESSES = GET_HOST_ADDRESSES();
+ if (!event.args) return;
 
-  logger.info(
-    `Handling Transfer event: ${JSON.stringify({
-      blockNumber,
-      transactionHash,
-    })}`
-  );
+ const { args, transactionHash, transaction, blockNumber } = event;
+ const { from, to, value } = args;
+ const HOST_ADDRESSES = GET_HOST_ADDRESSES();
 
-  const chain: string =
-    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
+ logger.info(
+  `Handling Transfer event: ${JSON.stringify({
+   blockNumber,
+   transactionHash,
+  })}`
+ );
 
-  // Only store transfers from/to the Hyperbridge host contracts
-  if (HOST_ADDRESSES.includes(from) || HOST_ADDRESSES.includes(to)) {
-    const transfer = await TransferService.storeTransfer({
-      from,
-      to,
-      value,
-      transactionHash,
-      chain,
-    });
+ const chain: string = getHostStateMachine(chainId);
 
-    if (HOST_ADDRESSES.includes(from)) {
-      Promise.all([
-        await RelayerService.updateFeesEarned(transfer),
-        await HyperBridgeService.handleTransferOutOfHostAccounts(
-          transfer,
-          chain
-        ),
-      ]);
-    }
+ // Only store transfers from/to the Hyperbridge host contracts
+ if (HOST_ADDRESSES.includes(from) || HOST_ADDRESSES.includes(to)) {
+  const transfer = await TransferService.storeTransfer({
+   from,
+   to,
+   value,
+   transactionHash,
+   chain,
+  });
 
-    if (HOST_ADDRESSES.includes(to)) {
-      await HyperBridgeService.updateTotalTransfersIn(transfer, chain);
-    }
+  if (HOST_ADDRESSES.includes(from)) {
+   try {
+    await RelayerService.updateFeesEarned(transfer);
+    await HyperBridgeService.handleTransferOutOfHostAccounts(transfer, chain);
+   } catch (error) {
+    logger.error(
+     `Error handling transfer event: ${JSON.stringify({
+      error,
+      transfer,
+     })}`
+    );
+   }
   }
+
+  if (HOST_ADDRESSES.includes(to)) {
+   await HyperBridgeService.updateTotalTransfersIn(transfer, chain);
+  }
+ }
 }

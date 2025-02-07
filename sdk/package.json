@@ -6,28 +6,35 @@
   "scripts": {
     "build": "subql build",
     "codegen": "subql codegen",
-    "start:docker": "docker-compose pull && docker-compose up --remove-orphans",
-    "dev": "subql codegen && subql build && docker-compose pull && docker-compose up --remove-orphans",
+    "generate-configs": "node generate-chain-yamls.js && node generate-compose.js",
+    "start:docker": "npm run generate-configs && docker-compose pull && docker-compose up --remove-orphans",
+    "dev": "export CURRENT_ENV=test subql codegen && subql build && npm run start:docker",
+    "prod": "export CURRENT_ENV=prod subql codegen && subql build && npm run start:docker",
     "prepack": "rm -rf dist && npm run build",
-    "test": "subql build && subql-node-ethereum -f=ethereum-sepolia.yaml test"
+    "test": "subql build && subql-node-ethereum -f=base-sepolia.yaml test"
   },
   "homepage": "https://hyperbridge.network/",
   "repository": "https://github.com/polytope-labs/hyperbridge-indexer",
   "files": [
     "dist",
     "schema.graphql",
-    "subquery-multichain.yaml"
+    "subquery-multichain.yaml",
+    "chain-configs-prod.json",
+    "chain-configs-test.json"
   ],
   "author": "Polytope Labs",
   "license": "MIT",
   "dependencies": {
+    "@bifrost-finance/type-definitions": "^1.11.9",
     "@ethersproject/shims": "^5.7.0",
+    "@open-web3/orml-type-definitions": "^2.0.1",
     "@polkadot/api": "latest",
     "@subql/common": "latest",
     "@subql/common-ethereum": "^4.5.5",
     "@subql/types-ethereum": "latest",
     "@subql/validator": "latest",
-    "assert": "^2.0.0"
+    "assert": "^2.0.0",
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "@subql/cli": "latest",
@@ -41,6 +48,7 @@
     "typescript": "latest"
   },
   "exports": {
-    "hyperbridge-chaintypes": "src/hyperbridge-chaintypes.ts"
+    "substrate-chaintypes/hyperbridge": "src/substrate-chaintypes/hyperbridge.ts",
+    "substrate-chaintypes/bifrost": "src/substrate-chaintypes/bifrost.ts"
   }
 }

@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: bsc-chapel
-description: Bsc-chapel Indexer
+name: optimism-mainnet
+description: Optimism-mainnet Indexer
 runner:
   node:
     name: '@subql/node-ethereum'
@@ -13,15 +13,15 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '97'
+  chainId: '10'
   endpoint:
-    - 'https://wandering-delicate-silence.bsc-testnet.quiknode.pro/74d3977082e2021a0e005e12dbdcbb6732ed74ee'
+    - 'https://proportionate-morning-sunset.optimism.quiknode.pro/41000a019275b473de4783a118666d608ae26b22'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 48039086
+    startBlock: 131672087
     options:
       abi: ethereumHost
-      address: '0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7'
+      address: '0x78c8A5F27C06757EA0e30bEa682f1FD5C8d7645d'
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -61,10 +61,10 @@ dataSources:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
   - kind: ethereum/Runtime
-    startBlock: 48039086
+    startBlock: 131672087
     options:
       abi: erc6160ext20
-      address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
+      address: '0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1'
     assets:
       erc6160ext20:
         file: ./abis/ERC6160Ext20.abi.json

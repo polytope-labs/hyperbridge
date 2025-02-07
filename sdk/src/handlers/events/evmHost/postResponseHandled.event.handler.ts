@@ -1,68 +1,56 @@
-import assert from "assert";
-import { HyperBridgeService } from "../../../services/hyperbridge.service";
-import { EventType, Status } from "../../../types";
-import { PostResponseHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
-import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
-import { ResponseService } from "../../../services/response.service";
-import StateMachineHelpers from "../../../utils/stateMachine.helpers";
+import { HyperBridgeService } from '../../../services/hyperbridge.service';
+import { Status } from '../../../types';
+import { PostResponseHandledLog } from '../../../types/abi-interfaces/EthereumHostAbi';
+import { ResponseService } from '../../../services/response.service';
+import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
 /**
  * Handles the PostResponseHandled event from Hyperbridge
  */
 export async function handlePostResponseHandledEvent(
-  event: PostResponseHandledLog
+ event: PostResponseHandledLog
 ): Promise<void> {
-  assert(event.args, "No handlePostResponseHandledEvent args");
+ if (!event.args) return;
 
-  const {
-    args,
-    block,
-    transaction,
-    transactionHash,
-    transactionIndex,
-    blockHash,
-    blockNumber,
-    data,
-  } = event;
-  const { relayer: relayer_id, commitment } = args;
+ const {
+  args,
+  block,
+  transaction,
+  transactionHash,
+  transactionIndex,
+  blockHash,
+  blockNumber,
+  data,
+ } = event;
+ const { relayer: relayer_id, commitment } = args;
 
-  logger.info(
-    `Handling PostResponseHandled Event: ${JSON.stringify({
-      blockNumber,
-      transactionHash,
-    })}`
+ logger.info(
+  `Handling PostResponseHandled Event: ${JSON.stringify({
+   blockNumber,
+   transactionHash,
+  })}`
+ );
+
+ const chain: string = getHostStateMachine(chainId);
+
+ try {
+  await HyperBridgeService.handlePostRequestOrResponseHandledEvent(
+   relayer_id,
+   chain
   );
 
-  const chain: string =
-    StateMachineHelpers.getEvmStateMachineIdFromTransaction(transaction);
-
-  Promise.all([
-    await EvmHostEventsService.createEvent(
-      {
-        data,
-        commitment,
-        transactionHash,
-        transactionIndex,
-        blockHash,
-        blockNumber,
-        timestamp: Number(block.timestamp),
-        type: EventType.EVM_HOST_POST_RESPONSE_HANDLED,
-      },
-      chain
-    ),
-    await HyperBridgeService.handlePostRequestOrResponseHandledEvent(
-      relayer_id,
-      chain
-    ),
-
-    await ResponseService.updateStatus({
-      commitment,
-      chain,
-      blockNumber: blockNumber.toString(),
-      blockTimestamp: block.timestamp,
-      blockHash: block.hash,
-      status: Status.DEST,
-      transactionHash,
-    }),
-  ]);
+  await ResponseService.updateStatus({
+   commitment,
+   chain,
+   blockNumber: blockNumber.toString(),
+   blockTimestamp: block.timestamp,
+   blockHash: block.hash,
+   status: Status.DESTINATION,
+   transactionHash,
+  });
+ } catch (error) {
+  logger.error(
+   `Error updating handling post response: ${JSON.stringify(error)}`
+  );
+ }
 }

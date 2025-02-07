@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: hyperbridge-gargantua-chain
-description: Hyperbridge-gargantua Chain Indexer
+name: hyperbridge-nexus-chain
+description: Hyperbridge-nexus Chain Indexer
 runner:
   node:
     name: '@subql/node'
@@ -13,14 +13,14 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73'
+  chainId: '0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540'
   endpoint:
-    - 'wss://hyperbridge-paseo-rpc.blockops.network'
+    - 'wss://hyperbridge-nexus-rpc.blockops.network'
   chaintypes:
     file: ./dist/substrate-chaintypes/hyperbridge.js
 dataSources:
   - kind: substrate/Runtime
-    startBlock: 3607590
+    startBlock: 3894470
     mapping:
       file: ./dist/index.js
       handlers:

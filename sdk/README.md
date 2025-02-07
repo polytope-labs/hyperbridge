@@ -59,11 +59,18 @@ cd hyperbridge-indexer
 ```
 - Install dependencies:
 ```bash
-npm install
+npm install   // you can use --legacy-peer-deps flag to install legacy dependencies
 ```
+## Configuration
+- Configure the indexer by editing the `.env` file.
+- Set the database connection details and the RPC  endpoints for each chain. You can use the sammple `.env.example` file as a template.
+
+## Running the Indexer
 - Start the indexer:
 ```bash
-npm run dev
+npm run dev  // for testnet
+
+npm run prod  // for mainnet
 ```
 This launches:
 - PostgreSQL database

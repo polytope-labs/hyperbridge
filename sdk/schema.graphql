@@ -3,38 +3,14 @@
 # https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
 
 """
-Assets currently supported by hyperbridge
-"""
-enum SupportedAssets {
- WETH
- WBTC
- USDT
- USDC
- DAI
- DOT
-}
-
-"""
-Supported Event Types
-"""
-enum EventType {
- EVM_HOST_POST_REQUEST_HANDLED
- EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED
- EVM_HOST_POST_RESPONSE_HANDLED
- EVM_HOST_POST_RESPONSE_TIMEOUT_HANDLED
- EVM_HOST_GET_REQUEST_HANDLED
- EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED
- HANDLER_V1_STATE_MACHINE_UPDATED
-}
-
-"""
 The status of a request
 """
 enum Status {
  SOURCE
- MESSAGE_RELAYED
- DEST
+ HYPERBRIDGE_DELIVERED
+ DESTINATION
  TIMED_OUT
+ HYPERBRIDGE_TIMED_OUT
 }
 
 """
@@ -103,12 +79,7 @@ Hyperbridge Stats for a specific Relayer on a specific chain
 """
 type RelayerStatsPerChain
  @entity
- @compositeIndexes(
-  fields: [
-   ["relayer", "chain"]
-   ["feesEarned", "chain"]
-  ]
- ) {
+ @compositeIndexes(fields: [["relayer", "chain"], ["feesEarned", "chain"]]) {
  """
  Unique identifier of the RelayerChainMetrics entry.
  """
@@ -222,69 +193,6 @@ type Transfer
 }
 
 """
-An event that has occured
-"""
-type Event
- @entity
- @compositeIndexes(
-  fields: [
-   ["type", "chain"]
-   ["blockNumber", "chain"]
-   ["transactionHash", "chain"]
-  ]
- ) {
- """
- The ID of the event (also the event commitment)
- """
- id: ID!
-
- """
- The type of the event
- """
- type: EventType!
-
- """
- The chain on which the event occured
- """
- chain: String! @index
-
- """
- The hash of the block in which the event occured
- """
- blockHash: String!
-
- """
- The number of the block in which the event occured
- """
- blockNumber: BigInt! @index
-
- """
- The hash of the transaction in which the event occured
- """
- transactionHash: String! @index
-
- """
- The index of the transaction in the block
- """
- transactionIndex: BigInt!
-
- """
- The data of the event
- """
- data: String!
-
- """
- The address of the destination of the event
- """
- destination: String @index
-
- """
- The timestamp of the event
- """
- createdAt: Date! @index
-}
-
-"""
 A StateMachine Update Event
 """
 type StateMachineUpdateEvent
@@ -324,7 +232,7 @@ type StateMachineUpdateEvent
  """
  The number of the block in which the event occured
  """
- blockNumber: BigInt! @index
+ blockNumber: Int! @index
 
  """
  The hash of the transaction in which the event occured
@@ -334,7 +242,7 @@ type StateMachineUpdateEvent
  """
  The index of the transaction in the block
  """
- transactionIndex: BigInt!
+ transactionIndex: Int!
 
  """
  The timestamp of the event
@@ -379,6 +287,16 @@ type Request
  The transaction hash of the destination transaction
  """
  destinationTransactionHash: String! @index
+
+ """
+ The timeout transaction hash of the hyperbridge transaction
+ """
+ hyperbridgeTimeoutTransactionHash: String
+
+ """
+ The timeout transaction hash of the destination transaction
+ """
+ destinationTimeoutTransactionHash: String
 
  """
  The chain on which the request was made
@@ -525,6 +443,15 @@ type Response
  destinationTransactionHash: String! @index
 
  """
+ The timeout transaction hash of the hyperbridge transaction
+ """
+ hyperbridgeTimeoutTransactionHash: String
+
+ """
+ The timeout transaction hash of the destination transaction
+ """
+ destinationTimeoutTransactionHash: String
+ """
  The response message
  """
  response_message: String
@@ -593,50 +520,6 @@ type ResponseStatusMetadata @entity {
  The response that owns this status change
  """
  response: Response!
-}
-
-"""
-Asset received by a user
-"""
-type AssetReceived
- @entity
- @compositeIndexes(
-  fields: [
-   ["beneficiary", "chain"]
-   ["assetId", "chain"]
-   ["commitment", "chain"]
-  ]
- ) {
- id: ID!
- amount: BigInt!
- assetId: String!
- beneficiary: String! @index
- chain: String! @index
- commitment: String! @index
- from: String! @index
-}
-
-"""
-Asset sent by a user
-"""
-type AssetTeleported
- @entity
- @compositeIndexes(
-  fields: [
-   ["from", "chain"]
-   ["to", "chain"]
-   ["assetId", "chain"]
-   ["commitment", "chain"]
-  ]
- ) {
- id: ID!
- amount: BigInt!
- assetId: String!
- chain: String! @index
- commitment: String! @index
- from: String! @index
- to: String! @index
- redeem: Boolean!
 }
 
 """

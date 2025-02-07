@@ -1,10 +1,14 @@
 import { StateMachineUpdateEvent } from '../types';
-import { IEvmHostEventArgs } from './evmHostEvents.service';
 
 // Arguments to functions that create StateMachineUpdated events
-export interface ICreateStateMachineUpdatedEventArgs extends IEvmHostEventArgs {
+export interface ICreateStateMachineUpdatedEventArgs {
  stateMachineId: string;
  height: number;
+ blockHash: string;
+ blockNumber: number;
+ transactionHash: string;
+ transactionIndex: number;
+ timestamp: number;
 }
 
 export class StateMachineService {
@@ -25,15 +29,21 @@ export class StateMachineService {
    height,
   } = args;
 
+  logger.info(
+   `Creating StateMachineUpdated Event: ${JSON.stringify({
+    args,
+   })}`
+  );
+
   const event = StateMachineUpdateEvent.create({
    id: `${chain}_${transactionHash}_${stateMachineId}_${height}`,
    stateMachineId,
    height,
    chain,
    transactionHash,
-   transactionIndex: BigInt(transactionIndex),
+   transactionIndex: Number(transactionIndex),
    blockHash,
-   blockNumber: BigInt(blockNumber),
+   blockNumber: Number(blockNumber),
    createdAt: new Date(timestamp * 1000),
   });
 
@@ -43,7 +53,7 @@ export class StateMachineService {
  /**
   * Create a new Hyperbridge StateMachineUpdated event entity
   */
- static async createHyperbridgeStateMachineUpdatedEvent(
+ static async createSubstrateStateMachineUpdatedEvent(
   args: ICreateStateMachineUpdatedEventArgs,
   chain: string
  ): Promise<void> {
@@ -57,15 +67,21 @@ export class StateMachineService {
    height,
   } = args;
 
+  logger.info(
+   `Creating StateMachineUpdated Event: ${JSON.stringify({
+    args,
+   })}`
+  );
+
   const event = StateMachineUpdateEvent.create({
    id: `${stateMachineId}-${transactionHash}-${height}`,
    stateMachineId,
    height,
    chain,
    transactionHash,
-   transactionIndex: BigInt(transactionIndex),
+   transactionIndex: Number(transactionIndex),
    blockHash,
-   blockNumber: BigInt(blockNumber),
+   blockNumber: Number(blockNumber),
    createdAt: new Date(timestamp * 1000),
   });
 
@@ -95,7 +111,7 @@ export class StateMachineService {
  /**
   * Get updates by block number
   */
- static async getByBlockNumber(blockNumber: bigint) {
+ static async getByBlockNumber(blockNumber: number) {
   return StateMachineUpdateEvent.getByBlockNumber(blockNumber, {
    orderBy: 'transactionIndex',
    limit: -1,

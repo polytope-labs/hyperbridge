@@ -1,5 +1,6 @@
 import { solidityKeccak256 } from 'ethers/lib/utils';
 import { Request, Response, ResponseStatusMetadata, Status } from '../types';
+import { ethers } from 'ethers';
 
 export interface ICreateResponseArgs {
  chain: string;
@@ -20,15 +21,17 @@ export interface IUpdateResponseStatusArgs {
  blockNumber: string;
  blockHash: string;
  transactionHash: string;
+ timeoutHash?: string;
  blockTimestamp: bigint;
  chain: string;
 }
 
 const RESPONSE_STATUS_WEIGHTS = {
  [Status.SOURCE]: 1,
- [Status.MESSAGE_RELAYED]: 2,
- [Status.DEST]: 3,
- [Status.TIMED_OUT]: 4,
+ [Status.HYPERBRIDGE_DELIVERED]: 2,
+ [Status.DESTINATION]: 3,
+ [Status.HYPERBRIDGE_TIMED_OUT]: 4,
+ [Status.TIMED_OUT]: 5,
 };
 
 export class ResponseService {
@@ -50,6 +53,14 @@ export class ResponseService {
   } = args;
   let response = await Response.get(commitment);
 
+  logger.info(
+   `Creating PostResponse Event: ${JSON.stringify({
+    commitment,
+    transactionHash,
+    status,
+   })}`
+  );
+
   if (typeof response === 'undefined') {
    response = Response.create({
     id: commitment,
@@ -59,12 +70,35 @@ export class ResponseService {
     requestId: request?.id,
     status,
     responseTimeoutTimestamp,
-    sourceTransactionHash: transactionHash,
+    sourceTransactionHash: '',
     hyperbridgeTransactionHash: '',
     destinationTransactionHash: '',
+    destinationTimeoutTransactionHash: ''
    });
 
+   switch (status) {
+    case Status.HYPERBRIDGE_DELIVERED:
+     response.hyperbridgeTransactionHash = transactionHash;
+     break;
+    case Status.DESTINATION:
+     response.destinationTransactionHash = transactionHash;
+     break;
+    case Status.HYPERBRIDGE_TIMED_OUT:
+     response.hyperbridgeTimeoutTransactionHash = transactionHash;
+     break;
+    case Status.TIMED_OUT:
+     response.destinationTimeoutTransactionHash = transactionHash;
+   }
+
    await response.save();
+
+   logger.info(
+    `Created new response with details ${JSON.stringify({
+     commitment,
+     transactionHash,
+     status,
+    })}`
+   );
 
    let responseStatusMetadata = ResponseStatusMetadata.create({
     id: `${commitment}.${status}`,
@@ -107,12 +141,17 @@ export class ResponseService {
     response.status = status;
 
     switch (status) {
-     case Status.MESSAGE_RELAYED:
+     case Status.HYPERBRIDGE_DELIVERED:
       response.hyperbridgeTransactionHash = transactionHash;
       break;
-     case Status.DEST:
+     case Status.DESTINATION:
       response.destinationTransactionHash = transactionHash;
       break;
+     case Status.HYPERBRIDGE_TIMED_OUT:
+      response.hyperbridgeTimeoutTransactionHash = transactionHash;
+      break;
+     case Status.TIMED_OUT:
+      response.destinationTimeoutTransactionHash = transactionHash;
     }
 
     await response.save();
@@ -170,6 +209,24 @@ export class ResponseService {
   response: string,
   responseTimeoutTimestamp: bigint
  ): string {
+  logger.info(
+   `Computing response commitment with details ${JSON.stringify({
+    source,
+    dest,
+    nonce: nonce.toString(),
+    timeoutTimestamp: timeoutTimestamp.toString(),
+    responseTimeoutTimestamp: responseTimeoutTimestamp.toString(),
+    response,
+    from,
+    to,
+    body,
+   })}`
+  );
+
+  // Convert source, dest, from, to, body to bytes
+  const sourceByte = ethers.utils.toUtf8Bytes(source);
+  const destByte = ethers.utils.toUtf8Bytes(dest);
+
   let hash = solidityKeccak256(
    [
     'bytes',
@@ -183,8 +240,8 @@ export class ResponseService {
     'uint64',
    ],
    [
-    source,
-    dest,
+    sourceByte,
+    destByte,
     nonce,
     timeoutTimestamp,
     from,

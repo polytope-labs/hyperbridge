@@ -1,217 +1,219 @@
-version: "3"
+version: '3'
 
 services:
-  postgres:
-    build:
-      context: .
-      dockerfile: ./docker/pg-Dockerfile
-    ports:
-      - 5432:5432
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_PASSWORD: postgres
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
-  subquery-node-hyperbridge-gargantua:
-    image: onfinality/subql-node:v4.5.0
-    depends_on:
-      "postgres":
-        condition: service_healthy
+  subquery-node-hyperbridge-nexus:
+    image: subquerynetwork/subql-node-substrate:latest
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/hyperbridge-gargantua.yaml
+      - -f=/app/hyperbridge-nexus.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-5}
-      - --disable-historical
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --historical=false
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://subquery-node-hyperbridge-gargantua:3000/ready",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-hyperbridge-nexus:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
-  subquery-node-ethereum-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    depends_on:
-      "postgres":
-        condition: service_healthy
+  subquery-node-bsc-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/ethereum-sepolia.yaml
+      - -f=/app/bsc-mainnet.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://subquery-node-ethereum-sepolia:3000/ready",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-bsc-mainnet:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
-  subquery-node-base-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    depends_on:
-      "postgres":
-        condition: service_healthy
+  subquery-node-base-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/base-sepolia.yaml
+      - -f=/app/base-mainnet.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
     healthcheck:
-      test:
-        ["CMD", "curl", "-f", "http://subquery-node-base-sepolia:3000/ready"]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-base-mainnet:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
-  subquery-node-optimism-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    depends_on:
-      "postgres":
-        condition: service_healthy
+  subquery-node-ethereum-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/optimism-sepolia.yaml
+      - -f=/app/ethereum-mainnet.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://subquery-node-optimism-sepolia:3000/ready",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-ethereum-mainnet:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
-  subquery-node-arbitrum-sepolia:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    depends_on:
-      "postgres":
-        condition: service_healthy
+  subquery-node-arbitrum-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/arbitrum-sepolia.yaml
+      - -f=/app/arbitrum-mainnet.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://subquery-node-arbitrum-sepolia:3000/ready",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-arbitrum-mainnet:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
 
-  subquery-node-bsc-chapel:
-    image: subquerynetwork/subql-node-ethereum:v3.11.0
-    depends_on:
-      "postgres":
-        condition: service_healthy
+  subquery-node-optimism-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
     volumes:
       - ./:/app
     command:
       - ${SUB_COMMAND:-}
-      - -f=/app/bsc-chapel.yaml
+      - -f=/app/optimism-mainnet.yaml
       - --db-schema=app
-      - --workers=${SUBQL_WORKERS:-1}
+      - --workers=${SUBQL_WORKERS:-2}
       - --batch-size=${SUBQL_BATCH_SIZE:-3}
-      - --disable-historical
       - --multi-chain
+      - --unsafe
       - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel:3000/ready"]
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-optimism-mainnet:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-gnosis-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: 0.0.0.0
+      DB_PORT: ${DB_PORT}
+    network_mode: host
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/gnosis-mainnet.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-2}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-gnosis-mainnet:3000/ready']
       interval: 3s
       timeout: 5s
       retries: 10
@@ -220,28 +222,16 @@ services:
     image: subquerynetwork/subql-query:v2.9.0
     ports:
       - 3000:3000
-    depends_on:
-      "postgres":
-        condition: service_healthy
-      "subquery-node-ethereum-sepolia":
-        condition: service_healthy
-      "subquery-node-base-sepolia":
-        condition: service_healthy
-      "subquery-node-optimism-sepolia":
-        condition: service_healthy
-      "subquery-node-arbitrum-sepolia":
-        condition: service_healthy
-      "subquery-node-bsc-chapel":
-        condition: service_healthy
-      "subquery-node-hyperbridge-gargantua":
-        condition: service_healthy
+
     restart: always
+    env_file:
+      - .env
     environment:
-      DB_USER: postgres
-      DB_PASS: postgres
-      DB_DATABASE: postgres
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: ${DB_PORT}
     command:
       - --name=app
       - --playground

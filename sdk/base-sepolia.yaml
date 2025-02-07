@@ -2,7 +2,7 @@
 specVersion: 1.0.0
 version: 0.0.1
 name: base-sepolia
-description: Base Sepolia Chain Indexer
+description: Base-sepolia Indexer
 runner:
   node:
     name: '@subql/node-ethereum'
@@ -15,14 +15,13 @@ schema:
 network:
   chainId: '84532'
   endpoint:
-    - 'https://base-sepolia.blockpi.network/v1/rpc/public'
-    - 'https://base-sepolia-rpc.publicnode.com'
+    - 'https://clean-necessary-card.base-sepolia.quiknode.pro/4395b33cdb26dc0d66eec74b3039cdc073efb3ba'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 13464107
+    startBlock: 21535312
     options:
       abi: ethereumHost
-      address: '0xe7C43500e07E0Bb5fC0987db95fE57Ce29B9bb80'
+      address: '0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a'
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -61,23 +60,8 @@ dataSources:
           filter:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
-        - kind: ethereum/LogHandler
-          handler: handleGetRequestHandledEvent
-          filter:
-            topics:
-              - 'GetRequestHandled(bytes32,address)'
-        - kind: ethereum/LogHandler
-          handler: handleGetRequestTimeoutHandledEvent
-          filter:
-            topics:
-              - 'GetRequestTimeoutHandled(bytes32,string)'
-        - kind: ethereum/LogHandler
-          handler: handleStateMachineUpdatedEvent
-          filter:
-            topics:
-              - 'StateMachineUpdated(string,uint256)'
   - kind: ethereum/Runtime
-    startBlock: 13464107
+    startBlock: 21535312
     options:
       abi: erc6160ext20
       address: '0x83aF3a8a53bf0E379c17A8611AD697401A5970fD'
@@ -91,52 +75,25 @@ dataSources:
           handler: handleTransferEvent
           filter:
             topics:
-              - >-
-                Transfer(address indexed from, address indexed to, uint256
-                amount)
-  - kind: ethereum/Runtime
-    startBlock: 13464107
-    options:
-      abi: handlerV1
-      address: '0x0FAC5FfFa3C7F0C22CF0aa644ae68eEF8Db2456E'
-    assets:
-      handlerV1:
-        file: ./abis/HandlerV1.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - handler: handlePostRequestTransactionHandler
-          kind: ethereum/TransactionHandler
-          function: >-
-              handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
-        - handler: handlePostResponseTransactionHandler
-          kind: ethereum/TransactionHandler
-          function: >-
-              handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
-  - kind: ethereum/Runtime
-    startBlock: 13464107
-    options:
-      abi: tokenGateway
-      address: '0x41867Dd678E3055649c04Fa10180ba90229cAd9F'
-    assets:
-      tokenGateway:
-        file: ./abis/TokenGateway.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - kind: ethereum/LogHandler
-          handler: handleRequestFulfilledEvent
-          filter:
-            topics:
-              - 'RequestFulfilled(uint256,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetReceivedEvent
-          filter:
-            topics:
-              - 'AssetReceived(uint256,bytes32,bytes32,address,bytes32)'
-        - kind: ethereum/LogHandler
-          handler: handleAssetTeleportedEvent
-          filter:
-            topics:
-              - 'AssetTeleported(bytes32,string,uint256,bytes32,address,bytes32,bool)'
+              - 'Transfer(address indexed from, address indexed to, uint256 amount)'
+  # - kind: ethereum/Runtime
+  #   startBlock: 21535312
+  #   options:
+  #     abi: handlerV1
+  #     address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
+  #   assets:
+  #     handlerV1:
+  #       file: ./abis/HandlerV1.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - handler: handlePostRequestTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
+  #       - handler: handlePostResponseTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
+
 repository: 'https://github.com/polytope-labs/hyperbridge'

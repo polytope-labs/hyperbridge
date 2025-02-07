@@ -52,6 +52,10 @@ The `ismp-grandpa` pallet requires state machines to be whitelisted before any c
 
 This adds new state machines which produce GRANDPA consensus proofs to the pallet whitelist, enabling trustless cross-chain communication with the state machines in question.
 
+The arguments are: <br />
+&emsp;&emsp; 1. **stateMachine**: The state machine identifier for the blockchain to be connected.<br />
+&emsp;&emsp; 2. **slotDuration**: The slot duration in **milliseconds** for the blockchain.<br />
+
 * ###  `remove_state_machines`
 
 This removes the provided state machines from the pallet whitelist, terminating the trustless connection with the state machines in question. They can always be re-added.

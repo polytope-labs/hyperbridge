@@ -1,13 +1,13 @@
 #![cfg(test)]
 use polkadot_sdk::*;
 
-use crate::verify_parachain_headers_with_grandpa_finality_proof;
+use crate::{verify_grandpa_finality_proof, verify_parachain_headers_with_grandpa_finality_proof};
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use futures::StreamExt;
 use grandpa_prover::{GrandpaProver, ProverOptions};
 use grandpa_verifier_primitives::{
-	justification::GrandpaJustification, ParachainHeadersWithFinalityProof,
+	justification::GrandpaJustification, FinalityProof, ParachainHeadersWithFinalityProof,
 };
 use ismp::host::StateMachine;
 use polkadot_core_primitives::Header;
@@ -42,14 +42,16 @@ async fn follow_grandpa_justifications() {
 		.format_module_path(false)
 		.init();
 
-	let relay_ws_url = std::env::var("RELAY_HOST")
-		.unwrap_or_else(|_| "wss://hyperbridge-paseo-relay.blockops.network:443".to_string());
+	let (ws_url, para_ids, is_relay) =
+		match (std::env::var("RELAY_HOST"), std::env::var("SOLO_HOST")) {
+			(Ok(relay_url), _) => (relay_url, vec![1000], true),
+			(_, Ok(solo_url)) => (solo_url, vec![], false),
+			_ => panic!("Please supply either RELAY_HOST or SOLO_HOST"),
+		};
 
-	let para_ids = vec![1000];
-
-	println!("Connecting to relay chain {relay_ws_url}");
+	log::info!("Connecting to relay chain {ws_url}");
 	let prover = GrandpaProver::<subxt_utils::BlakeSubstrateChain>::new(ProverOptions {
-		ws_url: &relay_ws_url,
+		ws_url: &ws_url,
 		para_ids,
 		state_machine: StateMachine::Polkadot(0),
 		max_rpc_payload_size: u32::MAX,
@@ -57,9 +59,8 @@ async fn follow_grandpa_justifications() {
 	.await
 	.unwrap();
 
-	println!("Connected to relay chain");
-
-	println!("Waiting for grandpa proofs to become available");
+	log::info!("Connected to relay chain");
+	log::info!("Waiting for grandpa proofs to become available");
 	let session_length = session_length(&prover.client).await.unwrap();
 	prover
 		.client
@@ -88,8 +89,17 @@ async fn follow_grandpa_justifications() {
 	let slot_duration = 6000;
 	let hash = prover.client.rpc().finalized_head().await.unwrap();
 	let mut consensus_state = prover.initialize_consensus_state(slot_duration, hash).await.unwrap();
-	println!("Grandpa proofs are now available");
-	while let Some(Ok(_)) = subscription.next().await {
+
+	log::info!("Grandpa proofs are now available");
+	while let Some(result) = subscription.next().await {
+		match result {
+			Ok(_) => {},
+			Err(err) => {
+				log::error!("Got error in subscription stream: {err:?}");
+				continue;
+			},
+		}
+
 		let next_relay_height = consensus_state.latest_height + 1;
 
 		// prove finality should give us the justification for the highest finalized block of the
@@ -102,38 +112,48 @@ async fn follow_grandpa_justifications() {
 			.await
 			.unwrap();
 
-		let justification = Justification::decode(&mut &finality_proof.justification[..]).unwrap();
+		let proof = finality_proof.encode();
+		let proof = FinalityProof::<Header>::decode(&mut &*proof).unwrap();
 
-		println!("current_set_id: {}", consensus_state.current_set_id);
-		println!("latest_relay_height: {}", consensus_state.latest_height);
-		println!(
-			"For relay chain header: Hash({:?}), Number({})",
-			justification.commit.target_hash, justification.commit.target_number
-		);
+		let (new_consensus_state, _, _, _) =
+			verify_grandpa_finality_proof::<Header>(consensus_state.clone(), proof).unwrap();
 
-		let proof = prover
-			.query_finalized_parachain_headers_with_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-				justification.commit.target_number,
-				finality_proof.clone(),
-			)
-			.await
-			.expect("Failed to fetch finalized parachain headers with proof");
+		if is_relay {
+			let justification =
+				Justification::decode(&mut &finality_proof.justification[..]).unwrap();
 
-		let proof = proof.encode();
-		let proof = ParachainHeadersWithFinalityProof::<Header>::decode(&mut &*proof).unwrap();
+			log::info!("current_set_id: {}", consensus_state.current_set_id);
+			log::info!("latest_relay_height: {}", consensus_state.latest_height);
+			log::info!(
+				"For relay chain header: Hash({:?}), Number({})",
+				justification.commit.target_hash,
+				justification.commit.target_number
+			);
 
-		let (new_consensus_state, _parachain_headers) =
-			verify_parachain_headers_with_grandpa_finality_proof::<Header>(
-				consensus_state.clone(),
-				proof.clone(),
-			)
-			.expect("Failed to verify parachain headers with grandpa finality_proof");
+			let proof = prover
+				.query_finalized_parachain_headers_with_proof::<SubstrateHeader<u32, BlakeTwo256>>(
+					justification.commit.target_number,
+					finality_proof.clone(),
+				)
+				.await
+				.expect("Failed to fetch finalized parachain headers with proof");
 
-		if !proof.parachain_headers.is_empty() {
-			assert!(new_consensus_state.latest_height > consensus_state.latest_height);
+			let proof = proof.encode();
+			let proof = ParachainHeadersWithFinalityProof::<Header>::decode(&mut &*proof).unwrap();
+
+			let (new_consensus_state, _parachain_headers) =
+				verify_parachain_headers_with_grandpa_finality_proof::<Header>(
+					consensus_state.clone(),
+					proof.clone(),
+				)
+				.expect("Failed to verify parachain headers with grandpa finality_proof");
+
+			if !proof.parachain_headers.is_empty() {
+				assert!(new_consensus_state.latest_height > consensus_state.latest_height);
+			}
 		}
 
 		consensus_state = new_consensus_state;
-		println!("========= Successfully verified grandpa justification =========");
+		log::info!("========= Successfully verified grandpa justification =========");
 	}
 }

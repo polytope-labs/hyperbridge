@@ -57,7 +57,7 @@ where
 		// It's safe to assume that the authority list will not contain duplicates,
 		// since this list is extracted from a verified relaychain header.
 		let voters =
-			VoterSet::new(authorities.iter().cloned()).ok_or(anyhow!("Invalid AuthoritiesSet"))?;
+			VoterSet::new(authorities.iter().cloned()).ok_or(anyhow!("Invalid Authorities Set"))?;
 
 		self.verify_with_voter_set(set_id, &voters)
 	}
@@ -244,7 +244,10 @@ where
 {
 	let buf = (message, round, set_id).encode();
 
-	if !id.verify(&buf, signature) {
+	let valid =
+		sp_io::crypto::ed25519_verify(&signature.clone().into(), buf.as_ref(), &id.clone().into());
+
+	if !valid {
 		Err(anyhow!("invalid signature for precommit in grandpa justification"))?
 	}
 

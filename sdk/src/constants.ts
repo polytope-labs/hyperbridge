@@ -67,6 +67,9 @@ export const CHAIN_IDS_BY_GENESIS = {
  '0x262e1b2ad728475fd6fe88e62d34c200abe6fd693931ddad144059b1eb884e5b':
   'POLKADOT-2030',
 
+  // cere network
+ '0x81443836a9a24caaa23f1241897d1235717535711d1d3fe24eae4fdc942c092c': 'SUBSTRATE-cere',
+
  // BSC
  '97': 'EVM-97',
  '56': 'EVM-56',

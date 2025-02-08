@@ -1,5 +1,3 @@
-version: '3'
-
 services:
 
   subquery-node-hyperbridge-nexus:
@@ -11,7 +9,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_DATABASE: ${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
     network_mode: host
     volumes:
@@ -32,6 +30,66 @@ services:
       timeout: 5s
       retries: 10
 
+  subquery-node-bifrost-mainnet:
+    image: subquerynetwork/subql-node-substrate:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+    network_mode: host
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/bifrost-mainnet.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-2}
+      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-bifrost-mainnet:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-cere-mainnet:
+    image: subquerynetwork/subql-node-substrate:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+    network_mode: host
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/cere-mainnet.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-2}
+      - --batch-size=${SUBQL_BATCH_SIZE:-5}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-cere-mainnet:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
   subquery-node-bsc-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
     restart: unless-stopped
@@ -41,7 +99,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_DATABASE: ${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
     network_mode: host
     volumes:
@@ -63,6 +121,37 @@ services:
       timeout: 5s
       retries: 10
 
+  subquery-node-soneium-mainnet:
+    image: subquerynetwork/subql-node-ethereum:v5.4.0
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+    network_mode: host
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-}
+      - -f=/app/soneium-mainnet.yaml
+      - --db-schema=app
+      - --workers=${SUBQL_WORKERS:-2}
+      - --batch-size=${SUBQL_BATCH_SIZE:-3}
+      - --multi-chain
+      - --unsafe
+      - --log-level=info
+      - --historical=false
+      - --block-confirmations=5
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://subquery-node-soneium-mainnet:3000/ready']
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
   subquery-node-base-mainnet:
     image: subquerynetwork/subql-node-ethereum:v5.4.0
     restart: unless-stopped
@@ -72,7 +161,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_DATABASE: ${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
     network_mode: host
     volumes:
@@ -103,7 +192,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_DATABASE: ${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
     network_mode: host
     volumes:
@@ -134,7 +223,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_DATABASE: ${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
     network_mode: host
     volumes:
@@ -165,7 +254,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_DATABASE: ${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
     network_mode: host
     volumes:
@@ -196,7 +285,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_DATABASE: ${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
     network_mode: host
     volumes:
@@ -230,11 +319,8 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_DATABASE: ${DB_DATABASE}
-      DB_HOST: postgres
+      DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
     command:
       - --name=app
       - --playground
-
-volumes:
-  postgres_data:

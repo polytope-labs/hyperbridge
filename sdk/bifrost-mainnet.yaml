@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: hyperbridge-nexus-chain
-description: Hyperbridge-nexus Chain Indexer
+name: bifrost-mainnet
+description: Bifrost Chain Indexer
 runner:
   node:
     name: '@subql/node'
@@ -13,16 +13,14 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540'
+  chainId: '0x262e1b2ad728475fd6fe88e62d34c200abe6fd693931ddad144059b1eb884e5b'
   endpoint:
-    - 'wss://hyperbridge-nexus-rpc-ha.blockops.network'
-    - 'wss://nexus.ibp.network'
-    - 'wss://nexus.dotters.network'
-  chaintypes:
-    file: ./dist/substrate-chaintypes/hyperbridge.js
+    - 'wss://bifrost-polkadot.ibp.network'
+    - 'wss://bifrost-polkadot.dotters.network'
+    - 'wss://hk.p.bifrost-rpc.liebi.com/ws'
 dataSources:
   - kind: substrate/Runtime
-    startBlock: 3911390
+    startBlock: 6502500
     mapping:
       file: ./dist/index.js
       handlers:

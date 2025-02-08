@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: hyperbridge-nexus-chain
-description: Hyperbridge-nexus Chain Indexer
+name: cere-mainnet
+description: Cere Chain Indexer
 runner:
   node:
     name: '@subql/node'
@@ -13,16 +13,12 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540'
+  chainId: '0x81443836a9a24caaa23f1241897d1235717535711d1d3fe24eae4fdc942c092c'
   endpoint:
-    - 'wss://hyperbridge-nexus-rpc-ha.blockops.network'
-    - 'wss://nexus.ibp.network'
-    - 'wss://nexus.dotters.network'
-  chaintypes:
-    file: ./dist/substrate-chaintypes/hyperbridge.js
+    - 'wss://archive.mainnet.cere.network/ws'
 dataSources:
   - kind: substrate/Runtime
-    startBlock: 3911390
+    startBlock: 19289909
     mapping:
       file: ./dist/index.js
       handlers:

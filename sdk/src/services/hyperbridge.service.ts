@@ -6,10 +6,10 @@ import { Relayer, Transfer } from '../types/models';
 import { HyperBridgeChainStatsService } from './hyperbridgeChainStats.service';
 import { isHexString } from 'ethers/lib/utils';
 import { EthereumHostAbi__factory } from '../types/contracts';
-import {
- HandlePostRequestsTransaction,
- HandlePostResponsesTransaction,
-} from '../types/abi-interfaces/HandlerV1Abi';
+// import {
+//  HandlePostRequestsTransaction,
+//  HandlePostResponsesTransaction,
+// } from '../types/abi-interfaces/HandlerV1Abi';
 
 export class HyperBridgeService {
  /**
@@ -54,24 +54,24 @@ export class HyperBridgeService {
   await this.incrementNumberOfDeliveredMessages(chain);
  }
 
- /**
-  * Handle PostRequest or PostResponse transactions
-  */
- static async handlePostRequestOrResponseTransaction(
-  chain: string,
-  transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
- ): Promise<void> {
-  logger.info(
-   `Creating PostRequest or PostResponse transaction update: ${JSON.stringify({
-    transaction,
-   })}`
-  );
-  const { status } = await transaction.receipt();
+//  /**
+//   * Handle PostRequest or PostResponse transactions
+//   */
+//  static async handlePostRequestOrResponseTransaction(
+//   chain: string,
+//   transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
+//  ): Promise<void> {
+//   logger.info(
+//    `Creating PostRequest or PostResponse transaction update: ${JSON.stringify({
+//     transaction,
+//    })}`
+//   );
+//   const { status } = await transaction.receipt();
 
-  if (status === false) {
-   await this.incrementNumberOfFailedDeliveries(chain);
-  }
- }
+//   if (status === false) {
+//    await this.incrementNumberOfFailedDeliveries(chain);
+//   }
+//  }
 
  /**
   * Increment the total number of messages sent on hyperbridge

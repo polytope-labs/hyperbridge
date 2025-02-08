@@ -48,7 +48,6 @@
     "typescript": "latest"
   },
   "exports": {
-    "substrate-chaintypes/hyperbridge": "src/substrate-chaintypes/hyperbridge.ts",
-    "substrate-chaintypes/bifrost": "src/substrate-chaintypes/bifrost.ts"
+    "substrate-chaintypes/hyperbridge": "src/substrate-chaintypes/hyperbridge.ts"
   }
 }

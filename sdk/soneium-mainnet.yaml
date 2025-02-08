@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: bsc-mainnet
-description: Bsc-mainnet Indexer
+name: soneium-mainnet
+description: Soneium-mainnet Indexer
 runner:
   node:
     name: '@subql/node-ethereum'
@@ -13,15 +13,15 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: '56'
+  chainId: '1868'
   endpoint:
-    - 'https://magical-quaint-layer.bsc.quiknode.pro/af55e23565b897ff463e1804389ca69988d826ed'
+    - 'https://soneium-mainnet.g.alchemy.com/v2/OfMpgsyFVJRYnFBJhcV16JaED4prouow'
 dataSources:
   - kind: ethereum/Runtime
-    startBlock: 46424521
+    startBlock: 2936300
     options:
       abi: ethereumHost
-      address: '0x24B5d421Ec373FcA57325dd2F0C074009Af021F7'
+      address: '0x7F0165140D0f3251c8f6465e94E9d12C7FD40711'
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -61,10 +61,10 @@ dataSources:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
   - kind: ethereum/Runtime
-    startBlock: 46424521
+    startBlock: 131672087
     options:
       abi: erc6160ext20
-      address: '0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3'
+      address: '0xbA9986D2381edf1DA03B0B9c1f8b00dc4AacC369'
     assets:
       erc6160ext20:
         file: ./abis/ERC6160Ext20.abi.json

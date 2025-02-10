@@ -238,7 +238,7 @@ pub mod pallet {
 		<T as frame_system::Config>::Hash: From<H256>,
 	{
 		fn on_finalize(_n: BlockNumberFor<T>) {
-			let state_version = <T as polkadot_sdk::frame_system::Config>::Version::get()
+			let state_version = <T as frame_system::Config>::Version::get()
 				.state_version
 				.try_into()
 				.unwrap_or_default();

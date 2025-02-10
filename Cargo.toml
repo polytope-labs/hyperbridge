@@ -303,7 +303,7 @@ substrate-state-machine = { version = "15.0.0", path = "modules/ismp/state-machi
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # published pallets
-pallet-ismp = { version = "15.0.0", path = "modules/pallets/ismp", default-features = false }
+pallet-ismp = { version = "15.1.0", path = "modules/pallets/ismp", default-features = false }
 pallet-ismp-rpc = { version = "15.0.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "15.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-hyperbridge = { version = "15.0.0", path = "modules/pallets/hyperbridge", default-features = false }

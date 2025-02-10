@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: bifrost-mainnet
-description: Bifrost Chain Indexer
+name: bifrost-mainnet-chain
+description: Bifrost-mainnet Chain Indexer
 runner:
   node:
     name: '@subql/node'

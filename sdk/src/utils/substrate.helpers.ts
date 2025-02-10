@@ -37,7 +37,12 @@ export const extractStateMachineIdFromSubstrateEventData = (
 
   Object.entries(stateId).forEach(([key, val]) => {
    main_key = key.toUpperCase();
-   value = val === null ? '' : String(val);
+   value =
+    val === null
+     ? ''
+     : typeof val === 'string' && val.startsWith('0x')
+     ? Buffer.from(val.slice(2), 'hex').toString()
+     : String(val);
   });
 
   switch (main_key) {

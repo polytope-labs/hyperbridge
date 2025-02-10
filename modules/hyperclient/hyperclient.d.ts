@@ -28,8 +28,6 @@ export interface IConfig {
     dest: IEvmConfig | ISubstrateConfig;
     // confuration object for hyperbridge
     hyperbridge: IHyperbridgeConfig;
-    // Indexer url
-    indexer?: string;
     // Flag to enable tracing console logs
     tracing?: boolean;
 }

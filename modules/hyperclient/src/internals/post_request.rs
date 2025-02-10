@@ -14,7 +14,6 @@
 // limitations under the License.
 
 use crate::{
-	indexing::query_request_status_from_indexer,
 	internals::encode_request_message_and_wait_for_challenge_period,
 	providers::interface::{wait_for_challenge_period, Client},
 	types::{
@@ -51,13 +50,6 @@ pub async fn query_post_request_status_internal(
 	let req = Request::Post(post.clone());
 	let hash = hash_request::<Keccak256>(&req);
 	let relayer_address = dest_client.query_request_receipt(hash).await?;
-	if let Some(ref status) = query_request_status_from_indexer(Request::Post(post.clone()), client)
-		.await
-		.ok()
-		.flatten()
-	{
-		return Ok(status.clone());
-	}
 
 	if relayer_address != H160::zero() {
 		// This means the message has gotten the destination chain

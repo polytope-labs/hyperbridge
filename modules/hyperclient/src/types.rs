@@ -89,7 +89,6 @@ pub struct ClientConfig {
 	pub source: ChainConfig,
 	pub dest: ChainConfig,
 	pub hyperbridge: ChainConfig,
-	pub indexer: Option<String>,
 	pub tracing: bool,
 }
 

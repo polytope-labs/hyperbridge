@@ -14,8 +14,7 @@
 // limitations under the License.
 
 use crate::{
-	indexing::query_response_status_from_indexer, providers::interface::Client,
-	types::MessageStatusWithMetadata, HyperClient, Keccak256,
+	providers::interface::Client, types::MessageStatusWithMetadata, HyperClient, Keccak256,
 };
 use anyhow::anyhow;
 use ismp::{
@@ -41,14 +40,7 @@ pub async fn query_response_status_internal(
 	let res = Response::Post(post_response.clone());
 	let req_hash = hash_request::<Keccak256>(&res.request());
 	let response_receipt_relayer = dest_client.query_response_receipt(req_hash).await?;
-	if let Some(ref status) =
-		query_response_status_from_indexer(Response::Post(post_response.clone()), hyperclient)
-			.await
-			.ok()
-			.flatten()
-	{
-		return Ok(status.clone());
-	}
+
 	if response_receipt_relayer != H160::zero() {
 		return Ok(MessageStatusWithMetadata::DestinationDelivered { meta: Default::default() });
 	}

@@ -106,7 +106,6 @@ pub async fn post_request_status_stream(
 		Err(anyhow!("Unknown client for dest: {}", post.dest))?
 	};
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
-	let hyperclient_clone = hyperclient.clone();
 
 	let stream = stream::unfold(state, move |post_request_status| {
 		let dest_client = dest_client.clone();
@@ -115,7 +114,6 @@ pub async fn post_request_status_stream(
 		let req = Request::Post(post.clone());
 		let hash = hash_request::<Keccak256>(&req);
 		let post = post.clone();
-		let hyperclient_clone = hyperclient_clone.clone();
 		async move {
 			let lambda = || async {
 				match post_request_status {
@@ -137,77 +135,6 @@ pub async fn post_request_status_stream(
 								}),
 								MessageStatusStreamState::SourceFinalized(finalized_height),
 							)));
-						}
-
-						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
-								.await
-								.ok()
-								.flatten()
-						{
-							match msg_status {
-								MessageStatusWithMetadata::SourceFinalized {
-									finalized_height,
-									..
-								} => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::SourceFinalized(
-											*finalized_height,
-										),
-									)));
-								},
-								MessageStatusWithMetadata::HyperbridgeVerified { meta } => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::HyperbridgeVerified(
-											meta.block_number,
-										),
-									)));
-								},
-								MessageStatusWithMetadata::HyperbridgeFinalized {
-									finalized_height,
-									..
-								} => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::HyperbridgeFinalized(
-											*finalized_height,
-										),
-									)));
-								},
-								MessageStatusWithMetadata::DestinationDelivered { .. } => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::DestinationDelivered,
-									)));
-								},
-								_ => {},
-							}
 						}
 
 						let mut state_machine_updated_stream = hyperbridge_client
@@ -253,60 +180,6 @@ pub async fn post_request_status_stream(
 						tracing::trace!("Entered state: SourceFinalized({finalized_height:?})");
 
 						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
-
-						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
-								.await
-								.ok()
-								.flatten()
-						{
-							match msg_status {
-								MessageStatusWithMetadata::HyperbridgeVerified { meta } => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::HyperbridgeVerified(
-											meta.block_number,
-										),
-									)));
-								},
-								MessageStatusWithMetadata::HyperbridgeFinalized {
-									finalized_height,
-									..
-								} => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::HyperbridgeFinalized(
-											*finalized_height,
-										),
-									)));
-								},
-								MessageStatusWithMetadata::DestinationDelivered { .. } => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::DestinationDelivered,
-									)));
-								},
-								_ => {},
-							}
-						}
 
 						if relayer != H160::zero() {
 							let latest_height =
@@ -360,47 +233,6 @@ pub async fn post_request_status_stream(
 						tracing::trace!("Entered state: HyperbridgeVerified({height:?})");
 
 						let res = dest_client.query_request_receipt(hash).await?;
-
-						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
-								.await
-								.ok()
-								.flatten()
-						{
-							match msg_status {
-								MessageStatusWithMetadata::HyperbridgeFinalized {
-									finalized_height,
-									..
-								} => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::HyperbridgeFinalized(
-											*finalized_height,
-										),
-									)));
-								},
-								MessageStatusWithMetadata::DestinationDelivered { .. } => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::DestinationDelivered,
-									)));
-								},
-								_ => {},
-							}
-						}
-
 						if res != H160::zero() {
 							return Ok(Some((
 								Ok(MessageStatusWithMetadata::DestinationDelivered {
@@ -523,28 +355,6 @@ pub async fn post_request_status_stream(
 						);
 						let res = dest_client.query_request_receipt(hash).await?;
 
-						if let Some(msg_status) =
-							query_request_status_from_indexer(req.clone(), &hyperclient_clone)
-								.await
-								.ok()
-								.flatten()
-						{
-							match &msg_status {
-								MessageStatusWithMetadata::DestinationDelivered { .. } => {
-									return Ok::<
-										Option<(
-											Result<_, anyhow::Error>,
-											MessageStatusStreamState,
-										)>,
-										anyhow::Error,
-									>(Some((
-										Ok(msg_status.clone()),
-										MessageStatusStreamState::DestinationDelivered,
-									)));
-								},
-								_ => {},
-							}
-						}
 						if res != H160::zero() {
 							let request_commitment =
 								hash_request::<Keccak256>(&Request::Post(post.clone()));

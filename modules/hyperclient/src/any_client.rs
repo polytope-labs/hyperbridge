@@ -154,9 +154,7 @@ impl Client for AnyClient {
 		initial_height: u64,
 	) -> Result<
 		crate::types::BoxStream<
-			crate::providers::interface::WithMetadata<
-				ismp_solidity_abi::evm_host::PostRequestHandledFilter,
-			>,
+			crate::providers::interface::WithMetadata<ismp::events::RequestResponseHandled>,
 		>,
 		anyhow::Error,
 	> {

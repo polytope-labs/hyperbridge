@@ -23,17 +23,16 @@ use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use ethers::prelude::{H160, H256};
-use futures::{stream, StreamExt};
+use futures::{stream, StreamExt, TryStreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
-	events::{Event, StateMachineUpdated},
+	events::{Event, RequestResponseHandled, StateMachineUpdated},
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message},
 	router::{Request, Response},
 };
-use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use pallet_ismp::{
 	child_trie::{
 		request_commitment_storage_key, response_commitment_storage_key, CHILD_TRIE_PREFIX,
@@ -355,10 +354,22 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 	async fn post_request_handled_stream(
 		&self,
-		_commitment: H256,
-		_initial_height: u64,
-	) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
-		Err(anyhow!("Post request handled stream is currently unavailable"))
+		commitment: H256,
+		initial_height: u64,
+	) -> Result<BoxStream<WithMetadata<RequestResponseHandled>>, Error> {
+		let stream = self.ismp_events_stream(commitment, initial_height).await?.try_filter_map(
+			|event| async move {
+				let ret = if let Event::PostRequestHandled(handled) = event.event {
+					Some(WithMetadata { event: handled, meta: event.meta })
+				} else {
+					None
+				};
+
+				Ok(ret)
+			},
+		);
+
+		Ok(Box::pin(stream))
 	}
 
 	async fn query_latest_state_machine_height(

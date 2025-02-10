@@ -28,9 +28,9 @@ const generateNodeServices = () => {
       DB_USER: \${DB_USER}
       DB_PASS: \${DB_PASS}
       DB_DATABASE: \${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: \${DB_HOST}
       DB_PORT: \${DB_PORT}
-    network_mode: host
+
     volumes:
       - ./:/app
     command:
@@ -69,9 +69,7 @@ const generateDependencies = () => {
   .join('\n');
 };
 
-const dockerCompose = `version: '3'
-
-services:
+const dockerCompose = `services:
 ${generateNodeServices()}
 
   graphql-engine:
@@ -86,7 +84,7 @@ ${generateDependencies()}
       DB_USER: \${DB_USER}
       DB_PASS: \${DB_PASS}
       DB_DATABASE: \${DB_DATABASE}
-      DB_HOST: 0.0.0.0
+      DB_HOST: \${DB_HOST}
       DB_PORT: \${DB_PORT}
     command:
       - --name=app

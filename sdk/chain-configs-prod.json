@@ -2,15 +2,25 @@
  "hyperbridge-nexus": {
   "type": "substrate",
   "chainId": "0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540",
-  "startBlock": 3894470
+  "startBlock": 3911390
+ },
+ "cere-mainnet": {
+  "type": "substrate",
+  "chainId": "0x81443836a9a24caaa23f1241897d1235717535711d1d3fe24eae4fdc942c092c",
+  "startBlock": 19289909
+ },
+ "bifrost-mainnet": {
+  "type": "substrate",
+  "chainId": "0x262e1b2ad728475fd6fe88e62d34c200abe6fd693931ddad144059b1eb884e5b",
+  "startBlock": 6502500
  },
  "bsc-mainnet": {
   "type": "evm",
   "chainId": "56",
   "startBlock": 46424521,
   "contracts": {
-   "ethereumHost": "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
-   "erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
+   "ethereumHost": "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7",
+   "erc6160ext20": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
    "handlerV1": "0x089248E869AEcd66199b64637207D366D6Cfe92D"
   }
  },

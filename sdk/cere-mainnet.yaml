@@ -1,8 +1,8 @@
 # // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
-name: cere-mainnet
-description: Cere Chain Indexer
+name: cere-mainnet-chain
+description: Cere-mainnet Chain Indexer
 runner:
   node:
     name: '@subql/node'

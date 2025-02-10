@@ -9,20 +9,28 @@ const getChainTypesPath = (chain) => {
  // Extract base chain name before the hyphen
  const baseChainName = chain.split('-')[0];
 
- const chainTypesMap = {
-  hyperbridge: './dist/substrate-chaintypes/hyperbridge.js',
-  bifrost: './dist/substrate-chaintypes/bifrost.js',
- };
+ const potentialPath = `./dist/substrate-chaintypes/${baseChainName}.js`;
 
- return chainTypesMap[baseChainName.toLowerCase()] || null;
+ // Check if file exists
+ if (fs.existsSync(potentialPath)) {
+  return potentialPath;
+ }
+
+ return null;
+};
+
+const generateEndpoints = (chain) => {
+ const envKey = chain.replace(/-/g, '_').toUpperCase();
+ // Expect comma-separated endpoints in env var
+ const endpoints = process.env[envKey]?.split(',') || [];
+
+ return endpoints.map((endpoint) => `    - '${endpoint.trim()}'`).join('\n');
 };
 
 // Generate chain-specific YAML files
 const generateSubstrateYaml = (chain, config) => {
  const chainTypesConfig = getChainTypesPath(chain);
- const envKey = chain.replace(/-/g, '_').toUpperCase();
- const endpoint = process.env[envKey];
- const endpoints = `    - '${endpoint}'`;
+ const endpoints = generateEndpoints(chain);
 
  const chainTypesSection = chainTypesConfig
   ? `\n  chaintypes:\n    file: ${chainTypesConfig}`
@@ -92,9 +100,7 @@ repository: 'https://github.com/polytope-labs/hyperbridge'`;
 };
 
 const generateEvmYaml = (chain, config) => {
- const envKey = chain.replace(/-/g, '_').toUpperCase();
- const endpoint = process.env[envKey];
- const endpoints = `    - '${endpoint}'`;
+ const endpoints = generateEndpoints(chain);
 
  return `# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
@@ -235,5 +241,3 @@ ${projects}`;
 };
 
 generateMultichainYaml();
-
-

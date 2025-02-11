@@ -1,5 +1,4 @@
 import { SubstrateEvent } from '@subql/types';
-import { Request } from '../../../types';
 import { RequestService } from '../../../services/request.service';
 import { Status } from '../../../types';
 import {
@@ -42,35 +41,21 @@ export async function handleSubstrateRequestEvent(
   return;
  }
 
- const existingRequest = await Request.get(commitment.toString());
-
- const metadata = {
+ await RequestService.findOrCreate({
+  chain: host,
+  commitment: commitment.toString(),
+  body: undefined,
+  dest: destId,
+  fee: undefined,
+  from: undefined,
+  nonce: BigInt(request_nonce.toString()),
+  source: sourceId,
+  timeoutTimestamp: undefined,
+  to: undefined,
+  status: Status.SOURCE,
   blockNumber: event.block.block.header.number.toString(),
   blockHash: event.block.block.header.hash.toString(),
   transactionHash: event.extrinsic?.extrinsic.hash.toString() || '',
   blockTimestamp: BigInt(event.block?.timestamp!.getTime()),
- };
-
- if (existingRequest) {
-  Object.assign(existingRequest, metadata);
-  await existingRequest.save();
- } else {
-  await RequestService.findOrCreate({
-   chain: host,
-   commitment: commitment.toString(),
-   body: undefined,
-   dest: destId,
-   fee: undefined,
-   from: undefined,
-   nonce: BigInt(request_nonce.toString()),
-   source: sourceId,
-   timeoutTimestamp: undefined,
-   to: undefined,
-   status: Status.SOURCE,
-   blockNumber: event.block.block.header.number.toString(),
-   blockHash: event.block.block.header.hash.toString(),
-   transactionHash: event.extrinsic?.extrinsic.hash.toString() || '',
-   blockTimestamp: BigInt(event.block?.timestamp!.getTime()),
-  });
- }
+ });
 }

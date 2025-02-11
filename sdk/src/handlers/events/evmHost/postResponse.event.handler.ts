@@ -1,5 +1,4 @@
 import { Status, Request } from '../../../types';
-import { Response } from '../../../types';
 import { PostResponseEventLog } from '../../../types/abi-interfaces/EthereumHostAbi';
 import { HyperBridgeService } from '../../../services/hyperbridge.service';
 import { ResponseService } from '../../../services/response.service';
@@ -89,32 +88,17 @@ export async function handlePostResponseEvent(
   return;
  }
 
- const existingResponse = await Response.get(response_commitment);
-
- const metadata = {
+ // Create the response entity
+ await ResponseService.findOrCreate({
+  chain,
+  commitment: response_commitment,
+  responseTimeoutTimestamp: BigInt(responseTimeoutTimestamp.toString()),
+  response_message: response,
+  status: Status.SOURCE,
+  request,
   blockNumber: blockNumber.toString(),
   blockHash: block.hash,
   transactionHash,
   blockTimestamp: block.timestamp,
- };
-
- if (existingResponse) {
-  // Update only metadata
-  Object.assign(existingResponse, metadata);
-  await existingResponse.save();
- } else {
-  // Create the response entity
-  await ResponseService.findOrCreate({
-   chain,
-   commitment: response_commitment,
-   responseTimeoutTimestamp: BigInt(responseTimeoutTimestamp.toString()),
-   response_message: response,
-   status: Status.SOURCE,
-   request,
-   blockNumber: blockNumber.toString(),
-   blockHash: block.hash,
-   transactionHash,
-   blockTimestamp: block.timestamp,
-  });
- }
+ });
 }

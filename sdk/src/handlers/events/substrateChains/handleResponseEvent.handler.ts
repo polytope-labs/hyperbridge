@@ -1,5 +1,4 @@
 import { SubstrateEvent } from '@subql/types';
-import { Response } from '../../../types';
 import { ResponseService } from '../../../services/response.service';
 import { Status } from '../../../types';
 import {
@@ -33,27 +32,13 @@ export async function handleSubstrateResponseEvent(
   return;
  }
 
- const existingResponse = await Response.get(commitment.toString());
-
- const metadata = {
+ await ResponseService.findOrCreate({
+  chain: host,
+  commitment: commitment.toString(),
+  status: Status.SOURCE,
   blockNumber: event.block.block.header.number.toString(),
   blockHash: event.block.block.header.hash.toString(),
   transactionHash: event.extrinsic?.extrinsic.hash.toString() || '',
   blockTimestamp: BigInt(event.block.timestamp!.getTime()),
- };
-
- if (existingResponse) {
-  Object.assign(existingResponse, metadata);
-  await existingResponse.save();
- } else {
-  await ResponseService.findOrCreate({
-   chain: host,
-   commitment: commitment.toString(),
-   status: Status.SOURCE,
-   blockNumber: event.block.block.header.number.toString(),
-   blockHash: event.block.block.header.hash.toString(),
-   transactionHash: event.extrinsic?.extrinsic.hash.toString() || '',
-   blockTimestamp: BigInt(event.block.timestamp!.getTime()),
-  });
- }
+ });
 }

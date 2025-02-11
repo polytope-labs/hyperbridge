@@ -5,9 +5,11 @@ import {
  getHostStateMachine,
  isHyperbridge,
 } from '../../../utils/substrate.helpers';
+import { HyperBridgeService } from '../../../services/hyperbridge.service';
 
 type EventData = {
  commitment: string;
+ relayer: string;
 };
 export async function handleSubstratePostRequestHandledEvent(
  event: SubstrateEvent
@@ -27,6 +29,7 @@ export async function handleSubstratePostRequestHandledEvent(
  } = event;
 
  const eventData = event.event.data[0] as unknown as EventData;
+ const relayer_id = eventData.relayer.toString();
 
  logger.info(
   `Handling ISMP PostRequestHandled Event: ${JSON.stringify({
@@ -43,6 +46,12 @@ export async function handleSubstratePostRequestHandledEvent(
  } else {
   status = Status.DESTINATION;
  }
+
+ logger.info(`Updating Hyperbridge chain stats for ${host}`);
+ await HyperBridgeService.handlePostRequestOrResponseHandledEvent(
+  relayer_id,
+  host
+ );
 
  logger.info(
   `Handling ISMP PostRequestHandled Event: ${JSON.stringify({

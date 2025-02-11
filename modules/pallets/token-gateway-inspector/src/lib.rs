@@ -37,6 +37,9 @@ pub mod pallet {
 	use ismp::host::StateMachine;
 	use pallet_token_gateway::types::Body;
 	use pallet_token_governor::StandaloneChainAssets;
+	use polkadot_sdk::{
+		frame_support::dispatch::DispatchResult, frame_system::pallet_prelude::OriginFor,
+	};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -75,6 +78,25 @@ pub mod pallet {
 	impl<T> Default for Pallet<T> {
 		fn default() -> Self {
 			Self(PhantomData)
+		}
+	}
+
+	#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+	pub struct NetInflow {
+		asset: H256,
+		chain: StateMachine,
+		balance: U256,
+	}
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		/// Set the balance of a chain through a governance action
+		#[pallet::call_index(0)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
+		pub fn set_chain_balance(origin: OriginFor<T>, inflow: NetInflow) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+			InflowBalances::<T>::insert(inflow.chain, inflow.asset, inflow.balance);
+			Ok(())
 		}
 	}
 

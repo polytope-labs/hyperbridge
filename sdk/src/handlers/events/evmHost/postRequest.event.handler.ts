@@ -1,10 +1,9 @@
 import { HyperBridgeService } from '../../../services/hyperbridge.service';
 import { RequestService } from '../../../services/request.service';
+import { Request } from '../../../types';
 import { Status } from '../../../types';
 import { PostRequestEventLog } from '../../../types/abi-interfaces/EthereumHostAbi';
-import {
- getHostStateMachine,
-} from '../../../utils/substrate.helpers';
+import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
 /**
  * Handles the PostRequest event from Evm Hosts
@@ -56,22 +55,37 @@ export async function handlePostRequestEvent(
   })}`
  );
 
- // Create the request entity
- await RequestService.findOrCreate({
-  chain,
-  commitment: request_commitment,
-  body,
-  dest,
-  fee: BigInt(fee.toString()),
-  from,
-  nonce: BigInt(nonce.toString()),
-  source,
-  status: Status.SOURCE,
-  timeoutTimestamp: BigInt(timeoutTimestamp.toString()),
-  to,
+ const existingRequest = await Request.get(request_commitment);
+
+ const metadata = {
   blockNumber: blockNumber.toString(),
   blockHash: block.hash,
   transactionHash,
   blockTimestamp: block.timestamp,
- });
+ };
+
+ if (existingRequest) {
+  // Update only metadata
+  Object.assign(existingRequest, metadata);
+  await existingRequest.save();
+ } else {
+  // Create the request entity
+  await RequestService.findOrCreate({
+   chain,
+   commitment: request_commitment,
+   body,
+   dest,
+   fee: BigInt(fee.toString()),
+   from,
+   nonce: BigInt(nonce.toString()),
+   source,
+   status: Status.SOURCE,
+   timeoutTimestamp: BigInt(timeoutTimestamp.toString()),
+   to,
+   blockNumber: blockNumber.toString(),
+   blockHash: block.hash,
+   transactionHash,
+   blockTimestamp: block.timestamp,
+  });
+ }
 }

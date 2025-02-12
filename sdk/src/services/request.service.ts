@@ -145,39 +145,6 @@ export class RequestService {
     let request = await Request.get(commitment);
 
     if (request) {
-      if (
-        REQUEST_STATUS_WEIGHTS[status] > REQUEST_STATUS_WEIGHTS[request.status]
-      ) {
-        logger.info(
-          `Updating Request Status: ${JSON.stringify({
-            new_status: status,
-            old_status: request.status,
-            is_true:
-              REQUEST_STATUS_WEIGHTS[status] >
-              REQUEST_STATUS_WEIGHTS[request.status],
-          })}`
-        );
-
-        switch (status) {
-          case Status.SOURCE:
-            request.sourceTransactionHash = transactionHash;
-            break;
-          case Status.HYPERBRIDGE_DELIVERED:
-            request.hyperbridgeTransactionHash = transactionHash;
-            break;
-          case Status.DESTINATION:
-            request.destinationTransactionHash = transactionHash;
-            break;
-          case Status.HYPERBRIDGE_TIMED_OUT:
-            request.hyperbridgeTimeoutTransactionHash = transactionHash;
-            break;
-          case Status.TIMED_OUT:
-            request.destinationTimeoutTransactionHash = transactionHash;
-            break;
-        }
-
-        await request.save();
-      }
 
       let requestStatusMetadata = RequestStatusMetadata.create({
         id: `${commitment}.${status}`,

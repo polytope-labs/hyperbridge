@@ -121,30 +121,6 @@ export class ResponseService {
     let response = await Response.get(commitment);
 
     if (response) {
-      if (
-        RESPONSE_STATUS_WEIGHTS[status] >
-        RESPONSE_STATUS_WEIGHTS[response.status]
-      ) {
-
-        switch (status) {
-          case Status.SOURCE:
-            response.sourceTransactionHash = transactionHash;
-            break;
-          case Status.HYPERBRIDGE_DELIVERED:
-            response.hyperbridgeTransactionHash = transactionHash;
-            break;
-          case Status.DESTINATION:
-            response.destinationTransactionHash = transactionHash;
-            break;
-          case Status.HYPERBRIDGE_TIMED_OUT:
-            response.hyperbridgeTimeoutTransactionHash = transactionHash;
-            break;
-          case Status.TIMED_OUT:
-            response.destinationTimeoutTransactionHash = transactionHash;
-        }
-
-        await response.save();
-      }
 
       let responseStatusMetadata = ResponseStatusMetadata.create({
         id: `${commitment}.${status}`,

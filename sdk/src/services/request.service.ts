@@ -85,30 +85,12 @@ export class RequestService {
         status,
         timeoutTimestamp: timeoutTimestamp || BigInt(0),
         to: to || "",
-        sourceTransactionHash: "",
+        sourceTransactionHash: status === Status.SOURCE ? transactionHash : "",
         hyperbridgeTransactionHash: "",
         destinationTransactionHash: "",
         destinationTimeoutTransactionHash: "",
         commitment,
       });
-
-      switch (status) {
-        case Status.SOURCE:
-          request.sourceTransactionHash = transactionHash;
-          break;
-        case Status.HYPERBRIDGE_DELIVERED:
-          request.hyperbridgeTransactionHash = transactionHash;
-          break;
-        case Status.DESTINATION:
-          request.destinationTransactionHash = transactionHash;
-          break;
-        case Status.HYPERBRIDGE_TIMED_OUT:
-          request.hyperbridgeTimeoutTransactionHash = transactionHash;
-          break;
-        case Status.TIMED_OUT:
-          request.destinationTimeoutTransactionHash = transactionHash;
-          break;
-      }
 
       await request.save();
 
@@ -175,8 +157,6 @@ export class RequestService {
               REQUEST_STATUS_WEIGHTS[request.status],
           })}`
         );
-
-        request.status = status;
 
         switch (status) {
           case Status.SOURCE:

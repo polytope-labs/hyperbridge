@@ -70,28 +70,11 @@ export class ResponseService {
         requestId: request?.id,
         status,
         responseTimeoutTimestamp,
-        sourceTransactionHash: "",
+        sourceTransactionHash: status === Status.SOURCE ? transactionHash : "",
         hyperbridgeTransactionHash: "",
         destinationTransactionHash: "",
         destinationTimeoutTransactionHash: "",
       });
-
-      switch (status) {
-        case Status.SOURCE:
-          response.sourceTransactionHash = transactionHash;
-          break;
-        case Status.HYPERBRIDGE_DELIVERED:
-          response.hyperbridgeTransactionHash = transactionHash;
-          break;
-        case Status.DESTINATION:
-          response.destinationTransactionHash = transactionHash;
-          break;
-        case Status.HYPERBRIDGE_TIMED_OUT:
-          response.hyperbridgeTimeoutTransactionHash = transactionHash;
-          break;
-        case Status.TIMED_OUT:
-          response.destinationTimeoutTransactionHash = transactionHash;
-      }
 
       await response.save();
 
@@ -142,7 +125,6 @@ export class ResponseService {
         RESPONSE_STATUS_WEIGHTS[status] >
         RESPONSE_STATUS_WEIGHTS[response.status]
       ) {
-        response.status = status;
 
         switch (status) {
           case Status.SOURCE:

@@ -2,9 +2,7 @@ import { HyperBridgeService } from '../../../services/hyperbridge.service';
 import { RequestService } from '../../../services/request.service';
 import { Status } from '../../../types';
 import { PostRequestEventLog } from '../../../types/abi-interfaces/EthereumHostAbi';
-import {
- getHostStateMachine,
-} from '../../../utils/substrate.helpers';
+import { getHostStateMachine } from '../../../utils/substrate.helpers';
 
 /**
  * Handles the PostRequest event from Evm Hosts

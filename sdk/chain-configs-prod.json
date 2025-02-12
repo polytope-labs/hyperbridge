@@ -77,7 +77,7 @@
  "soneium-mainnet": {
   "type": "evm",
   "chainId": "1868",
-  "startBlock": 2904503,
+  "startBlock": 2936300,
   "contracts": {
    "ethereumHost": "0x7F0165140D0f3251c8f6465e94E9d12C7FD40711",
    "erc6160ext20": "0xbA9986D2381edf1DA03B0B9c1f8b00dc4AacC369",

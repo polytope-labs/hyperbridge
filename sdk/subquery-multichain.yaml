@@ -12,3 +12,4 @@ projects:
   - ./arbitrum-mainnet.yaml
   - ./optimism-mainnet.yaml
   - ./gnosis-mainnet.yaml
+  - ./soneium-mainnet.yaml

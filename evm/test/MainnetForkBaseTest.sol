@@ -52,6 +52,7 @@ contract MainnetForkBaseTest is Test {
     IERC20 internal feeToken;
     IUniswapV2Router02 internal _uniswapV2Router;
     TokenRegistrar internal _registrar;
+    CallDispatcher internal dispatcher;
 
     uint256 internal mainnetFork;
 
@@ -71,7 +72,7 @@ contract MainnetForkBaseTest is Test {
 
         consensusClient = new TestConsensusClient();
         handler = new HandlerV1();
-        CallDispatcher dispatcher = new CallDispatcher();
+        dispatcher = new CallDispatcher();
 
         uint256 paraId = 2000;
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});

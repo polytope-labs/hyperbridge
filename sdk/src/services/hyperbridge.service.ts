@@ -6,6 +6,7 @@ import { Relayer, Transfer } from '../types/models';
 import { HyperBridgeChainStatsService } from './hyperbridgeChainStats.service';
 import { isHexString } from 'ethers/lib/utils';
 import { EthereumHostAbi__factory } from '../types/contracts';
+import { SubstrateEvent } from '@subql/types';
 // import {
 //  HandlePostRequestsTransaction,
 //  HandlePostResponsesTransaction,
@@ -44,6 +45,28 @@ export class HyperBridgeService {
   }
  }
 
+ static async handlePostRequestOrResponseEventSubstrate(
+  chain: string,
+  event: SubstrateEvent
+ ): Promise<void> {
+  if (!event.extrinsic && event.event.data) return;
+
+  // TODO: Handle calculate protocol fee from Substrate event
+  // const protocolFee;
+
+  try {
+   // await this.incrementProtocolFeesEarned(protocolFee, chain);
+   await this.incrementNumberOfSentMessages(chain);
+  } catch (error) {
+   logger.error(
+    `Error computing protocol fee: ${JSON.stringify({
+     error,
+    })}`
+   );
+   return;
+  }
+ }
+
  /**
   * Perform the necessary actions related to Hyperbridge stats when a PostRequestHandled/PostResponseHandled event is indexed
   */
@@ -54,24 +77,24 @@ export class HyperBridgeService {
   await this.incrementNumberOfDeliveredMessages(chain);
  }
 
-//  /**
-//   * Handle PostRequest or PostResponse transactions
-//   */
-//  static async handlePostRequestOrResponseTransaction(
-//   chain: string,
-//   transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
-//  ): Promise<void> {
-//   logger.info(
-//    `Creating PostRequest or PostResponse transaction update: ${JSON.stringify({
-//     transaction,
-//    })}`
-//   );
-//   const { status } = await transaction.receipt();
+ //  /**
+ //   * Handle PostRequest or PostResponse transactions
+ //   */
+ //  static async handlePostRequestOrResponseTransaction(
+ //   chain: string,
+ //   transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
+ //  ): Promise<void> {
+ //   logger.info(
+ //    `Creating PostRequest or PostResponse transaction update: ${JSON.stringify({
+ //     transaction,
+ //    })}`
+ //   );
+ //   const { status } = await transaction.receipt();
 
-//   if (status === false) {
-//    await this.incrementNumberOfFailedDeliveries(chain);
-//   }
-//  }
+ //   if (status === false) {
+ //    await this.incrementNumberOfFailedDeliveries(chain);
+ //   }
+ //  }
 
  /**
   * Increment the total number of messages sent on hyperbridge

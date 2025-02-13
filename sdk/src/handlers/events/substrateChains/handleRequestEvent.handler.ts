@@ -6,6 +6,7 @@ import {
  getHostStateMachine,
  isHyperbridge,
 } from '../../../utils/substrate.helpers';
+import { HyperBridgeService } from '../../../services/hyperbridge.service';
 
 export async function handleSubstrateRequestEvent(
  event: SubstrateEvent
@@ -40,6 +41,11 @@ export async function handleSubstrateRequestEvent(
  if (isHyperbridge(host)) {
   return;
  }
+
+ await HyperBridgeService.handlePostRequestOrResponseEventSubstrate(
+  host,
+  event
+ );
 
  await RequestService.findOrCreate({
   chain: host,

@@ -24,7 +24,7 @@ use evm_state_machine::{
 	},
 	state_comitment_key,
 };
-use sp_mmr_primitives::utils::NodesUtils;
+use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
 
 use super::interface::Query;
 use crate::{
@@ -42,13 +42,13 @@ use evm_state_machine::types::EvmStateProof;
 use futures::{stream, StreamExt};
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
-	events::{Event, StateMachineUpdated},
+	events::{Event, RequestResponseHandled, StateMachineUpdated},
 	host::StateMachine,
 	messaging::{Message, ResponseMessage, TimeoutMessage},
 	router::{Request, RequestResponse, Response},
 };
 use ismp_solidity_abi::{
-	evm_host::{EvmHost, EvmHostEvents, PostRequestHandledFilter},
+	evm_host::{EvmHost, EvmHostEvents},
 	handler::{
 		GetResponseLeaf, GetResponseMessage, Handler, PostRequestLeaf, PostRequestMessage,
 		PostRequestTimeoutMessage, PostResponseLeaf, PostResponseMessage,
@@ -284,7 +284,7 @@ impl Client for EvmClient {
 		&self,
 		commitment: H256,
 		initial_height: u64,
-	) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
+	) -> Result<BoxStream<WithMetadata<RequestResponseHandled>>, Error> {
 		let client = self.clone();
 		let stream =
 			stream::unfold((initial_height, client), move |(latest_height, client)| async move {
@@ -339,7 +339,10 @@ impl Client for EvmClient {
 										transaction_hash: meta.transaction_hash,
 										block_number: meta.block_number.as_u64(),
 									},
-									event: filter,
+									event: RequestResponseHandled {
+										commitment: filter.commitment.into(),
+										relayer: filter.relayer.0.to_vec(),
+									},
 								});
 							}
 

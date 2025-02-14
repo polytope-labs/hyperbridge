@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! [`IsmpHost`] implementation for pallet-ismp
+use polkadot_sdk::*;
 
 use crate::{
 	child_trie,

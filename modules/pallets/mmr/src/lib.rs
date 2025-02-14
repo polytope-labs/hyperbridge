@@ -62,6 +62,7 @@ use core::marker::PhantomData;
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log;
 use merkle_mountain_range::MMRStore;
+use polkadot_sdk::*;
 use sp_core::H256;
 
 use sp_runtime::traits::{self, One};
@@ -73,9 +74,8 @@ use pallet_ismp::{
 	child_trie,
 	offchain::{ForkIdentifier, FullLeaf, LeafMetadata, OffchainDBProvider, Proof, ProofKeys},
 };
-use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
-pub use sp_mmr_primitives::{
-	self as primitives, utils::NodesUtils, Error, LeafDataProvider, LeafIndex, NodeIndex,
+use sp_mmr_primitives::{
+	mmr_lib::leaf_index_to_pos, utils::NodesUtils, Error, LeafIndex, NodeIndex,
 };
 
 pub use mmr::storage::{OffchainStorage, Storage};
@@ -104,7 +104,9 @@ pub mod pallet {
 
 	/// This pallet's configuration trait
 	#[pallet::config]
-	pub trait Config<I: 'static = ()>: frame_system::Config + pallet_ismp::Config {
+	pub trait Config<I: 'static = ()>:
+		polkadot_sdk::frame_system::Config + pallet_ismp::Config
+	{
 		/// Prefix for elements stored in the Off-chain DB via Indexing API.
 		///
 		/// Each node of the MMR is inserted both on-chain and off-chain via Indexing API.
@@ -193,12 +195,12 @@ where
 
 	fn proof(
 		indices: Vec<LeafIndex>,
-	) -> Result<(Vec<Self::Leaf>, primitives::LeafProof<H256>), Error> {
+	) -> Result<(Vec<Self::Leaf>, sp_mmr_primitives::LeafProof<H256>), Error> {
 		let leaves_count = NumberOfLeaves::<T, I>::get();
 		let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(leaves_count);
 		let (leaves, proof) = mmr.generate_proof(indices)?;
 		let proof_nodes = proof.items.into_iter().map(Into::into).collect();
-		let new_proof = primitives::LeafProof {
+		let new_proof = sp_mmr_primitives::LeafProof {
 			leaf_indices: proof.leaf_indices,
 			leaf_count: proof.leaf_count,
 			items: proof_nodes,

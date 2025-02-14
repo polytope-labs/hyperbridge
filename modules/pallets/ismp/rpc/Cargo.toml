@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-rpc"
-version = "15.0.0"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -23,19 +23,24 @@ jsonrpsee = { workspace = true, features = ["client-core", "server", "macros"] }
 serde = { workspace = true, features = ["derive"], default-features = true }
 json = { workspace = true, default-features = true }
 tower = { version = "0.4.13", features = ["util"] }
+hash-db = { workspace = true, default-features = true }
+trie-db = { workspace = true, default-features = true }
 
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-ismp-runtime-api = { workspace = true, default-features = true }
 
-frame-system = { workspace = true, default-features = true }
-sc-client-api = { workspace = true, default-features = true }
-sp-api = { workspace = true, default-features = true }
-sp-blockchain = { workspace = true, default-features = true }
-sp-core = { workspace = true, default-features = true }
-sp-runtime = { workspace = true, default-features = true }
-sp-trie = { workspace = true, default-features = true }
-sp-storage = { workspace = true, default-features = true }
-hash-db = { workspace = true, default-features = true }
-trie-db = { workspace = true, default-features = true }
-sc-rpc = { workspace = true, default-features = true }
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = [
+    "frame-system",
+    "sc-client-api",
+    "sp-api",
+    "sp-blockchain",
+    "sp-core",
+    "sp-runtime",
+    "sp-trie",
+    "sp-storage",
+    "sc-rpc",
+]

@@ -25,6 +25,7 @@ use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use frame_support::pallet_prelude::Weight;
 use ismp::router::{PostRequest, Response, Timeout};
+use polkadot_sdk::*;
 
 pub use types::*;
 
@@ -61,10 +62,13 @@ pub mod pallet {
 	/// The pallet's configuration trait.
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + pallet_ismp_host_executive::Config
+		polkadot_sdk::frame_system::Config
+		+ pallet_ismp::Config
+		+ pallet_ismp_host_executive::Config
 	{
 		/// The overarching runtime event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The [`IsmpDispatcher`] for dispatching cross-chain requests
 		type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
@@ -160,6 +164,8 @@ pub mod pallet {
 		},
 		/// Native asset IDs have been deregistered
 		NativeAssetsDeregistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
+		/// Native asset IDs have been registered
+		NativeAssetsRegistered { assets: BTreeMap<StateMachine, BTreeSet<H256>> },
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -343,6 +349,26 @@ pub mod pallet {
 			}
 
 			Self::deposit_event(Event::<T>::NativeAssetsDeregistered { assets });
+
+			Ok(())
+		}
+
+		/// Register the native token asset ids for standalone chains
+		#[pallet::call_index(9)]
+		#[pallet::weight(weight())]
+		pub fn register_standalone_chain_native_assets(
+			origin: OriginFor<T>,
+			assets: BTreeMap<StateMachine, BTreeSet<H256>>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			for (state_machine, new_asset_ids) in assets.clone() {
+				new_asset_ids
+					.into_iter()
+					.for_each(|id| StandaloneChainAssets::<T>::insert(state_machine, id, true))
+			}
+
+			Self::deposit_event(Event::<T>::NativeAssetsRegistered { assets });
 
 			Ok(())
 		}

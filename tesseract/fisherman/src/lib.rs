@@ -20,7 +20,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::host::StateMachine;
-use sc_service::TaskManager;
+use polkadot_sdk::sc_service::TaskManager;
 use tesseract_primitives::IsmpProvider;
 
 pub async fn fish(

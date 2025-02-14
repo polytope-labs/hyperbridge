@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #![cfg(test)]
+use polkadot_sdk::*;
 
 use codec::Encode;
 use frame_support::traits::fungible::{Inspect, Mutate};

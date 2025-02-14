@@ -7,36 +7,28 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [dependencies]
-frame-support = { workspace = true }
-frame-system = { workspace = true }
-sp-runtime = { workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
 primitive-types = { workspace = true }
-
-ismp = { workspace = true }
-pallet-ismp = { workspace = true }
-
 log = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
 anyhow = { workspace = true }
-
 alloy-primitives = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
 pallet-token-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-runtime", "sp-core", "sp-io"]
 
 [features]
 default = ["std"]
 std = [
-    "frame-support/std",
-    "frame-system/std",
-    "sp-runtime/std",
-    "sp-core/std",
-    "sp-io/std",
+    "polkadot-sdk/std",
     "primitive-types/std",
     "ismp/std",
     "pallet-ismp/std",
@@ -47,4 +39,4 @@ std = [
     "pallet-token-gateway/std",
     "pallet-token-governor/std",
 ]
-try-runtime = []
+try-runtime = ["polkadot-sdk/try-runtime"]

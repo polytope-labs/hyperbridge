@@ -24,7 +24,7 @@ import {PingModule} from "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 
-import {SP1Verifier} from "@sp1-contracts/v3.0.0/SP1VerifierGroth16.sol";
+import {SP1Verifier} from "@sp1-contracts/v4.0.0-rc.3/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
@@ -83,6 +83,20 @@ contract DeployScript is BaseScript {
         address hostAddress = initHost(params);
         // set the host address on the host manager
         manager.setIsmpHost(hostAddress);
+
+        // Set the consensus state
+        EvmHost(payable(hostAddress)).setConsensusState(
+            hex"",
+            StateMachineHeight({
+                stateMachineId: paraId,
+                height: 1
+            }),
+            StateCommitment({
+                timestamp: block.timestamp,
+                overlayRoot: bytes32(0),
+                stateRoot: bytes32(0)
+            })
+        );
 
         vm.stopBroadcast();
     }

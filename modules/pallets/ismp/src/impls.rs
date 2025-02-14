@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! Pallet methods
+use polkadot_sdk::*;
 
 use crate::{
 	child_trie::{RequestCommitments, ResponseCommitments},

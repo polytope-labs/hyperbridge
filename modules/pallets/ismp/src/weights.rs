@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! Utilities for providing the static weights for module callbacks
+use polkadot_sdk::*;
 
 use crate::{utils::ModuleId, Config};
 use alloc::boxed::Box;

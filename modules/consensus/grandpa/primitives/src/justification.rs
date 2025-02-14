@@ -12,7 +12,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use crate::Commit;
 use alloc::{
 	collections::{BTreeMap, BTreeSet},
@@ -21,6 +20,7 @@ use alloc::{
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use finality_grandpa::voter_set::VoterSet;
+use polkadot_sdk::*;
 use sp_consensus_grandpa::{
 	AuthorityId, AuthorityList, AuthoritySignature, ConsensusLog, Equivocation, RoundNumber,
 	ScheduledChange, SetId, GRANDPA_ENGINE_ID,
@@ -57,7 +57,7 @@ where
 		// It's safe to assume that the authority list will not contain duplicates,
 		// since this list is extracted from a verified relaychain header.
 		let voters =
-			VoterSet::new(authorities.iter().cloned()).ok_or(anyhow!("Invalid AuthoritiesSet"))?;
+			VoterSet::new(authorities.iter().cloned()).ok_or(anyhow!("Invalid Authorities Set"))?;
 
 		self.verify_with_voter_set(set_id, &voters)
 	}
@@ -244,7 +244,10 @@ where
 {
 	let buf = (message, round, set_id).encode();
 
-	if !id.verify(&buf, signature) {
+	let valid =
+		sp_io::crypto::ed25519_verify(&signature.clone().into(), buf.as_ref(), &id.clone().into());
+
+	if !valid {
 		Err(anyhow!("invalid signature for precommit in grandpa justification"))?
 	}
 

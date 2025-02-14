@@ -14,26 +14,28 @@ targets = ["x86_64-unknown-linux-gnu"]
 anyhow.workspace = true
 primitive-types = { workspace = true, features = ["codec"] }
 codec = { workspace = true, features = ["derive"], default-features = true }
-derive_more = { workspace = true, features = ["from"], default-features = true  }
+derive_more = { workspace = true, features = ["from"], default-features = true }
 rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }
 hex-literal = "0.4.1"
-
-# substrate
-sp-runtime = { workspace = true, features = ["default"] }
-sp-storage =  { workspace = true, features = ["default"] }
-sp-io = { workspace = true, features = ["default"] }
-frame-support = { workspace = true, features = ["default"]}
-pallet-beefy-mmr = { workspace = true, features = ["default"] }
-sp-mmr-primitives = { workspace = true, features = ["default"] }
-sp-consensus-beefy = { workspace = true, features = ["default"] }
-sp-trie = { workspace = true, features = ["default"] }
-mmr-rpc = { workspace = true }
-
-# Optional deps
-subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
-
 hex = { version = "0.4.3" }
-beefy-verifier-primitives = {  path = "../primitives" }
+
+subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
+beefy-verifier-primitives = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = [
+    "sp-runtime",
+    "sp-io",
+    "pallet-beefy-mmr",
+    "sp-mmr-primitives",
+    "sp-consensus-beefy",
+    "sp-trie",
+    "sp-storage",
+    "frame-support",
+    "mmr-rpc",
+]
 
 [features]
 local = []

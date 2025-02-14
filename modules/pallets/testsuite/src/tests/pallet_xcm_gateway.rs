@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use polkadot_sdk::*;
 use std::sync::Arc;
 
 use crate::{

@@ -23,6 +23,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use pallet_ismp::offchain::{Proof, ProofKeys};
+use polkadot_sdk::*;
 use sp_mmr_primitives::{Error, LeafIndex};
 
 sp_api::decl_runtime_apis! {

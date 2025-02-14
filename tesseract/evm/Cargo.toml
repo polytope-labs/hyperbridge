@@ -26,11 +26,11 @@ ethers = { workspace = true, features = ["rustls"] }
 ethabi = { workspace = true, features = ["full-serde"] }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-stream = { workspace = true }
-frame-support = { workspace = true, default-features = true }
 reqwest-retry = "0.3.0"
 reqwest-middleware = "0.2.4"
 async-recursion = "1.0.5"
 superchain-registry = { version = "0.11", default-features = false }
+op-alloy-genesis = "=0.6.2"                                          # need to pin this transitive dependency
 jsonrpsee = { version = "0.21", features = ["ws-client"] }
 
 ismp-solidity-abi = { workspace = true, default-features = true }
@@ -43,13 +43,17 @@ ismp-sync-committee = { workspace = true, default-features = true }
 ethereum-triedb = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
-sp-mmr-primitives = { workspace = true, default-features = true }
 tesseract-primitives = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true, default-features = true }
 ismp-testsuite = { workspace = true, default-features = true }
 reconnecting-jsonrpsee-ws-client = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 serde-hex-utils = { workspace = true, default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sp-mmr-primitives", "frame-support"]
 
 [dependencies.codec]
 package = "parity-scale-codec"

@@ -46,8 +46,6 @@ use wasm_streams::ReadableStream;
 #[cfg(any(feature = "testing", test))]
 pub mod testing;
 
-pub mod indexing;
-
 #[cfg(test)]
 mod tests;
 
@@ -65,8 +63,6 @@ pub struct HyperClient {
 	#[wasm_bindgen(skip)]
 	/// Internal client for Hyperbridge
 	pub hyperbridge: SubstrateClient<Hyperbridge>,
-	#[wasm_bindgen(skip)]
-	pub indexer: Option<String>,
 }
 
 impl HyperClient {
@@ -82,7 +78,7 @@ impl HyperClient {
 		let hyperbridge = config.hyperbridge_client().await?;
 
 		tracing::info!("Connected to hyperbridge");
-		Ok(Self { source, dest, hyperbridge, indexer: config.indexer.clone() })
+		Ok(Self { source, dest, hyperbridge })
 	}
 }
 
@@ -327,10 +323,6 @@ impl HyperClient {
 		lambda().await.map_err(|err: anyhow::Error| {
 			JsError::new(&format!("Failed to create post request timeout stream: {err:?}"))
 		})
-	}
-
-	pub fn get_indexer_url(&self) -> Option<String> {
-		self.indexer.clone()
 	}
 }
 

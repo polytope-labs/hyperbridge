@@ -1,0 +1,54 @@
+[package]
+name = "pallet-xcm-gateway"
+version = "0.1.1"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Pallet for custodying relay chain assets received through XCM"
+publish = false
+
+[dependencies]
+# polytope labs
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+pallet-token-governor = { workspace = true }
+pallet-token-gateway = { workspace = true }
+
+# crates.io
+codec = { workspace = true }
+anyhow = { workspace = true }
+scale-info = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rlp-derive = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-sol-types = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-runtime",
+    "sp-core",
+    "sp-std",
+    "sp-io",
+    "pallet-xcm",
+    "staging-xcm",
+    "staging-xcm-builder",
+    "staging-xcm-executor",
+]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "polkadot-sdk/std",
+    "scale-info/std",
+    "ismp/std",
+    "pallet-ismp/std",
+    "pallet-token-governor/std",
+    "alloy-sol-types/std",
+    "alloy-primitives/std",
+    "anyhow/std",
+    "pallet-token-gateway/std",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]

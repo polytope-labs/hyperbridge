@@ -24,4 +24,8 @@ pallet-state-coprocessor = { workspace = true, default-features = true }
 transaction-fees = { workspace = true }
 tesseract-primitives = { workspace = true }
 ismp-solidity-abi = { workspace = true, default-features = true }
-sc-service = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sc-service"]

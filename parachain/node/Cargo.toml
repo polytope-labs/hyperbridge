@@ -34,84 +34,78 @@ ismp-parachain-inherent = { workspace = true }
 ismp-parachain-runtime-api = { workspace = true }
 ismp-parachain = { workspace = true }
 
-# Substrate
-frame-benchmarking = { workspace = true }
-frame-benchmarking-cli = { workspace = true }
-pallet-transaction-payment-rpc = { workspace = true }
-sc-basic-authorship = { workspace = true }
-sc-chain-spec = { workspace = true }
-sc-cli = { workspace = true }
-sc-client-api = { workspace = true }
-sc-consensus = { workspace = true }
-sc-executor = { workspace = true }
-sc-network = { workspace = true }
-sc-network-sync = { workspace = true }
-sc-network-common = { workspace = true }
-sc-rpc = { workspace = true }
-sc-service = { workspace = true }
-sc-sysinfo = { workspace = true }
-sc-telemetry = { workspace = true }
-sc-tracing = { workspace = true }
-sc-transaction-pool = { workspace = true }
-sc-transaction-pool-api = { workspace = true }
-sp-api = { workspace = true }
-sp-block-builder = { workspace = true }
-sp-blockchain = { workspace = true }
-sp-consensus-aura = { workspace = true }
-sp-core = { workspace = true }
-sp-keystore = { workspace = true }
-sp-offchain = { workspace = true }
-sc-offchain = { workspace = true }
-sp-io = { workspace = true, default-features = true }
-sp-runtime = { workspace = true }
-sp-session = { workspace = true }
-sp-timestamp = { workspace = true }
-sp-transaction-pool = { workspace = true }
-substrate-frame-rpc-system = { workspace = true }
-substrate-prometheus-endpoint = { workspace = true }
-try-runtime-cli = { workspace = true,  optional = true }
-sp-mmr-primitives = { workspace = true,  default-features = true }
-frame-metadata-hash-extension = { workspace = true, default-features = true }
-
-# Polkadot
-polkadot-cli = { workspace = true }
-polkadot-primitives = { workspace = true }
-polkadot-service = { workspace = true }
-staging-xcm = { workspace = true, default-features = false }
-
-# Cumulus
-cumulus-client-cli = { workspace = true }
-cumulus-primitives-aura = { workspace = true }
-cumulus-client-consensus-aura = { workspace = true }
-cumulus-client-consensus-common = { workspace = true }
-cumulus-client-network = { workspace = true }
-cumulus-client-service = { workspace = true }
-cumulus-primitives-core = { workspace = true }
-cumulus-primitives-parachain-inherent = { workspace = true }
-cumulus-relay-chain-interface = { workspace = true }
-cumulus-client-consensus-proposer = { workspace = true }
-cumulus-client-collator = { workspace = true }
-
-# Simnode
+# supporting
 sc-simnode = { workspace = true, features = ["parachain"] }
-frame-system = { workspace = true }
-pallet-transaction-payment = { workspace = true }
 simnode-runtime-api = { workspace = true }
+sc-tracing = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = [
+    "frame-system",
+    "frame-benchmarking",
+    "frame-benchmarking-cli",
+    "pallet-transaction-payment-rpc",
+    "sc-basic-authorship",
+    "sc-chain-spec",
+    "sc-cli",
+    "sc-client-api",
+    "sc-consensus",
+    "sc-executor",
+    "sc-network",
+    "sc-network-sync",
+    "sc-network-common",
+    "sc-rpc",
+    "sc-service",
+    "sc-sysinfo",
+    "sc-telemetry",
+    "sc-transaction-pool",
+    "sc-transaction-pool-api",
+    "sp-api",
+    "sp-block-builder",
+    "sp-blockchain",
+    "sp-consensus-aura",
+    "sp-core",
+    "sp-keystore",
+    "sp-offchain",
+    "sc-offchain",
+    "sp-io",
+    "sp-runtime",
+    "sp-session",
+    "sp-timestamp",
+    "sp-transaction-pool",
+    "substrate-frame-rpc-system",
+    "substrate-prometheus-endpoint",
+    "sp-mmr-primitives",
+    "frame-metadata-hash-extension",
+    "polkadot-cli",
+    "polkadot-primitives",
+    "polkadot-service",
+    "staging-xcm",
+    "cumulus-client-cli",
+    "cumulus-primitives-aura",
+    "cumulus-client-consensus-aura",
+    "cumulus-client-consensus-common",
+    "cumulus-client-network",
+    "cumulus-client-service",
+    "cumulus-primitives-core",
+    "cumulus-primitives-parachain-inherent",
+    "cumulus-relay-chain-interface",
+    "cumulus-client-consensus-proposer",
+    "cumulus-client-collator",
+    "pallet-transaction-payment",
+]
 
 [build-dependencies]
-substrate-build-script-utils = { version = "11.0.0" }
+polkadot-sdk = { workspace = true, default-features = true, features = [
+    "substrate-build-script-utils",
+] }
 
 [features]
 default = []
 runtime-benchmarks = [
-	"try-runtime-cli/try-runtime",
-	"gargantua-runtime/runtime-benchmarks",
-#	"messier-runtime/runtime-benchmarks",
-	"nexus-runtime/runtime-benchmarks",
-	"polkadot-cli/runtime-benchmarks",
+    "gargantua-runtime/runtime-benchmarks",
+    "nexus-runtime/runtime-benchmarks",
 ]
-try-runtime = [
-	"try-runtime-cli/try-runtime",
-	"gargantua-runtime/try-runtime",
-#	"messier-runtime/try-runtime"
-]
+try-runtime = ["gargantua-runtime/try-runtime", "nexus-runtime/try-runtime"]

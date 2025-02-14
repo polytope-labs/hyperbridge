@@ -128,12 +128,6 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 			},
 		};
 
-		let indexer = if let Some(url) = value.indexer {
-			Some(url::Url::parse(&url)?.to_string())
-		} else {
-			None
-		};
-
 		let to_hyperbridge_config = |val: &JsHyperbridgeConfig| {
 			let state_machine = if val.state_machine.starts_with("0x") {
 				let bytes = from_hex(&val.state_machine).map_err(|err| anyhow!("Hex: {err:?}"))?;
@@ -159,7 +153,6 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 			source: source_config,
 			dest: dest_config,
 			hyperbridge,
-			indexer,
 			tracing: value.tracing.unwrap_or_default(),
 		})
 	}
@@ -354,7 +347,6 @@ mod tests {
 			source: ChainConfig::Evm(source_chain.clone()),
 			dest: ChainConfig::Evm(dest_chain.clone()),
 			hyperbridge: ChainConfig::Substrate(hyperbrige_config),
-			indexer: Some("http://localhost:3000/".to_string()),
 			tracing: false,
 		};
 

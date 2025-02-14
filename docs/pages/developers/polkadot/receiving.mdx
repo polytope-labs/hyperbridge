@@ -32,9 +32,9 @@ pub mod pallet {
 	pub const EXAMPLE_MODULE_ID: ModuleId = ModuleId::Pallet(PalletId(*b"EXPL-MOD"));
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config {
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>> + IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// [`IsmpDispatcher`] implementation
 		type IsmpDispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance> + Default;
@@ -151,7 +151,7 @@ impl pallet_hyperbridge::Config for Runtime {
 
 impl pallet_example::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    // you can either use pallet_ismp or 
+    // you can either use pallet_ismp or
 	// pallet_hyperbridge depending on your
 	// fee payment strategy
     type IsmpDispatcher = pallet_hyperbridge::Pallet<Runtime>;

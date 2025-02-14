@@ -1,6 +1,6 @@
 [package]
 name = "substrate-state-machine"
-version = "15.0.0"
+version = "16.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -12,14 +12,6 @@ keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
 readme = "./README.md"
 
 [dependencies]
-# substrate
-frame-support = { workspace = true }
-sp-runtime = { workspace = true }
-sp-consensus-aura = { workspace = true }
-sp-consensus-babe = { workspace = true }
-sp-trie = { workspace = true }
-
-# polytope labs
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 
@@ -30,19 +22,25 @@ serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 hash-db = { workspace = true }
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "sp-runtime",
+    "sp-consensus-aura",
+    "sp-consensus-babe",
+    "sp-trie",
+]
+
 [features]
 default = ["std"]
 std = [
-    "sp-consensus-aura/std",
-    "sp-consensus-babe/std",
+    "polkadot-sdk/std",
     "ismp/std",
     "codec/std",
-    "sp-runtime/std",
     "primitive-types/std",
     "scale-info/std",
     "serde/std",
-    "frame-support/std",
     "pallet-ismp/std",
-    "sp-trie/std",
     "hash-db/std",
 ]

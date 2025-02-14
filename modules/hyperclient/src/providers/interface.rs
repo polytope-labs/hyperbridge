@@ -20,12 +20,11 @@ use core::time::Duration;
 use ethers::{prelude::H256, types::H160};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
-	events::{Event, StateMachineUpdated},
+	events::{Event, RequestResponseHandled, StateMachineUpdated},
 	host::StateMachine,
 	messaging::Message,
 	router::{PostRequest, PostResponse},
 };
-use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
 use std::ops::RangeInclusive;
 
@@ -117,7 +116,7 @@ pub trait Client: Clone + Send + Sync + 'static {
 		&self,
 		commitment: H256,
 		initial_height: u64,
-	) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, anyhow::Error>;
+	) -> Result<BoxStream<WithMetadata<RequestResponseHandled>>, anyhow::Error>;
 
 	/// Query the latest height of the given state machine
 	async fn query_latest_state_machine_height(

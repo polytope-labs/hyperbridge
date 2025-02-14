@@ -14,6 +14,7 @@
 // limitations under the License.
 
 #![cfg(test)]
+use polkadot_sdk::*;
 
 use frame_support::traits::{
 	fungible::{Inspect, Mutate},

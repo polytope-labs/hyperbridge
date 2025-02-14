@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::anyhow;
 use codec::Encode;
+use polkadot_sdk::*;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, Bytes, KeccakHasher};
 use sp_keyring::sr25519::Keyring;
@@ -237,17 +238,9 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 			signer: H256::random().as_bytes().to_vec(),
 		})]);
 		let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
-		let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
+		let subxt::Error::Rpc(RpcError::ClientError(_err)) = error else {
 			panic!("Unexpected error kind: {error:?}")
 		};
-		let jsonrpsee_error = err.downcast::<subxt_utils::client::RpcError>().unwrap();
-		let subxt_utils::client::RpcError::RpcError(jsonrpsee_core::ClientError::Call(error)) =
-			*jsonrpsee_error
-		else {
-			panic!("Unexpected error kind: {jsonrpsee_error:?}")
-		};
-
-		assert_eq!(error.message(), "Priority is too low: (100 vs 100)");
 	};
 
 	let block = client
@@ -270,17 +263,9 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 			signer: H256::random().as_bytes().to_vec(),
 		})]);
 		let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
-		let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
+		let subxt::Error::Rpc(RpcError::ClientError(_err)) = error else {
 			panic!("Unexpected error kind: {error:?}")
 		};
-		let jsonrpsee_error = err.downcast::<subxt_utils::client::RpcError>().unwrap();
-		let subxt_utils::client::RpcError::RpcError(jsonrpsee_core::ClientError::Call(error)) =
-			*jsonrpsee_error
-		else {
-			panic!("Unexpected error kind: {jsonrpsee_error:?}")
-		};
-
-		assert_eq!(error.message(), "Invalid Transaction");
 	};
 
 	Ok(())

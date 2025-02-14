@@ -20,7 +20,7 @@
 extern crate alloc;
 
 pub use pallet::*;
-
+use polkadot_sdk::*;
 pub mod impls;
 
 #[frame_support::pallet]
@@ -40,7 +40,7 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config + pallet_ismp::Config + pallet_ismp_relayer::Config
+		polkadot_sdk::frame_system::Config + pallet_ismp::Config + pallet_ismp_relayer::Config
 	{
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + Default;

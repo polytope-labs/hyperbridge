@@ -736,6 +736,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             if (balance != 0) revert CannotChangeFeeToken();
         }
 
+        // safe to emit here because invariants have already been checked
+        // and don't want to store a temp variable for the old params
+        emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
+
         // update all but .perByteFees, sigh solidity
         _hostParams.defaultTimeout = params.defaultTimeout;
         _hostParams.defaultPerByteFee = params.defaultPerByteFee;
@@ -752,10 +756,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         _hostParams.hyperbridge = params.hyperbridge;
         // Error: Unimplemented feature: Copying of type struct PerByteFee memory[] memory to storage not yet supported.
         // _hostParams.perByteFees = params.perByteFees;
-
-        // safe to emit here because invariants have already been checked
-        // and don't want to store a temp variable for the old params
-        emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
 
         // Add the new per byte fees
         uint256 len = params.perByteFees.length;

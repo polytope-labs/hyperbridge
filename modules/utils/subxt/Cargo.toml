@@ -7,7 +7,6 @@ publish = false
 [dependencies]
 subxt = { workspace = true }
 ismp = { workspace = true }
-sp-crypto-hashing = { workspace = true }
 codec = { workspace = true }
 anyhow = { workspace = true }
 reconnecting-jsonrpsee-ws-client = { workspace = true }
@@ -18,23 +17,23 @@ pallet-hyperbridge = { workspace = true }
 derivative = { version = "2.2.0" }
 futures = "0.3.30"
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-crypto-hashing"]
+
 [features]
 default = ["std"]
-wasm = [
-    "subxt/web",
-    "subxt/jsonrpsee",
-    "reconnecting-jsonrpsee-ws-client/web",
-]
+wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web"]
 std = [
     "subxt/native",
     "subxt/jsonrpsee",
     "ismp/std",
-    "sp-crypto-hashing/std",
+    "polkadot-sdk/std",
     "codec/std",
     "primitive-types/std",
     "alloy-primitives/std",
     "reconnecting-jsonrpsee-ws-client/native",
     "pallet-hyperbridge/std",
     "pallet-ismp-host-executive/std",
-    "subxt/substrate-compat"
+    "subxt/substrate-compat",
 ]

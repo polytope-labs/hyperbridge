@@ -1,3 +1,5 @@
+use polkadot_sdk::*;
+
 use beefy_prover::Prover;
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};

@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use polkadot_sdk::*;
 use std::{borrow::Cow, str::FromStr};
 
 use cumulus_client_service::storage_proof_size::HostFunctions as ReclaimHostFunctions;
@@ -27,7 +28,6 @@ use sc_cli::{
 };
 use sc_service::config::{BasePath, PrometheusConfig};
 use sp_runtime::traits::AccountIdConversion;
-use std::net::SocketAddr;
 
 use crate::{
 	chain_spec,
@@ -144,14 +144,14 @@ macro_rules! construct_async_run {
         match runner.config().chain_spec.id() {
             chain if chain.contains("gargantua") || chain.contains("dev") => {
                 runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config);
+                    let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config.executor);
                     let $components = new_partial::<gargantua_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
             }
             chain if chain.contains("nexus") => {
                 runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config);
+                    let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config.executor);
                     let $components = new_partial::<nexus_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
@@ -225,7 +225,7 @@ pub fn run() -> Result<()> {
 			let runner = cli.create_runner(cmd)?;
 
 			runner.sync_run(|config| {
-				let executor = sc_service::new_wasm_executor::<HostFunctions>(&config);
+				let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
 
 				match config.chain_spec.id() {
 					chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -268,7 +268,7 @@ pub fn run() -> Result<()> {
 							.into())
 					},
 				BenchmarkCmd::Block(cmd) => runner.sync_run(|config| {
-					let executor = sc_service::new_wasm_executor::<HostFunctions>(&config);
+					let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
 
 					match config.chain_spec.id() {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -294,7 +294,7 @@ pub fn run() -> Result<()> {
 					.into()),
 				#[cfg(feature = "runtime-benchmarks")]
 				BenchmarkCmd::Storage(cmd) => runner.sync_run(|config| {
-					let executor = sc_service::new_wasm_executor::<HostFunctions>(&config);
+					let executor = sc_service::new_wasm_executor::<HostFunctions>(&config.executor);
 					match config.chain_spec.id() {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
 							let components =
@@ -364,12 +364,11 @@ pub fn run() -> Result<()> {
 							components,
 							config,
 							instant: false,
-							rpc_builder: Box::new(move |deny_unsafe, _| {
+							rpc_builder: Box::new(move |_| {
 								let client = client.clone();
 								let pool = pool.clone();
 								let backend = backend.clone();
-								let full_deps =
-									rpc::FullDeps { client, pool, deny_unsafe, backend };
+								let full_deps = rpc::FullDeps { client, pool, backend };
 								let io =
 									rpc::create_full(full_deps).expect("Rpc to be initialized");
 
@@ -391,7 +390,10 @@ pub fn run() -> Result<()> {
 				let hwbench = if !cli.no_hardware_benchmarks {
 					config.database.path().map(|database_path| {
 						let _ = std::fs::create_dir_all(&database_path);
-						sc_sysinfo::gather_hwbench(Some(database_path))
+						sc_sysinfo::gather_hwbench(
+							Some(database_path),
+							&SUBSTRATE_REFERENCE_HARDWARE,
+						)
 					})
 				} else {
 					None
@@ -473,29 +475,12 @@ impl CliConfiguration<Self> for RelayChainCli {
 			.or_else(|| self.base_path.clone().map(Into::into)))
 	}
 
-	fn rpc_addr(&self, default_listen_port: u16) -> Result<Option<SocketAddr>> {
-		self.base.base.rpc_addr(default_listen_port)
-	}
-
 	fn prometheus_config(
 		&self,
 		default_listen_port: u16,
 		chain_spec: &Box<dyn ChainSpec>,
 	) -> Result<Option<PrometheusConfig>> {
 		self.base.base.prometheus_config(default_listen_port, chain_spec)
-	}
-
-	fn init<F>(
-		&self,
-		_support_url: &String,
-		_impl_version: &String,
-		_logger_hook: F,
-		_config: &sc_service::Configuration,
-	) -> Result<()>
-	where
-		F: FnOnce(&mut sc_cli::LoggerBuilder, &sc_service::Configuration),
-	{
-		unreachable!("PolkadotCli is never initialized; qed");
 	}
 
 	fn chain_id(&self, is_dev: bool) -> Result<String> {

@@ -27,6 +27,7 @@ mod rpc;
 mod runtime_api;
 
 mod simnode;
+use polkadot_sdk::*;
 
 fn main() -> sc_cli::Result<()> {
 	command::run()

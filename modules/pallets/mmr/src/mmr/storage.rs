@@ -22,14 +22,14 @@ use codec::Encode;
 use log::{debug, trace};
 use merkle_mountain_range::helper;
 use pallet_ismp::offchain::ForkIdentifier;
+use polkadot_sdk::*;
 use sp_core::{offchain::StorageKind, H256};
 use sp_io::offchain_index;
-use sp_mmr_primitives::utils::NodesUtils;
+use sp_mmr_primitives::{utils::NodesUtils, NodeIndex};
 use sp_std::iter::Peekable;
 
 use crate::{
 	mmr::{Node, NodeOf},
-	primitives::NodeIndex,
 	Config, HashOf, Nodes, NumberOfLeaves, Pallet,
 };
 

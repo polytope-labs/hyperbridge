@@ -70,6 +70,7 @@ use ismp::{
 };
 pub use pallet::*;
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
+use polkadot_sdk::*;
 use primitive_types::H256;
 
 pub mod child_trie;
@@ -110,9 +111,10 @@ pub mod pallet {
 	pub const PALLET_HYPERBRIDGE: PalletId = PalletId(*b"HYPR-FEE");
 
 	#[pallet::config]
-	pub trait Config: frame_system::Config + pallet_ismp::Config {
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance> + Default;

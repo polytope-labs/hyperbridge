@@ -16,7 +16,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-
 use alloc::{boxed::Box, string::ToString, vec};
 use alloy_sol_types::SolType;
 use core::marker::PhantomData;
@@ -25,6 +24,7 @@ use pallet_token_gateway::{
 	types::Body,
 };
 use pallet_token_governor::TokenGatewayParams;
+use polkadot_sdk::*;
 
 use frame_support::{
 	ensure,
@@ -72,13 +72,14 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config:
-		frame_system::Config
+		polkadot_sdk::frame_system::Config
 		+ pallet_ismp::Config
 		+ pallet_xcm::Config
 		+ pallet_token_governor::Config
 	{
 		/// The overarching event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The asset tranfer's pallet id, used for deriving its sovereign account ID.
 		/// All escrowed funds will be custodied by this account

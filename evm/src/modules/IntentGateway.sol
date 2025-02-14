@@ -430,14 +430,12 @@ contract IntentGateway is BaseIsmpModule {
         }
 
         // construct settlement message
-        uint256 inputsLen = order.inputs.length;
-        TokenInfo[] memory tokens = new TokenInfo[](inputsLen);
-        for (uint256 i = 0; i < inputsLen; i++) {
-            tokens[i] = TokenInfo({token: order.inputs[i].token, amount: order.inputs[i].amount});
-        }
-
         bytes memory data = abi.encode(
-            RequestBody({commitment: commitment, tokens: tokens, beneficiary: bytes32(uint256(uint160(msg.sender)))})
+            RequestBody({
+                commitment: commitment,
+                tokens: order.inputs,
+                beneficiary: bytes32(uint256(uint160(msg.sender)))
+            })
         );
         DispatchPost memory request = DispatchPost({
             dest: order.sourceChain,

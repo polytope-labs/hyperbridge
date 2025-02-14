@@ -124,6 +124,4 @@ pub struct VerifierStateUpdate {
 	pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
 	/// slot at which signature was produced
 	pub signature_slot: Slot,
-	// ancestors of the finalized block to be verified, may be empty.
-	// pub ancestor_blocks: Vec<AncestorBlock>,
 }

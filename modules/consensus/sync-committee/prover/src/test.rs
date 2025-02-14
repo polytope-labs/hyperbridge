@@ -1,16 +1,14 @@
 use super::*;
 use reqwest_eventsource::EventSource;
 
-use ssz_rs::{
-	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
-	Merkleized, SszVariableOrIndex,
-};
+use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use sync_committee_primitives::{
 	constants::{
 		devnet::Devnet, Root, ETH1_DATA_VOTES_BOUND_ETH, EXECUTION_PAYLOAD_INDEX_LOG2,
 		NEXT_SYNC_COMMITTEE_INDEX_LOG2,
 	},
 	types::VerifierState,
+	util::compute_epoch_at_slot,
 };
 use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio_stream::StreamExt;

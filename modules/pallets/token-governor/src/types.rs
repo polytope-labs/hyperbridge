@@ -174,22 +174,22 @@ pub struct RegistrarParamsUpdate {
 
 /// Protocol Parameters for the TokenGateway contract
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
-pub struct GatewayParams {
+pub struct GatewayParams<T> {
 	/// The Ismp host address
 	pub host: H160,
 	/// Contract for dispatching calls in `AssetWithCall`
 	pub call_dispatcher: H160,
 	/// Token gateway address
-	pub address: H160,
+	pub address: T,
 }
 
 /// Struct for updating the protocol parameters for a TokenGateway
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
-pub struct TokenGatewayParamsUpdate {
+pub struct GatewayParamsUpdate<T> {
 	/// Contract for dispatching calls in `AssetWithCall`
 	pub call_dispatcher: Option<H160>,
 	/// Token gateway  address
-	pub address: Option<H160>,
+	pub address: Option<T>,
 }
 
 /// Describes the token gateway module on a given chain
@@ -197,8 +197,17 @@ pub struct TokenGatewayParamsUpdate {
 pub struct ContractInstance {
 	/// The associated chain
 	pub chain: StateMachine,
-	// The token gateway params on this chain
+	// The token gateway module id on this chain
 	pub module_id: H160,
+}
+
+/// Describes the token gateway module on a given chain
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct NewIntentGatewayDeployment {
+	/// The associated chain
+	pub chain: StateMachine,
+	// The intent gateway module id on this chain
+	pub module_id: H256,
 }
 
 impl<B: Clone> Params<B> {
@@ -238,13 +247,13 @@ impl RegistrarParams {
 	}
 }
 
-impl GatewayParams {
+impl<H: Clone> GatewayParams<H> {
 	/// Convenience method for updating protocol params
 	pub fn update<T: crate::Config>(
 		&self,
 		state_machine: &StateMachine,
-		update: TokenGatewayParamsUpdate,
-	) -> GatewayParams {
+		update: GatewayParamsUpdate<H>,
+	) -> GatewayParams<H> {
 		let mut params = self.clone();
 
 		if let Some(host) = EvmHosts::<T>::get(state_machine) {
@@ -266,11 +275,19 @@ impl GatewayParams {
 alloy_sol_macro::sol! {
 	#![sol(all_derives)]
 
-	struct SolTokenGatewayParams {
+	// Params for both the IntentGateway and TokenGateway
+	struct SolGatewayParams {
 		// address of the IsmpHost contract on this chain
 		address host;
 		// dispatcher for delegating external calls
 		address dispatcher;
+	}
+
+	struct SolNewIntentGatewayDeployment {
+		// Identifier for the state machine.
+		bytes stateMachineId;
+		// A bytes32 variable to store the gateway identifier.
+		bytes32 gateway;
 	}
 
 	struct SolAssetMetadata {
@@ -322,12 +339,18 @@ alloy_sol_macro::sol! {
 	}
 }
 
-impl From<GatewayParams> for SolTokenGatewayParams {
-	fn from(value: GatewayParams) -> Self {
-		SolTokenGatewayParams {
-			host: value.host.0.into(),
-			dispatcher: value.call_dispatcher.0.into(),
+impl From<NewIntentGatewayDeployment> for SolNewIntentGatewayDeployment {
+	fn from(value: NewIntentGatewayDeployment) -> Self {
+		SolNewIntentGatewayDeployment {
+			stateMachineId: value.chain.to_string().as_bytes().to_vec().into(),
+			gateway: value.module_id.0.into(),
 		}
+	}
+}
+
+impl From<GatewayParams<H160>> for SolGatewayParams {
+	fn from(value: GatewayParams<H160>) -> Self {
+		SolGatewayParams { host: value.host.0.into(), dispatcher: value.call_dispatcher.0.into() }
 	}
 }
 
@@ -371,13 +394,13 @@ pub trait TokenGatewayRequest {
 	fn encode_request(&self) -> Vec<u8>;
 }
 
-impl TokenGatewayRequest for SolTokenGatewayParams {
+impl TokenGatewayRequest for SolGatewayParams {
 	/// Encodes the SetAsste alongside the enum variant for the TokenGateway request
 	fn encode_request(&self) -> Vec<u8> {
 		use alloy_sol_types::SolType;
 
 		let variant = vec![1u8]; // enum variant on token gateway
-		let encoded = SolTokenGatewayParams::abi_encode(self);
+		let encoded = SolGatewayParams::abi_encode(self);
 
 		[variant, encoded].concat()
 	}

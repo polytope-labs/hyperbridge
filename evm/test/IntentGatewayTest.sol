@@ -24,7 +24,7 @@ contract IntentGatewayTest is MainnetForkBaseTest {
     function setUp() public override {
         super.setUp();
         intentGateway = new IntentGateway(address(this));
-        Params memory params = Params({host: address(host), admin: address(0), dispatcher: address(dispatcher)});
+        Params memory params = Params({host: address(host), dispatcher: address(dispatcher)});
         intentGateway.setParams(params);
         vm.stopPrank();
 

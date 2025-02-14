@@ -24,9 +24,6 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
 
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 
-
-// The big endian byte representaion of the _filled slot
-bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES = hex"0000000000000000000000000000000000000000000000000000000000000005";
 /**
  * @notice Tokens that must be received for a valid order fulfillment
  */
@@ -82,8 +79,6 @@ struct Order {
 struct Params {
     /// @dev The address of the host contract
     address host;
-    /// @dev Address of the admin who has special privileges within the contract.
-    address admin;
     /// @dev Address of the dispatcher contract responsible for handling intents.
     address dispatcher;
 }
@@ -152,22 +147,35 @@ contract IntentGateway is BaseIsmpModule {
     }
 
     /**
-     * @dev Private variable to store the nonce value.
-     * This nonce is used to ensure the uniqueness of orders.
-     */
-    uint256 private _nonce;
-
-    /**
      * @dev Address constant for transaction fees, derived from the keccak256 hash of the string "txFees".
      * This address is used to store or reference the transaction fees within the contract.
      */
     address private constant TRANSACTION_FEES = address(uint160(uint256(keccak256("txFees"))));
 
     /**
+     * @notice Constant representing a filled slot in big endian format
+     * @dev Hex value 0x05 padded with leading zeros to fill 32 bytes
+     */
+    bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
+        hex"0000000000000000000000000000000000000000000000000000000000000005";
+
+    /**
+     * @dev Private variable to store the nonce value.
+     * This nonce is used to ensure the uniqueness of orders.
+     */
+    uint256 private _nonce;
+
+    /**
      * @dev Private variable to store the parameters for the IntentGateway module.
      * This variable is of type `Params` and is used internally within the contract.
      */
     Params private _params;
+
+    /**
+     * @dev Address of the admin, which can initialize the contract.
+     * The admin is reset to the zero address after initialization.
+     */
+    address private _admin;
 
     /**
      * @dev Mapping to store orders.
@@ -255,7 +263,7 @@ contract IntentGateway is BaseIsmpModule {
     event EscrowRefunded(bytes32 indexed commitment);
 
     constructor(address admin) {
-        _params.admin = admin;
+        _admin = admin;
     }
 
     /**
@@ -296,11 +304,11 @@ contract IntentGateway is BaseIsmpModule {
      * @param p The parameters to be set, encapsulated in a Params struct.
      */
     function setParams(Params memory p) public {
-        if (msg.sender != _params.admin) revert Unauthorized();
+        if (msg.sender != _admin) revert Unauthorized();
         // infinite approval to save on gas
         IERC20(IDispatcher(p.host).feeToken()).approve(p.host, type(uint256).max);
 
-        p.admin = address(0);
+        _admin = address(0);
         _params = p;
     }
 
@@ -313,10 +321,14 @@ contract IntentGateway is BaseIsmpModule {
         return _params;
     }
 
-    function calculateCommitmentSlotHash(bytes32 commitment) public view returns (bytes memory) {
-        bytes memory concatenated = abi.encodePacked(FILLED_SLOT_BIG_ENDIAN_BYTES, commitment);
-        bytes32 slot_hash = keccak256(concatenated);
-        return abi.encodePacked(slot_hash);
+    /**
+     * @notice Calculates the commitment slot hash required for storage queries.
+     * @dev The commitment slot hash is used as part of the proof verification process
+     * @param commitment The commitment value as a bytes32 hash
+     * @return bytes The calculated commitment slot hash
+     */
+    function calculateCommitmentSlotHash(bytes32 commitment) public pure returns (bytes memory) {
+        return abi.encodePacked(keccak256(abi.encodePacked(FILLED_SLOT_BIG_ENDIAN_BYTES, commitment)));
     }
 
     /**
@@ -383,8 +395,9 @@ contract IntentGateway is BaseIsmpModule {
      * @dev This function is payable and can accept Ether.
      */
     function fillOrder(Order calldata order, FillOptions memory options) public payable {
+        address hostAddr = host();
         // Ensure the order is being filled on the correct chain
-        if (keccak256(order.destChain) != keccak256(IDispatcher(host()).host())) revert WrongChain();
+        if (keccak256(order.destChain) != keccak256(IDispatcher(hostAddr).host())) revert WrongChain();
 
         // Ensure the order has not expired
         if (order.deadline < block.number) revert Expired();
@@ -436,7 +449,6 @@ contract IntentGateway is BaseIsmpModule {
         });
 
         // dispatch settlement message
-        address hostAddr = host();
         if (msgValue > 0) {
             // there's some native tokens left to pay for request dispatch
             IDispatcher(hostAddr).dispatch{value: msgValue}(request);
@@ -531,29 +543,31 @@ contract IntentGateway is BaseIsmpModule {
         if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
 
         // order has not yet expired
-        if (options.height < order.deadline) revert NotExpired();
+        if (options.height <= order.deadline) revert NotExpired();
 
         // order has already been filled
         if (_filled[commitment] != address(0)) revert Filled();
 
         // fetch the tokens
         uint256 inputsLen = order.inputs.length;
-        TokenInfo[] memory tokens = new TokenInfo[](inputsLen);
         for (uint256 i = 0; i < inputsLen; i++) {
             // check for order existence
             if (_orders[commitment][address(uint160(uint256(order.inputs[i].token)))] == 0) revert UnknownOrder();
-
-            tokens[i] = TokenInfo({token: order.inputs[i].token, amount: order.inputs[i].amount});
         }
 
         bytes memory context = abi.encode(
-            RequestBody({commitment: commitment, tokens: tokens, beneficiary: order.user})
+            RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
         );
 
         bytes[] memory keys = new bytes[](1);
-        keys[0] = calculateCommitmentSlotHash(commitment);
+        keys[0] = bytes.concat(
+            // contract address
+            abi.encodePacked(address(uint160(uint256(instance(order.destChain))))),
+            // storage slot hash
+            calculateCommitmentSlotHash(commitment)
+        );
         DispatchGet memory request = DispatchGet({
-            dest: order.sourceChain,
+            dest: order.destChain,
             keys: keys,
             timeout: 0,
             height: uint64(options.height),

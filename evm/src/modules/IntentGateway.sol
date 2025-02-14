@@ -224,23 +224,46 @@ contract IntentGateway is BaseIsmpModule {
 
     /**
      * @dev Emitted when an order is placed.
-     * @param order The order that was placed.
      */
-    event OrderPlaced(Order order);
+    event OrderPlaced(
+        /// @dev The address of the user who is initiating the transfer
+        bytes32 user,
+        /// @dev The state machine identifier of the origin chain
+        bytes sourceChain,
+        /// @dev The state machine identifier of the destination chain
+        bytes destChain,
+        /// @dev The block number by which the order must be filled on the destination chain
+        uint256 deadline,
+        /// @dev The nonce of the order
+        uint256 nonce,
+        /// @dev Represents the dispatch fees associated with the IntentGateway.
+        uint256 fees,
+        /// @dev The tokens that the filler will provide.
+        PaymentInfo[] outputs,
+        /// @dev The tokens that are escrowed for the filler.
+        TokenInfo[] inputs,
+        /// @dev A bytes array to store the calls if any.
+        bytes callData
+    );
 
     /**
      * @dev Emitted when an order is filled.
-     * @param commitment The unique identifier of the commitment.
+     * @param commitment The unique identifier of the order.
      * @param filler The address of the entity that filled the order.
      */
     event OrderFilled(bytes32 indexed commitment, address filler);
 
     /**
      * @dev Emitted when an escrow is released.
-     * @param commitment The unique identifier of the commitment.
-     * @param filler The address of the entity that filled the order.
+     * @param commitment The unique identifier of the order.
      */
-    event EscrowReleased(bytes32 indexed commitment, bytes32 filler);
+    event EscrowReleased(bytes32 indexed commitment);
+
+    /**
+     * @dev Emitted when an escrow is refunded.
+     * @param commitment The unique identifier of the order.
+     */
+    event EscrowRefunded(bytes32 indexed commitment);
 
     /**
      * @dev Emitted when the parameters are updated.
@@ -255,12 +278,6 @@ contract IntentGateway is BaseIsmpModule {
      * @param gateway The gateway identifier.
      */
     event NewDeploymentAdded(bytes stateMachineId, bytes32 gateway);
-
-    /**
-     * @dev Emitted when an escrow is refunded.
-     * @param commitment The unique identifier of the commitment.
-     */
-    event EscrowRefunded(bytes32 indexed commitment);
 
     constructor(address admin) {
         _admin = admin;
@@ -385,7 +402,17 @@ contract IntentGateway is BaseIsmpModule {
         }
 
         _nonce += 1;
-        emit OrderPlaced(order);
+        emit OrderPlaced({
+            user: order.user,
+            sourceChain: order.sourceChain,
+            destChain: order.destChain,
+            deadline: order.deadline,
+            nonce: order.nonce,
+            fees: order.fees,
+            outputs: order.outputs,
+            inputs: order.inputs,
+            callData: order.callData
+        });
     }
 
     /**
@@ -523,7 +550,7 @@ contract IntentGateway is BaseIsmpModule {
 
         _filled[body.commitment] = incoming.relayer;
 
-        emit EscrowReleased({commitment: body.commitment, filler: body.beneficiary});
+        emit EscrowReleased({commitment: body.commitment});
     }
 
     /**

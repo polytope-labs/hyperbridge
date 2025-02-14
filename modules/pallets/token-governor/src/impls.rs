@@ -30,10 +30,11 @@ use sp_runtime::traits::AccountIdConversion;
 use crate::{
 	AssetMetadatas, AssetOwners, AssetRegistration, ChainWithSupply, Config, ContractInstance,
 	ERC20AssetRegistration, ERC6160AssetRegistration, ERC6160AssetUpdate, Error, Event,
-	GatewayParams, Pallet, PendingAsset, RegistrarParamsUpdate, SolAssetMetadata,
-	SolChangeAssetAdmin, SolContractInstance, SolDeregsiterAsset, SolRegistrarParams,
-	SolTokenGatewayParams, SupportedChains, TokenGatewayParams, TokenGatewayParamsUpdate,
-	TokenGatewayRequest, TokenRegistrarParams, UnsignedERC6160AssetRegistration, PALLET_ID,
+	GatewayParams, GatewayParamsUpdate, IntentGatewayParams, NewIntentGatewayDeployment, Pallet,
+	PendingAsset, RegistrarParamsUpdate, SolAssetMetadata, SolChangeAssetAdmin,
+	SolContractInstance, SolDeregsiterAsset, SolGatewayParams, SolNewIntentGatewayDeployment,
+	SolRegistrarParams, SupportedChains, TokenGatewayParams, TokenGatewayRequest,
+	TokenRegistrarParams, UnsignedERC6160AssetRegistration, PALLET_ID,
 };
 
 use token_gateway_primitives::AssetMetadata;
@@ -251,9 +252,9 @@ where
 		Ok(())
 	}
 
-	/// Dispatches a request to update the TokenRegistrar contract parameters
-	pub fn update_gateway_params_impl(
-		updates: BTreeMap<StateMachine, TokenGatewayParamsUpdate>,
+	/// Dispatches a request to update the TokenGateway contract parameters
+	pub fn update_token_gateway_params_impl(
+		updates: BTreeMap<StateMachine, GatewayParamsUpdate<H160>>,
 	) -> Result<(), Error<T>> {
 		for (state_machine, update) in updates {
 			let stored_params = TokenGatewayParams::<T>::get(&state_machine);
@@ -265,7 +266,7 @@ where
 			// if the params already exists then we dispatch a request to update it
 			if let Some(old) = stored_params {
 				let dispatcher = T::Dispatcher::default();
-				let body: SolTokenGatewayParams = new_params.clone().into();
+				let body: SolGatewayParams = new_params.clone().into();
 				dispatcher
 					.dispatch_request(
 						DispatchRequest::Post(DispatchPost {
@@ -280,7 +281,7 @@ where
 					.map_err(|_| Error::<T>::DispatchFailed)?;
 			}
 
-			Self::deposit_event(Event::<T>::GatewayParamsUpdated {
+			Self::deposit_event(Event::<T>::TokenGatewayParamsUpdated {
 				old: old_params,
 				new: new_params,
 				state_machine,
@@ -291,8 +292,8 @@ where
 	}
 
 	/// Introduce a new instance of the token gateway which has a different address
-	pub fn add_new_gateway_instance(
-		updates: BTreeMap<StateMachine, TokenGatewayParamsUpdate>,
+	pub fn new_token_gateway_instance_impl(
+		updates: BTreeMap<StateMachine, GatewayParamsUpdate<H160>>,
 	) -> Result<(), Error<T>> {
 		// first set them all
 		for (state_machine, update) in updates.iter() {
@@ -418,6 +419,99 @@ where
 
 		let who: T::AccountId = PalletId(PALLET_ID).into_account_truncating();
 		AssetOwners::<T>::insert(asset_id, who);
+		Ok(())
+	}
+
+	/// Register a new intent gateway instance.
+	pub fn new_intent_gateway_instance_impl(
+		updates: BTreeMap<StateMachine, NewIntentGatewayDeployment>,
+	) -> Result<(), Error<T>> {
+		// first set them all
+		for (state_machine, update) in updates.iter() {
+			let new_params = GatewayParams::default().update::<T>(
+				&state_machine,
+				GatewayParamsUpdate {
+					address: Some(update.module_id.clone()),
+					call_dispatcher: None,
+				},
+			);
+			IntentGatewayParams::<T>::insert(state_machine.clone(), new_params);
+		}
+
+		// now dispatch cross-chain governance actions
+		let dispatcher = T::Dispatcher::default();
+		for (state_machine, new_deployment) in updates {
+			let body: SolNewIntentGatewayDeployment = new_deployment.into();
+
+			for (chain, GatewayParams { address, .. }) in IntentGatewayParams::<T>::iter() {
+				if chain == state_machine || chain.is_substrate() {
+					continue;
+				}
+				dispatcher
+					.dispatch_request(
+						DispatchRequest::Post(DispatchPost {
+							dest: chain.clone(),
+							from: PALLET_ID.to_vec(),
+							to: address.as_bytes().to_vec(),
+							timeout: 0,
+							body: vec![vec![1], SolNewIntentGatewayDeployment::abi_encode(&body)]
+								.concat(),
+						}),
+						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+					)
+					.map_err(|_| Error::<T>::DispatchFailed)?;
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Updates the intent gateway parameters for the given state machine.
+	pub fn update_intent_gateway_params_impl(
+		params: BTreeMap<StateMachine, GatewayParamsUpdate<H256>>,
+	) -> Result<(), Error<T>> {
+		for (state_machine, update) in params {
+			let stored_params = IntentGatewayParams::<T>::get(&state_machine);
+			let old_params = stored_params.clone().unwrap_or_default();
+
+			let new_params = old_params.update::<T>(&state_machine, update);
+
+			IntentGatewayParams::<T>::insert(state_machine.clone(), new_params.clone());
+
+			if !state_machine.is_evm() {
+				continue;
+			}
+
+			// if the params already exists then we dispatch a request to update it
+			if let Some(old) = stored_params {
+				let dispatcher = T::Dispatcher::default();
+				let body: SolGatewayParams = GatewayParams {
+					host: new_params.host,
+					call_dispatcher: new_params.call_dispatcher,
+					..Default::default()
+				}
+				.into();
+				dispatcher
+					.dispatch_request(
+						DispatchRequest::Post(DispatchPost {
+							dest: state_machine.clone(),
+							from: PALLET_ID.to_vec(),
+							to: old.address.as_bytes().to_vec(),
+							timeout: 0,
+							body: vec![vec![2], SolGatewayParams::abi_encode(&body)].concat(),
+						}),
+						FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+					)
+					.map_err(|_| Error::<T>::DispatchFailed)?;
+			}
+
+			Self::deposit_event(Event::<T>::IntentGatewayParamsUpdated {
+				old: old_params,
+				new: new_params,
+				state_machine,
+			});
+		}
+
 		Ok(())
 	}
 }

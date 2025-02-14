@@ -107,10 +107,15 @@ pub mod pallet {
 	pub type TokenRegistrarParams<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, RegistrarParams, OptionQuery>;
 
-	/// TokenGateway protocol parameters.
+	/// TokenGateway protocol parameters per chain
 	#[pallet::storage]
 	pub type TokenGatewayParams<T: Config> =
-		StorageMap<_, Twox64Concat, StateMachine, GatewayParams, OptionQuery>;
+		StorageMap<_, Twox64Concat, StateMachine, GatewayParams<H160>, OptionQuery>;
+
+	/// IntentGateway protocol parameters per chain
+	#[pallet::storage]
+	pub type IntentGatewayParams<T: Config> =
+		StorageMap<_, Twox64Concat, StateMachine, GatewayParams<H256>, OptionQuery>;
 
 	/// Native asset ids for standalone chains connected to token gateway.
 	#[pallet::storage]
@@ -146,12 +151,21 @@ pub mod pallet {
 			/// The state machine it was updated for
 			state_machine: StateMachine,
 		},
-		/// The TokenGateway params have been updated for a state machine
-		GatewayParamsUpdated {
+		/// The IntentGateway params have been updated for a state machine
+		IntentGatewayParamsUpdated {
 			/// The old params
-			old: GatewayParams,
+			old: GatewayParams<H256>,
 			/// The new params
-			new: GatewayParams,
+			new: GatewayParams<H256>,
+			/// The state machine it was updated for
+			state_machine: StateMachine,
+		},
+		/// The TokenGateway params have been updated for a state machine
+		TokenGatewayParamsUpdated {
+			/// The old params
+			old: GatewayParams<H160>,
+			/// The new params
+			new: GatewayParams<H160>,
 			/// The state machine it was updated for
 			state_machine: StateMachine,
 		},
@@ -253,16 +267,17 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Dispatches a request to update the TokenRegistrar contract parameters
+		/// Records the update of the TokenGateway contract parameters and
+		/// dispatches a request to update the TokenGateway contract parameters
 		#[pallet::call_index(3)]
 		#[pallet::weight(weight())]
-		pub fn update_gateway_params(
+		pub fn update_token_gateway_params(
 			origin: OriginFor<T>,
-			update: BTreeMap<StateMachine, TokenGatewayParamsUpdate>,
+			update: BTreeMap<StateMachine, GatewayParamsUpdate<H160>>,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
-			Self::update_gateway_params_impl(update)?;
+			Self::update_token_gateway_params_impl(update)?;
 
 			Ok(())
 		}
@@ -322,13 +337,13 @@ pub mod pallet {
 		/// Adds a new token gateway contract instance to all existing instances
 		#[pallet::call_index(7)]
 		#[pallet::weight(weight())]
-		pub fn new_contract_instance(
+		pub fn new_token_gateway_instance(
 			origin: OriginFor<T>,
-			updates: BTreeMap<StateMachine, TokenGatewayParamsUpdate>,
+			updates: BTreeMap<StateMachine, GatewayParamsUpdate<H160>>,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
-			Self::add_new_gateway_instance(updates)?;
+			Self::new_token_gateway_instance_impl(updates)?;
 
 			Ok(())
 		}
@@ -369,6 +384,35 @@ pub mod pallet {
 			}
 
 			Self::deposit_event(Event::<T>::NativeAssetsRegistered { assets });
+
+			Ok(())
+		}
+
+		/// Records the update of the IntentGateway contract parameters and
+		/// dispatches a request to update the IntentGateway contract parameters
+		#[pallet::call_index(10)]
+		#[pallet::weight(weight())]
+		pub fn update_intent_gateway_params(
+			origin: OriginFor<T>,
+			params: BTreeMap<StateMachine, GatewayParamsUpdate<H256>>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			Self::update_intent_gateway_params_impl(params)?;
+
+			Ok(())
+		}
+
+		/// Adds a new intent gateway contract instance to all existing instances
+		#[pallet::call_index(11)]
+		#[pallet::weight(weight())]
+		pub fn new_intent_gateway_instance(
+			origin: OriginFor<T>,
+			params: BTreeMap<StateMachine, NewIntentGatewayDeployment>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			Self::new_intent_gateway_instance_impl(params)?;
 
 			Ok(())
 		}

@@ -24,6 +24,9 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
 
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 
+
+// The big endian byte representaion of the _filled slot
+bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES = hex"0000000000000000000000000000000000000000000000000000000000000005";
 /**
  * @notice Tokens that must be received for a valid order fulfillment
  */
@@ -310,6 +313,12 @@ contract IntentGateway is BaseIsmpModule {
         return _params;
     }
 
+    function calculateCommitmentSlotHash(bytes32 commitment) public view returns (bytes memory) {
+        bytes memory concatenated = abi.encodePacked(FILLED_SLOT_BIG_ENDIAN_BYTES, commitment);
+        bytes32 slot_hash = keccak256(concatenated);
+        return abi.encodePacked(slot_hash);
+    }
+
     /**
      * @notice Places an order with the given order details.
      * @dev This function allows users to place an order by providing the order details.
@@ -541,9 +550,8 @@ contract IntentGateway is BaseIsmpModule {
             RequestBody({commitment: commitment, tokens: tokens, beneficiary: order.user})
         );
 
-        // todo: slot hash
         bytes[] memory keys = new bytes[](1);
-        keys[0] = bytes.concat(abi.encodePacked(instance(order.destChain)), bytes(""));
+        keys[0] = calculateCommitmentSlotHash(commitment);
         DispatchGet memory request = DispatchGet({
             dest: order.sourceChain,
             keys: keys,

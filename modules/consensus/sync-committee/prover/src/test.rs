@@ -1,7 +1,10 @@
 use super::*;
 use reqwest_eventsource::EventSource;
 
-use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
+use ssz_rs::{
+	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
+	Merkleized, SszVariableOrIndex,
+};
 use sync_committee_primitives::{
 	constants::{
 		devnet::Devnet, Root, ETH1_DATA_VOTES_BOUND_ETH, EXECUTION_PAYLOAD_INDEX_LOG2,

@@ -68,18 +68,34 @@ pub const MAX_EXTRA_DATA_BYTES: usize = 32;
 pub const DEPOSIT_PROOF_LENGTH: usize = 33;
 
 pub const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;
+#[cfg(not(feature = "electra"))]
 pub const FINALIZED_ROOT_INDEX: u64 = 52;
+#[cfg(not(feature = "electra"))]
 pub const EXECUTION_PAYLOAD_INDEX: u64 = 56;
+#[cfg(not(feature = "electra"))]
 pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 55;
-pub const BLOCK_ROOTS_INDEX: u64 = 37;
-pub const HISTORICAL_ROOTS_INDEX: u64 = 39;
-pub const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: u64 = 2;
 
+#[cfg(feature = "electra")]
+pub const FINALIZED_ROOT_INDEX: u64 = 84;
+#[cfg(feature = "electra")]
+pub const EXECUTION_PAYLOAD_INDEX: u64 = 88;
+#[cfg(feature = "electra")]
+pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 87;
+
+#[cfg(not(feature = "electra"))]
 pub const FINALIZED_ROOT_INDEX_LOG2: u64 = 5;
+#[cfg(not(feature = "electra"))]
 pub const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 5;
+#[cfg(not(feature = "electra"))]
 pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 5;
-pub const BLOCK_ROOTS_INDEX_LOG2: u64 = 5;
-pub const HISTORICAL_ROOTS_INDEX_LOG2: u64 = 5;
+
+#[cfg(feature = "electra")]
+pub const FINALIZED_ROOT_INDEX_LOG2: u64 = 6;
+#[cfg(feature = "electra")]
+pub const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 6;
+#[cfg(feature = "electra")]
+pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
+
 pub const ETH1_DATA_VOTES_BOUND_ETH: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 32) as usize;
 pub const ETH1_DATA_VOTES_BOUND_GNO: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 16) as usize;
 
@@ -110,6 +126,10 @@ pub trait Config {
 	const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64;
 	const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64;
 	const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64;
+	#[cfg(feature = "electra")]
+	const ELECTRA_FORK_VERSION: Version;
+	#[cfg(feature = "electra")]
+	const ELECTRA_FORK_EPOCH: Epoch;
 	const ID: [u8; 4];
 }
 
@@ -139,6 +159,10 @@ pub mod sepolia {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("90000074");
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_EPOCH: Epoch = Epoch::MAX;
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }
@@ -166,6 +190,10 @@ pub mod mainnet {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("05000000");
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_EPOCH: Epoch = Epoch::MAX;
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }
@@ -193,6 +221,10 @@ pub mod gnosis {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("05000064");
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_EPOCH: Epoch = Epoch::MAX;
 		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}
 
@@ -216,6 +248,10 @@ pub mod gnosis {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("0500006f");
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_EPOCH: Epoch = Epoch::MAX;
 		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}
 }
@@ -244,6 +280,10 @@ pub mod devnet {
 		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
 		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
 		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("52525505");
+		#[cfg(feature = "electra")]
+		const ELECTRA_FORK_EPOCH: Epoch = 0;
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }

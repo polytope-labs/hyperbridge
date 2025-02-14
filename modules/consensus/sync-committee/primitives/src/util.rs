@@ -22,9 +22,28 @@ pub fn compute_epoch_at_slot<C: Config>(slot: u64) -> u64 {
 	slot / C::SLOTS_PER_EPOCH
 }
 
+#[cfg(not(feature = "electra"))]
 /// Return the fork version at the given ``epoch``.
 pub fn compute_fork_version<C: Config>(epoch: u64) -> [u8; 4] {
 	if epoch >= C::DENEB_FORK_EPOCH {
+		C::DENEB_FORK_VERSION
+	} else if epoch >= C::CAPELLA_FORK_EPOCH {
+		C::CAPELLA_FORK_VERSION
+	} else if epoch >= C::BELLATRIX_FORK_EPOCH {
+		C::BELLATRIX_FORK_VERSION
+	} else if epoch >= C::ALTAIR_FORK_EPOCH {
+		C::ALTAIR_FORK_VERSION
+	} else {
+		C::GENESIS_FORK_VERSION
+	}
+}
+
+#[cfg(feature = "electra")]
+/// Return the fork version at the given ``epoch``.
+pub fn compute_fork_version<C: Config>(epoch: u64) -> [u8; 4] {
+	if epoch >= C::ELECTRA_FORK_EPOCH {
+		C::ELECTRA_FORK_VERSION
+	} else if epoch >= C::DENEB_FORK_EPOCH {
 		C::DENEB_FORK_VERSION
 	} else if epoch >= C::CAPELLA_FORK_EPOCH {
 		C::CAPELLA_FORK_VERSION

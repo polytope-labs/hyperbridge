@@ -1,6 +1,7 @@
 use crate::constants::{
 	BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, Slot, ValidatorIndex,
 };
+use alloc::{vec, vec::Vec};
 use ssz_rs::{prelude::*, Deserialize};
 
 #[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]

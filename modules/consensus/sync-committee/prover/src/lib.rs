@@ -28,13 +28,12 @@ use sync_committee_primitives::{
 	consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
 	constants::{
 		BlsPublicKey, Config, Root, BYTES_PER_LOGS_BLOOM, EPOCHS_PER_HISTORICAL_VECTOR,
-		EPOCHS_PER_SLASHINGS_VECTOR, EXECUTION_PAYLOAD_INDEX, FINALIZED_ROOT_INDEX,
-		HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS, MAX_ATTESTER_SLASHINGS,
-		MAX_BLS_TO_EXECUTION_CHANGES, MAX_BYTES_PER_TRANSACTION, MAX_COMMITTEES_PER_SLOT,
-		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD, MAX_DEPOSITS, MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
-		MAX_EXTRA_DATA_BYTES, MAX_PROPOSER_SLASHINGS, MAX_TRANSACTIONS_PER_PAYLOAD,
-		MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS, MAX_WITHDRAWALS_PER_PAYLOAD,
-		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD, NEXT_SYNC_COMMITTEE_INDEX,
+		EPOCHS_PER_SLASHINGS_VECTOR, HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS,
+		MAX_ATTESTER_SLASHINGS, MAX_BLS_TO_EXECUTION_CHANGES, MAX_BYTES_PER_TRANSACTION,
+		MAX_COMMITTEES_PER_SLOT, MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD, MAX_DEPOSITS,
+		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD, MAX_EXTRA_DATA_BYTES, MAX_PROPOSER_SLASHINGS,
+		MAX_TRANSACTIONS_PER_PAYLOAD, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS,
+		MAX_WITHDRAWALS_PER_PAYLOAD, MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
 		PENDING_CONSOLIDATIONS_LIMIT, PENDING_DEPOSITS_LIMIT, PENDING_PARTIAL_WITHDRAWALS_LIMIT,
 		SLOTS_PER_HISTORICAL_ROOT, SYNC_COMMITTEE_SIZE, VALIDATOR_REGISTRY_LIMIT,
 	},
@@ -48,6 +47,11 @@ use sync_committee_primitives::{
 use tracing::instrument;
 
 use sync_committee_verifier::crypto::pubkey_to_projective;
+
+#[cfg(not(feature = "electra"))]
+use sync_committee_primitives::constants::{
+	EXECUTION_PAYLOAD_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
+};
 
 pub type BeaconStateType<const ETH1_DATA_VOTES_BOUND: usize> = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
@@ -441,6 +445,7 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 	}
 }
 
+#[cfg(not(feature = "electra"))]
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
@@ -471,6 +476,7 @@ pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 	})
 }
 
+#[cfg(not(feature = "electra"))]
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_sync_committee_update<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
@@ -480,12 +486,66 @@ pub fn prove_sync_committee_update<C: Config, const ETH1_DATA_VOTES_BOUND: usize
 	Ok(proof)
 }
 
+#[cfg(not(feature = "electra"))]
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_finalized_header<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
 ) -> anyhow::Result<Vec<Node>> {
 	trace!(target: "sync-committee-prover", "Proving finalized head");
 	let indices = [FINALIZED_ROOT_INDEX as usize];
+	let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
+
+	Ok(proof)
+}
+
+#[cfg(feature = "electra")]
+#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
+pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
+	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
+) -> anyhow::Result<ExecutionPayloadProof> {
+	trace!(target: "sync-committee-prover", "Proving execution payload");
+	let indices = [
+		C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
+		C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
+		C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize,
+	];
+	// generate multi proofs
+	let multi_proof = ssz_rs::generate_proof(
+		&mut beacon_state.latest_execution_payload_header,
+		indices.as_slice(),
+	)?;
+
+	Ok(ExecutionPayloadProof {
+		state_root: H256::from_slice(
+			beacon_state.latest_execution_payload_header.state_root.as_slice(),
+		),
+		block_number: beacon_state.latest_execution_payload_header.block_number,
+		timestamp: beacon_state.latest_execution_payload_header.timestamp,
+		multi_proof,
+		execution_payload_branch: ssz_rs::generate_proof(
+			beacon_state,
+			&[C::EXECUTION_PAYLOAD_INDEX_ELECTRA as usize],
+		)?,
+	})
+}
+
+#[cfg(feature = "electra")]
+#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
+pub fn prove_sync_committee_update<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
+	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
+) -> anyhow::Result<Vec<Node>> {
+	trace!(target: "sync-committee-prover", "Proving sync committee update");
+	let proof = ssz_rs::generate_proof(state, &[C::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA as usize])?;
+	Ok(proof)
+}
+
+#[cfg(feature = "electra")]
+#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
+pub fn prove_finalized_header<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
+	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
+) -> anyhow::Result<Vec<Node>> {
+	trace!(target: "sync-committee-prover", "Proving finalized head");
+	let indices = [C::FINALIZED_ROOT_INDEX_ELECTRA as usize];
 	let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
 
 	Ok(proof)

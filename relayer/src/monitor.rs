@@ -38,8 +38,8 @@ pub async fn monitor_clients(
 
 			if current_timestamp
 				.as_secs()
-				.saturating_sub(last_state_machine_update_time.as_secs()) >=
-				max_interval
+				.saturating_sub(last_state_machine_update_time.as_secs())
+				>= max_interval
 			{
 				log::trace!(target: "tesseract", "{:?} -> {:?} Has stalled shutting down", id.state_id, hyperbridge_provider.state_machine_id().state_id);
 				return Ok::<_, anyhow::Error>(HealthStat::Restart);
@@ -47,7 +47,7 @@ pub async fn monitor_clients(
 
 			// Don't check update interval for hyperbridge on evm chains
 			if id.state_id.is_evm() {
-				return Ok::<_, anyhow::Error>(HealthStat::Ok);
+				continue;
 			}
 
 			log::trace!(target: "tesseract", "Checking update interval for {:?} on {:?}", hyperbridge_provider.state_machine_id().state_id, id.state_id);
@@ -69,8 +69,8 @@ pub async fn monitor_clients(
 
 			if current_timestamp
 				.as_secs()
-				.saturating_sub(last_state_machine_update_time.as_secs()) >=
-				max_interval
+				.saturating_sub(last_state_machine_update_time.as_secs())
+				>= max_interval
 			{
 				log::trace!(target: "tesseract", "{:?} -> {:?} Has stalled shutting down", hyperbridge_provider.state_machine_id().state_id, id.state_id);
 				return Ok::<_, anyhow::Error>(HealthStat::Restart);

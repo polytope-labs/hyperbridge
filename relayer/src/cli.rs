@@ -84,7 +84,7 @@ impl Cli {
 			}
 		}
 
-		for (_, client) in clients {
+		for (_, client) in clients.clone() {
 			let hyperbridge = hyperbridge_config
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
@@ -130,6 +130,7 @@ impl Cli {
 				async move {
 					let _res = monitor_clients(
 						hyperbridge_config,
+						clients,
 						relayer.maximum_update_intervals.expect("Is Some"),
 					)
 					.await;

@@ -59,6 +59,8 @@ export interface IHyperbridgeConfig {
     rpc_url: string;
     // state machine identifier as a string
     state_machine: string;
+    // consensus state identifier of hyperbridge on the destination chain
+    consensus_state_id: string;
 }
 
 export interface IPostRequest {

@@ -16,11 +16,7 @@ use ssz_rs::{
 };
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
-	constants::{
-		Config, Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_INDEX_LOG2,
-		FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX,
-		NEXT_SYNC_COMMITTEE_INDEX_LOG2,
-	},
+	constants::{Config, Root, DOMAIN_SYNC_COMMITTEE},
 	types::{VerifierState, VerifierStateUpdate},
 	util::{
 		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
@@ -33,10 +29,10 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	trusted_state: VerifierState,
 	mut update: VerifierStateUpdate,
 ) -> Result<VerifierState, Error> {
-	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX_LOG2 as usize &&
+	if update.finality_proof.finality_branch.len() != C::FINALIZED_ROOT_INDEX_LOG2 as usize &&
 		update.sync_committee_update.is_some() &&
 		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
-			NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
+			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
 	{
 		Err(Error::InvalidUpdate("Finality branch is incorrect".into()))?
 	}
@@ -131,8 +127,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 			.hash_tree_root()
 			.map_err(|_| Error::MerkleizationError("Failed to hash finality checkpoint".into()))?,
 		update.finality_proof.finality_branch.iter(),
-		FINALIZED_ROOT_INDEX_LOG2 as usize,
-		FINALIZED_ROOT_INDEX as usize,
+		C::FINALIZED_ROOT_INDEX_LOG2 as usize,
+		C::FINALIZED_ROOT_INDEX as usize,
 		&update.attested_header.state_root,
 	);
 
@@ -164,8 +160,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&execution_payload_root,
 		execution_payload.execution_payload_branch.iter(),
-		EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-		EXECUTION_PAYLOAD_INDEX as usize,
+		C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
+		C::EXECUTION_PAYLOAD_INDEX as usize,
 		&update.finalized_header.state_root,
 	);
 
@@ -182,8 +178,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 		let is_merkle_branch_valid = is_valid_merkle_branch(
 			&sync_root,
 			sync_committee_update.next_sync_committee_branch.iter(),
-			NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
-			NEXT_SYNC_COMMITTEE_INDEX as usize,
+			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
+			C::NEXT_SYNC_COMMITTEE_INDEX as usize,
 			&update.attested_header.state_root,
 		);
 

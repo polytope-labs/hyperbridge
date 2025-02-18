@@ -1,3 +1,5 @@
+#[cfg(feature = "electra")]
+use crate::electra::*;
 use crate::{
 	constants::{
 		BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, Hash32,
@@ -103,10 +105,15 @@ pub struct AttesterSlashing<const MAX_VALIDATORS_PER_COMMITTEE: usize> {
 
 #[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct Attestation<const MAX_VALIDATORS_PER_COMMITTEE: usize> {
+pub struct Attestation<
+	const MAX_VALIDATORS_PER_COMMITTEE: usize,
+	const MAX_COMMITTEES_PER_SLOT: usize,
+> {
 	pub aggregation_bits: Bitlist<MAX_VALIDATORS_PER_COMMITTEE>,
 	pub data: AttestationData,
 	pub signature: BlsSignature,
+	#[cfg(feature = "electra")]
+	pub committee_bits: Bitvector<MAX_COMMITTEES_PER_SLOT>,
 }
 
 #[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
@@ -272,6 +279,10 @@ pub struct BeaconBlockBody<
 	const MAX_WITHDRAWALS_PER_PAYLOAD: usize,
 	const MAX_BLS_TO_EXECUTION_CHANGES: usize,
 	const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize,
+	const MAX_COMMITTEES_PER_SLOT: usize,
+	const MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: usize,
+	const MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: usize,
+	const MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: usize,
 > {
 	pub randao_reveal: BlsSignature,
 	pub eth1_data: Eth1Data,
@@ -279,7 +290,8 @@ pub struct BeaconBlockBody<
 	pub proposer_slashings: List<ProposerSlashing, MAX_PROPOSER_SLASHINGS>,
 	pub attester_slashings:
 		List<AttesterSlashing<MAX_VALIDATORS_PER_COMMITTEE>, MAX_ATTESTER_SLASHINGS>,
-	pub attestations: List<Attestation<MAX_VALIDATORS_PER_COMMITTEE>, MAX_ATTESTATIONS>,
+	pub attestations:
+		List<Attestation<MAX_VALIDATORS_PER_COMMITTEE, MAX_COMMITTEES_PER_SLOT>, MAX_ATTESTATIONS>,
 	pub deposits: List<Deposit, MAX_DEPOSITS>,
 	pub voluntary_exits: List<SignedVoluntaryExit, MAX_VOLUNTARY_EXITS>,
 	pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
@@ -292,6 +304,12 @@ pub struct BeaconBlockBody<
 	>,
 	pub bls_to_execution_changes: List<SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES>,
 	pub blob_kzg_commitments: List<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
+	#[cfg(feature = "electra")]
+	pub execution_requests: ExecutionRequests<
+		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
+		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
+		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
+	>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize, codec::Encode, codec::Decode)]
@@ -311,6 +329,10 @@ pub struct BeaconBlock<
 	const MAX_WITHDRAWALS_PER_PAYLOAD: usize,
 	const MAX_BLS_TO_EXECUTION_CHANGES: usize,
 	const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize,
+	const MAX_COMMITTEES_PER_SLOT: usize,
+	const MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: usize,
+	const MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: usize,
+	const MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: usize,
 > {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub slot: Slot,
@@ -333,6 +355,10 @@ pub struct BeaconBlock<
 		MAX_WITHDRAWALS_PER_PAYLOAD,
 		MAX_BLS_TO_EXECUTION_CHANGES,
 		MAX_BLOB_COMMITMENTS_PER_BLOCK,
+		MAX_COMMITTEES_PER_SLOT,
+		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
+		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
+		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
 	>,
 }
 #[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
@@ -370,10 +396,12 @@ pub struct BeaconState<
 	const VALIDATOR_REGISTRY_LIMIT: usize,
 	const EPOCHS_PER_HISTORICAL_VECTOR: usize,
 	const EPOCHS_PER_SLASHINGS_VECTOR: usize,
-	const MAX_VALIDATORS_PER_COMMITTEE: usize,
 	const SYNC_COMMITTEE_SIZE: usize,
 	const BYTES_PER_LOGS_BLOOM: usize,
 	const MAX_EXTRA_DATA_BYTES: usize,
+	const PENDING_DEPOSITS_LIMIT: usize,
+	const PENDING_CONSOLIDATIONS_LIMIT: usize,
+	const PENDING_PARTIAL_WITHDRAWALS_LIMIT: usize,
 > {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub genesis_time: u64,
@@ -414,4 +442,28 @@ pub struct BeaconState<
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub next_withdrawal_validator_index: ValidatorIndex,
 	pub historical_summaries: List<HistoricalSummary, HISTORICAL_ROOTS_LIMIT>,
+	#[cfg(feature = "electra")]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	pub deposit_requests_start_index: u64,
+	#[cfg(feature = "electra")]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	pub deposit_balance_to_consume: Gwei,
+	#[cfg(feature = "electra")]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	pub exit_balance_to_consume: Gwei,
+	#[cfg(feature = "electra")]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	pub earliest_exit_epoch: Epoch,
+	#[cfg(feature = "electra")]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	pub consolidation_balance_to_consume: Gwei,
+	#[cfg(feature = "electra")]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
+	pub earliest_consolidation_epoch: Epoch,
+	#[cfg(feature = "electra")]
+	pending_deposits: List<PendingDeposit, PENDING_DEPOSITS_LIMIT>,
+	#[cfg(feature = "electra")]
+	pending_partial_withdrawals: List<PendingPartialWithdrawal, PENDING_PARTIAL_WITHDRAWALS_LIMIT>,
+	#[cfg(feature = "electra")]
+	pending_consolidations: List<PendingConsolidation, PENDING_CONSOLIDATIONS_LIMIT>,
 }

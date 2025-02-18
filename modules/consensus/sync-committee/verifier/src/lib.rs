@@ -16,11 +16,7 @@ use ssz_rs::{
 };
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
-	constants::{
-		Config, Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_INDEX_LOG2,
-		FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX,
-		NEXT_SYNC_COMMITTEE_INDEX_LOG2,
-	},
+	constants::{Config, Root, DOMAIN_SYNC_COMMITTEE},
 	types::{VerifierState, VerifierStateUpdate},
 	util::{
 		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
@@ -33,49 +29,10 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	trusted_state: VerifierState,
 	mut update: VerifierStateUpdate,
 ) -> Result<VerifierState, Error> {
-	struct Indices {
-		execution_payload_index: u64,
-		finalized_root_index: u64,
-		next_sync_committee_index: u64,
-		execution_payload_index_log_2: u64,
-		finalized_root_index_log_2: u64,
-		next_sync_committee_index_log_2: u64,
-	}
-	let indices = if compute_epoch_at_slot::<C>(update.signature_slot) >= C::ELECTRA_FORK_EPOCH {
-		let execution_payload_index: u64 = C::EXECUTION_PAYLOAD_INDEX_ELECTRA;
-		let finalized_root_index = C::FINALIZED_ROOT_INDEX_ELECTRA;
-		let next_sync_committee_index = C::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA;
-		let execution_payload_index_log_2 = C::EXECUTION_PAYLOAD_INDEX_LOG2_ELECTRA;
-		let finalized_root_index_log_2 = C::FINALIZED_ROOT_INDEX_LOG2_ELECTRA;
-		let next_sync_committee_index_log_2 = C::NEXT_SYNC_COMMITTEE_INDEX_LOG2_ELECTRA;
-		Indices {
-			execution_payload_index,
-			finalized_root_index,
-			next_sync_committee_index,
-			execution_payload_index_log_2,
-			finalized_root_index_log_2,
-			next_sync_committee_index_log_2,
-		}
-	} else {
-		let execution_payload_index: u64 = EXECUTION_PAYLOAD_INDEX;
-		let finalized_root_index = FINALIZED_ROOT_INDEX;
-		let next_sync_committee_index = NEXT_SYNC_COMMITTEE_INDEX;
-		let execution_payload_index_log_2 = EXECUTION_PAYLOAD_INDEX_LOG2;
-		let finalized_root_index_log_2 = FINALIZED_ROOT_INDEX_LOG2;
-		let next_sync_committee_index_log_2 = NEXT_SYNC_COMMITTEE_INDEX_LOG2;
-		Indices {
-			execution_payload_index,
-			finalized_root_index,
-			next_sync_committee_index,
-			execution_payload_index_log_2,
-			finalized_root_index_log_2,
-			next_sync_committee_index_log_2,
-		}
-	};
-	if update.finality_proof.finality_branch.len() != indices.finalized_root_index_log_2 as usize &&
+	if update.finality_proof.finality_branch.len() != C::FINALIZED_ROOT_INDEX_LOG2 as usize &&
 		update.sync_committee_update.is_some() &&
 		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
-			indices.next_sync_committee_index_log_2 as usize
+			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
 	{
 		Err(Error::InvalidUpdate("Finality branch is incorrect".into()))?
 	}
@@ -170,8 +127,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 			.hash_tree_root()
 			.map_err(|_| Error::MerkleizationError("Failed to hash finality checkpoint".into()))?,
 		update.finality_proof.finality_branch.iter(),
-		indices.finalized_root_index_log_2 as usize,
-		indices.finalized_root_index as usize,
+		C::FINALIZED_ROOT_INDEX_LOG2 as usize,
+		C::FINALIZED_ROOT_INDEX as usize,
 		&update.attested_header.state_root,
 	);
 
@@ -203,8 +160,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&execution_payload_root,
 		execution_payload.execution_payload_branch.iter(),
-		indices.execution_payload_index_log_2 as usize,
-		indices.execution_payload_index as usize,
+		C::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
+		C::EXECUTION_PAYLOAD_INDEX as usize,
 		&update.finalized_header.state_root,
 	);
 
@@ -221,8 +178,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
 		let is_merkle_branch_valid = is_valid_merkle_branch(
 			&sync_root,
 			sync_committee_update.next_sync_committee_branch.iter(),
-			indices.next_sync_committee_index_log_2 as usize,
-			indices.next_sync_committee_index as usize,
+			C::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
+			C::NEXT_SYNC_COMMITTEE_INDEX as usize,
 			&update.attested_header.state_root,
 		);
 

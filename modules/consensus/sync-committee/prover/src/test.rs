@@ -3,10 +3,7 @@ use reqwest_eventsource::EventSource;
 
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use sync_committee_primitives::{
-	constants::{
-		devnet::Devnet, Root, ETH1_DATA_VOTES_BOUND_ETH, EXECUTION_PAYLOAD_INDEX_LOG2,
-		NEXT_SYNC_COMMITTEE_INDEX_LOG2,
-	},
+	constants::{devnet::Devnet, Root, ETH1_DATA_VOTES_BOUND_ETH},
 	types::VerifierState,
 	util::compute_epoch_at_slot,
 };
@@ -86,7 +83,8 @@ async fn test_finalized_header() {
 	let sync_committee_prover = setup_prover();
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof = ssz_rs::generate_proof(&mut state, &vec![FINALIZED_ROOT_INDEX as usize]).unwrap();
+	let proof =
+		ssz_rs::generate_proof(&mut state, &vec![Devnet::FINALIZED_ROOT_INDEX as usize]).unwrap();
 
 	let leaves = vec![Node::from_bytes(
 		state
@@ -100,7 +98,7 @@ async fn test_finalized_header() {
 	let root = calculate_multi_merkle_root(
 		&leaves,
 		&proof,
-		&[GeneralizedIndex(FINALIZED_ROOT_INDEX as usize)],
+		&[GeneralizedIndex(Devnet::FINALIZED_ROOT_INDEX as usize)],
 	);
 	assert_eq!(root, state.hash_tree_root().unwrap());
 }
@@ -113,11 +111,9 @@ async fn test_finalized_header() {
 	let sync_committee_prover = setup_prover();
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof = ssz_rs::generate_proof(
-		&mut state,
-		&vec![ElectraDevnet::FINALIZED_ROOT_INDEX_ELECTRA as usize],
-	)
-	.unwrap();
+	let proof =
+		ssz_rs::generate_proof(&mut state, &vec![ElectraDevnet::FINALIZED_ROOT_INDEX as usize])
+			.unwrap();
 
 	let leaves = vec![Node::from_bytes(
 		state
@@ -131,7 +127,7 @@ async fn test_finalized_header() {
 	let root = calculate_multi_merkle_root(
 		&leaves,
 		&proof,
-		&[GeneralizedIndex(ElectraDevnet::FINALIZED_ROOT_INDEX_ELECTRA as usize)],
+		&[GeneralizedIndex(ElectraDevnet::FINALIZED_ROOT_INDEX as usize)],
 	);
 	assert_eq!(root, state.hash_tree_root().unwrap());
 }
@@ -180,8 +176,8 @@ async fn test_execution_payload_proof() {
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&execution_payload_root,
 		execution_payload_branch,
-		EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-		EXECUTION_PAYLOAD_INDEX as usize,
+		Devnet::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
+		Devnet::EXECUTION_PAYLOAD_INDEX as usize,
 		&finalized_header.state_root,
 	);
 
@@ -233,8 +229,8 @@ async fn test_execution_payload_proof() {
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&execution_payload_root,
 		execution_payload_branch,
-		ElectraDevnet::EXECUTION_PAYLOAD_INDEX_LOG2_ELECTRA as usize,
-		ElectraDevnet::EXECUTION_PAYLOAD_INDEX_ELECTRA as usize,
+		ElectraDevnet::EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
+		ElectraDevnet::EXECUTION_PAYLOAD_INDEX as usize,
 		&finalized_header.state_root,
 	);
 
@@ -261,7 +257,7 @@ async fn test_sync_committee_update_proof() {
 	let calculated_finalized_root = calculate_multi_merkle_root(
 		&[sync_committee.hash_tree_root().unwrap()],
 		&sync_committee_proof,
-		&[GeneralizedIndex(NEXT_SYNC_COMMITTEE_INDEX as usize)],
+		&[GeneralizedIndex(Devnet::NEXT_SYNC_COMMITTEE_INDEX as usize)],
 	);
 
 	assert_eq!(calculated_finalized_root.as_bytes(), finalized_header.state_root.as_bytes());
@@ -269,8 +265,8 @@ async fn test_sync_committee_update_proof() {
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&sync_committee.hash_tree_root().unwrap(),
 		sync_committee_proof.iter(),
-		NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
-		NEXT_SYNC_COMMITTEE_INDEX as usize,
+		Devnet::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
+		Devnet::NEXT_SYNC_COMMITTEE_INDEX as usize,
 		&finalized_header.state_root,
 	);
 
@@ -301,7 +297,7 @@ async fn test_sync_committee_update_proof() {
 	let calculated_finalized_root = calculate_multi_merkle_root(
 		&[sync_committee.hash_tree_root().unwrap()],
 		&sync_committee_proof,
-		&[GeneralizedIndex(ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA as usize)],
+		&[GeneralizedIndex(ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX as usize)],
 	);
 
 	assert_eq!(calculated_finalized_root.as_bytes(), finalized_header.state_root.as_bytes());
@@ -309,8 +305,8 @@ async fn test_sync_committee_update_proof() {
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&sync_committee.hash_tree_root().unwrap(),
 		sync_committee_proof.iter(),
-		ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX_LOG2_ELECTRA as usize,
-		ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA as usize,
+		ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
+		ElectraDevnet::NEXT_SYNC_COMMITTEE_INDEX as usize,
 		&finalized_header.state_root,
 	);
 

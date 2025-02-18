@@ -48,11 +48,6 @@ use tracing::instrument;
 
 use sync_committee_verifier::crypto::pubkey_to_projective;
 
-#[cfg(not(feature = "electra"))]
-use sync_committee_primitives::constants::{
-	EXECUTION_PAYLOAD_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
-};
-
 pub type BeaconStateType<const ETH1_DATA_VOTES_BOUND: usize> = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
 	HISTORICAL_ROOTS_LIMIT,
@@ -445,7 +440,6 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 	}
 }
 
-#[cfg(not(feature = "electra"))]
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
@@ -471,81 +465,26 @@ pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 		multi_proof,
 		execution_payload_branch: ssz_rs::generate_proof(
 			beacon_state,
-			&[EXECUTION_PAYLOAD_INDEX as usize],
+			&[C::EXECUTION_PAYLOAD_INDEX as usize],
 		)?,
 	})
 }
 
-#[cfg(not(feature = "electra"))]
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_sync_committee_update<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
 ) -> anyhow::Result<Vec<Node>> {
 	trace!(target: "sync-committee-prover", "Proving sync committee update");
-	let proof = ssz_rs::generate_proof(state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
+	let proof = ssz_rs::generate_proof(state, &[C::NEXT_SYNC_COMMITTEE_INDEX as usize])?;
 	Ok(proof)
 }
 
-#[cfg(not(feature = "electra"))]
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_finalized_header<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
 ) -> anyhow::Result<Vec<Node>> {
 	trace!(target: "sync-committee-prover", "Proving finalized head");
-	let indices = [FINALIZED_ROOT_INDEX as usize];
-	let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
-
-	Ok(proof)
-}
-
-#[cfg(feature = "electra")]
-#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
-	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
-) -> anyhow::Result<ExecutionPayloadProof> {
-	trace!(target: "sync-committee-prover", "Proving execution payload");
-	let indices = [
-		C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
-		C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
-		C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize,
-	];
-	// generate multi proofs
-	let multi_proof = ssz_rs::generate_proof(
-		&mut beacon_state.latest_execution_payload_header,
-		indices.as_slice(),
-	)?;
-
-	Ok(ExecutionPayloadProof {
-		state_root: H256::from_slice(
-			beacon_state.latest_execution_payload_header.state_root.as_slice(),
-		),
-		block_number: beacon_state.latest_execution_payload_header.block_number,
-		timestamp: beacon_state.latest_execution_payload_header.timestamp,
-		multi_proof,
-		execution_payload_branch: ssz_rs::generate_proof(
-			beacon_state,
-			&[C::EXECUTION_PAYLOAD_INDEX_ELECTRA as usize],
-		)?,
-	})
-}
-
-#[cfg(feature = "electra")]
-#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_sync_committee_update<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
-	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
-) -> anyhow::Result<Vec<Node>> {
-	trace!(target: "sync-committee-prover", "Proving sync committee update");
-	let proof = ssz_rs::generate_proof(state, &[C::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA as usize])?;
-	Ok(proof)
-}
-
-#[cfg(feature = "electra")]
-#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_finalized_header<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
-	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND>,
-) -> anyhow::Result<Vec<Node>> {
-	trace!(target: "sync-committee-prover", "Proving finalized head");
-	let indices = [C::FINALIZED_ROOT_INDEX_ELECTRA as usize];
+	let indices = [C::FINALIZED_ROOT_INDEX as usize];
 	let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
 
 	Ok(proof)

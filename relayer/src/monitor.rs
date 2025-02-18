@@ -27,6 +27,9 @@ pub async fn monitor_clients(
 
 	let lambda = || async {
 		for (id, max_interval) in configs.clone() {
+			if id == hyperbridge_provider.state_machine_id() {
+				continue;
+			}
 			log::trace!(target: "tesseract", "Checking update interval for {:?} on {:?}", id.state_id, hyperbridge_provider.state_machine_id().state_id);
 			let latest_height = hyperbridge_provider.query_latest_height(id).await?;
 			let state_machine_height = StateMachineHeight { id, height: latest_height.into() };
@@ -38,8 +41,8 @@ pub async fn monitor_clients(
 
 			if current_timestamp
 				.as_secs()
-				.saturating_sub(last_state_machine_update_time.as_secs())
-				>= max_interval
+				.saturating_sub(last_state_machine_update_time.as_secs()) >=
+				max_interval
 			{
 				log::trace!(target: "tesseract", "{:?} -> {:?} Has stalled shutting down", id.state_id, hyperbridge_provider.state_machine_id().state_id);
 				return Ok::<_, anyhow::Error>(HealthStat::Restart);
@@ -69,8 +72,8 @@ pub async fn monitor_clients(
 
 			if current_timestamp
 				.as_secs()
-				.saturating_sub(last_state_machine_update_time.as_secs())
-				>= max_interval
+				.saturating_sub(last_state_machine_update_time.as_secs()) >=
+				max_interval
 			{
 				log::trace!(target: "tesseract", "{:?} -> {:?} Has stalled shutting down", hyperbridge_provider.state_machine_id().state_id, id.state_id);
 				return Ok::<_, anyhow::Error>(HealthStat::Restart);

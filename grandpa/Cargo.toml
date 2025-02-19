@@ -19,7 +19,7 @@ finality-grandpa = "0.16.2"
 hex-literal = "0.4.1"
 hex = "0.4.3"
 log = "0.4.19"
-
+human_bytes = "0.4.3"
 pallet-ismp = { workspace = true }
 ismp = { workspace = true }
 grandpa-prover = { workspace = true }

@@ -6078,6 +6078,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "human_bytes"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91f255a4535024abf7640cb288260811fc14794f62b063652ed349f9a6c2348e"
+
+[[package]]
 name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -17592,7 +17598,7 @@ checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
 name = "tesseract"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "arb-host",
@@ -17774,6 +17780,7 @@ dependencies = [
  "grandpa-verifier-primitives",
  "hex",
  "hex-literal",
+ "human_bytes",
  "ismp",
  "ismp-grandpa",
  "log",

@@ -87,8 +87,8 @@ where
 			async move {
                 let sync = || async {
                     let consensus_state_bytes = counterparty
-									.query_consensus_state(None, client.consensus_state_id.clone())
-									.await?;
+						.query_consensus_state(None, client.consensus_state_id.clone())
+						.await?;
 
 					let consensus_state: ConsensusState =codec::Decode::decode(&mut &consensus_state_bytes[..])?;
                     client.should_sync(consensus_state.current_set_id).await
@@ -236,7 +236,8 @@ where
 				Ok(consensus_message) => {
 					log::info!(
 						target: "tesseract",
-						"🛰️ Transmitting consensus message from {} to {}",
+						"🛰️ Transmitting consensus proof of size {} from {} to {}",
+						human_bytes::human_bytes(consensus_message.consensus_proof.len() as u64),
 						provider.name(), counterparty.name()
 					);
 					let res = counterparty

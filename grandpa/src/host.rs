@@ -237,7 +237,7 @@ where
 					log::info!(
 						target: "tesseract",
 						"🛰️ Transmitting consensus proof of size {} from {} to {}",
-						human_bytes::human_bytes(consensus_message.consensus_proof.len() as u64),
+						human_bytes::human_bytes(consensus_message.consensus_proof.len() as u32),
 						provider.name(), counterparty.name()
 					);
 					let res = counterparty

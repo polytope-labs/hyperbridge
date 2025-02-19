@@ -347,7 +347,7 @@ mod tests {
 
 		let hyperbrige_config = SubstrateConfig {
 			rpc_url: "ws://127.0.0.1:9990".to_string(),
-			consensus_state_id: [0u8; 4],
+			consensus_state_id: *b"PARA",
 			hash_algo: HashAlgorithm::Keccak,
 			state_machine: StateMachine::Kusama(4009),
 		};

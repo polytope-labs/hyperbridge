@@ -8,10 +8,13 @@ publish = false
 [dependencies]
 hex-literal = { workspace = true }
 codec = { workspace = true, features = ["derive"] }
-primitive-types = { workspace = true, features = ["serde_no_std", "impl-codec"] }
+primitive-types = { workspace = true, features = [
+    "serde_no_std",
+    "impl-codec",
+] }
 serde = { workspace = true, optional = true, features = ["derive"] }
 hex = { workspace = true, default-features = false, features = ["alloc"] }
-anyhow = { workspace = true, default-features = false}
+anyhow = { workspace = true, default-features = false }
 serde-hex-utils = { workspace = true, default-features = false }
 
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
@@ -27,5 +30,6 @@ std = [
     "anyhow/std",
     "primitive-types/std",
     "serde",
-    "serde-hex-utils/std"
+    "serde-hex-utils/std",
 ]
+electra = []

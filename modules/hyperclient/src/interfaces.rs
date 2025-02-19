@@ -51,6 +51,7 @@ pub struct JsSubstrateConfig {
 pub struct JsHyperbridgeConfig {
 	pub state_machine: String,
 	pub rpc_url: String,
+	pub consensus_state_id: String,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Deserialize, Serialize)]
@@ -138,7 +139,14 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 			let conf = SubstrateConfig {
 				rpc_url: val.rpc_url.clone(),
 				state_machine,
-				consensus_state_id: [0u8; 4],
+				consensus_state_id: {
+					if val.consensus_state_id.len() != 4 {
+						Err(anyhow!("Invalid consensus state id: {:?}", val.consensus_state_id))?
+					}
+					let mut dest = [0u8; 4];
+					dest.copy_from_slice(&val.consensus_state_id.as_bytes());
+					dest
+				},
 				hash_algo: HashAlgorithm::Keccak,
 			};
 
@@ -339,7 +347,7 @@ mod tests {
 
 		let hyperbrige_config = SubstrateConfig {
 			rpc_url: "ws://127.0.0.1:9990".to_string(),
-			consensus_state_id: [0u8; 4],
+			consensus_state_id: *b"PARA",
 			hash_algo: HashAlgorithm::Keccak,
 			state_machine: StateMachine::Kusama(4009),
 		};
@@ -366,6 +374,7 @@ mod tests {
 
 		let js_hyperbridge = JsHyperbridgeConfig {
 			rpc_url: "ws://127.0.0.1:9990".to_string(),
+			consensus_state_id: "PARA".into(),
 			state_machine: "KUSAMA-4009".into(),
 		};
 

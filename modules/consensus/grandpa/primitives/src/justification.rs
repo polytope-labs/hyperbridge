@@ -254,7 +254,7 @@ where
 	let pub_key: ed25519::Public =
 		id_bytes.try_into().map_err(|_| anyhow!("Could not fetch public key"))?;
 
-	if sp_io::crypto::ed25519_verify(&sp_finality_signature, &buf, &pub_key) {
+	if !sp_io::crypto::ed25519_verify(&sp_finality_signature, &buf, &pub_key) {
 		Err(anyhow!("invalid signature for precommit in grandpa justification"))?
 	}
 

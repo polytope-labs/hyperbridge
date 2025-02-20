@@ -107,7 +107,7 @@ alloy_sol_macro::sol! {
 pub struct SubstrateCalldata {
 	/// A scale encoded encoded [MultiSignature](sp_runtime::MultiSignature) of the beneficiary's
 	/// account nonce and the encoded runtime call
-	pub signature: Vec<u8>,
+	pub signature: Option<Vec<u8>>,
 	/// Encoded Runtime call that should be executed
 	pub runtime_call: Vec<u8>,
 }

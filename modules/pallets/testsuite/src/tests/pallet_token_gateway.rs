@@ -371,7 +371,7 @@ fn should_receive_asset_with_call_correctly() {
 
 		let multisignature = MultiSignature::Sr25519(raw_signature).encode();
 
-		let substrate_data = SubstrateCalldata { signature: multisignature, runtime_call };
+		let substrate_data = SubstrateCalldata { signature: Some(multisignature), runtime_call };
 
 		let module = TokenGateway::default();
 		let post = PostRequest {

@@ -49,3 +49,4 @@ anyhow = "1.0.75"
 [features]
 finality-events = []
 testing = []
+electra = ["sync-committee-prover/electra", "sync-committee-primitives/electra"]

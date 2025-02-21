@@ -667,8 +667,7 @@ where
 
 				beneficiary.clone().into()
 			} else {
-				// check if the first 12 bytes of body.from is all zeroes
-				if body.from[0..12] == [0u8; 12] {
+				if source.is_evm() {
 					// sender is evm account
 					T::EvmToSubstrate::convert(H160::from_slice(&body.from[12..]))
 				} else {

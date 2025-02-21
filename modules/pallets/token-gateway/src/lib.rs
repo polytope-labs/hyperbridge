@@ -618,58 +618,72 @@ where
 		if let Some(call_data) = body.data {
 			let substrate_data = SubstrateCalldata::decode(&mut &call_data.0[..])
 				.map_err(|err| anyhow!("Calldata decode error: {err:?}"))?;
-			// Verify signature against encoded runtime call
-			let nonce = frame_system::Pallet::<T>::account_nonce(beneficiary.clone());
-			let payload = (nonce, substrate_data.runtime_call.clone()).encode();
-			let message = sp_io::hashing::keccak_256(&payload);
 
-			let multi_signature = MultiSignature::decode(&mut &*substrate_data.signature)
-				.map_err(|err| anyhow!("Signature decode error: {err:?}"))?;
+			let origin = if let Some(signature) = substrate_data.signature {
+				let multi_signature = MultiSignature::decode(&mut &*signature)
+					.map_err(|err| anyhow!("Signature decode error: {err:?}"))?;
 
-			match multi_signature {
-				MultiSignature::Ed25519(sig) => {
-					let pub_key = body.to.0.as_slice().try_into().map_err(|_| {
-						anyhow!("Failed to decode beneficiary as Ed25519 public key")
-					})?;
-					if !sp_io::crypto::ed25519_verify(&sig, message.as_ref(), &pub_key) {
-						Err(anyhow!(
+				// Verify signature against encoded runtime call
+				let nonce = frame_system::Pallet::<T>::account_nonce(beneficiary.clone());
+				let payload = (nonce, substrate_data.runtime_call.clone()).encode();
+				let message = sp_io::hashing::keccak_256(&payload);
+
+				match multi_signature {
+					MultiSignature::Ed25519(sig) => {
+						let pub_key = body.to.0.as_slice().try_into().map_err(|_| {
+							anyhow!("Failed to decode beneficiary as Ed25519 public key")
+						})?;
+						if !sp_io::crypto::ed25519_verify(&sig, message.as_ref(), &pub_key) {
+							Err(anyhow!(
 							"Failed to verify ed25519 signature before dispatching token gateway call"
 						))?
-					}
-				},
-				MultiSignature::Sr25519(sig) => {
-					let pub_key = body.to.0.as_slice().try_into().map_err(|_| {
-						anyhow!("Failed to decode beneficiary as Sr25519 public key")
-					})?;
-					if !sp_io::crypto::sr25519_verify(&sig, message.as_ref(), &pub_key) {
-						Err(anyhow!(
+						}
+					},
+					MultiSignature::Sr25519(sig) => {
+						let pub_key = body.to.0.as_slice().try_into().map_err(|_| {
+							anyhow!("Failed to decode beneficiary as Sr25519 public key")
+						})?;
+						if !sp_io::crypto::sr25519_verify(&sig, message.as_ref(), &pub_key) {
+							Err(anyhow!(
 							"Failed to verify sr25519 signature before dispatching token gateway call"
 						))?
-					}
-				},
-				MultiSignature::Ecdsa(sig) => {
-					let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig.0, &message)
-						.map_err(|_| {
-							anyhow!("Failed to recover ecdsa public key from signature")
-						})?;
-					let eth_address =
-						H160::from_slice(&sp_io::hashing::keccak_256(&pub_key[..])[12..]);
-					let substrate_account = T::EvmToSubstrate::convert(eth_address);
-					if substrate_account != beneficiary {
-						Err(anyhow!(
-							"Failed to verify signature before dispatching token gateway call"
-						))?
-					}
-				},
-			}
+						}
+					},
+					MultiSignature::Ecdsa(sig) => {
+						let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig.0, &message)
+							.map_err(|_| {
+								anyhow!("Failed to recover ecdsa public key from signature")
+							})?;
+						let eth_address =
+							H160::from_slice(&sp_io::hashing::keccak_256(&pub_key[..])[12..]);
+						let substrate_account = T::EvmToSubstrate::convert(eth_address);
+						if substrate_account != beneficiary {
+							Err(anyhow!(
+								"Failed to verify signature before dispatching token gateway call"
+							))?
+						}
+					},
+				};
+
+				beneficiary.clone().into()
+			} else {
+				if source.is_evm() {
+					// sender is evm account
+					T::EvmToSubstrate::convert(H160::from_slice(&body.from[12..]))
+				} else {
+					// sender is substrate account
+					body.from.0.into()
+				}
+			};
 
 			let runtime_call = T::RuntimeCall::decode(&mut &*substrate_data.runtime_call)
 				.map_err(|err| anyhow!("RuntimeCall decode error: {err:?}"))?;
 			runtime_call
-				.dispatch(RawOrigin::Signed(beneficiary.clone()).into())
+				.dispatch(RawOrigin::Signed(origin.clone()).into())
 				.map_err(|e| anyhow!("Call dispatch executed with error {:?}", e.error))?;
+
 			// Increase account nonce to ensure the call cannot be replayed
-			frame_system::Pallet::<T>::inc_account_nonce(beneficiary.clone());
+			frame_system::Pallet::<T>::inc_account_nonce(origin.clone());
 		}
 
 		Self::deposit_event(Event::<T>::AssetReceived {

@@ -372,9 +372,6 @@ where
 	/// Dispatches a request to create list an ERC20 asset on TokenGateway
 	pub fn create_erc20_asset_impl(asset: ERC20AssetRegistration) -> Result<(), Error<T>> {
 		let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
-		if AssetOwners::<T>::contains_key(&asset_id) {
-			Err(Error::<T>::AssetAlreadyExists)?
-		}
 
 		let metadata = AssetMetadata { name: asset.name.clone(), symbol: asset.symbol.clone() };
 

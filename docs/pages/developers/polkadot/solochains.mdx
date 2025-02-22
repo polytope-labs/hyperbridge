@@ -9,11 +9,15 @@ For solochains that want to integrate with hyperbridge, a GRANDPA consensus clie
 
 ## Runtime Integration
 
-In your runtime, you should configure Hyperbridge as the coprocessor and add a GRANDPA consensus client to the list of consensus clients. The host state machine should be assigned a unique value for each solochain connected to Hyperbridge.
+In your runtime, you should configure Hyperbridge as the coprocessor and add a GRANDPA consensus client to the list of consensus clients. The host state machine should be assigned a unique value for each solochain connected to Hyperbridge. You should also configure a larger block length limit to accommodate for large GRANDPA proofs. The new recommended limit is `8MB`, with a maximum extrinsic limit of 85%.
 
 Every other configuration detail remains unchanged as described in the previous sections
 
 ```rust showLineNumbers [runtime.rs]
+
+pub RuntimeBlockLength: BlockLength =
+    BlockLength::max_with_normal_ratio(8 * 1024 * 1024, Perbill::from_percent(85));
+
 parameter_types! {
     // The hyperbridge parachain on Polkadot
     pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
@@ -84,9 +88,12 @@ type = "grandpa"
 
 [hyperbridge.grandpa]
 # Hyperbridge's relay chain websocket RPC
-rpc = "" 
+rpc = ""
 # Hyperbridge's slot duration
-slot_duration = 6
+# on Polkadot
+# slot_duration = 12000
+# on Paseo
+slot_duration = 6000
 # How frequently to exchange consensus proofs
 consensus_update_frequency = 60
 # Hyperbridge's paraId on the provided relay chain
@@ -127,11 +134,19 @@ state_machine = "SUBSTRATE-myid"
 # Solochains's websocket RPC
 rpc = ""
 # Solochains's slot duration
-slot_duration = 6
+slot_duration = 6000
 # How frequently to exchange consensus proofs
 consensus_update_frequency = 60
 # Any para ids to prove if solochain is actually a relay chain
 para_ids = []
+
+[relayer]
+maximum_update_intervals = [
+    # restart if the polkadot consensus client on your solochain is not updated within 3 minutes
+    [{state_id = "POLKADOT-3367", consensus_state_id = "DOT0"}, 180],
+    # restart if your solochain consensus client on hyperbridge is not updated within 3 minutes
+    [{state_id = "SUBSTRATE-myid", consensus_state_id = "MYID"}, 180],
+]
 ```
 
 ### Consensus State Initialization
@@ -178,11 +193,19 @@ log-consensus-state SUBSTRATE-myid
 Once all consensus states are set up, running the relayer is as easy as:
 
 ```bash
-docker run \
+docker run -d \
+--name=consensus \
+--restart=always \
 --network=host \
 -v /path/to/consensus.toml:/root/consensus.toml \
 polytopelabs/tesseract-consensus:latest \
 --config=/root/consensus.toml
+```
+
+Access it's logs via
+
+```bash
+docker logs -f consensus -n=${maximum_number_of_previous_log_lines}
 ```
 
 You will of course need to pair this with the [messaging relayer](/developers/network/relayer) which actually relays cross-chain messages.
@@ -197,5 +220,3 @@ The GRANDPA consensus client relies on digest items in the header to communicate
 
 - [ismp-grandpa](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/grandpa)
 - [grandpa-verifier](https://github.com/polytope-labs/hyperbridge/tree/main/modules/consensus/grandpa/verifier)
-
-

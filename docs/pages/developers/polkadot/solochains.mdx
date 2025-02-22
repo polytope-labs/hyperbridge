@@ -90,7 +90,10 @@ type = "grandpa"
 # Hyperbridge's relay chain websocket RPC
 rpc = ""
 # Hyperbridge's slot duration
-slot_duration = 6
+# on Polkadot
+# slot_duration = 12000
+# on Paseo
+slot_duration = 6000
 # How frequently to exchange consensus proofs
 consensus_update_frequency = 60
 # Hyperbridge's paraId on the provided relay chain
@@ -131,7 +134,7 @@ state_machine = "SUBSTRATE-myid"
 # Solochains's websocket RPC
 rpc = ""
 # Solochains's slot duration
-slot_duration = 6
+slot_duration = 6000
 # How frequently to exchange consensus proofs
 consensus_update_frequency = 60
 # Any para ids to prove if solochain is actually a relay chain

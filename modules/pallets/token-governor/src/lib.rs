@@ -209,10 +209,10 @@ pub mod pallet {
 		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 		<T as pallet_ismp::Config>::Balance: Default,
 	{
-		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
+		/// Creates a multi-chain ERC6160 asset.
 		///
-		/// This works by dispatching a request to the TokenGateway module on each requested chain
-		/// to create the asset.
+		/// This works by dispatching a governance request to the TokenGateway contract on each
+		/// requested chain to create the token contract for the asset
 		#[pallet::call_index(0)]
 		#[pallet::weight(weight())]
 		pub fn create_erc6160_asset(
@@ -320,10 +320,11 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Dispatches a request to update the Asset fees on the provided chain
+		/// Dispatches a governance request to the relevant TokenGateway contracts to map the
+		/// provided token contract to an asset id
 		#[pallet::call_index(6)]
 		#[pallet::weight(weight())]
-		pub fn create_erc20_asset(
+		pub fn create_asset_mapping(
 			origin: OriginFor<T>,
 			asset: ERC20AssetRegistration,
 		) -> DispatchResult {

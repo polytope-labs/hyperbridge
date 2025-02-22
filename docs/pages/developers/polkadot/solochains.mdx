@@ -142,9 +142,9 @@ para_ids = []
 
 [relayer]
 maximum_update_intervals = [
-    # restart if the polkadot consensus client is not updated within 3 minutes
+    # restart if the polkadot consensus client on your solochain is not updated within 3 minutes
     [{state_id = "POLKADOT-3367", consensus_state_id = "DOT0"}, 180],
-    # restart if the your solochain consensus client is not updated within 3 minutes
+    # restart if your solochain consensus client on hyperbridge is not updated within 3 minutes
     [{state_id = "SUBSTRATE-myid", consensus_state_id = "MYID"}, 180],
 ]
 ```

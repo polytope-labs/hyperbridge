@@ -177,10 +177,16 @@ where
 				.map_err(|err| {
 					Error::Custom(format!("Error verifying grandpa header: {err:#?}"))
 				})?;
-				let digest_result = fetch_overlay_root_and_timestamp(
-					header.digest(),
-					consensus_state.slot_duration,
-				)?;
+
+				let slot_duration = SupportedStateMachines::<T>::get(consensus_state.state_machine)
+					.ok_or_else(|| {
+						Error::Custom(format!(
+							"Error getting slot duration for state machine {}",
+							consensus_state.state_machine
+						))
+					})?;
+				let digest_result =
+					fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 				if digest_result.timestamp == 0 {
 					Err(Error::Custom("Timestamp or ismp root not found".into()))?

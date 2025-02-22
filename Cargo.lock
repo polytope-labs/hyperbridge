@@ -8507,7 +8507,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "16.0.0"
+version = "16.0.1"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",

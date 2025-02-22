@@ -16,7 +16,7 @@ Every other configuration detail remains unchanged as described in the previous 
 ```rust showLineNumbers [runtime.rs]
 
 pub RuntimeBlockLength: BlockLength =
-    BlockLength::max_with_normal_ratio(8 * 1024 * 1024, Perbill::from_percent(80));
+    BlockLength::max_with_normal_ratio(8 * 1024 * 1024, Perbill::from_percent(85));
 
 parameter_types! {
     // The hyperbridge parachain on Polkadot

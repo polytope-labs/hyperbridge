@@ -371,6 +371,8 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	fn max_concurrent_queries(&self) -> usize {
 		10
 	}
+
+	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for

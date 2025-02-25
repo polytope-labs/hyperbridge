@@ -67,6 +67,8 @@ pub struct SubstrateConfig {
 	pub max_concurent_queries: Option<u64>,
 	/// Frequency at which state machine updates will be queried in seconds
 	pub poll_interval: Option<u64>,
+	/// Decimals for the fee token on this substrate chain
+	pub fee_token_decimals: Option<u8>,
 }
 
 /// Core substrate client.

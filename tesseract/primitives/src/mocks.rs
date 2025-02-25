@@ -272,6 +272,10 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		todo!()
 	}
+
+	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
+		todo!()
+	}
 }
 
 impl<C: Send + Sync> Clone for MockHost<C> {

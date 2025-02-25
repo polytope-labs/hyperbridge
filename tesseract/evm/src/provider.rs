@@ -1,5 +1,5 @@
 use crate::{
-	abi::{beefy::BeefyConsensusState, EvmHost},
+	abi::{beefy::BeefyConsensusState, erc_20::Erc20, EvmHost},
 	gas_oracle::is_orbit_chain,
 	state_comitment_key, EvmClient,
 };
@@ -849,6 +849,19 @@ impl IsmpProvider for EvmClient {
 
 	fn max_concurrent_queries(&self) -> usize {
 		self.config.tracing_batch_size.unwrap_or(10)
+	}
+
+	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
+		let fee_token = match self.query_host_params(self.state_machine).await? {
+			HostParam::EvmHostParam(params) => params.fee_token,
+			_ => Err(anyhow!("Unexpected host params"))?,
+		};
+
+		let contract = Erc20::new(fee_token, self.client.clone());
+
+		let decimals = contract.decimals().call().await?;
+
+		Ok(decimals)
 	}
 }
 

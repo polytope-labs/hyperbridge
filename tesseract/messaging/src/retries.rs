@@ -28,9 +28,9 @@ pub async fn retry_unprofitable_messages(
 	coprocessor: StateMachine,
 	fee_acc_sender: FeeAccSender,
 ) -> Result<(), anyhow::Error> {
-	// Default to every 10 minutes
+	// Default to every 5 minutes
 	let mut interval = tokio::time::interval(Duration::from_secs(
-		config.unprofitable_retry_frequency.unwrap_or(10 * 60),
+		config.unprofitable_retry_frequency.unwrap_or(5 * 60),
 	));
 	loop {
 		interval.tick().await;
@@ -48,18 +48,20 @@ pub async fn retry_unprofitable_messages(
 
 		for (msg, id) in unprofitables {
 			match msg {
-				Message::Request(ref req_msg) =>
+				Message::Request(ref req_msg) => {
 					if req_msg.requests.len() > 1 {
 						batched_messages.push((msg, id))
 					} else {
 						unbatched_messages.push((msg, id))
-					},
-				Message::Response(ref resp_msg) =>
+					}
+				},
+				Message::Response(ref resp_msg) => {
 					if resp_msg.requests().len() > 1 {
 						batched_messages.push((msg, id))
 					} else {
 						unbatched_messages.push((msg, id))
-					},
+					}
+				},
 				_ => {},
 			}
 		}
@@ -103,7 +105,7 @@ pub async fn retry_unprofitable_messages(
 					datagram: RequestResponse::Response(responses),
 					proof: batch_proof,
 					..
-				}) =>
+				}) => {
 					for resp in responses {
 						let hash = hash_response::<Hasher>(&resp);
 
@@ -129,7 +131,8 @@ pub async fn retry_unprofitable_messages(
 						};
 
 						unbatched_messages.push((Message::Response(_msg), id))
-					},
+					}
+				},
 				_ => {},
 			}
 		}

@@ -250,8 +250,9 @@ impl AccumulateFees {
 
 						let amount = hyperbridge.available_amount(client.clone(), &chain).await?;
 
-						if amount < U256::from(10u128 * 10u128.pow(18)) {
-							log::info!("Unclaimed balance on {chain} is less than $100, exiting");
+						let fee_token_decimals = client.fee_token_decimals().await?;
+						if amount < U256::from(10u128 * 10u128.pow(fee_token_decimals.into())) {
+							log::info!("Unclaimed balance on {chain} is less than $10, exiting");
 							return Ok::<_, anyhow::Error>(());
 						}
 
@@ -307,14 +308,12 @@ where
 	// default to 1 day
 	let frequency = Duration::from_secs(config.withdrawal_frequency.unwrap_or(86_400));
 	tracing::info!("Auto-withdraw frequency set to {:?}", frequency);
-	// default to $100
 	let min_amount: U256 = (config
 		.minimum_withdrawal_amount
 		.map(|val| std::cmp::max(val, 10))
-		.unwrap_or(100) as u128 *
-		10u128.pow(18))
+		.unwrap_or(100) as u128
+		* 10u128.pow(18))
 	.into();
-
 	tracing::info!("Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
 	let mut interval = interval(frequency);
 
@@ -339,6 +338,14 @@ where
 						}
 
 						let amount = hyperbridge.available_amount(client.clone(), &chain).await?;
+						let fee_token_decimals = client.fee_token_decimals().await?;
+						// default to $100
+						let min_amount: U256 = (config
+							.minimum_withdrawal_amount
+							.map(|val| std::cmp::max(val, 10))
+							.unwrap_or(100) as u128
+							* 10u128.pow(fee_token_decimals.into()))
+						.into();
 						if amount < min_amount {
 							tracing::info!("Unclaimed balance {amount} on {chain} is < minimum_withdrawal_amount: {min_amount}, exiting");
 							return Ok::<_, anyhow::Error>(());
@@ -403,13 +410,14 @@ async fn deliver_post_request<D: IsmpProvider>(
 
 		latest_height = loop {
 			match stream.next().await {
-				Some(Ok(event)) =>
+				Some(Ok(event)) => {
 					if event.latest_height < result.block {
 						continue;
 					} else {
 						log::info!("Found a state machine update: {}", event.latest_height);
 						break event.latest_height;
-					},
+					}
+				},
 				Some(Err(_)) => {
 					log::error!(
 						"An error occured waiting for state machine update from {}, Retrying",
@@ -648,8 +656,9 @@ mod tests {
 							.await?
 						{
 							HostParam::EvmHostParam(params) => params.host_manager.0.to_vec(),
-							HostParam::SubstrateHostParam(_) =>
-								pallet_hyperbridge::PALLET_HYPERBRIDGE.0.to_vec(),
+							HostParam::SubstrateHostParam(_) => {
+								pallet_hyperbridge::PALLET_HYPERBRIDGE.0.to_vec()
+							},
 						};
 						if post.to != host_manager {
 							tracing::info!("Skipping outdated withdrawal to {dest:?}");

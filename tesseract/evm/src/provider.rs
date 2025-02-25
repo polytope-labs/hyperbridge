@@ -43,7 +43,7 @@ use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
+	StateMachineUpdated, StateProofQueryType, TxResult,
 };
 
 #[async_trait::async_trait]
@@ -449,19 +449,20 @@ impl IsmpProvider for EvmClient {
 						};
 
 						let gas_cost_for_data_in_usd = match client.state_machine {
-							StateMachine::Evm(_) =>
+							StateMachine::Evm(_) => {
 								get_l2_data_cost(
 									call.tx.rlp(),
 									client.state_machine,
 									client.client.clone(),
 									gas_breakdown.unit_wei_cost,
 								)
-								.await?,
+								.await?
+							},
 							_ => U256::zero().into(),
 						};
 
-						let execution_cost = (gas_breakdown.gas_price_cost * gas_to_be_used) +
-							gas_cost_for_data_in_usd;
+						let execution_cost = (gas_breakdown.gas_price_cost * gas_to_be_used)
+							+ gas_cost_for_data_in_usd;
 						Ok::<_, Error>(EstimateGasReturnParams {
 							execution_cost,
 							successful_execution,

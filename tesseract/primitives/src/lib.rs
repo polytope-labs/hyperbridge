@@ -188,6 +188,12 @@ impl Keccak256 for Hasher {
 	}
 }
 
+#[derive(Debug, Default)]
+pub struct TxResult {
+	pub receipts: Vec<TxReceipt>,
+	pub unsuccessful: Vec<Message>,
+}
+
 #[async_trait::async_trait]
 pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// Query the latest consensus state of a client
@@ -316,7 +322,7 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		&self,
 		messages: Vec<Message>,
 		coprocessor: StateMachine,
-	) -> Result<Vec<TxReceipt>, anyhow::Error>;
+	) -> Result<TxResult, anyhow::Error>;
 
 	/// This method should return the key used to be used to query the state proof for the request
 	/// commitment

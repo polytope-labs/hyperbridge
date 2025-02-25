@@ -1,6 +1,7 @@
 use crate::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost, IsmpProvider,
-	Query, Signature, StateMachineUpdated, StateProofQueryType, TxReceipt, WithdrawFundsResult,
+	Query, Signature, StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
+	WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use ismp::{
@@ -207,7 +208,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		&self,
 		_messages: Vec<Message>,
 		_coprocessor: StateMachine,
-	) -> Result<Vec<TxReceipt>, Error> {
+	) -> Result<TxResult, Error> {
 		todo!()
 	}
 

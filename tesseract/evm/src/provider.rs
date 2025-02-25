@@ -43,7 +43,7 @@ use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StateProofQueryType, TxReceipt,
+	StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
 };
 
 #[async_trait::async_trait]
@@ -721,7 +721,7 @@ impl IsmpProvider for EvmClient {
 		&self,
 		messages: Vec<Message>,
 		_coprocessor: StateMachine,
-	) -> Result<Vec<TxReceipt>, Error> {
+	) -> Result<TxResult, Error> {
 		let queue = self
 			.queue
 			.as_ref()

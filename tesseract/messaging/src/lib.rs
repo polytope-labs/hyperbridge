@@ -159,9 +159,13 @@ where
 						hyperbridge,
 						client_map,
 						tx_payment,
-						config,
+						config.clone(),
 						coprocessor,
-						sender,
+						if !config.disable_fee_accumulation.unwrap_or_default() {
+							Some(sender)
+						} else {
+							None
+						},
 					)
 					.await;
 					tracing::error!("{name} terminated with result {res:?}");

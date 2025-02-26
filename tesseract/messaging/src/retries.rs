@@ -26,7 +26,7 @@ pub async fn retry_unprofitable_messages(
 	tx_payment: Arc<TransactionPayment>,
 	config: RelayerConfig,
 	coprocessor: StateMachine,
-	fee_acc_sender: FeeAccSender,
+	fee_acc_sender: Option<FeeAccSender>,
 ) -> Result<(), anyhow::Error> {
 	tracing::trace!(
 		"Starting message retries background task for deliveries to  {:?}",
@@ -370,30 +370,37 @@ pub async fn retry_unprofitable_messages(
 				if let Ok(TxResult { receipts, unsuccessful }) =
 					dest.submit(outgoing_messages, coprocessor).await
 				{
-					if !receipts.is_empty() {
-						// Store receipts in database before auto accumulation
-						tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), hyperbridge.name(), dest.name());
-						if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
-							tracing::error!(
-								"Failed to persist {} deliveries to database: {err:?}",
-								receipts.len()
-							)
-						}
-						// Send receipts to the fee accumulation task
-						match fee_acc_sender.send(receipts).await {
-							Err(_sent) => {
+					if let Some(fee_acc_sender) = fee_acc_sender.clone() {
+						if !receipts.is_empty() {
+							// Store receipts in database before auto accumulation
+							tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), hyperbridge.name(), dest.name());
+							if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
 								tracing::error!(
-									"Fee auto accumulation failed You can try again manually"
+									"Failed to persist {} deliveries to database: {err:?}",
+									receipts.len()
 								)
-							},
-							_ => {},
+							}
+							// Send receipts to the fee accumulation task
+							match fee_acc_sender.send(receipts).await {
+								Err(_sent) => {
+									tracing::error!(
+										"Fee auto accumulation failed You can try again manually"
+									)
+								},
+								_ => {},
+							}
 						}
 					}
 
-					tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unsuccessful messages going to {} to the db", unsuccessful.len(), dest.name());
-					let _ = tx_payment
-						.store_unprofitable_messages(unsuccessful, dest.state_machine_id().state_id)
-						.await;
+					if !unsuccessful.is_empty() {
+						tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unsuccessful messages going to {} to the db", unsuccessful.len(), dest.name());
+						let _ = tx_payment
+							.store_unprofitable_messages(
+								unsuccessful,
+								dest.state_machine_id().state_id,
+							)
+							.await;
+					}
 				}
 			}
 			// Delete previous batch from db

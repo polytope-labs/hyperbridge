@@ -388,6 +388,8 @@ async fn handle_update(
 					config.unprofitable_retry_frequency.is_some() &&
 					chain_a.state_machine_id().state_id != coprocessor
 				{
+					tracing::error!(target: "tesseract", "Some transactions were cancelled and will be retried");
+					tracing::trace!(target: "tesseract", "Persisting {} cancelled transactions going to {} to the db", unsuccessful.len(), chain_a.name());
 					if let Err(err) = tx_payment
 						.store_unprofitable_messages(
 							unsuccessful,

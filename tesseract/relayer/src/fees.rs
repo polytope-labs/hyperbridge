@@ -311,8 +311,8 @@ where
 	let min_amount: U256 = (config
 		.minimum_withdrawal_amount
 		.map(|val| std::cmp::max(val, 10))
-		.unwrap_or(100) as u128
-		* 10u128.pow(18))
+		.unwrap_or(100) as u128 *
+		10u128.pow(18))
 	.into();
 	tracing::info!("Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
 	let mut interval = interval(frequency);
@@ -410,14 +410,13 @@ async fn deliver_post_request<D: IsmpProvider>(
 
 		latest_height = loop {
 			match stream.next().await {
-				Some(Ok(event)) => {
+				Some(Ok(event)) =>
 					if event.latest_height < result.block {
 						continue;
 					} else {
 						log::info!("Found a state machine update: {}", event.latest_height);
 						break event.latest_height;
-					}
-				},
+					},
 				Some(Err(_)) => {
 					log::error!(
 						"An error occured waiting for state machine update from {}, Retrying",
@@ -656,9 +655,8 @@ mod tests {
 							.await?
 						{
 							HostParam::EvmHostParam(params) => params.host_manager.0.to_vec(),
-							HostParam::SubstrateHostParam(_) => {
-								pallet_hyperbridge::PALLET_HYPERBRIDGE.0.to_vec()
-							},
+							HostParam::SubstrateHostParam(_) =>
+								pallet_hyperbridge::PALLET_HYPERBRIDGE.0.to_vec(),
 						};
 						if post.to != host_manager {
 							tracing::info!("Skipping outdated withdrawal to {dest:?}");

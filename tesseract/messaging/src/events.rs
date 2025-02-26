@@ -48,17 +48,15 @@ impl From<IsmpEvent> for Event {
 	fn from(value: IsmpEvent) -> Self {
 		match value {
 			IsmpEvent::StateMachineUpdated(e) => Event::StateMachineUpdated(e),
-			IsmpEvent::PostRequest(e) => {
-				Event::PostRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source })
-			},
+			IsmpEvent::PostRequest(e) =>
+				Event::PostRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
 			IsmpEvent::PostResponse(e) => Event::PostResponse(Meta {
 				nonce: e.post.nonce,
 				dest: e.post.dest,
 				source: e.post.source,
 			}),
-			IsmpEvent::GetRequest(e) => {
-				Event::GetRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source })
-			},
+			IsmpEvent::GetRequest(e) =>
+				Event::GetRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
 			IsmpEvent::GetResponse(e) => Event::GetResponse(Meta {
 				nonce: e.get.nonce,
 				dest: e.get.dest,
@@ -66,16 +64,13 @@ impl From<IsmpEvent> for Event {
 			}),
 			IsmpEvent::PostRequestHandled(ev) => Event::PostRequestHandled(ev),
 			IsmpEvent::PostResponseHandled(handled) => Event::PostResponseHandled(handled),
-			IsmpEvent::PostRequestTimeoutHandled(handled) => {
-				Event::PostRequestTimeoutHandled(handled)
-			},
-			IsmpEvent::PostResponseTimeoutHandled(handled) => {
-				Event::PostResponseTimeoutHandled(handled)
-			},
+			IsmpEvent::PostRequestTimeoutHandled(handled) =>
+				Event::PostRequestTimeoutHandled(handled),
+			IsmpEvent::PostResponseTimeoutHandled(handled) =>
+				Event::PostResponseTimeoutHandled(handled),
 			IsmpEvent::GetRequestHandled(handled) => Event::GetRequestHandled(handled),
-			IsmpEvent::GetRequestTimeoutHandled(handled) => {
-				Event::GetRequestTimeoutHandled(handled)
-			},
+			IsmpEvent::GetRequestTimeoutHandled(handled) =>
+				Event::GetRequestTimeoutHandled(handled),
 			IsmpEvent::StateCommitmentVetoed(_) => Event::StateCommitmentVetoed,
 		}
 	}
@@ -120,8 +115,8 @@ pub async fn translate_events_to_messages(
 					match event {
 						IsmpEvent::PostRequest(post) => {
 							// Skip timed out requests
-							if post.timeout_timestamp != 0
-								&& post.timeout_timestamp <= counterparty_timestamp.as_secs()
+							if post.timeout_timestamp != 0 &&
+								post.timeout_timestamp <= counterparty_timestamp.as_secs()
 							{
 								tracing::trace!(
 									"Found timed out request, request: {}, counterparty: {}",
@@ -166,9 +161,9 @@ pub async fn translate_events_to_messages(
 						},
 						IsmpEvent::PostResponse(post_response) => {
 							// Skip timed out responses
-							if post_response.timeout_timestamp != 0
-								&& post_response.timeout_timestamp
-									<= counterparty_timestamp.as_secs()
+							if post_response.timeout_timestamp != 0 &&
+								post_response.timeout_timestamp <=
+									counterparty_timestamp.as_secs()
 							{
 								tracing::trace!(
 									"Found timed out request, request: {}, counterparty: {}",
@@ -393,24 +388,23 @@ pub fn filter_events(
 	let is_router = router_id == counterparty;
 
 	let allow_module = |module: &[u8]| {
-		config.module_filter.as_ref().is_some_and(|inner| !inner.is_empty())
-			&& is_allowed_module(config, module)
+		config.module_filter.as_ref().is_some_and(|inner| !inner.is_empty()) &&
+			is_allowed_module(config, module)
 	};
 	match ev {
 		// We filter out events whose origin is the coprocessor unless the source module is
 		// explicitly allowed in the module filter
-		IsmpEvent::PostRequest(post) => {
-			(post.dest == counterparty
-				&& (post.source != router_id
-					|| (post.source == router_id && allow_module(&post.from))))
-				|| is_router
-		},
-		IsmpEvent::PostResponse(resp) => {
-			(resp.dest_chain() == counterparty
-				&& (resp.source_chain() != router_id
-					|| (resp.source_chain() == router_id && allow_module(&resp.source_module()))))
-				|| is_router
-		},
+		IsmpEvent::PostRequest(post) =>
+			(post.dest == counterparty &&
+				(post.source != router_id ||
+					(post.source == router_id && allow_module(&post.from)))) ||
+				is_router,
+		IsmpEvent::PostResponse(resp) =>
+			(resp.dest_chain() == counterparty &&
+				(resp.source_chain() != router_id ||
+					(resp.source_chain() == router_id &&
+						allow_module(&resp.source_module())))) ||
+				is_router,
 		_ => false,
 	}
 }
@@ -551,18 +545,17 @@ pub async fn return_successful_queries(
 
 fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {
 	match config.module_filter {
-		Some(ref filters) => {
+		Some(ref filters) =>
 			if !filters.is_empty() {
 				return filters
 					.iter()
 					.find(|filter| {
 						hex::decode(filter.replace("0x", ""))
-							.expect("Module identifier should be valid hex")
-							== module
+							.expect("Module identifier should be valid hex") ==
+							module
 					})
 					.is_some();
-			}
-		},
+			},
 		// if no filter is provided, allow all modules
 		_ => {},
 	};

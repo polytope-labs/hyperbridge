@@ -28,6 +28,10 @@ pub async fn retry_unprofitable_messages(
 	coprocessor: StateMachine,
 	fee_acc_sender: FeeAccSender,
 ) -> Result<(), anyhow::Error> {
+	tracing::trace!(
+		"Starting message retries background task for deliveries to  {:?}",
+		dest.name()
+	);
 	// Default to every 5 minutes
 	let mut interval = tokio::time::interval(Duration::from_secs(
 		config.unprofitable_retry_frequency.unwrap_or(5 * 60),
@@ -48,20 +52,18 @@ pub async fn retry_unprofitable_messages(
 
 		for (msg, id) in unprofitables {
 			match msg {
-				Message::Request(ref req_msg) => {
+				Message::Request(ref req_msg) =>
 					if req_msg.requests.len() > 1 {
 						batched_messages.push((msg, id))
 					} else {
 						unbatched_messages.push((msg, id))
-					}
-				},
-				Message::Response(ref resp_msg) => {
+					},
+				Message::Response(ref resp_msg) =>
 					if resp_msg.requests().len() > 1 {
 						batched_messages.push((msg, id))
 					} else {
 						unbatched_messages.push((msg, id))
-					}
-				},
+					},
 				_ => {},
 			}
 		}
@@ -105,7 +107,7 @@ pub async fn retry_unprofitable_messages(
 					datagram: RequestResponse::Response(responses),
 					proof: batch_proof,
 					..
-				}) => {
+				}) =>
 					for resp in responses {
 						let hash = hash_response::<Hasher>(&resp);
 
@@ -131,8 +133,7 @@ pub async fn retry_unprofitable_messages(
 						};
 
 						unbatched_messages.push((Message::Response(_msg), id))
-					}
-				},
+					},
 				_ => {},
 			}
 		}
@@ -431,11 +432,15 @@ pub async fn retry_unprofitable_messages(
 						_ => None,
 					})
 					.collect::<Vec<_>>();
-
-				tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", retriable_msgs.len(), dest.name());
-				let _ = tx_payment
-					.store_unprofitable_messages(retriable_msgs, dest.state_machine_id().state_id)
-					.await;
+				if !retriable_msgs.is_empty() {
+					tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", retriable_msgs.len(), dest.name());
+					let _ = tx_payment
+						.store_unprofitable_messages(
+							retriable_msgs,
+							dest.state_machine_id().state_id,
+						)
+						.await;
+				}
 			}
 		}
 	}

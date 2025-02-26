@@ -198,7 +198,8 @@ where
 				}
 			}
 
-			Err(anyhow!("Transaction to {:?} was cancelled!", state_machine_clone))?
+			log::error!("Transaction to {:?} was cancelled!", state_machine_clone);
+			Ok(Default::default())
 		}
 	};
 

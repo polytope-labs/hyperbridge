@@ -134,6 +134,7 @@ async fn create_clients(
 		initial_height: None,
 		max_concurent_queries: None,
 		poll_interval: None,
+		fee_token_decimals: None,
 	};
 
 	let chain_b_config = SubstrateConfig {
@@ -148,6 +149,7 @@ async fn create_clients(
 		initial_height: None,
 		max_concurent_queries: None,
 		poll_interval: None,
+		fee_token_decimals: None,
 	};
 
 	// setup state machines

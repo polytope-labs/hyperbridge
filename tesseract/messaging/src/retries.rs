@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+	collections::{BTreeSet, HashMap},
+	sync::Arc,
+	time::Duration,
+};
 
 use ismp::{
 	consensus::StateMachineHeight,
@@ -6,7 +10,7 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{Request, RequestResponse, Response},
 };
-use tesseract_primitives::{config::RelayerConfig, Hasher, IsmpProvider, Query};
+use tesseract_primitives::{config::RelayerConfig, Hasher, IsmpProvider, Query, TxResult};
 use transaction_fees::TransactionPayment;
 
 use crate::{
@@ -22,11 +26,15 @@ pub async fn retry_unprofitable_messages(
 	tx_payment: Arc<TransactionPayment>,
 	config: RelayerConfig,
 	coprocessor: StateMachine,
-	fee_acc_sender: FeeAccSender,
+	fee_acc_sender: Option<FeeAccSender>,
 ) -> Result<(), anyhow::Error> {
-	// Default to every 10 minutes
+	tracing::trace!(
+		"Starting message retries background task for deliveries to  {:?}",
+		dest.name()
+	);
+	// Default to every 5 minutes
 	let mut interval = tokio::time::interval(Duration::from_secs(
-		config.unprofitable_retry_frequency.unwrap_or(10 * 60),
+		config.unprofitable_retry_frequency.unwrap_or(5 * 60),
 	));
 	loop {
 		interval.tick().await;
@@ -38,18 +46,110 @@ pub async fn retry_unprofitable_messages(
 				},
 			};
 
-		if !unprofitables.is_empty() {
+		// Find messages that are  bundled as a batch and split them up so they can be reestimated
+		let mut batched_messages = vec![];
+		let mut unbatched_messages = vec![];
+
+		for (msg, id) in unprofitables {
+			match msg {
+				Message::Request(ref req_msg) =>
+					if req_msg.requests.len() > 1 {
+						batched_messages.push((msg, id))
+					} else {
+						unbatched_messages.push((msg, id))
+					},
+				Message::Response(ref resp_msg) =>
+					if resp_msg.requests().len() > 1 {
+						batched_messages.push((msg, id))
+					} else {
+						unbatched_messages.push((msg, id))
+					},
+				_ => {},
+			}
+		}
+
+		// Split batched messages into individual messages
+		for (msg, id) in batched_messages {
+			match msg {
+				Message::Request(req_msg) => {
+					let proof_height = req_msg.proof.height;
+					for post in req_msg.requests {
+						let query = {
+							let req = Request::Post(post.clone());
+							let hash = hash_request::<Hasher>(&req);
+
+							Query {
+								source_chain: req.source_chain(),
+								dest_chain: req.dest_chain(),
+								nonce: req.nonce(),
+								commitment: hash,
+							}
+						};
+
+						let proof = hyperbridge
+							.query_requests_proof(
+								proof_height.height,
+								vec![query],
+								dest.state_machine_id().state_id,
+							)
+							.await?;
+
+						let _msg = RequestMessage {
+							requests: vec![post.clone()],
+							proof: Proof { height: proof_height, proof },
+							signer: dest.address(),
+						};
+
+						unbatched_messages.push((Message::Request(_msg), id))
+					}
+				},
+				Message::Response(ResponseMessage {
+					datagram: RequestResponse::Response(responses),
+					proof: batch_proof,
+					..
+				}) =>
+					for resp in responses {
+						let hash = hash_response::<Hasher>(&resp);
+
+						let query = Query {
+							source_chain: resp.source_chain(),
+							dest_chain: resp.dest_chain(),
+							nonce: resp.nonce(),
+							commitment: hash,
+						};
+
+						let proof = hyperbridge
+							.query_responses_proof(
+								batch_proof.height.height,
+								vec![query],
+								dest.state_machine_id().state_id,
+							)
+							.await?;
+
+						let _msg = ResponseMessage {
+							datagram: RequestResponse::Response(vec![resp.clone()]),
+							proof: Proof { height: batch_proof.height, proof },
+							signer: dest.address(),
+						};
+
+						unbatched_messages.push((Message::Response(_msg), id))
+					},
+				_ => {},
+			}
+		}
+
+		if !unbatched_messages.is_empty() {
 			tracing::trace!("Starting retries of previously unprofitable or failed messages");
 			let mut request_messages = vec![];
 			let mut response_messages = vec![];
-			let mut ids = vec![];
+			let mut ids = BTreeSet::new();
 			let mut request_queries = vec![];
 			let mut response_queries = vec![];
 			let mut post_requests = vec![];
 			let mut post_responses = vec![];
 			// Store the highest proof height in this variable
 			let mut state_machine_height: Option<StateMachineHeight> = None;
-			unprofitables.into_iter().for_each(|(message, id)| {
+			unbatched_messages.into_iter().for_each(|(message, id)| {
 				match message {
 					Message::Request(msg) => {
 						let post = msg.requests.get(0).cloned().expect(
@@ -76,7 +176,7 @@ pub async fn retry_unprofitable_messages(
 						post_requests.push(post);
 						request_messages.push(Message::Request(msg));
 						request_queries.push(query);
-						ids.push(id);
+						ids.insert(id);
 					},
 					Message::Response(msg) => match &msg.datagram {
 						ismp::router::RequestResponse::Response(responses) => {
@@ -106,7 +206,7 @@ pub async fn retry_unprofitable_messages(
 							post_responses.push(resp);
 							response_messages.push(Message::Response(msg));
 							response_queries.push(query);
-							ids.push(id);
+							ids.insert(id);
 						},
 						_ => panic!("Inconsistent Db, withdraw all fees and restart relayer with a fresh database"),
 					},
@@ -267,25 +367,39 @@ pub async fn retry_unprofitable_messages(
 					target: "tesseract",
 					"Unprofitable Messages Retries: 🛰️ Transmitting ismp messages from {} to {}", hyperbridge.name(), dest.name()
 				);
-				if let Ok(receipts) = dest.submit(outgoing_messages, coprocessor).await {
-					if !receipts.is_empty() {
-						// Store receipts in database before auto accumulation
-						tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), hyperbridge.name(), dest.name());
-						if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
-							tracing::error!(
-								"Failed to persist {} deliveries to database: {err:?}",
-								receipts.len()
-							)
-						}
-						// Send receipts to the fee accumulation task
-						match fee_acc_sender.send(receipts).await {
-							Err(_sent) => {
+				if let Ok(TxResult { receipts, unsuccessful }) =
+					dest.submit(outgoing_messages, coprocessor).await
+				{
+					if let Some(fee_acc_sender) = fee_acc_sender.clone() {
+						if !receipts.is_empty() {
+							// Store receipts in database before auto accumulation
+							tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), hyperbridge.name(), dest.name());
+							if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
 								tracing::error!(
-									"Fee auto accumulation failed You can try again manually"
+									"Failed to persist {} deliveries to database: {err:?}",
+									receipts.len()
 								)
-							},
-							_ => {},
+							}
+							// Send receipts to the fee accumulation task
+							match fee_acc_sender.send(receipts).await {
+								Err(_sent) => {
+									tracing::error!(
+										"Fee auto accumulation failed You can try again manually"
+									)
+								},
+								_ => {},
+							}
 						}
+					}
+
+					if !unsuccessful.is_empty() {
+						tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unsuccessful messages going to {} to the db", unsuccessful.len(), dest.name());
+						let _ = tx_payment
+							.store_unprofitable_messages(
+								unsuccessful,
+								dest.state_machine_id().state_id,
+							)
+							.await;
 					}
 				}
 			}
@@ -325,11 +439,15 @@ pub async fn retry_unprofitable_messages(
 						_ => None,
 					})
 					.collect::<Vec<_>>();
-
-				tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", retriable_msgs.len(), dest.name());
-				let _ = tx_payment
-					.store_unprofitable_messages(retriable_msgs, dest.state_machine_id().state_id)
-					.await;
+				if !retriable_msgs.is_empty() {
+					tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", retriable_msgs.len(), dest.name());
+					let _ = tx_payment
+						.store_unprofitable_messages(
+							retriable_msgs,
+							dest.state_machine_id().state_id,
+						)
+						.await;
+				}
 			}
 		}
 	}

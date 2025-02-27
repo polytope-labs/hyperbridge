@@ -62,7 +62,7 @@ use subxt_utils::{
 };
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query,
-	StateMachineUpdated, StateProofQueryType, TxReceipt,
+	StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
 };
 
 use crate::{
@@ -652,7 +652,7 @@ where
 		&self,
 		messages: Vec<Message>,
 		coprocessor: StateMachine,
-	) -> Result<Vec<TxReceipt>, anyhow::Error> {
+	) -> Result<TxResult, anyhow::Error> {
 		let mut futs = vec![];
 		let is_hyperbridge = self.state_machine == coprocessor;
 		for msg in messages.clone() {
@@ -750,7 +750,7 @@ where
 				_ => {},
 			}
 		}
-		Ok(results)
+		Ok(TxResult { receipts: results, ..Default::default() })
 	}
 
 	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, anyhow::Error> {
@@ -870,6 +870,11 @@ where
 
 	fn max_concurrent_queries(&self) -> usize {
 		self.max_concurent_queries.unwrap_or(10) as usize
+	}
+
+	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
+		// Default for USDT and USDC on polkadot chains is 6
+		Ok(self.config.fee_token_decimals.unwrap_or(6))
 	}
 }
 

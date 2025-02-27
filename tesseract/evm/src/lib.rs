@@ -21,7 +21,7 @@ use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::{sync::Arc, time::Duration};
 use tesseract_primitives::{
 	queue::{start_pipeline, PipelineQueue},
-	IsmpProvider, StateMachineUpdated, StreamError, TxReceipt,
+	IsmpProvider, StateMachineUpdated, StreamError, TxResult,
 };
 use tx::handle_message_submission;
 
@@ -144,7 +144,7 @@ pub struct EvmClient {
 		>,
 	>,
 	/// Tx submission pipeline
-	queue: Option<Arc<PipelineQueue<Vec<Message>, anyhow::Result<Vec<TxReceipt>>>>>,
+	queue: Option<Arc<PipelineQueue<Vec<Message>, anyhow::Result<TxResult>>>>,
 }
 
 impl EvmClient {

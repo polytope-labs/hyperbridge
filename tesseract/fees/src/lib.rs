@@ -369,7 +369,7 @@ impl TransactionPayment {
 	/// Delete any unprofitable message
 	pub async fn delete_unprofitable_messages(
 		&self,
-		unprofitable: Vec<i32>,
+		unprofitable: impl IntoIterator<Item = i32>,
 	) -> Result<(), anyhow::Error> {
 		let actions = unprofitable
 			.into_iter()

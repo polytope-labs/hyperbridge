@@ -34,7 +34,7 @@ use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
 use primitive_types::{H256, U256};
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
-use tesseract_primitives::{Hasher, Query, TxReceipt};
+use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 
@@ -49,9 +49,10 @@ type SolidityFunctionCall<T> = FunctionCall<
 pub async fn submit_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
-) -> anyhow::Result<BTreeSet<H256>> {
+) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
 	let calls = generate_contract_calls(client, messages.clone(), false).await?;
 	let mut events = BTreeSet::new();
+	let mut cancelled: Vec<Message> = vec![];
 	for (index, call) in calls.into_iter().enumerate() {
 		let gas_price = call.tx.gas_price();
 		match call.clone().send().await {
@@ -71,6 +72,11 @@ pub async fn submit_messages(
 					retry,
 				)
 				.await?;
+				if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
+					evs.is_empty()
+				{
+					cancelled.push(messages[index].clone())
+				}
 				events.extend(evs);
 			},
 			Err(err) => {
@@ -102,7 +108,7 @@ pub async fn submit_messages(
 		log::trace!("Got {} receipts from executing on {:?}", events.len(), client.state_machine);
 	}
 
-	Ok(events)
+	Ok((events, cancelled))
 }
 
 #[async_recursion::async_recursion]
@@ -192,7 +198,8 @@ where
 				}
 			}
 
-			Err(anyhow!("Transaction to {:?} was cancelled!", state_machine_clone))?
+			log::error!("Transaction to {:?} was cancelled!", state_machine_clone);
+			Ok(Default::default())
 		}
 	};
 
@@ -427,8 +434,8 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 pub async fn handle_message_submission(
 	client: &EvmClient,
 	messages: Vec<Message>,
-) -> Result<Vec<TxReceipt>, anyhow::Error> {
-	let receipts = submit_messages(client, messages.clone()).await?;
+) -> Result<TxResult, anyhow::Error> {
+	let (receipts, cancelled) = submit_messages(client, messages.clone()).await?;
 	let height = client.client.get_block_number().await?.low_u64();
 	let mut results = vec![];
 	for msg in messages {
@@ -477,5 +484,5 @@ pub async fn handle_message_submission(
 		}
 	}
 
-	Ok(results)
+	Ok(TxResult { receipts: results, unsuccessful: cancelled })
 }

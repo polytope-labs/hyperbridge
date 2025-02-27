@@ -489,11 +489,15 @@ pub async fn return_successful_queries(
 							return Ok((None, None))
 						};
 
-						let mut fee_metadata: Cost = match msg {
-							Message::Request(_) => og_source.query_request_fee_metadata(query.commitment).await?.into(),
-							Message::Response(_) => og_source.query_response_fee_metadata(query.commitment).await?.into(),
+						let fee_metadata = match msg {
+							Message::Request(_) => og_source.query_request_fee_metadata(query.commitment).await?,
+							Message::Response(_) => og_source.query_response_fee_metadata(query.commitment).await?,
 							_ => Err(anyhow!("Unexpected message: {msg:?}"))?
 						};
+
+						// normalize fee_metadata to 18 decimals since gas cost is calculated in 18 decimals
+						let fee_token_decimal = og_source.fee_token_decimals().await?;
+						let mut fee_metadata: Cost = (fee_metadata * U256::from(10u128.pow(18u32.saturating_sub(fee_token_decimal.into()) as u32))).into();
 
 						let profit = (U256::from(minimum_profit_percentage) *
 							total_gas_to_be_expended_in_usd.0) /

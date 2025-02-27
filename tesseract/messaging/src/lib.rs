@@ -35,7 +35,7 @@ use ismp::{consensus::StateMachineHeight, events::Event, host::StateMachine, rou
 
 use tesseract_primitives::{
 	config::RelayerConfig, observe_challenge_period, wait_for_state_machine_update,
-	HandleGetResponse, HyperbridgeClaim, IsmpProvider, StateMachineUpdated, TxReceipt,
+	HandleGetResponse, HyperbridgeClaim, IsmpProvider, StateMachineUpdated, TxReceipt, TxResult,
 };
 use transaction_fees::TransactionPayment;
 
@@ -159,9 +159,13 @@ where
 						hyperbridge,
 						client_map,
 						tx_payment,
-						config,
+						config.clone(),
 						coprocessor,
-						sender,
+						if !config.disable_fee_accumulation.unwrap_or_default() {
+							Some(sender)
+						} else {
+							None
+						},
 					)
 					.await;
 					tracing::error!("{name} terminated with result {res:?}");
@@ -353,7 +357,7 @@ async fn handle_update(
 
 		let res = chain_a.submit(messages.clone(), coprocessor).await;
 		match res {
-			Ok(receipts) => {
+			Ok(TxResult { receipts, unsuccessful }) => {
 				if let Some(sender) = fee_acc_sender {
 					// We should not store messages when they are delivered to hyperbridge
 					if chain_a.state_machine_id().state_id != coprocessor {
@@ -383,6 +387,25 @@ async fn handle_update(
 						}
 					}
 				}
+
+				if !unsuccessful.is_empty() &&
+					config.unprofitable_retry_frequency.is_some() &&
+					chain_a.state_machine_id().state_id != coprocessor
+				{
+					tracing::error!(target: "tesseract", "Some transactions were cancelled and will be retried");
+					tracing::trace!(target: "tesseract", "Persisting {} cancelled transactions going to {} to the db", unsuccessful.len(), chain_a.name());
+					if let Err(err) = tx_payment
+						.store_unprofitable_messages(
+							unsuccessful,
+							chain_a.state_machine_id().state_id,
+						)
+						.await
+					{
+						tracing::error!(
+						"Encountered an error while cancelled messages inside the database {err:?}"
+					)
+					}
+				}
 			},
 			Err(err) => {
 				tracing::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
@@ -391,7 +414,10 @@ async fn handle_update(
 	}
 
 	// Store currently unprofitable in messages in db
-	if !unprofitable.is_empty() && config.unprofitable_retry_frequency.is_some() {
+	if !unprofitable.is_empty() &&
+		config.unprofitable_retry_frequency.is_some() &&
+		chain_a.state_machine_id().state_id != coprocessor
+	{
 		tracing::trace!(target: "tesseract", "Persisting {} unprofitable messages going to {} to the db", unprofitable.len(), chain_a.name());
 		if let Err(err) = tx_payment
 			.store_unprofitable_messages(unprofitable, chain_a.state_machine_id().state_id)

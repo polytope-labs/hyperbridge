@@ -123,8 +123,8 @@ pub struct Proof {
 pub fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
 	ErrorObject::owned(
 		9876, // no real reason for this value
-		"Something wrong",
-		Some(format!("{}", e)),
+		format!("{}", e),
+		None::<String>,
 	)
 }
 

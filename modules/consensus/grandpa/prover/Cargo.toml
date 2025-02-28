@@ -7,17 +7,18 @@ publish = false
 
 [dependencies]
 hex = { workspace = true, default-features = true }
+log = { workspace = true, default-features = true }
 anyhow = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true }
 subxt = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true, features = ["derive"] }
 hex-literal = { workspace = true }
 derive_more = { workspace = true, default-features = true }
-downcast-rs = "1.2.0"
 finality-grandpa = "0.16.0"
 grandpa-verifier-primitives = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
+indicatif = "0.17.11"
 
 [dependencies.polkadot-sdk]
 workspace = true

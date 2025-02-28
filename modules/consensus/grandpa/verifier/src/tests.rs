@@ -51,10 +51,11 @@ async fn follow_grandpa_justifications() {
 
 	log::info!("Connecting to relay chain {ws_url}");
 	let prover = GrandpaProver::<subxt_utils::BlakeSubstrateChain>::new(ProverOptions {
-		ws_url: &ws_url,
+		ws_url,
 		para_ids,
 		state_machine: StateMachine::Polkadot(0),
 		max_rpc_payload_size: u32::MAX,
+		max_block_range: 2000,
 	})
 	.await
 	.unwrap();

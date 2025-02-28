@@ -23,8 +23,9 @@ use grandpa_verifier_primitives::{
 	parachain_header_storage_key, ConsensusState, FinalityProof, ParachainHeaderProofs,
 	ParachainHeadersWithFinalityProof,
 };
+use indicatif::ProgressBar;
 use ismp::host::StateMachine;
-use polkadot_sdk::*;
+use polkadot_sdk::{sp_consensus_grandpa::GRANDPA_ENGINE_ID, *};
 use serde::{Deserialize, Serialize};
 use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_core::H256;
@@ -41,10 +42,8 @@ pub struct HeadData(pub Vec<u8>);
 pub struct GrandpaProver<T: Config> {
 	/// Subxt client for the chain
 	pub client: OnlineClient<T>,
-	/// ParaId of the associated parachains
-	pub para_ids: Vec<u32>,
-	/// State machine identifier for the chain
-	pub state_machine: StateMachine,
+	/// Options for the prover
+	pub options: ProverOptions,
 }
 
 /// We redefine these here because we want the header to be bounded by subxt::config::Header in the
@@ -70,15 +69,17 @@ pub struct GrandpaJustification<H: Header + codec::Decode> {
 
 /// Options for initializing the GRANDPA consensus prover.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct ProverOptions<'a> {
+pub struct ProverOptions {
 	/// The ws url to the node
-	pub ws_url: &'a str,
+	pub ws_url: String,
 	/// Parachain Ids if this GRANDPA consensus hosts parachains
 	pub para_ids: Vec<u32>,
 	/// State machine identifier for the chain
 	pub state_machine: StateMachine,
 	/// Max rpc payload for websocket connections
 	pub max_rpc_payload_size: u32,
+	/// Maximum block range to prove finality for
+	pub max_block_range: u32,
 }
 
 /// An encoded justification proving that the given header has been finalized
@@ -95,11 +96,11 @@ where
 {
 	/// Initializes the GRANDPA prover given the parameters. Internally connects over WS to the
 	/// provided RPC
-	pub async fn new(options: ProverOptions<'_>) -> Result<Self, anyhow::Error> {
-		let ProverOptions { max_rpc_payload_size, ws_url, state_machine, para_ids } = options;
-		let client = subxt_utils::client::ws_client(ws_url, max_rpc_payload_size).await?;
+	pub async fn new(options: ProverOptions) -> Result<Self, anyhow::Error> {
+		let ProverOptions { max_rpc_payload_size, ref ws_url, .. } = options;
+		let client = subxt_utils::client::ws_client(&ws_url, max_rpc_payload_size).await?;
 
-		Ok(Self { client, para_ids, state_machine })
+		Ok(Self { client, options })
 	}
 
 	/// Construct the initial consensus state.
@@ -163,7 +164,7 @@ where
 			latest_height,
 			latest_hash: hash.into(),
 			slot_duration,
-			state_machine: self.state_machine,
+			state_machine: self.options.state_machine,
 		})
 	}
 
@@ -199,9 +200,56 @@ where
 			GrandpaJustification::<H>::decode(&mut &finality_proof.justification[..])?;
 
 		finality_proof.block = justification.commit.target_hash;
-
 		latest_finalized_height = u32::from(justification.commit.target_number);
+		let proof_range = latest_finalized_height - previous_finalized_height;
 
+		// try to keep proofs within the max block range
+		if proof_range > self.options.max_block_range {
+			log::trace!(
+				"Proof range: {proof_range} exceeds max block range: {}",
+				self.options.max_block_range
+			);
+			let mut start = previous_finalized_height + self.options.max_block_range;
+
+			loop {
+				let hash = self
+					.client
+					.rpc()
+					.block_hash(Some(start.into()))
+					.await?
+					.ok_or_else(|| anyhow!("Block not found for number: {start:?}"))?;
+				let block = self
+					.client
+					.rpc()
+					.block(Some(hash))
+					.await?
+					.ok_or_else(|| anyhow!("Block not found for number: {hash:#?}"))?;
+				// Search for GRANDPA justification
+				let grandpa_justification = block.justifications.and_then(|justifications| {
+					justifications
+						.into_iter()
+						.find_map(|(id, proof)| (id == GRANDPA_ENGINE_ID).then_some(proof))
+				});
+				// Check if block has justifications - if not, proceed to the next block
+				if let Some(justification) = grandpa_justification {
+					log::trace!("Found valid justification for block number {start:?}");
+					// Found valid justification, decode and update finality proof
+					let decoded = GrandpaJustification::<H>::decode(&mut &justification[..])?;
+					finality_proof.block = decoded.commit.target_hash;
+					finality_proof.justification = justification;
+					latest_finalized_height = u32::from(decoded.commit.target_number);
+					break;
+				}
+
+				// No valid justification found, try parent block
+				start -= 1;
+			}
+		}
+
+		let diff = latest_finalized_height - previous_finalized_height;
+		log::info!("Downloading {diff} headers for ancestry proof");
+
+		let pb = ProgressBar::new(diff as u64);
 		let mut unknown_headers = vec![];
 		for height in previous_finalized_height..=latest_finalized_height {
 			let hash = self
@@ -219,7 +267,9 @@ where
 				.ok_or_else(|| anyhow!("Header with hash: {hash:?} not found!"))?;
 
 			unknown_headers.push(H::decode(&mut &header.encode()[..])?);
+			pb.inc(1);
 		}
+		pb.finish_and_clear();
 
 		// overwrite unknown headers
 		finality_proof.unknown_headers = unknown_headers;
@@ -241,6 +291,7 @@ where
 	{
 		// we are interested only in the blocks where our parachain header changes.
 		let para_keys: Vec<_> = self
+			.options
 			.para_ids
 			.iter()
 			.map(|para_id| parachain_header_storage_key(*para_id))
@@ -266,7 +317,7 @@ where
 			.collect::<Vec<_>>();
 		parachain_headers_with_proof.insert(
 			latest_finalized_hash.into(),
-			ParachainHeaderProofs { state_proof, para_ids: self.para_ids.clone() },
+			ParachainHeaderProofs { state_proof, para_ids: self.options.para_ids.clone() },
 		);
 		Ok(ParachainHeadersWithFinalityProof {
 			finality_proof,

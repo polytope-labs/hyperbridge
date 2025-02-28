@@ -25,7 +25,7 @@ use sp_consensus_grandpa::{
 	AuthorityId, AuthorityList, AuthoritySignature, ConsensusLog, Equivocation, RoundNumber,
 	ScheduledChange, SetId, GRANDPA_ENGINE_ID,
 };
-use sp_runtime::{generic::OpaqueDigestItemId, traits::Header as HeaderT, RuntimeAppPublic};
+use sp_runtime::{generic::OpaqueDigestItemId, traits::Header as HeaderT};
 use sp_std::prelude::*;
 
 /// A GRANDPA justification for block finality, it includes a commit message and

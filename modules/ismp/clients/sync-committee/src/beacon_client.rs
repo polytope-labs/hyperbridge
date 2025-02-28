@@ -17,6 +17,7 @@ use alloc::{collections::BTreeMap, format, string::ToString};
 use arbitrum_verifier::{verify_arbitrum_bold, verify_arbitrum_payload};
 use codec::{Decode, Encode};
 use evm_state_machine::construct_intermediate_state;
+use polkadot_sdk::sp_core::H256;
 
 use crate::{
 	pallet::{self, SupportedStatemachines},
@@ -84,14 +85,9 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		consensus_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let BeaconClientUpdate {
-			mut l2_oracle_payload,
-			mut dispute_game_payload,
-			consensus_update,
-			mut arbitrum_payload,
-			mut arbitrum_bold,
-		} = BeaconClientUpdate::decode(&mut &consensus_proof[..])
-			.map_err(|_| Error::Custom("Cannot decode beacon client update".to_string()))?;
+		let BeaconClientUpdate { consensus_update, .. } =
+			BeaconClientUpdate::decode(&mut &consensus_proof[..])
+				.map_err(|_| Error::Custom("Cannot decode beacon client update".to_string()))?;
 
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
@@ -124,6 +120,47 @@ impl<
 		state_commitment_vec.push(ethereum_state_commitment_height);
 
 		state_machine_map.insert(StateMachine::Evm(consensus_state.chain_id), state_commitment_vec);
+
+		let l2_update_proof = self.verify_l2_state_update(
+			trusted_consensus_state,
+			consensus_state_id,
+			&mut state_machine_map,
+			consensus_proof,
+		)?;
+		let l2_update_consensus_state = ConsensusState::decode(&mut &l2_update_proof[..])
+			.map_err(|_| Error::Custom("Cannot decode L2 state update".to_string()))?;
+
+		let new_consensus_state = ConsensusState {
+			frozen_height: None,
+			light_client_state: new_light_client_state.try_into().map_err(|_| {
+				Error::Custom(format!("Cannot convert light client state to codec type"))
+			})?,
+			l2_consensus: l2_update_consensus_state.l2_consensus,
+			chain_id: consensus_state.chain_id,
+		};
+
+		Ok((new_consensus_state.encode(), state_machine_map))
+	}
+
+	fn verify_l2_state_update(
+		&self,
+		trusted_consensus_state: Vec<u8>,
+		consensus_state_id: ConsensusStateId,
+		state_machine_map: &mut BTreeMap<StateMachine, Vec<StateCommitmentHeight>>,
+		consensus_proof: Vec<u8>,
+	) -> Result<Vec<u8>, Error> {
+		let BeaconClientUpdate {
+			mut l2_oracle_payload,
+			mut dispute_game_payload,
+			consensus_update,
+			mut arbitrum_payload,
+			mut arbitrum_bold,
+		} = BeaconClientUpdate::decode(&mut &consensus_proof[..])
+			.map_err(|_| Error::Custom("Cannot decode beacon client update".to_string()))?;
+
+		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
+			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+		let state_root = consensus_update.execution_payload.state_root;
 
 		let l2_consensus = consensus_state.l2_consensus.clone();
 
@@ -188,7 +225,7 @@ impl<
 						state_machine_map.insert(state_machine, state_commitment_vec);
 					}
 				},
-				L2Consensus::OpFaultProofs((dispute_game_factory, respected_game_type)) =>
+				L2Consensus::OpFaultProofs((dispute_game_factory, respected_game_type)) => {
 					if let Some(payload) = dispute_game_payload.remove(&state_machine) {
 						let state = verify_optimism_dispute_game_proof::<H>(
 							payload,
@@ -206,9 +243,10 @@ impl<
 						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 						state_commitment_vec.push(state_commitment_height);
 						state_machine_map.insert(state_machine, state_commitment_vec);
-					},
+					}
+				},
 
-				L2Consensus::OpFaultProofGames((dispute_game_factory, respected_game_types)) =>
+				L2Consensus::OpFaultProofGames((dispute_game_factory, respected_game_types)) => {
 					if let Some(payload) = dispute_game_payload.remove(&state_machine) {
 						let state = verify_optimism_dispute_game_proof::<H>(
 							payload,
@@ -226,20 +264,11 @@ impl<
 						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 						state_commitment_vec.push(state_commitment_height);
 						state_machine_map.insert(state_machine, state_commitment_vec);
-					},
+					}
+				},
 			}
 		}
-
-		let new_consensus_state = ConsensusState {
-			frozen_height: None,
-			light_client_state: new_light_client_state.try_into().map_err(|_| {
-				Error::Custom(format!("Cannot convert light client state to codec type"))
-			})?,
-			l2_consensus: consensus_state.l2_consensus,
-			chain_id: consensus_state.chain_id,
-		};
-
-		Ok((new_consensus_state.encode(), state_machine_map))
+		Ok(consensus_state.encode())
 	}
 
 	fn verify_fraud_proof(

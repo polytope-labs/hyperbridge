@@ -139,6 +139,15 @@ pub trait ConsensusClient {
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error>;
 
+	/// Process the L2 state update
+	fn verify_l2_state_update(
+		&self,
+		trusted_consensus_state: Vec<u8>,
+		consensus_state_id: ConsensusStateId,
+		state_machine_map: &mut BTreeMap<StateMachine, Vec<StateCommitmentHeight>>,
+		consensus_proof: Vec<u8>
+		)-> Result<Vec<u8>, Error>;
+
 	/// Given two distinct consensus proofs, verify that they're both valid and represent
 	/// conflicting views of the network. returns Ok(()) if they're both valid.
 	fn verify_fraud_proof(

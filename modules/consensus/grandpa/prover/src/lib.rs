@@ -206,7 +206,8 @@ where
 		// try to keep proofs within the max block range
 		if proof_range > self.options.max_block_range {
 			log::trace!(
-				"Proof range: {proof_range} exceeds max block range: {}",
+				"Proof range for {}: {proof_range} exceeds max block range: {}",
+				self.options.state_machine,
 				self.options.max_block_range
 			);
 			let mut start = previous_finalized_height + self.options.max_block_range;
@@ -232,7 +233,7 @@ where
 				});
 				// Check if block has justifications - if not, proceed to the next block
 				if let Some(justification) = grandpa_justification {
-					log::trace!("Found valid justification for block number {start:?}");
+					log::trace!("Found valid justification for state machine {} with block number {start:?}", self.options.state_machine);
 					// Found valid justification, decode and update finality proof
 					let decoded = GrandpaJustification::<H>::decode(&mut &justification[..])?;
 					finality_proof.block = decoded.commit.target_hash;
@@ -247,7 +248,10 @@ where
 		}
 
 		let diff = latest_finalized_height - previous_finalized_height;
-		log::info!("Downloading {diff} headers for ancestry proof");
+		log::info!(
+			"Downloading {diff} headers for state machine {} ancestry proof",
+			self.options.state_machine
+		);
 
 		let pb = ProgressBar::new(diff as u64);
 		let mut unknown_headers = vec![];

@@ -3,7 +3,7 @@
     "id": "gargantua",
     "chainType": "Live",
     "bootNodes": [
-        "/ip4/159.65.19.139/tcp/30333/p2p/12D3KooWLC6HJsjfegUYib3L7p1RfybmNMkj8R9dLJ9cv8tyDNdx"
+        "/dns/gargantua.bootnode.0.polytope.technology/tcp/30333/p2p/12D3KooWLC6HJsjfegUYib3L7p1RfybmNMkj8R9dLJ9cv8tyDNdx"
     ],
     "telemetryEndpoints": [
         ["wss://telemetry.polkadot.io/submit/", 0],

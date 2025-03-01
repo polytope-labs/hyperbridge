@@ -181,30 +181,18 @@ where
 		T::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
 		H::Number: finality_grandpa::BlockNumberOps + One,
 	{
-		let encoded = self
+		let finalized_hash = self.client.rpc().finalized_head().await?;
+		let finalized_header = self
 			.client
 			.rpc()
-			.request::<Option<JustificationNotification>>(
-				"grandpa_proveFinality",
-				rpc_params![latest_finalized_height],
-			)
+			.header(Some(finalized_hash))
 			.await?
-			.ok_or_else(|| {
-				anyhow!("No justification found for block: {:?}", latest_finalized_height)
-			})?
-			.0;
+			.ok_or_else(|| anyhow!("Header not found for hash {finalized_hash#:?}"))?;
 
-		let mut finality_proof = FinalityProof::<H>::decode(&mut &encoded[..])?;
-
-		let justification =
-			GrandpaJustification::<H>::decode(&mut &finality_proof.justification[..])?;
-
-		finality_proof.block = justification.commit.target_hash;
-		latest_finalized_height = u32::from(justification.commit.target_number);
-		let proof_range = latest_finalized_height - previous_finalized_height;
+		let proof_range = u32::from(finalized_header.number()) - previous_finalized_height;
 
 		// try to keep proofs within the max block range
-		if proof_range > self.options.max_block_range {
+		let finality_proof = if proof_range > self.options.max_block_range {
 			log::trace!(
 				"Proof range for {}: {proof_range} exceeds max block range: {}",
 				self.options.state_machine,
@@ -212,7 +200,7 @@ where
 			);
 			let mut start = previous_finalized_height + self.options.max_block_range;
 
-			loop {
+			let finality_proof = loop {
 				let hash = self
 					.client
 					.rpc()
@@ -236,16 +224,45 @@ where
 					log::trace!("Found valid justification for state machine {} with block number {start:?}", self.options.state_machine);
 					// Found valid justification, decode and update finality proof
 					let decoded = GrandpaJustification::<H>::decode(&mut &justification[..])?;
-					finality_proof.block = decoded.commit.target_hash;
-					finality_proof.justification = justification;
 					latest_finalized_height = u32::from(decoded.commit.target_number);
-					break;
+					break FinalityProof {
+						block: decoded.commit.target_hash,
+						justification,
+						unknown_headers: vec![],
+					};
 				}
 
 				// No valid justification found, try parent block
 				start -= 1;
-			}
-		}
+			};
+
+			finality_proof
+		} else {
+			let encoded = self
+				.client
+				.rpc()
+				.request::<Option<JustificationNotification>>(
+					"grandpa_proveFinality",
+					rpc_params![latest_finalized_height],
+				)
+				.await?
+				.ok_or_else(|| {
+					anyhow!("No justification found for block: {:?}", latest_finalized_height)
+				})?
+				.0;
+
+			let mut finality_proof = FinalityProof::<H>::decode(&mut &encoded[..])?;
+			let justification =
+				GrandpaJustification::<H>::decode(&mut &finality_proof.justification[..])?;
+
+			finality_proof.block = justification.commit.target_hash;
+			latest_finalized_height = u32::from(justification.commit.target_number);
+			log::trace!(
+				"Retrieved proof for state machine {} at block number {latest_finalized_height:?}",
+				self.options.state_machine
+			);
+			finality_proof
+		};
 
 		let diff = latest_finalized_height - previous_finalized_height;
 		log::info!(
@@ -329,3 +346,8 @@ where
 		})
 	}
 }
+
+// docker run --name gargantua --restart always --network=host -d -v
+// /home/seun/.paseo:/root/hyperbridge polytopelabs/hyperbridge --chain=gargantua --name="Polytope
+// Labs"  --pruning=archive --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe
+// --rpc-port=9001 --base-path=/root/hyperbridge --log=ismp=trace

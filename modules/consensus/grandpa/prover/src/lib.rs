@@ -187,12 +187,12 @@ where
 			.rpc()
 			.header(Some(finalized_hash))
 			.await?
-			.ok_or_else(|| anyhow!("Header not found for hash {finalized_hash#:?}"))?;
+			.ok_or_else(|| anyhow!("Header not found for hash {finalized_hash:#?}"))?;
 
 		let proof_range = u32::from(finalized_header.number()) - previous_finalized_height;
 
 		// try to keep proofs within the max block range
-		let finality_proof = if proof_range > self.options.max_block_range {
+		let mut finality_proof = if proof_range > self.options.max_block_range {
 			log::trace!(
 				"Proof range for {}: {proof_range} exceeds max block range: {}",
 				self.options.state_machine,
@@ -200,7 +200,7 @@ where
 			);
 			let mut start = previous_finalized_height + self.options.max_block_range;
 
-			let finality_proof = loop {
+			loop {
 				let hash = self
 					.client
 					.rpc()
@@ -234,9 +234,7 @@ where
 
 				// No valid justification found, try parent block
 				start -= 1;
-			};
-
-			finality_proof
+			}
 		} else {
 			let encoded = self
 				.client
@@ -346,8 +344,3 @@ where
 		})
 	}
 }
-
-// docker run --name gargantua --restart always --network=host -d -v
-// /home/seun/.paseo:/root/hyperbridge polytopelabs/hyperbridge --chain=gargantua --name="Polytope
-// Labs"  --pruning=archive --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe
-// --rpc-port=9001 --base-path=/root/hyperbridge --log=ismp=trace

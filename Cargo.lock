@@ -8525,7 +8525,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "16.0.0"
+version = "16.1.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
@@ -8542,7 +8542,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "16.0.0"
+version = "16.1.0"
 dependencies = [
  "anyhow",
  "async-trait",

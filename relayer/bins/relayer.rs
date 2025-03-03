@@ -18,6 +18,9 @@ use tesseract::{cli::Cli, subcommand::Subcommand};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+	rustls::crypto::ring::default_provider()
+		.install_default()
+		.expect("Failed to install rustls crypto provider");
 	let cli = Cli::parse();
 	if let Some(subcommand) = cli.subcommand {
 		match subcommand {

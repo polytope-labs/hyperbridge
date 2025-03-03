@@ -17,7 +17,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::GrandpaHost;
 use anyhow::{anyhow, Error};
-use codec::{Decode, Encode};
+use codec::Encode;
 use futures::{stream, StreamExt};
 use grandpa_verifier_primitives::ConsensusState;
 use ismp::{
@@ -29,29 +29,23 @@ use ismp_grandpa::{
 	messages::{RelayChainMessage, StandaloneChainMessage},
 };
 
-use grandpa_verifier_primitives::justification::GrandpaJustification;
 use sp_core::{crypto, H256};
 use subxt::config::{
 	extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 };
 
-use subxt::{
-	config::substrate::{BlakeTwo256, SubstrateHeader},
-	ext::sp_runtime::{
-		traits::{One, Zero},
-		MultiSignature,
-	},
+use subxt::ext::sp_runtime::{
+	traits::{One, Zero},
+	MultiSignature,
 };
 use tesseract_primitives::{IsmpHost, IsmpProvider};
-
-pub type Justification = GrandpaJustification<polkadot_core_primitives::Header>;
 
 #[async_trait::async_trait]
 impl<H, C> IsmpHost for GrandpaHost<H, C>
 where
 	H: subxt::Config + Send + Sync + Clone,
 	C: subxt::Config + Send + Sync + Clone,
-	<H::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One,
+	<H::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One + From<u32>,
 	u32: From<<H::Header as Header>::Number>,
 	sp_core::H256: From<H::Hash>,
 	H::Header: codec::Decode,
@@ -90,7 +84,8 @@ where
 						.query_consensus_state(None, client.consensus_state_id.clone())
 						.await?;
 
-					let consensus_state: ConsensusState =codec::Decode::decode(&mut &consensus_state_bytes[..])?;
+					let consensus_state: ConsensusState = codec::Decode::decode(&mut &consensus_state_bytes[..])?;
+					log::trace!("Consensus state: {:#?}", ConsensusState { current_authorities: vec![] , ..consensus_state });
                     client.should_sync(consensus_state.current_set_id).await
                 };
 
@@ -98,7 +93,7 @@ where
                     Ok(val) => {
                         // If the consensus client on counterparty needs to be synced, then we should not observe the interval
                         if !val {
-                            interval.tick().await;
+                        	interval.tick().await;
                         }
                     }
                     Err(e) => {
@@ -117,6 +112,9 @@ where
 								let consensus_state: ConsensusState =
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
+								log::trace!("Consensus state for {}: {:#?}", client.state_machine, ConsensusState { current_authorities: vec![] , ..consensus_state });
+
+
                                 let finalized_hash = client.prover.client.rpc().finalized_head().await?;
                                 let latest_finalized_head: u64 = client.prover.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
 
@@ -125,34 +123,25 @@ where
                                 }
 
                                 // Query finality proof will give us the highest finality proof in the epoch of the block number we supplied
-								let next_relay_height = consensus_state.latest_height + 1;
-
 								let finality_proof = client
 									.prover
-									.query_finality_proof::<SubstrateHeader<u32, BlakeTwo256>>(
+									.query_finality_proof(
 										consensus_state.latest_height,
-										next_relay_height,
 									)
 									.await?;
 
-								let justification =
-									Justification::decode(&mut &finality_proof.justification[..])?;
-
 								let parachain_headers_with_proof = client
 									.prover
-									.query_finalized_parachain_headers_with_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-										justification.commit.target_number,
-										finality_proof.clone(),
+									.query_finalized_parachain_headers_with_proof(
+									 finality_proof.block.into(),
 									)
 									.await?;
 
 								let relay_chain_message = RelayChainMessage {
 									finality_proof: codec::Decode::decode(
-										&mut &parachain_headers_with_proof.finality_proof.encode()
-											[..],
+										&mut &finality_proof.encode()[..],
 									)?,
-									parachain_headers: parachain_headers_with_proof
-										.parachain_headers,
+									parachain_headers: parachain_headers_with_proof,
 								};
 								let message = ConsensusMessage {
 									consensus_proof:
@@ -161,7 +150,7 @@ where
 										)
 										.encode(),
 									consensus_state_id: client.consensus_state_id.clone(),
-									signer: counterparty.address(),
+									signer: H256::random().0.to_vec(),
 								};
 
 								Ok::<_, Error>(Some(message))
@@ -175,6 +164,9 @@ where
 								let consensus_state: ConsensusState =
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
+								log::trace!("Consensus state for {}: {:#?}", client.state_machine, ConsensusState { current_authorities: vec![] , ..consensus_state });
+
+
                                 let finalized_hash = client.prover.client.rpc().finalized_head().await?;
                                 let latest_finalized_head: u64 = client.prover.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
 
@@ -183,14 +175,10 @@ where
                                     return Ok(None)
                                 }
 
-                                // Query finality proof will give us the highest finality proof in the epoch of the block number we supplied
-								let next_relay_height = consensus_state.latest_height + 1;
-
 								let finality_proof = client
 									.prover
-									.query_finality_proof::<SubstrateHeader<u32, BlakeTwo256>>(
+									.query_finality_proof(
 										consensus_state.latest_height,
-										next_relay_height,
 									)
 									.await?;
 								let standalone_message = StandaloneChainMessage {
@@ -205,7 +193,7 @@ where
                                         )
                                         .encode(),
                                     consensus_state_id: client.consensus_state_id,
-                                    signer: counterparty.address()
+                                    signer: H256::random().0.to_vec(),
                                 };
 
 								Ok(Some(message))

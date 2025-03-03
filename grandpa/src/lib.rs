@@ -33,6 +33,10 @@ use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
 mod host;
 
+/// Default maximum block range to prove finality for, roughly 4 hours of blocks
+/// on a typical Substrate chain with 6-second block time.
+const DEFAULT_BLOCK_RANGE: u32 = 4096;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrandpaConfig {
 	/// substrate config options
@@ -46,7 +50,8 @@ impl GrandpaConfig {
 	where
 		H: subxt::Config + Send + Sync + Clone,
 		C: subxt::Config + Send + Sync + Clone,
-		<H::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One,
+		<H::Header as Header>::Number:
+			Ord + Zero + finality_grandpa::BlockNumberOps + One + From<u32>,
 		u32: From<<H::Header as Header>::Number>,
 		sp_core::H256: From<H::Hash>,
 		H::Header: codec::Decode,
@@ -78,6 +83,8 @@ pub struct HostConfig {
 	pub consensus_update_frequency: Option<u64>,
 	/// para ids
 	pub para_ids: Vec<u32>,
+	/// Maximum block range to prove finality for
+	pub max_block_range: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -98,7 +105,7 @@ impl<H, C> GrandpaHost<H, C>
 where
 	H: subxt::Config + Send + Sync + Clone,
 	C: subxt::Config + Send + Sync + Clone,
-	<H::Header as Header>::Number: Ord + Zero,
+	<H::Header as Header>::Number: Ord + Zero + From<u32>,
 	u32: From<<H::Header as Header>::Number>,
 	sp_core::H256: From<H::Hash>,
 	H::Header: codec::Decode,
@@ -115,10 +122,11 @@ where
 {
 	pub async fn new(config: &GrandpaConfig) -> Result<Self, anyhow::Error> {
 		let prover = GrandpaProver::new(ProverOptions {
-			ws_url: &config.grandpa.rpc,
+			ws_url: config.grandpa.rpc.clone(),
 			para_ids: config.grandpa.para_ids.clone(),
 			state_machine: config.substrate.state_machine,
 			max_rpc_payload_size: 150 * 1024 * 1024,
+			max_block_range: config.grandpa.max_block_range.unwrap_or(DEFAULT_BLOCK_RANGE),
 		})
 		.await?;
 		let substrate_client = SubstrateClient::<C>::new(config.substrate.clone()).await?;

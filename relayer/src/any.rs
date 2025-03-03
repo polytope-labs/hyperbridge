@@ -82,7 +82,7 @@ where
 
 	R: subxt::Config + Send + Sync + Clone,
 	R::Header: Send + Sync,
-	<R::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One,
+	<R::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One + From<u32>,
 	u32: From<<R::Header as Header>::Number>,
 	sp_core::H256: From<R::Hash>,
 	R::Header: codec::Decode,
@@ -155,7 +155,7 @@ impl HyperbridgeHostConfig {
 			From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 		H256: From<<P as subxt::Config>::Hash>,
 
-		<R::Header as Header>::Number: Ord + Zero,
+		<R::Header as Header>::Number: Ord + Zero + From<u32>,
 		u32: From<<R::Header as Header>::Number>,
 		sp_core::H256: From<R::Hash>,
 		R::Header: codec::Decode,

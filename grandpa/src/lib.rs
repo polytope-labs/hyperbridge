@@ -35,7 +35,7 @@ mod host;
 
 /// Default maximum block range to prove finality for, roughly 4 hours of blocks
 /// on a typical Substrate chain with 6-second block time.
-const DEFAULT_BLOCK_RANGE: u32 = 4096;
+const DEFAULT_BLOCK_RANGE: u32 = 2400;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrandpaConfig {

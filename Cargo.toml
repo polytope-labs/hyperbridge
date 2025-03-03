@@ -221,7 +221,7 @@ pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspect
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
-pallet-mmr = { path = "modules/pallets/mmr", default-features = false }
+pallet-mmr-tree = { path = "modules/pallets/mmr", default-features = false }
 pallet-mmr-rpc = { path = "modules/pallets/mmr/rpc", default-features = false }
 mmr-primitives = { path = "modules/pallets/mmr/primitives", default-features = false }
 pallet-mmr-runtime-api = { path = "modules/pallets/mmr/runtime-api", default-features = false }

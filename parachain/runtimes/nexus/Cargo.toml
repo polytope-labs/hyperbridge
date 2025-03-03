@@ -46,7 +46,7 @@ pallet-token-governor = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
-pallet-mmr = { workspace = true }
+pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 
@@ -132,7 +132,7 @@ std = [
     "pallet-call-decompressor/std",
     "pallet-xcm-gateway/std",
     "pallet-token-governor/std",
-    "pallet-mmr/std",
+    "pallet-mmr-tree/std",
     "orml-xcm-support/std",
     "orml-traits/std",
     "pallet-mmr-runtime-api/std",

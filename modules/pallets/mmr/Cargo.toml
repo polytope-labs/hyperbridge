@@ -1,5 +1,5 @@
 [package]
-name = "pallet-mmr"
+name = "pallet-mmr-tree"
 version = "0.1.1"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]

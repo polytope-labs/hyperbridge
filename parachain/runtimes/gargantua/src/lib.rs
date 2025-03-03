@@ -559,7 +559,7 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = weights::pallet_sudo::WeightInfo<Runtime>;
 }
 
-impl pallet_mmr::Config for Runtime {
+impl pallet_mmr_tree::Config for Runtime {
 	const INDEXING_PREFIX: &'static [u8] = INDEXING_PREFIX;
 	type Hashing = Keccak256;
 	type Leaf = Leaf;
@@ -709,7 +709,7 @@ construct_runtime!(
 		// ISMP stuff
 		// Xcm messages are executed in on_initialize of the message queue,
 		// pallet ismp must come before the queue so it can setup the mmr
-		Mmr: pallet_mmr = 40,
+		Mmr: pallet_mmr_tree = 40,
 		Ismp: pallet_ismp = 41,
 		MessageQueue: pallet_message_queue = 42,
 

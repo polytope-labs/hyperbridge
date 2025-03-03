@@ -187,13 +187,21 @@ where
 			.header(Some(finalized_hash))
 			.await?
 			.ok_or_else(|| anyhow!("Header not found for hash {finalized_hash:#?}"))?;
-		let finalized_number = u32::from(finalized_header.number()) - previous_finalized_height;
+		let finalized_number = u32::from(finalized_header.number());
+
+		log::trace!(
+			"Finalized block number for {}: {finalized_number}",
+			self.options.state_machine
+		);
 
 		let target_block_number = std::cmp::min(
 			previous_finalized_height + self.options.max_block_range,
 			finalized_number,
 		);
-		log::trace!("Target block number: {target_block_number}");
+		log::trace!(
+			"Target block number for {}: {target_block_number}",
+			self.options.state_machine
+		);
 
 		let mut target_block_hash = self
 			.client
@@ -245,7 +253,7 @@ where
 					});
 				if let Some(_) = grandpa_justification {
 					log::trace!(
-						"Found valid justification for {} at block number {height:?}",
+						"Found justification for {} at block number {height:?}",
 						self.options.state_machine
 					);
 					target_block_hash = hash;

@@ -33,7 +33,7 @@ use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_core::H256;
 use sp_runtime::traits::{One, Zero};
 use std::collections::{BTreeMap, BTreeSet};
-use subxt::{config::Header, Config, OnlineClient};
+use subxt::{config::Header, rpc_params, Config, OnlineClient};
 
 /// Head data for parachain
 #[derive(Decode, Encode)]
@@ -180,6 +180,7 @@ where
 		u32: From<<T::Header as Header>::Number>,
 		<T::Header as Header>::Number: finality_grandpa::BlockNumberOps + One,
 	{
+		let max_height = previous_finalized_height + self.options.max_block_range;
 		let finalized_hash = self.client.rpc().finalized_head().await?;
 		let finalized_header = self
 			.client
@@ -188,16 +189,35 @@ where
 			.await?
 			.ok_or_else(|| anyhow!("Header not found for hash {finalized_hash:#?}"))?;
 		let finalized_number = u32::from(finalized_header.number());
-
 		log::trace!(
 			"Finalized block number for {}: {finalized_number}",
 			self.options.state_machine
 		);
 
-		let target_block_number = std::cmp::min(
-			previous_finalized_height + self.options.max_block_range,
-			finalized_number,
-		);
+		if max_height > finalized_number {
+			let encoded = self
+				.client
+				.rpc()
+				.request::<Option<JustificationNotification>>(
+					"grandpa_proveFinality",
+					rpc_params![finalized_number],
+				)
+				.await?
+				.ok_or_else(|| anyhow!("No justification found for block: {:?}", finalized_number))?
+				.0;
+
+			let mut finality_proof = FinalityProof::<DefaultHeader>::decode(&mut &encoded[..])?;
+			let justification =
+				GrandpaJustification::<T::Header>::decode(&mut &finality_proof.justification[..])?;
+			finality_proof.block = justification.commit.target_hash;
+			finality_proof.unknown_headers = self
+				.query_headers(previous_finalized_height, justification.commit.target_number)
+				.await?;
+
+			return Ok(finality_proof);
+		}
+
+		let target_block_number = max_height;
 		log::trace!(
 			"Target block number for {}: {target_block_number}",
 			self.options.state_machine
@@ -234,9 +254,11 @@ where
 					"Found set rotation for {} at block number {height:?}",
 					self.options.state_machine
 				);
-				target_block_hash = hash;
-				// stop here
-				break;
+				if height != previous_finalized_height {
+					target_block_hash = hash;
+					// stop here
+					break;
+				}
 			} else {
 				// check block justifications
 				let grandpa_justification = self
@@ -306,6 +328,47 @@ where
 		};
 
 		Ok(finality_proof)
+	}
+
+	/// Query a range of headers from the chain
+	///
+	/// # Arguments
+	///
+	/// * `start` - The starting block height
+	/// * `end` - The ending block height (inclusive)
+	///
+	/// # Returns
+	///
+	/// A vector of decoded headers within the specified range
+	///
+	/// # Errors
+	///
+	/// Returns an error if any block hash or header cannot be retrieved
+	pub async fn query_headers(
+		&self,
+		start: u32,
+		end: u32,
+	) -> Result<Vec<DefaultHeader>, anyhow::Error> {
+		let mut headers = Vec::new();
+		let pb = ProgressBar::new((start - end) as u64);
+		for height in start..=end {
+			let hash = self
+				.client
+				.rpc()
+				.block_hash(Some(height.into()))
+				.await?
+				.ok_or_else(|| anyhow!("Failed to fetch block has for height {height}"))?;
+			let header = self
+				.client
+				.rpc()
+				.header(Some(hash))
+				.await?
+				.ok_or_else(|| anyhow!("Header with hash: {hash:?} not found!"))?;
+			headers.push(DefaultHeader::decode(&mut header.encode().as_ref())?);
+			pb.inc(1);
+		}
+		pb.finish_and_clear();
+		Ok(headers)
 	}
 
 	/// Returns the proof for parachain headers finalized by the provided finality proof

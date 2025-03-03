@@ -260,7 +260,7 @@ where
 			.rpc()
 			.block(Some(target_block_hash))
 			.await?
-			.ok_or_else(|| anyhow!("Block not found for number: {target_block_hash:#?}"))?;
+			.ok_or_else(|| anyhow!("Block not found for number: {:#?}", target_block_hash))?;
 		// get GRANDPA justification
 		let justification = block
 			.justifications

@@ -193,6 +193,8 @@ where
 			previous_finalized_height + self.options.max_block_range,
 			finalized_number,
 		);
+		log::trace!("Target block number: {target_block_number}");
+
 		let mut target_block_hash = self
 			.client
 			.rpc()
@@ -267,7 +269,7 @@ where
 					.into_iter()
 					.find_map(|(id, proof)| (id == GRANDPA_ENGINE_ID).then_some(proof))
 			})
-			.expect("Block should contain GRANDPA justification; qed");
+			.expect("Block {target_block_hash:#?} should contain GRANDPA justification; qed");
 		let previously_finalized_hash = self
 			.client
 			.rpc()

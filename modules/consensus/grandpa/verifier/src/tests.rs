@@ -12,10 +12,7 @@ use grandpa_verifier_primitives::{
 use ismp::host::StateMachine;
 use polkadot_core_primitives::Header;
 use serde::{Deserialize, Serialize};
-use subxt::{
-	config::substrate::{BlakeTwo256, SubstrateHeader},
-	rpc_params, OnlineClient,
-};
+use subxt::{rpc_params, OnlineClient};
 pub type Justification = GrandpaJustification<Header>;
 
 /// An encoded justification proving that the given header has been finalized
@@ -101,23 +98,19 @@ async fn follow_grandpa_justifications() {
 			},
 		}
 
-		let next_relay_height = consensus_state.latest_height + 1;
-
 		// prove finality should give us the justification for the highest finalized block of the
 		// authority set the block provided to it belongs
-		let finality_proof = prover
-			.query_finality_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-				consensus_state.latest_height,
-				next_relay_height,
-			)
-			.await
-			.unwrap();
+		let finality_proof =
+			prover.query_finality_proof(consensus_state.latest_height).await.unwrap();
 
 		let proof = finality_proof.encode();
-		let proof = FinalityProof::<Header>::decode(&mut &*proof).unwrap();
+		let finality_proof = FinalityProof::<Header>::decode(&mut &*proof).unwrap();
 
-		let (new_consensus_state, _, _, _) =
-			verify_grandpa_finality_proof::<Header>(consensus_state.clone(), proof).unwrap();
+		let (new_consensus_state, _, _, _) = verify_grandpa_finality_proof::<Header>(
+			consensus_state.clone(),
+			finality_proof.clone(),
+		)
+		.unwrap();
 
 		if is_relay {
 			let justification =
@@ -131,11 +124,8 @@ async fn follow_grandpa_justifications() {
 				justification.commit.target_number
 			);
 
-			let proof = prover
-				.query_finalized_parachain_headers_with_proof::<SubstrateHeader<u32, BlakeTwo256>>(
-					justification.commit.target_number,
-					finality_proof.clone(),
-				)
+			let parachain_headers = prover
+				.query_finalized_parachain_headers_with_proof(justification.commit.target_hash)
 				.await
 				.expect("Failed to fetch finalized parachain headers with proof");
 
@@ -145,7 +135,7 @@ async fn follow_grandpa_justifications() {
 			let (new_consensus_state, _parachain_headers) =
 				verify_parachain_headers_with_grandpa_finality_proof::<Header>(
 					consensus_state.clone(),
-					proof.clone(),
+					ParachainHeadersWithFinalityProof { finality_proof, parachain_headers },
 				)
 				.expect("Failed to verify parachain headers with grandpa finality_proof");
 

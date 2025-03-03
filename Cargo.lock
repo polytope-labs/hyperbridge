@@ -6848,8 +6848,8 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
- "pallet-mmr 0.1.1",
  "pallet-mmr-runtime-api",
+ "pallet-mmr-tree",
  "pallet-state-coprocessor",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
@@ -7296,12 +7296,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "derive_more 1.0.0",
- "downcast-rs",
  "finality-grandpa",
  "grandpa-verifier-primitives",
  "hex",
  "hex-literal 0.4.1",
+ "indicatif",
  "ismp",
+ "log",
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
  "serde",
@@ -7894,7 +7895,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "clap",
  "futures",
@@ -8603,7 +8604,7 @@ dependencies = [
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
- "pallet-mmr 0.1.1",
+ "pallet-mmr-tree",
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
  "primitive-types",
@@ -10618,8 +10619,8 @@ dependencies = [
  "log",
  "mmr-primitives",
  "pallet-ismp",
- "pallet-mmr 0.1.1",
  "pallet-mmr-runtime-api",
+ "pallet-mmr-tree",
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
 ]
@@ -11248,8 +11249,8 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
- "pallet-mmr 0.1.1",
  "pallet-mmr-runtime-api",
+ "pallet-mmr-tree",
  "pallet-state-coprocessor",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -12179,7 +12180,7 @@ dependencies = [
  "frame-system",
  "log",
  "pallet-beefy",
- "pallet-mmr 38.0.0",
+ "pallet-mmr",
  "pallet-session",
  "parity-scale-codec",
  "scale-info",
@@ -12920,7 +12921,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
- "pallet-mmr 0.1.1",
+ "pallet-mmr-tree",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -13031,23 +13032,6 @@ dependencies = [
 
 [[package]]
 name = "pallet-mmr"
-version = "0.1.1"
-dependencies = [
- "array-bytes 6.2.3",
- "ckb-merkle-mountain-range",
- "env_logger 0.11.6",
- "itertools 0.10.5",
- "log",
- "mmr-primitives",
- "pallet-ismp",
- "parity-scale-codec",
- "polkadot-sdk 0.9.0",
- "scale-info",
- "serde",
-]
-
-[[package]]
-name = "pallet-mmr"
 version = "38.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6932dfb85f77a57c2d1fdc28a7b3a59ffe23efd8d5bb02dc3039d91347e4a3b"
@@ -13084,6 +13068,23 @@ dependencies = [
  "pallet-ismp",
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
+ "serde",
+]
+
+[[package]]
+name = "pallet-mmr-tree"
+version = "0.1.1"
+dependencies = [
+ "array-bytes 6.2.3",
+ "ckb-merkle-mountain-range",
+ "env_logger 0.11.6",
+ "itertools 0.10.5",
+ "log",
+ "mmr-primitives",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk 0.9.0",
+ "scale-info",
  "serde",
 ]
 
@@ -15767,7 +15768,7 @@ dependencies = [
  "pallet-balances",
  "pallet-broker",
  "pallet-message-queue",
- "pallet-mmr 38.0.0",
+ "pallet-mmr",
  "pallet-session",
  "pallet-staking",
  "pallet-timestamp",
@@ -15899,7 +15900,7 @@ dependencies = [
  "pallet-message-queue",
  "pallet-migrations",
  "pallet-mixnet",
- "pallet-mmr 38.0.0",
+ "pallet-mmr",
  "pallet-multisig",
  "pallet-nft-fractionalization",
  "pallet-nfts",
@@ -16161,7 +16162,7 @@ dependencies = [
  "pallet-message-queue",
  "pallet-migrations",
  "pallet-mixnet",
- "pallet-mmr 38.0.0",
+ "pallet-mmr",
  "pallet-multisig",
  "pallet-nft-fractionalization",
  "pallet-nfts",
@@ -18418,7 +18419,7 @@ dependencies = [
  "pallet-indices",
  "pallet-membership",
  "pallet-message-queue",
- "pallet-mmr 38.0.0",
+ "pallet-mmr",
  "pallet-multisig",
  "pallet-nis",
  "pallet-offences",
@@ -21250,7 +21251,7 @@ dependencies = [
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-rpc",
- "pallet-mmr 0.1.1",
+ "pallet-mmr-tree",
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
  "primitive-types",
@@ -26759,7 +26760,7 @@ dependencies = [
  "pallet-indices",
  "pallet-membership",
  "pallet-message-queue",
- "pallet-mmr 38.0.0",
+ "pallet-mmr",
  "pallet-multisig",
  "pallet-nomination-pools",
  "pallet-nomination-pools-benchmarking",

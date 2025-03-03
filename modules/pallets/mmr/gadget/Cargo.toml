@@ -12,7 +12,7 @@ codec = { workspace = true, default-features = true }
 futures = "0.3.30"
 pallet-ismp = { workspace = true, default-features = true }
 pallet-mmr-runtime-api = { workspace = true, default-features = true }
-pallet-mmr = { workspace = true, default-features = true }
+pallet-mmr-tree = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 log = { workspace = true, default-features = true }
 

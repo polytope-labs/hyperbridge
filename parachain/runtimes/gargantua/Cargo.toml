@@ -41,7 +41,7 @@ pallet-call-decompressor = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
-pallet-mmr = { workspace = true }
+pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
@@ -132,7 +132,7 @@ std = [
     "pallet-xcm-gateway/std",
     "pallet-token-gateway-inspector/std",
     "pallet-token-governor/std",
-    "pallet-mmr/std",
+    "pallet-mmr-tree/std",
     "orml-xcm-support/std",
     "orml-traits/std",
     "pallet-mmr-runtime-api/std",
@@ -158,7 +158,7 @@ try-runtime = [
     "pallet-ismp-demo/try-runtime",
     "pallet-ismp-relayer/try-runtime",
     "pallet-ismp-host-executive/try-runtime",
-    "pallet-mmr/try-runtime",
+    "pallet-mmr-tree/try-runtime",
     "cumulus-pallet-parachain-system/try-runtime",
 ]
 # This must be used when buiding for a runtime upgrade so metadata hash verification is possible

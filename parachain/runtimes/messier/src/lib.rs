@@ -559,7 +559,7 @@ impl pallet_sudo::Config for Runtime {
 	type WeightInfo = ();
 }
 
-impl pallet_mmr::Config for Runtime {
+impl pallet_mmr_tree::Config for Runtime {
 	const INDEXING_PREFIX: &'static [u8] = INDEXING_PREFIX;
 	type Hashing = Keccak256;
 	type Leaf = Leaf;

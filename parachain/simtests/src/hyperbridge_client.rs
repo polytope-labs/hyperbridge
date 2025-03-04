@@ -150,7 +150,7 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	let height = StateMachineHeight {
 		id: StateMachineId {
 			state_id: StateMachine::Kusama(para_id).into(),
-			consensus_state_id: *b"PARA",
+			consensus_state_id: *b"PAS0",
 		},
 		height: 200,
 	};
@@ -337,7 +337,7 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 	let height = StateMachineHeight {
 		id: StateMachineId {
 			state_id: StateMachine::Kusama(para_id).into(),
-			consensus_state_id: *b"PARA",
+			consensus_state_id: *b"PAS0",
 		},
 		height: 200,
 	};
@@ -527,7 +527,7 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	let height = StateMachineHeight {
 		id: StateMachineId {
 			state_id: StateMachine::Kusama(para_id).into(),
-			consensus_state_id: *b"PARA",
+			consensus_state_id: *b"PAS0",
 		},
 		height: 200,
 	};

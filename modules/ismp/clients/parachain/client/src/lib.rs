@@ -31,7 +31,12 @@ use cumulus_pallet_parachain_system::{
 	RelayChainState, RelaychainDataProvider, RelaychainStateProvider,
 };
 use cumulus_primitives_core::relay_chain;
-use ismp::{handlers, messaging::CreateConsensusState};
+use ismp::{
+	consensus::ConsensusStateId,
+	handlers,
+	host::{IsmpHost, StateMachine},
+	messaging::CreateConsensusState,
+};
 pub use pallet::*;
 
 #[frame_support::pallet]
@@ -42,7 +47,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		consensus::StateMachineId,
-		host::{IsmpHost, StateMachine},
+		host::StateMachine,
 		messaging::{ConsensusMessage, Message},
 	};
 	use migration::StorageV0;
@@ -111,9 +116,11 @@ pub mod pallet {
 				!ConsensusUpdated::<T>::exists(),
 				"ValidationData must be updated only once in a block",
 			);
+			let host = <T::IsmpHost>::default();
 
 			assert_eq!(
-				data.consensus_state_id, PARACHAIN_CONSENSUS_ID,
+				data.consensus_state_id,
+				parachain_consensus_state_id(host.host_state_machine()),
 				"Only parachain consensus updates should be passed in the inherents!"
 			);
 
@@ -142,7 +149,10 @@ pub mod pallet {
 				};
 				Parachains::<T>::insert(para.id, para.slot_duration);
 				let _ = host.store_challenge_period(
-					StateMachineId { state_id, consensus_state_id: PARACHAIN_CONSENSUS_ID },
+					StateMachineId {
+						state_id,
+						consensus_state_id: parachain_consensus_state_id(host.host_state_machine()),
+					},
 					0,
 				);
 			}
@@ -181,7 +191,9 @@ pub mod pallet {
 			// kill the storage, since this is the beginning of a new block.
 			ConsensusUpdated::<T>::kill();
 			let host = T::IsmpHost::default();
-			if let Err(_) = host.consensus_state(PARACHAIN_CONSENSUS_ID) {
+			if let Err(_) =
+				host.consensus_state(parachain_consensus_state_id(host.host_state_machine()))
+			{
 				Pallet::<T>::initialize();
 			}
 
@@ -230,6 +242,7 @@ pub mod pallet {
 		fn build(&self) {
 			Pallet::<T>::initialize();
 			let host = <T::IsmpHost>::default();
+			let host_state_machine = host.host_state_machine();
 
 			// insert the parachain ids
 			for para in &self.parachains {
@@ -240,7 +253,10 @@ pub mod pallet {
 					_ => continue,
 				};
 				let _ = host.store_challenge_period(
-					StateMachineId { state_id, consensus_state_id: PARACHAIN_CONSENSUS_ID },
+					StateMachineId {
+						state_id,
+						consensus_state_id: parachain_consensus_state_id(host_state_machine),
+					},
 					0,
 				);
 			}
@@ -265,12 +281,13 @@ impl<T: Config> Pallet<T> {
 	/// ismp parachain client consensus state, either through `genesis_build` or `on_initialize`.
 	pub fn initialize() {
 		let host = T::IsmpHost::default();
+		let host_state_machine = host.host_state_machine();
 		let message = CreateConsensusState {
 			// insert empty bytes
 			consensus_state: vec![],
 			unbonding_period: u64::MAX,
 			challenge_periods: Default::default(),
-			consensus_state_id: PARACHAIN_CONSENSUS_ID,
+			consensus_state_id: parachain_consensus_state_id(host_state_machine),
 			consensus_client_id: PARACHAIN_CONSENSUS_ID,
 			state_machine_commitments: vec![],
 		};
@@ -311,4 +328,13 @@ pub struct ParachainData {
 	pub id: u32,
 	/// parachain slot duration type
 	pub slot_duration: u64,
+}
+
+/// Returns the consensus state id for The relay chain
+pub fn parachain_consensus_state_id(host: StateMachine) -> ConsensusStateId {
+	match host {
+		StateMachine::Kusama(_) => PASEO_CONSENSUS_ID,
+		StateMachine::Polkadot(_) => POLKADOT_CONSENSUS_ID,
+		_ => POLKADOT_CONSENSUS_ID,
+	}
 }

@@ -629,13 +629,13 @@ where
 		}
 
 		if let Some(call_data) = body.data {
-			let substrate_data = SubstrateCalldata::decode(&mut &call_data.0[..])?;
+			let substrate_data = SubstrateCalldata::decode(&mut &call_data.0[..]).map_err(|_| anyhow!("Error decoding substrate call data"))?;
 			// Verify signature against encoded runtime call
 			let nonce = frame_system::Pallet::<T>::account_nonce(beneficiary.clone());
 			let payload = (nonce, substrate_data.runtime_call.clone()).encode();
 			let message = sp_io::hashing::keccak_256(&payload);
 
-			let multi_signature = MultiSignature::decode(&mut &*substrate_data.signature)?;
+			let multi_signature = MultiSignature::decode(&mut &*substrate_data.signature).map_err(|_| anyhow!("Error decoding Multisignature"))?;
 
 			match multi_signature {
 				MultiSignature::Ed25519(sig) => {
@@ -676,7 +676,7 @@ where
 
 			let runtime_call = <<T as frame_system::Config>::RuntimeCall as codec::Decode>::decode(
 				&mut &*substrate_data.runtime_call,
-			)?;
+			).map_err(|_| anyhow!("Error decoding Runtime call"))?;
 			runtime_call
 				.dispatch(RawOrigin::Signed(beneficiary.clone()).into())
 				.map_err(|e| anyhow!("Call dispatch executed with error {:?}", e.error))?;

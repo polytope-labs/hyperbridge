@@ -131,7 +131,7 @@ where
 		let signer = sr25519::Pair::from_seed_slice(&bytes)?;
 		let mut consensus_state_id: ConsensusStateId = Default::default();
 		consensus_state_id
-			.copy_from_slice(config.consensus_state_id.clone().unwrap_or("PARA".into()).as_bytes());
+			.copy_from_slice(config.consensus_state_id.clone().unwrap_or("DOT0".into()).as_bytes());
 		let address = signer.public().0.to_vec();
 		Ok(Self {
 			client,

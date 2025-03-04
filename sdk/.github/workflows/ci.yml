@@ -1,0 +1,328 @@
+# name: CI
+
+# on:
+#     push:
+#         branches: [main]
+#     pull_request:
+#         branches: [main]
+
+# jobs:
+#     test:
+#         runs-on: release-runner
+#         steps:
+#             - name: Checkout repository
+#               uses: actions/checkout@v3
+#               with:
+#                   fetch-depth: 0
+
+#             - name: Setup Node.js
+#               uses: actions/setup-node@v3
+#               with:
+#                   node-version: "22"
+
+#             - name: Setup PNPM
+#               uses: pnpm/action-setup@v2
+#               with:
+#                   version: 7
+
+#             - name: Install dependencies
+#               run: pnpm install
+
+#             - name: Build SDK
+#               run: cd packages/sdk && pnpm build
+
+#             - name: Setup environment for testing
+#               run: |
+#                   # Create environment file content
+#                   ENV_CONTENT="# TESTNET RPCS
+#                   HYPERBRIDGE_GARGANTUA=${{ secrets.HYPERBRIDGE_GARGANTUA }}
+#                   BSC_CHAPEL=${{ secrets.BSC_CHAPEL }}
+#                   GNOSIS_CHIADO=${{ secrets.GNOSIS_CHIADO }}
+
+#                   # DATABASE
+#                   DB_USER=\"postgres\"
+#                   DB_PASS=\"postgres\"
+#                   DB_DATABASE=\"postgres\"
+#                   DB_HOST=\"localhost\"
+#                   DB_PORT=5432
+#                   DB_PATH=\"/tmp/postgres-data\"
+
+#                   # ENVIRONMENT
+#                   ENV=\"local\"
+
+#                   # SUBQL SETTINGS
+#                   SUB_COMMAND=-f
+#                   SUBQL_WORKERS=1
+#                   SUBQL_BATCH_SIZE=5
+
+#                   # KEYS
+#                   PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
+#                   PING_MODULE_ADDRESS=${{ secrets.PING_MODULE_ADDRESS }}"
+
+#                   # Create environment files
+#                   echo "$ENV_CONTENT" > .env
+#                   echo "$ENV_CONTENT" > packages/indexer/.env
+#                   mkdir -p /tmp/postgres-data
+
+#             - name: Start Postgres standalone container
+#               run: |
+#                   # Use a standalone Postgres container with the most basic config
+#                   docker run -d --name postgres -p 5432:5432 \
+#                     -e POSTGRES_USER=postgres \
+#                     -e POSTGRES_PASSWORD=postgres \
+#                     -e POSTGRES_DB=postgres \
+#                     postgres:14-alpine
+
+#                   # Wait for PostgreSQL to be ready
+#                   echo "Waiting for PostgreSQL..."
+#                   timeout 60s bash -c 'until docker exec postgres pg_isready -U postgres; do sleep 2; echo "Waiting..."; done'
+
+#                   # Initialize database schema
+#                   docker exec postgres psql -U postgres -d postgres -c "CREATE SCHEMA IF NOT EXISTS app;"
+#                   docker exec postgres psql -U postgres -d postgres -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+
+#             - name: Build, prepare projects and copy schema
+#               run: |
+#                   cd packages/indexer
+
+#                   # Generate YAML configs and build
+#                   ENV=\"local\" pnpm run codegen:yamls
+#                   ENV=\"local\" pnpm run codegen:subql
+#                   pnpm run build
+
+#                   # Create project directories
+#                   mkdir -p /tmp/hyperbridge-project
+#                   mkdir -p /tmp/bsc-project
+#                   mkdir -p /tmp/gnosis-project
+
+#                   # Find schema.graphql - list all possible locations
+#                   echo "Looking for schema.graphql..."
+#                   find . -name "schema.graphql" -type f
+
+#                   # Copy schema file from configs directory
+#                   if [ -f configs/schema.graphql ]; then
+#                     echo "Found schema.graphql in configs directory"
+#                     cp configs/schema.graphql /tmp/hyperbridge-project/
+#                     cp configs/schema.graphql /tmp/bsc-project/
+#                     cp configs/schema.graphql /tmp/gnosis-project/
+#                   elif [ -f schema.graphql ]; then
+#                     echo "Found schema.graphql in root directory"
+#                     cp schema.graphql /tmp/hyperbridge-project/
+#                     cp schema.graphql /tmp/bsc-project/
+#                     cp schema.graphql /tmp/gnosis-project/
+#                   else
+#                     echo "ERROR: schema.graphql not found in expected locations!"
+#                     exit 1
+#                   fi
+
+#                   # Verify schema files were copied correctly
+#                   echo "Verifying schema files:"
+#                   ls -la /tmp/hyperbridge-project/schema.graphql
+#                   ls -la /tmp/bsc-project/schema.graphql
+#                   ls -la /tmp/gnosis-project/schema.graphql
+
+#                   # Copy YAML config files
+#                   cp configs/hyperbridge-gargantua.yaml /tmp/hyperbridge-project/project.yaml
+#                   cp configs/bsc-chapel.yaml /tmp/bsc-project/project.yaml
+#                   cp configs/gnosis-chiado.yaml /tmp/gnosis-project/project.yaml
+
+#                   # Copy build artifacts to all projects
+#                   cp -r dist/* /tmp/hyperbridge-project/
+#                   cp -r dist/* /tmp/bsc-project/
+#                   cp -r dist/* /tmp/gnosis-project/
+
+#                   # For substrate chaintypes, ensure they're properly copied
+#                   if [ -d dist/substrate-chaintypes ]; then
+#                     mkdir -p /tmp/hyperbridge-project/substrate-chaintypes
+#                     cp -r dist/substrate-chaintypes/* /tmp/hyperbridge-project/substrate-chaintypes/
+#                   fi
+
+#                   # Fix paths in YAML files to use Docker container paths
+#                   for project in hyperbridge bsc gnosis; do
+#                     project_dir="/tmp/${project}-project"
+#                     yaml_file="${project_dir}/project.yaml"
+
+#                     # Update schema path to use container path (/project)
+#                     sed -i "s|file: \./schema.graphql|file: /project/schema.graphql|g" $yaml_file
+
+#                     # Update mapping file path to use container path
+#                     sed -i "s|file: \./dist/|file: /project/|g" $yaml_file
+
+#                     # Update chaintypes path if present (for Substrate only)
+#                     if [ "$project" = "hyperbridge" ]; then
+#                       sed -i "s|file: \./dist/substrate-chaintypes/|file: /project/substrate-chaintypes/|g" $yaml_file
+#                     fi
+
+#                     echo "Updated paths in $yaml_file"
+#                     grep -n "file:" $yaml_file
+#                     # Display the full file content for debugging
+#                     cat $yaml_file
+#                   done
+
+#                   # Ensure permissions are set correctly
+#                   chmod -R 755 /tmp/*-project
+
+#                   # Show final directory structure
+#                   echo "Final directory structures:"
+#                   for project in hyperbridge bsc gnosis; do
+#                     echo "=== ${project}-project files ==="
+#                     find /tmp/${project}-project -type f | sort
+#                   done
+
+#             - name: Start Hyperbridge SubQL Node
+#               run: |
+#                   docker run -d --name hyperbridge-node \
+#                     --network=host \
+#                     -v /tmp/hyperbridge-project:/project \
+#                     -e DB_USER=postgres \
+#                     -e DB_PASS=postgres \
+#                     -e DB_DATABASE=postgres \
+#                     -e DB_HOST=localhost \
+#                     -e DB_PORT=5432 \
+#                     subquerynetwork/subql-node-substrate:v5.9.1 \
+#                     -f=/project/project.yaml \
+#                     --db-schema=app \
+#                     --workers=6 \
+#                     --batch-size=10 \
+#                     --multi-chain \
+#                     --unsafe \
+#                     --log-level=debug \
+#                     --block-confirmations=0 \
+#                     --store-cache-async=false \
+#                     --store-cache-threshold=1
+
+#                   # Check content in container
+#                   docker exec hyperbridge-node ls -la /project || echo "Failed to list directory"
+#                   docker exec hyperbridge-node cat /project/project.yaml || echo "Failed to read project.yaml"
+
+#                   # Check logs
+#                   sleep 5
+#                   docker logs hyperbridge-node
+
+#             - name: Start BSC SubQL Node
+#               run: |
+#                   docker run -d --name bsc-node \
+#                     --network=host \
+#                     -v /tmp/bsc-project:/project \
+#                     -e DB_USER=postgres \
+#                     -e DB_PASS=postgres \
+#                     -e DB_DATABASE=postgres \
+#                     -e DB_HOST=localhost \
+#                     -e DB_PORT=5432 \
+#                     subquerynetwork/subql-node-ethereum:v5.5.0 \
+#                     -f=/project/project.yaml \
+#                     --db-schema=app \
+#                     --workers=6 \
+#                     --batch-size=10 \
+#                     --multi-chain \
+#                     --unsafe \
+#                     --log-level=debug \
+#                     --block-confirmations=0 \
+#                     --store-cache-async=false \
+#                     --store-cache-threshold=1 \
+#                     --historical=timestamp \
+#                     --unfinalized-blocks
+
+#                   # Check logs
+#                   sleep 5
+#                   docker logs bsc-node
+
+#             - name: Start Gnosis SubQL Node
+#               run: |
+#                   docker run -d --name gnosis-node \
+#                     --network=host \
+#                     -v /tmp/gnosis-project:/project \
+#                     -e DB_USER=postgres \
+#                     -e DB_PASS=postgres \
+#                     -e DB_DATABASE=postgres \
+#                     -e DB_HOST=localhost \
+#                     -e DB_PORT=5432 \
+#                     subquerynetwork/subql-node-ethereum:v5.5.0 \
+#                     -f=/project/project.yaml \
+#                     --db-schema=app \
+#                     --workers=6 \
+#                     --batch-size=10 \
+#                     --multi-chain \
+#                     --unsafe \
+#                     --log-level=debug \
+#                     --block-confirmations=0 \
+#                     --store-cache-async=false \
+#                     --store-cache-threshold=1 \
+#                     --historical=timestamp \
+#                     --unfinalized-blocks
+
+#                   # Check logs
+#                   sleep 5
+#                   docker logs gnosis-node
+
+#             - name: Start GraphQL engine
+#               run: |
+#                   # Create necessary tables for GraphQL engine
+#                   docker exec postgres psql -U postgres -d postgres -c "
+#                   SET search_path TO app;
+#                   CREATE TABLE IF NOT EXISTS _metadata (
+#                       key TEXT PRIMARY KEY,
+#                       value JSONB NOT NULL,
+#                       \"createdAt\" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+#                       \"updatedAt\" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+#                   );
+#                   INSERT INTO _metadata (key, value) VALUES
+#                   ('schemaVersion', '\"0.0.1\"'),
+#                   ('lastProcessedHeight', '0'),
+#                   ('genesisHash', '\"0x0\"')
+#                   ON CONFLICT DO NOTHING;
+#                   "
+
+#                   # Start GraphQL engine
+#                   docker run -d --name graphql-engine \
+#                     --network=host \
+#                     -e DB_USER=postgres \
+#                     -e DB_PASS=postgres \
+#                     -e DB_DATABASE=postgres \
+#                     -e DB_HOST=localhost \
+#                     -e DB_PORT=5432 \
+#                     -p 3000:3000 \
+#                     subquerynetwork/subql-query:v2.21.0 \
+#                     --name=app \
+#                     --playground
+
+#                   # Check if GraphQL is running
+#                   sleep 10
+#                   docker logs graphql-engine
+
+#             - name: Wait for GraphQL API
+#               run: |
+#                   # Check if GraphQL is accessible
+#                   echo "Checking GraphQL API..."
+#                   max_attempts=10
+#                   attempt=0
+#                   until curl -s http://localhost:3000/graphql -o /dev/null || [ $attempt -ge $max_attempts ]; do
+#                       attempt=$((attempt+1))
+#                       echo "Waiting for GraphQL... attempt $attempt of $max_attempts"
+#                       sleep 10
+#                   done
+
+#                   if [ $attempt -ge $max_attempts ]; then
+#                       echo "GraphQL service failed to start properly"
+#                       docker logs graphql-engine
+#                       exit 1
+#                   fi
+
+#                   echo "GraphQL API is accessible!"
+
+#             - name: Run SDK tests
+#               run: |
+#                   cd packages/sdk
+#                   pnpm test
+#               env:
+#                   INDEXER_GRAPHQL_URL: http://localhost:3000/graphql
+#                   BSC_CHAPEL: ${{ secrets.BSC_CHAPEL }}
+#                   GNOSIS_CHIADO: ${{ secrets.GNOSIS_CHIADO }}
+#                   HYPERBRIDGE_GARGANTUA: ${{ secrets.HYPERBRIDGE_GARGANTUA }}
+#                   PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+#                   PING_MODULE_ADDRESS: ${{ secrets.PING_MODULE_ADDRESS }}
+
+#             - name: Cleanup
+#               if: always()
+#               run: |
+#                   docker rm -f postgres hyperbridge-node bsc-node gnosis-node graphql-engine || true

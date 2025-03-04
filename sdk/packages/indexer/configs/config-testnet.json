@@ -1,0 +1,72 @@
+{
+	"hyperbridge-gargantua": {
+		"type": "substrate",
+		"chainId": "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73",
+		"startBlock": 2056979
+	},
+	"bifrost-paseo": {
+		"type": "substrate",
+		"chainId": "0xec39b15e5a1945ff19b8e8c0f76990b5758ce19faa4578e8ed57eda33e844452",
+		"startBlock": 940053
+	},
+	"sepolia": {
+		"type": "evm",
+		"chainId": "11155111",
+		"startBlock": 6876874,
+		"contracts": {
+			"ethereumHost": "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
+			"handlerV1": "0xBf814fb3fD3eAaEB6a08C5A245c92da8b586f670",
+			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177"
+		}
+	},
+	"arbitrum-sepolia": {
+		"type": "evm",
+		"chainId": "421614",
+		"startBlock": 88722044,
+		"contracts": {
+			"ethereumHost": "0x3435bD7e5895356535459D6087D1eB982DAd90e7",
+			"handlerV1": "0x84b962657aA916286D7B24D37f458a2D823180dc",
+			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177"
+		}
+	},
+	"optimism-sepolia": {
+		"type": "evm",
+		"chainId": "11155420",
+		"startBlock": 18572226,
+		"contracts": {
+			"ethereumHost": "0x6d51b678836d8060d980605d2999eF211809f3C2",
+			"handlerV1": "0x39c4085CcAe262fb8970578A2c703a87ed9842eF",
+			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177"
+		}
+	},
+	"base-sepolia": {
+		"type": "evm",
+		"chainId": "84532",
+		"startBlock": 16589470,
+		"contracts": {
+			"ethereumHost": "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
+			"handlerV1": "0x63259e5ad3992CC91a662edd75AcD55125046E0B",
+			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177"
+		}
+	},
+	"bsc-chapel": {
+		"type": "evm",
+		"chainId": "97",
+		"startBlock": 44742412,
+		"contracts": {
+			"ethereumHost": "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
+			"handlerV1": "0xb45A4078A2D0B036C324A0046C2845aD59e769F6",
+			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177"
+		}
+	},
+	"gnosis-chiado": {
+		"type": "evm",
+		"chainId": "10200",
+		"startBlock": 12294845,
+		"contracts": {
+			"ethereumHost": "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
+			"handlerV1": "0x01b40De26Ba4C63c17A6f4Ed2cF96927C280B029",
+			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177"
+		}
+	}
+}

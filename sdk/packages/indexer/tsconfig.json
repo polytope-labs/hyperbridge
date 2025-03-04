@@ -1,0 +1,22 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"emitDecoratorMetadata": true,
+		"experimentalDecorators": true,
+		"importHelpers": true,
+		"module": "commonjs",
+		"outDir": "dist",
+		"rootDirs": ["src", "config/src"],
+		"noImplicitAny": false
+	},
+	"include": [
+		"src/**/*",
+		"config/src/**/*",
+		"src/substrate-chaintypes/**/*",
+		"src/global.d.ts",
+		"node_modules/@subql/types-core/dist/global.d.ts",
+		"node_modules/@subql/types-ethereum/dist/global.d.ts",
+		"node_modules/@subql/types/dist/global.d.ts"
+	],
+	"exclude": ["node_modules", "dist", "**/*.spec.ts"]
+}

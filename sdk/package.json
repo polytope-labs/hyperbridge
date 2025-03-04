@@ -1,53 +1,63 @@
 {
-  "name": "hyperbridge-indexers",
-  "version": "0.0.1",
-  "description": "Indexers for Hyperbridge",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "subql build",
-    "codegen": "subql codegen",
-    "generate-configs": "node generate-chain-yamls.js && node generate-compose.js",
-    "start:docker": "npm run generate-configs && docker-compose pull && docker-compose up --remove-orphans",
-    "dev": "export CURRENT_ENV=test subql codegen && subql build && npm run start:docker",
-    "prod": "export CURRENT_ENV=prod subql codegen && subql build && npm run start:docker",
-    "prepack": "rm -rf dist && npm run build",
-    "test": "subql build && subql-node-ethereum -f=base-sepolia.yaml test"
-  },
-  "homepage": "https://hyperbridge.network/",
-  "repository": "https://github.com/polytope-labs/hyperbridge-indexer",
-  "files": [
-    "dist",
-    "schema.graphql",
-    "subquery-multichain.yaml",
-    "chain-configs-prod.json",
-    "chain-configs-test.json"
-  ],
-  "author": "Polytope Labs",
-  "license": "MIT",
-  "dependencies": {
-    "@bifrost-finance/type-definitions": "^1.11.9",
-    "@ethersproject/shims": "^5.7.0",
-    "@open-web3/orml-type-definitions": "^2.0.1",
-    "@polkadot/api": "latest",
-    "@subql/common": "latest",
-    "@subql/common-ethereum": "^4.5.5",
-    "@subql/types-ethereum": "latest",
-    "@subql/validator": "latest",
-    "assert": "^2.0.0",
-    "dotenv": "^16.4.7"
-  },
-  "devDependencies": {
-    "@subql/cli": "latest",
-    "@subql/node": "latest",
-    "@subql/node-core": "latest",
-    "@subql/node-ethereum": "latest",
-    "@subql/testing": "latest",
-    "@subql/types": "latest",
-    "@types/pino": "^7.0.4",
-    "ethers": "^5.7.2",
-    "typescript": "latest"
-  },
-  "exports": {
-    "substrate-chaintypes/hyperbridge": "src/substrate-chaintypes/hyperbridge.ts"
-  }
+	"name": "hyperbridge-sdk",
+	"private": true,
+	"version": "0.1.0",
+	"description": "Hyperbridge SDK workspace",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"build": "pnpm --filter=\"@hyperbridge/indexer\" build && pnpm --filter=\"@hyperbridge/sdk\" build",
+		"test": "pnpm --filter=\"*\" test",
+		"lint": "pnpm --filter=\"*\" lint",
+		"format": "pnpm --filter=\"*\" format",
+		"clean": "rm -rf node_modules packages/*/node_modules packages/*/dist",
+		"changeset": "changeset",
+		"version-packages": "changeset version",
+		"release": "pnpm build && pnpm changeset publish"
+	},
+	"devDependencies": {
+		"@changesets/cli": "^2.28.1",
+		"@typescript-eslint/eslint-plugin": "^8.25.0",
+		"@typescript-eslint/parser": "^8.25.0",
+		"eslint": "^9.21.0",
+		"eslint-config-prettier": "^10.0.2",
+		"husky": "9.1.7",
+		"lint-staged": "15.4.3",
+		"prettier": "3.5.2",
+		"typescript": "5.7.3"
+	},
+	"prettier": {
+		"arrowParens": "always",
+		"bracketSameLine": false,
+		"objectWrap": "preserve",
+		"bracketSpacing": true,
+		"semi": false,
+		"experimentalOperatorPosition": "end",
+		"experimentalTernaries": false,
+		"singleQuote": false,
+		"jsxSingleQuote": false,
+		"quoteProps": "as-needed",
+		"trailingComma": "all",
+		"singleAttributePerLine": false,
+		"htmlWhitespaceSensitivity": "css",
+		"vueIndentScriptAndStyle": false,
+		"proseWrap": "preserve",
+		"insertPragma": false,
+		"printWidth": 120,
+		"requirePragma": false,
+		"tabWidth": 4,
+		"useTabs": true,
+		"embeddedLanguageFormatting": "auto"
+	},
+	"lint-staged": {
+		"*.{js,ts,tsx}": [
+			"prettier --write",
+			"eslint --fix"
+		]
+	},
+	"engines": {
+		"node": ">=22",
+		"pnpm": ">=7"
+	}
 }

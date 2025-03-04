@@ -11,6 +11,7 @@ dist/
 yarn.lock
 package-lock.json
 pnpm-lock.yaml
+sdk/pnpm-lock.yaml
 
 configs/*.yaml
 
@@ -66,6 +67,6 @@ Thumbs.db
 
 .DS_Store
 
-.env*
+.env
 .tsconfig
 .tsbuildinfo

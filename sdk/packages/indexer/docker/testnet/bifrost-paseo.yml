@@ -1,0 +1,29 @@
+services:
+    subquery-bifrost-paseo:
+        image: subquerynetwork/subql-node-substrate:v5.9.1
+        restart: unless-stopped
+        environment:
+            DB_USER: ${DB_USER}
+            DB_PASS: ${DB_PASS}
+            DB_DATABASE: ${DB_DATABASE}
+            DB_HOST: ${DB_HOST}
+            DB_PORT: ${DB_PORT}
+
+        volumes:
+            - ../../configs:/app
+            - ../../dist:/app/dist
+        command:
+            - ${SUB_COMMAND:-}
+            - -f=/app/bifrost-paseo.yaml
+            - --db-schema=app
+            - --workers=${SUBQL_WORKERS:-32}
+            - --batch-size=${SUBQL_BATCH_SIZE:-200}
+            - --multi-chain
+            - --unsafe
+            - --log-level=info
+            - --store-cache-async=true
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://subquery-node-bifrost-paseo:3000/ready"]
+            interval: 3s
+            timeout: 5s
+            retries: 10

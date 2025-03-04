@@ -1,0 +1,67 @@
+{
+	"name": "@hyperbridge/hyperclient",
+	"version": "1.0.0",
+	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"files": [
+		"dist"
+	],
+	"keywords": [
+		"hyperbridge",
+		"indexer",
+		"subquery",
+		"graphql",
+		"substrate",
+		"blockchain",
+		"interoperability",
+		"cryptocurrency",
+		"evm"
+	],
+	"type": "module",
+	"homepage": "https://github.com/polytope-labs/hyperbridge-sdk#readme",
+	"bugs": {
+		"url": "https://github.com/polytope-labs/hyperbridge-sdk/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/polytope-labs/hyperbridge-sdk.git"
+	},
+	"license": "ISC",
+	"author": "Polytope Labs",
+	"scripts": {
+		"build": "tsc",
+		"prepublishOnly": "npm run build",
+		"test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles --forceExit",
+		"test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+		"lint": "eslint \"src/**/*.ts\"",
+		"lint:fix": "eslint \"src/**/*.ts\" --fix",
+		"format": "prettier --write \"src/**/*.ts\""
+	},
+	"dependencies": {
+		"@async-generator/merge-race": "^1.0.3",
+		"@polkadot/api": "^15.7.1",
+		"graphql": "^16.10.0",
+		"graphql-request": "^7.1.2",
+		"lodash": "^4.17.21",
+		"rpc-websocket-client": "^1.1.4",
+		"scale-ts": "^1.6.1",
+		"ts-pattern": "^5.6.2",
+		"viem": "^2.23.5"
+	},
+	"devDependencies": {
+		"@polytope-labs/hyperclient": "1.2.0",
+		"@types/jest": "^29.2.6",
+		"@types/lodash": "^4.17.15",
+		"@types/node": "^22.13.5",
+		"dotenv": "^16.4.7",
+		"jest": "^29.2.6",
+		"log-timestamp": "^0.3.0",
+		"ts-jest": "^29.2.6",
+		"ts-node": "^10.9.2",
+		"typescript": "^5.7.3"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}

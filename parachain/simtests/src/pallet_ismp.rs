@@ -161,7 +161,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	let height = StateMachineHeight {
 		id: StateMachineId {
 			state_id: StateMachine::Kusama(para_id).into(),
-			consensus_state_id: *b"PARA",
+			consensus_state_id: *b"PAS0",
 		},
 		height: 200,
 	};

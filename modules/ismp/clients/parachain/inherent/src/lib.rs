@@ -30,7 +30,7 @@ use std::sync::Arc;
 use ismp::{consensus::StateMachineId, host::StateMachine, messaging::ConsensusMessage};
 use ismp_parachain::{
 	consensus::{parachain_header_storage_key, ParachainConsensusProof},
-	PARACHAIN_CONSENSUS_ID,
+	parachain_consensus_state_id,
 };
 use ismp_parachain_runtime_api::IsmpParachainApi;
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
@@ -83,6 +83,7 @@ impl ConsensusInherentProvider {
 			return Ok(ConsensusInherentProvider(None));
 		};
 
+		let host_state_machine = client.runtime_api().host_state_machine(parent)?;
 		let mut para_ids_to_fetch = vec![];
 		for id in para_ids {
 			let Some(head) = relay_chain_interface
@@ -101,7 +102,7 @@ impl ConsensusInherentProvider {
 				continue;
 			};
 
-			let state_id = match client.runtime_api().host_state_machine(parent)? {
+			let state_id = match host_state_machine {
 				StateMachine::Polkadot(_) => StateMachine::Polkadot(id),
 				StateMachine::Kusama(_) => StateMachine::Kusama(id),
 				id => Err(anyhow!("Unsupported state machine: {id:?}"))?,
@@ -110,7 +111,10 @@ impl ConsensusInherentProvider {
 				.runtime_api()
 				.latest_state_machine_height(
 					parent,
-					StateMachineId { consensus_state_id: PARACHAIN_CONSENSUS_ID, state_id },
+					StateMachineId {
+						consensus_state_id: parachain_consensus_state_id(host_state_machine),
+						state_id,
+					},
 				)?
 				.unwrap_or_default();
 
@@ -135,7 +139,7 @@ impl ConsensusInherentProvider {
 
 		let consensus_proof = ParachainConsensusProof { relay_height: state.number, storage_proof };
 		let message = ConsensusMessage {
-			consensus_state_id: PARACHAIN_CONSENSUS_ID,
+			consensus_state_id: parachain_consensus_state_id(host_state_machine),
 			consensus_proof: consensus_proof.encode(),
 			signer: Default::default(),
 		};

@@ -45,6 +45,13 @@ pub type Commit<H> = finality_grandpa::Commit<
 	AuthorityId,
 >;
 
+/// The default header type that can be used with the GRANDPA prover.
+///
+/// This type is compatible with our consensus implementation, using
+/// [BlakeTwo256](sp_runtime::traits::BlakeTwo256) for hashing and a 32-bit
+/// block number type.
+pub type DefaultHeader = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
+
 /// Finality for block B is proved by providing:
 /// 1) the justification for the descendant block F;
 /// 2) headers sub-chain (B; F] if B != F;

@@ -221,7 +221,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("nexus"),
 	impl_name: create_runtime_str!("nexus"),
 	authoring_version: 1,
-	spec_version: 2_700,
+	spec_version: 2_800,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -337,8 +337,8 @@ impl Contains<RuntimeCall> for IsTreasurySpend {
 	fn contains(c: &RuntimeCall) -> bool {
 		matches!(
 			c,
-			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. }) |
-				RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
+			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. })
+				| RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
 		)
 	}
 }
@@ -592,7 +592,7 @@ impl pallet_utility::Config for Runtime {
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
 }
 
-impl pallet_mmr::Config for Runtime {
+impl pallet_mmr_tree::Config for Runtime {
 	const INDEXING_PREFIX: &'static [u8] = INDEXING_PREFIX;
 	type Hashing = Keccak256;
 	type Leaf = Leaf;
@@ -766,19 +766,20 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
 	fn filter(&self, c: &RuntimeCall) -> bool {
 		match self {
 			ProxyType::Any => true,
-			ProxyType::NonTransfer =>
-				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. }),
+			ProxyType::NonTransfer => {
+				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. })
+			},
 			ProxyType::CancelProxy => matches!(
 				c,
-				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. }) |
-					RuntimeCall::Utility { .. } |
-					RuntimeCall::Multisig { .. }
+				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. })
+					| RuntimeCall::Utility { .. }
+					| RuntimeCall::Multisig { .. }
 			),
 			ProxyType::Collator => matches!(
 				c,
-				RuntimeCall::CollatorSelection { .. } |
-					RuntimeCall::Utility { .. } |
-					RuntimeCall::Multisig { .. }
+				RuntimeCall::CollatorSelection { .. }
+					| RuntimeCall::Utility { .. }
+					| RuntimeCall::Multisig { .. }
 			),
 		}
 	}
@@ -843,7 +844,7 @@ construct_runtime!(
 		// ISMP stuff
 		// Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
 		// setup the mmr
-		Mmr: pallet_mmr = 40,
+		Mmr: pallet_mmr_tree = 40,
 		Ismp: pallet_ismp = 41,
 		MessageQueue: pallet_message_queue = 42,
 

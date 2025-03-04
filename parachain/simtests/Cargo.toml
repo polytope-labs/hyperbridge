@@ -25,7 +25,7 @@ subxt-utils = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-hyperbridge = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
-pallet-mmr = { workspace = true, default-features = true }
+pallet-mmr-tree = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
 merkle-mountain-range = { workspace = true }
 jsonrpsee-core = { workspace = true, features = ["client"] }

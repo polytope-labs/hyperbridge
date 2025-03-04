@@ -36,7 +36,7 @@ mmr-primitives = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
-pallet-mmr = { workspace = true, default-features = true }
+pallet-mmr-tree = { workspace = true, default-features = true }
 beefy-prover = { workspace = true, default-features = true, features = [
     "local",
 ] }

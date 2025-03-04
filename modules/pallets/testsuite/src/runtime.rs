@@ -65,7 +65,7 @@ frame_support::construct_runtime!(
 		ParachainSystem: cumulus_pallet_parachain_system,
 		ParachainInfo: staging_parachain_info,
 		Timestamp: pallet_timestamp,
-		Mmr: pallet_mmr,
+		Mmr: pallet_mmr_tree,
 		Ismp: pallet_ismp,
 		Hyperbridge: pallet_hyperbridge,
 		Balances: pallet_balances,
@@ -263,7 +263,7 @@ impl pallet_token_governor::Config for Test {
 	type TreasuryAccount = TreasuryAccount;
 }
 
-impl pallet_mmr::Config for Test {
+impl pallet_mmr_tree::Config for Test {
 	const INDEXING_PREFIX: &'static [u8] = b"ISMP";
 	type Hashing = Keccak256;
 	type Leaf = Leaf;

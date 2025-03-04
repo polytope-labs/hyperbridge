@@ -244,7 +244,7 @@ where
 				self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
 				// if it's a leaf node, also clear the duplicate that was added to no_op storage
 				if let Ok(DataOrHash::Data(leaf)) =
-					pallet_mmr::mmr::Node::<Keccak256, Leaf>::decode(&mut &*elem)
+					pallet_mmr_tree::mmr::Node::<Keccak256, Leaf>::decode(&mut &*elem)
 				{
 					let pre_image = leaf.preimage();
 					let commitment = keccak_256(&pre_image);

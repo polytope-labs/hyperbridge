@@ -67,6 +67,12 @@ pub struct ParachainConsensusProof {
 /// [`ConsensusClientId`] for [`ParachainConsensusClient`]
 pub const PARACHAIN_CONSENSUS_ID: ConsensusClientId = *b"PARA";
 
+/// [`ConsensusClientId`] for [`ParachainConsensusClient`] on Polkadot
+pub const POLKADOT_CONSENSUS_ID: ConsensusStateId = *b"DOT0";
+
+/// [`ConsensusClientId`] for [`ParachainConsensusClient`] on Paseo
+pub const PASEO_CONSENSUS_ID: ConsensusStateId = *b"PAS0";
+
 impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
 where
 	R: RelayChainOracle,

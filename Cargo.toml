@@ -290,8 +290,8 @@ grandpa-prover = { path = "./modules/consensus/grandpa/prover" }
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
 ismp-grandpa = { version = "15.0.1", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "15.0.1", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { version = "15.0.0", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain = { version = "15.1.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain-inherent = { version = "15.1.0", path = "./modules/ismp/clients/parachain/inherent" }
 ismp-parachain-runtime-api = { version = "15.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }

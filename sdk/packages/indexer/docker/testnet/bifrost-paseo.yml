@@ -16,7 +16,7 @@ services:
             - ${SUB_COMMAND:-}
             - -f=/app/bifrost-paseo.yaml
             - --db-schema=app
-            - --workers=${SUBQL_WORKERS:-32}
+            - --workers=${SUBQL_WORKERS:-10}
             - --batch-size=${SUBQL_BATCH_SIZE:-200}
             - --multi-chain
             - --unsafe

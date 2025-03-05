@@ -24,8 +24,7 @@ services:
             - --historical=timestamp
             - --unfinalized-blocks
             - --block-confirmations=0
-            - --store-cache-async=false
-            - --store-cache-threshold=5
+            - --store-cache-async=true
         healthcheck:
             test: ["CMD", "curl", "-f", "http://subquery-node-arbitrum-sepolia:3000/ready"]
             interval: 3s

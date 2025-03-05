@@ -13,11 +13,8 @@
 	},
 	"files": [
 		"dist",
-		"configs",
 		"configs/schema.graphql",
-		"configs/subquery-multichain.yaml",
-		"configs/chain-configs-prod.json",
-		"configs/chain-configs-test.json"
+		"configs/subquery-multichain.yaml"
 	],
 	"author": "Polytope Labs",
 	"license": "MIT",
@@ -53,23 +50,24 @@
 		"@ethersproject/shims": "^5.7.0",
 		"@open-web3/orml-type-definitions": "^2.0.1",
 		"@polkadot/api": "latest",
-		"@polkadot/types": "^15.6.1",
-		"@polkadot/util-crypto": "^13.4.3",
+		"@polkadot/types": "latest",
+		"@polkadot/util-crypto": "latest",
 		"@subql/common": "latest",
-		"@subql/common-ethereum": "^4.5.5",
-		"@subql/types-core": "^2.0.1",
+		"@subql/common-ethereum": "latest",
+		"@subql/types-core": "latest",
 		"@subql/types-ethereum": "latest",
-		"@subql/validator": "2.2.0",
-		"@types/node-fetch": "^2.6.12",
+		"@subql/validator": "latest",
+		"@types/node-fetch": "latest",
 		"assert": "^2.0.0",
 		"dotenv": "^16.4.7",
 		"fast-text-encoding": "^1.0.6",
+		"node-fetch": "^2.7.0",
 		"safe-stable-stringify": "^2.5.0",
 		"scale-ts": "^1.6.1",
 		"viem": "^2.23.5"
 	},
 	"devDependencies": {
-		"@subql/cli": "latest",
+		"@subql/cli": "5.6.0",
 		"@subql/node": "latest",
 		"@subql/node-core": "latest",
 		"@subql/node-ethereum": "latest",
@@ -84,6 +82,7 @@
 		"rpc-websocket-client": "^1.1.4",
 		"ts-jest": "^29.2.6",
 		"ts-node": "^10.9.2",
+		"tslib": "^2.8.1",
 		"typescript": "latest"
 	},
 	"exports": {

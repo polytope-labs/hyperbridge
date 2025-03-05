@@ -309,7 +309,7 @@ parameter_types! {
 		})
 		.avg_block_initialization(AVERAGE_ON_INITIALIZE_RATIO)
 		.build_or_panic();
-	pub const SS58Prefix: u16 = 42;
+	pub const SS58Prefix: u16 = 0;
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -337,8 +337,8 @@ impl Contains<RuntimeCall> for IsTreasurySpend {
 	fn contains(c: &RuntimeCall) -> bool {
 		matches!(
 			c,
-			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. }) |
-				RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
+			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. })
+				| RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
 		)
 	}
 }
@@ -766,19 +766,20 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
 	fn filter(&self, c: &RuntimeCall) -> bool {
 		match self {
 			ProxyType::Any => true,
-			ProxyType::NonTransfer =>
-				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. }),
+			ProxyType::NonTransfer => {
+				!matches!(c, RuntimeCall::Balances { .. } | RuntimeCall::Assets { .. })
+			},
 			ProxyType::CancelProxy => matches!(
 				c,
-				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. }) |
-					RuntimeCall::Utility { .. } |
-					RuntimeCall::Multisig { .. }
+				RuntimeCall::Proxy(pallet_proxy::Call::reject_announcement { .. })
+					| RuntimeCall::Utility { .. }
+					| RuntimeCall::Multisig { .. }
 			),
 			ProxyType::Collator => matches!(
 				c,
-				RuntimeCall::CollatorSelection { .. } |
-					RuntimeCall::Utility { .. } |
-					RuntimeCall::Multisig { .. }
+				RuntimeCall::CollatorSelection { .. }
+					| RuntimeCall::Utility { .. }
+					| RuntimeCall::Multisig { .. }
 			),
 		}
 	}

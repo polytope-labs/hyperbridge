@@ -3,13 +3,14 @@ import { RequestService } from "../../../services/request.service"
 import { Status } from "../../../../configs/src/types"
 import { getHostStateMachine, isHyperbridge } from "../../../utils/substrate.helpers"
 import { HyperBridgeService } from "../../../services/hyperbridge.service"
+import { Request } from "../../../../configs/src/types/models"
 
 type EventData = {
 	commitment: string
 	relayer: string
 }
 export async function handleSubstratePostRequestHandledEvent(event: SubstrateEvent): Promise<void> {
-	logger.info(`Handling ISMP PostRequestHandled Event`)
+	logger.info(`Saw Ismp.PostRequestHandled Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.extrinsic && event.event.data) return
 
@@ -34,12 +35,18 @@ export async function handleSubstratePostRequestHandledEvent(event: SubstrateEve
 
 	const host = getHostStateMachine(chainId)
 
-	let status: Status
+	const request = await Request.get(eventData.commitment.toString())
 
-	if (isHyperbridge(host)) {
-		status = Status.HYPERBRIDGE_DELIVERED
-	} else {
+	if (!request) {
+		logger.error(`Request not found for commitment ${eventData.commitment.toString()}`)
+		return
+	}
+
+	let status: Status
+	if (request.dest === host) {
 		status = Status.DESTINATION
+	} else {
+		status = Status.HYPERBRIDGE_DELIVERED
 	}
 
 	logger.info(`Updating Hyperbridge chain stats for ${host}`)

@@ -1,4 +1,6 @@
 export { IndexerClient } from "@/client"
 export { postRequestCommitment } from "@/utils"
+export * from "@/utils/tokenGateway"
+export * from "@/utils/xcmGateway"
 export * from "@/chain"
 export * from "@/types"

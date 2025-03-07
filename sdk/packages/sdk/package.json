@@ -1,7 +1,7 @@
 {
-	"name": "@hyperbridge/sdk",
+	"name": "@hyperbridge/hyperclient",
 	"version": "1.0.0",
-	"description": "The hyperbridge SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
+	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"module": "./dist/index.mjs",
@@ -28,20 +28,23 @@
 		"type": "git",
 		"url": "git+https://github.com/polytope-labs/hyperbridge-sdk.git"
 	},
-	"license": "MIT",
+	"license": "ISC",
 	"author": "Polytope Labs",
 	"scripts": {
 		"build": "tsc && resolve-tspaths",
 		"prepublishOnly": "npm run build",
-		"test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --detectOpenHandles --forceExit",
-		"test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
-		"lint": "eslint \"src/**/*.ts\"",
-		"lint:fix": "eslint \"src/**/*.ts\" --fix",
+		"test": "vitest --watch=false",
+		"test:watch": "vitest",
+		"lint": "biome lint .",
+		"lint:fix": "biome lint --write .",
 		"format": "prettier --write \"src/**/*.ts\""
 	},
 	"dependencies": {
 		"@async-generator/merge-race": "^1.0.3",
 		"@polkadot/api": "^15.7.1",
+		"@polkadot/types": "14.0.1",
+		"@polkadot/util": "13.3.1",
+		"@polkadot/util-crypto": "13.3.1",
 		"graphql": "^16.10.0",
 		"graphql-request": "^7.1.2",
 		"lodash": "^4.17.21",
@@ -51,17 +54,20 @@
 		"viem": "^2.23.5"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@polkadot/keyring": "13.4.3",
 		"@polytope-labs/hyperclient": "1.2.0",
-		"@types/jest": "^29.2.6",
 		"@types/lodash": "^4.17.15",
 		"@types/node": "^22.13.5",
+		"@vitest/coverage-v8": "^3.0.7",
 		"dotenv": "^16.4.7",
-		"jest": "^29.2.6",
+		"jsdom": "^26.0.0",
 		"log-timestamp": "^0.3.0",
 		"resolve-tspaths": "^0.8.23",
-		"ts-jest": "^29.2.6",
-		"ts-node": "^10.9.2",
-		"typescript": "latest"
+		"typescript": "^5.7.3",
+		"vite-tsconfig-paths": "^5.1.4",
+		"vitest": "^3.0.7",
+		"vite": "^6.2.0"
 	},
 	"publishConfig": {
 		"access": "public"

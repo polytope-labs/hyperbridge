@@ -5,7 +5,7 @@ import { Status } from "../../../../configs/src/types"
 import { getHostStateMachine, isHyperbridge } from "../../../utils/substrate.helpers"
 
 export async function handleSubstratePostResponseTimeoutHandledEvent(event: SubstrateEvent): Promise<void> {
-	logger.info(`Handling ISMP PostResponseTimeoutHandled Event`)
+	logger.info(`Saw Ismp.PostResponseTimeoutHandled Event on ${getHostStateMachine(chainId)}`)
 
 	const host = getHostStateMachine(chainId)
 

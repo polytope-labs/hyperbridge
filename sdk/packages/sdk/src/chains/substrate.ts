@@ -54,6 +54,37 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
+	 * Returns the storage key for a request commitment in the child trie
+	 * The request commitment is the key
+	 * @param key - The H256 hash key (as a 0x-prefixed hex string)
+	 * @returns The storage key as a hex string
+	 */
+	requestCommitmentKey(key: HexString): HexString {
+		const prefix = new TextEncoder().encode("RequestCommitments")
+
+		const keyBytes = hexToBytes(key)
+
+		// Concatenate the prefix and key bytes
+		return bytesToHex(new Uint8Array([...prefix, ...keyBytes]))
+	}
+
+	/**
+	 * Queries a request commitment from the ISMP child trie storage.
+	 * @param {HexString} commitment - The commitment hash to look up.
+	 * @returns {Promise<HexString | undefined>} The commitment data if found, undefined otherwise.
+	 */
+	async queryRequestCommitment(commitment: HexString): Promise<HexString | undefined> {
+		const prefix = toHex(":child_storage:default:ISMP")
+		const key = this.requestCommitmentKey(commitment)
+
+		const rpc = new RpcWebSocketClient()
+		await rpc.connect(this.params.ws)
+		const item: any = await rpc.call("childstate_getStorage", [prefix, key])
+
+		return item
+	}
+
+	/**
 	 * Queries the request receipt.
 	 * @param {HexString} commitment - The commitment to query.
 	 * @returns {Promise<HexString | undefined>} The relayer address responsible for delivering the request.
@@ -270,7 +301,7 @@ function requestCommitmentStorageKey(key: HexString): number[] {
  * @param {string} id - The state machine ID string.
  * @returns {IStateMachine} The corresponding enum value.
  */
-function convertStateMachineIdToEnum(id: string): IStateMachine {
+export function convertStateMachineIdToEnum(id: string): IStateMachine {
 	let [tag, value]: any = id.split("-")
 	tag = capitalize(tag)
 	if (["Evm", "Polkadot", "Kusama"].includes(tag)) {

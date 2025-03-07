@@ -8,6 +8,8 @@ import {
 } from "../../../utils/substrate.helpers"
 
 export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent): Promise<void> {
+	logger.info(`Saw Ismp.StateMachineUpdated Event on ${getHostStateMachine(chainId)}`)
+
 	const stateMachineId = extractStateMachineIdFromSubstrateEventData(event.event.data.toString())
 
 	const host = getHostStateMachine(chainId)

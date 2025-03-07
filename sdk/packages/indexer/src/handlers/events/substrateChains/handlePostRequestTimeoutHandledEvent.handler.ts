@@ -1,10 +1,11 @@
 import { SubstrateEvent } from "@subql/types"
 import { RequestService } from "../../../services/request.service"
 import { Status } from "../../../../configs/src/types"
+import { Request } from "../../../../configs/src/types/models"
 import { getHostStateMachine, isHyperbridge } from "../../../utils/substrate.helpers"
 
 export async function handleSubstratePostRequestTimeoutHandledEvent(event: SubstrateEvent): Promise<void> {
-	logger.info(`Handling ISMP PostRequestTimeoutHandled Event`)
+	logger.info(`Saw Ismp.PostRequestTimeoutHandled Event on ${getHostStateMachine(chainId)}`)
 
 	const host = getHostStateMachine(chainId)
 
@@ -21,14 +22,28 @@ export async function handleSubstratePostRequestTimeoutHandledEvent(event: Subst
 		},
 	} = event
 
-	const timeoutStatus = isHyperbridge(host) ? Status.HYPERBRIDGE_TIMED_OUT : Status.TIMED_OUT
-
 	const eventData = data.toJSON()
 	const timeoutData = Array.isArray(eventData)
 		? (eventData[0] as { commitment: any; source: any; dest: any })
 		: undefined
 
-	if (!timeoutData) return
+	if (!timeoutData) {
+		logger.error(`Could not parse event data for ${extrinsic.extrinsic.hash.toString()}`)
+		return
+	}
+
+	const request = await Request.get(timeoutData.commitment.toString())
+	if (!request) {
+		logger.error(`Request not found for commitment ${timeoutData.commitment.toString()}`)
+		return
+	}
+
+	let timeoutStatus: Status
+	if (request.source === host) {
+		timeoutStatus = Status.TIMED_OUT
+	} else {
+		timeoutStatus = Status.HYPERBRIDGE_TIMED_OUT
+	}
 
 	await RequestService.updateStatus({
 		commitment: timeoutData.commitment.toString(),

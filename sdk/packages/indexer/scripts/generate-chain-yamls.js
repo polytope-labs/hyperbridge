@@ -11,44 +11,44 @@ dotenv.config({ path: path.resolve(root, `../../.env.${currentEnv}`) })
 const fs = require("fs")
 const { RpcWebSocketClient } = require("rpc-websocket-client")
 const { hexToNumber } = require("viem")
-const configs = require(`./configs/config-${currentEnv}.json`)
+const configs = require(root + `/configs/config-${currentEnv}.json`)
 
 const getChainTypesPath = (chain) => {
-	// Extract base chain name before the hyphen
-	const baseChainName = chain.split("-")[0]
+    // Extract base chain name before the hyphen
+    const baseChainName = chain.split("-")[0]
 
-	const potentialPath = `./dist/substrate-chaintypes/${baseChainName}.js`
+    const potentialPath = `./dist/substrate-chaintypes/${baseChainName}.js`
 
-	// Check if file exists
-	if (fs.existsSync(potentialPath)) {
-		return potentialPath
-	}
+    // Check if file exists
+    if (fs.existsSync(potentialPath)) {
+        return potentialPath
+    }
 
-	return null
+    return null
 }
 
 const generateEndpoints = (chain) => {
-	const envKey = chain.replace(/-/g, "_").toUpperCase()
-	// Expect comma-separated endpoints in env var
-	const endpoints = process.env[envKey]?.split(",") || []
+    const envKey = chain.replace(/-/g, "_").toUpperCase()
+    // Expect comma-separated endpoints in env var
+    const endpoints = process.env[envKey]?.split(",") || []
 
-	return endpoints.map((endpoint) => `    - '${endpoint.trim()}'`).join("\n")
+    return endpoints.map((endpoint) => `    - '${endpoint.trim()}'`).join("\n")
 }
 
 // Generate chain-specific YAML files
 const generateSubstrateYaml = async (chain, config) => {
-	const chainTypesConfig = getChainTypesPath(chain)
-	const endpoints = generateEndpoints(chain)
+    const chainTypesConfig = getChainTypesPath(chain)
+    const endpoints = generateEndpoints(chain)
 
-	// Expect comma-separated endpoints in env var
-	const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
-	const rpc = new RpcWebSocketClient()
-	await rpc.connect(rpcUrl)
-	const header = await rpc.call("chain_getHeader", [])
-	const blockNumber = currentEnv === "local" ? hexToNumber(header.number) : config.startBlock
-	const chainTypesSection = chainTypesConfig ? `\n  chaintypes:\n    file: ${chainTypesConfig}` : ""
+    // Expect comma-separated endpoints in env var
+    const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
+    const rpc = new RpcWebSocketClient()
+    await rpc.connect(rpcUrl)
+    const header = await rpc.call("chain_getHeader", [])
+    const blockNumber = currentEnv === "local" ? hexToNumber(header.number) : config.startBlock
+    const chainTypesSection = chainTypesConfig ? `\n  chaintypes:\n    file: ${chainTypesConfig}` : ""
 
-	return `# // Auto-generated , DO NOT EDIT
+    return `# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
 name: ${chain}-chain
@@ -112,26 +112,26 @@ repository: 'https://github.com/polytope-labs/hyperbridge'`
 }
 
 const generateEvmYaml = async (chain, config) => {
-	const endpoints = generateEndpoints(chain)
+    const endpoints = generateEndpoints(chain)
 
-	// Expect comma-separated endpoints in env var
-	const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
-	const response = await fetch(rpcUrl, {
-		method: "POST",
-		headers: {
-			accept: "application/json",
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			id: 1,
-			jsonrpc: "2.0",
-			method: "eth_blockNumber",
-		}),
-	})
-	const data = await response.json()
-	const blockNumber = currentEnv === "local" ? hexToNumber(data.result) : config.startBlock
+    // Expect comma-separated endpoints in env var
+    const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
+    const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+        },
+        body: JSON.stringify({
+            id: 1,
+            jsonrpc: "2.0",
+            method: "eth_blockNumber",
+        }),
+    })
+    const data = await response.json()
+    const blockNumber = currentEnv === "local" ? hexToNumber(data.result) : config.startBlock
 
-	return `# // Auto-generated , DO NOT EDIT
+    return `# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
 version: 0.0.1
 name: ${chain}
@@ -238,48 +238,49 @@ repository: 'https://github.com/polytope-labs/hyperbridge'`
 }
 
 const validChains = Object.entries(configs).filter(([chain, config]) => {
-	const envKey = chain.replace(/-/g, "_").toUpperCase()
-	const endpoint = process.env[envKey]
+    const envKey = chain.replace(/-/g, "_").toUpperCase()
+    const endpoint = process.env[envKey]
 
-	if (!endpoint) {
-		console.log(`Skipping ${chain}.yaml - No endpoint configured in environment`)
-		return false
-	}
-	return true
+    if (!endpoint) {
+        console.log(`Skipping ${chain}.yaml - No endpoint configured in environment`)
+        return false
+    }
+    return true
 })
 
 async function generateAllChainYamls() {
-	for (const [chain, config] of validChains) {
-		const yaml =
-			config.type === "substrate"
-				? await generateSubstrateYaml(chain, config)
-				: await generateEvmYaml(chain, config)
+    for (const [chain, config] of validChains) {
+        const yaml =
+            config.type === "substrate"
+                ? await generateSubstrateYaml(chain, config)
+                : await generateEvmYaml(chain, config)
 
-		fs.writeFileSync(`./configs/${chain}.yaml`, yaml)
-		console.log(`Generated ${chain}.yaml`)
-	}
+        const filePath = root + `/configs/${chain}.yaml`
+        fs.writeFileSync(filePath, yaml)
+        console.log(`Generated ${chain}.yaml`)
+    }
 }
 
 const generateMultichainYaml = () => {
-	const projects = validChains.map(([chain]) => `  - ./${chain}.yaml`).join("\n")
+    const projects = validChains.map(([chain]) => `  - ./${chain}.yaml`).join("\n")
 
-	const yaml = `specVersion: 1.0.0
+    const yaml = `specVersion: 1.0.0
 query:
   name: '@subql/query'
   version: '*'
 projects:
 ${projects}`
 
-	fs.writeFileSync("./configs/subquery-multichain.yaml", yaml)
-	console.log("Generated subquery-multichain.yaml")
+    fs.writeFileSync(root + "/configs/subquery-multichain.yaml", yaml)
+    console.log("Generated subquery-multichain.yaml")
 }
 
 generateAllChainYamls()
-	.then(() => {
-		generateMultichainYaml()
-		process.exit(0)
-	})
-	.catch((err) => {
-		console.error("Error generating YAMLs:", err)
-		process.exit(1)
-	})
+    .then(() => {
+        generateMultichainYaml()
+        process.exit(0)
+    })
+    .catch((err) => {
+        console.error("Error generating YAMLs:", err)
+        process.exit(1)
+    })

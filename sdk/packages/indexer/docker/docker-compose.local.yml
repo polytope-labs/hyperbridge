@@ -1,7 +1,8 @@
 services:
-    subquery-node-hyperbridge-gargantua:
+    subquery-node-hyperbridge-gargantua-local:
         image: subquerynetwork/subql-node-substrate:v5.9.1
         restart: unless-stopped
+        network_mode: host
         environment:
             DB_USER: ${DB_USER}
             DB_PASS: ${DB_PASS}
@@ -29,14 +30,15 @@ services:
             - --store-cache-async=false
             - --store-cache-threshold=1
         healthcheck:
-            test: ["CMD", "curl", "-f", "http://subquery-node-hyperbridge-gargantua:3000/ready"]
+            test: ["CMD", "curl", "-f", "http://subquery-node-hyperbridge-gargantua-local:3000/ready"]
             interval: 3s
             timeout: 5s
             retries: 10
 
-    subquery-node-bsc-chapel:
+    subquery-node-bsc-chapel-local:
         image: subquerynetwork/subql-node-ethereum:v5.5.0
         restart: unless-stopped
+        network_mode: host
         environment:
             DB_USER: ${DB_USER}
             DB_PASS: ${DB_PASS}
@@ -66,14 +68,15 @@ services:
             - --store-cache-async=false
             - --store-cache-threshold=1
         healthcheck:
-            test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel:3000/ready"]
+            test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel-local:3000/ready"]
             interval: 3s
             timeout: 5s
             retries: 10
 
-    subquery-node-gnosis-chiado:
+    subquery-node-gnosis-chiado-local:
         image: subquerynetwork/subql-node-ethereum:v5.5.0
         restart: unless-stopped
+        network_mode: host
         environment:
             DB_USER: ${DB_USER}
             DB_PASS: ${DB_PASS}
@@ -103,7 +106,7 @@ services:
             - --store-cache-async=false
             - --store-cache-threshold=1
         healthcheck:
-            test: ["CMD", "curl", "-f", "http://subquery-node-gnosis-chiado:3000/ready"]
+            test: ["CMD", "curl", "-f", "http://subquery-node-gnosis-chiado-local:3000/ready"]
             interval: 3s
             timeout: 5s
             retries: 10
@@ -114,6 +117,7 @@ services:
             - 3000:3000
 
         restart: always
+        network_mode: host
         environment:
             DB_USER: ${DB_USER}
             DB_PASS: ${DB_PASS}

@@ -4,7 +4,7 @@ import { Status } from "../../../../configs/src/types"
 import { getHostStateMachine, isHyperbridge } from "../../../utils/substrate.helpers"
 
 export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promise<void> {
-	logger.info(`Handling ISMP Response Event`)
+	logger.info(`Saw Ismp.Response Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.extrinsic && event.event.data) return
 

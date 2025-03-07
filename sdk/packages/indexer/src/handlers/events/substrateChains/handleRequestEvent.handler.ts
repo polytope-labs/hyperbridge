@@ -9,7 +9,7 @@ import { SUBSTRATE_RPC_URL } from "../../../constants"
 import { RequestMetadata } from "../../../utils/state-machine.helper"
 
 export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promise<void> {
-	logger.info(`Saw ISMP Request Event`)
+	logger.info(`Saw Ismp.Request Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.event.data) return
 
@@ -60,6 +60,13 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		body: JSON.stringify(method),
 	})
 	const data = await response.json()
+
+	if (data.result.length === 0) {
+		logger.error(`No requests found for commitment ${commitment.toString()}`)
+		return
+	}
+
+	// todo: support GET requests
 	const postRequest = data.result[0].Post
 
 	if (!postRequest) {

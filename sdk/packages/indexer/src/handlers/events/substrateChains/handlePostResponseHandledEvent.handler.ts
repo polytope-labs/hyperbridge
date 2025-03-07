@@ -10,7 +10,7 @@ type EventData = {
 }
 
 export async function handleSubstratePostResponseHandledEvent(event: SubstrateEvent): Promise<void> {
-	logger.info(`Handling ISMP PostResponseHandled Event`)
+	logger.info(`Saw Ismp.PostResponseHandled Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.extrinsic && event.event.data) return
 
@@ -40,6 +40,7 @@ export async function handleSubstratePostResponseHandledEvent(event: SubstrateEv
 
 	let status: Status
 
+	// todo: actually check if host is hyperbridge and response source is hyperbridge
 	if (isHyperbridge(host)) {
 		status = Status.HYPERBRIDGE_DELIVERED
 	} else {

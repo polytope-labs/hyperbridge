@@ -73,8 +73,8 @@ importers:
         version: 2.23.6(bufferutil@4.0.9)(typescript@5.8.2)(utf-8-validate@5.0.10)
     devDependencies:
       '@subql/cli':
-        specifier: 5.6.0
-        version: 5.6.0(@types/node@22.13.9)(encoding@0.1.13)(pg@8.13.3)
+        specifier: 5.7.1-0
+        version: 5.7.1-0(@types/node@22.13.9)(encoding@0.1.13)(pg@8.13.3)
       '@subql/node':
         specifier: latest
         version: 5.10.0(@apollo/client@3.13.1(graphql@15.10.1))(bufferutil@4.0.9)(class-transformer@0.5.1)(class-validator@0.14.1)(encoding@0.1.13)(graphql@15.10.1)(pg@8.13.3)(rxjs@7.8.2)(utf-8-validate@5.0.10)
@@ -1539,8 +1539,8 @@ packages:
   '@sinonjs/fake-timers@10.3.0':
     resolution: {integrity: sha512-V4BG07kuYSUkTCSBHG8G8TNhM+F19jXFWnQtzj+we8DrkpSBCee9Z3Ms8yiGer/dlmhe35/Xdgyo3/0rQKg7YA==}
 
-  '@subql/cli@5.6.0':
-    resolution: {integrity: sha512-qq0o9V5jVLI9mi/zAxB+NZQbHHnHlrsfluZtLCdE7MLzAf4DPsqJR0V9K8ErqhLe6zcXpU7IQ2vcXZ7dWie1yg==}
+  '@subql/cli@5.7.1-0':
+    resolution: {integrity: sha512-DEubqELTkJn+1wK6IheCtrc2ylLjTmm1nhbq4c2rr1IBB0IbRWckwLqCsv+ju0fqgTOCQlV7sqIASphEFbyD5g==}
     engines: {node: '>=8.0.0'}
     hasBin: true
 
@@ -1552,8 +1552,8 @@ packages:
       class-validator: '*'
       js-yaml: '*'
 
-  '@subql/common-cosmos@5.2.0':
-    resolution: {integrity: sha512-sLVdSQ1zorcL85DdM33lu9ZwRu3cxaegK7Gq0f7p8sh1luw8bnywkubw3aDRHY66wJliF5WTro4UmqB5WW1zVA==}
+  '@subql/common-cosmos@5.3.0':
+    resolution: {integrity: sha512-R4eUwQ6ZEURexkTksg3OAkcoTBPWvlsfmVptqSaY9kgMT0darUnJydYwUsmHLtaOZwF3xxBWRgb+NBR9QklGFw==}
     peerDependencies:
       class-transformer: '*'
       class-validator: '*'
@@ -5090,6 +5090,10 @@ packages:
     resolution: {integrity: sha512-iq6eVVI64nQQTRYq2KtEg2d2uU7LElhTJwsH4YzIHZshxlgZms/wIc4VoDQTlG/IvVIrBKG06CrZnp0qv7hkcQ==}
     engines: {node: '>=12'}
 
+  strip-bom@3.0.0:
+    resolution: {integrity: sha512-vavAMRXOgBVNF6nyEEmL3DBK19iRpDcoIwW+swQ+CbGiu7lju6t+JklA1MHweoWtadgt4ISVUsXLyDq34ddcwA==}
+    engines: {node: '>=4'}
+
   strip-bom@4.0.0:
     resolution: {integrity: sha512-3xurFv5tEgii33Zi8Jtp55wEIILR9eh34FAW00PZf+JnSsTmV/ioewSgQl97JHvgjoRGwPShsWm+IdrxB35d0w==}
     engines: {node: '>=8'}
@@ -5306,6 +5310,14 @@ packages:
         optional: true
       '@swc/wasm':
         optional: true
+
+  tsconfig-paths-webpack-plugin@4.2.0:
+    resolution: {integrity: sha512-zbem3rfRS8BgeNK50Zz5SIQgXzLafiHjOwUAvk/38/o1jHn/V5QAgVUcz884or7WYcPaH3N2CIfUc2u0ul7UcA==}
+    engines: {node: '>=10.13.0'}
+
+  tsconfig-paths@4.2.0:
+    resolution: {integrity: sha512-NoZ4roiN7LnbKn9QqE1amc9DJfzvZXxF4xDavcOWt1BPkdx+m+0gJuPM+S0vCe7zTJMYUP0R8pO2XMr+Y8oLIg==}
+    engines: {node: '>=6'}
 
   tslib@1.14.1:
     resolution: {integrity: sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg==}
@@ -8139,7 +8151,7 @@ snapshots:
     dependencies:
       '@sinonjs/commons': 3.0.1
 
-  '@subql/cli@5.6.0(@types/node@22.13.9)(encoding@0.1.13)(pg@8.13.3)':
+  '@subql/cli@5.7.1-0(@types/node@22.13.9)(encoding@0.1.13)(pg@8.13.3)':
     dependencies:
       '@inquirer/prompts': 5.5.0
       '@oclif/core': 2.16.0(@types/node@22.13.9)(typescript@5.8.2)
@@ -8160,6 +8172,7 @@ snapshots:
       terser-webpack-plugin: 5.3.12(webpack@5.98.0)
       ts-loader: 9.5.2(typescript@5.8.2)(webpack@5.98.0)
       ts-node: 10.9.2(@types/node@22.13.9)(typescript@5.8.2)
+      tsconfig-paths-webpack-plugin: 4.2.0
       tslib: 2.8.1
       typescript: 5.8.2
       update-notifier: 5.1.0
@@ -8199,7 +8212,7 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@subql/common-cosmos@5.2.0(bufferutil@4.0.9)(class-transformer@0.5.1)(class-validator@0.14.1)(ejs@3.1.10)(utf-8-validate@5.0.10)':
+  '@subql/common-cosmos@5.3.0(bufferutil@4.0.9)(class-transformer@0.5.1)(class-validator@0.14.1)(ejs@3.1.10)(utf-8-validate@5.0.10)':
     dependencies:
       '@cosmwasm/ts-codegen': 1.12.1
       '@protobufs/cosmos': 0.1.0
@@ -8658,7 +8671,7 @@ snapshots:
     dependencies:
       '@subql/common': 2.5.0(node-fetch@2.7.0(encoding@0.1.13))
       '@subql/common-algorand': 4.3.1(algosdk@2.11.0)(class-transformer@0.5.1)(class-validator@0.14.1)(js-yaml@4.1.0)
-      '@subql/common-cosmos': 5.2.0(bufferutil@4.0.9)(class-transformer@0.5.1)(class-validator@0.14.1)(ejs@3.1.10)(utf-8-validate@5.0.10)
+      '@subql/common-cosmos': 5.3.0(bufferutil@4.0.9)(class-transformer@0.5.1)(class-validator@0.14.1)(ejs@3.1.10)(utf-8-validate@5.0.10)
       '@subql/common-ethereum': 4.7.0(@ethersproject/abi@5.8.0)(@ethersproject/providers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(bufferutil@4.0.9)(class-transformer@0.5.1)(class-validator@0.14.1)(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(typescript@5.8.2)(utf-8-validate@5.0.10)
       '@subql/common-flare': 3.8.3(@ethersproject/abi@5.8.0)(@ethersproject/providers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(bufferutil@4.0.9)(class-transformer@0.5.1)(class-validator@0.14.1)(encoding@0.1.13)(ethers@5.8.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))(node-fetch@2.7.0(encoding@0.1.13))(typescript@5.8.2)(utf-8-validate@5.0.10)
       '@subql/common-near': 4.2.1(class-transformer@0.5.1)(class-validator@0.14.1)(encoding@0.1.13)
@@ -12821,6 +12834,8 @@ snapshots:
     dependencies:
       ansi-regex: 6.1.0
 
+  strip-bom@3.0.0: {}
+
   strip-bom@4.0.0: {}
 
   strip-final-newline@2.0.0: {}
@@ -13026,6 +13041,19 @@ snapshots:
       typescript: 5.8.2
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
+
+  tsconfig-paths-webpack-plugin@4.2.0:
+    dependencies:
+      chalk: 4.1.2
+      enhanced-resolve: 5.18.1
+      tapable: 2.2.1
+      tsconfig-paths: 4.2.0
+
+  tsconfig-paths@4.2.0:
+    dependencies:
+      json5: 2.2.3
+      minimist: 1.2.8
+      strip-bom: 3.0.0
 
   tslib@1.14.1: {}
 

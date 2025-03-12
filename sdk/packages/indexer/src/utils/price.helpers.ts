@@ -1,6 +1,6 @@
-import { CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES } from "../addresses/chainlink-price-feeds.addresses"
-import { ITokenPriceFeedDetails } from "../constants"
-import { ChainLinkAggregatorV3Abi__factory } from "../../configs/src/types/contracts"
+import { CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES } from "@/addresses/chainlink-price-feeds.addresses"
+import { ITokenPriceFeedDetails } from "@/constants"
+import { ChainLinkAggregatorV3Abi__factory } from "@/configs/src/types/contracts"
 
 export default class PriceHelper {
 	static async getNativeCurrencyPrice(stateMachineId: string): Promise<bigint> {

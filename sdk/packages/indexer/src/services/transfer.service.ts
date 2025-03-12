@@ -1,5 +1,5 @@
 import { BigNumber } from "ethers"
-import { Transfer } from "../../configs/src/types/models"
+import { Transfer } from "@/configs/src/types/models"
 
 // Argument for storing transfer events
 export interface IStoreTranferArgs {

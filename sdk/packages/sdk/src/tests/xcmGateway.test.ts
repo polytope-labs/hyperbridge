@@ -48,7 +48,7 @@ describe("teleport DOT", () => {
 			for await (const event of result) {
 				console.log(event.kind)
 				if (event.kind === "Error") {
-					throw new Error(event.error)
+					throw new Error(event.error as string)
 				}
 
 				if (event.kind === "Ready") {

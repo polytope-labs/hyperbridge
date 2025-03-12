@@ -12,4 +12,4 @@ import "fast-text-encoding"
 import { logger } from "@subql/types-core"
 
 //Exports all handler functions
-export * from "./mappings/mappingHandlers"
+export * from "@/mappings/mappingHandlers"

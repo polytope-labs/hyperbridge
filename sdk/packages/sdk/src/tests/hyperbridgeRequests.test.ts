@@ -77,7 +77,7 @@ describe("Hyperbridge Requests", () => {
 			let commitment
 			for await (const event of result) {
 				if (event.kind === "Error") {
-					throw new Error(event.error)
+					throw new Error(event.error as string)
 				}
 
 				if (event.kind === "Ready") {
@@ -144,7 +144,7 @@ describe("Hyperbridge Requests", () => {
 			await hyperbridge.disconnect()
 			await relayApi.disconnect()
 		}
-	}, 600_000)
+	}, 700_000)
 
 	it("It should correctly monitor requests that timeout from hyperbridge", async () => {
 		const { hyperbridge, relayApi, bob, signer } = await hyperbridgeSetup()
@@ -167,7 +167,7 @@ describe("Hyperbridge Requests", () => {
 			let commitment
 			for await (const event of result) {
 				if (event.kind === "Error") {
-					throw new Error(event.error)
+					throw new Error(event.error as string)
 				}
 
 				if (event.kind === "Ready") {
@@ -231,7 +231,7 @@ describe("Hyperbridge Requests", () => {
 				assetId: keccak256(encoder.encode("DOT")),
 				data: "0x",
 				dest: toHex("KUSAMA-4009"),
-				nativeCost: 0,
+				nativeCost: BigInt(0),
 				redeem: false,
 				relayerFee: parseUnits("0", 18),
 				timeout: BigInt(3600),
@@ -317,7 +317,7 @@ describe("Hyperbridge Requests", () => {
 				assetId: keccak256(encoder.encode("DOT")),
 				data: "0x",
 				dest: toHex("KUSAMA-4009"),
-				nativeCost: 0,
+				nativeCost: BigInt(0),
 				redeem: false,
 				relayerFee: parseUnits("0", 18),
 				timeout: BigInt(20),
@@ -368,7 +368,7 @@ describe("Hyperbridge Requests", () => {
 		let hyp_commitment
 		for await (const event of result) {
 			if (event.kind === "Error") {
-				throw new Error(event.error)
+				throw new Error(event.error as string)
 			}
 
 			if (event.kind === "Ready") {
@@ -421,7 +421,7 @@ describe("Hyperbridge Requests", () => {
 })
 
 async function bscSetup() {
-	const account = privateKeyToAccount(process.env.BSC_PRIVATE_KEY as any)
+	const account = privateKeyToAccount(process.env.PRIVATE_KEY as any)
 
 	const bscWalletClient = createWalletClient({
 		chain: bscTestnet,

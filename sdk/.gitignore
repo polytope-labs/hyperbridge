@@ -6,13 +6,19 @@
 # Node artifact files
 node_modules/
 dist/
+local/
 
 # lock files
 yarn.lock
 package-lock.json
 
 packages/indexer/configs/*.yaml
+packages/indexer/src/configs/*.yaml
 packages/indexer/configs/src/types*
+packages/indexer/src/configs/src/types*
+packages/indexer/docker/testnet/
+packages/indexer/docker/mainnet/
+.claude/
 
 # Compiled Java class files
 *.class
@@ -69,3 +75,5 @@ Thumbs.db
 .env*
 .tsconfig
 .tsbuildinfo
+
+substrate-ws.json

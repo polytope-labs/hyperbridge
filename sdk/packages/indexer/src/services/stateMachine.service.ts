@@ -1,6 +1,6 @@
-import { StateMachineUpdateEvent } from "../../configs/src/types"
-import { getConsensusStateId } from "../constants"
-import { fetchStateCommitmentsEVM, fetchStateCommitmentsSubstrate, getStateId } from "../utils/state-machine.helper"
+import { StateMachineUpdateEvent } from "@/configs/src/types"
+import { getConsensusStateId } from "@/constants"
+import { fetchStateCommitmentsEVM, fetchStateCommitmentsSubstrate, getStateId } from "@/utils/state-machine.helper"
 
 // Arguments to functions that create StateMachineUpdated events
 export interface ICreateStateMachineUpdatedEventArgs {

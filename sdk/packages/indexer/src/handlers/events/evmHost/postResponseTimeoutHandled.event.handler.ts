@@ -1,8 +1,8 @@
-import { Status } from "../../../../configs/src/types"
-import { PostResponseTimeoutHandledLog } from "../../../../configs/src/types/abi-interfaces/EthereumHostAbi"
-import { HyperBridgeService } from "../../../services/hyperbridge.service"
-import { ResponseService } from "../../../services/response.service"
-import { getHostStateMachine } from "../../../utils/substrate.helpers"
+import { Status } from "@/configs/src/types"
+import { PostResponseTimeoutHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
+import { HyperBridgeService } from "@/services/hyperbridge.service"
+import { ResponseService } from "@/services/response.service"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
 
 /**
  * Handles the PostResponseTimeoutHandled event

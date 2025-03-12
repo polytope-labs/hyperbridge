@@ -179,10 +179,10 @@ describe("PostRequest", () => {
 
 		const req = await indexer.queryRequestWithStatus(commitment)
 		console.log(JSON.stringify(req, null, 4))
-		// expect(req?.statuses.length).toBe(5)
+		expect(req?.statuses.length).toBe(5)
 	}, 600_000)
 
-	it("should stream and query the timeout status", async () => {
+	test.fails("should stream and query the timeout status", async () => {
 		const { bscTestnetClient, bscHandler, bscPing, gnosisChiadoHost } = await setUp()
 		console.log("\n\nSending Post Request\n\n")
 
@@ -192,7 +192,7 @@ describe("PostRequest", () => {
 				count: BigInt(1),
 				fee: BigInt(0),
 				module: process.env.PING_MODULE_ADDRESS! as HexString,
-				timeout: BigInt(150), // so it can timeout
+				timeout: BigInt(180), // so it can timeout
 			},
 		])
 

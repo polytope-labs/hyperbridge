@@ -1,8 +1,8 @@
-import { HyperBridgeService } from "../../../services/hyperbridge.service"
-import { RequestService } from "../../../services/request.service"
-import { Status } from "../../../../configs/src/types"
-import { PostRequestEventLog } from "../../../../configs/src/types/abi-interfaces/EthereumHostAbi"
-import { getHostStateMachine } from "../../../utils/substrate.helpers"
+import { HyperBridgeService } from "@/services/hyperbridge.service"
+import { RequestService } from "@/services/request.service"
+import { Status } from "@/configs/src/types"
+import { PostRequestEventLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
 
 /**
  * Handles the PostRequest event from Evm Hosts

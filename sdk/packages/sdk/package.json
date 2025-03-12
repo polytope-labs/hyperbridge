@@ -1,5 +1,5 @@
 {
-	"name": "@hyperbridge/hyperclient",
+	"name": "@hyperbridge/sdk",
 	"version": "1.0.0",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"main": "dist/index.js",
@@ -33,7 +33,7 @@
 	"scripts": {
 		"build": "tsc && resolve-tspaths",
 		"prepublishOnly": "npm run build",
-		"test": "vitest --watch=false",
+		"test": "vitest --watch=false --maxConcurrency=1",
 		"test:watch": "vitest",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",

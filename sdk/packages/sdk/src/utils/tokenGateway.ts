@@ -120,8 +120,12 @@ async function fetchLocalAssetId(params: { api: ApiPromise; assetId: Uint8Array 
  * @yields {HyperbridgeTxEvents} Stream of events indicating transaction status
  * @throws Error when asset ID is unknown or transaction fails
  */
-export async function teleport(apiPromise: ApiPromise, who: string, params: Params, options: Partial<SignerOptions>):
- Promise<ReadableStream<HyperbridgeTxEvents>> {
+export async function teleport(
+	apiPromise: ApiPromise,
+	who: string,
+	params: Params,
+	options: Partial<SignerOptions>,
+): Promise<ReadableStream<HyperbridgeTxEvents>> {
 	const substrateComplianceAddr = (address: HexString, stateMachine: string) => {
 		if (stateMachine.startsWith("EVM-")) return pad(address, { size: 32, dir: "left" })
 
@@ -163,9 +167,9 @@ export async function teleport(apiPromise: ApiPromise, who: string, params: Para
 		{
 			async start(controller) {
 				unsub = await tx.signAndSend(who, options, async (result) => {
-					const { isInBlock, isError, dispatchError, txHash, isFinalized, status } = result;
+					const { isInBlock, isError, dispatchError, txHash, isFinalized, status } = result
 					// @ts-expect-error Type Mismatch
-					const events = result.events as ISubmittableResult['events']
+					const events = result.events as ISubmittableResult["events"]
 
 					if (isError) {
 						console.error("Transaction failed: ", dispatchError)
@@ -176,7 +180,7 @@ export async function teleport(apiPromise: ApiPromise, who: string, params: Para
 					if (status.type === "Ready") {
 						controller.enqueue({
 							kind: "Ready",
-							transaction_hash: txHash.toHex()
+							transaction_hash: txHash.toHex(),
 						})
 					}
 
@@ -184,7 +188,7 @@ export async function teleport(apiPromise: ApiPromise, who: string, params: Para
 						controller.enqueue({
 							kind: "Finalized",
 							transaction_hash: txHash.toHex(),
-							events: events
+							events: events,
 						})
 						return controller.close()
 					}
@@ -207,7 +211,7 @@ export async function teleport(apiPromise: ApiPromise, who: string, params: Para
 							transaction_hash: txHash.toHex(),
 							block_number: header.number.toBigInt(),
 							commitment: commitment_hash,
-							events: events
+							events: events,
 						})
 					}
 				})

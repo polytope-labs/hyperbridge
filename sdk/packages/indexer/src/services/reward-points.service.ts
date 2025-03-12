@@ -3,8 +3,8 @@
 //  RewardPoints,
 //  RewardPointsActivityLog,
 //  RewardPointsActivityType,
-// } from '../types';
-// import { TokenGatewayService } from './tokenGateway.service';
+// } from '@/types';
+// import { TokenGatewayService } from '@/services/tokenGateway.service';
 
 // export interface IAssignRewardPointsForFulfilledRequestInput {
 //  address: string;

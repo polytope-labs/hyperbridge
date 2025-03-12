@@ -1,5 +1,5 @@
 import { SubstrateEvent } from "@subql/types"
-import { CHAIN_IDS_BY_GENESIS, HYPERBRIDGE } from "../constants"
+import { CHAIN_IDS_BY_GENESIS, HYPERBRIDGE } from "@/constants"
 
 /**
  * Get the StateMachineID parsing the stringified object which substrate provides

@@ -7,7 +7,7 @@
 		"packages/*"
 	],
 	"scripts": {
-		"build": "pnpm --filter=\"@hyperbridge/indexer\" build && pnpm --filter=\"@hyperbridge/sdk\" build",
+		"build": "pnpm --filter=\"@hyperbridge/subql-indexer\" build && pnpm --filter=\"@hyperbridge/sdk\" build",
 		"test": "pnpm --filter=\"*\" test",
 		"lint": "pnpm --filter=\"*\" lint",
 		"format": "pnpm --filter=\"*\" format",

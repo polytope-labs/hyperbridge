@@ -1,6 +1,6 @@
-import { StateMachineUpdatedLog } from "../../../../configs/src/types/abi-interfaces/EthereumHostAbi"
-import { StateMachineService } from "../../../services/stateMachine.service"
-import { getHostStateMachine } from "../../../utils/substrate.helpers"
+import { StateMachineUpdatedLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
+import { StateMachineService } from "@/services/stateMachine.service"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
 
 /**
  * Handle the StateMachineUpdated event

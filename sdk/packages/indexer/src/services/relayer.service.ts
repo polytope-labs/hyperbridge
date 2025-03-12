@@ -1,12 +1,12 @@
-import { ProtocolParticipant } from "../../configs/src/types/enums"
-import { Relayer, Transfer } from "../../configs/src/types/models"
-import { RelayerChainStatsService } from "./relayerChainStats.service"
+import { ProtocolParticipant } from "@/configs/src/types/enums"
+import { Relayer, Transfer } from "@/configs/src/types/models"
+import { RelayerChainStatsService } from "@/services/relayerChainStats.service"
 // import {
 //  HandlePostRequestsTransaction,
 //  HandlePostResponsesTransaction,
-// } from '../types/abi-interfaces/HandlerV1Abi';
-// import PriceHelper from '../utils/price.helpers';
-// import { GET_ETHEREUM_L2_STATE_MACHINES } from '../addresses/state-machine.addresses';
+// } from '@/types/abi-interfaces/HandlerV1Abi';
+// import PriceHelper from '@/utils/price.helpers';
+// import { GET_ETHEREUM_L2_STATE_MACHINES } from '@/addresses/state-machine.addresses';
 
 export class RelayerService {
 	/**

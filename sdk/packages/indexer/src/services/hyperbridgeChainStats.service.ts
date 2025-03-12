@@ -1,4 +1,4 @@
-import { HyperBridgeChainStats } from "../../configs/src/types"
+import { HyperBridgeChainStats } from "@/configs/src/types"
 
 export class HyperBridgeChainStatsService {
 	/**

@@ -1,94 +1,94 @@
 {
-    "name": "@hyperbridge/subql",
-    "version": "1.0.0",
-    "description": "SubQuery indexer for the Hyperbridge network. Indexes data from connected rollups and Hyperbridge's messaging infrastructure",
-    "main": "dist/index.js",
-    "homepage": "https://hyperbridge.network/",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/polytope-labs/hyperbridge-sdk"
-    },
-    "bugs": {
-        "url": "https://github.com/polytope-labs/hyperbridge-sdk/issues"
-    },
-    "files": [
-        "dist",
-        "configs/schema.graphql",
-        "configs/subquery-multichain.yaml"
-    ],
-    "author": "Polytope Labs",
-    "license": "MIT",
-    "keywords": [
-        "hyperbridge",
-        "subquery",
-        "indexer",
-        "blockchain",
-        "graphql",
-        "cryptocurrency",
-        "interoperability"
-    ],
-    "engines": {
-        "node": ">=22"
-    },
-    "scripts": {
-        "prepack": "rm -rf dist && npm run build",
-        "test": "jest --runInBand --detectOpenHandles",
-        "format": "prettier --write \"**/*.ts\"",
-        "clean": "rm -rf dist node_modules",
-        "server": "docker run -d --name graphql-server -p 3000:3000 --restart always --env-file ../../.env.$ENV subquerynetwork/subql-query:latest --name=app --playground",
-        "codegen:subql": "subql codegen -f configs",
-        "codegen:yamls": "node scripts/generate-chain-yamls.js && node scripts/generate-compose.js",
-        "start": "./scripts/up.sh ./docker/$ENV",
-        "down": "./scripts/down.sh ./docker/$ENV",
-        "start:local": "ENV=local npm run build && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local up --force-recreate --remove-orphans && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local rm -fsv",
-        "build": "npm run codegen:yamls && npm run codegen:subql && ./node_modules/.bin/subql build"
-    },
-    "dependencies": {
-        "@bifrost-finance/type-definitions": "^1.11.9",
-        "@ethersproject/abi": "^5.7.0",
-        "@ethersproject/providers": "^5.7.2",
-        "@ethersproject/shims": "^5.7.0",
-        "@open-web3/orml-type-definitions": "^2.0.1",
-        "@polkadot/api": "latest",
-        "@polkadot/types": "latest",
-        "@polkadot/util-crypto": "latest",
-        "@subql/common": "latest",
-        "@subql/common-ethereum": "latest",
-        "@subql/types-core": "latest",
-        "@subql/types-ethereum": "latest",
-        "@subql/validator": "latest",
-        "@types/node-fetch": "latest",
-        "assert": "^2.0.0",
-        "dotenv": "^16.4.7",
-        "fast-text-encoding": "^1.0.6",
-        "node-fetch": "^2.7.0",
-        "safe-stable-stringify": "^2.5.0",
-        "scale-ts": "^1.6.1",
-        "viem": "^2.23.5"
-    },
-    "devDependencies": {
-        "@subql/cli": "5.6.0",
-        "@subql/node": "latest",
-        "@subql/node-core": "latest",
-        "@subql/node-ethereum": "latest",
-        "@subql/testing": "latest",
-        "@subql/types": "latest",
-        "@types/jest": "^29.5.14",
-        "@types/node": "^22.13.5",
-        "@types/pino": "^7.0.4",
-        "ethers": "^5.7.2",
-        "fs-extra": "^11.3.0",
-        "prettier": "^3.5.2",
-        "rpc-websocket-client": "^1.1.4",
-        "ts-jest": "^29.2.6",
-        "ts-node": "^10.9.2",
-        "tslib": "^2.8.1",
-        "typescript": "latest"
-    },
-    "exports": {
-        "./substrate-chaintypes/hyperbridge": "./src/substrate-chaintypes/hyperbridge.ts"
-    },
-    "publishConfig": {
-        "access": "public"
-    }
+	"name": "@hyperbridge/subql-indexer",
+	"version": "1.0.0",
+	"description": "SubQuery indexer for the Hyperbridge network. Indexes data from connected rollups and Hyperbridge's messaging infrastructure",
+	"main": "dist/index.js",
+	"homepage": "https://hyperbridge.network/",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/polytope-labs/hyperbridge-sdk"
+	},
+	"bugs": {
+		"url": "https://github.com/polytope-labs/hyperbridge-sdk/issues"
+	},
+	"files": [
+		"dist",
+		"src/configs/schema.graphql",
+		"src/configs/subquery-multichain.yaml"
+	],
+	"author": "Polytope Labs",
+	"license": "MIT",
+	"keywords": [
+		"hyperbridge",
+		"subquery",
+		"indexer",
+		"blockchain",
+		"graphql",
+		"cryptocurrency",
+		"interoperability"
+	],
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"prepack": "rm -rf dist && npm run build",
+		"test": "jest --runInBand --detectOpenHandles",
+		"format": "prettier --write \"**/*.ts\"",
+		"clean": "rm -rf dist node_modules",
+		"server": "docker run -d --name graphql-server -p 3000:3000 --restart always --env-file ../../.env.$ENV subquerynetwork/subql-query:latest --name=app --playground",
+		"codegen:subql": "subql codegen -f src/configs",
+		"codegen:yamls": "node scripts/generate-chain-yamls.js && node scripts/generate-compose.js",
+		"start": "./scripts/up.sh ./docker/$ENV",
+		"down": "./scripts/down.sh ./docker/$ENV",
+		"start:local": "ENV=local npm run build && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local up --force-recreate --remove-orphans && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local rm -fsv",
+		"build": "npm run codegen:yamls && npm run codegen:subql && ./node_modules/.bin/subql build"
+	},
+	"dependencies": {
+		"@bifrost-finance/type-definitions": "^1.11.9",
+		"@ethersproject/abi": "^5.7.0",
+		"@ethersproject/providers": "^5.7.2",
+		"@ethersproject/shims": "^5.7.0",
+		"@open-web3/orml-type-definitions": "^2.0.1",
+		"@polkadot/api": "latest",
+		"@polkadot/types": "latest",
+		"@polkadot/util-crypto": "latest",
+		"@subql/common": "latest",
+		"@subql/common-ethereum": "latest",
+		"@subql/types-core": "latest",
+		"@subql/types-ethereum": "latest",
+		"@subql/validator": "latest",
+		"@types/node-fetch": "latest",
+		"assert": "^2.0.0",
+		"dotenv": "^16.4.7",
+		"fast-text-encoding": "^1.0.6",
+		"node-fetch": "^2.7.0",
+		"safe-stable-stringify": "^2.5.0",
+		"scale-ts": "^1.6.1",
+		"viem": "^2.23.5"
+	},
+	"devDependencies": {
+		"@subql/cli": "5.7.1-0",
+		"@subql/node": "latest",
+		"@subql/node-core": "latest",
+		"@subql/node-ethereum": "latest",
+		"@subql/testing": "latest",
+		"@subql/types": "latest",
+		"@types/jest": "^29.5.14",
+		"@types/node": "^22.13.5",
+		"@types/pino": "^7.0.4",
+		"ethers": "^5.7.2",
+		"fs-extra": "^11.3.0",
+		"prettier": "^3.5.2",
+		"rpc-websocket-client": "^1.1.4",
+		"ts-jest": "^29.2.6",
+		"ts-node": "^10.9.2",
+		"tslib": "^2.8.1",
+		"typescript": "latest"
+	},
+	"exports": {
+		"./substrate-chaintypes/hyperbridge": "./src/substrate-chaintypes/hyperbridge.ts"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
 }

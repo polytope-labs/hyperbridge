@@ -1,6 +1,6 @@
 import { solidityKeccak256 } from "ethers/lib/utils"
-import { Status } from "../../configs/src/types/enums"
-import { Request, RequestStatusMetadata } from "../../configs/src/types/models"
+import { Status } from "@/configs/src/types/enums"
+import { Request, RequestStatusMetadata } from "@/configs/src/types/models"
 import { ethers } from "ethers"
 
 export interface ICreateRequestArgs {

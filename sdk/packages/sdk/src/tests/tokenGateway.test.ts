@@ -20,7 +20,7 @@ const secret_key = process.env.SECRET_PHRASE || ""
 describe("teleport function", () => {
 	it("should teleport assets correctly", async () => {
 		// Set up the connection to a local node
-		const wsProvider = new WsProvider(process.env.BIFROST_RPC)
+		const wsProvider = new WsProvider(process.env.BIFROST_PASEO)
 		const api = await ApiPromise.create({ provider: wsProvider })
 
 		console.log("Api connected")
@@ -53,24 +53,28 @@ describe("teleport function", () => {
 				if (event.kind === "Dispatched") {
 					dispatched = event
 				}
-				if (event.kind === 'Finalized') {
+				if (event.kind === "Finalized") {
 					finalized = event
 				}
 			}
 
-			expect(dispatched).toMatchObject(expect.objectContaining({
-				kind: "Dispatched",
-				transaction_hash:expect.stringContaining("0x"),
-				block_number: expect.any(BigInt),
-				commitment: expect.stringContaining("0x"),
-				events: expect.arrayContaining([])
-			}))
+			expect(dispatched).toMatchObject(
+				expect.objectContaining({
+					kind: "Dispatched",
+					transaction_hash: expect.stringContaining("0x"),
+					block_number: expect.any(BigInt),
+					commitment: expect.stringContaining("0x"),
+					events: expect.arrayContaining([]),
+				}),
+			)
 
-			expect(finalized).toMatchObject(expect.objectContaining({
-				kind: "Finalized",
-				transaction_hash:expect.stringContaining("0x"),
-				events: expect.arrayContaining([])
-			}))
+			expect(finalized).toMatchObject(
+				expect.objectContaining({
+					kind: "Finalized",
+					transaction_hash: expect.stringContaining("0x"),
+					events: expect.arrayContaining([]),
+				}),
+			)
 		} catch (error) {
 			console.log(error)
 			// The extrinsic should be decoded correctly but should fail at transaction fee payment since we are using the BOB account

@@ -1,8 +1,8 @@
 import { SubstrateEvent } from "@subql/types"
-import { RequestService } from "../../../services/request.service"
-import { Status } from "../../../../configs/src/types"
-import { Request } from "../../../../configs/src/types/models"
-import { getHostStateMachine, isHyperbridge } from "../../../utils/substrate.helpers"
+import { RequestService } from "@/services/request.service"
+import { Status } from "@/configs/src/types"
+import { Request } from "@/configs/src/types/models"
+import { getHostStateMachine, isHyperbridge } from "@/utils/substrate.helpers"
 
 export async function handleSubstratePostRequestTimeoutHandledEvent(event: SubstrateEvent): Promise<void> {
 	logger.info(`Saw Ismp.PostRequestTimeoutHandled Event on ${getHostStateMachine(chainId)}`)

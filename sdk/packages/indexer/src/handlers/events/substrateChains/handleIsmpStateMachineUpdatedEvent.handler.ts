@@ -1,11 +1,11 @@
 import { SubstrateEvent } from "@subql/types"
-import { StateMachineService } from "../../../services/stateMachine.service"
+import { StateMachineService } from "@/services/stateMachine.service"
 import {
 	extractStateMachineIdFromSubstrateEventData,
 	getHostStateMachine,
 	StateMachineError,
 	SubstrateEventValidator,
-} from "../../../utils/substrate.helpers"
+} from "@/utils/substrate.helpers"
 
 export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent): Promise<void> {
 	logger.info(`Saw Ismp.StateMachineUpdated Event on ${getHostStateMachine(chainId)}`)

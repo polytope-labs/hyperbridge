@@ -1,8 +1,8 @@
-// import { CHAINS_BY_ISMP_HOST } from '../../../constants';
-// import { HyperBridgeService } from '../../../services/hyperbridge.service';
-// import { RelayerService } from '../../../services/relayer.service';
-// // import { HandlePostRequestsTransaction } from '../../../types/abi-interfaces/HandlerV1Abi';
-// import { getHostStateMachine } from '../../../utils/substrate.helpers';
+// import { CHAINS_BY_ISMP_HOST } from '@/constants';
+// import { HyperBridgeService } from '@/services/hyperbridge.service';
+// import { RelayerService } from '@/services/relayer.service';
+// // import { HandlePostRequestsTransaction } from '@/types/abi-interfaces/HandlerV1Abi';
+// import { getHostStateMachine } from '@/utils/substrate.helpers';
 
 // /**
 //  * Handles the handlePostResponse transaction from handlerV1 contract

@@ -1,9 +1,9 @@
 import { SubstrateEvent } from "@subql/types"
-import { RequestService } from "../../../services/request.service"
-import { Status } from "../../../../configs/src/types"
-import { getHostStateMachine, isHyperbridge } from "../../../utils/substrate.helpers"
-import { HyperBridgeService } from "../../../services/hyperbridge.service"
-import { Request } from "../../../../configs/src/types/models"
+import { RequestService } from "@/services/request.service"
+import { Status } from "@/configs/src/types"
+import { getHostStateMachine, isHyperbridge } from "@/utils/substrate.helpers"
+import { HyperBridgeService } from "@/services/hyperbridge.service"
+import { Request } from "@/configs/src/types/models"
 
 type EventData = {
 	commitment: string

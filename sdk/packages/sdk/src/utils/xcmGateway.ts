@@ -4,7 +4,7 @@ import type { SignerOptions } from "@polkadot/api/types"
 import { u8aToHex } from "@polkadot/util"
 import { decodeAddress } from "@polkadot/util-crypto"
 import { parseUnits } from "viem"
-import type {EventRecord, Header} from "@polkadot/types/interfaces"
+import type { EventRecord, Header } from "@polkadot/types/interfaces"
 import type { ISubmittableResult } from "@polkadot/types/types"
 
 export type HyperbridgeTxEvents =
@@ -63,7 +63,6 @@ export type XcmGatewayParams = {
 	 */
 	paraId: number
 }
-
 
 /**
  * Teleports DOT tokens from Polkadot relay chain to an EVM-based destination chain
@@ -172,7 +171,7 @@ export async function teleportDot(
 					try {
 						const { status, dispatchError, txHash } = result
 						// @ts-expect-error Type Mismatch
-						const events = result.events as ISubmittableResult['events'];
+						const events = result.events as ISubmittableResult["events"]
 
 						if (dispatchError) {
 							controller.enqueue({
@@ -211,7 +210,7 @@ export async function teleportDot(
 							controller.enqueue({
 								kind: "Finalized",
 								transaction_hash: txHash.toHex(),
-								events: events
+								events: events,
 							})
 						}
 					} catch (err) {
@@ -306,7 +305,6 @@ async function watchForRequestCommitment(
 			.catch(reject)
 	})
 }
-
 
 /**
  * Extracts the commitment hash from the event data if the event data

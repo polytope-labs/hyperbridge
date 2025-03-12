@@ -1,6 +1,6 @@
-// import { SUPPORTED_ASSETS_CONTRACT_ADDRESSES } from "../constants";
-// // import { TokenGatewayAbi__factory } from "../types/contracts";
-// import PriceHelper from "../utils/price.helpers";
+// import { SUPPORTED_ASSETS_CONTRACT_ADDRESSES } from "@/constants";
+// // import { TokenGatewayAbi__factory } from "@/types/contracts";
+// import PriceHelper from "@/utils/price.helpers";
 
 // export interface IAssetDetails {
 //   erc20_address: string;

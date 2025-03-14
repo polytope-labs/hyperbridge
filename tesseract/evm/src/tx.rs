@@ -70,6 +70,7 @@ pub async fn submit_messages(
 					progress,
 					gas_price,
 					retry,
+					matches!(messages[index], Message::Consensus(_)),
 				)
 				.await?;
 				if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
@@ -120,6 +121,7 @@ pub async fn wait_for_success<'a, T>(
 	tx: PendingTransaction<'a, Http>,
 	gas_price: Option<U256>,
 	retry: Option<SolidityFunctionCall<T>>,
+	is_consensus: bool,
 ) -> Result<BTreeSet<H256>, anyhow::Error>
 where
 	'a: 'async_recursion,
@@ -175,6 +177,7 @@ where
 				pending,
 				Some(gas_price),
 				None,
+				is_consensus,
 			)
 			.await
 		} else {
@@ -196,6 +199,13 @@ where
 					// we're going to error anyways
 					let _ = log_receipt(receipt, true);
 				}
+			}
+
+			// Throw an error only when consensus messages are cancelled
+			// Consensus relayer expects an error when consensus messages fail to submit so they can
+			// be retried
+			if is_consensus {
+				Err(anyhow!("Transaction to {:?} was cancelled!", state_machine_clone))?
 			}
 
 			log::error!("Transaction to {:?} was cancelled!", state_machine_clone);

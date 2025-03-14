@@ -42,9 +42,10 @@ const REQUEST_STATUS_WEIGHTS = {
 
 export class RequestService {
 	/**
-	 * Finds a request enitity and creates a new one if it doesn't exist
+	 * Finds a request entity and creates a new one if it doesn't exist
+	 * If the request exists, it updates the request details
 	 */
-	static async findOrCreate(args: ICreateRequestArgs): Promise<Request> {
+	static async createOrUpdate(args: ICreateRequestArgs): Promise<Request> {
 		const {
 			chain,
 			commitment,
@@ -65,7 +66,7 @@ export class RequestService {
 		let request = await Request.get(commitment)
 
 		logger.info(
-			`Creating PostRequest Event: ${JSON.stringify({
+			`Processing Request: ${JSON.stringify({
 				commitment,
 				transactionHash,
 				status,
@@ -73,6 +74,7 @@ export class RequestService {
 		)
 
 		if (typeof request === "undefined") {
+			// Create new request if it doesn't exist
 			request = Request.create({
 				id: commitment,
 				chain,
@@ -98,19 +100,26 @@ export class RequestService {
 					status,
 				})}`,
 			)
+		} else {
+			// Update existing request with new details if provided
+			if (body !== undefined) request.body = body
+			if (dest !== undefined) request.dest = dest
+			if (fee !== undefined) request.fee = fee
+			if (from !== undefined) request.from = from
+			if (nonce !== undefined) request.nonce = nonce
+			if (source !== undefined) request.source = source
+			if (timeoutTimestamp !== undefined) request.timeoutTimestamp = timeoutTimestamp
+			if (to !== undefined) request.to = to
 
-			let requestStatusMetadata = RequestStatusMetadata.create({
-				id: `${commitment}.${status}`,
-				requestId: commitment,
-				status,
-				chain,
-				timestamp: blockTimestamp,
-				blockNumber,
-				blockHash,
-				transactionHash,
-			})
+			await request.save()
 
-			await requestStatusMetadata.save()
+			logger.info(
+				`Updated existing request with details ${JSON.stringify({
+					commitment,
+					transactionHash,
+					status,
+				})}`,
+			)
 		}
 
 		return request
@@ -133,22 +142,9 @@ export class RequestService {
 
 		let request = await Request.get(commitment)
 
-		if (request) {
-			let requestStatusMetadata = RequestStatusMetadata.create({
-				id: `${commitment}.${status}`,
-				requestId: commitment,
-				status,
-				chain,
-				timestamp: blockTimestamp,
-				blockNumber,
-				blockHash,
-				transactionHash,
-			})
-
-			await requestStatusMetadata.save()
-		} else {
+		if (!request) {
 			// Create new request and request status metadata
-			await this.findOrCreate({
+			await this.createOrUpdate({
 				commitment,
 				chain,
 				body: undefined,
@@ -159,11 +155,11 @@ export class RequestService {
 				source: undefined,
 				timeoutTimestamp: undefined,
 				to: undefined,
-				blockNumber,
-				blockHash,
-				blockTimestamp,
+				blockNumber: "",
+				blockHash: "",
+				blockTimestamp: 0n,
 				status,
-				transactionHash,
+				transactionHash: "",
 			})
 
 			logger.info(
@@ -174,6 +170,19 @@ export class RequestService {
 				})}`,
 			)
 		}
+
+		let requestStatusMetadata = RequestStatusMetadata.create({
+			id: `${commitment}.${status}`,
+			requestId: commitment,
+			status,
+			chain,
+			timestamp: blockTimestamp,
+			blockNumber,
+			blockHash,
+			transactionHash,
+		})
+
+		await requestStatusMetadata.save()
 	}
 
 	/**

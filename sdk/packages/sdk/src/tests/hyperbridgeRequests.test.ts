@@ -50,7 +50,7 @@ describe("Hyperbridge Requests", () => {
 				stateMachineId: "KUSAMA-4009",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			},
-			url: "http://localhost:3000",
+			url: "http://localhost:3100",
 			pollInterval: 1_000, // every second
 		})
 	})
@@ -152,7 +152,7 @@ describe("Hyperbridge Requests", () => {
 			destination: 97,
 			recipient: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" as HexString,
 			amount: BigInt(1),
-			timeout: BigInt(10),
+			timeout: BigInt(1),
 			paraId: 4009,
 		}
 
@@ -302,7 +302,7 @@ describe("Hyperbridge Requests", () => {
 				stateMachineId: "KUSAMA-4009",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			},
-			url: "http://localhost:3000",
+			url: "http://localhost:3100",
 			pollInterval: 1_000, // every second
 		})
 
@@ -320,7 +320,7 @@ describe("Hyperbridge Requests", () => {
 				nativeCost: BigInt(0),
 				redeem: false,
 				relayerFee: parseUnits("0", 18),
-				timeout: BigInt(20),
+				timeout: BigInt(1),
 				to: "0xe95696ab27a7ffc9c1a9969003787c8e3c7dcd87aa36238082eb22e67ec0e4ce",
 			},
 		])

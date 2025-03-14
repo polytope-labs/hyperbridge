@@ -8,6 +8,7 @@ import { u8, Vector } from "scale-ts"
 import { BasicProof, isEvmChain, isSubstrateChain, IStateMachine, Message, SubstrateStateProof } from "@/utils"
 import { IChain, IIsmpMessage } from "@/chain"
 import { HexString, IPostRequest } from "@/types"
+import { keccakAsU8a } from "@polkadot/util-crypto"
 
 export interface SubstrateChainParams {
 	/*
@@ -33,8 +34,22 @@ export class SubstrateChain implements IChain {
 	 */
 	public async connect() {
 		const wsProvider = new WsProvider(this.params.ws)
+		const typesBundle =
+			this.params.hasher === "Keccak"
+				? {
+						spec: {
+							nexus: {
+								hasher: keccakAsU8a,
+							},
+							gargantua: {
+								hasher: keccakAsU8a,
+							},
+						},
+					}
+				: {}
 		this.api = await ApiPromise.create({
 			provider: wsProvider,
+			typesBundle,
 		})
 	}
 

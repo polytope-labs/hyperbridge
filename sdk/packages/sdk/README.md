@@ -5,11 +5,11 @@ A JavaScript/TypeScript SDK for interacting with the Hyperbridge indexer and mon
 ## Installation
 
 ```bash
-npm install @hyperbridge/sdk
+npm install hyperbridge-sdk
 # or
-yarn add @hyperbridge/sdk
+yarn add hyperbridge-sdk
 # or
-pnpm add @hyperbridge/sdk
+pnpm add hyperbridge-sdk
 ```
 
 ## Usage
@@ -17,7 +17,7 @@ pnpm add @hyperbridge/sdk
 ### Initialize Client
 
 ```ts
-import { IndexerClient } from "@hyperbridge/sdk"
+import { IndexerClient } from "hyperbridge-sdk"
 
 const indexer = new IndexerClient({
 	source: {
@@ -45,7 +45,7 @@ const indexer = new IndexerClient({
 ### Monitor Post Request Status
 
 ```ts
-import { postRequestCommitment } from "@hyperbridge/sdk"
+import { postRequestCommitment } from "hyperbridge-sdk"
 
 // Get status stream for a commitment
 const commitment = postRequestCommitment(request)
@@ -90,7 +90,7 @@ console.log(request?.statuses)
 ### Chain Utilities
 
 ```ts
-import { EvmChain, SubstrateChain } from "@hyperbridge/sdk"
+import { EvmChain, SubstrateChain } from "hyperbridge-sdk"
 
 // Interact with EVM chains
 const evmChain = new EvmChain({

@@ -288,7 +288,7 @@ async function watchForRequestCommitment(
 
 			last_block = finalized + 1
 
-			if (blockCount >= 30) {
+			if (blockCount >= 50) {
 				unsubscribeHyperbridgeEvents?.()
 				reject(new Error("No commitment received"))
 			}
@@ -330,9 +330,7 @@ export function extractCommitmentHashFromEvent({
 		to.toString().toLowerCase() === params.recipient.toLowerCase() &&
 		dest.toString().includes(params.destination?.toString())
 
-	if (!isExpectedEvent) {
-		throw new Error("Error extracting commitment. Data mismatch")
+	if (isExpectedEvent) {
+		return commitment.toString() as HexString
 	}
-
-	return commitment.toString() as HexString
 }

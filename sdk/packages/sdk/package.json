@@ -1,5 +1,5 @@
 {
-	"name": "@hyperbridge/sdk",
+	"name": "hyperbridge-sdk",
 	"version": "1.0.0",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"main": "dist/index.js",

@@ -3,7 +3,7 @@ import fetch from "node-fetch"
 import { bytesToHex, hexToBytes, toHex } from "viem"
 
 import { RequestService } from "@/services/request.service"
-import { Status } from "@/configs/src/types"
+import { RequestStatusMetadata, Status } from "@/configs/src/types"
 import { formatChain, getHostStateMachine, isSubstrateChain } from "@/utils/substrate.helpers"
 import { SUBSTRATE_RPC_URL } from "@/constants"
 import { RequestMetadata } from "@/utils/state-machine.helper"
@@ -105,7 +105,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 	}
 
 	const host = getHostStateMachine(chainId)
-	await RequestService.findOrCreate({
+	await RequestService.createOrUpdate({
 		chain: host,
 		commitment: commitment.toString(),
 		body,
@@ -122,6 +122,20 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",
 		blockTimestamp: BigInt(event.block?.timestamp!.getTime()),
 	})
+
+	// Always create a new status metadata entry
+	let requestStatusMetadata = RequestStatusMetadata.create({
+		id: `${commitment.toHex()}.${Status.SOURCE}`,
+		requestId: commitment.toHex(),
+		status: Status.SOURCE,
+		chain: host,
+		timestamp: BigInt(event.block?.timestamp!.getTime()),
+		blockNumber: event.block.block.header.number.toString(),
+		blockHash: event.block.block.header.hash.toString(),
+		transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",
+	})
+
+	await requestStatusMetadata.save()
 }
 
 export function replaceWebsocketWithHttp(url: string): string {

@@ -699,8 +699,6 @@ export class IndexerClient {
 		if (!request) throw new Error(`Request not found`)
 
 		const destChain = await getChain(self.config.dest)
-		const destTimestamp = await destChain.timestamp()
-		if (request.timeoutTimestamp > destTimestamp) throw new Error(`Request not timed out`)
 
 		// if the destination is hyperbridge, then just wait for hyperbridge finality
 		let status =
@@ -826,15 +824,15 @@ export class IndexerClient {
 							})
 						}
 					} else {
-						let req: RequestWithStatus | undefined
-						while (!req) {
+						let timeout: RequestStatusWithMetadata | undefined
+						while (!timeout || timeout?.status !== TimeoutStatus.HYPERBRIDGE_TIMED_OUT) {
 							await sleep(self.config.pollInterval)
-							req = await self.queryRequest(hash)
+							const req = await self.queryRequest(hash)
+							if (!req) continue
+							timeout = req.statuses
+								.sort((a, b) => COMBINED_STATUS_WEIGHTS[a.status] - COMBINED_STATUS_WEIGHTS[b.status])
+								.pop()
 						}
-						const timeout = req.statuses
-							.sort((a, b) => COMBINED_STATUS_WEIGHTS[a.status] - COMBINED_STATUS_WEIGHTS[b.status])
-							.pop()
-						if (!timeout || timeout.status !== TimeoutStatus.HYPERBRIDGE_TIMED_OUT) break
 
 						while (!update) {
 							await sleep(self.config.pollInterval)

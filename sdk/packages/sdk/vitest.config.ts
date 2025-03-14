@@ -1,7 +1,5 @@
 import { defineConfig } from "vitest/config"
 import tsconfigPaths from "vite-tsconfig-paths"
-import { loadEnv } from "vite"
-import path from "node:path"
 export default defineConfig({
 	plugins: [tsconfigPaths()],
 	test: {

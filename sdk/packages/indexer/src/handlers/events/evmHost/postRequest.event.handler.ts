@@ -1,6 +1,6 @@
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { RequestService } from "@/services/request.service"
-import { Status } from "@/configs/src/types"
+import { RequestStatusMetadata, Status } from "@/configs/src/types"
 import { PostRequestEventLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 
@@ -53,7 +53,7 @@ export async function handlePostRequestEvent(event: PostRequestEventLog): Promis
 	)
 
 	// Create the request entity
-	await RequestService.findOrCreate({
+	await RequestService.createOrUpdate({
 		chain,
 		commitment: request_commitment,
 		body,
@@ -70,4 +70,18 @@ export async function handlePostRequestEvent(event: PostRequestEventLog): Promis
 		transactionHash,
 		blockTimestamp: block.timestamp,
 	})
+
+	// Always create a new status metadata entry
+	let requestStatusMetadata = RequestStatusMetadata.create({
+		id: `${request_commitment}.${Status.SOURCE}`,
+		requestId: request_commitment,
+		status: Status.SOURCE,
+		chain,
+		timestamp: block.timestamp,
+		blockNumber: blockNumber.toString(),
+		blockHash: block.hash,
+		transactionHash,
+	})
+
+	await requestStatusMetadata.save()
 }

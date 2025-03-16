@@ -108,6 +108,8 @@ describe("Hyperbridge Requests", () => {
 							data: status.metadata.calldata,
 						})
 
+						console.log("\n\n\nRaw ABI call data:", status.metadata.calldata, "\n\n\n")
+
 						expect(functionName).toBe("handlePostRequests")
 
 						try {

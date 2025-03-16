@@ -2,12 +2,14 @@
 	"hyperbridge-gargantua": {
 		"type": "substrate",
 		"chainId": "0x5388faf792c5232566d21493929b32c1f20a9c2b03e95615eefec2aa26d64b73",
-		"startBlock": 2056979
+		"startBlock": 2056979,
+		"stateMachineId": "KUSAMA-4009"
 	},
 	"bsc-chapel": {
 		"type": "evm",
 		"chainId": "97",
 		"startBlock": 44742412,
+		"stateMachineId": "EVM-97",
 		"contracts": {
 			"ethereumHost": "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
 			"handlerV1": "0xb45A4078A2D0B036C324A0046C2845aD59e769F6",
@@ -18,6 +20,7 @@
 		"type": "evm",
 		"chainId": "10200",
 		"startBlock": 12294845,
+		"stateMachineId": "EVM-10200",
 		"contracts": {
 			"ethereumHost": "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
 			"handlerV1": "0x01b40De26Ba4C63c17A6f4Ed2cF96927C280B029",

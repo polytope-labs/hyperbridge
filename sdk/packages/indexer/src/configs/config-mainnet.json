@@ -2,27 +2,32 @@
 	"hyperbridge-nexus": {
 		"type": "substrate",
 		"chainId": "0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540",
-		"startBlock": 2541729
+		"startBlock": 2541729,
+		"stateMachineId": "POLKADOT-3367"
 	},
 	"bifrost-mainnet": {
 		"type": "substrate",
 		"chainId": "0x262e1b2ad728475fd6fe88e62d34c200abe6fd693931ddad144059b1eb884e5b",
-		"startBlock": 6425711
+		"startBlock": 6425711,
+		"stateMachineId": "POLKADOT-2030"
 	},
 	"cere-mainnet": {
 		"type": "substrate",
 		"chainId": "0x81443836a9a24caaa23f1241897d1235717535711d1d3fe24eae4fdc942c092c",
-		"startBlock": 19167175
+		"startBlock": 19167175,
+		"stateMachineId": "SUBSTRATE-cere"
 	},
 	"argon-mainnet": {
 		"type": "substrate",
 		"chainId": "0xee11bf2ff8838fcb0832c09085c5319a08ba6111c225ecd899fe659872d9d45d",
-		"startBlock": 70515
+		"startBlock": 70515,
+		"stateMachineId": "SUBSTRATE-argn"
 	},
 	"ethereum-mainnet": {
 		"type": "evm",
 		"chainId": "1",
 		"startBlock": 21099382,
+		"stateMachineId": "EVM-1",
 		"contracts": {
 			"ethereumHost": "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20",
 			"erc6160ext20": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
@@ -33,6 +38,7 @@
 		"type": "evm",
 		"chainId": "42161",
 		"startBlock": 270229930,
+		"stateMachineId": "EVM-42161",
 		"contracts": {
 			"ethereumHost": "0xE05AFD4Eb2ce6d65c40e1048381BD0Ef8b4B299e",
 			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
@@ -43,6 +49,7 @@
 		"type": "evm",
 		"chainId": "10",
 		"startBlock": 127472624,
+		"stateMachineId": "EVM-10",
 		"contracts": {
 			"ethereumHost": "0x78c8A5F27C06757EA0e30bEa682f1FD5C8d7645d",
 			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
@@ -53,6 +60,7 @@
 		"type": "evm",
 		"chainId": "8453",
 		"startBlock": 21877423,
+		"stateMachineId": "EVM-8453",
 		"contracts": {
 			"ethereumHost": "0x6FFe92e4d7a9D589549644544780e6725E84b248",
 			"erc6160ext20": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
@@ -63,6 +71,7 @@
 		"type": "evm",
 		"chainId": "56",
 		"startBlock": 43654810,
+		"stateMachineId": "EVM-56",
 		"contracts": {
 			"ethereumHost": "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7",
 			"erc6160ext20": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
@@ -73,6 +82,7 @@
 		"type": "evm",
 		"chainId": "100",
 		"startBlock": 36816861,
+		"stateMachineId": "EVM-100",
 		"contracts": {
 			"ethereumHost": "0x50c236247447B9d4Ee0561054ee596fbDa7791b1",
 			"erc6160ext20": "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
@@ -83,6 +93,7 @@
 		"type": "evm",
 		"chainId": "1868",
 		"startBlock": 2762568,
+		"stateMachineId": "EVM-1868",
 		"contracts": {
 			"ethereumHost": "0x7F0165140D0f3251c8f6465e94E9d12C7FD40711",
 			"erc6160ext20": "0xbA9986D2381edf1DA03B0B9c1f8b00dc4AacC369",

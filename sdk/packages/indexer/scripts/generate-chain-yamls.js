@@ -275,9 +275,28 @@ ${projects}`
 	console.log("Generated subquery-multichain.yaml")
 }
 
+const generateSubstrateWsJson = () => {
+	const substrateWsConfig = {}
+
+	validChains.forEach(([chain, config]) => {
+		if (config.type === "substrate") {
+			const envKey = chain.replace(/-/g, "_").toUpperCase()
+			const endpoints = process.env[envKey]?.split(",") || []
+
+			if (endpoints.length > 0) {
+				substrateWsConfig[config.stateMachineId] = endpoints[0].trim()
+			}
+		}
+	})
+
+	fs.writeFileSync(root + "/src/substrate-ws.json", JSON.stringify(substrateWsConfig, null, 2))
+	console.log("Generated substrate-ws.json")
+}
+
 generateAllChainYamls()
 	.then(() => {
 		generateMultichainYaml()
+		generateSubstrateWsJson()
 		process.exit(0)
 	})
 	.catch((err) => {

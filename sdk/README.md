@@ -1,6 +1,6 @@
 # Hyperbridge SDK
 
-![CI](https://github.com/polytope-labs/hyperbridge-sdk/workflows/CI/badge.svg)
+![CI](https://github.com/polytope-labs/hyperbridge-sdk/actions/workflows/test-sdk.yml/badge.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Hyperbridge SDK is a comprehensive solution for cross-chain message indexing and retrieval. This monorepo contains two main packages:

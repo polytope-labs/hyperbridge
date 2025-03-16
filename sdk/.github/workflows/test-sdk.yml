@@ -55,18 +55,6 @@ jobs:
                   TOKEN_GATEWAY_ADDRESS: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
                   EOF
 
-            - name: Generate substrate-ws.json
-              run: |
-                  cd packages/indexer/src
-                  # Create substrate-ws.json with HYPERBRIDGE_GARGANTUA value
-                  cat > substrate-ws.json << EOF
-                  {
-                    "KUSAMA-4009": "${{ secrets.HYPERBRIDGE_GARGANTUA }}"
-                  }
-                  EOF
-                  cat substrate-ws.json
-                  cd ../../../
-
             - name: Build packages
               run: pnpm build
               env:

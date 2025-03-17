@@ -143,8 +143,20 @@ pub mod pallet {
 		/// subsystems.
 		type ConsensusClients: ConsensusClientProvider;
 
-		/// This implementation should provide the weight consumed by `IsmpModule` callbacks from
-		/// their benchmarks.
+		/// Fee handling implementation for ISMP message processing.
+		/// 
+		/// This type defines how fees are calculated and settled for different ISMP message types.
+		/// It provides an extensible way to implement various fee models based on chain-specific 
+		/// requirements, including:
+		///
+		/// - Weight-based fee calculations for computational resources
+		/// - Custom economic incentives for relayers and validators
+		/// - Different fee structures for various message types (requests, responses, consensus)
+		/// - Support for subsidized operations or negative fee models
+		///
+		/// The chosen implementation determines how transaction fees are calculated when 
+		/// processing ISMP messages, directly affecting the economic sustainability of the 
+		/// cross-chain messaging system.
 		type FeeHandler: FeeHandler;
 
 		/// Offchain database implementation. Outgoing requests and responses are

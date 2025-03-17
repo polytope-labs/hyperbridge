@@ -49,8 +49,8 @@ impl pallet_ismp::Config for Runtime {
     //
     // The default implementation for `()` should suffice
     type OffchainDB = ();
-    // Weight provider for local modules
-    type WeightProvider = ();
+    // The fee handler implementation
+    type FeeHandler = WeightFeeHandler<()>;
 }
 
 construct_runtime! {
@@ -127,42 +127,117 @@ impl IsmpModule for YourModule {
 }
 ```
 
-### WeightProvider
+### FeeHandler
 
-This type allows providing the static benchmarks for all ismp modules, it should identify modules by their id and return the weights for each `IsmpModule` callback
+The `FeeHandler` is responsible for calculating and settling fees for ISMP message processing. It enables flexible fee models that can be tailored to your chain's economic requirements.
+
+#### Purpose and Capabilities
+
+The `FeeHandler` configuration allows you to:
+
+- Calculate fees based on the computational resources (weight) used to process messages
+- Implement different fee structures for various message types (requests, responses, consensus)
+- Create custom incentive structures for relayers and validators
+- Support subsidized operations or negative fee models
+- Adapt fees based on network conditions or message priority
+
+#### Default Implementation
+
+The simplest implementation is the `WeightFeeHandler`, which calculates fees based on message processing weight:
+
+```rust showLineNumbers [runtime.rs]
+// For a simple weight-based fee model:
+type FeeHandler = WeightFeeHandler<ModuleWeightProvider>;
+```
+
+#### Custom Weight Provider
+
+To provide accurate weight measurements for each module's callbacks, implement the `WeightProvider` trait:
 
 ```rust showLineNumbers [runtime.rs]
 struct YourModuleBenchmarks;
 
 impl pallet_ismp::weights::IsmpModuleWeight for YourModuleBenchmarks {
-    /// Should return the weight used in processing this request
-	   fn on_accept(&self, request: &Post) -> Weight {
-        todo!("Return benchmark weight")
+    /// Should return the benchmark weight for processing this request
+    fn on_accept(&self, request: &Post) -> Weight {
+        // Return actual benchmarked weight for the operation
+        Weight::from_parts(150_000_000, 0)
     }
-	   /// Should return the weight used in processing this timeout
-	   fn on_timeout(&self, request: &Timeout) -> Weight {
-        todo!("Return benchmark weight")
+
+    /// Should return the benchmark weight for processing this timeout
+    fn on_timeout(&self, request: &Timeout) -> Weight {
+        Weight::from_parts(100_000_000, 0)
     }
-	   /// Should return the weight used in processing this response
-	   fn on_response(&self, response: &Response) -> Weight {
-        todo!("Return benchmark weight")
+
+    /// Should return the benchmark weight for processing this response
+    fn on_response(&self, response: &Response) -> Weight {
+        Weight::from_parts(120_000_000, 0)
     }
 }
 
-struct ModuleWeightProvider
+struct ModuleWeightProvider;
 
-impl pallet_ismp::WeightProvider for ModuleWeightProvider {
-	fn module_callback(dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>> {
-		match dest_module.to_bytes().as_slice() {
+impl pallet_ismp::weights::WeightProvider for ModuleWeightProvider {
+    fn module_callback(dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>> {
+        match dest_module.to_bytes().as_slice() {
             YOUR_MODULE_ID => {
-                Some(Box::new(YourModuleBenchmarks::default()))
+                Some(Box::new(YourModuleBenchmarks))
             }
             // ... other modules
             _ => None
         }
-	}
+    }
 }
 ```
+
+Alternatively, you can use the default weight provider if you don't need custom weights.
+
+
+```rust showLineNumbers [runtime.rs]
+// Default weight provider returns `Weight::zero()`
+type FeeHandler = WeightFeeHandler<()>;
+```
+
+
+#### Custom Fee Handlers
+
+For more advanced fee models, you can implement your own `FeeHandler`:
+
+```rust showLineNumbers [runtime.rs]
+struct CustomFeeHandler;
+
+impl pallet_ismp::fee_handler::FeeHandler for CustomFeeHandler {
+    fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo {
+        // Implement custom fee logic based on message types
+        // For example, different fee strategies for different message types:
+        let weight = calculate_consumed_weight(&messages);
+
+        // Determine if the operation pays fees based on your economic model
+        let pays_fee = if contains_only_consensus_messages(&messages) {
+            // incentivize consensus messages here using a custom fee strategy
+            Pays::No
+        } else {
+            // Regular messages pay normal fees
+            Pays::Yes
+        };
+
+        Ok(PostDispatchInfo {
+            actual_weight: Some(weight),
+            pays_fee,
+        })
+    }
+}
+```
+
+#### Fee Considerations
+
+When designing your fee model, consider:
+
+1. **Economic sustainability** - Ensure relayers are properly incentivized
+2. **Spam prevention** - Set fees high enough to prevent DoS attacks
+3. **User experience** - Keep fees reasonable for legitimate users
+4. **Computational efficiency** - Fee calculations should be lightweight
+5. **Special message types** - Consider if certain critical messages (like consensus updates) should have different fee structures
 
 
 ## Interfaces

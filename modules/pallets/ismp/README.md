@@ -84,8 +84,8 @@ impl pallet_ismp::Config for Runtime {
     // Offchain database implementation. Outgoing requests and responses are
     // inserted in this database, while their commitments are stored onchain.
     type OffchainDB = ();
-    // Weight provider for local modules
-    type WeightProvider = ();
+    // The fee handler implementation
+    type FeeHandler = WeightFeeHandler<()>;
 }
 
 #[derive(Default)]

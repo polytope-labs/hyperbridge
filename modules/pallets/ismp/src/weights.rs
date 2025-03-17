@@ -16,7 +16,7 @@
 //! Utilities for providing the static weights for module callbacks
 use polkadot_sdk::*;
 
-use crate::{utils::ModuleId, Config};
+use crate::utils::ModuleId;
 use alloc::boxed::Box;
 use frame_support::weights::Weight;
 use ismp::{
@@ -61,15 +61,13 @@ impl WeightProvider for () {
 }
 
 /// Returns the weight that would be consumed when executing a batch of messages
-pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
+pub(crate) fn get_weight<T: WeightProvider>(messages: &[Message]) -> Weight {
 	messages.into_iter().fold(Weight::zero(), |acc, msg| match msg {
 		Message::Request(msg) => {
 			let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {
 				let dest_module = ModuleId::from_bytes(req.to.as_slice()).ok();
-				let handle = dest_module
-					.map(|id| <T as Config>::WeightProvider::module_callback(id))
-					.flatten()
-					.unwrap_or(Box::new(()));
+				let handle =
+					dest_module.map(|id| T::module_callback(id)).flatten().unwrap_or(Box::new(()));
 				acc + handle.on_accept(&req)
 			});
 			acc + cb_weight
@@ -78,13 +76,14 @@ pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
 			RequestResponse::Response(responses) => {
 				let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
 					let dest_module = match res {
-						Response::Post(ref post) =>
-							ModuleId::from_bytes(post.post.from.as_slice()).ok(),
+						Response::Post(ref post) => {
+							ModuleId::from_bytes(post.post.from.as_slice()).ok()
+						},
 						_ => return acc,
 					};
 
 					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
+						.map(|id| T::module_callback(id))
 						.flatten()
 						.unwrap_or(Box::new(()));
 					acc + handle.on_response(&res)
@@ -99,7 +98,7 @@ pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
 						_ => return acc,
 					};
 					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
+						.map(|id| T::module_callback(id))
 						.flatten()
 						.unwrap_or(Box::new(()));
 					acc + handle.on_response(&Response::Get(GetResponse {
@@ -119,7 +118,7 @@ pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
 						_ => return acc,
 					};
 					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
+						.map(|id| T::module_callback(id))
 						.flatten()
 						.unwrap_or(Box::new(()));
 					acc + handle.on_timeout(&Timeout::Request(req.clone()))
@@ -131,7 +130,7 @@ pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
 				let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
 					let dest_module = ModuleId::from_bytes(&res.post.to).ok();
 					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
+						.map(|id| T::module_callback(id))
 						.flatten()
 						.unwrap_or(Box::new(()));
 					acc + handle.on_timeout(&Timeout::Response(res.clone()))
@@ -146,7 +145,7 @@ pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
 						_ => return acc,
 					};
 					let handle = dest_module
-						.map(|id| <T as Config>::WeightProvider::module_callback(id))
+						.map(|id| T::module_callback(id))
 						.flatten()
 						.unwrap_or(Box::new(()));
 					acc + handle.on_timeout(&Timeout::Request(req.clone()))

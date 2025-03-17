@@ -76,9 +76,8 @@ pub(crate) fn get_weight<T: WeightProvider>(messages: &[Message]) -> Weight {
 			RequestResponse::Response(responses) => {
 				let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
 					let dest_module = match res {
-						Response::Post(ref post) => {
-							ModuleId::from_bytes(post.post.from.as_slice()).ok()
-						},
+						Response::Post(ref post) =>
+							ModuleId::from_bytes(post.post.from.as_slice()).ok(),
 						_ => return acc,
 					};
 

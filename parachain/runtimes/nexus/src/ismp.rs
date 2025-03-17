@@ -115,7 +115,7 @@ impl pallet_ismp::Config for Runtime {
 		>,
 	);
 	type OffchainDB = Mmr;
-	type WeightProvider = ();
+	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<()>;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {

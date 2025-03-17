@@ -17,6 +17,7 @@ use core::marker::PhantomData;
 
 use polkadot_sdk::*;
 
+use alloc::vec::Vec;
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
 use ismp::messaging::Message;
 
@@ -92,7 +93,8 @@ pub trait FeeHandler {
 	fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo;
 }
 
-/// A weight-based fee handler implementation that calculates fees based on message processing weight.
+/// A weight-based fee handler implementation that calculates fees based on message processing
+/// weight.
 ///
 /// This implementation computes the actual weight consumed by a batch of messages using the
 /// provided `WeightProvider`.
@@ -100,8 +102,8 @@ pub trait FeeHandler {
 /// ## Type Parameters
 ///
 /// * `AccountId` - The account identifier type used to identify fee payers.
-/// * `Provider` - A type implementing the `WeightProvider` trait that can calculate weights
-///   for different module callbacks based on message types.
+/// * `Provider` - A type implementing the `WeightProvider` trait that can calculate weights for
+///   different module callbacks based on message types.
 ///
 /// ## Examples
 ///

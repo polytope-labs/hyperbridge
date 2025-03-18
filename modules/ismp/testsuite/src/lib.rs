@@ -334,6 +334,7 @@ where
 		proof_1: vec![],
 		proof_2: vec![],
 		consensus_state_id: mock_consensus_state_id(),
+		signer: vec![],
 	};
 
 	assert!(handle_incoming_message(host, Message::FraudProof(fraud_proof.clone())).is_ok());

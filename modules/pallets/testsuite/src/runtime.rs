@@ -203,7 +203,7 @@ impl pallet_ismp::Config for Test {
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
 	);
 	type OffchainDB = Mmr;
-	type WeightProvider = ();
+	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<()>;
 }
 
 impl pallet_hyperbridge::Config for Test {

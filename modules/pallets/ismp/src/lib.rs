@@ -24,6 +24,7 @@ pub mod child_trie;
 pub mod dispatcher;
 pub mod errors;
 pub mod events;
+pub mod fee_handler;
 pub mod host;
 mod impls;
 pub mod offchain;
@@ -44,7 +45,7 @@ pub mod pallet {
 	use crate::{
 		child_trie::{RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX},
 		errors::HandlingError,
-		weights::{get_weight, WeightProvider},
+		fee_handler::FeeHandler,
 	};
 	use codec::{Codec, Encode};
 	use core::fmt::Debug;
@@ -142,9 +143,21 @@ pub mod pallet {
 		/// subsystems.
 		type ConsensusClients: ConsensusClientProvider;
 
-		/// This implementation should provide the weight consumed by `IsmpModule` callbacks from
-		/// their benchmarks.
-		type WeightProvider: WeightProvider;
+		/// Fee handling implementation for ISMP message processing.
+		///
+		/// This type defines how fees are calculated and settled for different ISMP message types.
+		/// It provides an extensible way to implement various fee models based on chain-specific
+		/// requirements, including:
+		///
+		/// - Weight-based fee calculations for computational resources
+		/// - Custom economic incentives for relayers and validators
+		/// - Different fee structures for various message types (requests, responses, consensus)
+		/// - Support for subsidized operations or negative fee models
+		///
+		/// The chosen implementation determines how transaction fees are calculated when
+		/// processing ISMP messages, directly affecting the economic sustainability of the
+		/// cross-chain messaging system.
+		type FeeHandler: FeeHandler;
 
 		/// Offchain database implementation. Outgoing requests and responses are
 		/// inserted in this database, while their commitments are stored onchain.
@@ -278,7 +291,7 @@ pub mod pallet {
 		///
 		/// Emits different message events based on the Message received if successful.
 		#[cfg(feature = "unsigned")]
-		#[pallet::weight(get_weight::<T>(&messages))]
+		#[pallet::weight(weight())]
 		#[pallet::call_index(0)]
 		#[frame_support::transactional]
 		pub fn handle_unsigned(
@@ -287,7 +300,9 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			Self::execute(messages)
+			Self::execute(messages.clone())?;
+
+			T::FeeHandler::on_executed(messages.clone())
 		}
 
 		/// Execute the provided batch of ISMP messages. This call will short-circuit and revert if
@@ -299,13 +314,15 @@ pub mod pallet {
 		///
 		/// Emits different message events based on the Message received if successful.
 		#[cfg(not(feature = "unsigned"))]
-		#[pallet::weight(get_weight::<T>(&messages))]
+		#[pallet::weight(weight())]
 		#[pallet::call_index(1)]
 		#[frame_support::transactional]
 		pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResultWithPostInfo {
 			ensure_signed(origin)?;
 
-			Self::execute(messages)
+			Self::execute(messages.clone())?;
+
+			T::FeeHandler::on_executed(messages)
 		}
 
 		/// Create a consensus client, using a subjectively chosen consensus state. This can also
@@ -596,5 +613,10 @@ pub mod pallet {
 		fn default() -> Self {
 			Self(PhantomData)
 		}
+	}
+
+	/// Static weights because these should get overridden by the FeeHandler
+	fn weight() -> Weight {
+		Weight::from_parts(300_000_000, 0)
 	}
 }

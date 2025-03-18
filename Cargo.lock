@@ -12791,7 +12791,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "16.1.0"
+version = "16.2.0"
 dependencies = [
  "anyhow",
  "env_logger 0.10.2",

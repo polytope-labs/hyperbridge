@@ -2276,8 +2276,8 @@ pub mod api {
 			.only_these_pallets(&PALLETS)
 			.only_these_runtime_apis(&RUNTIME_APIS)
 			.hash();
-		runtime_metadata_hash ==
-			[
+		runtime_metadata_hash
+			== [
 				200u8, 101u8, 220u8, 180u8, 163u8, 77u8, 251u8, 12u8, 143u8, 116u8, 182u8, 138u8,
 				108u8, 127u8, 197u8, 109u8, 83u8, 251u8, 200u8, 155u8, 88u8, 183u8, 100u8, 130u8,
 				85u8, 236u8, 171u8, 75u8, 79u8, 89u8, 251u8, 174u8,
@@ -25110,6 +25110,7 @@ pub mod api {
 				Debug,
 				Eq,
 				PartialEq,
+				Default,
 			)]
 			# [codec (crate = :: subxt :: ext :: codec)]
 			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]

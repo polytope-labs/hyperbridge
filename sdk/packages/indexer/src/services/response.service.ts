@@ -70,10 +70,7 @@ export class ResponseService {
 				requestId: request?.id,
 				status,
 				responseTimeoutTimestamp,
-				sourceTransactionHash: status === Status.SOURCE ? transactionHash : "",
-				hyperbridgeTransactionHash: "",
-				destinationTransactionHash: "",
-				destinationTimeoutTransactionHash: "",
+				createdAt: new Date(Number(blockTimestamp)),
 			})
 
 			await response.save()
@@ -95,6 +92,7 @@ export class ResponseService {
 				blockNumber,
 				blockHash,
 				transactionHash,
+					createdAt: new Date(Number(blockTimestamp)),
 			})
 
 			await responseStatusMetadata.save()
@@ -122,6 +120,7 @@ export class ResponseService {
 				blockNumber,
 				blockHash,
 				transactionHash,
+					createdAt: new Date(Number(blockTimestamp)),
 			})
 
 			await responseStatusMetadata.save()
@@ -203,44 +202,13 @@ export class ResponseService {
 	}
 
 	/**
-	 * Find responses by commitment
+	 * Find a response by commitment
 	 */
 	static async findByCommitment(commitment: string) {
-		return Response.getByCommitment(commitment, {
-			orderBy: "id",
-			limit: -1,
-		})
+		// Since commitment is the ID, we can just use get()
+		return Response.get(commitment)
 	}
 
-	/**
-	 * Find responses by source transaction hash
-	 */
-	static async findBySourceTransactionHash(sourceTransactionHash: string) {
-		return Response.getBySourceTransactionHash(sourceTransactionHash, {
-			orderBy: "id",
-			limit: -1,
-		})
-	}
-
-	/**
-	 * Find responses by hyperbridge transaction hash
-	 */
-	static async findByHyperbridgeTransactionHash(hyperbridgeTransactionHash: string) {
-		return Response.getByHyperbridgeTransactionHash(hyperbridgeTransactionHash, {
-			orderBy: "id",
-			limit: -1,
-		})
-	}
-
-	/**
-	 * Find responses by destination transaction hash
-	 */
-	static async findByDestinationTransactionHash(destinationTransactionHash: string) {
-		return Response.getByDestinationTransactionHash(destinationTransactionHash, {
-			orderBy: "id",
-			limit: -1,
-		})
-	}
 
 	/**
 	 * Find responses by request ID

@@ -133,6 +133,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		blockNumber: event.block.block.header.number.toString(),
 		blockHash: event.block.block.header.hash.toString(),
 		transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",
+		createdAt: new Date(Number(event.block?.timestamp!.getTime())),
 	})
 
 	await requestStatusMetadata.save()

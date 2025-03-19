@@ -266,7 +266,6 @@ type Request
 	@compositeIndexes(
 		fields: [
 			["commitment", "chain"]
-			["sourceTransactionHash", "chain"]
 		]
 	) {
 	"""
@@ -278,11 +277,6 @@ type Request
 	The commitment of the request
 	"""
 	commitment: String! @index
-
-	"""
-	The transaction hash of the source transaction
-	"""
-	sourceTransactionHash: String! @index
 
 	"""
 	The chain on which the request was made
@@ -338,6 +332,11 @@ type Request
 	Metatdata about the request's progression through different statuses
 	"""
 	statusMetadata: [RequestStatusMetadata]! @derivedFrom(field: "request")
+	
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
 }
 
 """
@@ -383,6 +382,11 @@ type RequestStatusMetadata @entity {
 	The request that owns this status change
 	"""
 	request: Request!
+	
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
 }
 
 """
@@ -393,9 +397,6 @@ type Response
 	@compositeIndexes(
 		fields: [
 			["commitment", "chain"]
-			["sourceTransactionHash", "chain"]
-			["hyperbridgeTransactionHash", "chain"]
-			["destinationTransactionHash", "chain"]
 		]
 	) {
 	"""
@@ -413,30 +414,6 @@ type Response
 	"""
 	commitment: String! @index
 
-	"""
-	The transaction hash of the source transaction
-	"""
-	sourceTransactionHash: String! @index
-
-	"""
-	The transaction hash of the hyperbridge transaction
-	"""
-	hyperbridgeTransactionHash: String! @index
-
-	"""
-	The transaction hash of the destination transaction
-	"""
-	destinationTransactionHash: String! @index
-
-	"""
-	The timeout transaction hash of the hyperbridge transaction
-	"""
-	hyperbridgeTimeoutTransactionHash: String
-
-	"""
-	The timeout transaction hash of the destination transaction
-	"""
-	destinationTimeoutTransactionHash: String
 	"""
 	The response message
 	"""
@@ -461,6 +438,11 @@ type Response
 	Metatdata about the response's progression through different statuses
 	"""
 	statusMetadata: [ResponseStatusMetadata]! @derivedFrom(field: "response")
+	
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
 }
 
 """
@@ -506,6 +488,11 @@ type ResponseStatusMetadata @entity {
 	The response that owns this status change
 	"""
 	response: Response!
+	
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
 }
 
 """
@@ -531,4 +518,54 @@ type RewardPointsActivityLog
 	activityType: RewardPointsActivityType!
 	description: String!
 	createdAt: Date! @index
+}
+
+"""
+Record of assets teleported via the XCM Gateway
+"""
+type AssetTeleported @entity {
+	"""
+	Unique identifier of the teleported asset
+	"""
+	id: ID!
+	
+	"""
+	The chain on which the teleport event occurred
+	"""
+	chain: String!
+	
+	"""
+	Source account on the relaychain
+	"""
+	from: String! @index
+	
+	"""
+	Beneficiary account on destination
+	"""
+	to: String! @index
+	
+	"""
+	Amount transferred
+	"""
+	amount: BigInt! @index
+	
+	"""
+	Destination chain
+	"""
+	dest: String! @index
+	
+	"""
+	Request commitment
+	"""
+	commitment: String! @index
+	
+	"""
+	The timestamp of the event
+	"""
+	createdAt: Date! @index
+	
+	"""
+	The block in which the event occurred
+	"""
+	blockNumber: Int!
 }

@@ -47,6 +47,16 @@ const generateSubstrateYaml = async (chain, config) => {
 	const header = await rpc.call("chain_getHeader", [])
 	const blockNumber = currentEnv === "local" ? hexToNumber(header.number) : config.startBlock
 	const chainTypesSection = chainTypesConfig ? `\n  chaintypes:\n    file: ${chainTypesConfig}` : ""
+	
+	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
+	const isHyperbridgeChain = config.stateMachineId === "KUSAMA-4009" || config.stateMachineId === "POLKADOT-3367"
+	
+	// Add AssetTeleported handler only for Hyperbridge chains
+	const assetTeleportedHandler = isHyperbridgeChain ? `        - handler: handleSubstrateAssetTeleportedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: xcmGateway
+            method: AssetTeleported` : ''
 
 	return `# // Auto-generated , DO NOT EDIT
 specVersion: 1.0.0
@@ -106,7 +116,7 @@ dataSources:
           kind: substrate/EventHandler
           filter:
             module: ismp
-            method: PostResponseTimeoutHandled
+            method: PostResponseTimeoutHandled${assetTeleportedHandler ? '\n' + assetTeleportedHandler : ''}
 
 repository: 'https://github.com/polytope-labs/hyperbridge'`
 }

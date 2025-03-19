@@ -29,6 +29,9 @@ importers:
       '@polkadot/types':
         specifier: latest
         version: 15.7.2
+      '@polkadot/util':
+        specifier: latest
+        version: 13.4.3
       '@polkadot/util-crypto':
         specifier: latest
         version: 13.4.3(@polkadot/util@13.4.3)

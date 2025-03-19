@@ -52,6 +52,7 @@
 		"@polkadot/api": "latest",
 		"@polkadot/types": "latest",
 		"@polkadot/util-crypto": "latest",
+		"@polkadot/util": "latest",
 		"@subql/common": "latest",
 		"@subql/common-ethereum": "latest",
 		"@subql/types-core": "latest",

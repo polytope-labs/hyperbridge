@@ -1,5 +1,4 @@
 import { StateMachineUpdateEvent } from "@/configs/src/types"
-import { getConsensusStateId } from "@/constants"
 import { fetchStateCommitmentsEVM, fetchStateCommitmentsSubstrate, getStateId } from "@/utils/state-machine.helper"
 
 // Arguments to functions that create StateMachineUpdated events
@@ -11,6 +10,7 @@ export interface ICreateStateMachineUpdatedEventArgs {
 	transactionHash: string
 	transactionIndex: number
 	timestamp: number
+	consensusStateId: string
 }
 
 export class StateMachineService {
@@ -21,7 +21,7 @@ export class StateMachineService {
 		args: ICreateStateMachineUpdatedEventArgs,
 		chain: string,
 	): Promise<void> {
-		const { blockHash, blockNumber, transactionHash, transactionIndex, timestamp, stateMachineId, height } = args
+		const { blockHash, blockNumber, transactionHash, transactionIndex, timestamp, stateMachineId, height, consensusStateId } = args
 
 		logger.info(
 			`Creating StateMachineUpdated Event: ${JSON.stringify({
@@ -29,8 +29,7 @@ export class StateMachineService {
 			})}`,
 		)
 
-		const consensusStateId = getConsensusStateId(stateMachineId)
-		logger.info(`Consensus State ID: ${consensusStateId}`)
+		logger.info(`Using Consensus State ID: ${consensusStateId}`)
 
 		const stateCommitment = await fetchStateCommitmentsEVM({
 			client: api,
@@ -67,7 +66,7 @@ export class StateMachineService {
 		args: ICreateStateMachineUpdatedEventArgs,
 		chain: string,
 	): Promise<void> {
-		const { blockHash, blockNumber, transactionHash, transactionIndex, timestamp, stateMachineId, height } = args
+		const { blockHash, blockNumber, transactionHash, transactionIndex, timestamp, stateMachineId, height, consensusStateId } = args
 
 		logger.info(
 			`Creating StateMachineUpdated Event: ${JSON.stringify({
@@ -75,8 +74,7 @@ export class StateMachineService {
 			})}`,
 		)
 
-		const consensusStateId = getConsensusStateId(stateMachineId)
-		logger.info(`Consensus State ID: ${consensusStateId}`)
+		logger.info(`Using Consensus State ID: ${consensusStateId}`)
 
 		const stateCommitment = await fetchStateCommitmentsSubstrate({
 			api: api,

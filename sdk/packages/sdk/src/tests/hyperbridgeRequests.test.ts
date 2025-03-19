@@ -27,7 +27,7 @@ import { SignerPayloadRaw } from "@polkadot/types/types"
 import { u8aToHex, hexToU8a } from "@polkadot/util"
 import { postRequestCommitment } from "@/utils"
 
-describe("Hyperbridge Requests", () => {
+describe.sequential("Hyperbridge Requests", () => {
 	let indexer: IndexerClient
 
 	beforeAll(async () => {
@@ -40,13 +40,13 @@ describe("Hyperbridge Requests", () => {
 				host: bscIsmpHost.address,
 			},
 			source: {
-				consensusStateId: "PARA",
+				consensusStateId: "PAS0",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 				stateMachineId: "KUSAMA-4009",
 				hasher: "Keccak",
 			},
 			hyperbridge: {
-				consensusStateId: "PARA",
+				consensusStateId: "PAS0",
 				stateMachineId: "KUSAMA-4009",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			},
@@ -54,6 +54,54 @@ describe("Hyperbridge Requests", () => {
 			pollInterval: 1_000, // every second
 		})
 	})
+
+	it("should teleport DOT using indexer client", async () => {
+		const params = {
+			destination: 97,
+			recipient: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" as HexString,
+			amount: BigInt(1),
+			timeout: BigInt(3600),
+			paraId: 4009,
+		}
+
+		const { hyperbridge, relayApi, bob, signer } = await hyperbridgeSetup()
+
+		console.log("Api connected")
+
+		try {
+			// Call the teleport function with indexer
+			console.log("Teleport Dot with Indexer started")
+			const result = await teleportDot(
+				relayApi,
+				hyperbridge,
+				bob.address,
+				{ signer },
+				params,
+				indexer,
+				2000, // Poll interval
+			)
+
+			for await (const event of result) {
+				console.log(event.kind)
+				if (event.kind === "Error") {
+					throw new Error(event.error as string)
+				}
+
+				if (event.kind === "Ready") {
+					console.log(event)
+				}
+
+				if (event.kind === "Finalized") {
+					// Verify that required fields are present
+					expect(event.commitment).toBeDefined()
+					expect(event.block_number).toBeDefined()
+					console.log(event)
+				}
+			}
+		} catch (error) {
+			expect(error).toBeUndefined()
+		}
+	}, 300_000)
 
 	it("It should correctly monitor requests that originate from hyperbridge", async () => {
 		const { bscTestnetClient, bscHandler, bscWalletClient } = await bscSetup()
@@ -72,7 +120,11 @@ describe("Hyperbridge Requests", () => {
 			// Call the teleport function
 			//
 			console.log("Teleport Dot started")
-			const result = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params)
+			// Ensure indexer is defined
+			if (!indexer) {
+				throw new Error("Indexer client is not defined")
+			}
+			const result = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params, indexer, 2000)
 
 			let commitment
 			for await (const event of result) {
@@ -84,7 +136,7 @@ describe("Hyperbridge Requests", () => {
 					console.log(event)
 				}
 
-				if (event.kind === "Dispatched") {
+				if (event.kind === "Finalized") {
 					console.log(event)
 					commitment = event.commitment
 					break
@@ -146,7 +198,7 @@ describe("Hyperbridge Requests", () => {
 			await hyperbridge.disconnect()
 			await relayApi.disconnect()
 		}
-	}, 700_000)
+	}, 1_000_000)
 
 	it("It should correctly monitor requests that timeout from hyperbridge", async () => {
 		const { hyperbridge, relayApi, bob, signer } = await hyperbridgeSetup()
@@ -164,10 +216,14 @@ describe("Hyperbridge Requests", () => {
 			// Call the teleport function
 			//
 			console.log("Teleport Dot started")
-			const result = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params)
+			// Ensure indexer is defined
+			if (!indexer) {
+				throw new Error("Indexer client is not defined")
+			}
+			const stream = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params, indexer, 2000)
 
 			let commitment
-			for await (const event of result) {
+			for await (const event of stream) {
 				if (event.kind === "Error") {
 					throw new Error(event.error as string)
 				}
@@ -176,7 +232,7 @@ describe("Hyperbridge Requests", () => {
 					console.log(event)
 				}
 
-				if (event.kind === "Dispatched") {
+				if (event.kind === "Finalized") {
 					console.log(event)
 					commitment = event.commitment
 					break
@@ -190,6 +246,8 @@ describe("Hyperbridge Requests", () => {
 			// Wait for request to be indexed
 			for await (const status of indexer.postRequestStatusStream(commitment!)) {
 				if (status.status) {
+					//
+					console.log(`Request has been indexed: ${status.status}`)
 					break
 				}
 			}
@@ -220,7 +278,7 @@ describe("Hyperbridge Requests", () => {
 			await hyperbridge.disconnect()
 			await relayApi.disconnect()
 		}
-	}, 600_000)
+	}, 1_200_000)
 
 	it("should successfully deliver requests to Hyperbridge", async () => {
 		const { bscTestnetClient, bscTokenGateway } = await bscSetup()
@@ -281,7 +339,7 @@ describe("Hyperbridge Requests", () => {
 		}
 
 		expect(final_status).toEqual(RequestStatus.DESTINATION)
-	}, 600_000)
+	}, 1_200_000)
 
 	it("should successfully timeout requests sent to Hyperbridge", async () => {
 		const { bscTestnetClient, bscTokenGateway, bscHandler, bscIsmpHost } = await bscSetup()
@@ -294,13 +352,13 @@ describe("Hyperbridge Requests", () => {
 				host: bscIsmpHost.address,
 			},
 			dest: {
-				consensusStateId: "PARA",
+				consensusStateId: "PAS0",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 				stateMachineId: "KUSAMA-4009",
 				hasher: "Keccak",
 			},
 			hyperbridge: {
-				consensusStateId: "PARA",
+				consensusStateId: "PAS0",
 				stateMachineId: "KUSAMA-4009",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			},
@@ -365,7 +423,11 @@ describe("Hyperbridge Requests", () => {
 			timeout: BigInt(3600),
 			paraId: 4009,
 		}
-		const result = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params)
+		// Ensure indexer is defined
+		if (!indexer) {
+			throw new Error("Indexer client is not defined")
+		}
+		const result = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params, indexer)
 
 		let hyp_commitment
 		for await (const event of result) {
@@ -377,7 +439,7 @@ describe("Hyperbridge Requests", () => {
 				console.log(event)
 			}
 
-			if (event.kind === "Dispatched") {
+			if (event.kind === "Finalized") {
 				console.log(event)
 				hyp_commitment = event.commitment
 				break
@@ -419,7 +481,7 @@ describe("Hyperbridge Requests", () => {
 		}
 
 		expect(final_status).toEqual(TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT)
-	}, 600_000)
+	}, 1_200_000)
 })
 
 async function bscSetup() {

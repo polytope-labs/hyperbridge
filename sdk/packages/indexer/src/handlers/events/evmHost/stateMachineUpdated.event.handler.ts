@@ -19,6 +19,15 @@ export async function handleStateMachineUpdatedEvent(event: StateMachineUpdatedL
 	)
 
 	const chain: string = getHostStateMachine(chainId)
+	
+	// Determine if we're on testnet or mainnet based on stateMachineId
+	const isTestnet = stateMachineId.includes("KUSAMA")
+	
+	// Set consensusStateId to PAS0 for testnet, DOT0 for mainnet
+	const consensusStateId = isTestnet ? "PAS0" : "DOT0"
+	
+	logger.info(`Using consensusStateId: ${consensusStateId} for stateMachineId: ${stateMachineId}`)
+	
 	await StateMachineService.createEvmStateMachineUpdatedEvent(
 		{
 			transactionHash,
@@ -28,6 +37,7 @@ export async function handleStateMachineUpdatedEvent(event: StateMachineUpdatedL
 			timestamp: Number(block.timestamp),
 			stateMachineId: stateMachineId,
 			height: height.toNumber(),
+			consensusStateId,
 		},
 		chain,
 	)

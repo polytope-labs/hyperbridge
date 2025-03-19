@@ -42,7 +42,7 @@ describe("PostRequest", () => {
 				host: gnosisChiadoHost.address,
 			},
 			hyperbridge: {
-				consensusStateId: "PARA",
+				consensusStateId: "PAS0",
 				stateMachineId: "KUSAMA-4009",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			},
@@ -181,7 +181,7 @@ describe("PostRequest", () => {
 		const req = await indexer.queryRequestWithStatus(commitment)
 		console.log(JSON.stringify(req, null, 4))
 		expect(req?.statuses.length).toBe(5)
-	}, 600_000)
+	}, 1_000_000)
 
 	it("should stream and query the timeout status", async () => {
 		const { bscTestnetClient, bscHandler, bscPing, gnosisChiadoHost } = await setUp()

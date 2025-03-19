@@ -7,14 +7,82 @@ import {
 	SubstrateEventValidator,
 } from "@/utils/substrate.helpers"
 
+/**
+ * Extract consensusStateId from event data
+ * @param event SubstrateEvent containing StateMachineUpdated event data
+ * @returns consensusStateId string if found, undefined otherwise
+ */
+export function extractConsensusStateIdFromEvent(event: SubstrateEvent): string | undefined {
+	try {
+		const { data } = event.event
+	
+		// Validate data structure
+		if (!Array.isArray(data) || data.length < 1) {
+			logger.error("Invalid event data structure for extracting consensusStateId")
+			return undefined
+		}
+	
+		// Extract the first element's JSON representation which contains consensusStateId
+		const stateData = data[0].toJSON()
+	
+		// Ensure stateData is an object with consensusStateId
+		if (typeof stateData !== "object" || stateData === null || !("consensusStateId" in stateData)) {
+			logger.error("Missing consensusStateId in event data", { stateData })
+			return undefined
+		}
+	
+		let consensusStateId = stateData.consensusStateId
+		if (typeof consensusStateId !== "string") {
+			logger.error("Invalid consensusStateId format", { consensusStateId })
+			return undefined
+		}
+		
+		// Convert hex to UTF-8 string if it's a hex string
+		if (consensusStateId.startsWith('0x')) {
+			try {
+				// Remove 0x prefix and convert to Buffer
+				const buffer = Buffer.from(consensusStateId.slice(2), 'hex')
+				// Convert buffer to UTF-8 string
+				const utf8String = buffer.toString('utf8')
+				
+				// Log the conversion for debugging
+				logger.info(`Converted consensusStateId from hex ${consensusStateId} to UTF-8: ${utf8String}`)
+				
+				consensusStateId = utf8String
+			} catch (hexError) {
+				logger.error("Error converting hex consensusStateId to UTF-8", { 
+					hexError, 
+					originalConsensusStateId: consensusStateId 
+				})
+				// Return the original hex string if conversion fails
+			}
+		}
+		
+		// Extract the consensusStateId
+		return consensusStateId
+	} catch (error) {
+		logger.error("Error extracting consensusStateId from event", { error })
+		return undefined
+	}
+}
+
 export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent): Promise<void> {
 	logger.info(`Saw Ismp.StateMachineUpdated Event on ${getHostStateMachine(chainId)}`)
 
 	const stateMachineId = extractStateMachineIdFromSubstrateEventData(event.event.data.toString())
+	const consensusStateId = extractConsensusStateIdFromEvent(event)
 
 	const host = getHostStateMachine(chainId)
 
-	if (typeof stateMachineId === "undefined") return
+	if (typeof stateMachineId === "undefined") {
+		logger.error("Failed to extract stateMachineId from event data")
+		return
+	}
+	
+	if (typeof consensusStateId === "undefined") {
+		logger.error("Failed to extract consensusStateId from event data")
+		return
+	}
 
 	try {
 		if (!SubstrateEventValidator.validateChainMetadata(host, stateMachineId)) {
@@ -59,6 +127,7 @@ export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent):
 						timestamp,
 						stateMachineId,
 						height,
+						consensusStateId,
 					},
 					host,
 				)

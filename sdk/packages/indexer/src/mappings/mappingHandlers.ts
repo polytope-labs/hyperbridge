@@ -22,3 +22,4 @@ export { handleSubstrateRequestEvent } from "@/handlers/events/substrateChains/h
 export { handleSubstrateResponseEvent } from "@/handlers/events/substrateChains/handleResponseEvent.handler"
 export { handleSubstratePostRequestHandledEvent } from "@/handlers/events/substrateChains/handlePostRequestHandledEvent.handler"
 export { handleSubstratePostResponseHandledEvent } from "@/handlers/events/substrateChains/handlePostResponseHandledEvent.handler"
+export { handleSubstrateAssetTeleportedEvent } from "@/handlers/events/substrateChains/handleAssetTeleportedEvent.handler"

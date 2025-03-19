@@ -81,6 +81,7 @@ export async function handlePostRequestEvent(event: PostRequestEventLog): Promis
 		blockNumber: blockNumber.toString(),
 		blockHash: block.hash,
 		transactionHash,
+		createdAt: new Date(Number(block.timestamp)),
 	})
 
 	await requestStatusMetadata.save()

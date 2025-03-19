@@ -311,3 +311,20 @@ export interface StateMachineResponse {
 		nodes: StateMachineUpdate[]
 	}
 }
+
+export interface AssetTeleported {
+	id: string
+	from: string
+	to: string
+	amount: bigint
+	dest: string
+	commitment: string
+	createdAt: Date
+	blockNumber: number
+}
+
+export interface AssetTeleportedResponse {
+	assetTeleporteds: {
+		nodes: AssetTeleported[]
+	}
+}

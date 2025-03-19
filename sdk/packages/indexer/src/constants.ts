@@ -9,45 +9,6 @@ enum SupportedAssets {
 	DOT,
 }
 
-export function getConsensusStateId(stateMachineId: string): string {
-	// For EVM chains
-	if (stateMachineId.startsWith("EVM-")) {
-		// Check if BSC
-		if (stateMachineId === CHAIN_IDS_BY_GENESIS["97"] || stateMachineId === CHAIN_IDS_BY_GENESIS["56"]) {
-			return "BSC0"
-		}
-		// Check if Gnosis
-		if (stateMachineId === CHAIN_IDS_BY_GENESIS["10200"] || stateMachineId === CHAIN_IDS_BY_GENESIS["100"]) {
-			return "GNO0"
-		}
-		// Default EVM case
-		return "ETH0"
-	}
-
-	// For Substrate chains
-	if (stateMachineId.startsWith("SUBSTRATE-")) {
-		// Extract consensus ID from chain name
-		const consensusId = stateMachineId.split("-")[1].toUpperCase()
-		return consensusId
-	}
-
-	// For Polkadot/Kusama chains
-	if (stateMachineId.startsWith("POLKADOT-") || stateMachineId.startsWith("KUSAMA-")) {
-		return "PARA"
-	}
-
-	// For Hyperbridge special case
-	if (stateMachineId === HYPERBRIDGE.testnet || stateMachineId === HYPERBRIDGE.mainnet) {
-		// Check if chain is Polkadot/Kusama
-		if (stateMachineId.startsWith("POLKADOT-") || stateMachineId.startsWith("KUSAMA-")) {
-			return "PARA"
-		}
-		return "DOT0"
-	}
-
-	return ""
-}
-
 export const HYPERBRIDGE = {
 	testnet: "KUSAMA-4009",
 	mainnet: "POLKADOT-3367",

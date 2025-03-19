@@ -87,8 +87,8 @@ export class RequestService {
 				status,
 				timeoutTimestamp: timeoutTimestamp || BigInt(0),
 				to: to || "",
-				sourceTransactionHash: status === Status.SOURCE ? transactionHash : "",
 				commitment,
+				createdAt: new Date(Number(blockTimestamp)),
 			})
 
 			await request.save()
@@ -180,6 +180,7 @@ export class RequestService {
 			blockNumber,
 			blockHash,
 			transactionHash,
+			createdAt: new Date(Number(blockTimestamp)),
 		})
 
 		await requestStatusMetadata.save()
@@ -220,13 +221,4 @@ export class RequestService {
 		return hash
 	}
 
-	/**
-	 * Find requests by source transaction hash
-	 */
-	static async findBySourceTransactionHash(sourceTransactionHash: string) {
-		return Request.getBySourceTransactionHash(sourceTransactionHash, {
-			orderBy: "nonce",
-			limit: -1,
-		})
-	}
 }

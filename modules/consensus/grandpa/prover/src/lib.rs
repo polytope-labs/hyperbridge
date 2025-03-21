@@ -20,6 +20,7 @@
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use finality_grandpa::Chain as _;
+use grandpa_verifier::verify_grandpa_finality_proof;
 use grandpa_verifier_primitives::{
 	justification::{find_scheduled_change, AncestryChain},
 	parachain_header_storage_key, ConsensusState, DefaultHeader, FinalityProof,
@@ -173,13 +174,14 @@ where
 	/// Returns the grandpa finality proof
 	pub async fn query_finality_proof(
 		&self,
-		previous_finalized_height: u32,
+		consensus_state: ConsensusState,
 	) -> Result<FinalityProof<DefaultHeader>, anyhow::Error>
 	where
 		H256: From<T::Hash>,
 		u32: From<<T::Header as Header>::Number>,
 		<T::Header as Header>::Number: finality_grandpa::BlockNumberOps + One,
 	{
+		let previous_finalized_height = consensus_state.latest_height;
 		let max_height = previous_finalized_height + self.options.max_block_range;
 		let finalized_hash = self.client.rpc().finalized_head().await?;
 		let finalized_header = self
@@ -213,28 +215,20 @@ where
 			finality_proof.unknown_headers = self
 				.query_headers(previous_finalized_height, justification.commit.target_number)
 				.await?;
-
+			// if proof does not verify return
+			verify_grandpa_finality_proof(consensus_state.clone(), finality_proof.clone())?;
 			return Ok(finality_proof);
 		}
 
-		let target_block_number = max_height;
-		log::trace!(
-			"Target block number for {}: {target_block_number}",
-			self.options.state_machine
-		);
+		log::trace!("Target block number for {}: {max_height}", self.options.state_machine);
 
-		let mut target_block_hash = self
-			.client
-			.rpc()
-			.block_hash(Some(target_block_number.into()))
-			.await?
-			.ok_or_else(|| anyhow!("Failed to fetch block has for height {target_block_number}"))?;
-		let diff = target_block_number - previous_finalized_height;
+		let mut target_block_hash = None;
+		let diff = max_height - previous_finalized_height;
 
 		let mut unknown_headers = vec![];
 		let pb = ProgressBar::new(diff as u64);
-		for height in previous_finalized_height..=target_block_number {
-			let hash = self
+		for height in previous_finalized_height..=max_height {
+			let current_hash = self
 				.client
 				.rpc()
 				.block_hash(Some(height.into()))
@@ -243,9 +237,9 @@ where
 			let header = self
 				.client
 				.rpc()
-				.header(Some(hash))
+				.header(Some(current_hash))
 				.await?
-				.ok_or_else(|| anyhow!("Header with hash: {hash:?} not found!"))?;
+				.ok_or_else(|| anyhow!("Header with hash: {current_hash:?} not found!"))?;
 			let sp_runtime_header = DefaultHeader::decode(&mut header.encode().as_ref())?;
 			unknown_headers.push(sp_runtime_header.clone());
 
@@ -255,7 +249,7 @@ where
 					self.options.state_machine
 				);
 				if height != previous_finalized_height {
-					target_block_hash = hash;
+					target_block_hash = Some(current_hash);
 					// stop here
 					break;
 				}
@@ -264,33 +258,72 @@ where
 				let grandpa_justification = self
 					.client
 					.rpc()
-					.block(Some(hash))
+					.block(Some(current_hash))
 					.await?
-					.ok_or_else(|| anyhow!("Block not found for number: {hash:#?}"))?
+					.ok_or_else(|| anyhow!("Block not found for number: {current_hash:#?}"))?
 					.justifications
 					.and_then(|justifications| {
 						justifications
 							.into_iter()
 							.find_map(|(id, proof)| (id == GRANDPA_ENGINE_ID).then_some(proof))
 					});
-				if let Some(_) = grandpa_justification {
+				if let Some(encoded_justification) = grandpa_justification {
 					log::trace!(
 						"Found justification for {} at block number {height:?}",
 						self.options.state_machine
 					);
-					target_block_hash = hash;
+
+					let previously_finalized_hash = self
+						.client
+						.rpc()
+						.block_hash(Some(previous_finalized_height.into()))
+						.await?
+						.ok_or_else(|| {
+							anyhow!(
+								"Failed to fetch block for {} at height {previous_finalized_height}",
+								self.options.state_machine
+							)
+						})?;
+					let ancestry = AncestryChain::new(&unknown_headers);
+					let canonical = ancestry
+						.ancestry(previously_finalized_hash.into(), current_hash.into())?
+						.iter()
+						.map(|hash| ancestry.header(hash).cloned())
+						.collect::<Option<Vec<_>>>()
+						.ok_or_else(|| anyhow!("Invalid ancestry chain"))?;
+
+					// Found valid justification, decode and update finality proof
+					let decoded =
+						GrandpaJustification::<T::Header>::decode(&mut &encoded_justification[..])?;
+					let finality_proof = FinalityProof {
+						block: decoded.commit.target_hash,
+						justification: encoded_justification,
+						unknown_headers: canonical,
+					};
+
+					// Only note target hashes for justifications that verify correctly
+					if verify_grandpa_finality_proof(consensus_state.clone(), finality_proof)
+						.is_ok()
+					{
+						target_block_hash = Some(current_hash);
+					}
 				}
 			}
 			pb.inc(1);
 		}
 		pb.finish_and_clear();
+		if target_block_hash.is_none() {
+			Err(anyhow!("Failed to find any valid grandpa justifications in provided max_block_range, Increase the max_block_range and restart the relayer"))?
+		}
 
 		let block = self
 			.client
 			.rpc()
-			.block(Some(target_block_hash))
+			.block(Some(target_block_hash.expect("Infallible")))
 			.await?
-			.ok_or_else(|| anyhow!("Block not found for number: {:#?}", target_block_hash))?;
+			.ok_or_else(|| {
+				anyhow!("Block not found for number: {:#?}", target_block_hash.expect("Infallible"))
+			})?;
 		// get GRANDPA justification
 		let justification = block
 			.justifications
@@ -313,7 +346,10 @@ where
 			})?;
 		let ancestry = AncestryChain::new(&unknown_headers);
 		let canonical = ancestry
-			.ancestry(previously_finalized_hash.into(), target_block_hash.into())?
+			.ancestry(
+				previously_finalized_hash.into(),
+				target_block_hash.expect("Infallible").into(),
+			)?
 			.iter()
 			.map(|hash| ancestry.header(hash).cloned())
 			.collect::<Option<Vec<_>>>()

@@ -306,6 +306,11 @@ where
 						.is_ok()
 					{
 						target_block_hash = Some(current_hash);
+					} else {
+						log::trace!(
+							"Skipping unverifiable grandpa justification at block {height} for {}",
+							self.options.state_machine
+						);
 					}
 				}
 			}

@@ -215,8 +215,6 @@ where
 			finality_proof.unknown_headers = self
 				.query_headers(previous_finalized_height, justification.commit.target_number)
 				.await?;
-			// if proof does not verify return
-			verify_grandpa_finality_proof(consensus_state.clone(), finality_proof.clone())?;
 			return Ok(finality_proof);
 		}
 

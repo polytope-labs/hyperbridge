@@ -7297,6 +7297,7 @@ dependencies = [
  "anyhow",
  "derive_more 1.0.0",
  "finality-grandpa",
+ "grandpa-verifier",
  "grandpa-verifier-primitives",
  "hex",
  "hex-literal 0.4.1",

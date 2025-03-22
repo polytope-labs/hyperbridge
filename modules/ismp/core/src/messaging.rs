@@ -132,9 +132,8 @@ impl ResponseMessage {
 	/// Returns the requests in this message.
 	pub fn requests(&self) -> Vec<Request> {
 		match &self.datagram {
-			RequestResponse::Response(responses) => {
-				responses.iter().map(|res| res.request()).collect()
-			},
+			RequestResponse::Response(responses) =>
+				responses.iter().map(|res| res.request()).collect(),
 			RequestResponse::Request(requests) => requests.clone(),
 		}
 	}
@@ -174,12 +173,10 @@ impl TimeoutMessage {
 	/// Get all the inner requests
 	pub fn requests(&self) -> Vec<Request> {
 		match self {
-			TimeoutMessage::Post { requests, .. } | TimeoutMessage::Get { requests, .. } => {
-				requests.clone()
-			},
-			TimeoutMessage::PostResponse { responses, .. } => {
-				responses.clone().into_iter().map(|res| res.request()).collect()
-			},
+			TimeoutMessage::Post { requests, .. } | TimeoutMessage::Get { requests, .. } =>
+				requests.clone(),
+			TimeoutMessage::PostResponse { responses, .. } =>
+				responses.clone().into_iter().map(|res| res.request()).collect(),
 		}
 	}
 	/// Returns the associated proof

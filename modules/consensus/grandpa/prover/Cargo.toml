@@ -16,6 +16,7 @@ hex-literal = { workspace = true }
 derive_more = { workspace = true, default-features = true }
 finality-grandpa = "0.16.0"
 grandpa-verifier-primitives = { workspace = true, default-features = true }
+grandpa-verifier = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 indicatif = "0.17.11"

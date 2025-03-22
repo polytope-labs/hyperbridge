@@ -316,7 +316,7 @@ where
 		}
 		pb.finish_and_clear();
 		if target_block_hash.is_none() {
-			Err(anyhow!("Failed to find any valid grandpa justifications in provided max block range"))?
+			Err(anyhow!("Failed to find any valid grandpa justifications in provided max block range for {}", self.options.state_machine))?
 		}
 
 		let block = self

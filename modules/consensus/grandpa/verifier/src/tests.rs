@@ -100,8 +100,7 @@ async fn follow_grandpa_justifications() {
 
 		// prove finality should give us the justification for the highest finalized block of the
 		// authority set the block provided to it belongs
-		let finality_proof =
-			prover.query_finality_proof(consensus_state.latest_height).await.unwrap();
+		let finality_proof = prover.query_finality_proof(consensus_state.clone()).await.unwrap();
 
 		let proof = finality_proof.encode();
 		let finality_proof = FinalityProof::<Header>::decode(&mut &*proof).unwrap();

@@ -12843,6 +12843,7 @@ dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
  "alloy-rlp-derive",
+ "anyhow",
  "ethabi",
  "ethereum-triedb",
  "evm-state-machine",

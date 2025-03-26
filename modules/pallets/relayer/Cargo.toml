@@ -23,6 +23,7 @@ alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
 ethabi = { workspace = true }
+anyhow = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -57,5 +58,6 @@ std = [
     "ethabi/std",
     "evm-state-machine/std",
     "pallet-ismp-host-executive/std",
+    "anyhow/std"
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

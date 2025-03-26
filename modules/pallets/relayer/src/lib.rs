@@ -261,55 +261,35 @@ where
 	T::Balance: Into<u128>,
 {
 	pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
-		let address = match withdrawal_data.signature.clone() {
-			Signature::Evm { address, signature } => {
-				if signature.len() != 65 {
-					Err(Error::<T>::InvalidSignature)?
-				}
+		let address = match &withdrawal_data.signature {
+			Signature::Evm { address, .. } => {
 				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
 				let msg = message(nonce, withdrawal_data.dest_chain);
-				let mut sig = [0u8; 65];
-				sig.copy_from_slice(&signature);
-				let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
+				let eth_address = withdrawal_data
+					.signature
+					.verify(&msg, None)
 					.map_err(|_| Error::<T>::InvalidSignature)?;
-				let signer = sp_io::hashing::keccak_256(&pub_key[..])[12..].to_vec();
-				if signer != address {
+				if &eth_address != address {
 					Err(Error::<T>::InvalidPublicKey)?
 				}
 				address
 			},
-			Signature::Sr25519 { public_key, signature } => {
-				if signature.len() != 64 {
-					Err(Error::<T>::InvalidSignature)?
-				}
-
-				if public_key.len() != 32 {
-					Err(Error::<T>::InvalidPublicKey)?
-				}
+			Signature::Sr25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
 				let msg = message(nonce, withdrawal_data.dest_chain);
-				let signature = signature.as_slice().try_into().expect("Infallible");
-				let pub_key = public_key.as_slice().try_into().expect("Infallible");
-				if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
-					Err(Error::<T>::InvalidSignature)?
-				}
+				withdrawal_data
+					.signature
+					.verify(&msg, None)
+					.map_err(|_| Error::<T>::InvalidSignature)?;
 				public_key
 			},
-			Signature::Ed25519 { public_key, signature } => {
-				if signature.len() != 64 {
-					Err(Error::<T>::InvalidSignature)?
-				}
-
-				if public_key.len() != 32 {
-					Err(Error::<T>::InvalidPublicKey)?
-				}
+			Signature::Ed25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
 				let msg = message(nonce, withdrawal_data.dest_chain);
-				let signature = signature.as_slice().try_into().expect("Infallible");
-				let pub_key = public_key.as_slice().try_into().expect("Infallible");
-				if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
-					Err(Error::<T>::InvalidSignature)?
-				}
+				withdrawal_data
+					.signature
+					.verify(&msg, None)
+					.map_err(|_| Error::<T>::InvalidSignature)?;
 				public_key
 			},
 		};
@@ -373,7 +353,7 @@ where
 		Fees::<T>::insert(withdrawal_data.dest_chain, address.clone(), U256::zero());
 
 		Self::deposit_event(Event::<T>::Withdraw {
-			address: sp_runtime::BoundedVec::truncate_from(address),
+			address: sp_runtime::BoundedVec::truncate_from(address.clone()),
 			state_machine: withdrawal_data.dest_chain,
 			amount: available_amount,
 		});
@@ -453,63 +433,39 @@ where
 		}
 
 		// Let's verify the beneficiary address
-		let beneficiary_address = match withdrawal_proof.signature.clone() {
-			Signature::Evm { signature, .. } => {
-				if signature.len() != 65 {
-					Err(Error::<T>::InvalidSignature)?
-				}
+		let beneficiary_address = if let Some((beneficiary_address, signature)) =
+			withdrawal_proof.beneficiary_details
+		{
+			let msg = sp_io::hashing::keccak_256(&beneficiary_address);
+			match &signature {
+				Signature::Evm { .. } => {
+					let eth_address =
+						signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
+					if eth_address != delivery_address {
+						Err(Error::<T>::InvalidPublicKey)?
+					}
+				},
+				Signature::Sr25519 { .. } | Signature::Ed25519 { .. } => {
+					let _ = signature
+						.verify(&msg, Some(delivery_address))
+						.map_err(|_| Error::<T>::InvalidSignature)?;
+				},
+			}
 
-				let msg = sp_io::hashing::keccak_256(&withdrawal_proof.beneficiary_address);
-				let mut sig = [0u8; 65];
-				sig.copy_from_slice(&signature);
-				let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
-					.map_err(|_| Error::<T>::InvalidSignature)?;
-				let signer = sp_io::hashing::keccak_256(&pub_key[..])[12..].to_vec();
-				if signer != delivery_address {
-					Err(Error::<T>::InvalidPublicKey)?
-				}
-				withdrawal_proof.beneficiary_address.clone()
-			},
-			Signature::Sr25519 { signature, .. } => {
-				if signature.len() != 64 {
-					Err(Error::<T>::InvalidSignature)?
-				}
+			let _ = Fees::<T>::try_mutate(state_machine, beneficiary_address.clone(), |inner| {
+				*inner += total_fee;
+				Ok::<(), ()>(())
+			});
 
-				if delivery_address.len() != 32 {
-					Err(Error::<T>::InvalidPublicKey)?
-				}
+			beneficiary_address
+		} else {
+			let _ = Fees::<T>::try_mutate(state_machine, delivery_address.clone(), |inner| {
+				*inner += total_fee;
+				Ok::<(), ()>(())
+			});
 
-				let msg = sp_io::hashing::keccak_256(&withdrawal_proof.beneficiary_address);
-				let signature = signature.as_slice().try_into().expect("Infallible");
-				let pub_key = delivery_address.as_slice().try_into().expect("Infallible");
-				if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
-					Err(Error::<T>::InvalidSignature)?
-				}
-				withdrawal_proof.beneficiary_address.clone()
-			},
-			Signature::Ed25519 { signature, .. } => {
-				if signature.len() != 64 {
-					Err(Error::<T>::InvalidSignature)?
-				}
-
-				if delivery_address.len() != 32 {
-					Err(Error::<T>::InvalidPublicKey)?
-				}
-
-				let msg = sp_io::hashing::keccak_256(&withdrawal_proof.beneficiary_address);
-				let signature = signature.as_slice().try_into().expect("Infallible");
-				let pub_key = delivery_address.as_slice().try_into().expect("Infallible");
-				if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
-					Err(Error::<T>::InvalidSignature)?
-				}
-				withdrawal_proof.beneficiary_address.clone()
-			},
+			delivery_address
 		};
-
-		let _ = Fees::<T>::try_mutate(state_machine, beneficiary_address.clone(), |inner| {
-			*inner += total_fee;
-			Ok::<(), ()>(())
-		});
 
 		for key in withdrawal_proof.commitments {
 			match key {

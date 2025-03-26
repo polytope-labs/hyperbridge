@@ -16,6 +16,7 @@
 use alloc::{vec, vec::Vec};
 use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
+use anyhow::anyhow;
 use codec::{Decode, Encode};
 use ismp::{host::StateMachine, messaging::Proof};
 use polkadot_sdk::*;
@@ -35,11 +36,9 @@ pub struct WithdrawalProof {
 	pub source_proof: Proof,
 	/// Request and response receipts on destination chain
 	pub dest_proof: Proof,
-	/// Beneficiary address
-	pub beneficiary_address: Vec<u8>,
-	/// Signature from the account that delivered the message
+	/// Beneficiary address and Signature from the account that delivered the message
 	///  over the keccak hash of the beneficiary address
-	pub signature: Signature,
+	pub beneficiary_details: Option<(Vec<u8>, Signature)>,
 }
 
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
@@ -72,6 +71,58 @@ pub enum Signature {
 	Sr25519 { public_key: Vec<u8>, signature: Vec<u8> },
 	/// An Ed25519 public key and signature
 	Ed25519 { public_key: Vec<u8>, signature: Vec<u8> },
+}
+
+impl Signature {
+	pub fn verify(
+		&self,
+		msg: &[u8; 32],
+		public_key_op: Option<Vec<u8>>,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		match self {
+			Signature::Evm { signature, .. } => {
+				if signature.len() != 65 {
+					Err(anyhow!("Invalid Signature"))?
+				}
+
+				let mut sig = [0u8; 65];
+				sig.copy_from_slice(&signature);
+				let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, msg)
+					.map_err(|_| anyhow!("Signature Verification failed"))?;
+				let signer = sp_io::hashing::keccak_256(&pub_key[..])[12..].to_vec();
+				Ok(signer)
+			},
+			Signature::Sr25519 { signature, public_key } => {
+				let signature =
+					signature.as_slice().try_into().map_err(|_| anyhow!("Invalid Signature"))?;
+				let pub_key = public_key_op
+					.clone()
+					.unwrap_or(public_key.clone())
+					.as_slice()
+					.try_into()
+					.map_err(|_| anyhow!("Invalid Public Key"))?;
+				if !sp_io::crypto::sr25519_verify(&signature, msg, &pub_key) {
+					Err(anyhow!("Signature Verification failed"))?
+				}
+
+				Ok(public_key_op.unwrap_or(public_key.clone()))
+			},
+			Signature::Ed25519 { signature, public_key, .. } => {
+				let signature =
+					signature.as_slice().try_into().map_err(|_| anyhow!("Invalid Signature"))?;
+				let pub_key = public_key_op
+					.clone()
+					.unwrap_or(public_key.clone())
+					.as_slice()
+					.try_into()
+					.map_err(|_| anyhow!("Invalid Public Key"))?;
+				if !sp_io::crypto::ed25519_verify(&signature, msg, &pub_key) {
+					Err(anyhow!("Signature Verification failed"))?
+				}
+				Ok(public_key_op.unwrap_or(public_key.clone()))
+			},
+		}
+	}
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]

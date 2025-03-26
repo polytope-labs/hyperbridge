@@ -74,6 +74,8 @@ pub enum Signature {
 }
 
 impl Signature {
+	/// verify the signature with the public key in the enum or optionally provide a public key 
+	/// to be used to verify the signature
 	pub fn verify(
 		&self,
 		msg: &[u8; 32],

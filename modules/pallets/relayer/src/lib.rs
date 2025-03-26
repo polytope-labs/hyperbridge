@@ -277,6 +277,7 @@ where
 			Signature::Sr25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
 				let msg = message(nonce, withdrawal_data.dest_chain);
+				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature
 					.verify(&msg, None)
@@ -286,6 +287,7 @@ where
 			Signature::Ed25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
 				let msg = message(nonce, withdrawal_data.dest_chain);
+				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature
 					.verify(&msg, None)
@@ -446,6 +448,7 @@ where
 					}
 				},
 				Signature::Sr25519 { .. } | Signature::Ed25519 { .. } => {
+					// verify the signature with the delivery address from the state proof
 					let _ = signature
 						.verify(&msg, Some(delivery_address))
 						.map_err(|_| Error::<T>::InvalidSignature)?;

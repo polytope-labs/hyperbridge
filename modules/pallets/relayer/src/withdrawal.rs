@@ -35,6 +35,11 @@ pub struct WithdrawalProof {
 	pub source_proof: Proof,
 	/// Request and response receipts on destination chain
 	pub dest_proof: Proof,
+	/// Beneficiary address
+	pub beneficiary_address: Vec<u8>,
+	/// Signature from the account that delivered the message
+	///  over the keccak hash of the beneficiary address
+	pub signature: Signature,
 }
 
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]

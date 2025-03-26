@@ -16,11 +16,8 @@
 #![cfg(test)]
 use polkadot_sdk::*;
 
-use crate::{
-	runtime::{
-		new_test_ext, Ismp, RuntimeCall, RuntimeOrigin, Test, Timestamp, MOCK_CONSENSUS_STATE_ID,
-	},
-	tests::pallet_ismp_relayer::encode_accumulate_fees_call,
+use crate::runtime::{
+	new_test_ext, Ismp, RuntimeCall, RuntimeOrigin, Test, Timestamp, MOCK_CONSENSUS_STATE_ID,
 };
 use codec::Encode;
 use frame_support::traits::Time;
@@ -33,27 +30,6 @@ use ismp::{
 use sp_core::{H256, H512};
 use sp_runtime::{DispatchError, ModuleError};
 use std::time::Duration;
-
-#[test]
-#[ignore]
-fn decompress_and_execute_call() {
-	let mut ext = new_test_ext();
-	ext.execute_with(|| {
-		let encoded_call = encode_accumulate_fees_call();
-
-		let mut buffer = vec![0u8; 100000];
-		let compressed_call =
-			zstd_safe::compress(&mut buffer[..], encoded_call.as_slice(), 3).unwrap();
-		let compressed_call = &buffer[..compressed_call];
-
-		pallet_call_decompressor::Pallet::<Test>::decompress_call(
-			RuntimeOrigin::none(),
-			compressed_call.to_vec(),
-			encoded_call.len() as u32,
-		)
-		.unwrap();
-	});
-}
 
 #[test]
 fn should_decompress_and_execute_pallet_ismp_get_response_calls_correctly() {

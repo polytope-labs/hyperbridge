@@ -143,6 +143,8 @@ pub mod pallet {
 		ErrorCompletingCall,
 		/// Missing commitments
 		MissingCommitments,
+		/// Fee accumulation proof contains no address
+		IncompleteProof,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -436,15 +438,78 @@ where
 			source_result,
 			dest_result,
 		)?;
-		let mut total_fee = hashbrown::HashMap::<Vec<u8>, U256>::new();
-		for (address, fee) in result.clone().into_iter() {
-			let _ = Fees::<T>::try_mutate(state_machine, address.clone(), |inner| {
-				*inner += fee;
-				let inner_fee = total_fee.entry(address).or_insert(U256::zero());
-				*inner_fee += fee;
-				Ok::<(), ()>(())
-			});
+
+		if result.is_empty() {
+			Err(Error::<T>::IncompleteProof)?
 		}
+
+		let mut total_fee = U256::zero();
+		// We expect the relayer used the same address for all deliveries in this batch
+		// That's the only behaviour supported by tesseract relayer
+		let mut delivery_address = Default::default();
+		for (address, fee) in result.clone().into_iter() {
+			delivery_address = address;
+			total_fee += fee;
+		}
+
+		// Let's verify the beneficiary address
+		let beneficiary_address = match withdrawal_proof.signature.clone() {
+			Signature::Evm { signature, .. } => {
+				if signature.len() != 65 {
+					Err(Error::<T>::InvalidSignature)?
+				}
+
+				let msg = sp_io::hashing::keccak_256(&withdrawal_proof.beneficiary_address);
+				let mut sig = [0u8; 65];
+				sig.copy_from_slice(&signature);
+				let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
+					.map_err(|_| Error::<T>::InvalidSignature)?;
+				let signer = sp_io::hashing::keccak_256(&pub_key[..])[12..].to_vec();
+				if signer != delivery_address {
+					Err(Error::<T>::InvalidPublicKey)?
+				}
+				withdrawal_proof.beneficiary_address.clone()
+			},
+			Signature::Sr25519 { signature, .. } => {
+				if signature.len() != 64 {
+					Err(Error::<T>::InvalidSignature)?
+				}
+
+				if delivery_address.len() != 32 {
+					Err(Error::<T>::InvalidPublicKey)?
+				}
+
+				let msg = sp_io::hashing::keccak_256(&withdrawal_proof.beneficiary_address);
+				let signature = signature.as_slice().try_into().expect("Infallible");
+				let pub_key = delivery_address.as_slice().try_into().expect("Infallible");
+				if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
+					Err(Error::<T>::InvalidSignature)?
+				}
+				withdrawal_proof.beneficiary_address.clone()
+			},
+			Signature::Ed25519 { signature, .. } => {
+				if signature.len() != 64 {
+					Err(Error::<T>::InvalidSignature)?
+				}
+
+				if delivery_address.len() != 32 {
+					Err(Error::<T>::InvalidPublicKey)?
+				}
+
+				let msg = sp_io::hashing::keccak_256(&withdrawal_proof.beneficiary_address);
+				let signature = signature.as_slice().try_into().expect("Infallible");
+				let pub_key = delivery_address.as_slice().try_into().expect("Infallible");
+				if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
+					Err(Error::<T>::InvalidSignature)?
+				}
+				withdrawal_proof.beneficiary_address.clone()
+			},
+		};
+
+		let _ = Fees::<T>::try_mutate(state_machine, beneficiary_address.clone(), |inner| {
+			*inner += total_fee;
+			Ok::<(), ()>(())
+		});
 
 		for key in withdrawal_proof.commitments {
 			match key {
@@ -477,13 +542,11 @@ where
 			}
 		}
 
-		for address in result.keys().collect::<hashbrown::HashSet<_>>().into_iter() {
-			Self::deposit_event(Event::<T>::AccumulateFees {
-				address: sp_runtime::BoundedVec::truncate_from(address.to_vec()),
-				state_machine,
-				amount: total_fee.remove(address).unwrap_or_default(),
-			});
-		}
+		Self::deposit_event(Event::<T>::AccumulateFees {
+			address: sp_runtime::BoundedVec::truncate_from(beneficiary_address),
+			state_machine,
+			amount: total_fee,
+		});
 
 		Ok(())
 	}

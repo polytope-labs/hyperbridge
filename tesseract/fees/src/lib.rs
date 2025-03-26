@@ -17,7 +17,7 @@ use ismp::{
 	router::{PostRequest, Request, RequestResponse},
 };
 use itertools::Itertools;
-use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
+use pallet_ismp_relayer::withdrawal::{Key, Signature, WithdrawalProof};
 use primitive_types::H256;
 use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
@@ -218,6 +218,8 @@ impl TransactionPayment {
 					height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
 					proof: dest_proof,
 				},
+				signature: dest.sign(&keccak_256(&source.address())),
+				beneficiary_address: source.address(),
 			};
 
 			proofs.push(proof)

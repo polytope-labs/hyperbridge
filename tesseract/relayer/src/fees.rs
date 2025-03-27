@@ -353,7 +353,7 @@ where
 
 						tracing::info!(
 							"Submitting withdrawal request to hyperbridge for amount ${} on {chain}",
-							amount / U256::from(10u128.pow(fee_token_decimals))
+							amount / U256::from(10u128.pow(fee_token_decimals.into()))
 						);
 						let result = hyperbridge
 							.withdraw_funds(client.clone(), chain)

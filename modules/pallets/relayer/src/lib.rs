@@ -46,6 +46,7 @@ use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};
 use polkadot_sdk::*;
+use sp_core::Get;
 use sp_core::U256;
 use sp_runtime::{AccountId32, DispatchError};
 
@@ -60,7 +61,7 @@ pub mod pallet {
 
 	use crate::withdrawal::{WithdrawalInputData, WithdrawalProof};
 	use codec::Encode;
-	use sp_core::{Get, H256};
+	use sp_core::H256;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -119,7 +120,8 @@ pub mod pallet {
 	/// Minimum withdrawal amount
 	#[pallet::storage]
 	#[pallet::getter(fn min_withdrawal_amount)]
-	pub type MinimumWithdrawalAmount<T: Config> = StorageValue<_, U256, ValueQuery, MinWithdrawal>;
+	pub type MinimumWithdrawalAmount<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachine, U256, OptionQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -198,12 +200,16 @@ pub mod pallet {
 			Self::withdraw(withdrawal_data)
 		}
 
-		/// Sets the minimum withdrawal amount in dollars
+		/// Sets the minimum withdrawal amount using the correct decimals
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(0, 1))]
-		pub fn set_minimum_withdrawal(origin: OriginFor<T>, amount: u128) -> DispatchResult {
+		pub fn set_minimum_withdrawal(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			amount: u128,
+		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
-			MinimumWithdrawalAmount::<T>::put(U256::from(amount * 1_000_000_000_000_000_000));
+			MinimumWithdrawalAmount::<T>::insert(state_machine, U256::from(amount));
 			Ok(())
 		}
 	}
@@ -224,8 +230,9 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			let res = match call {
-				Call::accumulate_fees { withdrawal_proof } =>
-					Self::accumulate(withdrawal_proof.clone()),
+				Call::accumulate_fees { withdrawal_proof } => {
+					Self::accumulate(withdrawal_proof.clone())
+				},
 				Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
@@ -297,7 +304,10 @@ where
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
-		if available_amount < Self::min_withdrawal_amount() {
+		if available_amount
+			< Self::min_withdrawal_amount(withdrawal_data.dest_chain)
+				.unwrap_or(MinWithdrawal::get())
+		{
 			Err(Error::<T>::NotEnoughBalance)?
 		}
 
@@ -541,8 +551,9 @@ where
 							.to_vec(),
 						);
 					},
-					s if s.is_substrate() =>
-						keys.push(RequestCommitments::<T>::storage_key(*commitment)),
+					s if s.is_substrate() => {
+						keys.push(RequestCommitments::<T>::storage_key(*commitment))
+					},
 					// unsupported
 					_ => {},
 				},
@@ -558,8 +569,9 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() =>
-							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment)),
+						s if s.is_substrate() => {
+							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment))
+						},
 						// unsupported
 						_ => {},
 					}
@@ -603,10 +615,11 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() =>
+						s if s.is_substrate() => {
 							keys.push(pallet_ismp::child_trie::ResponseReceipts::<T>::storage_key(
 								*request_commitment,
-							)),
+							))
+						},
 						// unsupported
 						_ => {},
 					}

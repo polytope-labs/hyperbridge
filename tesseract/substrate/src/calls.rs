@@ -11,11 +11,12 @@ use ismp::{
 	host::StateMachine,
 	messaging::CreateConsensusState,
 };
+use pallet_hyperbridge::WithdrawalRequest;
 use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, offchain::LeafIndexAndPos};
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,
-	withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof},
+	withdrawal::{Key, WithdrawalInputData, WithdrawalProof},
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use sp_core::{
@@ -184,9 +185,12 @@ where
 						post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
 					match post.dest {
 						s if s.is_substrate() => {
-							if let Ok(decoded_data) = WithdrawalParams::decode(&mut &*post.body) {
-								decoded_data.beneficiary_address == counterparty.address() &&
-									condition
+							if let Ok(pallet_hyperbridge::Message::WithdrawRelayerFees(
+								WithdrawalRequest { account, .. },
+							)) = pallet_hyperbridge::Message::<AccountId32, u128>::decode(
+								&mut &*post.body,
+							) {
+								account.0.to_vec() == counterparty.address() && condition
 							} else {
 								false
 							}

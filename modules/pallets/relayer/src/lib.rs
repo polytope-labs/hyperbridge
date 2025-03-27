@@ -46,7 +46,7 @@ use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};
 use polkadot_sdk::*;
-use sp_core::U256;
+use sp_core::{Get, U256};
 use sp_runtime::{AccountId32, DispatchError};
 
 pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
@@ -60,7 +60,7 @@ pub mod pallet {
 
 	use crate::withdrawal::{WithdrawalInputData, WithdrawalProof};
 	use codec::Encode;
-	use sp_core::{Get, H256};
+	use sp_core::H256;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -119,7 +119,8 @@ pub mod pallet {
 	/// Minimum withdrawal amount
 	#[pallet::storage]
 	#[pallet::getter(fn min_withdrawal_amount)]
-	pub type MinimumWithdrawalAmount<T: Config> = StorageValue<_, U256, ValueQuery, MinWithdrawal>;
+	pub type MinimumWithdrawalAmount<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachine, U256, OptionQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -143,6 +144,8 @@ pub mod pallet {
 		ErrorCompletingCall,
 		/// Missing commitments
 		MissingCommitments,
+		/// Fee accumulation proof contains no address
+		IncompleteProof,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -196,12 +199,16 @@ pub mod pallet {
 			Self::withdraw(withdrawal_data)
 		}
 
-		/// Sets the minimum withdrawal amount in dollars
+		/// Sets the minimum withdrawal amount using the correct decimals
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(0, 1))]
-		pub fn set_minimum_withdrawal(origin: OriginFor<T>, amount: u128) -> DispatchResult {
+		pub fn set_minimum_withdrawal(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			amount: u128,
+		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
-			MinimumWithdrawalAmount::<T>::put(U256::from(amount * 1_000_000_000_000_000_000));
+			MinimumWithdrawalAmount::<T>::insert(state_machine, U256::from(amount));
 			Ok(())
 		}
 	}
@@ -259,61 +266,46 @@ where
 	T::Balance: Into<u128>,
 {
 	pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
-		let address = match withdrawal_data.signature.clone() {
-			Signature::Evm { address, signature } => {
-				if signature.len() != 65 {
-					Err(Error::<T>::InvalidSignature)?
-				}
+		let address = match &withdrawal_data.signature {
+			Signature::Evm { address, .. } => {
 				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
 				let msg = message(nonce, withdrawal_data.dest_chain);
-				let mut sig = [0u8; 65];
-				sig.copy_from_slice(&signature);
-				let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
+				let eth_address = withdrawal_data
+					.signature
+					.verify(&msg, None)
 					.map_err(|_| Error::<T>::InvalidSignature)?;
-				let signer = sp_io::hashing::keccak_256(&pub_key[..])[12..].to_vec();
-				if signer != address {
+				if &eth_address != address {
 					Err(Error::<T>::InvalidPublicKey)?
 				}
 				address
 			},
-			Signature::Sr25519 { public_key, signature } => {
-				if signature.len() != 64 {
-					Err(Error::<T>::InvalidSignature)?
-				}
-
-				if public_key.len() != 32 {
-					Err(Error::<T>::InvalidPublicKey)?
-				}
+			Signature::Sr25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
 				let msg = message(nonce, withdrawal_data.dest_chain);
-				let signature = signature.as_slice().try_into().expect("Infallible");
-				let pub_key = public_key.as_slice().try_into().expect("Infallible");
-				if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
-					Err(Error::<T>::InvalidSignature)?
-				}
+				// Verify signature with public key provided in signature enum
+				withdrawal_data
+					.signature
+					.verify(&msg, None)
+					.map_err(|_| Error::<T>::InvalidSignature)?;
 				public_key
 			},
-			Signature::Ed25519 { public_key, signature } => {
-				if signature.len() != 64 {
-					Err(Error::<T>::InvalidSignature)?
-				}
-
-				if public_key.len() != 32 {
-					Err(Error::<T>::InvalidPublicKey)?
-				}
+			Signature::Ed25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
 				let msg = message(nonce, withdrawal_data.dest_chain);
-				let signature = signature.as_slice().try_into().expect("Infallible");
-				let pub_key = public_key.as_slice().try_into().expect("Infallible");
-				if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
-					Err(Error::<T>::InvalidSignature)?
-				}
+				// Verify signature with public key provided in signature enum
+				withdrawal_data
+					.signature
+					.verify(&msg, None)
+					.map_err(|_| Error::<T>::InvalidSignature)?;
 				public_key
 			},
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
-		if available_amount < Self::min_withdrawal_amount() {
+		if available_amount <
+			Self::min_withdrawal_amount(withdrawal_data.dest_chain)
+				.unwrap_or(MinWithdrawal::get())
+		{
 			Err(Error::<T>::NotEnoughBalance)?
 		}
 
@@ -371,7 +363,7 @@ where
 		Fees::<T>::insert(withdrawal_data.dest_chain, address.clone(), U256::zero());
 
 		Self::deposit_event(Event::<T>::Withdraw {
-			address: sp_runtime::BoundedVec::truncate_from(address),
+			address: sp_runtime::BoundedVec::truncate_from(address.clone()),
 			state_machine: withdrawal_data.dest_chain,
 			amount: available_amount,
 		});
@@ -436,15 +428,55 @@ where
 			source_result,
 			dest_result,
 		)?;
-		let mut total_fee = hashbrown::HashMap::<Vec<u8>, U256>::new();
+
+		if result.is_empty() {
+			Err(Error::<T>::IncompleteProof)?
+		}
+
+		let mut total_fee = U256::zero();
+		// We expect the relayer used the same address for all deliveries in this batch
+		// That's the only behaviour supported by tesseract relayer
+		let mut delivery_address = Default::default();
 		for (address, fee) in result.clone().into_iter() {
-			let _ = Fees::<T>::try_mutate(state_machine, address.clone(), |inner| {
-				*inner += fee;
-				let inner_fee = total_fee.entry(address).or_insert(U256::zero());
-				*inner_fee += fee;
+			delivery_address = address;
+			total_fee += fee;
+		}
+
+		// Let's verify the beneficiary address
+		let beneficiary_address = if let Some((beneficiary_address, signature)) =
+			withdrawal_proof.beneficiary_details
+		{
+			let msg = sp_io::hashing::keccak_256(&beneficiary_address);
+			match &signature {
+				Signature::Evm { .. } => {
+					let eth_address =
+						signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
+					if eth_address != delivery_address {
+						Err(Error::<T>::InvalidPublicKey)?
+					}
+				},
+				Signature::Sr25519 { .. } | Signature::Ed25519 { .. } => {
+					// verify the signature with the delivery address from the state proof
+					let _ = signature
+						.verify(&msg, Some(delivery_address))
+						.map_err(|_| Error::<T>::InvalidSignature)?;
+				},
+			}
+
+			let _ = Fees::<T>::try_mutate(state_machine, beneficiary_address.clone(), |inner| {
+				*inner += total_fee;
 				Ok::<(), ()>(())
 			});
-		}
+
+			beneficiary_address
+		} else {
+			let _ = Fees::<T>::try_mutate(state_machine, delivery_address.clone(), |inner| {
+				*inner += total_fee;
+				Ok::<(), ()>(())
+			});
+
+			delivery_address
+		};
 
 		for key in withdrawal_proof.commitments {
 			match key {
@@ -477,13 +509,11 @@ where
 			}
 		}
 
-		for address in result.keys().collect::<hashbrown::HashSet<_>>().into_iter() {
-			Self::deposit_event(Event::<T>::AccumulateFees {
-				address: sp_runtime::BoundedVec::truncate_from(address.to_vec()),
-				state_machine,
-				amount: total_fee.remove(address).unwrap_or_default(),
-			});
-		}
+		Self::deposit_event(Event::<T>::AccumulateFees {
+			address: sp_runtime::BoundedVec::truncate_from(beneficiary_address),
+			state_machine,
+			amount: total_fee,
+		});
 
 		Ok(())
 	}

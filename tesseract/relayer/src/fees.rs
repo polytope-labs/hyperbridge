@@ -258,7 +258,7 @@ impl AccumulateFees {
 
 						log::info!(
 							"Submitting withdrawal request to {chain}  for amount ${}",
-							Cost(amount)
+							amount / U256::from(10u128.pow(fee_token_decimals.into()))
 						);
 						let result = hyperbridge
 							.withdraw_funds(client.clone(), chain)
@@ -353,7 +353,7 @@ where
 
 						tracing::info!(
 							"Submitting withdrawal request to hyperbridge for amount ${} on {chain}",
-							Cost(amount)
+							amount / U256::from(10u128.pow(fee_token_decimals.into()))
 						);
 						let result = hyperbridge
 							.withdraw_funds(client.clone(), chain)

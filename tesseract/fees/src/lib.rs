@@ -17,12 +17,12 @@ use ismp::{
 	router::{PostRequest, Request, RequestResponse},
 };
 use itertools::Itertools;
-use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
+use pallet_ismp_relayer::withdrawal::{Key, Signature, WithdrawalProof};
 use primitive_types::H256;
 use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, mem::discriminant, sync::Arc};
 use tesseract_primitives::{
 	HyperbridgeClaim, IsmpProvider, StateProofQueryType, TxReceipt, WithdrawFundsResult,
 };
@@ -217,6 +217,16 @@ impl TransactionPayment {
 				dest_proof: Proof {
 					height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
 					proof: dest_proof,
+				},
+				beneficiary_details: {
+					// If they are not the same chain type
+					if discriminant(&source.state_machine_id().state_id) !=
+						discriminant(&dest.state_machine_id().state_id)
+					{
+						Some((source.address(), dest.sign(&keccak_256(&source.address()))))
+					} else {
+						None
+					}
 				},
 			};
 

@@ -46,8 +46,7 @@ use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};
 use polkadot_sdk::*;
-use sp_core::Get;
-use sp_core::U256;
+use sp_core::{Get, U256};
 use sp_runtime::{AccountId32, DispatchError};
 
 pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
@@ -230,9 +229,8 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			let res = match call {
-				Call::accumulate_fees { withdrawal_proof } => {
-					Self::accumulate(withdrawal_proof.clone())
-				},
+				Call::accumulate_fees { withdrawal_proof } =>
+					Self::accumulate(withdrawal_proof.clone()),
 				Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
@@ -304,8 +302,8 @@ where
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
-		if available_amount
-			< Self::min_withdrawal_amount(withdrawal_data.dest_chain)
+		if available_amount <
+			Self::min_withdrawal_amount(withdrawal_data.dest_chain)
 				.unwrap_or(MinWithdrawal::get())
 		{
 			Err(Error::<T>::NotEnoughBalance)?
@@ -551,9 +549,8 @@ where
 							.to_vec(),
 						);
 					},
-					s if s.is_substrate() => {
-						keys.push(RequestCommitments::<T>::storage_key(*commitment))
-					},
+					s if s.is_substrate() =>
+						keys.push(RequestCommitments::<T>::storage_key(*commitment)),
 					// unsupported
 					_ => {},
 				},
@@ -569,9 +566,8 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() => {
-							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment))
-						},
+						s if s.is_substrate() =>
+							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment)),
 						// unsupported
 						_ => {},
 					}
@@ -615,11 +611,10 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() => {
+						s if s.is_substrate() =>
 							keys.push(pallet_ismp::child_trie::ResponseReceipts::<T>::storage_key(
 								*request_commitment,
-							))
-						},
+							)),
 						// unsupported
 						_ => {},
 					}

@@ -215,7 +215,14 @@ where
 			finality_proof.unknown_headers = self
 				.query_headers(previous_finalized_height, justification.commit.target_number)
 				.await?;
-			return Ok(finality_proof);
+			// if the proof from proveFinality does not verify we should use the linear search for
+			// justifications so relayer is not stuck sending the same invalid proof until the max_height > finalized_number
+			if verify_grandpa_finality_proof(consensus_state.clone(), finality_proof.clone())
+				.is_ok()
+			{
+				return Ok(finality_proof);
+			}
+			log::trace!("grandpa_proveFinality proof for {} could not be verified, switching to linear search", self.options.state_machine);
 		}
 
 		log::trace!("Target block number for {}: {max_height}", self.options.state_machine);
@@ -389,7 +396,7 @@ where
 		end: u32,
 	) -> Result<Vec<DefaultHeader>, anyhow::Error> {
 		let mut headers = Vec::new();
-		let pb = ProgressBar::new((start - end) as u64);
+		let pb = ProgressBar::new((end.saturating_sub(start)) as u64);
 		for height in start..=end {
 			let hash = self
 				.client

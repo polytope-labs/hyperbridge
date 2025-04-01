@@ -216,7 +216,7 @@ where
 				.query_headers(previous_finalized_height, justification.commit.target_number)
 				.await?;
 			// if the proof from proveFinality does not verify we should use the linear search for
-			// justifications so relayer is not stucked sending the same invalid proof until the max_height > finalized_number
+			// justifications so relayer is not stuck sending the same invalid proof until the max_height > finalized_number
 			if verify_grandpa_finality_proof(consensus_state.clone(), finality_proof.clone())
 				.is_ok()
 			{

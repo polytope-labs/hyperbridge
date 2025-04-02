@@ -77,3 +77,5 @@ Thumbs.db
 .tsbuildinfo
 
 substrate-ws.json
+chain-ids-by-genesis.ts
+chains-by-ismp-host.ts

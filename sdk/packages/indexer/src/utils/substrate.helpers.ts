@@ -181,3 +181,20 @@ export class SubstrateEventValidator {
 		)
 	}
 }
+
+export interface Get {
+	get: {
+		source: string
+		dest: string
+		nonce: number
+		from: string
+		keys: string[]
+		height: number
+		context: string
+		timeoutTimestamp: number
+	}
+	values: {
+		key: string
+		value: string
+	}[]
+}

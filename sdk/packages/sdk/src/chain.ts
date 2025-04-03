@@ -1,4 +1,13 @@
-import { HexString, IEvmConfig, IPostRequest, ISubstrateConfig } from "@/types"
+import {
+	GetResponseStorageValues,
+	HexString,
+	IEvmConfig,
+	IGetRequest,
+	IPostRequest,
+	ISubstrateConfig,
+	IMessage,
+	StateMachineIdParams,
+} from "@/types"
 import { isEvmChain, isSubstrateChain } from "@/utils"
 import { EvmChain, SubstrateChain } from "@/chain"
 
@@ -8,7 +17,7 @@ export * from "@/chains/substrate"
 /**
  * Type representing an ISMP message.
  */
-export type IIsmpMessage = IRequestMessage | ITimeoutPostRequestMessage
+export type IIsmpMessage = IRequestMessage | ITimeoutPostRequestMessage | IGetResponseMessage
 
 export interface IRequestMessage {
 	/**
@@ -21,6 +30,55 @@ export interface IRequestMessage {
 	requests: IPostRequest[]
 	/**
 	 * The proof of the requests.
+	 */
+	proof: IProof
+	/**
+	 * The signer of the message.
+	 */
+	signer: HexString
+}
+
+export interface IGetRequestMessage {
+	/**
+	 * The kind of message.
+	 */
+	kind: "GetRequest"
+	/**
+	 * The requests to be posted.
+	 */
+	requests: IGetRequest[]
+	/**
+	 * The proof of the requests.
+	 */
+	proof: IProof
+	/**
+	 * The signer of the message.
+	 */
+	signer: HexString
+}
+
+export interface IGetResponse {
+	/**
+	 * The request that triggered this response.
+	 */
+	get: IGetRequest
+	/**
+	 * The response message.
+	 */
+	values: GetResponseStorageValues[]
+}
+
+export interface IGetResponseMessage {
+	/**
+	 * The kind of message.
+	 */
+	kind: "GetResponse"
+	/**
+	 * The responses to be posted.
+	 */
+	responses: IGetResponse[]
+	/**
+	 * The proof of the responses.
 	 */
 	proof: IProof
 	/**
@@ -94,12 +152,17 @@ export interface IChain {
 	/*
 	 * Query and return the encoded storage proof for requests
 	 */
-	queryRequestsProof(requests: HexString[], counterparty: string, at?: bigint): Promise<HexString>
+	queryProof(message: IMessage, counterparty: string, at?: bigint): Promise<HexString>
 
 	/*
 	 * Encode an ISMP message into the appropriate calldata for this chain.
 	 */
 	encode(message: IIsmpMessage): HexString
+
+	/**
+	 * Get the latest state machine height for a given state machine ID.
+	 */
+	latestStateMachineHeight?(stateMachineId: StateMachineIdParams): Promise<bigint>
 }
 
 /**

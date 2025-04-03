@@ -261,13 +261,7 @@ type StateMachineUpdateEvent
 """
 A Hyperbridge Request
 """
-type Request
-	@entity
-	@compositeIndexes(
-		fields: [
-			["commitment", "chain"]
-		]
-	) {
+type Request @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 	"""
 	Unique identifier of the Request (This is the request commitment)
 	"""
@@ -332,7 +326,7 @@ type Request
 	Metatdata about the request's progression through different statuses
 	"""
 	statusMetadata: [RequestStatusMetadata]! @derivedFrom(field: "request")
-	
+
 	"""
 	The timestamp when this record was created
 	"""
@@ -382,7 +376,7 @@ type RequestStatusMetadata @entity {
 	The request that owns this status change
 	"""
 	request: Request!
-	
+
 	"""
 	The timestamp when this record was created
 	"""
@@ -392,13 +386,7 @@ type RequestStatusMetadata @entity {
 """
 A Hyperbridge Response
 """
-type Response
-	@entity
-	@compositeIndexes(
-		fields: [
-			["commitment", "chain"]
-		]
-	) {
+type Response @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 	"""
 	Unique identifier of the Response (This is the response commitment)
 	"""
@@ -438,7 +426,7 @@ type Response
 	Metatdata about the response's progression through different statuses
 	"""
 	statusMetadata: [ResponseStatusMetadata]! @derivedFrom(field: "response")
-	
+
 	"""
 	The timestamp when this record was created
 	"""
@@ -488,7 +476,7 @@ type ResponseStatusMetadata @entity {
 	The response that owns this status change
 	"""
 	response: Response!
-	
+
 	"""
 	The timestamp when this record was created
 	"""
@@ -528,44 +516,225 @@ type AssetTeleported @entity {
 	Unique identifier of the teleported asset
 	"""
 	id: ID!
-	
+
 	"""
 	The chain on which the teleport event occurred
 	"""
 	chain: String!
-	
+
 	"""
 	Source account on the relaychain
 	"""
 	from: String! @index
-	
+
 	"""
 	Beneficiary account on destination
 	"""
 	to: String! @index
-	
+
 	"""
 	Amount transferred
 	"""
 	amount: BigInt! @index
-	
+
 	"""
 	Destination chain
 	"""
 	dest: String! @index
-	
+
 	"""
 	Request commitment
 	"""
 	commitment: String! @index
-	
+
 	"""
 	The timestamp of the event
 	"""
 	createdAt: Date! @index
-	
+
 	"""
 	The block in which the event occurred
 	"""
 	blockNumber: Int!
+}
+
+"""
+Represents a cross-chain get request event
+This entity stores information about requests to fetch data from a source chain to a destination chain
+"""
+type GetRequest @entity {
+	"""
+	Unique identifier for the get request, computed as keccak256 hash of the encoded request parameters
+	"""
+	id: ID!
+	"""
+	Source chain identifier where the data is being requested from
+	"""
+	source: String!
+	"""
+	Destination chain identifier where the data will be sent to
+	"""
+	dest: String!
+	"""
+	Address of the account that initiated the get request
+	"""
+	from: String!
+	"""
+	Array of keys that need to be fetched from the source chain
+	"""
+	keys: [String!]!
+	"""
+	Sequential number to ensure uniqueness of the request
+	"""
+	nonce: BigInt!
+	"""
+	Block height at which the request was made
+	"""
+	height: BigInt!
+	"""
+	Additional context or metadata for the request
+	"""
+	context: String!
+	"""
+	Timestamp after which the request expires
+	"""
+	timeoutTimestamp: BigInt!
+	"""
+	Fee paid for processing the request
+	"""
+	fee: BigInt!
+	"""
+	Block number where the request was made
+	"""
+	blockNumber: String!
+	"""
+	Hash of the block containing the request
+	"""
+	blockHash: String!
+	"""
+	Hash of the transaction that created the request
+	"""
+	transactionHash: String!
+	"""
+	Timestamp of the block containing the request
+	"""
+	blockTimestamp: BigInt!
+	"""
+	Status of the request
+	"""
+	status: Status!
+	"""
+	Metatdata about the request's progression through different statuses
+	"""
+	statusMetadata: [GetRequestStatusMetadata]! @derivedFrom(field: "request")
+	"""
+	Chain on which the request was made
+	"""
+	chain: String!
+	"""
+	commitment of the request
+	"""
+	commitment: String!
+}
+
+"""
+Metadata about the status of a Request
+"""
+type GetRequestStatusMetadata @entity {
+	"""
+	The ID of the GetRequestStatusMetadata
+	"""
+	id: ID!
+
+	"""
+	The status of the request
+	"""
+	status: Status!
+
+	"""
+	The chain on which the request occured
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occured
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the block in which the event occured
+	"""
+	blockHash: String!
+
+	"""
+	The hash of the transaction in which the event occured
+	"""
+	transactionHash: String!
+
+	"""
+	The request that owns this status change
+	"""
+	request: GetRequest!
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+A Hyperbridge Response for a Get Request
+"""
+type GetResponse @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
+	"""
+	Unique identifier of the GetResponse (This is the response commitment)
+	"""
+	id: ID!
+
+	"""
+	The commitment of the response
+	"""
+	commitment: String! @index
+
+	"""
+	The chain on which the response was made
+	"""
+	chain: String! @index
+
+	"""
+	The key-values fetch from hyperbridge host
+	"""
+	response_message: [String!]!
+
+	"""
+	The Timestamp at which this response expires in seconds
+	"""
+	responseTimeoutTimestamp: BigInt
+
+	"""
+	The request that triggered this response
+	"""
+	request: GetRequest
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+	"""
+	Block number where the response was made
+	"""
+	blockNumber: String!
+	"""
+	Hash of the block containing the response
+	"""
+	blockHash: String!
+	"""
+	Hash of the transaction that created the response
+	"""
+	transactionHash: String!
 }

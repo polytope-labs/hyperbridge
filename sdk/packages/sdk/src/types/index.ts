@@ -67,7 +67,7 @@ export interface IGetRequest {
 	// The destination state machine of this request.
 	dest: string
 	// Module Id of the sending module
-	from: string
+	from: HexString
 	// The nonce of this request on the source chain
 	nonce: bigint
 	// Height at which to read the state machine.
@@ -86,6 +86,12 @@ export interface IGetRequest {
 	keys: HexString[]
 	// Timestamp which this request expires in seconds.
 	timeoutTimestamp: bigint
+	context: HexString
+}
+
+export interface GetResponseStorageValues {
+	key: HexString
+	value: HexString
 }
 
 export interface IPostResponse {
@@ -96,6 +102,8 @@ export interface IPostResponse {
 	// Timestamp at which this response expires in seconds.
 	timeoutTimestamp: bigint
 }
+
+export type IMessage = { Requests: HexString[] } | { Responses: HexString[] }
 
 export interface ClientConfig {
 	pollInterval?: number
@@ -187,6 +195,32 @@ export interface RequestResponse {
 			from: HexString
 			nonce: bigint
 			body: HexString
+			timeoutTimestamp: bigint
+			statusMetadata: {
+				nodes: Array<{
+					blockHash: string
+					blockNumber: string
+					timestamp: string
+					chain: string
+					status: string
+					transactionHash: string
+				}>
+			}
+		}>
+	}
+}
+
+export interface GetRequestResponse {
+	getRequests: {
+		nodes: Array<{
+			source: string
+			dest: string
+			to: HexString
+			from: HexString
+			nonce: bigint
+			height: bigint
+			keys: HexString[]
+			context: HexString
 			timeoutTimestamp: bigint
 			statusMetadata: {
 				nodes: Array<{
@@ -297,6 +331,33 @@ export interface RequestWithStatus {
 	statuses: Array<RequestStatusWithMetadata>
 }
 
+export interface GetRequestWithStatus {
+	source: string
+	dest: string
+	from: HexString
+	keys: HexString[]
+	nonce: bigint
+	height: bigint
+	context: HexString
+	timeoutTimestamp: bigint
+	statuses: Array<RequestStatusWithMetadata>
+}
+
+export interface GetResponseByRequestIdResponse {
+	getResponses: {
+		nodes: Array<{
+			id: string
+			commitment: string
+			responseMessage: string[]
+		}>
+	}
+}
+
+export interface ResponseCommitmentWithValues {
+	commitment: string
+	values: string[]
+}
+
 export interface RequestCommitment {
 	requests: {
 		nodes: Array<{
@@ -327,4 +388,9 @@ export interface AssetTeleportedResponse {
 	assetTeleporteds: {
 		nodes: AssetTeleported[]
 	}
+}
+
+export interface StateMachineIdParams {
+	stateId: { Evm: number }
+	consensusStateId: HexString
 }

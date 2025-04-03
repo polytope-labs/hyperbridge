@@ -1,4 +1,6 @@
-import { HexString, IPostRequest, RequestStatus, TimeoutStatus } from "@/types"
+import { HexString, IGetRequest, IPostRequest, RequestStatus, StateMachineIdParams, TimeoutStatus } from "@/types"
+import { ApiPromise } from "@polkadot/api"
+import { WsProvider } from "@polkadot/api"
 import { encodePacked, keccak256, toHex } from "viem"
 
 export * from "./utils/mmr"
@@ -52,6 +54,30 @@ export function postRequestCommitment(post: IPostRequest): HexString {
 		encodePacked(
 			["bytes", "bytes", "uint64", "uint64", "bytes", "bytes", "bytes"],
 			[toHex(post.source), toHex(post.dest), post.nonce, post.timeoutTimestamp, post.from, post.to, post.body],
+		),
+	)
+}
+
+/**
+ * Calculates the commitment hash for a get request.
+ * @param get The get request to calculate the commitment hash for.
+ * @returns The commitment hash.
+ */
+export function getRequestCommitment(get: IGetRequest): HexString {
+	let keysEncoding = "0x".concat(get.keys.map((key) => key.slice(2)).join(""))
+	return keccak256(
+		encodePacked(
+			["bytes", "bytes", "uint64", "uint64", "uint64", "bytes", "bytes", "bytes"],
+			[
+				toHex(get.source),
+				toHex(get.dest),
+				get.nonce,
+				get.height,
+				get.timeoutTimestamp,
+				get.from,
+				keysEncoding as HexString,
+				get.context,
+			],
 		),
 	)
 }

@@ -1,15 +1,13 @@
-import { bytesToBigInt, bytesToHex, hexToBytes, keccak256, pad, PublicClient, toBytes, toHex } from "viem"
+import { bytesToBigInt, bytesToHex, hexToBytes, keccak256, pad, toBytes, toHex } from "viem"
 import { blake2AsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
 import { u64, Struct, Option, Bytes, u8, Vector, Enum, u32, u128, bool } from "scale-ts"
 import type { ApiPromise } from "@polkadot/api"
-import type { StorageData } from "@polkadot/types/interfaces"
 import { Option as PolkadotOption } from "@polkadot/types"
 import { logger } from "ethers"
 import { TextEncoder } from "util"
 import { CHAINS_BY_ISMP_HOST } from "@/constants"
 import { Codec } from "@polkadot/types/types"
 import { Provider } from "@ethersproject/providers"
-import { getHostStateMachine } from "@/utils/substrate.helpers"
 
 // Define ConsensusStateId as 4-byte array
 const ConsensusStateId = Vector(u8, 4)

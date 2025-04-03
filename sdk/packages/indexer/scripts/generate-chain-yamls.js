@@ -114,6 +114,16 @@ dataSources:
           filter:
             module: ismp
             method: PostRequestTimeoutHandled
+        - handler: handleSubstrateGetRequestHandledEvent
+          kind: substrate/EventHandler
+          filter:
+            module: ismp
+            method: GetRequestHandled
+        - handler: handleSubstrateGetRequestTimeoutHandledEvent
+          kind: substrate/EventHandler
+          filter:
+            module: ismp
+            method: GetRequestTimeoutHandled
         - handler: handleSubstratePostResponseTimeoutHandledEvent
           kind: substrate/EventHandler
           filter:
@@ -210,6 +220,21 @@ dataSources:
           filter:
             topics:
               - 'PostResponseTimeoutHandled(bytes32,string)'
+        - kind: ethereum/LogHandler
+          handler: handleGetRequestEvent
+          filter:
+            topics:
+              - 'GetRequestEvent(string,string,address,bytes[],uint256,uint256,uint256,bytes,uint256)'
+        - kind: ethereum/LogHandler
+          handler: handleGetRequestHandledEvent
+          filter:
+            topics:
+              - 'GetRequestHandled(bytes32,address)'
+        - kind: ethereum/LogHandler
+          handler: handleGetRequestTimeoutHandledEvent
+          filter:
+            topics:
+              - 'GetRequestTimeoutHandled(bytes32,string)'
   - kind: ethereum/Runtime
     startBlock: ${blockNumber}
     options:

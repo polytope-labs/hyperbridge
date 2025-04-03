@@ -19,17 +19,24 @@ import {
 	RequestStatusWithMetadata,
 	AssetTeleported,
 	AssetTeleportedResponse,
+	GetRequestWithStatus,
+	GetRequestResponse,
+	GetResponseByRequestIdResponse,
+	ResponseCommitmentWithValues,
 } from "@/types"
 import {
 	REQUEST_STATUS,
 	STATE_MACHINE_UPDATES_BY_HEIGHT,
 	STATE_MACHINE_UPDATES_BY_TIMESTAMP,
 	ASSET_TELEPORTED_BY_PARAMS,
+	GET_REQUEST_STATUS,
+	GET_RESPONSE_BY_REQUEST_ID,
 } from "@/queries"
 import {
 	COMBINED_STATUS_WEIGHTS,
 	REQUEST_STATUS_WEIGHTS,
 	TIMEOUT_STATUS_WEIGHTS,
+	getRequestCommitment,
 	postRequestCommitment,
 	sleep,
 } from "@/utils"
@@ -214,6 +221,73 @@ export class IndexerClient {
 	}
 
 	/**
+	 * Queries a request by any of its associated hashes and returns it alongside its statuses
+	 * Statuses will be one of SOURCE, HYPERBRIDGE_DELIVERED and DESTINATION
+	 * @param hash - Can be commitment, hyperbridge tx hash, source tx hash, destination tx hash, or timeout tx hash
+	 * @returns Latest status and block metadata of the request
+	 */
+	async queryGetRequest(hash: string): Promise<GetRequestWithStatus | undefined> {
+		const self = this
+		const response = await self.withRetry(() =>
+			self.client.request<GetRequestResponse>(GET_REQUEST_STATUS, {
+				commitment: hash,
+			}),
+		)
+
+		if (!response.getRequests.nodes[0]) return
+
+		const statuses = response.getRequests.nodes[0].statusMetadata.nodes.map((item) => ({
+			status: item.status as any,
+			metadata: {
+				blockHash: item.blockHash,
+				blockNumber: parseInt(item.blockNumber),
+				transactionHash: item.transactionHash,
+			},
+		}))
+
+		// sort by ascending order
+		const sorted = statuses.sort(
+			(a, b) =>
+				REQUEST_STATUS_WEIGHTS[a.status as RequestStatus] - REQUEST_STATUS_WEIGHTS[b.status as RequestStatus],
+		)
+
+		const request: GetRequestWithStatus = {
+			...response.getRequests.nodes[0],
+			statuses: sorted,
+		}
+
+		// @ts-ignore
+		delete request.statusMetadata
+
+		return request
+	}
+
+	/**
+	 * Queries the response associated with a specific request ID and returns its commitment
+	 * @param requestId - The ID of the request to find the associated response for
+	 * @returns The response associated with the given request ID, or undefined if not found
+	 */
+	async queryResponseByRequestId(requestId: string): Promise<ResponseCommitmentWithValues | undefined> {
+		const self = this
+		const response = await self.withRetry(() =>
+			self.client.request<GetResponseByRequestIdResponse>(GET_RESPONSE_BY_REQUEST_ID, {
+				requestId,
+			}),
+		)
+
+		// If no responses are found or nodes array is empty, return undefined
+		if (!response.getResponses.nodes.length) return undefined
+
+		// Return just the first response
+		const firstResponse = response.getResponses.nodes[0]
+
+		return {
+			commitment: firstResponse.commitment,
+			values: firstResponse.responseMessage,
+		}
+	}
+
+	/**
 	 * Enhances a request with finality events by querying state machine updates.
 	 *
 	 * This method augments a request object with additional inferred status events
@@ -278,8 +352,8 @@ export class IndexerClient {
 			hasher: "Keccak",
 		})
 
-		const proof = await hyperbridge.queryRequestsProof(
-			[postRequestCommitment(request)],
+		const proof = await hyperbridge.queryProof(
+			{ Requests: [postRequestCommitment(request)] },
 			request.dest,
 			BigInt(hyperbridgeFinality.height),
 		)
@@ -616,8 +690,8 @@ export class IndexerClient {
 						hasher: "Keccak",
 					})
 
-					const proof = await hyperbridge.queryRequestsProof(
-						[postRequestCommitment(request)],
+					const proof = await hyperbridge.queryProof(
+						{ Requests: [postRequestCommitment(request)] },
 						request.dest,
 						BigInt(hyperbridgeFinalized.height),
 					)
@@ -665,6 +739,227 @@ export class IndexerClient {
 							blockHash: request.statuses[index].metadata.blockHash,
 							blockNumber: request.statuses[index].metadata.blockNumber,
 							transactionHash: request.statuses[index].metadata.transactionHash,
+						},
+					}
+					status = RequestStatus.DESTINATION
+					break
+				}
+
+				case RequestStatus.DESTINATION:
+					return
+			}
+		}
+	}
+
+	/**
+	 * Create a Stream of status updates for a get request.
+	 * Stream ends when either the request reaches the destination or times out.
+	 * If the stream yields TimeoutStatus.PENDING_TIMEOUT, use postRequestTimeoutStream() to begin timeout processing.
+	 * @param hash - Can be commitment, hyperbridge tx hash, source tx hash, destination tx hash, or timeout tx hash
+	 * @returns AsyncGenerator that emits status updates until a terminal state is reached
+	 * @example
+	 *
+	 * let client = new IndexerClient(config)
+	 * let stream = client.getRequestStatusStream(hash)
+	 *
+	 * // you can use a for-await-of loop
+	 * for await (const status of stream) {
+	 *   console.log(status)
+	 * }
+	 *
+	 * // you can also use a while loop
+	 * while (true) {
+	 *   const status = await stream.next()
+	 *   if (status.done) {
+	 *     break
+	 *   }
+	 *   console.log(status.value)
+	 * }
+	 *
+	 */
+	async *getRequestStatusStream(hash: HexString): AsyncGenerator<RequestStatusWithMetadata, void> {
+		const self = this
+
+		// wait for request to be created
+		let request: GetRequestWithStatus | undefined
+		while (!request) {
+			await sleep(self.config.pollInterval)
+			request = await self.queryGetRequest(hash)
+			continue
+		}
+
+		const chain = await getChain(self.config.dest)
+		const timeoutStream = self.timeoutStream(request.timeoutTimestamp, chain)
+		const statusStream = self.getRequestStatusStreamInternal(hash)
+		const combined = mergeRace(timeoutStream, statusStream)
+
+		let item = await combined.next()
+		while (!item.done) {
+			yield item.value
+			item = await combined.next()
+		}
+		return
+	}
+
+	/**
+	 * Create a Stream of status updates
+	 * @param hash - Can be commitment, hyperbridge tx hash, source tx hash, destination tx hash, or timeout tx hash
+	 * @returns AsyncGenerator that emits status updates until a terminal state is reached
+	 */
+	private async *getRequestStatusStreamInternal(hash: string): AsyncGenerator<RequestStatusWithMetadata, void> {
+		const self = this
+		let request: GetRequestWithStatus | undefined
+		while (!request) {
+			await sleep(self.config.pollInterval)
+			request = await self.queryGetRequest(hash)
+		}
+
+		let status =
+			request.source === self.config.hyperbridge.stateMachineId
+				? RequestStatus.HYPERBRIDGE_DELIVERED
+				: RequestStatus.SOURCE
+		const latestMetadata = request.statuses[request.statuses.length - 1]
+		// start with the latest status
+		status = maxBy(
+			[status, latestMetadata.status as RequestStatus],
+			(item) => REQUEST_STATUS_WEIGHTS[item as RequestStatus],
+		)!
+
+		while (true) {
+			switch (status) {
+				// request has been dispatched from source chain
+				case RequestStatus.SOURCE: {
+					let sourceUpdate: StateMachineUpdate | undefined
+					while (!sourceUpdate) {
+						await sleep(self.config.pollInterval)
+						sourceUpdate = await self.queryStateMachineUpdateByHeight({
+							statemachineId: request.source,
+							height: request.statuses[0].metadata.blockNumber,
+							chain: self.config.hyperbridge.stateMachineId,
+						})
+					}
+
+					yield {
+						status: RequestStatus.SOURCE_FINALIZED,
+						metadata: {
+							blockHash: sourceUpdate.blockHash,
+							blockNumber: sourceUpdate.height,
+							transactionHash: sourceUpdate.transactionHash,
+						},
+					}
+					status = RequestStatus.SOURCE_FINALIZED
+					break
+				}
+
+				// finality proofs for request has been verified on Hyperbridge
+				case RequestStatus.SOURCE_FINALIZED: {
+					// wait for the request to be delivered on Hyperbridge
+					while (!request || request.statuses.length < 2) {
+						await sleep(self.config.pollInterval)
+						request = await self.queryGetRequest(hash)
+					}
+
+					status =
+						request.source === self.config.hyperbridge.stateMachineId
+							? RequestStatus.DESTINATION
+							: RequestStatus.HYPERBRIDGE_DELIVERED
+
+					yield {
+						status,
+						metadata: {
+							blockHash: request.statuses[1].metadata.blockHash,
+							blockNumber: request.statuses[1].metadata.blockNumber,
+							transactionHash: request.statuses[1].metadata.transactionHash,
+						},
+					}
+					break
+				}
+
+				// the request has been verified and aggregated on Hyperbridge
+				case RequestStatus.HYPERBRIDGE_DELIVERED: {
+					// If Hyperbridge was the source, the request is already complete
+					if (request.source === self.config.hyperbridge.stateMachineId) {
+						return
+					}
+					// Get the latest state machine update for hyperbridge on the destination chain
+					let hyperbridgeFinalized: StateMachineUpdate | undefined
+					while (!hyperbridgeFinalized) {
+						await sleep(self.config.pollInterval)
+						hyperbridgeFinalized = await self.queryStateMachineUpdateByHeight({
+							statemachineId: self.config.hyperbridge.stateMachineId,
+							height: request.statuses[1].metadata.blockNumber,
+							chain: request.source,
+						})
+					}
+
+					const sourceChain = await getChain(self.config.source)
+					const hyperbridge = await getChain({
+						...self.config.hyperbridge,
+						hasher: "Keccak",
+					})
+
+					const response = await self.queryResponseByRequestId(hash)
+
+					const proof = await hyperbridge.queryProof(
+						{ Responses: [response?.commitment as HexString] },
+						request.source,
+						BigInt(hyperbridgeFinalized.height),
+					)
+
+					const calldata = sourceChain.encode({
+						kind: "GetResponse",
+						proof: {
+							stateMachine: self.config.hyperbridge.stateMachineId,
+							consensusStateId: self.config.hyperbridge.consensusStateId,
+							proof,
+							height: BigInt(hyperbridgeFinalized.height),
+						},
+						responses: [
+							{
+								get: request,
+								values: request.keys.map((key, index) => ({
+									key,
+									value: (response?.values[index] as HexString) || "0x",
+								})),
+							},
+						],
+						signer: pad("0x"),
+					})
+
+					yield {
+						status: RequestStatus.HYPERBRIDGE_FINALIZED,
+						metadata: {
+							blockHash: hyperbridgeFinalized.blockHash,
+							blockNumber: hyperbridgeFinalized.height,
+							transactionHash: hyperbridgeFinalized.transactionHash,
+							calldata,
+						},
+					}
+					status = RequestStatus.HYPERBRIDGE_FINALIZED
+					break
+				}
+
+				// request has been finalized by hyperbridge
+				case RequestStatus.HYPERBRIDGE_FINALIZED: {
+					// If Hyperbridge was the source, the request is already complete
+					if (request.source === self.config.hyperbridge.stateMachineId) {
+						return
+					}
+
+					// wait for the request to be delivered to the destination
+					let delivered = request.statuses.find((s) => s.status === RequestStatus.DESTINATION)
+					while (!request || !delivered) {
+						await sleep(self.config.pollInterval)
+						request = await self.queryGetRequest(hash)
+						delivered = request?.statuses.find((s) => s.status === RequestStatus.DESTINATION)
+					}
+
+					yield {
+						status: RequestStatus.DESTINATION,
+						metadata: {
+							blockHash: request.statuses[2].metadata.blockHash,
+							blockNumber: request.statuses[2].metadata.blockNumber,
+							transactionHash: request.statuses[2].metadata.transactionHash,
 						},
 					}
 					status = RequestStatus.DESTINATION

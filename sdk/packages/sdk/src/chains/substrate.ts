@@ -7,7 +7,7 @@ import { u8, Vector } from "scale-ts"
 
 import { BasicProof, isEvmChain, isSubstrateChain, IStateMachine, Message, SubstrateStateProof } from "@/utils"
 import { IChain, IIsmpMessage } from "@/chain"
-import { HexString, IPostRequest } from "@/types"
+import { HexString, IGetRequest, IPostRequest, IMessage, StateMachineIdParams } from "@/types"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 
 export interface SubstrateChainParams {
@@ -51,6 +51,16 @@ export class SubstrateChain implements IChain {
 			provider: wsProvider,
 			typesBundle,
 		})
+	}
+
+	/**
+	 * Disconnects the Substrate chain connection.
+	 */
+	public async disconnect() {
+		if (this.api) {
+			await this.api.disconnect()
+			this.api = undefined
+		}
 	}
 
 	/**
@@ -127,22 +137,25 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
-	 * Queries the proof of the requests.
-	 * @param {HexString[]} requests - The requests to query.
+	 * Queries the proof of the commitments.
+	 * @param {IMessage} message - The message to query.
 	 * @param {string} counterparty - The counterparty address.
 	 * @param {bigint} [at] - The block number to query at.
 	 * @returns {Promise<HexString>} The proof.
 	 */
-	async queryRequestsProof(requests: HexString[], counterparty: string, at?: bigint): Promise<HexString> {
+	async queryProof(message: IMessage, counterparty: string, at?: bigint): Promise<HexString> {
 		const rpc = new RpcWebSocketClient()
 		await rpc.connect(this.params.ws)
 		if (isEvmChain(counterparty)) {
 			// for evm chains, query the mmr proof
-			const proof: any = await rpc.call("mmr_queryProof", [Number(at), { Requests: requests }])
+			const proof: any = await rpc.call("mmr_queryProof", [Number(at), message])
 			return toHex(proof.proof)
 		} else if (isSubstrateChain(counterparty)) {
 			// for substrate chains, we use the child trie proof
-			const childTrieKeys = requests.map(requestCommitmentStorageKey)
+			const childTrieKeys =
+				"Requests" in message
+					? message.Requests.map(requestCommitmentStorageKey)
+					: message.Responses.map(responseCommitmentStorageKey)
 			const proof: any = await rpc.call("ismp_queryChildTrieProof", [Number(at), childTrieKeys])
 			const basicProof = BasicProof.dec(toHex(proof.proof))
 			const encoded = SubstrateStateProof.enc({
@@ -220,6 +233,17 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
+	 * Get the latest state machine height for a given state machine ID.
+	 * @param {StateMachineIdParams} stateMachineId - The state machine ID.
+	 * @returns {Promise<bigint>} The latest state machine height.
+	 */
+	async latestStateMachineHeight(stateMachineId: StateMachineIdParams): Promise<bigint> {
+		if (!this.api) throw new Error("API not initialized")
+		const latestHeight = await this.api.query.ismp.latestStateMachineHeight(stateMachineId)
+		return BigInt(latestHeight.toString())
+	}
+
+	/**
 	 * Encode an ISMP calldata for a substrate chain.
 	 * @param message The ISMP message to encode.
 	 * @returns The encoded message as a hexadecimal string.
@@ -247,6 +271,11 @@ export class SubstrateChain implements IChain {
 						},
 					},
 				]),
+			)
+			.with({ kind: "GetResponse" }, (message) =>
+				(() => {
+					throw new Error("GetResponse is not yet supported on Substrate chains")
+				})(),
 			)
 			.with({ kind: "TimeoutPostRequest" }, (message) =>
 				Vector(Message).enc([
@@ -303,6 +332,17 @@ export class SubstrateChain implements IChain {
 function requestCommitmentStorageKey(key: HexString): number[] {
 	// Convert "RequestCommitments" to bytes
 	const prefix = new TextEncoder().encode("RequestCommitments")
+
+	// Convert hex key to bytes
+	const keyBytes = hexToBytes(key)
+
+	// Combine prefix and key bytes
+	return Array.from(new Uint8Array([...prefix, ...keyBytes]))
+}
+
+function responseCommitmentStorageKey(key: HexString): number[] {
+	// Convert "ResponseCommitments" to bytes
+	const prefix = new TextEncoder().encode("ResponseCommitments")
 
 	// Convert hex key to bytes
 	const keyBytes = hexToBytes(key)

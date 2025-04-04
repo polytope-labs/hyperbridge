@@ -15,7 +15,7 @@ import { privateKeyToAccount } from "viem/accounts"
 import { bscTestnet, gnosisChiado } from "viem/chains"
 
 import { IndexerClient } from "@/client"
-import { HexString, RequestStatus, TimeoutStatus } from "@/types"
+import { type HexString, RequestStatus, TimeoutStatus } from "@/types"
 import { getRequestCommitment, postRequestCommitment } from "@/utils"
 
 import ERC6160 from "@/abis/erc6160"
@@ -23,6 +23,7 @@ import PING_MODULE from "@/abis/pingModule"
 import EVM_HOST from "@/abis/evmHost"
 import HANDLER from "@/abis/handler"
 import { EvmChain, SubstrateChain } from "@/chain"
+import { createQueryClient } from "@/query-client"
 
 describe.sequential("Get and Post Requests", () => {
 	let indexer: IndexerClient
@@ -30,6 +31,11 @@ describe.sequential("Get and Post Requests", () => {
 
 	beforeAll(async () => {
 		const { gnosisChiadoHost, bscIsmpHost, hyperbridge } = await setUp()
+
+		const query_client = createQueryClient({
+			url: process.env.INDEXER_URL!,
+		})
+
 		indexer = new IndexerClient({
 			source: {
 				consensusStateId: "BSC0",
@@ -48,7 +54,7 @@ describe.sequential("Get and Post Requests", () => {
 				stateMachineId: "KUSAMA-4009",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			},
-			url: "http://0.0.0.0:3100",
+			queryClient: query_client,
 			pollInterval: 1_000, // every second
 		})
 

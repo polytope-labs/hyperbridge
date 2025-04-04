@@ -4,9 +4,7 @@ import type { SignerOptions } from "@polkadot/api/types"
 import { u8aToHex } from "@polkadot/util"
 import { decodeAddress } from "@polkadot/util-crypto"
 import { parseUnits } from "viem"
-import type { EventRecord, Header } from "@polkadot/types/interfaces"
-import type { ISubmittableResult } from "@polkadot/types/types"
-import { IndexerClient } from "@/client"
+import type { IndexerClient } from "@/client"
 import { sleep } from "@/utils"
 
 export type HyperbridgeTxEvents =
@@ -52,7 +50,7 @@ export type XcmGatewayParams = {
 	 * Amount of DOT to teleport
 	 * This will be converted to the appropriate format internally
 	 */
-	amount: bigint
+	amount: number
 
 	/**
 	 * Request timeout value in blocks or timestamp
@@ -91,15 +89,17 @@ export type XcmGatewayParams = {
  * @param pollInterval - Optional polling interval in milliseconds (default: 2000)
  * @yields {HyperbridgeTxEvents} Stream of events indicating transaction status
  */
-export async function teleportDot(
-	relayApi: ApiPromise,
-	hyperbridge: ApiPromise,
-	who: string,
-	options: Partial<SignerOptions>,
-	params: XcmGatewayParams,
-	indexerClient: IndexerClient,
-	pollInterval: number = 2000,
-): Promise<ReadableStream<HyperbridgeTxEvents>> {
+export async function teleportDot(param_: {
+	relayApi: ApiPromise
+	hyperbridge: ApiPromise
+	who: string
+	xcmGatewayParams: XcmGatewayParams
+	indexerClient: IndexerClient
+	pollInterval?: number
+	options: Partial<SignerOptions>
+}): Promise<ReadableStream<HyperbridgeTxEvents>> {
+	const { relayApi, hyperbridge, who, options, xcmGatewayParams: params, indexerClient, pollInterval = 2000 } = param_
+
 	// Set up the transaction parameters
 	const destination = {
 		V3: {
@@ -167,8 +167,8 @@ export async function teleportDot(
 		weightLimit,
 	)
 
-	let finalized_hash = await hyperbridge.rpc.chain.getFinalizedHead()
-	let hyperbridgeBlock = (await hyperbridge.rpc.chain.getHeader(finalized_hash)).number.toNumber()
+	const finalized_hash = await hyperbridge.rpc.chain.getFinalizedHead()
+	const hyperbridgeBlock = (await hyperbridge.rpc.chain.getHeader(finalized_hash)).number.toNumber()
 
 	let closed = false
 	// Create the stream to report events

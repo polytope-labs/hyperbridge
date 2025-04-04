@@ -1,4 +1,4 @@
-import {
+import type {
 	GetResponseStorageValues,
 	HexString,
 	IEvmConfig,
@@ -173,7 +173,7 @@ export interface IChain {
 export async function getChain(chainConfig: IEvmConfig | ISubstrateConfig): Promise<IChain> {
 	if (isEvmChain(chainConfig.stateMachineId)) {
 		const config = chainConfig as IEvmConfig
-		const chainId = parseInt(chainConfig.stateMachineId.split("-")[1])
+		const chainId = Number.parseInt(chainConfig.stateMachineId.split("-")[1])
 		const evmChain = new EvmChain({
 			chainId,
 			url: config.rpcUrl,

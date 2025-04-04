@@ -47,7 +47,8 @@ describe("teleport function", () => {
 			console.log("Teleport started")
 			let dispatched = null
 			let finalized = null
-			const stream = await teleport(api, bob.address, params, { signer })
+			const stream = await teleport({ apiPromise: api, who: bob.address, params, options: { signer } })
+
 			for await (const event of stream) {
 				console.log(event.kind)
 				if (event.kind === "Dispatched") {

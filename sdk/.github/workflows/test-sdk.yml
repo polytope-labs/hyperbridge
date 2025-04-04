@@ -49,6 +49,7 @@ jobs:
                   HYPERBRIDGE_GARGANTUA=${{ secrets.HYPERBRIDGE_GARGANTUA }}
                   PASEO_RPC_URL=${{ secrets.PASEO_RPC_URL }}
                   BIFROST_PASEO=${{ secrets.BIFROST_PASEO }}
+                  INDEXER_URL=${{ secrets.INDEXER_URL }}
                   PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
                   SECRET_PHRASE=${{ secrets.SECRET_PHRASE }}
                   PING_MODULE_ADDRESS: "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"

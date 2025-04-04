@@ -1,4 +1,6 @@
-import { Hex } from "viem"
+import type { ConsolaInstance } from "consola"
+import type { GraphQLClient } from "graphql-request"
+import type { Hex } from "viem"
 
 export type HexString = `0x${string}`
 
@@ -105,9 +107,12 @@ export interface IPostResponse {
 
 export type IMessage = { Requests: HexString[] } | { Responses: HexString[] }
 
+export type IndexerQueryClient = GraphQLClient
+
 export interface ClientConfig {
-	pollInterval?: number
-	url?: string
+	pollInterval: number
+	queryClient: IndexerQueryClient
+	tracing?: boolean
 	source: IEvmConfig | ISubstrateConfig
 	dest: IEvmConfig | ISubstrateConfig
 	hyperbridge: IHyperbridgeConfig
@@ -116,6 +121,8 @@ export interface ClientConfig {
 export interface RetryConfig {
 	maxRetries: number
 	backoffMs: number
+	logMessage?: string
+	logger?: ConsolaInstance
 }
 
 export interface IsmpRequest {
@@ -129,23 +136,30 @@ export interface IsmpRequest {
 	storage_key?: string
 }
 
-export enum RequestStatus {
-	SOURCE = "SOURCE",
-	SOURCE_FINALIZED = "SOURCE_FINALIZED",
-	HYPERBRIDGE_DELIVERED = "HYPERBRIDGE_DELIVERED",
-	HYPERBRIDGE_FINALIZED = "HYPERBRIDGE_FINALIZED",
-	DESTINATION = "DESTINATION",
-	TIMED_OUT = "TIMED_OUT",
-	HYPERBRIDGE_TIMED_OUT = "HYPERBRIDGE_TIMED_OUT",
-}
+export const RequestStatus = Object.freeze({
+	SOURCE: "SOURCE",
+	SOURCE_FINALIZED: "SOURCE_FINALIZED",
+	HYPERBRIDGE_DELIVERED: "HYPERBRIDGE_DELIVERED",
+	HYPERBRIDGE_FINALIZED: "HYPERBRIDGE_FINALIZED",
+	DESTINATION: "DESTINATION",
+	TIMED_OUT: "TIMED_OUT",
+	HYPERBRIDGE_TIMED_OUT: "HYPERBRIDGE_TIMED_OUT",
+})
+export type RequestStatus = typeof RequestStatus
+export type RequestStatusKey = keyof typeof RequestStatus
 
-export enum TimeoutStatus {
-	PENDING_TIMEOUT = "PENDING_TIMEOUT",
-	DESTINATION_FINALIZED_TIMEOUT = "DESTINATION_FINALIZED_TIMEOUT",
-	HYPERBRIDGE_TIMED_OUT = "HYPERBRIDGE_TIMED_OUT",
-	HYPERBRIDGE_FINALIZED_TIMEOUT = "HYPERBRIDGE_FINALIZED_TIMEOUT",
-	TIMED_OUT = "TIMED_OUT",
-}
+export const TimeoutStatus = Object.freeze({
+	PENDING_TIMEOUT: "PENDING_TIMEOUT",
+	DESTINATION_FINALIZED_TIMEOUT: "DESTINATION_FINALIZED_TIMEOUT",
+	HYPERBRIDGE_TIMED_OUT: "HYPERBRIDGE_TIMED_OUT",
+	HYPERBRIDGE_FINALIZED_TIMEOUT: "HYPERBRIDGE_FINALIZED_TIMEOUT",
+	TIMED_OUT: "TIMED_OUT",
+})
+
+export type TimeoutStatus = typeof TimeoutStatus
+export type TimeoutStatusKey = keyof typeof TimeoutStatus
+
+export type AllStatusKey = RequestStatusKey | TimeoutStatusKey
 
 export enum HyperClientStatus {
 	PENDING = "PENDING",
@@ -166,12 +180,12 @@ export interface BlockMetadata {
 }
 
 export interface PostRequestStatus {
-	status: RequestStatus
+	status: RequestStatusKey
 	metadata: Partial<BlockMetadata>
 }
 
 export interface PostRequestTimeoutStatus {
-	status: TimeoutStatus
+	status: TimeoutStatusKey
 	metadata?: Partial<BlockMetadata>
 }
 
@@ -238,7 +252,7 @@ export interface GetRequestResponse {
 
 export type RequestStatusWithMetadata =
 	| {
-			status: RequestStatus.SOURCE
+			status: RequestStatus["SOURCE"]
 			metadata: {
 				blockHash: string
 				blockNumber: number
@@ -246,7 +260,7 @@ export type RequestStatusWithMetadata =
 			}
 	  }
 	| {
-			status: RequestStatus.SOURCE_FINALIZED
+			status: RequestStatus["SOURCE_FINALIZED"]
 			metadata: {
 				blockHash: string
 				blockNumber: number
@@ -254,7 +268,7 @@ export type RequestStatusWithMetadata =
 			}
 	  }
 	| {
-			status: RequestStatus.HYPERBRIDGE_DELIVERED
+			status: RequestStatus["HYPERBRIDGE_DELIVERED"]
 			metadata: {
 				blockHash: string
 				blockNumber: number
@@ -262,48 +276,7 @@ export type RequestStatusWithMetadata =
 			}
 	  }
 	| {
-			status: RequestStatus.HYPERBRIDGE_FINALIZED
-			metadata: {
-				calldata: Hex
-				blockHash: string
-				blockNumber: number
-				transactionHash: string
-			}
-	  }
-	| {
-			status: RequestStatus.DESTINATION
-			metadata: {
-				blockHash: string
-				blockNumber: number
-				transactionHash: string
-			}
-	  }
-	| {
-			status: TimeoutStatus.PENDING_TIMEOUT
-			metadata: {
-				blockHash: string
-				blockNumber: number
-				transactionHash: string
-			}
-	  }
-	| {
-			status: TimeoutStatus.DESTINATION_FINALIZED_TIMEOUT
-			metadata: {
-				blockHash: string
-				blockNumber: number
-				transactionHash: string
-			}
-	  }
-	| {
-			status: TimeoutStatus.HYPERBRIDGE_TIMED_OUT
-			metadata: {
-				blockHash: string
-				blockNumber: number
-				transactionHash: string
-			}
-	  }
-	| {
-			status: TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT
+			status: RequestStatus["HYPERBRIDGE_FINALIZED"]
 			metadata: {
 				calldata: Hex
 				blockHash: string
@@ -312,7 +285,48 @@ export type RequestStatusWithMetadata =
 			}
 	  }
 	| {
-			status: TimeoutStatus.TIMED_OUT
+			status: RequestStatus["DESTINATION"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+			}
+	  }
+	| {
+			status: TimeoutStatus["PENDING_TIMEOUT"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+			}
+	  }
+	| {
+			status: TimeoutStatus["DESTINATION_FINALIZED_TIMEOUT"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+			}
+	  }
+	| {
+			status: TimeoutStatus["HYPERBRIDGE_TIMED_OUT"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+			}
+	  }
+	| {
+			status: TimeoutStatus["HYPERBRIDGE_FINALIZED_TIMEOUT"]
+			metadata: {
+				calldata: Hex
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+			}
+	  }
+	| {
+			status: TimeoutStatus["TIMED_OUT"]
 			metadata: {
 				blockHash: string
 				blockNumber: number
@@ -320,27 +334,24 @@ export type RequestStatusWithMetadata =
 			}
 	  }
 
-export interface RequestWithStatus {
+interface GenericRequestWithStatuses {
 	source: string
 	dest: string
-	to: HexString
 	from: HexString
 	nonce: bigint
-	body: HexString
 	timeoutTimestamp: bigint
 	statuses: Array<RequestStatusWithMetadata>
 }
 
-export interface GetRequestWithStatus {
-	source: string
-	dest: string
-	from: HexString
-	keys: HexString[]
-	nonce: bigint
+export interface PostRequestWithStatus extends GenericRequestWithStatuses {
+	to: HexString
+	body: HexString
+}
+
+export interface GetRequestWithStatus extends GenericRequestWithStatuses {
 	height: bigint
+	keys: HexString[]
 	context: HexString
-	timeoutTimestamp: bigint
-	statuses: Array<RequestStatusWithMetadata>
 }
 
 export interface GetResponseByRequestIdResponse {

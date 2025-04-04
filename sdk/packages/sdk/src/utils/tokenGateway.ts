@@ -8,7 +8,7 @@ import { keccakAsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
 import type { Option as PolakdotOption } from "@polkadot/types"
 import type { EventRecord, StorageData } from "@polkadot/types/interfaces"
 import type { SignerOptions } from "@polkadot/api/types"
-import { type HyperbridgeTxEvents } from "./xcmGateway"
+import type { HyperbridgeTxEvents } from "./xcmGateway"
 
 export type Params = {
 	/** Asset symbol for the teleport operation */
@@ -102,7 +102,7 @@ async function fetchLocalAssetId(params: { api: ApiPromise; assetId: Uint8Array 
 }
 
 /**
- * Teleports assets across chains through the token gateway.
+ * Teleports assets from Substrate to other chains via the token gateway
  *
  * Note: There is no guarantee that both Dispatched and Finalized events will be yielded.
  * Consumers should listen for either one of these events instead of expecting both.
@@ -124,12 +124,14 @@ async function fetchLocalAssetId(params: { api: ApiPromise; assetId: Uint8Array 
  * @yields {HyperbridgeTxEvents} Stream of events indicating transaction status
  * @throws Error when asset ID is unknown or transaction fails
  */
-export async function teleport(
-	apiPromise: ApiPromise,
-	who: string,
-	params: Params,
-	options: Partial<SignerOptions>,
-): Promise<ReadableStream<HyperbridgeTxEvents>> {
+export async function teleport(teleport_param: {
+	who: string
+	params: Params
+	apiPromise: ApiPromise
+	options: Partial<SignerOptions>
+}): Promise<ReadableStream<HyperbridgeTxEvents>> {
+	const { who, options, params, apiPromise } = teleport_param
+
 	const substrateComplianceAddr = (address: HexString, stateMachine: string) => {
 		if (stateMachine.startsWith("EVM-")) return pad(address, { size: 32, dir: "left" })
 
@@ -195,6 +197,7 @@ export async function teleport(
 
 						if (isInBlock || isFinalized) {
 							const commitment_hash = readIsmpCommitmentHash(events)
+							const blockHash = isInBlock ? status.asInBlock.toHex() : status.asFinalized.toHex()
 
 							if (!commitment_hash) {
 								controller.enqueue({
@@ -204,8 +207,8 @@ export async function teleport(
 								return controller.close()
 							}
 
-							const blockHash = isInBlock ? status.asInBlock.toHex() : status.asFinalized.toHex()
 							const header = await apiPromise.rpc.chain.getHeader(blockHash)
+
 							controller.enqueue({
 								kind: isInBlock ? "Dispatched" : "Finalized",
 								transaction_hash: txHash.toHex(),

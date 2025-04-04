@@ -4,7 +4,13 @@
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
-	"module": "./dist/index.mjs",
+	"type": "module",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
 	"files": [
 		"dist"
 	],
@@ -19,7 +25,6 @@
 		"cryptocurrency",
 		"evm"
 	],
-	"type": "module",
 	"homepage": "https://github.com/polytope-labs/hyperbridge-sdk#readme",
 	"bugs": {
 		"url": "https://github.com/polytope-labs/hyperbridge-sdk/issues"
@@ -31,7 +36,7 @@
 	"license": "ISC",
 	"author": "Polytope Labs",
 	"scripts": {
-		"build": "tsc && resolve-tspaths",
+		"build": "tsup",
 		"prepublishOnly": "npm run build",
 		"test": "vitest --watch=false --maxConcurrency=1",
 		"test:watch": "vitest",
@@ -45,11 +50,13 @@
 		"@polkadot/types": "14.0.1",
 		"@polkadot/util": "13.3.1",
 		"@polkadot/util-crypto": "13.3.1",
+		"consola": "^3.4.2",
+		"@types/lodash-es": "^4.17.12",
 		"graphql": "^16.10.0",
 		"graphql-request": "^7.1.2",
-		"lodash": "^4.17.21",
 		"rpc-websocket-client": "^1.1.4",
 		"scale-ts": "^1.6.1",
+		"lodash-es": "^4.17.15",
 		"ts-pattern": "^5.6.2",
 		"viem": "^2.23.5"
 	},
@@ -57,19 +64,21 @@
 		"@biomejs/biome": "^1.9.4",
 		"@polkadot/keyring": "13.4.3",
 		"@polytope-labs/hyperclient": "1.2.0",
-		"@types/lodash": "^4.17.15",
 		"@types/node": "^22.13.5",
 		"@vitest/coverage-v8": "^3.0.7",
 		"dotenv": "^16.4.7",
 		"jsdom": "^26.0.0",
 		"log-timestamp": "^0.3.0",
-		"resolve-tspaths": "^0.8.23",
 		"typescript": "^5.7.3",
+		"tsup": "^8.4.0",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.0.7",
-		"vite": "^6.2.0"
+		"vitest": "^3.0.7"
 	},
 	"publishConfig": {
 		"access": "public"
+	},
+	"engineStrict": true,
+	"engines": {
+		"node": ">=18.0.0"
 	}
 }

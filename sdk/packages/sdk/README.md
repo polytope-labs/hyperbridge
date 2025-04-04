@@ -19,7 +19,13 @@ pnpm add hyperbridge-sdk
 ```ts
 import { IndexerClient } from "hyperbridge-sdk"
 
+const queryClient = createQueryClient({
+	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
+})
+
 const indexer = new IndexerClient({
+	queryClient: queryClient,
+	pollInterval: 1_000, // Every second
 	source: {
 		consensusStateId: "BSC0",
 		rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
@@ -37,8 +43,6 @@ const indexer = new IndexerClient({
 		stateMachineId: "KUSAMA-4009",
 		wsUrl: "wss://gargantua.polytope.technology",
 	},
-	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
-	pollInterval: 1_000, // Every second
 })
 ```
 
@@ -85,6 +89,22 @@ for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
 // Get current status
 const request = await indexer.queryRequestWithStatus(commitment)
 console.log(request?.statuses)
+```
+
+Alternatively. You can use the `queryRequest` utility
+
+```ts
+import { createQueryClient, queryRequest } from "hyperbridge-sdk"
+
+const queryClient = createQueryClient({
+	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
+})
+
+const commitmentHash = "0x...."
+
+// Get request statuses
+const request = await queryRequest({ commitmentHash, queryClient })
+console.log(request.statuses) // read transaction statuses
 ```
 
 ### Chain Utilities

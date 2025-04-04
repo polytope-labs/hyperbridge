@@ -1,4 +1,4 @@
-export const REQUEST_STATUS = `
+export const POST_REQUEST_STATUS = `
   query RequestStatusM($hash: String!) {
   requests(
     filter: { commitment: { equalTo: $hash } }

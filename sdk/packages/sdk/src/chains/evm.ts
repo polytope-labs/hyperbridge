@@ -5,7 +5,7 @@ import {
 	encodeFunctionData,
 	hexToBytes,
 	http,
-	PublicClient,
+	type PublicClient,
 	toHex,
 	keccak256,
 	toBytes,
@@ -27,15 +27,14 @@ import {
 } from "viem/chains"
 
 import type { GetProofParameters, Hex } from "viem"
-import flatten from "lodash/flatten"
-import zip from "lodash/zip"
+import { zip, flatten } from "lodash-es"
 import { match } from "ts-pattern"
 
 import EvmHost from "@/abis/evmHost"
-import { IChain, IIsmpMessage } from "@/chain"
+import type { IChain, IIsmpMessage } from "@/chain"
 import HandlerV1 from "@/abis/handler"
 import { calculateMMRSize, EvmStateProof, mmrPositionToKIndex, MmrProof, SubstrateStateProof } from "@/utils"
-import { HexString, IMessage } from "@/types"
+import type { HexString, IMessage } from "@/types"
 
 const chains = {
 	[mainnet.id]: mainnet,
@@ -125,7 +124,6 @@ export class EvmChain implements IChain {
 	 * @returns {Promise<HexString>} The proof.
 	 */
 	async queryProof(message: IMessage, counterparty: string, at?: bigint): Promise<HexString> {
-		const self = this
 		// for each request derive the commitment key collect into a new array
 		const commitmentKeys =
 			"Requests" in message
@@ -140,13 +138,13 @@ export class EvmChain implements IChain {
 		} else {
 			config.blockNumber = at
 		}
-		const proof = await self.publicClient.getProof(config)
+		const proof = await this.publicClient.getProof(config)
 		const flattenedProof = Array.from(new Set(flatten(proof.storageProof.map((item) => item.proof))))
 
 		const encoded = EvmStateProof.enc({
 			contractProof: proof.accountProof.map((item) => Array.from(hexToBytes(item))),
 			storageProof: [
-				[Array.from(hexToBytes(self.params.host)), flattenedProof.map((item) => Array.from(hexToBytes(item)))],
+				[Array.from(hexToBytes(this.params.host)), flattenedProof.map((item) => Array.from(hexToBytes(item)))],
 			],
 		})
 
@@ -160,8 +158,6 @@ export class EvmChain implements IChain {
 	 * @returns {Promise<HexString>} The encoded storage proof.
 	 */
 	async queryStateProof(at: bigint, keys: HexString[]): Promise<HexString> {
-		const self = this
-
 		const config: GetProofParameters = {
 			address: this.params.host,
 			storageKeys: keys,
@@ -171,13 +167,13 @@ export class EvmChain implements IChain {
 		} else {
 			config.blockNumber = at
 		}
-		const proof = await self.publicClient.getProof(config)
+		const proof = await this.publicClient.getProof(config)
 		const flattenedProof = Array.from(new Set(flatten(proof.storageProof.map((item) => item.proof))))
 
 		const encoded = EvmStateProof.enc({
 			contractProof: proof.accountProof.map((item) => Array.from(hexToBytes(item))),
 			storageProof: [
-				[Array.from(hexToBytes(self.params.host)), flattenedProof.map((item) => Array.from(hexToBytes(item)))],
+				[Array.from(hexToBytes(this.params.host)), flattenedProof.map((item) => Array.from(hexToBytes(item)))],
 			],
 		})
 
@@ -231,7 +227,7 @@ export class EvmChain implements IChain {
 
 				const proof = {
 					height: {
-						stateMachineId: BigInt(parseInt(request.proof.stateMachine.split("-")[1])),
+						stateMachineId: BigInt(Number.parseInt(request.proof.stateMachine.split("-")[1])),
 						height: request.proof.height,
 					},
 					multiproof: mmrProof.items.map((item) => bytesToHex(new Uint8Array(item))),
@@ -262,7 +258,7 @@ export class EvmChain implements IChain {
 						this.params.host,
 						{
 							height: {
-								stateMachineId: BigInt(parseInt(timeout.proof.stateMachine.split("-")[1])),
+								stateMachineId: BigInt(Number.parseInt(timeout.proof.stateMachine.split("-")[1])),
 								height: timeout.proof.height,
 							},
 							timeouts: timeout.requests.map((req) => ({
@@ -313,7 +309,7 @@ export class EvmChain implements IChain {
 
 				const proof = {
 					height: {
-						stateMachineId: BigInt(parseInt(request.proof.stateMachine.split("-")[1])),
+						stateMachineId: BigInt(Number.parseInt(request.proof.stateMachine.split("-")[1])),
 						height: request.proof.height,
 					},
 					multiproof: mmrProof.items.map((item) => bytesToHex(new Uint8Array(item))),

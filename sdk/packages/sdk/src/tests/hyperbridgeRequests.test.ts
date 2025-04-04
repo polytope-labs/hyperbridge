@@ -1,6 +1,6 @@
 import "log-timestamp"
 
-import { HexString, RequestStatus, TimeoutStatus } from "@/types"
+import { type HexString, RequestStatus, TimeoutStatus } from "@/types"
 import {
 	createWalletClient,
 	http,
@@ -19,20 +19,28 @@ import EVM_HOST from "@/abis/evmHost"
 import HANDLER from "@/abis/handler"
 import TOKEN_GATEWAY from "@/abis/tokenGateway"
 import { WsProvider, ApiPromise, Keyring } from "@polkadot/api"
-import { Signer, SignerResult } from "@polkadot/api/types"
+import type { Signer, SignerResult } from "@polkadot/api/types"
 import { IndexerClient } from "@/client"
 import { teleportDot } from "@/utils/xcmGateway"
-import { KeyringPair } from "@polkadot/keyring/types"
-import { SignerPayloadRaw } from "@polkadot/types/types"
+import type { KeyringPair } from "@polkadot/keyring/types"
+import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { u8aToHex, hexToU8a } from "@polkadot/util"
 import { postRequestCommitment } from "@/utils"
+import { createQueryClient } from "@/query-client"
+
+const query_client = createQueryClient({
+	url: process.env.INDEXER_URL!,
+})
 
 describe.sequential("Hyperbridge Requests", () => {
 	let indexer: IndexerClient
 
 	beforeAll(async () => {
 		const { bscIsmpHost } = await bscSetup()
+
 		indexer = new IndexerClient({
+			queryClient: query_client,
+			pollInterval: 1_000, // every second
 			dest: {
 				consensusStateId: "BSC0",
 				rpcUrl: process.env.BSC_CHAPEL!,
@@ -50,8 +58,6 @@ describe.sequential("Hyperbridge Requests", () => {
 				stateMachineId: "KUSAMA-4009",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			},
-			url: "http://localhost:3100",
-			pollInterval: 1_000, // every second
 		})
 	})
 
@@ -59,7 +65,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		const params = {
 			destination: 97,
 			recipient: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" as HexString,
-			amount: BigInt(1),
+			amount: 1,
 			timeout: BigInt(3600),
 			paraId: 4009,
 		}
@@ -71,15 +77,15 @@ describe.sequential("Hyperbridge Requests", () => {
 		try {
 			// Call the teleport function with indexer
 			console.log("Teleport Dot with Indexer started")
-			const result = await teleportDot(
+			const result = await teleportDot({
 				relayApi,
 				hyperbridge,
-				bob.address,
-				{ signer },
-				params,
-				indexer,
-				2000, // Poll interval
-			)
+				who: bob.address,
+				options: { signer },
+				xcmGatewayParams: params,
+				indexerClient: indexer,
+				pollInterval: 2000,
+			})
 
 			for await (const event of result) {
 				console.log(event.kind)
@@ -109,7 +115,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		const params = {
 			destination: 97,
 			recipient: bscWalletClient.account.address as HexString,
-			amount: BigInt(5),
+			amount: 5,
 			timeout: BigInt(3600),
 			paraId: 4009,
 		}
@@ -124,7 +130,16 @@ describe.sequential("Hyperbridge Requests", () => {
 			if (!indexer) {
 				throw new Error("Indexer client is not defined")
 			}
-			const result = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params, indexer, 2000)
+
+			const result = await teleportDot({
+				relayApi,
+				hyperbridge,
+				who: bob.address,
+				options: { signer },
+				xcmGatewayParams: params,
+				indexerClient: indexer,
+				pollInterval: 2000,
+			})
 
 			let commitment
 			for await (const event of result) {
@@ -205,7 +220,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		const params = {
 			destination: 97,
 			recipient: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" as HexString,
-			amount: BigInt(1),
+			amount: 1,
 			timeout: BigInt(1),
 			paraId: 4009,
 		}
@@ -220,7 +235,15 @@ describe.sequential("Hyperbridge Requests", () => {
 			if (!indexer) {
 				throw new Error("Indexer client is not defined")
 			}
-			const stream = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params, indexer, 2000)
+			const stream = await teleportDot({
+				relayApi,
+				hyperbridge,
+				who: bob.address,
+				options: { signer },
+				xcmGatewayParams: params,
+				indexerClient: indexer,
+				pollInterval: 2000,
+			})
 
 			let commitment
 			for await (const event of stream) {
@@ -362,7 +385,7 @@ describe.sequential("Hyperbridge Requests", () => {
 				stateMachineId: "KUSAMA-4009",
 				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			},
-			url: "http://localhost:3100",
+			queryClient: query_client,
 			pollInterval: 1_000, // every second
 		})
 
@@ -419,7 +442,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		const params = {
 			destination: 97,
 			recipient: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" as HexString,
-			amount: BigInt(1),
+			amount: 1,
 			timeout: BigInt(3600),
 			paraId: 4009,
 		}
@@ -427,7 +450,14 @@ describe.sequential("Hyperbridge Requests", () => {
 		if (!indexer) {
 			throw new Error("Indexer client is not defined")
 		}
-		const result = await teleportDot(relayApi, hyperbridge, bob.address, { signer }, params, indexer)
+		const result = await teleportDot({
+			relayApi,
+			hyperbridge,
+			who: bob.address,
+			options: { signer },
+			xcmGatewayParams: params,
+			indexerClient: indexer,
+		})
 
 		let hyp_commitment
 		for await (const event of result) {

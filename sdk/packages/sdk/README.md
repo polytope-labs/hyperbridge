@@ -17,7 +17,7 @@ pnpm add hyperbridge-sdk
 ### Initialize Client
 
 ```ts
-import { IndexerClient } from "hyperbridge-sdk"
+import { IndexerClient, createQueryClient } from "hyperbridge-sdk"
 
 const queryClient = createQueryClient({
 	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
@@ -91,10 +91,10 @@ const request = await indexer.queryRequestWithStatus(commitment)
 console.log(request?.statuses)
 ```
 
-Alternatively. You can use the `queryRequest` utility
+Alternatively. You can use the `queryPostRequest` utility
 
 ```ts
-import { createQueryClient, queryRequest } from "hyperbridge-sdk"
+import { createQueryClient, queryPostRequest } from "hyperbridge-sdk"
 
 const queryClient = createQueryClient({
 	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
@@ -103,7 +103,7 @@ const queryClient = createQueryClient({
 const commitmentHash = "0x...."
 
 // Get request statuses
-const request = await queryRequest({ commitmentHash, queryClient })
+const request = await queryPostRequest({ commitmentHash, queryClient })
 console.log(request.statuses) // read transaction statuses
 ```
 

@@ -35,6 +35,9 @@ pub struct Cli {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
 	logging::setup()?;
+	rustls::crypto::ring::default_provider()
+		.install_default()
+		.expect("Failed to install rustls crypto provider");
 	let cli = Cli::parse();
 
 	let mut config = tokio::fs::read_to_string(cli.config).await?.parse::<toml::Table>()?;

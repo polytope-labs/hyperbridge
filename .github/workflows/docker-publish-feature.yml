@@ -31,7 +31,8 @@ jobs:
             - name: Build
               run: |
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
-                  cargo build --release -p tesseract --features $GITHUB_REF_NAME
+                  feature_flag=$(echo "$GITHUB_REF_NAME" | cut -d'-' -f"3")
+                  cargo build --release -p tesseract --features $feature_flag
 
             - name: Install Cargo get
               run: cargo install cargo-get
@@ -43,8 +44,11 @@ jobs:
                   password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
             - name: Build the Docker image
-              run: docker build -t polytopelabs/tesseract-consensus:${GITHUB_REF_NAME} -f ./Dockerfile .
+              run: |
+                  feature_flag=$(echo "$GITHUB_REF_NAME" | cut -d'-' -f"3")
+                  docker build -t polytopelabs/tesseract-consensus:${feature_flag} -f ./Dockerfile .
 
             - name: Docker Push
               run: |
-                  docker push polytopelabs/tesseract-consensus:${GITHUB_REF_NAME}
+                  feature_flag=$(echo "$GITHUB_REF_NAME" | cut -d'-' -f"3")
+                  docker push polytopelabs/tesseract-consensus:${feature_flag}

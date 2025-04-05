@@ -420,6 +420,7 @@ async fn submit_state_proposal(
 		tx,
 		Some(gas_breakdown.gas_price),
 		Some(call.clone().gas(gas_limit)),
+		true,
 	)
 	.await?;
 

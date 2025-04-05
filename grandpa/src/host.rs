@@ -126,7 +126,7 @@ where
 								let finality_proof = client
 									.prover
 									.query_finality_proof(
-										consensus_state.latest_height,
+										consensus_state.clone(),
 									)
 									.await?;
 
@@ -178,7 +178,7 @@ where
 								let finality_proof = client
 									.prover
 									.query_finality_proof(
-										consensus_state.latest_height,
+										consensus_state,
 									)
 									.await?;
 								let standalone_message = StandaloneChainMessage {
@@ -228,6 +228,7 @@ where
 						human_bytes::human_bytes(consensus_message.consensus_proof.len() as u32),
 						provider.name(), counterparty.name()
 					);
+
 					let res = counterparty
 						.submit(
 							vec![Message::Consensus(consensus_message)],

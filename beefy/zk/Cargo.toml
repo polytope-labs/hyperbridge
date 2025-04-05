@@ -23,13 +23,16 @@ sp-consensus-beefy = { workspace = true }
 subxt = { version = "0.30.1", features = ["substrate-compat"] }
 sp-crypto-hashing = { workspace = true }
 ismp-solidity-abi = { workspace = true }
+merkle-mountain-range = { workspace = true }
+polkadot-ckb-merkle-mountain-range = "0.8.1"
+hex-literal = "0.4.1"
 
 [dev-dependencies]
+ethers = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 futures = "0.3.27"
 envy = "0.4.2"
-hex-literal = "0.4.1"
 sp-runtime = { workspace = true }
 subxt-utils = { workspace = true }
 hex = { version = "0.4.3", features = [] }

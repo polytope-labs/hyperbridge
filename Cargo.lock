@@ -1655,6 +1655,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
+ "ckb-merkle-mountain-range",
  "derive_more 1.0.0",
  "hex",
  "hex-literal 0.4.1",
@@ -1663,6 +1664,8 @@ dependencies = [
  "primitive-types",
  "rs_merkle",
  "subxt",
+ "subxt-utils",
+ "tokio",
 ]
 
 [[package]]

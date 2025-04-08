@@ -15,22 +15,15 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 
 	const [dest_chain, source_chain, request_nonce, commitment] = event.event.data
 
-	logger.info(
-		`Handling ISMP Request Event: ${JSON.stringify({
-			source_chain,
-			dest_chain,
-			request_nonce,
-			commitment,
-		})}`,
-	)
-
 	const sourceId = formatChain(source_chain.toString())
 	const destId = formatChain(dest_chain.toString())
 
 	logger.info(
-		`Chain Ids: ${JSON.stringify({
+		`Handling ISMP Request Event: ${JSON.stringify({
 			sourceId,
 			destId,
+			request_nonce,
+			commitment,
 		})}`,
 	)
 

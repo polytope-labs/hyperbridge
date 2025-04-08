@@ -15,23 +15,16 @@ export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promi
 
 	const [dest_chain, source_chain, request_nonce, commitment, req_commitment] = event.event.data
 
-	logger.info(
-		`Handling ISMP Response Event: ${JSON.stringify({
-			source_chain,
-			dest_chain,
-			request_nonce,
-			commitment,
-			req_commitment,
-		})}`,
-	)
-
 	const sourceId = formatChain(source_chain.toString())
 	const destId = formatChain(dest_chain.toString())
 
 	logger.info(
-		`Chain Ids: ${JSON.stringify({
+		`Handling ISMP Response Event: ${JSON.stringify({
 			sourceId,
 			destId,
+			request_nonce,
+			commitment,
+			req_commitment,
 		})}`,
 	)
 

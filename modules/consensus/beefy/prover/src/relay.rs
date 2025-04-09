@@ -281,7 +281,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 			.rpc()
 			.storage(MMR_NUMBER_OF_LEAVES.as_slice(), Some(block_hash))
 			.await?
-			.expect("Should retrieve next authority set")
+			.expect("Should retrieve total number of leaves in mmr")
 			.0;
 
 		u64::decode(&mut &encoded[..])?
@@ -304,7 +304,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 			.rpc()
 			.storage(&key, Some(block_hash))
 			.await?
-			.expect("Should retrieve next authority set")
+			.expect(&format!("Should retrieve hash for peak {peak}"))
 			.0;
 
 		let peak_root = H256::decode(&mut &encoded[..])?;

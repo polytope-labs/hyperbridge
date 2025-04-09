@@ -19,6 +19,7 @@ sync-committee-primitives = { workspace = true }
 geth-primitives = { workspace = true }
 evm-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
+pallet-ismp = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -37,4 +38,5 @@ std = [
     "sync-committee-primitives/std",
     "evm-state-machine/std",
     "pallet-ismp-host-executive/std",
+    "pallet-ismp/std"
 ]

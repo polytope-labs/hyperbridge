@@ -23,7 +23,7 @@ use anyhow::anyhow;
 use bls::{point_to_pubkey, types::G1ProjectivePoint};
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
-use primitives::{parse_extra, BscClientUpdate, Config, EPOCH_LENGTH, VALIDATOR_BIT_SET_SIZE};
+use primitives::{parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use ssz_rs::{Bitvector, Deserialize};
 use sync_committee_primitives::constants::BlsPublicKey;
@@ -49,6 +49,7 @@ pub struct NextValidators {
 pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	current_validators: &Vec<BlsPublicKey>,
 	update: BscClientUpdate,
+	epoch_length: u64,
 ) -> Result<VerificationResult, anyhow::Error> {
 	let extra_data = parse_extra::<H, C>(&update.attested_header)
 		.map_err(|_| anyhow!("could not parse extra data from header"))?;
@@ -133,7 +134,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
                 ))?
             }
             // If the source header that was finalized is the epoch header we extract the next validator set
-        } else if update.source_header.number.low_u64() % EPOCH_LENGTH == 0 {
+        } else if update.source_header.number.low_u64() % epoch_length == 0 {
             let epoch_header_extra_data = parse_extra::<H, C>(&update.source_header)
                 .map_err(|_| anyhow!("could not parse extra data from epoch header"))?;
             let validators = epoch_header_extra_data

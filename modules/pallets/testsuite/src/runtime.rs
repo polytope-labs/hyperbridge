@@ -81,6 +81,7 @@ frame_support::construct_runtime!(
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
 		IsmpSyncCommittee: ismp_sync_committee::pallet,
+		IsmpBsc: ismp_bsc::pallet,
 		TokenGateway: pallet_token_gateway,
 		TokenGatewayInspector: pallet_token_gateway_inspector,
 	}
@@ -251,6 +252,12 @@ impl pallet_token_gateway_inspector::Config for Test {
 impl ismp_sync_committee::pallet::Config for Test {
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IsmpHost = Ismp;
+}
+
+impl ismp_bsc::pallet::Config for Test {
+	type AdminOrigin = EnsureRoot<AccountId32>;
+	type IsmpHost = Ismp;
+	type RuntimeEvent = RuntimeEvent;
 }
 
 parameter_types! {

@@ -8499,6 +8499,7 @@ dependencies = [
  "geth-primitives",
  "ismp",
  "log",
+ "pallet-ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",

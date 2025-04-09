@@ -1,3 +1,4 @@
+use bsc_prover::UpdateParams;
 use codec::{Decode, Encode};
 use ismp::messaging::{ConsensusMessage, Message};
 use ismp_bsc::ConsensusState;
@@ -18,12 +19,15 @@ pub async fn consensus_notification<C: Config>(
 	let consensus_state = counterparty
 		.query_consensus_state(Some(counterparty_finalized), client.consensus_state_id)
 		.await?;
+	let epoch_length = client.host.epoch_length;
 	let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
-	let current_epoch =
-		max(compute_epoch(consensus_state.finalized_height), consensus_state.current_epoch);
+	let current_epoch = max(
+		compute_epoch(consensus_state.finalized_height, epoch_length),
+		consensus_state.current_epoch,
+	);
 	let attested_header = client.prover.latest_header().await?;
 
-	let attested_epoch = compute_epoch(attested_header.number.low_u64());
+	let attested_epoch = compute_epoch(attested_header.number.low_u64(), epoch_length);
 	if attested_epoch < current_epoch ||
 		attested_epoch > current_epoch ||
 		consensus_state.finalized_height >= attested_header.number.low_u64()
@@ -33,12 +37,13 @@ pub async fn consensus_notification<C: Config>(
 
 	let mut bsc_client_update = client
 		.prover
-		.fetch_bsc_update::<KeccakHasher>(
+		.fetch_bsc_update::<KeccakHasher>(UpdateParams {
 			attested_header,
-			consensus_state.current_validators.len() as u64,
-			current_epoch,
-			false,
-		)
+			epoch_length,
+			epoch: current_epoch,
+			fetch_val_set_change: false,
+			validator_size: consensus_state.current_validators.len() as u64,
+		})
 		.await?;
 	// Dry run the update so we know it will succeed, this ensures client does not get stalled
 	// If the update is a None value, we want to try again in the next tick

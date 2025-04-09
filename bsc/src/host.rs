@@ -14,13 +14,14 @@
 
 use anyhow::{anyhow, Error};
 use bsc_verifier::{
-	primitives::{compute_epoch, Config, EPOCH_LENGTH},
+	primitives::{compute_epoch, Config},
 	verify_bsc_header,
 };
 use codec::{Decode, Encode};
 use futures::{stream, StreamExt};
 use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 
+use bsc_prover::UpdateParams;
 use ismp_bsc::ConsensusState;
 use sp_core::H160;
 use std::{cmp::max, sync::Arc, time::Duration};
@@ -40,6 +41,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 		let interval = tokio::time::interval(Duration::from_secs(
 			self.host.consensus_update_frequency.unwrap_or(300),
 		));
+
+		let epoch_length = self.host.epoch_length;
 
 		let counterparty_clone = counterparty.clone();
 
@@ -96,7 +99,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 					}
 
 					let current_epoch = max(
-						compute_epoch(consensus_state.finalized_height),
+						compute_epoch(consensus_state.finalized_height, epoch_length),
 						consensus_state.current_epoch,
 					);
 
@@ -112,12 +115,13 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						));
 					};
 
-					let attested_epoch = compute_epoch(attested_header.number.low_u64());
+					let attested_epoch =
+						compute_epoch(attested_header.number.low_u64(), epoch_length);
 					// Send a block that would enact authority set rotation
 					if consensus_state.next_validators.is_some() {
 						let rotation_block =
 							consensus_state.next_validators.as_ref().expect("Valid").rotation_block;
-						let enactment_epoch = compute_epoch(rotation_block);
+						let enactment_epoch = compute_epoch(rotation_block, epoch_length);
 
 						log::trace!(
 							"Enacting Authority Set Rotation for {:?} on {}",
@@ -125,15 +129,16 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 							counterparty.state_machine_id().state_id
 						);
 
-						let epoch_block_number = enactment_epoch * EPOCH_LENGTH;
+						let epoch_block_number = enactment_epoch * epoch_length;
 						let rotation_block = get_rotation_block(
 							epoch_block_number,
 							consensus_state.current_validators.len() as u64,
+							epoch_length,
 						);
 						let mut block = rotation_block;
 						// Authority set rotation is valid between rotation_block and
-						// epoch_block+EPOCH_LENGTH
-						while block <= (epoch_block_number + EPOCH_LENGTH - 1) {
+						// epoch_block+epoch_length
+						while block <= (epoch_block_number + epoch_length - 1) {
 							let header = if let Ok(header) = client.prover.fetch_header(block).await
 							{
 								header
@@ -157,12 +162,13 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 
 							match client
 								.prover
-								.fetch_bsc_update::<KeccakHasher>(
-									header,
-									consensus_state.current_validators.len() as u64,
-									enactment_epoch,
-									false,
-								)
+								.fetch_bsc_update::<KeccakHasher>(UpdateParams {
+									attested_header: header,
+									validator_size: consensus_state.current_validators.len() as u64,
+									epoch: enactment_epoch,
+									epoch_length,
+									fetch_val_set_change: false,
+								})
 								.await
 							{
 								Ok(Some(update)) => {
@@ -174,6 +180,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									let res = verify_bsc_header::<KeccakHasher, C>(
 										&next_validators.validators,
 										update.clone(),
+										epoch_length,
 									);
 									if update.source_header.number.low_u64() <=
 										consensus_state.finalized_height ||
@@ -215,16 +222,17 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						);
 						let next_epoch = current_epoch + 1;
 
-						let epoch_block_number = next_epoch * EPOCH_LENGTH;
+						let epoch_block_number = next_epoch * epoch_length;
 						// Find a block that finalizes the epoch change block, Validators are
 						// rotated (validator_size / 2) blocks after the epoch boundary
 						let mut block = epoch_block_number + 2;
 						let rotation_block = get_rotation_block(
 							epoch_block_number,
 							consensus_state.current_validators.len() as u64,
+							epoch_length,
 						) - 1;
 
-						while block <= rotation_block + EPOCH_LENGTH / 2 {
+						while block <= rotation_block + epoch_length / 2 {
 							let header = if let Ok(header) = client.prover.fetch_header(block).await
 							{
 								header
@@ -247,12 +255,13 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 
 							match client
 								.prover
-								.fetch_bsc_update::<KeccakHasher>(
-									header,
-									consensus_state.current_validators.len() as u64,
-									next_epoch,
-									true,
-								)
+								.fetch_bsc_update::<KeccakHasher>(UpdateParams {
+									attested_header: header,
+									validator_size: consensus_state.current_validators.len() as u64,
+									epoch: next_epoch,
+									epoch_length,
+									fetch_val_set_change: true,
+								})
 								.await
 							{
 								Ok(Some(update)) => {
@@ -266,6 +275,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									if let Err(_) = verify_bsc_header::<KeccakHasher, C>(
 										&consensus_state.current_validators,
 										update.clone(),
+										epoch_length,
 									) {
 										// If we are still looking for the next sync block and we
 										// find an update not signed by the current validator set We

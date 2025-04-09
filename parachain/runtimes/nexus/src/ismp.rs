@@ -72,6 +72,12 @@ impl ismp_sync_committee::pallet::Config<Gnosis> for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl ismp_bsc::pallet::Config for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+}
+
 impl pallet_state_coprocessor::Config for Runtime {
 	type IsmpHost = Ismp;
 	type Mmr = Mmr;
@@ -226,8 +232,9 @@ impl IsmpModule for ProxyModule {
 		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
-			id if id == xcm_gateway =>
-				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
+			id if id == xcm_gateway => {
+				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request)
+			},
 			id if id == token_governor => TokenGovernor::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
@@ -254,8 +261,9 @@ impl IsmpModule for ProxyModule {
 				(&post.from, &post.source, &post.dest)
 			},
 			Timeout::Request(Request::Get(get)) => (&get.from, &get.source, &get.dest),
-			Timeout::Response(res) =>
-				(&res.source_module(), &res.source_chain(), &res.dest_chain()),
+			Timeout::Response(res) => {
+				(&res.source_module(), &res.source_chain(), &res.dest_chain())
+			},
 		};
 
 		if *source != HostStateMachine::get() {
@@ -265,8 +273,9 @@ impl IsmpModule for ProxyModule {
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
 		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(dest));
 		match pallet_id {
-			id if id == xcm_gateway =>
-				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
+			id if id == xcm_gateway => {
+				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout)
+			},
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(()),
 		}

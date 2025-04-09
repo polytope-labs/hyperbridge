@@ -19,6 +19,7 @@ use polkadot_sdk::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloc::vec::Vec;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use ismp::{consensus::ConsensusStateId, host::IsmpHost};
@@ -63,8 +64,8 @@ pub mod pallet {
 	)]
 	pub struct UpdateParams {
 		pub epoch_length: u64,
-		pub consensus_state: Vec<u8>,
-		pub consensus_state_id: ConsensusStateId,
+		pub consensus_state: Option<Vec<u8>>,
+		pub consensus_state_id: Option<ConsensusStateId>,
 	}
 
 	#[pallet::call]
@@ -76,8 +77,13 @@ pub mod pallet {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 			let host = <T as Config>::IsmpHost::default();
 			EpochLength::<T>::put(params.epoch_length);
-			host.store_consensus_state(params.consensus_state_id, params.consensus_state)
-				.map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
+			if let Some((consensus_state_id, consensus_state)) = params
+				.consensus_state_id
+				.and_then(|id| params.consensus_state.map(|state| (id, state)))
+			{
+				host.store_consensus_state(consensus_state_id, consensus_state)
+					.map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
+			}
 
 			Self::deposit_event(Event::<T>::NewEpochLength { epoch_length: params.epoch_length });
 

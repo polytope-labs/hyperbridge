@@ -727,6 +727,7 @@ construct_runtime!(
 		Fishermen: pallet_fishermen = 61,
 		TokenGatewayInspector: pallet_token_gateway_inspector = 62,
 		IsmpSyncCommitteeGno: ismp_sync_committee::pallet::<Instance2> = 63,
+		IsmpBsc: ismp_bsc::pallet = 64,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,

@@ -221,7 +221,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("nexus"),
 	impl_name: create_runtime_str!("nexus"),
 	authoring_version: 1,
-	spec_version: 2_900,
+	spec_version: 3_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -859,6 +859,7 @@ construct_runtime!(
 		Fishermen: pallet_fishermen = 59,
 		TokenGatewayInspector: pallet_token_gateway_inspector = 60,
 		IsmpSyncCommitteeGno: ismp_sync_committee::pallet::<Instance2> = 61,
+		IsmpBsc: ismp_bsc::pallet = 62,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,

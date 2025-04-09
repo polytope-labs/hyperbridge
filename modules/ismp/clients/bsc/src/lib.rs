@@ -24,6 +24,8 @@ use ismp::{
 use polkadot_sdk::*;
 use sp_core::H256;
 use sync_committee_primitives::constants::BlsPublicKey;
+pub mod pallet;
+use pallet::Pallet;
 
 pub const BSC_CONSENSUS_ID: ConsensusStateId = *b"BSCP";
 
@@ -38,7 +40,6 @@ pub struct ConsensusState {
 	pub finalized_hash: H256,
 	pub current_epoch: u64,
 	pub chain_id: u32,
-	pub epoch_length: u64,
 }
 
 pub struct BscClient<
@@ -65,7 +66,7 @@ impl<H: IsmpHost, T: pallet_ismp_host_executive::Config, C: bsc_verifier::primit
 
 impl<
 		H: IsmpHost + Send + Sync + Default + 'static,
-		T: pallet_ismp_host_executive::Config,
+		T: pallet_ismp_host_executive::Config + crate::pallet::Config,
 		C: bsc_verifier::primitives::Config,
 	> ConsensusClient for BscClient<H, T, C>
 {
@@ -86,21 +87,19 @@ impl<
 			Err(Error::Custom("Expired Update".to_string()))?
 		}
 
+		let epoch_length = Pallet::<T>::epoch_length()
+			.ok_or_else(|| Error::Custom("Epoch length not set".to_string()))?;
 		if let Some(next_validators) = consensus_state.next_validators.clone() {
-			if bsc_client_update.attested_header.number.low_u64() % consensus_state.epoch_length >=
+			if bsc_client_update.attested_header.number.low_u64() % epoch_length >=
 				(consensus_state.current_validators.len() as u64 / 2)
 			{
 				// Sanity check
 				// During authority set rotation, the source header must be from the same epoch as
 				// the attested header
-				let epoch = compute_epoch(
-					bsc_client_update.attested_header.number.low_u64(),
-					consensus_state.epoch_length,
-				);
-				let source_header_epoch = compute_epoch(
-					bsc_client_update.source_header.number.low_u64(),
-					consensus_state.epoch_length,
-				);
+				let epoch =
+					compute_epoch(bsc_client_update.attested_header.number.low_u64(), epoch_length);
+				let source_header_epoch =
+					compute_epoch(bsc_client_update.source_header.number.low_u64(), epoch_length);
 				if source_header_epoch != epoch {
 					Err(Error::Custom("The Source Header must be from the same epoch with the attested epoch during an authority set rotation".to_string()))?
 				}
@@ -114,7 +113,7 @@ impl<
 			verify_bsc_header::<H, C>(
 				&consensus_state.current_validators,
 				bsc_client_update,
-				consensus_state.epoch_length,
+				epoch_length,
 			)
 			.map_err(|e| Error::Custom(e.to_string()))?;
 
@@ -172,18 +171,19 @@ impl<
 
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
-
+		let epoch_length = Pallet::<T>::epoch_length()
+			.ok_or_else(|| Error::Custom("Epoch length not set".to_string()))?;
 		let _ = verify_bsc_header::<H, C>(
 			&consensus_state.current_validators,
 			bsc_client_update_1,
-			consensus_state.epoch_length,
+			epoch_length,
 		)
 		.map_err(|_| Error::Custom("Failed to verify first header".to_string()))?;
 
 		let _ = verify_bsc_header::<H, C>(
 			&consensus_state.current_validators,
 			bsc_client_update_2,
-			consensus_state.epoch_length,
+			epoch_length,
 		)
 		.map_err(|_| Error::Custom("Failed to verify second header".to_string()))?;
 

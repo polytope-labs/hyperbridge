@@ -70,6 +70,11 @@ impl ismp_sync_committee::pallet::Config<Gnosis> for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl ismp_bsc::pallet::Config for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type RuntimeEvent = RuntimeEvent;
+}
+
 impl pallet_state_coprocessor::Config for Runtime {
 	type IsmpHost = Ismp;
 	type Mmr = Mmr;

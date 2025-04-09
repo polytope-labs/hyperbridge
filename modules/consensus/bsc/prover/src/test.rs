@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use bsc_verifier::{
-	primitives::{compute_epoch, Testnet, EPOCH_LENGTH},
+	primitives::{compute_epoch, Testnet},
 	verify_bsc_header, NextValidators,
 };
 use ethers::{
@@ -29,6 +29,8 @@ use std::time::Duration;
 use crate::BscPosProver;
 
 pub struct Host;
+
+const EPOCH_LENGTH: u64 = 500;
 
 impl Keccak256 for Host {
 	fn keccak256(bytes: &[u8]) -> primitive_types::H256
@@ -54,7 +56,8 @@ async fn setup_prover() -> BscPosProver<Testnet> {
 async fn verify_bsc_pos_headers() {
 	let prover = setup_prover().await;
 	let latest_block = prover.latest_header().await.unwrap();
-	let (epoch_header, validators) = prover.fetch_finalized_state::<Host>().await.unwrap();
+	let (epoch_header, validators) =
+		prover.fetch_finalized_state::<Host>(EPOCH_LENGTH).await.unwrap();
 	if latest_block.number.low_u64() - epoch_header.number.low_u64() < 12 {
 		// We want to ensure the current validators have been enacted before continuing
 		tokio::time::sleep(Duration::from_secs(
@@ -63,20 +66,21 @@ async fn verify_bsc_pos_headers() {
 		.await;
 	}
 	let mut next_validators: Option<NextValidators> = None;
-	let mut current_epoch = compute_epoch(latest_block.number.low_u64());
+	let mut current_epoch = compute_epoch(latest_block.number.low_u64(), EPOCH_LENGTH);
 	let mut sub = prover.client.watch_blocks().await.unwrap();
 	// Verify at least an epoch change until validator set is rotated
 	while let Some(block) = sub.next().await {
 		let header: CodecHeader = prover.fetch_header(block).await.unwrap().unwrap();
-		let block_epoch = compute_epoch(header.number.low_u64());
+		let block_epoch = compute_epoch(header.number.low_u64(), EPOCH_LENGTH);
 
 		if let Some(mut update) = prover
-			.fetch_bsc_update::<Host>(
-				header.clone(),
-				validators.len() as u64,
-				current_epoch + 1,
-				block_epoch > current_epoch,
-			)
+			.fetch_bsc_update::<Host>(crate::UpdateParams {
+				attested_header: header.clone(),
+				validator_size: validators.len() as u64,
+				epoch_length: EPOCH_LENGTH,
+				epoch: current_epoch + 1,
+				fetch_val_set_change: block_epoch > current_epoch,
+			})
 			.await
 			.unwrap()
 		{
@@ -95,6 +99,7 @@ async fn verify_bsc_pos_headers() {
 				let result = verify_bsc_header::<Host, Testnet>(
 					&next_validators.clone().unwrap().validators,
 					update.clone(),
+					EPOCH_LENGTH,
 				);
 				if result.is_ok() {
 					println!("VALIDATOR SET ROTATED SUCCESSFULLY");
@@ -104,7 +109,9 @@ async fn verify_bsc_pos_headers() {
 					continue;
 				}
 			}
-			let result = verify_bsc_header::<Host, Testnet>(&validators, update.clone()).unwrap();
+			let result =
+				verify_bsc_header::<Host, Testnet>(&validators, update.clone(), EPOCH_LENGTH)
+					.unwrap();
 			dbg!(&result.hash);
 			dbg!(result.next_validators.is_some());
 			if let Some(validators) = result.next_validators {

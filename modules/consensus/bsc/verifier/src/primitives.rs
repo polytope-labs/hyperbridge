@@ -25,7 +25,6 @@ use polkadot_sdk::*;
 use primitive_types::H160;
 use sp_runtime::traits::ConstU32;
 
-pub const EPOCH_LENGTH: u64 = 200;
 const EXTRA_VANITY_LENGTH: usize = 32;
 const EXTRA_SEAL_LENGTH: usize = 65;
 const BLS_PUBLIC_KEY_LENGTH: usize = 48;
@@ -195,6 +194,6 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 	Ok(extra.clone())
 }
 
-pub fn compute_epoch(number: u64) -> u64 {
-	number / EPOCH_LENGTH
+pub fn compute_epoch(number: u64, epoch_length: u64) -> u64 {
+	number / epoch_length
 }

@@ -21,6 +21,7 @@ pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use ismp::{consensus::ConsensusStateId, host::IsmpHost};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -28,13 +29,21 @@ pub mod pallet {
 
 	/// The config trait
 	#[pallet::config]
-	pub trait Config: polkadot_sdk::frame_system::Config {
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		/// The overarching event type
 		type RuntimeEvent: From<Event<Self>>
 			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// Origin allowed to add or remove parachains in Consensus State
 		type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
+		/// IsmpHost implementation
+		type IsmpHost: IsmpHost + Default;
+	}
+
+	#[pallet::error]
+	pub enum Error<T> {
+		/// Error storing consensus state
+		ErrorStoringConsensusState,
 	}
 
 	#[pallet::event]
@@ -49,17 +58,28 @@ pub mod pallet {
 	#[pallet::getter(fn epoch_length)]
 	pub type EpochLength<T: Config> = StorageValue<_, u64, OptionQuery>;
 
+	#[derive(
+		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+	)]
+	pub struct UpdateParams {
+		pub epoch_length: u64,
+		pub consensus_state: Vec<u8>,
+		pub consensus_state_id: ConsensusStateId,
+	}
+
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Sets the BSC epoch length
+		/// Sets the new BSC epoch length and resets the consensus state
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn set_epoch_length(origin: OriginFor<T>, epoch_length: u64) -> DispatchResult {
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 3))]
+		pub fn set_epoch_length(origin: OriginFor<T>, params: UpdateParams) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
+			let host = <T as Config>::IsmpHost::default();
+			EpochLength::<T>::put(params.epoch_length);
+			host.store_consensus_state(params.consensus_state_id, params.consensus_state)
+				.map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
 
-			EpochLength::<T>::put(epoch_length);
-
-			Self::deposit_event(Event::<T>::NewEpochLength { epoch_length });
+			Self::deposit_event(Event::<T>::NewEpochLength { epoch_length: params.epoch_length });
 
 			Ok(())
 		}

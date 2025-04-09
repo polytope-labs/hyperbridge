@@ -92,9 +92,9 @@ async fn verify_bsc_pos_headers() {
 				update.epoch_header_ancestry = Default::default();
 			}
 
-			if next_validators.is_some()
-				&& update.attested_header.number.low_u64() % EPOCH_LENGTH
-					>= (validators.len() as u64 / 2)
+			if next_validators.is_some() &&
+				update.attested_header.number.low_u64() % EPOCH_LENGTH >=
+					(validators.len() as u64 / 2)
 			{
 				let result = verify_bsc_header::<Host, Testnet>(
 					&next_validators.clone().unwrap().validators,

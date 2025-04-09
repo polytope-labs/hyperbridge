@@ -19,11 +19,13 @@ extern crate alloc;
 use alloc::vec::Vec;
 use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-
-use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
+use codec::Decode;
+use ethabi::ethereum_types::{Bloom, H64};
+use ethers_core::abi::AbiEncode;
 #[cfg(feature = "std")]
 use ethers_core::types::{Block, U64};
 use ismp::messaging::Keccak256;
+use sp_core::{H160, H256, U256};
 
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
 #[rlp(trailing)]
@@ -86,23 +88,25 @@ impl AsRef<CodecHeader> for CodecHeader {
 impl From<Block<H256>> for CodecHeader {
 	fn from(block: Block<H256>) -> Self {
 		CodecHeader {
-			parent_hash: block.parent_hash,
-			uncle_hash: block.uncles_hash,
-			coinbase: block.author.unwrap_or_default(),
-			state_root: block.state_root,
-			transactions_root: block.transactions_root,
-			receipts_root: block.receipts_root,
+			parent_hash: block.parent_hash.0.into(),
+			uncle_hash: block.uncles_hash.0.into(),
+			coinbase: block.author.unwrap_or_default().0.into(),
+			state_root: block.state_root.0.into(),
+			transactions_root: block.transactions_root.0.into(),
+			receipts_root: block.receipts_root.0.into(),
 			logs_bloom: block.logs_bloom.unwrap_or_default(),
-			difficulty: block.difficulty,
+			difficulty: Decode::decode(&mut &*block.difficulty.encode()).expect("Infallible"),
 			number: block.number.unwrap_or_default().as_u64().into(),
 			gas_limit: block.gas_limit.low_u64(),
 			gas_used: block.gas_used.low_u64(),
 			timestamp: block.timestamp.low_u64(),
 			extra_data: block.extra_data.0.into(),
-			mix_hash: block.mix_hash.unwrap_or_default(),
+			mix_hash: block.mix_hash.unwrap_or_default().0.into(),
 			nonce: block.nonce.unwrap_or_default(),
-			base_fee_per_gas: block.base_fee_per_gas,
-			withdrawals_hash: block.withdrawals_root,
+			base_fee_per_gas: block
+				.base_fee_per_gas
+				.map(|inner| Decode::decode(&mut &*inner.encode()).expect("Infallible")),
+			withdrawals_hash: block.withdrawals_root.map(|inner| inner.0.into()),
 			blob_gas_used: block
 				.other
 				.get_deserialized::<U64>("blobGasUsed")
@@ -133,27 +137,17 @@ impl From<&CodecHeader> for Header {
 			transactions_root: value.transactions_root.0.into(),
 			receipts_root: value.receipts_root.0.into(),
 			logs_bloom: value.logs_bloom.0.into(),
-			difficulty: {
-				let mut bytes = [0u8; 32];
-				value.difficulty.to_big_endian(&mut bytes);
-				alloy_primitives::U256::from_be_bytes(bytes)
-			},
-			number: {
-				let mut bytes = [0u8; 32];
-				value.number.to_big_endian(&mut bytes);
-				alloy_primitives::U256::from_be_bytes(bytes)
-			},
+			difficulty: { alloy_primitives::U256::from_be_bytes(value.difficulty.to_big_endian()) },
+			number: { alloy_primitives::U256::from_be_bytes(value.number.to_big_endian()) },
 			gas_limit: value.gas_limit,
 			gas_used: value.gas_used,
 			timestamp: value.timestamp,
 			extra_data: value.extra_data.clone().into(),
 			mix_hash: value.mix_hash.0.into(),
 			nonce: value.nonce.0.into(),
-			base_fee_per_gas: value.base_fee_per_gas.map(|val| {
-				let mut bytes = [0u8; 32];
-				val.to_big_endian(&mut bytes);
-				alloy_primitives::U256::from_be_bytes(bytes)
-			}),
+			base_fee_per_gas: value
+				.base_fee_per_gas
+				.map(|val| alloy_primitives::U256::from_be_bytes(val.to_big_endian())),
 			withdrawals_hash: value.withdrawals_hash.map(|val| val.0.into()),
 			blob_gas_used: value.blob_gas_used,
 			excess_blob_gas_used: value.excess_blob_gas_used,

@@ -45,6 +45,7 @@ pub struct BscPosConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
 	pub consensus_update_frequency: Option<u64>,
+	pub epoch_length: u64,
 }
 
 impl BscPosConfig {
@@ -98,8 +99,10 @@ impl<C: Config> BscPosHost<C> {
 	}
 
 	pub async fn get_consensus_state<I: Keccak256>(&self) -> Result<ConsensusState, anyhow::Error> {
-		let (header, current_validators) =
-			self.prover.fetch_finalized_state::<KeccakHasher>().await?;
+		let (header, current_validators) = self
+			.prover
+			.fetch_finalized_state::<KeccakHasher>(self.host.epoch_length)
+			.await?;
 
 		let chain_id = self.prover.client.get_chainid().await?;
 		let consensus_state = ConsensusState {
@@ -107,7 +110,7 @@ impl<C: Config> BscPosHost<C> {
 			next_validators: None,
 			finalized_hash: Header::from(&header).hash::<KeccakHasher>(),
 			finalized_height: header.number.as_u64(),
-			current_epoch: compute_epoch(header.number.low_u64()),
+			current_epoch: compute_epoch(header.number.low_u64(), self.host.epoch_length),
 			chain_id: chain_id.low_u32(),
 		};
 

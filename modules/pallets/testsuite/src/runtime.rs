@@ -42,17 +42,16 @@ use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use sp_core::{
-	crypto::AccountId32,
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
 	H160, H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
-	BuildStorage,
+	AccountId32, BuildStorage,
 };
 
 use substrate_state_machine::SubstrateStateMachine;
-use xcm_simulator_example::ALICE;
+pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
@@ -136,6 +135,7 @@ impl pallet_balances::Config for Test {
 	type MaxLocks = ConstU32<50>;
 	type MaxReserves = ConstU32<50>;
 	type MaxFreezes = ();
+	type DoneSlashHandler = ();
 }
 
 impl pallet_fishermen::Config for Test {

@@ -30,7 +30,9 @@ mod weights;
 pub mod xcm;
 
 use alloc::vec::Vec;
-use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
+use cumulus_pallet_parachain_system::{
+	DefaultCoreSelector, RelayChainState, RelayNumberMonotonicallyIncreases,
+};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
@@ -239,7 +241,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
-	state_version: 1,
+	system_version: 1,
 };
 
 /// This determines the average expected block time that we are targeting.
@@ -410,6 +412,7 @@ impl pallet_balances::Config for Runtime {
 	type MaxFreezes = ();
 	type RuntimeHoldReason = RuntimeHoldReason;
 	type RuntimeFreezeReason = RuntimeFreezeReason;
+	type DoneSlashHandler = ();
 }
 
 parameter_types! {
@@ -424,6 +427,7 @@ impl pallet_transaction_payment::Config for Runtime {
 	type LengthToFee = ConstantMultiplier<Balance, TransactionByteFee>;
 	type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
 	type OperationalFeeMultiplier = ConstU8<5>;
+	type WeightInfo = ();
 }
 
 parameter_types! {
@@ -451,6 +455,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
+	type SelectCore = DefaultCoreSelector<Self>;
 }
 
 impl staging_parachain_info::Config for Runtime {}
@@ -648,6 +653,7 @@ impl pallet_treasury::Config for Runtime {
 	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
 	type BalanceConverter = AssetRate;
 	type PayoutPeriod = PayoutPeriod;
+	type BlockNumberProvider = System;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = TreasuryAssetFactory;
 }
@@ -675,6 +681,9 @@ impl pallet_collective::Config for Runtime {
 	type WeightInfo = weights::pallet_collective::WeightInfo<Runtime>;
 	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
 	type MaxProposalWeight = MaxCollectivesProposalWeight;
+	type DisapproveOrigin = EnsureRoot<Self::AccountId>;
+	type KillOrigin = EnsureRoot<Self::AccountId>;
+	type Consideration = ();
 }
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(

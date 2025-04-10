@@ -9283,6 +9283,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
  "scale-info",
  "sp-io 39.0.0",
  "sync-committee-primitives",

@@ -15,9 +15,9 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 use arbitrum_verifier::{ArbitrumBoldProof, ArbitrumPayloadProof};
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::H160;
 use ismp::host::StateMachine;
 use op_verifier::{OptimismDisputeGameProof, OptimismPayloadProof};
+use primitive_types::H160;
 use sync_committee_primitives::types::{VerifierState, VerifierStateUpdate};
 
 #[derive(Debug, Encode, Decode, Clone)]

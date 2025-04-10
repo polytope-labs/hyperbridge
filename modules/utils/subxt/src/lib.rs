@@ -36,8 +36,8 @@ mod gargantua_conversion {
 		fn from(commitment: runtime_types::ismp::consensus::StateCommitment) -> Self {
 			StateCommitment {
 				timestamp: commitment.timestamp,
-				overlay_root: commitment.overlay_root,
-				state_root: commitment.state_root,
+				overlay_root: commitment.overlay_root.map(|inner| inner.0.into()),
+				state_root: commitment.state_root.0.into(),
 			}
 		}
 	}
@@ -134,14 +134,14 @@ mod gargantua_conversion {
                    				let alloy_value = alloy_primitives::U256::from_limbs(params.state_commitment_fee.0);
                         		primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
              				},
-	                       fee_token: params.fee_token,
-	                       admin: params.admin,
-	                       handler: params.handler,
-	                       host_manager: params.host_manager,
-	                       uniswap_v2: params.uniswap_v2,
+	                       fee_token: params.fee_token.0.into(),
+	                       admin: params.admin.0.into(),
+	                       handler: params.handler.0.into(),
+	                       host_manager: params.host_manager.0.into(),
+	                       uniswap_v2: params.uniswap_v2.0.into(),
 	                       un_staking_period: params.un_staking_period,
 	                       challenge_period: params.challenge_period,
-	                       consensus_client: params.consensus_client,
+	                       consensus_client: params.consensus_client.0.into(),
 	                       state_machines: params
 	                           .state_machines
 	                           .0
@@ -153,7 +153,7 @@ mod gargantua_conversion {
 							   .into_iter()
 							   .map(|p| {
 								   PerByteFee {
-									   state_id: p.state_id,
+									   state_id: p.state_id.0.into(),
 									   per_byte_fee: {
 										   let alloy_value = alloy_primitives::U256::from_limbs(p.per_byte_fee.0);
 										   primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())

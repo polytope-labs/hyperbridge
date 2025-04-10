@@ -30,6 +30,7 @@ jobs:
 
             - name: Build
               run: |
+                  sudo apt-get update -y
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
                   cargo build --release -p tesseract
 

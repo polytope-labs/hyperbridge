@@ -565,6 +565,7 @@ dependencies = [
  "ismp-testsuite",
  "parity-scale-codec",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
  "tokio",
 ]
 
@@ -5968,6 +5969,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
  "trie-db 0.29.1",
 ]
 
@@ -7471,8 +7473,8 @@ dependencies = [
  "ethers-core",
  "ismp",
  "parity-scale-codec",
+ "primitive-types 0.13.1",
  "scale-info",
- "sp-core 35.0.0",
 ]
 
 [[package]]
@@ -12600,6 +12602,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "parity-scale-codec",
+ "primitive-types 0.13.1",
 ]
 
 [[package]]

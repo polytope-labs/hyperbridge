@@ -19,13 +19,12 @@ extern crate alloc;
 use alloc::vec::Vec;
 use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use codec::Decode;
+use codec::{Decode, Encode};
 use ethabi::ethereum_types::{Bloom, H64};
-use ethers_core::abi::AbiEncode;
 #[cfg(feature = "std")]
 use ethers_core::types::{Block, U64};
 use ismp::messaging::Keccak256;
-use sp_core::{H160, H256, U256};
+use primitive_types::{H160, H256, U256};
 
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
 #[rlp(trailing)]
@@ -85,8 +84,8 @@ impl AsRef<CodecHeader> for CodecHeader {
 }
 
 #[cfg(feature = "std")]
-impl From<Block<H256>> for CodecHeader {
-	fn from(block: Block<H256>) -> Self {
+impl From<Block<ethers_core::types::H256>> for CodecHeader {
+	fn from(block: Block<ethers_core::types::H256>) -> Self {
 		CodecHeader {
 			parent_hash: block.parent_hash.0.into(),
 			uncle_hash: block.uncles_hash.0.into(),

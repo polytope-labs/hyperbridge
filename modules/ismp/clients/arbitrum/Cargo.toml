@@ -13,6 +13,7 @@ ismp = { workspace = true }
 ethereum-triedb = { workspace = true }
 geth-primitives = { workspace = true }
 evm-state-machine = { workspace = true }
+primitive-types = { workspace = true }
 
 # crates.io
 alloy-rlp = { workspace = true }
@@ -56,4 +57,5 @@ std = [
     "polkadot-sdk/std",
     "anyhow/std",
     "alloy-sol-types/std",
+    "primitive-types/std"
 ]

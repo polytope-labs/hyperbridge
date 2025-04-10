@@ -314,9 +314,8 @@ pub mod pallet {
 					let body = BodyWithCall {
 						amount: {
 							let amount: u128 = params.amount.into();
-							let mut bytes = [0u8; 32];
-							convert_to_erc20(amount, erc_decimals, decimals)
-								.to_big_endian(&mut bytes);
+							let bytes =
+								convert_to_erc20(amount, erc_decimals, decimals).to_big_endian();
 							alloy_primitives::U256::from_be_bytes(bytes)
 						},
 						asset_id: asset_id.0.into(),
@@ -336,9 +335,8 @@ pub mod pallet {
 					let body = Body {
 						amount: {
 							let amount: u128 = params.amount.into();
-							let mut bytes = [0u8; 32];
-							convert_to_erc20(amount, erc_decimals, decimals)
-								.to_big_endian(&mut bytes);
+							let bytes =
+								convert_to_erc20(amount, erc_decimals, decimals).to_big_endian();
 							alloy_primitives::U256::from_be_bytes(bytes)
 						},
 						asset_id: asset_id.0.into(),

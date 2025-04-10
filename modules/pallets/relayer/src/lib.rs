@@ -25,7 +25,6 @@ use crate::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalParams, W
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
-use ethabi::ethereum_types::H256;
 use evm_state_machine::{
 	presets::{
 		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
@@ -46,7 +45,7 @@ use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};
 use polkadot_sdk::*;
-use sp_core::{Get, U256};
+use sp_core::{Get, H256, U256};
 use sp_runtime::{AccountId32, DispatchError};
 
 pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
@@ -60,7 +59,6 @@ pub mod pallet {
 
 	use crate::withdrawal::{WithdrawalInputData, WithdrawalProof};
 	use codec::Encode;
-	use sp_core::H256;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]

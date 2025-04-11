@@ -79,10 +79,11 @@ where
 
 		let (para_header_witness, paras_len) = {
 			let block_hash = message.mmr.latest_mmr_leaf.parent_number_and_hash.1;
-			let paras = self
-				.inner
-				.paras_parachains(Some(R::Hash::decode(&mut &*block_hash.encode())?))
-				.await?;
+			let paras = beefy_prover::relay::paras_parachains(
+				&self.inner.relay,
+				Some(R::Hash::decode(&mut &*block_hash.encode())?),
+			)
+			.await?;
 			let leaf_hashes = paras.iter().map(|l| keccak_256(&l.encode())).collect::<Vec<_>>();
 			let tree = MerkleTree::<KeccakHasher>::from_leaves(&leaf_hashes);
 

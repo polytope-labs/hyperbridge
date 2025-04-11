@@ -20,7 +20,7 @@ opt-level = 3
 tracing = "0.1.40"
 hex = "0.4.3"
 
-frame-support = { version = "37.0.0" }
+frame-support = { version = "38.0.0" }
 sp-io = { version = "38.0.0" }
 sp-core = { version = "34.0.0" }
 sp-consensus-beefy = { version = "22.1.0" }
@@ -31,6 +31,7 @@ sc-service = "0.46.0"
 sp-runtime = { version = "39.0.5" }
 sp-mmr-primitives = { version = "34.1.0" }
 polkadot-core-primitives = { version = "15.0.0" }
+pallet-mmr = { version = "38.0.0" }
 
 ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "45239225c50247e049892125d281442c084a2a92", features = ["ethers-solc"] }
 ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "45239225c50247e049892125d281442c084a2a92" }
@@ -70,7 +71,6 @@ pallet-ismp-demo = { git = "https://github.com/polytope-labs/hyperbridge", rev =
 
 subxt-utils = { git ="https://github.com/polytope-labs/hyperbridge", rev = "c39c3da49384e3c37cb784ead9a39dd2ba521d4f" }
 serde-hex-utils = { git ="https://github.com/polytope-labs/hyperbridge", rev = "c39c3da49384e3c37cb784ead9a39dd2ba521d4f" }
-pallet-mmr = { version = "37.0.0" }
 substrate-state-machine = { git = "https://github.com/polytope-labs/hyperbridge", rev = "c39c3da49384e3c37cb784ead9a39dd2ba521d4f" }
 ismp-testsuite = { git = "https://github.com/polytope-labs/hyperbridge", rev = "c39c3da49384e3c37cb784ead9a39dd2ba521d4f" }
 

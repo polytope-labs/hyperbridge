@@ -182,7 +182,11 @@ where
 		self.consensus_state.inner.current_authorities =
 			self.consensus_state.inner.next_authorities.clone();
 		self.consensus_state.inner.next_authorities =
-			self.prover.inner().mmr_leaf_next_authorities(Some(hash)).await?;
+			beefy_prover::relay::beefy_mmr_leaf_next_authorities(
+				&self.prover.inner().relay,
+				Some(hash),
+			)
+			.await?;
 
 		tracing::info!(
 			"Rotated authority set. Current {}, Next: {}",
@@ -713,8 +717,11 @@ where
 			query_parachain_header(&inner.relay, latest_finalized_head, inner.para_ids[0]).await?;
 
 		// Encoding and decoding to fix dependency version conflicts
-		let next_authority_set =
-			inner.mmr_leaf_next_authorities(Some(latest_finalized_head)).await?;
+		let next_authority_set = beefy_prover::relay::beefy_mmr_leaf_next_authorities(
+			&inner.relay,
+			Some(latest_finalized_head),
+		)
+		.await?;
 
 		let current_authority_set =
 			inner.mmr_leaf_current_authorities(Some(latest_finalized_head)).await?;
@@ -812,6 +819,7 @@ mod tests {
 			initial_height: None,
 			max_concurent_queries: None,
 			poll_interval: None,
+			fee_token_decimals: None,
 		};
 		let substrate_client =
 			SubstrateClient::<KeccakSubstrateChain>::new(substrate_config.clone()).await?;

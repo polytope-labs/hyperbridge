@@ -88,7 +88,7 @@ async fn test_dispute_game_proof_verification() {
 	let op_client = OpHost::new(&host, &config.evm_config).await.expect("Host creation failed");
 
 	let events = op_client
-		.latest_dispute_games(5524041, 5524180)
+		.latest_dispute_games(5524041, 5524180, vec![0])
 		.await
 		.expect("Failed to fetch latest event");
 	assert!(events.len() >= 1);

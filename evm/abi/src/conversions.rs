@@ -282,9 +282,9 @@ impl From<router::GetRequest> for GetRequest {
 			nonce: value.nonce,
 			keys: value.keys.into_iter().map(Into::into).collect(),
 			from: {
-				let mut address = H160::default();
-				address.0.copy_from_slice(&value.from);
-				address
+				let mut address = [0u8; 20];
+				address.copy_from_slice(&value.from);
+				address.into()
 			},
 			context: value.context.into(),
 			timeout_timestamp: value.timeout_timestamp,

@@ -177,7 +177,7 @@ pub struct XcmBenchmarkHelper;
 impl BenchmarkHelper<H256> for XcmBenchmarkHelper {
 	fn create_asset_id_parameter(id: u32) -> H256 {
 		use codec::Encode;
-		use staging_xcm::{prelude::Location, v4::Junction::Parachain};
+		use staging_xcm::{prelude::Location, v5::Junction::Parachain};
 		sp_io::hashing::keccak_256(&Location::new(1, Parachain(id)).encode()).into()
 	}
 }

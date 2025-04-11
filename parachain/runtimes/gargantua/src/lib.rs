@@ -42,7 +42,7 @@ use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
 use sp_runtime::{
-	create_runtime_str, generic, impl_opaque_keys,
+	generic, impl_opaque_keys,
 	traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
@@ -59,6 +59,7 @@ use ::ismp::{
 	router::{Request, Response},
 };
 
+use alloc::borrow::Cow;
 use frame_support::{
 	construct_runtime,
 	dispatch::DispatchClass,
@@ -234,8 +235,8 @@ impl_opaque_keys! {
 
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("gargantua"),
-	impl_name: create_runtime_str!("gargantua"),
+	spec_name: Cow::Borrowed("gargantua"),
+	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
 	spec_version: 2_900,
 	impl_version: 0,
@@ -771,6 +772,7 @@ mod benches {
 		[pallet_session, SessionBench::<Runtime>]
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
+		[pallet_transaction_payment, TransactionPayment]
 	);
 }
 

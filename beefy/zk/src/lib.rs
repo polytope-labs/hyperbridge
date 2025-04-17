@@ -40,8 +40,9 @@ where
 		consensus_state: ConsensusState,
 	) -> Result<Sp1BeefyProof, anyhow::Error> {
 		let authority = match signed_commitment.commitment.validator_set_id {
-			id if id == consensus_state.current_authorities.id =>
-				consensus_state.current_authorities,
+			id if id == consensus_state.current_authorities.id => {
+				consensus_state.current_authorities
+			},
 			id if id == consensus_state.next_authorities.id => consensus_state.next_authorities,
 			_ => Err(anyhow::anyhow!(
 				"Unknown validator set {}",
@@ -113,7 +114,6 @@ where
 			commitment: message.mmr.signed_commitment.commitment.encode(),
 			mmr: MmrLeafProof {
 				proof: {
-					tracing::trace!("Mmr proof items: {:?}", message.mmr.mmr_proof.items);
 					if signed_commitment.commitment.block_number == 25420895 {
 						let mut items = message.mmr.mmr_proof.items;
 						if let Some(item) = items.last_mut() {

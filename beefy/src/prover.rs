@@ -537,6 +537,8 @@ where
 						})
 						.collect::<HashSet<_>>();
 
+					tracing::trace!("State machines: {state_machines:?}");
+
 					if state_machines.len() == 0 {
 						tracing::trace!("No new messages in the range: {lowest_message_height}..{latest_parachain_height}");
 

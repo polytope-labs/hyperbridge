@@ -17,6 +17,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+use alloc::format;
 
 pub mod impls;
 pub mod types;
@@ -55,6 +56,8 @@ use primitive_types::H256;
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
+
+const ETHEREUM_MESSAGE_PREFIX: &'static str = "\x19Ethereum Signed Message:\n";
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -625,11 +628,11 @@ where
 
 				// Verify signature against encoded runtime call
 				let nonce = frame_system::Pallet::<T>::account_nonce(beneficiary.clone());
-				let payload = (nonce, substrate_data.runtime_call.clone()).encode();
-				let message = sp_io::hashing::keccak_256(&payload);
 
 				match multi_signature {
 					MultiSignature::Ed25519(sig) => {
+						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
+						let message = sp_io::hashing::keccak_256(&payload);
 						let pub_key = body.to.0.as_slice().try_into().map_err(|_| {
 							anyhow!("Failed to decode beneficiary as Ed25519 public key")
 						})?;
@@ -640,6 +643,8 @@ where
 						}
 					},
 					MultiSignature::Sr25519(sig) => {
+						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
+						let message = sp_io::hashing::keccak_256(&payload);
 						let pub_key = body.to.0.as_slice().try_into().map_err(|_| {
 							anyhow!("Failed to decode beneficiary as Sr25519 public key")
 						})?;
@@ -650,6 +655,15 @@ where
 						}
 					},
 					MultiSignature::Ecdsa(sig) => {
+						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
+						let preimage = vec![
+							format!("{ETHEREUM_MESSAGE_PREFIX}{}", payload.len())
+								.as_bytes()
+								.to_vec(),
+							payload,
+						]
+						.concat();
+						let message = sp_io::hashing::keccak_256(&preimage);
 						let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig.0, &message)
 							.map_err(|_| {
 								anyhow!("Failed to recover ecdsa public key from signature")

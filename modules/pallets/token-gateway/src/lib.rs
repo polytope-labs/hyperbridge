@@ -656,6 +656,7 @@ where
 					},
 					MultiSignature::Ecdsa(sig) => {
 						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
+						// Following EIP-191 convention https://eips.ethereum.org/EIPS/eip-191
 						let preimage = vec![
 							format!("{ETHEREUM_MESSAGE_PREFIX}{}", payload.len())
 								.as_bytes()

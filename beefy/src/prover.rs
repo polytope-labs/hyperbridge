@@ -232,6 +232,7 @@ where
 		if finalized_height <= latest_height {
 			return Ok((latest_height, vec![]));
 		}
+		let hyperbridge = self.client.state_machine_id().state_id;
 
 		let events = self.query_ismp_events_with_metadata(latest_height, finalized_height).await?;
 		let events = events
@@ -240,9 +241,11 @@ where
 				let dest = match &event.event {
 					Event::PostRequest(post) => post.dest.clone(),
 					Event::PostResponse(resp) => resp.dest_chain(),
-					Event::PostRequestTimeoutHandled(timeout) |
-					Event::PostResponseTimeoutHandled(timeout) => timeout.dest.clone(),
 					Event::GetResponse(resp) => resp.get.source.clone(),
+					Event::PostRequestTimeoutHandled(req) if req.source != hyperbridge =>
+						req.source,
+					Event::PostResponseTimeoutHandled(res) if res.source != hyperbridge =>
+						res.source,
 					_ => None?,
 				};
 

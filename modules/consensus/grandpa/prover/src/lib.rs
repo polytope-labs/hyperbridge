@@ -224,7 +224,7 @@ where
 				return Ok(finality_proof);
 			}
 			log::trace!("grandpa_proveFinality proof for {} could not be verified, switching to linear search", self.options.state_machine);
-			// Set max the height as the finalized block number
+			// Set the max height as the finalized block number
 			max_height = finalized_number
 		}
 

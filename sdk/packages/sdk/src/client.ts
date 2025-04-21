@@ -1,6 +1,6 @@
 import { type ConsolaInstance, createConsola, LogLevels } from "consola"
 import { maxBy } from "lodash-es"
-import { pad } from "viem"
+import { pad, toHex } from "viem"
 
 // @ts-ignore
 import mergeRace from "@async-generator/merge-race"
@@ -40,9 +40,11 @@ import {
 	REQUEST_STATUS_WEIGHTS,
 	TIMEOUT_STATUS_WEIGHTS,
 	getRequestCommitment,
+	parseStateMachineId,
 	postRequestCommitment,
 	retryPromise,
 	sleep,
+	waitForChallengePeriod,
 } from "@/utils"
 import { getChain, type IChain, type SubstrateChain } from "@/chain"
 import { _queryGetRequestInternal, _queryRequestInternal } from "./query-client"
@@ -567,45 +569,26 @@ export class IndexerClient {
 			request = await this.queryPostRequest(hash)
 		}
 
-		// don't stream if the tx is complete
-		if (request.statuses.some((e) => e.status === RequestStatus.DESTINATION)) {
-			logger.debug("Streaming skipped. Transaction completed")
-			return
-		}
-
 		logger.trace("`Request` found")
-
 		const chain = await getChain(this.config.dest)
-		const timeoutStream = this.timeoutStream(request.timeoutTimestamp, chain, hash)
+		const timeoutStream = this.timeoutStream(request.timeoutTimestamp, chain)
 		const statusStream = this.postRequestStatusStreamInternal(hash)
 
 		logger.trace("Listening for events")
-		// @todo Test this stream merge logic
-		while (true) {
-			const item = await Promise.race([timeoutStream.next(), statusStream.next()] as const)
+		const combined = mergeRace(timeoutStream, statusStream)
 
-			if (item.value && item.value.status === "PENDING_TIMEOUT") {
-				logger.trace(`Yielding Event(${item.value.status})`)
-				yield item.value
-				break
-			}
+		logger.trace("Listening for events")
+		let item = await combined.next()
 
-			if (item.done) break
-			if (!item.value) break
-
+		while (!item.done) {
 			logger.trace(`Yielding Event(${item.value.status})`)
+
 			yield item.value
+			item = await combined.next()
 		}
 
 		logger.trace("Streaming complete")
 		return
-	}
-
-	private async transactionContains(commitmentHash: HexString, event: PostRequestStatus["status"]) {
-		const value = await this.queryPostRequest(commitmentHash)
-		const statues = value?.statuses ?? []
-
-		return statues.some((e) => e.status === event)
 	}
 
 	/*
@@ -613,23 +596,14 @@ export class IndexerClient {
 	 * If the request does not have a timeout, it will never yield
 	 * @param request - Request to timeout
 	 */
-	async *timeoutStream(
-		timeoutTimestamp: bigint,
-		chain: IChain,
-		commitmentHash: HexString,
-	): AsyncGenerator<RequestStatusWithMetadata, void> {
+	async *timeoutStream(timeoutTimestamp: bigint, chain: IChain): AsyncGenerator<RequestStatusWithMetadata, void> {
 		const logger = this.logger.withTag("[timeoutStream()]")
 
 		if (timeoutTimestamp > 0) {
 			let timestamp = await chain.timestamp()
 
 			while (timestamp < timeoutTimestamp) {
-				const is_tx_complete = await this.transactionContains(commitmentHash, RequestStatus.DESTINATION)
-
-				if (is_tx_complete) {
-					logger.debug("Stop timeout stream")
-					return
-				}
+				logger.trace("Comparing timeout timestamps", { control: timeoutTimestamp, latest: timestamp })
 
 				const diff = BigInt(timeoutTimestamp) - BigInt(timestamp)
 				await this.sleep_for(Number(diff))
@@ -763,6 +737,16 @@ export class IndexerClient {
 						signer: pad("0x"),
 					})
 
+					const { stateId } = parseStateMachineId(this.config.hyperbridge.stateMachineId)
+
+					await waitForChallengePeriod(destChain, {
+						height: BigInt(hyperbridgeFinalized.height),
+						id: {
+							stateId,
+							consensusStateId: toHex(this.config.hyperbridge.consensusStateId),
+						},
+					})
+
 					yield {
 						status: RequestStatus.HYPERBRIDGE_FINALIZED,
 						metadata: {
@@ -850,7 +834,7 @@ export class IndexerClient {
 		}
 
 		const chain = await getChain(this.config.dest)
-		const timeoutStream = this.timeoutStream(request.timeoutTimestamp, chain, hash)
+		const timeoutStream = this.timeoutStream(request.timeoutTimestamp, chain)
 		const statusStream = this.getRequestStatusStreamInternal(hash)
 		const combined = mergeRace(timeoutStream, statusStream)
 
@@ -1061,12 +1045,6 @@ export class IndexerClient {
 		const request = await this.queryPostRequest(hash)
 		if (!request) throw new Error("Request not found")
 
-		// don't stream if the tx is complete
-		if (request.statuses.some((e) => e.status === RequestStatus.DESTINATION)) {
-			logger.trace("Timeout Streaming skipped. Transaction completed")
-			return
-		}
-
 		logger.trace("Reading destination chain")
 		const destChain = await getChain(this.config.dest)
 
@@ -1147,6 +1125,16 @@ export class IndexerClient {
 					const proof = await destChain.queryStateProof(BigInt(update.height), [
 						destChain.requestReceiptKey(commitment),
 					])
+
+					const { stateId } = parseStateMachineId(request.dest)
+
+					await waitForChallengePeriod(hyperbridge, {
+						height: BigInt(update.height),
+						id: {
+							stateId,
+							consensusStateId: toHex(this.config.dest.consensusStateId),
+						},
+					})
 
 					const { blockHash, transactionHash, blockNumber } = await hyperbridge.submitUnsigned({
 						kind: "TimeoutPostRequest",
@@ -1247,6 +1235,17 @@ export class IndexerClient {
 							},
 						],
 					})
+
+					const { stateId } = parseStateMachineId(this.config.hyperbridge.stateMachineId)
+
+					await waitForChallengePeriod(sourceChain, {
+						height: BigInt(update.height),
+						id: {
+							stateId,
+							consensusStateId: toHex(this.config.hyperbridge.consensusStateId),
+						},
+					})
+
 					yield {
 						status: TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT,
 						metadata: {

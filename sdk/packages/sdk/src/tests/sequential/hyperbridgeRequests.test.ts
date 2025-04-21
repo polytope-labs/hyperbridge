@@ -27,6 +27,7 @@ import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { u8aToHex, hexToU8a } from "@polkadot/util"
 import { postRequestCommitment } from "@/utils"
 import { createQueryClient } from "@/query-client"
+import { keccakAsU8a } from "@polkadot/util-crypto"
 
 const query_client = createQueryClient({
 	url: process.env.INDEXER_URL!,
@@ -304,7 +305,28 @@ describe.sequential("Hyperbridge Requests", () => {
 	}, 1_200_000)
 
 	it("should successfully deliver requests to Hyperbridge", async () => {
-		const { bscTestnetClient, bscTokenGateway } = await bscSetup()
+		const { bscTestnetClient, bscTokenGateway, bscIsmpHost } = await bscSetup()
+		indexer = new IndexerClient({
+			queryClient: query_client,
+			pollInterval: 1_000, // every second
+			source: {
+				consensusStateId: "BSC0",
+				rpcUrl: process.env.BSC_CHAPEL!,
+				stateMachineId: "EVM-97",
+				host: bscIsmpHost.address,
+			},
+			dest: {
+				consensusStateId: "PAS0",
+				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+				stateMachineId: "KUSAMA-4009",
+				hasher: "Keccak",
+			},
+			hyperbridge: {
+				consensusStateId: "PAS0",
+				stateMachineId: "KUSAMA-4009",
+				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+			},
+		})
 		console.log("\n\nSending Post Request\n\n")
 
 		const encoder = new TextEncoder()
@@ -572,7 +594,15 @@ async function hyperbridgeSetup() {
 	const relayApi = await ApiPromise.create({ provider: relayProvider })
 
 	const wsProvider = new WsProvider(process.env.HYPERBRIDGE_GARGANTUA)
-	const hyperbridge = await ApiPromise.create({ provider: wsProvider })
+	const hyperbridge = await ApiPromise.create({
+		provider: wsProvider,
+		typesBundle: {
+			spec: {
+				gargantua: { hasher: keccakAsU8a },
+				nexus: { hasher: keccakAsU8a },
+			},
+		},
+	})
 
 	// Set up BOB account from keyring
 	const keyring = new Keyring({ type: "sr25519" })

@@ -7,6 +7,7 @@ import type {
 	ISubstrateConfig,
 	IMessage,
 	StateMachineIdParams,
+	StateMachineHeight,
 } from "@/types"
 import { isEvmChain, isSubstrateChain } from "@/utils"
 import { EvmChain, SubstrateChain } from "@/chain"
@@ -130,7 +131,7 @@ export interface IProof {
  */
 export interface IChain {
 	/*
-	 * Returns the current timestamp of the chain.
+	 * Returns the current timestamp of the chain in seconds.
 	 */
 	timestamp(): Promise<bigint>
 
@@ -162,7 +163,17 @@ export interface IChain {
 	/**
 	 * Get the latest state machine height for a given state machine ID.
 	 */
-	latestStateMachineHeight?(stateMachineId: StateMachineIdParams): Promise<bigint>
+	latestStateMachineHeight(stateMachineId: StateMachineIdParams): Promise<bigint>
+
+	/**
+	 * Get the challenge period for a given state machine ID.
+	 */
+	challengePeriod(stateMachineId: StateMachineIdParams): Promise<bigint>
+
+	/**
+	 * Get the update time for a statemachine height.
+	 */
+	stateMachineUpdateTime(stateMachineHeight: StateMachineHeight): Promise<bigint>
 }
 
 /**

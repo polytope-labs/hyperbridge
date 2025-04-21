@@ -34,7 +34,7 @@ import EvmHost from "@/abis/evmHost"
 import type { IChain, IIsmpMessage } from "@/chain"
 import HandlerV1 from "@/abis/handler"
 import { calculateMMRSize, EvmStateProof, mmrPositionToKIndex, MmrProof, SubstrateStateProof } from "@/utils"
-import type { HexString, IMessage } from "@/types"
+import type { HexString, IMessage, StateMachineHeight, StateMachineIdParams } from "@/types"
 
 const chains = {
 	[mainnet.id]: mainnet,
@@ -191,6 +191,65 @@ export class EvmChain implements IChain {
 			functionName: "timestamp",
 		})
 		return BigInt(data)
+	}
+
+	/**
+	 * Get the latest state machine height for a given state machine ID.
+	 * @param {StateMachineIdParams} stateMachineId - The state machine ID.
+	 * @returns {Promise<bigint>} The latest state machine height.
+	 */
+	async latestStateMachineHeight(stateMachineId: StateMachineIdParams): Promise<bigint> {
+		if (!this.publicClient) throw new Error("API not initialized")
+		const id = stateMachineId.stateId.Polkadot || stateMachineId.stateId.Kusama
+		if (!id)
+			throw new Error(
+				"Expected Polakdot or Kusama State machine id when reading latest state machine height on evm",
+			)
+		const data = await this.publicClient.readContract({
+			address: this.params.host,
+			abi: EvmHost.ABI,
+			functionName: "latestStateMachineHeight",
+			args: [BigInt(id)],
+		})
+		return data
+	}
+
+	/**
+	 * Get the state machine update time for a given state machine height.
+	 * @param {StateMachineHeight} stateMachineheight - The state machine height.
+	 * @returns {Promise<bigint>} The statemachine update time in seconds.
+	 */
+	async stateMachineUpdateTime(stateMachineHeight: StateMachineHeight): Promise<bigint> {
+		if (!this.publicClient) throw new Error("API not initialized")
+		const id = stateMachineHeight.id.stateId.Polkadot || stateMachineHeight.id.stateId.Kusama
+		if (!id) throw new Error("Expected Polkadot or Kusama State machine id when reading state machine update time")
+		const data = await this.publicClient.readContract({
+			address: this.params.host,
+			abi: EvmHost.ABI,
+			functionName: "stateMachineCommitmentUpdateTime",
+			args: [{ stateMachineId: BigInt(id), height: stateMachineHeight.height }],
+		})
+		return data
+	}
+
+	/**
+	 * Get the challenge period for a given state machine id.
+	 * @param {StateMachineIdParams} stateMachineId - The state machine ID.
+	 * @returns {Promise<bigint>} The challenge period in seconds.
+	 */
+	async challengePeriod(stateMachineId: StateMachineIdParams): Promise<bigint> {
+		if (!this.publicClient) throw new Error("API not initialized")
+		const id = stateMachineId.stateId.Polkadot || stateMachineId.stateId.Kusama
+		if (!id)
+			throw new Error(
+				"Expected Polkadot or Kusama State machine id when reading latest state machine height on evm",
+			)
+		const data = await this.publicClient.readContract({
+			address: this.params.host,
+			abi: EvmHost.ABI,
+			functionName: "challengePeriod",
+		})
+		return data
 	}
 
 	/**

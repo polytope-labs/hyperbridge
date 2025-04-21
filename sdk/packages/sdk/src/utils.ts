@@ -1,8 +1,16 @@
-import { type HexString, type IGetRequest, type IPostRequest, RequestStatus, TimeoutStatus } from "@/types"
+import {
+	type HexString,
+	type IGetRequest,
+	type IPostRequest,
+	RequestStatus,
+	TimeoutStatus,
+	type StateMachineHeight,
+} from "@/types"
 import type { RequestStatusKey, TimeoutStatusKey, RetryConfig } from "@/types"
 import { encodePacked, keccak256, toHex } from "viem"
 import { createConsola, LogLevels } from "consola"
 import { _queryRequestInternal } from "./query-client"
+import type { IChain } from "./chain"
 
 export * from "./utils/mmr"
 export * from "./utils/substrate"
@@ -15,6 +23,44 @@ export const DEFAULT_POLL_INTERVAL = 5_000
  */
 export function sleep(ms?: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms || DEFAULT_POLL_INTERVAL))
+}
+
+/**
+ * Waits for the challenge period to elapse on a chain.
+ * This function will sleep until the challenge period has elapsed.
+ *
+ * @param chain The chain object implementing IChain interface
+ * @param stateMachineHeight The state machine height to wait for
+ * @returns Promise that resolves when the challenge period has elapsed
+ */
+export async function waitForChallengePeriod(chain: IChain, stateMachineHeight: StateMachineHeight): Promise<void> {
+	// Get the challenge period for this state machine
+	const challengePeriod = await chain.challengePeriod(stateMachineHeight.id)
+
+	if (challengePeriod === BigInt(0)) return
+
+	// Get the state machine update time
+	const updateTime = await chain.stateMachineUpdateTime(stateMachineHeight)
+
+	// First sleep for the whole challenge period
+	await sleep(Number(challengePeriod) * 1000)
+
+	// Check current timestamp
+	let currentTimestamp = await chain.timestamp()
+
+	// Calculate time passed since update
+	let timeElapsed = currentTimestamp - updateTime
+
+	// Keep sleeping until challenge period has fully elapsed
+	while (timeElapsed <= challengePeriod) {
+		// Sleep for remaining time
+		const remainingTime = challengePeriod - timeElapsed
+		await sleep(Number(remainingTime) * 1000)
+
+		// Check timestamp again
+		currentTimestamp = await chain.timestamp()
+		timeElapsed = currentTimestamp - updateTime
+	}
 }
 
 /**
@@ -35,6 +81,68 @@ export function isSubstrateChain(stateMachineId: string): boolean {
 		stateMachineId.startsWith("KUSAMA") ||
 		stateMachineId.startsWith("SUBSTRATE")
 	)
+}
+
+/**
+ * Converts a state machine ID string to a stateId object.
+ * Handles formats like:
+ * - "EVM-97" → { Evm: 97 }
+ * - "SUBSTRATE-cere" → { Substrate: "0x63657265" } (hex encoded UTF-8 bytes)
+ * - "POLKADOT-3367" → { Polkadot: 3367 }
+ * - "KUSAMA-123" → { Kusama: 123 }
+ *
+ * @param stateMachineId The state machine ID string
+ * @returns A stateId object conforming to the StateMachineIdParams interface
+ */
+export function parseStateMachineId(stateMachineId: string): {
+	stateId: { Evm?: number; Substrate?: HexString; Polkadot?: number; Kusama?: number }
+} {
+	const [type, value] = stateMachineId.split("-")
+
+	if (!type || !value) {
+		throw new Error(
+			`Invalid state machine ID format: ${stateMachineId}. Expected format like "EVM-97" or "SUBSTRATE-cere"`,
+		)
+	}
+
+	const stateId: { Evm?: number; Substrate?: HexString; Polkadot?: number; Kusama?: number } = {}
+
+	switch (type.toUpperCase()) {
+		case "EVM":
+			const evmChainId = Number.parseInt(value, 10)
+			if (isNaN(evmChainId)) {
+				throw new Error(`Invalid EVM chain ID: ${value}. Expected a number.`)
+			}
+			stateId.Evm = evmChainId
+			break
+
+		case "SUBSTRATE":
+			// Convert the string to hex-encoded UTF-8 bytes
+			const bytes = Buffer.from(value, "utf8")
+			stateId.Substrate = `0x${bytes.toString("hex")}` as HexString
+			break
+
+		case "POLKADOT":
+			const polkadotChainId = Number.parseInt(value, 10)
+			if (isNaN(polkadotChainId)) {
+				throw new Error(`Invalid Polkadot chain ID: ${value}. Expected a number.`)
+			}
+			stateId.Polkadot = polkadotChainId
+			break
+
+		case "KUSAMA":
+			const kusamaChainId = Number.parseInt(value, 10)
+			if (isNaN(kusamaChainId)) {
+				throw new Error(`Invalid Kusama chain ID: ${value}. Expected a number.`)
+			}
+			stateId.Kusama = kusamaChainId
+			break
+
+		default:
+			throw new Error(`Unsupported chain type: ${type}. Expected one of: EVM, SUBSTRATE, POLKADOT, KUSAMA.`)
+	}
+
+	return { stateId }
 }
 
 /**

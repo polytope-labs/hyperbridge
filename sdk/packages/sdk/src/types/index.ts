@@ -408,6 +408,14 @@ export interface AssetTeleportedResponse {
 }
 
 export interface StateMachineIdParams {
-	stateId: { Evm: number }
+	stateId: { Evm?: number; Substrate?: HexString; Polkadot?: number; Kusama?: number }
 	consensusStateId: HexString
+}
+
+export interface StateMachineHeight {
+	id: {
+		stateId: { Evm?: number; Substrate?: HexString; Polkadot?: number; Kusama?: number }
+		consensusStateId: HexString
+	}
+	height: bigint
 }

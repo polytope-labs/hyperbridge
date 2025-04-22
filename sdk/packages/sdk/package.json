@@ -1,6 +1,6 @@
 {
 	"name": "hyperbridge-sdk",
-	"version": "1.1.5",
+	"version": "1.1.6",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
@@ -39,6 +39,7 @@
 		"build": "tsup",
 		"prepublishOnly": "npm run build",
 		"test": "npm run test:concurrent && npm run test:sequence",
+		"test:file": "vitest --watch=false --maxConcurrency=1",
 		"test:concurrent": "vitest --watch=false --exclude=./src/tests/sequential",
 		"test:sequence": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/**",
 		"test:watch": "vitest --exclude=./src/tests/sequential",

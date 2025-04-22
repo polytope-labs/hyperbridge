@@ -92,7 +92,7 @@ export class ResponseService {
 				blockNumber,
 				blockHash,
 				transactionHash,
-					createdAt: new Date(Number(blockTimestamp)),
+				createdAt: new Date(Number(blockTimestamp)),
 			})
 
 			await responseStatusMetadata.save()
@@ -120,7 +120,7 @@ export class ResponseService {
 				blockNumber,
 				blockHash,
 				transactionHash,
-					createdAt: new Date(Number(blockTimestamp)),
+				createdAt: new Date(Number(blockTimestamp)),
 			})
 
 			await responseStatusMetadata.save()
@@ -208,7 +208,6 @@ export class ResponseService {
 		// Since commitment is the ID, we can just use get()
 		return Response.get(commitment)
 	}
-
 
 	/**
 	 * Find responses by request ID

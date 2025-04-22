@@ -177,6 +177,7 @@ export interface BlockMetadata {
 	blockNumber: number
 	transactionHash: string
 	calldata?: string
+	timestamp?: number
 }
 
 export interface PostRequestStatus {
@@ -197,7 +198,7 @@ export interface StateMachineUpdate {
 	transactionHash: string
 	transactionIndex: number
 	stateMachineId: string
-	createdAt: string
+	timestamp: number
 }
 
 export interface RequestResponse {
@@ -311,6 +312,7 @@ export type RequestStatusWithMetadata =
 				blockHash: string
 				blockNumber: number
 				transactionHash: string
+				timestamp?: number
 			}
 	  }
 	| {
@@ -319,6 +321,7 @@ export type RequestStatusWithMetadata =
 				blockHash: string
 				blockNumber: number
 				transactionHash: string
+				timestamp?: number
 			}
 	  }
 	| {
@@ -328,6 +331,7 @@ export type RequestStatusWithMetadata =
 				blockHash: string
 				blockNumber: number
 				transactionHash: string
+				timestamp?: number
 			}
 	  }
 	| {
@@ -386,7 +390,16 @@ export interface RequestCommitment {
 
 export interface StateMachineResponse {
 	stateMachineUpdateEvents: {
-		nodes: StateMachineUpdate[]
+		nodes: {
+			height: number
+			chain: string
+			blockHash: string
+			blockNumber: number
+			transactionHash: string
+			transactionIndex: number
+			stateMachineId: string
+			createdAt: string
+		}[]
 	}
 }
 

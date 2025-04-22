@@ -120,12 +120,10 @@ services:
             DB_DATABASE: ${DB_DATABASE}
             DB_HOST: ${DB_HOST}
             DB_PORT: ${DB_PORT}
-        depends_on:
-            postgres:
-                condition: service_healthy
         command:
             - --name=app
             - --playground
+            - --query-timeout=0
 
     postgres:
         image: postgres:14-alpine

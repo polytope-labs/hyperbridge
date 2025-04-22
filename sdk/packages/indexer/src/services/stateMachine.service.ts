@@ -21,7 +21,16 @@ export class StateMachineService {
 		args: ICreateStateMachineUpdatedEventArgs,
 		chain: string,
 	): Promise<void> {
-		const { blockHash, blockNumber, transactionHash, transactionIndex, timestamp, stateMachineId, height, consensusStateId } = args
+		const {
+			blockHash,
+			blockNumber,
+			transactionHash,
+			transactionIndex,
+			timestamp,
+			stateMachineId,
+			height,
+			consensusStateId,
+		} = args
 
 		logger.info(
 			`Creating StateMachineUpdated Event: ${JSON.stringify({
@@ -66,7 +75,16 @@ export class StateMachineService {
 		args: ICreateStateMachineUpdatedEventArgs,
 		chain: string,
 	): Promise<void> {
-		const { blockHash, blockNumber, transactionHash, transactionIndex, timestamp, stateMachineId, height, consensusStateId } = args
+		const {
+			blockHash,
+			blockNumber,
+			transactionHash,
+			transactionIndex,
+			timestamp,
+			stateMachineId,
+			height,
+			consensusStateId,
+		} = args
 
 		logger.info(
 			`Creating StateMachineUpdated Event: ${JSON.stringify({

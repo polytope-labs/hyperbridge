@@ -192,11 +192,11 @@ export class SubstrateChain implements IChain {
 	 */
 	async submitUnsigned(
 		message: IIsmpMessage,
-	): Promise<{ transactionHash: string; blockHash: string; blockNumber: number }> {
+	): Promise<{ transactionHash: string; blockHash: string; blockNumber: number; timestamp: number }> {
 		if (!this.api) throw new Error("API not initialized")
+		const { api } = this
 		// remove the call and method selectors
 		const args = hexToBytes(this.encode(message)).slice(2)
-		const api = this.api
 		const tx = api.tx.ismp.handleUnsigned(args)
 
 		return new Promise((resolve, reject) => {
@@ -207,11 +207,14 @@ export class SubstrateChain implements IChain {
 					unsub()
 					const blockHash = isInBlock ? status.asInBlock.toHex() : status.asFinalized.toHex()
 					const header = await api.rpc.chain.getHeader(blockHash)
-
+					// Get a decorated api instance at a specific block
+					const apiAt = await api.at(blockHash)
+					const timestamp = await apiAt.query.timestamp.now()
 					resolve({
 						transactionHash: txHash.toHex(),
 						blockHash: blockHash,
 						blockNumber: header.number.toNumber(),
+						timestamp: Number(timestamp.toJSON()) / 1000,
 					})
 				} else if (isError) {
 					unsub()

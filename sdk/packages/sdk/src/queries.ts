@@ -84,6 +84,7 @@ query StateMachineUpdatesByHeight($statemachineId: String!, $height: Int!, $chai
       blockHash
       blockNumber
       transactionHash
+      createdAt
     }
   }
 }
@@ -110,6 +111,7 @@ query StateMachineUpdatesByTimestamp($statemachineId: String!, $commitmentTimest
         blockNumber
         transactionHash
         commitmentTimestamp
+        createdAt
       }
     }
   }

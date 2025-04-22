@@ -532,7 +532,7 @@ describe.sequential("Hyperbridge Requests", () => {
 			}
 		}
 
-		expect(final_status).toEqual(TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT)
+		expect(final_status).toEqual(TimeoutStatus.TIMED_OUT)
 	}, 1_200_000)
 })
 

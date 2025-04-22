@@ -41,15 +41,15 @@ export async function waitForChallengePeriod(chain: IChain, stateMachineHeight: 
 
 	// Get the state machine update time
 	const updateTime = await chain.stateMachineUpdateTime(stateMachineHeight)
+	// Check current timestamp
+	let currentTimestamp = await chain.timestamp()
+	// Calculate time passed since update
+	let timeElapsed = currentTimestamp - updateTime
+
+	if (timeElapsed > challengePeriod) return
 
 	// First sleep for the whole challenge period
 	await sleep(Number(challengePeriod) * 1000)
-
-	// Check current timestamp
-	let currentTimestamp = await chain.timestamp()
-
-	// Calculate time passed since update
-	let timeElapsed = currentTimestamp - updateTime
 
 	// Keep sleeping until challenge period has fully elapsed
 	while (timeElapsed <= challengePeriod) {

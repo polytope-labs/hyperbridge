@@ -1,5 +1,6 @@
 import { SubstrateEvent } from "@subql/types"
 import { CHAIN_IDS_BY_GENESIS, HYPERBRIDGE } from "@/constants"
+import { StateMachineId } from "@/types/network.types"
 
 /**
  * Get the StateMachineID parsing the stringified object which substrate provides
@@ -78,7 +79,9 @@ export function isSubstrateChain(stateMachineId: string): boolean {
 /**
  * Format chain data
  */
-export const formatChain = (chain: any) => {
+
+// TODO: Fix any type :(
+export const formatChain = (chain: any): StateMachineId => {
 	// Handle stringified JSON
 	const chainObj = typeof chain === "string" ? JSON.parse(chain) : chain
 
@@ -91,12 +94,13 @@ export const formatChain = (chain: any) => {
 		if (typeof rawChainId === "string" && rawChainId.startsWith?.("0x")) {
 			id = Buffer.from(rawChainId.slice(2), "hex").toString()
 		}
-		return `${chainType.toUpperCase()}-${id}`
+		return `${chainType.toUpperCase()}-${id}` as StateMachineId
 	}
+
 	return chain
 }
 
-export function getHostStateMachine(chainId: string): string {
+export function getHostStateMachine(chainId: string): StateMachineId {
 	const host = CHAIN_IDS_BY_GENESIS[chainId]
 	if (!host) {
 		throw new Error(`Unknown genesis hash: ${chainId}`)
@@ -104,7 +108,7 @@ export function getHostStateMachine(chainId: string): string {
 	return host
 }
 
-export function isHyperbridge(host: string): boolean {
+export function isHyperbridge(host: StateMachineId): boolean {
 	return host === HYPERBRIDGE.mainnet || host === HYPERBRIDGE.testnet
 }
 

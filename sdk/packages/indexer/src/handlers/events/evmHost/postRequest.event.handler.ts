@@ -3,6 +3,7 @@ import { RequestService } from "@/services/request.service"
 import { RequestStatusMetadata, Status } from "@/configs/src/types"
 import { PostRequestEventLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { normalizeTimestamp } from "@/utils/date.helpers"
 
 /**
  * Handles the PostRequest event from Evm Hosts
@@ -52,6 +53,9 @@ export async function handlePostRequestEvent(event: PostRequestEventLog): Promis
 		})}`,
 	)
 
+	const normalizedTimestamp = normalizeTimestamp(block.timestamp)
+	const blockTimestamp = block.timestamp
+
 	// Create the request entity
 	await RequestService.createOrUpdate({
 		chain,
@@ -68,7 +72,8 @@ export async function handlePostRequestEvent(event: PostRequestEventLog): Promis
 		blockNumber: blockNumber.toString(),
 		blockHash: block.hash,
 		transactionHash,
-		blockTimestamp: block.timestamp,
+		blockTimestamp,
+		createdAt: new Date(Number(normalizedTimestamp)),
 	})
 
 	// Always create a new status metadata entry
@@ -77,11 +82,11 @@ export async function handlePostRequestEvent(event: PostRequestEventLog): Promis
 		requestId: request_commitment,
 		status: Status.SOURCE,
 		chain,
-		timestamp: block.timestamp,
+		timestamp: blockTimestamp,
 		blockNumber: blockNumber.toString(),
 		blockHash: block.hash,
 		transactionHash,
-		createdAt: new Date(Number(block.timestamp)),
+		createdAt: new Date(Number(normalizedTimestamp)),
 	})
 
 	await requestStatusMetadata.save()

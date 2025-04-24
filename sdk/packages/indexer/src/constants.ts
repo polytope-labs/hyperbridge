@@ -12,47 +12,47 @@ enum SupportedAssets {
 export const HYPERBRIDGE = {
 	testnet: "KUSAMA-4009",
 	mainnet: "POLKADOT-3367",
-}
+} as const
 
 export const BIFROST = {
 	testnet: "KUSAMA-2030",
 	mainnet: "POLKADOT-2030",
-}
+} as const
 
 export const ETHEREUM = {
 	testnet: "EVM-11155111",
 	mainnet: "EVM-1",
-}
+} as const
 
 export const ARBITRUM = {
 	testnet: "EVM-421614",
 	mainnet: "EVM-42161",
-}
+} as const
 
 export const OPTIMISM = {
 	testnet: "EVM-11155420",
 	mainnet: "EVM-10",
-}
+} as const
 
 export const BASE = {
 	testnet: "EVM-84532",
 	mainnet: "EVM-8453",
-}
+} as const
 
 export const BSC = {
 	testnet: "EVM-97",
 	mainnet: "EVM-56",
-}
+} as const
 
 export const GNOSIS = {
 	testnet: "EVM-10200",
 	mainnet: "EVM-100",
-}
+} as const
 
 export const SONEMIUM = {
 	testnet: "EVM-1946",
 	mainnet: "EVM-1868",
-}
+} as const
 
 export const SUBSTRATE_RPC_URL = require("./substrate-ws.json")
 

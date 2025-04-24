@@ -16,7 +16,7 @@
 	"include": [
 		"src/**/*",
 		"src/substrate-chaintypes/**/*",
-		"src/global.d.ts",
+		"src/types/global.d.ts",
 		"node_modules/@subql/types-core/dist/global.d.ts",
 		"node_modules/@subql/types-ethereum/dist/global.d.ts",
 		"node_modules/@subql/types/dist/global.d.ts"

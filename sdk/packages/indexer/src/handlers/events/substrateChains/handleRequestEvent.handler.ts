@@ -4,7 +4,7 @@ import { bytesToHex, hexToBytes, toHex } from "viem"
 
 import { RequestService } from "@/services/request.service"
 import { RequestStatusMetadata, Status } from "@/configs/src/types"
-import { formatChain, getHostStateMachine, isSubstrateChain } from "@/utils/substrate.helpers"
+import { formatChain, getHostStateMachine, isHyperbridge, isSubstrateChain } from "@/utils/substrate.helpers"
 import { SUBSTRATE_RPC_URL } from "@/constants"
 import { RequestMetadata } from "@/utils/state-machine.helper"
 
@@ -17,6 +17,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 
 	const sourceId = formatChain(source_chain.toString())
 	const destId = formatChain(dest_chain.toString())
+	const hostId = getHostStateMachine(chainId)
 
 	logger.info(
 		`Handling ISMP Request Event: ${JSON.stringify({
@@ -27,7 +28,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		})}`,
 	)
 
-	if (!isSubstrateChain(sourceId)) {
+	if (!isSubstrateChain(sourceId) || (!isHyperbridge(sourceId) && isHyperbridge(hostId))) {
 		logger.error(`Skipping hyperbridge aggregated request`)
 		return
 	}
@@ -98,6 +99,8 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 	}
 
 	const host = getHostStateMachine(chainId)
+	const blockTimestamp = event.block?.timestamp!.getTime()
+
 	await RequestService.createOrUpdate({
 		chain: host,
 		commitment: commitment.toString(),
@@ -113,7 +116,8 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		blockNumber: event.block.block.header.number.toString(),
 		blockHash: event.block.block.header.hash.toString(),
 		transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",
-		blockTimestamp: BigInt(event.block?.timestamp!.getTime()),
+		blockTimestamp: BigInt(blockTimestamp),
+		createdAt: new Date(Number(blockTimestamp)),
 	})
 
 	// Always create a new status metadata entry
@@ -122,11 +126,11 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		requestId: commitment.toHex(),
 		status: Status.SOURCE,
 		chain: host,
-		timestamp: BigInt(event.block?.timestamp!.getTime()),
+		timestamp: BigInt(blockTimestamp),
 		blockNumber: event.block.block.header.number.toString(),
 		blockHash: event.block.block.header.hash.toString(),
 		transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",
-		createdAt: new Date(Number(event.block?.timestamp!.getTime())),
+		createdAt: new Date(Number(blockTimestamp)),
 	})
 
 	await requestStatusMetadata.save()

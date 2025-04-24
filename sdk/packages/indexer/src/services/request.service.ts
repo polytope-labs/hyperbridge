@@ -2,6 +2,7 @@ import { solidityKeccak256 } from "ethers/lib/utils"
 import { Status } from "@/configs/src/types/enums"
 import { Request, RequestStatusMetadata } from "@/configs/src/types/models"
 import { ethers } from "ethers"
+import { normalizeTimestamp } from "@/utils/date.helpers"
 
 export interface ICreateRequestArgs {
 	chain: string
@@ -19,6 +20,7 @@ export interface ICreateRequestArgs {
 	blockHash: string
 	transactionHash: string
 	blockTimestamp: bigint
+	createdAt: Date
 }
 
 export interface IUpdateRequestStatusArgs {
@@ -144,6 +146,8 @@ export class RequestService {
 
 		if (!request) {
 			// Create new request and request status metadata
+
+			const normalizedTimestamp = normalizeTimestamp(blockTimestamp)
 			await this.createOrUpdate({
 				commitment,
 				chain,
@@ -160,6 +164,7 @@ export class RequestService {
 				blockTimestamp: 0n,
 				status,
 				transactionHash: "",
+				createdAt: new Date(Number(normalizedTimestamp)),
 			})
 
 			logger.info(

@@ -310,7 +310,9 @@ contract IntentGateway is BaseIsmpModule {
      * @dev Checks that the request originates from a known instance of the IntentGateway.
      */
     modifier authenticate(PostRequest calldata request) {
-        bytes32 module = bytes32(request.from[:32]);
+        bytes32 module = request.from.length == 20
+            ? bytes32(uint256(uint160(bytes20(request.from))))
+            : bytes32(request.from[:32]);
         // IntentGateway only accepts incoming assets from itself or known instances
         if (instance(request.source) != module) revert Unauthorized();
         _;
@@ -345,7 +347,7 @@ contract IntentGateway is BaseIsmpModule {
      * @return bytes The calculated commitment slot hash
      */
     function calculateCommitmentSlotHash(bytes32 commitment) public pure returns (bytes memory) {
-        return abi.encodePacked(keccak256(abi.encodePacked(FILLED_SLOT_BIG_ENDIAN_BYTES, commitment)));
+        return abi.encodePacked(keccak256(abi.encodePacked(commitment, FILLED_SLOT_BIG_ENDIAN_BYTES)));
     }
 
     /**
@@ -466,7 +468,7 @@ contract IntentGateway is BaseIsmpModule {
         );
         DispatchPost memory request = DispatchPost({
             dest: order.sourceChain,
-            to: abi.encodePacked(instance(order.sourceChain)),
+            to: abi.encodePacked(address(uint160(uint256(instance(order.sourceChain))))),
             body: bytes.concat(bytes1(uint8(RequestKind.RedeemEscrow)), data),
             timeout: 0,
             fee: options.relayerFee,

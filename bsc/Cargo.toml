@@ -27,6 +27,7 @@ base2 = "0.3.1"
 primitive-types = { workspace = true, features = ["impl-codec"] }
 ethers = { workspace = true, features = ["rustls"] }
 sp-core = { workspace = true }
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 
 
 tesseract-primitives = { workspace = true  }

@@ -14,7 +14,7 @@
 
 use anyhow::{anyhow, Error};
 use bsc_verifier::{
-	primitives::{compute_epoch, Config},
+	primitives::{compute_epoch, parse_extra, Config, VALIDATOR_BIT_SET_SIZE},
 	verify_bsc_header,
 };
 use codec::{Decode, Encode};
@@ -28,6 +28,7 @@ use std::{cmp::max, sync::Arc, time::Duration};
 
 use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
+use ssz_rs::{Bitvector, Deserialize};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
@@ -175,8 +176,35 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									// We try to validate before seubmiting to be sure enactment has
 									// taken place, we know the minimum block at which rotation
 									// should occur but sometimes It happens further in the future
+
 									let next_validators =
 										consensus_state.next_validators.clone().unwrap_or_default();
+
+									let extra_data =
+										parse_extra::<KeccakHasher, C>(&update.attested_header)
+											.expect(
+											"Infallible, was parsed before update was generated",
+										);
+
+									let validators_bit_set =
+										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+											extra_data
+												.vote_address_set
+												.to_le_bytes()
+												.to_vec()
+												.as_slice(),
+										)
+										.expect(
+											"Infallible, was parsed before update was generated",
+										);
+
+									if validators_bit_set.iter().as_bitslice().count_ones() <
+										((2 * next_validators.validators.len() / 3) + 1)
+									{
+										log::trace!("Not enough participants in bsc update for block {block:?}");
+										block += 1;
+										continue;
+									}
 									let res = verify_bsc_header::<KeccakHasher, C>(
 										&next_validators.validators,
 										update.clone(),
@@ -265,6 +293,33 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								.await
 							{
 								Ok(Some(update)) => {
+									// check number of participants
+									let extra_data =
+										parse_extra::<KeccakHasher, C>(&update.attested_header)
+											.expect(
+											"Infallible, was parsed before update was generated",
+										);
+
+									let validators_bit_set =
+										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+											extra_data
+												.vote_address_set
+												.to_le_bytes()
+												.to_vec()
+												.as_slice(),
+										)
+										.expect(
+											"Infallible, was parsed before update was generated",
+										);
+
+									if validators_bit_set.iter().as_bitslice().count_ones() <
+										((2 * consensus_state.current_validators.len() / 3) + 1)
+									{
+										log::trace!("Not enough participants in bsc update for block {block:?}");
+										block += 1;
+										continue;
+									}
+
 									if update.source_header.number.low_u64() <=
 										consensus_state.finalized_height
 									{
@@ -272,7 +327,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										continue;
 									}
 
-									if let Err(_) = verify_bsc_header::<KeccakHasher, C>(
+									if let Err(err) = verify_bsc_header::<KeccakHasher, C>(
 										&consensus_state.current_validators,
 										update.clone(),
 										epoch_length,
@@ -282,7 +337,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										// cannot rotate validator set safely
 										return Some((
 											Err(anyhow!(
-												"Fatal error: No valid sync update found for  {}",
+												"Fatal error: No valid sync update found for  {}: {err:?}",
 												client.state_machine
 											)),
 											(interval, None),

@@ -22186,6 +22186,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-core 34.0.0",
+ "ssz-rs",
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",

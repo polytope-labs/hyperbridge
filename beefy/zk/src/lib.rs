@@ -40,9 +40,8 @@ where
 		consensus_state: ConsensusState,
 	) -> Result<Sp1BeefyProof, anyhow::Error> {
 		let authority = match signed_commitment.commitment.validator_set_id {
-			id if id == consensus_state.current_authorities.id => {
-				consensus_state.current_authorities
-			},
+			id if id == consensus_state.current_authorities.id =>
+				consensus_state.current_authorities,
 			id if id == consensus_state.next_authorities.id => consensus_state.next_authorities,
 			_ => Err(anyhow::anyhow!(
 				"Unknown validator set {}",

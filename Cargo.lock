@@ -22085,7 +22085,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "arb-host",

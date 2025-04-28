@@ -1,3 +1,8 @@
+import { HexString, IPostRequest } from "@/types"
+import { hexToBytes } from "viem"
+import { generate_root_with_proof, verify_proof } from "./ckb-mmr-wasm/ckb_mmr_wasm"
+import { postRequestCommitment } from "@/utils"
+
 /**
  * Gets peak position for a given height
  */
@@ -173,4 +178,49 @@ export function mmrPositionToKIndex(initialLeaves: bigint[], mmrSize: bigint): A
 export function calculateMMRSize(numberOfLeaves: bigint): bigint {
 	const numberOfPeaks = numberOfLeaves.toString(2).split("1").length - 1
 	return 2n * numberOfLeaves - BigInt(numberOfPeaks)
+}
+
+/**
+ * Generates a Merkle Mountain Range (MMR) root hash and proof for a post request.
+ *
+ * This function takes a post request and tree size, encodes it according to the PostRequest format,
+ * and generates both the MMR root hash and a proof. The function builds an MMR with `treeSize` leaves,
+ * where most leaves are variations of the encoded request (XORed with their index), except for the
+ * last leaf, which is the unmodified request. The proof is generated for this unmodified leaf.
+ *
+ * @param postRequest - The post request to generate the MMR root and proof for
+ * @param treeSize - Controls how many leaves will be added to the MMR (exactly `treeSize` leaves)
+ * @returns An object containing:
+ *   - root: The MMR root hash as a hex string
+ *   - proof: An array of hex strings representing the MMR proof for the unmodified request
+ *   - index: The index of the unmodified request in the MMR
+ *   - kIndex: The k-index of the unmodified request in the MMR
+ *   - treeSize: The number of leaves in the MMR
+ *   - mmrSize: The size of the MMR in nodes
+ */
+export function generateRootWithProof(
+	postRequest: IPostRequest,
+	treeSize: bigint,
+): { root: HexString; proof: HexString[]; index: bigint; kIndex: bigint; treeSize: bigint; mmrSize: bigint } {
+	const { commitment: hash, encodePacked } = postRequestCommitment(postRequest)
+
+	const result = JSON.parse(generate_root_with_proof(hexToBytes(encodePacked), treeSize))
+	const { root, proof, mmr_size, leaf_positions, keccak_hash_calldata } = result
+
+	if (keccak_hash_calldata !== hash) {
+		console.log("keccak_hash", keccak_hash_calldata)
+		console.log("hash", hash)
+		throw new Error("Abi keccak hash mismatch")
+	}
+
+	const [[, kIndex]] = mmrPositionToKIndex(leaf_positions, BigInt(mmr_size))
+
+	return {
+		root: root as HexString,
+		proof: proof as HexString[],
+		index: treeSize - 1n,
+		kIndex,
+		treeSize,
+		mmrSize: mmr_size,
+	}
 }

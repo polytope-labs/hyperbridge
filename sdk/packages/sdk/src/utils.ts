@@ -5,17 +5,32 @@ import {
 	RequestStatus,
 	TimeoutStatus,
 	type StateMachineHeight,
+	RequestKind,
 } from "@/types"
-import type { RequestStatusKey, TimeoutStatusKey, RetryConfig } from "@/types"
-import { encodePacked, keccak256, toHex } from "viem"
+import type { RequestStatusKey, TimeoutStatusKey, RetryConfig, Order } from "@/types"
+import {
+	encodePacked,
+	keccak256,
+	toHex,
+	encodeAbiParameters,
+	hexToBytes,
+	bytesToHex,
+	PublicClient,
+	concatHex,
+} from "viem"
 import { createConsola, LogLevels } from "consola"
 import { _queryRequestInternal } from "./query-client"
-import type { IChain } from "./chain"
+import { getStateCommitmentFieldSlot, type IChain } from "./chain"
+import { generateRootWithProof } from "./utils"
+import handler from "./abis/handler"
+import evmHost from "./abis/evmHost"
 
 export * from "./utils/mmr"
 export * from "./utils/substrate"
 
 export const DEFAULT_POLL_INTERVAL = 5_000
+export const ADDRESS_ZERO = "0x0000000000000000000000000000000000000000" as HexString
+export const DUMMY_PRIVATE_KEY = "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString
 
 /**
  * Sleeps for the specified number of milliseconds.
@@ -156,15 +171,99 @@ export function isValidUTF8(str: string): boolean {
 /**
  * Calculates the commitment hash for a post request.
  * @param post The post request to calculate the commitment hash for.
- * @returns The commitment hash.
+ * @returns The commitment hash and the encode packed data.
  */
-export function postRequestCommitment(post: IPostRequest): HexString {
-	return keccak256(
-		encodePacked(
-			["bytes", "bytes", "uint64", "uint64", "bytes", "bytes", "bytes"],
-			[toHex(post.source), toHex(post.dest), post.nonce, post.timeoutTimestamp, post.from, post.to, post.body],
-		),
+export function postRequestCommitment(post: IPostRequest): { commitment: HexString; encodePacked: HexString } {
+	const data = encodePacked(
+		["bytes", "bytes", "uint64", "uint64", "bytes", "bytes", "bytes"],
+		[toHex(post.source), toHex(post.dest), post.nonce, post.timeoutTimestamp, post.from, post.to, post.body],
 	)
+
+	return {
+		commitment: keccak256(data),
+		encodePacked: data,
+	}
+}
+
+export function orderCommitment(order: Order): HexString {
+	const encodedOrder = encodeAbiParameters(
+		[
+			{
+				name: "order",
+				type: "tuple",
+				components: [
+					{ name: "user", type: "bytes32" },
+					{ name: "sourceChain", type: "bytes" },
+					{ name: "destChain", type: "bytes" },
+					{ name: "deadline", type: "uint256" },
+					{ name: "nonce", type: "uint256" },
+					{ name: "fees", type: "uint256" },
+					{
+						name: "outputs",
+						type: "tuple[]",
+						components: [
+							{ name: "token", type: "bytes32" },
+							{ name: "amount", type: "uint256" },
+							{ name: "beneficiary", type: "bytes32" },
+						],
+					},
+					{
+						name: "inputs",
+						type: "tuple[]",
+						components: [
+							{ name: "token", type: "bytes32" },
+							{ name: "amount", type: "uint256" },
+						],
+					},
+					{ name: "callData", type: "bytes" },
+				],
+			},
+		],
+		[
+			{
+				user: order.user,
+				sourceChain: toHex(order.sourceChain),
+				destChain: toHex(order.destChain),
+				deadline: order.deadline,
+				nonce: order.nonce,
+				fees: order.fees,
+				outputs: order.outputs,
+				inputs: order.inputs,
+				callData: order.callData,
+			},
+		],
+	)
+
+	return keccak256(encodedOrder)
+}
+
+/**
+ * Converts a bytes32 token address to bytes20 format
+ * This removes the extra padded zeros from the address
+ */
+export function bytes32ToBytes20(bytes32Address: string): HexString {
+	if (bytes32Address === ADDRESS_ZERO) {
+		return ADDRESS_ZERO
+	}
+
+	const bytes = hexToBytes(bytes32Address as HexString)
+	const addressBytes = bytes.slice(12)
+	return bytesToHex(addressBytes) as HexString
+}
+
+export function bytes20ToBytes32(bytes20Address: string): HexString {
+	return `0x${bytes20Address.slice(2).padStart(64, "0")}` as HexString
+}
+
+export function hexToString(hex: string): string {
+	const hexWithoutPrefix = hex.startsWith("0x") ? hex.slice(2) : hex
+
+	const bytes = new Uint8Array(hexWithoutPrefix.length / 2)
+	for (let i = 0; i < hexWithoutPrefix.length; i += 2) {
+		bytes[i / 2] = parseInt(hexWithoutPrefix.slice(i, i + 2), 16)
+	}
+
+	return new TextDecoder().decode(bytes)
 }
 
 export const DEFAULT_LOGGER = createConsola({
@@ -265,4 +364,145 @@ export const COMBINED_STATUS_WEIGHTS: Record<RequestStatusKey | TimeoutStatusKey
 	[TimeoutStatus.HYPERBRIDGE_TIMED_OUT]: 7,
 	[TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT]: 8,
 	[TimeoutStatus.TIMED_OUT]: 9,
+}
+
+/**
+ * Estimates the gas required for a post request transaction on the source chain.
+ * This function constructs a post request, generates mock proofs, and estimates
+ * the gas cost for executing the transaction on the source chain.
+ */
+export async function estimateGasForPost(params: {
+	order: Order
+	sourceClient: PublicClient
+	hostNonce: bigint
+	hostLatestStateMachineHeight: bigint
+	from: HexString
+	to: HexString
+	hostAddress: HexString
+	walletAddress: HexString
+}): Promise<bigint> {
+	const hostParams = await params.sourceClient.readContract({
+		address: params.hostAddress,
+		abi: evmHost.ABI,
+		functionName: "hostParams",
+	})
+
+	const postRequest: IPostRequest = {
+		source: params.order.destChain,
+		dest: params.order.sourceChain,
+		body: constructRedeemEscrowRequestBody(params.order, params.walletAddress),
+		timeoutTimestamp: 0n,
+		nonce: params.hostNonce,
+		from: params.from,
+		to: params.to,
+	}
+	const { root, proof, index, kIndex, treeSize } = generateRootWithProof(postRequest, 2n ** 10n)
+	const latestStateMachineHeight = params.hostLatestStateMachineHeight
+	const overlayRootSlot = getStateCommitmentFieldSlot(
+		BigInt(4009n), // Hyperbridge chain id
+		latestStateMachineHeight, // Hyperbridge chain height
+		1, // For overlayRoot
+	)
+	const postParams = {
+		height: {
+			stateMachineId: BigInt(4009n),
+			height: latestStateMachineHeight,
+		},
+		multiproof: proof,
+		leafCount: treeSize,
+	}
+
+	const gas = await params.sourceClient.estimateContractGas({
+		address: hostParams.handler,
+		abi: handler.ABI,
+		functionName: "handlePostRequests",
+		args: [
+			params.hostAddress,
+			{
+				proof: postParams,
+				requests: [
+					{
+						request: transformPostRequestForContract(postRequest),
+						index,
+						kIndex,
+					},
+				],
+			},
+		],
+		stateOverride: [
+			{
+				address: params.hostAddress,
+				stateDiff: [
+					{
+						slot: overlayRootSlot,
+						value: root,
+					},
+				],
+			},
+		],
+	})
+
+	console.log(`Gas estimate for post ${params.order.id} on ${params.order.sourceChain} is ${gas}`)
+
+	return gas
+}
+
+/**
+ * Constructs the request body for a redeem escrow operation.
+ * This function encodes the order commitment, beneficiary address, and token inputs
+ * to match the format expected by the IntentGateway contract.
+ */
+export function constructRedeemEscrowRequestBody(order: Order, beneficiary: HexString): HexString {
+	const commitment = order.id as HexString
+	const inputs = order.inputs
+
+	// RequestKind.RedeemEscrow is 0 as defined in the contract
+	const requestKind = encodePacked(["uint8"], [RequestKind.RedeemEscrow])
+
+	const requestBody = {
+		commitment: commitment as HexString,
+		beneficiary: bytes20ToBytes32(beneficiary),
+		tokens: inputs,
+	}
+
+	const encodedRequestBody = encodeAbiParameters(
+		[
+			{
+				name: "requestBody",
+				type: "tuple",
+				components: [
+					{ name: "commitment", type: "bytes32" },
+					{ name: "beneficiary", type: "bytes32" },
+					{
+						name: "tokens",
+						type: "tuple[]",
+						components: [
+							{ name: "token", type: "bytes32" },
+							{ name: "amount", type: "uint256" },
+						],
+					},
+				],
+			},
+		],
+		[requestBody],
+	)
+
+	return concatHex([requestKind, encodedRequestBody]) as HexString
+}
+
+/**
+ * Transforms a post request into the format expected by the contract.
+ * This function converts the source and destination addresses to hex format
+ * while preserving other request properties.
+ */
+export function transformPostRequestForContract(postRequest: IPostRequest) {
+	return {
+		source: toHex(postRequest.source),
+		dest: toHex(postRequest.dest),
+		nonce: postRequest.nonce,
+		from: postRequest.from,
+		to: postRequest.to,
+		timeoutTimestamp: postRequest.timeoutTimestamp,
+		body: postRequest.body,
+	}
 }

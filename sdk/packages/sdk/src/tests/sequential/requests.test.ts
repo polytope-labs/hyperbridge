@@ -103,7 +103,7 @@ describe.sequential("Get and Post Requests", () => {
 
 			console.log("PostRequestEvent", { request })
 
-			const commitment = postRequestCommitment(request)
+			const commitment = postRequestCommitment(request).commitment
 
 			console.log("Post Request Commitment:", commitment)
 			const statusStream = indexer.postRequestStatusStream(commitment)
@@ -242,7 +242,7 @@ describe.sequential("Get and Post Requests", () => {
 
 			const request = event.args
 			console.log("PostRequestEvent", { request })
-			const commitment = postRequestCommitment(request)
+			const commitment = postRequestCommitment(request).commitment
 
 			for await (const status of indexer.postRequestStatusStream(commitment)) {
 				console.log(JSON.stringify(status, null, 4))
@@ -383,7 +383,7 @@ describe.sequential("Get and Post Requests", () => {
 					}
 					case RequestStatus.DESTINATION: {
 						console.log(
-							`Status ${status.status}, Transaction: https://gnosis-chiado.blockscout.com/tx/${status.metadata.transactionHash}`,
+							`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
 						)
 						break
 					}

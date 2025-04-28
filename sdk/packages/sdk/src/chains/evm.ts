@@ -414,6 +414,11 @@ export const REQUEST_RECEIPTS_SLOT = 2n
  */
 export const RESPONSE_RECEIPTS_SLOT = 3n
 
+/**
+ * Slot index for state commitment map
+ */
+export const STATE_COMMITMENTS_SLOT = 5n
+
 function requestCommitmentKey(key: Hex): Hex {
 	// First derive the map key
 	const keyBytes = hexToBytes(key)
@@ -448,5 +453,55 @@ function deriveMapKey(key: Uint8Array, slot: bigint): Hex {
 	const combined = new Uint8Array([...key, ...toBytes(slotBytes)])
 
 	// Calculate keccak256 hash
+	return keccak256(combined)
+}
+
+/**
+ * Derives the storage slot for a specific field in the StateCommitment struct
+ *
+ * struct StateCommitment {
+ *   uint256 timestamp;     // slot + 0
+ *   bytes32 overlayRoot;   // slot + 1
+ *   bytes32 stateRoot;     // slot + 2
+ * }
+ *
+ * @param stateMachineId - The state machine ID
+ * @param height - The block height
+ * @param field - The field index in the struct (0 for timestamp, 1 for overlayRoot, 2 for stateRoot)
+ * @returns The storage slot for the specific field
+ */
+export function getStateCommitmentFieldSlot(stateMachineId: bigint, height: bigint, field: 0 | 1 | 2): HexString {
+	const baseSlot = getStateCommitmentSlot(stateMachineId, height)
+	const slotNumber = bytesToBigInt(toBytes(baseSlot)) + BigInt(field)
+	return pad(`0x${slotNumber.toString(16)}`, { size: 32 })
+}
+
+export function getStateCommitmentSlot(stateMachineId: bigint, height: bigint): HexString {
+	// First level mapping: keccak256(stateMachineId . STATE_COMMITMENTS_SLOT)
+	const firstLevelSlot = deriveFirstLevelSlot(stateMachineId, STATE_COMMITMENTS_SLOT)
+
+	// Second level mapping: keccak256(height . firstLevelSlot)
+	return deriveSecondLevelSlot(height, firstLevelSlot)
+}
+
+function deriveFirstLevelSlot(key: bigint, slot: bigint): HexString {
+	const keyHex = pad(`0x${key.toString(16)}`, { size: 32 })
+	const keyBytes = toBytes(keyHex)
+
+	const slotBytes = toBytes(pad(`0x${slot.toString(16)}`, { size: 32 }))
+
+	const combined = new Uint8Array([...keyBytes, ...slotBytes])
+
+	return keccak256(combined)
+}
+
+function deriveSecondLevelSlot(key: bigint, firstLevelSlot: HexString): HexString {
+	const keyHex = pad(`0x${key.toString(16)}`, { size: 32 })
+	const keyBytes = toBytes(keyHex)
+
+	const slotBytes = toBytes(firstLevelSlot)
+
+	const combined = new Uint8Array([...keyBytes, ...slotBytes])
+
 	return keccak256(combined)
 }

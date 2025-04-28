@@ -361,7 +361,7 @@ describe.sequential("Hyperbridge Requests", () => {
 
 		const request = event.args
 		console.log("PostRequestEvent", { request })
-		const commitment = postRequestCommitment(request)
+		const commitment = postRequestCommitment(request).commitment
 
 		let final_status
 		for await (const status of indexer.postRequestStatusStream(commitment)) {
@@ -447,7 +447,7 @@ describe.sequential("Hyperbridge Requests", () => {
 
 		const request = event.args
 		console.log("PostRequestEvent", { request })
-		const commitment = postRequestCommitment(request)
+		const commitment = postRequestCommitment(request).commitment
 
 		console.log("PostRequestCommitment", { commitment })
 

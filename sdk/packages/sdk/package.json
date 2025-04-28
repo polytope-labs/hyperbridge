@@ -42,6 +42,7 @@
 		"test:file": "vitest --watch=false --maxConcurrency=1",
 		"test:concurrent": "vitest --watch=false --exclude=./src/tests/sequential",
 		"test:sequence": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/**",
+		"test:requests": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/requests.test.ts",
 		"test:watch": "vitest --exclude=./src/tests/sequential",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",

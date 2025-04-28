@@ -354,7 +354,7 @@ export class IndexerClient {
 		})
 
 		const proof = await hyperbridge.queryProof(
-			{ Requests: [postRequestCommitment(request)] },
+			{ Requests: [postRequestCommitment(request).commitment] },
 			request.dest,
 			BigInt(hyperbridgeFinality.height),
 		)
@@ -409,7 +409,7 @@ export class IndexerClient {
 			hasher: "Keccak",
 		})
 		const events: RequestStatusWithMetadata[] = []
-		const commitment = postRequestCommitment(request)
+		const commitment = postRequestCommitment(request).commitment
 		const reciept = await destChain.queryRequestReceipt(commitment)
 		const destTimestamp = await destChain.timestamp()
 
@@ -734,7 +734,7 @@ export class IndexerClient {
 					})
 
 					const proof = await hyperbridge.queryProof(
-						{ Requests: [postRequestCommitment(request)] },
+						{ Requests: [postRequestCommitment(request).commitment] },
 						request.dest,
 						BigInt(hyperbridgeFinalized.height),
 					)
@@ -851,9 +851,10 @@ export class IndexerClient {
 		}
 
 		const chain = await getChain(this.config.dest)
-		const timeoutStream = this.timeoutStream(request.timeoutTimestamp, chain)
+		const timeoutStream =
+			request.timeoutTimestamp > 0 ? this.timeoutStream(request.timeoutTimestamp, chain) : undefined
 		const statusStream = this.getRequestStatusStreamInternal(hash)
-		const combined = mergeRace(timeoutStream, statusStream)
+		const combined = timeoutStream ? mergeRace(timeoutStream, statusStream) : statusStream
 
 		let item = await combined.next()
 		while (!item.done) {
@@ -1077,7 +1078,7 @@ export class IndexerClient {
 				? TimeoutStatus.HYPERBRIDGE_TIMED_OUT
 				: TimeoutStatus.PENDING_TIMEOUT
 
-		const commitment = postRequestCommitment(request)
+		const commitment = postRequestCommitment(request).commitment
 		const hyperbridge = (await getChain({
 			...this.config.hyperbridge,
 			hasher: "Keccak",

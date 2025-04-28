@@ -1,5 +1,5 @@
 {
-	"name": "@hyperbridge/subql-indexer",
+	"name": "@hyperbridge/indexer",
 	"version": "1.0.0",
 	"description": "SubQuery indexer for the Hyperbridge network. Indexes data from connected rollups and Hyperbridge's messaging infrastructure",
 	"main": "dist/index.js",

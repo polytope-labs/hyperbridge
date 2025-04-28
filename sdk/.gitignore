@@ -20,6 +20,7 @@ packages/indexer/docker/testnet/
 packages/indexer/docker/mainnet/
 .claude/
 
+packages/filler/src/config/chain.ts
 # Compiled Java class files
 *.class
 
@@ -79,3 +80,5 @@ Thumbs.db
 substrate-ws.json
 chain-ids-by-genesis.ts
 chains-by-ismp-host.ts
+
+packages/filler/src/config/chain.ts

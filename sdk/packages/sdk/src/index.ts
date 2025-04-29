@@ -10,7 +10,6 @@ export {
 	bytes32ToBytes20,
 	bytes20ToBytes32,
 	hexToString,
-	transformPostRequestForContract,
 	constructRedeemEscrowRequestBody,
 	estimateGasForPost,
 } from "@/utils"

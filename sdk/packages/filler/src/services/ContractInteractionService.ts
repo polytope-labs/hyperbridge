@@ -11,6 +11,7 @@ import {
 	HostParams,
 	estimateGasForPost,
 	constructRedeemEscrowRequestBody,
+	IPostRequest,
 } from "hyperbridge-sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -253,16 +254,24 @@ export class ContractInteractionService {
 	async estimateGasFillPost(order: Order): Promise<{ fillGas: bigint; postGas: bigint }> {
 		try {
 			const { sourceClient, destClient } = this.clientManager.getClientsForOrder(order)
-			const postGasEstimate = await estimateGasForPost({
-				order: order,
-				sourceClient: sourceClient as any,
-				hostNonce: await this.getHostNonce(order.sourceChain),
-				hostLatestStateMachineHeight: await this.getHostLatestStateMachineHeight(),
+			const postRequest: IPostRequest = {
+				source: order.destChain,
+				dest: order.sourceChain,
+				body: constructRedeemEscrowRequestBody(order, privateKeyToAddress(this.privateKey)),
+				timeoutTimestamp: 0n,
+				nonce: await this.getHostNonce(order.sourceChain),
 				from: this.configService.getIntentGatewayAddress(order.sourceChain),
 				to: this.configService.getIntentGatewayAddress(order.destChain),
-				walletAddress: privateKeyToAddress(this.privateKey),
+			}
+			const postGasEstimate = await estimateGasForPost({
+				postRequest: postRequest,
+				sourceClient: sourceClient as any,
+				hostLatestStateMachineHeight: await this.getHostLatestStateMachineHeight(),
 				hostAddress: this.configService.getHostAddress(order.sourceChain),
 			})
+
+			console.log(`Post gas estimate for filling order ${order.id} on ${order.sourceChain} is ${postGasEstimate}`)
+
 			const fillOptions: FillOptions = {
 				relayerFee: postGasEstimate + (postGasEstimate * BigInt(2)) / BigInt(100),
 			}

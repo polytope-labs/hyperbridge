@@ -11,6 +11,8 @@ scale-info = { workspace = true }
 codec = { workspace = true }
 rs_merkle = { version = "1.5.0", default-features = false }
 anyhow = { workspace = true }
+pallet-ismp = { workspace = true }
+log = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -21,7 +23,8 @@ features = [
     "sp-core",
     "sp-std",
     "sp-io",
-    "pallet-balances"
+    "pallet-balances",
+    "pallet-vesting"
 ]
 
 [features]
@@ -30,5 +33,6 @@ std = [
     "codec/std",
     "polkadot-sdk/std",
     "scale-info/std",
-    "rs_merkle/std"
+    "rs_merkle/std",
+    "pallet-ismp/std"
 ]

@@ -12151,6 +12151,8 @@ name = "pallet-bridge-drop"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "log",
+ "pallet-ismp",
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
  "rs_merkle 1.5.0",

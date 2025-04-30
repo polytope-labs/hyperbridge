@@ -21,7 +21,7 @@ pub use pallet::*;
 use polkadot_sdk::*;
 
 /// Eighteen months in hyperbridge blocks
-const EIGHTEEN_MONTHS: u64 = 3_888_000;
+pub const EIGHTEEN_MONTHS: u64 = 3_888_000;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -66,10 +66,10 @@ pub mod pallet {
 		type Currency: Currency<Self::AccountId>;
 	}
 
-	/// Set of accounts that have claimed the airdrop
+	/// Set of leaf indexes that have been claimed
 	#[pallet::storage]
 	#[pallet::getter(fn claimed)]
-	pub type Claimed<T: Config> = StorageMap<_, Blake2_128Concat, H160, T::AccountId, OptionQuery>;
+	pub type Claimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
 
 	/// Merkle root and total leafcount
 	#[pallet::storage]
@@ -89,6 +89,8 @@ pub mod pallet {
 		InvalidProof,
 		/// Pallet has not been initialized
 		MerkleRootNotFound,
+		/// Invalid Leaf Index
+		InvalidLeafIndex,
 	}
 
 	#[pallet::event]
@@ -107,21 +109,21 @@ pub mod pallet {
 	#[scale_info(skip_type_params(T))]
 	pub struct Proof<AccountId, Balance> {
 		/// Account Eligible for the claim
-		who: H160,
+		pub who: H160,
 		/// Receiving account on Hyperbridge
-		beneficiary: AccountId,
+		pub beneficiary: AccountId,
 		/// Signature that approves the receiving address
-		signature: Vec<u8>,
+		pub signature: Vec<u8>,
 		/// Merkle proof of eligibility
-		proof_items: Vec<H256>,
+		pub proof_items: Vec<H256>,
 		/// Leaf index for (who, amount) in the merkle tree
-		leaf_index: u64,
+		pub leaf_index: u64,
 		/// Amount to claim
-		amount: Balance,
+		pub amount: Balance,
 	}
 
 	#[derive(Clone, Copy)]
-	struct KeccakHasher;
+	pub struct KeccakHasher;
 
 	impl rs_merkle::Hasher for KeccakHasher {
 		type Hash = [u8; 32];
@@ -257,13 +259,17 @@ pub mod pallet {
 			let (root, leaf_count) =
 				MerkleRoot::<T>::get().ok_or_else(|| Error::<T>::MerkleRootNotFound)?;
 
-			if Claimed::<T>::get(params.who.clone()).is_some() {
+			if Claimed::<T>::get(params.leaf_index).is_some() {
 				Err(Error::<T>::AlreadyClaimed)?
+			}
+
+			if params.leaf_index >= leaf_count {
+				Err(Error::<T>::InvalidLeafIndex)?
 			}
 
 			verify_proof(root, leaf_count, params.clone()).map_err(|_| Error::<T>::InvalidProof)?;
 
-			Claimed::<T>::insert(params.who, params.beneficiary);
+			Claimed::<T>::insert(params.leaf_index, true);
 			Ok(())
 		}
 
@@ -273,7 +279,7 @@ pub mod pallet {
 		}
 	}
 
-	const ETHEREUM_MESSAGE_PREFIX: &'static str = "\x19Ethereum Signed Message:\n";
+	pub const ETHEREUM_MESSAGE_PREFIX: &'static str = "\x19Ethereum Signed Message:\n";
 	fn verify_proof<AccountId: Encode, Balance: Encode>(
 		merkle_root: H256,
 		leaf_count: u64,

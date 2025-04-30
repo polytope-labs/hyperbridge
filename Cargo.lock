@@ -12147,7 +12147,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-bridge-drop"
+name = "pallet-bridge-airdrop"
 version = "0.1.1"
 dependencies = [
  "anyhow",
@@ -12863,6 +12863,7 @@ dependencies = [
  "ismp-sync-committee",
  "ismp-testsuite",
  "mmr-primitives",
+ "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
  "pallet-hyperbridge",
@@ -12877,6 +12878,7 @@ dependencies = [
  "pallet-xcm-gateway",
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
+ "rs_merkle 1.5.0",
  "ruzstd 0.6.0",
  "scale-info",
  "sp-core 34.0.0",

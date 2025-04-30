@@ -221,6 +221,7 @@ pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = 
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
+pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }

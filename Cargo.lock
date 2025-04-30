@@ -1662,7 +1662,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
  "primitive-types",
- "rs_merkle",
+ "rs_merkle 1.2.0",
  "subxt",
  "subxt-utils",
  "tokio",
@@ -8623,7 +8623,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk 0.9.0",
  "primitive-types",
- "rs_merkle",
+ "rs_merkle 1.2.0",
  "serde",
  "subxt",
  "subxt-utils",
@@ -12144,6 +12144,17 @@ dependencies = [
  "sp-core 34.0.0",
  "sp-io 38.0.0",
  "sp-runtime 39.0.5",
+]
+
+[[package]]
+name = "pallet-bridge-drop"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "parity-scale-codec",
+ "polkadot-sdk 0.9.0",
+ "rs_merkle 1.5.0",
+ "scale-info",
 ]
 
 [[package]]
@@ -18460,6 +18471,15 @@ version = "1.2.0"
 source = "git+https://github.com/polytope-labs/rs-merkle?branch=seun%2F2d-merkle-proofs#02750ca0b3a93dc9b53c826b58692b3c1cf7e2a7"
 dependencies = [
  "micromath",
+ "sha2 0.10.8",
+]
+
+[[package]]
+name = "rs_merkle"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb09b49230ba22e8c676e7b75dfe2887dea8121f18b530ae0ba519ce442d2b21"
+dependencies = [
  "sha2 0.10.8",
 ]
 

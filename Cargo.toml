@@ -85,6 +85,9 @@ members = [
     "tesseract/config",
     "tesseract/fisherman",
     "tesseract/integration-test",
+
+    # Airdrop
+    "modules/pallets/bridge-drop"
 ]
 
 # Config for 'cargo dist'

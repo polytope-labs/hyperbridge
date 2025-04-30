@@ -167,8 +167,8 @@ pub async fn fetch_next_beefy_justification<T: Config>(
 			})
 		});
 
-		if (current_set_id..=(current_set_id + 1)).contains(&set_id)
-			&& beefy_justification.is_some()
+		if (current_set_id..=(current_set_id + 1)).contains(&set_id) &&
+			beefy_justification.is_some()
 		{
 			let VersionedFinalityProof::V1(signed_commitment) =
 				VersionedFinalityProof::<u32, sp_consensus_beefy::ecdsa_crypto::Signature>::decode(

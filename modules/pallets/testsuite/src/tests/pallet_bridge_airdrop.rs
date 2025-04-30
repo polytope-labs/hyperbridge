@@ -82,8 +82,8 @@ fn should_claim_airdrop_correctly() {
 
 		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
-		let free = Permill::from_parts(250_000) * params.amount;
-		let locked = params.amount.saturating_sub(free);
+		let initial_unlocked = Permill::from_parts(250_000) * params.amount;
+		let locked = params.amount.saturating_sub(initial_unlocked);
 
 		assert_eq!(account_data.data.free, params.amount);
 
@@ -91,7 +91,7 @@ fn should_claim_airdrop_correctly() {
 		let res = Balances::transfer_keep_alive(
 			RuntimeOrigin::signed(beneficiary.clone()),
 			AccountId32::new(H256::random().0),
-			free.saturating_add(1),
+			initial_unlocked.saturating_add(1),
 		);
 		assert_noop!(res, TokenError::Frozen);
 
@@ -99,7 +99,7 @@ fn should_claim_airdrop_correctly() {
 		Balances::transfer_keep_alive(
 			RuntimeOrigin::signed(beneficiary.clone()),
 			AccountId32::new(H256::random().0),
-			free,
+			initial_unlocked,
 		)
 		.unwrap();
 		dbg!(&account_data);

@@ -184,9 +184,9 @@ pub mod pallet {
 
 			// Unlock 25% of token amount
 			let percent = Permill::from_parts(250_000);
-			let free_balance = percent * u128::from(amount);
+			let unlocked_balance = percent * u128::from(amount);
 
-			let locked = u128::from(amount).saturating_sub(free_balance);
+			let locked = u128::from(amount).saturating_sub(unlocked_balance);
 
 			<<T as Config>::Currency as Currency<T::AccountId>>::transfer(
 				&Self::account_id(),

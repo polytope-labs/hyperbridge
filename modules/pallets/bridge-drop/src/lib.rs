@@ -136,10 +136,10 @@ pub mod pallet {
 		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
 			if StartingBlock::<T>::get().is_none() {
 				StartingBlock::<T>::put(n);
-				return <T as frame_system::Config>::DbWeight::get().reads_writes(1, 0);
+				return <T as frame_system::Config>::DbWeight::get().reads_writes(1, 1);
 			}
 
-			<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1)
+			<T as frame_system::Config>::DbWeight::get().reads(1)
 		}
 	}
 

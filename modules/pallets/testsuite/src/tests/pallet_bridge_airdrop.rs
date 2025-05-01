@@ -2,11 +2,11 @@
 
 use codec::Encode;
 use pallet_bridge_airdrop::{
-	IroMerkleRoot, IroProof, KeccakHasher, MerkleRoot, Proof, EIGHTEEN_MONTHS,
+	CrowdloanMerkleRoot, IroMerkleRoot, IroProof, KeccakHasher, MerkleRoot, Proof, EIGHTEEN_MONTHS,
 	ETHEREUM_MESSAGE_PREFIX,
 };
 use polkadot_sdk::{
-	frame_support::{assert_noop, crypto::ecdsa::ECDSAExt},
+	frame_support::{assert_err, assert_noop, crypto::ecdsa::ECDSAExt},
 	frame_system, pallet_vesting,
 	sp_runtime::{Permill, TokenError},
 };
@@ -122,6 +122,13 @@ fn should_claim_airdrop_correctly() {
 		let unlocked = unlock_per_block * vested_days as u128;
 
 		assert_eq!(account_data.data.frozen, current_locked - unlocked);
+
+		let res = pallet_bridge_airdrop::Pallet::<Test>::claim_tokens(
+			RuntimeOrigin::none(),
+			params.clone(),
+		);
+
+		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyClaimed);
 	})
 }
 
@@ -187,5 +194,77 @@ fn should_claim_iro_correctly() {
 		let unlocked = unlock_per_block * vested_days as u128;
 
 		assert_eq!(account_data.data.frozen, current_locked - unlocked);
+
+		let res =
+			pallet_bridge_airdrop::Pallet::<Test>::claim_iro(RuntimeOrigin::none(), params.clone());
+
+		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyClaimed);
+	})
+}
+
+#[test]
+fn should_claim_crowdloan_correctly() {
+	new_test_ext().execute_with(|| {
+		let leaf_count = 500usize;
+		let leaf_index = 250usize;
+		frame_system::Pallet::<Test>::set_block_number(0);
+
+		let beneficiary = AccountId32::new(H256::random().0);
+
+		let proof_gen =
+			generate_merkle_tree_and_proof(leaf_count, leaf_index, beneficiary.to_raw_vec());
+
+		let params = IroProof {
+			beneficiary: beneficiary.clone(),
+			proof_items: proof_gen.proof_items,
+			leaf_index: leaf_index as u64,
+			amount: proof_gen.leaf.1,
+		};
+
+		CrowdloanMerkleRoot::<Test>::put((proof_gen.root, leaf_count as u64));
+
+		pallet_bridge_airdrop::Pallet::<Test>::claim_crowdloan(
+			RuntimeOrigin::none(),
+			params.clone(),
+		)
+		.unwrap();
+
+		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
+
+		let locked = params.amount;
+
+		assert_eq!(account_data.data.frozen, params.amount);
+
+		// transfer above unlocked balance should fail
+		let res = Balances::transfer_keep_alive(
+			RuntimeOrigin::signed(beneficiary.clone()),
+			AccountId32::new(H256::random().0),
+			1u128,
+		);
+
+		assert_noop!(res, TokenError::Frozen);
+
+		let current_locked = account_data.data.frozen;
+
+		let vested_days = EIGHTEEN_MONTHS / 5;
+
+		frame_system::Pallet::<Test>::set_block_number(vested_days);
+
+		pallet_vesting::Pallet::<Test>::vest(RuntimeOrigin::signed(beneficiary.clone())).unwrap();
+
+		let account_data = frame_system::Account::<Test>::get(beneficiary);
+
+		let unlock_per_block = locked / EIGHTEEN_MONTHS as u128;
+
+		let unlocked = unlock_per_block * vested_days as u128;
+
+		assert_eq!(account_data.data.frozen, current_locked - unlocked);
+
+		let res = pallet_bridge_airdrop::Pallet::<Test>::claim_crowdloan(
+			RuntimeOrigin::none(),
+			params.clone(),
+		);
+
+		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyClaimed);
 	})
 }

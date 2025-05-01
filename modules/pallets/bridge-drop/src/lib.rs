@@ -76,6 +76,11 @@ pub mod pallet {
 	#[pallet::getter(fn iro_claimed)]
 	pub type IroClaimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
 
+	/// Set of leaf indexes that have been claimed
+	#[pallet::storage]
+	#[pallet::getter(fn crowdloan_claimed)]
+	pub type CrowdloanClaimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
+
 	/// Merkle root and total leafcount
 	#[pallet::storage]
 	#[pallet::getter(fn merkle_root)]
@@ -86,6 +91,10 @@ pub mod pallet {
 	#[pallet::getter(fn iro_merkle_root)]
 	pub type IroMerkleRoot<T: Config> = StorageValue<_, (H256, u64), OptionQuery>;
 
+	/// Merkle root and total leafcount
+	#[pallet::storage]
+	#[pallet::getter(fn crowdloan_merkle_root)]
+	pub type CrowdloanMerkleRoot<T: Config> = StorageValue<_, (H256, u64), OptionQuery>;
 	/// Merkle root and total leafcount
 	#[pallet::storage]
 	#[pallet::getter(fn starting_block)]
@@ -190,7 +199,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Set merkle root for claims
+		/// Set merkle root for iro
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn set_iro_merkle_root(
@@ -204,8 +213,22 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Claim bridge tokens
+		/// Set merkle root for crowdloan claims
 		#[pallet::call_index(2)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
+		pub fn set_crowdloan_merkle_root(
+			origin: OriginFor<T>,
+			root: H256,
+			leaf_count: u64,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			CrowdloanMerkleRoot::<T>::put((root, leaf_count));
+			Ok(())
+		}
+
+		/// Claim bridge tokens
+		#[pallet::call_index(3)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn claim_tokens(
 			origin: OriginFor<T>,
@@ -251,7 +274,7 @@ pub mod pallet {
 		}
 
 		/// Claim iro tokens
-		#[pallet::call_index(3)]
+		#[pallet::call_index(4)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn claim_iro(
 			origin: OriginFor<T>,
@@ -292,6 +315,46 @@ pub mod pallet {
 			)?;
 
 			Self::deposit_event(Event::<T>::Claimed { beneficiary, amount });
+
+			Ok(())
+		}
+
+		/// Claim crowdloan tokens
+		#[pallet::call_index(5)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
+		pub fn claim_crowdloan(
+			origin: OriginFor<T>,
+			params: IroProof<
+				T::AccountId,
+				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+			>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			let beneficiary = params.beneficiary.clone();
+			let amount = u128::from(params.amount);
+			Self::execute_crowdloan_claim(params)?;
+
+			<<T as Config>::Currency as Currency<T::AccountId>>::transfer(
+				&Self::account_id(),
+				&beneficiary,
+				amount.into(),
+				ExistenceRequirement::AllowDeath,
+			)?;
+
+			let unlock_per_block = amount / EIGHTEEN_MONTHS as u128;
+
+			let starting_block =
+				StartingBlock::<T>::get().unwrap_or(frame_system::Pallet::<T>::block_number());
+
+			pallet_vesting::Pallet::<T>::add_vesting_schedule(
+				&beneficiary,
+				amount.into(),
+				unlock_per_block.into(),
+				starting_block,
+			)?;
+
+			Self::deposit_event(Event::<T>::Claimed { beneficiary, amount: amount.into() });
 
 			Ok(())
 		}
@@ -382,6 +445,30 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::InvalidProof)?;
 
 			IroClaimed::<T>::insert(params.leaf_index, true);
+			Ok(())
+		}
+
+		fn execute_crowdloan_claim(
+			params: IroProof<
+				T::AccountId,
+				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+			>,
+		) -> DispatchResult {
+			let (root, leaf_count) =
+				CrowdloanMerkleRoot::<T>::get().ok_or_else(|| Error::<T>::MerkleRootNotFound)?;
+
+			if CrowdloanClaimed::<T>::get(params.leaf_index).is_some() {
+				Err(Error::<T>::AlreadyClaimed)?
+			}
+
+			if params.leaf_index >= leaf_count {
+				Err(Error::<T>::InvalidLeafIndex)?
+			}
+
+			verify_iro_proof(root, leaf_count, params.clone())
+				.map_err(|_| Error::<T>::InvalidProof)?;
+
+			CrowdloanClaimed::<T>::insert(params.leaf_index, true);
 			Ok(())
 		}
 

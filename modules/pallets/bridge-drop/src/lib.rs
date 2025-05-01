@@ -23,6 +23,8 @@ use polkadot_sdk::*;
 /// Eighteen months in hyperbridge blocks
 pub const EIGHTEEN_MONTHS: u64 = 3_888_000;
 
+pub const SIX_MONTHS: u32 = 1_314_000;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -184,6 +186,7 @@ pub mod pallet {
 		<<T as Config>::Currency as Currency<T::AccountId>>::Balance: From<u128>,
 		u128: From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
 		VestingBalanceOf<T>: From<u128>,
+		BlockNumberFor<T>: From<u32>,
 	{
 		/// Set merkle root for claims
 		#[pallet::call_index(0)]
@@ -344,8 +347,9 @@ pub mod pallet {
 
 			let unlock_per_block = amount / EIGHTEEN_MONTHS as u128;
 
-			let starting_block =
-				StartingBlock::<T>::get().unwrap_or(frame_system::Pallet::<T>::block_number());
+			let starting_block = StartingBlock::<T>::get()
+				.unwrap_or(frame_system::Pallet::<T>::block_number()) +
+				SIX_MONTHS.into();
 
 			pallet_vesting::Pallet::<T>::add_vesting_schedule(
 				&beneficiary,
@@ -366,6 +370,7 @@ pub mod pallet {
 		<<T as Config>::Currency as Currency<T::AccountId>>::Balance: From<u128>,
 		u128: From<<<T as Config>::Currency as Currency<T::AccountId>>::Balance>,
 		VestingBalanceOf<T>: From<u128>,
+		BlockNumberFor<T>: From<u32>,
 	{
 		type Call = Call<T>;
 
@@ -379,6 +384,8 @@ pub mod pallet {
 				Call::claim_tokens { params } => Self::execute_claim(params.clone())
 					.map(|_| sp_io::hashing::keccak_256(&params.encode())),
 				Call::claim_iro { params } => Self::execute_iro_claim(params.clone())
+					.map(|_| sp_io::hashing::keccak_256(&params.encode())),
+				Call::claim_crowdloan { params } => Self::execute_crowdloan_claim(params.clone())
 					.map(|_| sp_io::hashing::keccak_256(&params.encode())),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};

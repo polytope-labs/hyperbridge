@@ -3,7 +3,7 @@
 use codec::Encode;
 use pallet_bridge_airdrop::{
 	CrowdloanMerkleRoot, IroMerkleRoot, IroProof, KeccakHasher, MerkleRoot, Proof, EIGHTEEN_MONTHS,
-	ETHEREUM_MESSAGE_PREFIX,
+	ETHEREUM_MESSAGE_PREFIX, SIX_MONTHS,
 };
 use polkadot_sdk::{
 	frame_support::{assert_err, assert_noop, crypto::ecdsa::ECDSAExt},
@@ -229,6 +229,8 @@ fn should_claim_crowdloan_correctly() {
 		)
 		.unwrap();
 
+		let schedule = pallet_vesting::Vesting::<Test>::get(beneficiary.clone());
+
 		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
 		let locked = params.amount;
@@ -246,9 +248,9 @@ fn should_claim_crowdloan_correctly() {
 
 		let current_locked = account_data.data.frozen;
 
-		let vested_days = EIGHTEEN_MONTHS / 5;
+		let today = SIX_MONTHS as u64 + (EIGHTEEN_MONTHS / 5);
 
-		frame_system::Pallet::<Test>::set_block_number(vested_days);
+		frame_system::Pallet::<Test>::set_block_number(today);
 
 		pallet_vesting::Pallet::<Test>::vest(RuntimeOrigin::signed(beneficiary.clone())).unwrap();
 
@@ -256,6 +258,7 @@ fn should_claim_crowdloan_correctly() {
 
 		let unlock_per_block = locked / EIGHTEEN_MONTHS as u128;
 
+		let vested_days = today - SIX_MONTHS as u64;
 		let unlocked = unlock_per_block * vested_days as u128;
 
 		assert_eq!(account_data.data.frozen, current_locked - unlocked);

@@ -71,10 +71,20 @@ pub mod pallet {
 	#[pallet::getter(fn claimed)]
 	pub type Claimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
 
+	/// Set of leaf indexes that have been claimed
+	#[pallet::storage]
+	#[pallet::getter(fn iro_claimed)]
+	pub type IroClaimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
+
 	/// Merkle root and total leafcount
 	#[pallet::storage]
 	#[pallet::getter(fn merkle_root)]
 	pub type MerkleRoot<T: Config> = StorageValue<_, (H256, u64), OptionQuery>;
+
+	/// Merkle root and total leafcount
+	#[pallet::storage]
+	#[pallet::getter(fn iro_merkle_root)]
+	pub type IroMerkleRoot<T: Config> = StorageValue<_, (H256, u64), OptionQuery>;
 
 	/// Merkle root and total leafcount
 	#[pallet::storage]
@@ -122,6 +132,20 @@ pub mod pallet {
 		pub amount: Balance,
 	}
 
+	#[derive(
+		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+	)]
+	pub struct IroProof<AccountId, Balance> {
+		/// Receiving account on Hyperbridge
+		pub beneficiary: AccountId,
+		/// Merkle proof of eligibility
+		pub proof_items: Vec<H256>,
+		/// Leaf index for (beneficiary, amount) in the merkle tree
+		pub leaf_index: u64,
+		/// Amount to claim
+		pub amount: Balance,
+	}
+
 	#[derive(Clone, Copy)]
 	pub struct KeccakHasher;
 
@@ -155,7 +179,7 @@ pub mod pallet {
 		/// Set merkle root for claims
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn set_merkle_root(
+		pub fn set_airdrop_merkle_root(
 			origin: OriginFor<T>,
 			root: H256,
 			leaf_count: u64,
@@ -166,8 +190,22 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Claim bridge tokens
+		/// Set merkle root for claims
 		#[pallet::call_index(1)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
+		pub fn set_iro_merkle_root(
+			origin: OriginFor<T>,
+			root: H256,
+			leaf_count: u64,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+
+			IroMerkleRoot::<T>::put((root, leaf_count));
+			Ok(())
+		}
+
+		/// Claim bridge tokens
+		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn claim_tokens(
 			origin: OriginFor<T>,
@@ -181,6 +219,52 @@ pub mod pallet {
 			let beneficiary = params.beneficiary.clone();
 			let amount = params.amount;
 			Self::execute_claim(params)?;
+
+			// Unlock 25% of token amount
+			let percent = Permill::from_parts(250_000);
+			let unlocked_balance = percent * u128::from(amount);
+
+			let locked = u128::from(amount).saturating_sub(unlocked_balance);
+
+			<<T as Config>::Currency as Currency<T::AccountId>>::transfer(
+				&Self::account_id(),
+				&beneficiary,
+				amount.into(),
+				ExistenceRequirement::AllowDeath,
+			)?;
+
+			let unlock_per_block = locked / EIGHTEEN_MONTHS as u128;
+
+			let starting_block =
+				StartingBlock::<T>::get().unwrap_or(frame_system::Pallet::<T>::block_number());
+
+			pallet_vesting::Pallet::<T>::add_vesting_schedule(
+				&beneficiary,
+				locked.into(),
+				unlock_per_block.into(),
+				starting_block,
+			)?;
+
+			Self::deposit_event(Event::<T>::Claimed { beneficiary, amount });
+
+			Ok(())
+		}
+
+		/// Claim iro tokens
+		#[pallet::call_index(3)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
+		pub fn claim_iro(
+			origin: OriginFor<T>,
+			params: IroProof<
+				T::AccountId,
+				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+			>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+
+			let beneficiary = params.beneficiary.clone();
+			let amount = params.amount;
+			Self::execute_iro_claim(params)?;
 
 			// Unlock 25% of token amount
 			let percent = Permill::from_parts(250_000);
@@ -228,12 +312,16 @@ pub mod pallet {
 		}
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			let Call::claim_tokens { params } = call else {
-				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
+			let res = match call {
+				Call::claim_tokens { params } => Self::execute_claim(params.clone())
+					.map(|_| sp_io::hashing::keccak_256(&params.encode())),
+				Call::claim_iro { params } => Self::execute_iro_claim(params.clone())
+					.map(|_| sp_io::hashing::keccak_256(&params.encode())),
+				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
 
-			let msg_hash = match Self::execute_claim(params.clone()) {
-				Ok(_) => sp_io::hashing::keccak_256(&params.encode()),
+			let msg_hash = match res {
+				Ok(msg_hash) => msg_hash,
 				Err(_) => {
 					return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
 				},
@@ -270,6 +358,30 @@ pub mod pallet {
 			verify_proof(root, leaf_count, params.clone()).map_err(|_| Error::<T>::InvalidProof)?;
 
 			Claimed::<T>::insert(params.leaf_index, true);
+			Ok(())
+		}
+
+		fn execute_iro_claim(
+			params: IroProof<
+				T::AccountId,
+				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+			>,
+		) -> DispatchResult {
+			let (root, leaf_count) =
+				IroMerkleRoot::<T>::get().ok_or_else(|| Error::<T>::MerkleRootNotFound)?;
+
+			if IroClaimed::<T>::get(params.leaf_index).is_some() {
+				Err(Error::<T>::AlreadyClaimed)?
+			}
+
+			if params.leaf_index >= leaf_count {
+				Err(Error::<T>::InvalidLeafIndex)?
+			}
+
+			verify_iro_proof(root, leaf_count, params.clone())
+				.map_err(|_| Error::<T>::InvalidProof)?;
+
+			IroClaimed::<T>::insert(params.leaf_index, true);
 			Ok(())
 		}
 
@@ -317,6 +429,29 @@ pub mod pallet {
 		);
 
 		let leaf_hash = sp_io::hashing::keccak_256(&(params.who, params.amount).encode());
+
+		if !proof.verify(
+			merkle_root.0,
+			&[params.leaf_index as usize],
+			&[leaf_hash],
+			leaf_count as usize,
+		) {
+			Err(anyhow!("Invalid Merkle Proof"))?
+		}
+
+		Ok(())
+	}
+
+	fn verify_iro_proof<AccountId: Encode, Balance: Encode>(
+		merkle_root: H256,
+		leaf_count: u64,
+		params: IroProof<AccountId, Balance>,
+	) -> Result<(), anyhow::Error> {
+		let proof = MerkleProof::<KeccakHasher>::new(
+			params.proof_items.into_iter().map(|val| val.0).collect(),
+		);
+
+		let leaf_hash = sp_io::hashing::keccak_256(&(params.beneficiary, params.amount).encode());
 
 		if !proof.verify(
 			merkle_root.0,

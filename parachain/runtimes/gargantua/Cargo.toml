@@ -47,6 +47,7 @@ simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
 pallet-token-gateway = { workspace = true }
+pallet-bridge-airdrop = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -105,6 +106,7 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
+    "pallet-vesting"
 ]
 
 [features]
@@ -141,6 +143,7 @@ std = [
     "anyhow/std",
     "cumulus-pallet-parachain-system/std",
     "frame-benchmarking/std",
+    "pallet-bridge-airdrop/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

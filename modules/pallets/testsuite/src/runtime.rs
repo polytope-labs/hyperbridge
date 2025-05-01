@@ -15,7 +15,7 @@
 #![allow(missing_docs, dead_code)]
 
 extern crate alloc;
-use polkadot_sdk::*;
+use polkadot_sdk::{frame_support::traits::WithdrawReasons, sp_runtime::traits::ConvertInto, *};
 
 use alloc::collections::BTreeMap;
 use cumulus_pallet_parachain_system::ParachainSetCode;
@@ -84,6 +84,8 @@ frame_support::construct_runtime!(
 		IsmpBsc: ismp_bsc::pallet,
 		TokenGateway: pallet_token_gateway,
 		TokenGatewayInspector: pallet_token_gateway_inspector,
+		Vesting: pallet_vesting,
+		BridgeDrop: pallet_bridge_airdrop
 	}
 );
 
@@ -291,6 +293,28 @@ impl pallet_call_decompressor::Config for Test {
 	type MaxCallSize = ConstU32<2>;
 }
 
+impl pallet_bridge_airdrop::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+}
+
+parameter_types! {
+	pub const MinVestedTransfer: u64 = 256 * 2;
+	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+		WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
+impl pallet_vesting::Config for Test {
+	type BlockNumberToBalance = ConvertInto;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	const MAX_VESTING_SCHEDULES: u32 = 3;
+	type MinVestedTransfer = MinVestedTransfer;
+	type WeightInfo = ();
+	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+	type BlockNumberProvider = System;
+}
+
 #[derive(Default)]
 pub struct ErrorModule;
 
@@ -478,7 +502,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	let mut storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	pallet_balances::GenesisConfig::<Test> {
-		balances: vec![(ALICE, INITIAL_BALANCE), (TokenGateway::pallet_account(), INITIAL_BALANCE)],
+		balances: vec![
+			(ALICE, INITIAL_BALANCE),
+			(TokenGateway::pallet_account(), INITIAL_BALANCE),
+			(BridgeDrop::account_id(), INITIAL_BALANCE * 5000),
+		],
 	}
 	.assimilate_storage(&mut storage)
 	.unwrap();

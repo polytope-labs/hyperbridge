@@ -15,11 +15,7 @@
 #![allow(missing_docs, dead_code)]
 
 extern crate alloc;
-use polkadot_sdk::{
-	frame_support::traits::WithdrawReasons,
-	sp_runtime::traits::{Convert, Identity},
-	*,
-};
+use polkadot_sdk::{frame_support::traits::WithdrawReasons, sp_runtime::traits::ConvertInto, *};
 
 use alloc::collections::BTreeMap;
 use cumulus_pallet_parachain_system::ParachainSetCode;
@@ -308,14 +304,8 @@ parameter_types! {
 		WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
 }
 
-pub struct BlockNumberToBalance;
-impl Convert<u64, u128> for BlockNumberToBalance {
-	fn convert(a: u64) -> u128 {
-		a.into()
-	}
-}
 impl pallet_vesting::Config for Test {
-	type BlockNumberToBalance = BlockNumberToBalance;
+	type BlockNumberToBalance = ConvertInto;
 	type Currency = Balances;
 	type RuntimeEvent = RuntimeEvent;
 	const MAX_VESTING_SCHEDULES: u32 = 3;
@@ -420,8 +410,9 @@ impl ConsensusClient for MockConsensusClient {
 
 	fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, IsmpError> {
 		let state_machine: Box<dyn StateMachineClient> = match _id {
-			StateMachine::Kusama(2000) | StateMachine::Kusama(2001) =>
-				Box::new(SubstrateStateMachine::<Test>::default()),
+			StateMachine::Kusama(2000) | StateMachine::Kusama(2001) => {
+				Box::new(SubstrateStateMachine::<Test>::default())
+			},
 			_ => Box::new(MockStateMachine),
 		};
 		Ok(state_machine)

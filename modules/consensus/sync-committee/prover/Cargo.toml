@@ -35,3 +35,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"]}
 parity-scale-codec = "3.2.2"
 reqwest-eventsource = "0.4.0"
 dotenv = "0.15.0"
+
+
+[features]
+electra = []

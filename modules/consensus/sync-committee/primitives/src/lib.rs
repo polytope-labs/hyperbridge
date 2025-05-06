@@ -9,7 +9,6 @@ pub mod consensus_types;
 pub mod constants;
 pub mod deneb;
 pub mod domains;
-#[cfg(feature = "electra")]
 pub mod electra;
 pub mod error;
 mod ssz;

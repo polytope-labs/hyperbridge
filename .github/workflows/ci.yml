@@ -349,7 +349,7 @@ jobs:
 
             - name: sync-committee electra integration tests
               run: |
-                  cargo test -p sync-committee-prover --features electra -- --nocapture --ignored
+                  cargo test -p sync-committee-prover -- --nocapture --ignored
 
             #      - name: polygon pos integration tests
             #        run: |

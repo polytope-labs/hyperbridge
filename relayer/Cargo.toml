@@ -1,6 +1,6 @@
 [package]
 name = "tesseract"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 
 [lib]
@@ -49,6 +49,3 @@ tesseract-substrate = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-primitives = { workspace = true }
 rustls = { version = "0.23.23", features = ["ring"] }
-
-[features]
-electra = ["tesseract-sync-committee/electra"]

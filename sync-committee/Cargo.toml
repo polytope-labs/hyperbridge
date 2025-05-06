@@ -48,4 +48,3 @@ anyhow = "1.0.75"
 
 [features]
 testing = []
-electra = ["sync-committee-prover/electra", "sync-committee-primitives/electra"]

@@ -26,5 +26,11 @@
 			"handlerV1": "0x01b40De26Ba4C63c17A6f4Ed2cF96927C280B029",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177"
 		}
+	},
+	"cere-local": {
+		"type": "substrate",
+		"chainId": "0x42b9b44b4950b6c1edae543a7696caf8d0a160e9bc0424ab4ab217f7a8ba30dc",
+		"startBlock": 7599812,
+		"stateMachineId": "SUBSTRATE-cere"
 	}
 }

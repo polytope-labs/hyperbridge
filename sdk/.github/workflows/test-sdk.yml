@@ -51,6 +51,7 @@ jobs:
                   HYPERBRIDGE_GARGANTUA=${{ secrets.HYPERBRIDGE_GARGANTUA }}
                   PASEO_RPC_URL=${{ secrets.PASEO_RPC_URL }}
                   BIFROST_PASEO=${{ secrets.BIFROST_PASEO }}
+                  CERE_LOCAL=${{ secrets.CERE_RPC_URL }}
                   INDEXER_URL=${{ secrets.INDEXER_URL }}
                   PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
                   SECRET_PHRASE=${{ secrets.SECRET_PHRASE }}

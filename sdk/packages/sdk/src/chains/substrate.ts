@@ -1,20 +1,13 @@
 import { ApiPromise, WsProvider } from "@polkadot/api"
 import { RpcWebSocketClient } from "rpc-websocket-client"
-import { toHex, hexToBytes, toBytes, bytesToHex } from "viem"
+import { bytesToHex, hexToBytes, toBytes, toHex } from "viem"
 import { match } from "ts-pattern"
 import { capitalize } from "lodash-es"
 import { u8, Vector } from "scale-ts"
 
 import { BasicProof, isEvmChain, isSubstrateChain, type IStateMachine, Message, SubstrateStateProof } from "@/utils"
 import type { IChain, IIsmpMessage } from "@/chain"
-import {
-	type HexString,
-	IGetRequest,
-	type IPostRequest,
-	type IMessage,
-	type StateMachineIdParams,
-	type StateMachineHeight,
-} from "@/types"
+import type { HexString, IMessage, IPostRequest, StateMachineHeight, StateMachineIdParams } from "@/types"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 
 export interface SubstrateChainParams {
@@ -190,9 +183,12 @@ export class SubstrateChain implements IChain {
 	 * @param message - The message to be submitted.
 	 * @returns A promise that resolves to an object containing the transaction hash, block hash, and block number.
 	 */
-	async submitUnsigned(
-		message: IIsmpMessage,
-	): Promise<{ transactionHash: string; blockHash: string; blockNumber: number; timestamp: number }> {
+	async submitUnsigned(message: IIsmpMessage): Promise<{
+		transactionHash: string
+		blockHash: string
+		blockNumber: number
+		timestamp: number
+	}> {
 		if (!this.api) throw new Error("API not initialized")
 		const { api } = this
 		// remove the call and method selectors
@@ -294,57 +290,7 @@ export class SubstrateChain implements IChain {
 	 */
 	encode(message: IIsmpMessage): HexString {
 		const palletIndex = this.getPalletIndex("Ismp")
-		const args = match(message)
-			.with({ kind: "PostRequest" }, (message) =>
-				Vector(Message).enc([
-					{
-						tag: "RequestMessage",
-						value: {
-							requests: message.requests.map((r) => convertIPostRequestToCodec(r)),
-							proof: {
-								height: {
-									height: message.proof.height,
-									id: {
-										consensusStateId: Array.from(toBytes(message.proof.consensusStateId)),
-										id: convertStateMachineIdToEnum(message.proof.stateMachine) as any,
-									},
-								},
-								proof: Array.from(hexToBytes(message.proof.proof)),
-							},
-							signer: Array.from(hexToBytes(message.signer)),
-						},
-					},
-				]),
-			)
-			.with({ kind: "GetResponse" }, (message) =>
-				(() => {
-					throw new Error("GetResponse is not yet supported on Substrate chains")
-				})(),
-			)
-			.with({ kind: "TimeoutPostRequest" }, (message) =>
-				Vector(Message).enc([
-					{
-						tag: "TimeoutMessage",
-						value: {
-							tag: "Post",
-							value: {
-								requests: message.requests.map((r) => convertIPostRequestToCodec(r)),
-								proof: {
-									height: {
-										height: message.proof.height,
-										id: {
-											consensusStateId: Array.from(toBytes(message.proof.consensusStateId)),
-											id: convertStateMachineIdToEnum(message.proof.stateMachine) as any,
-										},
-									},
-									proof: Array.from(hexToBytes(message.proof.proof)),
-								},
-							},
-						},
-					},
-				]),
-			)
-			.exhaustive()
+		const args = encodeISMPMessage(message)
 
 		// Encoding the call enum and call index
 		const call = Vector(u8, 2).enc([palletIndex, 0])
@@ -417,7 +363,7 @@ export function convertStateMachineIdToEnum(id: string): IStateMachine {
  * @param {IPostRequest} request - The array of IPostRequest objects.
  * @returns {any} The codec representation of the requests.
  */
-function convertIPostRequestToCodec(request: IPostRequest): any {
+function convertIPostRequestToCodec(request: IPostRequest) {
 	return {
 		tag: "Post",
 		value: {
@@ -429,5 +375,63 @@ function convertIPostRequestToCodec(request: IPostRequest): any {
 			body: Array.from(hexToBytes(request.body)),
 			timeoutTimestamp: request.timeoutTimestamp,
 		},
+	} as const
+}
+
+export function encodeISMPMessage(message: IIsmpMessage): Uint8Array {
+	try {
+		return match(message)
+			.with({ kind: "PostRequest" }, (message) => {
+				return Vector(Message).enc([
+					{
+						tag: "RequestMessage",
+						value: {
+							requests: message.requests.map(
+								(post_request) => convertIPostRequestToCodec(post_request).value,
+							),
+							proof: {
+								height: {
+									height: message.proof.height,
+									id: {
+										consensusStateId: Array.from(toBytes(message.proof.consensusStateId)),
+										id: convertStateMachineIdToEnum(message.proof.stateMachine),
+									},
+								},
+								proof: Array.from(hexToBytes(message.proof.proof)),
+							},
+							signer: Array.from(hexToBytes(message.signer)),
+						},
+					},
+				])
+			})
+			.with({ kind: "GetResponse" }, (message) => {
+				throw new Error("GetResponse is not yet supported on Substrate chains")
+			})
+			.with({ kind: "TimeoutPostRequest" }, (message) => {
+				return Vector(Message).enc([
+					{
+						tag: "TimeoutMessage",
+						value: {
+							tag: "Post",
+							value: {
+								requests: message.requests.map((r) => convertIPostRequestToCodec(r)),
+								proof: {
+									height: {
+										height: message.proof.height,
+										id: {
+											consensusStateId: Array.from(toBytes(message.proof.consensusStateId)),
+											id: convertStateMachineIdToEnum(message.proof.stateMachine),
+										},
+									},
+									proof: Array.from(hexToBytes(message.proof.proof)),
+								},
+							},
+						},
+					},
+				])
+			})
+			.exhaustive()
+	} catch (error) {
+		throw new Error("Failed to encode ISMP message", { cause: error })
 	}
 }

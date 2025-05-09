@@ -15,7 +15,7 @@ use polkadot_sdk::*;
 
 use crate::{
 	messages::{ConsensusMessage, SubstrateHeader},
-	SupportedStateMachines,
+	AlternativeRelayChain, SupportedStateMachines,
 };
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use codec::{Decode, Encode};
@@ -89,7 +89,7 @@ where
 
 		// match over the message
 		match consensus_message {
-			ConsensusMessage::RelayChainMessage(relay_chain_message) => {
+			ConsensusMessage::RelayChain(relay_chain_message) => {
 				let headers_with_finality_proof = ParachainHeadersWithFinalityProof {
 					finality_proof: relay_chain_message.finality_proof,
 					parachain_headers: relay_chain_message.parachain_headers,
@@ -169,7 +169,7 @@ where
 
 				Ok((consensus_state.encode(), intermediates))
 			},
-			ConsensusMessage::StandaloneChainMessage(standalone_chain_message) => {
+			ConsensusMessage::StandaloneChain(standalone_chain_message) => {
 				let (consensus_state, header, _, _) = verify_grandpa_finality_proof(
 					consensus_state,
 					standalone_chain_message.finality_proof,
@@ -209,6 +209,65 @@ where
 				state_commitments_vec.push(intermediate);
 
 				intermediates.insert(state_id, state_commitments_vec);
+
+				Ok((consensus_state.encode(), intermediates))
+			},
+
+			ConsensusMessage::StandaloneRelayChain(relay_chain_message) => {
+				let headers_with_finality_proof = ParachainHeadersWithFinalityProof {
+					finality_proof: relay_chain_message.finality_proof,
+					parachain_headers: relay_chain_message.parachain_headers,
+				};
+
+				let (consensus_state, parachain_headers) =
+					verify_parachain_headers_with_grandpa_finality_proof(
+						consensus_state,
+						headers_with_finality_proof,
+					)
+					.map_err(|err| {
+						Error::Custom(format!("Error verifying parachain headers: {err:#?}"))
+					})?;
+
+				let parachain_headers = parachain_headers
+					.into_iter()
+					// filter out unknown para ids
+					.filter_map(|(para_id, header)| {
+						if let Some(info) =
+							AlternativeRelayChain::<T>::get(_consensus_state_id, para_id)
+						{
+							Some((info, header))
+						} else {
+							None
+						}
+					})
+					.collect::<Vec<_>>();
+
+				for (info, header_vec) in parachain_headers {
+					let mut state_commitments_vec = Vec::new();
+
+					for header in header_vec {
+						let digest_result =
+							fetch_overlay_root_and_timestamp(header.digest(), info.slot_duration)?;
+
+						if digest_result.timestamp == 0 {
+							Err(Error::Custom("Timestamp or ismp root not found".into()))?
+						}
+
+						let height: u32 = (*header.number()).into();
+
+						let intermediate = StateCommitmentHeight {
+							commitment: StateCommitment {
+								timestamp: digest_result.timestamp,
+								overlay_root: Some(digest_result.ismp_digest.child_trie_root),
+								state_root: header.state_root,
+							},
+							height: height.into(),
+						};
+						state_commitments_vec.push(intermediate);
+					}
+
+					intermediates.insert(info.state_machine, state_commitments_vec);
+				}
 
 				Ok((consensus_state.encode(), intermediates))
 			},

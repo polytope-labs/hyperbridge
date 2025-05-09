@@ -26,9 +26,11 @@ pub type SubstrateHeader = sp_runtime::generic::Header<u32, BlakeTwo256>;
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum ConsensusMessage {
 	/// This is the variant representing the standalone chain
-	StandaloneChainMessage(StandaloneChainMessage),
-	/// This is the variant representing the relay chain
-	RelayChainMessage(RelayChainMessage),
+	StandaloneChain(StandaloneChainMessage),
+	/// This is the variant representing the Polkadot relay chain
+	RelayChain(RelayChainMessage),
+	/// This is the variant representing a standalone relaychain
+	StandaloneRelayChain(RelayChainMessage),
 }
 
 #[derive(Clone, Debug, Encode, Decode)]

@@ -3,6 +3,8 @@ import { Status } from "@/configs/src/types"
 import { GetRequestTimeoutHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { GetRequestService } from "@/services/getRequest.service"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
 
 /**
  * Handles the GetRequestTimeoutHandled event from EVMHost
@@ -10,17 +12,18 @@ import { GetRequestService } from "@/services/getRequest.service"
 export async function handleGetRequestTimeoutHandled(event: GetRequestTimeoutHandledLog): Promise<void> {
 	if (!event.args) return
 
-	const { args, block, transactionHash, blockNumber } = event
+	const { args, block, transactionHash, blockNumber, blockHash } = event
 	const { commitment } = args
 
 	logger.info(
-		`Handling GetRequestTimeoutHandled Event: ${JSON.stringify({
+		`Handling GetRequestTimeoutHandled Event: ${stringify({
 			blockNumber,
 			transactionHash,
 		})}`,
 	)
 
 	const chain = getHostStateMachine(chainId)
+	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
 	await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain)
 
@@ -29,7 +32,7 @@ export async function handleGetRequestTimeoutHandled(event: GetRequestTimeoutHan
 		chain,
 		blockNumber: blockNumber.toString(),
 		blockHash: block.hash,
-		blockTimestamp: block.timestamp,
+		blockTimestamp,
 		status: Status.TIMED_OUT,
 		transactionHash,
 	})

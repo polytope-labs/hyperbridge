@@ -6,6 +6,8 @@ import {
 	StateMachineError,
 	SubstrateEventValidator,
 } from "@/utils/substrate.helpers"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
 
 /**
  * Extract consensusStateId from event data
@@ -90,7 +92,7 @@ export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent):
 		}
 
 		if (!SubstrateEventValidator.validateStateMachineEvent(event)) {
-			logger.error(`Invalid state machine event data: ${JSON.stringify(event.event)}`)
+			logger.error(`Invalid state machine event data: ${stringify(event.event)}`)
 			throw new StateMachineError(
 				"Invalid state machine event data",
 				host,
@@ -104,7 +106,6 @@ export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent):
 
 		const { method, data } = event.event
 
-		const timestamp = Math.floor(event.block.timestamp!.getTime() / 1000)
 		const height = Number(data[1].toString())
 		const blockNumber = event.block.block.header.number.toNumber()
 		const blockHash = event.block.block.header.hash.toString()
@@ -116,6 +117,8 @@ export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent):
 			return
 		}
 
+		const timestamp = await getBlockTimestamp(blockHash, host)
+
 		switch (method) {
 			case "StateMachineUpdated":
 				await StateMachineService.createSubstrateStateMachineUpdatedEvent(
@@ -124,7 +127,7 @@ export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent):
 						blockNumber,
 						transactionHash,
 						transactionIndex,
-						timestamp,
+						timestamp: Number(timestamp),
 						stateMachineId,
 						height,
 						consensusStateId,

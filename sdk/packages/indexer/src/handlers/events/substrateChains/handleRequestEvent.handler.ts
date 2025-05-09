@@ -7,6 +7,8 @@ import { RequestStatusMetadata, Status } from "@/configs/src/types"
 import { formatChain, getHostStateMachine, isHyperbridge, isSubstrateChain } from "@/utils/substrate.helpers"
 import { SUBSTRATE_RPC_URL } from "@/constants"
 import { RequestMetadata } from "@/utils/state-machine.helper"
+import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
 
 export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promise<void> {
 	logger.info(`Saw Ismp.Request Event on ${getHostStateMachine(chainId)}`)
@@ -20,7 +22,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 	const hostId = getHostStateMachine(chainId)
 
 	logger.info(
-		`Handling ISMP Request Event: ${JSON.stringify({
+		`Handling ISMP Request Event: ${stringify({
 			sourceId,
 			destId,
 			request_nonce,
@@ -51,7 +53,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 			accept: "application/json",
 			"content-type": "application/json",
 		},
-		body: JSON.stringify(method),
+		body: stringify(method),
 	})
 	const data = await response.json()
 
@@ -83,7 +85,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 			accept: "application/json",
 			"content-type": "application/json",
 		},
-		body: JSON.stringify({
+		body: stringify({
 			id: 1,
 			jsonrpc: "2.0",
 			method: "childstate_getStorage",
@@ -99,7 +101,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 	}
 
 	const host = getHostStateMachine(chainId)
-	const blockTimestamp = event.block?.timestamp!.getTime()
+	const blockTimestamp = await getBlockTimestamp(event.block.block.header.hash.toString(), host)
 
 	await RequestService.createOrUpdate({
 		chain: host,
@@ -134,13 +136,4 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 	})
 
 	await requestStatusMetadata.save()
-}
-
-export function replaceWebsocketWithHttp(url: string): string {
-	if (url.startsWith("ws://")) {
-		return url.replace("ws://", "http://")
-	} else if (url.startsWith("wss://")) {
-		return url.replace("wss://", "https://")
-	}
-	return url
 }

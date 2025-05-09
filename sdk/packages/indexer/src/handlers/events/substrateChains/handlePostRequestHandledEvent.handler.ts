@@ -4,6 +4,8 @@ import { Status } from "@/configs/src/types"
 import { getHostStateMachine, isHyperbridge } from "@/utils/substrate.helpers"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { Request } from "@/configs/src/types/models"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import { stringify } from "safe-stable-stringify"
 
 type EventData = {
 	commitment: string
@@ -17,7 +19,6 @@ export async function handleSubstratePostRequestHandledEvent(event: SubstrateEve
 	const {
 		extrinsic,
 		block: {
-			timestamp,
 			block: {
 				header: { number: blockNumber, hash: blockHash },
 			},
@@ -27,13 +28,10 @@ export async function handleSubstratePostRequestHandledEvent(event: SubstrateEve
 	const eventData = event.event.data[0] as unknown as EventData
 	const relayer_id = eventData.relayer.toString()
 
-	logger.info(
-		`Handling ISMP PostRequestHandled Event: ${JSON.stringify({
-			data: event.event.data,
-		})}`,
-	)
+	logger.info(`Handling ISMP PostRequestHandled Event Data: ${stringify({ eventData })}`)
 
 	const host = getHostStateMachine(chainId)
+	const blockTimestamp = await getBlockTimestamp(blockHash.toString(), host)
 
 	const request = await Request.get(eventData.commitment.toString())
 
@@ -53,12 +51,12 @@ export async function handleSubstratePostRequestHandledEvent(event: SubstrateEve
 	await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host)
 
 	logger.info(
-		`Handling ISMP PostRequestHandled Event: ${JSON.stringify({
+		`Handling ISMP PostRequestHandled Event: ${stringify({
 			commitment: eventData.commitment.toString(),
 			chain: host,
 			blockNumber: blockNumber,
 			blockHash: blockHash,
-			blockTimestamp: timestamp,
+			blockTimestamp,
 			status,
 			transactionHash: extrinsic?.extrinsic.hash || "",
 		})}`,
@@ -69,7 +67,7 @@ export async function handleSubstratePostRequestHandledEvent(event: SubstrateEve
 		chain: host,
 		blockNumber: blockNumber.toString(),
 		blockHash: blockHash.toString(),
-		blockTimestamp: timestamp ? BigInt(Date.parse(timestamp.toString())) : BigInt(0),
+		blockTimestamp,
 		status,
 		transactionHash: extrinsic?.extrinsic.hash.toString() || "",
 	})

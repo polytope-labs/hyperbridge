@@ -4,27 +4,30 @@ import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { ResponseService } from "@/services/response.service"
 import { RequestService } from "@/services/request.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
 
 /**
  * Handles the PostResponse event from Evm Hosts
  */
 export async function handlePostResponseEvent(event: PostResponseEventLog): Promise<void> {
 	logger.info(
-		`Handling PostRequest Event: ${JSON.stringify({
+		`Handling PostRequest Event: ${stringify({
 			event,
 		})}`,
 	)
 	if (!event.args) return
 
-	const { transaction, blockNumber, transactionHash, args, block } = event
+	const { transaction, blockNumber, transactionHash, args, block, blockHash } = event
 	let { body, dest, fee, from, nonce, source, timeoutTimestamp, to, response, responseTimeoutTimestamp } = args
 
 	const chain: string = getHostStateMachine(chainId)
+	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
 	await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event)
 
 	logger.info(
-		`Computing Response Commitment Event: ${JSON.stringify({
+		`Computing Response Commitment Event: ${stringify({
 			dest,
 			fee,
 			from,
@@ -50,7 +53,7 @@ export async function handlePostResponseEvent(event: PostResponseEventLog): Prom
 	)
 
 	logger.info(
-		`Response Commitment: ${JSON.stringify({
+		`Response Commitment: ${stringify({
 			commitment: response_commitment,
 		})}`,
 	)
@@ -86,6 +89,6 @@ export async function handlePostResponseEvent(event: PostResponseEventLog): Prom
 		blockNumber: blockNumber.toString(),
 		blockHash: block.hash,
 		transactionHash,
-		blockTimestamp: block.timestamp,
+		blockTimestamp,
 	})
 }

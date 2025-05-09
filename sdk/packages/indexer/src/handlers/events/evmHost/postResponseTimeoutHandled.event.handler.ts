@@ -2,7 +2,9 @@ import { Status } from "@/configs/src/types"
 import { PostResponseTimeoutHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { ResponseService } from "@/services/response.service"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import stringify from "safe-stable-stringify"
 
 /**
  * Handles the PostResponseTimeoutHandled event
@@ -13,13 +15,14 @@ export async function handlePostResponseTimeoutHandledEvent(event: PostResponseT
 	const { commitment, dest } = args
 
 	logger.info(
-		`Handling PostResponseTimeoutHandled Event: ${JSON.stringify({
+		`Handling PostResponseTimeoutHandled Event: ${stringify({
 			blockNumber,
 			transactionHash,
 		})}`,
 	)
 
 	const chain: string = getHostStateMachine(chainId)
+	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
 	try {
 		await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain)
@@ -29,11 +32,11 @@ export async function handlePostResponseTimeoutHandledEvent(event: PostResponseT
 			chain,
 			blockNumber: blockNumber.toString(),
 			blockHash: block.hash,
-			blockTimestamp: block.timestamp,
+			blockTimestamp,
 			status: Status.TIMED_OUT,
 			transactionHash,
 		})
 	} catch (error) {
-		logger.error(`Error updating handling post response timeout: ${JSON.stringify(error)}`)
+		logger.error(`Error updating handling post response timeout: ${stringify(error)}`)
 	}
 }

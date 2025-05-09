@@ -2,10 +2,11 @@ import { SubstrateEvent } from "@subql/types"
 import fetch from "node-fetch"
 import { formatChain, getHostStateMachine } from "@/utils/substrate.helpers"
 import { SUBSTRATE_RPC_URL } from "@/constants"
-import { replaceWebsocketWithHttp } from "./handleRequestEvent.handler"
 import { Get } from "@/utils/substrate.helpers"
 import { GetResponseService } from "@/services/getResponse.service"
 import { Status } from "@/configs/src/types"
+import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
 
 export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promise<void> {
 	const host = getHostStateMachine(chainId)
@@ -18,8 +19,10 @@ export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promi
 	const sourceId = formatChain(source_chain.toString())
 	const destId = formatChain(dest_chain.toString())
 
+	const blockTimestamp = await getBlockTimestamp(event.block.block.header.hash.toString(), host)
+
 	logger.info(
-		`Handling ISMP Response Event: ${JSON.stringify({
+		`Handling ISMP Response Event: ${stringify({
 			sourceId,
 			destId,
 			request_nonce,
@@ -41,11 +44,11 @@ export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promi
 			accept: "application/json",
 			"content-type": "application/json",
 		},
-		body: JSON.stringify(method),
+		body: stringify(method),
 	})
 	const data = await response.json()
 
-	logger.info(`Response from calling ismp_queryResponses: ${JSON.stringify(data)}`)
+	logger.info(`Response from calling ismp_queryResponses: ${stringify(data)}`)
 
 	if (data.result.length === 0) {
 		logger.error(`No responses found for commitment ${commitment.toString()}`)
@@ -66,7 +69,7 @@ export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promi
 			blockNumber: event.block.block.header.number.toString(),
 			blockHash: event.block.block.header.hash.toString(),
 			transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",
-			blockTimestamp: BigInt(event.block.timestamp!.getTime()),
+			blockTimestamp,
 		})
 	}
 }

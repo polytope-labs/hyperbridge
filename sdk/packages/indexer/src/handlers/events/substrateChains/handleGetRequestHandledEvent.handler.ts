@@ -2,8 +2,9 @@ import { SubstrateEvent } from "@subql/types"
 import { Status } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
-import { GetRequest } from "@/configs/src/types/models"
 import { GetRequestService } from "@/services/getRequest.service"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
 
 type EventData = {
 	commitment: string
@@ -17,7 +18,6 @@ export async function handleSubstrateGetRequestHandledEvent(event: SubstrateEven
 	const {
 		extrinsic,
 		block: {
-			timestamp,
 			block: {
 				header: { number: blockNumber, hash: blockHash },
 			},
@@ -28,12 +28,13 @@ export async function handleSubstrateGetRequestHandledEvent(event: SubstrateEven
 	const relayer_id = eventData.relayer.toString()
 
 	logger.info(
-		`Handling ISMP GetRequestHandled Event: ${JSON.stringify({
+		`Handling ISMP GetRequestHandled Event: ${stringify({
 			data: event.event.data,
 		})}`,
 	)
 
 	const host = getHostStateMachine(chainId)
+	const blockTimestamp = await getBlockTimestamp(blockHash.toString(), host)
 
 	const request = await GetRequestService.createOrUpdate({
 		id: eventData.commitment.toString(),
@@ -54,7 +55,7 @@ export async function handleSubstrateGetRequestHandledEvent(event: SubstrateEven
 		chain: host,
 		blockNumber: blockNumber.toString(),
 		blockHash: blockHash.toString(),
-		blockTimestamp: timestamp ? BigInt(Date.parse(timestamp.toString())) : BigInt(0),
+		blockTimestamp,
 		status,
 		transactionHash: extrinsic?.extrinsic.hash.toString() || "",
 	})

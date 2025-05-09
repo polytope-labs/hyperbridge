@@ -4,30 +4,32 @@ import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { GetRequestService } from "@/services/getRequest.service"
 import { GetRequestStatusMetadata, Status } from "@/configs/src/types"
 import { normalizeTimestamp } from "@/utils/date.helpers"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
 
 /**
  * Handles the GetRequest event from Evm Hosts
  */
 export async function handleGetRequestEvent(event: GetRequestEventLog): Promise<void> {
 	logger.info(
-		`Handling GetRequest Event: ${JSON.stringify({
+		`Handling GetRequest Event: ${stringify({
 			event,
 		})}`,
 	)
 	if (!event.args) return
 
-	const { blockNumber, transactionHash, args, block } = event
+	const { blockNumber, transactionHash, args, block, blockHash } = event
 	let { source, dest, from, nonce, height, context, timeoutTimestamp, fee } = args
-	let { hash, timestamp } = block
 	let keys = args[3]
 
 	const chain: string = getHostStateMachine(chainId)
+	const timestamp = await getBlockTimestamp(blockHash, chain)
 
 	// Update HyperBridge stats
 	await HyperBridgeService.incrementNumberOfSentMessages(chain)
 
 	logger.info(
-		`Processing GetRequest Event: ${JSON.stringify({
+		`Processing GetRequest Event: ${stringify({
 			source,
 			dest,
 			from,
@@ -52,7 +54,7 @@ export async function handleGetRequestEvent(event: GetRequestEventLog): Promise<
 	)
 
 	logger.info(
-		`Get Request Commitment: ${JSON.stringify({
+		`Get Request Commitment: ${stringify({
 			commitment: get_request_commitment,
 		})}`,
 	)
@@ -73,7 +75,7 @@ export async function handleGetRequestEvent(event: GetRequestEventLog): Promise<
 		fee: BigInt(fee.toString()),
 		transactionHash,
 		blockNumber: blockNumber.toString(),
-		blockHash: hash,
+		blockHash,
 		blockTimestamp,
 		status: Status.SOURCE,
 		chain,
@@ -86,7 +88,7 @@ export async function handleGetRequestEvent(event: GetRequestEventLog): Promise<
 		chain,
 		timestamp: blockTimestamp,
 		blockNumber: blockNumber.toString(),
-		blockHash: hash,
+		blockHash,
 		transactionHash,
 		createdAt: new Date(Number(normalizedTimestamp)),
 	})

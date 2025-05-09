@@ -3,6 +3,8 @@ import { Status } from "@/configs/src/types"
 import { PostRequestHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { RequestService } from "@/services/request.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
 
 /**
  * Handles the PostRequestHandled event from Hyperbridge
@@ -14,13 +16,14 @@ export async function handlePostRequestHandledEvent(event: PostRequestHandledLog
 	const { relayer: relayer_id, commitment } = args
 
 	logger.info(
-		`Handling PostRequestHandled Event: ${JSON.stringify({
+		`Handling PostRequestHandled Event: ${stringify({
 			blockNumber,
 			transactionHash,
 		})}`,
 	)
 
 	const chain = getHostStateMachine(chainId)
+	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
 	try {
 		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain)
@@ -30,11 +33,11 @@ export async function handlePostRequestHandledEvent(event: PostRequestHandledLog
 			chain,
 			blockNumber: blockNumber.toString(),
 			blockHash: block.hash,
-			blockTimestamp: block.timestamp,
+			blockTimestamp,
 			status: Status.DESTINATION,
 			transactionHash,
 		})
 	} catch (error) {
-		;`Error handling PostRequestHandled event: ${JSON.stringify(error)}`
+		console.error(`Error handling PostRequestHandled event: ${stringify(error)}`)
 	}
 }

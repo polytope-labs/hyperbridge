@@ -330,6 +330,24 @@ const generateSubstrateWsJson = () => {
 	console.log("Generated substrate-ws.json")
 }
 
+const generateEvmWsJson = () => {
+	const evmWsConfig = {}
+
+	validChains.forEach(([chain, config]) => {
+		if (config.type === "evm") {
+			const envKey = chain.replace(/-/g, "_").toUpperCase()
+			const endpoints = process.env[envKey]?.split(",") || []
+
+			if (endpoints.length > 0) {
+				evmWsConfig[config.stateMachineId] = endpoints[0].trim()
+			}
+		}
+	})
+
+	fs.writeFileSync(root + "/src/evm-ws.json", JSON.stringify(evmWsConfig, null, 2))
+	console.log("Generated evm-ws.json")
+}
+
 const generateChainIdsByGenesis = () => {
 	const chainIdsByGenesis = {}
 
@@ -367,6 +385,7 @@ generateAllChainYamls()
 	.then(() => {
 		generateMultichainYaml()
 		generateSubstrateWsJson()
+		generateEvmWsJson()
 		generateChainIdsByGenesis()
 		generateChainsByIsmpHost()
 		process.exit(0)

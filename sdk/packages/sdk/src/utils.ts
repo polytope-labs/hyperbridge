@@ -478,3 +478,10 @@ export function constructRedeemEscrowRequestBody(order: Order, beneficiary: HexS
 
 	return concatHex([requestKind, encodedRequestBody]) as HexString
 }
+
+export const normalizeTimestamp = (timestamp: bigint): bigint => {
+	if (timestamp.toString().length <= 11) {
+		return timestamp * 1000n
+	}
+	return timestamp
+}

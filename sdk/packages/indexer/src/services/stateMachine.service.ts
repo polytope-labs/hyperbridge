@@ -116,7 +116,7 @@ export class StateMachineService {
 			blockHash,
 			blockNumber: Number(blockNumber),
 			commitmentTimestamp: stateCommitment.timestamp,
-			createdAt: new Date(timestamp * 1000),
+			createdAt: new Date(timestamp),
 		})
 
 		await event.save()

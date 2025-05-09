@@ -25,13 +25,25 @@ import { teleportDot } from "@/utils/xcmGateway"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { u8aToHex, hexToU8a } from "@polkadot/util"
-import { postRequestCommitment } from "@/utils"
+import { normalizeTimestamp, postRequestCommitment } from "@/utils"
 import { createQueryClient } from "@/query-client"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 
 const query_client = createQueryClient({
 	url: process.env.INDEXER_URL!,
 })
+
+function assertIsToday(timestamp: bigint) {
+	const dateToCheck = new Date(Number(normalizeTimestamp(timestamp)))
+	const today = new Date()
+
+	const isToday =
+		dateToCheck.getDate() === today.getDate() &&
+		dateToCheck.getMonth() === today.getMonth() &&
+		dateToCheck.getFullYear() === today.getFullYear()
+
+	expect(isToday).toBeTruthy()
+}
 
 describe.sequential("Hyperbridge Requests", () => {
 	let indexer: IndexerClient
@@ -179,6 +191,7 @@ describe.sequential("Hyperbridge Requests", () => {
 						console.log("\n\n\nRaw ABI call data:", status.metadata.calldata, "\n\n\n")
 
 						expect(functionName).toBe("handlePostRequests")
+						assertIsToday(BigInt(status.metadata.timestamp!))
 
 						try {
 							const hash = await bscHandler.write.handlePostRequests(args as any)
@@ -199,6 +212,7 @@ describe.sequential("Hyperbridge Requests", () => {
 						console.log(
 							`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
 						)
+						assertIsToday(BigInt(status.metadata.timestamp!))
 						break
 					}
 				}
@@ -284,12 +298,14 @@ describe.sequential("Hyperbridge Requests", () => {
 						console.log(
 							`Status ${status.status}, Transaction: https://gargantua.statescan.io/extrinsics/${status.metadata?.transactionHash}`,
 						)
+						assertIsToday(BigInt(status.metadata!.timestamp!))
 						break
 					}
 					case TimeoutStatus.TIMED_OUT: {
 						console.log(
 							`Status ${status.status}, Transaction: https://gargantua.statescan.io/extrinsics/${status.metadata?.transactionHash}`,
 						)
+						assertIsToday(BigInt(status.metadata!.timestamp!))
 						break
 					}
 				}
@@ -370,6 +386,7 @@ describe.sequential("Hyperbridge Requests", () => {
 					console.log(
 						`Status ${status.status}, Transaction: https://gargantua.statescan.io/#/extrinsics/${status.metadata.transactionHash}`,
 					)
+					assertIsToday(BigInt(status.metadata.timestamp!))
 					break
 				}
 
@@ -378,6 +395,7 @@ describe.sequential("Hyperbridge Requests", () => {
 					console.log(
 						`Status ${status.status}, Transaction: https://gargantua.statescan.io/#/extrinsics/${status.metadata.transactionHash}`,
 					)
+					assertIsToday(BigInt(status.metadata.timestamp!))
 					break
 				}
 			}
@@ -512,7 +530,7 @@ describe.sequential("Hyperbridge Requests", () => {
 						abi: HANDLER.ABI,
 						data: timeout.metadata!.calldata! as any,
 					})
-
+					assertIsToday(BigInt(timeout.metadata!.timestamp!))
 					expect(functionName).toBe("handlePostRequestTimeouts")
 
 					try {

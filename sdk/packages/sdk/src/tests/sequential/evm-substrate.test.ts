@@ -20,7 +20,7 @@ import {
 } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { bscTestnet } from "viem/chains"
-import { DEFAULT_LOGGER, postRequestCommitment } from "@/utils"
+import { DEFAULT_LOGGER, normalizeTimestamp, postRequestCommitment } from "@/utils"
 import { IndexerClient } from "@/client"
 import { createQueryClient } from "@/query-client"
 
@@ -54,6 +54,18 @@ const Token = {
 	symbol: "CERE",
 	address: "0xf310641B4B6c032D0c88d72d712C020fCa9805A3",
 	decimals: 18,
+}
+
+function assertIsToday(timestamp: bigint) {
+	const dateToCheck = new Date(Number(normalizeTimestamp(timestamp)))
+	const today = new Date()
+
+	const isToday =
+		dateToCheck.getDate() === today.getDate() &&
+		dateToCheck.getMonth() === today.getMonth() &&
+		dateToCheck.getFullYear() === today.getFullYear()
+
+	expect(isToday).toBeTruthy()
 }
 
 test("EVM -> Substrate token transfer", { timeout: 5_400_000 }, async () => {
@@ -93,10 +105,30 @@ test("EVM -> Substrate token transfer", { timeout: 5_400_000 }, async () => {
 	const statusStream = indexer.postRequestStatusStream(commitment)
 
 	for await (const status of statusStream) {
-		console.log(JSON.stringify(status, null, 4))
+		switch (status.status) {
+			case RequestStatus.SOURCE: {
+				assertIsToday(BigInt(status.metadata.timestamp!))
+				break
+			}
+			case RequestStatus.SOURCE_FINALIZED: {
+				assertIsToday(BigInt(status.metadata.timestamp!))
+				break
+			}
 
-		if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
-			console.log("Request is now timed out", postRequest.timeoutTimestamp)
+			case RequestStatus.HYPERBRIDGE_DELIVERED: {
+				assertIsToday(BigInt(status.metadata.timestamp!))
+				break
+			}
+
+			case RequestStatus.HYPERBRIDGE_FINALIZED: {
+				assertIsToday(BigInt(status.metadata.timestamp!))
+				break
+			}
+		}
+
+		console.log(JSON.stringify(status, null, 4))
+		if (status.status === RequestStatus.HYPERBRIDGE_FINALIZED) {
+			break
 		}
 	}
 

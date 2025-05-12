@@ -1,4 +1,5 @@
 import { GetResponse, Status } from "@/configs/src/types"
+import { timestampToDate } from "@/utils/date.helpers"
 
 export interface ICreateGetResponseArgs {
 	chain: string
@@ -48,7 +49,7 @@ export class GetResponseService {
 				requestId: request,
 				response_message: response_message || [""],
 				responseTimeoutTimestamp,
-				createdAt: new Date(Number(blockTimestamp)),
+				createdAt: timestampToDate(blockTimestamp),
 				blockNumber,
 				blockHash,
 				transactionHash,

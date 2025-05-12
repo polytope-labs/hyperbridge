@@ -3,7 +3,7 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { GetRequestService } from "@/services/getRequest.service"
 import { GetRequestStatusMetadata, Status } from "@/configs/src/types"
-import { normalizeTimestamp } from "@/utils/date.helpers"
+import { timestampToDate } from "@/utils/date.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 
@@ -59,7 +59,6 @@ export async function handleGetRequestEvent(event: GetRequestEventLog): Promise<
 		})}`,
 	)
 
-	const normalizedTimestamp = normalizeTimestamp(timestamp)
 	const blockTimestamp = block.timestamp
 
 	await GetRequestService.createOrUpdate({
@@ -90,7 +89,7 @@ export async function handleGetRequestEvent(event: GetRequestEventLog): Promise<
 		blockNumber: blockNumber.toString(),
 		blockHash,
 		transactionHash,
-		createdAt: new Date(Number(normalizedTimestamp)),
+		createdAt: timestampToDate(timestamp),
 	})
 
 	await getRequestStatusMetadata.save()

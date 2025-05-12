@@ -1,6 +1,7 @@
 import { GetRequest, GetRequestStatusMetadata, Status } from "@/configs/src/types"
 import { ethers } from "ethers"
 import { solidityKeccak256 } from "ethers/lib/utils"
+import { timestampToDate } from "@/utils/date.helpers"
 
 export interface IGetRequestArgs {
 	id: string
@@ -158,7 +159,7 @@ export class GetRequestService {
 			blockNumber,
 			blockHash,
 			transactionHash,
-			createdAt: new Date(Number(blockTimestamp)),
+			createdAt: timestampToDate(blockTimestamp),
 		})
 
 		await getRequestStatusMetadata.save()

@@ -1,6 +1,7 @@
 import { solidityKeccak256 } from "ethers/lib/utils"
 import { Request, Response, ResponseStatusMetadata, Status } from "@/configs/src/types"
 import { ethers } from "ethers"
+import { timestampToDate } from "@/utils/date.helpers"
 
 export interface ICreateResponseArgs {
 	chain: string
@@ -70,7 +71,7 @@ export class ResponseService {
 				requestId: request?.id,
 				status,
 				responseTimeoutTimestamp,
-				createdAt: new Date(Number(blockTimestamp)),
+				createdAt: timestampToDate(blockTimestamp),
 			})
 
 			await response.save()
@@ -92,7 +93,7 @@ export class ResponseService {
 				blockNumber,
 				blockHash,
 				transactionHash,
-				createdAt: new Date(Number(blockTimestamp)),
+				createdAt: timestampToDate(blockTimestamp),
 			})
 
 			await responseStatusMetadata.save()
@@ -120,7 +121,7 @@ export class ResponseService {
 				blockNumber,
 				blockHash,
 				transactionHash,
-				createdAt: new Date(Number(blockTimestamp)),
+				createdAt: timestampToDate(blockTimestamp),
 			})
 
 			await responseStatusMetadata.save()

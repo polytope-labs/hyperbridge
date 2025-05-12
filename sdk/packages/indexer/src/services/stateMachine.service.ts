@@ -1,5 +1,6 @@
 import { StateMachineUpdateEvent } from "@/configs/src/types"
 import { fetchStateCommitmentsEVM, fetchStateCommitmentsSubstrate, getStateId } from "@/utils/state-machine.helper"
+import { timestampToDate } from "@/utils/date.helpers"
 
 // Arguments to functions that create StateMachineUpdated events
 export interface ICreateStateMachineUpdatedEventArgs {
@@ -62,7 +63,7 @@ export class StateMachineService {
 			blockHash,
 			blockNumber: Number(blockNumber),
 			commitmentTimestamp: stateCommitment.timestamp,
-			createdAt: new Date(timestamp * 1000),
+			createdAt: timestampToDate(timestamp),
 		})
 
 		await event.save()
@@ -116,7 +117,7 @@ export class StateMachineService {
 			blockHash,
 			blockNumber: Number(blockNumber),
 			commitmentTimestamp: stateCommitment.timestamp,
-			createdAt: new Date(timestamp),
+			createdAt: timestampToDate(timestamp),
 		})
 
 		await event.save()

@@ -1,4 +1,5 @@
 import { AssetTeleported } from "@/configs/src/types/models"
+import { timestampToDate } from "@/utils/date.helpers"
 
 // Arguments for creating AssetTeleported records
 export interface IAssetTeleportedArgs {
@@ -37,7 +38,7 @@ export class AssetTeleportedService {
 				commitment,
 				chain,
 				blockNumber: parseInt(blockNumber),
-				createdAt: new Date(Number(blockTimestamp)), // Using block timestamp for createdAt instead of current time
+				createdAt: timestampToDate(blockTimestamp), // Using block timestamp for createdAt instead of current time
 			})
 		}
 

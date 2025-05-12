@@ -8,6 +8,7 @@ import { formatChain, getHostStateMachine, isHyperbridge, isSubstrateChain } fro
 import { SUBSTRATE_RPC_URL } from "@/constants"
 import { RequestMetadata } from "@/utils/state-machine.helper"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
+import { timestampToDate } from "@/utils/date.helpers"
 import stringify from "safe-stable-stringify"
 
 export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promise<void> {
@@ -119,7 +120,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		blockHash: event.block.block.header.hash.toString(),
 		transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",
 		blockTimestamp: BigInt(blockTimestamp),
-		createdAt: new Date(Number(blockTimestamp)),
+		createdAt: timestampToDate(blockTimestamp),
 	})
 
 	// Always create a new status metadata entry
@@ -132,7 +133,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		blockNumber: event.block.block.header.number.toString(),
 		blockHash: event.block.block.header.hash.toString(),
 		transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",
-		createdAt: new Date(Number(blockTimestamp)),
+		createdAt: timestampToDate(blockTimestamp),
 	})
 
 	await requestStatusMetadata.save()

@@ -485,3 +485,11 @@ export const normalizeTimestamp = (timestamp: bigint): bigint => {
 	}
 	return timestamp
 }
+
+/// Convert ensure a date string is in iso format before getting it's timestamp
+export const dateStringtoTimestamp = (date: string): number => {
+	if (!date.endsWith("Z")) {
+		date = `${date}Z`
+	}
+	return new Date(date).getTime()
+}

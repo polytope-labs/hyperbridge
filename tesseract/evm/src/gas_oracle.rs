@@ -125,6 +125,7 @@ pub async fn get_current_gas_cost_in_usd(
 					let node_gas_price = client.get_gas_price().await?;
 					let arb_gas_info_contract = ArbGasInfo::new(ARB_GAS_INFO, client);
 					let (.., oracle_gas_price) = arb_gas_info_contract.get_prices_in_wei().await?;
+					// needed because of ether-rs and polkadot-sdk incompatibility
 					gas_price = Decode::decode(
 						&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
 					)
@@ -158,6 +159,7 @@ pub async fn get_current_gas_cost_in_usd(
 						let price = data as f64 * 1.25f64;
 						let node_gas_price = client.get_gas_price().await?;
 						let oracle_gas_price = ethers::core::types::U256::from(price as u128);
+						// needed because of ether-rs and polkadot-sdk incompatibility
 						gas_price = Decode::decode(
 							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
 						)
@@ -172,6 +174,7 @@ pub async fn get_current_gas_cost_in_usd(
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
 						let oracle_gas_price =
 							parse_units(response_json.safe_gas_price.to_string(), "gwei")?.into();
+						// needed because of ether-rs and polkadot-sdk incompatibility
 						gas_price = Decode::decode(
 							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
 						)
@@ -192,6 +195,7 @@ pub async fn get_current_gas_cost_in_usd(
 						let response_json =
 							make_request::<BlockscoutResponse>(&uri, Default::default()).await?;
 						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
+						// needed because of ether-rs and polkadot-sdk incompatibility
 						gas_price = Decode::decode(
 							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
 						)
@@ -201,6 +205,7 @@ pub async fn get_current_gas_cost_in_usd(
 						let response_json =
 							make_request::<BlockscoutResponse>(&uri, Default::default()).await?;
 						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
+						// needed because of ether-rs and polkadot-sdk incompatibility
 						gas_price = Decode::decode(
 							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
 						)
@@ -239,6 +244,7 @@ pub async fn get_current_gas_cost_in_usd(
 						let oracle_gas_price =
 							parse_units(response.standard.max_priority_fee.to_string(), "gwei")?
 								.into();
+						// needed because of ether-rs and polkadot-sdk incompatibility
 						gas_price = Decode::decode(
 							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
 						)
@@ -259,6 +265,7 @@ pub async fn get_current_gas_cost_in_usd(
 						let oracle_gas_price =
 							parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?
 								.into();
+						// needed because of ether-rs and polkadot-sdk incompatibility
 						gas_price = Decode::decode(
 							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
 						)
@@ -278,6 +285,7 @@ pub async fn get_current_gas_cost_in_usd(
 						.unwrap_or_default();
 					let oracle_gas_price =
 						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
+					// needed because of ether-rs and polkadot-sdk incompatibility
 					gas_price = Decode::decode(
 						&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
 					)
@@ -291,6 +299,7 @@ pub async fn get_current_gas_cost_in_usd(
 					let node_gas_price = client.get_gas_price().await?;
 					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(OP_GAS_ORACLE, client);
 					let ovm_gas_price = ovm_gas_price_oracle.gas_price().await?;
+					// needed because of ether-rs and polkadot-sdk incompatibility
 					gas_price = Decode::decode(
 						&mut &*std::cmp::max(node_gas_price, ovm_gas_price).encode(),
 					)
@@ -321,6 +330,7 @@ pub async fn get_current_gas_cost_in_usd(
 fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
 	let old: ethers::types::U256 =
 		parse_units(1u64.to_string(), "ether").expect("Cannot overflow").into();
+	// needed because of ether-rs and polkadot-sdk incompatibility
 	let eth_to_wei: U256 = Decode::decode(&mut &*old.encode()).expect("Infallible");
 	eth_usd / eth_to_wei
 }
@@ -338,6 +348,7 @@ pub async fn get_l2_data_cost(
 		StateMachine::Evm(inner_evm) => match inner_evm {
 			id if is_op_stack(id) => {
 				let ovm_gas_price_oracle = OVM_gasPriceOracle::new(OP_GAS_ORACLE, client);
+				// needed because of ether-rs and polkadot-sdk incompatibility
 				let data_cost_bytes: U256 =
 					Decode::decode(&mut &*ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?.encode())
 						.expect("Infallible"); // this is in wei

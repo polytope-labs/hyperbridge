@@ -54,6 +54,7 @@ pub async fn submit_messages(
 	let mut events = BTreeSet::new();
 	let mut cancelled: Vec<Message> = vec![];
 	for (index, call) in calls.into_iter().enumerate() {
+		// Encode and Decode needed because of ether-rs and polkadot-sdk incompatibility
 		let gas_price =
 			call.tx.gas_price().and_then(|price| Decode::decode(&mut &*price.encode()).ok());
 		match call.clone().send().await {
@@ -165,10 +166,12 @@ where
 				"Retrying consensus message on {:?} with gas {}",
 				state_machine_clone,
 				ethers::utils::format_units(
+					// Conversion needed because of ether-rs and polkadot-sdk incompatibility
 					ethers::types::U256::from(gas_price.to_big_endian()),
 					"gwei"
 				)?
 			);
+			// Conversion needed because of ether-rs and polkadot-sdk incompatibility
 			let call = call.gas_price(gas_price.to_big_endian());
 			let pending = call.send().await?;
 
@@ -193,6 +196,8 @@ where
 						value: Some(Default::default()),
 						gas_price: gas_price.map(|price| {
 							let new_price: U256 = price * 10;
+							// Conversion needed because of ether-rs and polkadot-sdk
+							// incompatibility
 							new_price.to_big_endian().into()
 						}), // experiment with higher?
 						..Default::default()
@@ -304,6 +309,7 @@ pub async fn generate_contract_calls(
 					.estimate_gas()
 					.await
 					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
 				let call = call
 					.gas_price(ethers::core::types::U256::from(gas_price.to_big_endian()))
 					.gas(gas_limit);
@@ -354,6 +360,7 @@ pub async fn generate_contract_calls(
 					requests: leaves,
 				};
 
+				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
 				let call = if set_gas_price() {
 					contract
 						.handle_post_requests(ismp_host.0.into(), post_message)
@@ -419,6 +426,8 @@ pub async fn generate_contract_calls(
 							};
 
 						if set_gas_price() {
+							// U256 Conversion needed because of ether-rs and polkadot-sdk
+							// incompatibility
 							contract
 								.handle_post_responses(ismp_host.0.into(), message)
 								.gas_price(ethers::core::types::U256::from(

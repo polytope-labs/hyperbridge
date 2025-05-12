@@ -26,7 +26,7 @@ toml = "0.7.4"
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-subxt = { version = "0.30.1", features = ["substrate-compat"] }
+subxt = { workspace = true, features = ["substrate-compat"] }
 subxt-signer = "0.30.1"
 subxt-utils = { workspace = true, default-features = true }
 transaction-fees = { path = "../fees" }

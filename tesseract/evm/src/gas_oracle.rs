@@ -1,5 +1,6 @@
 use crate::abi::{arb_gas_info::ArbGasInfo, ovm_gas_price_oracle::OVM_gasPriceOracle};
 use anyhow::{anyhow, Error};
+use codec::{Decode, Encode};
 use ethers::{
 	prelude::{Bytes, Middleware, Provider},
 	providers::Http,
@@ -7,7 +8,7 @@ use ethers::{
 };
 use hex_literal::hex;
 use ismp::host::StateMachine;
-use primitive_types::{H160, U256};
+use primitive_types::U256;
 use reqwest::{
 	header::{HeaderMap, USER_AGENT},
 	Client,
@@ -122,9 +123,12 @@ pub async fn get_current_gas_cost_in_usd(
 			match inner_evm {
 				chain_id if is_orbit_chain(chain_id) => {
 					let node_gas_price = client.get_gas_price().await?;
-					let arb_gas_info_contract = ArbGasInfo::new(H160(ARB_GAS_INFO), client);
+					let arb_gas_info_contract = ArbGasInfo::new(ARB_GAS_INFO, client);
 					let (.., oracle_gas_price) = arb_gas_info_contract.get_prices_in_wei().await?;
-					gas_price = std::cmp::max(node_gas_price, oracle_gas_price); // minimum gas price is 0.1 Gwei
+					gas_price = Decode::decode(
+						&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
+					)
+					.expect("Infallible"); // minimum gas price is 0.1 Gwei
 					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
 					let eth_usd = parse_to_27_decimals(&response_json.result.ethusd)?;
 					unit_wei = get_cost_of_one_wei(eth_usd);
@@ -152,27 +156,33 @@ pub async fn get_current_gas_cost_in_usd(
 						.data
 						.standard;
 						let price = data as f64 * 1.25f64;
-						let node_gas_price: U256 = client.get_gas_price().await?;
-						let oracle_gas_price = U256::from(price as u128);
-						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						let node_gas_price = client.get_gas_price().await?;
+						let oracle_gas_price = ethers::core::types::U256::from(price as u128);
+						gas_price = Decode::decode(
+							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
+						)
+						.expect("Infallible");
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
 						let eth_usd = parse_to_27_decimals(&response_json.usd_price)?;
 						unit_wei = get_cost_of_one_wei(eth_usd);
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 					} else {
-						let node_gas_price: U256 = client.get_gas_price().await?;
+						let node_gas_price = client.get_gas_price().await?;
 						// Mainnet
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
 						let oracle_gas_price =
 							parse_units(response_json.safe_gas_price.to_string(), "gwei")?.into();
-						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						gas_price = Decode::decode(
+							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
+						)
+						.expect("Infallible");
 						let eth_usd = parse_to_27_decimals(&response_json.usd_price)?;
 						unit_wei = get_cost_of_one_wei(eth_usd);
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 					};
 				},
 				CHIADO_CHAIN_ID | GNOSIS_CHAIN_ID => {
-					let node_gas_price: U256 = client.get_gas_price().await?;
+					let node_gas_price = client.get_gas_price().await?;
 					#[derive(Debug, Deserialize, Clone)]
 					struct BlockscoutResponse {
 						average: f32,
@@ -182,13 +192,19 @@ pub async fn get_current_gas_cost_in_usd(
 						let response_json =
 							make_request::<BlockscoutResponse>(&uri, Default::default()).await?;
 						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
-						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						gas_price = Decode::decode(
+							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
+						)
+						.expect("Infallible");
 					} else {
 						let uri = "https://blockscout.com/xdai/mainnet/api/v1/gas-price-oracle";
 						let response_json =
 							make_request::<BlockscoutResponse>(&uri, Default::default()).await?;
 						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
-						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						gas_price = Decode::decode(
+							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
+						)
+						.expect("Infallible");
 					}
 					// Gnosis uses a stable coin for gas token which means the usd is
 					// equivalent to the gas price
@@ -219,11 +235,14 @@ pub async fn get_current_gas_cost_in_usd(
 						header_map.insert(USER_AGENT, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".parse().unwrap());
 						let response =
 							make_request::<Response>(POLYGON_TESTNET, header_map).await?;
-						let node_gas_price: U256 = client.get_gas_price().await?;
+						let node_gas_price = client.get_gas_price().await?;
 						let oracle_gas_price =
 							parse_units(response.standard.max_priority_fee.to_string(), "gwei")?
 								.into();
-						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						gas_price = Decode::decode(
+							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
+						)
+						.expect("Infallible");
 						let response_json =
 							make_request::<GasResponse>(&uri, Default::default()).await?;
 						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
@@ -231,7 +250,7 @@ pub async fn get_current_gas_cost_in_usd(
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 					} else {
 						// Mainnet
-						let node_gas_price: U256 = client.get_gas_price().await?;
+						let node_gas_price = client.get_gas_price().await?;
 						let uri = format!(
 							"https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
 						);
@@ -240,7 +259,10 @@ pub async fn get_current_gas_cost_in_usd(
 						let oracle_gas_price =
 							parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?
 								.into();
-						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+						gas_price = Decode::decode(
+							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
+						)
+						.expect("Infallible");
 						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 						unit_wei = get_cost_of_one_wei(eth_usd);
 						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
@@ -250,23 +272,29 @@ pub async fn get_current_gas_cost_in_usd(
 					let uri = format!(
 						"https://api.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
 					);
-					let node_gas_price: U256 = client.get_gas_price().await?;
+					let node_gas_price = client.get_gas_price().await?;
 					let response_json = make_request::<GasResponse>(&uri, Default::default())
 						.await
 						.unwrap_or_default();
 					let oracle_gas_price =
 						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
-					gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
+					gas_price = Decode::decode(
+						&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
+					)
+					.expect("Infallible");
 					let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 					unit_wei = get_cost_of_one_wei(eth_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				// op stack chains
 				chain_id if is_op_stack(chain_id) => {
-					let node_gas_price: U256 = client.get_gas_price().await?;
-					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
+					let node_gas_price = client.get_gas_price().await?;
+					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(OP_GAS_ORACLE, client);
 					let ovm_gas_price = ovm_gas_price_oracle.gas_price().await?;
-					gas_price = std::cmp::max(ovm_gas_price, node_gas_price); // minimum gas price is 0.1 Gwei
+					gas_price = Decode::decode(
+						&mut &*std::cmp::max(node_gas_price, ovm_gas_price).encode(),
+					)
+					.expect("Infallible"); // minimum gas price is 0.1 Gwei
 					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
 					let eth_usd = parse_to_27_decimals(&response_json.result.ethusd)?;
 					unit_wei = get_cost_of_one_wei(eth_usd);
@@ -280,14 +308,20 @@ pub async fn get_current_gas_cost_in_usd(
 
 	log::debug!(
 		"Returned gas price for {chain:?}: {} Gwei",
-		ethers::utils::format_units(gas_price, "gwei").unwrap()
+		ethers::utils::format_units(
+			ethers::core::types::U256::from(gas_price.to_big_endian()),
+			"gwei"
+		)
+		.unwrap()
 	);
 
 	Ok(GasBreakdown { gas_price, gas_price_cost: gas_price_cost.into(), unit_wei_cost: unit_wei })
 }
 
 fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
-	let eth_to_wei: U256 = parse_units(1u64.to_string(), "ether").expect("Cannot overflow").into();
+	let old: ethers::types::U256 =
+		parse_units(1u64.to_string(), "ether").expect("Cannot overflow").into();
+	let eth_to_wei: U256 = Decode::decode(&mut &*old.encode()).expect("Infallible");
 	eth_usd / eth_to_wei
 }
 
@@ -303,8 +337,10 @@ pub async fn get_l2_data_cost(
 	match chain {
 		StateMachine::Evm(inner_evm) => match inner_evm {
 			id if is_op_stack(id) => {
-				let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
-				let data_cost_bytes = ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?; // this is in wei
+				let ovm_gas_price_oracle = OVM_gasPriceOracle::new(OP_GAS_ORACLE, client);
+				let data_cost_bytes: U256 =
+					Decode::decode(&mut &*ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?.encode())
+						.expect("Infallible"); // this is in wei
 				data_cost = data_cost_bytes * unit_wei_cost
 			},
 

@@ -3,7 +3,7 @@ use crate::{
 	EvmClient,
 };
 use anyhow::anyhow;
-use codec::Decode;
+use codec::{Decode, Encode};
 use ethers::{
 	abi::Detokenize,
 	contract::{parse_log, FunctionCall},
@@ -54,7 +54,8 @@ pub async fn submit_messages(
 	let mut events = BTreeSet::new();
 	let mut cancelled: Vec<Message> = vec![];
 	for (index, call) in calls.into_iter().enumerate() {
-		let gas_price = call.tx.gas_price();
+		let gas_price =
+			call.tx.gas_price().and_then(|price| Decode::decode(&mut &*price.encode()).ok());
 		match call.clone().send().await {
 			Ok(progress) => {
 				let retry = if matches!(messages[index], Message::Consensus(_)) {
@@ -153,7 +154,7 @@ where
 
 		if let Some(call) = retry {
 			// lets retry
-			let gas_price = get_current_gas_cost_in_usd(
+			let gas_price: U256 = get_current_gas_cost_in_usd(
 				state_machine_clone,
 				&etherscan_api_key_clone,
 				client_clone.clone(),
@@ -163,9 +164,12 @@ where
 			log::info!(
 				"Retrying consensus message on {:?} with gas {}",
 				state_machine_clone,
-				ethers::utils::format_units(gas_price, "gwei")?
+				ethers::utils::format_units(
+					ethers::types::U256::from(gas_price.to_big_endian()),
+					"gwei"
+				)?
 			);
-			let call = call.gas_price(gas_price);
+			let call = call.gas_price(gas_price.to_big_endian());
 			let pending = call.send().await?;
 
 			// don't retry in the next callstack
@@ -187,7 +191,10 @@ where
 					TypedTransaction::Legacy(TransactionRequest {
 						to: Some(NameOrAddress::Address(signer_clone.address())),
 						value: Some(Default::default()),
-						gas_price: gas_price.map(|price| price * 10), // experiment with higher?
+						gas_price: gas_price.map(|price| {
+							let new_price: U256 = price * 10;
+							new_price.to_big_endian().into()
+						}), // experiment with higher?
 						..Default::default()
 					}),
 					None,
@@ -260,7 +267,7 @@ pub async fn generate_contract_calls(
 	debug_trace: bool,
 ) -> anyhow::Result<Vec<SolidityFunctionCall<()>>> {
 	let handler = client.handler().await?;
-	let contract = IsmpHandler::new(handler, client.signer.clone());
+	let contract = IsmpHandler::new(handler.0, client.signer.clone());
 	let ismp_host = client.config.ismp_host;
 	let mut calls = Vec::new();
 	// If debug trace is false or the client type is erigon, then the gas price must be set
@@ -291,12 +298,15 @@ pub async fn generate_contract_calls(
 	for message in messages {
 		match message {
 			Message::Consensus(msg) => {
-				let call = contract.handle_consensus(ismp_host, msg.consensus_proof.into());
+				let call =
+					contract.handle_consensus(ismp_host.0.into(), msg.consensus_proof.into());
 				let gas_limit = call
 					.estimate_gas()
 					.await
 					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-				let call = call.gas_price(gas_price).gas(gas_limit);
+				let call = call
+					.gas_price(ethers::core::types::U256::from(gas_price.to_big_endian()))
+					.gas(gas_limit);
 
 				calls.push(call);
 			},
@@ -346,11 +356,11 @@ pub async fn generate_contract_calls(
 
 				let call = if set_gas_price() {
 					contract
-						.handle_post_requests(ismp_host, post_message)
-						.gas_price(gas_price)
+						.handle_post_requests(ismp_host.0.into(), post_message)
+						.gas_price(ethers::core::types::U256::from(gas_price.to_big_endian()))
 						.gas(gas_limit)
 				} else {
-					contract.handle_post_requests(ismp_host, post_message).gas(gas_limit)
+					contract.handle_post_requests(ismp_host.0.into(), post_message).gas(gas_limit)
 				};
 				calls.push(call)
 			},
@@ -410,11 +420,15 @@ pub async fn generate_contract_calls(
 
 						if set_gas_price() {
 							contract
-								.handle_post_responses(ismp_host, message)
-								.gas_price(gas_price)
+								.handle_post_responses(ismp_host.0.into(), message)
+								.gas_price(ethers::core::types::U256::from(
+									gas_price.to_big_endian(),
+								))
 								.gas(gas_limit)
 						} else {
-							contract.handle_post_responses(ismp_host, message).gas(gas_limit)
+							contract
+								.handle_post_responses(ismp_host.0.into(), message)
+								.gas(gas_limit)
 						}
 					},
 					RequestResponse::Request(..) =>

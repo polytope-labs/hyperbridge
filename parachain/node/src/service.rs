@@ -510,7 +510,7 @@ pub async fn start_parachain_node(
 	hwbench: Option<sc_sysinfo::HwBench>,
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
-		chain if chain.contains("gargantua") => {
+		chain if chain.contains("gargantua") =>
 			start_node_impl::<gargantua_runtime::RuntimeApi>(
 				parachain_config,
 				polkadot_config,
@@ -518,9 +518,8 @@ pub async fn start_parachain_node(
 				para_id,
 				hwbench,
 			)
-			.await
-		},
-		chain if chain.contains("nexus") => {
+			.await,
+		chain if chain.contains("nexus") =>
 			start_node_impl::<nexus_runtime::RuntimeApi>(
 				parachain_config,
 				polkadot_config,
@@ -528,8 +527,7 @@ pub async fn start_parachain_node(
 				para_id,
 				hwbench,
 			)
-			.await
-		},
+			.await,
 		chain => panic!("Unknown chain with id: {}", chain),
 	}
 }

@@ -32,14 +32,14 @@ use beefy_verifier_primitives::{
 use codec::{Decode, Encode};
 use hex_literal::hex;
 use primitive_types::H256;
-use relay::{fetch_latest_beefy_justification, fetch_mmr_proof, parachain_header_storage_key};
+use relay::{
+	beefy_mmr_leaf_next_authorities, fetch_latest_beefy_justification, fetch_mmr_proof,
+	paras_parachains,
+};
 use sp_consensus_beefy::{
-	ecdsa_crypto::Signature,
-	known_payloads::MMR_ROOT_ID,
-	mmr::{BeefyAuthoritySet, MmrLeaf},
+	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, mmr::BeefyAuthoritySet,
 };
 use sp_io::hashing::keccak_256;
-use sp_mmr_primitives::LeafProof;
 use subxt::{rpc_params, Config, OnlineClient};
 use util::hash_authority_addresses;
 
@@ -103,7 +103,11 @@ impl<R: Config, P: Config> Prover<R, P> {
 			current_authorities: self
 				.mmr_leaf_current_authorities(Some(latest_beefy_finalized))
 				.await?,
-			next_authorities: self.mmr_leaf_next_authorities(Some(latest_beefy_finalized)).await?,
+			next_authorities: beefy_mmr_leaf_next_authorities(
+				&self.relay,
+				Some(latest_beefy_finalized),
+			)
+			.await?,
 		};
 
 		Ok(client_state)
@@ -128,26 +132,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 		Ok(current_authority_set)
 	}
 
-	/// Fetch the next BEEFY authority set commitment at the provided height
-	pub async fn mmr_leaf_next_authorities(
-		&self,
-		at: Option<R::Hash>,
-	) -> Result<BeefyAuthoritySet<H256>, anyhow::Error> {
-		// Encoding and decoding to fix dependency version conflicts
-		let next_authority_set = {
-			let next_authority_set = self
-				.relay
-				.rpc()
-				.storage(BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(), at)
-				.await?
-				.expect("Should retrieve next authority set")
-				.0;
-			BeefyAuthoritySet::decode(&mut &*next_authority_set)
-				.expect("Should decode next authority set correctly")
-		};
-		Ok(next_authority_set)
-	}
-
 	/// Fetch the BEEFY authority public keys at the provided height
 	pub async fn beefy_authorities(
 		&self,
@@ -166,37 +150,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 		Ok(current_authorities)
 	}
 
-	/// Fetch all parachain headers committed by BEEFY at provided height
-	pub async fn paras_parachains(
-		&self,
-		at: Option<R::Hash>,
-	) -> Result<Vec<(u32, Vec<u8>)>, anyhow::Error> {
-		let ids = self
-			.relay
-			.rpc()
-			.storage(PARAS_PARACHAINS.as_slice(), at)
-			.await?
-			.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
-			.transpose()?
-			.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
-
-		let mut heads = vec![];
-		for id in ids {
-			let head = self
-				.relay
-				.rpc()
-				.storage(parachain_header_storage_key(id).as_ref(), at)
-				.await?
-				.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
-				.transpose()?
-				.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
-			heads.push((id, head));
-		}
-		heads.sort();
-
-		Ok(heads)
-	}
-
 	/// This will fetch the latest leaf in the mmr as well as a proof for this leaf in the latest
 	/// mmr root hash.
 	pub async fn consensus_proof(
@@ -212,11 +165,8 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		// Current LeafIndex
-		let leaf_proof = fetch_mmr_proof(&self.relay, block_number.try_into()?).await?;
-		let leaves: Vec<Vec<u8>> = codec::Decode::decode(&mut &*leaf_proof.leaves.0)?;
-		let latest_leaf: MmrLeaf<u32, H256, H256, H256> = codec::Decode::decode(&mut &*leaves[0])?;
-		let mmr_proof: LeafProof<H256> = Decode::decode(&mut &*leaf_proof.proof.0)?;
+		let (mmr_proof, latest_leaf) =
+			fetch_mmr_proof(&self.relay, block_number.try_into()?).await?;
 
 		// create authorities proof
 		let signatures = signed_commitment
@@ -257,11 +207,11 @@ impl<R: Config, P: Config> Prover<R, P> {
 			authority_proof,
 		};
 
-		let heads = self
-			.paras_parachains(Some(R::Hash::decode(
-				&mut &*latest_leaf.parent_number_and_hash.1.encode(),
-			)?))
-			.await?;
+		let heads = paras_parachains(
+			&self.relay,
+			Some(R::Hash::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
+		)
+		.await?;
 		let (parachains, indices): (Vec<_>, Vec<_>) = self
 			.para_ids
 			.iter()

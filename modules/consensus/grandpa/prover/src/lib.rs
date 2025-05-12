@@ -182,7 +182,7 @@ where
 		<T::Header as Header>::Number: finality_grandpa::BlockNumberOps + One,
 	{
 		let previous_finalized_height = consensus_state.latest_height;
-		let max_height = previous_finalized_height + self.options.max_block_range;
+		let mut max_height = previous_finalized_height + self.options.max_block_range;
 		let finalized_hash = self.client.rpc().finalized_head().await?;
 		let finalized_header = self
 			.client
@@ -224,6 +224,8 @@ where
 				return Ok(finality_proof);
 			}
 			log::trace!("grandpa_proveFinality proof for {} could not be verified, switching to linear search", self.options.state_machine);
+			// Set the max height as the finalized block number
+			max_height = finalized_number
 		}
 
 		log::trace!("Target block number for {}: {max_height}", self.options.state_machine);
@@ -239,7 +241,7 @@ where
 				.rpc()
 				.block_hash(Some(height.into()))
 				.await?
-				.ok_or_else(|| anyhow!("Failed to fetch block has for height {height}"))?;
+				.ok_or_else(|| anyhow!("Failed to fetch block hash for height {height}"))?;
 			let header = self
 				.client
 				.rpc()

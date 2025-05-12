@@ -21,6 +21,11 @@ hex = { version = "0.4.3" }
 
 subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
 beefy-verifier-primitives = { workspace = true }
+merkle-mountain-range = { workspace = true }
+
+[dev-dependencies]
+subxt-utils = { workspace = true, default-features = true }
+tokio = { version = "1.35.1", features = ["fs", "macros", "rt-multi-thread"] }
 
 [dependencies.polkadot-sdk]
 workspace = true

@@ -85,6 +85,9 @@ members = [
     "tesseract/config",
     "tesseract/fisherman",
     "tesseract/integration-test",
+
+    # Airdrop
+    "modules/pallets/bridge-drop"
 ]
 
 # Config for 'cargo dist'
@@ -177,7 +180,7 @@ pallet-ismp = { version = "16.1.0", path = "modules/pallets/ismp", default-featu
 pallet-ismp-rpc = { version = "16.0.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "16.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-hyperbridge = { version = "16.0.0", path = "modules/pallets/hyperbridge", default-features = false }
-pallet-token-gateway = { version = "16.0.0", path = "modules/pallets/token-gateway", default-features = false }
+pallet-token-gateway = { version = "16.3.0", path = "modules/pallets/token-gateway", default-features = false }
 token-gateway-primitives = { version = "16.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
 substrate-state-machine = { version = "16.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
@@ -219,6 +222,7 @@ pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = 
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
+pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
@@ -294,5 +298,5 @@ default-features = false
 features = ["derive"]
 
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
-version = "0.4.2"
+version = "0.5.0"
 default-features = false

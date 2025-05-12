@@ -138,32 +138,8 @@ pub async fn get_current_gas_cost_in_usd(
 				SEPOLIA_CHAIN_ID | ETHEREUM_CHAIN_ID => {
 					let uri = format!("{api}?module=gastracker&action=gasoracle&apikey={api_keys}");
 					if inner_evm == SEPOLIA_CHAIN_ID {
-						#[derive(Debug, Deserialize, Clone)]
-						struct GasNow {
-							standard: u128,
-						}
-
-						#[derive(Debug, Deserialize, Clone)]
-						struct Response {
-							data: GasNow,
-						}
-
-						// sepolia
-						let data = make_request::<Response>(
-							"https://sepolia.beaconcha.in/api/v1/execution/gasnow",
-							Default::default(),
-						)
-						.await?
-						.data
-						.standard;
-						let price = data as f64 * 1.25f64;
-						let node_gas_price = client.get_gas_price().await?;
-						let oracle_gas_price = ethers::core::types::U256::from(price as u128);
-						// needed because of ether-rs and polkadot-sdk incompatibility
-						gas_price = Decode::decode(
-							&mut &*std::cmp::max(node_gas_price, oracle_gas_price).encode(),
-						)
-						.expect("Infallible");
+						gas_price = Decode::decode(&mut &*client.get_gas_price().await?.encode())
+							.expect("Infallible");
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
 						let eth_usd = parse_to_27_decimals(&response_json.usd_price)?;
 						unit_wei = get_cost_of_one_wei(eth_usd);

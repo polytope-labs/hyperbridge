@@ -18,7 +18,7 @@ mod test;
 use polkadot_sdk::*;
 
 use anyhow::anyhow;
-use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, Config, EPOCH_LENGTH};
+use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, Config};
 use ethers::{
 	prelude::Provider,
 	providers::{Http, Middleware},
@@ -39,6 +39,16 @@ pub struct BscPosProver<C: Config> {
 	_phantom_data: PhantomData<C>,
 }
 
+pub struct UpdateParams {
+	pub attested_header: CodecHeader,
+	pub validator_size: u64,
+	pub epoch_length: u64,
+	/// Current consensus client epoch
+	pub epoch: u64,
+	/// Use this bool to force fetching of validator set change outside of the default rotation
+	/// period
+	pub fetch_val_set_change: bool,
+}
 impl<C: Config> BscPosProver<C> {
 	pub fn new(client: Provider<Http>) -> Self {
 		Self { client: Arc::new(client), _phantom_data: PhantomData }
@@ -67,17 +77,12 @@ impl<C: Config> BscPosProver<C> {
 	#[instrument(level = "trace", target = "bsc-prover", skip_all)]
 	pub async fn fetch_bsc_update<I: Keccak256>(
 		&self,
-		attested_header: CodecHeader,
-		validator_size: u64,
-		// Current consensus client epoch
-		epoch: u64,
-		// Use this bool to force fetching of validator set change outside of the default rotation
-		// period
-		fetch_val_set_change: bool,
+		params: UpdateParams,
 	) -> Result<Option<BscClientUpdate>, anyhow::Error> {
-		trace!(target: "bsc-prover", "fetching bsc update for  {:?}", attested_header.number);
-		let parse_extra_data = parse_extra::<I, C>(&attested_header)
-			.map_err(|_| anyhow!("Extra data not found in header {:?}", attested_header.number))?;
+		trace!(target: "bsc-prover", "fetching bsc update for  {:?}", params.attested_header.number);
+		let parse_extra_data = parse_extra::<I, C>(&params.attested_header).map_err(|_| {
+			anyhow!("Extra data not found in header {:?}", params.attested_header.number)
+		})?;
 		let source_hash = H256::from_slice(&parse_extra_data.vote_data.source_hash.0);
 		let target_hash = H256::from_slice(&parse_extra_data.vote_data.target_hash.0);
 
@@ -95,17 +100,18 @@ impl<C: Config> BscPosProver<C> {
 			.ok_or_else(|| anyhow!("header block could not be fetched {target_hash}"))?;
 
 		let mut epoch_header_ancestry = vec![];
-		let epoch_header_number = epoch * EPOCH_LENGTH;
+		let epoch_header_number = params.epoch * params.epoch_length;
 		// If we are still in authority rotation period get the epoch header ancestry alongside
 		// update only if the finalized header is not the epoch block
-		let rotation_block = get_rotation_block(epoch_header_number, validator_size) - 1;
-		if (attested_header.number.low_u64() >= epoch_header_number + 2 &&
-            attested_header.number.low_u64() <= rotation_block &&
+		let rotation_block =
+			get_rotation_block(epoch_header_number, params.validator_size, params.epoch_length) - 1;
+		if (params.attested_header.number.low_u64() >= epoch_header_number + 2 &&
+            params.attested_header.number.low_u64() <= rotation_block &&
             source_header.number.low_u64() > epoch_header_number) ||
             // If forcing a fetching of validator set, the source header must still be greater than  epoch header number
             // To avoid the issue seen here https://testnet.bscscan.com/block/39713004 where the source header is lesser than the epoch header
             // We will skip such updates.
-            (fetch_val_set_change && source_header.number.low_u64() > epoch_header_number)
+            (params.fetch_val_set_change && source_header.number.low_u64() > epoch_header_number)
 		{
 			let mut header = self
 				.fetch_header(ethers::core::types::H256::from(source_header.parent_hash.0))
@@ -126,12 +132,12 @@ impl<C: Config> BscPosProver<C> {
 		}
 
 		let source_header_number = source_header.number.low_u64();
-		let attested_header_number = attested_header.number.low_u64();
+		let attested_header_number = params.attested_header.number.low_u64();
 		let ancestry_len = epoch_header_ancestry.len();
 		let bsc_client_update = BscClientUpdate {
             source_header,
             target_header,
-            attested_header,
+            attested_header: params.attested_header,
             epoch_header_ancestry: epoch_header_ancestry.try_into().map_err(|_| {
                 anyhow!("Epoch ancestry too large, Length {:?}, Epoch Header {epoch_header_number:?}, Source Header {source_header_number:?}, Attested Header {attested_header_number:?}",ancestry_len)
             })?,
@@ -142,11 +148,12 @@ impl<C: Config> BscPosProver<C> {
 
 	pub async fn fetch_finalized_state<I: Keccak256>(
 		&self,
+		epoch_length: u64,
 	) -> Result<(CodecHeader, Vec<BlsPublicKey>), anyhow::Error> {
 		let latest_header = self.latest_header().await?;
 
-		let current_epoch = compute_epoch(latest_header.number.low_u64());
-		let current_epoch_block_number = current_epoch * EPOCH_LENGTH;
+		let current_epoch = compute_epoch(latest_header.number.low_u64(), epoch_length);
+		let current_epoch_block_number = current_epoch * epoch_length;
 
 		let current_epoch_header =
 			self.fetch_header(current_epoch_block_number).await?.ok_or_else(|| {
@@ -167,9 +174,9 @@ impl<C: Config> BscPosProver<C> {
 // Get the maximum block that can be signed by previous validator set before authority set rotation
 // occurs Validator set change happens at
 // block%EPOCH_LENGTH == validator_size / 2
-pub fn get_rotation_block(mut block: u64, validator_size: u64) -> u64 {
+pub fn get_rotation_block(mut block: u64, validator_size: u64, epoch_length: u64) -> u64 {
 	loop {
-		if block % EPOCH_LENGTH == (validator_size / 2) {
+		if block % epoch_length == (validator_size / 2) {
 			break;
 		}
 		block += 1

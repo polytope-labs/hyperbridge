@@ -1,5 +1,3 @@
-#[cfg(feature = "electra")]
-use crate::electra::*;
 use crate::{
 	constants::{
 		BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, Hash32,
@@ -7,6 +5,7 @@ use crate::{
 		DEPOSIT_PROOF_LENGTH, JUSTIFICATION_BITS_LENGTH,
 	},
 	deneb::KzgCommitment,
+	electra::*,
 	ssz::{ByteList, ByteVector},
 };
 use alloc::{vec, vec::Vec};
@@ -112,7 +111,6 @@ pub struct Attestation<
 	pub aggregation_bits: Bitlist<MAX_VALIDATORS_PER_COMMITTEE>,
 	pub data: AttestationData,
 	pub signature: BlsSignature,
-	#[cfg(feature = "electra")]
 	pub committee_bits: Bitvector<MAX_COMMITTEES_PER_SLOT>,
 }
 
@@ -304,7 +302,6 @@ pub struct BeaconBlockBody<
 	>,
 	pub bls_to_execution_changes: List<SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES>,
 	pub blob_kzg_commitments: List<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
-	#[cfg(feature = "electra")]
 	pub execution_requests: ExecutionRequests<
 		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
 		MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
@@ -442,28 +439,19 @@ pub struct BeaconState<
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub next_withdrawal_validator_index: ValidatorIndex,
 	pub historical_summaries: List<HistoricalSummary, HISTORICAL_ROOTS_LIMIT>,
-	#[cfg(feature = "electra")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub deposit_requests_start_index: u64,
-	#[cfg(feature = "electra")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub deposit_balance_to_consume: Gwei,
-	#[cfg(feature = "electra")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub exit_balance_to_consume: Gwei,
-	#[cfg(feature = "electra")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub earliest_exit_epoch: Epoch,
-	#[cfg(feature = "electra")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub consolidation_balance_to_consume: Gwei,
-	#[cfg(feature = "electra")]
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub earliest_consolidation_epoch: Epoch,
-	#[cfg(feature = "electra")]
 	pending_deposits: List<PendingDeposit, PENDING_DEPOSITS_LIMIT>,
-	#[cfg(feature = "electra")]
 	pending_partial_withdrawals: List<PendingPartialWithdrawal, PENDING_PARTIAL_WITHDRAWALS_LIMIT>,
-	#[cfg(feature = "electra")]
 	pending_consolidations: List<PendingConsolidation, PENDING_CONSOLIDATIONS_LIMIT>,
 }

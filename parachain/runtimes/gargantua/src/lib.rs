@@ -34,10 +34,10 @@ use cumulus_pallet_parachain_system::{
 	DefaultCoreSelector, RelayChainState, RelayNumberMonotonicallyIncreases,
 };
 use cumulus_primitives_core::AggregateMessageOrigin;
-use frame_support::traits::TransformOrigin;
+use frame_support::traits::{TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
-use polkadot_sdk::*;
+use polkadot_sdk::{sp_runtime::traits::ConvertInto, *};
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 2_900,
+	spec_version: 3_200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -686,6 +686,29 @@ impl pallet_collective::Config for Runtime {
 	type KillOrigin = EnsureRoot<Self::AccountId>;
 	type Consideration = ();
 }
+
+impl pallet_bridge_airdrop::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+}
+
+parameter_types! {
+	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT * 1000;
+	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+		WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
+impl pallet_vesting::Config for Runtime {
+	type BlockNumberToBalance = ConvertInto;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	const MAX_VESTING_SCHEDULES: u32 = 28;
+	type MinVestedTransfer = MinVestedTransfer;
+	type WeightInfo = ();
+	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+	type BlockNumberProvider = System;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime
@@ -737,9 +760,12 @@ construct_runtime!(
 		Fishermen: pallet_fishermen = 61,
 		TokenGatewayInspector: pallet_token_gateway_inspector = 62,
 		IsmpSyncCommitteeGno: ismp_sync_committee::pallet::<Instance2> = 63,
+		IsmpBsc: ismp_bsc::pallet = 64,
 
 		// Governance
 		TechnicalCollective: pallet_collective = 80,
+		BridgeDrop: pallet_bridge_airdrop = 81,
+		Vesting: pallet_vesting = 82,
 		// consensus clients
 		IsmpGrandpa: ismp_grandpa = 255
 	}
@@ -773,6 +799,7 @@ mod benches {
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
 		[pallet_transaction_payment, TransactionPayment]
+		[pallet_vesting, Vesting]
 	);
 }
 

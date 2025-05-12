@@ -26012,6 +26012,7 @@ dependencies = [
  "parity-scale-codec",
  "parking_lot 0.12.3",
  "polkadot-sdk",
+ "primitive-types 0.12.2",
  "serde",
  "serde-hex-utils",
  "sp-core 35.0.0",

@@ -20,7 +20,7 @@ log = "0.4.19"
 tokio = { workspace = true, features = ["sync", "time"] }
 tokio-stream = { workspace = true }
 zstd-safe = { version = "7.1.0" }
-
+primitive-types-old = { package = "primitive-types", version = "0.12.1" } # Added for subxt compatibility when  decoding events
 debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main" }
 
 tesseract-primitives = { workspace = true }

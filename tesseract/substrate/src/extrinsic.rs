@@ -16,10 +16,11 @@
 //! Extrinsic utilities
 
 use anyhow::Context;
+use codec::{Decode, Encode};
 use sp_core::H256;
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
-	ext::sp_runtime::MultiSignature,
+	ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType, sp_runtime::MultiSignature},
 	rpc::types::DryRunResult,
 	tx::TxPayload,
 	OnlineClient,
@@ -27,6 +28,32 @@ use subxt::{
 
 use subxt_utils::refine_subxt_error;
 pub use subxt_utils::{Extrinsic, InMemorySigner};
+
+#[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
+#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+pub struct RequestResponseHandled {
+	pub commitment: primitive_types_old::H256,
+	pub relayer: Vec<u8>,
+}
+
+#[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
+#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+pub struct PostRequestHandledEvent(pub RequestResponseHandled);
+impl subxt::events::StaticEvent for PostRequestHandledEvent {
+	const PALLET: &'static str = "Ismp";
+	const EVENT: &'static str = "PostRequestHandled";
+}
+
+#[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
+#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+pub struct PostResponseHandledEvent(pub RequestResponseHandled);
+impl subxt::events::StaticEvent for PostResponseHandledEvent {
+	const PALLET: &'static str = "Ismp";
+	const EVENT: &'static str = "PostResponseHandled";
+}
 
 /// Send an unsigned extrinsic for ISMP messages.
 pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: TxPayload>(
@@ -71,13 +98,13 @@ where
 		Ok(p) => {
 			log::info!("Successfully executed unsigned extrinsic {ext_hash:?}");
 			let mut receipts = p
-				.find::<subxt_utils::gargantua::api::ismp::events::PostRequestHandled>()
-				.filter_map(|ev| ev.ok().map(|e| e.0.commitment))
+				.find::<PostRequestHandledEvent>()
+				.filter_map(|ev| ev.ok().map(|e| e.0.commitment.0.into()))
 				.collect::<Vec<_>>();
 			let temp_2 = p
-				.find::<subxt_utils::gargantua::api::ismp::events::PostResponseHandled>()
-				.filter_map(|ev| ev.ok().map(|e| e.0.commitment))
-				.collect::<Vec<_>>();
+				.find::<PostResponseHandledEvent>()
+				.filter_map(|ev| ev.ok().map(|e| e.0.commitment.0.into()))
+				.collect::<Vec<H256>>();
 			receipts.extend(temp_2);
 			(p.block_hash(), receipts)
 		},

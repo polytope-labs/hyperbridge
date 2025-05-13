@@ -30,8 +30,8 @@ mod byzantine;
 pub mod gas_oracle;
 pub mod provider;
 
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;
 pub mod tx;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

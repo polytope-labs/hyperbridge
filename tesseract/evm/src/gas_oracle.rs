@@ -9,10 +9,7 @@ use geth_primitives::{new_u256, old_u256};
 use hex_literal::hex;
 use ismp::host::StateMachine;
 use primitive_types::U256;
-use reqwest::{
-	header::{HeaderMap, USER_AGENT},
-	Client,
-};
+use reqwest::{header::HeaderMap, Client};
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -119,8 +116,9 @@ pub async fn get_current_gas_cost_in_usd(
 		StateMachine::Evm(inner_evm) => {
 			let api = "https://api.etherscan.io/v2/api";
 			// Use eth mainnet to fetch ETH price data for both testnet and mainnet
-			let eth_price_uri =
-				format!("{api}?chainid=1&module=stats&action=ethprice&apikey={api_keys}");
+			let eth_price_uri = format!(
+				"{api}?chainid={ETHEREUM_CHAIN_ID}&module=stats&action=ethprice&apikey={api_keys}"
+			);
 
 			match inner_evm {
 				chain_id if is_orbit_chain(chain_id) => {
@@ -135,7 +133,7 @@ pub async fn get_current_gas_cost_in_usd(
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				SEPOLIA_CHAIN_ID | ETHEREUM_CHAIN_ID => {
-					let uri = format!("{api}?chainid=${ETHEREUM_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}");
+					let uri = format!("{api}?chainid={ETHEREUM_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}");
 					if inner_evm == SEPOLIA_CHAIN_ID {
 						gas_price = new_u256(client.get_gas_price().await?);
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
@@ -182,61 +180,27 @@ pub async fn get_current_gas_cost_in_usd(
 				},
 				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
 					let uri = format!(
-						"https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-					);
-					if inner_evm == POLYGON_TESTNET_CHAIN_ID {
-						const POLYGON_TESTNET: &'static str =
-							"https://gasstation-testnet.polygon.technology/v2";
-
-						#[derive(Debug, Deserialize, Clone)]
-						#[serde(rename_all = "camelCase")]
-						struct PriorityFee {
-							max_priority_fee: f64,
-						}
-
-						#[derive(Debug, Deserialize, Clone)]
-						#[serde(rename_all = "camelCase")]
-						struct Response {
-							standard: PriorityFee,
-						}
-
-						let mut header_map = HeaderMap::new();
-						// Polygon gas API returns forbidden if the user agent is not set
-						header_map.insert(USER_AGENT, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".parse().unwrap());
-						let response =
-							make_request::<Response>(POLYGON_TESTNET, header_map).await?;
-						let node_gas_price = client.get_gas_price().await?;
-						let oracle_gas_price =
-							parse_units(response.standard.max_priority_fee.to_string(), "gwei")?
-								.into();
-						// needed because of ether-rs and polkadot-sdk incompatibility
-						gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price));
-						let response_json =
-							make_request::<GasResponse>(&uri, Default::default()).await?;
-						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-						unit_wei = get_cost_of_one_wei(eth_usd);
-						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+					"{api}?chainid={POLYGON_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}"
+				);
+					let node_gas_price = client.get_gas_price().await?;
+					let response_json = make_request::<GasResponse>(&uri, Default::default())
+						.await
+						.unwrap_or_default();
+					let oracle_gas_price =
+						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
+					// needed because of ether-rs and polkadot-sdk incompatibility
+					gas_price = if inner_evm == POLYGON_CHAIN_ID {
+						new_u256(std::cmp::max(node_gas_price, oracle_gas_price))
 					} else {
-						// Mainnet
-						let node_gas_price = client.get_gas_price().await?;
-						let uri = format!(
-							"https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-						);
-						let response_json =
-							make_request::<GasResponse>(&uri, Default::default()).await?;
-						let oracle_gas_price =
-							parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?
-								.into();
-						// needed because of ether-rs and polkadot-sdk incompatibility
-						gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price));
-						let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-						unit_wei = get_cost_of_one_wei(eth_usd);
-						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+						new_u256(node_gas_price)
 					};
+					let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+					unit_wei = get_cost_of_one_wei(eth_usd);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => {
 					let uri = format!(
-						"{api}?chainid=${inner_evm}&module=gastracker&action=gasoracle&apikey={api_keys}"
+						"{api}?chainid={BSC_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}"
 					);
 					let node_gas_price = client.get_gas_price().await?;
 					let response_json = make_request::<GasResponse>(&uri, Default::default())
@@ -245,7 +209,11 @@ pub async fn get_current_gas_cost_in_usd(
 					let oracle_gas_price =
 						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
 					// needed because of ether-rs and polkadot-sdk incompatibility
-					gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price));
+					gas_price = if inner_evm == BSC_CHAIN_ID {
+						new_u256(std::cmp::max(node_gas_price, oracle_gas_price))
+					} else {
+						new_u256(node_gas_price)
+					};
 					let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 					unit_wei = get_cost_of_one_wei(eth_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
@@ -385,8 +353,9 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 mod test {
 	use crate::gas_oracle::{
 		convert_27_decimals_to_18_decimals, get_cost_of_one_wei, get_current_gas_cost_in_usd,
-		get_l2_data_cost, parse_to_27_decimals, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_TESTNET_CHAIN_ID,
-		GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
+		get_l2_data_cost, parse_to_27_decimals, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_CHAIN_ID,
+		BSC_TESTNET_CHAIN_ID, ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID,
+		POLYGON_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
 	};
 	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
 	use geth_primitives::new_u256;
@@ -399,14 +368,14 @@ mod test {
 	#[ignore]
 	async fn get_gas_price_ethereum_mainnet() {
 		dotenv::dotenv().ok();
-		let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_ETHEREUM_KEY")
-			.expect("Etherscan ethereum key is not set in .env.");
+		let ethereum_etherscan_api_key =
+			std::env::var("ETHERSCAN_KEY").expect("Etherscan ethereum key is not set in .env.");
 		let ethereum_rpc_uri = std::env::var("GETH_URL").expect("get url is not set in .env.");
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(SEPOLIA_CHAIN_ID),
+			StateMachine::Evm(ETHEREUM_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 		)
@@ -420,8 +389,8 @@ mod test {
 	#[ignore]
 	async fn get_gas_price_sepolia() {
 		dotenv::dotenv().ok();
-		let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_ETHEREUM_KEY")
-			.expect("Etherscan ethereum key is not set in .env.");
+		let ethereum_etherscan_api_key =
+			std::env::var("ETHERSCAN_KEY").expect("Etherscan ethereum key is not set in .env.");
 		let ethereum_rpc_uri = std::env::var("GETH_URL").expect("get url is not set in .env.");
 		// Client is unused in this test
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
@@ -442,15 +411,15 @@ mod test {
 	#[ignore]
 	async fn get_gas_price_polygon_mainnet() {
 		dotenv::dotenv().ok();
-		let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_POLYGON_KEY")
-			.expect("Polygon ethereum key is not set in .env.");
+		let ethereum_etherscan_api_key =
+			std::env::var("ETHERSCAN_KEY").expect("Polygon ethereum key is not set in .env.");
 		let ethereum_rpc_uri = std::env::var("GETH_URL").expect("get url is not set in .env.");
 		// Client is unused in this test
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(POLYGON_TESTNET_CHAIN_ID),
+			StateMachine::Evm(POLYGON_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 		)
@@ -481,8 +450,8 @@ mod test {
 	#[ignore]
 	async fn get_gas_price_polygon_testnet() {
 		dotenv::dotenv().ok();
-		let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_POLYGON_KEY")
-			.expect("Polygon ethereum key is not set in .env.");
+		let ethereum_etherscan_api_key =
+			std::env::var("ETHERSCAN_KEY").expect("Polygon ethereum key is not set in .env.");
 		let ethereum_rpc_uri = std::env::var("GETH_URL").expect("get url is not set in .env.");
 		// Client is unused in this test
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
@@ -504,14 +473,14 @@ mod test {
 	async fn get_gas_price_bsc_mainnet() {
 		dotenv::dotenv().ok();
 		let ethereum_etherscan_api_key =
-			std::env::var("ETHERSCAN_BSC_KEY").expect("Polygon ethereum key is not set in .env.");
+			std::env::var("ETHERSCAN_KEY").expect("Polygon ethereum key is not set in .env.");
 		let ethereum_rpc_uri = std::env::var("GETH_URL").expect("get url is not set in .env.");
 		// Client is unused in this test
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(BSC_TESTNET_CHAIN_ID),
+			StateMachine::Evm(BSC_CHAIN_ID),
 			&ethereum_etherscan_api_key,
 			client.clone(),
 		)
@@ -525,8 +494,8 @@ mod test {
 	#[ignore]
 	async fn get_gas_price_arbitrum_mainnet() {
 		dotenv::dotenv().ok();
-		let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_ETHEREUM_KEY")
-			.expect("Ethereum ethereum key is not set in .env.");
+		let ethereum_etherscan_api_key =
+			std::env::var("ETHERSCAN_KEY").expect("Ethereum ethereum key is not set in .env.");
 		let ethereum_rpc_uri = std::env::var("ARB_URL").expect("arb url is not set in .env.");
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
@@ -546,8 +515,8 @@ mod test {
 	#[ignore]
 	async fn get_gas_price_optimism_base_mainnet() {
 		dotenv::dotenv().ok();
-		let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_ETHEREUM_KEY")
-			.expect("Ethereum ethereum key is not set in .env.");
+		let ethereum_etherscan_api_key =
+			std::env::var("ETHERSCAN_KEY").expect("Ethereum ethereum key is not set in .env.");
 		let ethereum_rpc_uri = std::env::var("OP_URL").expect("op url is not set in .env.");
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
@@ -567,8 +536,8 @@ mod test {
 	#[ignore]
 	async fn get_l2_data_cost_optimism_base_mainnet() {
 		dotenv::dotenv().ok();
-		let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_ETHEREUM_KEY")
-			.expect("Ethereum ethereum key is not set in .env.");
+		let ethereum_etherscan_api_key =
+			std::env::var("ETHERSCAN_KEY").expect("Ethereum ethereum key is not set in .env.");
 		let ethereum_rpc_uri = std::env::var("OP_URL").expect("op url is not set in .env.");
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());

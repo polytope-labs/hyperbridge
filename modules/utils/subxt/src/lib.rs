@@ -289,6 +289,15 @@ pub fn state_machine_update_time_storage_key(height: StateMachineHeight) -> Vec<
 	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
 }
 
+pub fn state_machine_commitment_storage_key(height: StateMachineHeight) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Ismp").to_vec();
+
+	let storage_prefix = twox_128(b"StateCommitments").to_vec();
+	let key_1 = blake2_128(&height.encode()).to_vec();
+
+	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
+}
+
 pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {
 	let pallet_prefix = twox_128(b"HostExecutive").to_vec();
 

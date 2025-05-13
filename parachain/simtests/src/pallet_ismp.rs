@@ -7,7 +7,10 @@ use std::{
 };
 
 use anyhow::anyhow;
-use codec::Encode;
+use codec::{Decode, Encode};
+use ismp_parachain::ParachainData;
+use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
+use pallet_ismp_host_executive::HostParam;
 use polkadot_sdk::*;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, Bytes, KeccakHasher};
@@ -17,31 +20,15 @@ use subxt::{error::RpcError, rpc_params, tx::SubmittableExtrinsic};
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 use ismp::{
+	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	messaging::hash_request,
+	messaging::{hash_request, Message, Proof, RequestMessage},
 	router::{PostRequest, Request},
 };
-use pallet_ismp::child_trie;
+use pallet_ismp::child_trie::{self, state_commitment_storage_key};
 use primitive_types::H256;
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
-use subxt_utils::{
-	gargantua::{
-		api,
-		api::{
-			runtime_types,
-			runtime_types::{
-				gargantua_runtime::RuntimeCall,
-				ismp::{
-					consensus::{StateCommitment, StateMachineHeight, StateMachineId},
-					messaging::{Message, Proof, RequestMessage},
-				},
-				ismp_parachain::ParachainData,
-				pallet_hyperbridge::SubstrateHostParams,
-			},
-		},
-	},
-	Hyperbridge,
-};
+use subxt_utils::{state_machine_update_time_storage_key, Extrinsic, Hyperbridge};
 
 #[derive(Clone, Default)]
 pub struct Keccak256;
@@ -71,32 +58,28 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
 		let calls = vec![
-            RuntimeCall::IsmpParachain(
-				runtime_types::ismp_parachain::pallet::Call::add_parachain {
-					para_ids: vec![ParachainData{
-						id: para_id,
-						slot_duration,
-					}],
-				},
-            ),
-            // init the host executive
-            RuntimeCall::HostExecutive(
-                runtime_types::pallet_ismp_host_executive::pallet::Call::set_host_params {
-                    params: vec![
-                        (
-                            StateMachine::Kusama(para_id).into(),
-                            runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(
-								runtime_types::pallet_hyperbridge::VersionedHostParams::V1(SubstrateHostParams { default_per_byte_fee: 0, ..Default::default() })
-
-							)
-                        )
-                    ]
-                }
-            )
-        ];
-		let call =
-			RuntimeCall::Utility(runtime_types::pallet_utility::pallet::Call::batch_all { calls });
-		let call = client.tx().call_data(&api::tx().sudo().sudo(call))?;
+			client.tx().call_data(&Extrinsic::new(
+				"IsmpParachain",
+				"add_parachain",
+				vec![ParachainData { id: para_id, slot_duration }].encode(),
+			))?,
+			// init the host executive
+			client.tx().call_data(&Extrinsic::new(
+				"HostExecutive",
+				"set_host_params",
+				vec![(
+					StateMachine::Kusama(para_id),
+					HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
+						default_per_byte_fee: 0u128,
+						..Default::default()
+					})),
+				)]
+				.encode(),
+			))?,
+		];
+		let batch_calls = Extrinsic::new("Utility", "batch_all", calls.encode());
+		let call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&batch_calls)?);
+		let call = client.tx().call_data(&call)?;
 		let extrinsic: Bytes = client
 			.rpc()
 			.request(
@@ -165,17 +148,20 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		},
 		height: 200,
 	};
-	let address1 = api::storage().ismp().state_commitments(&height);
-	let address2 = api::storage().ismp().state_machine_update_time(&height);
-	let key1 = client.storage().address_bytes(&address1)?;
-	let key2 = client.storage().address_bytes(&address2)?;
+
+	let key1 = state_commitment_storage_key(height);
+	let key2 = state_machine_update_time_storage_key(height);
 	let start = SystemTime::now();
 	let now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
 
-	let call = RuntimeCall::System(runtime_types::frame_system::pallet::Call::set_storage {
-		items: vec![(key1, state_commitment.encode()), (key2, now.as_secs().encode())],
-	});
-	let call = client.tx().call_data(&api::tx().sudo().sudo(call))?;
+	let call = Extrinsic::new(
+		"System",
+		"set_storage",
+		vec![(key1.clone(), state_commitment.encode()), (key2.clone(), now.as_secs().encode())]
+			.encode(),
+	);
+	let sudo_call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&call)?);
+	let call = client.tx().call_data(&sudo_call)?;
 	let extrinsic: Bytes = client
 		.rpc()
 		.request(
@@ -198,21 +184,21 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		.storage()
 		.at_latest()
 		.await?
-		.fetch(&address1)
+		.fetch_raw(&key1)
 		.await?
 		.ok_or_else(|| anyhow!("Failed to set state commitment"))?;
 
-	assert_eq!(item, state_commitment);
+	assert_eq!(state_commitment, Decode::decode(&mut &*item)?);
 
 	let item = client
 		.storage()
 		.at_latest()
 		.await?
-		.fetch(&address2)
+		.fetch_raw(&key2)
 		.await?
 		.ok_or_else(|| anyhow!("Failed to set state commitment"))?;
-
-	assert_eq!(item, now.as_secs());
+	let update_time: u64 = Decode::decode(&mut &*item)?;
+	assert_eq!(now.as_secs(), update_time);
 
 	let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
 		hasher: HashAlgorithm::Keccak,
@@ -222,21 +208,31 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	let proof = Proof { height, proof };
 
 	// 3. next send the requests
-	let tx = api::tx().ismp().handle_unsigned(vec![Message::Request(RequestMessage {
-		requests: vec![post.clone().into()],
-		proof: proof.clone(),
-		signer: H256::random().as_bytes().to_vec(),
-	})]);
+	let tx = Extrinsic::new(
+		"Ismp",
+		"handle_unsigned",
+		vec![Message::Request(RequestMessage {
+			requests: vec![post.clone().into()],
+			proof: proof.clone(),
+			signer: H256::random().as_bytes().to_vec(),
+		})]
+		.encode(),
+	);
 
 	// send once
 	let progress = client.tx().create_unsigned(&tx)?.submit_and_watch().await?;
 	// send twice, txpool should reject it
 	{
-		let tx = api::tx().ismp().handle_unsigned(vec![Message::Request(RequestMessage {
-			requests: vec![post.clone().into()],
-			proof: proof.clone(),
-			signer: H256::random().as_bytes().to_vec(),
-		})]);
+		let tx = Extrinsic::new(
+			"Ismp",
+			"handle_unsigned",
+			vec![Message::Request(RequestMessage {
+				requests: vec![post.clone().into()],
+				proof: proof.clone(),
+				signer: H256::random().as_bytes().to_vec(),
+			})]
+			.encode(),
+		);
 		let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
 		let subxt::Error::Rpc(RpcError::ClientError(_err)) = error else {
 			panic!("Unexpected error kind: {error:?}")
@@ -257,11 +253,16 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 
 	// send after block inclusion, txpool should reject it
 	{
-		let tx = api::tx().ismp().handle_unsigned(vec![Message::Request(RequestMessage {
-			requests: vec![post.into()],
-			proof,
-			signer: H256::random().as_bytes().to_vec(),
-		})]);
+		let tx = Extrinsic::new(
+			"Ismp",
+			"handle_unsigned",
+			vec![Message::Request(RequestMessage {
+				requests: vec![post.clone().into()],
+				proof: proof.clone(),
+				signer: H256::random().as_bytes().to_vec(),
+			})]
+			.encode(),
+		);
 		let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
 		let subxt::Error::Rpc(RpcError::ClientError(_err)) = error else {
 			panic!("Unexpected error kind: {error:?}")

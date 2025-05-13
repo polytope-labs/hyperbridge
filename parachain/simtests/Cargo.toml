@@ -20,15 +20,19 @@ sp-core = { workspace = true, features = [
 ], default-features = true }
 substrate-state-machine = { workspace = true }
 primitive-types = { workspace = true }
-primitive-types-old = { package = "primitive-types", version = "0.12.1" } # Added for subxt compatibility when  decoding events
+primitive-types-old = { package = "primitive-types", version = "0.12.1", features = [
+    "codec",
+] } # Added for subxt compatibility when  decoding events
 ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-ismp-demo = { workspace = true, default-features = true }
 pallet-hyperbridge = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
+ismp-parachain = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true }
 jsonrpsee-core = { workspace = true, features = ["client"] }
 trie-db = { workspace = true }

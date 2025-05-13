@@ -18,6 +18,7 @@ use merkle_mountain_range::util::MemMMR;
 use mmr_primitives::DataOrHash;
 use pallet_ismp::offchain::{FullLeaf, Leaf, ProofKeys};
 use pallet_mmr_tree::mmr::Hasher as MmrHasher;
+use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};
 use subxt_utils::{Extrinsic, Hyperbridge};
 
 const NUMBER_OF_LEAVES_KEY: [u8; 32] =
@@ -37,9 +38,11 @@ const CHILD_TRIE_ROOT_KEY: [u8; 32] =
 	PartialEq,
 	Eq,
 	Hash,
-	subxt::ext::scale_decode::DecodeAsType,
-	subxt::ext::scale_encode::EncodeAsType,
+	DecodeAsType,
+	EncodeAsType,
 )]
+#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 pub enum StateMachine {
 	/// Evm state machines
 	#[codec(index = 0)]
@@ -52,16 +55,7 @@ pub enum StateMachine {
 	Kusama(u32),
 }
 
-#[derive(
-	Decode,
-	Encode,
-	subxt::ext::scale_decode::DecodeAsType,
-	subxt::ext::scale_encode::EncodeAsType,
-	Clone,
-	Debug,
-	Eq,
-	PartialEq,
-)]
+#[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 pub struct RequestEvent {
@@ -313,7 +307,10 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 			let call = client.tx().call_data(&call)?;
 			let extrinsic: Bytes = client
 				.rpc()
-				.request("simnode_authorExtrinsic", rpc_params![Bytes::from(call), accounts[i]])
+				.request(
+					"simnode_authorExtrinsic",
+					rpc_params![Bytes::from(call), accounts[i].clone()],
+				)
 				.await?;
 			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
 			submittable.submit().await?;

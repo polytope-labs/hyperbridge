@@ -118,8 +118,9 @@ pub async fn get_current_gas_cost_in_usd(
 	match chain {
 		StateMachine::Evm(inner_evm) => {
 			let api = "https://api.etherscan.io/v2/api";
+			// Use eth mainnet to fetch ETH price data for both testnet and mainnet
 			let eth_price_uri =
-				format!("{api}?chainid=${inner_evm}module=stats&action=ethprice&apikey={api_keys}");
+				format!("{api}?chainid=1&module=stats&action=ethprice&apikey={api_keys}");
 
 			match inner_evm {
 				chain_id if is_orbit_chain(chain_id) => {
@@ -134,7 +135,7 @@ pub async fn get_current_gas_cost_in_usd(
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				SEPOLIA_CHAIN_ID | ETHEREUM_CHAIN_ID => {
-					let uri = format!("{api}?module=gastracker&action=gasoracle&apikey={api_keys}");
+					let uri = format!("{api}?chainid=${ETHEREUM_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}");
 					if inner_evm == SEPOLIA_CHAIN_ID {
 						gas_price = new_u256(client.get_gas_price().await?);
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
@@ -235,7 +236,7 @@ pub async fn get_current_gas_cost_in_usd(
 				},
 				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => {
 					let uri = format!(
-						"https://api.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
+						"{api}?chainid=${inner_evm}&module=gastracker&action=gasoracle&apikey={api_keys}"
 					);
 					let node_gas_price = client.get_gas_price().await?;
 					let response_json = make_request::<GasResponse>(&uri, Default::default())

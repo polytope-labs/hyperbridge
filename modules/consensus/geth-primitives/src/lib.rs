@@ -160,10 +160,12 @@ impl Header {
 	}
 }
 
+#[cfg(feature = "std")]
 pub fn old_u256(val: U256) -> ethers_core::types::U256 {
 	ethers_core::types::U256(val.0)
 }
 
+#[cfg(feature = "std")]
 pub fn new_u256(val: ethers_core::types::U256) -> U256 {
 	U256(val.0)
 }

@@ -12,7 +12,7 @@ use socketioxide::{
 	socket::{DisconnectReason, Sid},
 	SocketIo,
 };
-use sp_core::{bytes::from_hex, ecdsa, Encode, Pair};
+use sp_core::{bytes::from_hex, ecdsa, ByteArray, Encode, Pair};
 use std::{collections::BTreeMap, env, str::FromStr, sync::Arc};
 use telemetry_server::Message;
 use tokio::sync::RwLock;
@@ -66,7 +66,7 @@ async fn on_connect(socket: SocketRef, Data(data): Data<Message>, state: State<S
 	let signature = ecdsa::Signature::from_slice(data.signature.as_slice())
 		.map(|signature| ecdsa::Pair::verify(&signature, data.metadata.encode(), &pair.public()));
 
-	if matches!(signature, Some(true)) {
+	if matches!(signature, Ok(true)) {
 		tracing::info!("Authenticated {} successfully", socket.id);
 		// add to global state
 		state.write().await.insert(socket.id, data);

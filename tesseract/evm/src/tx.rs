@@ -3,7 +3,7 @@ use crate::{
 	EvmClient,
 };
 use anyhow::anyhow;
-use codec::{Decode, Encode};
+use codec::Decode;
 use ethers::{
 	abi::Detokenize,
 	contract::{parse_log, FunctionCall},
@@ -16,7 +16,7 @@ use ethers::{
 	providers::{Http, Middleware, PendingTransaction},
 	types::{TransactionReceipt, TransactionRequest},
 };
-use geth_primitives::old_u256;
+use geth_primitives::{new_u256, old_u256};
 use ismp::{
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
@@ -56,8 +56,7 @@ pub async fn submit_messages(
 	let mut cancelled: Vec<Message> = vec![];
 	for (index, call) in calls.into_iter().enumerate() {
 		// Encode and Decode needed because of ether-rs and polkadot-sdk incompatibility
-		let gas_price =
-			call.tx.gas_price().and_then(|price| Decode::decode(&mut &*price.encode()).ok());
+		let gas_price = call.tx.gas_price().map(|price| new_u256(price));
 		match call.clone().send().await {
 			Ok(progress) => {
 				let retry = if matches!(messages[index], Message::Consensus(_)) {

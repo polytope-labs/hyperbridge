@@ -5,13 +5,14 @@ use crate::{
 };
 use anyhow::{anyhow, Error};
 use beefy_verifier_primitives::ConsensusState;
-use codec::{Decode, Encode};
+use codec::Encode;
 use ethers::{
 	abi::AbiDecode,
 	providers::Middleware,
 	types::{CallFrame, GethDebugTracingCallOptions, GethTrace, GethTraceFrame},
 };
 use evm_state_machine::types::EvmStateProof;
+use geth_primitives::new_u256;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -475,12 +476,9 @@ impl IsmpProvider for EvmClient {
 								if successful_execution && is_orbit_chain(client.chain_id as u32) {
 									let _temp_gas =
 										client.client.estimate_gas(&call.tx, call.block).await?;
-									gas_to_be_used = Decode::decode(&mut &*_temp_gas.encode())
-										.expect("Infallible");
+									gas_to_be_used = new_u256(_temp_gas);
 								} else {
-									gas_to_be_used =
-										Decode::decode(&mut &*call_frame.gas_used.encode())
-											.expect("Infallible");
+									gas_to_be_used = new_u256(call_frame.gas_used);
 								}
 							},
 							trace => {
@@ -526,14 +524,14 @@ impl IsmpProvider for EvmClient {
 		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
 		let fee_metadata = host_contract.request_commitments(hash.into()).call().await?;
 		// erc20 tokens are formatted in 18 decimals
-		return Ok(Decode::decode(&mut &*fee_metadata.fee.encode()).expect("Infallible"));
+		return Ok(new_u256(fee_metadata.fee));
 	}
 
 	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
 		let fee_metadata = host_contract.response_commitments(hash.into()).call().await?;
 		// erc20 tokens are formatted in 18 decimals
-		return Ok(Decode::decode(&mut &*fee_metadata.fee.encode()).expect("Infallible"));
+		return Ok(new_u256(fee_metadata.fee));
 	}
 
 	async fn state_commitment_vetoed_notification(
@@ -850,10 +848,8 @@ impl IsmpProvider for EvmClient {
 		let params: ismp_solidity_abi::evm_host::HostParams = contract.host_params().call().await?;
 		let evm_params = EvmHostParam {
 			default_timeout: params.default_timeout.low_u128(),
-			default_per_byte_fee: Decode::decode(&mut &*params.default_per_byte_fee.encode())
-				.expect("Infallible"),
-			state_commitment_fee: Decode::decode(&mut &*params.state_commitment_fee.encode())
-				.expect("Infallible"),
+			default_per_byte_fee: new_u256(params.default_per_byte_fee),
+			state_commitment_fee: new_u256(params.state_commitment_fee),
 			fee_token: params.fee_token.0.into(),
 			admin: params.admin.0.into(),
 			handler: params.handler.0.into(),
@@ -873,8 +869,7 @@ impl IsmpProvider for EvmClient {
 				.per_byte_fees
 				.into_iter()
 				.map(|p| PerByteFee {
-					per_byte_fee: Decode::decode(&mut &*p.per_byte_fee.encode())
-						.expect("Infallible"),
+					per_byte_fee: new_u256(p.per_byte_fee),
 					state_id: p.state_id_hash.into(),
 				})
 				.collect::<Vec<_>>()

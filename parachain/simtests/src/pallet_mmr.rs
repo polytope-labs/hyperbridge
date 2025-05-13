@@ -152,7 +152,8 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		.await
 		.unwrap()
 		.unwrap_or_default();
-	let leaf_count_at_start: u64 = Decode::decode(&mut &*leaf_count_at_start).unwrap();
+	let leaf_count_at_start: u64 =
+		Decode::decode(&mut &*leaf_count_at_start).ok().unwrap_or_default();
 	dbg!(leaf_count_at_start);
 	let get_child_trie_root = |block_hash: H256| {
 		let client = client.clone();
@@ -452,8 +453,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	let finalized_hash = chain_a.last().cloned().unwrap();
 	let mmr_leaf_count = client
 		.storage()
-		.at_latest()
-		.await?
+		.at(finalized_hash)
 		.fetch_raw(&NUMBER_OF_LEAVES_KEY)
 		.await
 		.unwrap()

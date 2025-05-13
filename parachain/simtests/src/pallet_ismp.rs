@@ -25,10 +25,13 @@ use ismp::{
 	messaging::{hash_request, Message, Proof, RequestMessage},
 	router::{PostRequest, Request},
 };
-use pallet_ismp::child_trie::{self, state_commitment_storage_key};
+use pallet_ismp::child_trie::{self};
 use primitive_types::H256;
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
-use subxt_utils::{state_machine_update_time_storage_key, Extrinsic, Hyperbridge};
+use subxt_utils::{
+	state_machine_commitment_storage_key, state_machine_update_time_storage_key, Extrinsic,
+	Hyperbridge,
+};
 
 #[derive(Clone, Default)]
 pub struct Keccak256;
@@ -57,29 +60,13 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
-		let calls = vec![
-			client.tx().call_data(&Extrinsic::new(
-				"IsmpParachain",
-				"add_parachain",
-				vec![ParachainData { id: para_id, slot_duration }].encode(),
-			))?,
-			// init the host executive
-			client.tx().call_data(&Extrinsic::new(
-				"HostExecutive",
-				"set_host_params",
-				vec![(
-					StateMachine::Kusama(para_id),
-					HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-						default_per_byte_fee: 0u128,
-						..Default::default()
-					})),
-				)]
-				.encode(),
-			))?,
-		];
-		let batch_calls = Extrinsic::new("Utility", "batch_all", calls.encode());
-		let call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&batch_calls)?);
-		let call = client.tx().call_data(&call)?;
+		let add_parachain_call = Extrinsic::new(
+			"IsmpParachain",
+			"add_parachain",
+			vec![ParachainData { id: para_id, slot_duration }].encode(),
+		);
+		let sudo_call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&add_parachain_call)?);
+		let call = client.tx().call_data(&sudo_call)?;
 		let extrinsic: Bytes = client
 			.rpc()
 			.request(
@@ -87,14 +74,56 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 				// author an extrinsic from alice, the sudo account
 				rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
 			)
-			.await?;
+			.await
+			.map_err(|err| println!("{:?}", err))
+			.expect("REASON");
 		let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
 		let progress = submittable.submit_and_watch().await?;
 		let block = client
 			.rpc()
 			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 			.await?;
+		let finalized = client
+			.rpc()
+			.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+			.await?;
+		assert!(finalized);
+		progress.wait_for_finalized_success().await?;
+	}
 
+	// Init the host executive extrinsic
+	{
+		let set_host_params_call = Extrinsic::new(
+			"HostExecutive",
+			"set_host_params",
+			vec![(
+				StateMachine::Kusama(para_id),
+				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
+					default_per_byte_fee: 0u128,
+					..Default::default()
+				})),
+			)]
+			.encode(),
+		);
+		let sudo_call =
+			Extrinsic::new("Sudo", "sudo", client.tx().call_data(&set_host_params_call)?);
+		let call = client.tx().call_data(&sudo_call)?;
+		let extrinsic: Bytes = client
+			.rpc()
+			.request(
+				"simnode_authorExtrinsic",
+				// author an extrinsic from alice, the sudo account
+				rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
+			)
+			.await
+			.map_err(|err| println!("{:?}", err))
+			.expect("REASON");
+		let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+		let progress = submittable.submit_and_watch().await?;
+		let block = client
+			.rpc()
+			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+			.await?;
 		let finalized = client
 			.rpc()
 			.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
@@ -149,7 +178,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		height: 200,
 	};
 
-	let key1 = state_commitment_storage_key(height);
+	let key1 = state_machine_commitment_storage_key(height);
 	let key2 = state_machine_update_time_storage_key(height);
 	let start = SystemTime::now();
 	let now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");

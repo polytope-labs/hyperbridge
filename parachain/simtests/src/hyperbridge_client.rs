@@ -11,7 +11,6 @@ use ismp::{
 };
 use ismp_parachain::ParachainData;
 use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
-use pallet_ismp::child_trie::state_commitment_storage_key;
 use pallet_ismp_host_executive::HostParam;
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -26,7 +25,10 @@ use std::{
 };
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt::{error::RpcError, rpc_params, tx::SubmittableExtrinsic};
-use subxt_utils::{state_machine_update_time_storage_key, Extrinsic, Hyperbridge};
+use subxt_utils::{
+	state_machine_commitment_storage_key, state_machine_update_time_storage_key, Extrinsic,
+	Hyperbridge,
+};
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 #[tokio::test]
@@ -45,14 +47,43 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	let slot_duration = 6000u64;
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
-		let calls = vec![
-			client.tx().call_data(&Extrinsic::new(
+		// Add parachain extrinsic
+		{
+			let add_parachain_call = Extrinsic::new(
 				"IsmpParachain",
 				"add_parachain",
 				vec![ParachainData { id: para_id, slot_duration }].encode(),
-			))?,
-			// init the host executive
-			client.tx().call_data(&Extrinsic::new(
+			);
+			let sudo_call =
+				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&add_parachain_call)?);
+			let call = client.tx().call_data(&sudo_call)?;
+			let extrinsic: Bytes = client
+				.rpc()
+				.request(
+					"simnode_authorExtrinsic",
+					// author an extrinsic from alice, the sudo account
+					rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
+				)
+				.await
+				.map_err(|err| println!("{:?}", err))
+				.expect("REASON");
+			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let progress = submittable.submit_and_watch().await?;
+			let block = client
+				.rpc()
+				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+				.await?;
+			let finalized = client
+				.rpc()
+				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+				.await?;
+			assert!(finalized);
+			progress.wait_for_finalized_success().await?;
+		}
+
+		// Init the host executive extrinsic
+		{
+			let set_host_params_call = Extrinsic::new(
 				"HostExecutive",
 				"set_host_params",
 				vec![(
@@ -63,34 +94,33 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 					})),
 				)]
 				.encode(),
-			))?,
-		];
-		let batch_calls = Extrinsic::new("Utility", "batch_all", calls.encode());
-		let call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&batch_calls)?);
-		let call = client.tx().call_data(&call)?;
-		let extrinsic: Bytes = client
-			.rpc()
-			.request(
-				"simnode_authorExtrinsic",
-				// author an extrinsic from alice, the sudo account
-				rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
-			)
-			.await
-			.map_err(|err| println!("{:?}", err))
-			.expect("REASON");
-		let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
-		let progress = submittable.submit_and_watch().await?;
-		let block = client
-			.rpc()
-			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
-			.await?;
-
-		let finalized = client
-			.rpc()
-			.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
-			.await?;
-		assert!(finalized);
-		progress.wait_for_finalized_success().await?;
+			);
+			let sudo_call =
+				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&set_host_params_call)?);
+			let call = client.tx().call_data(&sudo_call)?;
+			let extrinsic: Bytes = client
+				.rpc()
+				.request(
+					"simnode_authorExtrinsic",
+					// author an extrinsic from alice, the sudo account
+					rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
+				)
+				.await
+				.map_err(|err| println!("{:?}", err))
+				.expect("REASON");
+			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let progress = submittable.submit_and_watch().await?;
+			let block = client
+				.rpc()
+				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+				.await?;
+			let finalized = client
+				.rpc()
+				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+				.await?;
+			assert!(finalized);
+			progress.wait_for_finalized_success().await?;
+		}
 	}
 
 	let post = PostRequest {
@@ -143,7 +173,7 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 		},
 		height: 200,
 	};
-	let key1 = state_commitment_storage_key(height);
+	let key1 = state_machine_commitment_storage_key(height);
 	let key2 = state_machine_update_time_storage_key(height);
 	let start = SystemTime::now();
 	let now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -245,14 +275,43 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 	let slot_duration = 6000u64;
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
-		let calls = vec![
-			client.tx().call_data(&Extrinsic::new(
+		// Add parachain extrinsic
+		{
+			let add_parachain_call = Extrinsic::new(
 				"IsmpParachain",
 				"add_parachain",
 				vec![ParachainData { id: para_id, slot_duration }].encode(),
-			))?,
-			// init the host executive
-			client.tx().call_data(&Extrinsic::new(
+			);
+			let sudo_call =
+				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&add_parachain_call)?);
+			let call = client.tx().call_data(&sudo_call)?;
+			let extrinsic: Bytes = client
+				.rpc()
+				.request(
+					"simnode_authorExtrinsic",
+					// author an extrinsic from alice, the sudo account
+					rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
+				)
+				.await
+				.map_err(|err| println!("{:?}", err))
+				.expect("REASON");
+			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let progress = submittable.submit_and_watch().await?;
+			let block = client
+				.rpc()
+				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+				.await?;
+			let finalized = client
+				.rpc()
+				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+				.await?;
+			assert!(finalized);
+			progress.wait_for_finalized_success().await?;
+		}
+
+		// Init the host executive extrinsic
+		{
+			let set_host_params_call = Extrinsic::new(
 				"HostExecutive",
 				"set_host_params",
 				vec![(
@@ -263,32 +322,33 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 					})),
 				)]
 				.encode(),
-			))?,
-		];
-		let batch_calls = Extrinsic::new("Utility", "batch_all", calls.encode());
-		let call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&batch_calls)?);
-		let call = client.tx().call_data(&call)?;
-		let extrinsic: Bytes = client
-			.rpc()
-			.request(
-				"simnode_authorExtrinsic",
-				// author an extrinsic from alice, the sudo account
-				rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
-			)
-			.await?;
-		let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
-		let progress = submittable.submit_and_watch().await?;
-		let block = client
-			.rpc()
-			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
-			.await?;
-
-		let finalized = client
-			.rpc()
-			.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
-			.await?;
-		assert!(finalized);
-		progress.wait_for_finalized_success().await?;
+			);
+			let sudo_call =
+				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&set_host_params_call)?);
+			let call = client.tx().call_data(&sudo_call)?;
+			let extrinsic: Bytes = client
+				.rpc()
+				.request(
+					"simnode_authorExtrinsic",
+					// author an extrinsic from alice, the sudo account
+					rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
+				)
+				.await
+				.map_err(|err| println!("{:?}", err))
+				.expect("REASON");
+			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let progress = submittable.submit_and_watch().await?;
+			let block = client
+				.rpc()
+				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+				.await?;
+			let finalized = client
+				.rpc()
+				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+				.await?;
+			assert!(finalized);
+			progress.wait_for_finalized_success().await?;
+		}
 	}
 
 	let post = PostRequest {
@@ -336,7 +396,7 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 		},
 		height: 200,
 	};
-	let key1 = state_commitment_storage_key(height);
+	let key1 = state_machine_commitment_storage_key(height);
 	let key2 = state_machine_update_time_storage_key(height);
 	let start = SystemTime::now();
 	let now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -430,14 +490,43 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	let slot_duration = 6000u64;
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
-		let calls = vec![
-			client.tx().call_data(&Extrinsic::new(
+		// Add parachain extrinsic
+		{
+			let add_parachain_call = Extrinsic::new(
 				"IsmpParachain",
 				"add_parachain",
 				vec![ParachainData { id: para_id, slot_duration }].encode(),
-			))?,
-			// init the host executive
-			client.tx().call_data(&Extrinsic::new(
+			);
+			let sudo_call =
+				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&add_parachain_call)?);
+			let call = client.tx().call_data(&sudo_call)?;
+			let extrinsic: Bytes = client
+				.rpc()
+				.request(
+					"simnode_authorExtrinsic",
+					// author an extrinsic from alice, the sudo account
+					rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
+				)
+				.await
+				.map_err(|err| println!("{:?}", err))
+				.expect("REASON");
+			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let progress = submittable.submit_and_watch().await?;
+			let block = client
+				.rpc()
+				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+				.await?;
+			let finalized = client
+				.rpc()
+				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+				.await?;
+			assert!(finalized);
+			progress.wait_for_finalized_success().await?;
+		}
+
+		// Init the host executive extrinsic
+		{
+			let set_host_params_call = Extrinsic::new(
 				"HostExecutive",
 				"set_host_params",
 				vec![(
@@ -448,32 +537,33 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 					})),
 				)]
 				.encode(),
-			))?,
-		];
-		let batch_calls = Extrinsic::new("Utility", "batch_all", calls.encode());
-		let call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&batch_calls)?);
-		let call = client.tx().call_data(&call)?;
-		let extrinsic: Bytes = client
-			.rpc()
-			.request(
-				"simnode_authorExtrinsic",
-				// author an extrinsic from alice, the sudo account
-				rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
-			)
-			.await?;
-		let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
-		let progress = submittable.submit_and_watch().await?;
-		let block = client
-			.rpc()
-			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
-			.await?;
-
-		let finalized = client
-			.rpc()
-			.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
-			.await?;
-		assert!(finalized);
-		progress.wait_for_finalized_success().await?;
+			);
+			let sudo_call =
+				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&set_host_params_call)?);
+			let call = client.tx().call_data(&sudo_call)?;
+			let extrinsic: Bytes = client
+				.rpc()
+				.request(
+					"simnode_authorExtrinsic",
+					// author an extrinsic from alice, the sudo account
+					rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
+				)
+				.await
+				.map_err(|err| println!("{:?}", err))
+				.expect("REASON");
+			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let progress = submittable.submit_and_watch().await?;
+			let block = client
+				.rpc()
+				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+				.await?;
+			let finalized = client
+				.rpc()
+				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+				.await?;
+			assert!(finalized);
+			progress.wait_for_finalized_success().await?;
+		}
 	}
 
 	let post = PostRequest {
@@ -526,7 +616,7 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 		},
 		height: 200,
 	};
-	let key1 = state_commitment_storage_key(height);
+	let key1 = state_machine_commitment_storage_key(height);
 	let key2 = state_machine_update_time_storage_key(height);
 	let start = SystemTime::now();
 	let now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");

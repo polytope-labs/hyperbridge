@@ -19,7 +19,6 @@ extern crate alloc;
 use alloc::vec::Vec;
 use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use codec::{Decode, Encode};
 use ethabi::ethereum_types::{Bloom, H64};
 #[cfg(feature = "std")]
 use ethers_core::types::{Block, U64};
@@ -94,7 +93,7 @@ impl From<Block<ethers_core::types::H256>> for CodecHeader {
 			transactions_root: block.transactions_root.0.into(),
 			receipts_root: block.receipts_root.0.into(),
 			logs_bloom: block.logs_bloom.unwrap_or_default(),
-			difficulty: Decode::decode(&mut &*block.difficulty.encode()).expect("Infallible"),
+			difficulty: new_u256(block.difficulty),
 			number: block.number.unwrap_or_default().as_u64().into(),
 			gas_limit: block.gas_limit.low_u64(),
 			gas_used: block.gas_used.low_u64(),
@@ -102,9 +101,7 @@ impl From<Block<ethers_core::types::H256>> for CodecHeader {
 			extra_data: block.extra_data.0.into(),
 			mix_hash: block.mix_hash.unwrap_or_default().0.into(),
 			nonce: block.nonce.unwrap_or_default(),
-			base_fee_per_gas: block
-				.base_fee_per_gas
-				.map(|inner| Decode::decode(&mut &*inner.encode()).expect("Infallible")),
+			base_fee_per_gas: block.base_fee_per_gas.map(|inner| new_u256(inner)),
 			withdrawals_hash: block.withdrawals_root.map(|inner| inner.0.into()),
 			blob_gas_used: block
 				.other
@@ -161,4 +158,12 @@ impl Header {
 		let encoding = alloy_rlp::encode(self);
 		H::keccak256(&encoding)
 	}
+}
+
+pub fn old_u256(val: U256) -> ethers_core::types::U256 {
+	ethers_core::types::U256(val.0)
+}
+
+pub fn new_u256(val: ethers_core::types::U256) -> U256 {
+	U256(val.0)
 }

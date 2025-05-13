@@ -313,10 +313,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 			let call = client.tx().call_data(&call)?;
 			let extrinsic: Bytes = client
 				.rpc()
-				.request(
-					"simnode_authorExtrinsic",
-					rpc_params![Bytes::from(call), accounts[i]],
-				)
+				.request("simnode_authorExtrinsic", rpc_params![Bytes::from(call), accounts[i]])
 				.await?;
 			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
 			submittable.submit().await?;

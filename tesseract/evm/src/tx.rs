@@ -16,6 +16,7 @@ use ethers::{
 	providers::{Http, Middleware, PendingTransaction},
 	types::{TransactionReceipt, TransactionRequest},
 };
+use geth_primitives::old_u256;
 use ismp::{
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
@@ -167,12 +168,12 @@ where
 				state_machine_clone,
 				ethers::utils::format_units(
 					// Conversion needed because of ether-rs and polkadot-sdk incompatibility
-					ethers::types::U256::from(gas_price.to_big_endian()),
+					old_u256(gas_price),
 					"gwei"
 				)?
 			);
 			// Conversion needed because of ether-rs and polkadot-sdk incompatibility
-			let call = call.gas_price(gas_price.to_big_endian());
+			let call = call.gas_price(old_u256(gas_price));
 			let pending = call.send().await?;
 
 			// don't retry in the next callstack
@@ -198,7 +199,7 @@ where
 							let new_price: U256 = price * 10;
 							// Conversion needed because of ether-rs and polkadot-sdk
 							// incompatibility
-							new_price.to_big_endian().into()
+							old_u256(new_price)
 						}), // experiment with higher?
 						..Default::default()
 					}),
@@ -310,9 +311,7 @@ pub async fn generate_contract_calls(
 					.await
 					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
 				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
-				let call = call
-					.gas_price(ethers::core::types::U256::from(gas_price.to_big_endian()))
-					.gas(gas_limit);
+				let call = call.gas_price(old_u256(gas_price)).gas(gas_limit);
 
 				calls.push(call);
 			},
@@ -364,7 +363,7 @@ pub async fn generate_contract_calls(
 				let call = if set_gas_price() {
 					contract
 						.handle_post_requests(ismp_host.0.into(), post_message)
-						.gas_price(ethers::core::types::U256::from(gas_price.to_big_endian()))
+						.gas_price(old_u256(gas_price))
 						.gas(gas_limit)
 				} else {
 					contract.handle_post_requests(ismp_host.0.into(), post_message).gas(gas_limit)
@@ -430,9 +429,7 @@ pub async fn generate_contract_calls(
 							// incompatibility
 							contract
 								.handle_post_responses(ismp_host.0.into(), message)
-								.gas_price(ethers::core::types::U256::from(
-									gas_price.to_big_endian(),
-								))
+								.gas_price(old_u256(gas_price))
 								.gas(gas_limit)
 						} else {
 							contract

@@ -5,7 +5,7 @@ use ethers::{
 	providers::Http,
 	utils::parse_units,
 };
-use geth_primitives::new_u256;
+use geth_primitives::{new_u256, old_u256};
 use hex_literal::hex;
 use ismp::host::StateMachine;
 use primitive_types::U256;
@@ -117,8 +117,9 @@ pub async fn get_current_gas_cost_in_usd(
 
 	match chain {
 		StateMachine::Evm(inner_evm) => {
-			let api = "https://api.etherscan.io/api";
-			let eth_price_uri = format!("{api}?module=stats&action=ethprice&apikey={api_keys}");
+			let api = "https://api.etherscan.io/v2/api";
+			let eth_price_uri =
+				format!("{api}?chainid=${inner_evm}module=stats&action=ethprice&apikey={api_keys}");
 
 			match inner_evm {
 				chain_id if is_orbit_chain(chain_id) => {
@@ -135,7 +136,7 @@ pub async fn get_current_gas_cost_in_usd(
 				SEPOLIA_CHAIN_ID | ETHEREUM_CHAIN_ID => {
 					let uri = format!("{api}?module=gastracker&action=gasoracle&apikey={api_keys}");
 					if inner_evm == SEPOLIA_CHAIN_ID {
-						gas_price = U256(client.get_gas_price().await?.0);
+						gas_price = new_u256(client.get_gas_price().await?);
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
 						let eth_usd = parse_to_27_decimals(&response_json.usd_price)?;
 						unit_wei = get_cost_of_one_wei(eth_usd);
@@ -268,11 +269,7 @@ pub async fn get_current_gas_cost_in_usd(
 
 	log::debug!(
 		"Returned gas price for {chain:?}: {} Gwei",
-		ethers::utils::format_units(
-			ethers::core::types::U256::from(gas_price.to_big_endian()),
-			"gwei"
-		)
-		.unwrap()
+		ethers::utils::format_units(old_u256(gas_price), "gwei").unwrap()
 	);
 
 	Ok(GasBreakdown { gas_price, gas_price_cost: gas_price_cost.into(), unit_wei_cost: unit_wei })

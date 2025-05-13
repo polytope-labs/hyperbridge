@@ -32,6 +32,7 @@ impl<T: Config> TryFrom<PalletEvent<T>> for ismp::events::Event {
 				Ok(ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
 					state_machine_id,
 					latest_height,
+					previous_height: 0,
 				})),
 			PalletEvent::Response { commitment, .. } => {
 				let event = match Pallet::<T>::response(commitment).ok_or_else(|| ())? {

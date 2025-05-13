@@ -262,6 +262,7 @@ pub mod pallet {
 				Event::StateMachineUpdated(StateMachineUpdated {
 					state_machine_id: height.id,
 					latest_height: height.height,
+					previous_height: 0,
 				})
 				.into(),
 			);

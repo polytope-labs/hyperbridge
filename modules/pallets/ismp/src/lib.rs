@@ -68,13 +68,12 @@ pub mod pallet {
 		router::IsmpRouter,
 	};
 	use sp_core::{storage::ChildInfo, H256};
-	#[cfg(feature = "unsigned")]
-	use sp_runtime::transaction_validity::{
-		InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
-		ValidTransaction,
-	};
 	use sp_runtime::{
 		traits::{AccountIdConversion, AtLeast32BitUnsigned},
+		transaction_validity::{
+			InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
+			ValidTransaction,
+		},
 		FixedPointOperand,
 	};
 	use sp_std::prelude::*;
@@ -290,7 +289,6 @@ pub mod pallet {
 		/// - `messages`: the messages to handle or process.
 		///
 		/// Emits different message events based on the Message received if successful.
-		#[cfg(feature = "unsigned")]
 		#[pallet::weight(weight())]
 		#[pallet::call_index(0)]
 		#[frame_support::transactional]
@@ -303,26 +301,6 @@ pub mod pallet {
 			Self::execute(messages.clone())?;
 
 			T::FeeHandler::on_executed(messages.clone())
-		}
-
-		/// Execute the provided batch of ISMP messages. This call will short-circuit and revert if
-		/// any of the provided messages are invalid.
-		///
-		/// The dispatch origin for this call must be an unsigned one.
-		///
-		/// - `messages`: A set of ISMP [`Message`]s to handle or process.
-		///
-		/// Emits different message events based on the Message received if successful.
-		#[cfg(not(feature = "unsigned"))]
-		#[pallet::weight(weight())]
-		#[pallet::call_index(1)]
-		#[frame_support::transactional]
-		pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResultWithPostInfo {
-			ensure_signed(origin)?;
-
-			Self::execute(messages.clone())?;
-
-			T::FeeHandler::on_executed(messages)
 		}
 
 		/// Create a consensus client, using a subjectively chosen consensus state. This can also
@@ -511,7 +489,6 @@ pub mod pallet {
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.
-	#[cfg(feature = "unsigned")]
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;

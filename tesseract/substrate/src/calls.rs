@@ -174,6 +174,7 @@ where
 		let mock_state_update = StateMachineUpdated {
 			state_machine_id: counterparty.state_machine_id(),
 			latest_height: block_number,
+			previous_height: block_number - 1,
 		};
 		let event = self
 			.query_ismp_events(block_number - 1, mock_state_update)

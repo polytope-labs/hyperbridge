@@ -391,6 +391,7 @@ mod test {
 		GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
 	};
 	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
+	use geth_primitives::new_u256;
 	use ismp::host::StateMachine;
 	use primitive_types::U256;
 	use std::sync::Arc;
@@ -598,7 +599,7 @@ mod test {
 		let gas_price = 17.0;
 		let eth_usd = parse_to_27_decimals("2270.13").unwrap();
 		dbg!(eth_usd);
-		let wei: U256 = parse_units(gas_price, "gwei").unwrap().into();
+		let wei: U256 = new_u256(parse_units(gas_price, "gwei").unwrap().into());
 		let unit_wei = get_cost_of_one_wei(eth_usd);
 		let gas_cost = unit_wei * wei;
 		dbg!(gas_cost);
@@ -611,7 +612,7 @@ mod test {
 
 		let eth_usd = parse_to_27_decimals("2270.13").unwrap();
 		let gas_price = 0.1;
-		let wei: U256 = parse_units(gas_price, "gwei").unwrap().into();
+		let wei: U256 = new_u256(parse_units(gas_price, "gwei").unwrap().into());
 		let unit_wei = get_cost_of_one_wei(eth_usd);
 		let gas_cost = unit_wei * wei;
 		dbg!(gas_cost);
@@ -626,7 +627,7 @@ mod test {
 		let eth_usd = parse_to_27_decimals("0.00781462").unwrap();
 		dbg!(eth_usd);
 		let gas_price = 74.0;
-		let wei: U256 = parse_units(gas_price, "gwei").unwrap().into();
+		let wei: U256 = new_u256(parse_units(gas_price, "gwei").unwrap().into());
 		let unit_wei = get_cost_of_one_wei(eth_usd);
 		let gas_cost = unit_wei * wei;
 		dbg!(gas_cost);

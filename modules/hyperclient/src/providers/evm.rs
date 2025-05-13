@@ -34,7 +34,7 @@ use crate::{
 use anyhow::{anyhow, Context, Error};
 use core::time::Duration;
 use ethers::{
-	prelude::{ProviderExt, H160, H256, U256},
+	prelude::ProviderExt,
 	providers::{Http, Provider},
 	utils::keccak256,
 };
@@ -57,6 +57,7 @@ use ismp_solidity_abi::{
 };
 use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
+use primitive_types::{H160, H256, U256};
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
@@ -91,7 +92,7 @@ impl EvmClient {
 		state_machine: StateMachine,
 	) -> Result<Self, anyhow::Error> {
 		let client = Arc::new(Provider::<Http>::connect(&rpc_url.clone()).await);
-		let host = EvmHost::new(host_address, client.clone());
+		let host = EvmHost::new(host_address.0, client.clone());
 		let handler_address = host.host_params().await?.handler;
 
 		Ok(Self {
@@ -100,23 +101,21 @@ impl EvmClient {
 			state_machine,
 			consensus_state_id,
 			host_address,
-			ismp_handler: handler_address,
+			ismp_handler: handler_address.0.into(),
 		})
 	}
 
 	pub fn request_commitment_key(&self, key: H256) -> H256 {
 		let key = derive_map_key(key.0.to_vec(), REQUEST_COMMITMENTS_SLOT);
 		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let mut bytes = [0u8; 32];
-		number.to_big_endian(&mut bytes);
+		let bytes = number.to_big_endian();
 		H256::from(bytes)
 	}
 
 	pub fn response_commitment_key(&self, key: H256) -> H256 {
 		let key = derive_map_key(key.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
 		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let mut bytes = [0u8; 32];
-		number.to_big_endian(&mut bytes);
+		let bytes = number.to_big_endian();
 		H256::from(bytes)
 	}
 
@@ -130,8 +129,7 @@ impl EvmClient {
 }
 
 fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {
-	let mut bytes = [0u8; 32];
-	U256::from(slot as u64).to_big_endian(&mut bytes);
+	let bytes = U256::from(slot as u64).to_big_endian();
 	key.extend_from_slice(&bytes);
 	keccak256(&key).into()
 }
@@ -146,15 +144,15 @@ impl Client for EvmClient {
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, anyhow::Error> {
-		let host = EvmHost::new(self.host_address, self.client.clone());
+		let host = EvmHost::new(self.host_address.0, self.client.clone());
 		let current_host_time = host.timestamp().call().await?;
 		Ok(Duration::from_secs(current_host_time.as_u64()))
 	}
 
 	async fn query_request_receipt(&self, request_hash: H256) -> Result<H160, Error> {
-		let host = EvmHost::new(self.host_address, self.client.clone());
+		let host = EvmHost::new(self.host_address.0, self.client.clone());
 		let relayer = host.request_receipts(request_hash.0).call().await?;
-		Ok(relayer)
+		Ok(relayer.0.into())
 	}
 
 	async fn query_requests_proof(
@@ -165,10 +163,13 @@ impl Client for EvmClient {
 	) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
-			.map(|query| self.request_commitment_key(query.commitment))
+			.map(|query| self.request_commitment_key(query.commitment).0.into())
 			.collect();
 
-		let proof = self.client.get_proof(self.host_address, keys, Some(at.into())).await?;
+		let proof = self
+			.client
+			.get_proof(ethers::types::H160(self.host_address.0), keys, Some(at.into()))
+			.await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
 			storage_proof: {
@@ -195,9 +196,12 @@ impl Client for EvmClient {
 	) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
-			.map(|query| self.response_commitment_key(query.commitment))
+			.map(|query| self.response_commitment_key(query.commitment).0.into())
 			.collect();
-		let proof = self.client.get_proof(self.host_address, keys, Some(at.into())).await?;
+		let proof = self
+			.client
+			.get_proof(ethers::types::H160(self.host_address.0), keys, Some(at.into()))
+			.await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
 			storage_proof: {
@@ -219,8 +223,11 @@ impl Client for EvmClient {
 	async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
 		use codec::Encode;
 		let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
-		let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
-		let proof = self.client.get_proof(self.host_address, locations, Some(at.into())).await?;
+		let locations = keys.iter().map(|key| H256::from_slice(key).0.into()).collect();
+		let proof = self
+			.client
+			.get_proof(ethers::types::H160(self.host_address.0), locations, Some(at.into()))
+			.await?;
 		let mut storage_proofs = vec![];
 		for proof in proof.storage_proof {
 			storage_proofs
@@ -238,20 +245,20 @@ impl Client for EvmClient {
 	}
 
 	async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {
-		let host = EvmHost::new(self.host_address, self.client.clone());
+		let host = EvmHost::new(self.host_address.0, self.client.clone());
 		let response_receipt = host.response_receipts(request_commitment.0).call().await?;
 
-		Ok(response_receipt.relayer)
+		Ok(response_receipt.relayer.0.into())
 	}
 
 	async fn query_ismp_event(
 		&self,
 		range: RangeInclusive<u64>,
 	) -> Result<Vec<WithMetadata<Event>>, anyhow::Error> {
-		let contract = EvmHost::new(self.host_address, self.client.clone());
+		let contract = EvmHost::new(self.host_address.0, self.client.clone());
 		contract
 			.events()
-			.address(self.host_address.into())
+			.address(ethers::types::H160(self.host_address.0).into())
 			.from_block(*range.start())
 			.to_block(*range.end())
 			.query_with_meta()
@@ -260,8 +267,8 @@ impl Client for EvmClient {
 			.map(|(event, meta)| {
 				Ok(WithMetadata {
 					meta: EventMetadata {
-						block_hash: meta.block_hash,
-						transaction_hash: meta.transaction_hash,
+						block_hash: meta.block_hash.0.into(),
+						transaction_hash: meta.transaction_hash.0.into(),
 						block_number: meta.block_number.as_u64(),
 					},
 					event: event.try_into()?,
@@ -310,10 +317,10 @@ impl Client for EvmClient {
 					return Some((Ok(None), (block_number, client)));
 				}
 
-				let contract = EvmHost::new(client.host_address, client.client.clone());
+				let contract = EvmHost::new(client.host_address.0, client.client.clone());
 				let results = match contract
 					.events()
-					.address(client.host_address.into())
+					.address(ethers::types::H160(client.host_address.0).into())
 					.from_block(latest_height)
 					.to_block(block_number)
 					.query_with_meta()
@@ -335,8 +342,8 @@ impl Client for EvmClient {
 							if filter.commitment == commitment.0 {
 								return Some(WithMetadata {
 									meta: EventMetadata {
-										block_hash: meta.block_hash,
-										transaction_hash: meta.transaction_hash,
+										block_hash: meta.block_hash.0.into(),
+										transaction_hash: meta.transaction_hash.0.into(),
 										block_number: meta.block_number.as_u64(),
 									},
 									event: RequestResponseHandled {
@@ -370,7 +377,7 @@ impl Client for EvmClient {
 		&self,
 		_state_machine: StateMachineId,
 	) -> Result<u64, anyhow::Error> {
-		let contract = EvmHost::new(self.host_address, self.client.clone());
+		let contract = EvmHost::new(self.host_address.0, self.client.clone());
 		let para_id = match _state_machine.state_id {
 			StateMachine::Polkadot(para_id) | StateMachine::Kusama(para_id) => para_id,
 			id => Err(anyhow!("Unknown state machine id {id:?}"))?,
@@ -407,10 +414,10 @@ impl Client for EvmClient {
 					return Some((Ok(None), (block_number, client)));
 				}
 
-				let contract = EvmHost::new(client.host_address, client.client.clone());
+				let contract = EvmHost::new(client.host_address.0, client.client.clone());
 				let results = match contract
 					.events()
-					.address(client.host_address.into())
+					.address(ethers::types::H160(client.host_address.0).into())
 					.from_block(latest_height)
 					.to_block(block_number)
 					.query_with_meta()
@@ -430,8 +437,8 @@ impl Client for EvmClient {
 						let Event::StateMachineUpdated(event) = ev.try_into().ok()? else { None? };
 						Some(WithMetadata {
 							meta: EventMetadata {
-								block_hash: meta.block_hash,
-								transaction_hash: meta.transaction_hash,
+								block_hash: meta.block_hash.0.into(),
+								transaction_hash: meta.transaction_hash.0.into(),
 								block_number: meta.block_number.as_u64(),
 							},
 							event,
@@ -470,14 +477,29 @@ impl Client for EvmClient {
 		let (timestamp_key, overlay_key, state_root_key) =
 			state_comitment_key(id.into(), height.height.into());
 		let timestamp = {
-			let timestamp =
-				self.client.get_storage_at(self.host_address, timestamp_key, None).await?;
+			let timestamp = self
+				.client
+				.get_storage_at(
+					ethers::types::H160(self.host_address.0),
+					timestamp_key.0.into(),
+					None,
+				)
+				.await?;
 			U256::from_big_endian(timestamp.as_bytes()).low_u64()
 		};
-		let overlay_root = self.client.get_storage_at(self.host_address, overlay_key, None).await?;
-		let state_root =
-			self.client.get_storage_at(self.host_address, state_root_key, None).await?;
-		Ok(StateCommitment { timestamp, overlay_root: Some(overlay_root), state_root })
+		let overlay_root = self
+			.client
+			.get_storage_at(ethers::types::H160(self.host_address.0), overlay_key.0.into(), None)
+			.await?;
+		let state_root = self
+			.client
+			.get_storage_at(ethers::types::H160(self.host_address.0), state_root_key.0.into(), None)
+			.await?;
+		Ok(StateCommitment {
+			timestamp,
+			overlay_root: Some(overlay_root.0.into()),
+			state_root: state_root.0.into(),
+		})
 	}
 
 	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
@@ -497,7 +519,7 @@ impl Client for EvmClient {
 	}
 
 	fn encode(&self, msg: Message) -> Result<Vec<u8>, Error> {
-		let contract = Handler::new(self.ismp_handler, self.client.clone());
+		let contract = Handler::new(self.ismp_handler.0, self.client.clone());
 		match msg {
 			Message::Timeout(TimeoutMessage::Post { timeout_proof, requests }) => {
 				let post_requests = requests
@@ -526,7 +548,8 @@ impl Client for EvmClient {
 					},
 					proof: state_proof.storage_proof().into_iter().map(|key| key.into()).collect(),
 				};
-				let call = contract.handle_post_request_timeouts(self.host_address, message);
+				let call =
+					contract.handle_post_request_timeouts(self.host_address.0.into(), message);
 
 				Ok(call.tx.data().cloned().expect("Infallible").to_vec())
 			},
@@ -551,7 +574,8 @@ impl Client for EvmClient {
 					},
 					proof: state_proof.storage_proof().into_iter().map(|key| key.into()).collect(),
 				};
-				let call = contract.handle_post_response_timeouts(self.host_address, message);
+				let call =
+					contract.handle_post_response_timeouts(self.host_address.0.into(), message);
 				Ok(call.tx.data().cloned().expect("Infallible").to_vec())
 			},
 			// Message::Timeout(TimeoutMessage::Get { requests }) => {
@@ -610,7 +634,7 @@ impl Client for EvmClient {
 					requests: leaves,
 				};
 
-				let call = contract.handle_post_requests(self.host_address, post_message);
+				let call = contract.handle_post_requests(self.host_address.0.into(), post_message);
 				Ok(call.tx.data().cloned().expect("Infallible").to_vec())
 			},
 			Message::Response(ResponseMessage { datagram, proof, .. }) => {
@@ -667,8 +691,8 @@ impl Client for EvmClient {
 									responses: leaves,
 								};
 
-									let call =
-										contract.handle_post_responses(self.host_address, message);
+									let call = contract
+										.handle_post_responses(self.host_address.0.into(), message);
 									call.tx.data().cloned().expect("Infallible").to_vec()
 								},
 								Response::Get(_) => {
@@ -709,8 +733,8 @@ impl Client for EvmClient {
 										responses: leaves,
 									};
 
-									let call =
-										contract.handle_get_responses(self.host_address, message);
+									let call = contract
+										.handle_get_responses(self.host_address.0.into(), message);
 									call.tx.data().cloned().expect("Infallible").to_vec()
 								},
 							};
@@ -731,14 +755,14 @@ impl Client for EvmClient {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<Duration, Error> {
-		let contract = EvmHost::new(self.host_address, self.client.clone());
+		let contract = EvmHost::new(self.host_address.0, self.client.clone());
 		let value =
 			contract.state_machine_commitment_update_time(height.try_into()?).call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_challenge_period(&self, _id: StateMachineId) -> Result<Duration, Error> {
-		let contract = EvmHost::new(self.host_address, self.client.clone());
+		let contract = EvmHost::new(self.host_address.0, self.client.clone());
 		let value = contract.challenge_period().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}

@@ -157,7 +157,7 @@ hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"
 rlp = { version = "0.6.1", default-features = false }
 primitive-types = { version = "0.13.1", default-features = false }
-subxt = { git = "https://github.com/polytope-labs/subxt", rev = "965d854d5469eb09470952d5e544a3ee72f252e9", default-features = false }
+subxt = { git = "https://github.com/polytope-labs/subxt", rev = "cd20a8274690ebac440814d8b508a1578aa34eaa", default-features = false }
 tokio = { version = "1.37.0" }
 tokio-stream = { version = "0.1.15" }
 jsonrpsee = { version = "0.24" }

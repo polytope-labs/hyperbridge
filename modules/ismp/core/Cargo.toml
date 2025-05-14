@@ -1,6 +1,6 @@
 [package]
 name = "ismp"
-version = "0.2.2"
+version = "1.0.0"
 edition = "2021"
 description = "Rust implementation of the interoperable state machine protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -14,10 +14,18 @@ readme = "./README.md"
 [dependencies]
 # crates.io
 codec = { workspace = true }
-primitive-types = { workspace = true, features = ["codec", "scale-info", "serde_no_std"] }
+primitive-types = { workspace = true, features = [
+    "codec",
+    "scale-info",
+    "serde_no_std",
+] }
 serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
-derive_more = { workspace = true, default-features = false, features = ["from", "into", "display"] }
+derive_more = { workspace = true, default-features = false, features = [
+    "from",
+    "into",
+    "display",
+] }
 displaydoc = { version = "0.2", default-features = false }
 hex = { workspace = true, features = ["alloc"] }
 anyhow = { workspace = true, default-features = false }
@@ -37,5 +45,5 @@ std = [
     "serde-hex-utils/std",
     "thiserror/std",
     "displaydoc/std",
-    "anyhow/std"
+    "anyhow/std",
 ]

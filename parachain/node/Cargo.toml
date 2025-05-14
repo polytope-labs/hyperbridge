@@ -97,6 +97,7 @@ features = [
     "pallet-transaction-payment",
 ]
 
+
 [build-dependencies]
 polkadot-sdk = { workspace = true, default-features = true, features = [
     "substrate-build-script-utils",
@@ -107,5 +108,6 @@ default = []
 runtime-benchmarks = [
     "gargantua-runtime/runtime-benchmarks",
     "nexus-runtime/runtime-benchmarks",
+    "polkadot-sdk/runtime-benchmarks"
 ]
 try-runtime = ["gargantua-runtime/try-runtime", "nexus-runtime/try-runtime"]

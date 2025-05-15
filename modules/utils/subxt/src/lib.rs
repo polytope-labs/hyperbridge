@@ -102,6 +102,7 @@ mod gargantua_conversion {
 					runtime_types::ismp::host::StateMachine::Substrate(consensus_state_id),
 				StateMachine::Tendermint(id) =>
 					runtime_types::ismp::host::StateMachine::Tendermint(id),
+				_ => unimplemented!(),
 			}
 		}
 	}

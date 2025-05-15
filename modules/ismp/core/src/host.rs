@@ -268,7 +268,7 @@ pub enum StateMachine {
 	/// Tendermint chains
 	#[codec(index = 4)]
 	Tendermint(ConsensusStateId),
-	/// Solo relaychain parachains
+	/// Alternative relaychain parachains
 	#[codec(index = 5)]
 	RelayChain(u32),
 }
@@ -399,6 +399,6 @@ mod tests {
 
 		assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
 		assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());
-		assert_eq!(solo_relay, StateMachine::from_str(&solo_relay).unwrap());
+		assert_eq!(solo_relay, StateMachine::from_str(&solo_string).unwrap());
 	}
 }

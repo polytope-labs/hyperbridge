@@ -22208,6 +22208,8 @@ pub mod api {
 					Substrate([::core::primitive::u8; 4usize]),
 					#[codec(index = 4)]
 					Tendermint([::core::primitive::u8; 4usize]),
+					#[codec(index = 5)]
+					Relay { relay: [::core::primitive::u8; 4usize], para_id: u32 },
 				}
 			}
 			pub mod messaging {

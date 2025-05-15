@@ -17,7 +17,6 @@
 
 use crate::types::{BoxStream, EventMetadata};
 use core::time::Duration;
-use ethers::{prelude::H256, types::H160};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, RequestResponseHandled, StateMachineUpdated},
@@ -25,6 +24,7 @@ use ismp::{
 	messaging::Message,
 	router::{PostRequest, PostResponse},
 };
+use primitive_types::{H160, H256};
 use serde::{Deserialize, Serialize};
 use std::ops::RangeInclusive;
 

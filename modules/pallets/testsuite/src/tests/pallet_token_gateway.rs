@@ -14,9 +14,9 @@ use pallet_token_gateway::{
 
 use sp_core::{ByteArray, Get, Pair, H160, H256, U256};
 
+use crate::runtime::ALICE;
 use sp_runtime::{AccountId32, MultiSignature};
 use token_gateway_primitives::{GatewayAssetRegistration, PALLET_TOKEN_GATEWAY_ID};
-use xcm_simulator_example::ALICE;
 
 use crate::runtime::{
 	new_test_ext, NativeAssetId, RuntimeOrigin, Test, TokenGateway, TokenGatewayInspector,
@@ -81,9 +81,7 @@ fn should_receive_asset_correctly() {
 			body: {
 				let body = Body {
 					amount: {
-						let mut bytes = [0u8; 32];
-						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
+						let bytes = convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian();
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: H256::zero().0.into(),
@@ -136,9 +134,7 @@ fn should_timeout_request_correctly() {
 			body: {
 				let body = Body {
 					amount: {
-						let mut bytes = [0u8; 32];
-						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
+						let bytes = convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian();
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: H256::zero().0.into(),
@@ -173,9 +169,7 @@ fn inspector_should_intercept_illegal_request() {
 			body: {
 				let body = Body {
 					amount: {
-						let mut bytes = [0u8; 32];
-						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
+						let bytes = convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian();
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: asset_id.0.into(),
@@ -222,9 +216,7 @@ fn inspector_should_record_asset_inflow() {
 			body: {
 				let body = Body {
 					amount: {
-						let mut bytes = [0u8; 32];
-						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
+						let bytes = convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian();
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: asset_id.0.into(),
@@ -264,9 +256,7 @@ fn inspector_should_handle_timeout_correctly() {
 			body: {
 				let body = Body {
 					amount: {
-						let mut bytes = [0u8; 32];
-						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
+						let bytes = convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian();
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: asset_id.0.into(),
@@ -384,9 +374,7 @@ fn should_receive_asset_with_call_correctly() {
 			body: {
 				let body = BodyWithCall {
 					amount: {
-						let mut bytes = [0u8; 32];
-						// Module callback will convert to ten decimals
-						convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian(&mut bytes);
+						let bytes = convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian();
 						alloy_primitives::U256::from_be_bytes(bytes)
 					},
 					asset_id: H256::zero().0.into(),

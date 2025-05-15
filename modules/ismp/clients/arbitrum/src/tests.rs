@@ -17,12 +17,11 @@
 use anyhow::anyhow;
 use ethers::prelude::*;
 use hex_literal::hex;
-use polkadot_sdk::*;
 
 use crate::{verify_arbitrum_bold, ArbitrumBoldProof, ASSERTIONS_SLOT};
 use evm_state_machine::derive_unhashed_map_key;
 use ismp_testsuite::mocks::{Host, Keccak256Hasher};
-use sp_core::{H160, H256};
+use primitive_types::{H160, H256};
 
 #[derive(
 	Clone,
@@ -151,7 +150,7 @@ async fn verify_bold_assertion() -> anyhow::Result<()> {
 			from_block: Some(sepolia_block_number.into()),
 			to_block: Some(sepolia_block_number.into()),
 		},
-		address: Some(ValueOrArray::Value(rollup)),
+		address: Some(ValueOrArray::Value(rollup.0.into())),
 		topics: [None, None, None, None],
 	};
 	let logs = provider.get_logs(&filter).await?;
@@ -172,12 +171,18 @@ async fn verify_bold_assertion() -> anyhow::Result<()> {
 
 	let key = derive_unhashed_map_key::<Host>(assertion.assertion_hash.to_vec(), ASSERTIONS_SLOT);
 	let assertion_created_proof = provider
-		.get_proof(rollup, vec![key], Some(sepolia_block_number.into()))
+		.get_proof(
+			ethers::core::types::H160::from(rollup.0),
+			vec![key.0.into()],
+			Some(sepolia_block_number.into()),
+		)
 		.await
 		.unwrap();
 
 	let arb_header = arb_provider
-		.get_block(H256::from(assertion.assertion.after_state.global_state.bytes_32_vals[0]))
+		.get_block(ethers::core::types::H256::from(
+			assertion.assertion.after_state.global_state.bytes_32_vals[0],
+		))
 		.await?
 		.unwrap();
 
@@ -228,7 +233,7 @@ async fn verify_bold_assertion() -> anyhow::Result<()> {
 
 	let state_commitment = verify_arbitrum_bold::<Keccak256Hasher>(
 		arbitrum_bold_proof,
-		sepolia_header.state_root,
+		sepolia_header.state_root.0.into(),
 		rollup,
 		*b"ETH0",
 	)?;

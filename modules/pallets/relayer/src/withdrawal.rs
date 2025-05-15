@@ -20,7 +20,7 @@ use anyhow::anyhow;
 use codec::{Decode, Encode};
 use ismp::{host::StateMachine, messaging::Proof};
 use polkadot_sdk::*;
-use sp_core::{H160, H256, U256};
+use sp_core::{H256, U256};
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum Key {
@@ -138,8 +138,12 @@ impl WithdrawalParams {
 	pub fn abi_encode(&self) -> Vec<u8> {
 		let mut data = vec![0];
 		let tokens = [
-			ethabi::Token::Address(H160::from_slice(&self.beneficiary_address)),
-			ethabi::Token::Uint(self.amount),
+			ethabi::Token::Address(ethabi::ethereum_types::H160::from_slice(
+				&self.beneficiary_address,
+			)),
+			ethabi::Token::Uint(ethabi::ethereum_types::U256::from_big_endian(
+				&self.amount.to_big_endian(),
+			)),
 			ethabi::Token::Bool(self.native),
 		];
 		let params = ethabi::encode(&tokens);
@@ -151,9 +155,8 @@ impl WithdrawalParams {
 #[cfg(test)]
 mod test {
 	use crate::withdrawal::WithdrawalParams;
-	use ethabi::ethereum_types::H160;
 	use polkadot_sdk::*;
-	use sp_core::U256;
+	use sp_core::{H160, U256};
 	#[test]
 	fn check_decoding() {
 		let params = WithdrawalParams {

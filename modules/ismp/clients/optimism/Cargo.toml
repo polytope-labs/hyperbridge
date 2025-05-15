@@ -12,6 +12,7 @@ ismp = { workspace = true }
 ethereum-triedb = { workspace = true }
 geth-primitives = { workspace = true }
 evm-state-machine = { workspace = true }
+primitive-types = { workspace = true }
 
 # crates.io
 alloy-rlp = { workspace = true }
@@ -34,4 +35,5 @@ std = [
     "hex/std",
     "geth-primitives/std",
     "evm-state-machine/std",
+    "primitive-types/std"
 ]

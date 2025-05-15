@@ -35,8 +35,11 @@ use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::{EverythingBut, TransformOrigin};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
+use alloc::borrow::Cow;
 use codec::{Decode, Encode, MaxEncodedLen};
-use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
+use cumulus_pallet_parachain_system::{
+	DefaultCoreSelector, RelayChainState, RelayNumberMonotonicallyIncreases,
+};
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
 use polkadot_sdk::*;
@@ -45,7 +48,7 @@ use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, RuntimeDebug, H256};
 use sp_runtime::{
-	create_runtime_str, generic, impl_opaque_keys,
+	generic, impl_opaque_keys,
 	traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
@@ -218,14 +221,14 @@ impl_opaque_keys! {
 
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("nexus"),
-	impl_name: create_runtime_str!("nexus"),
+	spec_name: Cow::Borrowed("nexus"),
+	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 3_200,
+	spec_version: 3_300,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
-	state_version: 1,
+	system_version: 1,
 };
 
 /// This determines the average expected block time that we are targeting.
@@ -435,6 +438,7 @@ impl pallet_balances::Config for Runtime {
 	type RuntimeHoldReason = RuntimeHoldReason;
 
 	type RuntimeFreezeReason = RuntimeFreezeReason;
+	type DoneSlashHandler = ();
 }
 
 parameter_types! {
@@ -449,6 +453,7 @@ impl pallet_transaction_payment::Config for Runtime {
 	type LengthToFee = ConstantMultiplier<Balance, TransactionByteFee>;
 	type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
 	type OperationalFeeMultiplier = ConstU8<5>;
+	type WeightInfo = ();
 }
 
 parameter_types! {
@@ -470,6 +475,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
+	type SelectCore = DefaultCoreSelector<Self>;
 }
 
 type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
@@ -672,6 +678,7 @@ impl pallet_treasury::Config for Runtime {
 	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
 	type BalanceConverter = AssetRate;
 	type PayoutPeriod = PayoutPeriod;
+	type BlockNumberProvider = System;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = TreasuryAssetFactory;
 }
@@ -699,6 +706,9 @@ impl pallet_collective::Config for Runtime {
 	type WeightInfo = weights::pallet_collective::WeightInfo<Runtime>;
 	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
 	type MaxProposalWeight = MaxCollectivesProposalWeight;
+	type DisapproveOrigin = EnsureRoot<Self::AccountId>;
+	type KillOrigin = EnsureRoot<Self::AccountId>;
+	type Consideration = ();
 }
 
 parameter_types! {
@@ -896,6 +906,7 @@ mod benches {
 		[pallet_session, SessionBench::<Runtime>]
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
+		[pallet_transaction_payment, TransactionPayment]
 	);
 }
 
@@ -1189,7 +1200,7 @@ impl_runtime_apis! {
 
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
-		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
+		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, alloc::string::String> {
 			use frame_benchmarking::{Benchmarking, BenchmarkBatch};
 			use frame_system_benchmarking::Pallet as SystemBench;
 

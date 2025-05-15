@@ -11,7 +11,7 @@ futures = "0.3.28"
 async-trait = "0.1.71"
 parking_lot = "0.12.1"
 hex-literal = { version = "0.4.1" }
-subxt = { version = "0.30.1", features = ["substrate-compat"] }
+subxt = { workspace = true, features = ["substrate-compat"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = [
     "derive",
 ] }
@@ -20,7 +20,9 @@ log = "0.4.19"
 tokio = { workspace = true, features = ["sync", "time"] }
 tokio-stream = { workspace = true }
 zstd-safe = { version = "7.1.0" }
-
+primitive-types-old = { package = "primitive-types", version = "0.12.1", features = [
+    "codec",
+] } # Added for subxt compatibility when  decoding events
 debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main" }
 
 tesseract-primitives = { workspace = true }

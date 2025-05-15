@@ -24,7 +24,6 @@ use alloc::format;
 use alloy_rlp::Decodable;
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
-use ethabi::ethereum_types::{H160, H256, U256};
 use evm_state_machine::{derive_map_key, get_contract_account, get_value_from_proof, prelude::*};
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
@@ -36,6 +35,7 @@ use ismp::{
 	messaging::Keccak256,
 };
 use polkadot_sdk::*;
+use primitive_types::{H160, H256, U256};
 
 /// Storage layout slot for the nodes map in the Rollup Contract
 pub const NODES_SLOT: u64 = 118;
@@ -116,8 +116,7 @@ fn get_state_hash<H: Keccak256>(
 	// abi encode packed
 	let mut buf = Vec::new();
 	buf.extend_from_slice(&global_state.hash::<H>()[..]);
-	let mut inbox = [0u8; 32];
-	inbox_max_count.to_big_endian(&mut inbox);
+	let inbox = inbox_max_count.to_big_endian();
 	buf.extend_from_slice(&inbox);
 	buf.extend_from_slice((machine_status as u8).to_be_bytes().as_slice());
 	H::keccak256(&buf)
@@ -156,8 +155,7 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 	let state_hash =
 		get_state_hash::<H>(payload.global_state, payload.machine_status, payload.inbox_max_count);
 
-	let mut key = [0u8; 32];
-	U256::from(payload.node_number).to_big_endian(&mut key);
+	let key = U256::from(payload.node_number).to_big_endian();
 	let state_hash_key = derive_map_key::<H>(key.to_vec(), NODES_SLOT);
 	let proof_value = match get_value_from_proof::<H>(
 		state_hash_key.0.to_vec(),

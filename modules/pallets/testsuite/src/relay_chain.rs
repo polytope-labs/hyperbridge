@@ -11,6 +11,7 @@ use frame_system::EnsureRoot;
 use sp_core::{ConstU32, H256};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
 
+use crate::runtime::ALICE;
 use polkadot_parachain_primitives::primitives::Id as ParaId;
 use polkadot_runtime_parachains::{
 	configuration,
@@ -24,7 +25,6 @@ use staging_xcm_builder::{
 	IsConcrete, SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation,
 };
 use staging_xcm_executor::{Config, XcmExecutor};
-use xcm_simulator_example::ALICE;
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
 pub type AccountId = AccountId32;
@@ -81,6 +81,7 @@ impl pallet_balances::Config for Runtime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type FreezeIdentifier = ();
 	type MaxFreezes = ConstU32<0>;
+	type DoneSlashHandler = ();
 }
 
 impl shared::Config for Runtime {

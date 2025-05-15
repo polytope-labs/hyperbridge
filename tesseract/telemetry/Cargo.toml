@@ -17,9 +17,9 @@ tower = "0.4.13"
 tower-http = { version = "0.5.1", features = ["cors"] }
 anyhow = { workspace = true }
 axum = "0.7.4"
-sp-core = { version = "28.0.0", features = ["full_crypto"] }
+sp-core = { workspace = true, features = ["full_crypto", "serde"] }
 ismp.workspace = true
-primitive-types = { version = "0.12.2", features = ["serde", "scale-info"] }
+primitive-types = { workspace = true, default-features = true, features = ["serde", "scale-info"] }
 
 [dev-dependencies]
 rust_socketio = { version = "0.4.4" }

@@ -12,6 +12,7 @@ use ethers::{
 	types::{CallFrame, GethDebugTracingCallOptions, GethTrace, GethTraceFrame},
 };
 use evm_state_machine::types::EvmStateProof;
+use geth_primitives::new_u256;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -53,7 +54,7 @@ impl IsmpProvider for EvmClient {
 		at: Option<u64>,
 		_: ConsensusStateId,
 	) -> Result<Vec<u8>, Error> {
-		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
 		let value = {
 			let call = if let Some(block) = at {
 				contract.consensus_state().block(block)
@@ -74,7 +75,7 @@ impl IsmpProvider for EvmClient {
 			StateMachine::Kusama(para_id) => para_id,
 			_ => Err(anyhow!("Unexpected state machine"))?,
 		};
-		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
 		let value = contract.latest_state_machine_height(id.into()).call().await?;
 		Ok(value.low_u64() as u32)
 	}
@@ -99,14 +100,36 @@ impl IsmpProvider for EvmClient {
 		let (timestamp_key, overlay_key, state_root_key) =
 			state_comitment_key(id.into(), height.height.into());
 		let timestamp = {
-			let timestamp =
-				self.client.get_storage_at(self.config.ismp_host, timestamp_key, None).await?;
+			let timestamp = self
+				.client
+				.get_storage_at(
+					ethers::types::H160(self.config.ismp_host.0),
+					timestamp_key.0.into(),
+					None,
+				)
+				.await?;
 			U256::from_big_endian(timestamp.as_bytes()).low_u64()
 		};
-		let overlay_root =
-			self.client.get_storage_at(self.config.ismp_host, overlay_key, None).await?;
-		let state_root =
-			self.client.get_storage_at(self.config.ismp_host, state_root_key, None).await?;
+		let overlay_root = self
+			.client
+			.get_storage_at(
+				ethers::types::H160(self.config.ismp_host.0),
+				overlay_key.0.into(),
+				None,
+			)
+			.await?
+			.0
+			.into();
+		let state_root = self
+			.client
+			.get_storage_at(
+				ethers::types::H160(self.config.ismp_host.0),
+				state_root_key.0.into(),
+				None,
+			)
+			.await?
+			.0
+			.into();
 		Ok(StateCommitment { timestamp, overlay_root: Some(overlay_root), state_root })
 	}
 
@@ -114,21 +137,21 @@ impl IsmpProvider for EvmClient {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<Duration, Error> {
-		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
 		let value =
 			contract.state_machine_commitment_update_time(height.try_into()?).call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_challenge_period(&self, _id: StateMachineId) -> Result<Duration, Error> {
-		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
 		let value = contract.challenge_period().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
 		let client = Arc::new(self.client.clone());
-		let contract = EvmHost::new(self.config.ismp_host, client);
+		let contract = EvmHost::new(self.config.ismp_host.0, client);
 		let value = contract.timestamp().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
@@ -141,10 +164,13 @@ impl IsmpProvider for EvmClient {
 	) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
-			.map(|query| self.request_commitment_key(query.commitment).1)
+			.map(|query| self.request_commitment_key(query.commitment).1 .0.into())
 			.collect();
 
-		let proof = self.client.get_proof(self.config.ismp_host, keys, Some(at.into())).await?;
+		let proof = self
+			.client
+			.get_proof(ethers::types::H160(self.config.ismp_host.0), keys, Some(at.into()))
+			.await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
 			storage_proof: {
@@ -171,9 +197,12 @@ impl IsmpProvider for EvmClient {
 	) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
-			.map(|query| self.response_commitment_key(query.commitment).1)
+			.map(|query| self.response_commitment_key(query.commitment).1 .0.into())
 			.collect();
-		let proof = self.client.get_proof(self.config.ismp_host, keys, Some(at.into())).await?;
+		let proof = self
+			.client
+			.get_proof(ethers::types::H160(self.config.ismp_host.0), keys, Some(at.into()))
+			.await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
 			storage_proof: {
@@ -200,10 +229,14 @@ impl IsmpProvider for EvmClient {
 		let state_proof = match keys {
 			StateProofQueryType::Ismp(keys) => {
 				let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
-				let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
+				let locations = keys.iter().map(|key| H256::from_slice(key).0.into()).collect();
 				let proof = self
 					.client
-					.get_proof(self.config.ismp_host, locations, Some(at.into()))
+					.get_proof(
+						ethers::types::H160(self.config.ismp_host.0),
+						locations,
+						Some(at.into()),
+					)
 					.await?;
 				let mut storage_proofs = vec![];
 				for proof in proof.storage_proof {
@@ -251,7 +284,11 @@ impl IsmpProvider for EvmClient {
 				for (contract_address, slot_hashes) in contract_addresses_to_keys {
 					let proof = self
 						.client
-						.get_proof(contract_address, slot_hashes, Some(at.into()))
+						.get_proof(
+							ethers::types::H160(contract_address.0),
+							slot_hashes.into_iter().map(|slot| slot.0.into()).collect(),
+							Some(at.into()),
+						)
 						.await?;
 					contract_proofs.push(StorageProof::new(
 						proof.account_proof.into_iter().map(|node| node.0.into()),
@@ -317,13 +354,13 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
+		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
 		let address = host_contract.request_receipts(hash.into()).call().await?;
 		Ok(address.0.to_vec())
 	}
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
+		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
 		let address = host_contract.response_receipts(hash.into()).call().await?.relayer;
 		Ok(address.0.to_vec())
 	}
@@ -391,7 +428,7 @@ impl IsmpProvider for EvmClient {
 					let _msg = _msg.clone();
 					tokio::spawn(async move {
 						let address = H160::from_slice(client.address().as_slice());
-						call.tx.set_from(address);
+						call.tx.set_from(address.0.into());
 
 						let call_debug = client
 							.client
@@ -437,10 +474,11 @@ impl IsmpProvider for EvmClient {
 								};
 
 								if successful_execution && is_orbit_chain(client.chain_id as u32) {
-									gas_to_be_used =
+									let _temp_gas =
 										client.client.estimate_gas(&call.tx, call.block).await?;
+									gas_to_be_used = new_u256(_temp_gas);
 								} else {
-									gas_to_be_used = call_frame.gas_used;
+									gas_to_be_used = new_u256(call_frame.gas_used);
 								}
 							},
 							trace => {
@@ -483,17 +521,17 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
+		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
 		let fee_metadata = host_contract.request_commitments(hash.into()).call().await?;
 		// erc20 tokens are formatted in 18 decimals
-		return Ok(fee_metadata.fee);
+		return Ok(new_u256(fee_metadata.fee));
 	}
 
 	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
+		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
 		let fee_metadata = host_contract.response_commitments(hash.into()).call().await?;
 		// erc20 tokens are formatted in 18 decimals
-		return Ok(fee_metadata.fee);
+		return Ok(new_u256(fee_metadata.fee));
 	}
 
 	async fn state_commitment_vetoed_notification(
@@ -758,7 +796,7 @@ impl IsmpProvider for EvmClient {
 		let signature = self
 			.signer
 			.signer()
-			.sign_hash(H256::from_slice(msg))
+			.sign_hash(H256::from_slice(msg).0.into())
 			.expect("Infallible")
 			.to_vec();
 		Signature::Evm { address: self.address.clone(), signature }
@@ -806,20 +844,20 @@ impl IsmpProvider for EvmClient {
 		&self,
 		_state_machine: StateMachine,
 	) -> Result<HostParam<u128>, anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
 		let params: ismp_solidity_abi::evm_host::HostParams = contract.host_params().call().await?;
 		let evm_params = EvmHostParam {
 			default_timeout: params.default_timeout.low_u128(),
-			default_per_byte_fee: params.default_per_byte_fee,
-			state_commitment_fee: params.state_commitment_fee,
-			fee_token: params.fee_token,
-			admin: params.admin,
-			handler: params.handler,
-			host_manager: params.host_manager,
-			uniswap_v2: params.uniswap_v2,
+			default_per_byte_fee: new_u256(params.default_per_byte_fee),
+			state_commitment_fee: new_u256(params.state_commitment_fee),
+			fee_token: params.fee_token.0.into(),
+			admin: params.admin.0.into(),
+			handler: params.handler.0.into(),
+			host_manager: params.host_manager.0.into(),
+			uniswap_v2: params.uniswap_v2.0.into(),
 			un_staking_period: params.un_staking_period.low_u128(),
 			challenge_period: params.challenge_period.low_u128(),
-			consensus_client: params.consensus_client,
+			consensus_client: params.consensus_client.0.into(),
 			state_machines: params
 				.state_machines
 				.into_iter()
@@ -831,7 +869,7 @@ impl IsmpProvider for EvmClient {
 				.per_byte_fees
 				.into_iter()
 				.map(|p| PerByteFee {
-					per_byte_fee: p.per_byte_fee,
+					per_byte_fee: new_u256(p.per_byte_fee),
 					state_id: p.state_id_hash.into(),
 				})
 				.collect::<Vec<_>>()
@@ -857,7 +895,7 @@ impl IsmpProvider for EvmClient {
 			_ => Err(anyhow!("Unexpected host params"))?,
 		};
 
-		let contract = Erc20::new(fee_token, self.client.clone());
+		let contract = Erc20::new(fee_token.0, self.client.clone());
 
 		let decimals = contract.decimals().call().await?;
 

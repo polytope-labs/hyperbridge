@@ -10,7 +10,7 @@ ismp = { workspace = true }
 codec = { workspace = true }
 anyhow = { workspace = true }
 reconnecting-jsonrpsee-ws-client = { workspace = true }
-primitive-types = { workspace = true }
+primitive-types = { workspace = true, features = ["scale-info", "serde"] }
 alloy-primitives = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }

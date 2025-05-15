@@ -91,11 +91,11 @@ impl<C: Config> BscPosProver<C> {
 		}
 
 		let source_header = self
-			.fetch_header(source_hash)
+			.fetch_header(ethers::core::types::H256::from(source_hash.0))
 			.await?
 			.ok_or_else(|| anyhow!("header block could not be fetched {source_hash}"))?;
 		let target_header = self
-			.fetch_header(target_hash)
+			.fetch_header(ethers::core::types::H256::from(target_hash.0))
 			.await?
 			.ok_or_else(|| anyhow!("header block could not be fetched {target_hash}"))?;
 
@@ -113,15 +113,20 @@ impl<C: Config> BscPosProver<C> {
             // We will skip such updates.
             (params.fetch_val_set_change && source_header.number.low_u64() > epoch_header_number)
 		{
-			let mut header =
-				self.fetch_header(source_header.parent_hash).await?.ok_or_else(|| {
+			let mut header = self
+				.fetch_header(ethers::core::types::H256::from(source_header.parent_hash.0))
+				.await?
+				.ok_or_else(|| {
 					anyhow!("header block could not be fetched {}", source_header.parent_hash)
 				})?;
 			epoch_header_ancestry.insert(0, header.clone());
 			while header.number.low_u64() > epoch_header_number {
-				header = self.fetch_header(header.parent_hash).await?.ok_or_else(|| {
-					anyhow!("header block could not be fetched {}", header.parent_hash)
-				})?;
+				header = self
+					.fetch_header(ethers::core::types::H256::from(header.parent_hash.0))
+					.await?
+					.ok_or_else(|| {
+						anyhow!("header block could not be fetched {}", header.parent_hash)
+					})?;
 				epoch_header_ancestry.insert(0, header.clone());
 			}
 		}

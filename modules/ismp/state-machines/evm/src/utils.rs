@@ -24,7 +24,6 @@ use crate::{
 use alloc::{format, string::ToString};
 use alloy_rlp::Decodable;
 use codec::Decode;
-use ethabi::ethereum_types::{H256, U256};
 use ethereum_triedb::{EIP1186Layout, StorageProof};
 use ismp::{
 	consensus::{
@@ -35,6 +34,7 @@ use ismp::{
 	messaging::{hash_request, hash_response, Keccak256, Proof},
 	router::RequestResponse,
 };
+use primitive_types::{H256, U256};
 use trie_db::{DBValue, Trie, TrieDBBuilder};
 
 pub fn construct_intermediate_state(
@@ -153,50 +153,34 @@ pub fn get_contract_account<H: Keccak256 + Send + Sync>(
 }
 
 pub fn derive_map_key<H: Keccak256>(mut key: Vec<u8>, slot: u64) -> H256 {
-	let mut bytes = [0u8; 32];
-	U256::from(slot).to_big_endian(&mut bytes);
-	key.extend_from_slice(&bytes);
+	key.extend_from_slice(&U256::from(slot).to_big_endian());
 	H::keccak256(H::keccak256(&key).0.as_slice())
 }
 
 pub fn derive_map_key_with_offset<H: Keccak256>(mut key: Vec<u8>, slot: u64, offset: u64) -> H256 {
-	let mut bytes = [0u8; 32];
-	U256::from(slot).to_big_endian(&mut bytes);
-	key.extend_from_slice(&bytes);
+	key.extend_from_slice(&U256::from(slot).to_big_endian());
 	let root_key = H::keccak256(&key).0;
 	let number = U256::from_big_endian(root_key.as_slice()) + U256::from(offset);
-	let mut bytes = [0u8; 32];
-	number.to_big_endian(&mut bytes);
-	H::keccak256(&bytes)
+	H::keccak256(&number.to_big_endian())
 }
 
 pub fn derive_unhashed_map_key<H: Keccak256>(mut key: Vec<u8>, slot: u64) -> H256 {
-	let mut bytes = [0u8; 32];
-	U256::from(slot).to_big_endian(&mut bytes);
-	key.extend_from_slice(&bytes);
+	key.extend_from_slice(&U256::from(slot).to_big_endian());
 	H::keccak256(&key)
 }
 
 pub fn add_off_set_to_map_key(key: &[u8], offset: u64) -> H256 {
 	let number = U256::from_big_endian(key) + U256::from(offset);
-	let mut bytes = [0u8; 32];
-	number.to_big_endian(&mut bytes);
-	H256(bytes)
+	H256(number.to_big_endian())
 }
 
 pub fn derive_array_item_key<H: Keccak256>(slot: u64, index: u64, offset: u64) -> Vec<u8> {
-	let mut bytes = [0u8; 32];
-	U256::from(slot).to_big_endian(&mut bytes);
-
-	let hash_result = H::keccak256(&bytes);
+	let hash_result = H::keccak256(&U256::from(slot).to_big_endian());
 
 	let array_pos = U256::from_big_endian(&hash_result.0);
 	let item_pos = array_pos + U256::from(index * 2) + U256::from(offset);
 
-	let mut pos = [0u8; 32];
-	item_pos.to_big_endian(&mut pos);
-
-	H::keccak256(&pos).0.to_vec()
+	H::keccak256(&item_pos.to_big_endian()).0.to_vec()
 }
 
 pub fn get_values_from_proof<H: Keccak256 + Send + Sync>(
@@ -236,19 +220,15 @@ pub fn state_comitment_key(state_machine_id: U256, block_height: U256) -> (H256,
 	const STATE_COMMITMENT_SLOT: u64 = 5;
 
 	// Parent map key
-	let mut slot = [0u8; 32];
-	U256::from(STATE_COMMITMENT_SLOT).to_big_endian(&mut slot);
+	let slot = U256::from(STATE_COMMITMENT_SLOT).to_big_endian();
 
-	let mut state_id = [0u8; 32];
-	state_machine_id.to_big_endian(&mut state_id);
+	let state_id = state_machine_id.to_big_endian();
 	let mut key = state_id.to_vec();
 	key.extend_from_slice(&slot);
 	let parent_map_key = keccak_256(&key);
 
 	// Commitment key
-	let mut bytes = [0u8; 32];
-	block_height.to_big_endian(&mut bytes);
-	let mut commitment_key = bytes.to_vec();
+	let mut commitment_key = block_height.to_big_endian().to_vec();
 	commitment_key.extend_from_slice(&parent_map_key);
 
 	let slot_hash = keccak_256(&commitment_key);
@@ -259,18 +239,14 @@ pub fn state_comitment_key(state_machine_id: U256, block_height: U256) -> (H256,
 
 	let overlay_root_slot = {
 		let slot = U256::from_big_endian(&slot_hash) + U256::one();
-		let mut bytes = [0u8; 32];
-		slot.to_big_endian(&mut bytes);
-		H256::from_slice(&bytes)
+		H256::from_slice(&slot.to_big_endian())
 	};
 
 	// state root is at offset 2
 
 	let state_root_key = {
 		let slot = U256::from_big_endian(&slot_hash) + U256::one() + U256::one();
-		let mut bytes = [0u8; 32];
-		slot.to_big_endian(&mut bytes);
-		H256::from_slice(&bytes)
+		H256::from_slice(&slot.to_big_endian())
 	};
 
 	(slot_hash.into(), overlay_root_slot, state_root_key)

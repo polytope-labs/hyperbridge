@@ -319,12 +319,12 @@ mod tests {
 		},
 		types::{ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, SubstrateConfig},
 	};
-	use ethers::prelude::H160;
 	use hex_literal::hex;
 	use ismp::{
 		host::StateMachine,
 		router::{PostRequest, PostResponse},
 	};
+	use primitive_types::H160;
 
 	const OP_HOST: H160 = H160(hex!("1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95"));
 	const BSC_HOST: H160 = H160(hex!("022DDE07A21d8c553978b006D93CDe68ac83e677"));

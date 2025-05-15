@@ -2,8 +2,10 @@
 
 use std::{env, time::Duration};
 
-use codec::Decode;
+use codec::{Decode, Encode};
+use hex_literal::hex;
 use merkle_mountain_range::MerkleProof;
+use pallet_ismp_demo::EvmParams;
 use polkadot_sdk::*;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
@@ -16,9 +18,61 @@ use merkle_mountain_range::util::MemMMR;
 use mmr_primitives::DataOrHash;
 use pallet_ismp::offchain::{FullLeaf, Leaf, ProofKeys};
 use pallet_mmr_tree::mmr::Hasher as MmrHasher;
-use subxt_utils::{
-	gargantua, gargantua::api::runtime_types::pallet_ismp_demo::pallet::EvmParams, Hyperbridge,
-};
+use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};
+use subxt_utils::{Extrinsic, Hyperbridge};
+
+const NUMBER_OF_LEAVES_KEY: [u8; 32] =
+	hex!("a8c65209d47ee80f56b0011e8fd91f508156209906244f2341137c136774c91d");
+const CHILD_TRIE_ROOT_KEY: [u8; 32] =
+	hex!("103895530afb23bb607661426d55eb8b2a9069bca219dffc57c97e59931e2396");
+
+/// Currently supported state machines.
+#[derive(
+	Clone,
+	Debug,
+	Copy,
+	Encode,
+	Decode,
+	PartialOrd,
+	Ord,
+	PartialEq,
+	Eq,
+	Hash,
+	DecodeAsType,
+	EncodeAsType,
+)]
+#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+pub enum StateMachine {
+	/// Evm state machines
+	#[codec(index = 0)]
+	Evm(u32),
+	/// Polkadot parachains
+	#[codec(index = 1)]
+	Polkadot(u32),
+	/// Kusama parachains
+	#[codec(index = 2)]
+	Kusama(u32),
+}
+
+#[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
+#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+pub struct RequestEvent {
+	/// Chain that this request will be routed to
+	dest_chain: StateMachine,
+	/// Source Chain for request
+	source_chain: StateMachine,
+	/// Request nonce
+	request_nonce: u64,
+	/// Commitment
+	commitment: primitive_types_old::H256,
+}
+
+impl subxt::events::StaticEvent for RequestEvent {
+	const PALLET: &'static str = "Ismp";
+	const EVENT: &'static str = "Request";
+}
 
 #[tokio::test]
 #[ignore]
@@ -90,28 +144,38 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	)
 	.await?;
 
-	let address = subxt_utils::gargantua::api::storage().mmr().number_of_leaves();
 	let leaf_count_at_start = client
 		.storage()
 		.at_latest()
 		.await?
-		.fetch(&address)
+		.fetch_raw(&NUMBER_OF_LEAVES_KEY)
 		.await
 		.unwrap()
 		.unwrap_or_default();
+	let leaf_count_at_start: u64 =
+		Decode::decode(&mut &*leaf_count_at_start).ok().unwrap_or_default();
 	dbg!(leaf_count_at_start);
 	let get_child_trie_root = |block_hash: H256| {
 		let client = client.clone();
 		let block_hash = block_hash.clone();
-		let address = subxt_utils::gargantua::api::storage().ismp().child_trie_root();
-		async move { client.storage().at(block_hash).fetch(&address).await.unwrap() }
+		async move {
+			let raw = client
+				.storage()
+				.at(block_hash)
+				.fetch_raw(&CHILD_TRIE_ROOT_KEY)
+				.await
+				.ok()
+				.flatten()
+				.unwrap();
+			H256::decode(&mut &*raw)
+		}
 	};
 
 	// Initialize MMR Pallet by dispatching some leaves and finalizing
 	let params = EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
-	let call = client
-		.tx()
-		.call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
+	let call = Extrinsic::new("IsmpDemo", "dispatch_to_evm", params.encode());
+
+	let call = client.tx().call_data(&call)?;
 	let extrinsic: Bytes = client
 		.rpc()
 		.request(
@@ -182,9 +246,9 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		for _ in 0..3 {
 			let params =
 				EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
-			let call = client
-				.tx()
-				.call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
+			let call = Extrinsic::new("IsmpDemo", "dispatch_to_evm", params.encode());
+
+			let call = client.tx().call_data(&call)?;
 			let extrinsic: Bytes = client
 				.rpc()
 				.request(
@@ -210,7 +274,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 				.iter()
 				.filter_map(|ev| {
 					ev.ok().and_then(|ev| {
-						ev.as_event::<gargantua::api::ismp::events::Request>()
+						ev.as_event::<RequestEvent>()
 							.ok()
 							.flatten()
 							.and_then(|ev| Some((child_trie_root, ev.commitment)))
@@ -239,9 +303,9 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		for i in 0..accounts.len() {
 			let params =
 				EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
-			let call = client
-				.tx()
-				.call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
+			let call = Extrinsic::new("IsmpDemo", "dispatch_to_evm", params.encode());
+
+			let call = client.tx().call_data(&call)?;
 			let extrinsic: Bytes = client
 				.rpc()
 				.request(
@@ -267,7 +331,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 				.iter()
 				.filter_map(|ev| {
 					ev.ok().and_then(|ev| {
-						ev.as_event::<gargantua::api::ismp::events::Request>()
+						ev.as_event::<RequestEvent>()
 							.ok()
 							.flatten()
 							.and_then(|ev| Some((child_trie_root, ev.commitment)))
@@ -387,9 +451,14 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	}
 
 	let finalized_hash = chain_a.last().cloned().unwrap();
-	let address = subxt_utils::gargantua::api::storage().mmr().number_of_leaves();
-	let mmr_leaf_count =
-		client.storage().at(finalized_hash).fetch(&address).await.unwrap().unwrap();
+	let mmr_leaf_count = client
+		.storage()
+		.at(finalized_hash)
+		.fetch_raw(&NUMBER_OF_LEAVES_KEY)
+		.await
+		.unwrap()
+		.unwrap_or_default();
+	let mmr_leaf_count: u64 = Decode::decode(&mut &*mmr_leaf_count).unwrap();
 	assert_eq!(mmr_leaf_count, leaves.len() as u64);
 	// Construct mmr tree from pre-finalized leaves
 	let mut mmr = MemMMR::<DataOrHash<Keccak256, Leaf>, MmrHasher<Keccak256, Leaf>>::default();
@@ -401,7 +470,10 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
 	// Fetch mmr proof from finalized branch
 	let keys = ProofKeys::Requests(
-		chain_a_commitments.into_iter().map(|(.., commitment)| commitment).collect(),
+		chain_a_commitments
+			.into_iter()
+			.map(|(.., commitment)| commitment.0.into())
+			.collect(),
 	);
 	let params = rpc_params![at, keys];
 	let response: pallet_ismp_rpc::Proof = client.rpc().request("mmr_queryProof", params).await?;

@@ -75,12 +75,12 @@ async fn test_ismp_state_proof() {
 	let at = 5224621u64;
 	let state_root = client.client.get_block(at).await.unwrap().unwrap().state_root;
 
-	let host_contract = EvmHost::new(ISMP_HOST, client.client.clone());
+	let host_contract = EvmHost::new(ISMP_HOST.0, client.client.clone());
 
 	let request_meta = host_contract.request_commitments(query.commitment.0).await.unwrap();
 
 	dbg!(&request_meta);
-	assert!(request_meta.sender != H160::zero());
+	assert!(request_meta.sender.0 != H160::zero().0);
 
 	let proof = client
 		.query_requests_proof(at, vec![query], StateMachine::Polkadot(1))
@@ -90,7 +90,7 @@ async fn test_ismp_state_proof() {
 	let contract_root = get_contract_account::<Keccak256Hasher>(
 		evm_state_proof.contract_proof,
 		&ISMP_HOST.0,
-		state_root,
+		state_root.0.into(),
 	)
 	.unwrap()
 	.storage_root
@@ -113,7 +113,7 @@ async fn test_ismp_state_proof() {
 
 	verify_membership::<Keccak256Hasher>(
 		RequestResponse::Request(vec![req]),
-		StateCommitment { timestamp: 0, overlay_root: None, state_root },
+		StateCommitment { timestamp: 0, overlay_root: None, state_root: state_root.0.into() },
 		&Proof {
 			height: StateMachineHeight {
 				id: StateMachineId {

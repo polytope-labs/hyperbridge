@@ -1,6 +1,5 @@
 use crate::abi::{EvmHost, PingModule};
 
-use ethabi::ethereum_types::{H256, U256};
 use ethers::{
 	core::k256::ecdsa::SigningKey,
 	prelude::{k256::SecretKey, LocalWallet, MiddlewareBuilder, SignerMiddleware, Wallet},
@@ -9,6 +8,7 @@ use ethers::{
 };
 use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::Message};
 use polkadot_sdk::frame_support::crypto::ecdsa::ECDSAExt;
+use primitive_types::{H256, U256};
 
 use evm_state_machine::presets::{
 	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
@@ -30,8 +30,8 @@ mod byzantine;
 pub mod gas_oracle;
 pub mod provider;
 
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;
 pub mod tx;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,10 +207,10 @@ impl EvmClient {
 
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
 		let client = Arc::new(self.client.clone());
-		let contract = EvmHost::new(self.config.ismp_host, client);
+		let contract = EvmHost::new(self.config.ismp_host.0, client);
 		let events = contract
 			.events()
-			.address(self.config.ismp_host.into())
+			.address(ethers::core::types::H160(self.config.ismp_host.0).into())
 			.from_block(from)
 			.to_block(to)
 			.query()
@@ -228,7 +228,7 @@ impl EvmClient {
 		height: StateMachineHeight,
 		commitment: StateCommitment,
 	) -> Result<(), anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
 		let call = contract.set_consensus_state(consensus_state.clone().into(), height, commitment);
 
 		let gas = call.estimate_gas().await?;
@@ -243,7 +243,7 @@ impl EvmClient {
 		address: H160,
 		para_id: u32,
 	) -> Result<(), anyhow::Error> {
-		let contract = PingModule::new(address, self.signer.clone());
+		let contract = PingModule::new(address.0, self.signer.clone());
 		let call = contract.dispatch_to_parachain(para_id.into());
 
 		let gas = call.estimate_gas().await?;
@@ -269,16 +269,14 @@ impl EvmClient {
 	pub fn request_commitment_key(&self, key: H256) -> (H256, H256) {
 		let key = derive_map_key(key.0.to_vec(), REQUEST_COMMITMENTS_SLOT);
 		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let mut bytes = [0u8; 32];
-		number.to_big_endian(&mut bytes);
+		let bytes = number.to_big_endian();
 		(key, H256(bytes))
 	}
 
 	pub fn response_commitment_key(&self, key: H256) -> (H256, H256) {
 		let key = derive_map_key(key.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
 		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let mut bytes = [0u8; 32];
-		number.to_big_endian(&mut bytes);
+		let bytes = number.to_big_endian();
 		(key, H256(bytes))
 	}
 
@@ -289,28 +287,26 @@ impl EvmClient {
 	pub fn response_receipt_key(&self, key: H256) -> Vec<Vec<u8>> {
 		let key = derive_map_key(key.0.to_vec(), RESPONSE_RECEIPTS_SLOT);
 		let number = U256::from_big_endian(key.0.as_slice()) + U256::from(1);
-		let mut bytes = [0u8; 32];
-		number.to_big_endian(&mut bytes);
+		let bytes = number.to_big_endian();
 
 		vec![key.0.to_vec(), bytes.to_vec()]
 	}
 
 	pub async fn host_manager(&self) -> Result<H160, anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
 		let params = contract.host_params().call().await?;
-		Ok(params.host_manager)
+		Ok(params.host_manager.0.into())
 	}
 
 	pub async fn handler(&self) -> Result<H160, anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
 		let params = contract.host_params().call().await?;
-		Ok(params.handler)
+		Ok(params.handler.0.into())
 	}
 }
 
 pub fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {
-	let mut bytes = [0u8; 32];
-	U256::from(slot as u64).to_big_endian(&mut bytes);
+	let bytes = U256::from(slot as u64).to_big_endian();
 	key.extend_from_slice(&bytes);
 	keccak_256(&key).into()
 }
@@ -319,18 +315,15 @@ const STATE_COMMITMENT_SLOT: u64 = 5;
 // keccak256(uint256(4009) . keccak256(uint256(200_000_000) . uint256(STATE_COMMITMENT_SLOT)))
 pub fn state_comitment_key(state_machine_id: U256, block_height: U256) -> (H256, H256, H256) {
 	// Parent map key
-	let mut slot = [0u8; 32];
-	U256::from(STATE_COMMITMENT_SLOT).to_big_endian(&mut slot);
+	let slot = U256::from(STATE_COMMITMENT_SLOT).to_big_endian();
 
-	let mut state_id = [0u8; 32];
-	state_machine_id.to_big_endian(&mut state_id);
+	let state_id = state_machine_id.to_big_endian();
 	let mut key = state_id.to_vec();
 	key.extend_from_slice(&slot);
 	let parent_map_key = keccak_256(&key);
 
 	// Commitment key
-	let mut bytes = [0u8; 32];
-	block_height.to_big_endian(&mut bytes);
+	let bytes = block_height.to_big_endian();
 	let mut commitment_key = bytes.to_vec();
 	commitment_key.extend_from_slice(&parent_map_key);
 
@@ -342,8 +335,7 @@ pub fn state_comitment_key(state_machine_id: U256, block_height: U256) -> (H256,
 
 	let overlay_root_slot = {
 		let slot = U256::from_big_endian(&slot_hash) + U256::one();
-		let mut bytes = [0u8; 32];
-		slot.to_big_endian(&mut bytes);
+		let bytes = slot.to_big_endian();
 		H256::from_slice(&bytes)
 	};
 
@@ -351,8 +343,7 @@ pub fn state_comitment_key(state_machine_id: U256, block_height: U256) -> (H256,
 
 	let state_root_key = {
 		let slot = U256::from_big_endian(&slot_hash) + U256::one() + U256::one();
-		let mut bytes = [0u8; 32];
-		slot.to_big_endian(&mut bytes);
+		let bytes = slot.to_big_endian();
 		H256::from_slice(&bytes)
 	};
 

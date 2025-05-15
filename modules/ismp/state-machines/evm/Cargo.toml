@@ -25,6 +25,7 @@ ethabi = { workspace = true }
 hash256-std-hasher = { version = "0.15.2", default-features = false }
 codec = { workspace = true, default-features = false }
 polkadot-sdk = { workspace = true, features = ["sp-crypto-hashing"] }
+primitive-types = { workspace = true }
 
 [features]
 default = ["std"]
@@ -42,4 +43,5 @@ std = [
     "geth-primitives/std",
     "pallet-ismp-host-executive/std",
     "polkadot-sdk/std",
+    "primitive-types/std"
 ]

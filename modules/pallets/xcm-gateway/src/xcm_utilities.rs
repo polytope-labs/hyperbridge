@@ -25,7 +25,7 @@ use ismp::host::StateMachine;
 use polkadot_sdk::*;
 use sp_core::{Get, H160};
 use sp_runtime::traits::MaybeEquivalence;
-use staging_xcm::v4::{
+use staging_xcm::v5::{
 	Asset, Error as XcmError, Fungibility::Fungible, Junction, Junctions, Location, NetworkId,
 	Result as XcmResult, XcmContext,
 };

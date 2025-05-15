@@ -1,6 +1,6 @@
 [package]
 name = "tesseract"
-version = "1.1.3"
+version = "1.1.4"
 edition = "2021"
 description = "Chain agnostic relayer implementation for Hyperbridge"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -53,7 +53,7 @@ features = ["sc-service"]
 
 [dev-dependencies]
 divide_range = "0.1.1"
-subxt = { version = "0.30.1", features = ["substrate-compat"] }
+subxt = { workspace = true, features = ["substrate-compat"] }
 pallet-ismp-rpc = { workspace = true, default-features = true }
 itertools = "0.12.1"
 pallet-ismp-host-executive = { workspace = true, default-features = true }

@@ -20,7 +20,6 @@ pub mod providers;
 use any_client::AnyClient;
 use anyhow::anyhow;
 use ismp::messaging::{hash_post_response, hash_request};
-pub use subxt_utils::gargantua as runtime;
 pub mod any_client;
 pub mod types;
 
@@ -36,9 +35,10 @@ use crate::{
 	providers::substrate::SubstrateClient,
 	types::{MessageStatusWithMetadata, TimeoutStatus},
 };
-use ethers::{types::H256, utils::keccak256};
+use ethers::utils::keccak256;
 use futures::StreamExt;
 use ismp::router::{GetRequest, PostRequest, PostResponse, Request};
+use primitive_types::H256;
 use subxt_utils::Hyperbridge;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;

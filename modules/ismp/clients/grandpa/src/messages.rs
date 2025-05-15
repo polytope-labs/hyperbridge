@@ -28,9 +28,9 @@ pub enum ConsensusMessage {
 	/// This is the variant representing the standalone chain
 	StandaloneChain(StandaloneChainMessage),
 	/// This is the variant representing the Polkadot relay chain
-	RelayChain(RelayChainMessage),
+	Polkadot(RelayChainMessage),
 	/// This is the variant representing a standalone relaychain
-	StandaloneRelayChain(RelayChainMessage),
+	Relaychain(RelayChainMessage),
 }
 
 #[derive(Clone, Debug, Encode, Decode)]

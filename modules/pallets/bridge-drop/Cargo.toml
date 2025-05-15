@@ -24,7 +24,7 @@ features = [
     "sp-std",
     "sp-io",
     "pallet-balances",
-    "pallet-vesting"
+    "pallet-vesting",
 ]
 
 [features]
@@ -34,5 +34,6 @@ std = [
     "polkadot-sdk/std",
     "scale-info/std",
     "rs_merkle/std",
-    "pallet-ismp/std"
+    "pallet-ismp/std",
 ]
+try-runtime = ["polkadot-sdk/try-runtime"]

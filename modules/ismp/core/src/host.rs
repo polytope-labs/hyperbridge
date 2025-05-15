@@ -268,6 +268,9 @@ pub enum StateMachine {
 	/// Tendermint chains
 	#[codec(index = 4)]
 	Tendermint(ConsensusStateId),
+	/// Solo relaychain parachains
+	#[codec(index = 5)]
+	RelayChain(u32),
 }
 
 impl StateMachine {
@@ -282,8 +285,10 @@ impl StateMachine {
 	/// Check if the state machine is substrate-based
 	pub fn is_substrate(&self) -> bool {
 		match self {
-			StateMachine::Polkadot(_) | StateMachine::Kusama(_) | StateMachine::Substrate(_) =>
-				true,
+			StateMachine::Polkadot(_) |
+			StateMachine::Kusama(_) |
+			StateMachine::Substrate(_) |
+			StateMachine::RelayChain(_) => true,
 			_ => false,
 		}
 	}
@@ -307,6 +312,7 @@ impl Display for StateMachine {
 				"TNDRMINT-{}",
 				String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
 			),
+			StateMachine::RelayChain(id) => format!("RELAYCHAIN-{id}"),
 		};
 		write!(f, "{}", str)
 	}
@@ -332,6 +338,15 @@ impl FromStr for StateMachine {
 					.and_then(|id| u32::from_str(id).ok())
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
 				StateMachine::Polkadot(id)
+			},
+
+			name if name.starts_with("RELAYCHAIN-") => {
+				let id = name
+					.split('-')
+					.last()
+					.and_then(|id| u32::from_str(id).ok())
+					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				StateMachine::RelayChain(id)
 			},
 			name if name.starts_with("KUSAMA-") => {
 				let id = name
@@ -376,11 +391,14 @@ mod tests {
 	fn state_machine_conversions() {
 		let grandpa = StateMachine::Substrate(*b"hybr");
 		let beefy = StateMachine::Tendermint(*b"hybr");
+		let solo_relay = StateMachine::RelayChain(1000);
 
 		let grandpa_string = grandpa.to_string();
 		let beefy_string = beefy.to_string();
+		let solo_string = solo_relay.to_string();
 
 		assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
 		assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());
+		assert_eq!(solo_relay, StateMachine::from_str(&solo_relay).unwrap());
 	}
 }

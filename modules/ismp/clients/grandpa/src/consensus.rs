@@ -15,7 +15,7 @@ use polkadot_sdk::*;
 
 use crate::{
 	messages::{ConsensusMessage, SubstrateHeader},
-	AlternativeRelayChain, SupportedStateMachines,
+	SupportedStateMachines,
 };
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use codec::{Decode, Encode};
@@ -89,7 +89,7 @@ where
 
 		// match over the message
 		match consensus_message {
-			ConsensusMessage::RelayChain(relay_chain_message) => {
+			ConsensusMessage::Polkadot(relay_chain_message) => {
 				let headers_with_finality_proof = ParachainHeadersWithFinalityProof {
 					finality_proof: relay_chain_message.finality_proof,
 					parachain_headers: relay_chain_message.parachain_headers,
@@ -213,7 +213,7 @@ where
 				Ok((consensus_state.encode(), intermediates))
 			},
 
-			ConsensusMessage::StandaloneRelayChain(relay_chain_message) => {
+			ConsensusMessage::Relaychain(relay_chain_message) => {
 				let headers_with_finality_proof = ParachainHeadersWithFinalityProof {
 					finality_proof: relay_chain_message.finality_proof,
 					parachain_headers: relay_chain_message.parachain_headers,
@@ -232,22 +232,22 @@ where
 					.into_iter()
 					// filter out unknown para ids
 					.filter_map(|(para_id, header)| {
-						if let Some(info) =
-							AlternativeRelayChain::<T>::get(_consensus_state_id, para_id)
+						if let Some(slot_duration) =
+							SupportedStateMachines::<T>::get(StateMachine::RelayChain(para_id))
 						{
-							Some((info, header))
+							Some((para_id, slot_duration, header))
 						} else {
 							None
 						}
 					})
 					.collect::<Vec<_>>();
 
-				for (info, header_vec) in parachain_headers {
+				for (para_id, slot_duration, header_vec) in parachain_headers {
 					let mut state_commitments_vec = Vec::new();
 
 					for header in header_vec {
 						let digest_result =
-							fetch_overlay_root_and_timestamp(header.digest(), info.slot_duration)?;
+							fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 						if digest_result.timestamp == 0 {
 							Err(Error::Custom("Timestamp or ismp root not found".into()))?
@@ -266,7 +266,7 @@ where
 						state_commitments_vec.push(intermediate);
 					}
 
-					intermediates.insert(info.state_machine, state_commitments_vec);
+					intermediates.insert(StateMachine::RelayChain(para_id), state_commitments_vec);
 				}
 
 				Ok((consensus_state.encode(), intermediates))

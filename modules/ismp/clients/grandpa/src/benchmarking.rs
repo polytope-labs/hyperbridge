@@ -32,13 +32,13 @@ mod benchmarks {
 	/// - `n`: Number of state machines to add in a single call
 	#[benchmark]
 	fn add_state_machines(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let state_machines: Vec<AddStateMachines> = (0..n)
+		let state_machines: Vec<AddStateMachine> = (0..n)
 			.map(|i| {
 				let id = [i as u8, 0, 0, 0]; // Create unique 4-byte identifier
-				AddStateMachines::Standard(StateMachineInfo {
+				AddStateMachine {
 					state_machine: StateMachine::Substrate(id),
 					slot_duration: 6000u64,
-				})
+				}
 			})
 			.collect();
 
@@ -59,13 +59,13 @@ mod benchmarks {
 	#[benchmark]
 	fn remove_state_machines(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
 		// Setup: First add state machines that we'll remove
-		let setup_machines: Vec<AddStateMachines> = (0..n)
+		let setup_machines: Vec<AddStateMachine> = (0..n)
 			.map(|i| {
 				let id = [i as u8, 0, 0, 0]; // Create unique 4-byte identifier
-				AddStateMachines::Standard(StateMachineInfo {
+				AddStateMachine {
 					state_machine: StateMachine::Substrate(id),
 					slot_duration: 6000u64,
-				})
+				}
 			})
 			.collect();
 
@@ -73,10 +73,8 @@ mod benchmarks {
 		Pallet::<T>::add_state_machines(RawOrigin::Root.into(), setup_machines.clone())?;
 
 		// Create removal list
-		let remove_machines: Vec<RemoveStateMachines> = setup_machines
-			.into_iter()
-			.map(|m| RemoveStateMachines::Standard(m.state_machine()))
-			.collect();
+		let remove_machines: Vec<StateMachine> =
+			setup_machines.into_iter().map(|m| m.state_machine).collect();
 
 		// Verify initial state
 		assert!(SupportedStateMachines::<T>::iter().count() == n as usize);

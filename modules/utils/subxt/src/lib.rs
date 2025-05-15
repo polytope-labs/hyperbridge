@@ -70,6 +70,8 @@ mod gargantua_conversion {
 					StateMachine::Substrate(consensus_state_id),
 				runtime_types::ismp::host::StateMachine::Tendermint(id) =>
 					StateMachine::Tendermint(id),
+				runtime_types::ismp::host::StateMachine::Relay { relay, para_id } =>
+					StateMachine::Relay { relay, para_id },
 			}
 		}
 	}

@@ -67,7 +67,7 @@ where
 	fn verify_consensus(
 		&self,
 		_host: &dyn IsmpHost,
-		_consensus_state_id: ConsensusStateId,
+		consensus_state_id: ConsensusStateId,
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
@@ -233,8 +233,10 @@ where
 					// filter out unknown para ids
 					.filter_map(|(para_id, header)| {
 						if let Some(slot_duration) =
-							SupportedStateMachines::<T>::get(StateMachine::RelayChain(para_id))
-						{
+							SupportedStateMachines::<T>::get(StateMachine::Relay {
+								relay: consensus_state_id,
+								para_id,
+							}) {
 							Some((para_id, slot_duration, header))
 						} else {
 							None
@@ -266,7 +268,10 @@ where
 						state_commitments_vec.push(intermediate);
 					}
 
-					intermediates.insert(StateMachine::RelayChain(para_id), state_commitments_vec);
+					intermediates.insert(
+						StateMachine::Relay { relay: consensus_state_id, para_id },
+						state_commitments_vec,
+					);
 				}
 
 				Ok((consensus_state.encode(), intermediates))

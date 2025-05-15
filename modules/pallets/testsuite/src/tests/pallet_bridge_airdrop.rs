@@ -229,7 +229,7 @@ fn should_claim_crowdloan_correctly() {
 		)
 		.unwrap();
 
-		let schedule = pallet_vesting::Vesting::<Test>::get(beneficiary.clone());
+		let _schedule = pallet_vesting::Vesting::<Test>::get(beneficiary.clone());
 
 		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 

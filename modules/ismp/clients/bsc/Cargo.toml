@@ -11,7 +11,9 @@ publish = false
 log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+scale-info = { version = "2.1.1", default-features = false, features = [
+    "derive",
+] }
 
 ismp = { workspace = true }
 bsc-verifier = { workspace = true }
@@ -38,5 +40,6 @@ std = [
     "sync-committee-primitives/std",
     "evm-state-machine/std",
     "pallet-ismp-host-executive/std",
-    "pallet-ismp/std"
+    "pallet-ismp/std",
 ]
+try-runtime = ["polkadot-sdk/try-runtime"]

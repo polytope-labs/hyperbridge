@@ -1,7 +1,7 @@
 use crate::{HostConfig, OpConfig, OpHost};
-use ethabi::ethereum_types::H160;
 use ethers::providers::Middleware;
 use hex_literal::hex;
+use primitive_types::H160;
 // use ismp_testsuite::mocks::Host;
 // use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
 use tesseract_evm::EvmConfig;

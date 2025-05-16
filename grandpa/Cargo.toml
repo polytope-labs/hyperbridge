@@ -10,7 +10,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 [dependencies]
 serde = { version = "1.0.164", features = ["derive"] }
 anyhow = "1.0.75"
-subxt = { version = "0.30.1", features = ["substrate-compat"] }
+subxt = { workspace = true, features = ["substrate-compat"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.53"
@@ -31,4 +31,4 @@ subxt-utils = { workspace = true }
 tesseract-substrate = {  workspace = true }
 tesseract-primitives = {  workspace = true }
 
-sp-core = { version = "21.0.0", features = ["full_crypto"] }
+sp-core = { workspace = true, features = ["full_crypto"] }

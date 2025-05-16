@@ -21,6 +21,7 @@ ismp = { workspace = true }
 async-trait = "0.1.53"
 log = "0.4.20"
 futures = "0.3.28"
+primitive-types = { workspace = true }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }

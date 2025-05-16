@@ -248,7 +248,7 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 							commitment: StateCommitment {
 								timestamp: block.timestamp.as_u64(),
 								overlay_root: None,
-								state_root: block.state_root,
+								state_root: block.state_root.0.into(),
 							},
 							height: number.as_u64(),
 						},
@@ -287,7 +287,7 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 							commitment: StateCommitment {
 								timestamp: block.timestamp.as_u64(),
 								overlay_root: None,
-								state_root: block.state_root,
+								state_root: block.state_root.0.into(),
 							},
 							height: number.as_u64(),
 						},
@@ -317,7 +317,7 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 				commitment: StateCommitment {
 					timestamp: block.timestamp.as_u64(),
 					overlay_root: None,
-					state_root: block.state_root,
+					state_root: block.state_root.0.into(),
 				},
 				height: number.as_u64(),
 			},

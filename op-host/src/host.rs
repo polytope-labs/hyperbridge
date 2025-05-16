@@ -9,7 +9,7 @@ use ethers::{
 	signers::Wallet,
 };
 use futures::StreamExt;
-use geth_primitives::{CodecHeader, Header};
+use geth_primitives::{new_u256, old_u256, CodecHeader, Header};
 use ismp::{events::Event, messaging::CreateConsensusState};
 use op_verifier::{calculate_output_root, CANNON};
 use reqwest::Url;
@@ -212,13 +212,17 @@ async fn construct_state_proposal(
 
 				let message_parser_proof = client
 					.op_execution_client
-					.get_proof(client.message_parser, vec![], Some(commitment_block_number.into()))
+					.get_proof(
+						ethers::types::H160(client.message_parser.0),
+						vec![],
+						Some(commitment_block_number.into()),
+					)
 					.await?;
 
 				let root_claim = calculate_output_root::<Hasher>(
 					H256::zero(),
 					l2_header.state_root,
-					message_parser_proof.storage_hash,
+					message_parser_proof.storage_hash.0.into(),
 					l2_block_hash,
 				);
 
@@ -230,7 +234,7 @@ async fn construct_state_proposal(
 
 				// Check that our commitment block is greater than the latest game
 				let contract = DisputeGameFactory::new(
-					dispute_game_factory_address,
+					dispute_game_factory_address.0,
 					client.beacon_execution_client.clone(),
 				);
 				// Find the latest valid root claim with the respected game type,
@@ -238,7 +242,7 @@ async fn construct_state_proposal(
 				// 1. The most recent 3 games are invalid
 				// 2. The latest valid game is for a block less than our commitment block number
 				// 3. The op-proposer interval for proposing is not yet in its last quarter
-				let latest_game_index = contract.game_count().call().await? - U256::one();
+				let latest_game_index = contract.game_count().call().await? - old_u256(U256::one());
 				let mut proposal = None;
 				let mut latest_valid_game = None;
 				// We would inspect the first five most recent games
@@ -272,7 +276,7 @@ async fn construct_state_proposal(
 					let latest_claim_message_parser_proof = client
 						.op_execution_client
 						.get_proof(
-							client.message_parser,
+							ethers::types::H160(client.message_parser.0),
 							vec![],
 							Some(latest_claim_l2_block_number.into()),
 						)
@@ -283,7 +287,7 @@ async fn construct_state_proposal(
 					let calculated_latest_root_claim = calculate_output_root::<Hasher>(
 						H256::zero(),
 						latest_claim_header.state_root,
-						latest_claim_message_parser_proof.storage_hash,
+						latest_claim_message_parser_proof.storage_hash.0.into(),
 						latest_claim_header_block_hash,
 					);
 
@@ -314,7 +318,7 @@ async fn construct_state_proposal(
 						.await?;
 
 					// If game exists exit
-					if proxy_addr != H160::zero() {
+					if proxy_addr.0 != H160::zero().0 {
 						log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
 						break proposal;
 					}
@@ -340,7 +344,7 @@ async fn construct_state_proposal(
 					if creator.0.to_vec() == op_proposer &&
 						diff >= (3 * proposer_config.proposer_interval / 4)
 					{
-						log::trace!(target: "tesseract","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal in {} seconds", 
+						log::trace!(target: "tesseract","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal in {} seconds",
 							proposer_config.proposer_interval.saturating_sub((3 * proposer_config.proposer_interval )/ 4));
 						break proposal;
 					}
@@ -352,7 +356,7 @@ async fn construct_state_proposal(
 						game_type: respected_game_type,
 						block_number: commitment_block_number,
 						extra_data: extra_data.clone(),
-						bond,
+						bond: new_u256(bond),
 					});
 
 					break proposal;
@@ -364,10 +368,10 @@ async fn construct_state_proposal(
 						game_type: respected_game_type,
 						block_number: commitment_block_number,
 						extra_data: extra_data.clone(),
-						bond,
+						bond: new_u256(bond),
 					});
 
-					break proposal
+					break proposal;
 				}
 			}
 
@@ -390,11 +394,11 @@ async fn submit_state_proposal(
 		client.provider.state_machine_id().state_id,
 		proposal.block_number
 	);
-	let contract = DisputeGameFactory::new(dispute_game_factory_address, proposer.clone());
+	let contract = DisputeGameFactory::new(dispute_game_factory_address.0, proposer.clone());
 
 	let call =
 		contract.create(proposal.game_type, proposal.root_claim.0, proposal.extra_data.into());
-	let call = call.value(proposal.bond);
+	let call = call.value(old_u256(proposal.bond));
 
 	let gas_limit = call
 		.estimate_gas()
@@ -409,7 +413,7 @@ async fn submit_state_proposal(
 	)
 	.await?;
 
-	let call = call.gas_price(gas_breakdown.gas_price).gas(gas_limit);
+	let call = call.gas_price(old_u256(gas_breakdown.gas_price)).gas(gas_limit);
 
 	let tx = call.send().await?;
 	wait_for_success(

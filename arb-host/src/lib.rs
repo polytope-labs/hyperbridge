@@ -7,14 +7,13 @@ use arbitrum_verifier::{
 	ArbitrumBoldProof, ArbitrumPayloadProof, AssertionState, GlobalState as RustGlobalState,
 	ASSERTIONS_SLOT, NODES_SLOT,
 };
-use ethabi::ethereum_types::U256;
 use ethers::{
 	prelude::Provider,
 	providers::{Http, Middleware},
-	types::{H160, H256},
 };
-use geth_primitives::CodecHeader;
+use geth_primitives::{new_u256, CodecHeader};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
@@ -103,9 +102,13 @@ impl ArbHost {
 	}
 
 	async fn fetch_header(&self, block: H256) -> Result<CodecHeader, anyhow::Error> {
-		let block = self.arb_execution_client.get_block(block).await?.ok_or_else(|| {
-			anyhow!("{} Header not found for {:?}", self.evm.state_machine, block)
-		})?;
+		let block = self
+			.arb_execution_client
+			.get_block(ethers::types::H256(block.0))
+			.await?
+			.ok_or_else(|| {
+				anyhow!("{} Header not found for {:?}", self.evm.state_machine, block)
+			})?;
 		let arb_header = block.into();
 
 		Ok(arb_header)
@@ -120,10 +123,10 @@ impl ArbHost {
 			return Ok(None);
 		}
 		let client = Arc::new(self.beacon_execution_client.clone());
-		let contract = IRollup::new(self.rollup_core, client);
+		let contract = IRollup::new(ethers::types::H160(self.rollup_core.0), client);
 		let mut events = contract
 			.event::<NodeCreatedFilter>()
-			.address(self.rollup_core.into())
+			.address(ethers::types::H160(self.rollup_core.0).into())
 			.from_block(from)
 			.to_block(to)
 			.query()
@@ -145,10 +148,10 @@ impl ArbHost {
 			return Ok(None);
 		}
 		let client = Arc::new(self.beacon_execution_client.clone());
-		let contract = IRollupBold::new(self.rollup_core, client);
+		let contract = IRollupBold::new(ethers::types::H160(self.rollup_core.0), client);
 		let events = contract
 			.event::<AssertionCreatedFilter>()
-			.address(self.rollup_core.into())
+			.address(ethers::types::H160(self.rollup_core.0).into())
 			.from_block(from)
 			.to_block(to)
 			.query()
@@ -164,19 +167,22 @@ impl ArbHost {
 		at: u64,
 		event: NodeCreatedFilter,
 	) -> Result<ArbitrumPayloadProof, anyhow::Error> {
-		let mut node_num = [0u8; 32];
-		U256::from(event.node_num).to_big_endian(&mut node_num);
+		let node_num = U256::from(event.node_num).to_big_endian();
 		let state_hash_key = derive_map_key(node_num.to_vec(), NODES_SLOT as u64);
 		let proof = self
 			.beacon_execution_client
-			.get_proof(self.rollup_core, vec![state_hash_key], Some(at.into()))
+			.get_proof(
+				ethers::types::H160(self.rollup_core.0),
+				vec![state_hash_key.0.into()],
+				Some(at.into()),
+			)
 			.await?;
 		let arb_block_hash = event.assertion.after_state.global_state.bytes_32_vals[0].into();
 		let arbitrum_header = self.fetch_header(arb_block_hash).await?;
 		let payload = ArbitrumPayloadProof {
 			arbitrum_header,
 			global_state: RustGlobalState {
-				block_hash: arb_block_hash,
+				block_hash: arb_block_hash.0.into(),
 				send_root: event.assertion.after_state.global_state.bytes_32_vals[1].into(),
 				inbox_position: event.assertion.after_state.global_state.u_64_vals[0],
 				position_in_message: event.assertion.after_state.global_state.u_64_vals[1],
@@ -185,7 +191,7 @@ impl ArbHost {
 				let status = event.assertion.after_state.machine_status;
 				status.try_into().map_err(|e| anyhow!("{:?}", e))?
 			},
-			inbox_max_count: event.inbox_max_count,
+			inbox_max_count: new_u256(event.inbox_max_count),
 			node_number: event.node_num,
 			storage_proof: proof
 				.storage_proof
@@ -211,7 +217,11 @@ impl ArbHost {
 			derive_map_key(event.assertion_hash.into(), ASSERTIONS_SLOT as u64);
 		let proof = self
 			.beacon_execution_client
-			.get_proof(self.rollup_core, vec![assertion_hash_key], Some(at.into()))
+			.get_proof(
+				ethers::types::H160(self.rollup_core.0),
+				vec![assertion_hash_key.0.into()],
+				Some(at.into()),
+			)
 			.await?;
 		let arb_block_hash = event.assertion.after_state.global_state.bytes_32_vals[0].into();
 		let arbitrum_header = self.fetch_header(arb_block_hash).await?;

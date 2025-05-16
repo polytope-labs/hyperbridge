@@ -40,7 +40,7 @@ op-host = { workspace = true }
 [dev-dependencies]
 tesseract-evm = { workspace = true, features = ["testing"] }
 tesseract-primitives = { workspace = true, features = ["testing"] }
-sp-core = "22.0.0"
+sp-core = { workspace = true }
 ismp = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 dotenv = "0.15.0"

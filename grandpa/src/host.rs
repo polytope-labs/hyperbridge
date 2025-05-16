@@ -101,11 +101,12 @@ where
 							interval.tick().await;
 						}
 					},
-					Err(e) =>
+					Err(e) => {
 						return Some((
 							Err(anyhow!("Error while checking sync status of client {e:?}")),
 							interval,
-						)),
+						))
+					},
 				}
 
 				let lambda = || {
@@ -167,6 +168,72 @@ where
 								let message = ConsensusMessage {
 									consensus_proof:
 										ismp_grandpa::messages::ConsensusMessage::Polkadot(
+											relay_chain_message,
+										)
+										.encode(),
+									consensus_state_id: client.consensus_state_id.clone(),
+									signer: H256::random().0.to_vec(),
+								};
+
+								Ok::<_, Error>(Some(message))
+							},
+
+							StateMachine::Relay { .. } => {
+								let consensus_state_bytes = counterparty
+									.query_consensus_state(None, client.consensus_state_id.clone())
+									.await?;
+
+								let consensus_state: ConsensusState =
+									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
+
+								log::trace!(
+									"Consensus state for {}: {:#?}",
+									client.state_machine,
+									ConsensusState {
+										current_authorities: vec![],
+										..consensus_state
+									}
+								);
+
+								let finalized_hash =
+									client.prover.client.rpc().finalized_head().await?;
+								let latest_finalized_head: u64 = client
+									.prover
+									.client
+									.rpc()
+									.header(Some(finalized_hash))
+									.await?
+									.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?
+									.number()
+									.into();
+
+								if latest_finalized_head <= consensus_state.latest_height.into() {
+									return Ok(None);
+								}
+
+								// Query finality proof will give us the highest finality proof in
+								// the epoch of the block number we supplied
+								let finality_proof = client
+									.prover
+									.query_finality_proof(consensus_state.clone())
+									.await?;
+
+								let parachain_headers_with_proof = client
+									.prover
+									.query_finalized_parachain_headers_with_proof(
+										finality_proof.block.into(),
+									)
+									.await?;
+
+								let relay_chain_message = RelayChainMessage {
+									finality_proof: codec::Decode::decode(
+										&mut &finality_proof.encode()[..],
+									)?,
+									parachain_headers: parachain_headers_with_proof,
+								};
+								let message = ConsensusMessage {
+									consensus_proof:
+										ismp_grandpa::messages::ConsensusMessage::Relaychain(
 											relay_chain_message,
 										)
 										.encode(),

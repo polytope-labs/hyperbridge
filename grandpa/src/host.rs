@@ -101,12 +101,11 @@ where
 							interval.tick().await;
 						}
 					},
-					Err(e) => {
+					Err(e) =>
 						return Some((
 							Err(anyhow!("Error while checking sync status of client {e:?}")),
 							interval,
-						))
-					},
+						)),
 				}
 
 				let lambda = || {

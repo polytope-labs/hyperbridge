@@ -74,7 +74,7 @@ where
 
 			let tree = MerkleTree::<KeccakHasher>::from_leaves(&leaf_hashes);
 			let proof = tree.proof(&indices);
-			proof.proof_hashes().iter().map(|item| H256(item.clone())).collect()
+			proof.proof_hashes().iter().map(|item| item.clone().into()).collect()
 		};
 
 		let (para_header_witness, paras_len) = {
@@ -89,7 +89,7 @@ where
 
 			let indices = message.parachain.parachains.iter().map(|i| i.index).collect::<Vec<_>>();
 			let proof = tree.proof(&indices);
-			let witness = proof.proof_hashes().iter().map(|item| H256(item.clone())).collect();
+			let witness = proof.proof_hashes().iter().map(|item| item.clone().into()).collect();
 
 			(witness, paras.len() as u32)
 		};
@@ -98,7 +98,7 @@ where
 			authorities: AuthoritiesProof {
 				len: authority.len,
 				proof: authorities_witness,
-				root: authority.keyset_commitment,
+				root: authority.keyset_commitment.0.into(),
 				votes: message
 					.mmr
 					.signed_commitment
@@ -120,9 +120,9 @@ where
 								"3a1754334582d9352eb0d02ad61d7f163bd52169286ba7c440ab16d253bf9884"
 							))
 						}
-						items
+						items.into_iter().map(|item| item.0.into()).collect()
 					} else {
-						message.mmr.mmr_proof.items
+						message.mmr.mmr_proof.items.into_iter().map(|item| item.0.into()).collect()
 					}
 				},
 				count: message.mmr.mmr_proof.leaf_count,

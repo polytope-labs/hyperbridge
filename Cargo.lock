@@ -20000,7 +20000,7 @@ dependencies = [
 [[package]]
 name = "sp1-beefy"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=054613f1366963913947edd44f42d19cb179bbe3#054613f1366963913947edd44f42d19cb179bbe3"
+source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=2bf78874685560ca2b623594699dfa4daa2f3342#2bf78874685560ca2b623594699dfa4daa2f3342"
 dependencies = [
  "alloy-sol-types 0.7.7",
  "anyhow",
@@ -20014,11 +20014,11 @@ dependencies = [
 [[package]]
 name = "sp1-beefy-primitives"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=054613f1366963913947edd44f42d19cb179bbe3#054613f1366963913947edd44f42d19cb179bbe3"
+source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=2bf78874685560ca2b623594699dfa4daa2f3342#2bf78874685560ca2b623594699dfa4daa2f3342"
 dependencies = [
  "alloy-sol-types 0.7.7",
  "parity-scale-codec",
- "primitive-types 0.13.1",
+ "primitive-types 0.12.2",
  "rs_merkle 1.5.0",
  "serde",
  "sp-crypto-hashing",

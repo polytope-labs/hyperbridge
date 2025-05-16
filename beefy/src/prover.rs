@@ -24,7 +24,6 @@ use beefy_prover::{
 use beefy_verifier_primitives::ConsensusState;
 use bytes::Buf;
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::H256;
 use ethers::abi::AbiEncode;
 use hex_literal::hex;
 use ismp::{
@@ -32,6 +31,7 @@ use ismp::{
 };
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
+use primitive_types::H256;
 use redis::{AsyncCommands, RedisError};
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
 use serde::{Deserialize, Serialize};

@@ -21,7 +21,7 @@ hex-literal = "0.4.1"
 base2 = "0.3.1"
 primitive-types = { workspace = true, features = ["impl-codec"] }
 ethers = { workspace = true, features = ["rustls"] }
-sp-core = "22.0.0"
+sp-core = { workspace = true }
 
 ismp.workspace = true
 polygon-pos-prover.workspace = true
@@ -37,7 +37,7 @@ debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main
 
 [dev-dependencies]
 tesseract-evm = { path = "../common", features = ["testing"] }
-sp-core = "22.0.0"
+sp-core = { workspace = true }
 ismp = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 dotenv = "0.15.0"

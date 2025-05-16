@@ -7,9 +7,9 @@ use tesseract_evm::EvmConfig;
 
 use crate::{ArbConfig, ArbHost, HostConfig};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use ethabi::ethereum_types::{H160, H256};
 use ethers::{providers::Middleware, utils::keccak256};
 use hex_literal::hex;
+use primitive_types::{H160, H256};
 
 const ROLLUP_CORE: [u8; 20] = hex!("d80810638dbDF9081b72C1B33c65375e807281C8");
 

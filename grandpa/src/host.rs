@@ -79,27 +79,34 @@ where
 			let client = client.clone();
 			let counterparty = counterparty_clone.clone();
 			async move {
-                let sync = || async {
-                    let consensus_state_bytes = counterparty
+				let sync = || async {
+					let consensus_state_bytes = counterparty
 						.query_consensus_state(None, client.consensus_state_id.clone())
 						.await?;
 
-					let consensus_state: ConsensusState = codec::Decode::decode(&mut &consensus_state_bytes[..])?;
-					log::trace!("Consensus state: {:#?}", ConsensusState { current_authorities: vec![] , ..consensus_state });
-                    client.should_sync(consensus_state.current_set_id).await
-                };
+					let consensus_state: ConsensusState =
+						codec::Decode::decode(&mut &consensus_state_bytes[..])?;
+					log::trace!(
+						"Consensus state: {:#?}",
+						ConsensusState { current_authorities: vec![], ..consensus_state }
+					);
+					client.should_sync(consensus_state.current_set_id).await
+				};
 
-                match sync().await {
-                    Ok(val) => {
-                        // If the consensus client on counterparty needs to be synced, then we should not observe the interval
-                        if !val {
-                        	interval.tick().await;
-                        }
-                    }
-                    Err(e) => {
-                        return Some((Err(anyhow!("Error while checking sync status of client {e:?}")), interval))
-                    }
-                }
+				match sync().await {
+					Ok(val) => {
+						// If the consensus client on counterparty needs to be synced, then we
+						// should not observe the interval
+						if !val {
+							interval.tick().await;
+						}
+					},
+					Err(e) =>
+						return Some((
+							Err(anyhow!("Error while checking sync status of client {e:?}")),
+							interval,
+						)),
+				}
 
 				let lambda = || {
 					async {
@@ -112,28 +119,42 @@ where
 								let consensus_state: ConsensusState =
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
-								log::trace!("Consensus state for {}: {:#?}", client.state_machine, ConsensusState { current_authorities: vec![] , ..consensus_state });
+								log::trace!(
+									"Consensus state for {}: {:#?}",
+									client.state_machine,
+									ConsensusState {
+										current_authorities: vec![],
+										..consensus_state
+									}
+								);
 
+								let finalized_hash =
+									client.prover.client.rpc().finalized_head().await?;
+								let latest_finalized_head: u64 = client
+									.prover
+									.client
+									.rpc()
+									.header(Some(finalized_hash))
+									.await?
+									.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?
+									.number()
+									.into();
 
-                                let finalized_hash = client.prover.client.rpc().finalized_head().await?;
-                                let latest_finalized_head: u64 = client.prover.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
+								if latest_finalized_head <= consensus_state.latest_height.into() {
+									return Ok(None);
+								}
 
-                                if latest_finalized_head <= consensus_state.latest_height.into() {
-                                    return Ok(None)
-                                }
-
-                                // Query finality proof will give us the highest finality proof in the epoch of the block number we supplied
+								// Query finality proof will give us the highest finality proof in
+								// the epoch of the block number we supplied
 								let finality_proof = client
 									.prover
-									.query_finality_proof(
-										consensus_state.clone(),
-									)
+									.query_finality_proof(consensus_state.clone())
 									.await?;
 
 								let parachain_headers_with_proof = client
 									.prover
 									.query_finalized_parachain_headers_with_proof(
-									 finality_proof.block.into(),
+										finality_proof.block.into(),
 									)
 									.await?;
 
@@ -145,7 +166,7 @@ where
 								};
 								let message = ConsensusMessage {
 									consensus_proof:
-										ismp_grandpa::messages::ConsensusMessage::RelayChainMessage(
+										ismp_grandpa::messages::ConsensusMessage::Polkadot(
 											relay_chain_message,
 										)
 										.encode(),
@@ -164,37 +185,49 @@ where
 								let consensus_state: ConsensusState =
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
-								log::trace!("Consensus state for {}: {:#?}", client.state_machine, ConsensusState { current_authorities: vec![] , ..consensus_state });
+								log::trace!(
+									"Consensus state for {}: {:#?}",
+									client.state_machine,
+									ConsensusState {
+										current_authorities: vec![],
+										..consensus_state
+									}
+								);
 
-
-                                let finalized_hash = client.prover.client.rpc().finalized_head().await?;
-                                let latest_finalized_head: u64 = client.prover.client.rpc().header(Some(finalized_hash)).await?.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?.number().into();
-
-                                // We ensure there's a new finalized block before trying to query a finality proof
-                                if latest_finalized_head <= consensus_state.latest_height.into() {
-                                    return Ok(None)
-                                }
-
-								let finality_proof = client
+								let finalized_hash =
+									client.prover.client.rpc().finalized_head().await?;
+								let latest_finalized_head: u64 = client
 									.prover
-									.query_finality_proof(
-										consensus_state,
-									)
-									.await?;
+									.client
+									.rpc()
+									.header(Some(finalized_hash))
+									.await?
+									.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?
+									.number()
+									.into();
+
+								// We ensure there's a new finalized block before trying to query a
+								// finality proof
+								if latest_finalized_head <= consensus_state.latest_height.into() {
+									return Ok(None);
+								}
+
+								let finality_proof =
+									client.prover.query_finality_proof(consensus_state).await?;
 								let standalone_message = StandaloneChainMessage {
 									finality_proof: codec::Decode::decode(
 										&mut &finality_proof.encode()[..],
 									)?,
 								};
 								let message = ConsensusMessage {
-                                    consensus_proof:
-                                        ismp_grandpa::messages::ConsensusMessage::StandaloneChainMessage(
-                                            standalone_message,
-                                        )
-                                        .encode(),
-                                    consensus_state_id: client.consensus_state_id,
-                                    signer: H256::random().0.to_vec(),
-                                };
+									consensus_proof:
+										ismp_grandpa::messages::ConsensusMessage::StandaloneChain(
+											standalone_message,
+										)
+										.encode(),
+									consensus_state_id: client.consensus_state_id,
+									signer: H256::random().0.to_vec(),
+								};
 
 								Ok(Some(message))
 							},
@@ -208,7 +241,8 @@ where
 					Err(err) => Some((Err(err), interval)),
 				}
 			}
-		}).filter_map(|res| async move {
+		})
+		.filter_map(|res| async move {
 			match res {
 				Ok(Some(update)) => Some(Ok(update)),
 				Ok(None) => None,

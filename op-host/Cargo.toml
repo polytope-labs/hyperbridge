@@ -31,6 +31,7 @@ reqwest-middleware = "0.2.4"
 reqwest-chain = "0.1.0"
 sync-committee-prover = { workspace = true }
 sync-committee-primitives = { workspace = true }
+primitive-types = { workspace = true }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }

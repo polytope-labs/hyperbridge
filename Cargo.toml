@@ -130,12 +130,13 @@ cumulus-pallet-parachain-system = { version = "0.18.1", default-features = false
 substrate-wasm-builder = "25.0.0"
 sc-service = "0.49.0"
 sc-tracing = "38.0.0"
-xcm-simulator-example = "=20.0.0"
-sp-api-proc-macro = "21.0.0"
+xcm-simulator-example = "=18.0.1"
+sp-api-proc-macro = "21.0.2"
 
 # supporting polkadot-sdk crates
 orml-xcm-support = { version = "=1.3.0", default-features = false }
 orml-traits = { version = "=1.3.0", default-features = false }
+orml-utilities = { version = "=1.3.0", default-features = false }
 sc-simnode = { version = "2412.0.0" }
 simnode-runtime-api = { version = "2412.0.0", default-features = false }
 

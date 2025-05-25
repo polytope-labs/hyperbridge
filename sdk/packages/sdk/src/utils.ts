@@ -6,6 +6,7 @@ import {
 	TimeoutStatus,
 	type StateMachineHeight,
 	RequestKind,
+	EvmLanguage,
 } from "@/types"
 import type { RequestStatusKey, TimeoutStatusKey, RetryConfig, Order } from "@/types"
 import {
@@ -492,4 +493,29 @@ export const dateStringtoTimestamp = (date: string): number => {
 		date = `${date}Z`
 	}
 	return new Date(date).getTime()
+}
+
+/**
+ * Calculates the balance mapping location for a given slot and holder address.
+ * This function handles the different encoding formats used by Solidity and Vyper.
+ *
+ * @param slot - The slot number to calculate the mapping location for.
+ * @param holder - The address of the holder to calculate the mapping location for.
+ * @param language - The language of the contract.
+ * @returns The balance mapping location as a HexString.
+ */
+export function calculateBalanceMappingLocation(slot: bigint, holder: string, language: EvmLanguage): HexString {
+	const holderBytes = bytes20ToBytes32(holder)
+	const slotBytes = `0x${slot.toString(16).padStart(64, "0")}` as HexString
+
+	if (language === EvmLanguage.Solidity) {
+		return keccak256(
+			encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [holderBytes, slotBytes]) as HexString,
+		)
+	} else {
+		// Vyper uses reverse order
+		return keccak256(
+			encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [slotBytes, holderBytes]) as HexString,
+		)
+	}
 }

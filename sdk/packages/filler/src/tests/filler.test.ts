@@ -1,6 +1,7 @@
 import { IntentFiller } from "@/core/filler"
 import { ChainClientManager, ChainConfigService, ContractInteractionService } from "@/services"
 import { BasicFiller } from "@/strategies/basic"
+import { StableSwapFiller } from "@/strategies/swap"
 import {
 	ChainConfig,
 	FillerConfig,
@@ -13,6 +14,10 @@ import {
 	getRequestCommitment,
 	RequestStatus,
 	orderCommitment,
+	bytes20ToBytes32,
+	ADDRESS_ZERO,
+	bytes32ToBytes20,
+	postRequestCommitment,
 } from "hyperbridge-sdk"
 import { describe, it, expect } from "vitest"
 import { ConfirmationPolicy } from "@/config/confirmation-policy"
@@ -20,23 +25,27 @@ import {
 	decodeFunctionData,
 	encodePacked,
 	getContract,
+	hexToBigInt,
 	hexToString,
 	keccak256,
 	maxUint256,
 	parseEventLogs,
 	PublicClient,
+	toHex,
 	WalletClient,
 } from "viem"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
-import { privateKeyToAccount } from "viem/accounts"
-import { bscTestnet } from "viem/chains"
+import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
+import { bscTestnet, gnosisChiado } from "viem/chains"
 import "./setup"
 import { EVM_HOST } from "@/config/abis/EvmHost"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { HandlerV1_ABI } from "@/config/abis/HandlerV1"
+import { UNISWAP_ROUTER_V2_ABI } from "@/config/abis/UniswapRouterV2"
+import { UNISWAP_V2_FACTORY_ABI } from "@/config/abis/UniswapV2Factory"
 describe.sequential("Basic", () => {
-	let intentFiller: IntentFiller
 	let indexer: IndexerClient
+
 	beforeAll(async () => {
 		const { bscIsmpHost, gnosisChiadoIsmpHost } = await setUp()
 		const queryClient = createQueryClient({
@@ -64,9 +73,6 @@ describe.sequential("Basic", () => {
 			queryClient: queryClient,
 			pollInterval: 1_000,
 		})
-
-		const { intentFiller: intentFillerInstance } = await setUp()
-		intentFiller = intentFillerInstance
 	})
 
 	it("Should listen, place order, fill order, and check if filled at the source chain", async () => {
@@ -78,15 +84,22 @@ describe.sequential("Basic", () => {
 			bscIsmpHost,
 			gnosisChiadoIsmpHost,
 			feeTokenBscAddress,
-
+			chainConfigs,
+			fillerConfig,
 			gnosisChiadoPublicClient,
+			bscHandler,
+			chainConfigService,
+			bscChapelId,
 		} = await setUp()
 
+		const strategies = [new BasicFiller(process.env.PRIVATE_KEY as HexString)]
+		const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
 		intentFiller.start()
 
+		const daiAsset = chainConfigService.getDaiAsset(bscChapelId)
 		const inputs: TokenInfo[] = [
 			{
-				token: "0x0000000000000000000000000000000000000000000000000000000000000000",
+				token: bytes20ToBytes32(daiAsset),
 				amount: 100n,
 			},
 		]
@@ -128,7 +141,6 @@ describe.sequential("Basic", () => {
 		const hash = await bscIntentGateway.write.placeOrder([order], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: bscTestnet,
-			value: 100n,
 		})
 
 		const receipt = await bscPublicClient.waitForTransactionReceipt({
@@ -142,45 +154,85 @@ describe.sequential("Basic", () => {
 		const detectedOrder = await orderDetectedPromise
 		console.log("Order successfully detected by event monitor:", detectedOrder)
 
-		const orderFilledPromise = new Promise<string>((resolve) => {
+		const orderFilledPromise = new Promise<{ orderId: string; hash: string }>((resolve) => {
 			const eventMonitor = intentFiller.monitor
 			if (!eventMonitor) {
 				console.error("Event monitor not found on intentFiller")
-				resolve("")
+				resolve({ orderId: "", hash: "" })
 				return
 			}
 
-			eventMonitor.on("orderFilled", (data: { orderId: string }) => {
-				console.log("Order filled by event monitor:", data.orderId)
-				resolve(data.orderId)
+			eventMonitor.on("orderFilled", (data: { orderId: string; hash: string }) => {
+				console.log("Order filled by event monitor:", data.orderId, data.hash)
+				resolve(data)
 			})
 		})
 
-		const orderFilledId = await orderFilledPromise
-		console.log("Order filled:", orderFilledId)
+		const { orderId, hash: filledHash } = await orderFilledPromise
+		console.log("Order filled:", orderId, filledHash)
+
+		const filledReceipt = await gnosisChiadoPublicClient.waitForTransactionReceipt({
+			hash: filledHash as `0x${string}`,
+			confirmations: 1,
+		})
 
 		let isFilled = await checkIfOrderFilled(
-			orderFilledId as HexString,
+			orderId as HexString,
 			gnosisChiadoPublicClient,
 			gnosisChiadoIntentGateway.address,
 		)
 
 		expect(isFilled).toBe(true)
 
-		console.log("Checking if order is filled at the source chain...")
-		await new Promise((resolve) => setTimeout(resolve, 60 * 1000))
+		// parse EvmHost PostRequestEvent emitted in the transcation logs
+		const event = parseEventLogs({ abi: EVM_HOST, logs: filledReceipt.logs })[0]
 
-		isFilled = await checkIfOrderFilled(orderFilledId as HexString, bscPublicClient, bscIntentGateway.address)
-		let maxAttempts = 20
-		while (!isFilled && maxAttempts > 0) {
-			console.log("Order not filled at the source chain, retrying storage check in 30 seconds...")
-			console.log("Max storage checks left:", maxAttempts)
-			await new Promise((resolve) => setTimeout(resolve, 30 * 1000))
-			isFilled = await checkIfOrderFilled(orderFilledId as HexString, bscPublicClient, bscIntentGateway.address)
-			maxAttempts--
+		if (event.eventName !== "PostRequestEvent") {
+			throw new Error("Unexpected Event type")
 		}
 
-		expect(isFilled).toBe(true)
+		const request = event.args
+		console.log("PostRequestEvent", { request })
+		const commitment = postRequestCommitment(request).commitment
+
+		for await (const status of indexer.postRequestStatusStream(commitment)) {
+			console.log(JSON.stringify(status, null, 4))
+			switch (status.status) {
+				case RequestStatus.SOURCE_FINALIZED: {
+					console.log(
+						`Status ${status.status}, Transaction: https://gargantua.statescan.io/#/extrinsics/${status.metadata.transactionHash}`,
+					)
+					break
+				}
+				case RequestStatus.HYPERBRIDGE_DELIVERED: {
+					console.log(
+						`Status ${status.status}, Transaction: https://gargantua.statescan.io/#/extrinsics/${status.metadata.transactionHash}`,
+					)
+					break
+				}
+				case RequestStatus.HYPERBRIDGE_FINALIZED: {
+					console.log(
+						`Status ${status.status}, Transaction: https://gnosis-chiado.blockscout.com/tx/${status.metadata.transactionHash}`,
+					)
+
+					break
+				}
+				case RequestStatus.DESTINATION: {
+					console.log(
+						`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
+					)
+
+					// Check if the order is filled at the source chain
+					const isFilled = await checkIfOrderFilled(
+						orderId as HexString,
+						bscPublicClient,
+						bscIntentGateway.address,
+					)
+					expect(isFilled).toBe(true)
+					break
+				}
+			}
+		}
 
 		intentFiller.stop()
 	}, 1_000_000)
@@ -197,11 +249,14 @@ describe.sequential("Basic", () => {
 			gnosisChiadoIntentGateway,
 			bscHandler,
 			bscChapelId,
+			chainConfigService,
 		} = await setUp()
+
+		const daiAsset = chainConfigService.getDaiAsset(bscChapelId)
 
 		const inputs: TokenInfo[] = [
 			{
-				token: "0x0000000000000000000000000000000000000000000000000000000000000000",
+				token: bytes20ToBytes32(daiAsset),
 				amount: 100n,
 			},
 		]
@@ -230,7 +285,6 @@ describe.sequential("Basic", () => {
 		let hash = await bscIntentGateway.write.placeOrder([order], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: bscTestnet,
-			value: 100n,
 		})
 
 		let receipt = await bscPublicClient.waitForTransactionReceipt({
@@ -349,18 +403,217 @@ describe.sequential("Basic", () => {
 			}
 		}
 	}, 1_000_0000)
+
+	it("Should handle order filling with token swaps", async () => {
+		const {
+			bscIntentGateway,
+			gnosisChiadoIntentGateway,
+			bscPublicClient,
+			bscIsmpHost,
+			gnosisChiadoIsmpHost,
+			gnosisChiadoPublicClient,
+			gnosisChiadoWalletClient,
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			feeTokenGnosisChiadoAddress,
+			gnosisChiadoId,
+			bscWalletClient,
+			gnosisChiadoHandler,
+			bscChapelId,
+		} = await setUp()
+
+		// Create a new intent filler with StableSwapFiller strategy
+		const strategies = [new StableSwapFiller(process.env.PRIVATE_KEY as HexString)]
+		const newIntentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
+
+		newIntentFiller.start()
+
+		const usdtAsset = chainConfigService.getUsdtAsset(bscChapelId)
+		const daiAsset = chainConfigService.getDaiAsset(bscChapelId)
+
+		// Create an order that requires token swaps
+		const inputs: TokenInfo[] = [
+			{
+				token: "0x0000000000000000000000000000000000000000000000000000000000000000",
+				amount: 100n,
+			},
+		]
+
+		const outputs: PaymentInfo[] = [
+			{
+				token: bytes20ToBytes32(usdtAsset),
+				amount: 1n,
+				beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+			},
+		]
+
+		const order = {
+			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+			sourceChain: await gnosisChiadoIsmpHost.read.host(),
+			destChain: await bscIsmpHost.read.host(),
+			deadline: 6533729700n,
+			nonce: 0n,
+			fees: 1000000n,
+			outputs,
+			inputs,
+			callData: "0x" as HexString,
+		}
+
+		// Approve tokens for the order
+		await approveTokens(
+			gnosisChiadoWalletClient,
+			gnosisChiadoPublicClient,
+			feeTokenGnosisChiadoAddress,
+			gnosisChiadoIntentGateway.address,
+		)
+
+		const pairAddress = await getPairAddress(
+			bscPublicClient,
+			daiAsset,
+			usdtAsset,
+			chainConfigService.getUniswapV2FactoryAddress(bscChapelId),
+		)
+
+		if (pairAddress === ADDRESS_ZERO) {
+			console.log("Pair address is zero, creating pair and adding liquidity")
+			await addLiquidity(
+				bscWalletClient,
+				bscPublicClient,
+				chainConfigService.getUniswapRouterV2Address(bscChapelId),
+				daiAsset,
+				usdtAsset,
+				100000000n,
+				100000000n,
+				privateKeyToAddress(process.env.PRIVATE_KEY as HexString),
+			)
+		}
+
+		// Monitor for order detection
+		const orderDetectedPromise = new Promise<Order>((resolve) => {
+			const eventMonitor = newIntentFiller.monitor
+			if (!eventMonitor) {
+				console.error("Event monitor not found on intentFiller")
+				resolve({} as Order)
+				return
+			}
+
+			eventMonitor.on("newOrder", (data: { order: Order }) => {
+				resolve(data.order)
+			})
+		})
+
+		// Place the order
+		const hash = await gnosisChiadoIntentGateway.write.placeOrder([order], {
+			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
+			chain: gnosisChiado,
+			value: 100n,
+		})
+
+		const receipt = await gnosisChiadoPublicClient.waitForTransactionReceipt({
+			hash,
+			confirmations: 1,
+		})
+
+		console.log("Order placed on BSC:", receipt.transactionHash)
+
+		// Wait for order detection
+		console.log("Waiting for event monitor to detect the order...")
+		const detectedOrder = await orderDetectedPromise
+		console.log("Order successfully detected by event monitor:", detectedOrder)
+
+		// Monitor for order filling
+		const orderFilledPromise = new Promise<{ orderId: string; hash: string }>((resolve) => {
+			const eventMonitor = newIntentFiller.monitor
+			if (!eventMonitor) {
+				console.error("Event monitor not found on intentFiller")
+				resolve({ orderId: "", hash: "" })
+				return
+			}
+
+			eventMonitor.on("orderFilled", (data: { orderId: string; hash: string }) => {
+				console.log("Order filled by event monitor:", data.orderId, data.hash)
+				resolve(data)
+			})
+		})
+
+		const { orderId, hash: filledHash } = await orderFilledPromise
+		console.log("Order filled:", orderId, filledHash)
+
+		const filledReceipt = await bscPublicClient.waitForTransactionReceipt({
+			hash: filledHash as `0x${string}`,
+			confirmations: 1,
+		})
+
+		let isFilled = await checkIfOrderFilled(orderId as HexString, bscPublicClient, bscIntentGateway.address)
+
+		expect(isFilled).toBe(true)
+
+		// parse EvmHost PostRequestEvent emitted in the transcation logs
+		const event = parseEventLogs({ abi: EVM_HOST, logs: filledReceipt.logs })[0]
+
+		if (event.eventName !== "PostRequestEvent") {
+			throw new Error("Unexpected Event type")
+		}
+
+		const request = event.args
+		console.log("PostRequestEvent", { request })
+		const commitment = postRequestCommitment(request).commitment
+
+		for await (const status of indexer.postRequestStatusStream(commitment)) {
+			console.log(JSON.stringify(status, null, 4))
+			switch (status.status) {
+				case RequestStatus.SOURCE_FINALIZED: {
+					console.log(
+						`Status ${status.status}, Transaction: https://gargantua.statescan.io/#/extrinsics/${status.metadata.transactionHash}`,
+					)
+					break
+				}
+				case RequestStatus.HYPERBRIDGE_DELIVERED: {
+					console.log(
+						`Status ${status.status}, Transaction: https://gargantua.statescan.io/#/extrinsics/${status.metadata.transactionHash}`,
+					)
+					break
+				}
+				case RequestStatus.HYPERBRIDGE_FINALIZED: {
+					console.log(
+						`Status ${status.status}, Transaction: https://gnosis-chiado.blockscout.com/tx/${status.metadata.transactionHash}`,
+					)
+
+					break
+				}
+				case RequestStatus.DESTINATION: {
+					console.log(
+						`Status ${status.status}, Transaction: https://gnosis-chiado.blockscout.com/tx/${status.metadata.transactionHash}`,
+					)
+
+					// Check if the order is filled at the source chain
+					const isFilled = await checkIfOrderFilled(
+						orderId as HexString,
+						gnosisChiadoPublicClient,
+						gnosisChiadoIntentGateway.address,
+					)
+					expect(isFilled).toBe(true)
+
+					await clearOutputTokenBalance(bscWalletClient, bscPublicClient, [usdtAsset], [pairAddress])
+					break
+				}
+			}
+		}
+
+		newIntentFiller.stop()
+	}, 1_000_000)
 })
 
 async function setUp() {
 	const bscChapelId = "EVM-97"
+
 	const gnosisChiadoId = "EVM-10200"
 
 	const chains = [bscChapelId, gnosisChiadoId]
 
 	let chainConfigService = new ChainConfigService()
 	let chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
-
-	let strategies = [new BasicFiller(process.env.PRIVATE_KEY as HexString)]
 
 	const confirmationPolicy = new ConfirmationPolicy({
 		"97": {
@@ -389,8 +642,6 @@ async function setUp() {
 		},
 	}
 
-	let intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
-
 	const chainClientManager = new ChainClientManager(process.env.PRIVATE_KEY as HexString)
 	const contractInteractionService = new ContractInteractionService(
 		chainClientManager,
@@ -406,6 +657,7 @@ async function setUp() {
 	const bscIsmpHostAddress = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7" as HexString
 	const gnosisChiadoIsmpHostAddress = "0x58a41b89f4871725e5d898d98ef4bf917601c5eb" as HexString
 	const bscHandlerAddress = "0x4638945E120846366cB7Abc08DB9c0766E3a663F" as HexString
+	const gnosisChiadoHandlerAddress = "0x4638945E120846366cB7Abc08DB9c0766E3a663F" as HexString
 	const bscIntentGateway = getContract({
 		address: intentGatewayAddress as HexString,
 		abi: INTENT_GATEWAY_ABI,
@@ -436,8 +688,13 @@ async function setUp() {
 		client: { public: bscPublicClient, wallet: bscWalletClient },
 	})
 
+	const gnosisChiadoHandler = getContract({
+		address: gnosisChiadoHandlerAddress,
+		abi: HandlerV1_ABI,
+		client: { public: gnosisChiadoPublicClient, wallet: gnosisChiadoWalletClient },
+	})
+
 	return {
-		intentFiller,
 		chainClientManager,
 		bscWalletClient,
 		gnosisChiadoWalletClient,
@@ -456,6 +713,9 @@ async function setUp() {
 		bscChapelId,
 		gnosisChiadoId,
 		chainConfigService,
+		fillerConfig,
+		chainConfigs,
+		gnosisChiadoHandler,
 	}
 }
 
@@ -490,6 +750,62 @@ async function approveTokens(
 	}
 }
 
+async function addLiquidity(
+	walletClient: WalletClient,
+	publicClient: PublicClient,
+	uniswapRouterAddress: HexString,
+	tokenA: HexString,
+	tokenB: HexString,
+	tokenAAmount: bigint,
+	tokenBAmount: bigint,
+	lpRecipient: HexString,
+) {
+	await approveTokens(walletClient, publicClient, tokenA, uniswapRouterAddress)
+	await approveTokens(walletClient, publicClient, tokenB, uniswapRouterAddress)
+	try {
+		console.log("Adding liquidity to uniswap router:", uniswapRouterAddress)
+		const tx = await walletClient.writeContract({
+			abi: UNISWAP_ROUTER_V2_ABI,
+			address: uniswapRouterAddress,
+			functionName: "addLiquidity",
+			args: [
+				tokenA,
+				tokenB,
+				tokenAAmount,
+				tokenBAmount,
+				tokenAAmount - 1n,
+				tokenBAmount - 1n,
+				lpRecipient,
+				6533729700n,
+			],
+			chain: walletClient.chain,
+			account: walletClient.account!,
+		})
+
+		console.log("Added liquidity:", tx)
+	} catch (error) {
+		console.error("Error adding liquidity:", error)
+		throw error
+	}
+}
+
+async function getPairAddress(
+	publicClient: PublicClient,
+	tokenA: HexString,
+	tokenB: HexString,
+	factoryAddress: HexString,
+) {
+	const pairAddress = await publicClient.readContract({
+		abi: UNISWAP_V2_FACTORY_ABI,
+		address: factoryAddress,
+		functionName: "getPair",
+		args: [tokenA, tokenB],
+	})
+
+	console.log("Pair address:", pairAddress)
+	return pairAddress as HexString
+}
+
 async function checkIfOrderFilled(
 	commitment: HexString,
 	client: PublicClient,
@@ -510,5 +826,35 @@ async function checkIfOrderFilled(
 	} catch (error) {
 		console.error(`Error checking if order filled:`, error)
 		return false
+	}
+}
+
+async function clearOutputTokenBalance(
+	walletClient: WalletClient,
+	publicClient: PublicClient,
+	tokenAddresses: HexString[],
+	pairAddresses: HexString[],
+) {
+	// Send each token to the pair address from user
+	for (const tokenAddress of tokenAddresses) {
+		// First check if the balance is greater than 0
+		const balance = await publicClient.readContract({
+			abi: ERC20_ABI,
+			address: tokenAddress,
+			functionName: "balanceOf",
+			args: [walletClient.account?.address as HexString],
+		})
+
+		if (balance > 0n) {
+			console.log("Clearing balance of", tokenAddress, "from", walletClient.account?.address)
+			const tx = await walletClient.writeContract({
+				abi: ERC20_ABI,
+				address: tokenAddress,
+				functionName: "transfer",
+				args: [pairAddresses[0], balance],
+				chain: walletClient.chain,
+				account: walletClient.account!,
+			})
+		}
 	}
 }

@@ -109,22 +109,7 @@ export class BasicFiller implements FillerStrategy {
 		try {
 			const { destClient, walletClient } = this.clientManager.getClientsForOrder(order)
 
-			const postRequest: IPostRequest = {
-				source: order.destChain,
-				dest: order.sourceChain,
-				body: constructRedeemEscrowRequestBody(order, privateKeyToAddress(this.privateKey)),
-				timeoutTimestamp: 0n,
-				nonce: await this.contractService.getHostNonce(order.sourceChain),
-				from: this.configService.getIntentGatewayAddress(order.sourceChain),
-				to: this.configService.getIntentGatewayAddress(order.destChain),
-			}
-
-			const postGasEstimate = await estimateGasForPost({
-				postRequest: postRequest,
-				sourceClient: this.clientManager.getPublicClient(order.sourceChain) as any,
-				hostLatestStateMachineHeight: await this.contractService.getHostLatestStateMachineHeight(),
-				hostAddress: this.configService.getHostAddress(order.sourceChain),
-			})
+			const { postGas: postGasEstimate } = await this.contractService.estimateGasFillPost(order)
 			const fillOptions: FillOptions = {
 				relayerFee: postGasEstimate + (postGasEstimate * BigInt(200)) / BigInt(10000),
 			}

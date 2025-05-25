@@ -44,6 +44,9 @@
 	"dependencies": {
 		"@polkadot/api": "^15.9.1",
 		"@polkadot/util-crypto": "^13.4.4",
+		"@safe-global/api-kit": "^3.0.1",
+		"@safe-global/protocol-kit": "^6.0.4",
+		"@safe-global/types-kit": "^2.0.1",
 		"ckb-mmr-wasm": "link:wasm-b",
 		"dotenv": "^16.4.7",
 		"ethers": "^5.7.2",

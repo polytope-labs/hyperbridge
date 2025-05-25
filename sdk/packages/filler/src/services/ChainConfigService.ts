@@ -63,6 +63,20 @@ export class ChainConfigService {
 	}
 
 	/**
+	 * Gets the USDT asset for a given chain
+	 */
+	getUsdtAsset(chain: string): HexString {
+		return assets[chain as keyof typeof assets].USDT as HexString
+	}
+
+	/**
+	 * Gets the USDC asset for a given chain
+	 */
+	getUsdcAsset(chain: string): HexString {
+		return assets[chain as keyof typeof assets].USDC as HexString
+	}
+
+	/**
 	 * Gets the chain ID for a given chain
 	 */
 	getChainId(chain: string): number {
@@ -88,5 +102,54 @@ export class ChainConfigService {
 	 */
 	getRpcUrl(chain: string): string {
 		return this.rpcUrls[chain as Chains]
+	}
+
+	/**
+	 * Gets the Uniswap Router V2 contract address for a given chain
+	 */
+	getUniswapRouterV2Address(chain: string): HexString {
+		return addresses.UniswapRouter02[chain as keyof typeof addresses.UniswapRouter02]! as HexString
+	}
+
+	/**
+	 * Gets the Uniswap V2 Factory contract address for a given chain
+	 */
+	getUniswapV2FactoryAddress(chain: string): HexString {
+		return addresses.UniswapV2Factory[chain as keyof typeof addresses.UniswapV2Factory]! as HexString
+	}
+
+	/**
+	 * Gets the Batch Executor contract address for a given chain
+	 */
+	getBatchExecutorAddress(chain: string): HexString {
+		return addresses.BatchExecutor[chain as keyof typeof addresses.BatchExecutor]! as HexString
+	}
+
+	/**
+	 * Gets the Universal Router contract address for a given chain
+	 */
+	getUniversalRouterAddress(chain: string): HexString {
+		return addresses.UniversalRouter[chain as keyof typeof addresses.UniversalRouter]! as HexString
+	}
+
+	/**
+	 * Gets the Uniswap V3 Router contract address for a given chain
+	 */
+	getUniswapV3RouterAddress(chain: string): HexString {
+		return addresses.UniswapV3Router[chain as keyof typeof addresses.UniswapV3Router]! as HexString
+	}
+
+	/**
+	 * Gets the Uniswap V3 Factory contract address for a given chain
+	 */
+	getUniswapV3FactoryAddress(chain: string): HexString {
+		return addresses.UniswapV3Factory[chain as keyof typeof addresses.UniswapV3Factory]! as HexString
+	}
+
+	/**
+	 * Gets the Uniswap V3 Quoter contract address for a given chain
+	 */
+	getUniswapV3QuoterAddress(chain: string): HexString {
+		return addresses.UniswapV3Quoter[chain as keyof typeof addresses.UniswapV3Quoter]! as HexString
 	}
 }

@@ -929,3 +929,8 @@ export interface HostParams {
 	 */
 	hyperbridge: HexString
 }
+
+export enum EvmLanguage {
+	Solidity,
+	Vyper,
+}

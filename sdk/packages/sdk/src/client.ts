@@ -583,11 +583,12 @@ export class IndexerClient {
 
 		logger.trace("`Request` found")
 		const chain = await getChain(this.config.dest)
-		const timeoutStream = this.timeoutStream(request.timeoutTimestamp, chain)
+		const timeoutStream =
+			request.timeoutTimestamp > 0 ? this.timeoutStream(request.timeoutTimestamp, chain) : undefined
 		const statusStream = this.postRequestStatusStreamInternal(hash)
 
 		logger.trace("Listening for events")
-		const combined = mergeRace(timeoutStream, statusStream)
+		const combined = timeoutStream ? mergeRace(timeoutStream, statusStream) : statusStream
 
 		logger.trace("Listening for events")
 		let item = await combined.next()

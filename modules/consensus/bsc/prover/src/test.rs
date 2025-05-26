@@ -30,7 +30,7 @@ use crate::BscPosProver;
 
 pub struct Host;
 
-const EPOCH_LENGTH: u64 = 500;
+const EPOCH_LENGTH: u64 = 1000;
 
 impl Keccak256 for Host {
 	fn keccak256(bytes: &[u8]) -> primitive_types::H256
@@ -45,9 +45,9 @@ async fn setup_prover() -> BscPosProver<Testnet> {
 	dotenv::dotenv().ok();
 	let consensus_url = std::env::var("BSC_URL").unwrap();
 	let mut provider = Provider::<Http>::connect(&consensus_url).await;
-	// Bsc block time is 3s we don't want to deal with missing authority set changes while polling
-	// for blocks in our tests
-	provider.set_interval(Duration::from_millis(1500));
+	// Bsc block time is 0.75s we don't want to deal with missing authority set changes while
+	// polling for blocks in our tests
+	provider.set_interval(Duration::from_millis(750));
 	BscPosProver::new(provider)
 }
 

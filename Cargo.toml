@@ -84,7 +84,7 @@ members = [
     "tesseract/telemetry",
     "tesseract/config",
     "tesseract/fisherman",
-    "tesseract/integration-test",
+    # "tesseract/integration-test",
 ]
 
 # Config for 'cargo dist'

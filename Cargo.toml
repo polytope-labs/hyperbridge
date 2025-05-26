@@ -74,17 +74,17 @@ members = [
     "modules/utils/serde",
 
     # tesseract
-    "tesseract/primitives",
-    "tesseract/messaging",
-    "tesseract/substrate",
-    "tesseract/relayer",
-    "tesseract/evm",
-    "tesseract/fees",
-    "tesseract/fees/prisma-cli",
-    "tesseract/telemetry",
-    "tesseract/config",
-    "tesseract/fisherman",
-    "tesseract/integration-test",
+    # "tesseract/primitives",
+    # "tesseract/messaging",
+    # "tesseract/substrate",
+    # "tesseract/relayer",
+    # "tesseract/evm",
+    # "tesseract/fees",
+    # "tesseract/fees/prisma-cli",
+    # "tesseract/telemetry",
+    # "tesseract/config",
+    # "tesseract/fisherman",
+    # "tesseract/integration-test",
 ]
 
 # Config for 'cargo dist'

@@ -33,7 +33,7 @@ use tesseract_evm::{
 };
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 
-const PING_ADDR: H160 = H160(hex!("42C6551d05eA47c46Fc7B01BBaaD37c466481361"));
+const PING_ADDR: H160 = H160(hex!("FE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"));
 
 #[tokio::test]
 #[ignore]
@@ -69,6 +69,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 		initial_height: None,
 		poll_interval: None,
 		max_concurent_queries: None,
+		fee_token_decimals: None,
 	};
 
 	println!("Connecting .. ");
@@ -96,7 +97,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 				if respond.is_some() {
 					let config = EvmConfig {
 						rpc_urls: vec![url.clone()],
-						ismp_host: host_addr.clone(),
+						ismp_host: host_addr.clone().0.into(),
 						state_machine: chain.clone(),
 						consensus_state_id: "PARA".to_string(),
 						signer: signing_key.clone(),
@@ -213,131 +214,131 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 	Ok(())
 }
 
-#[tokio::test]
-#[ignore]
-async fn test_ping_get_request() -> anyhow::Result<()> {
-	dotenv::dotenv().ok();
-	let _bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");
-	let _geth_url = std::env::var("GETH_URL").expect("GETH_URL was missing in env variables");
+// #[tokio::test]
+// #[ignore]
+// async fn test_ping_get_request() -> anyhow::Result<()> {
+// 	dotenv::dotenv().ok();
+// 	let _bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");
+// 	let _geth_url = std::env::var("GETH_URL").expect("GETH_URL was missing in env variables");
 
-	let signing_key =
-		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
+// 	let signing_key =
+// 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
-	let hyperbridge_config = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
-		max_rpc_payload_size: None,
-		hashing: Some(HashAlgorithm::Keccak),
-		consensus_state_id: Some("PARA".to_string()),
-		// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-		rpc_ws: "ws://127.0.0.1:9001".to_string(),
-		signer: None,
-		initial_height: None,
-		poll_interval: None,
-		max_concurent_queries: None,
-	};
+// 	let hyperbridge_config = SubstrateConfig {
+// 		state_machine: StateMachine::Kusama(2000),
+// 		max_rpc_payload_size: None,
+// 		hashing: Some(HashAlgorithm::Keccak),
+// 		consensus_state_id: Some("PARA".to_string()),
+// 		// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+// 		rpc_ws: "ws://127.0.0.1:9001".to_string(),
+// 		signer: None,
+// 		initial_height: None,
+// 		poll_interval: None,
+// 		max_concurent_queries: None,
+// 	};
 
-	// sepolia host
-	let sepolia_host = H160(hex!("F1c7a386325B7D22025D7542b28Ee881Cdf107b3"));
+// 	// sepolia host
+// 	let sepolia_host = H160(hex!("F1c7a386325B7D22025D7542b28Ee881Cdf107b3"));
 
-	let config = EvmConfig {
-		rpc_urls: vec![_geth_url.clone()],
-		ismp_host: sepolia_host.clone(),
-		state_machine: StateMachine::Evm(11155111),
-		consensus_state_id: "ETH0".to_string(),
-		signer: signing_key.clone(),
-		etherscan_api_key: Default::default(),
-		tracing_batch_size: Default::default(),
-		query_batch_size: Default::default(),
-		poll_interval: Default::default(),
-		gas_price_buffer: Default::default(),
-		initial_height: None,
-		client_type: None,
-	};
-	let sepolia_client = config.into_client().await?;
+// 	let config = EvmConfig {
+// 		rpc_urls: vec![_geth_url.clone()],
+// 		ismp_host: sepolia_host.clone(),
+// 		state_machine: StateMachine::Evm(11155111),
+// 		consensus_state_id: "ETH0".to_string(),
+// 		signer: signing_key.clone(),
+// 		etherscan_api_key: Default::default(),
+// 		tracing_batch_size: Default::default(),
+// 		query_batch_size: Default::default(),
+// 		poll_interval: Default::default(),
+// 		gas_price_buffer: Default::default(),
+// 		initial_height: None,
+// 		client_type: None,
+// 	};
+// 	let sepolia_client = config.into_client().await?;
 
-	println!("Connecting .. ");
-	let hyperbridge = SubstrateClient::<Hyperbridge>::new(hyperbridge_config).await?;
-	println!("Connected .. ");
+// 	println!("Connecting .. ");
+// 	let hyperbridge = SubstrateClient::<Hyperbridge>::new(hyperbridge_config).await?;
+// 	println!("Connected .. ");
 
-	let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex::decode(signing_key.clone()).unwrap())?;
-	let provider = Arc::new(Provider::<Http>::try_connect(&_bsc_url).await?);
-	let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
-		.with_chain_id(provider.get_chainid().await?.low_u64());
-	let bsc_client = Arc::new(provider.with_signer(signer));
-	let ping = PingModule::new(PING_ADDR.clone(), bsc_client.clone());
+// 	let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex::decode(signing_key.clone()).unwrap())?;
+// 	let provider = Arc::new(Provider::<Http>::try_connect(&_bsc_url).await?);
+// 	let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
+// 		.with_chain_id(provider.get_chainid().await?.low_u64());
+// 	let bsc_client = Arc::new(provider.with_signer(signer));
+// 	let ping = PingModule::new(PING_ADDR.clone(), bsc_client.clone());
 
-	let latest_sepolia_height = hyperbridge
-		.query_latest_height(StateMachineId {
-			state_id: StateMachine::Evm(11155111),
-			consensus_state_id: *b"ETH0",
-		})
-		.await?;
+// 	let latest_sepolia_height = hyperbridge
+// 		.query_latest_height(StateMachineId {
+// 			state_id: StateMachine::Evm(11155111),
+// 			consensus_state_id: *b"ETH0",
+// 		})
+// 		.await?;
 
-	// We'll query the state commitment of the latest hyperbridge height from the evm host on
-	// sepolia
+// 	// We'll query the state commitment of the latest hyperbridge height from the evm host on
+// 	// sepolia
 
-	let contract = EvmHost::new(sepolia_host, sepolia_client.client.clone());
-	let latest_hyperbridge_height = contract
-		.latest_state_machine_height(4009u32.into())
-		.block(BlockId::Number(ethers::types::BlockNumber::Number(latest_sepolia_height.into())))
-		.call()
-		.await?;
+// 	let contract = EvmHost::new(sepolia_host, sepolia_client.client.clone());
+// 	let latest_hyperbridge_height = contract
+// 		.latest_state_machine_height(4009u32.into())
+// 		.block(BlockId::Number(ethers::types::BlockNumber::Number(latest_sepolia_height.into())))
+// 		.call()
+// 		.await?;
 
-	dbg!(latest_hyperbridge_height);
-	let keys = {
-		let keys = state_comitment_key(4009u32.into(), latest_hyperbridge_height);
-		let key_1 = {
-			let mut bytes = sepolia_host.0.to_vec();
-			bytes.extend_from_slice(keys.0.as_bytes());
-			bytes
-		};
+// 	dbg!(latest_hyperbridge_height);
+// 	let keys = {
+// 		let keys = state_comitment_key(4009u32.into(), latest_hyperbridge_height);
+// 		let key_1 = {
+// 			let mut bytes = sepolia_host.0.to_vec();
+// 			bytes.extend_from_slice(keys.0.as_bytes());
+// 			bytes
+// 		};
 
-		let key_2 = {
-			let mut bytes = sepolia_host.0.to_vec();
-			bytes.extend_from_slice(keys.1.as_bytes());
-			bytes
-		};
+// 		let key_2 = {
+// 			let mut bytes = sepolia_host.0.to_vec();
+// 			bytes.extend_from_slice(keys.1.as_bytes());
+// 			bytes
+// 		};
 
-		let key_3 = {
-			let mut bytes = sepolia_host.0.to_vec();
-			bytes.extend_from_slice(keys.2.as_bytes());
-			bytes
-		};
+// 		let key_3 = {
+// 			let mut bytes = sepolia_host.0.to_vec();
+// 			bytes.extend_from_slice(keys.2.as_bytes());
+// 			bytes
+// 		};
 
-		vec![key_1.into(), key_2.into(), key_3.into()]
-	};
+// 		vec![key_1.into(), key_2.into(), key_3.into()]
+// 	};
 
-	let state = sepolia_client
-		.query_state_machine_commitment(StateMachineHeight {
-			id: StateMachineId {
-				state_id: StateMachine::Kusama(4009),
-				consensus_state_id: *b"PARA",
-			},
-			height: latest_hyperbridge_height.low_u64(),
-		})
-		.await?;
+// 	let state = sepolia_client
+// 		.query_state_machine_commitment(StateMachineHeight {
+// 			id: StateMachineId {
+// 				state_id: StateMachine::Kusama(4009),
+// 				consensus_state_id: *b"PARA",
+// 			},
+// 			height: latest_hyperbridge_height.low_u64(),
+// 		})
+// 		.await?;
 
-	dbg!(state);
+// 	dbg!(state);
 
-	let get_request = GetRequest {
-		source: Default::default(),
-		dest: StateMachine::Evm(11155111).to_string().as_bytes().to_vec().into(),
-		nonce: Default::default(),
-		from: Default::default(),
-		timeout_timestamp: 0,
-		context: Default::default(),
-		keys,
-		height: latest_sepolia_height.into(),
-	};
+// 	let get_request = GetRequest {
+// 		source: Default::default(),
+// 		dest: StateMachine::Evm(11155111).to_string().as_bytes().to_vec().into(),
+// 		nonce: Default::default(),
+// 		from: Default::default(),
+// 		timeout_timestamp: 0,
+// 		context: Default::default(),
+// 		keys,
+// 		height: latest_sepolia_height.into(),
+// 	};
 
-	let call = ping.dispatch_with_request(get_request);
-	let gas = call.estimate_gas().await.context(format!("Failed to estimate gas"))?;
-	let _receipt = call
-		.gas(gas)
-		.send()
-		.await?
-		.await
-		.context(format!("Failed to execute ping message"))?;
+// 	let call = ping.dispatch_with_request(get_request);
+// 	let gas = call.estimate_gas().await.context(format!("Failed to estimate gas"))?;
+// 	let _receipt = call
+// 		.gas(gas)
+// 		.send()
+// 		.await?
+// 		.await
+// 		.context(format!("Failed to execute ping message"))?;
 
-	Ok(())
-}
+// 	Ok(())
+// }

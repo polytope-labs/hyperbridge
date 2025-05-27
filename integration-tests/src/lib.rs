@@ -176,8 +176,9 @@ mod util;
 // 	};
 
 // 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
-// 	let code_blob = tokio::fs::read("../../hyperbridge/target/release/wbuild/nexus-runtime/nexus_runtime.compact.compressed.wasm").await?;
-// 	chain_a.runtime_upgrade(code_blob).await?;
+// 	let code_blob =
+// tokio::fs::read("../../hyperbridge/target/release/wbuild/nexus-runtime/nexus_runtime.compact.
+// compressed.wasm").await?; 	chain_a.runtime_upgrade(code_blob).await?;
 // 	Ok(())
 // }
 

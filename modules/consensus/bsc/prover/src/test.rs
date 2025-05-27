@@ -45,8 +45,8 @@ async fn setup_prover() -> BscPosProver<Testnet> {
 	dotenv::dotenv().ok();
 	let consensus_url = std::env::var("BSC_URL").unwrap();
 	let mut provider = Provider::<Http>::connect(&consensus_url).await;
-	// Bsc block time is 0.75s we don't want to deal with missing authority set changes while polling
-	// for blocks in our tests
+	// Bsc block time is 0.75s we don't want to deal with missing authority set changes while
+	// polling for blocks in our tests
 	provider.set_interval(Duration::from_millis(750));
 	BscPosProver::new(provider)
 }
@@ -92,9 +92,9 @@ async fn verify_bsc_pos_headers() {
 				update.epoch_header_ancestry = Default::default();
 			}
 
-			if next_validators.is_some()
-				&& update.attested_header.number.low_u64() % EPOCH_LENGTH
-					>= (validators.len() as u64 / 2)
+			if next_validators.is_some() &&
+				update.attested_header.number.low_u64() % EPOCH_LENGTH >=
+					(validators.len() as u64 / 2)
 			{
 				let result = verify_bsc_header::<Host, Testnet>(
 					&next_validators.clone().unwrap().validators,

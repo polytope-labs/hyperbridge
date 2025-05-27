@@ -7,6 +7,7 @@ use ssz_rs::{prelude::*, Deserialize};
 #[derive(Default, Debug, SimpleSerialize, codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct DepositRequest {
+	#[cfg_attr(feature = "std", serde(rename = "pubkey"))]
 	pub pub_key: BlsPublicKey,
 	pub withdrawal_credentials: Bytes32,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]

@@ -99,4 +99,12 @@ impl<T: frame_system::Config> pallet_utility::WeightInfo for WeightInfo<T> {
 			// Standard Error: 6_540
 			.saturating_add(Weight::from_parts(3_079_874, 0).saturating_mul(c.into()))
 	}
+
+	fn dispatch_as_fallible() -> Weight {
+	    Default::default()
+	}
+
+	fn if_else() -> Weight {
+ Default::default()
+	}
 }

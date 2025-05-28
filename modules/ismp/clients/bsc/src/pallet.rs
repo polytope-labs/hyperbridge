@@ -60,7 +60,14 @@ pub mod pallet {
 	pub type EpochLength<T: Config> = StorageValue<_, u64, OptionQuery>;
 
 	#[derive(
-		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+		Clone,
+		codec::Encode,
+		codec::Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		PartialEq,
+		Eq,
+		RuntimeDebug,
 	)]
 	pub struct UpdateParams {
 		pub epoch_length: u64,

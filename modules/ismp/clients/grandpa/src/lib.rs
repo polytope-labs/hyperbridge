@@ -21,6 +21,7 @@ pub mod benchmarking;
 pub mod consensus;
 pub mod messages;
 pub mod weights;
+use codec::DecodeWithMemTracking;
 use polkadot_sdk::*;
 
 use ismp::host::StateMachine;
@@ -28,7 +29,16 @@ pub use pallet::*;
 pub use weights::WeightInfo;
 
 /// Update the state machine whitelist
-#[derive(Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, Debug, PartialEq, Eq)]
+#[derive(
+	Clone,
+	codec::Encode,
+	codec::Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	Debug,
+	PartialEq,
+	Eq,
+)]
 pub struct AddStateMachine {
 	/// State machine to add
 	pub state_machine: StateMachine,

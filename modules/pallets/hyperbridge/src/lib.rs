@@ -57,7 +57,7 @@
 extern crate alloc;
 
 use alloc::{collections::BTreeMap, format};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
 	sp_runtime::traits::AccountIdConversion,
 	traits::{fungible::Mutate, tokens::Preservation, Get},
@@ -76,7 +76,17 @@ use primitive_types::H256;
 pub mod child_trie;
 
 /// Host params for substrate based chains
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct SubstrateHostParams<B> {
 	/// The default per byte fee
 	pub default_per_byte_fee: B,
@@ -87,7 +97,9 @@ pub struct SubstrateHostParams<B> {
 }
 
 /// Parameters that govern the working operations of this module. Versioned for ease of migration.
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub enum VersionedHostParams<Balance> {
 	/// The per-byte fee that hyperbridge charges for outgoing requests and responses.
 	V1(SubstrateHostParams<Balance>),

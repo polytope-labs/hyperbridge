@@ -354,8 +354,8 @@ mod test {
 	use crate::gas_oracle::{
 		convert_27_decimals_to_18_decimals, get_cost_of_one_wei, get_current_gas_cost_in_usd,
 		get_l2_data_cost, parse_to_27_decimals, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_CHAIN_ID,
-		BSC_TESTNET_CHAIN_ID, ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID,
-		POLYGON_CHAIN_ID, POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
+		ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_CHAIN_ID,
+		POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
 	};
 	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
 	use geth_primitives::new_u256;

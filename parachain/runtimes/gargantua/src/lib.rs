@@ -37,7 +37,9 @@ use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::{TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
-use polkadot_sdk::{sp_runtime::traits::ConvertInto, *};
+use polkadot_sdk::{
+	pallet_session::disabling::UpToLimitDisablingStrategy, sp_runtime::traits::ConvertInto, *,
+};
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
@@ -520,6 +522,7 @@ impl pallet_session::Config for Runtime {
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
+	type DisablingStrategy = UpToLimitDisablingStrategy;
 	type WeightInfo = weights::pallet_session::WeightInfo<Runtime>;
 }
 

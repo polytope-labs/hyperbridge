@@ -507,6 +507,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(TokenGateway::pallet_account(), INITIAL_BALANCE),
 			(BridgeDrop::account_id(), INITIAL_BALANCE * 5000),
 		],
+		..Default::default()
 	}
 	.assimilate_storage(&mut storage)
 	.unwrap();

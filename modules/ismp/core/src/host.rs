@@ -26,7 +26,7 @@ use crate::{
 	router::{IsmpRouter, PostResponse, Request, Response},
 };
 use alloc::{boxed::Box, format, string::String};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::{fmt::Display, str::FromStr, time::Duration};
 use primitive_types::H256;
 
@@ -243,6 +243,7 @@ pub trait IsmpHost: Keccak256 {
 	Copy,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialOrd,
 	Ord,
 	PartialEq,

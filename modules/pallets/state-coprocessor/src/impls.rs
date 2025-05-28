@@ -19,7 +19,7 @@ use polkadot_sdk::*;
 
 use super::{Config, Pallet};
 use alloc::{string::ToString, vec, vec::Vec};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use evm_state_machine::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
 	events::RequestResponseHandled,
@@ -37,7 +37,9 @@ use pallet_ismp::{
 use sp_core::U256;
 
 /// Message for processing state queries
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq, scale_info::TypeInfo,
+)]
 pub struct GetRequestsWithProof {
 	/// The associated Get requests
 	pub requests: Vec<GetRequest>,

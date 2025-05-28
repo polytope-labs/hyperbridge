@@ -258,6 +258,7 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type HrmpChannelClosingHandler = ();
 
 	type XcmRecorder = ();
+	type XcmEventEmitter = ();
 }
 
 parameter_types! {
@@ -352,6 +353,7 @@ impl pallet_xcm::Config for Test {
 	type RemoteLockConsumerIdentifier = ();
 	type WeightInfo = pallet_xcm::TestWeightInfo;
 	type AdminOrigin = EnsureRoot<AccountId32>;
+	type AuthorizedAliasConsideration = ();
 }
 
 parameter_types! {
@@ -387,6 +389,7 @@ impl pallet_assets::Config for Test {
 	type CallbackHandle = ();
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
+	type Holder = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = IdentityBenchmarkHelper;
 }

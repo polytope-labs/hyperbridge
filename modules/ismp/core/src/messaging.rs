@@ -29,12 +29,14 @@ use crate::{
 	router::{GetResponse, PostRequest, PostResponse, Request, RequestResponse, Response},
 };
 use alloc::{string::ToString, vec::Vec};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use primitive_types::H256;
 
 /// A consensus message is used to update the state of a consensus client and its children state
 /// machines.
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct ConsensusMessage {
 	/// Scale Encoded Consensus Proof
 	pub consensus_proof: Vec<u8>,
@@ -45,7 +47,9 @@ pub struct ConsensusMessage {
 }
 
 /// A fraud proof message is used to report byzantine misbehaviour in a consensus system.
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct FraudProofMessage {
 	/// The first consensus Proof
 	pub proof_1: Vec<u8>,
@@ -63,6 +67,7 @@ pub struct FraudProofMessage {
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	scale_info::TypeInfo,
 	PartialEq,
 	Eq,
@@ -82,6 +87,7 @@ pub struct StateCommitmentHeight {
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	scale_info::TypeInfo,
 	PartialEq,
 	Eq,
@@ -107,7 +113,9 @@ pub struct CreateConsensusState {
 }
 
 /// A request message holds a batch of requests to be dispatched from a source state machine
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, DecodeWithMemTracking, Decode, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct RequestMessage {
 	/// Requests from source chain
 	pub requests: Vec<PostRequest>,
@@ -118,7 +126,9 @@ pub struct RequestMessage {
 }
 
 /// A request message holds a batch of responses to be dispatched from a source state machine
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct ResponseMessage {
 	/// A set of either POST requests or responses to be handled
 	pub datagram: RequestResponse,
@@ -145,7 +155,9 @@ impl ResponseMessage {
 }
 
 /// A timeout message holds a batch of messages to be timed-out
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub enum TimeoutMessage {
 	/// A non memership proof for POST requests
 	Post {
@@ -189,7 +201,9 @@ impl TimeoutMessage {
 }
 
 /// Proof holds the relevant proof data for the context in which it's used.
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Proof {
 	/// State machine height
@@ -199,7 +213,9 @@ pub struct Proof {
 }
 
 /// The Overaching ISMP message type.
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub enum Message {
 	/// A consensus update message
 	#[codec(index = 0)]

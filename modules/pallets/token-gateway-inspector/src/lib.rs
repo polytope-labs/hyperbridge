@@ -81,7 +81,9 @@ pub mod pallet {
 		}
 	}
 
-	#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+	#[derive(
+		Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+	)]
 	pub struct NetInflow {
 		asset: H256,
 		chain: StateMachine,

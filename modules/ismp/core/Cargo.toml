@@ -1,6 +1,6 @@
 [package]
 name = "ismp"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Rust implementation of the interoperable state machine protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]

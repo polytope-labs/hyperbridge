@@ -7524,7 +7524,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "derive_more 0.99.20",
@@ -7548,7 +7548,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier-primitives"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "finality-grandpa",

@@ -1,6 +1,6 @@
 [package]
 name = "pallet-hyperbridge"
-version = "2412.0.0"
+version = "2503.0.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"

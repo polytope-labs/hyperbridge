@@ -159,6 +159,7 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type HrmpChannelAcceptedHandler = ();
 	type HrmpChannelClosingHandler = ();
 	type XcmRecorder = ();
+	type XcmEventEmitter = ();
 }
 
 /// No local origins on this chain are allowed to dispatch XCM sends/executions.
@@ -206,6 +207,7 @@ impl pallet_xcm::Config for Runtime {
 	type MaxRemoteLockConsumers = ConstU32<0>;
 	type RemoteLockConsumerIdentifier = ();
 	type WeightInfo = pallet_xcm::TestWeightInfo;
+	type AuthorizedAliasConsideration = ();
 }
 
 impl cumulus_pallet_xcm::Config for Runtime {

@@ -160,7 +160,16 @@ pub mod pallet {
 		},
 	}
 
-	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
+	#[derive(
+		Clone,
+		Encode,
+		Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		Eq,
+		PartialEq,
+		RuntimeDebug,
+	)]
 	pub struct AssetGatewayParams {
 		/// Percentage to be taken as protocol fees
 		pub protocol_fee_percentage: Permill,
@@ -172,7 +181,16 @@ pub mod pallet {
 		}
 	}
 
-	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
+	#[derive(
+		Clone,
+		Encode,
+		Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		Eq,
+		PartialEq,
+		RuntimeDebug,
+	)]
 	pub struct TokenGatewayParamsUpdate {
 		pub protocol_fee_percentage: Option<Permill>,
 	}

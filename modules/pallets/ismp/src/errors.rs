@@ -17,12 +17,14 @@
 use polkadot_sdk::*;
 
 use alloc::string::ToString;
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use sp_core::ConstU32;
 use sp_runtime::BoundedVec;
 use sp_std::prelude::*;
 
-#[derive(Clone, Debug, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Clone, Debug, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 #[allow(missing_docs)]
 pub struct HandlingError {
 	message: BoundedVec<u8, ConstU32<1000>>,

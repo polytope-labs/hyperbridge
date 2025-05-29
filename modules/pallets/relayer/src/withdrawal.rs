@@ -17,18 +17,22 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use ismp::{host::StateMachine, messaging::Proof};
 use polkadot_sdk::*;
 use sp_core::{H256, U256};
 
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub enum Key {
 	Request(H256),
 	Response { request_commitment: H256, response_commitment: H256 },
 }
 
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct WithdrawalProof {
 	/// Request and response commitments delivered from source to destination
 	pub commitments: Vec<Key>,
@@ -55,7 +59,9 @@ pub struct FeeMetadata {
 	pub sender: Address,
 }
 
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct WithdrawalInputData {
 	/// Signature data to prove account ownership
 	pub signature: Signature,
@@ -63,7 +69,9 @@ pub struct WithdrawalInputData {
 	pub dest_chain: StateMachine,
 }
 
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub enum Signature {
 	/// An Evm Address and signature
 	Evm { address: Vec<u8>, signature: Vec<u8> },
@@ -127,7 +135,9 @@ impl Signature {
 	}
 }
 
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct WithdrawalParams {
 	pub beneficiary_address: Vec<u8>,
 	pub amount: U256,

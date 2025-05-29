@@ -286,7 +286,14 @@ pub mod pallet {
 
 	/// The get request payload
 	#[derive(
-		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+		Clone,
+		codec::Encode,
+		codec::Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		PartialEq,
+		Eq,
+		RuntimeDebug,
 	)]
 	pub struct GetRequest {
 		/// Destination parachain
@@ -301,7 +308,14 @@ pub mod pallet {
 
 	/// Extrinsic Parameters for initializing a cross chain transfer
 	#[derive(
-		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+		Clone,
+		codec::Encode,
+		codec::Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		PartialEq,
+		Eq,
+		RuntimeDebug,
 	)]
 	pub struct TransferParams<AccountId, Balance> {
 		/// Destination account
@@ -319,7 +333,14 @@ pub mod pallet {
 
 	/// Extrisnic params for evm dispatch
 	#[derive(
-		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+		Clone,
+		codec::Encode,
+		codec::Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		PartialEq,
+		Eq,
+		RuntimeDebug,
 	)]
 	pub struct EvmParams {
 		/// Destination module

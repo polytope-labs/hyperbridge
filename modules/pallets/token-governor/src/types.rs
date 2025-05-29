@@ -31,7 +31,17 @@ use token_gateway_primitives::{
 };
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct ERC6160AssetUpdate {
 	/// The asset identifier
 	pub asset_id: H256,
@@ -75,7 +85,9 @@ impl From<GatewayAssetUpdate> for ERC6160AssetUpdate {
 	}
 }
 /// Initial supply options on a per-chain basis
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct InitialSupply {
 	/// The beneficiary for the initial supply
 	pub beneficiary: H160,
@@ -84,7 +96,9 @@ pub struct InitialSupply {
 }
 
 /// Initial supply options on a per-chain basis
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct ChainWithSupply {
 	/// The supported chain
 	pub chain: StateMachine,
@@ -93,21 +107,35 @@ pub struct ChainWithSupply {
 }
 
 /// Protocol parameters
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct Params<Balance> {
 	/// The asset registration fee in native tokens, collected by the treasury
 	pub registration_fee: Balance,
 }
 
 /// Struct for updating the protocol parameters for the TokenGovernor
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct ParamsUpdate<Balance> {
 	/// The asset registration fee in native tokens, collected by the treasury
 	pub registration_fee: Option<Balance>,
 }
 
 /// Holds data required for multi-chain native asset registration
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct ERC6160AssetRegistration {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<50>>,
@@ -121,7 +149,9 @@ pub struct ERC6160AssetRegistration {
 }
 
 /// Holds data required for multi-chain native asset registration (unsigned)
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct UnsignedERC6160AssetRegistration<AccountId> {
 	/// Registration information
 	pub asset: ERC6160AssetRegistration,
@@ -132,7 +162,9 @@ pub struct UnsignedERC6160AssetRegistration<AccountId> {
 }
 
 /// Registration parameters for existing ERC20 tokens
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct ERC20AssetRegistration {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<50>>,
@@ -142,7 +174,9 @@ pub struct ERC20AssetRegistration {
 	pub chains: Vec<AssetRegistration>,
 }
 
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct AssetRegistration {
 	/// Chain to register this asset on
 	pub chain: StateMachine,
@@ -153,7 +187,17 @@ pub struct AssetRegistration {
 }
 
 /// Protocol Parameters for the TokenRegistrar contract
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct RegistrarParams {
 	// Ismp host
 	pub host: H160,
@@ -164,7 +208,9 @@ pub struct RegistrarParams {
 }
 
 /// Struct for updating the protocol parameters for a TokenRegistrar
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct RegistrarParamsUpdate {
 	// registration base fee
 	pub base_fee: Option<U256>,
@@ -173,7 +219,17 @@ pub struct RegistrarParamsUpdate {
 }
 
 /// Protocol Parameters for the TokenGateway contract
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct GatewayParams<T> {
 	/// The Ismp host address
 	pub host: H160,
@@ -184,7 +240,17 @@ pub struct GatewayParams<T> {
 }
 
 /// Struct for updating the protocol parameters for a TokenGateway
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct GatewayParamsUpdate<T> {
 	/// Contract for dispatching calls in `AssetWithCall`
 	pub call_dispatcher: Option<H160>,
@@ -193,7 +259,9 @@ pub struct GatewayParamsUpdate<T> {
 }
 
 /// Describes the token gateway module on a given chain
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct ContractInstance {
 	/// The associated chain
 	pub chain: StateMachine,
@@ -202,7 +270,9 @@ pub struct ContractInstance {
 }
 
 /// Describes the token gateway module on a given chain
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct NewIntentGatewayDeployment {
 	/// The associated chain
 	pub chain: StateMachine,

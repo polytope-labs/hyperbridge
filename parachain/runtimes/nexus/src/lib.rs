@@ -36,13 +36,13 @@ use frame_support::traits::{EverythingBut, TransformOrigin};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use alloc::borrow::Cow;
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::{
 	DefaultCoreSelector, RelayChainState, RelayNumberMonotonicallyIncreases,
 };
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
-use polkadot_sdk::*;
+use polkadot_sdk::{pallet_session::disabling::UpToLimitDisablingStrategy, *};
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
@@ -66,7 +66,6 @@ use ::ismp::{
 	router::{Request, Response},
 };
 use frame_support::{
-	construct_runtime,
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
@@ -224,7 +223,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 3_400,
+	spec_version: 3_500,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -546,6 +545,7 @@ impl pallet_session::Config for Runtime {
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
+	type DisablingStrategy = UpToLimitDisablingStrategy;
 	type WeightInfo = weights::pallet_session::WeightInfo<Runtime>;
 }
 
@@ -727,6 +727,7 @@ impl pallet_multisig::Config for Runtime {
 	type DepositFactor = DepositFactor;
 	type MaxSignatories = MaxSignatories;
 	type WeightInfo = weights::pallet_multisig::WeightInfo<Runtime>;
+	type BlockNumberProvider = System;
 }
 
 parameter_types! {
@@ -751,6 +752,7 @@ parameter_types! {
 	PartialOrd,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	RuntimeDebug,
 	MaxEncodedLen,
 	scale_info::TypeInfo,
@@ -817,66 +819,120 @@ impl pallet_proxy::Config for Runtime {
 	type CallHasher = Keccak256;
 	type AnnouncementDepositBase = AnnouncementDepositBase;
 	type AnnouncementDepositFactor = AnnouncementDepositFactor;
+	type BlockNumberProvider = System;
 }
 
-// Create the runtime by composing the FRAME pallets that were previously configured.
-construct_runtime!(
-	pub enum Runtime
-	{
-		// System support stuff.
-		System: frame_system = 0,
-		Timestamp: pallet_timestamp = 1,
-		ParachainSystem: cumulus_pallet_parachain_system = 2,
-		ParachainInfo: staging_parachain_info = 3,
-		Utility: pallet_utility = 4,
+#[frame_support::runtime]
+mod runtime {
+	#[runtime::runtime]
+	#[runtime::derive(
+		RuntimeCall,
+		RuntimeEvent,
+		RuntimeError,
+		RuntimeOrigin,
+		RuntimeFreezeReason,
+		RuntimeHoldReason,
+		RuntimeSlashReason,
+		RuntimeLockId,
+		RuntimeTask,
+		RuntimeViewFunction
+	)]
+	pub struct Runtime;
 
-		// Monetary stuff.
-		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 10,
-		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>} = 11,
-		Treasury: pallet_treasury = 12,
-		AssetRate: pallet_asset_rate = 13,
-		Multisig: pallet_multisig = 14,
-		Proxy: pallet_proxy = 15,
+	// System support stuff.
+	#[runtime::pallet_index(0)]
+	pub type System = frame_system;
+	#[runtime::pallet_index(1)]
+	pub type Timestamp = pallet_timestamp;
+	#[runtime::pallet_index(2)]
+	pub type ParachainSystem = cumulus_pallet_parachain_system;
+	#[runtime::pallet_index(3)]
+	pub type ParachainInfo = staging_parachain_info;
+	#[runtime::pallet_index(4)]
+	pub type Utility = pallet_utility;
 
-		// Collator support. The order of these 4 are important and shall not change.
-		Authorship: pallet_authorship::{Pallet, Storage} = 20,
-		CollatorSelection: pallet_collator_selection::{Pallet, Call, Storage, Event<T>, Config<T>} = 21,
-		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>} = 22,
-		Aura: pallet_aura::{Pallet, Storage, Config<T>} = 23,
-		AuraExt: cumulus_pallet_aura_ext = 24,
-		Sudo: pallet_sudo::{Pallet, Storage, Call, Event<T>, Config<T>} = 25,
+	// Monetary stuff.
+	#[runtime::pallet_index(10)]
+	pub type Balances = pallet_balances;
+	#[runtime::pallet_index(11)]
+	pub type TransactionPayment = pallet_transaction_payment;
+	#[runtime::pallet_index(12)]
+	pub type Treasury = pallet_treasury;
+	#[runtime::pallet_index(13)]
+	pub type AssetRate = pallet_asset_rate;
+	#[runtime::pallet_index(14)]
+	pub type Multisig = pallet_multisig;
+	#[runtime::pallet_index(15)]
+	pub type Proxy = pallet_proxy;
 
-		// XCM helpers.
-		XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 30,
-		PolkadotXcm: pallet_xcm = 31,
-		CumulusXcm: cumulus_pallet_xcm = 32,
-		// ISMP stuff
-		// Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
-		// setup the mmr
-		Mmr: pallet_mmr_tree = 40,
-		Ismp: pallet_ismp = 41,
-		MessageQueue: pallet_message_queue = 42,
+	// Collator support. The order of these 4 are important and shall not change.
+	#[runtime::pallet_index(20)]
+	pub type Authorship = pallet_authorship;
+	#[runtime::pallet_index(21)]
+	pub type CollatorSelection = pallet_collator_selection;
+	#[runtime::pallet_index(22)]
+	pub type Session = pallet_session;
+	#[runtime::pallet_index(23)]
+	pub type Aura = pallet_aura;
+	#[runtime::pallet_index(24)]
+	pub type AuraExt = cumulus_pallet_aura_ext;
+	#[runtime::pallet_index(25)]
+	pub type Sudo = pallet_sudo;
 
-		IsmpParachain: ismp_parachain = 50,
-		IsmpSyncCommitteeEth: ismp_sync_committee::pallet::<Instance1> = 51,
-		Relayer: pallet_ismp_relayer = 52,
-		HostExecutive: pallet_ismp_host_executive = 53,
-		CallDecompressor: pallet_call_decompressor = 54,
-		XcmGateway: pallet_xcm_gateway = 55,
-		Assets: pallet_assets = 56,
-		TokenGovernor: pallet_token_governor = 57,
-		StateCoprocessor: pallet_state_coprocessor = 58,
-		Fishermen: pallet_fishermen = 59,
-		TokenGatewayInspector: pallet_token_gateway_inspector = 60,
-		IsmpSyncCommitteeGno: ismp_sync_committee::pallet::<Instance2> = 61,
-		IsmpBsc: ismp_bsc::pallet = 62,
+	// XCM helpers.
+	#[runtime::pallet_index(30)]
+	pub type XcmpQueue = cumulus_pallet_xcmp_queue;
+	#[runtime::pallet_index(31)]
+	pub type PolkadotXcm = pallet_xcm;
+	#[runtime::pallet_index(32)]
+	pub type CumulusXcm = cumulus_pallet_xcm;
 
-		// Governance
-		TechnicalCollective: pallet_collective = 80,
-		// consensus clients
-		IsmpGrandpa: ismp_grandpa = 255
-	}
-);
+	// ISMP stuff
+	// Xcm messages are executed in on_initialize of the message queue,
+	// pallet ismp must come before the queue so it can setup the mmr
+	#[runtime::pallet_index(40)]
+	pub type Mmr = pallet_mmr_tree;
+	#[runtime::pallet_index(41)]
+	pub type Ismp = pallet_ismp;
+	#[runtime::pallet_index(42)]
+	pub type MessageQueue = pallet_message_queue;
+
+	// supporting ismp pallets
+	#[runtime::pallet_index(50)]
+	pub type IsmpParachain = ismp_parachain;
+	#[runtime::pallet_index(51)]
+	pub type IsmpSyncCommitteeEth = ismp_sync_committee::pallet<Instance1>;
+	#[runtime::pallet_index(52)]
+	pub type Relayer = pallet_ismp_relayer;
+	#[runtime::pallet_index(53)]
+	pub type HostExecutive = pallet_ismp_host_executive;
+	#[runtime::pallet_index(54)]
+	pub type CallDecompressor = pallet_call_decompressor;
+	#[runtime::pallet_index(55)]
+	pub type XcmGateway = pallet_xcm_gateway;
+	#[runtime::pallet_index(56)]
+	pub type Assets = pallet_assets;
+	#[runtime::pallet_index(57)]
+	pub type TokenGovernor = pallet_token_governor;
+	#[runtime::pallet_index(58)]
+	pub type StateCoprocessor = pallet_state_coprocessor;
+	#[runtime::pallet_index(59)]
+	pub type Fishermen = pallet_fishermen;
+	#[runtime::pallet_index(60)]
+	pub type TokenGatewayInspector = pallet_token_gateway_inspector;
+	#[runtime::pallet_index(61)]
+	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
+	#[runtime::pallet_index(62)]
+	pub type IsmpBsc = ismp_bsc::pallet;
+
+	// Governance
+	#[runtime::pallet_index(80)]
+	pub type TechnicalCollective = pallet_collective;
+
+	// consensus clients
+	#[runtime::pallet_index(255)]
+	pub type IsmpGrandpa = ismp_grandpa;
+}
 
 #[cfg(feature = "runtime-benchmarks")]
 #[macro_use]

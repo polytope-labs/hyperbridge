@@ -125,7 +125,14 @@ pub mod pallet {
 	}
 
 	#[derive(
-		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+		Clone,
+		codec::Encode,
+		codec::Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		PartialEq,
+		Eq,
+		RuntimeDebug,
 	)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Proof<AccountId, Balance> {
@@ -144,7 +151,14 @@ pub mod pallet {
 	}
 
 	#[derive(
-		Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+		Clone,
+		codec::Encode,
+		codec::Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		PartialEq,
+		Eq,
+		RuntimeDebug,
 	)]
 	pub struct IroProof<AccountId, Balance> {
 		/// Receiving account on Hyperbridge

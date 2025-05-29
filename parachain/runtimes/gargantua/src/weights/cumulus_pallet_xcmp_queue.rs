@@ -62,26 +62,7 @@ impl<T: frame_system::Config> cumulus_pallet_xcmp_queue::WeightInfo for WeightIn
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
-	/// Storage: `XcmpQueue::QueueConfig` (r:1 w:0)
-	/// Proof: `XcmpQueue::QueueConfig` (`max_values`: Some(1), `max_size`: Some(12), added: 507, mode: `MaxEncodedLen`)
-	/// Storage: `MessageQueue::BookStateFor` (r:1 w:1)
-	/// Proof: `MessageQueue::BookStateFor` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
-	/// Storage: `MessageQueue::ServiceHead` (r:1 w:1)
-	/// Proof: `MessageQueue::ServiceHead` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `XcmpQueue::InboundXcmpSuspended` (r:1 w:0)
-	/// Proof: `XcmpQueue::InboundXcmpSuspended` (`max_values`: Some(1), `max_size`: Some(4002), added: 4497, mode: `MaxEncodedLen`)
-	/// Storage: `MessageQueue::Pages` (r:0 w:1)
-	/// Proof: `MessageQueue::Pages` (`max_values`: None, `max_size`: Some(65585), added: 68060, mode: `MaxEncodedLen`)
-	fn enqueue_xcmp_message() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `156`
-		//  Estimated: `5487`
-		// Minimum execution time: 18_845_000 picoseconds.
-		Weight::from_parts(19_397_000, 0)
-			.saturating_add(Weight::from_parts(0, 5487))
-			.saturating_add(T::DbWeight::get().reads(4))
-			.saturating_add(T::DbWeight::get().writes(3))
-	}
+
 	/// Storage: `XcmpQueue::OutboundXcmpStatus` (r:1 w:1)
 	/// Proof: `XcmpQueue::OutboundXcmpStatus` (`max_values`: Some(1), `max_size`: Some(1282), added: 1777, mode: `MaxEncodedLen`)
 	fn suspend_channel() -> Weight {
@@ -151,5 +132,13 @@ impl<T: frame_system::Config> cumulus_pallet_xcmp_queue::WeightInfo for WeightIn
 			.saturating_add(Weight::from_parts(0, 69213))
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(T::DbWeight::get().writes(2))
+	}
+
+	fn enqueue_2_empty_xcmp_messages() -> Weight {
+       Default::default()
+	}
+
+	fn enqueue_n_bytes_xcmp_message(_n: u32, ) -> Weight {
+        Default::default()
 	}
 }

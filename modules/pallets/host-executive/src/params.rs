@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use alloc::{vec, vec::Vec};
+use codec::DecodeWithMemTracking;
 use frame_support::{pallet_prelude::ConstU32, BoundedVec};
 use pallet_hyperbridge::VersionedHostParams;
 use polkadot_sdk::*;
@@ -22,7 +23,14 @@ use sp_runtime::RuntimeDebug;
 
 /// The host parameters of all connected chains
 #[derive(
-	Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+	Clone,
+	codec::Encode,
+	codec::Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	RuntimeDebug,
 )]
 pub enum HostParam<T> {
 	/// Host params for substrate-based hosts
@@ -33,7 +41,14 @@ pub enum HostParam<T> {
 
 /// Struct for modifying the host parameters of all connected chains
 #[derive(
-	Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+	Clone,
+	codec::Encode,
+	codec::Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	RuntimeDebug,
 )]
 pub enum HostParamUpdate<T> {
 	/// Host param updates for substrate-based hosts
@@ -44,7 +59,15 @@ pub enum HostParamUpdate<T> {
 
 /// Per-byte-fee for chains
 #[derive(
-	Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug, Default,
+	Clone,
+	codec::Encode,
+	codec::Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	RuntimeDebug,
+	Default,
 )]
 pub struct PerByteFee {
 	/// keccak256 hash of the state machine id
@@ -55,7 +78,15 @@ pub struct PerByteFee {
 
 /// The host parameters for evm-based hosts
 #[derive(
-	Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug, Default,
+	Clone,
+	codec::Encode,
+	codec::Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	RuntimeDebug,
+	Default,
 )]
 pub struct EvmHostParam {
 	/// the minimum default timeout in seconds
@@ -155,7 +186,15 @@ impl EvmHostParam {
 
 /// Struct for modifying the host params
 #[derive(
-	Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug, Default,
+	Clone,
+	codec::Encode,
+	codec::Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	RuntimeDebug,
+	Default,
 )]
 pub struct EvmHostParamUpdate {
 	/// the minimum default timeout in seconds

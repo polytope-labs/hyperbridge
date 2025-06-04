@@ -1,7 +1,7 @@
-import { HexString, IPostRequest } from "@/types"
 import { hexToBytes } from "viem"
-import { generate_root_with_proof, verify_proof } from "./ckb-mmr-wasm/ckb_mmr_wasm"
+import { env, hasWindow, isNode } from "std-env"
 import { postRequestCommitment } from "@/utils"
+import type { HexString, IPostRequest } from "@/types"
 
 /**
  * Gets peak position for a given height
@@ -198,10 +198,11 @@ export function calculateMMRSize(numberOfLeaves: bigint): bigint {
  *   - treeSize: The number of leaves in the MMR
  *   - mmrSize: The size of the MMR in nodes
  */
-export function generateRootWithProof(
+export async function generateRootWithProof(
 	postRequest: IPostRequest,
 	treeSize: bigint,
-): { root: HexString; proof: HexString[]; index: bigint; kIndex: bigint; treeSize: bigint; mmrSize: bigint } {
+): Promise<{ root: HexString; proof: HexString[]; index: bigint; kIndex: bigint; treeSize: bigint; mmrSize: bigint }> {
+	const { generate_root_with_proof } = await load_ckb_mmr()
 	const { commitment: hash, encodePacked } = postRequestCommitment(postRequest)
 
 	const result = JSON.parse(generate_root_with_proof(hexToBytes(encodePacked), treeSize))
@@ -223,4 +224,26 @@ export function generateRootWithProof(
 		treeSize,
 		mmrSize: mmr_size,
 	}
+}
+
+async function load_ckb_mmr() {
+	if (hasWindow) {
+		const wasm = await import("@/ckb-utils/web")
+		await wasm.default()
+
+		return wasm
+	}
+
+	if (isNode) {
+		const wasm = await import("@/ckb-utils/node")
+		return wasm
+	}
+
+	throw new Error(`SDK not setup for ${env}`)
+}
+
+export async function __test() {
+	const { generate_root_with_proof } = await load_ckb_mmr()
+
+	return generate_root_with_proof(new Uint8Array(), 120n)
 }

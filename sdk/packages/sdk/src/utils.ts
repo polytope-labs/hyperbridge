@@ -16,7 +16,7 @@ import {
 	encodeAbiParameters,
 	hexToBytes,
 	bytesToHex,
-	PublicClient,
+	type PublicClient,
 	concatHex,
 } from "viem"
 import { createConsola, LogLevels } from "consola"
@@ -124,35 +124,39 @@ export function parseStateMachineId(stateMachineId: string): {
 	const stateId: { Evm?: number; Substrate?: HexString; Polkadot?: number; Kusama?: number } = {}
 
 	switch (type.toUpperCase()) {
-		case "EVM":
+		case "EVM": {
 			const evmChainId = Number.parseInt(value, 10)
-			if (isNaN(evmChainId)) {
+			if (Number.isNaN(evmChainId)) {
 				throw new Error(`Invalid EVM chain ID: ${value}. Expected a number.`)
 			}
 			stateId.Evm = evmChainId
 			break
+		}
 
-		case "SUBSTRATE":
+		case "SUBSTRATE": {
 			// Convert the string to hex-encoded UTF-8 bytes
 			const bytes = Buffer.from(value, "utf8")
 			stateId.Substrate = `0x${bytes.toString("hex")}` as HexString
 			break
+		}
 
-		case "POLKADOT":
+		case "POLKADOT": {
 			const polkadotChainId = Number.parseInt(value, 10)
-			if (isNaN(polkadotChainId)) {
+			if (Number.isNaN(polkadotChainId)) {
 				throw new Error(`Invalid Polkadot chain ID: ${value}. Expected a number.`)
 			}
 			stateId.Polkadot = polkadotChainId
 			break
+		}
 
-		case "KUSAMA":
+		case "KUSAMA": {
 			const kusamaChainId = Number.parseInt(value, 10)
-			if (isNaN(kusamaChainId)) {
+			if (Number.isNaN(kusamaChainId)) {
 				throw new Error(`Invalid Kusama chain ID: ${value}. Expected a number.`)
 			}
 			stateId.Kusama = kusamaChainId
 			break
+		}
 
 		default:
 			throw new Error(`Unsupported chain type: ${type}. Expected one of: EVM, SUBSTRATE, POLKADOT, KUSAMA.`)
@@ -261,7 +265,7 @@ export function hexToString(hex: string): string {
 
 	const bytes = new Uint8Array(hexWithoutPrefix.length / 2)
 	for (let i = 0; i < hexWithoutPrefix.length; i += 2) {
-		bytes[i / 2] = parseInt(hexWithoutPrefix.slice(i, i + 2), 16)
+		bytes[i / 2] = Number.parseInt(hexWithoutPrefix.slice(i, i + 2), 16)
 	}
 
 	return new TextDecoder().decode(bytes)
@@ -384,7 +388,7 @@ export async function estimateGasForPost(params: {
 		functionName: "hostParams",
 	})
 
-	const { root, proof, index, kIndex, treeSize } = generateRootWithProof(params.postRequest, 2n ** 10n)
+	const { root, proof, index, kIndex, treeSize } = await generateRootWithProof(params.postRequest, 2n ** 10n)
 	const latestStateMachineHeight = params.hostLatestStateMachineHeight
 	const overlayRootSlot = getStateCommitmentFieldSlot(
 		BigInt(4009n), // Hyperbridge chain id

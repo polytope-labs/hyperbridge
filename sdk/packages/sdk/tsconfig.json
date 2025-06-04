@@ -4,18 +4,19 @@
 	"compilerOptions": {
 		"target": "ES2022",
 		"module": "ESNext",
-		"moduleResolution": "node",
+		"moduleResolution": "bundler",
 		"outDir": "./dist",
 		"sourceMap": true,
 		"strictNullChecks": true,
 		"rootDir": "./src",
 		"baseUrl": ".",
 		"paths": {
-			"@/*": ["src/*"]
+			"@/*": ["src/*"],
+			"@/ckb-utils/*": ["./src/utils/ckb-mmr-wasm/dist/node/*", "./src/utils/ckb-mmr-wasm/dist/web/*"]
 		},
 		"allowSyntheticDefaultImports": true,
 		"types": ["node", "vitest/globals"]
 	},
-	"include": ["src/**/*", "tests/**/*", "src/utils/ckb-mmr-wasm"],
+	"include": ["src/**/*", "tests/**/*"],
 	"exclude": ["node_modules", "dist"]
 }

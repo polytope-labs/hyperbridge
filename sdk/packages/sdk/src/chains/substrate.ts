@@ -361,7 +361,7 @@ export function convertStateMachineIdToEnum(id: string): IStateMachine {
 /**
  * Converts an array of IPostRequest objects to a codec representation.
  * @param {IPostRequest} request - The array of IPostRequest objects.
- * @returns {any} The codec representation of the requests.
+ * @returns The codec representation of the requests.
  */
 function convertIPostRequestToCodec(request: IPostRequest) {
 	return {

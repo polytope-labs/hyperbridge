@@ -1,18 +1,22 @@
 {
 	"name": "hyperbridge-sdk",
-	"version": "1.1.7-rc.1",
+	"version": "1.1.7-rc.4",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
-	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
 	"type": "module",
+	"types": "./dist/node/index.d.ts",
 	"exports": {
 		".": {
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
+			"browser": "./dist/browser/index.js",
+			"import": "./dist/node/index.js"
+		},
+		"./plugins/vite": {
+			"import": "./plugins/vite.js",
+			"types": "./plugins/vite.d.ts"
 		}
 	},
 	"files": [
-		"dist"
+		"dist",
+		"plugins"
 	],
 	"keywords": [
 		"hyperbridge",
@@ -36,7 +40,9 @@
 	"license": "ISC",
 	"author": "Polytope Labs",
 	"scripts": {
-		"build": "tsup",
+		"build": "pnpm run build:browser && pnpm run build:node",
+		"build:node": "tsup --config tsup-node.config.ts",
+		"build:browser": "tsup --config tsup-browser.config.ts",
 		"prepublishOnly": "npm run build",
 		"test": "npm run test:concurrent && npm run test:sequence",
 		"test:file": "vitest --watch=false --maxConcurrency=1",
@@ -54,13 +60,14 @@
 		"@polkadot/types": "14.0.1",
 		"@polkadot/util": "13.3.1",
 		"@polkadot/util-crypto": "13.3.1",
-		"consola": "^3.4.2",
 		"@types/lodash-es": "^4.17.12",
+		"consola": "^3.4.2",
 		"graphql": "^16.10.0",
 		"graphql-request": "^7.1.2",
+		"lodash-es": "^4.17.15",
 		"rpc-websocket-client": "^1.1.4",
 		"scale-ts": "^1.6.1",
-		"lodash-es": "^4.17.15",
+		"std-env": "^3.9.0",
 		"ts-pattern": "^5.6.2",
 		"viem": "^2.23.5"
 	},
@@ -69,20 +76,23 @@
 		"@polkadot/keyring": "13.4.3",
 		"@polytope-labs/hyperclient": "1.2.0",
 		"@types/node": "^22.13.5",
-		"@vitest/coverage-v8": "^3.0.7",
+		"@vitest/coverage-v8": "^3.1.4",
 		"dotenv": "^16.4.7",
 		"jsdom": "^26.0.0",
 		"log-timestamp": "^0.3.0",
-		"typescript": "^5.7.3",
 		"tsup": "^8.4.0",
+		"typescript": "^5.7.3",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.0.7"
+		"vitest": "^3.1.4"
+	},
+	"peerDependencies": {
+		"vite": "^5.0.0 || ^6.0.0"
 	},
 	"publishConfig": {
 		"access": "public"
 	},
 	"engineStrict": true,
 	"engines": {
-		"node": ">=18.0.0"
+		"node": ">=22.x.x"
 	}
 }

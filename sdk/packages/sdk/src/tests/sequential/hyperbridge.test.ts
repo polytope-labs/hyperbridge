@@ -221,7 +221,7 @@ describe.sequential("Hyperbridge Requests", () => {
 				}
 			}
 
-			console.log(`Post request status stream has ended`)
+			console.log("Post request status stream has ended")
 
 			expect(final_status).toEqual(RequestStatus.DESTINATION)
 		} catch (error) {
@@ -531,7 +531,7 @@ describe.sequential("Hyperbridge Requests", () => {
 					)
 					const { args, functionName } = decodeFunctionData({
 						abi: HANDLER.ABI,
-						data: timeout.metadata!.calldata! as any,
+						data: timeout.metadata?.calldata! as any,
 					})
 					assertIsToday(BigInt(timeout.metadata!.timestamp!))
 					expect(functionName).toBe("handlePostRequestTimeouts")

@@ -128,6 +128,28 @@ const hyperbridge = new SubstrateChain({
 const proof = await hyperbridge.queryStateProof(blockNumber, keys)
 ```
 
+## Vite Integration
+
+If you're using Vite in your project, Hyperbridge SDK includes a plugin to handle WebAssembly dependencies correctly.
+
+### Using the Vite Plugin
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite"
+import hyperbridge from "hyperbridge-sdk/plugins/vite"
+
+export default defineConfig({
+	plugins: [
+		// ... other plugins
+		// Add the Hyperbridge WASM plugin
+		hyperbridge(),
+	],
+})
+```
+
+The plugin automatically copies the necessary WebAssembly files to the correct location in Vite's dependency cache during development. This ensures that any WASM dependencies required by Hyperbridge SDK are properly loaded when using Vite's dev server.
+
 ## API Reference
 
 ### Classes

@@ -192,7 +192,9 @@ export async function getChain(chainConfig: IEvmConfig | ISubstrateConfig): Prom
 		})
 
 		return evmChain
-	} else if (isSubstrateChain(chainConfig.stateMachineId)) {
+	}
+
+	if (isSubstrateChain(chainConfig.stateMachineId)) {
 		const config = chainConfig as ISubstrateConfig
 		const substrateChain = new SubstrateChain({
 			ws: config.wsUrl,
@@ -202,7 +204,7 @@ export async function getChain(chainConfig: IEvmConfig | ISubstrateConfig): Prom
 		await substrateChain.connect()
 
 		return substrateChain
-	} else {
-		throw new Error(`Unsupported chain: ${chainConfig.stateMachineId}`)
 	}
+
+	throw new Error(`Unsupported chain: ${chainConfig.stateMachineId}`)
 }

@@ -103,6 +103,7 @@ export async function _queryRequestInternal(params: InternalQueryParams): Promis
 
 	const request: PostRequestWithStatus = {
 		...first_node,
+		timeoutTimestamp: BigInt(first_node.timeoutTimestamp),
 		statuses: sorted,
 	}
 
@@ -158,6 +159,9 @@ export async function _queryGetRequestInternal(params: InternalQueryParams): Pro
 
 	return {
 		...rest,
+		timeoutTimestamp: BigInt(rest.timeoutTimestamp),
+		nonce: BigInt(rest.nonce),
+		height: BigInt(rest.height),
 		statuses: sorted,
 	}
 }

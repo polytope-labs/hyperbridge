@@ -24,6 +24,7 @@ import EVM_HOST from "@/abis/evmHost"
 import HANDLER from "@/abis/handler"
 import { EvmChain, SubstrateChain } from "@/chain"
 import { createQueryClient } from "@/query-client"
+import { bigIntReplacer } from "@/helpers/data.helpers"
 
 describe.sequential("Get and Post Requests", () => {
 	let indexer: IndexerClient
@@ -294,7 +295,7 @@ describe.sequential("Get and Post Requests", () => {
 			}
 
 			const req = await indexer.queryRequestWithStatus(commitment)
-			console.log(JSON.stringify(req, null, 4))
+			console.log(JSON.stringify(req, bigIntReplacer, 4))
 			expect(req?.statuses.length).toBe(5)
 		}, 1_000_000)
 	})

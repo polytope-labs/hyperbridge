@@ -23,6 +23,7 @@ import { bscTestnet } from "viem/chains"
 import { DEFAULT_LOGGER, normalizeTimestamp, postRequestCommitment } from "@/utils"
 import { IndexerClient } from "@/client"
 import { createQueryClient } from "@/query-client"
+import { bigIntReplacer } from "@/helpers/data.helpers"
 
 const logger = DEFAULT_LOGGER.withTag("evm-substrate")
 
@@ -136,7 +137,7 @@ test("EVM -> Substrate token transfer", { timeout: 5_400_000 }, async () => {
 	}
 
 	const req = await indexer.queryRequestWithStatus(commitment)
-	console.log("Full status", JSON.stringify(req, null, 4))
+	console.log("Full status", JSON.stringify(req, bigIntReplacer, 4))
 
 	if (!req) {
 		throw new Error("No RequestWithStatues")

@@ -420,6 +420,13 @@ export class IndexerClient {
 			return request
 		}
 
+		if (request.timeoutTimestamp === 0n) {
+			// Early exit for requests with no timeout configured
+			// This prevents unnecessary timeout processing and expensive chain queries
+			// The events array is still empty at this point, so no timeout events are added
+			return addTimeoutEvents(request)
+		}
+
 		// request not timed out
 		if (reciept || request.timeoutTimestamp > destTimestamp) {
 			return addTimeoutEvents(request)
@@ -584,7 +591,7 @@ export class IndexerClient {
 		logger.trace("`Request` found")
 		const chain = await getChain(this.config.dest)
 		const timeoutStream =
-			request.timeoutTimestamp > 0 ? this.timeoutStream(request.timeoutTimestamp, chain) : undefined
+			request.timeoutTimestamp > 0n ? this.timeoutStream(request.timeoutTimestamp, chain) : undefined
 		const statusStream = this.postRequestStatusStreamInternal(hash)
 
 		logger.trace("Listening for events")
@@ -612,7 +619,7 @@ export class IndexerClient {
 	async *timeoutStream(timeoutTimestamp: bigint, chain: IChain): AsyncGenerator<RequestStatusWithMetadata, void> {
 		const logger = this.logger.withTag("[timeoutStream()]")
 
-		if (timeoutTimestamp > 0) {
+		if (timeoutTimestamp > 0n) {
 			let timestamp = await chain.timestamp()
 
 			while (timestamp < timeoutTimestamp) {
@@ -854,7 +861,7 @@ export class IndexerClient {
 
 		const chain = await getChain(this.config.dest)
 		const timeoutStream =
-			request.timeoutTimestamp > 0 ? this.timeoutStream(request.timeoutTimestamp, chain) : undefined
+			request.timeoutTimestamp > 0n ? this.timeoutStream(request.timeoutTimestamp, chain) : undefined
 		const statusStream = this.getRequestStatusStreamInternal(hash)
 		const combined = timeoutStream ? mergeRace(timeoutStream, statusStream) : statusStream
 

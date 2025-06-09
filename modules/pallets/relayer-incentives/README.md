@@ -4,27 +4,24 @@ A FRAME pallet for providing incentives to relayers in the Hyperbridge network.
 
 ## Overview
 
-The Relayer Incentives pallet provides a mechanism to reward relayers for their services in the Hyperbridge network. It manages incentive parameters, tracks rewards for relayers, and provides functionality for claiming accumulated rewards.
+The Relayer Incentives pallet provides a mechanism to reward relayers for their services in the Hyperbridge network. It manages the cost per block for each consensus Block Message, and it is also responsible for distibuting rewards to relayers the consensus message processed.
 
 ## Features
 
-- Configurable incentive parameters (base rewards, priority multipliers, etc.)
+- Configurable cost per block per State machine
 - Tracking of rewards per relayer
-- Secure reward claiming mechanism
-- Admin control over incentive parameters
 
 ## Interface
 
 ### Dispatchable Functions
 
-- `update_incentive_parameters` - Update the parameters used for calculating relayer incentives
-- `reward_relayer` - Reward a specific relayer for their services
-- `claim_rewards` - Allow a relayer to claim their accumulated rewards
+- `update_cost_per_block` - Updates the cost per block for a state machine
 
 ### Storage
 
-- `IncentiveParams` - Global parameters for the incentive mechanism
+- `ProcessedMessages` - Holds already processed consensus messages
 - `RelayerRewards` - Mapping of relayer accounts to their accumulated rewards
+- `StateMachinesCostPerBlock` - Mapping of State machine to each Block cost
 
 ## Usage
 
@@ -41,8 +38,9 @@ parameter_types! {
 
 impl pallet_relayer_incentives::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Currency = Balances;
-    type AdminOrigin = EnsureRoot<AccountId>;
+    type IsmpHost = IsmpHost;
+    type TreasuryAccount = TreasuryAccount;
+    type WeightInfo = ();
 }
 
 // In construct_runtime

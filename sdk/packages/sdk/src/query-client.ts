@@ -7,9 +7,11 @@ import type {
 	RequestResponse,
 	RequestStatusKey,
 	PostRequestWithStatus,
+	OrderResponse,
+	OrderWithStatus,
 } from "./types"
 import type { ConsolaInstance } from "consola"
-import { GET_REQUEST_STATUS, POST_REQUEST_STATUS } from "./queries"
+import { GET_REQUEST_STATUS, POST_REQUEST_STATUS, ORDER_STATUS } from "./queries"
 
 export function createQueryClient(config: { url: string }) {
 	return new GraphQLClient(config.url)
@@ -45,6 +47,22 @@ export function queryPostRequest(params: { commitmentHash: string; queryClient: 
  */
 export function queryGetRequest(params: { commitmentHash: string; queryClient: IndexerQueryClient }) {
 	return _queryGetRequestInternal(params)
+}
+
+/**
+ * Queries an order by CommitmentHash
+ *
+ * @example
+ * import { createQueryClient, queryOrder } from "hyperbridge-sdk"
+ *
+ * const queryClient = createQueryClient({
+ *   url: "http://localhost:3000", // URL of the Hyperbridge indexer API
+ * })
+ * const commitmentHash = "0x...."
+ * const order = await queryOrder({ commitmentHash, queryClient })
+ */
+export function queryOrder(params: { commitmentHash: string; queryClient: IndexerQueryClient }) {
+	return _queryOrderInternal(params)
 }
 
 type InternalQueryParams = {
@@ -164,4 +182,66 @@ export async function _queryGetRequestInternal(params: InternalQueryParams): Pro
 		height: BigInt(rest.height),
 		statuses: sorted,
 	}
+}
+
+/**
+ * Internal function to query an order by CommitmentHash
+ *
+ * @param params - Parameters for querying the order
+ * @returns Latest status and block metadata of the order
+ */
+export async function _queryOrderInternal(params: InternalQueryParams): Promise<OrderWithStatus | undefined> {
+	const { commitmentHash, queryClient: client, logger = DEFAULT_LOGGER } = params
+
+	const response = await retryPromise(
+		() => {
+			return client.request<OrderResponse>(ORDER_STATUS, {
+				commitment: commitmentHash,
+			})
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `querying 'Order' with Statuses by CommitmentHash(${commitmentHash})`,
+		},
+	)
+
+	const first_record = response.orderPlaceds.nodes[0]
+	if (!first_record) return
+
+	logger.trace("`Order` found")
+	const { statusMetadata, ...first_node } = first_record
+
+	const statuses = structuredClone(statusMetadata.nodes).map((item) => ({
+		status: item.status,
+		metadata: {
+			blockHash: item.blockHash,
+			blockNumber: Number.parseInt(item.blockNumber),
+			transactionHash: item.transactionHash,
+			timestamp: BigInt(item.timestamp),
+			filler: item.filler,
+		},
+	}))
+
+	// sort by ascending order
+	const sorted = statuses.sort((a, b) => {
+		// Since OrderStatus and RequestStatus are different enums, we'll just sort by timestamp
+		return Number(a.metadata.timestamp) - Number(b.metadata.timestamp)
+	})
+
+	const order: OrderWithStatus = {
+		...first_node,
+		deadline: BigInt(first_node.deadline),
+		nonce: BigInt(first_node.nonce),
+		fees: BigInt(first_node.fees),
+		inputAmounts: first_node.inputAmounts.map(BigInt),
+		outputAmounts: first_node.outputAmounts.map(BigInt),
+		blockNumber: BigInt(first_node.blockNumber),
+		blockTimestamp: BigInt(first_node.blockTimestamp),
+		createdAt: new Date(first_node.createdAt),
+		statuses: sorted,
+	}
+
+	return order
 }

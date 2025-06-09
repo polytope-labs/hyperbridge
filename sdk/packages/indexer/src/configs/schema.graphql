@@ -42,6 +42,30 @@ System activity types related to reward points
 """
 enum RewardPointsActivityType {
 	REWARD_POINTS_EARNED
+	ORDER_PLACED_POINTS
+	ORDER_FILLED_POINTS
+}
+
+"""
+The status of an order
+"""
+enum OrderStatus {
+	"""
+	The order has been placed
+	"""
+	PLACED
+	"""
+	The order has been filled
+	"""
+	FILLED
+	"""
+	The order has been redeemed on the source chain
+	"""
+	REDEEMED
+	"""
+	The order has been cancelled and refunded on the source chain
+	"""
+	REFUNDED
 }
 
 """
@@ -737,4 +761,170 @@ type GetResponse @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 	Hash of the transaction that created the response
 	"""
 	transactionHash: String!
+}
+
+"""
+Represents an order placed through the IntentGateway contract.
+This entity tracks cross-chain orders.
+"""
+type OrderPlaced @entity {
+	"""
+	Unique identifier for the order (commitment)
+	"""
+	id: ID!
+
+	"""
+	Address of the user who placed the order
+	"""
+	user: String!
+
+	"""
+	Source chain identifier where the order originates from
+	"""
+	sourceChain: String!
+
+	"""
+	Destination chain identifier where the order will be executed
+	"""
+	destChain: String!
+
+	"""
+	Unique commitment hash of the order used for verification
+	"""
+	commitment: String!
+
+	"""
+	Timestamp after which the order expires
+	"""
+	deadline: BigInt!
+
+	"""
+	Sequential number to ensure uniqueness of the order
+	"""
+	nonce: BigInt!
+
+	"""
+	Total fees supplied by the user for executing the order
+	"""
+	fees: BigInt!
+
+	"""
+	Array of input token addresses
+	"""
+	inputTokens: [String!]!
+
+	"""
+	Array of input token amounts corresponding to inputTokens
+	"""
+	inputAmounts: [BigInt!]!
+
+	"""
+	Array of input token values in USD
+	"""
+	inputValuesUSD: [String!]!
+
+	"""
+	Total input value in USD
+	"""
+	inputUSD: String!
+
+	"""
+	Array of output token addresses
+	"""
+	outputTokens: [String!]!
+
+	"""
+	Array of output token amounts corresponding to outputTokens
+	"""
+	outputAmounts: [BigInt!]!
+
+	"""
+	Array of beneficiary addresses that will receive the output tokens
+	"""
+	outputBeneficiaries: [String!]!
+
+	"""
+	Encoded function call data to be executed on the destination chain
+	"""
+	calldata: String!
+
+	"""
+	Status of the order
+	"""
+	status: OrderStatus!
+
+	"""
+	Metatdata about the order's progression through different statuses
+	"""
+	statusMetadata: [OrderStatusMetadata]! @derivedFrom(field: "order")
+
+	"""
+	Timestamp when the order was created
+	"""
+	createdAt: Date! @index
+
+	"""
+	Block number where the order was placed
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block where the order was placed
+	"""
+	blockTimestamp: BigInt! @index
+
+	"""
+	Hash of the transaction that placed the order
+	"""
+	transactionHash: String! @index
+}
+
+"""
+Metadata about the status of an Order
+"""
+type OrderStatusMetadata @entity {
+	"""
+	The ID of the OrderStatusMetadata
+	"""
+	id: ID!
+
+	"""
+	The status of the order
+	"""
+	status: OrderStatus!
+
+	"""
+	The chain on which the status change occurred
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occurred
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the transaction in which the event occurred
+	"""
+	transactionHash: String!
+
+	"""
+	The order that owns this status change
+	"""
+	order: OrderPlaced!
+
+	"""
+	The filler of the order if the order has been filled
+	"""
+	filler: String
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
 }

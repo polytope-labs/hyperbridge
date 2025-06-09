@@ -156,3 +156,44 @@ query GetResponseByRequestId($requestId: String!) {
   }
 }
 `
+
+export const ORDER_STATUS = `
+query OrderStatus($commitment: String!) {
+  orderPlaceds(
+    filter: { commitment: { equalTo: $commitment } }
+  ) {
+    nodes {
+      id
+      user
+      sourceChain
+      destChain
+      commitment
+      deadline
+      nonce
+      fees
+      inputTokens
+      inputAmounts
+      inputValuesUSD
+      inputUSD
+      outputTokens
+      outputAmounts
+      outputBeneficiaries
+      calldata
+      status
+      createdAt
+      blockNumber
+      blockTimestamp
+      transactionHash
+      statusMetadata {
+        nodes {
+          status
+          chain
+          timestamp
+          blockNumber
+          transactionHash
+          filler
+        }
+      }
+    }
+  }
+}`

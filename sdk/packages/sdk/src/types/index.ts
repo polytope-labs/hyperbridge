@@ -172,6 +172,13 @@ export enum HyperClientStatus {
 	ERROR = "ERROR",
 }
 
+export enum OrderStatus {
+	PLACED = "PLACED",
+	FILLED = "FILLED",
+	REDEEMED = "REDEEMED",
+	REFUNDED = "REFUNDED",
+}
+
 export interface BlockMetadata {
 	blockHash: string
 	blockNumber: number
@@ -933,4 +940,86 @@ export interface HostParams {
 export enum EvmLanguage {
 	Solidity,
 	Vyper,
+}
+
+export interface OrderStatusMetadata {
+	status: OrderStatus
+	chain: string
+	timestamp: bigint
+	blockNumber: string
+	transactionHash: string
+	filler?: string
+}
+
+export interface OrderWithStatus {
+	id: string
+	user: string
+	sourceChain: string
+	destChain: string
+	commitment: string
+	deadline: bigint
+	nonce: bigint
+	fees: bigint
+	inputTokens: string[]
+	inputAmounts: bigint[]
+	inputValuesUSD: string[]
+	inputUSD: string
+	outputTokens: string[]
+	outputAmounts: bigint[]
+	outputBeneficiaries: string[]
+	calldata: string
+	status: OrderStatus
+	createdAt: Date
+	blockNumber: bigint
+	blockTimestamp: bigint
+	transactionHash: string
+	statuses: Array<{
+		status: OrderStatus
+		metadata: {
+			blockHash: string
+			blockNumber: number
+			transactionHash: string
+			timestamp: bigint
+			filler?: string
+		}
+	}>
+}
+
+export interface OrderResponse {
+	orderPlaceds: {
+		nodes: Array<{
+			id: string
+			user: string
+			sourceChain: string
+			destChain: string
+			commitment: string
+			deadline: string
+			nonce: string
+			fees: string
+			inputTokens: string[]
+			inputAmounts: string[]
+			inputValuesUSD: string[]
+			inputUSD: string
+			outputTokens: string[]
+			outputAmounts: string[]
+			outputBeneficiaries: string[]
+			calldata: string
+			status: OrderStatus
+			createdAt: string
+			blockNumber: string
+			blockTimestamp: string
+			transactionHash: string
+			statusMetadata: {
+				nodes: Array<{
+					status: OrderStatus
+					chain: string
+					timestamp: string
+					blockNumber: string
+					blockHash: string
+					transactionHash: string
+					filler?: string
+				}>
+			}
+		}>
+	}
 }

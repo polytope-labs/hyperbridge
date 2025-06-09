@@ -49,6 +49,7 @@
 		"test:concurrent": "vitest --watch=false --exclude=./src/tests/sequential",
 		"test:sequence": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/**",
 		"test:requests": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/requests.test.ts",
+		"test:intent-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/intentGateway.test.ts",
 		"test:watch": "vitest --exclude=./src/tests/sequential",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",
@@ -56,6 +57,7 @@
 	},
 	"dependencies": {
 		"@async-generator/merge-race": "^1.0.3",
+		"@hyperbridge/filler": "workspace:*",
 		"@polkadot/api": "^15.7.1",
 		"@polkadot/types": "14.0.1",
 		"@polkadot/util": "13.3.1",

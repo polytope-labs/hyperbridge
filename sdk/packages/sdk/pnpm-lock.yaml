@@ -11,6 +11,9 @@ importers:
       '@async-generator/merge-race':
         specifier: ^1.0.3
         version: 1.0.3
+      '@hyperbridge/filler':
+        specifier: workspace:*
+        version: link:../filler
       '@polkadot/api':
         specifier: ^15.7.1
         version: 15.7.2

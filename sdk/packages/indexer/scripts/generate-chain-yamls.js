@@ -251,6 +251,37 @@ dataSources:
           filter:
             topics:
               - 'Transfer(address indexed from, address indexed to, uint256 amount)'
+  - kind: ethereum/Runtime
+    startBlock: ${blockNumber}
+    options:
+      abi: intentGateway
+      address: '${config.contracts.intentGateway}'
+    assets:
+      intentGateway:
+        file: ./abis/IntentGateway.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleOrderPlacedEvent
+          filter:
+            topics:
+              - 'OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,(bytes32,uint256,bytes32)[],(bytes32,uint256)[],bytes)'
+        - kind: ethereum/LogHandler
+          handler: handleOrderFilledEvent
+          filter:
+            topics:
+              - 'OrderFilled(bytes32,address)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowReleasedEvent
+          filter:
+            topics:
+              - 'EscrowReleased(bytes32)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowRefundedEvent
+          filter:
+            topics:
+              - 'EscrowRefunded(bytes32)'
   # - kind: ethereum/Runtime
   #   startBlock: 21535312
   #   options:

@@ -25,6 +25,8 @@ import {
 	type RequestStatusKey,
 	type TimeoutStatusKey,
 	type PostRequestStatus,
+	type OrderWithStatus,
+	OrderStatus,
 } from "@/types"
 import {
 	STATE_MACHINE_UPDATES_BY_HEIGHT,
@@ -45,7 +47,7 @@ import {
 	waitForChallengePeriod,
 } from "@/utils"
 import { getChain, type IChain, type SubstrateChain } from "@/chain"
-import { _queryGetRequestInternal, _queryRequestInternal } from "./query-client"
+import { _queryGetRequestInternal, _queryRequestInternal, _queryOrderInternal } from "./query-client"
 
 /**
  * IndexerClient provides methods for interacting with the Hyperbridge indexer.
@@ -1324,16 +1326,6 @@ export class IndexerClient {
 	}
 
 	/**
-	 * Executes an async operation with exponential backoff retry
-	 * @param operation - Async function to execute
-	 * @param retryConfig - Optional retry configuration
-	 * @returns Result of the operation
-	 * @throws Last encountered error after all retries are exhausted
-	 *
-	 * @example
-	 * const result = await this.withRetry(() => this.queryStatus(hash));
-	 */
-	/**
 	 * Query for asset teleported events by sender, recipient, and destination chain
 	 * @param from - The sender address
 	 * @param to - The recipient address
@@ -1373,6 +1365,107 @@ export class IndexerClient {
 			...this.defaultRetryConfig,
 			...retryConfig,
 		})
+	}
+
+	/**
+	 * Query for an order by its commitment hash
+	 * @param commitment - The commitment hash of the order
+	 * @returns The order with its status if found, undefined otherwise
+	 */
+	async queryOrder(commitment: HexString): Promise<OrderWithStatus | undefined> {
+		return _queryOrderInternal({
+			commitmentHash: commitment,
+			queryClient: this.client,
+			logger: this.logger,
+		})
+	}
+
+	/**
+	 * Create a Stream of status updates for an order.
+	 * Stream ends when the order reaches a terminal state (FILLED, REDEEMED, or REFUNDED).
+	 * @param commitment - The commitment hash of the order
+	 * @returns AsyncGenerator that emits status updates until a terminal state is reached
+	 * @example
+	 *
+	 * let client = new IndexerClient(config)
+	 * let stream = client.orderStatusStream(commitment)
+	 *
+	 * // you can use a for-await-of loop
+	 * for await (const status of stream) {
+	 *   console.log(status)
+	 * }
+	 *
+	 * // you can also use a while loop
+	 * while (true) {
+	 *   const status = await stream.next()
+	 *   if (status.done) {
+	 *     break
+	 *   }
+	 *   console.log(status.value)
+	 * }
+	 */
+	async *orderStatusStream(commitment: HexString): AsyncGenerator<
+		{
+			status: OrderStatus
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp: bigint
+				filler?: string
+			}
+		},
+		void
+	> {
+		const logger = this.logger.withTag("[orderStatusStream]")
+
+		let order: OrderWithStatus | undefined
+
+		while (!order) {
+			await this.sleep_for_interval()
+			order = await _queryOrderInternal({
+				commitmentHash: commitment,
+				queryClient: this.client,
+				logger: this.logger,
+			})
+		}
+
+		logger.trace("`Order` found")
+		// Yield initial status
+		const latestStatus = order.statuses[order.statuses.length - 1]
+		yield {
+			status: latestStatus.status,
+			metadata: latestStatus.metadata,
+		}
+
+		// If we're already in a terminal state, end the stream
+		if ([OrderStatus.FILLED, OrderStatus.REDEEMED, OrderStatus.REFUNDED].includes(latestStatus.status)) {
+			return
+		}
+
+		while (true) {
+			await this.sleep_for_interval()
+			const updatedOrder = await _queryOrderInternal({
+				commitmentHash: commitment,
+				queryClient: this.client,
+				logger: this.logger,
+			})
+
+			if (!updatedOrder) continue
+
+			const newLatestStatus = updatedOrder.statuses[updatedOrder.statuses.length - 1]
+
+			if (newLatestStatus.status !== latestStatus.status) {
+				yield {
+					status: newLatestStatus.status,
+					metadata: newLatestStatus.metadata,
+				}
+
+				if ([OrderStatus.FILLED, OrderStatus.REDEEMED, OrderStatus.REFUNDED].includes(newLatestStatus.status)) {
+					return
+				}
+			}
+		}
 	}
 }
 

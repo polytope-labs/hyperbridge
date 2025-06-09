@@ -234,6 +234,9 @@ pub trait IsmpHost: Keccak256 {
 			.map(|proxy| proxy == self.host_state_machine())
 			.unwrap_or(false)
 	}
+
+	/// Should return the previous height of the state machine
+	fn previous_commitment_height(&self, id: StateMachineId) -> Result<u64, Error>;
 }
 
 /// Currently supported state machines.
@@ -282,8 +285,9 @@ impl StateMachine {
 	/// Check if the state machine is substrate-based
 	pub fn is_substrate(&self) -> bool {
 		match self {
-			StateMachine::Polkadot(_) | StateMachine::Kusama(_) | StateMachine::Substrate(_) =>
-				true,
+			StateMachine::Polkadot(_) | StateMachine::Kusama(_) | StateMachine::Substrate(_) => {
+				true
+			},
 			_ => false,
 		}
 	}

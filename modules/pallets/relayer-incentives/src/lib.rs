@@ -22,17 +22,12 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, vec::Vec};
-use codec::{Decode, Encode};
-use frame_support::{
-	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
-	pallet_prelude::*,
-};
+use alloc::vec::Vec;
+use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
+use frame_support::pallet_prelude::*;
 use frame_system::pallet_prelude::*;
-use ismp::messaging::Message;
-use pallet_ismp::fee_handler::FeeHandler;
+use ismp::host::IsmpHost;
 use polkadot_sdk::*;
-use scale_info::TypeInfo;
 
 mod impls;
 
@@ -41,8 +36,7 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::pallet_prelude::*;
-	use frame_system::pallet_prelude::*;
+	use frame_support::PalletId;
 	use ismp::consensus::StateMachineId;
 
 	#[pallet::pallet]
@@ -56,11 +50,11 @@ pub mod pallet {
 		type RuntimeEvent: From<Event<Self>>
 			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
-		/// Currency type for balance operations
-		type Currency: frame_support::traits::Currency<Self::AccountId>;
+		/// The underlying [`IsmpHost`] implementation
+		type IsmpHost: IsmpHost + Default;
 
-		/// Conversion from a relayer address (Vec<u8>) to AccountId
-		type RelayerLookup: RelayerAccountLookup<Self::AccountId>;
+		/// The account id for the treasury
+		type TreasuryAccount: Get<PalletId>;
 
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
@@ -69,8 +63,13 @@ pub mod pallet {
 	/// Mapping from relayer to their total rewards
 	#[pallet::storage]
 	#[pallet::getter(fn relayer_rewards)]
-	pub type RelayerRewards<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>, ValueQuery>;
+	pub type RelayerRewards<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		<T as pallet_ismp::Config>::Balance,
+		ValueQuery,
+	>;
 
 	/// Message identifiers (e.g., request_id/response_id) that have already been rewarded
 	#[pallet::storage]
@@ -78,24 +77,27 @@ pub mod pallet {
 	pub type ProcessedMessages<T: Config> =
 		StorageMap<_, Blake2_128Concat, Vec<u8>, bool, ValueQuery>;
 
-	// Mapping from relayer to their total rewards
+	// Mapping from state machineId to respective cost per block
 	#[pallet::storage]
 	#[pallet::getter(fn state_machines_cost_per_block)]
-	pub type StateMachinesCostPerBlock<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachineId, BalanceOf<T>, ValueQuery>;
+	pub type StateMachinesCostPerBlock<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		StateMachineId,
+		<T as pallet_ismp::Config>::Balance,
+		ValueQuery,
+	>;
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Insufficient funds for operation
-		InsufficientFunds,
-		/// Invalid parameter value
-		InvalidParameter,
-		/// Operation not allowed for this relayer
-		NotAuthorized,
-		/// Relayer account could not be resolved
-		RelayerLookupFailed,
+		/// Reward transfer
+		RewardTransferFailed,
+		/// Invalid address
+		InvalidAddress,
 		/// Message has already been processed for rewards
 		MessageAlreadyProcessed,
+		/// Could not get State machine height
+		CouldNotGetStateMachineHeight,
 	}
 
 	#[pallet::event]
@@ -106,7 +108,7 @@ pub mod pallet {
 			/// Relayer account that received the reward
 			relayer: T::AccountId,
 			/// Amount of the reward
-			amount: BalanceOf<T>,
+			amount: <T as pallet_ismp::Config>::Balance,
 			/// Message identifier that was processed
 			message_id: Vec<u8>,
 		},
@@ -115,33 +117,26 @@ pub mod pallet {
 			/// Relayer account that claimed rewards
 			relayer: T::AccountId,
 			/// Amount claimed
-			amount: BalanceOf<T>,
-		},
-		/// Batch of messages processed for rewards
-		BatchProcessed {
-			/// Number of messages processed
-			count: u32,
-			/// Total rewards distributed
-			total_rewards: BalanceOf<T>,
+			amount: <T as pallet_ismp::Config>::Balance,
 		},
 		/// State Machine cost per block updated
 		StateMachineCostPerBlockUpdated {
 			/// Number of messages processed
 			state_machine_id: StateMachineId,
 			/// Cost per block
-			cost_per_block: BalanceOf<T>,
+			cost_per_block: <T as pallet_ismp::Config>::Balance,
 		},
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Update Cost Per Block
+		/// Update cost per block for a state machine
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::update_cost_per_block())]
 		pub fn update_cost_per_block(
 			origin: OriginFor<T>,
 			state_machine_id: StateMachineId,
-			cost_per_block: BalanceOf<T>,
+			cost_per_block: <T as pallet_ismp::Config>::Balance,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
@@ -159,39 +154,13 @@ pub mod pallet {
 	}
 }
 
-/// Trait for converting between relayer addresses (Vec<u8>) and AccountId
-pub trait RelayerAccountLookup<AccountId> {
-	/// Convert a relayer address to an AccountId
-	fn lookup_account(address: &[u8]) -> Option<AccountId>;
-}
-
-/// Type alias for currency balances
-pub type BalanceOf<T> = <<T as Config>::Currency as frame_support::traits::Currency<
-	<T as frame_system::Config>::AccountId,
->>::Balance;
-
 /// Weight information for pallet operations
 pub trait WeightInfo {
-	fn reward_relayer() -> Weight;
-	fn claim_rewards() -> Weight;
-	fn on_message_execution() -> Weight;
 	fn update_cost_per_block() -> Weight;
 }
 
 /// Default weight implementation using sensible defaults
 impl WeightInfo for () {
-	fn reward_relayer() -> Weight {
-		Weight::from_parts(20_000_000, 0)
-	}
-
-	fn claim_rewards() -> Weight {
-		Weight::from_parts(50_000_000, 0)
-	}
-
-	fn on_message_execution() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-	}
-
 	fn update_cost_per_block() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 	}

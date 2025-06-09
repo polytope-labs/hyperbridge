@@ -17,18 +17,17 @@
 
 use crate::*;
 use alloc::collections::BTreeMap;
-use ismp::{
-	consensus::StateMachineId,
-	events::Event as IsmpEvent,
-	messaging::{
-		ConsensusMessage, Message, Message::Request, RequestMessage, ResponseMessage,
-		TimeoutMessage,
-	},
-};
-use pallet_ismp::{fee_handler::FeeHandler, LatestStateMachineHeight, PreviousStateMachineHeight};
+use frame_support::traits::tokens::Preservation;
+use ismp::host::IsmpHost;
+use ismp::{consensus::StateMachineId, events::Event as IsmpEvent, messaging::Message};
+use pallet_ismp::fee_handler::FeeHandler;
+use polkadot_sdk::frame_support::traits::fungible::Mutate;
 use polkadot_sdk::sp_runtime::traits::*;
 
-impl<T: Config> Pallet<T> {
+impl<T: Config> Pallet<T>
+where
+	<T as frame_system::Config>::AccountId: From<Vec<u8>>,
+{
 	/// Process a message and reward the relayer
 	///
 	/// This is an internal function used to handle relayer rewards for each
@@ -39,22 +38,28 @@ impl<T: Config> Pallet<T> {
 		message_id: &Vec<u8>,
 		state_machine_id: StateMachineId,
 		relayer_address: Vec<u8>,
-	) -> Result<BalanceOf<T>, Error<T>> {
+	) -> Result<<T as pallet_ismp::Config>::Balance, Error<T>> {
 		// Check if message has already been processed
 		if ProcessedMessages::<T>::get(&message_id) {
 			return Err(Error::<T>::MessageAlreadyProcessed);
 		}
 
-		// Look up the relayer account
-		let relayer_account = T::RelayerLookup::lookup_account(&relayer_address)
-			.ok_or(Error::<T>::RelayerLookupFailed)?;
+		let relayer_account =
+			T::AccountId::try_from(relayer_address).map_err(|_| Error::<T>::InvalidAddress)?;
 
 		let reward = Self::calculate_reward(&state_machine_id)?;
 
-		// Update relayer rewards
 		RelayerRewards::<T>::mutate(relayer_account.clone(), |balance| {
 			*balance = balance.saturating_add(reward);
 		});
+
+		T::Currency::transfer(
+			&T::TreasuryAccount::get().into_account_truncating(),
+			&relayer_account,
+			reward,
+			Preservation::Expendable,
+		)
+		.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
 		// Mark message as processed
 		ProcessedMessages::<T>::insert(message_id.clone(), true);
@@ -70,16 +75,21 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Calculate the reward for a message based on the state machine id
-	fn calculate_reward(state_machine_id: &StateMachineId) -> Result<BalanceOf<T>, Error<T>> {
-		let latest_height =
-			LatestStateMachineHeight::<T>::get(state_machine_id).unwrap_or_default();
-		let previous_height =
-			PreviousStateMachineHeight::<T>::get(state_machine_id).unwrap_or_default();
+	fn calculate_reward(
+		state_machine_id: &StateMachineId,
+	) -> Result<<T as pallet_ismp::Config>::Balance, Error<T>> {
+		let host = <T::IsmpHost>::default();
+		let latest_height = host
+			.latest_commitment_height(state_machine_id.clone())
+			.map_err(|_| Error::<T>::CouldNotGetStateMachineHeight)?;
+		let previous_height = host
+			.previous_commitment_height(state_machine_id.clone())
+			.map_err(|_| Error::<T>::CouldNotGetStateMachineHeight)?;
 
 		let blocks = latest_height.saturating_sub(previous_height);
 		let block_cost = StateMachinesCostPerBlock::<T>::get(state_machine_id);
 
-		let blocks_as_balance: BalanceOf<T> = blocks.saturated_into();
+		let blocks_as_balance: <T as pallet_ismp::Config>::Balance = blocks.saturated_into();
 		let reward = blocks_as_balance.saturating_mul(block_cost);
 
 		Ok(reward)
@@ -87,7 +97,10 @@ impl<T: Config> Pallet<T> {
 }
 
 /// Implementation of the FeeHandler trait for the RelayerIncentives pallet
-impl<T: Config> FeeHandler for Pallet<T> {
+impl<T: Config> FeeHandler for Pallet<T>
+where
+	<T as frame_system::Config>::AccountId: From<Vec<u8>>,
+{
 	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
 		let mut state_machine_map = BTreeMap::new();
 
@@ -100,8 +113,7 @@ impl<T: Config> FeeHandler for Pallet<T> {
 			}
 		}
 
-		let mut total_rewards = BalanceOf::<T>::zero();
-		let mut processed_count = 0u32;
+		let mut total_rewards = <T as pallet_ismp::Config>::Balance::zero();
 
 		for message in messages {
 			if let Message::Consensus(consensus_msg) = message {
@@ -118,24 +130,12 @@ impl<T: Config> FeeHandler for Pallet<T> {
 					) {
 						Ok(reward) => {
 							total_rewards = total_rewards.saturating_add(reward);
-							processed_count += 1;
 						},
 						Err(_e) => {},
 					}
 				}
 			}
 		}
-		// Emit batch processed event
-		if processed_count > 0 {
-			Self::deposit_event(Event::<T>::BatchProcessed {
-				count: processed_count,
-				total_rewards,
-			});
-		}
-
-		// Calculate weight based on number of messages processed
-		let weight = <T as Config>::WeightInfo::on_message_execution()
-			.saturating_mul(processed_count.into());
 
 		// Return with actual weight information
 		// We use Pays::Yes to indicate that someone (the message sender) pays for this operation,

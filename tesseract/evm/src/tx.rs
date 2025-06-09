@@ -75,8 +75,8 @@ pub async fn submit_messages(
 					matches!(messages[index], Message::Consensus(_)),
 				)
 				.await?;
-				if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
-					evs.is_empty()
+				if matches!(messages[index], Message::Request(_) | Message::Response(_))
+					&& evs.is_empty()
 				{
 					cancelled.push(messages[index].clone())
 				}
@@ -295,8 +295,8 @@ pub async fn generate_contract_calls(
 
 	// Only use gas price buffer when submitting transactions
 	if !debug_trace && client.config.gas_price_buffer.is_some() {
-		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
-			U256::from(100u32);
+		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price)
+			/ U256::from(100u32);
 		gas_price = gas_price + buffer
 	}
 
@@ -305,10 +305,12 @@ pub async fn generate_contract_calls(
 			Message::Consensus(msg) => {
 				let call =
 					contract.handle_consensus(ismp_host.0.into(), msg.consensus_proof.into());
-				let gas_limit = call
+				let estimated_gas = call
 					.estimate_gas()
 					.await
 					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+				let gas_limit =
+					apply_gas_limit_buffer(estimated_gas.as_u64(), client.config.gas_limit_buffer);
 				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
 				let call = call.gas_price(old_u256(gas_price)).gas(gas_limit);
 
@@ -337,14 +339,14 @@ pub async fn generate_contract_calls(
 					})
 					.collect::<Vec<_>>();
 				leaves.sort_by_key(|leaf| leaf.index);
-				let gas_limit = get_chain_gas_limit(client.state_machine);
 				let post_message = PostRequestMessage {
 					proof: Proof {
 						height: StateMachineHeight {
 							state_machine_id: {
 								match msg.proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-										id.into(),
+									StateMachine::Polkadot(id) | StateMachine::Kusama(id) => {
+										id.into()
+									},
 									_ => {
 										panic!("Expected polkadot or kusama state machines");
 									},
@@ -358,14 +360,19 @@ pub async fn generate_contract_calls(
 					requests: leaves,
 				};
 
+				let call = contract.handle_post_requests(ismp_host.0.into(), post_message);
+				let estimated_gas = call
+					.estimate_gas()
+					.await
+					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+				let gas_limit =
+					apply_gas_limit_buffer(estimated_gas.as_u64(), client.config.gas_limit_buffer);
+
 				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
 				let call = if set_gas_price() {
-					contract
-						.handle_post_requests(ismp_host.0.into(), post_message)
-						.gas_price(old_u256(gas_price))
-						.gas(gas_limit)
+					call.gas_price(old_u256(gas_price)).gas(gas_limit)
 				} else {
-					contract.handle_post_requests(ismp_host.0.into(), post_message).gas(gas_limit)
+					call.gas(gas_limit)
 				};
 				calls.push(call)
 			},
@@ -396,15 +403,14 @@ pub async fn generate_contract_calls(
 							})
 							.collect::<Vec<_>>();
 						leaves.sort_by_key(|leaf| leaf.index);
-						let gas_limit = get_chain_gas_limit(client.state_machine);
 						let message =
 							PostResponseMessage {
 								proof: Proof {
 									height: StateMachineHeight {
 										state_machine_id: {
 											match proof.height.id.state_id {
-												StateMachine::Polkadot(id) |
-												StateMachine::Kusama(id) => id.into(),
+												StateMachine::Polkadot(id)
+												| StateMachine::Kusama(id) => id.into(),
 												_ => {
 													log::error!("Expected polkadot or kusama state machines");
 													continue;
@@ -423,21 +429,27 @@ pub async fn generate_contract_calls(
 								responses: leaves,
 							};
 
+						let call = contract.handle_post_responses(ismp_host.0.into(), message);
+						let estimated_gas = call
+							.estimate_gas()
+							.await
+							.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+						let gas_limit = apply_gas_limit_buffer(
+							estimated_gas.as_u64(),
+							client.config.gas_limit_buffer,
+						);
+
 						if set_gas_price() {
 							// U256 Conversion needed because of ether-rs and polkadot-sdk
 							// incompatibility
-							contract
-								.handle_post_responses(ismp_host.0.into(), message)
-								.gas_price(old_u256(gas_price))
-								.gas(gas_limit)
+							call.gas_price(old_u256(gas_price)).gas(gas_limit)
 						} else {
-							contract
-								.handle_post_responses(ismp_host.0.into(), message)
-								.gas(gas_limit)
+							call.gas(gas_limit)
 						}
 					},
-					RequestResponse::Request(..) =>
-						Err(anyhow!("Get requests are not supported by relayer"))?,
+					RequestResponse::Request(..) => {
+						Err(anyhow!("Get requests are not supported by relayer"))?
+					},
 				};
 
 				calls.push(call);
@@ -452,11 +464,20 @@ pub async fn generate_contract_calls(
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
-		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
-			32_000_000,
+		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) => {
+			32_000_000
+		},
 		StateMachine::Evm(GNOSIS_CHAIN_ID) | StateMachine::Evm(CHIADO_CHAIN_ID) => 16_000_000,
 		StateMachine::Evm(_) => 20_000_000,
 		_ => Default::default(),
+	}
+}
+
+pub fn apply_gas_limit_buffer(estimated_gas: u64, buffer_percentage: Option<u32>) -> u64 {
+	if let Some(buffer) = buffer_percentage {
+		estimated_gas + ((estimated_gas * buffer as u64) / 100)
+	} else {
+		estimated_gas
 	}
 }
 
@@ -469,7 +490,7 @@ pub async fn handle_message_submission(
 	let mut results = vec![];
 	for msg in messages {
 		match msg {
-			Message::Request(req_msg) =>
+			Message::Request(req_msg) => {
 				for post in req_msg.requests {
 					let req = Request::Post(post);
 					let commitment = hash_request::<Hasher>(&req);
@@ -486,11 +507,12 @@ pub async fn handle_message_submission(
 
 						results.push(tx_receipt);
 					}
-				},
+				}
+			},
 			Message::Response(ResponseMessage {
 				datagram: RequestResponse::Response(resp),
 				..
-			}) =>
+			}) => {
 				for res in resp {
 					let commitment = hash_response::<Hasher>(&res);
 					let request_commitment = hash_request::<Hasher>(&res.request());
@@ -508,7 +530,8 @@ pub async fn handle_message_submission(
 
 						results.push(tx_receipt);
 					}
-				},
+				}
+			},
 			_ => {},
 		}
 	}

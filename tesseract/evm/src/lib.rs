@@ -79,6 +79,9 @@ pub struct EvmConfig {
 	/// An optional buffer to add to gas price as a percentage of the current gas price
 	/// to increase likelihood of the transactions going through e.g 1%, 2%
 	pub gas_price_buffer: Option<u32>,
+	/// An optional buffer to add to estimated gas limit as a percentage
+	/// to increase likelihood of the transactions going through e.g 10%, 20%
+	pub gas_limit_buffer: Option<u32>,
 	/// The client type the rpc is running, defaults to Geth
 	pub client_type: Option<ClientType>,
 	/// Initial height from which to start querying messages
@@ -111,6 +114,7 @@ impl Default for EvmConfig {
 			query_batch_size: Default::default(),
 			poll_interval: Default::default(),
 			gas_price_buffer: Default::default(),
+			gas_limit_buffer: Default::default(),
 			client_type: Default::default(),
 			initial_height: Default::default(),
 		}

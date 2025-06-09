@@ -16,43 +16,40 @@
 //! Implementation blocks for pallet-relayer-incentives.
 
 use crate::*;
-use ismp::messaging::{Message, Request, Response, Timeout};
-use pallet_ismp::fee_handler::FeeHandler;
+use alloc::collections::BTreeMap;
+use ismp::{
+	consensus::StateMachineId,
+	events::Event as IsmpEvent,
+	messaging::{
+		ConsensusMessage, Message, Message::Request, RequestMessage, ResponseMessage,
+		TimeoutMessage,
+	},
+};
+use pallet_ismp::{fee_handler::FeeHandler, LatestStateMachineHeight, PreviousStateMachineHeight};
+use polkadot_sdk::sp_runtime::traits::*;
 
 impl<T: Config> Pallet<T> {
 	/// Process a message and reward the relayer
 	///
 	/// This is an internal function used to handle relayer rewards for each
-	/// processed message. It extracts relayer information, calculates the
+	/// processed message, this targets just ConsensusMessage for now.
+	///  It extracts relayer information, calculates the
 	/// appropriate reward, and updates the relayer's reward balance.
-	fn process_message(message: &Message) -> Result<BalanceOf<T>, Error<T>> {
-		// Extract message identifier and relayer address
-		let (message_id, relayer_addr) = match message {
-			Message::Request(Request { request_identifier, relayer, .. }) => {
-				(request_identifier.to_vec(), relayer.clone())
-			},
-			Message::Response(Response { response_commitment, relayer, .. }) => {
-				(response_commitment.0.to_vec(), relayer.clone())
-			},
-			Message::Timeout(Timeout { request_identifier, relayer, .. }) => {
-				(request_identifier.to_vec(), relayer.clone())
-			},
-			// Other message types might not have relayer info
-			_ => return Ok(BalanceOf::<T>::zero()),
-		};
-
+	fn process_message(
+		message_id: &Vec<u8>,
+		state_machine_id: StateMachineId,
+		relayer_address: Vec<u8>,
+	) -> Result<BalanceOf<T>, Error<T>> {
 		// Check if message has already been processed
 		if ProcessedMessages::<T>::get(&message_id) {
 			return Err(Error::<T>::MessageAlreadyProcessed);
 		}
 
 		// Look up the relayer account
-		let relayer_account = T::RelayerLookup::lookup_account(&relayer_addr)
+		let relayer_account = T::RelayerLookup::lookup_account(&relayer_address)
 			.ok_or(Error::<T>::RelayerLookupFailed)?;
 
-		// Calculate reward based on message type and parameters
-		let parameters = IncentiveParams::<T>::get();
-		let reward = Self::calculate_reward(message, &parameters)?;
+		let reward = Self::calculate_reward(&state_machine_id)?;
 
 		// Update relayer rewards
 		RelayerRewards::<T>::mutate(relayer_account.clone(), |balance| {
@@ -66,62 +63,68 @@ impl<T: Config> Pallet<T> {
 		Self::deposit_event(Event::<T>::RelayerRewarded {
 			relayer: relayer_account,
 			amount: reward,
-			message_id,
+			message_id: message_id.clone(),
 		});
 
 		Ok(reward)
 	}
 
-	/// Calculate the reward for a message based on the incentive parameters
-	fn calculate_reward(
-		message: &Message,
-		params: &IncentiveParameters,
-	) -> Result<BalanceOf<T>, Error<T>> {
-		// Base reward for all messages
-		let base: BalanceOf<T> = params.base_reward.saturated_into();
+	/// Calculate the reward for a message based on the state machine id
+	fn calculate_reward(state_machine_id: &StateMachineId) -> Result<BalanceOf<T>, Error<T>> {
+		let latest_height =
+			LatestStateMachineHeight::<T>::get(state_machine_id).unwrap_or_default();
+		let previous_height =
+			PreviousStateMachineHeight::<T>::get(state_machine_id).unwrap_or_default();
 
-		// Apply priority multiplier for certain message types
-		let multiplier = match message {
-			Message::Request(Request { priority, .. }) => {
-				if *priority == 0 {
-					1u32
-				} else {
-					params.priority_multiplier
-				}
-			},
-			// Other message types use the base reward
-			_ => 1u32,
-		};
+		let blocks = latest_height.saturating_sub(previous_height);
+		let block_cost = StateMachinesCostPerBlock::<T>::get(state_machine_id);
 
-		// Calculate final reward
-		Ok(base.saturating_mul(multiplier.saturated_into()))
+		let blocks_as_balance: BalanceOf<T> = blocks.saturated_into();
+		let reward = blocks_as_balance.saturating_mul(block_cost);
+
+		Ok(reward)
 	}
 }
 
 /// Implementation of the FeeHandler trait for the RelayerIncentives pallet
 impl<T: Config> FeeHandler for Pallet<T> {
-	fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo {
-		// Process each message and record the results
-		let mut total_rewards = BalanceOf::<T>::zero();
-		let mut processed_count = 0u32;
+	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+		let mut state_machine_map = BTreeMap::new();
 
-		for message in &messages {
-			match Self::process_message(message) {
-				Ok(reward) => {
-					total_rewards = total_rewards.saturating_add(reward);
-					processed_count += 1;
-				},
-				Err(e) => {
-					// Log error but continue processing other messages
-					log::warn!(
-						target: "relayer-incentives",
-						"Failed to process message for rewards: {:?}",
-						e
-					);
-				},
+		for event in events {
+			if let IsmpEvent::StateMachineUpdated(update) = event {
+				state_machine_map.insert(
+					update.state_machine_id.clone(),
+					update.state_machine_id.consensus_state_id.clone(),
+				);
 			}
 		}
 
+		let mut total_rewards = BalanceOf::<T>::zero();
+		let mut processed_count = 0u32;
+
+		for message in messages {
+			if let Message::Consensus(consensus_msg) = message {
+				let matching_state_machine = state_machine_map
+					.iter()
+					.find(|(_, cid)| **cid == consensus_msg.consensus_state_id)
+					.map(|(sm_id, _)| sm_id.clone());
+
+				if let Some(state_machine_id) = matching_state_machine {
+					match Self::process_message(
+						&consensus_msg.consensus_proof,
+						state_machine_id,
+						consensus_msg.signer.clone(),
+					) {
+						Ok(reward) => {
+							total_rewards = total_rewards.saturating_add(reward);
+							processed_count += 1;
+						},
+						Err(_e) => {},
+					}
+				}
+			}
+		}
 		// Emit batch processed event
 		if processed_count > 0 {
 			Self::deposit_event(Event::<T>::BatchProcessed {

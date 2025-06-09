@@ -21,7 +21,7 @@ use crate::{
 	dispatcher::{RefundingRouter, RequestMetadata},
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, Responded,
+	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight, Responded,
 	StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
@@ -212,6 +212,8 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	}
 
 	fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error> {
+		let previous_height = LatestStateMachineHeight::<T>::get(height.id).unwrap_or_default();
+		PreviousStateMachineHeight::<T>::insert(height.id, previous_height);
 		LatestStateMachineHeight::<T>::insert(height.id, height.height);
 		Ok(())
 	}

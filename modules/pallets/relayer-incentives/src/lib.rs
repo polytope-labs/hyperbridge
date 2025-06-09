@@ -24,7 +24,11 @@ extern crate alloc;
 
 use alloc::{collections::BTreeMap, vec::Vec};
 use codec::{Decode, Encode};
-use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
+use frame_support::{
+	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
+	pallet_prelude::*,
+};
+use frame_system::pallet_prelude::*;
 use ismp::messaging::Message;
 use pallet_ismp::fee_handler::FeeHandler;
 use polkadot_sdk::*;
@@ -39,6 +43,7 @@ pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
+	use ismp::consensus::StateMachineId;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -46,15 +51,13 @@ pub mod pallet {
 
 	/// The config trait
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		/// The overarching event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type RuntimeEvent: From<Event<Self>>
+			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// Currency type for balance operations
 		type Currency: frame_support::traits::Currency<Self::AccountId>;
-
-		/// Origin that can manage incentive parameters
-		type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
 		/// Conversion from a relayer address (Vec<u8>) to AccountId
 		type RelayerLookup: RelayerAccountLookup<Self::AccountId>;
@@ -62,11 +65,6 @@ pub mod pallet {
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
 	}
-
-	/// Relayer incentive distribution parameters
-	#[pallet::storage]
-	#[pallet::getter(fn incentive_params)]
-	pub type IncentiveParams<T: Config> = StorageValue<_, IncentiveParameters, ValueQuery>;
 
 	/// Mapping from relayer to their total rewards
 	#[pallet::storage]
@@ -79,6 +77,12 @@ pub mod pallet {
 	#[pallet::getter(fn processed_messages)]
 	pub type ProcessedMessages<T: Config> =
 		StorageMap<_, Blake2_128Concat, Vec<u8>, bool, ValueQuery>;
+
+	// Mapping from relayer to their total rewards
+	#[pallet::storage]
+	#[pallet::getter(fn state_machines_cost_per_block)]
+	pub type StateMachinesCostPerBlock<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineId, BalanceOf<T>, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -97,11 +101,6 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Incentive parameters were updated
-		IncentiveParametersUpdated {
-			/// New parameters
-			parameters: IncentiveParameters,
-		},
 		/// A relayer was rewarded
 		RelayerRewarded {
 			/// Relayer account that received the reward
@@ -125,27 +124,35 @@ pub mod pallet {
 			/// Total rewards distributed
 			total_rewards: BalanceOf<T>,
 		},
+		/// State Machine cost per block updated
+		StateMachineCostPerBlockUpdated {
+			/// Number of messages processed
+			state_machine_id: StateMachineId,
+			/// Cost per block
+			cost_per_block: BalanceOf<T>,
+		},
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Update incentive parameters
+		/// Update Cost Per Block
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::WeightInfo::update_incentive_parameters())]
-		pub fn update_incentive_parameters(
+		#[pallet::weight(T::WeightInfo::update_cost_per_block())]
+		pub fn update_cost_per_block(
 			origin: OriginFor<T>,
-			parameters: IncentiveParameters,
+			state_machine_id: StateMachineId,
+			cost_per_block: BalanceOf<T>,
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
-			// Validate parameters
-			ensure!(parameters.is_valid(), Error::<T>::InvalidParameter);
+			StateMachinesCostPerBlock::<T>::mutate(state_machine_id.clone(), |block_cost| {
+				*block_cost = cost_per_block;
+			});
 
-			// Update storage
-			IncentiveParams::<T>::put(parameters.clone());
-
-			// Emit event
-			Self::deposit_event(Event::<T>::IncentiveParametersUpdated { parameters });
+			Self::deposit_event(Event::<T>::StateMachineCostPerBlockUpdated {
+				state_machine_id,
+				cost_per_block,
+			});
 
 			Ok(())
 		}
@@ -163,38 +170,16 @@ pub type BalanceOf<T> = <<T as Config>::Currency as frame_support::traits::Curre
 	<T as frame_system::Config>::AccountId,
 >>::Balance;
 
-/// Parameters for the incentive mechanism
-#[derive(Clone, Encode, Decode, PartialEq, Eq, TypeInfo, Debug, Default)]
-pub struct IncentiveParameters {
-	/// Base reward for relaying messages
-	pub base_reward: u128,
-	/// Multiplier for high priority messages
-	pub priority_multiplier: u32,
-	/// Minimum time between reward claims
-	pub claim_interval: u32,
-}
-
-impl IncentiveParameters {
-	/// Check if parameters are valid
-	pub fn is_valid(&self) -> bool {
-		self.priority_multiplier > 0 && self.claim_interval > 0
-	}
-}
-
 /// Weight information for pallet operations
 pub trait WeightInfo {
-	fn update_incentive_parameters() -> Weight;
 	fn reward_relayer() -> Weight;
 	fn claim_rewards() -> Weight;
 	fn on_message_execution() -> Weight;
+	fn update_cost_per_block() -> Weight;
 }
 
 /// Default weight implementation using sensible defaults
 impl WeightInfo for () {
-	fn update_incentive_parameters() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-	}
-
 	fn reward_relayer() -> Weight {
 		Weight::from_parts(20_000_000, 0)
 	}
@@ -204,6 +189,10 @@ impl WeightInfo for () {
 	}
 
 	fn on_message_execution() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+
+	fn update_cost_per_block() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 	}
 }

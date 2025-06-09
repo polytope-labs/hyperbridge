@@ -82,9 +82,8 @@ where
 		let latest_height = host
 			.latest_commitment_height(state_machine_id.clone())
 			.map_err(|_| Error::<T>::CouldNotGetStateMachineHeight)?;
-		let previous_height = host
-			.previous_commitment_height(state_machine_id.clone())
-			.map_err(|_| Error::<T>::CouldNotGetStateMachineHeight)?;
+		let previous_height =
+			host.previous_commitment_height(state_machine_id.clone()).unwrap_or_default();
 
 		let blocks = latest_height.saturating_sub(previous_height);
 		let block_cost = StateMachinesCostPerBlock::<T>::get(state_machine_id);

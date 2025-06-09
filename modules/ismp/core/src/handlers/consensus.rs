@@ -76,7 +76,6 @@ where
 			state_updates.push(Event::StateMachineUpdated(StateMachineUpdated {
 				state_machine_id: id,
 				latest_height: latest_height.height,
-				previous_height: previous_latest_height,
 			}));
 			host.store_latest_commitment_height(latest_height)?;
 		}

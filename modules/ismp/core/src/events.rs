@@ -33,8 +33,6 @@ pub struct StateMachineUpdated {
 	pub state_machine_id: StateMachineId,
 	/// Latest height
 	pub latest_height: u64,
-	/// Previous height
-	pub previous_height: u64,
 }
 
 /// Emitted when a `StateCommitment` has been successfully vetoed by a fisherman

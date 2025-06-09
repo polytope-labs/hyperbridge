@@ -236,7 +236,7 @@ pub trait IsmpHost: Keccak256 {
 	}
 
 	/// Should return the previous height of the state machine
-	fn previous_commitment_height(&self, id: StateMachineId) -> Result<u64, Error>;
+	fn previous_commitment_height(&self, id: StateMachineId) -> Option<u64>;
 }
 
 /// Currently supported state machines.

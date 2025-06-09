@@ -317,8 +317,8 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		Ok(())
 	}
 
-	fn previous_commitment_height(&self, id: StateMachineId) -> Result<u64, Error> {
-		Ok(PreviousStateMachineHeight::<T>::get(id).unwrap_or_default())
+	fn previous_commitment_height(&self, id: StateMachineId) -> Option<u64> {
+		PreviousStateMachineHeight::<T>::get(id)
 	}
 }
 

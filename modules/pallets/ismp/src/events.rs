@@ -28,12 +28,12 @@ impl<T: Config> TryFrom<PalletEvent<T>> for ismp::events::Event {
 
 	fn try_from(event: PalletEvent<T>) -> Result<Self, Self::Error> {
 		match event {
-			PalletEvent::StateMachineUpdated { state_machine_id, latest_height } =>
+			PalletEvent::StateMachineUpdated { state_machine_id, latest_height } => {
 				Ok(ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
 					state_machine_id,
 					latest_height,
-					previous_height: 0,
-				})),
+				}))
+			},
 			PalletEvent::Response { commitment, .. } => {
 				let event = match Pallet::<T>::response(commitment).ok_or_else(|| ())? {
 					Response::Post(response) => ismp::events::Event::PostResponse(response),

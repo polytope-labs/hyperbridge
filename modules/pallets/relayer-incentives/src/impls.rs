@@ -23,8 +23,8 @@ use ismp::{consensus::StateMachineId, events::Event as IsmpEvent, messaging::Mes
 use pallet_ismp::fee_handler::FeeHandler;
 use polkadot_sdk::frame_support::traits::fungible::Mutate;
 use polkadot_sdk::sp_runtime::traits::*;
-use sp_core::keccak_256;
 use sp_core::H256;
+use sp_io::hashing::keccak_256;
 
 impl<T: Config> Pallet<T>
 where

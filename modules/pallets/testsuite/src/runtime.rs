@@ -15,7 +15,7 @@
 #![allow(missing_docs, dead_code)]
 
 extern crate alloc;
-use polkadot_sdk::*;
+use polkadot_sdk::{frame_support::traits::WithdrawReasons, sp_runtime::traits::ConvertInto, *};
 
 use alloc::collections::BTreeMap;
 use cumulus_pallet_parachain_system::ParachainSetCode;
@@ -42,17 +42,16 @@ use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use sp_core::{
-	crypto::AccountId32,
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
 	H160, H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
-	BuildStorage,
+	AccountId32, BuildStorage,
 };
 
 use substrate_state_machine::SubstrateStateMachine;
-use xcm_simulator_example::ALICE;
+pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
@@ -84,6 +83,8 @@ frame_support::construct_runtime!(
 		IsmpBsc: ismp_bsc::pallet,
 		TokenGateway: pallet_token_gateway,
 		TokenGatewayInspector: pallet_token_gateway_inspector,
+		Vesting: pallet_vesting,
+		BridgeDrop: pallet_bridge_airdrop
 	}
 );
 
@@ -137,6 +138,7 @@ impl pallet_balances::Config for Test {
 	type MaxLocks = ConstU32<50>;
 	type MaxReserves = ConstU32<50>;
 	type MaxFreezes = ();
+	type DoneSlashHandler = ();
 }
 
 impl pallet_fishermen::Config for Test {
@@ -289,6 +291,28 @@ impl pallet_ismp_host_executive::Config for Test {
 
 impl pallet_call_decompressor::Config for Test {
 	type MaxCallSize = ConstU32<2>;
+}
+
+impl pallet_bridge_airdrop::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+}
+
+parameter_types! {
+	pub const MinVestedTransfer: u64 = 256 * 2;
+	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+		WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
+impl pallet_vesting::Config for Test {
+	type BlockNumberToBalance = ConvertInto;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	const MAX_VESTING_SCHEDULES: u32 = 3;
+	type MinVestedTransfer = MinVestedTransfer;
+	type WeightInfo = ();
+	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+	type BlockNumberProvider = System;
 }
 
 #[derive(Default)]
@@ -478,7 +502,12 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	let mut storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	pallet_balances::GenesisConfig::<Test> {
-		balances: vec![(ALICE, INITIAL_BALANCE), (TokenGateway::pallet_account(), INITIAL_BALANCE)],
+		balances: vec![
+			(ALICE, INITIAL_BALANCE),
+			(TokenGateway::pallet_account(), INITIAL_BALANCE),
+			(BridgeDrop::account_id(), INITIAL_BALANCE * 5000),
+		],
+		..Default::default()
 	}
 	.assimilate_storage(&mut storage)
 	.unwrap();

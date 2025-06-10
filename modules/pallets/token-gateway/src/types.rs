@@ -28,7 +28,9 @@ pub type AssetId<T> =
 	<<T as Config>::Assets as fungibles::Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
 
 /// Asset teleportation parameters
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct TeleportParams<AssetId, Balance> {
 	/// Asset Id registered on Hyperbridge
 	pub asset_id: AssetId,
@@ -51,7 +53,9 @@ pub struct TeleportParams<AssetId, Balance> {
 }
 
 /// Local asset Id and its corresponding token gateway asset id
-#[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
+#[derive(
+	Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+)]
 pub struct AssetRegistration<AssetId> {
 	/// Local Asset Id should already exist
 	pub local_id: AssetId,
@@ -64,7 +68,9 @@ pub struct AssetRegistration<AssetId> {
 }
 
 /// Update the precision of an asset
-#[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug)]
+#[derive(
+	Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+)]
 pub struct PrecisionUpdate<AssetId> {
 	/// Asset Id
 	pub asset_id: AssetId,

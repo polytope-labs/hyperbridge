@@ -24,7 +24,7 @@ use sp_runtime::BoundedVec;
 
 extern crate alloc;
 use alloc::vec::Vec;
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 
 /// Pallet Token Governor's module ID for ISMP requests
 pub const TOKEN_GOVERNOR_ID: [u8; 8] = *b"registry";
@@ -35,7 +35,17 @@ pub const TOKEN_GOVERNOR_ID: [u8; 8] = *b"registry";
 pub const PALLET_TOKEN_GATEWAY_ID: [u8; 20] = hex!("a09b1c60e8650245f92518c8a17314878c4043ed");
 
 /// Holds metadata relevant to a multi-chain native asset
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct AssetMetadata {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<50>>,
@@ -44,14 +54,26 @@ pub struct AssetMetadata {
 }
 
 /// A struct for deregistering asset id on pallet-token-gateway
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct DeregisterAssets {
 	/// List of asset ids to deregister
 	pub asset_ids: Vec<H256>,
 }
 
 /// Holds data required for multi-chain native asset registration
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub struct GatewayAssetRegistration {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<50>>,
@@ -64,7 +86,17 @@ pub struct GatewayAssetRegistration {
 }
 
 /// Allows a user to update their multi-chain native token potentially on multiple chains
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Default)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	Default,
+)]
 pub struct GatewayAssetUpdate {
 	/// The asset identifier
 	pub asset_id: H256,
@@ -77,7 +109,9 @@ pub struct GatewayAssetUpdate {
 }
 
 /// Holds data required for multi-chain native asset registration
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
 pub enum RemoteERC6160AssetRegistration {
 	/// Asset creation message
 	CreateAsset(GatewayAssetRegistration),

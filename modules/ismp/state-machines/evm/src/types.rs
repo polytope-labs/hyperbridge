@@ -18,10 +18,10 @@ use crate::prelude::*;
 use alloc::collections::BTreeMap;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::H256;
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use ismp::messaging::Keccak256;
+use primitive_types::H256;
 
 pub struct KeccakHasher<H: Keccak256>(core::marker::PhantomData<H>);
 

@@ -284,7 +284,7 @@ impl From<router::GetRequest> for GetRequest {
 			from: {
 				let mut address = H160::default();
 				address.0.copy_from_slice(&value.from);
-				address
+				address.0.into()
 			},
 			context: value.context.into(),
 			timeout_timestamp: value.timeout_timestamp,

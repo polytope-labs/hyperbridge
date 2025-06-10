@@ -11,6 +11,7 @@ use frame_system::EnsureRoot;
 use sp_core::{ConstU32, H256};
 use sp_runtime::{traits::IdentityLookup, AccountId32, BuildStorage};
 
+use crate::runtime::ALICE;
 use polkadot_parachain_primitives::primitives::Id as ParaId;
 use polkadot_runtime_parachains::{
 	configuration,
@@ -24,7 +25,6 @@ use staging_xcm_builder::{
 	IsConcrete, SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation,
 };
 use staging_xcm_executor::{Config, XcmExecutor};
-use xcm_simulator_example::ALICE;
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
 pub type AccountId = AccountId32;
@@ -81,6 +81,7 @@ impl pallet_balances::Config for Runtime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type FreezeIdentifier = ();
 	type MaxFreezes = ConstU32<0>;
+	type DoneSlashHandler = ();
 }
 
 impl shared::Config for Runtime {
@@ -161,6 +162,8 @@ impl Config for XcmConfig {
 	type HrmpChannelClosingHandler = ();
 
 	type XcmRecorder = ();
+
+	type XcmEventEmitter = ();
 }
 
 pub type LocalOriginToLocation = SignedToAccountId32<RuntimeOrigin, AccountId, RelayNetwork>;
@@ -191,6 +194,7 @@ impl pallet_xcm::Config for Runtime {
 	type RemoteLockConsumerIdentifier = ();
 	type WeightInfo = pallet_xcm::TestWeightInfo;
 	type AdminOrigin = EnsureRoot<AccountId>;
+	type AuthorizedAliasConsideration = ();
 }
 
 parameter_types! {
@@ -258,9 +262,12 @@ construct_runtime!(
 pub fn relay_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Runtime>::default().build_storage().unwrap();
 
-	pallet_balances::GenesisConfig::<Runtime> { balances: vec![(ALICE, INITIAL_BALANCE)] }
-		.assimilate_storage(&mut t)
-		.unwrap();
+	pallet_balances::GenesisConfig::<Runtime> {
+		balances: vec![(ALICE, INITIAL_BALANCE)],
+		..Default::default()
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(t);
 	ext.execute_with(|| {

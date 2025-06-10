@@ -19,12 +19,13 @@ use ethers::{
 	core::k256::SecretKey,
 	prelude::{
 		transaction::eip2718::TypedTransaction, LocalWallet, Middleware, MiddlewareBuilder,
-		NameOrAddress, Provider, Signer, TransactionRequest, U256,
+		NameOrAddress, Provider, Signer, TransactionRequest,
 	},
 	providers::{Http, ProviderExt},
-	types::H160,
 	utils::hex,
 };
+
+use primitive_types::H160;
 
 use crate::{
 	internals,
@@ -99,13 +100,13 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	let signer = LocalWallet::from(SecretKey::from_slice(signer.as_slice())?)
 		.with_chain_id(provider.get_chainid().await?.low_u64());
 	let client = Arc::new(provider.with_signer(signer));
-	let ping = PingModule::new(PING_MODULE, client.clone());
+	let ping = PingModule::new(PING_MODULE.0, client.clone());
 	let chain = StateMachine::Evm(97);
 	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
 	let host = EvmHost::new(host_addr, client.clone());
 	let erc_20 =
 		ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
-	let call = erc_20.approve(PING_MODULE, U256::max_value());
+	let call = erc_20.approve(PING_MODULE.0.into(), ethers::types::U256::max_value());
 
 	let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
 	call.gas(gas)
@@ -116,10 +117,10 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 		.context(format!("Error in {chain:?}"))?;
 	let call = ping.ping(PingMessage {
 		dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
-		module: PING_MODULE.clone().into(),
+		module: PING_MODULE.clone().0.into(),
 		timeout: 10 * 60 * 60,
-		fee: U256::from(90_000_000_000_000_000_000u128),
-		count: U256::from(1),
+		fee: ethers::types::U256::from(90_000_000_000_000_000_000u128),
+		count: ethers::types::U256::from(1),
 	});
 	let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
 	let receipt = call
@@ -204,7 +205,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let chain_id = provider.get_chainid().await?.low_u64();
 	let signer = LocalWallet::from(SecretKey::from_slice(pair.as_slice())?).with_chain_id(chain_id);
 	let client = Arc::new(provider.with_signer(signer));
-	let ping = PingModule::new(PING_MODULE, client.clone());
+	let ping = PingModule::new(PING_MODULE.0, client.clone());
 	let chain = StateMachine::Evm(97);
 	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
 	let host = EvmHost::new(host_addr, client.clone());
@@ -213,7 +214,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 
 	let erc_20 =
 		ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
-	let call = erc_20.approve(PING_MODULE, U256::max_value());
+	let call = erc_20.approve(PING_MODULE.0.into(), ethers::types::U256::max_value());
 
 	let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
 	call.gas(gas)
@@ -243,10 +244,10 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 
 	let call = ping.ping(PingMessage {
 		dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
-		module: PING_MODULE.clone().into(),
+		module: PING_MODULE.clone().0.into(),
 		timeout: 3 * 60,
-		fee: U256::from(0u128),
-		count: U256::from(1),
+		fee: ethers::types::U256::from(0u128),
+		count: ethers::types::U256::from(1),
 	});
 	let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
 	let receipt = call
@@ -392,13 +393,13 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 	let signer = LocalWallet::from(SecretKey::from_slice(pair.as_slice())?).with_chain_id(chain_id);
 	let client = Arc::new(provider.with_signer(signer));
 
-	let ping = PingModule::new(PING_MODULE, client.clone());
+	let ping = PingModule::new(PING_MODULE.0, client.clone());
 	let chain = StateMachine::Evm(97);
 	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
 	let host = EvmHost::new(host_addr, client.clone());
 	let host_params = host.host_params().await?;
 
-	let ping = PingModule::new(PING_MODULE, client.clone());
+	let ping = PingModule::new(PING_MODULE.0, client.clone());
 	let request = GetRequest {
 		dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
 		height: latest_height,

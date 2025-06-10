@@ -26,7 +26,7 @@ use crate::{
 	router::{IsmpRouter, PostResponse, Request, Response},
 };
 use alloc::{boxed::Box, format, string::String};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::{fmt::Display, str::FromStr, time::Duration};
 use primitive_types::H256;
 
@@ -246,6 +246,7 @@ pub trait IsmpHost: Keccak256 {
 	Copy,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialOrd,
 	Ord,
 	PartialEq,
@@ -271,6 +272,15 @@ pub enum StateMachine {
 	/// Tendermint chains
 	#[codec(index = 4)]
 	Tendermint(ConsensusStateId),
+	/// Alternative relaychain parachains
+	/// The state machine id also includes the consensus state id to prevent name clashes
+	#[codec(index = 5)]
+	Relay {
+		/// Consensus state id
+		relay: ConsensusStateId,
+		/// Parachain Id
+		para_id: u32,
+	},
 }
 
 impl StateMachine {
@@ -285,9 +295,10 @@ impl StateMachine {
 	/// Check if the state machine is substrate-based
 	pub fn is_substrate(&self) -> bool {
 		match self {
-			StateMachine::Polkadot(_) | StateMachine::Kusama(_) | StateMachine::Substrate(_) => {
-				true
-			},
+			StateMachine::Polkadot(_) |
+			StateMachine::Kusama(_) |
+			StateMachine::Substrate(_) |
+			StateMachine::Relay { .. } => true,
 			_ => false,
 		}
 	}
@@ -310,6 +321,10 @@ impl Display for StateMachine {
 			StateMachine::Tendermint(id) => format!(
 				"TNDRMINT-{}",
 				String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
+			),
+			StateMachine::Relay { relay, para_id } => format!(
+				"RELAY-{}-{para_id}",
+				String::from_utf8(relay.to_vec()).map_err(|_| core::fmt::Error)?
 			),
 		};
 		write!(f, "{}", str)
@@ -336,6 +351,28 @@ impl FromStr for StateMachine {
 					.and_then(|id| u32::from_str(id).ok())
 					.ok_or_else(|| format!("invalid state machine: {name}"))?;
 				StateMachine::Polkadot(id)
+			},
+
+			name if name.starts_with("RELAY-") => {
+				let values = name.split('-').collect::<Vec<_>>();
+				let id = values
+					.last()
+					.and_then(|id| u32::from_str(id).ok())
+					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				let relay = values
+					.get(1)
+					.and_then(|id| {
+						let bytes = id.as_bytes();
+						if bytes.len() == 4 {
+							let mut dest = [0u8; 4];
+							dest.copy_from_slice(bytes);
+							Some(dest)
+						} else {
+							None
+						}
+					})
+					.ok_or_else(|| format!("invalid state machine: {name}"))?;
+				StateMachine::Relay { relay, para_id: id }
 			},
 			name if name.starts_with("KUSAMA-") => {
 				let id = name
@@ -380,11 +417,17 @@ mod tests {
 	fn state_machine_conversions() {
 		let grandpa = StateMachine::Substrate(*b"hybr");
 		let beefy = StateMachine::Tendermint(*b"hybr");
+		let solo_relay = StateMachine::Relay { relay: *b"CENJ", para_id: 1000 };
 
 		let grandpa_string = grandpa.to_string();
 		let beefy_string = beefy.to_string();
+		let solo_string = solo_relay.to_string();
+		dbg!(&grandpa_string);
+		dbg!(&beefy_string);
+		dbg!(&solo_string);
 
 		assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
 		assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());
+		assert_eq!(solo_relay, StateMachine::from_str(&solo_string).unwrap());
 	}
 }

@@ -16,6 +16,7 @@ ethabi = { workspace = true }
 ismp = { workspace = true }
 scale-info = { workspace = true }
 ethers-core = { workspace = true, optional = true }
+primitive-types = { workspace = true }
 
 [features]
 default = ["std"]
@@ -28,4 +29,5 @@ std = [
     "ethabi/std",
     "scale-info/std",
     "ethers-core",
+    "primitive-types/std"
 ]

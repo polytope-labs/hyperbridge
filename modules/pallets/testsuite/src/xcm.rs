@@ -5,7 +5,7 @@ use crate::{
 	runtime::{
 		register_offchain_ext, Assets, Balance, Balances, Ismp, MessageQueue, PalletXcm,
 		ParachainInfo, ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin, System, Test,
-		Timestamp, XcmpQueue,
+		Timestamp, XcmpQueue, ALICE,
 	},
 };
 use codec::Decode;
@@ -30,7 +30,7 @@ use pallet_xcm_gateway::{
 	AssetGatewayParams,
 };
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
-use polkadot_sdk::*;
+use polkadot_sdk::{cumulus_pallet_parachain_system::DefaultCoreSelector, *};
 use sp_core::H256;
 use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Permill};
 use staging_xcm::{latest::prelude::*, VersionedXcm};
@@ -43,7 +43,6 @@ use staging_xcm_executor::{traits::ConvertLocation, WeighedMessage, XcmExecutor}
 use xcm_simulator::{
 	decl_test_network, decl_test_parachain, decl_test_relay_chain, ParaId, TestExt,
 };
-use xcm_simulator_example::ALICE;
 
 pub type SovereignAccountOf = (
 	SiblingParachainConvertsVia<Sibling, AccountId32>,
@@ -259,6 +258,7 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type HrmpChannelClosingHandler = ();
 
 	type XcmRecorder = ();
+	type XcmEventEmitter = ();
 }
 
 parameter_types! {
@@ -279,6 +279,7 @@ impl cumulus_pallet_parachain_system::Config for Test {
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = ();
 	type ConsensusHook = RequireParentIncluded;
+	type SelectCore = DefaultCoreSelector<Self>;
 }
 
 use frame_support::traits::TransformOrigin;
@@ -352,6 +353,7 @@ impl pallet_xcm::Config for Test {
 	type RemoteLockConsumerIdentifier = ();
 	type WeightInfo = pallet_xcm::TestWeightInfo;
 	type AdminOrigin = EnsureRoot<AccountId32>;
+	type AuthorizedAliasConsideration = ();
 }
 
 parameter_types! {
@@ -387,6 +389,7 @@ impl pallet_assets::Config for Test {
 	type CallbackHandle = ();
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
+	type Holder = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = IdentityBenchmarkHelper;
 }

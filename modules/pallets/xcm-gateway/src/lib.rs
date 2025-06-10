@@ -46,7 +46,7 @@ use sp_core::{H160, H256, U256};
 use sp_runtime::{traits::AccountIdConversion, Permill};
 use staging_xcm::{
 	prelude::Assets,
-	v4::{Asset, AssetId, Fungibility, Junction, Location, WeightLimit},
+	v5::{Asset, AssetId, Fungibility, Junction, Location, WeightLimit},
 	VersionedAssets, VersionedLocation,
 };
 use xcm_utilities::MultiAccount;
@@ -160,7 +160,16 @@ pub mod pallet {
 		},
 	}
 
-	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
+	#[derive(
+		Clone,
+		Encode,
+		Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		Eq,
+		PartialEq,
+		RuntimeDebug,
+	)]
 	pub struct AssetGatewayParams {
 		/// Percentage to be taken as protocol fees
 		pub protocol_fee_percentage: Permill,
@@ -172,7 +181,16 @@ pub mod pallet {
 		}
 	}
 
-	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, Eq, PartialEq, RuntimeDebug)]
+	#[derive(
+		Clone,
+		Encode,
+		Decode,
+		DecodeWithMemTracking,
+		scale_info::TypeInfo,
+		Eq,
+		PartialEq,
+		RuntimeDebug,
+	)]
 	pub struct TokenGatewayParamsUpdate {
 		pub protocol_fee_percentage: Option<Permill>,
 	}
@@ -244,8 +262,7 @@ where
 		let body = Body {
 			amount: {
 				let amount: u128 = amount.into();
-				let mut bytes = [0u8; 32];
-				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
+				let bytes = convert_to_erc20(amount, 18, 10).to_big_endian();
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
 			asset_id,
@@ -373,7 +390,7 @@ where
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
 		let xcm_beneficiary: Location =
 			Junction::AccountId32 { network: None, id: body.to.0 }.into();
-		let xcm_dest = VersionedLocation::V4(Location::parent());
+		let xcm_dest = VersionedLocation::V5(Location::parent());
 		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
 		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
@@ -386,7 +403,7 @@ where
 			frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 			Box::new(xcm_dest),
 			Box::new(xcm_beneficiary.into()),
-			Box::new(VersionedAssets::V4(assets)),
+			Box::new(VersionedAssets::V5(assets)),
 			fee_asset_item,
 			weight_limit,
 		)
@@ -455,7 +472,7 @@ where
 				// on the relaychain;
 				let xcm_beneficiary: Location =
 					Junction::AccountId32 { network: None, id: body.from.0 }.into();
-				let xcm_dest = VersionedLocation::V4(Location::parent());
+				let xcm_dest = VersionedLocation::V5(Location::parent());
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
 				let asset =
@@ -467,7 +484,7 @@ where
 					frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 					Box::new(xcm_dest),
 					Box::new(xcm_beneficiary.into()),
-					Box::new(VersionedAssets::V4(assets)),
+					Box::new(VersionedAssets::V5(assets)),
 					fee_asset_item,
 					weight_limit,
 				)

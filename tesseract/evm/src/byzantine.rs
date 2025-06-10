@@ -35,11 +35,11 @@ impl ByzantineHandler for EvmClient {
 				counterparty.state_machine_id().state_id
 			);
 			counterparty.veto_state_commitment(height).await?;
-			return Ok(())
+			return Ok(());
 		};
 
 		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
-		if header.state_root != state_machine_commitment.state_root {
+		if header.state_root.0 != state_machine_commitment.state_root.0 {
 			log::info!(
 				"Vetoing State Machine Update for {} on {}",
 				self.state_machine,

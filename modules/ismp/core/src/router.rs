@@ -17,7 +17,7 @@
 
 use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
 use alloc::{boxed::Box, string::ToString, vec};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::{fmt::Formatter, time::Duration};
 
 /// The ISMP POST request.
@@ -26,6 +26,7 @@ use core::{fmt::Formatter, time::Duration};
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
 	scale_info::TypeInfo,
@@ -88,6 +89,7 @@ impl core::fmt::Display for PostRequest {
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
 	scale_info::TypeInfo,
@@ -155,6 +157,7 @@ fn get_timeout(timeout_timestamp: u64) -> Duration {
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
 	scale_info::TypeInfo,
@@ -286,6 +289,7 @@ impl Request {
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
 	scale_info::TypeInfo,
@@ -367,6 +371,7 @@ impl PostResponse {
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
 	scale_info::TypeInfo,
@@ -403,6 +408,7 @@ impl GetResponse {
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
 	scale_info::TypeInfo,
@@ -425,6 +431,7 @@ pub struct StorageValue {
 	Clone,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
 	scale_info::TypeInfo,
@@ -506,7 +513,17 @@ impl Response {
 }
 
 /// Convenience enum for membership verification.
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, derive_more::From)]
+#[derive(
+	Debug,
+	Clone,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	scale_info::TypeInfo,
+	PartialEq,
+	Eq,
+	derive_more::From,
+)]
 pub enum RequestResponse {
 	/// A batch of requests
 	Request(Vec<Request>),

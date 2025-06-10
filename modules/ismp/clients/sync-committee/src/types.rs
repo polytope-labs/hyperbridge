@@ -14,10 +14,10 @@
 // limitations under the License.
 use alloc::{collections::BTreeMap, vec::Vec};
 use arbitrum_verifier::{ArbitrumBoldProof, ArbitrumPayloadProof};
-use codec::{Decode, Encode};
-use ethabi::ethereum_types::H160;
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use ismp::host::StateMachine;
 use op_verifier::{OptimismDisputeGameProof, OptimismPayloadProof};
+use primitive_types::H160;
 use sync_committee_primitives::types::{VerifierState, VerifierStateUpdate};
 
 #[derive(Debug, Encode, Decode, Clone)]
@@ -38,7 +38,9 @@ pub struct BeaconClientUpdate {
 }
 
 /// Description of the various consensus mechanics supported for ethereum L2s
-#[derive(Encode, Decode, Debug, Clone, scale_info::TypeInfo, Eq, PartialEq)]
+#[derive(
+	Encode, Decode, Debug, Clone, DecodeWithMemTracking, scale_info::TypeInfo, Eq, PartialEq,
+)]
 pub enum L2Consensus {
 	/// Arbitrum orbit chains Rollup Core Address
 	ArbitrumOrbit(H160),

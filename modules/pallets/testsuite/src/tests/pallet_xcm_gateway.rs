@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::{
 	relay_chain::{self, RuntimeOrigin},
-	runtime::Test,
+	runtime::{Test, ALICE},
 	xcm::{MockNet, ParaA, Relay},
 };
 use alloy_sol_types::SolValue;
@@ -19,9 +19,8 @@ use ismp::{
 use pallet_token_gateway::{impls::convert_to_erc20, types::Body};
 use pallet_xcm_gateway::Module;
 use sp_core::{ByteArray, H160, H256};
-use staging_xcm::v4::{Junction, Junctions, Location, NetworkId, WeightLimit};
+use staging_xcm::v5::{Junction, Junctions, Location, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
-use xcm_simulator_example::ALICE;
 
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
 const PARA_ID: u32 = 100;
@@ -145,9 +144,7 @@ fn should_process_on_accept_module_callback_correctly() {
 		let amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 		let body = Body {
 			amount: {
-				let mut bytes = [0u8; 32];
-				// Module callback will convert to ten decimals
-				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
+				let bytes = convert_to_erc20(amount, 18, 10).to_big_endian();
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
 			asset_id: pallet_xcm_gateway::Pallet::<Test>::dot_asset_id().0.into(),
@@ -255,9 +252,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 
 		let body = Body {
 			amount: {
-				let mut bytes = [0u8; 32];
-				// Module callback will convert to 10 decimals
-				convert_to_erc20(amount, 18, 10).to_big_endian(&mut bytes);
+				let bytes = convert_to_erc20(amount, 18, 10).to_big_endian();
 				alloy_primitives::U256::from_be_bytes(bytes)
 			},
 			asset_id: pallet_xcm_gateway::Pallet::<Test>::dot_asset_id().0.into(),

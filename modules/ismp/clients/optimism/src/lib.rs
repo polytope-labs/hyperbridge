@@ -19,7 +19,6 @@ extern crate alloc;
 
 use alloc::format;
 use alloy_rlp::Decodable;
-use ethabi::ethereum_types::{H160, H256, U128, U256};
 use evm_state_machine::{
 	derive_array_item_key, derive_map_key, get_contract_account, get_value_from_proof, prelude::*,
 };
@@ -32,6 +31,7 @@ use ismp::{
 	host::StateMachine,
 	messaging::Keccak256,
 };
+use primitive_types::{H160, H256, U128, U256};
 
 // Constants
 
@@ -261,8 +261,7 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 		.to_vec();
 
 	let game_id = get_game_id(payload.game_type, payload.timestamp, payload.proxy);
-	let mut game_id_bytes = [0u8; 32];
-	game_id.to_big_endian(&mut game_id_bytes);
+	let game_id_bytes = game_id.to_big_endian();
 
 	// Pad the encoded game id gotten from proof with zeros so it becomes 32 bytes long
 	(0..game_id_bytes.len().saturating_sub(encoded_game_id.len()))

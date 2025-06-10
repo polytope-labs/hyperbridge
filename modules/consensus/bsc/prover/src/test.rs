@@ -30,7 +30,7 @@ use crate::BscPosProver;
 
 pub struct Host;
 
-const EPOCH_LENGTH: u64 = 500;
+const EPOCH_LENGTH: u64 = 1000;
 
 impl Keccak256 for Host {
 	fn keccak256(bytes: &[u8]) -> primitive_types::H256
@@ -45,9 +45,9 @@ async fn setup_prover() -> BscPosProver<Testnet> {
 	dotenv::dotenv().ok();
 	let consensus_url = std::env::var("BSC_URL").unwrap();
 	let mut provider = Provider::<Http>::connect(&consensus_url).await;
-	// Bsc block time is 3s we don't want to deal with missing authority set changes while polling
-	// for blocks in our tests
-	provider.set_interval(Duration::from_millis(1500));
+	// Bsc block time is 0.75s we don't want to deal with missing authority set changes while
+	// polling for blocks in our tests
+	provider.set_interval(Duration::from_millis(750));
 	BscPosProver::new(provider)
 }
 
@@ -58,10 +58,10 @@ async fn verify_bsc_pos_headers() {
 	let latest_block = prover.latest_header().await.unwrap();
 	let (epoch_header, validators) =
 		prover.fetch_finalized_state::<Host>(EPOCH_LENGTH).await.unwrap();
-	if latest_block.number.low_u64() - epoch_header.number.low_u64() < 12 {
+	if latest_block.number.low_u64() - epoch_header.number.low_u64() < 48 {
 		// We want to ensure the current validators have been enacted before continuing
 		tokio::time::sleep(Duration::from_secs(
-			(latest_block.number.low_u64() - epoch_header.number.low_u64()) * 12,
+			(latest_block.number.low_u64() - epoch_header.number.low_u64()) * 48,
 		))
 		.await;
 	}

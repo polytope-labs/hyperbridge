@@ -23,7 +23,7 @@ use crate::{
 	router::RequestResponse,
 };
 use alloc::{boxed::Box, collections::BTreeMap};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::time::Duration;
 use primitive_types::H256;
 
@@ -42,6 +42,7 @@ pub type ConsensusClientId = [u8; 4];
 	Copy,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	scale_info::TypeInfo,
 	PartialEq,
 	Hash,
@@ -83,6 +84,7 @@ pub struct IntermediateState {
 	Copy,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	scale_info::TypeInfo,
 	PartialEq,
 	Eq,
@@ -108,6 +110,7 @@ pub struct StateMachineId {
 	Copy,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	scale_info::TypeInfo,
 	PartialEq,
 	Eq,

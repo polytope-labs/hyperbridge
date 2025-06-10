@@ -174,7 +174,7 @@ pub struct XcmBenchmarkHelper;
 impl BenchmarkHelper<H256> for XcmBenchmarkHelper {
 	fn create_asset_id_parameter(id: u32) -> H256 {
 		use codec::Encode;
-		use staging_xcm::v4::Junction::Parachain;
+		use staging_xcm::v5::Junction::Parachain;
 		sp_io::hashing::keccak_256(&Location::new(1, Parachain(id)).encode()).into()
 	}
 }
@@ -206,6 +206,7 @@ impl pallet_assets::Config for Runtime {
 	type CallbackHandle = ();
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
+	type Holder = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = XcmBenchmarkHelper;
 }

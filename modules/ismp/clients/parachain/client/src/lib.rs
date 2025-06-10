@@ -32,7 +32,7 @@ pub use consensus::*;
 use polkadot_sdk::*;
 
 use alloc::{vec, vec::Vec};
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::{
 	RelayChainState, RelaychainDataProvider, RelaychainStateProvider,
 };
@@ -327,6 +327,7 @@ impl<T: Config> RelayChainOracle for Pallet<T> {
 	Copy,
 	Encode,
 	Decode,
+	DecodeWithMemTracking,
 	scale_info::TypeInfo,
 	PartialEq,
 	Hash,

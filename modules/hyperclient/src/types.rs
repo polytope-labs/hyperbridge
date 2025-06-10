@@ -19,10 +19,10 @@ use crate::{
 };
 use anyhow::anyhow;
 use core::{fmt, pin::Pin};
-use ethers::types::H160;
 use futures::Stream;
 use hex_fmt::HexFmt;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 pub use substrate_state_machine::{HashAlgorithm, SubstrateStateProof};
 use subxt::{utils::H256, Config};

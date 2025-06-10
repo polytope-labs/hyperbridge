@@ -17,168 +17,9 @@ use subxt::{
 };
 
 pub mod client;
-pub mod gargantua;
 
 #[cfg(feature = "std")]
 pub use signer::*;
-
-mod gargantua_conversion {
-	use crate::gargantua::api::runtime_types::pallet_hyperbridge::VersionedHostParams;
-
-	use super::gargantua::api::runtime_types;
-	use ismp::{
-		consensus::{StateCommitment, StateMachineHeight, StateMachineId},
-		host::StateMachine,
-	};
-	use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
-
-	impl From<runtime_types::ismp::consensus::StateCommitment> for StateCommitment {
-		fn from(commitment: runtime_types::ismp::consensus::StateCommitment) -> Self {
-			StateCommitment {
-				timestamp: commitment.timestamp,
-				overlay_root: commitment.overlay_root,
-				state_root: commitment.state_root,
-			}
-		}
-	}
-
-	impl From<runtime_types::ismp::consensus::StateMachineHeight> for StateMachineHeight {
-		fn from(state_machine_height: runtime_types::ismp::consensus::StateMachineHeight) -> Self {
-			StateMachineHeight {
-				id: state_machine_height.id.into(),
-				height: state_machine_height.height,
-			}
-		}
-	}
-
-	impl From<runtime_types::ismp::consensus::StateMachineId> for StateMachineId {
-		fn from(state_machine_id: runtime_types::ismp::consensus::StateMachineId) -> Self {
-			StateMachineId {
-				state_id: state_machine_id.state_id.into(),
-				consensus_state_id: state_machine_id.consensus_state_id,
-			}
-		}
-	}
-
-	impl From<runtime_types::ismp::host::StateMachine> for StateMachine {
-		fn from(state_machine_id: runtime_types::ismp::host::StateMachine) -> Self {
-			match state_machine_id {
-				runtime_types::ismp::host::StateMachine::Evm(id) => StateMachine::Evm(id),
-				runtime_types::ismp::host::StateMachine::Polkadot(id) => StateMachine::Polkadot(id),
-				runtime_types::ismp::host::StateMachine::Kusama(id) => StateMachine::Kusama(id),
-				runtime_types::ismp::host::StateMachine::Substrate(consensus_state_id) =>
-					StateMachine::Substrate(consensus_state_id),
-				runtime_types::ismp::host::StateMachine::Tendermint(id) =>
-					StateMachine::Tendermint(id),
-			}
-		}
-	}
-
-	impl From<StateMachineHeight> for runtime_types::ismp::consensus::StateMachineHeight {
-		fn from(state_machine_height: StateMachineHeight) -> Self {
-			runtime_types::ismp::consensus::StateMachineHeight {
-				id: state_machine_height.id.into(),
-				height: state_machine_height.height,
-			}
-		}
-	}
-
-	impl From<StateMachineId> for runtime_types::ismp::consensus::StateMachineId {
-		fn from(state_machine_id: StateMachineId) -> Self {
-			Self {
-				state_id: state_machine_id.state_id.into(),
-				consensus_state_id: state_machine_id.consensus_state_id,
-			}
-		}
-	}
-
-	impl From<StateMachine> for runtime_types::ismp::host::StateMachine {
-		fn from(state_machine_id: StateMachine) -> Self {
-			match state_machine_id {
-				StateMachine::Evm(id) => runtime_types::ismp::host::StateMachine::Evm(id),
-				StateMachine::Polkadot(id) => runtime_types::ismp::host::StateMachine::Polkadot(id),
-				StateMachine::Kusama(id) => runtime_types::ismp::host::StateMachine::Kusama(id),
-				StateMachine::Substrate(consensus_state_id) =>
-					runtime_types::ismp::host::StateMachine::Substrate(consensus_state_id),
-				StateMachine::Tendermint(id) =>
-					runtime_types::ismp::host::StateMachine::Tendermint(id),
-			}
-		}
-	}
-
-	impl From<ismp::router::PostRequest> for runtime_types::ismp::router::PostRequest {
-		fn from(post: ismp::router::PostRequest) -> Self {
-			Self {
-				source: post.source.into(),
-				dest: post.dest.into(),
-				nonce: post.nonce,
-				from: post.from,
-				to: post.to,
-				timeout_timestamp: post.timeout_timestamp,
-				body: post.body,
-			}
-		}
-	}
-
-	impl From<runtime_types::pallet_ismp_host_executive::params::HostParam<u128>> for HostParam<u128> {
-		fn from(value: runtime_types::pallet_ismp_host_executive::params::HostParam<u128>) -> Self {
-			match value {
-	               runtime_types::pallet_ismp_host_executive::params::HostParam::EvmHostParam(params) => {
-	                   let evm = EvmHostParam {
-	                       default_timeout: params.default_timeout,
-	                       default_per_byte_fee: {
-								let alloy_value = alloy_primitives::U256::from_limbs(params.default_per_byte_fee.0);
-								primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
-							},
-							state_commitment_fee: {
-                   				let alloy_value = alloy_primitives::U256::from_limbs(params.state_commitment_fee.0);
-                        		primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
-             				},
-	                       fee_token: params.fee_token,
-	                       admin: params.admin,
-	                       handler: params.handler,
-	                       host_manager: params.host_manager,
-	                       uniswap_v2: params.uniswap_v2,
-	                       un_staking_period: params.un_staking_period,
-	                       challenge_period: params.challenge_period,
-	                       consensus_client: params.consensus_client,
-	                       state_machines: params
-	                           .state_machines
-	                           .0
-	                           .try_into()
-	                           .expect("Runtime will always provide bounded vec"),
-	                       per_byte_fees: params
-	                           .per_byte_fees
-							   .0
-							   .into_iter()
-							   .map(|p| {
-								   PerByteFee {
-									   state_id: p.state_id,
-									   per_byte_fee: {
-										   let alloy_value = alloy_primitives::U256::from_limbs(p.per_byte_fee.0);
-										   primitive_types::U256::from_little_endian(&alloy_value.to_le_bytes::<32>())
-									   }
-								   }
-							   }).collect::<Vec<_>>().try_into().expect("Runtime will always provide bounded vec"),
-	                       hyperbridge: params
-	                           .hyperbridge
-	                           .0
-	                           .try_into()
-	                           .expect("Runtime will always provide bounded vec"),
-	                   };
-	                   HostParam::EvmHostParam(evm)
-	               }
-	               runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(VersionedHostParams::V1(value)) => {
-	                   HostParam::SubstrateHostParam(pallet_hyperbridge::VersionedHostParams::V1(pallet_hyperbridge::SubstrateHostParams {
-						   default_per_byte_fee: value.default_per_byte_fee,
-						   per_byte_fees: value.per_byte_fees.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-						   asset_registration_fee: value.asset_registration_fee,
-					   }))
-	               }
-	           }
-		}
-	}
-}
 
 /// Implements [`subxt::Config`] for substrate chains with keccak as their hashing algorithm
 #[derive(Clone)]
@@ -444,6 +285,15 @@ pub fn state_machine_update_time_storage_key(height: StateMachineHeight) -> Vec<
 
 	let storage_prefix = twox_128(b"StateMachineUpdateTime").to_vec();
 	let key_1 = twox_64(&height.encode()).to_vec();
+
+	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
+}
+
+pub fn state_machine_commitment_storage_key(height: StateMachineHeight) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Ismp").to_vec();
+
+	let storage_prefix = twox_128(b"StateCommitments").to_vec();
+	let key_1 = blake2_128(&height.encode()).to_vec();
 
 	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
 }

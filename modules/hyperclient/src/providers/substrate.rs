@@ -22,7 +22,6 @@ use crate::{
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use core::time::Duration;
-use ethers::prelude::{H160, H256};
 use futures::{stream, StreamExt, TryStreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
@@ -40,6 +39,7 @@ use pallet_ismp::{
 	offchain::ProofKeys,
 	ResponseReceipt,
 };
+use primitive_types::{H160, H256};
 use serde::{Deserialize, Serialize};
 use sp_core::storage::ChildInfo;
 use std::ops::RangeInclusive;

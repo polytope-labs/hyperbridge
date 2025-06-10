@@ -1,0 +1,39 @@
+[package]
+name = "pallet-bridge-airdrop"
+version = "0.1.1"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Pallet for airdropping Bridge tokens"
+publish = false
+
+[dependencies]
+scale-info = { workspace = true }
+codec = { workspace = true }
+rs_merkle = { version = "1.5.0", default-features = false }
+anyhow = { workspace = true }
+pallet-ismp = { workspace = true }
+log = { workspace = true, default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-runtime",
+    "sp-core",
+    "sp-std",
+    "sp-io",
+    "pallet-balances",
+    "pallet-vesting",
+]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "polkadot-sdk/std",
+    "scale-info/std",
+    "rs_merkle/std",
+    "pallet-ismp/std",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]

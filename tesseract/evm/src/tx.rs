@@ -309,8 +309,7 @@ pub async fn generate_contract_calls(
 					.estimate_gas()
 					.await
 					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-				let gas_limit =
-					apply_gas_limit_buffer(estimated_gas.as_u64(), client.config.gas_limit_buffer);
+				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
 				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
 				let call = call.gas_price(old_u256(gas_price)).gas(gas_limit);
 
@@ -364,8 +363,7 @@ pub async fn generate_contract_calls(
 					.estimate_gas()
 					.await
 					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-				let gas_limit =
-					apply_gas_limit_buffer(estimated_gas.as_u64(), client.config.gas_limit_buffer);
+				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
 
 				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
 				let call = if set_gas_price() {
@@ -433,10 +431,7 @@ pub async fn generate_contract_calls(
 							.estimate_gas()
 							.await
 							.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-						let gas_limit = apply_gas_limit_buffer(
-							estimated_gas.as_u64(),
-							client.config.gas_limit_buffer,
-						);
+						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
 
 						if set_gas_price() {
 							// U256 Conversion needed because of ether-rs and polkadot-sdk
@@ -470,13 +465,8 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	}
 }
 
-pub fn apply_gas_limit_buffer(estimated_gas: u64, buffer_percentage: Option<u32>) -> u64 {
-	if let Some(buffer) = buffer_percentage {
-		estimated_gas + ((estimated_gas * buffer as u64) / 100)
-	} else {
-		estimated_gas
-	}
-}
+
+
 
 pub async fn handle_message_submission(
 	client: &EvmClient,

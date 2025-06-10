@@ -89,7 +89,6 @@ impl ByzantineHandler for EvmClient {
 					let event = StateMachineUpdated {
 						state_machine_id: client.state_machine_id(),
 						latest_height: block_number,
-						previous_height: latest_height,
 					};
 
 					let events = match client.query_ismp_events(latest_height, event).await {

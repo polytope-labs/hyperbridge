@@ -84,6 +84,7 @@ features = [
     "cumulus-pallet-parachain-system",
     "pallet-vesting"
 ]
+
 [dev-dependencies]
 hex = "0.4.3"
 zstd-safe = { version = "7.1.0" }

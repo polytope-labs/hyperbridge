@@ -132,7 +132,6 @@ where
 					let event = StateMachineUpdated {
 						state_machine_id: client.state_machine_id(),
 						latest_height: header.number().into(),
-						previous_height: latest_height,
 					};
 
 					let events = match client.query_ismp_events(latest_height, event).await {

@@ -31,7 +31,8 @@ To use it in your runtime, you need to implement the ismp
 
 ### Dispatchable Functions
 
-- `handle` - Handles incoming ISMP messages using unsigned extrinsics.
+- `handle` - Handles incoming ISMP messages.
+- `handle_unsigned` Unsigned variant for handling incoming messages, enabled by `feature = ["unsigned"]`
 - `create_consensus_client` - Handles creation of various properties for a particular consensus client. Can only be called by the `AdminOrigin`.
 - `update_consensus_state` - Updates consensus client properties in storage. Can only be called by the `AdminOrigin`.
 - `fund_message` - In cases where the initially provided relayer fees have now become insufficient, due to a transaction fee spike on the destination chain. Allows a user to add more funds to the request to be used for delivery and execution. Should never be called on a completed request.

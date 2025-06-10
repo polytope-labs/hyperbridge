@@ -68,12 +68,13 @@ pub mod pallet {
 		router::IsmpRouter,
 	};
 	use sp_core::{storage::ChildInfo, H256};
+	#[cfg(feature = "unsigned")]
+	use sp_runtime::transaction_validity::{
+		InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
+		ValidTransaction,
+	};
 	use sp_runtime::{
 		traits::{AccountIdConversion, AtLeast32BitUnsigned},
-		transaction_validity::{
-			InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
-			ValidTransaction,
-		},
 		FixedPointOperand,
 	};
 	use sp_std::prelude::*;
@@ -295,6 +296,7 @@ pub mod pallet {
 		/// - `messages`: the messages to handle or process.
 		///
 		/// Emits different message events based on the Message received if successful.
+		#[cfg(feature = "unsigned")]
 		#[pallet::weight(weight())]
 		#[pallet::call_index(0)]
 		#[frame_support::transactional]
@@ -378,9 +380,8 @@ pub mod pallet {
 
 			let metadata = match message.commitment {
 				MessageCommitment::Request(commitment) => RequestCommitments::<T>::get(commitment),
-				MessageCommitment::Response(commitment) => {
-					ResponseCommitments::<T>::get(commitment)
-				},
+				MessageCommitment::Response(commitment) =>
+					ResponseCommitments::<T>::get(commitment),
 			};
 
 			let Some(mut metadata) = metadata else {
@@ -496,6 +497,7 @@ pub mod pallet {
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.
+	#[cfg(feature = "unsigned")]
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
@@ -529,11 +531,10 @@ pub mod pallet {
 				// check that requests will be successfully dispatched
 				// so we can not be spammed with failing txs
 				.map(|result| match result {
-					MessageResult::Request(results)
-					| MessageResult::Response(results)
-					| MessageResult::Timeout(results) => {
-						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>()
-					},
+					MessageResult::Request(results) |
+					MessageResult::Response(results) |
+					MessageResult::Timeout(results) =>
+						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>(),
 					MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => {
 						vec![Ok(())]
 					},

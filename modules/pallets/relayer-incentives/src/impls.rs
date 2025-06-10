@@ -28,7 +28,7 @@ use sp_core::H256;
 
 impl<T: Config> Pallet<T>
 where
-	<T as frame_system::Config>::AccountId: From<Vec<u8>>,
+	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
 	/// Process a message and reward the relayer
 	///
@@ -46,8 +46,15 @@ where
 			return Err(Error::<T>::MessageAlreadyProcessed);
 		}
 
+		if relayer_address.len() != 32 {
+			return Err(Error::<T>::InvalidAddress);
+		}
+
+		let mut raw_address = [0u8; 32];
+		raw_address.copy_from_slice(&relayer_address[..]);
+
 		let relayer_account =
-			T::AccountId::try_from(relayer_address).map_err(|_| Error::<T>::InvalidAddress)?;
+			T::AccountId::try_from(raw_address).map_err(|_| Error::<T>::InvalidAddress)?;
 
 		let reward = Self::calculate_reward(&state_machine_id)?;
 
@@ -100,7 +107,7 @@ where
 /// Implementation of the FeeHandler trait for the RelayerIncentives pallet
 impl<T: Config> FeeHandler for Pallet<T>
 where
-	<T as frame_system::Config>::AccountId: From<Vec<u8>>,
+	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
 	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
 		let mut state_machine_map = BTreeMap::new();

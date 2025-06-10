@@ -115,8 +115,8 @@ fn should_decompress_and_execute_pallet_ismp_get_time_out_calls_correctly() {
 					height: 3,
 					context: Default::default(),
 
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
+					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs()
+						+ 2_000_000_000,
 				};
 				Request::Get(get)
 			})
@@ -166,8 +166,8 @@ fn should_decompress_and_execute_pallet_ismp_post_request_calls_correctly() {
 					nonce: i,
 					from: H256::random().0.to_vec(),
 					to: H256::random().0.to_vec(),
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
+					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs()
+						+ 2_000_000_000,
 					body: H512::random().0.to_vec(),
 				};
 				post
@@ -231,8 +231,8 @@ fn should_decompress_and_execute_pallet_ismp_post_response_calls_correctly() {
 					nonce: i,
 					from: H256::random().0.to_vec(),
 					to: H256::random().0.to_vec(),
-					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
-						2_000_000_000,
+					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs()
+						+ 2_000_000_000,
 					body: H512::random().0.to_vec(),
 				};
 				ismp::router::Response::Post(PostResponse {

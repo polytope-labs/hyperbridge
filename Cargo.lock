@@ -12903,6 +12903,7 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
  "pallet-mmr-tree",
+ "pallet-relayer-incentives",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",

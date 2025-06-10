@@ -143,6 +143,7 @@ pub struct Host {
 	consensus_update_time: Rc<RefCell<HashMap<ConsensusStateId, Duration>>>,
 	frozen_consensus_clients: Rc<RefCell<HashMap<ConsensusStateId, bool>>>,
 	latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
+	previous_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
 	nonce: Rc<RefCell<u64>>,
 	pub proxy: Option<StateMachine>,
 }
@@ -310,6 +311,12 @@ impl IsmpHost for Host {
 	}
 
 	fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error> {
+		let previous_height = self.latest_state_height.borrow().get(&height.id).copied();
+
+		self.previous_state_height
+			.borrow_mut()
+			.insert(height.id, previous_height.unwrap_or_default());
+
 		self.latest_state_height.borrow_mut().insert(height.id, height.height);
 		Ok(())
 	}
@@ -388,6 +395,10 @@ impl IsmpHost for Host {
 
 	fn ismp_router(&self) -> Box<dyn IsmpRouter> {
 		Box::new(MockRouter(self.clone()))
+	}
+
+	fn previous_commitment_height(&self, id: StateMachineId) -> Option<u64> {
+		self.previous_state_height.borrow().get(&id).copied()
 	}
 }
 

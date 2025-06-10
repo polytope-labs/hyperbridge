@@ -116,23 +116,24 @@ where
 			if let IsmpEvent::StateMachineUpdated(update) = event {
 				state_machine_map.insert(
 					update.state_machine_id.clone(),
-					update.state_machine_id.consensus_state_id.clone(),
+					(update.state_machine_id.consensus_state_id.clone(), update.latest_height),
 				);
 			}
 		}
 
 		for message in messages {
 			if let Message::Consensus(consensus_msg) = message {
-				let matching_state_machine = state_machine_map
-					.iter()
-					.find(|(_, cid)| **cid == consensus_msg.consensus_state_id)
-					.map(|(sm_id, _)| sm_id.clone());
+				let maybe_match = state_machine_map.iter().find(|(_, (consensus_state_id, _))| {
+					*consensus_state_id == consensus_msg.consensus_state_id
+				});
 
-				if let Some(state_machine_id) = matching_state_machine {
-					let message_hash = keccak_256(&consensus_msg.consensus_proof);
+				if let Some((state_machine_id, (_, height))) = maybe_match {
+					let encoded = (consensus_msg.consensus_proof.clone(), *height).encode();
+					let message_id = H256::from(keccak_256(&encoded));
+
 					Self::process_message(
-						H256::from(message_hash),
-						state_machine_id,
+						message_id,
+						state_machine_id.clone(),
 						consensus_msg.signer.clone(),
 					)?;
 				}

@@ -23,6 +23,8 @@ use ismp::{consensus::StateMachineId, events::Event as IsmpEvent, messaging::Mes
 use pallet_ismp::fee_handler::FeeHandler;
 use polkadot_sdk::frame_support::traits::fungible::Mutate;
 use polkadot_sdk::sp_runtime::traits::*;
+use sp_core::keccak_256;
+use sp_core::H256;
 
 impl<T: Config> Pallet<T>
 where
@@ -35,7 +37,7 @@ where
 	///  It extracts relayer information, calculates the
 	/// appropriate reward, and updates the relayer's reward balance.
 	fn process_message(
-		message_id: &Vec<u8>,
+		message_id: H256,
 		state_machine_id: StateMachineId,
 		relayer_address: Vec<u8>,
 	) -> Result<<T as pallet_ismp::Config>::Balance, Error<T>> {
@@ -68,7 +70,7 @@ where
 		Self::deposit_event(Event::<T>::RelayerRewarded {
 			relayer: relayer_account,
 			amount: reward,
-			message_id: message_id.clone(),
+			message_id,
 		});
 
 		Ok(reward)
@@ -112,8 +114,6 @@ where
 			}
 		}
 
-		let mut total_rewards = <T as pallet_ismp::Config>::Balance::zero();
-
 		for message in messages {
 			if let Message::Consensus(consensus_msg) = message {
 				let matching_state_machine = state_machine_map
@@ -122,23 +122,19 @@ where
 					.map(|(sm_id, _)| sm_id.clone());
 
 				if let Some(state_machine_id) = matching_state_machine {
-					match Self::process_message(
-						&consensus_msg.consensus_proof,
+					let message_hash = keccak_256(&consensus_msg.consensus_proof);
+					Self::process_message(
+						H256::from(message_hash),
 						state_machine_id,
 						consensus_msg.signer.clone(),
-					) {
-						Ok(reward) => {
-							total_rewards = total_rewards.saturating_add(reward);
-						},
-						Err(_e) => {},
-					}
+					)?;
 				}
 			}
 		}
 
 		// Return with actual weight information
-		// We use Pays::Yes to indicate that someone (the message sender) pays for this operation,
+		// We use Pays::No to indicate that someone (the message sender) doesn't pay for this operation,
 		// though we're using this mechanism to reward relayers rather than charge fees
-		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::Yes })
+		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 	}
 }

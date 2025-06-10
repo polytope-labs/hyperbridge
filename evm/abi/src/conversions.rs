@@ -378,8 +378,8 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 						consensus_state_id: Default::default(),
 					},
 					latest_height: filter.height.low_u64(),
-					previous_height: 0,
-				})),
+				}))
+			},
 			EvmHostEvents::PostRequestTimeoutHandledFilter(handled) => {
 				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::PostRequestTimeoutHandled(TimeoutHandled {

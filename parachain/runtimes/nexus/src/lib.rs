@@ -826,6 +826,8 @@ impl pallet_proxy::Config for Runtime {
 
 #[frame_support::runtime]
 mod runtime {
+	use governance::Origin;
+
 	#[runtime::runtime]
 	#[runtime::derive(
 		RuntimeCall,
@@ -930,6 +932,14 @@ mod runtime {
 	// Governance
 	#[runtime::pallet_index(80)]
 	pub type TechnicalCollective = pallet_collective;
+	#[runtime::pallet_index(81)]
+	pub type Origins = governance::custom_origins;
+	#[runtime::pallet_index(82)]
+	pub type Referenda = pallet_referenda;
+	#[runtime::pallet_index(83)]
+	pub type Whitelist = pallet_whitelist;
+	#[runtime::pallet_index(84)]
+	pub type ConvictionVoting = pallet_conviction_voting;
 
 	// consensus clients
 	#[runtime::pallet_index(255)]

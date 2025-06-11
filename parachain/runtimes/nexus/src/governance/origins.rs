@@ -2,6 +2,7 @@ pub use custom_origins::*;
 
 #[polkadot_sdk::frame_support::pallet]
 pub mod custom_origins {
+	use crate::OriginCaller;
 	use crate::{Balance, UNIT};
 	use polkadot_sdk::frame_support::pallet_prelude::*;
 
@@ -11,7 +12,17 @@ pub mod custom_origins {
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
 
-	#[derive(PartialEq, Eq, Clone, MaxEncodedLen, Encode, Decode, TypeInfo, RuntimeDebug)]
+	#[derive(
+		PartialEq,
+		Eq,
+		Clone,
+		MaxEncodedLen,
+		Encode,
+		Decode,
+		DecodeWithMemTracking,
+		TypeInfo,
+		RuntimeDebug,
+	)]
 	#[pallet::origin]
 	pub enum Origin {
 		/// Origin able to dispatch a whitelisted call.

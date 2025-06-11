@@ -1,0 +1,117 @@
+pub use custom_origins::*;
+
+#[polkadot_sdk::frame_support::pallet]
+pub mod custom_origins {
+	use crate::{Balance, UNIT};
+	use polkadot_sdk::frame_support::pallet_prelude::*;
+
+	#[pallet::config]
+	pub trait Config: polkadot_sdk::frame_system::Config {}
+
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
+
+	#[derive(PartialEq, Eq, Clone, MaxEncodedLen, Encode, Decode, TypeInfo, RuntimeDebug)]
+	#[pallet::origin]
+	pub enum Origin {
+		/// Origin able to dispatch a whitelisted call.
+		WhitelistedCaller,
+		/// Origin for managing the composition of the fellowship.
+		FellowshipAdmin,
+		/// Origin able to cancel referenda.
+		ReferendumCanceller,
+		/// Origin able to kill referenda.
+		ReferendumKiller,
+		/// Origin able to manage Pallet with track3.
+		TechAdmin,
+		/// Origin able to manage Pallet with track6.
+		CoreAdmin,
+		/// Origin able to execute treasury.spend.
+		TreasurySpend,
+	}
+
+	macro_rules! decl_unit_ensures {
+			( $name:ident: $success_type:ty = $success:expr ) => {
+				pub struct $name;
+				impl<O: OriginTrait + From<Origin>> EnsureOrigin<O> for $name
+				where
+					for <'a> &'a O::PalletsOrigin: TryInto<&'a Origin>,
+				{
+					type Success = $success_type;
+					fn try_origin(o: O) -> Result<Self::Success, O> {
+						match o.caller().try_into() {
+							Ok(Origin::$name) => return Ok($success),
+							_ => (),
+						}
+
+						Err(o)
+					}
+					#[cfg(feature = "runtime-benchmarks")]
+					fn try_successful_origin() -> Result<O, ()> {
+						Ok(O::from(Origin::$name))
+					}
+				}
+			};
+			( $name:ident ) => { decl_unit_ensures! { $name : () = () } };
+			( $name:ident: $success_type:ty = $success:expr, $( $rest:tt )* ) => {
+				decl_unit_ensures! { $name: $success_type = $success }
+				decl_unit_ensures! { $( $rest )* }
+			};
+			( $name:ident, $( $rest:tt )* ) => {
+				decl_unit_ensures! { $name }
+				decl_unit_ensures! { $( $rest )* }
+			};
+			() => {}
+		}
+	decl_unit_ensures!(
+		ReferendumCanceller,
+		ReferendumKiller,
+		WhitelistedCaller,
+		FellowshipAdmin,
+		TechAdmin,
+		CoreAdmin,
+		TreasurySpend,
+	);
+
+	macro_rules! decl_ensure {
+			(
+				$vis:vis type $name:ident: EnsureOrigin<Success = $success_type:ty> {
+					$( $item:ident = $success:expr, )*
+				}
+			) => {
+				$vis struct $name;
+				impl<O: OriginTrait + From<Origin> + TryFrom<Origin>> EnsureOrigin<O> for $name
+				where
+					for <'a> &'a O::PalletsOrigin: TryInto<&'a Origin>,
+				{
+					type Success = $success_type;
+					fn try_origin(o: O) -> Result<Self::Success, O> {
+						match o.caller().try_into() {
+							$(
+								Ok(Origin::$item) => return Ok($success),
+							)*
+							_ => (),
+						}
+
+						Err(o)
+					}
+					#[cfg(feature = "runtime-benchmarks")]
+					fn try_successful_origin() -> Result<O, ()> {
+						// By convention the more privileged origins go later, so for greatest chance
+						// of success, we want the last one.
+						let _result: Result<O, ()> = Err(());
+						$(
+							let _result: Result<O, ()> = Ok(O::from(Origin::$item));
+						)*
+						_result
+					}
+				}
+			}
+		}
+
+	decl_ensure! {
+		pub type Spender: EnsureOrigin<Success = Balance> {
+			TreasurySpend = 100_000 * UNIT,
+		}
+	}
+}

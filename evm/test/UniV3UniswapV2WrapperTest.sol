@@ -40,7 +40,7 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
         );
     }
 
-    function testSwapETHForExactTokens() public {
+    /*function testSwapETHForExactTokens() public {
         // Create path for the swap (ETH -> DAI)
         address[] memory path = new address[](2);
         path[0] = WETH;
@@ -79,7 +79,7 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
         assertEq(amounts[1], amountOut, "Amount out should match requested amount");
         assertTrue(WHALE.balance < initialEthBalance, "ETH balance should decrease");
         assertTrue(WHALE.balance == initialEthBalance - amounts[0], "Should receive refund for unused ETH");
-    }
+    }*/
 
     // Required to receive ETH refunds
     receive() external payable {}

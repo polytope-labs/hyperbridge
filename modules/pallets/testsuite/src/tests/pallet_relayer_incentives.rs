@@ -29,7 +29,7 @@ use ismp::{
 };
 
 use crate::runtime::*;
-use crate::runtime::{new_test_ext, Ismp, RuntimeCall, RuntimeOrigin, Test, Timestamp};
+use crate::runtime::{new_test_ext, Ismp, RuntimeOrigin, Test};
 
 #[test]
 fn test_incentivize_relayer() {
@@ -47,7 +47,7 @@ fn test_incentivize_relayer() {
 		let relayer = H256::random().0;
 		let relayer_account: AccountId32 = relayer.into();
 		assert_eq!(Balances::balance(&relayer_account), Default::default());
-		Balances::mint_into(&relayer_account, 20 * UNIT).unwrap();
+		Balances::mint_into(&relayer_account, UNIT).unwrap();
 
 		pallet_relayer_incentives::Pallet::<Test>::update_cost_per_block(
 			RuntimeOrigin::root(),
@@ -56,7 +56,7 @@ fn test_incentivize_relayer() {
 		)
 		.unwrap();
 
-		assert_eq!(pallet_relayer_incentives::RelayerRewards::<Test>::get(&relayer_account), 0u128);
+		assert_eq!(Balances::balance(&relayer_account), UNIT);
 
 		let treasury_account = PalletId(*b"treasury");
 
@@ -83,9 +83,6 @@ fn test_incentivize_relayer() {
 		.unwrap();
 
 		// check that relayer was rewarded
-		assert_eq!(
-			pallet_relayer_incentives::RelayerRewards::<Test>::get(&relayer_account),
-			4200u128
-		);
+		assert_eq!(Balances::balance(&relayer_account), UNIT + 4200);
 	})
 }

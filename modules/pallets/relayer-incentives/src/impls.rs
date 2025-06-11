@@ -24,8 +24,6 @@ use ismp::{consensus::StateMachineId, events::Event as IsmpEvent, messaging::Mes
 use pallet_ismp::fee_handler::FeeHandler;
 use polkadot_sdk::frame_support::traits::fungible::Mutate;
 use polkadot_sdk::sp_runtime::traits::*;
-use sp_core::H256;
-use sp_io::hashing::keccak_256;
 
 impl<T: Config> Pallet<T>
 where
@@ -36,17 +34,12 @@ where
 	/// This is an internal function used to handle relayer rewards for each
 	/// processed message, this targets just ConsensusMessage for now.
 	///  It extracts relayer information, calculates the
-	/// appropriate reward, and updates the relayer's reward balance.
+	/// appropriate reward, and and transfer the reward to the relayer.
 	fn process_message(
-		message_id: H256,
+		state_machine_height: StateMachineHeight,
 		state_machine_id: StateMachineId,
 		relayer_address: Vec<u8>,
 	) -> Result<<T as pallet_ismp::Config>::Balance, Error<T>> {
-		// Check if message has already been processed
-		if ProcessedMessages::<T>::get(&message_id) {
-			return Err(Error::<T>::MessageAlreadyProcessed);
-		}
-
 		if relayer_address.len() != 32 {
 			return Err(Error::<T>::InvalidAddress);
 		}
@@ -59,10 +52,6 @@ where
 
 		let reward = Self::calculate_reward(&state_machine_id)?;
 
-		RelayerRewards::<T>::mutate(relayer_account.clone(), |balance| {
-			*balance = balance.saturating_add(reward);
-		});
-
 		T::Currency::transfer(
 			&T::TreasuryAccount::get().into_account_truncating(),
 			&relayer_account,
@@ -71,14 +60,11 @@ where
 		)
 		.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
-		// Mark message as processed
-		ProcessedMessages::<T>::insert(message_id.clone(), true);
-
 		// Emit reward event
 		Self::deposit_event(Event::<T>::RelayerRewarded {
 			relayer: relayer_account,
 			amount: reward,
-			message_id,
+			state_machine_height,
 		});
 
 		Ok(reward)
@@ -132,12 +118,8 @@ where
 					let state_machine_height =
 						StateMachineHeight { id: state_machine_id.clone(), height: height.clone() };
 
-					let encoded =
-						(consensus_msg.consensus_proof.clone(), state_machine_height).encode();
-					let message_id = H256::from(keccak_256(&encoded));
-
 					Self::process_message(
-						message_id,
+						state_machine_height,
 						state_machine_id.clone(),
 						consensus_msg.signer.clone(),
 					)?;

@@ -92,7 +92,7 @@ pub mod pallet {
 			relayer: T::AccountId,
 			/// Amount of the reward
 			amount: <T as pallet_ismp::Config>::Balance,
-			/// The state machine height at which the reward happens
+			///  Metadata about the state machine and height that was rewarded
 			state_machine_height: StateMachineHeight,
 		},
 		/// State Machine cost per block updated

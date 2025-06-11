@@ -604,4 +604,9 @@ pub mod pallet {
 			Self(PhantomData)
 		}
 	}
+
+	/// Static weights because these should get overridden by the FeeHandler
+	fn weight() -> Weight {
+		Weight::from_parts(300_000_000, 0)
+	}
 }

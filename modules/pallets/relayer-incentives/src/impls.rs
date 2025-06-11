@@ -18,6 +18,7 @@
 use crate::*;
 use alloc::collections::BTreeMap;
 use frame_support::traits::tokens::Preservation;
+use ismp::consensus::StateMachineHeight;
 use ismp::host::IsmpHost;
 use ismp::{consensus::StateMachineId, events::Event as IsmpEvent, messaging::Message};
 use pallet_ismp::fee_handler::FeeHandler;
@@ -128,7 +129,11 @@ where
 				});
 
 				if let Some((state_machine_id, (_, height))) = maybe_match {
-					let encoded = (consensus_msg.consensus_proof.clone(), *height).encode();
+					let state_machine_height =
+						StateMachineHeight { id: state_machine_id.clone(), height: height.clone() };
+
+					let encoded =
+						(consensus_msg.consensus_proof.clone(), state_machine_height).encode();
 					let message_id = H256::from(keccak_256(&encoded));
 
 					Self::process_message(

@@ -12903,6 +12903,7 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
  "pallet-mmr-tree",
+ "pallet-relayer-incentives",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -13366,6 +13367,17 @@ dependencies = [
  "sp-arithmetic",
  "sp-io 40.0.1",
  "sp-runtime 41.1.0",
+]
+
+[[package]]
+name = "pallet-relayer-incentives"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk 2503.0.1",
+ "scale-info",
 ]
 
 [[package]]

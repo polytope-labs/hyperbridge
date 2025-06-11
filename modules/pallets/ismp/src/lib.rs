@@ -50,12 +50,14 @@ pub mod pallet {
 	use codec::{Codec, Encode};
 	use core::fmt::Debug;
 	use frame_support::{
-		dispatch::{DispatchResult, DispatchResultWithPostInfo},
+		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{fungible::Mutate, tokens::Preservation, Get, UnixTime},
 		PalletId,
 	};
 	use frame_system::pallet_prelude::{BlockNumberFor, *};
+	#[cfg(feature = "unsigned")]
+	use ismp::messaging::Message;
 	use ismp::{
 		consensus::{
 			ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
@@ -64,7 +66,7 @@ pub mod pallet {
 		events::{RequestResponseHandled, TimeoutHandled},
 		handlers,
 		host::{IsmpHost, StateMachine},
-		messaging::{CreateConsensusState, Message},
+		messaging::CreateConsensusState,
 		router::IsmpRouter,
 	};
 	use sp_core::{storage::ChildInfo, H256};
@@ -215,6 +217,12 @@ pub mod pallet {
 	pub type LatestStateMachineHeight<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
 
+	/// The previous verified height for a state machine
+	#[pallet::storage]
+	#[pallet::getter(fn previous_state_machine_height)]
+	pub type PreviousStateMachineHeight<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
+
 	/// Holds the timestamp at which a consensus client was recently updated.
 	/// Used in ensuring that the configured challenge period elapses.
 	#[pallet::storage]
@@ -300,29 +308,9 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			Self::execute(messages.clone())?;
+			let events = Self::execute(messages.clone())?;
 
-			T::FeeHandler::on_executed(messages.clone())
-		}
-
-		/// Execute the provided batch of ISMP messages. This call will short-circuit and revert if
-		/// any of the provided messages are invalid.
-		///
-		/// The dispatch origin for this call must be an unsigned one.
-		///
-		/// - `messages`: A set of ISMP [`Message`]s to handle or process.
-		///
-		/// Emits different message events based on the Message received if successful.
-		#[cfg(not(feature = "unsigned"))]
-		#[pallet::weight(weight())]
-		#[pallet::call_index(1)]
-		#[frame_support::transactional]
-		pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResultWithPostInfo {
-			ensure_signed(origin)?;
-
-			Self::execute(messages.clone())?;
-
-			T::FeeHandler::on_executed(messages)
+			T::FeeHandler::on_executed(messages.clone(), events)
 		}
 
 		/// Create a consensus client, using a subjectively chosen consensus state. This can also
@@ -394,8 +382,9 @@ pub mod pallet {
 
 			let metadata = match message.commitment {
 				MessageCommitment::Request(commitment) => RequestCommitments::<T>::get(commitment),
-				MessageCommitment::Response(commitment) =>
-					ResponseCommitments::<T>::get(commitment),
+				MessageCommitment::Response(commitment) => {
+					ResponseCommitments::<T>::get(commitment)
+				},
 			};
 
 			let Some(mut metadata) = metadata else {
@@ -545,10 +534,11 @@ pub mod pallet {
 				// check that requests will be successfully dispatched
 				// so we can not be spammed with failing txs
 				.map(|result| match result {
-					MessageResult::Request(results) |
-					MessageResult::Response(results) |
-					MessageResult::Timeout(results) =>
-						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>(),
+					MessageResult::Request(results)
+					| MessageResult::Response(results)
+					| MessageResult::Timeout(results) => {
+						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>()
+					},
 					MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => {
 						vec![Ok(())]
 					},

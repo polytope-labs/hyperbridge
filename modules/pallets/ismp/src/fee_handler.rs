@@ -22,6 +22,7 @@ use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo
 use ismp::messaging::Message;
 
 use crate::weights::{get_weight, WeightProvider};
+use ismp::events::Event;
 
 /// Trait for handling fee calculations and settlements in the ISMP protocol.
 ///
@@ -90,7 +91,7 @@ pub trait FeeHandler {
 	/// * Economic incentives for relayers and validators
 	/// * Prevention of spam and denial-of-service attacks
 	/// * Fairness across different types of network participants
-	fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo;
+	fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo;
 }
 
 /// A weight-based fee handler implementation that calculates fees based on message processing
@@ -118,7 +119,7 @@ impl<Provider> FeeHandler for WeightFeeHandler<Provider>
 where
 	Provider: WeightProvider,
 {
-	fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo {
+	fn on_executed(messages: Vec<Message>, _events: Vec<Event>) -> DispatchResultWithPostInfo {
 		Ok(PostDispatchInfo {
 			actual_weight: Some(get_weight::<Provider>(&messages)),
 			pays_fee: Pays::Yes,

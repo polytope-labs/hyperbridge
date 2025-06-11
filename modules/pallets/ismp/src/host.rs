@@ -21,8 +21,8 @@ use crate::{
 	dispatcher::{RefundingRouter, RequestMetadata},
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, Responded,
-	StateMachineUpdateTime, UnbondingPeriod,
+	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight,
+	Responded, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
@@ -212,6 +212,8 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	}
 
 	fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error> {
+		let previous_height = LatestStateMachineHeight::<T>::get(height.id).unwrap_or_default();
+		PreviousStateMachineHeight::<T>::insert(height.id, previous_height);
 		LatestStateMachineHeight::<T>::insert(height.id, height.height);
 		Ok(())
 	}
@@ -313,6 +315,10 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		child_trie::ResponseCommitments::<T>::insert(hash, leaf_meta);
 		Responded::<T>::insert(req_commitment, true);
 		Ok(())
+	}
+
+	fn previous_commitment_height(&self, id: StateMachineId) -> Option<u64> {
+		PreviousStateMachineHeight::<T>::get(id)
 	}
 }
 

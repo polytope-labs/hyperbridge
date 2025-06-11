@@ -305,10 +305,11 @@ pub async fn generate_contract_calls(
 			Message::Consensus(msg) => {
 				let call =
 					contract.handle_consensus(ismp_host.0.into(), msg.consensus_proof.into());
-				let gas_limit = call
+				let estimated_gas = call
 					.estimate_gas()
 					.await
 					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
 				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
 				let call = call.gas_price(old_u256(gas_price)).gas(gas_limit);
 
@@ -337,7 +338,6 @@ pub async fn generate_contract_calls(
 					})
 					.collect::<Vec<_>>();
 				leaves.sort_by_key(|leaf| leaf.index);
-				let gas_limit = get_chain_gas_limit(client.state_machine);
 				let post_message = PostRequestMessage {
 					proof: Proof {
 						height: StateMachineHeight {
@@ -358,14 +358,18 @@ pub async fn generate_contract_calls(
 					requests: leaves,
 				};
 
+				let call = contract.handle_post_requests(ismp_host.0.into(), post_message);
+				let estimated_gas = call
+					.estimate_gas()
+					.await
+					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
+
 				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
 				let call = if set_gas_price() {
-					contract
-						.handle_post_requests(ismp_host.0.into(), post_message)
-						.gas_price(old_u256(gas_price))
-						.gas(gas_limit)
+					call.gas_price(old_u256(gas_price)).gas(gas_limit)
 				} else {
-					contract.handle_post_requests(ismp_host.0.into(), post_message).gas(gas_limit)
+					call.gas(gas_limit)
 				};
 				calls.push(call)
 			},
@@ -396,7 +400,6 @@ pub async fn generate_contract_calls(
 							})
 							.collect::<Vec<_>>();
 						leaves.sort_by_key(|leaf| leaf.index);
-						let gas_limit = get_chain_gas_limit(client.state_machine);
 						let message =
 							PostResponseMessage {
 								proof: Proof {
@@ -423,17 +426,19 @@ pub async fn generate_contract_calls(
 								responses: leaves,
 							};
 
+						let call = contract.handle_post_responses(ismp_host.0.into(), message);
+						let estimated_gas = call
+							.estimate_gas()
+							.await
+							.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
+
 						if set_gas_price() {
 							// U256 Conversion needed because of ether-rs and polkadot-sdk
 							// incompatibility
-							contract
-								.handle_post_responses(ismp_host.0.into(), message)
-								.gas_price(old_u256(gas_price))
-								.gas(gas_limit)
+							call.gas_price(old_u256(gas_price)).gas(gas_limit)
 						} else {
-							contract
-								.handle_post_responses(ismp_host.0.into(), message)
-								.gas(gas_limit)
+							call.gas(gas_limit)
 						}
 					},
 					RequestResponse::Request(..) =>
@@ -459,6 +464,9 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 		_ => Default::default(),
 	}
 }
+
+
+
 
 pub async fn handle_message_submission(
 	client: &EvmClient,

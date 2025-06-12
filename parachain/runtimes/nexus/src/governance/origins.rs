@@ -2,7 +2,6 @@ pub use custom_origins::*;
 
 #[polkadot_sdk::frame_support::pallet]
 pub mod custom_origins {
-	use crate::OriginCaller;
 	use crate::{Balance, UNIT};
 	use polkadot_sdk::frame_support::pallet_prelude::*;
 

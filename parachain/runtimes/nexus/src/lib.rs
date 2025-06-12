@@ -940,6 +940,10 @@ mod runtime {
 	pub type Whitelist = pallet_whitelist;
 	#[runtime::pallet_index(84)]
 	pub type ConvictionVoting = pallet_conviction_voting;
+	#[runtime::pallet_index(85)]
+	pub type Scheduler = pallet_scheduler;
+	#[runtime::pallet_index(86)]
+	pub type Preimage = pallet_preimage;
 
 	// consensus clients
 	#[runtime::pallet_index(255)]

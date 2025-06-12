@@ -1,0 +1,22 @@
+{{> metadata}}
+{{> network-config}}
+{{#if chainTypesConfig}}
+  chaintypes:
+    file: {{chainTypesConfig}}
+{{/if}}
+dataSources:
+  - kind: substrate/Runtime
+    startBlock: {{blockNumber}}
+    mapping:
+      file: ./dist/index.js
+      handlers:
+      {{> handlers}}
+{{#if isHyperbridgeChain}}
+        - handler: handleSubstrateAssetTeleportedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: xcmGateway
+            method: AssetTeleported
+{{/if}}
+
+repository: 'https://github.com/polytope-labs/hyperbridge'

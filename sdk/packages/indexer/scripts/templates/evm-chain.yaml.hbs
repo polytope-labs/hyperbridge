@@ -1,0 +1,85 @@
+{{> metadata}}
+{{> network-config}}
+dataSources:
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: ethereumHost
+      address: '{{config.contracts.ethereumHost}}'
+    assets:
+      ethereumHost:
+        file: ./abis/EthereumHost.abi.json
+      chainLinkAggregatorV3:
+        file: ./abis/ChainLinkAggregatorV3.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+      {{> handlers}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: erc6160ext20
+      address: '{{config.contracts.erc6160ext20}}'
+    assets:
+      erc6160ext20:
+        file: ./abis/ERC6160Ext20.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handleTransferEvent
+          kind: ethereum/LogHandler
+          filter:
+            topics:
+              - 'Transfer(address indexed from, address indexed to, uint256 amount)'
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: intentGateway
+      address: '{{config.contracts.intentGateway}}'
+    assets:
+      intentGateway:
+        file: ./abis/IntentGateway.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleOrderPlacedEvent
+          filter:
+            topics:
+              - 'OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,(bytes32,uint256,bytes32)[],(bytes32,uint256)[],bytes)'
+        - kind: ethereum/LogHandler
+          handler: handleOrderFilledEvent
+          filter:
+            topics:
+              - 'OrderFilled(bytes32,address)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowReleasedEvent
+          filter:
+            topics:
+              - 'EscrowReleased(bytes32)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowRefundedEvent
+          filter:
+            topics:
+              - 'EscrowRefunded(bytes32)'
+  # - kind: ethereum/Runtime
+  #   startBlock: 21535312
+  #   options:
+  #     abi: handlerV1
+  #     address: '0xA801da100bF16D07F668F4A49E1f71fc54D05177'
+  #   assets:
+  #     handlerV1:
+  #       file: ./abis/HandlerV1.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - handler: handlePostRequestTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
+  #       - handler: handlePostResponseTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
+
+repository: 'https://github.com/polytope-labs/hyperbridge'

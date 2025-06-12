@@ -1,0 +1,6 @@
+network:
+  chainId: '{{config.chainId}}'
+  endpoint:
+{{#each endpoints}}
+    - '{{this}}'
+{{/each}}

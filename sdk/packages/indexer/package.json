@@ -27,6 +27,7 @@
 		"cryptocurrency",
 		"interoperability"
 	],
+	"type": "module",
 	"engines": {
 		"node": ">=22"
 	},
@@ -37,7 +38,7 @@
 		"clean": "rm -rf dist node_modules",
 		"server": "docker run -d --name graphql-server -p 3000:3000 --restart always --env-file ../../.env.$ENV subquerynetwork/subql-query:latest --name=app --playground",
 		"codegen:subql": "subql codegen -f src/configs",
-		"codegen:yamls": "node scripts/generate-chain-yamls.js && node scripts/generate-compose.js",
+		"codegen:yamls": "tsx scripts/generate-chain-yamls.ts && tsx scripts/generate-compose.ts",
 		"start": "./scripts/up.sh ./docker/$ENV",
 		"down": "./scripts/down.sh ./docker/$ENV",
 		"start:local": "ENV=local npm run build && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local up --force-recreate --remove-orphans && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local rm -fsv",
@@ -63,10 +64,12 @@
 		"decimal.js": "^10.5.0",
 		"dotenv": "^16.4.7",
 		"fast-text-encoding": "^1.0.6",
+		"handlebars": "^4.7.8",
 		"node-fetch": "^2.7.0",
 		"safe-stable-stringify": "^2.5.0",
 		"scale-ts": "^1.6.1",
-		"viem": "^2.23.5"
+		"viem": "^2.23.5",
+		"zod": "^3.25.32"
 	},
 	"devDependencies": {
 		"@subql/cli": "5.7.1-0",
@@ -75,6 +78,7 @@
 		"@subql/node-ethereum": "latest",
 		"@subql/testing": "latest",
 		"@subql/types": "latest",
+		"@types/handlebars": "^4.1.0",
 		"@types/jest": "^29.5.14",
 		"@types/node": "^22.13.5",
 		"@types/pino": "^7.0.4",
@@ -85,6 +89,7 @@
 		"ts-jest": "^29.2.6",
 		"ts-node": "^10.9.2",
 		"tslib": "^2.8.1",
+		"tsx": "^4.19.4",
 		"typescript": "latest"
 	},
 	"exports": {

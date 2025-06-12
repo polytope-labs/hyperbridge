@@ -1,0 +1,14 @@
+- ${SUB_COMMAND:-}
+- -f=/app/{{chainName}}.yaml
+- --db-schema=app
+- --workers=${SUBQL_WORKERS:-16}
+- --batch-size=${SUBQL_BATCH_SIZE:-100}
+- --multi-chain
+- --unsafe
+- --log-level=info
+{{#if unfinalizedBlocks}}
+- --historical=timestamp
+- --block-confirmations=0
+- --unfinalized-blocks
+{{/if}}
+- --store-cache-async=true

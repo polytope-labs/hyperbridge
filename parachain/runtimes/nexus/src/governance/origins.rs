@@ -47,10 +47,6 @@ pub mod custom_origins {
 		ReferendumCanceller,
 		/// Origin able to kill referenda.
 		ReferendumKiller,
-		/// Origin able to manage Pallet with track3.
-		TechAdmin,
-		/// Origin able to manage Pallet with track6.
-		CoreAdmin,
 		/// Origin able to execute treasury.spend.
 		TreasurySpend,
 	}
@@ -93,8 +89,6 @@ pub mod custom_origins {
 		ReferendumKiller,
 		WhitelistedCaller,
 		FellowshipAdmin,
-		TechAdmin,
-		CoreAdmin,
 		TreasurySpend,
 	);
 

@@ -55,6 +55,7 @@ use sp_runtime::{
 	ApplyExtrinsicResult, MultiSignature,
 };
 
+use crate::governance::TreasurySpender;
 use sp_core::Get;
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -321,7 +322,6 @@ use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, Contains},
 };
-use pallet_collective::PrimeDefaultVote;
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
@@ -672,7 +672,7 @@ impl pallet_treasury::Config for Runtime {
 	type WeightInfo = weights::pallet_treasury::WeightInfo<Runtime>;
 	type SpendFunds = ();
 	type MaxApprovals = ConstU32<1>; // number of technical collectives
-	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
+	type SpendOrigin = TreasurySpender;
 	type AssetKind = H256;
 	type Beneficiary = AccountId32;
 	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
@@ -694,22 +694,6 @@ impl pallet_asset_rate::Config for Runtime {
 	type AssetKind = H256;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = TreasuryAssetFactory;
-}
-
-impl pallet_collective::Config for Runtime {
-	type RuntimeOrigin = RuntimeOrigin;
-	type Proposal = RuntimeCall;
-	type RuntimeEvent = RuntimeEvent;
-	type MotionDuration = TechnicalMotionDuration;
-	type MaxProposals = TechnicalMaxProposals;
-	type MaxMembers = TechnicalMaxMembers;
-	type DefaultVote = PrimeDefaultVote;
-	type WeightInfo = weights::pallet_collective::WeightInfo<Runtime>;
-	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
-	type MaxProposalWeight = MaxCollectivesProposalWeight;
-	type DisapproveOrigin = EnsureRoot<Self::AccountId>;
-	type KillOrigin = EnsureRoot<Self::AccountId>;
-	type Consideration = ();
 }
 
 parameter_types! {
@@ -930,8 +914,6 @@ mod runtime {
 	pub type IsmpBsc = ismp_bsc::pallet;
 
 	// Governance
-	#[runtime::pallet_index(80)]
-	pub type TechnicalCollective = pallet_collective;
 	#[runtime::pallet_index(81)]
 	pub type Origins = governance::custom_origins;
 	#[runtime::pallet_index(82)]
@@ -971,7 +953,6 @@ mod benches {
 		[pallet_utility, Utility]
 		[pallet_treasury, Treasury]
 		[pallet_asset_rate, AssetRate]
-		[pallet_collective, TechnicalCollective]
 		[pallet_multisig, Multisig]
 		[pallet_proxy, Proxy]
 		[cumulus_pallet_parachain_system, ParachainSystem]

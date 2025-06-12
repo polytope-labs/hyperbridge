@@ -103,7 +103,7 @@ impl pallet_scheduler::Config for Runtime {
 	type WeightInfo = ();
 	type OriginPrivilegeCmp = frame_support::traits::EqualPrivilegeOnly;
 	type Preimages = Preimage;
-	type BlockNumberProvider = frame_system::Pallet<Runtime>;
+	type BlockNumberProvider = System;
 }
 
 impl pallet_referenda::Config for Runtime {

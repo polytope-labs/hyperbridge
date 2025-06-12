@@ -944,6 +944,10 @@ mod runtime {
 	pub type Scheduler = pallet_scheduler;
 	#[runtime::pallet_index(86)]
 	pub type Preimage = pallet_preimage;
+	#[runtime::pallet_index(87)]
+	pub type FellowshipCollective = pallet_ranked_collective<Instance1>;
+	#[runtime::pallet_index(88)]
+	pub type FellowshipReferenda = pallet_referenda<Instance2>;
 
 	// consensus clients
 	#[runtime::pallet_index(255)]

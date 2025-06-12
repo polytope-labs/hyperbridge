@@ -43,6 +43,18 @@ pub mod custom_origins {
 		WhitelistedCaller,
 		/// Origin for managing the composition of the fellowship.
 		FellowshipAdmin,
+		/// Origin commanded by any members of the Fellowship (no Dan grade needed).
+		FellowshipInitiates,
+		/// Origin commanded by Fellows (3rd Dan fellows or greater).
+		Fellows,
+		/// Origin commanded by rank 1 of the Polkadot Fellowship and with a success of 1.
+		Fellowship1Dan,
+		/// Origin commanded by rank 2 of the Polkadot Fellowship and with a success of 2.
+		Fellowship2Dan,
+		/// Origin commanded by rank 3 of the Polkadot Fellowship and with a success of 3.
+		Fellowship3Dan,
+		/// Origin commanded by rank 4 of the Polkadot Fellowship and with a success of 4.
+		Fellowship4Dan,
 		/// Origin able to cancel referenda.
 		ReferendumCanceller,
 		/// Origin able to kill referenda.
@@ -89,6 +101,8 @@ pub mod custom_origins {
 		ReferendumKiller,
 		WhitelistedCaller,
 		FellowshipAdmin,
+		FellowshipInitiates: u16 = 0,
+		Fellows: u16 = 3,
 		TreasurySpend,
 	);
 
@@ -131,6 +145,15 @@ pub mod custom_origins {
 	decl_ensure! {
 		pub type Spender: EnsureOrigin<Success = Balance> {
 			TreasurySpend = 100_000 * UNIT,
+		}
+	}
+
+	decl_ensure! {
+		pub type EnsureFellowship: EnsureOrigin<Success = u16> {
+			Fellowship1Dan = 1,
+			Fellowship2Dan = 2,
+			Fellowship3Dan = 3,
+			Fellowship4Dan = 4,
 		}
 	}
 }

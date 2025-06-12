@@ -21,6 +21,14 @@ use crate::frame_support::traits::fungible::HoldConsideration;
 use crate::frame_support::traits::EitherOf;
 use crate::frame_support::traits::EitherOfDiverse;
 use crate::frame_support::traits::LinearStoragePrice;
+use crate::frame_support::traits::MapSuccess;
+use crate::frame_support::traits::TryMapSuccess;
+use crate::sp_core::TypedGet;
+use crate::sp_runtime::morph_types;
+use crate::sp_runtime::traits::CheckedSub;
+use crate::sp_runtime::traits::ConstU16;
+use crate::sp_runtime::traits::Replace;
+use crate::sp_runtime::traits::ReplaceWithDefault;
 use crate::Preimage;
 pub use origins::{
 	custom_origins, FellowshipAdmin, ReferendumCanceller, ReferendumKiller, WhitelistedCaller, *,
@@ -125,4 +133,75 @@ impl pallet_referenda::Config for Runtime {
 	type Tracks = TracksInfo;
 	type Preimages = Preimage;
 	type BlockNumberProvider = System;
+}
+
+pub type FellowshipReferendaInstance = pallet_referenda::Instance2;
+
+impl pallet_referenda::Config<FellowshipReferendaInstance> for Runtime {
+	type WeightInfo = ();
+	type RuntimeCall = RuntimeCall;
+	type RuntimeEvent = RuntimeEvent;
+	type Scheduler = Scheduler;
+	type Currency = Balances;
+	type SubmitOrigin =
+		pallet_ranked_collective::EnsureMember<Runtime, FellowshipCollectiveInstance, 1>;
+	type CancelOrigin = Fellows;
+	type KillOrigin = Fellows;
+	type Slash = Treasury;
+	type Votes = pallet_ranked_collective::Votes;
+	type Tally = pallet_ranked_collective::TallyOf<Runtime, FellowshipCollectiveInstance>;
+	type SubmissionDeposit = SubmissionDeposit;
+	type MaxQueued = ConstU32<100>;
+	type UndecidingTimeout = UndecidingTimeout;
+	type AlarmInterval = AlarmInterval;
+	type Tracks = TracksInfo;
+	type Preimages = Preimage;
+	type BlockNumberProvider = System;
+}
+
+pub type FellowshipCollectiveInstance = pallet_ranked_collective::Instance1;
+
+morph_types! {
+	/// A `TryMorph` implementation to reduce a scalar by a particular amount, checking for
+	/// underflow.
+	pub type CheckedReduceBy<N: TypedGet>: TryMorph = |r: N::Type| -> Result<N::Type, ()> {
+		r.checked_sub(&N::get()).ok_or(())
+	} where N::Type: CheckedSub;
+}
+
+impl pallet_ranked_collective::Config<FellowshipCollectiveInstance> for Runtime {
+	type WeightInfo = ();
+	type RuntimeEvent = RuntimeEvent;
+	// Promotion is by any of:
+	// - Root can demote arbitrarily.
+	// - the FellowshipAdmin origin (i.e. token holder referendum);
+	// - a vote by the rank *above* the new rank.
+	type PromoteOrigin = EitherOf<
+		frame_system::EnsureRootWithSuccess<Self::AccountId, ConstU16<65535>>,
+		EitherOf<
+			MapSuccess<FellowshipAdmin, Replace<ConstU16<3>>>,
+			TryMapSuccess<origins::EnsureFellowship, CheckedReduceBy<ConstU16<1>>>,
+		>,
+	>;
+	// Demotion is by any of:
+	// - Root can demote arbitrarily.
+	// - the FellowshipAdmin origin (i.e. token holder referendum);
+	// - a vote by the rank two above the current rank.
+	type DemoteOrigin = EitherOf<
+		frame_system::EnsureRootWithSuccess<Self::AccountId, ConstU16<65535>>,
+		EitherOf<
+			MapSuccess<FellowshipAdmin, Replace<ConstU16<3>>>,
+			TryMapSuccess<origins::EnsureFellowship, CheckedReduceBy<ConstU16<2>>>,
+		>,
+	>;
+	type Polls = FellowshipReferenda;
+	type MinRankOfClass = sp_runtime::traits::Identity;
+	type VoteWeight = pallet_ranked_collective::Geometric;
+	type MemberSwappedHandler = ();
+	type ExchangeOrigin = EitherOfDiverse<FellowshipAdmin, EnsureRoot<AccountId>>;
+	type AddOrigin = MapSuccess<Self::PromoteOrigin, ReplaceWithDefault<()>>;
+	type RemoveOrigin = Self::DemoteOrigin;
+	#[cfg(feature = "runtime-benchmarks")]
+	type BenchmarkSetup = ();
+	type MaxMemberCount = ();
 }

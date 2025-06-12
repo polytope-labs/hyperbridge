@@ -979,6 +979,11 @@ mod benches {
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
 		[pallet_transaction_payment, TransactionPayment]
+		[pallet_referenda, Referenda]
+		[pallet_whitelist, Whitelist]
+		[pallet_conviction_voting, ConvictionVoting]
+		[pallet_scheduler, Scheduler]
+		[pallet_preimage, Preimage]
 	);
 }
 

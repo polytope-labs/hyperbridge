@@ -30,7 +30,7 @@ pub use tracks::TracksInfo;
 impl origins::custom_origins::Config for Runtime {}
 
 parameter_types! {
-	pub const VoteLockingPeriod: BlockNumber = 7 * DAYS;
+	pub const VoteLockingPeriod: BlockNumber = 1 * DAYS;
 }
 
 parameter_types! {

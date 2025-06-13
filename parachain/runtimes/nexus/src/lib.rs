@@ -281,6 +281,9 @@ const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
 	cumulus_primitives_core::relay_chain::MAX_POV_SIZE as u64,
 );
 
+/// Minimum number of technical collective to agree for the Technical collective Origin to be used.
+pub const MIN_TECH_COLLECTIVE_APPROVAL: u32 = 2;
+
 /// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
 pub fn native_version() -> NativeVersion {
@@ -341,8 +344,8 @@ impl Contains<RuntimeCall> for IsTreasurySpend {
 	fn contains(c: &RuntimeCall) -> bool {
 		matches!(
 			c,
-			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. })
-				| RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
+			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. }) |
+				RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
 		)
 	}
 }

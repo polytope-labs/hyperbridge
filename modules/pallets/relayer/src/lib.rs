@@ -303,8 +303,8 @@ where
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
-		if available_amount
-			< Self::min_withdrawal_amount(withdrawal_data.dest_chain)
+		if available_amount <
+			Self::min_withdrawal_amount(withdrawal_data.dest_chain)
 				.unwrap_or(MinWithdrawal::get())
 		{
 			Err(Error::<T>::NotEnoughBalance)?

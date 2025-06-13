@@ -39,7 +39,7 @@ use pallet_xcm_gateway::AssetGatewayParams;
 use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
 
-use crate::TechnicalCollectiveInstance;
+use crate::{TechnicalCollectiveInstance, MIN_TECH_COLLECTIVE_APPROVAL};
 use anyhow::anyhow;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
@@ -64,17 +64,29 @@ pub type Ethereum = ismp_sync_committee::pallet::Instance1;
 pub type Gnosis = ismp_sync_committee::pallet::Instance2;
 
 impl ismp_sync_committee::pallet::Config<Ethereum> for Runtime {
-	type AdminOrigin = EnsureRoot<AccountId>;
+	type AdminOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 	type IsmpHost = Ismp;
 }
 
 impl ismp_sync_committee::pallet::Config<Gnosis> for Runtime {
-	type AdminOrigin = EnsureRoot<AccountId>;
+	type AdminOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 	type IsmpHost = Ismp;
 }
 
 impl ismp_bsc::pallet::Config for Runtime {
-	type AdminOrigin = EnsureRoot<AccountId>;
+	type AdminOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 }
@@ -100,7 +112,11 @@ impl ismp_grandpa::Config for Runtime {
 
 impl pallet_ismp::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type AdminOrigin = pallet_collective::EnsureMembers<AccountId, TechnicalCollectiveInstance, 2>;
+	type AdminOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 	type HostStateMachine = HostStateMachine;
 	type TimestampProvider = Timestamp;
 	type Router = Router;
@@ -128,13 +144,21 @@ impl pallet_ismp::Config for Runtime {
 impl pallet_ismp_relayer::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
-	type RelayerOrigin = EnsureRoot<AccountId>;
+	type RelayerOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
-	type HostExecutiveOrigin = EnsureRoot<AccountId>;
+	type HostExecutiveOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 }
 
 impl pallet_call_decompressor::Config for Runtime {
@@ -144,7 +168,11 @@ impl pallet_call_decompressor::Config for Runtime {
 impl pallet_fishermen::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EnsureRoot<AccountId>;
+	type FishermenOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 }
 
 impl ismp_parachain::Config for Runtime {
@@ -164,14 +192,22 @@ impl pallet_xcm_gateway::Config for Runtime {
 	type Params = TransferParams;
 	type IsmpHost = Ismp;
 	type Assets = Assets;
-	type GatewayOrigin = EnsureRoot<AccountId>;
+	type GatewayOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 }
 
 impl pallet_token_governor::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Dispatcher = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
-	type GovernorOrigin = EnsureRoot<AccountId>;
+	type GovernorOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -240,9 +276,8 @@ impl IsmpModule for ProxyModule {
 		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
-			id if id == xcm_gateway => {
-				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request)
-			},
+			id if id == xcm_gateway =>
+				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
 			id if id == token_governor => TokenGovernor::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
@@ -269,9 +304,8 @@ impl IsmpModule for ProxyModule {
 				(&post.from, &post.source, &post.dest)
 			},
 			Timeout::Request(Request::Get(get)) => (&get.from, &get.source, &get.dest),
-			Timeout::Response(res) => {
-				(&res.source_module(), &res.source_chain(), &res.dest_chain())
-			},
+			Timeout::Response(res) =>
+				(&res.source_module(), &res.source_chain(), &res.dest_chain()),
 		};
 
 		if *source != HostStateMachine::get() {
@@ -281,9 +315,8 @@ impl IsmpModule for ProxyModule {
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
 		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(dest));
 		match pallet_id {
-			id if id == xcm_gateway => {
-				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout)
-			},
+			id if id == xcm_gateway =>
+				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(()),
 		}

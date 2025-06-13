@@ -77,6 +77,9 @@ pub mod pallet {
 
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
+
+		/// Origin for privileged actions
+		type RelayerOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// double map of address to source chain, which holds the amount of the relayer address
@@ -205,7 +208,7 @@ pub mod pallet {
 			state_machine: StateMachine,
 			amount: u128,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::RelayerOrigin::ensure_origin(origin)?;
 			MinimumWithdrawalAmount::<T>::insert(state_machine, U256::from(amount));
 			Ok(())
 		}

@@ -58,6 +58,9 @@ pub mod pallet {
 
 		/// The [`IsmpDispatcher`] implementation to use for dispatching requests
 		type IsmpHost: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
+
+		/// Origin for privileged actions
+		type HostExecutiveOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// Host Params for all connected chains
@@ -79,7 +82,7 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// `AdminOrigin` has initiated a host parameter update to the mentioned state
+		/// `HostExecutiveOrigin` has initiated a host parameter update to the mentioned state
 		/// machine
 		HostParamsUpdated {
 			/// State machine's whose host params should be updated
@@ -89,7 +92,7 @@ pub mod pallet {
 			/// The new host params
 			new: HostParam<<T as pallet_ismp::Config>::Balance>,
 		},
-		/// `AdminOrigin` has set the initial host parameters for the mentioned state
+		/// `HostExecutiveOrigin` has set the initial host parameters for the mentioned state
 		/// machine
 		HostParamsSet {
 			/// State machine's whose host params should be updated
@@ -137,7 +140,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			params: BTreeMap<StateMachine, HostParam<<T as pallet_ismp::Config>::Balance>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::HostExecutiveOrigin::ensure_origin(origin)?;
 
 			for (state_machine, params) in params {
 				HostParams::<T>::insert(state_machine.clone(), params.clone());
@@ -155,7 +158,7 @@ pub mod pallet {
 			state_machine: StateMachine,
 			update: HostParamUpdate<T::Balance>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::HostExecutiveOrigin::ensure_origin(origin)?;
 
 			let params = HostParams::<T>::get(&state_machine)
 				.ok_or_else(|| Error::<T>::UnknownStateMachine)?;
@@ -222,7 +225,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			params: BTreeMap<StateMachine, H160>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::HostExecutiveOrigin::ensure_origin(origin)?;
 
 			for (state_machine, address) in params {
 				let old = EvmHosts::<T>::get(&state_machine);

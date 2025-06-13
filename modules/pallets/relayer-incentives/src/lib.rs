@@ -58,6 +58,9 @@ pub mod pallet {
 
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
+
+		/// Origin for privileged actions
+		type IncentivesOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	// Mapping from state machineId to respective cost per block
@@ -114,7 +117,7 @@ pub mod pallet {
 			state_machine_id: StateMachineId,
 			cost_per_block: <T as pallet_ismp::Config>::Balance,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::IncentivesOrigin::ensure_origin(origin)?;
 
 			StateMachinesCostPerBlock::<T>::mutate(state_machine_id.clone(), |block_cost| {
 				*block_cost = cost_per_block;

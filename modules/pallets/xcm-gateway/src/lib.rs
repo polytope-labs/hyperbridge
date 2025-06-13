@@ -95,6 +95,11 @@ pub mod pallet {
 
 		/// Fungible asset implementation
 		type Assets: fungibles::Mutate<Self::AccountId> + fungibles::Inspect<Self::AccountId>;
+
+		/// Origin for privileged actions
+		type GatewayOrigin: EnsureOrigin<
+			<Self as polkadot_sdk::frame_system::Config>::RuntimeOrigin,
+		>;
 	}
 
 	#[pallet::storage]
@@ -206,7 +211,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			update: TokenGatewayParamsUpdate,
 		) -> DispatchResult {
-			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
+			T::GatewayOrigin::ensure_origin(origin)?;
 			let mut current_params = Params::<T>::get().unwrap_or(T::Params::get());
 
 			if let Some(protocol_fee_percentage) = update.protocol_fee_percentage {

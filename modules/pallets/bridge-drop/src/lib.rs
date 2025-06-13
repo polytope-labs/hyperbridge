@@ -66,6 +66,9 @@ pub mod pallet {
 
 		/// Currency implementation
 		type Currency: Currency<Self::AccountId>;
+
+		/// Origin for privileged actions
+		type BridgeDropOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// Set of leaf indexes that have been claimed
@@ -210,7 +213,7 @@ pub mod pallet {
 			root: H256,
 			leaf_count: u64,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::BridgeDropOrigin::ensure_origin(origin)?;
 
 			MerkleRoot::<T>::put((root, leaf_count));
 			Ok(())
@@ -224,7 +227,7 @@ pub mod pallet {
 			root: H256,
 			leaf_count: u64,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::BridgeDropOrigin::ensure_origin(origin)?;
 
 			IroMerkleRoot::<T>::put((root, leaf_count));
 			Ok(())
@@ -238,7 +241,7 @@ pub mod pallet {
 			root: H256,
 			leaf_count: u64,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::BridgeDropOrigin::ensure_origin(origin)?;
 
 			CrowdloanMerkleRoot::<T>::put((root, leaf_count));
 			Ok(())
@@ -362,8 +365,8 @@ pub mod pallet {
 			let unlock_per_block = amount / EIGHTEEN_MONTHS as u128;
 
 			let starting_block = StartingBlock::<T>::get()
-				.unwrap_or(frame_system::Pallet::<T>::block_number()) +
-				SIX_MONTHS.into();
+				.unwrap_or(frame_system::Pallet::<T>::block_number())
+				+ SIX_MONTHS.into();
 
 			pallet_vesting::Pallet::<T>::add_vesting_schedule(
 				&beneficiary,

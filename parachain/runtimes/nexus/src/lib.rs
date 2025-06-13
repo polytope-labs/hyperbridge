@@ -347,6 +347,8 @@ impl Contains<RuntimeCall> for IsTreasurySpend {
 	}
 }
 
+pub type TechnicalCollectiveInstance = pallet_collective::Instance1;
+
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
 	/// The identifier used to distinguish between accounts.
@@ -697,7 +699,7 @@ impl pallet_asset_rate::Config for Runtime {
 	type BenchmarkHelper = TreasuryAssetFactory;
 }
 
-impl pallet_collective::Config for Runtime {
+impl pallet_collective::Config<TechnicalCollectiveInstance> for Runtime {
 	type RuntimeOrigin = RuntimeOrigin;
 	type Proposal = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
@@ -932,7 +934,7 @@ mod runtime {
 
 	// Governance
 	#[runtime::pallet_index(80)]
-	pub type TechnicalCollective = pallet_collective;
+	pub type TechnicalCollective = pallet_collective::pallet<Instance1>;
 	#[runtime::pallet_index(81)]
 	pub type Origins = governance::custom_origins;
 	#[runtime::pallet_index(82)]

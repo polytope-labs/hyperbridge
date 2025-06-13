@@ -39,6 +39,7 @@ use pallet_xcm_gateway::AssetGatewayParams;
 use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
 
+use crate::TechnicalCollectiveInstance;
 use anyhow::anyhow;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
@@ -99,7 +100,7 @@ impl ismp_grandpa::Config for Runtime {
 
 impl pallet_ismp::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type AdminOrigin = EnsureRoot<AccountId>;
+	type AdminOrigin = pallet_collective::EnsureMembers<AccountId, TechnicalCollectiveInstance, 2>;
 	type HostStateMachine = HostStateMachine;
 	type TimestampProvider = Timestamp;
 	type Router = Router;

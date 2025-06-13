@@ -692,6 +692,7 @@ impl pallet_collective::Config for Runtime {
 impl pallet_bridge_airdrop::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
+	type BridgeDropOrigin = EnsureRoot<AccountId>;
 }
 
 parameter_types! {

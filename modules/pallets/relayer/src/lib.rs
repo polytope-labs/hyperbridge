@@ -77,6 +77,9 @@ pub mod pallet {
 
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
+
+		/// Origin for privileged actions
+		type RelayerOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// double map of address to source chain, which holds the amount of the relayer address
@@ -205,7 +208,7 @@ pub mod pallet {
 			state_machine: StateMachine,
 			amount: u128,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::RelayerOrigin::ensure_origin(origin)?;
 			MinimumWithdrawalAmount::<T>::insert(state_machine, U256::from(amount));
 			Ok(())
 		}
@@ -227,8 +230,9 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			let res = match call {
-				Call::accumulate_fees { withdrawal_proof } =>
-					Self::accumulate(withdrawal_proof.clone()),
+				Call::accumulate_fees { withdrawal_proof } => {
+					Self::accumulate(withdrawal_proof.clone())
+				},
 				Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
@@ -300,8 +304,8 @@ where
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
-		if available_amount <
-			Self::min_withdrawal_amount(withdrawal_data.dest_chain)
+		if available_amount
+			< Self::min_withdrawal_amount(withdrawal_data.dest_chain)
 				.unwrap_or(MinWithdrawal::get())
 		{
 			Err(Error::<T>::NotEnoughBalance)?
@@ -547,8 +551,9 @@ where
 							.to_vec(),
 						);
 					},
-					s if s.is_substrate() =>
-						keys.push(RequestCommitments::<T>::storage_key(*commitment)),
+					s if s.is_substrate() => {
+						keys.push(RequestCommitments::<T>::storage_key(*commitment))
+					},
 					// unsupported
 					_ => {},
 				},
@@ -564,8 +569,9 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() =>
-							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment)),
+						s if s.is_substrate() => {
+							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment))
+						},
 						// unsupported
 						_ => {},
 					}
@@ -609,10 +615,11 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() =>
+						s if s.is_substrate() => {
 							keys.push(pallet_ismp::child_trie::ResponseReceipts::<T>::storage_key(
 								*request_commitment,
-							)),
+							))
+						},
 						// unsupported
 						_ => {},
 					}

@@ -368,6 +368,7 @@ impl pallet_xcm_gateway::Config for Test {
 	type Params = TransferParams;
 	type Assets = Assets;
 	type IsmpHost = Ismp;
+	type GatewayOrigin = EnsureRoot<AccountId32>;
 }
 
 impl pallet_assets::Config for Test {

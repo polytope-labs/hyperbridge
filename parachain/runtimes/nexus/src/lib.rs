@@ -97,6 +97,7 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
+use crate::pallet_collective::PrimeDefaultVote;
 use cumulus_primitives_core::ParaId;
 use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
@@ -696,6 +697,22 @@ impl pallet_asset_rate::Config for Runtime {
 	type BenchmarkHelper = TreasuryAssetFactory;
 }
 
+impl pallet_collective::Config for Runtime {
+	type RuntimeOrigin = RuntimeOrigin;
+	type Proposal = RuntimeCall;
+	type RuntimeEvent = RuntimeEvent;
+	type MotionDuration = TechnicalMotionDuration;
+	type MaxProposals = TechnicalMaxProposals;
+	type MaxMembers = TechnicalMaxMembers;
+	type DefaultVote = PrimeDefaultVote;
+	type WeightInfo = weights::pallet_collective::WeightInfo<Runtime>;
+	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
+	type MaxProposalWeight = MaxCollectivesProposalWeight;
+	type DisapproveOrigin = EnsureRoot<Self::AccountId>;
+	type KillOrigin = EnsureRoot<Self::AccountId>;
+	type Consideration = ();
+}
+
 parameter_types! {
 	// One storage item; key size is 32; value is size 4+4+16+32 bytes = 56 bytes.
 	pub const DepositBase: Balance = EXISTENTIAL_DEPOSIT * 5;
@@ -914,6 +931,8 @@ mod runtime {
 	pub type IsmpBsc = ismp_bsc::pallet;
 
 	// Governance
+	#[runtime::pallet_index(80)]
+	pub type TechnicalCollective = pallet_collective;
 	#[runtime::pallet_index(81)]
 	pub type Origins = governance::custom_origins;
 	#[runtime::pallet_index(82)]
@@ -953,6 +972,7 @@ mod benches {
 		[pallet_utility, Utility]
 		[pallet_treasury, Treasury]
 		[pallet_asset_rate, AssetRate]
+		[pallet_collective, TechnicalCollective]
 		[pallet_multisig, Multisig]
 		[pallet_proxy, Proxy]
 		[cumulus_pallet_parachain_system, ParachainSystem]

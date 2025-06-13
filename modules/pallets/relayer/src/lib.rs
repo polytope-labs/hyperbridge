@@ -230,9 +230,8 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			let res = match call {
-				Call::accumulate_fees { withdrawal_proof } => {
-					Self::accumulate(withdrawal_proof.clone())
-				},
+				Call::accumulate_fees { withdrawal_proof } =>
+					Self::accumulate(withdrawal_proof.clone()),
 				Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
@@ -551,9 +550,8 @@ where
 							.to_vec(),
 						);
 					},
-					s if s.is_substrate() => {
-						keys.push(RequestCommitments::<T>::storage_key(*commitment))
-					},
+					s if s.is_substrate() =>
+						keys.push(RequestCommitments::<T>::storage_key(*commitment)),
 					// unsupported
 					_ => {},
 				},
@@ -569,9 +567,8 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() => {
-							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment))
-						},
+						s if s.is_substrate() =>
+							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment)),
 						// unsupported
 						_ => {},
 					}
@@ -615,11 +612,10 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() => {
+						s if s.is_substrate() =>
 							keys.push(pallet_ismp::child_trie::ResponseReceipts::<T>::storage_key(
 								*request_commitment,
-							))
-						},
+							)),
 						// unsupported
 						_ => {},
 					}

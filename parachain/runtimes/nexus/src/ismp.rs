@@ -255,7 +255,11 @@ impl pallet_assets::Config for Runtime {
 
 impl pallet_token_gateway_inspector::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type GatewayOrigin = EnsureRoot<AccountId>;
+	type GatewayOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 }
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {

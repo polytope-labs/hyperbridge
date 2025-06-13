@@ -37,8 +37,7 @@ pub use pallet::*;
 pub mod pallet {
 	use super::*;
 	use frame_support::PalletId;
-	use ismp::consensus::StateMachineId;
-	use polkadot_sdk::sp_core::H256;
+	use ismp::consensus::{StateMachineHeight, StateMachineId};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -60,22 +59,6 @@ pub mod pallet {
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
 	}
-
-	/// Mapping from relayer to their total rewards
-	#[pallet::storage]
-	#[pallet::getter(fn relayer_rewards)]
-	pub type RelayerRewards<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		<T as pallet_ismp::Config>::Balance,
-		ValueQuery,
-	>;
-
-	/// Message identifiers (e.g., request_id/response_id) that have already been rewarded
-	#[pallet::storage]
-	#[pallet::getter(fn processed_messages)]
-	pub type ProcessedMessages<T: Config> = StorageMap<_, Blake2_128Concat, H256, bool, ValueQuery>;
 
 	// Mapping from state machineId to respective cost per block
 	#[pallet::storage]
@@ -109,8 +92,8 @@ pub mod pallet {
 			relayer: T::AccountId,
 			/// Amount of the reward
 			amount: <T as pallet_ismp::Config>::Balance,
-			/// Message identifier that was processed
-			message_id: H256,
+			///  Metadata about the state machine and height that was rewarded
+			state_machine_height: StateMachineHeight,
 		},
 		/// State Machine cost per block updated
 		StateMachineCostPerBlockUpdated {

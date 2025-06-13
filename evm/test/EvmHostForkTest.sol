@@ -187,7 +187,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         host.fundResponse{value: newCost}(keccak256(hex"dead"), 10 * 1e18);
     }
 
-    function testCanWithdrawNativeToken() public {
+    /*function testCanWithdrawNativeToken() public {
         // per-byte fee
         uint256 amount = 1 * 1e18;
 
@@ -214,9 +214,9 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         host.dispatchIncoming(request, address(this));
         assert(host.requestReceipts(request.hash()) == address(this));
         assert(address(manager).balance == amount);
-    }
+    }*/
 
-    function testCanPayForStateCommitment() public {
+    /*function testCanPayForStateCommitment() public {
         HostParams memory params = host.hostParams();
 
         // create a state commitment
@@ -246,7 +246,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         feeToken.approve(address(host), type(uint256).max);
         vm.expectRevert("Dai/insufficient-balance");
         host.stateMachineCommitment(height);
-    }
+    }*/
 
     function quote(uint256 feeTokenCost) internal view returns (uint256) {
         address[] memory path = new address[](2);

@@ -1,0 +1,62 @@
+[package]
+name = "ismp-optimism"
+version = "0.1.0"
+edition = "2024"
+description = "ISMP Consensus Client for the Optimism L2 Consensus Protocol"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+# polytope labs
+ismp = { workspace = true, default-features = false }
+sync-committee-primitives = { workspace = true, default-features = false }
+sync-committee-verifier = { workspace = true, default-features = false }
+ethereum-triedb = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
+geth-primitives = { workspace = true, default-features = false }
+evm-state-machine = { workspace = true }
+arbitrum-verifier = { workspace = true }
+primitive-types = { workspace = true }
+op-verifier = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
+
+# crates.io
+hex = { workspace = true, default-features = false }
+hex-literal = { workspace = true }
+ethabi = { workspace = true }
+codec = { workspace = true, default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = [
+    "derive",
+] }
+sp-io = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-trie", "sp-runtime", "sp-core"]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "ismp/std",
+    "ethereum-triedb/std",
+    "ethabi/std",
+    "hex/std",
+    "sync-committee-primitives/std",
+    "sync-committee-verifier/std",
+    "polkadot-sdk/std",
+    "scale-info/std",
+    "pallet-ismp/std",
+    "geth-primitives/std",
+    "evm-state-machine/std",
+    "arbitrum-verifier/std",
+    "op-verifier/std",
+    "primitive-types/std",
+]
+
+disable-panic-handler = [
+    "sp-io/disable_panic_handler",
+    "sp-io/disable_oom",
+    "sp-io/disable_allocator",
+]
+
+try-runtime = ["polkadot-sdk/try-runtime"]

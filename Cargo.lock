@@ -9575,6 +9575,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-optimism"
+version = "0.1.0"
+dependencies = [
+ "arbitrum-verifier",
+ "ethabi",
+ "ethereum-triedb",
+ "evm-state-machine",
+ "geth-primitives",
+ "hex",
+ "hex-literal 0.4.1",
+ "ismp",
+ "op-verifier",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "polkadot-sdk 2503.0.1",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sp-io 40.0.1",
+ "sync-committee-primitives",
+ "sync-committee-verifier",
+]
+
+[[package]]
 name = "ismp-parachain"
 version = "2503.0.0"
 dependencies = [

@@ -17,39 +17,45 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(unused_variables)]
 
+extern crate alloc;
+
 pub mod pallet;
 use pallet::Pallet;
 use pallet::SupportedStateMachines;
 
 use crate::pallet::Config;
+use alloc::{collections::BTreeMap, string::ToString};
 use codec::Decode;
-use codec::DecodeWithMemTracking;
 use codec::Encode;
 use evm_state_machine::EvmStateMachine;
-use ismp::consensus::ConsensusClient;
-use ismp::consensus::ConsensusClientId;
-use ismp::consensus::ConsensusStateId;
-use ismp::consensus::StateMachineClient;
-use ismp::consensus::StateMachineId;
-use ismp::consensus::VerifiedCommitments;
-use ismp::error::Error;
-use ismp::host::IsmpHost;
-use ismp::host::StateMachine;
+use ismp::{
+	consensus::{
+		ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineClient,
+		StateMachineHeight, StateMachineId, VerifiedCommitments,
+	},
+	error::Error,
+	host::{IsmpHost, StateMachine},
+	messaging::StateCommitmentHeight,
+};
 use op_verifier::OptimismDisputeGameProof;
 use op_verifier::OptimismPayloadProof;
+use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
+use primitive_types::H256;
 
-pub const OPTIMISM_CONSENSUS_ID: ConsensusStateId = *b"OPTC";
+pub const OPTIMISM_CONSENSUS_ID: ConsensusClientId = *b"OPTC";
 
 #[derive(codec::Encode, codec::Decode, Debug, PartialEq, Eq, Clone)]
 pub struct ConsensusState {
 	pub finalized_height: u64,
 	pub state_machine_id: StateMachineId,
+	pub l1_state_machine_id: StateMachineId,
+	pub state_root: H256,
 }
 
 #[derive(Encode, Decode)]
 pub struct OptimismUpdate {
 	pub state_machine_id: StateMachineId,
-	pub state_root: [u8; 32],
+	pub l1_height: u64,
 	pub proof: OptimismConsensusProof,
 }
 
@@ -57,7 +63,6 @@ pub struct OptimismUpdate {
 #[derive(Encode, Decode, Debug)]
 pub enum OptimismConsensusProof {
 	OpL2Oracle(OptimismPayloadProof),
-	OpFaultProofs(OptimismDisputeGameProof),
 	OpFaultProofGames(OptimismDisputeGameProof),
 }
 
@@ -97,21 +102,32 @@ impl<
 {
 	fn verify_consensus(
 		&self,
-		_host: &dyn IsmpHost,
+		host: &dyn IsmpHost,
 		consensus_state_id: ConsensusStateId,
 		trusted_consensus_state: Vec<u8>,
 		consensus_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let OptimismUpdate { mut state_machine_id, mut state_root, mut proof } =
+		let OptimismUpdate { state_machine_id, l1_height, proof } =
 			OptimismUpdate::decode(&mut &consensus_proof[..])
 				.map_err(|_| Error::Custom("Cannot decode optimism update".to_string()))?;
 
-		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
+		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
 
-		if let Some(oracle_address) = Self::state_machines_oracle_addresses(state_machine_id) {
-			match proof {
-				OptimismConsensusProof::OpL2Oracle(payload_proof) => {
+		let l1_state_machine_height =
+			StateMachineHeight { id: consensus_state.l1_state_machine_id, height: l1_height };
+
+		let l1_state_commitment = host.state_machine_commitment(l1_state_machine_height)?;
+		let state_root = l1_state_commitment.state_root;
+
+		let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
+			BTreeMap::new();
+
+		match proof {
+			OptimismConsensusProof::OpL2Oracle(payload_proof) => {
+				if let Some(oracle_address) =
+					Pallet::<T>::state_machines_oracle_addresses(state_machine_id)
+				{
 					let state = verify_optimism_payload::<H>(
 						payload_proof,
 						state_root,
@@ -123,11 +139,45 @@ impl<
 						commitment: state.commitment,
 						height: state.height.height,
 					};
-				},
-			}
-		} else {
-			return Err(Error::Custom("State machine oracle address not set".to_string()));
+
+					let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+					state_commitment_vec.push(state_commitment_height);
+					state_machine_map
+						.insert(consensus_state.state_machine_id.state_id, state_commitment_vec);
+
+					consensus_state.finalized_height = state.height.height;
+					consensus_state.state_root = state.commitment.state_root;
+				}
+			},
+			OptimismConsensusProof::OpFaultProofGames(dispute_proof) => {
+				if let Some((dispute_game_factory, respected_game_types)) =
+					Pallet::<T>::state_machines_dispute_game_factories_types(state_machine_id)
+				{
+					let state = verify_optimism_dispute_game_proof::<H>(
+						dispute_proof,
+						state_root,
+						dispute_game_factory,
+						respected_game_types,
+						consensus_state_id.clone(),
+					)?;
+
+					let state_commitment_height = StateCommitmentHeight {
+						commitment: state.commitment,
+						height: state.height.height,
+					};
+
+					let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+					state_commitment_vec.push(state_commitment_height);
+					state_machine_map
+						.insert(consensus_state.state_machine_id.state_id, state_commitment_vec);
+
+					consensus_state.finalized_height = state.height.height;
+					consensus_state.state_root = state.commitment.state_root;
+				}
+			},
 		}
+
+		Ok((consensus_state.encode(), state_machine_map))
 	}
 
 	fn verify_fraud_proof(

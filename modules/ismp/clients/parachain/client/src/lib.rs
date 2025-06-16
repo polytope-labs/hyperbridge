@@ -79,6 +79,8 @@ pub mod pallet {
 		type IsmpHost: IsmpHost + Default;
 		/// WeightInfo
 		type WeightInfo: WeightInfo;
+		/// Origin for privileged actions
+		type RootOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// Mapping of relay chain heights to it's state commitment. The state commitment of the parent
@@ -151,7 +153,7 @@ pub mod pallet {
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as pallet::Config>::WeightInfo::add_parachain(para_ids.len() as u32))]
 		pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<ParachainData>) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::RootOrigin::ensure_origin(origin)?;
 			let host = <T::IsmpHost>::default();
 			for para in &para_ids {
 				let state_id = match host.host_state_machine() {
@@ -178,7 +180,7 @@ pub mod pallet {
 		#[pallet::call_index(2)]
 		#[pallet::weight(<T as pallet::Config>::WeightInfo::remove_parachain(para_ids.len() as u32))]
 		pub fn remove_parachain(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::RootOrigin::ensure_origin(origin)?;
 			for id in &para_ids {
 				Parachains::<T>::remove(id);
 			}

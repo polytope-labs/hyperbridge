@@ -45,6 +45,9 @@ pub mod pallet {
 
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + Default;
+
+		/// Origin for privileged actions
+		type FishermenOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// Set of whitelisted fishermen accounts
@@ -94,7 +97,7 @@ pub mod pallet {
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn add(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::FishermenOrigin::ensure_origin(origin)?;
 
 			ensure!(!Fishermen::<T>::contains_key(&account), Error::<T>::AlreadyAdded);
 			Fishermen::<T>::insert(&account, ());
@@ -107,7 +110,7 @@ pub mod pallet {
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn remove(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::FishermenOrigin::ensure_origin(origin)?;
 
 			ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::NotInSet);
 			Fishermen::<T>::remove(&account);

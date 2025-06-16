@@ -25,6 +25,7 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 extern crate alloc;
 
 mod genesis_config;
+pub mod governance;
 mod ismp;
 mod weights;
 pub mod xcm;
@@ -54,6 +55,7 @@ use sp_runtime::{
 	ApplyExtrinsicResult, MultiSignature,
 };
 
+use crate::governance::TreasurySpender;
 use sp_core::Get;
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -95,6 +97,7 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
+use crate::pallet_collective::PrimeDefaultVote;
 use cumulus_primitives_core::ParaId;
 use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
@@ -278,6 +281,9 @@ const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
 	cumulus_primitives_core::relay_chain::MAX_POV_SIZE as u64,
 );
 
+/// Minimum number of technical collective to agree for the Technical collective Origin to be used.
+pub const MIN_TECH_COLLECTIVE_APPROVAL: u32 = 2;
+
 /// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
 pub fn native_version() -> NativeVersion {
@@ -320,7 +326,6 @@ use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, Contains},
 };
-use pallet_collective::PrimeDefaultVote;
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
@@ -344,6 +349,8 @@ impl Contains<RuntimeCall> for IsTreasurySpend {
 		)
 	}
 }
+
+pub type TechnicalCollectiveInstance = pallet_collective::Instance1;
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
@@ -671,7 +678,7 @@ impl pallet_treasury::Config for Runtime {
 	type WeightInfo = weights::pallet_treasury::WeightInfo<Runtime>;
 	type SpendFunds = ();
 	type MaxApprovals = ConstU32<1>; // number of technical collectives
-	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
+	type SpendOrigin = TreasurySpender;
 	type AssetKind = H256;
 	type Beneficiary = AccountId32;
 	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
@@ -695,7 +702,7 @@ impl pallet_asset_rate::Config for Runtime {
 	type BenchmarkHelper = TreasuryAssetFactory;
 }
 
-impl pallet_collective::Config for Runtime {
+impl pallet_collective::Config<TechnicalCollectiveInstance> for Runtime {
 	type RuntimeOrigin = RuntimeOrigin;
 	type Proposal = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
@@ -824,6 +831,8 @@ impl pallet_proxy::Config for Runtime {
 
 #[frame_support::runtime]
 mod runtime {
+	use governance::Origin;
+
 	#[runtime::runtime]
 	#[runtime::derive(
 		RuntimeCall,
@@ -927,7 +936,19 @@ mod runtime {
 
 	// Governance
 	#[runtime::pallet_index(80)]
-	pub type TechnicalCollective = pallet_collective;
+	pub type TechnicalCollective = pallet_collective::pallet<Instance1>;
+	#[runtime::pallet_index(81)]
+	pub type Origins = governance::custom_origins;
+	#[runtime::pallet_index(82)]
+	pub type Referenda = pallet_referenda;
+	#[runtime::pallet_index(83)]
+	pub type Whitelist = pallet_whitelist;
+	#[runtime::pallet_index(84)]
+	pub type ConvictionVoting = pallet_conviction_voting;
+	#[runtime::pallet_index(85)]
+	pub type Scheduler = pallet_scheduler;
+	#[runtime::pallet_index(86)]
+	pub type Preimage = pallet_preimage;
 
 	// consensus clients
 	#[runtime::pallet_index(255)]
@@ -963,6 +984,11 @@ mod benches {
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
 		[pallet_transaction_payment, TransactionPayment]
+		[pallet_referenda, Referenda]
+		[pallet_whitelist, Whitelist]
+		[pallet_conviction_voting, ConvictionVoting]
+		[pallet_scheduler, Scheduler]
+		[pallet_preimage, Preimage]
 	);
 }
 

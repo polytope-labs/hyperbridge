@@ -25,10 +25,7 @@ pub mod pallet {
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use ismp::host::StateMachine;
-	use ismp::{
-		consensus::{ConsensusStateId, StateMachineId},
-		host::IsmpHost,
-	};
+	use ismp::{consensus::StateMachineId, host::IsmpHost};
 	use primitive_types::H160;
 
 	#[pallet::pallet]
@@ -57,10 +54,10 @@ pub mod pallet {
 	pub type StateMachinesOracleAddresses<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachineId, H160, OptionQuery>;
 
-	// Mapping from state machineId to respective dispute game addresses and respected game type
+	// Mapping from state machineId to respective dispute game addresses and respected game types
 	#[pallet::storage]
-	#[pallet::getter(fn state_machines_dispute_game_factories)]
-	pub type StateMachinesDisputeGameFactories<T: Config> =
+	#[pallet::getter(fn state_machines_dispute_game_factories_types)]
+	pub type StateMachinesDisputeGameFactoriesTypes<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachineId, (H160, Vec<u32>), OptionQuery>;
 
 	#[pallet::storage]
@@ -73,11 +70,11 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// State Machine Oracle Address updated
 		StateMachinesOracleAddress { state_machine_id: StateMachineId, oracle_address: H160 },
-		/// State Machine Dispute Game Factory updated
-		StateMachinesDisputeGameFactory {
+		/// State Machine Dispute Game Factory Types updated
+		StateMachinesDisputeGameFactoryTypes {
 			state_machine_id: StateMachineId,
 			dispute_game_factory: H160,
-			respected_game_type: Vec<u32>,
+			respected_game_types: Vec<u32>,
 		},
 	}
 
@@ -107,32 +104,32 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Sets the new dispute game factory with respected game type
-		#[pallet::call_index(1)]
+		/// Sets the new dispute game factory with respected game types for a state machine
+		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-		pub fn set_dispute_game_factory(
+		pub fn set_dispute_game_factories(
 			origin: OriginFor<T>,
 			state_machine_id: StateMachineId,
 			dispute_game_factory: H160,
-			respected_game_type: Vec<u32>,
+			respected_game_types: Vec<u32>,
 		) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-			StateMachinesDisputeGameFactories::<T>::mutate(state_machine_id, |maybe_entry| {
+			StateMachinesDisputeGameFactoriesTypes::<T>::mutate(state_machine_id, |maybe_entry| {
 				if let Some((factory, game_types)) = maybe_entry {
 					*factory = dispute_game_factory;
-					*game_types = respected_game_type.clone();
+					*game_types = respected_game_types.clone();
 				} else {
-					*maybe_entry = Some((dispute_game_factory, respected_game_type.clone()));
+					*maybe_entry = Some((dispute_game_factory, respected_game_types.clone()));
 				}
 			});
 
 			SupportedStateMachines::<T>::insert(state_machine_id.state_id, true);
 
-			Self::deposit_event(Event::<T>::StateMachinesDisputeGameFactory {
+			Self::deposit_event(Event::<T>::StateMachinesDisputeGameFactoryTypes {
 				state_machine_id,
 				dispute_game_factory,
-				respected_game_type,
+				respected_game_types,
 			});
 
 			Ok(())

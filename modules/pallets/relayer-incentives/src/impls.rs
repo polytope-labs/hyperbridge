@@ -39,7 +39,7 @@ where
 		state_machine_height: StateMachineHeight,
 		state_machine_id: StateMachineId,
 		relayer_address: Vec<u8>,
-	) -> Result<<T as pallet_ismp::Config>::Balance, Error<T>> {
+	) -> Result<(), Error<T>> {
 		if relayer_address.len() != 32 {
 			return Err(Error::<T>::InvalidAddress);
 		}
@@ -50,29 +50,30 @@ where
 		let relayer_account =
 			T::AccountId::try_from(raw_address).map_err(|_| Error::<T>::InvalidAddress)?;
 
-		let reward = Self::calculate_reward(&state_machine_id)?;
+		if let Some(block_cost) = StateMachinesCostPerBlock::<T>::get(state_machine_id) {
+			let reward = Self::calculate_reward(&state_machine_id, block_cost)?;
 
-		T::Currency::transfer(
-			&T::TreasuryAccount::get().into_account_truncating(),
-			&relayer_account,
-			reward,
-			Preservation::Expendable,
-		)
-		.map_err(|_| Error::<T>::RewardTransferFailed)?;
+			T::Currency::transfer(
+				&T::TreasuryAccount::get().into_account_truncating(),
+				&relayer_account,
+				reward,
+				Preservation::Expendable,
+			)
+			.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
-		// Emit reward event
-		Self::deposit_event(Event::<T>::RelayerRewarded {
-			relayer: relayer_account,
-			amount: reward,
-			state_machine_height,
-		});
-
-		Ok(reward)
+			Self::deposit_event(Event::<T>::RelayerRewarded {
+				relayer: relayer_account,
+				amount: reward,
+				state_machine_height,
+			});
+		}
+		Ok(())
 	}
 
 	/// Calculate the reward for a message based on the state machine id
 	fn calculate_reward(
 		state_machine_id: &StateMachineId,
+		block_cost: <T as pallet_ismp::Config>::Balance,
 	) -> Result<<T as pallet_ismp::Config>::Balance, Error<T>> {
 		let host = <T::IsmpHost>::default();
 		let latest_height = host
@@ -82,7 +83,6 @@ where
 			host.previous_commitment_height(state_machine_id.clone()).unwrap_or_default();
 
 		let blocks = latest_height.saturating_sub(previous_height);
-		let block_cost = StateMachinesCostPerBlock::<T>::get(state_machine_id);
 
 		let blocks_as_balance: <T as pallet_ismp::Config>::Balance = blocks.saturated_into();
 		let reward = blocks_as_balance.saturating_mul(block_cost);

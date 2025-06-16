@@ -68,7 +68,7 @@ pub mod pallet {
 		Blake2_128Concat,
 		StateMachineId,
 		<T as pallet_ismp::Config>::Balance,
-		ValueQuery,
+		OptionQuery,
 	>;
 
 	#[pallet::error]
@@ -116,8 +116,8 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 
-			StateMachinesCostPerBlock::<T>::mutate(state_machine_id.clone(), |block_cost| {
-				*block_cost = cost_per_block;
+			StateMachinesCostPerBlock::<T>::mutate(state_machine_id.clone(), |maybe_cost| {
+				*maybe_cost = Some(cost_per_block);
 			});
 
 			Self::deposit_event(Event::<T>::StateMachineCostPerBlockUpdated {

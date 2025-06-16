@@ -39,7 +39,7 @@ where
 		state_machine_height: StateMachineHeight,
 		state_machine_id: StateMachineId,
 		relayer_address: Vec<u8>,
-	) -> Result<<T as pallet_ismp::Config>::Balance, Error<T>> {
+	) -> Result<(), Error<T>> {
 		if relayer_address.len() != 32 {
 			return Err(Error::<T>::InvalidAddress);
 		}
@@ -66,11 +66,8 @@ where
 				amount: reward,
 				state_machine_height,
 			});
-
-			Ok(reward)
-		} else {
-			Ok(Zero::zero())
 		}
+		Ok(())
 	}
 
 	/// Calculate the reward for a message based on the state machine id

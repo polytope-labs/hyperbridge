@@ -88,7 +88,7 @@ members = [
     # "tesseract/integration-test",
 
     # Airdrop
-    "modules/pallets/bridge-drop",
+    "modules/pallets/bridge-drop", "modules/ismp/clients/ismp-optimism",
 ]
 
 # Config for 'cargo dist'

@@ -61,7 +61,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn state_machines_dispute_game_factories)]
 	pub type StateMachinesDisputeGameFactories<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachineId, (H160, Vec<u32>), ValueQuery>;
+		StorageMap<_, Blake2_128Concat, StateMachineId, (H160, Vec<u32>), OptionQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn supported_state_machines)]
@@ -93,8 +93,8 @@ pub mod pallet {
 		) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-			StateMachinesOracleAddresses::<T>::mutate(state_machine_id.clone(), |address| {
-				*address = oracle_address;
+			StateMachinesOracleAddresses::<T>::mutate(state_machine_id.clone(), |maybe_address| {
+				*maybe_address = Some(oracle_address);
 			});
 
 			SupportedStateMachines::<T>::insert(state_machine_id.state_id, true);
@@ -118,9 +118,13 @@ pub mod pallet {
 		) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-			StateMachinesDisputeGameFactories::<T>::mutate(state_machine_id, |entry| {
-				entry.0 = dispute_game_factory;
-				entry.1 = respected_game_type.clone();
+			StateMachinesDisputeGameFactories::<T>::mutate(state_machine_id, |maybe_entry| {
+				if let Some((factory, game_types)) = maybe_entry {
+					*factory = dispute_game_factory;
+					*game_types = respected_game_type.clone();
+				} else {
+					*maybe_entry = Some((dispute_game_factory, respected_game_type.clone()));
+				}
 			});
 
 			SupportedStateMachines::<T>::insert(state_machine_id.state_id, true);

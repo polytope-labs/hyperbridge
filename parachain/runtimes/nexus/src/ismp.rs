@@ -108,6 +108,11 @@ impl ismp_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = pallet_ismp::Pallet<Runtime>;
 	type WeightInfo = weights::ismp_grandpa::WeightInfo<Runtime>;
+	type RootOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 }
 
 impl pallet_ismp::Config for Runtime {
@@ -179,6 +184,11 @@ impl ismp_parachain::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type WeightInfo = weights::ismp_parachain::WeightInfo<Runtime>;
+	type RootOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
 }
 
 parameter_types! {

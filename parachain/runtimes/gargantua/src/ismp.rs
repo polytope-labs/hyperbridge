@@ -120,6 +120,7 @@ impl ismp_grandpa::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = pallet_ismp::Pallet<Runtime>;
 	type WeightInfo = weights::ismp_grandpa::WeightInfo<Runtime>;
+	type RootOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_token_governor::Config for Runtime {
@@ -156,6 +157,7 @@ impl ismp_parachain::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type WeightInfo = weights::ismp_parachain::WeightInfo<Runtime>;
+	type RootOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_fishermen::Config for Runtime {

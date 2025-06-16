@@ -65,6 +65,11 @@ pub mod pallet {
 	pub type SupportedStateMachines<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
 
+	#[pallet::storage]
+	#[pallet::getter(fn supported_state_machines)]
+	pub type SupportedStateMachines<T: Config> =
+		StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {

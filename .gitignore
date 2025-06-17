@@ -59,3 +59,13 @@ evm/subgraph/generated
 /
 **/*.db
 package-lock.json
+
+
+**/proofs/*
+tesseract/*
+**/*.db
+
+prover.toml
+relayer.toml
+messaging.toml
+mainnet-consensus.toml

@@ -16,9 +16,7 @@ ethereum-triedb = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 evm-state-machine = { workspace = true }
-arbitrum-verifier = { workspace = true }
 primitive-types = { workspace = true }
-op-verifier = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 
 # crates.io
@@ -50,9 +48,7 @@ std = [
     "pallet-ismp/std",
     "geth-primitives/std",
     "evm-state-machine/std",
-    "arbitrum-verifier/std",
-    "op-verifier/std",
-    "primitive-types/std"
+    "primitive-types/std",
 ]
 
 disable-panic-handler = [

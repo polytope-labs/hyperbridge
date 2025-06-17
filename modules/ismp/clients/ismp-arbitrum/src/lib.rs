@@ -123,11 +123,11 @@ impl<
 		let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
 
-		match proof {
-			ArbitrumConsensusProof::ArbitrumOrbit(proof) => {
-				if let Some(rollup_core_address) =
-					Pallet::<T>::state_machines_rollup_core_addresses(state_machine_id)
-				{
+		if let Some(rollup_core_address) =
+			Pallet::<T>::state_machines_rollup_core_addresses(state_machine_id)
+		{
+			match proof {
+				ArbitrumConsensusProof::ArbitrumOrbit(proof) => {
 					let state = verify_arbitrum_payload::<H>(
 						proof,
 						state_root,
@@ -147,12 +147,8 @@ impl<
 
 					consensus_state.finalized_height = state.height.height;
 					consensus_state.state_root = state.commitment.state_root;
-				}
-			},
-			ArbitrumConsensusProof::ArbitrumBold(proof) => {
-				if let Some(rollup_core_address) =
-					Pallet::<T>::state_machines_rollup_core_addresses(state_machine_id)
-				{
+				},
+				ArbitrumConsensusProof::ArbitrumBold(proof) => {
 					let state = verify_arbitrum_bold::<H>(
 						proof,
 						state_root,
@@ -175,8 +171,8 @@ impl<
 
 					consensus_state.finalized_height = state.height.height;
 					consensus_state.state_root = state.commitment.state_root;
-				}
-			},
+				},
+			}
 		}
 
 		Ok((consensus_state.encode(), state_machine_map))

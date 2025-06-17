@@ -19,6 +19,10 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           scope: "@polytope-labs"
 
+      - uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: "${{ secrets.SSH_KEY }}"
+
       - name: Install wasm-pack
         run: |
           curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh

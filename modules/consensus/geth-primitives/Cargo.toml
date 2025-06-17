@@ -11,7 +11,7 @@ anyhow = { workspace = true, default-features = false }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive.workspace = true
-codec = { workspace = true }
+codec = { package = "parity-scale-codec", workspace = true }
 ethabi = { workspace = true }
 ismp = { workspace = true }
 scale-info = { workspace = true }
@@ -29,5 +29,5 @@ std = [
     "ethabi/std",
     "scale-info/std",
     "ethers-core",
-    "primitive-types/std"
+    "primitive-types/std",
 ]

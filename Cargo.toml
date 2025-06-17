@@ -1,5 +1,4 @@
 [workspace]
-resolver = "2"
 members = [
     # runtime
     "parachain/runtimes/gargantua",
@@ -75,21 +74,32 @@ members = [
     "modules/utils/serde",
 
     # tesseract
-    "tesseract/primitives",
-    "tesseract/messaging",
-    "tesseract/substrate",
-    "tesseract/relayer",
-    "tesseract/evm",
-    "tesseract/fees",
-    "tesseract/fees/prisma-cli",
-    "tesseract/telemetry",
-    "tesseract/config",
-    "tesseract/fisherman",
+    "tesseract/tesseract-messaging/primitives",
+    "tesseract/tesseract-messaging/messaging",
+    "tesseract/tesseract-messaging/substrate",
+    "tesseract/tesseract-messaging/relayer",
+    "tesseract/tesseract-messaging/evm",
+    "tesseract/tesseract-messaging/fees",
+    "tesseract/tesseract-messaging/fees/prisma-cli",
+    "tesseract/tesseract-messaging/telemetry",
+    "tesseract/tesseract-messaging/config",
+    "tesseract/tesseract-messaging/fisherman",
     # "tesseract/integration-test",
+
+    "tesseract/tesseract-consensus/arb-host",
+    "tesseract/tesseract-consensus/op-host",
+    "tesseract/tesseract-consensus/beefy",
+    "tesseract/tesseract-consensus/beefy/zk",
+    "tesseract/tesseract-consensus/bsc",
+    "tesseract/tesseract-consensus/integration-tests",
+    "tesseract/tesseract-consensus/sync-committee",
+    "tesseract/tesseract-consensus/grandpa",
+    "tesseract/tesseract-consensus/relayer",
 
     # Airdrop
     "modules/pallets/bridge-drop",
 ]
+resolver = "2"
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]
@@ -140,6 +150,8 @@ orml-traits = { version = "=1.4.0", default-features = false }
 orml-utilities = { version = "=1.4.0", default-features = false }
 sc-simnode = { version = "2503.0.0" }
 simnode-runtime-api = { version = "2503.0.0", default-features = false }
+sp-consensus-beefy = { version = "23.0.0" }
+sp-crypto-hashing = "0.1.0"
 
 # crates.io
 serde = { version = "1", default-features = false }
@@ -164,6 +176,8 @@ tokio = { version = "1.37.0" }
 tokio-stream = { version = "0.1.15" }
 jsonrpsee = { version = "0.24" }
 jsonrpsee-core = { version = "0.24" }
+rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
+tracing = "0.1.40"
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }
@@ -240,16 +254,30 @@ gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features 
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
 
 # tesseract
-tesseract-primitives = { path = "tesseract/primitives" }
-tesseract-consensus = { path = "tesseract/consensus" }
-tesseract-messaging = { path = "tesseract/messaging" }
-tesseract-fisherman = { path = "tesseract/fisherman" }
-tesseract-substrate = { path = "tesseract/substrate" }
-tesseract-evm = { path = "tesseract/evm" }
-tesseract = { path = "tesseract/relayer" }
-transaction-fees = { path = "tesseract/fees" }
-telemetry-server = { path = "tesseract/telemetry" }
-tesseract-config = { path = "tesseract/config" }
+tesseract-primitives = { path = "tesseract/tesseract-messaging/primitives" }
+tesseract-consensus = { path = "tesseract/tesseract-messaging/consensus" }
+tesseract-messaging = { path = "tesseract/tesseract-messaging/messaging" }
+tesseract-fisherman = { path = "tesseract/tesseract-messaging/fisherman" }
+tesseract-substrate = { path = "tesseract/tesseract-messaging/substrate" }
+tesseract-evm = { path = "tesseract/tesseract-messaging/evm" }
+tesseract = { path = "tesseract/tesseract-messaging/relayer" }
+transaction-fees = { path = "tesseract/tesseract-messaging/fees" }
+telemetry-server = { path = "tesseract/tesseract-messaging/telemetry" }
+tesseract-config = { path = "tesseract/tesseract-messaging/config" }
+
+sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
+sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
+
+# tesseract consensus
+arb-host = { path = "tesseract/tesseract-consensus/arb-host" }
+op-host = { path = "tesseract/tesseract-consensus/op-host" }
+tesseract-beefy = { path = "tesseract/tesseract-consensus/beefy" }
+tesseract-bsc = { path = "tesseract/tesseract-consensus/bsc" }
+tesseract-integration-tests = { path = "tesseract/tesseract-consensus/integration-tests" }
+tesseract-sync-committee = { path = "tesseract/tesseract-consensus/sync-committee" }
+tesseract-grandpa = { path = "tesseract/tesseract-consensus/grandpa" }
+tesseract-consensus-relayer = { path = "tesseract/tesseract-consensus/relayer" }
+
 
 [workspace.dependencies.codec]
 package = "parity-scale-codec"

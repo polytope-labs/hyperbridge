@@ -62,7 +62,6 @@ package-lock.json
 
 
 **/proofs/*
-tesseract/*
 **/*.db
 
 prover.toml

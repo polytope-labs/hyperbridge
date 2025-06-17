@@ -1,0 +1,38 @@
+[package]
+name = "tesseract-integration-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tesseract-messaging = { path = "../messaging" }
+tesseract-primitives = { path = "../primitives" }
+tesseract-config = { path = "../config" }
+tesseract-substrate = { path = "../substrate", features = ["testing"] }
+tesseract = { path = "../relayer" }
+substrate-state-machine = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
+pallet-hyperbridge = { workspace = true }
+pallet-ismp-demo = { workspace = true }
+
+anyhow = { workspace = true }
+tracing = "0.1.40"
+percentage = "0.1.0"
+futures = "0.3.28"
+tokio = { workspace = true, features = ["full"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+hex = "0.4.3"
+tokio-stream = { workspace = true }
+toml = "0.7.4"
+ismp = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+subxt = { workspace = true, features = ["substrate-compat"] }
+subxt-signer = "0.30.1"
+subxt-utils = { workspace = true, default-features = true }
+transaction-fees = { path = "../fees" }
+log = "0.4.19"
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sc-service", "sp-keyring", "sc-consensus-manual-seal"]

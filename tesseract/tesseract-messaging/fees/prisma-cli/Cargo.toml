@@ -1,0 +1,8 @@
+[package]
+name = "prisma-cli"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+prisma-client-rust-cli = { git = "https://github.com/Brendonovich/prisma-client-rust.git", tag = "0.6.11", features = ["sqlite", "migrations"] }

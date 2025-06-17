@@ -1,0 +1,65 @@
+[package]
+name = "tesseract-beefy"
+version = "0.1.0"
+edition = "2021"
+description = "BEEFY client implementation for the tesseract relayer"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+# crates.io
+serde = { version = "1.0.164", features = ["derive"] }
+anyhow = "1.0.75"
+subxt = { workspace = true, features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = [
+    "derive",
+] }
+futures = "0.3.28"
+async-trait = "0.1.53"
+tokio = { version = "1.32.0", features = ["full", "sync"] }
+finality-grandpa = "0.16.2"
+log = "0.4.20"
+hex = { workspace = true }
+hex-literal = "0.4.1"
+sp-core = { workspace = true, features = ["full_crypto"] }
+ethers = { workspace = true, features = ["ws", "optimism"] }
+ethabi = { version = "18.0.0", features = [
+    "rlp",
+    "full-serde",
+], default-features = false }
+derive_more = { version = "1.0.0-beta.6", features = ["display"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+redis = { version = "0.24.0", features = [
+    "connection-manager",
+    "tokio-rustls-comp",
+] }
+bytes = "1.6.0"
+primitive-types = { workspace = true }
+
+# polytope-labs
+pallet-ismp = { workspace = true }
+pallet-ismp-rpc = { workspace = true }
+ismp = { workspace = true }
+
+ismp-solidity-abi = { workspace = true }
+substrate-state-machine = { workspace = true }
+beefy-verifier-primitives = { workspace = true }
+beefy-prover = { workspace = true }
+subxt-utils = { workspace = true }
+
+# tesseract
+tesseract-substrate = { workspace = true }
+tesseract-primitives = { workspace = true }
+zk-beefy = { path = "zk" }
+rsmq_async = { workspace = true }
+redis-async = { version = "0.17.1", features = ["with-rustls"] }
+
+sp-consensus-beefy = { workspace = true }
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["polkadot-core-primitives", "sp-runtime"]
+
+
+[features]
+# a feature that tells the tests to write a new consensus state
+new-consensus-state = []

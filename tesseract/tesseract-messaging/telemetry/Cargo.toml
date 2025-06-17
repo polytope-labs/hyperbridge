@@ -1,0 +1,25 @@
+[package]
+name = "telemetry-server"
+version = "0.1.0"
+edition = "2021"
+description = "Tesseract socket.io telemetry server"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+socketioxide = { version = "0.10.2", features = ["state", "tracing"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+serde = { version = "1.0.196", features = ["derive"] }
+serde_json = "1.0.112"
+tower = "0.4.13"
+tower-http = { version = "0.5.1", features = ["cors"] }
+anyhow = { workspace = true }
+axum = "0.7.4"
+sp-core = { workspace = true, features = ["full_crypto", "serde"] }
+ismp.workspace = true
+primitive-types = { workspace = true, default-features = true, features = ["serde", "scale-info"] }
+
+[dev-dependencies]
+rust_socketio = { version = "0.4.4" }

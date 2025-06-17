@@ -1,0 +1,29 @@
+[package]
+name = "tesseract-primitives"
+version = "0.1.0"
+edition = "2021"
+description = "Tesseract relayer primitives"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+anyhow = { workspace = true, default-features = true }
+async-trait = "0.1.53"
+futures = "0.3.28"
+tokio = { workspace = true, features = ["full"] }
+log = "0.4.17"
+
+serde = { version = "1.0.164", features = ["derive"] }
+primitive-types =  { workspace = true, default-features = true }
+tracing = "0.1.40"
+parity-scale-codec = "3.2.2"
+ismp-solidity-abi = { workspace = true, default-features = true }
+
+pallet-ismp-relayer = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+pallet-state-coprocessor = { workspace = true, default-features = true }
+
+[features]
+testing = []

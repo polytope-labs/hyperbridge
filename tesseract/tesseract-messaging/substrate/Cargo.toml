@@ -1,0 +1,47 @@
+[package]
+name = "tesseract-substrate"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1.0.164", features = ["derive"] }
+anyhow = { workspace = true }
+futures = "0.3.28"
+async-trait = "0.1.71"
+parking_lot = "0.12.1"
+hex-literal = { version = "0.4.1" }
+subxt = { workspace = true, features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = [
+    "derive",
+] }
+sp-core = { workspace = true, features = ["full_crypto"] }
+log = "0.4.19"
+tokio = { workspace = true, features = ["sync", "time"] }
+tokio-stream = { workspace = true }
+zstd-safe = { version = "7.1.0" }
+primitive-types-old = { package = "primitive-types", version = "0.12.1", features = [
+    "codec",
+] } # Added for subxt compatibility when  decoding events
+debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main" }
+
+tesseract-primitives = { workspace = true }
+pallet-ismp = { workspace = true, default-features = true }
+pallet-ismp-relayer = { workspace = true, default-features = true }
+pallet-ismp-demo = { workspace = true, default-features = true }
+pallet-ismp-rpc = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = true }
+subxt-utils = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+substrate-state-machine = { workspace = true, default-features = true }
+pallet-hyperbridge = { workspace = true, default-features = true }
+serde-hex-utils = { workspace = true, default-features = false }
+pallet-state-coprocessor = { workspace = true, default-features = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sp-runtime"]
+
+[features]
+testing = []

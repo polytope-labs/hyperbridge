@@ -1,0 +1,33 @@
+# Required
+[hyperbridge]
+state_machine = "KUSAMA-4009"
+hashing = "Keccak"
+rpc_ws = "ws://127.0.0.1:9933"
+signer = ""
+
+# Required
+[relayer]
+consensus = false
+messaging = true
+fisherman = false
+router = { Kusama = 4296 }
+module_filter = []
+minimum_profit_percentage = 0
+delivery_endpoints = [
+    "EVM-1",
+    "EVM-97"
+]
+
+[optimism]
+type = "evm"
+state_machine = "EVM-97"
+rpc_urls = [
+    "http://127.0.0.1:8345"
+]
+etherscan_api_key = "CP3H4MAT8UU5KDYY5ZXH3E8UDV5V74B7R8"
+ismp_host = "0x8Ac39DfC1F2616e5e19B93420C6d008a8a8EE65f"
+consensus_state_id = "ETH0"
+signer = "0x8Ac39DfC1F2616e5e19B93420C6d008a8a8EE65f008a8a8EE65f"
+tracing_batch_size = 5
+query_batch_size = 10000
+gas_price_buffer = 5

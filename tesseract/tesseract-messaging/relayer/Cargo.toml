@@ -1,0 +1,64 @@
+[package]
+name = "tesseract"
+version = "1.1.4"
+edition = "2021"
+description = "Chain agnostic relayer implementation for Hyperbridge"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[package.metadata.dist]
+dist = true
+
+[dependencies]
+tesseract-substrate = { workspace = true }
+tesseract-primitives = { workspace = true }
+tesseract-messaging = { workspace = true }
+tesseract-fisherman = { workspace = true }
+tesseract-evm = { workspace = true }
+transaction-fees = { workspace = true }
+telemetry-server = { workspace = true }
+tesseract-config = { workspace = true }
+ismp = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
+ismp-sync-committee = { workspace = true, default-features = true }
+ethers = { workspace = true }
+codec = { workspace = true, default-features = true, features = ["derive"] }
+sp-core = { workspace = true, default-features = true, features = [
+    "full_crypto",
+] }
+
+# crates.io
+log = "0.4.19"
+env_logger = "0.10.0"
+hex = "0.4.3"
+
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+anyhow = { workspace = true }
+futures = "0.3.28"
+serde = { version = "1.0.164", features = ["derive"] }
+json = { version = "1.0.112", package = "serde_json" }
+toml = "0.7.4"
+async-trait = "0.1.77"
+clap = { version = "4.3.5", features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+rust_socketio = { version = "0.6.0", features = ["async"] }
+tracing-indicatif = "0.3.6"
+tracing = "0.1.40"
+console-subscriber = { version = "0.2.0", optional = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sc-service"]
+
+[dev-dependencies]
+divide_range = "0.1.1"
+subxt = { workspace = true, features = ["substrate-compat"] }
+pallet-ismp-rpc = { workspace = true, default-features = true }
+itertools = "0.12.1"
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+pallet-hyperbridge = { workspace = true, default-features = true }
+tesseract-substrate = { workspace = true, features = ["testing"] }
+
+[features]
+consensus = []

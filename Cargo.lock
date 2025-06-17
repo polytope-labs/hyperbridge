@@ -9696,7 +9696,6 @@ dependencies = [
 name = "ismp-sync-committee"
 version = "0.1.1"
 dependencies = [
- "arbitrum-verifier",
  "ethabi",
  "ethereum-triedb",
  "evm-state-machine",
@@ -9704,7 +9703,6 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
- "op-verifier",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",

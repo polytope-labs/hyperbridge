@@ -1,7 +1,19 @@
 import "log-timestamp"
 import { ApiPromise, WsProvider } from "@polkadot/api"
 import { Keyring } from "@polkadot/keyring"
-import { hexToBytes } from "viem"
+import {
+	createPublicClient,
+	createWalletClient,
+	getContract,
+	hexToBytes,
+	http,
+	maxUint256,
+	parseAbi,
+	parseEventLogs,
+	PublicClient,
+	stringToHex,
+	WalletClient,
+} from "viem"
 import { teleport } from "@/utils/tokenGateway"
 import type { HexString } from "@/types"
 import type { Signer, SignerResult } from "@polkadot/api/types"
@@ -9,7 +21,14 @@ import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { hexToU8a, u8aToHex } from "@polkadot/util"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import { encodeISMPMessage } from "@/chain"
-import { __test } from "@/utils"
+import { __test, ADDRESS_ZERO, bytes20ToBytes32 } from "@/utils"
+import { createQueryClient } from "@/query-client"
+import { IndexerClient } from "@/client"
+import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
+import { bscTestnet, gnosisChiado } from "viem/chains"
+import tokenGateway from "@/abis/tokenGateway"
+import { keccakAsU8a } from "@polkadot/util-crypto"
+import erc6160 from "@/abis/erc6160"
 
 // private key for testnet transactions
 const secret_key = process.env.SECRET_PHRASE || ""
@@ -84,6 +103,116 @@ describe("teleport function", () => {
 			expect(error).toBeUndefined()
 		}
 	}, 300_000)
+
+	it("should query the order status", async () => {
+		const { bscTokenGateway, bscPublicClient, bscWalletClient } = await setUp()
+		const bscIsmpHostAddress = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7" as HexString
+		const gnosisChiadoIsmpHostAddress = "0x58a41b89f4871725e5d898d98ef4bf917601c5eb" as HexString
+		const query_client = createQueryClient({
+			url: process.env.INDEXER_URL!,
+		})
+
+		const indexer = new IndexerClient({
+			source: {
+				consensusStateId: "BSC0",
+				rpcUrl: process.env.BSC_CHAPEL!,
+				stateMachineId: "EVM-97",
+				host: bscIsmpHostAddress,
+			},
+			dest: {
+				consensusStateId: "GNO0",
+				rpcUrl: process.env.GNOSIS_CHIADO!,
+				stateMachineId: "EVM-10200",
+				host: gnosisChiadoIsmpHostAddress,
+			},
+			hyperbridge: {
+				consensusStateId: "PAS0",
+				stateMachineId: "KUSAMA-4009",
+				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+			},
+			queryClient: query_client,
+			pollInterval: 1_000,
+		})
+
+		const amount = BigInt(200000000000)
+
+		const params = {
+			amount: amount,
+			relayerFee: BigInt(0),
+			assetId: u8aToHex(keccakAsU8a("USD.h")),
+			redeem: false,
+			to: bytes20ToBytes32(privateKeyToAddress(process.env.PRIVATE_KEY as any) as HexString),
+			dest: stringToHex("EVM-10200"),
+			timeout: 65337297n,
+			nativeCost: BigInt(0),
+			data: "0x" as HexString,
+		}
+
+		const { erc20, erc6160 } = await getAssetDetails(params.assetId, bscPublicClient)
+
+		const tokenToApprove = erc20 != ADDRESS_ZERO ? erc20 : erc6160
+
+		// Reject test if assetId is unknown
+
+		if (tokenToApprove === ADDRESS_ZERO) {
+			throw new Error("Unknown asset Id")
+		}
+
+		// Apporve tokens if needed
+		await approveTokens(bscWalletClient, bscPublicClient, erc6160, bscTokenGateway.address)
+		await dripTokensIfNeeded(bscWalletClient, bscPublicClient, amount)
+
+		const tx = await bscTokenGateway.write.teleport([params], {
+			account: bscWalletClient.account!,
+			chain: bscTestnet,
+		})
+
+		const receipt = await bscPublicClient.waitForTransactionReceipt({
+			hash: tx,
+			confirmations: 1,
+		})
+
+		console.log("Teleported to Gnosis Chiado:", receipt.transactionHash)
+
+		// Get the commitment from the AssetTeleported event
+		const teleportEvent = parseEventLogs({
+			abi: tokenGateway.ABI,
+			logs: receipt.logs,
+			strict: false,
+		})[0] as { eventName: "AssetTeleported"; args: any }
+
+		if (teleportEvent.eventName !== "AssetTeleported") {
+			throw new Error("Unexpected Event type")
+		}
+
+		const commitment = teleportEvent.args.commitment
+		console.log("Teleport Commitment:", commitment)
+
+		// Stream the teleport status
+		for await (const status of indexer.tokenGatewayAssetTeleportedStatusStream(commitment)) {
+			console.log(JSON.stringify(status, (_, value) => (typeof value === "bigint" ? value.toString() : value), 4))
+			switch (status.status) {
+				case "TELEPORTED": {
+					console.log(
+						`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
+					)
+					break
+				}
+				case "RECEIVED": {
+					console.log(
+						`Status ${status.status}, Transaction: https://gnosis-chiado.blockscout.com/tx/${status.metadata.transactionHash}`,
+					)
+					break
+				}
+				case "REFUNDED": {
+					console.log(
+						`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
+					)
+					break
+				}
+			}
+		}
+	}, 300_000_000)
 })
 
 function createKeyringPairSigner(pair: KeyringPair): Signer {
@@ -146,3 +275,127 @@ it("should ensure wasm function loads", async () => {
 		`"{"root":"0x85835c4d5287fe023073eb733f4e4103935d61b4397f0f9d0fe627d434757fa5","proof":["0x894376e04f932deadc9ab212ac514f37b41e670be2f8002babde1faf20935461","0xf3ace1896f86f91627cc1c09eeaba2cd76d82a75be6f09b94c861524fa5e5289","0x0ffa0900c838d17341df2d00fa4832755de619e646137844700668ad544c8aae","0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470","0x9c6b2c1b0d0b25a008e6c882cc7b415f309965c72ad2b944ac0931048ca31cd5","0xfadbd3c7f79fa2bdc4f24857709cd4a4e870623dc9e9abcdfd6e448033e35212"],"mmr_size":236,"leaf_positions":[232],"keccak_hash_calldata":"0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"}"`,
 	)
 })
+
+async function setUp() {
+	const account = privateKeyToAccount(process.env.PRIVATE_KEY as any)
+
+	const bscWalletClient = createWalletClient({
+		chain: bscTestnet,
+		account,
+		transport: http(process.env.BSC_CHAPEL),
+	})
+
+	const gnosisChiadoWalletClient = createWalletClient({
+		chain: gnosisChiado,
+		account,
+		transport: http(process.env.GNOSIS_CHIADO),
+	})
+
+	const bscPublicClient = createPublicClient({
+		chain: bscTestnet,
+		transport: http(process.env.BSC_CHAPEL),
+	})
+
+	const gnosisChiadoPublicClient = createPublicClient({
+		chain: gnosisChiado,
+		transport: http(process.env.GNOSIS_CHIADO),
+	})
+
+	const bscTokenGateway = getContract({
+		address: process.env.TOKEN_GATEWAY_ADDRESS! as HexString,
+		abi: tokenGateway.ABI,
+		client: { public: bscPublicClient, wallet: bscWalletClient },
+	})
+
+	const gnosisChiadoTokenGateway = getContract({
+		address: process.env.TOKEN_GATEWAY_ADDRESS! as HexString,
+		abi: tokenGateway.ABI,
+		client: { public: gnosisChiadoPublicClient, wallet: gnosisChiadoWalletClient },
+	})
+
+	return {
+		bscTokenGateway,
+		gnosisChiadoTokenGateway,
+		bscPublicClient,
+		gnosisChiadoPublicClient,
+		bscWalletClient,
+		gnosisChiadoWalletClient,
+	}
+}
+
+async function getAssetDetails(assetId: string, publicClient: PublicClient) {
+	const erc20 = await publicClient.readContract({
+		abi: tokenGateway.ABI,
+		address: process.env.TOKEN_GATEWAY_ADDRESS! as HexString,
+		functionName: "erc20",
+		args: [assetId as HexString],
+	})
+
+	const erc6160 = await publicClient.readContract({
+		abi: tokenGateway.ABI,
+		address: process.env.TOKEN_GATEWAY_ADDRESS! as HexString,
+		functionName: "erc6160",
+		args: [assetId as HexString],
+	})
+
+	return {
+		erc20,
+		erc6160,
+	}
+}
+
+async function approveTokens(
+	walletClient: WalletClient,
+	publicClient: PublicClient,
+	tokenAddress: HexString,
+	spender: HexString,
+) {
+	const approval = await publicClient.readContract({
+		abi: erc6160.ABI,
+		address: tokenAddress,
+		functionName: "allowance",
+		args: [walletClient.account?.address as HexString, spender],
+		account: walletClient.account,
+	})
+
+	if (approval == 0n) {
+		console.log("Approving tokens for test")
+		const tx = await walletClient.writeContract({
+			abi: erc6160.ABI,
+			address: tokenAddress,
+			functionName: "approve",
+			args: [spender, maxUint256],
+			chain: walletClient.chain,
+			account: walletClient.account!,
+		})
+
+		const receipt = await publicClient.waitForTransactionReceipt({ hash: tx })
+		console.log("Approved tokens for test:", receipt)
+	}
+}
+
+async function dripTokensIfNeeded(walletClient: WalletClient, publicClient: PublicClient, amountCheck: bigint) {
+	const USDH = "0xA801da100bF16D07F668F4A49E1f71fc54D05177" as HexString
+	const balance = await publicClient.readContract({
+		abi: erc6160.ABI,
+		address: USDH,
+		functionName: "balanceOf",
+		args: [walletClient.account?.address as HexString],
+		account: walletClient.account,
+	})
+
+	if (balance < amountCheck) {
+		console.log("Dripping tokens for test")
+		const tx = await walletClient.writeContract({
+			abi: parseAbi(["function drip(address token) public"]),
+			address: "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3",
+			functionName: "drip",
+			args: [USDH],
+			chain: walletClient.chain,
+			account: walletClient.account!,
+		})
+
+		const receipt = await publicClient.waitForTransactionReceipt({ hash: tx })
+		console.log("Dripped tokens for test:", receipt)
+	}
+}

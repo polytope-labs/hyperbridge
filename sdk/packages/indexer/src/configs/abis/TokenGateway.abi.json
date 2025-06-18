@@ -1,786 +1,415 @@
 [
 	{
-		"inputs": [{ "internalType": "address", "name": "admin", "type": "address" }],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{ "inputs": [], "name": "BidTooHigh", "type": "error" },
-	{ "inputs": [], "name": "InconsistentState", "type": "error" },
-	{ "inputs": [], "name": "InvalidAddressLength", "type": "error" },
-	{ "inputs": [], "name": "InvalidAmount", "type": "error" },
-	{ "inputs": [], "name": "NoExistingBid", "type": "error" },
-	{ "inputs": [], "name": "RequestAlreadyFulfilled", "type": "error" },
-	{ "inputs": [], "name": "RequestNotTimedOut", "type": "error" },
-	{ "inputs": [], "name": "RequestTimedOut", "type": "error" },
-	{ "inputs": [], "name": "UnauthorizedAccount", "type": "error" },
-	{ "inputs": [], "name": "UnauthorizedAction", "type": "error" },
-	{ "inputs": [], "name": "UnexpectedCall", "type": "error" },
-	{ "inputs": [], "name": "UnknownAsset", "type": "error" },
-	{ "inputs": [], "name": "UnsupportedChain", "type": "error" },
-	{ "inputs": [], "name": "ZeroAddress", "type": "error" },
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "asset",
-				"type": "address"
-			},
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "newAdmin",
-				"type": "address"
-			}
-		],
-		"name": "AssetAdminChanged",
-		"type": "event"
+		"type": "constructor",
+		"inputs": [{ "name": "admin", "type": "address", "internalType": "address" }],
+		"stateMutability": "nonpayable"
 	},
 	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "amount",
-				"type": "uint256"
-			},
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "commitment",
-				"type": "bytes32"
-			},
-			{
-				"indexed": true,
-				"internalType": "bytes32",
-				"name": "from",
-				"type": "bytes32"
-			},
-			{
-				"indexed": true,
-				"internalType": "address",
-				"name": "beneficiary",
-				"type": "address"
-			},
-			{
-				"indexed": true,
-				"internalType": "bytes32",
-				"name": "assetId",
-				"type": "bytes32"
-			}
-		],
-		"name": "AssetReceived",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "amount",
-				"type": "uint256"
-			},
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "commitment",
-				"type": "bytes32"
-			},
-			{
-				"indexed": true,
-				"internalType": "address",
-				"name": "beneficiary",
-				"type": "address"
-			},
-			{
-				"indexed": true,
-				"internalType": "bytes32",
-				"name": "assetId",
-				"type": "bytes32"
-			}
-		],
-		"name": "AssetRefunded",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "erc20",
-				"type": "address"
-			},
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "erc6160",
-				"type": "address"
-			},
-			{
-				"indexed": false,
-				"internalType": "string",
-				"name": "name",
-				"type": "string"
-			},
-			{
-				"indexed": false,
-				"internalType": "string",
-				"name": "symbol",
-				"type": "string"
-			},
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "assetId",
-				"type": "bytes32"
-			},
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "initialSupply",
-				"type": "uint256"
-			},
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "beneficiary",
-				"type": "address"
-			}
-		],
-		"name": "AssetRegistered",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "assetId",
-				"type": "bytes32"
-			}
-		],
-		"name": "AssetRemoved",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "to",
-				"type": "bytes32"
-			},
-			{
-				"indexed": false,
-				"internalType": "string",
-				"name": "dest",
-				"type": "string"
-			},
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "amount",
-				"type": "uint256"
-			},
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "commitment",
-				"type": "bytes32"
-			},
-			{
-				"indexed": true,
-				"internalType": "address",
-				"name": "from",
-				"type": "address"
-			},
-			{
-				"indexed": true,
-				"internalType": "bytes32",
-				"name": "assetId",
-				"type": "bytes32"
-			},
-			{
-				"indexed": false,
-				"internalType": "bool",
-				"name": "redeem",
-				"type": "bool"
-			}
-		],
-		"name": "AssetTeleported",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "commitment",
-				"type": "bytes32"
-			},
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "bid",
-				"type": "uint256"
-			},
-			{
-				"indexed": true,
-				"internalType": "bytes32",
-				"name": "assetId",
-				"type": "bytes32"
-			},
-			{
-				"indexed": true,
-				"internalType": "address",
-				"name": "bidder",
-				"type": "address"
-			}
-		],
-		"name": "BidPlaced",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "bytes32",
-				"name": "commitment",
-				"type": "bytes32"
-			},
-			{
-				"indexed": true,
-				"internalType": "bytes32",
-				"name": "assetId",
-				"type": "bytes32"
-			},
-			{
-				"indexed": true,
-				"internalType": "address",
-				"name": "bidder",
-				"type": "address"
-			}
-		],
-		"name": "BidRefunded",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "string",
-				"name": "chain",
-				"type": "string"
-			},
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "moduleId",
-				"type": "address"
-			}
-		],
-		"name": "NewContractInstance",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"components": [
-					{ "internalType": "address", "name": "host", "type": "address" },
-					{ "internalType": "address", "name": "dispatcher", "type": "address" }
-				],
-				"indexed": false,
-				"internalType": "struct TokenGatewayParams",
-				"name": "oldParams",
-				"type": "tuple"
-			},
-			{
-				"components": [
-					{ "internalType": "address", "name": "host", "type": "address" },
-					{ "internalType": "address", "name": "dispatcher", "type": "address" }
-				],
-				"indexed": false,
-				"internalType": "struct TokenGatewayParams",
-				"name": "newParams",
-				"type": "tuple"
-			}
-		],
-		"name": "ParamsUpdated",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "amount",
-				"type": "uint256"
-			},
-			{
-				"indexed": true,
-				"internalType": "address",
-				"name": "bidder",
-				"type": "address"
-			},
-			{
-				"indexed": true,
-				"internalType": "bytes32",
-				"name": "assetId",
-				"type": "bytes32"
-			}
-		],
-		"name": "RequestFulfilled",
-		"type": "event"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{ "internalType": "bytes", "name": "source", "type": "bytes" },
-					{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-					{ "internalType": "uint64", "name": "nonce", "type": "uint64" },
-					{ "internalType": "bytes", "name": "from", "type": "bytes" },
-					{ "internalType": "bytes", "name": "to", "type": "bytes" },
-					{
-						"internalType": "uint64",
-						"name": "timeoutTimestamp",
-						"type": "uint64"
-					},
-					{ "internalType": "bytes", "name": "body", "type": "bytes" }
-				],
-				"internalType": "struct PostRequest",
-				"name": "request",
-				"type": "tuple"
-			},
-			{ "internalType": "uint256", "name": "fee", "type": "uint256" }
-		],
-		"name": "bid",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [{ "internalType": "bytes32", "name": "commitment", "type": "bytes32" }],
-		"name": "bid",
-		"outputs": [
-			{
-				"components": [
-					{ "internalType": "address", "name": "bidder", "type": "address" },
-					{ "internalType": "uint256", "name": "fee", "type": "uint256" }
-				],
-				"internalType": "struct LiquidityBid",
-				"name": "",
-				"type": "tuple"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [{ "internalType": "bytes32", "name": "assetId", "type": "bytes32" }],
+		"type": "function",
 		"name": "erc20",
-		"outputs": [{ "internalType": "address", "name": "", "type": "address" }],
-		"stateMutability": "view",
-		"type": "function"
+		"inputs": [{ "name": "assetId", "type": "bytes32", "internalType": "bytes32" }],
+		"outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+		"stateMutability": "view"
 	},
 	{
-		"inputs": [{ "internalType": "bytes32", "name": "assetId", "type": "bytes32" }],
+		"type": "function",
 		"name": "erc6160",
-		"outputs": [{ "internalType": "address", "name": "", "type": "address" }],
-		"stateMutability": "view",
-		"type": "function"
+		"inputs": [{ "name": "assetId", "type": "bytes32", "internalType": "bytes32" }],
+		"outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+		"stateMutability": "view"
 	},
 	{
-		"inputs": [
-			{
-				"components": [
-					{
-						"components": [
-							{ "internalType": "address", "name": "host", "type": "address" },
-							{
-								"internalType": "address",
-								"name": "dispatcher",
-								"type": "address"
-							}
-						],
-						"internalType": "struct TokenGatewayParams",
-						"name": "params",
-						"type": "tuple"
-					},
-					{
-						"components": [
-							{ "internalType": "address", "name": "erc20", "type": "address" },
-							{
-								"internalType": "address",
-								"name": "erc6160",
-								"type": "address"
-							},
-							{ "internalType": "string", "name": "name", "type": "string" },
-							{ "internalType": "string", "name": "symbol", "type": "string" },
-							{
-								"internalType": "uint256",
-								"name": "initialSupply",
-								"type": "uint256"
-							},
-							{
-								"internalType": "address",
-								"name": "beneficiary",
-								"type": "address"
-							}
-						],
-						"internalType": "struct AssetMetadata[]",
-						"name": "assets",
-						"type": "tuple[]"
-					}
-				],
-				"internalType": "struct TokenGatewayParamsExt",
-				"name": "teleportParams",
-				"type": "tuple"
-			}
-		],
-		"name": "init",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [{ "internalType": "bytes", "name": "destination", "type": "bytes" }],
-		"name": "instance",
-		"outputs": [{ "internalType": "address", "name": "", "type": "address" }],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{
-						"components": [
-							{ "internalType": "bytes", "name": "source", "type": "bytes" },
-							{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-							{ "internalType": "uint64", "name": "nonce", "type": "uint64" },
-							{ "internalType": "bytes", "name": "from", "type": "bytes" },
-							{ "internalType": "bytes", "name": "to", "type": "bytes" },
-							{
-								"internalType": "uint64",
-								"name": "timeoutTimestamp",
-								"type": "uint64"
-							},
-							{ "internalType": "bytes", "name": "body", "type": "bytes" }
-						],
-						"internalType": "struct PostRequest",
-						"name": "request",
-						"type": "tuple"
-					},
-					{ "internalType": "address", "name": "relayer", "type": "address" }
-				],
-				"internalType": "struct IncomingPostRequest",
-				"name": "incoming",
-				"type": "tuple"
-			}
-		],
-		"name": "onAccept",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{
-						"components": [
-							{
-								"components": [
-									{
-										"internalType": "bytes",
-										"name": "source",
-										"type": "bytes"
-									},
-									{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-									{
-										"internalType": "uint64",
-										"name": "nonce",
-										"type": "uint64"
-									},
-									{
-										"internalType": "address",
-										"name": "from",
-										"type": "address"
-									},
-									{
-										"internalType": "uint64",
-										"name": "timeoutTimestamp",
-										"type": "uint64"
-									},
-									{
-										"internalType": "bytes[]",
-										"name": "keys",
-										"type": "bytes[]"
-									},
-									{
-										"internalType": "uint64",
-										"name": "height",
-										"type": "uint64"
-									}
-								],
-								"internalType": "struct GetRequest",
-								"name": "request",
-								"type": "tuple"
-							},
-							{
-								"components": [
-									{ "internalType": "bytes", "name": "key", "type": "bytes" },
-									{ "internalType": "bytes", "name": "value", "type": "bytes" }
-								],
-								"internalType": "struct StorageValue[]",
-								"name": "values",
-								"type": "tuple[]"
-							}
-						],
-						"internalType": "struct GetResponse",
-						"name": "response",
-						"type": "tuple"
-					},
-					{ "internalType": "address", "name": "relayer", "type": "address" }
-				],
-				"internalType": "struct IncomingGetResponse",
-				"name": "",
-				"type": "tuple"
-			}
-		],
-		"name": "onGetResponse",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{ "internalType": "bytes", "name": "source", "type": "bytes" },
-					{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-					{ "internalType": "uint64", "name": "nonce", "type": "uint64" },
-					{ "internalType": "address", "name": "from", "type": "address" },
-					{
-						"internalType": "uint64",
-						"name": "timeoutTimestamp",
-						"type": "uint64"
-					},
-					{ "internalType": "bytes[]", "name": "keys", "type": "bytes[]" },
-					{ "internalType": "uint64", "name": "height", "type": "uint64" }
-				],
-				"internalType": "struct GetRequest",
-				"name": "",
-				"type": "tuple"
-			}
-		],
-		"name": "onGetTimeout",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{ "internalType": "bytes", "name": "source", "type": "bytes" },
-					{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-					{ "internalType": "uint64", "name": "nonce", "type": "uint64" },
-					{ "internalType": "bytes", "name": "from", "type": "bytes" },
-					{ "internalType": "bytes", "name": "to", "type": "bytes" },
-					{
-						"internalType": "uint64",
-						"name": "timeoutTimestamp",
-						"type": "uint64"
-					},
-					{ "internalType": "bytes", "name": "body", "type": "bytes" }
-				],
-				"internalType": "struct PostRequest",
-				"name": "request",
-				"type": "tuple"
-			}
-		],
-		"name": "onPostRequestTimeout",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{
-						"components": [
-							{
-								"components": [
-									{
-										"internalType": "bytes",
-										"name": "source",
-										"type": "bytes"
-									},
-									{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-									{
-										"internalType": "uint64",
-										"name": "nonce",
-										"type": "uint64"
-									},
-									{ "internalType": "bytes", "name": "from", "type": "bytes" },
-									{ "internalType": "bytes", "name": "to", "type": "bytes" },
-									{
-										"internalType": "uint64",
-										"name": "timeoutTimestamp",
-										"type": "uint64"
-									},
-									{ "internalType": "bytes", "name": "body", "type": "bytes" }
-								],
-								"internalType": "struct PostRequest",
-								"name": "request",
-								"type": "tuple"
-							},
-							{ "internalType": "bytes", "name": "response", "type": "bytes" },
-							{
-								"internalType": "uint64",
-								"name": "timeoutTimestamp",
-								"type": "uint64"
-							}
-						],
-						"internalType": "struct PostResponse",
-						"name": "response",
-						"type": "tuple"
-					},
-					{ "internalType": "address", "name": "relayer", "type": "address" }
-				],
-				"internalType": "struct IncomingPostResponse",
-				"name": "",
-				"type": "tuple"
-			}
-		],
-		"name": "onPostResponse",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{
-						"components": [
-							{ "internalType": "bytes", "name": "source", "type": "bytes" },
-							{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-							{ "internalType": "uint64", "name": "nonce", "type": "uint64" },
-							{ "internalType": "bytes", "name": "from", "type": "bytes" },
-							{ "internalType": "bytes", "name": "to", "type": "bytes" },
-							{
-								"internalType": "uint64",
-								"name": "timeoutTimestamp",
-								"type": "uint64"
-							},
-							{ "internalType": "bytes", "name": "body", "type": "bytes" }
-						],
-						"internalType": "struct PostRequest",
-						"name": "request",
-						"type": "tuple"
-					},
-					{ "internalType": "bytes", "name": "response", "type": "bytes" },
-					{
-						"internalType": "uint64",
-						"name": "timeoutTimestamp",
-						"type": "uint64"
-					}
-				],
-				"internalType": "struct PostResponse",
-				"name": "",
-				"type": "tuple"
-			}
-		],
-		"name": "onPostResponseTimeout",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
+		"type": "function",
+		"name": "host",
 		"inputs": [],
+		"outputs": [{ "name": "h", "type": "address", "internalType": "address" }],
+		"stateMutability": "view"
+	},
+	{
+		"type": "function",
+		"name": "init",
+		"inputs": [
+			{
+				"name": "teleportParams",
+				"type": "tuple",
+				"internalType": "struct TokenGatewayParamsExt",
+				"components": [
+					{
+						"name": "params",
+						"type": "tuple",
+						"internalType": "struct TokenGatewayParams",
+						"components": [
+							{ "name": "host", "type": "address", "internalType": "address" },
+							{ "name": "dispatcher", "type": "address", "internalType": "address" }
+						]
+					},
+					{
+						"name": "assets",
+						"type": "tuple[]",
+						"internalType": "struct AssetMetadata[]",
+						"components": [
+							{ "name": "erc20", "type": "address", "internalType": "address" },
+							{ "name": "erc6160", "type": "address", "internalType": "address" },
+							{ "name": "name", "type": "string", "internalType": "string" },
+							{ "name": "symbol", "type": "string", "internalType": "string" },
+							{ "name": "initialSupply", "type": "uint256", "internalType": "uint256" },
+							{ "name": "beneficiary", "type": "address", "internalType": "address" }
+						]
+					}
+				]
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	},
+	{
+		"type": "function",
+		"name": "instance",
+		"inputs": [{ "name": "destination", "type": "bytes", "internalType": "bytes" }],
+		"outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+		"stateMutability": "view"
+	},
+	{
+		"type": "function",
+		"name": "onAccept",
+		"inputs": [
+			{
+				"name": "incoming",
+				"type": "tuple",
+				"internalType": "struct IncomingPostRequest",
+				"components": [
+					{
+						"name": "request",
+						"type": "tuple",
+						"internalType": "struct PostRequest",
+						"components": [
+							{ "name": "source", "type": "bytes", "internalType": "bytes" },
+							{ "name": "dest", "type": "bytes", "internalType": "bytes" },
+							{ "name": "nonce", "type": "uint64", "internalType": "uint64" },
+							{ "name": "from", "type": "bytes", "internalType": "bytes" },
+							{ "name": "to", "type": "bytes", "internalType": "bytes" },
+							{ "name": "timeoutTimestamp", "type": "uint64", "internalType": "uint64" },
+							{ "name": "body", "type": "bytes", "internalType": "bytes" }
+						]
+					},
+					{ "name": "relayer", "type": "address", "internalType": "address" }
+				]
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	},
+	{
+		"type": "function",
+		"name": "onGetResponse",
+		"inputs": [
+			{
+				"name": "",
+				"type": "tuple",
+				"internalType": "struct IncomingGetResponse",
+				"components": [
+					{
+						"name": "response",
+						"type": "tuple",
+						"internalType": "struct GetResponse",
+						"components": [
+							{
+								"name": "request",
+								"type": "tuple",
+								"internalType": "struct GetRequest",
+								"components": [
+									{ "name": "source", "type": "bytes", "internalType": "bytes" },
+									{ "name": "dest", "type": "bytes", "internalType": "bytes" },
+									{ "name": "nonce", "type": "uint64", "internalType": "uint64" },
+									{ "name": "from", "type": "address", "internalType": "address" },
+									{ "name": "timeoutTimestamp", "type": "uint64", "internalType": "uint64" },
+									{ "name": "keys", "type": "bytes[]", "internalType": "bytes[]" },
+									{ "name": "height", "type": "uint64", "internalType": "uint64" },
+									{ "name": "context", "type": "bytes", "internalType": "bytes" }
+								]
+							},
+							{
+								"name": "values",
+								"type": "tuple[]",
+								"internalType": "struct StorageValue[]",
+								"components": [
+									{ "name": "key", "type": "bytes", "internalType": "bytes" },
+									{ "name": "value", "type": "bytes", "internalType": "bytes" }
+								]
+							}
+						]
+					},
+					{ "name": "relayer", "type": "address", "internalType": "address" }
+				]
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	},
+	{
+		"type": "function",
+		"name": "onGetTimeout",
+		"inputs": [
+			{
+				"name": "",
+				"type": "tuple",
+				"internalType": "struct GetRequest",
+				"components": [
+					{ "name": "source", "type": "bytes", "internalType": "bytes" },
+					{ "name": "dest", "type": "bytes", "internalType": "bytes" },
+					{ "name": "nonce", "type": "uint64", "internalType": "uint64" },
+					{ "name": "from", "type": "address", "internalType": "address" },
+					{ "name": "timeoutTimestamp", "type": "uint64", "internalType": "uint64" },
+					{ "name": "keys", "type": "bytes[]", "internalType": "bytes[]" },
+					{ "name": "height", "type": "uint64", "internalType": "uint64" },
+					{ "name": "context", "type": "bytes", "internalType": "bytes" }
+				]
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	},
+	{
+		"type": "function",
+		"name": "onPostRequestTimeout",
+		"inputs": [
+			{
+				"name": "request",
+				"type": "tuple",
+				"internalType": "struct PostRequest",
+				"components": [
+					{ "name": "source", "type": "bytes", "internalType": "bytes" },
+					{ "name": "dest", "type": "bytes", "internalType": "bytes" },
+					{ "name": "nonce", "type": "uint64", "internalType": "uint64" },
+					{ "name": "from", "type": "bytes", "internalType": "bytes" },
+					{ "name": "to", "type": "bytes", "internalType": "bytes" },
+					{ "name": "timeoutTimestamp", "type": "uint64", "internalType": "uint64" },
+					{ "name": "body", "type": "bytes", "internalType": "bytes" }
+				]
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	},
+	{
+		"type": "function",
+		"name": "onPostResponse",
+		"inputs": [
+			{
+				"name": "",
+				"type": "tuple",
+				"internalType": "struct IncomingPostResponse",
+				"components": [
+					{
+						"name": "response",
+						"type": "tuple",
+						"internalType": "struct PostResponse",
+						"components": [
+							{
+								"name": "request",
+								"type": "tuple",
+								"internalType": "struct PostRequest",
+								"components": [
+									{ "name": "source", "type": "bytes", "internalType": "bytes" },
+									{ "name": "dest", "type": "bytes", "internalType": "bytes" },
+									{ "name": "nonce", "type": "uint64", "internalType": "uint64" },
+									{ "name": "from", "type": "bytes", "internalType": "bytes" },
+									{ "name": "to", "type": "bytes", "internalType": "bytes" },
+									{ "name": "timeoutTimestamp", "type": "uint64", "internalType": "uint64" },
+									{ "name": "body", "type": "bytes", "internalType": "bytes" }
+								]
+							},
+							{ "name": "response", "type": "bytes", "internalType": "bytes" },
+							{ "name": "timeoutTimestamp", "type": "uint64", "internalType": "uint64" }
+						]
+					},
+					{ "name": "relayer", "type": "address", "internalType": "address" }
+				]
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	},
+	{
+		"type": "function",
+		"name": "onPostResponseTimeout",
+		"inputs": [
+			{
+				"name": "",
+				"type": "tuple",
+				"internalType": "struct PostResponse",
+				"components": [
+					{
+						"name": "request",
+						"type": "tuple",
+						"internalType": "struct PostRequest",
+						"components": [
+							{ "name": "source", "type": "bytes", "internalType": "bytes" },
+							{ "name": "dest", "type": "bytes", "internalType": "bytes" },
+							{ "name": "nonce", "type": "uint64", "internalType": "uint64" },
+							{ "name": "from", "type": "bytes", "internalType": "bytes" },
+							{ "name": "to", "type": "bytes", "internalType": "bytes" },
+							{ "name": "timeoutTimestamp", "type": "uint64", "internalType": "uint64" },
+							{ "name": "body", "type": "bytes", "internalType": "bytes" }
+						]
+					},
+					{ "name": "response", "type": "bytes", "internalType": "bytes" },
+					{ "name": "timeoutTimestamp", "type": "uint64", "internalType": "uint64" }
+				]
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	},
+	{
+		"type": "function",
 		"name": "params",
+		"inputs": [],
 		"outputs": [
 			{
-				"components": [
-					{ "internalType": "address", "name": "host", "type": "address" },
-					{ "internalType": "address", "name": "dispatcher", "type": "address" }
-				],
-				"internalType": "struct TokenGatewayParams",
 				"name": "",
-				"type": "tuple"
+				"type": "tuple",
+				"internalType": "struct TokenGatewayParams",
+				"components": [
+					{ "name": "host", "type": "address", "internalType": "address" },
+					{ "name": "dispatcher", "type": "address", "internalType": "address" }
+				]
 			}
 		],
-		"stateMutability": "view",
-		"type": "function"
+		"stateMutability": "view"
 	},
 	{
-		"inputs": [
-			{
-				"components": [
-					{ "internalType": "bytes", "name": "source", "type": "bytes" },
-					{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-					{ "internalType": "uint64", "name": "nonce", "type": "uint64" },
-					{ "internalType": "bytes", "name": "from", "type": "bytes" },
-					{ "internalType": "bytes", "name": "to", "type": "bytes" },
-					{
-						"internalType": "uint64",
-						"name": "timeoutTimestamp",
-						"type": "uint64"
-					},
-					{ "internalType": "bytes", "name": "body", "type": "bytes" }
-				],
-				"internalType": "struct PostRequest",
-				"name": "request",
-				"type": "tuple"
-			}
-		],
-		"name": "refundBid",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{ "internalType": "uint256", "name": "amount", "type": "uint256" },
-					{ "internalType": "uint256", "name": "maxFee", "type": "uint256" },
-					{
-						"internalType": "uint256",
-						"name": "relayerFee",
-						"type": "uint256"
-					},
-					{ "internalType": "bytes32", "name": "assetId", "type": "bytes32" },
-					{ "internalType": "bool", "name": "redeem", "type": "bool" },
-					{ "internalType": "bytes32", "name": "to", "type": "bytes32" },
-					{ "internalType": "bytes", "name": "dest", "type": "bytes" },
-					{ "internalType": "uint64", "name": "timeout", "type": "uint64" },
-					{ "internalType": "bytes", "name": "data", "type": "bytes" },
-					{ "internalType": "uint256", "name": "nativeCost", "type": "uint256" }
-				],
-				"internalType": "struct TeleportParams",
-				"name": "teleportParams",
-				"type": "tuple"
-			}
-		],
+		"type": "function",
 		"name": "teleport",
+		"inputs": [
+			{
+				"name": "teleportParams",
+				"type": "tuple",
+				"internalType": "struct TeleportParams",
+				"components": [
+					{ "name": "amount", "type": "uint256", "internalType": "uint256" },
+					{ "name": "relayerFee", "type": "uint256", "internalType": "uint256" },
+					{ "name": "assetId", "type": "bytes32", "internalType": "bytes32" },
+					{ "name": "redeem", "type": "bool", "internalType": "bool" },
+					{ "name": "to", "type": "bytes32", "internalType": "bytes32" },
+					{ "name": "dest", "type": "bytes", "internalType": "bytes" },
+					{ "name": "timeout", "type": "uint64", "internalType": "uint64" },
+					{ "name": "nativeCost", "type": "uint256", "internalType": "uint256" },
+					{ "name": "data", "type": "bytes", "internalType": "bytes" }
+				]
+			}
+		],
 		"outputs": [],
-		"stateMutability": "payable",
-		"type": "function"
-	}
+		"stateMutability": "payable"
+	},
+	{
+		"type": "event",
+		"name": "AssetAdminChanged",
+		"inputs": [
+			{ "name": "asset", "type": "address", "indexed": false, "internalType": "address" },
+			{ "name": "newAdmin", "type": "address", "indexed": false, "internalType": "address" }
+		],
+		"anonymous": false
+	},
+	{
+		"type": "event",
+		"name": "AssetReceived",
+		"inputs": [
+			{ "name": "amount", "type": "uint256", "indexed": false, "internalType": "uint256" },
+			{ "name": "commitment", "type": "bytes32", "indexed": false, "internalType": "bytes32" },
+			{ "name": "from", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
+			{ "name": "beneficiary", "type": "address", "indexed": true, "internalType": "address" },
+			{ "name": "assetId", "type": "bytes32", "indexed": true, "internalType": "bytes32" }
+		],
+		"anonymous": false
+	},
+	{
+		"type": "event",
+		"name": "AssetRefunded",
+		"inputs": [
+			{ "name": "amount", "type": "uint256", "indexed": false, "internalType": "uint256" },
+			{ "name": "commitment", "type": "bytes32", "indexed": false, "internalType": "bytes32" },
+			{ "name": "beneficiary", "type": "address", "indexed": true, "internalType": "address" },
+			{ "name": "assetId", "type": "bytes32", "indexed": true, "internalType": "bytes32" }
+		],
+		"anonymous": false
+	},
+	{
+		"type": "event",
+		"name": "AssetRegistered",
+		"inputs": [
+			{ "name": "erc20", "type": "address", "indexed": false, "internalType": "address" },
+			{ "name": "erc6160", "type": "address", "indexed": false, "internalType": "address" },
+			{ "name": "name", "type": "string", "indexed": false, "internalType": "string" },
+			{ "name": "symbol", "type": "string", "indexed": false, "internalType": "string" },
+			{ "name": "assetId", "type": "bytes32", "indexed": false, "internalType": "bytes32" },
+			{ "name": "initialSupply", "type": "uint256", "indexed": false, "internalType": "uint256" },
+			{ "name": "beneficiary", "type": "address", "indexed": false, "internalType": "address" }
+		],
+		"anonymous": false
+	},
+	{
+		"type": "event",
+		"name": "AssetRemoved",
+		"inputs": [{ "name": "assetId", "type": "bytes32", "indexed": false, "internalType": "bytes32" }],
+		"anonymous": false
+	},
+	{
+		"type": "event",
+		"name": "AssetTeleported",
+		"inputs": [
+			{ "name": "to", "type": "bytes32", "indexed": false, "internalType": "bytes32" },
+			{ "name": "dest", "type": "string", "indexed": false, "internalType": "string" },
+			{ "name": "amount", "type": "uint256", "indexed": false, "internalType": "uint256" },
+			{ "name": "commitment", "type": "bytes32", "indexed": false, "internalType": "bytes32" },
+			{ "name": "from", "type": "address", "indexed": true, "internalType": "address" },
+			{ "name": "assetId", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
+			{ "name": "redeem", "type": "bool", "indexed": false, "internalType": "bool" }
+		],
+		"anonymous": false
+	},
+	{
+		"type": "event",
+		"name": "NewContractInstance",
+		"inputs": [
+			{ "name": "chain", "type": "string", "indexed": false, "internalType": "string" },
+			{ "name": "moduleId", "type": "address", "indexed": false, "internalType": "address" }
+		],
+		"anonymous": false
+	},
+	{
+		"type": "event",
+		"name": "ParamsUpdated",
+		"inputs": [
+			{
+				"name": "oldParams",
+				"type": "tuple",
+				"indexed": false,
+				"internalType": "struct TokenGatewayParams",
+				"components": [
+					{ "name": "host", "type": "address", "internalType": "address" },
+					{ "name": "dispatcher", "type": "address", "internalType": "address" }
+				]
+			},
+			{
+				"name": "newParams",
+				"type": "tuple",
+				"indexed": false,
+				"internalType": "struct TokenGatewayParams",
+				"components": [
+					{ "name": "host", "type": "address", "internalType": "address" },
+					{ "name": "dispatcher", "type": "address", "internalType": "address" }
+				]
+			}
+		],
+		"anonymous": false
+	},
+	{ "type": "error", "name": "InconsistentState", "inputs": [] },
+	{ "type": "error", "name": "InvalidAddressLength", "inputs": [] },
+	{ "type": "error", "name": "InvalidAmount", "inputs": [] },
+	{ "type": "error", "name": "UnauthorizedAction", "inputs": [] },
+	{ "type": "error", "name": "UnauthorizedCall", "inputs": [] },
+	{ "type": "error", "name": "UnexpectedCall", "inputs": [] },
+	{ "type": "error", "name": "UnknownAsset", "inputs": [] },
+	{ "type": "error", "name": "ZeroAddress", "inputs": [] }
 ]

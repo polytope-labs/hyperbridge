@@ -197,3 +197,37 @@ query OrderStatus($commitment: String!) {
     }
   }
 }`
+
+export const TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS = `
+query TokenGatewayAssetTeleportedStatus($commitment: String!) {
+  tokenGatewayAssetTeleporteds(
+    filter: { commitment: { equalTo: $commitment } }
+  ) {
+    nodes {
+      id
+      from
+      to
+      sourceChain
+      destChain
+      commitment
+      amount
+      usdValue
+      assetId
+      redeem
+      status
+      createdAt
+      blockNumber
+      blockTimestamp
+      transactionHash
+      statusMetadata {
+        nodes {
+          status
+          chain
+          timestamp
+          blockNumber
+          transactionHash
+        }
+      }
+    }
+  }
+}`

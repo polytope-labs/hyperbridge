@@ -179,6 +179,71 @@ export enum OrderStatus {
 	REFUNDED = "REFUNDED",
 }
 
+export enum TeleportStatus {
+	TELEPORTED = "TELEPORTED",
+	RECEIVED = "RECEIVED",
+	REFUNDED = "REFUNDED",
+}
+
+export interface TokenGatewayAssetTeleportedResponse {
+	tokenGatewayAssetTeleporteds: {
+		nodes: Array<{
+			id: string
+			from: string
+			to: string
+			sourceChain: string
+			destChain: string
+			commitment: string
+			amount: string
+			usdValue: string
+			assetId: string
+			redeem: boolean
+			status: TeleportStatus
+			createdAt: string
+			blockNumber: string
+			blockTimestamp: string
+			transactionHash: string
+			statusMetadata: {
+				nodes: Array<{
+					status: TeleportStatus
+					chain: string
+					timestamp: string
+					blockNumber: string
+					blockHash: string
+					transactionHash: string
+				}>
+			}
+		}>
+	}
+}
+
+export interface TokenGatewayAssetTeleportedWithStatus {
+	id: string
+	from: string
+	to: string
+	sourceChain: string
+	destChain: string
+	commitment: string
+	amount: bigint
+	usdValue: string
+	assetId: string
+	redeem: boolean
+	status: TeleportStatus
+	createdAt: Date
+	blockNumber: bigint
+	blockTimestamp: bigint
+	transactionHash: string
+	statuses: Array<{
+		status: TeleportStatus
+		metadata: {
+			blockHash: string
+			blockNumber: number
+			transactionHash: string
+			timestamp: bigint
+		}
+	}>
+}
+
 export interface BlockMetadata {
 	blockHash: string
 	blockNumber: number

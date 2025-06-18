@@ -9,9 +9,11 @@ import type {
 	PostRequestWithStatus,
 	OrderResponse,
 	OrderWithStatus,
+	TokenGatewayAssetTeleportedResponse,
+	TokenGatewayAssetTeleportedWithStatus,
 } from "./types"
 import type { ConsolaInstance } from "consola"
-import { GET_REQUEST_STATUS, POST_REQUEST_STATUS, ORDER_STATUS } from "./queries"
+import { GET_REQUEST_STATUS, POST_REQUEST_STATUS, ORDER_STATUS, TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS } from "./queries"
 
 export function createQueryClient(config: { url: string }) {
 	return new GraphQLClient(config.url)
@@ -63,6 +65,62 @@ export function queryGetRequest(params: { commitmentHash: string; queryClient: I
  */
 export function queryOrder(params: { commitmentHash: string; queryClient: IndexerQueryClient }) {
 	return _queryOrderInternal(params)
+}
+
+/**
+ * Internal function to query a token gateway asset teleported by CommitmentHash
+ *
+ * @param params - Parameters for querying the token gateway asset teleported
+ * @returns Latest status and block metadata of the token gateway asset teleported
+ */
+export async function _queryTokenGatewayAssetTeleportedInternal(
+	params: InternalQueryParams,
+): Promise<TokenGatewayAssetTeleportedWithStatus | undefined> {
+	const { commitmentHash, queryClient: client, logger = DEFAULT_LOGGER } = params
+
+	const response = await retryPromise(
+		() => {
+			return client.request<TokenGatewayAssetTeleportedResponse>(TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS, {
+				commitment: commitmentHash,
+			})
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `querying 'TokenGatewayAssetTeleported' with Statuses by CommitmentHash(${commitmentHash})`,
+		},
+	)
+
+	const first_record = response.tokenGatewayAssetTeleporteds.nodes[0]
+	if (!first_record) return
+
+	logger.trace("`TokenGatewayAssetTeleported` found")
+	const { statusMetadata, ...first_node } = first_record
+
+	const statuses = structuredClone(statusMetadata.nodes).map((item) => ({
+		status: item.status,
+		metadata: {
+			blockHash: item.blockHash,
+			blockNumber: Number.parseInt(item.blockNumber),
+			transactionHash: item.transactionHash,
+			timestamp: BigInt(item.timestamp),
+		},
+	}))
+
+	// sort by ascending order
+	const sorted = statuses.sort((a, b) => {
+		return Number(a.metadata.timestamp) - Number(b.metadata.timestamp)
+	})
+
+	return {
+		...first_node,
+		amount: BigInt(first_node.amount),
+		blockNumber: BigInt(first_node.blockNumber),
+		blockTimestamp: BigInt(first_node.blockTimestamp),
+		createdAt: new Date(first_node.createdAt),
+		statuses: sorted,
+	}
 }
 
 type InternalQueryParams = {

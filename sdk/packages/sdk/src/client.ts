@@ -5,29 +5,29 @@ import { pad, toHex } from "viem"
 // @ts-ignore
 import mergeRace from "@async-generator/merge-race"
 
-import {
-	RequestStatus,
-	type IndexerQueryClient,
-	type StateMachineUpdate,
-	type StateMachineResponse,
-	type ClientConfig,
-	type RetryConfig,
-	type PostRequestWithStatus,
-	type HexString,
-	TimeoutStatus,
-	type PostRequestTimeoutStatus,
-	type RequestStatusWithMetadata,
-	type AssetTeleported,
-	type AssetTeleportedResponse,
-	type GetRequestWithStatus,
-	type GetResponseByRequestIdResponse,
-	type ResponseCommitmentWithValues,
-	type RequestStatusKey,
-	type TimeoutStatusKey,
-	type PostRequestStatus,
-	type OrderWithStatus,
-	OrderStatus,
+import type {
+	AssetTeleported,
+	AssetTeleportedResponse,
+	BlockMetadata,
+	ClientConfig,
+	GetRequestResponse,
+	GetRequestWithStatus,
+	GetResponseByRequestIdResponse,
+	HexString,
+	OrderWithStatus,
+	PostRequestStatus,
+	PostRequestTimeoutStatus,
+	PostRequestWithStatus,
+	RequestStatusKey,
+	RequestStatusWithMetadata,
+	ResponseCommitmentWithValues,
+	RetryConfig,
+	StateMachineResponse,
+	StateMachineUpdate,
+	TokenGatewayAssetTeleportedWithStatus,
+	TimeoutStatusKey,
 } from "@/types"
+
 import {
 	STATE_MACHINE_UPDATES_BY_HEIGHT,
 	STATE_MACHINE_UPDATES_BY_TIMESTAMP,
@@ -47,7 +47,16 @@ import {
 	waitForChallengePeriod,
 } from "@/utils"
 import { getChain, type IChain, type SubstrateChain } from "@/chain"
-import { _queryGetRequestInternal, _queryRequestInternal, _queryOrderInternal } from "./query-client"
+import {
+	_queryGetRequestInternal,
+	_queryRequestInternal,
+	_queryOrderInternal,
+	_queryTokenGatewayAssetTeleportedInternal,
+} from "./query-client"
+
+import { OrderStatus, RequestStatus, TeleportStatus, TimeoutStatus } from "@/types"
+
+import type { IndexerQueryClient } from "@/types"
 
 /**
  * IndexerClient provides methods for interacting with the Hyperbridge indexer.
@@ -1466,6 +1475,80 @@ export class IndexerClient {
 				}
 			}
 		}
+	}
+
+	async *tokenGatewayAssetTeleportedStatusStream(commitment: HexString): AsyncGenerator<
+		{
+			status: TeleportStatus
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp: bigint
+			}
+		},
+		void
+	> {
+		const logger = this.logger.withTag("[tokenGatewayAssetTeleportedStatusStream]")
+		logger.trace(`Starting stream for token gateway asset teleported with commitment ${commitment}`)
+
+		let lastStatus: TeleportStatus | undefined
+		let lastBlockNumber: number | undefined
+
+		while (true) {
+			try {
+				const teleport = await this.queryTokenGatewayAssetTeleported(commitment)
+				if (!teleport) {
+					logger.trace("No teleport found, waiting...")
+					await this.sleep_for_interval()
+					continue
+				}
+
+				const statuses = teleport.statuses
+				if (statuses.length === 0) {
+					logger.trace("No statuses found, waiting...")
+					await this.sleep_for_interval()
+					continue
+				}
+
+				// Find the latest status that we haven't seen yet
+				const latestStatus = statuses[statuses.length - 1]
+				if (lastStatus === latestStatus.status && lastBlockNumber === latestStatus.metadata.blockNumber) {
+					logger.trace("No new status, waiting...")
+					await this.sleep_for_interval()
+					continue
+				}
+
+				lastStatus = latestStatus.status
+				lastBlockNumber = latestStatus.metadata.blockNumber
+
+				yield latestStatus
+
+				// If we've reached a final status, end the stream
+				if (
+					latestStatus.status === TeleportStatus.RECEIVED ||
+					latestStatus.status === TeleportStatus.REFUNDED
+				) {
+					logger.trace("Final status reached, ending stream")
+					break
+				}
+
+				await this.sleep_for_interval()
+			} catch (error) {
+				logger.error("Error in token gateway asset teleported status stream:", error)
+				await this.sleep_for_interval()
+			}
+		}
+	}
+
+	private async queryTokenGatewayAssetTeleported(
+		commitment: HexString,
+	): Promise<TokenGatewayAssetTeleportedWithStatus | undefined> {
+		return _queryTokenGatewayAssetTeleportedInternal({
+			commitmentHash: commitment,
+			queryClient: this.client,
+			logger: this.logger,
+		})
 	}
 }
 

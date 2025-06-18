@@ -20,6 +20,11 @@ export { handleOrderFilledEvent } from "@/handlers/events/intentGateway/orderFil
 export { handleEscrowReleasedEvent } from "@/handlers/events/intentGateway/escrowReleased.event.handler"
 export { handleEscrowRefundedEvent } from "@/handlers/events/intentGateway/escrowRefunded.event.handler"
 
+// Token Gateway Handlers
+export { handleAssetTeleportedEvent } from "@/handlers/events/tokenGateway/assetTeleported.event.handler"
+export { handleAssetReceivedEvent } from "@/handlers/events/tokenGateway/assetReceived.event.handler"
+export { handleAssetRefundedEvent } from "@/handlers/events/tokenGateway/assetRefunded.event.handler"
+
 // HandlerV1 Handlers
 // export { handlePostRequestTransactionHandler } from '@/handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler';
 // export { handlePostResponseTransactionHandler } from '@/handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler';

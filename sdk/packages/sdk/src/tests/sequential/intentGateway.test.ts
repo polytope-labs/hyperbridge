@@ -308,7 +308,7 @@ async function setUp() {
 	}
 }
 
-async function approveTokens(
+export async function approveTokens(
 	walletClient: WalletClient,
 	publicClient: PublicClient,
 	tokenAddress: HexString,
@@ -333,8 +333,7 @@ async function approveTokens(
 			account: walletClient.account!,
 		})
 
-		console.log("Approved tokens for test:", tx)
-		// Wait for the 5 seconds, to make sure the transaction is mined
-		await new Promise((resolve) => setTimeout(resolve, 5000))
+		const receipt = await publicClient.waitForTransactionReceipt({ hash: tx })
+		console.log("Approved tokens for test:", receipt)
 	}
 }

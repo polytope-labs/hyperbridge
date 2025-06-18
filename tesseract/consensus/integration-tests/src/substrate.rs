@@ -14,8 +14,8 @@ use mmr_primitives::DataOrHash;
 use pallet_ismp::mmr::{Leaf, Proof as MmrProof};
 use primitive_types::H256;
 use sp_core::Bytes;
-use sp_mmr_primitives::utils::NodesUtils;
-use sp_runtime::traits::Keccak256 as KeccakHasher;
+use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
+use polkadot_sdk::sp_runtime::traits::Keccak256 as KeccakHasher;
 use substrate_state_machine::HashAlgorithm;
 use subxt::{
 	ext::{sp_core, sp_core::keccak_256},

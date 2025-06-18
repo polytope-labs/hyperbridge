@@ -25942,6 +25942,8 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk 2503.0.1",
  "primitive-types 0.12.2",
+ "sp-core",
+ "sp-io",
  "substrate-state-machine",
  "subxt 0.30.1",
  "subxt-utils",

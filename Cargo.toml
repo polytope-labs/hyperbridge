@@ -75,16 +75,16 @@ members = [
     "modules/utils/serde",
 
     # tesseract
-    "tesseract/primitives",
-    "tesseract/messaging",
-    "tesseract/substrate",
-    "tesseract/relayer",
-    "tesseract/evm",
-    "tesseract/fees",
-    "tesseract/fees/prisma-cli",
-    "tesseract/telemetry",
-    "tesseract/config",
-    "tesseract/fisherman",
+    "tesseract/messaging/primitives",
+    "tesseract/messaging/messaging",
+    "tesseract/messaging/substrate",
+    "tesseract/messaging/relayer",
+    "tesseract/messaging/evm",
+    "tesseract/messaging/fees",
+    "tesseract/messaging/fees/prisma-cli",
+    "tesseract/messaging/telemetry",
+    "tesseract/messaging/config",
+    "tesseract/messaging/fisherman",
     # "tesseract/integration-test",
 
     # Airdrop
@@ -240,16 +240,16 @@ gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features 
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
 
 # tesseract
-tesseract-primitives = { path = "tesseract/primitives" }
+tesseract-primitives = { path = "tesseract/messaging/primitives" }
 tesseract-consensus = { path = "tesseract/consensus" }
-tesseract-messaging = { path = "tesseract/messaging" }
-tesseract-fisherman = { path = "tesseract/fisherman" }
-tesseract-substrate = { path = "tesseract/substrate" }
-tesseract-evm = { path = "tesseract/evm" }
-tesseract = { path = "tesseract/relayer" }
-transaction-fees = { path = "tesseract/fees" }
-telemetry-server = { path = "tesseract/telemetry" }
-tesseract-config = { path = "tesseract/config" }
+tesseract-messaging = { path = "tesseract/messaging/messaging" }
+tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
+tesseract-substrate = { path = "tesseract/messaging/substrate" }
+tesseract-evm = { path = "tesseract/messaging/evm" }
+tesseract = { path = "tesseract/messaging/relayer" }
+transaction-fees = { path = "tesseract/messaging/fees" }
+telemetry-server = { path = "tesseract/messaging/telemetry" }
+tesseract-config = { path = "tesseract/messaging/config" }
 
 [workspace.dependencies.codec]
 package = "parity-scale-codec"

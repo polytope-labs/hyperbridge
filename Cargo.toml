@@ -74,27 +74,27 @@ members = [
     "modules/utils/serde",
 
     # tesseract
-    "tesseract/tesseract-messaging/primitives",
-    "tesseract/tesseract-messaging/messaging",
-    "tesseract/tesseract-messaging/substrate",
-    "tesseract/tesseract-messaging/relayer",
-    "tesseract/tesseract-messaging/evm",
-    "tesseract/tesseract-messaging/fees",
-    "tesseract/tesseract-messaging/fees/prisma-cli",
-    "tesseract/tesseract-messaging/telemetry",
-    "tesseract/tesseract-messaging/config",
-    "tesseract/tesseract-messaging/fisherman",
+    "tesseract/messaging/primitives",
+    "tesseract/messaging/messaging",
+    "tesseract/messaging/substrate",
+    "tesseract/messaging/relayer",
+    "tesseract/messaging/evm",
+    "tesseract/messaging/fees",
+    "tesseract/messaging/fees/prisma-cli",
+    "tesseract/messaging/telemetry",
+    "tesseract/messaging/config",
+    "tesseract/messaging/fisherman",
     # "tesseract/integration-test",
 
-    "tesseract/tesseract-consensus/arb-host",
-    "tesseract/tesseract-consensus/op-host",
-    "tesseract/tesseract-consensus/beefy",
-    "tesseract/tesseract-consensus/beefy/zk",
-    "tesseract/tesseract-consensus/bsc",
-    "tesseract/tesseract-consensus/integration-tests",
-    "tesseract/tesseract-consensus/sync-committee",
-    "tesseract/tesseract-consensus/grandpa",
-    "tesseract/tesseract-consensus/relayer",
+    "tesseract/consensus/arb-host",
+    "tesseract/consensus/op-host",
+    "tesseract/consensus/beefy",
+    "tesseract/consensus/beefy/zk",
+    "tesseract/consensus/bsc",
+    "tesseract/consensus/integration-tests",
+    "tesseract/consensus/sync-committee",
+    "tesseract/consensus/grandpa",
+    "tesseract/consensus/relayer",
 
     # Airdrop
     "modules/pallets/bridge-drop",
@@ -254,29 +254,29 @@ gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features 
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
 
 # tesseract
-tesseract-primitives = { path = "tesseract/tesseract-messaging/primitives" }
-tesseract-consensus = { path = "tesseract/tesseract-messaging/consensus" }
-tesseract-messaging = { path = "tesseract/tesseract-messaging/messaging" }
-tesseract-fisherman = { path = "tesseract/tesseract-messaging/fisherman" }
-tesseract-substrate = { path = "tesseract/tesseract-messaging/substrate" }
-tesseract-evm = { path = "tesseract/tesseract-messaging/evm" }
-tesseract = { path = "tesseract/tesseract-messaging/relayer" }
-transaction-fees = { path = "tesseract/tesseract-messaging/fees" }
-telemetry-server = { path = "tesseract/tesseract-messaging/telemetry" }
-tesseract-config = { path = "tesseract/tesseract-messaging/config" }
+tesseract-primitives = { path = "tesseract/messaging/primitives" }
+tesseract-consensus = { path = "tesseract/messaging/consensus" }
+tesseract-messaging = { path = "tesseract/messaging/messaging" }
+tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
+tesseract-substrate = { path = "tesseract/messaging/substrate" }
+tesseract-evm = { path = "tesseract/messaging/evm" }
+tesseract = { path = "tesseract/messaging/relayer" }
+transaction-fees = { path = "tesseract/messaging/fees" }
+telemetry-server = { path = "tesseract/messaging/telemetry" }
+tesseract-config = { path = "tesseract/messaging/config" }
 
 sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
 sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
 
 # tesseract consensus
-arb-host = { path = "tesseract/tesseract-consensus/arb-host" }
-op-host = { path = "tesseract/tesseract-consensus/op-host" }
-tesseract-beefy = { path = "tesseract/tesseract-consensus/beefy" }
-tesseract-bsc = { path = "tesseract/tesseract-consensus/bsc" }
-tesseract-integration-tests = { path = "tesseract/tesseract-consensus/integration-tests" }
-tesseract-sync-committee = { path = "tesseract/tesseract-consensus/sync-committee" }
-tesseract-grandpa = { path = "tesseract/tesseract-consensus/grandpa" }
-tesseract-consensus-relayer = { path = "tesseract/tesseract-consensus/relayer" }
+arb-host = { path = "tesseract/consensus/arb-host" }
+op-host = { path = "tesseract/consensus/op-host" }
+tesseract-beefy = { path = "tesseract/consensus/beefy" }
+tesseract-bsc = { path = "tesseract/consensus/bsc" }
+tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
+tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
+tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
+tesseract-consensus-relayer = { path = "tesseract/consensus/relayer" }
 
 
 [workspace.dependencies.codec]

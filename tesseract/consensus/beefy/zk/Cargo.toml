@@ -33,6 +33,9 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 futures = "0.3.27"
 envy = "0.4.2"
-sp-runtime = { workspace = true }
 subxt-utils = { workspace = true }
 hex = { version = "0.4.3", features = [] }
+
+[dev-dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime"]

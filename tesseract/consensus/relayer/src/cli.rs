@@ -20,7 +20,7 @@ use crate::{
 	subcommand::Subcommand,
 };
 use futures::FutureExt;
-use sc_service::TaskManager;
+use polkadot_sdk::sc_service::TaskManager;
 
 /// The tesseract multi-chain consensus relayer.
 ///

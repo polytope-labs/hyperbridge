@@ -16,18 +16,15 @@ hex = "0.4.3"
 hex-literal = "0.4.1"
 primitive-types = "0.12.1"
 futures = "0.3.28"
-ethers = { workspace = true, features = ["ws", "optimism"] }
+ethers = { workspace = true, features = ["ethers-solc"], default-features = false }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 merkle-mountain-range = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 pallet-ismp-demo = { workspace = true }
 ismp = { workspace = true }
-sp-core = { workspace = true }
 pallet-ismp = { workspace = true }
 
-sp-io = { workspace = true }
-sp-keyring = { workspace = true }
 
 tesseract-grandpa = { workspace = true }
 tesseract-beefy = { workspace = true  }
@@ -45,12 +42,20 @@ transaction-fees = { workspace = true }
 tesseract-config = { workspace = true }
 subxt-utils = { workspace = true }
 mmr-primitives = { workspace = true }
-sp-mmr-primitives = { workspace = true }
-sp-runtime = { workspace = true  }
-pallet-mmr = { workspace = true  }
 pallet-ismp-rpc = { workspace = true  }
 divide_range = "0.1.1"
 substrate-state-machine = { workspace = true }
 arb-host = { workspace = true }
 op-host = { workspace = true }
 grandpa-verifier-primitives = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "sp-core",
+    "sp-io",
+    "pallet-mmr",
+    "sp-mmr-primitives",
+    "sp-runtime",
+    "sp-keyring",
+]

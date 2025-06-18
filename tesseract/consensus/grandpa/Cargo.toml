@@ -25,10 +25,13 @@ ismp = { workspace = true }
 grandpa-prover = { workspace = true }
 grandpa-verifier-primitives = { workspace = true }
 ismp-grandpa = { workspace = true }
-polkadot-core-primitives = { workspace = true }
 serde-hex-utils = { workspace = true }
 subxt-utils = { workspace = true }
 tesseract-substrate = {  workspace = true }
 tesseract-primitives = {  workspace = true }
 
 sp-core = { workspace = true, features = ["full_crypto"] }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["polkadot-core-primitives"]

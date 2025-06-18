@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, SignedCommitment, VersionedFinalityProof,
 };
-use sp_runtime::traits::Keccak256;
+use polkadot_sdk::sp_runtime::traits::Keccak256;
 use std::{
 	collections::{HashMap, HashSet},
 	time::Duration,
@@ -765,7 +765,7 @@ pub async fn query_parachain_header<R: subxt::Config>(
 	client: &OnlineClient<R>,
 	hash: R::Hash,
 	para_id: u32,
-) -> Result<sp_runtime::generic::Header<u32, Keccak256>, anyhow::Error> {
+) -> Result<polkadot_sdk::sp_runtime::generic::Header<u32, Keccak256>, anyhow::Error> {
 	let head_data = client
 		.rpc()
 		.storage(parachain_header_storage_key(para_id).as_ref(), Some(hash))
@@ -778,7 +778,7 @@ pub async fn query_parachain_header<R: subxt::Config>(
 			)
 		})?;
 
-	let header = sp_runtime::generic::Header::<u32, Keccak256>::decode(&mut &head_data[..])?;
+	let header = polkadot_sdk::sp_runtime::generic::Header::<u32, Keccak256>::decode(&mut &head_data[..])?;
 
 	Ok(header)
 }

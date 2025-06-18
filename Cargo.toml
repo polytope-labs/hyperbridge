@@ -87,6 +87,17 @@ members = [
     "tesseract/messaging/fisherman",
     # "tesseract/integration-test",
 
+    "tesseract/consensus/arb-host",
+    "tesseract/consensus/op-host",
+    "tesseract/consensus/beefy",
+    "tesseract/consensus/beefy/zk",
+    "tesseract/consensus/bsc",
+    "tesseract/consensus/integration-tests",
+    "tesseract/consensus/sync-committee",
+    "tesseract/consensus/grandpa",
+    "tesseract/consensus/relayer",
+
+
     # Airdrop
     "modules/pallets/bridge-drop",
 ]
@@ -161,7 +172,7 @@ hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"
 rlp = { version = "0.6.1", default-features = false }
 primitive-types = { version = "0.13.1", default-features = false }
-subxt = { git = "https://github.com/polytope-labs/subxt", rev = "cd20a8274690ebac440814d8b508a1578aa34eaa", default-features = false }
+subxt = { git = "https://github.com/polytope-labs/subxt", rev = "1032f573af0d128917b2564b204361d76b130275", default-features = false }
 tokio = { version = "1.37.0" }
 tokio-stream = { version = "0.1.15" }
 jsonrpsee = { version = "0.24" }
@@ -257,6 +268,17 @@ tesseract = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
 tesseract-config = { path = "tesseract/messaging/config" }
+
+# tesseract consensus
+arb-host = { path = "tesseract/consensus/arb-host" }
+op-host = { path = "tesseract/consensus/op-host" }
+tesseract-beefy = { path = "tesseract/consensus/beefy" }
+tesseract-bsc = { path = "tesseract/consensus/bsc" }
+tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
+tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
+tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
+tesseract-consensus-relayer = { path = "tesseract/consensus/relayer" }
+
 
 [workspace.dependencies.codec]
 package = "parity-scale-codec"

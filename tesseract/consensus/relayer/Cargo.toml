@@ -1,5 +1,5 @@
 [package]
-name = "tesseract"
+name = "tesseract-consensus-relayer"
 version = "0.6.1"
 edition = "2021"
 
@@ -34,8 +34,6 @@ tokio = { version = "1.32.0", features = ["full"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 primitive-types =  { workspace = true }
 subxt = { workspace = true, default-features = false }
-sc-service = { workspace = true }
-sp-runtime = { workspace = true }
 sp-core = { workspace = true, features = ["full_crypto"] }
 
 subxt-utils = { workspace = true }
@@ -49,3 +47,7 @@ tesseract-substrate = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-primitives = { workspace = true }
 rustls = { version = "0.23.23", features = ["ring"] }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime", "sc-service"]

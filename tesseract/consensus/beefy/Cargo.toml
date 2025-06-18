@@ -19,10 +19,9 @@ log = "0.4.20"
 hex = { workspace = true }
 hex-literal = "0.4.1"
 sp-core = { workspace = true, features = ["full_crypto"] }
-ethers = { workspace = true, features = ["ws", "optimism"] }
+ethers = { workspace = true, features = ["ethers-solc"], default-features = false }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
-sp-runtime = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 redis = { version = "0.24.0", features = ["connection-manager", "tokio-rustls-comp"] }
@@ -42,14 +41,16 @@ subxt-utils = { workspace = true }
 
 # substrate
 sp-consensus-beefy = { workspace = true }
-polkadot-core-primitives = { workspace = true }
-
 # tesseract
 tesseract-substrate = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 zk-beefy = { path = "zk" }
 rsmq_async = { workspace = true }
 redis-async = { version = "0.17.1", features = ["with-rustls"] }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime"]
 
 [features]
 # a feature that tells the tests to write a new consensus state

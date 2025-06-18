@@ -143,6 +143,11 @@ jobs:
               with:
                   toolchain: stable
 
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                go-version: '1.24'
+
             - name: Add wasm toolchain
               run: |
                   rustup update nightly
@@ -213,6 +218,11 @@ jobs:
               uses: dtolnay/rust-toolchain@nightly
               with:
                   toolchain: stable
+
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                go-version: '1.24'
 
             - name: Add wasm toolchain
               run: |

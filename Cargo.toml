@@ -140,6 +140,8 @@ orml-traits = { version = "=1.4.0", default-features = false }
 orml-utilities = { version = "=1.4.0", default-features = false }
 sc-simnode = { version = "2503.0.0" }
 simnode-runtime-api = { version = "2503.0.0", default-features = false }
+sp-consensus-beefy = { version = "24.1.0" }
+sp-crypto-hashing = "0.1.0"
 
 # crates.io
 serde = { version = "1", default-features = false }
@@ -164,6 +166,11 @@ tokio = { version = "1.37.0" }
 tokio-stream = { version = "0.1.15" }
 jsonrpsee = { version = "0.24" }
 jsonrpsee-core = { version = "0.24" }
+rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
+tracing = "0.1.40"
+
+sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
+sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }

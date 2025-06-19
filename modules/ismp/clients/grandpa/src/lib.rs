@@ -70,6 +70,9 @@ pub mod pallet {
 
 		/// Weight information for dispatchable extrinsics
 		type WeightInfo: WeightInfo;
+
+		/// Origin for privileged actions
+		type RootOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// Events emitted by this pallet
@@ -103,7 +106,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			new_state_machines: Vec<AddStateMachine>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::RootOrigin::ensure_origin(origin)?;
 
 			let state_machines =
 				new_state_machines.iter().map(|a| a.state_machine.clone()).collect();
@@ -123,7 +126,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			state_machines: Vec<StateMachine>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::RootOrigin::ensure_origin(origin)?;
 
 			for state_machine in state_machines.clone() {
 				SupportedStateMachines::<T>::remove(state_machine)

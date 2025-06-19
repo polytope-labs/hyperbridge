@@ -1,0 +1,53 @@
+[package]
+name = "tesseract-consensus-relayer"
+version = "0.6.1"
+edition = "2021"
+
+[lib]
+name = "tesseract"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tesseract"
+path = "bins/relayer.rs"
+
+[[bin]]
+name = "beefy-prover"
+path = "bins/prover.rs"
+
+[dependencies]
+log = "0.4.19"
+env_logger = "0.10.0"
+hex = "0.4.3"
+async-trait = "0.1.53"
+finality-grandpa = "0.16.2"
+substrate-state-machine = { workspace = true }
+
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+anyhow = "1.0.93"
+futures = "0.3.28"
+serde = { version = "1.0.214", features = ["derive"] }
+json = { version = "1.0.132", package = "serde_json" }
+toml = "0.7.4"
+clap = { version = "4.3.5", features = ["derive"] }
+tokio = { version = "1.32.0", features = ["full"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+primitive-types =  { workspace = true }
+subxt = { workspace = true, default-features = false }
+sp-core = { workspace = true, features = ["full_crypto"] }
+
+subxt-utils = { workspace = true }
+tesseract-beefy = { workspace = true }
+tesseract-bsc = { workspace = true }
+tesseract-sync-committee = { workspace = true }
+arb-host = { workspace = true }
+op-host = { workspace = true }
+ismp = { workspace = true  }
+tesseract-substrate = { workspace = true }
+tesseract-grandpa = { workspace = true }
+tesseract-primitives = { workspace = true }
+rustls = { version = "0.23.23", features = ["ring"] }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime", "sc-service"]

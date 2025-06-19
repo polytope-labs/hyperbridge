@@ -53,6 +53,9 @@ pub mod pallet {
 		/// The overarching runtime event type.
 		type RuntimeEvent: From<Event<Self>>
 			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
+
+		/// Origin for privileged actions
+		type GatewayOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// Balances for net inflow of non native assets into a standalone chain
@@ -96,7 +99,7 @@ pub mod pallet {
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
 		pub fn set_chain_balance(origin: OriginFor<T>, inflow: NetInflow) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GatewayOrigin::ensure_origin(origin)?;
 			InflowBalances::<T>::insert(inflow.chain, inflow.asset, inflow.balance);
 			Ok(())
 		}

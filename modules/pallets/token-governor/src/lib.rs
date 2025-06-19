@@ -75,6 +75,9 @@ pub mod pallet {
 
 		/// The account id for the treasury
 		type TreasuryAccount: Get<PalletId>;
+
+		/// Origin for privileged actions
+		type GovernorOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// Maps a pending asset to it's owner. Enables asset registration without the native token by
@@ -260,7 +263,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			update: BTreeMap<StateMachine, RegistrarParamsUpdate>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 
 			Self::update_registrar_params_impl(update)?;
 
@@ -275,7 +278,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			update: BTreeMap<StateMachine, GatewayParamsUpdate<H160>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 
 			Self::update_token_gateway_params_impl(update)?;
 
@@ -289,7 +292,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			update: ParamsUpdate<<T as pallet_ismp::Config>::Balance>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 			let stored_params = ProtocolParams::<T>::get();
 
 			let old_params = stored_params.unwrap_or_default();
@@ -328,7 +331,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset: ERC20AssetRegistration,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 
 			Self::create_erc20_asset_impl(asset)?;
 
@@ -342,7 +345,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			updates: BTreeMap<StateMachine, GatewayParamsUpdate<H160>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 
 			Self::new_token_gateway_instance_impl(updates)?;
 
@@ -356,7 +359,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			assets: BTreeMap<StateMachine, BTreeSet<H256>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 
 			for (state_machine, new_asset_ids) in assets.clone() {
 				new_asset_ids
@@ -376,7 +379,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			assets: BTreeMap<StateMachine, BTreeSet<H256>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 
 			for (state_machine, new_asset_ids) in assets.clone() {
 				new_asset_ids
@@ -397,7 +400,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			params: BTreeMap<StateMachine, GatewayParamsUpdate<H256>>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 
 			Self::update_intent_gateway_params_impl(params)?;
 
@@ -411,7 +414,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			params: BTreeMap<StateMachine, NewIntentGatewayDeployment>,
 		) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
+			T::GovernorOrigin::ensure_origin(origin)?;
 
 			Self::new_intent_gateway_instance_impl(params)?;
 

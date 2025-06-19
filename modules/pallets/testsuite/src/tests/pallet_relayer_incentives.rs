@@ -31,23 +31,43 @@ use ismp::{
 use crate::runtime::*;
 use crate::runtime::{new_test_ext, Ismp, RuntimeOrigin, Test};
 
+fn setup_state_machine() -> StateMachineId {
+	StateMachineId { state_id: StateMachine::Polkadot(1000), consensus_state_id: *b"mock" }
+}
+
+fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32) {
+	assert_eq!(Balances::balance(relayer_account), 0);
+	Balances::mint_into(relayer_account, UNIT).unwrap();
+	assert_eq!(Balances::balance(relayer_account), UNIT);
+
+	assert_eq!(Balances::balance(treasury_account), 0);
+	Balances::mint_into(treasury_account, 20000 * UNIT).unwrap();
+}
+
+fn setup_host_and_message(relayer: H256, host: &Ismp) -> Message {
+	let message = Message::Consensus(ConsensusMessage {
+		consensus_proof: vec![],
+		consensus_state_id: *b"mock",
+		signer: relayer.0.into(),
+	});
+	setup_mock_client::<_, Test>(host);
+	host.unbonding_period(*b"mock").unwrap();
+	host.store_consensus_update_time(*b"mock", host.timestamp()).unwrap();
+	message
+}
+
 #[test]
 fn test_incentivize_relayer() {
 	let mut ext = new_test_ext();
 	ext.execute_with(|| {
 		let host = Ismp::default();
-
-		let mock_consensus_state_id = *b"mock";
-
-		let state_machine_id = StateMachineId {
-			state_id: StateMachine::Polkadot(1000),
-			consensus_state_id: mock_consensus_state_id,
-		};
+		let state_machine_id = setup_state_machine();
 
 		let relayer = H256::random().0;
 		let relayer_account: AccountId32 = relayer.into();
-		assert_eq!(Balances::balance(&relayer_account), Default::default());
-		Balances::mint_into(&relayer_account, UNIT).unwrap();
+		let treasury_account = PalletId(*b"treasury").into_account_truncating();
+
+		setup_balances(&relayer_account, &treasury_account);
 
 		pallet_relayer_incentives::Pallet::<Test>::update_cost_per_block(
 			RuntimeOrigin::root(),
@@ -56,25 +76,7 @@ fn test_incentivize_relayer() {
 		)
 		.unwrap();
 
-		assert_eq!(Balances::balance(&relayer_account), UNIT);
-
-		let treasury_account = PalletId(*b"treasury");
-
-		assert_eq!(
-			Balances::balance(&treasury_account.into_account_truncating()),
-			Default::default()
-		);
-		Balances::mint_into(&treasury_account.into_account_truncating(), 20000 * UNIT).unwrap();
-
-		let consensus_message = Message::Consensus(ConsensusMessage {
-			consensus_proof: vec![],
-			consensus_state_id: mock_consensus_state_id,
-			signer: relayer.into(),
-		});
-		setup_mock_client::<_, Test>(&host);
-		host.unbonding_period(mock_consensus_state_id).unwrap();
-		host.store_consensus_update_time(mock_consensus_state_id, host.timestamp())
-			.unwrap();
+		let consensus_message = setup_host_and_message(relayer.into(), &host);
 
 		pallet_ismp::Pallet::<Test>::handle_unsigned(
 			RuntimeOrigin::none(),
@@ -82,7 +84,30 @@ fn test_incentivize_relayer() {
 		)
 		.unwrap();
 
-		// check that relayer was rewarded
 		assert_eq!(Balances::balance(&relayer_account), UNIT + 4200);
+	})
+}
+
+#[test]
+fn skip_incentivizing_of_relayer_when_cost_per_block_is_not_set() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+
+		let relayer = H256::random().0;
+		let relayer_account: AccountId32 = relayer.into();
+		let treasury_account = PalletId(*b"treasury").into_account_truncating();
+
+		setup_balances(&relayer_account, &treasury_account);
+
+		let consensus_message = setup_host_and_message(relayer.into(), &host);
+
+		pallet_ismp::Pallet::<Test>::handle_unsigned(
+			RuntimeOrigin::none(),
+			vec![consensus_message],
+		)
+		.unwrap();
+
+		assert_eq!(Balances::balance(&relayer_account), UNIT);
 	})
 }

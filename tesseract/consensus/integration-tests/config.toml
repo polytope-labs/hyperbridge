@@ -1,0 +1,27 @@
+[chain_a]
+type = "parachain"
+hashing = "Blake2"
+relay_chain = "ws://localhost:9944"
+consensus_client = "PARA"
+ws_url = "ws://localhost:9988"
+signer = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"
+#latest_height = None,
+
+[chain_a.state_machine]
+Kusama = 2000
+
+[chain_b]
+type = "parachain"
+hashing = "Blake2"
+relay_chain = "ws://localhost:9944"
+consensus_client = "PARA"
+ws_url = "ws://localhost:9188"
+signer = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"
+#latest_height = None,
+
+[chain_b.state_machine]
+Kusama = 2001
+
+[relayer]
+messages = ["PostRequest", "PostResponse", "GetResponse"]
+module_filter = []

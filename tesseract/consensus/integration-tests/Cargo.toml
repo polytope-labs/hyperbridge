@@ -1,0 +1,62 @@
+[package]
+name = "tesseract-integration-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Integration tests for the tesseract relayer"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = "1.0.75"
+tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+subxt = { workspace = true, features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+env_logger = "0.10.0"
+log = "0.4.17"
+hex = "0.4.3"
+hex-literal = "0.4.1"
+primitive-types = "0.12.1"
+futures = "0.3.28"
+ethers = { workspace = true, features = ["ethers-solc"], default-features = false }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+merkle-mountain-range = { workspace = true }
+ismp-solidity-abi = { workspace = true }
+pallet-ismp-demo = { workspace = true }
+ismp = { workspace = true }
+sp-core = { workspace = true }
+pallet-ismp = { workspace = true }
+
+sp-io = { workspace = true }
+
+tesseract-grandpa = { workspace = true }
+tesseract-beefy = { workspace = true  }
+tesseract-substrate = { workspace = true, features = ["testing"] }
+tesseract-messaging = { workspace = true  }
+tesseract-primitives = { workspace = true  }
+tesseract-evm = { workspace = true  }
+tesseract-sync-committee = { workspace = true, features = ["testing"] }
+#tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
+tesseract-bsc = { workspace = true  }
+ismp-grandpa = { workspace = true  }
+dotenv = "0.15.0"
+sync-committee-primitives = { workspace = true }
+transaction-fees = { workspace = true }
+tesseract-config = { workspace = true }
+subxt-utils = { workspace = true }
+mmr-primitives = { workspace = true }
+pallet-ismp-rpc = { workspace = true  }
+divide_range = "0.1.1"
+substrate-state-machine = { workspace = true }
+arb-host = { workspace = true }
+op-host = { workspace = true }
+grandpa-verifier-primitives = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "sp-io",
+    "pallet-mmr",
+    "sp-mmr-primitives",
+    "sp-runtime",
+    "sp-keyring",
+]

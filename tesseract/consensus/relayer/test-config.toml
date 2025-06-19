@@ -1,0 +1,46 @@
+[hyperbridge]
+state_machine = "KUSAMA-4009"
+relay_rpc_ws = "wss://hyperbridge-paseo-relay.blockops.network:443"
+para_rpc_ws = "wss://hyperbridge-paseo-rpc.blockops.network"
+para_ids = [4009]
+hashing = "Keccak"
+rpc_ws = "wss://hyperbridge-paseo-rpc.blockops.network"
+signer = "0xfCA0c05bEb9564AC154f55173881B4DD221A18A8"
+zk_beefy = false
+
+
+[hyperbridge.host]
+consensus_state_id = [50, 41, 52, 41]
+
+[hyperbridge.host.redis]
+url = "127.0.0.1"
+port = 3000
+username = "default"
+password = "default"
+db = 0
+ns = "rsmq"
+tls = false
+realtime = false
+mandatory_queue = "mandatory"
+messages_queue = "messages"
+
+
+[ethereum]
+type = "sepolia"
+state_machine = "EVM-11155111"
+rpc_urls = ["https://localhost:8552"]
+consensus_state_id = "ETH0"
+etherscan_api_key = ""
+ismp_host = "0xfCA0c05bEb9564AC154f55173881B4DD221A18A8"
+signer = "0xfCA0c05bEb9564AC154f55173881B4DD221A18A8"
+
+[ethereum.host]
+beacon_http_urls = [
+    "https://localhost:8552"
+]
+consensus_update_frequency = 60 # seconds,
+
+[relayer]
+challenge_period = 0
+maximum_update_intervals = [[{state_id = "EVM-11155111", consensus_state_id = "ETH0"}, 500]]
+

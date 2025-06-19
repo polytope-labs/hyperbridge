@@ -1,0 +1,35 @@
+[package]
+name = "arb-host"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+anyhow = "1.0.75"
+ethers-contract-abigen = { workspace = true }
+
+
+[dependencies]
+tesseract-evm = { workspace = true }
+ethers = { workspace = true, features = ["rustls"] }
+geth-primitives = { workspace = true }
+ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
+arbitrum-verifier = { workspace = true }
+anyhow = "1.0.75"
+serde = { version = "1.0.164", features = ["derive"] }
+tesseract-primitives = { workspace = true }
+ismp = { workspace = true }
+async-trait = "0.1.53"
+log = "0.4.20"
+futures = "0.3.28"
+primitive-types = { workspace = true }
+
+[dev-dependencies]
+alloy-rlp = { workspace = true }
+alloy-rlp-derive = { workspace = true }
+alloy-primitives = { workspace = true, features = ["rlp"] }
+hex = "0.4.3"
+dotenv = "0.15.0"
+tesseract-evm = { workspace = true, features = ["testing"] }
+tokio = { version = "1.32.0", features = ["macros", "sync"] }
+hex-literal = { version ="0.4.1"}
+ismp-testsuite = { workspace = true }

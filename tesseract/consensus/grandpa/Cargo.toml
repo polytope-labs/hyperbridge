@@ -1,0 +1,37 @@
+[package]
+name = "tesseract-grandpa"
+version = "0.1.0"
+edition = "2021"
+description = "Grandpa client implementation for the tesseract relayer"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0.164", features = ["derive"] }
+anyhow = "1.0.75"
+subxt = { workspace = true, features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+futures = "0.3.28"
+async-trait = "0.1.53"
+tokio = { version = "1.32.0", features = ["full"] }
+finality-grandpa = "0.16.2"
+hex-literal = "0.4.1"
+hex = "0.4.3"
+log = "0.4.19"
+human_bytes = "0.4.3"
+pallet-ismp = { workspace = true }
+ismp = { workspace = true }
+grandpa-prover = { workspace = true }
+grandpa-verifier-primitives = { workspace = true }
+ismp-grandpa = { workspace = true }
+serde-hex-utils = { workspace = true }
+subxt-utils = { workspace = true }
+tesseract-substrate = {  workspace = true }
+tesseract-primitives = {  workspace = true }
+
+sp-core = { workspace = true, features = ["full_crypto"] }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["polkadot-core-primitives"]

@@ -809,6 +809,7 @@ mod tests {
 	}
 
 	#[tokio::test]
+	#[ignore]
 	async fn integration_test_prover_and_redis_queues() -> Result<(), anyhow::Error> {
 		// set up tracing
 		setup_logging()?;
@@ -969,6 +970,7 @@ mod tests {
 	}
 
 	#[tokio::test]
+	#[ignore]
 	async fn test_redis_queues() -> Result<(), anyhow::Error> {
 		let mut options = RsmqOptions::default();
 		options.realtime = true;

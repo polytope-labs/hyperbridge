@@ -300,13 +300,23 @@ where
 	let trie = TrieDBBuilder::<LayoutV0<H>>::new(&db, root).build();
 	let mut result = BTreeMap::new();
 
-	for key in keys.into_iter() {
-		let value = trie
+	for key in keys {
+		let raw_val = trie
 			.get(key.as_ref())
-			.map_err(|e| Error::Custom(format!("Error reading from trie: {e:?}")))?
-			.and_then(|val| Decode::decode(&mut &val[..]).ok());
-		result.insert(key.as_ref().to_vec(), value);
+			.map_err(|e| Error::Custom(format!("Error reading from trie: {e:?}")))?;
+
+		let maybe_decoded = match raw_val {
+			Some(val) => {
+				Some(Decode::decode(&mut &val[..])
+					.map_err(|e| Error::Custom(format!("Decode error: {e:?}")))?
+				)
+			}
+			None => None,
+		};
+
+		result.insert(key.as_ref().to_vec(), maybe_decoded);
 	}
+
 
 	Ok(result)
 }

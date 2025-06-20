@@ -35,7 +35,7 @@ use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
 	ConsensusDigest, ISMP_ID,
 };
-use polkadot_sdk::*;
+use polkadot_sdk::{sp_trie::TrieError, *};
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_consensus_babe::{digests::PreDigest, BABE_ENGINE_ID};
 use sp_runtime::{
@@ -293,30 +293,30 @@ where
 {
 	let db = proof.into_memory_db();
 
-	if !db.contains(root, EMPTY_PREFIX) {
-		Err(Error::Custom("Invalid Proof".into()))?
+	if !db.contains(root, sp_trie::EMPTY_PREFIX) {
+		return Err(Error::Custom("Invalid Proof: root not in DB".into()));
 	}
 
 	let trie = TrieDBBuilder::<LayoutV0<H>>::new(&db, root).build();
 	let mut result = BTreeMap::new();
 
 	for key in keys {
-		let raw_val = trie
-			.get(key.as_ref())
-			.map_err(|e| Error::Custom(format!("Error reading from trie: {e:?}")))?;
+		let raw_key = key.as_ref();
 
-		let maybe_decoded = match raw_val {
-			Some(val) => {
-				Some(Decode::decode(&mut &val[..])
-					.map_err(|e| Error::Custom(format!("Decode error: {e:?}")))?
-				)
-			}
-			None => None,
-		};
-
-		result.insert(key.as_ref().to_vec(), maybe_decoded);
+		match trie.get(raw_key) {
+			Ok(Some(val)) => {
+				let decoded = Decode::decode(&mut &val[..])
+					.map_err(|e| Error::Custom(format!("Decode error: {e:?}")))?;
+				result.insert(raw_key.to_vec(), Some(decoded));
+			},
+			Ok(None) => {
+				result.insert(raw_key.to_vec(), None);
+			},
+			Err(e) => {
+				continue;
+			},
+		}
 	}
-
 
 	Ok(result)
 }

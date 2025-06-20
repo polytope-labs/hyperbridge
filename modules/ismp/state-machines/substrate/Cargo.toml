@@ -21,6 +21,7 @@ primitive-types = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 hash-db = { workspace = true }
+trie-db = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -30,6 +31,8 @@ features = [
     "sp-consensus-aura",
     "sp-consensus-babe",
     "sp-trie",
+    "sc-client-api",
+    "sp-state-machine"
 ]
 
 [features]

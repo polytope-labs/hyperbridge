@@ -53,6 +53,7 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub state_root: H256,
+	pub
 }
 
 #[derive(Encode, Decode)]
@@ -61,6 +62,7 @@ pub struct ArbitrumUpdate {
 	pub l1_height: u64,
 	pub proof: ArbitrumConsensusProof,
 }
+
 
 /// Description of the various consensus mechanics supported for Arbitrum
 #[derive(Encode, Decode, Debug)]

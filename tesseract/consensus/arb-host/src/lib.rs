@@ -16,6 +16,8 @@ use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ismp::consensus::StateMachineId;
+use ismp_arbitrum::ConsensusState;
 use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 mod abi;
@@ -41,6 +43,12 @@ pub struct HostConfig {
 	pub beacon_rpc_url: Vec<String>,
 	/// RollupCore contract address on L1
 	pub rollup_core: H160,
+	/// State machine identifier for this chain
+	pub state_machine: StateMachine,
+	/// State machine Identifier for the L1/Beacon chain.
+	pub l1_state_machine: StateMachine,
+	/// L1 Consensus state Id representation.
+	pub l1_consensus_state_id: ConsensusStateId,
 }
 
 impl ArbConfig {
@@ -72,6 +80,12 @@ pub struct ArbHost {
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
 	pub provider: Arc<dyn IsmpProvider>,
+	/// State machine Identifier for this chain.
+	pub state_machine: StateMachine,
+	/// State machine Identifier for the L1/Beacon chain.
+	pub l1_state_machine: StateMachine,
+	/// L1 Consensus state Id representation.
+	pub l1_consensus_state_id: ConsensusStateId,
 }
 
 impl ArbHost {
@@ -99,6 +113,9 @@ impl ArbHost {
 				consensus_state_id
 			},
 			provider,
+			state_machine: host.state_machine,
+			l1_state_machine: host.l1_state_machine,
+			l1_consensus_state_id: host.l1_consensus_state_id
 		})
 	}
 

@@ -35,14 +35,14 @@ use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
 	ConsensusDigest, ISMP_ID,
 };
-use polkadot_sdk::{sp_trie::TrieError, *};
+use polkadot_sdk::*;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_consensus_babe::{digests::PreDigest, BABE_ENGINE_ID};
 use sp_runtime::{
 	traits::{BlakeTwo256, Keccak256},
 	Digest, DigestItem,
 };
-use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
+use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder};
 
 /// Hashing algorithm for the state proof
 #[derive(

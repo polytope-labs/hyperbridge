@@ -312,7 +312,7 @@ where
 			Ok(None) => {
 				result.insert(raw_key.to_vec(), None);
 			},
-			Err(e) => {
+			Err(_e) => {
 				continue;
 			},
 		}

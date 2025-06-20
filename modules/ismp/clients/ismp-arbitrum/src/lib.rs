@@ -53,7 +53,6 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub state_root: H256,
-	pub
 }
 
 #[derive(Encode, Decode)]

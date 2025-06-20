@@ -42,7 +42,7 @@ use sp_runtime::{
 	traits::{BlakeTwo256, Keccak256},
 	Digest, DigestItem,
 };
-use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder};
+use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
 
 /// Hashing algorithm for the state proof
 #[derive(
@@ -293,8 +293,8 @@ where
 {
 	let db = proof.into_memory_db();
 
-	if !db.contains(root, sp_trie::EMPTY_PREFIX) {
-		return Err(Error::Custom("Invalid Proof: root not in DB".into()));
+	if !db.contains(root, EMPTY_PREFIX) {
+		Err(Error::Custom("Invalid Proof".into()))?
 	}
 
 	let trie = TrieDBBuilder::<LayoutV0<H>>::new(&db, root).build();

@@ -301,6 +301,38 @@ where
 	let trie = TrieDBBuilder::<LayoutV0<H>>::new(&db, root).build();
 	let mut result = BTreeMap::new();
 
+	for key in keys.into_iter() {
+		let value = trie
+			.get(key.as_ref())
+			.map_err(|e| Error::Custom(format!("Error reading from trie: {e:?}")))?
+			.and_then(|val| Decode::decode(&mut &val[..]).ok());
+		result.insert(key.as_ref().to_vec(), value);
+	}
+
+	Ok(result)
+}
+
+/// Lifted directly from [`sp_state_machine::read_proof_check`](https://github.com/paritytech/substrate/blob/b27c470eaff379f512d1dec052aff5d551ed3b03/primitives/state-machine/src/lib.rs#L1075-L1094)
+pub fn read_proof_check_for_parachain<H, I>(
+	root: &H::Out,
+	proof: StorageProof,
+	keys: I,
+) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error>
+where
+	H: hash_db::Hasher,
+	H::Out: Debug,
+	I: IntoIterator,
+	I::Item: AsRef<[u8]>,
+{
+	let db = proof.into_memory_db();
+
+	if !db.contains(root, EMPTY_PREFIX) {
+		Err(Error::Custom("Invalid Proof".into()))?
+	}
+
+	let trie = TrieDBBuilder::<LayoutV0<H>>::new(&db, root).build();
+	let mut result = BTreeMap::new();
+
 	for key in keys {
 		let raw_key = key.as_ref();
 

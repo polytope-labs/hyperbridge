@@ -24936,6 +24936,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "scale-info",
  "serde",
+ "trie-db",
 ]
 
 [[package]]

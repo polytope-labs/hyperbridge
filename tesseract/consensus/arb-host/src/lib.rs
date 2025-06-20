@@ -23,6 +23,7 @@ mod host;
 
 #[cfg(test)]
 mod tests;
+mod notification;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {

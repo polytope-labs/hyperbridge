@@ -43,6 +43,7 @@ use sp_runtime::{
 	Digest, DigestItem,
 };
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
+use trie_db::TrieError;
 
 /// Hashing algorithm for the state proof
 #[derive(
@@ -312,9 +313,12 @@ where
 			Ok(None) => {
 				result.insert(raw_key.to_vec(), None);
 			},
-			Err(_e) => {
-				continue;
-			},
+			Err(e) =>
+				if let TrieError::IncompleteDatabase(_) = *e {
+					continue;
+				} else {
+					return Err(Error::Custom(format!("Trie fetch error: {e:?}",)));
+				},
 		}
 	}
 

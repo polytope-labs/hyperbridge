@@ -31,8 +31,6 @@ features = [
     "sp-consensus-aura",
     "sp-consensus-babe",
     "sp-trie",
-    "sc-client-api",
-    "sp-state-machine"
 ]
 
 [features]

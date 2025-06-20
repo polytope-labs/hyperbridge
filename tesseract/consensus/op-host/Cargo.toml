@@ -32,6 +32,7 @@ reqwest-chain = "0.1.0"
 sync-committee-prover = { workspace = true }
 sync-committee-primitives = { workspace = true }
 primitive-types = { workspace = true }
+ismp-optimism = { workspace = true }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }

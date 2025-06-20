@@ -227,6 +227,8 @@ ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
+ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features = false }
+ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }

@@ -99,7 +99,7 @@ members = [
 
 
     # Airdrop
-    "modules/pallets/bridge-drop",
+    "modules/pallets/bridge-drop", "modules/ismp/clients/ismp-optimism", "modules/ismp/clients/ismp-arbitrum",
 ]
 
 # Config for 'cargo dist'

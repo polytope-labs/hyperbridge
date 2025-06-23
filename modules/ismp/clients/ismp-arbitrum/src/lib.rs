@@ -47,12 +47,13 @@ use alloc::boxed::Box;
 
 pub const ARBITRUM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"ARBC";
 
-#[derive(codec::Encode, codec::Decode, Debug, PartialEq, Eq, Clone)]
+#[derive(Encode, Decode, Debug, PartialEq, Eq, Clone)]
 pub struct ConsensusState {
 	pub finalized_height: u64,
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub state_root: H256,
+	pub arbitrum_consensus_type: ArbitrumConsensusType
 }
 
 #[derive(Encode, Decode)]
@@ -60,6 +61,12 @@ pub struct ArbitrumUpdate {
 	pub state_machine_id: StateMachineId,
 	pub l1_height: u64,
 	pub proof: ArbitrumConsensusProof,
+}
+
+#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq)]
+pub enum ArbitrumConsensusType {
+	ArbitrumOrbit,
+	ArbitrumBold
 }
 
 /// Description of the various consensus mechanics supported for Arbitrum

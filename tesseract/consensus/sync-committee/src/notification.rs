@@ -36,6 +36,8 @@ pub async fn get_beacon_update<
 		}
 	};
 
+
+
 	let mut l2_oracle_payload = BTreeMap::new();
 	let mut dispute_game_payload = BTreeMap::new();
 	let mut arbitrum_payload = BTreeMap::new();
@@ -150,10 +152,6 @@ pub async fn get_beacon_update<
 
 	let message = BeaconClientUpdate {
 		consensus_update,
-		l2_oracle_payload,
-		arbitrum_payload,
-		dispute_game_payload,
-		arbitrum_bold,
 	};
 	Ok(message)
 }

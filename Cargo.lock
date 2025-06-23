@@ -9593,7 +9593,7 @@ dependencies = [
  "polkadot-sdk 2503.0.1",
  "primitive-types 0.13.1",
  "scale-info",
- "sp-io 40.0.1",
+ "sp-io",
  "sync-committee-primitives",
  "sync-committee-verifier",
 ]

@@ -25,7 +25,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import {ICallDispatcher, CallDispatcherParams} from "./CallDispatcher.sol";
+import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 
 struct TeleportParams {
     // amount to be sent

@@ -24,6 +24,7 @@ import {NotRoleAdmin} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import "../src/modules/TokenGateway.sol";
+import "../src/modules/CallDispatcher.sol";
 
 contract TokenGatewayTest is BaseTest {
     using Message for PostRequest;
@@ -139,8 +140,8 @@ contract TokenGatewayTest is BaseTest {
         address calldataTarget = address(miniStaking);
         bytes memory stakeCalldata = abi.encodeWithSignature("recordStake(address)", address(this));
 
-        CallDispatcherParams[] memory calls = new CallDispatcherParams[](1);
-        calls[0] = CallDispatcherParams({target: calldataTarget, data: stakeCalldata});
+        Call[] memory calls = new Call[](1);
+        calls[0] = Call({to: calldataTarget, data: stakeCalldata, value: 0});
 
         BodyWithCall memory body = BodyWithCall({
             assetId: keccak256("USD.h"),

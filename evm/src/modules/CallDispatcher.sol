@@ -16,9 +16,11 @@ pragma solidity ^0.8.17;
 
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 
-struct CallDispatcherParams {
+struct Call {
     // contract to call
-    address target;
+    address to;
+    // value to send with the call
+    uint256 value;
     // target contract calldata
     bytes data;
 }
@@ -30,24 +32,36 @@ struct CallDispatcherParams {
  * @notice This contract is used to dispatch calls to other contracts.
  */
 contract CallDispatcher is ICallDispatcher {
-    /**
+	/**
+	 * @dev error thrown when the target is not a contract.
+	 */
+	error NotContract(address target);
+
+	/**
+	 * @dev error thrown when a call fails.
+	 */
+	error CallFailed(address target, bytes result);
+
+	/**
      *  @dev reverts if the target is not a contract or if any of the calls reverts.
      */
     function dispatch(bytes memory encoded) external {
-        CallDispatcherParams[] memory calls = abi.decode(encoded, (CallDispatcherParams[]));
+        Call[] memory calls = abi.decode(encoded, (Call[]));
         uint256 callsLen = calls.length;
         for (uint256 i = 0; i < callsLen; ++i) {
-            CallDispatcherParams memory call = calls[i];
+            Call memory call = calls[i];
             uint32 size;
-            address target = call.target;
+            address to = call.to;
             assembly {
-                size := extcodesize(target)
+                size := extcodesize(to)
             }
 
-            if (size > 0) {
-                (bool success, bytes memory result) = target.call(call.data);
-                if (!success) revert(string(result));
+            if (size == 0) {
+                revert NotContract(to);
             }
+
+            (bool success, bytes memory result) = to.call{value: call.value}(call.data);
+            if (!success) revert CallFailed(to, result);
         }
     }
 }

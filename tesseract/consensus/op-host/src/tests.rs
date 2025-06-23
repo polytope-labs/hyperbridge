@@ -4,8 +4,8 @@ use hex_literal::hex;
 use primitive_types::H160;
 // use ismp_testsuite::mocks::Host;
 // use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
-use tesseract_evm::EvmConfig;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use tesseract_evm::EvmConfig;
 
 const L2_ORACLE: [u8; 20] = hex!("90E9c4f8a994a250F6aEfd61CAFb4F2e895D458F");
 const MESSAGE_PARSER: [u8; 20] = hex!("4200000000000000000000000000000000000016");

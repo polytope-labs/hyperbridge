@@ -12,10 +12,7 @@ use ethers::{
 	providers::{Http, Middleware},
 };
 use geth_primitives::{new_u256, CodecHeader};
-use ismp::{
-	consensus::{ConsensusStateId},
-	host::StateMachine,
-};
+use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

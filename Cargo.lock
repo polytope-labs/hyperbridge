@@ -9536,6 +9536,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-arbitrum"
+version = "0.1.0"
+dependencies = [
+ "arbitrum-verifier",
+ "evm-state-machine",
+ "ismp",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "polkadot-sdk 2503.0.1",
+ "primitive-types 0.13.1",
+ "scale-info",
+]
+
+[[package]]
 name = "ismp-bsc"
 version = "0.1.1"
 dependencies = [

@@ -13,10 +13,9 @@ use ethers::{
 };
 use geth_primitives::{new_u256, CodecHeader};
 use ismp::{
-	consensus::{ConsensusStateId, StateMachineId},
+	consensus::{ConsensusStateId},
 	host::StateMachine,
 };
-use ismp_arbitrum::ConsensusState;
 use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -24,8 +23,6 @@ use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 mod abi;
 mod host;
-
-mod notification;
 #[cfg(test)]
 mod tests;
 

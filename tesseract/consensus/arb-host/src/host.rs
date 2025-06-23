@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::ArbHost;
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
 
 use codec::{Encode, Decode};
 use ethers::prelude::Middleware;
@@ -14,7 +14,6 @@ use ismp_arbitrum::{
 	ArbitrumConsensusProof, ArbitrumConsensusType, ArbitrumUpdate, ConsensusState,
 	ARBITRUM_CONSENSUS_CLIENT_ID,
 };
-use primitive_types::H160;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]

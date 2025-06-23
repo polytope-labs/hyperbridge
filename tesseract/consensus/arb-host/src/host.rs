@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::ArbHost;
 use anyhow::{anyhow, Error};
 
-use codec::Encode;
+use codec::{Encode, Decode};
 use ethers::prelude::Middleware;
 use futures::StreamExt;
 use ismp::{

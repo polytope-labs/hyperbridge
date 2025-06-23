@@ -42,7 +42,7 @@ use sp_runtime::{
 	DigestItem,
 };
 use sp_trie::StorageProof;
-use substrate_state_machine::{read_proof_check, SubstrateStateMachine};
+use substrate_state_machine::{read_proof_check_for_parachain, SubstrateStateMachine};
 
 use crate::{Parachains, RelayChainOracle};
 
@@ -113,7 +113,7 @@ where
 		let mut intermediates = BTreeMap::new();
 
 		let header_keys = Parachains::<T>::iter_keys().map(|id| parachain_header_storage_key(id).0);
-		let headers = read_proof_check::<BlakeTwo256, _>(&root, storage_proof, header_keys)
+		let headers = read_proof_check_for_parachain::<BlakeTwo256, _>(&root, storage_proof, header_keys)
 			.map_err(|e| Error::Custom(format!("Error verifying parachain header {e:?}",)))?;
 
 		for (key, header) in headers.into_iter() {

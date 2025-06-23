@@ -12,7 +12,11 @@ use ethers::{
 	providers::{Http, Middleware},
 };
 use geth_primitives::{new_u256, CodecHeader};
-use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use ismp::{
+	consensus::{ConsensusStateId, StateMachineId},
+	host::StateMachine,
+};
+use ismp_arbitrum::ConsensusState;
 use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -21,9 +25,9 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 mod abi;
 mod host;
 
+mod notification;
 #[cfg(test)]
 mod tests;
-mod notification;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {
@@ -99,6 +103,9 @@ impl ArbHost {
 				consensus_state_id
 			},
 			provider,
+			state_machine: host.state_machine,
+			l1_state_machine: host.l1_state_machine,
+			l1_consensus_state_id: host.l1_consensus_state_id,
 		})
 	}
 

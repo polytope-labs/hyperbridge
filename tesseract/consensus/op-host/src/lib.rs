@@ -55,6 +55,12 @@ pub struct HostConfig {
 	pub message_parser: H160,
 	/// proposer config
 	pub proposer_config: Option<ProposerConfig>,
+	/// State machine identifier for this chain
+	pub state_machine: StateMachine,
+	/// State machine Identifier for the L1/Beacon chain.
+	pub l1_state_machine: StateMachine,
+	/// L1 Consensus state Id representation.
+	pub l1_consensus_state_id: ConsensusStateId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +118,10 @@ pub struct OpHost {
 	pub l1_state_machine: StateMachine,
 	/// beacon consensus client
 	pub beacon_consensus_client: Option<ClientWithMiddleware>,
+	/// State machine Identifier for this chain.
+	pub state_machine: StateMachine,
+	/// L1 Consensus state Id representation.
+	pub l1_consensus_state_id: ConsensusStateId,
 }
 
 pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
@@ -186,6 +196,8 @@ impl OpHost {
 			proposer,
 			l1_state_machine,
 			beacon_consensus_client,
+			state_machine: host.state_machine,
+			l1_consensus_state_id: host.l1_consensus_state_id,
 		})
 	}
 

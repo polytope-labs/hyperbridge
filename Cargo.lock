@@ -12652,6 +12652,7 @@ dependencies = [
  "ismp-testsuite",
  "log",
  "op-verifier",
+ "parity-scale-codec",
  "primitive-types 0.13.1",
  "reqwest 0.11.27",
  "reqwest-chain",

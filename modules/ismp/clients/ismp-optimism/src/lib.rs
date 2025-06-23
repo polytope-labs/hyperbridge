@@ -41,8 +41,10 @@ use op_verifier::OptimismDisputeGameProof;
 use op_verifier::OptimismPayloadProof;
 use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
 use primitive_types::H256;
+use alloc::vec::Vec;
+use alloc::boxed::Box;
 
-pub const OPTIMISM_CONSENSUS_ID: ConsensusClientId = *b"OPTC";
+pub const OPTIMISM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"OPTC";
 
 #[derive(codec::Encode, codec::Decode, Debug, PartialEq, Eq, Clone)]
 pub struct ConsensusState {
@@ -50,6 +52,8 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub state_root: H256,
+	pub optimism_consensus_type: Option<OptimismConsensusType>,
+	pub respected_game_types: Option<Vec<u32>>
 }
 
 #[derive(Encode, Decode)]
@@ -57,6 +61,12 @@ pub struct OptimismUpdate {
 	pub state_machine_id: StateMachineId,
 	pub l1_height: u64,
 	pub proof: OptimismConsensusProof,
+}
+
+#[derive(Encode, Decode, Debug, Clone, PartialEq, Eq)]
+pub enum OptimismConsensusType {
+	OpL2Oracle,
+	OpFaultProofGames
 }
 
 /// Description of the various consensus mechanics supported for Optimism
@@ -191,7 +201,7 @@ impl<
 	}
 
 	fn consensus_client_id(&self) -> ConsensusClientId {
-		OPTIMISM_CONSENSUS_ID
+		OPTIMISM_CONSENSUS_CLIENT_ID
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {

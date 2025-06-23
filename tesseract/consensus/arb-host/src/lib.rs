@@ -42,6 +42,12 @@ pub struct HostConfig {
 	pub beacon_rpc_url: Vec<String>,
 	/// RollupCore contract address on L1
 	pub rollup_core: H160,
+	/// State machine identifier for this chain
+	pub state_machine: StateMachine,
+	/// State machine Identifier for the L1/Beacon chain.
+	pub l1_state_machine: StateMachine,
+	/// L1 Consensus state Id representation.
+	pub l1_consensus_state_id: ConsensusStateId,
 }
 
 impl ArbConfig {
@@ -73,6 +79,12 @@ pub struct ArbHost {
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
 	pub provider: Arc<dyn IsmpProvider>,
+	/// State machine Identifier for this chain.
+	pub state_machine: StateMachine,
+	/// State machine Identifier for the L1/Beacon chain.
+	pub l1_state_machine: StateMachine,
+	/// L1 Consensus state Id representation.
+	pub l1_consensus_state_id: ConsensusStateId,
 }
 
 impl ArbHost {

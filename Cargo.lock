@@ -808,6 +808,7 @@ dependencies = [
  "ismp-arbitrum",
  "ismp-testsuite",
  "log",
+ "parity-scale-codec",
  "primitive-types 0.13.1",
  "serde",
  "tesseract-evm",

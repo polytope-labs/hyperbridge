@@ -23,6 +23,7 @@ log = "0.4.20"
 futures = "0.3.28"
 primitive-types = { workspace = true }
 ismp-arbitrum = { workspace = true }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }

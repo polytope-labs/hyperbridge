@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
 use crate::ArbHost;
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 
 use futures::StreamExt;
 use ismp::consensus::{StateCommitment, StateMachineId};
-use ismp::messaging::{CreateConsensusState, StateCommitmentHeight};
-use ismp_arbitrum::{ARBITRUM_CONSENSUS_CLIENT_ID, ConsensusState};
+use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight};
+use ismp_arbitrum::{ARBITRUM_CONSENSUS_CLIENT_ID, ArbitrumConsensusProof, ArbitrumConsensusType, ArbitrumUpdate, ConsensusState};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
-use codec::{Decode, Encode};
+use codec::Encode;
 use ethers::prelude::Middleware;
+use primitive_types::H160;
 
 #[async_trait::async_trait]
 impl IsmpHost for ArbHost {
@@ -17,8 +18,105 @@ impl IsmpHost for ArbHost {
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		let mut stream = Box::pin(futures::stream::pending::<()>());
-		while let Some(_) = stream.next().await {}
+		let consensus_state =
+			counterparty.query_consensus_state(None, self.consensus_state_id).await?;
+		let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
+
+		let l1_state_machine_id = StateMachineId{
+			state_id: self.l1_state_machine,
+			consensus_state_id: self.l1_consensus_state_id,
+		};
+		let mut stream = counterparty.state_machine_update_notification(l1_state_machine_id.clone()).await?;
+		let mut latest_height =
+			counterparty.query_latest_height(l1_state_machine_id).await? as u64;
+		while let Some(res) = stream.next().await {
+			match res {
+				Ok(event) => {
+					match consensus_state.arbitrum_consensus_type {
+						ArbitrumConsensusType::ArbitrumOrbit => {
+							let event_height = event.latest_height;
+							let latest_event = self
+								.latest_event(
+									latest_height,
+									event_height,
+								)
+								.await?;
+
+							if let Some(event) = latest_event {
+								let payload = self
+									.fetch_arbitrum_payload(
+										event_height,
+										event,
+									)
+									.await?;
+								let update = ArbitrumUpdate {
+									state_machine_id: StateMachineId { state_id: self.state_machine, consensus_state_id: self.consensus_state_id },
+									l1_height: event_height,
+									proof: ArbitrumConsensusProof::ArbitrumOrbit(payload),
+								};
+
+								let consensus_message = ConsensusMessage {
+									consensus_proof: update.encode(),
+									consensus_state_id: self.consensus_state_id,
+									signer: counterparty.address(),
+								};
+
+								let _ = counterparty
+									.submit(
+										vec![Message::Consensus(consensus_message)],
+										counterparty.state_machine_id().state_id,
+									)
+									.await;
+
+								latest_height = event_height;
+							}
+						}
+						ArbitrumConsensusType::ArbitrumBold => {
+							let event_height = event.latest_height;
+							let latest_event = self
+								.latest_assertion_event(
+									latest_height,
+									event_height,
+								)
+								.await?;
+
+							if let Some(event) = latest_event {
+								let payload = self
+									.fetch_arbitrum_bold_payload(
+										event_height,
+										event,
+									)
+									.await?;
+								let update = ArbitrumUpdate {
+									state_machine_id: StateMachineId { state_id: self.state_machine, consensus_state_id: self.consensus_state_id },
+									l1_height: event_height,
+									proof: ArbitrumConsensusProof::ArbitrumBold(payload),
+								};
+
+								let consensus_message = ConsensusMessage {
+									consensus_proof: update.encode(),
+									consensus_state_id: self.consensus_state_id,
+									signer: counterparty.address(),
+								};
+
+								let _ = counterparty
+									.submit(
+										vec![Message::Consensus(consensus_message)],
+										counterparty.state_machine_id().state_id,
+									)
+									.await;
+
+								latest_height = event_height;
+							}
+						}
+					}
+				},
+				Err(err) => {
+					log::error!("State machine update stream returned an error {err:?}")
+				},
+			}
+		}
+
 		Err(anyhow!(
 			"{}-{} consensus task has failed, Please restart relayer",
 			self.provider().name(),
@@ -53,6 +151,7 @@ impl IsmpHost for ArbHost {
 				consensus_state_id: self.l1_consensus_state_id,
 			},
 			state_root: block.state_root.0.into(),
+			arbitrum_consensus_type: ArbitrumConsensusType::ArbitrumOrbit,
 		};
 
 		state_machine_commitments.push((

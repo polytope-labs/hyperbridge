@@ -89,12 +89,12 @@ members = [
 
     "tesseract/consensus/arb-host",
     "tesseract/consensus/op-host",
-    "tesseract/consensus/beefy",
-    "tesseract/consensus/beefy/zk",
     "tesseract/consensus/bsc",
-    "tesseract/consensus/integration-tests",
     "tesseract/consensus/sync-committee",
     "tesseract/consensus/grandpa",
+    "tesseract/consensus/integration-tests",
+    "tesseract/consensus/beefy",
+    "tesseract/consensus/beefy/zk",
     "tesseract/consensus/relayer",
 
 
@@ -179,9 +179,6 @@ jsonrpsee = { version = "0.24" }
 jsonrpsee-core = { version = "0.24" }
 rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
 tracing = "0.1.40"
-
-sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
-sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }

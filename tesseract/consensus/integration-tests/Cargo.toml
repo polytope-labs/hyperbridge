@@ -29,7 +29,7 @@ pallet-ismp = { workspace = true }
 sp-io = { workspace = true }
 
 tesseract-grandpa = { workspace = true }
-tesseract-beefy = { workspace = true  }
+tesseract-beefy = { path = "../beefy"  }
 tesseract-substrate = { workspace = true, features = ["testing"] }
 tesseract-messaging = { workspace = true  }
 tesseract-primitives = { workspace = true  }

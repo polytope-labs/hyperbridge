@@ -25776,8 +25776,6 @@ dependencies = [
  "pallet-ismp",
  "serde",
  "sp-core",
- "sp1-beefy",
- "sp1-beefy-primitives",
  "substrate-state-machine",
  "tesseract-evm",
  "tesseract-primitives",

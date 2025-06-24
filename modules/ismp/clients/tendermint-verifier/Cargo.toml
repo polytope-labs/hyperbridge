@@ -1,0 +1,29 @@
+[package]
+name = "tendermint-verifier"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs"]
+description = "Tendermint light client verifier for ISMP"
+license = "Apache-2.0"
+
+
+
+[dependencies]
+# Core dependencies
+tendermint-light-client-verifier = "0.40.4"
+tendermint = "0.40.4"
+tendermint-proto = "0.40.4"
+
+thiserror = "2.0.12"
+serde = { version = "1.0.219", features = ["derive"], optional = true }
+
+
+
+[features]
+default = ["std"]
+std = ["serde"]
+no-std = []
+
+[lib]
+name = "tendermint_verifier"
+path = "src/lib.rs" 

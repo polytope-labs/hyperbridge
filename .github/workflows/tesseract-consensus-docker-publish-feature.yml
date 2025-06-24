@@ -46,7 +46,7 @@ jobs:
             - name: Build the Docker image
               run: |
                   feature_flag=$(echo "$GITHUB_REF_NAME" | cut -d'-' -f"3")
-                  docker build -t polytopelabs/tesseract-consensus:${feature_flag} -f ./Dockerfile .
+                  docker build -t polytopelabs/tesseract-consensus:${feature_flag} -f ./tesseract/consensus/Dockerfile .
             - name: Docker Push
               run: |
                   feature_flag=$(echo "$GITHUB_REF_NAME" | cut -d'-' -f"3")

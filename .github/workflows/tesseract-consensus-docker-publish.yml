@@ -43,7 +43,7 @@ jobs:
                   password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
             - name: Build the Docker image
-              run: docker build -t polytopelabs/tesseract-consensus:v$(cargo get package.version --entry ./tesseract/consensus/relayer) -t polytopelabs/tesseract-consensus:latest -f ./Dockerfile .
+              run: docker build -t polytopelabs/tesseract-consensus:v$(cargo get package.version --entry ./tesseract/consensus/relayer) -t polytopelabs/tesseract-consensus:latest -f ./tesseract/consensus/Dockerfile .
 
             - name: Docker Push
               run: |

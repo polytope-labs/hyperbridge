@@ -594,14 +594,21 @@ async fn submit_consensus_update(
 							signer: counterparty.address(),
 						};
 
-						let _ = counterparty
+						let result = counterparty
 							.submit(
 								vec![Message::Consensus(consensus_message)],
 								counterparty.state_machine_id().state_id,
 							)
 							.await;
 
-						latest_height = event_height;
+						if let Err(err) = result {
+							log::error!(
+								"Failed to submit transaction to {}: {err:?}",
+								counterparty.name()
+							)
+						} else {
+							latest_height = event_height;
+						}
 					}
 				},
 				Some(OptimismConsensusType::OpFaultProofGames) => {
@@ -641,15 +648,23 @@ async fn submit_consensus_update(
 								signer: counterparty.address(),
 							};
 
-							let _ = counterparty
+							let result = counterparty
 								.submit(
 									vec![Message::Consensus(consensus_message)],
 									counterparty.state_machine_id().state_id,
 								)
 								.await;
+
+							if let Err(err) = result {
+								log::error!(
+									"Failed to submit transaction to {}: {err:?}",
+									counterparty.name()
+								)
+							} else {
+								latest_height = event_height;
+							}
 						}
 					}
-					latest_height = event_height;
 				},
 				_ => {},
 			},

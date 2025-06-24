@@ -33,6 +33,7 @@ impl IsmpHost for ArbHost {
 		let mut stream = counterparty
 			.state_machine_update_notification(l1_state_machine_id.clone())
 			.await?;
+
 		let mut latest_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
 		while let Some(res) = stream.next().await {
 			match res {
@@ -58,14 +59,21 @@ impl IsmpHost for ArbHost {
 								signer: counterparty.address(),
 							};
 
-							let _ = counterparty
+							let result = counterparty
 								.submit(
 									vec![Message::Consensus(consensus_message)],
 									counterparty.state_machine_id().state_id,
 								)
 								.await;
 
-							latest_height = event_height;
+							if let Err(err) = result {
+								log::error!(
+									"Failed to submit transaction to {}: {err:?}",
+									counterparty.name()
+								)
+							} else {
+								latest_height = event_height;
+							}
 						}
 					},
 					ArbitrumConsensusType::ArbitrumBold => {
@@ -91,14 +99,21 @@ impl IsmpHost for ArbHost {
 								signer: counterparty.address(),
 							};
 
-							let _ = counterparty
+							let result = counterparty
 								.submit(
 									vec![Message::Consensus(consensus_message)],
 									counterparty.state_machine_id().state_id,
 								)
 								.await;
 
-							latest_height = event_height;
+							if let Err(err) = result {
+								log::error!(
+									"Failed to submit transaction to {}: {err:?}",
+									counterparty.name()
+								)
+							} else {
+								latest_height = event_height;
+							}
 						}
 					},
 				},

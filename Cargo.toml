@@ -181,6 +181,12 @@ jsonrpsee = { version = "0.24" }
 jsonrpsee-core = { version = "0.24" }
 rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
 tracing = "0.1.40"
+dotenv = "0.15.0"
+futures = "0.3.28"
+async-trait = "0.1.53"
+reqwest-chain = "0.1.0"
+reqwest-middleware = "0.2.4"
+reqwest = { version="0.11.14", features=["json"]}
 
 sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
 sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
@@ -293,7 +299,7 @@ features = ["derive"]
 [workspace.dependencies.ethabi]
 version = "18.0.0"
 default-features = false
-features = ["rlp", "parity-codec"]
+features = ["rlp", "parity-codec", "full-serde"]
 
 [workspace.dependencies.ethers]
 git = "https://github.com/polytope-labs/ethers-rs"

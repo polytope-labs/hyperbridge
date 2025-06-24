@@ -72,8 +72,11 @@ pub mod pallet {
 		StateMachinesOracleAddress { state_machine_id: StateMachineId, oracle_address: H160 },
 		/// State Machine Dispute Game Factory Types updated
 		StateMachinesDisputeGameFactoryTypes {
+			/// State Machine Identifier for the chain
 			state_machine_id: StateMachineId,
+			/// The dispute game factory contract address
 			dispute_game_factory: H160,
+			/// The respected dispute game types
 			respected_game_types: Vec<u32>,
 		},
 	}

@@ -63,7 +63,9 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// State Machine Rollup Core Address updated
 		StateMachinesRollupCoreAddress {
+			/// State Machine Identifier for the chain
 			state_machine_id: StateMachineId,
+			/// The address for the rollup core
 			rollup_core_address: H160,
 		},
 	}

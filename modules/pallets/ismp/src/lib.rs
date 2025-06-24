@@ -382,9 +382,8 @@ pub mod pallet {
 
 			let metadata = match message.commitment {
 				MessageCommitment::Request(commitment) => RequestCommitments::<T>::get(commitment),
-				MessageCommitment::Response(commitment) => {
-					ResponseCommitments::<T>::get(commitment)
-				},
+				MessageCommitment::Response(commitment) =>
+					ResponseCommitments::<T>::get(commitment),
 			};
 
 			let Some(mut metadata) = metadata else {
@@ -534,11 +533,10 @@ pub mod pallet {
 				// check that requests will be successfully dispatched
 				// so we can not be spammed with failing txs
 				.map(|result| match result {
-					MessageResult::Request(results)
-					| MessageResult::Response(results)
-					| MessageResult::Timeout(results) => {
-						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>()
-					},
+					MessageResult::Request(results) |
+					MessageResult::Response(results) |
+					MessageResult::Timeout(results) =>
+						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>(),
 					MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => {
 						vec![Ok(())]
 					},

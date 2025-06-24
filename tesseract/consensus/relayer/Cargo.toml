@@ -1,5 +1,5 @@
 [package]
-name = "tesseract-consensus-relayer"
+name = "tesseract-consensus"
 version = "0.6.1"
 edition = "2021"
 
@@ -8,7 +8,7 @@ name = "tesseract"
 path = "src/lib.rs"
 
 [[bin]]
-name = "tesseract"
+name = "tesseract-consensus"
 path = "bins/relayer.rs"
 
 [[bin]]

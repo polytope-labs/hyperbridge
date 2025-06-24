@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificat
 
 WORKDIR /
 
-COPY ./target/release/tesseract ./
+COPY ./target/release/tesseract-consensus ./
 
 
-ENTRYPOINT ["./tesseract"]
+ENTRYPOINT ["./tesseract-consensus"]

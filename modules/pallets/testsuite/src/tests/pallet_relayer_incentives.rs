@@ -15,21 +15,21 @@
 
 #![cfg(test)]
 
-use frame_support::traits::fungible::{Inspect, Mutate};
-use frame_support::PalletId;
+use frame_support::{
+	traits::fungible::{Inspect, Mutate},
+	PalletId,
+};
 use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::traits::AccountIdConversion;
 
-use ismp::messaging::ConsensusMessage;
 use ismp::{
 	consensus::StateMachineId,
 	host::{IsmpHost, StateMachine},
-	messaging::Message,
+	messaging::{ConsensusMessage, Message},
 };
 
-use crate::runtime::*;
-use crate::runtime::{new_test_ext, Ismp, RuntimeOrigin, Test};
+use crate::runtime::{new_test_ext, Ismp, RuntimeOrigin, Test, *};
 
 fn setup_state_machine() -> StateMachineId {
 	StateMachineId { state_id: StateMachine::Polkadot(1000), consensus_state_id: *b"mock" }

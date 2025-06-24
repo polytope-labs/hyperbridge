@@ -66,10 +66,6 @@ impl HyperbridgeConfig {
 #[tokio::test]
 #[ignore]
 async fn test_parsing() {
-	let config = HyperbridgeConfig::parse_conf(
-		"/home/david/open-source/tesseract-consensus/relayer/test-config.toml",
-	)
-	.await
-	.unwrap();
+	let config = HyperbridgeConfig::parse_conf("../test-config.toml").await.unwrap();
 	dbg!(config);
 }

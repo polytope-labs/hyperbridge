@@ -259,7 +259,6 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 
 # tesseract
 tesseract-primitives = { path = "tesseract/messaging/primitives" }
-tesseract-consensus = { path = "tesseract/consensus" }
 tesseract-messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
@@ -277,7 +276,7 @@ tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
-tesseract-consensus-relayer = { path = "tesseract/consensus/relayer" }
+tesseract-consensus = { path = "tesseract/consensus/relayer" }
 
 
 [workspace.dependencies.codec]

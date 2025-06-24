@@ -60,7 +60,7 @@ impl IsmpHost for OpHost {
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		if self.dispute_game_factory.is_some() || self.host.proposer_config.is_some() {
+		if self.dispute_game_factory.is_some() && self.host.proposer_config.is_some() {
 			let dispute_game_factory_address = self
 				.dispute_game_factory
 				.clone()
@@ -200,7 +200,7 @@ impl IsmpHost for OpHost {
 			consensus_state: initial_consensus_state.encode(),
 			consensus_client_id: OPTIMISM_CONSENSUS_CLIENT_ID,
 			consensus_state_id: self.consensus_state_id,
-			unbonding_period: 60 * 60 * 60 * 27,
+			unbonding_period: u64::MAX,
 			challenge_periods: state_machine_commitments
 				.iter()
 				.map(|(state_machine, ..)| (state_machine.state_id, 5 * 60))
@@ -607,14 +607,14 @@ async fn submit_consensus_update(
 								client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 				} as u64;
 
-			let height = *latest_height.lock().await;
-			if current_height <= height {
+			let previous_height = *latest_height.lock().await;
+			if current_height <= previous_height {
 				return Some((Ok(None), interval));
 			}
 
 			return match consensus_state.optimism_consensus_type {
 				Some(OptimismConsensusType::OpL2Oracle)  => {
-					match client.latest_event(height, current_height).await {
+					match client.latest_event(previous_height, current_height).await {
 						Ok(Some(event)) => {
 							match client.fetch_op_payload(current_height, event).await {
 								Ok(payload) => {
@@ -655,7 +655,7 @@ async fn submit_consensus_update(
 				Some(OptimismConsensusType::OpFaultProofGames) => {
 					if let Some(respected_game_types) = consensus_state.respected_game_types.clone()
 					{
-						match client.latest_dispute_games(height, current_height, respected_game_types.clone()).await {
+						match client.latest_dispute_games(previous_height, current_height, respected_game_types.clone()).await {
 							Ok(event) => {
 								match client.fetch_dispute_game_payload(current_height, respected_game_types, event).await {
 									Ok(maybe_payload) => {

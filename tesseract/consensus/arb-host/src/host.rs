@@ -57,14 +57,14 @@ impl IsmpHost for ArbHost {
 								client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 					} as u64;
 
-				let height = *latest_height.lock().await;
-				if current_height <= height {
+				let previous_height = *latest_height.lock().await;
+				if current_height <= previous_height {
 					return Some((Ok(None), interval));
 				}
 
 				return match consensus_state.arbitrum_consensus_type {
 					ArbitrumConsensusType::ArbitrumOrbit => {
-						match client.latest_event(height, current_height).await {
+						match client.latest_event(previous_height, current_height).await {
 							Ok(Some(event)) => {
 								match self.fetch_arbitrum_payload(current_height, event).await {
 									Ok(payload) => {
@@ -103,7 +103,7 @@ impl IsmpHost for ArbHost {
 						}
 					}
 					ArbitrumConsensusType::ArbitrumBold => {
-						match client.latest_assertion_event(height, current_height).await {
+						match client.latest_assertion_event(previous_height, current_height).await {
 							Ok(Some(event)) => {
 								match self.fetch_arbitrum_bold_payload(current_height, event).await {
 									Ok(payload) => {
@@ -233,7 +233,8 @@ impl IsmpHost for ArbHost {
 			consensus_state: initial_consensus_state.encode(),
 			consensus_client_id: ARBITRUM_CONSENSUS_CLIENT_ID,
 			consensus_state_id: self.consensus_state_id,
-			unbonding_period: 60 * 60 * 60 * 27,
+			// since there is no staking involved
+			unbonding_period: u64::MAX,
 			challenge_periods: state_machine_commitments
 				.iter()
 				.map(|(state_machine, ..)| (state_machine.state_id, 5 * 60))

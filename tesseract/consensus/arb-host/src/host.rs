@@ -64,7 +64,7 @@ impl IsmpHost for ArbHost {
 
 				return match consensus_state.arbitrum_consensus_type {
 					ArbitrumConsensusType::ArbitrumOrbit => {
-						match client.latest_event(current_height, current_height).await {
+						match client.latest_event(height, current_height).await {
 							Ok(Some(event)) => {
 								match self.fetch_arbitrum_payload(current_height, event).await {
 									Ok(payload) => {
@@ -103,7 +103,7 @@ impl IsmpHost for ArbHost {
 						}
 					}
 					ArbitrumConsensusType::ArbitrumBold => {
-						match client.latest_assertion_event(current_height, current_height).await {
+						match client.latest_assertion_event(height, current_height).await {
 							Ok(Some(event)) => {
 								match self.fetch_arbitrum_bold_payload(current_height, event).await {
 									Ok(payload) => {

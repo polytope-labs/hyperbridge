@@ -65,74 +65,90 @@ impl IsmpHost for OpHost {
 				.dispute_game_factory
 				.clone()
 				.ok_or_else(|| anyhow!("Expected dispute game factory address"))?;
+
 			let proposer_config = self
 				.host
 				.proposer_config
 				.clone()
 				.ok_or_else(|| anyhow!("Expected proposer config"))?;
+
 			let proposer = self.proposer.clone().ok_or_else(|| anyhow!("Expected proposer"))?;
-			let (tx, recv) = tokio::sync::broadcast::channel(512);
+
 			let client = self.clone();
-			let initial_height = client.op_execution_client.get_block_number().await?.low_u64();
+			let proposer_client = client.clone();
+
 			// Watch for requests on the opstack chain
 			// propose commitment after a confirmation delay
-			tokio::task::spawn({
-				let client = client.clone();
-				let dispute_game_factory_address = dispute_game_factory_address.clone();
-				let proposer_config = proposer_config.clone();
-				async move {
+			tokio::task::spawn(async move {
+				let initial_height =
+					proposer_client.op_execution_client.get_block_number().await?.low_u64();
+
+				let (tx, mut stream) = {
+					let (tx, recv) = tokio::sync::broadcast::channel(512);
+					let stream = tokio_stream::wrappers::BroadcastStream::new(recv);
+					(tx, stream)
+				};
+
+				let proposer_config_clone = proposer_config.clone();
+				let proposer_loop = async move {
+					let proposer_config = proposer_config_clone.clone();
 					let mut latest_height = initial_height;
-					log::trace!(target: "tesseract", "Started Proposer for {:?} at {latest_height}", client.evm.state_machine());
+					log::trace!(target: "tesseract", "Started Proposer for {:?} at {latest_height}", proposer_client.evm.state_machine());
 
 					loop {
 						tokio::time::sleep(Duration::from_secs(30)).await;
+
 						match construct_state_proposal(
-							&client,
+							&proposer_client,
 							&mut latest_height,
 							dispute_game_factory_address,
 							&proposer_config,
 						)
 						.await
 						{
-							Ok(Some(proposal)) => match tx.send(proposal) {
-								Ok(_) => {},
-								Err(err) => {
-									log::error!(target: "tesseract",
-										"Failed to send state proposal over channel {err:?}"
-									);
-									return;
+							Ok(Some(proposal)) =>
+								if let Err(err) = tx.send(proposal) {
+									log::error!(target: "tesseract", "Failed to send state proposal: {err:?}");
+									break;
 								},
-							},
-							Ok(_) => {},
+							Ok(None) => {}, // No proposal to send
 							Err(e) => {
-								log::error!(target: "tesseract","Encountered error fetching state proposal {e:?}");
+								log::error!(target: "tesseract", "Error constructing state proposal: {e:?}");
 							},
 						}
 					}
-				}
-			});
+				};
 
-			let mut stream = tokio_stream::wrappers::BroadcastStream::new(recv);
-			while let Some(proposal) = stream.next().await {
-				match proposal {
-					Ok(proposal) => {
-						if let Err(err) = submit_state_proposal(
-							&self,
-							dispute_game_factory_address,
-							proposer.clone(),
-							&proposer_config,
-							proposal,
-						)
-						.await
-						{
-							log::error!(target: "tesseract", "Error submitting state proposal {err:?}")
+				let proposer_config_clone = proposer_config.clone();
+				let proposal_submit_loop = async move {
+					let proposer_config = proposer_config_clone.clone();
+					while let Some(proposal) = stream.next().await {
+						match proposal {
+							Ok(proposal) => {
+								if let Err(err) = submit_state_proposal(
+									&client,
+									dispute_game_factory_address,
+									proposer.clone(),
+									&proposer_config,
+									proposal,
+								)
+								.await
+								{
+									log::error!(target: "tesseract", "Error submitting state proposal: {err:?}");
+								}
+							},
+							Err(e) => {
+								log::error!(target: "tesseract", "Proposal stream error: {e:?}");
+							},
 						}
-					},
-					Err(e) => {
-						log::error!(target: "tesseract","Stream returned error {e:?}")
-					},
-				}
-			}
+					}
+				};
+
+				tokio::spawn(proposer_loop);
+				tokio::spawn(proposal_submit_loop);
+
+				Ok::<(), anyhow::Error>(())
+			});
 		}
 
 		submit_consensus_update(self, counterparty.clone()).await?;
@@ -705,10 +721,10 @@ async fn submit_consensus_update(
 		match item {
 			Ok((consensus_message, height)) => {
 				log::info!(
-						target: "tesseract",
-						"🛰️ Transmitting consensus message from {} to {}",
-						provider.name(), counterparty.name()
-					);
+					target: "tesseract",
+					"🛰️ Transmitting consensus message from {} to {}",
+					provider.name(), counterparty.name()
+				);
 				let res = counterparty
 					.submit(
 						vec![Message::Consensus(consensus_message)],
@@ -716,10 +732,7 @@ async fn submit_consensus_update(
 					)
 					.await;
 				if let Err(err) = res {
-					log::error!(
-							"Failed to submit transaction to {}: {err:?}",
-							counterparty.name()
-						)
+					log::error!("Failed to submit transaction to {}: {err:?}", counterparty.name())
 				} else {
 					let mut current_height = latest_height.lock().await;
 					*current_height = height;
@@ -730,7 +743,6 @@ async fn submit_consensus_update(
 			},
 		}
 	}
-
 
 	Ok(())
 }

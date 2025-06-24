@@ -17,11 +17,12 @@ use super::*;
 
 mod origins;
 mod tracks;
-use crate::frame_support::traits::fungible::HoldConsideration;
-use crate::frame_support::traits::EitherOf;
-use crate::frame_support::traits::EitherOfDiverse;
-use crate::frame_support::traits::LinearStoragePrice;
-use crate::Preimage;
+use crate::{
+	frame_support::traits::{
+		fungible::HoldConsideration, EitherOf, EitherOfDiverse, LinearStoragePrice,
+	},
+	Preimage,
+};
 pub use origins::{
 	custom_origins, FellowshipAdmin, ReferendumCanceller, ReferendumKiller, WhitelistedCaller, *,
 };

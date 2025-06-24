@@ -18,12 +18,14 @@
 use crate::*;
 use alloc::collections::BTreeMap;
 use frame_support::traits::tokens::Preservation;
-use ismp::consensus::StateMachineHeight;
-use ismp::host::IsmpHost;
-use ismp::{consensus::StateMachineId, events::Event as IsmpEvent, messaging::Message};
+use ismp::{
+	consensus::{StateMachineHeight, StateMachineId},
+	events::Event as IsmpEvent,
+	host::IsmpHost,
+	messaging::Message,
+};
 use pallet_ismp::fee_handler::FeeHandler;
-use polkadot_sdk::frame_support::traits::fungible::Mutate;
-use polkadot_sdk::sp_runtime::traits::*;
+use polkadot_sdk::{frame_support::traits::fungible::Mutate, sp_runtime::traits::*};
 
 impl<T: Config> Pallet<T>
 where
@@ -128,8 +130,8 @@ where
 		}
 
 		// Return with actual weight information
-		// We use Pays::No to indicate that someone (the message sender) doesn't pay for this operation,
-		// though we're using this mechanism to reward relayers rather than charge fees
+		// We use Pays::No to indicate that someone (the message sender) doesn't pay for this
+		// operation, though we're using this mechanism to reward relayers rather than charge fees
 		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 	}
 }

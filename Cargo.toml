@@ -259,7 +259,6 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 
 # tesseract
 tesseract-primitives = { path = "tesseract/messaging/primitives" }
-tesseract-consensus = { path = "tesseract/consensus" }
 tesseract-messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }

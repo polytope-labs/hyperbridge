@@ -25785,7 +25785,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tesseract-consensus-relayer"
+name = "tesseract-consensus"
 version = "0.6.1"
 dependencies = [
  "anyhow",

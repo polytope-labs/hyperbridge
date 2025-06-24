@@ -139,7 +139,6 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
 				origins::Origin::ReferendumCanceller => Ok(3),
 				origins::Origin::ReferendumKiller => Ok(4),
 				origins::Origin::TreasurySpend => Ok(5),
-				_ => Err(()),
 			}
 		} else {
 			Err(())

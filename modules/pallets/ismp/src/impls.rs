@@ -48,12 +48,11 @@ impl<T: Config> Pallet<T> {
 					// check that requests will be successfully dispatched
 					// so we can not be spammed with failing txs
 					.map(|result| match result {
-						MessageResult::Request(results)
-						| MessageResult::Response(results)
-						| MessageResult::Timeout(results) => results,
-						MessageResult::ConsensusMessage(events) => {
-							events.into_iter().map(Ok).collect()
-						},
+						MessageResult::Request(results) |
+						MessageResult::Response(results) |
+						MessageResult::Timeout(results) => results,
+						MessageResult::ConsensusMessage(events) =>
+							events.into_iter().map(Ok).collect(),
 						MessageResult::FrozenClient(_) => {
 							vec![]
 						},

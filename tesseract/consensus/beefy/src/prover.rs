@@ -31,6 +31,7 @@ use ismp::{
 };
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
+use polkadot_sdk::sp_runtime::traits::Keccak256;
 use primitive_types::H256;
 use redis::{AsyncCommands, RedisError};
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
@@ -38,7 +39,6 @@ use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, SignedCommitment, VersionedFinalityProof,
 };
-use polkadot_sdk::sp_runtime::traits::Keccak256;
 use std::{
 	collections::{HashMap, HashSet},
 	time::Duration,
@@ -778,7 +778,8 @@ pub async fn query_parachain_header<R: subxt::Config>(
 			)
 		})?;
 
-	let header = polkadot_sdk::sp_runtime::generic::Header::<u32, Keccak256>::decode(&mut &head_data[..])?;
+	let header =
+		polkadot_sdk::sp_runtime::generic::Header::<u32, Keccak256>::decode(&mut &head_data[..])?;
 
 	Ok(header)
 }

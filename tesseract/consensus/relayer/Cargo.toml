@@ -4,7 +4,7 @@ version = "0.6.1"
 edition = "2021"
 
 [lib]
-name = "tesseract"
+name = "tesseract_consensus"
 path = "src/lib.rs"
 
 [[bin]]
@@ -37,7 +37,7 @@ subxt = { workspace = true, default-features = false }
 sp-core = { workspace = true, features = ["full_crypto"] }
 
 subxt-utils = { workspace = true }
-tesseract-beefy = { workspace = true }
+tesseract-beefy = { path = "../beefy"  }
 tesseract-bsc = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 arb-host = { workspace = true }

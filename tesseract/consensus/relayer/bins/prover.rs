@@ -17,7 +17,7 @@
 
 use anyhow::anyhow;
 use clap::{arg, Parser};
-use tesseract::logging;
+use tesseract_consensus::logging;
 use tesseract_beefy::prover::{BeefyProver, Prover};
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},

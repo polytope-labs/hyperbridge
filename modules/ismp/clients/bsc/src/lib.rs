@@ -23,6 +23,7 @@ use ismp::{
 };
 use polkadot_sdk::*;
 use sp_core::H256;
+use ismp::consensus::StateMachineId;
 use sync_committee_primitives::constants::BlsPublicKey;
 pub mod pallet;
 use pallet::Pallet;
@@ -73,7 +74,7 @@ impl<
 	fn verify_consensus(
 		&self,
 		_host: &dyn IsmpHost,
-		_consensus_state_id: ConsensusStateId,
+		consensus_state_id: ConsensusStateId,
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
@@ -117,7 +118,7 @@ impl<
 			)
 			.map_err(|e| Error::Custom(e.to_string()))?;
 
-		let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
+		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
 
 		let state_commitment = StateCommitmentHeight {
@@ -135,7 +136,10 @@ impl<
 		}
 		consensus_state.finalized_height = finalized_header.number.low_u64();
 		state_machine_map
-			.insert(StateMachine::Evm(consensus_state.chain_id), vec![state_commitment]);
+			.insert(StateMachineId {
+				state_id: StateMachine::Evm(consensus_state.chain_id),
+				consensus_state_id
+			}, vec![state_commitment]);
 
 		Ok((consensus_state.encode(), state_machine_map))
 	}

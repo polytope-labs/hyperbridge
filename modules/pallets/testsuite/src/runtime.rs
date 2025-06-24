@@ -406,7 +406,7 @@ impl ConsensusClient for MockConsensusClient {
 		_trusted_consensus_state: Vec<u8>,
 		_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), IsmpError> {
-		let verified_commitments: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
+		let verified_commitments: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			mock_state_commitments();
 		Ok((vec![], verified_commitments))
 	}
@@ -573,7 +573,7 @@ pub fn register_offchain_ext(ext: &mut sp_io::TestExternalities) {
 	ext.register_extension(OffchainWorkerExt::new(offchain));
 }
 
-fn mock_state_commitments() -> BTreeMap<StateMachine, Vec<StateCommitmentHeight>> {
+fn mock_state_commitments() -> BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> {
 	let mut map = BTreeMap::new();
 
 	let state_commitment = StateCommitment {
@@ -584,7 +584,10 @@ fn mock_state_commitments() -> BTreeMap<StateMachine, Vec<StateCommitmentHeight>
 
 	let height_entry = StateCommitmentHeight { commitment: state_commitment, height: 42 };
 
-	map.insert(StateMachine::Polkadot(1000), vec![height_entry.clone()]);
+	map.insert(StateMachineId {
+		state_id: StateMachine::Polkadot(1000),
+		consensus_state_id: MOCK_CONSENSUS_STATE_ID
+	}, vec![height_entry.clone()]);
 
 	map
 }

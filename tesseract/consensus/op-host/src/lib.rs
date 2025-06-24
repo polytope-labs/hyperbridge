@@ -61,6 +61,9 @@ pub struct HostConfig {
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
 	pub l1_consensus_state_id: ConsensusStateId,
+	/// consensus update frequency in seconds
+	pub consensus_update_frequency: Option<u64>,
+
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

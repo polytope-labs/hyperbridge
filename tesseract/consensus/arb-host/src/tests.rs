@@ -26,6 +26,7 @@ async fn test_payload_proof_verification() {
 		state_machine: StateMachine::Evm(1001),
 		l1_state_machine: StateMachine::Evm(10),
 		l1_consensus_state_id: *b"ETH0",
+		consensus_update_frequency: None,
 	};
 	let config = ArbConfig {
 		host: host.clone(),

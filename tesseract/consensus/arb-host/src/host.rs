@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::ArbHost;
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 
 use codec::{Decode, Encode};
 use ethers::prelude::Middleware;
-use futures::StreamExt;
+use futures::{stream, StreamExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
@@ -15,6 +15,7 @@ use ismp_arbitrum::{
 	ARBITRUM_CONSENSUS_CLIENT_ID,
 };
 use tesseract_primitives::{IsmpHost, IsmpProvider};
+use tokio::sync::Mutex;
 
 #[async_trait::async_trait]
 impl IsmpHost for ArbHost {
@@ -30,95 +31,155 @@ impl IsmpHost for ArbHost {
 			state_id: self.l1_state_machine,
 			consensus_state_id: self.l1_consensus_state_id,
 		};
-		let mut stream = counterparty
-			.state_machine_update_notification(l1_state_machine_id.clone())
-			.await?;
 
-		let mut latest_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
-		while let Some(res) = stream.next().await {
-			match res {
-				Ok(event) => match consensus_state.arbitrum_consensus_type {
+		let interval = tokio::time::interval(Duration::from_secs(
+			self.host.consensus_update_frequency.unwrap_or(300),
+		));
+
+		let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
+		let latest_height = Arc::new(Mutex::new(initial_height));
+		let latest_height_for_stream = latest_height.clone();
+
+		let counterparty_clone = counterparty.clone();
+		let interval_stream = stream::unfold(interval, move |mut interval| {
+			let client = self.clone();
+			let counterparty = counterparty_clone.clone();
+			let consensus_state = consensus_state.clone();
+			let latest_height= latest_height_for_stream.clone();
+
+			async move {
+				interval.tick().await;
+				let current_height =
+					match counterparty.query_latest_height(l1_state_machine_id).await {
+						Ok(height) => height,
+						Err(_) =>
+							return Some((Err(anyhow!("Not a fatal error: Error fetching l1 latest height for {:?} on {:?}",
+								client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+					} as u64;
+
+				let height = *latest_height.lock().await;
+				if current_height <= height {
+					return Some((Ok(None), interval));
+				}
+
+				return match consensus_state.arbitrum_consensus_type {
 					ArbitrumConsensusType::ArbitrumOrbit => {
-						let event_height = event.latest_height;
-						let latest_event = self.latest_event(latest_height, event_height).await?;
+						match client.latest_event(current_height, current_height).await {
+							Ok(Some(event)) => {
+								match self.fetch_arbitrum_payload(current_height, event).await {
+									Ok(payload) => {
+										let update = ArbitrumUpdate {
+											state_machine_id: StateMachineId {
+												state_id: self.state_machine,
+												consensus_state_id: self.consensus_state_id,
+											},
+											l1_height: current_height,
+											proof: ArbitrumConsensusProof::ArbitrumOrbit(payload),
+										};
 
-						if let Some(event) = latest_event {
-							let payload = self.fetch_arbitrum_payload(event_height, event).await?;
-							let update = ArbitrumUpdate {
-								state_machine_id: StateMachineId {
-									state_id: self.state_machine,
-									consensus_state_id: self.consensus_state_id,
-								},
-								l1_height: event_height,
-								proof: ArbitrumConsensusProof::ArbitrumOrbit(payload),
-							};
+										let consensus_message = ConsensusMessage {
+											consensus_proof: update.encode(),
+											consensus_state_id: self.consensus_state_id,
+											signer: counterparty.address(),
+										};
 
-							let consensus_message = ConsensusMessage {
-								consensus_proof: update.encode(),
-								consensus_state_id: self.consensus_state_id,
-								signer: counterparty.address(),
-							};
-
-							let result = counterparty
-								.submit(
-									vec![Message::Consensus(consensus_message)],
-									counterparty.state_machine_id().state_id,
-								)
-								.await;
-
-							if let Err(err) = result {
-								log::error!(
-									"Failed to submit transaction to {}: {err:?}",
-									counterparty.name()
-								)
-							} else {
-								latest_height = event_height;
+										Some((Ok::<_, Error>(Some((consensus_message, current_height))), interval))
+									}
+									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum orbit payload with height {:?} on {:?} {:?}",
+								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								}
+							}
+							Ok(None) | Err(_) => {
+								Some((
+									Err(anyhow!(
+                                "Not a fatal error: Failed to fetch latest arbitrum orbit event for heights {:?} and {:?}, for {:?} on {:?}",
+                                latest_height,
+                                current_height,
+										client.state_machine, counterparty.state_machine_id().state_id
+                            )),
+									interval,
+								))
 							}
 						}
-					},
+					}
 					ArbitrumConsensusType::ArbitrumBold => {
-						let event_height = event.latest_height;
-						let latest_event =
-							self.latest_assertion_event(latest_height, event_height).await?;
+						match client.latest_assertion_event(current_height, current_height).await {
+							Ok(Some(event)) => {
+								match self.fetch_arbitrum_bold_payload(current_height, event).await {
+									Ok(payload) => {
+										let update = ArbitrumUpdate {
+											state_machine_id: StateMachineId {
+												state_id: self.state_machine,
+												consensus_state_id: self.consensus_state_id,
+											},
+											l1_height: current_height,
+											proof: ArbitrumConsensusProof::ArbitrumBold(payload),
+										};
 
-						if let Some(event) = latest_event {
-							let payload =
-								self.fetch_arbitrum_bold_payload(event_height, event).await?;
-							let update = ArbitrumUpdate {
-								state_machine_id: StateMachineId {
-									state_id: self.state_machine,
-									consensus_state_id: self.consensus_state_id,
-								},
-								l1_height: event_height,
-								proof: ArbitrumConsensusProof::ArbitrumBold(payload),
-							};
+										let consensus_message = ConsensusMessage {
+											consensus_proof: update.encode(),
+											consensus_state_id: self.consensus_state_id,
+											signer: counterparty.address(),
+										};
 
-							let consensus_message = ConsensusMessage {
-								consensus_proof: update.encode(),
-								consensus_state_id: self.consensus_state_id,
-								signer: counterparty.address(),
-							};
-
-							let result = counterparty
-								.submit(
-									vec![Message::Consensus(consensus_message)],
-									counterparty.state_machine_id().state_id,
-								)
-								.await;
-
-							if let Err(err) = result {
-								log::error!(
-									"Failed to submit transaction to {}: {err:?}",
-									counterparty.name()
-								)
-							} else {
-								latest_height = event_height;
+										Some((Ok::<_, Error>(Some((consensus_message, current_height))), interval))
+									}
+									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum bold payload with height {:?} on {:?} {:?}",
+								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								}
+							}
+							Ok(None) | Err(_) => {
+								Some((
+									Err(anyhow!(
+                                "Not a fatal error: Failed to fetch latest arbitrum bold event for heights {:?} and {:?}, for {:?} on {:?}",
+                                latest_height,
+                                current_height,
+										client.state_machine, counterparty.state_machine_id().state_id
+                            )),
+									interval,
+								))
 							}
 						}
-					},
+					}
+				}
+			}
+		})
+		.filter_map(|res| async move {
+			match res {
+				Ok(Some(update)) => Some(Ok(update)),
+				Ok(None) => None,
+				Err(err) => Some(Err(err)),
+			}
+		});
+
+		let provider = self.provider();
+		let mut stream = Box::pin(interval_stream);
+		while let Some(item) = stream.next().await {
+			match item {
+				Ok((consensus_message, height)) => {
+					log::info!(
+						target: "tesseract",
+						"🛰️ Transmitting consensus message from {} to {}",
+						provider.name(), counterparty.name()
+					);
+					let res = counterparty
+						.submit(
+							vec![Message::Consensus(consensus_message)],
+							counterparty.state_machine_id().state_id,
+						)
+						.await;
+					if let Err(err) = res {
+						log::error!(
+							"Failed to submit transaction to {}: {err:?}",
+							counterparty.name()
+						)
+					} else {
+						let mut current_height = latest_height.lock().await;
+						*current_height = height;
+					}
 				},
-				Err(err) => {
-					log::error!("State machine update stream returned an error {err:?}")
+				Err(e) => {
+					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}
@@ -153,7 +214,7 @@ impl IsmpHost for ArbHost {
 				consensus_state_id: self.l1_consensus_state_id,
 			},
 			state_root: block.state_root.0.into(),
-			arbitrum_consensus_type: ArbitrumConsensusType::ArbitrumOrbit,
+			arbitrum_consensus_type: ArbitrumConsensusType::ArbitrumBold,
 		};
 
 		state_machine_commitments.push((

@@ -24,7 +24,7 @@ use crate::{
 use evm_state_machine::EvmStateMachine;
 use ismp::{
 	consensus::{
-		ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineClient,
+		ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineClient, StateMachineId,
 		VerifiedCommitments,
 	},
 	error::Error,
@@ -96,7 +96,7 @@ impl<
 			)
 			.map_err(|e| Error::Custom(format!("{:?}", e)))?;
 
-		let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
+		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
 
 		let state_root = consensus_update.execution_payload.state_root;
@@ -116,7 +116,13 @@ impl<
 		let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 		state_commitment_vec.push(ethereum_state_commitment_height);
 
-		state_machine_map.insert(StateMachine::Evm(consensus_state.chain_id), state_commitment_vec);
+		state_machine_map.insert(
+			StateMachineId {
+				state_id: StateMachine::Evm(consensus_state.chain_id),
+				consensus_state_id,
+			},
+			state_commitment_vec,
+		);
 
 		let new_consensus_state = ConsensusState {
 			frozen_height: None,

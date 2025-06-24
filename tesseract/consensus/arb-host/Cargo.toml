@@ -24,6 +24,7 @@ futures = { workspace = true }
 primitive-types = { workspace = true }
 ismp-arbitrum = { workspace = true }
 codec = { workspace = true }
+tokio = { workspace = true , features = ["full"] }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }

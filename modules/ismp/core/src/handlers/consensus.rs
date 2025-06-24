@@ -50,7 +50,6 @@ where
 	let mut state_updates = vec![];
 	for (id, mut commitment_heights) in intermediate_states {
 		commitment_heights.sort_unstable_by(|a, b| a.height.cmp(&b.height));
-		let id = StateMachineId { state_id: id, consensus_state_id: msg.consensus_state_id };
 		let previous_latest_height = host.latest_commitment_height(id)?;
 		let mut last_commitment_height = None;
 		for commitment_height in commitment_heights.iter() {

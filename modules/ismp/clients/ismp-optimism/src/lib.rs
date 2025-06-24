@@ -130,7 +130,7 @@ impl<
 		let l1_state_commitment = host.state_machine_commitment(l1_state_machine_height)?;
 		let state_root = l1_state_commitment.state_root;
 
-		let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
+		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
 
 		match proof {
@@ -153,7 +153,7 @@ impl<
 					let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 					state_commitment_vec.push(state_commitment_height);
 					state_machine_map
-						.insert(consensus_state.state_machine_id.state_id, state_commitment_vec);
+						.insert(consensus_state.l1_state_machine_id, state_commitment_vec);
 
 					consensus_state.finalized_height = state.height.height;
 					consensus_state.state_root = state.commitment.state_root;
@@ -179,7 +179,7 @@ impl<
 					let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 					state_commitment_vec.push(state_commitment_height);
 					state_machine_map
-						.insert(consensus_state.state_machine_id.state_id, state_commitment_vec);
+						.insert(consensus_state.l1_state_machine_id, state_commitment_vec);
 
 					consensus_state.finalized_height = state.height.height;
 					consensus_state.state_root = state.commitment.state_root;

@@ -277,7 +277,7 @@ tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
-tesseract-consensus-relayer = { path = "tesseract/consensus/relayer" }
+tesseract-consensus = { path = "tesseract/consensus/relayer" }
 
 
 [workspace.dependencies.codec]

@@ -92,10 +92,10 @@ members = [
     "tesseract/consensus/bsc",
     "tesseract/consensus/sync-committee",
     "tesseract/consensus/grandpa",
-    # "tesseract/consensus/integration-tests",
-    # "tesseract/consensus/beefy",
-    # "tesseract/consensus/beefy/zk",
-    # "tesseract/consensus/relayer",
+    "tesseract/consensus/integration-tests",
+    "tesseract/consensus/beefy",
+    "tesseract/consensus/beefy/zk",
+    "tesseract/consensus/relayer",
 
 
     # Airdrop

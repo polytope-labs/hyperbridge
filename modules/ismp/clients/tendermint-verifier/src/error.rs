@@ -42,4 +42,12 @@ pub enum VerificationError {
 	/// Conversion error
 	#[error("Conversion error: {0}")]
 	ConversionError(String),
+
+	/// State validation error
+	#[error("State validation failed: {0}")]
+	StateValidationError(String),
+
+	/// Configuration error
+	#[error("Configuration error: {0}")]
+	ConfigurationError(String),
 }

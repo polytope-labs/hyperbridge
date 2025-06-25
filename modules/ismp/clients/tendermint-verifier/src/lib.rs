@@ -11,3 +11,14 @@ pub use types::{ConsensusProof, TrustedState, UpdatedTrustedState, VerificationO
 pub mod error;
 pub mod verifier;
 pub use error::VerificationError;
+
+
+pub use verifier::{
+	verify_header_update,
+	verify_misbehaviour_header,
+	verify_validator_sets,
+	verify_commit,
+	verify_commit_against_trusted,
+	validate_trusted_state,
+	validate_consensus_proof_against_trusted,
+};

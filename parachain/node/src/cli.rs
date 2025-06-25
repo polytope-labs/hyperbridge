@@ -60,7 +60,14 @@ pub enum Subcommand {
 	TryRuntime,
 
 	/// Runs the node with signature verification override and manual seal.
-	Simnode(sc_simnode::cli::SimnodeCli),
+	Simnode(SimnodeCli),
+}
+
+#[derive(Debug, clap::Parser)]
+pub struct SimnodeCli {
+	pub instant: bool,
+	#[command(flatten)]
+	pub rest: sc_simnode::cli::SimnodeCli
 }
 
 #[derive(Debug, clap::Parser)]

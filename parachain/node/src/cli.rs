@@ -65,6 +65,7 @@ pub enum Subcommand {
 
 #[derive(Debug, clap::Parser)]
 pub struct SimnodeCli {
+	#[arg(long)]
 	pub instant: bool,
 	#[command(flatten)]
 	pub rest: sc_simnode::cli::SimnodeCli

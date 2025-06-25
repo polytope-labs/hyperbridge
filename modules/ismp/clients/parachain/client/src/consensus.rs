@@ -26,7 +26,7 @@ use frame_support::traits::Get;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
-		StateMachineId, VerifiedCommitments,
+		VerifiedCommitments,
 	},
 	error::Error,
 	host::{IsmpHost, StateMachine},
@@ -43,6 +43,7 @@ use sp_runtime::{
 };
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check_for_parachain, SubstrateStateMachine};
+use ismp::consensus::StateMachineId;
 
 use crate::{Parachains, RelayChainOracle};
 
@@ -191,8 +192,10 @@ where
 			};
 
 			state_commitments_vec.push(intermediate);
-			intermediates
-				.insert(StateMachineId { state_id, consensus_state_id }, state_commitments_vec);
+			intermediates.insert(StateMachineId {
+				state_id,
+				consensus_state_id
+			}, state_commitments_vec);
 		}
 
 		Ok((state, intermediates))

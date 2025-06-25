@@ -20,13 +20,10 @@
 extern crate alloc;
 
 pub mod pallet;
-use pallet::Pallet;
-use pallet::SupportedStateMachines;
+use pallet::{Pallet, SupportedStateMachines};
 
-use crate::pallet::Config;
-use alloc::{collections::BTreeMap, string::ToString};
-use codec::Decode;
-use codec::Encode;
+use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
+use codec::{Decode, Encode};
 use evm_state_machine::EvmStateMachine;
 use ismp::{
 	consensus::{
@@ -37,12 +34,11 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use op_verifier::OptimismDisputeGameProof;
-use op_verifier::OptimismPayloadProof;
-use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
+use op_verifier::{
+	OptimismDisputeGameProof, OptimismPayloadProof, verify_optimism_dispute_game_proof,
+	verify_optimism_payload,
+};
 use primitive_types::H256;
-use alloc::vec::Vec;
-use alloc::boxed::Box;
 
 pub const OPTIMISM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"OPTC";
 
@@ -53,7 +49,7 @@ pub struct ConsensusState {
 	pub l1_state_machine_id: StateMachineId,
 	pub state_root: H256,
 	pub optimism_consensus_type: Option<OptimismConsensusType>,
-	pub respected_game_types: Option<Vec<u32>>
+	pub respected_game_types: Option<Vec<u32>>,
 }
 
 #[derive(Encode, Decode)]
@@ -66,7 +62,7 @@ pub struct OptimismUpdate {
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq)]
 pub enum OptimismConsensusType {
 	OpL2Oracle,
-	OpFaultProofGames
+	OpFaultProofGames,
 }
 
 /// Description of the various consensus mechanics supported for Optimism
@@ -78,15 +74,13 @@ pub enum OptimismConsensusProof {
 
 pub struct OptimismConsensusClient<
 	H: IsmpHost,
-	C: Config,
 	T: pallet_ismp_host_executive::Config + crate::pallet::Config,
->(core::marker::PhantomData<(H, C, T)>);
+>(core::marker::PhantomData<(H, T)>);
 
 impl<
 	H: IsmpHost + Send + Sync + Default + 'static,
-	C: Config + Send + Sync + Default + 'static,
 	T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-> Default for OptimismConsensusClient<H, C, T>
+> Default for OptimismConsensusClient<H, T>
 {
 	fn default() -> Self {
 		Self(core::marker::PhantomData)
@@ -95,9 +89,8 @@ impl<
 
 impl<
 	H: IsmpHost + Send + Sync + Default + 'static,
-	C: Config + Send + Sync + Default + 'static,
 	T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-> Clone for OptimismConsensusClient<H, C, T>
+> Clone for OptimismConsensusClient<H, T>
 {
 	fn clone(&self) -> Self {
 		Self(core::marker::PhantomData)
@@ -106,9 +99,8 @@ impl<
 
 impl<
 	H: IsmpHost + Send + Sync + Default + 'static,
-	C: Config + Send + Sync + Default + 'static,
 	T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-> ConsensusClient for OptimismConsensusClient<H, C, T>
+> ConsensusClient for OptimismConsensusClient<H, T>
 {
 	fn verify_consensus(
 		&self,

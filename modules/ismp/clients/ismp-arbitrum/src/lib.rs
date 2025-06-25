@@ -23,13 +23,10 @@ pub mod pallet;
 use arbitrum_verifier::{
 	ArbitrumBoldProof, ArbitrumPayloadProof, verify_arbitrum_bold, verify_arbitrum_payload,
 };
-use pallet::Pallet;
-use pallet::SupportedStateMachines;
+use pallet::{Pallet, SupportedStateMachines};
 
-use crate::pallet::Config;
-use alloc::{collections::BTreeMap, string::ToString};
-use codec::Decode;
-use codec::Encode;
+use alloc::{boxed::Box, collections::BTreeMap, format, string::ToString, vec::Vec};
+use codec::{Decode, Encode};
 use evm_state_machine::EvmStateMachine;
 use ismp::{
 	consensus::{
@@ -41,9 +38,6 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 use primitive_types::H256;
-use alloc::format;
-use alloc::vec::Vec;
-use alloc::boxed::Box;
 
 pub const ARBITRUM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"ARBC";
 
@@ -53,7 +47,7 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub state_root: H256,
-	pub arbitrum_consensus_type: ArbitrumConsensusType
+	pub arbitrum_consensus_type: ArbitrumConsensusType,
 }
 
 #[derive(Encode, Decode)]
@@ -66,7 +60,7 @@ pub struct ArbitrumUpdate {
 #[derive(Encode, Decode, Debug, Clone, PartialEq, Eq)]
 pub enum ArbitrumConsensusType {
 	ArbitrumOrbit,
-	ArbitrumBold
+	ArbitrumBold,
 }
 
 /// Description of the various consensus mechanics supported for Arbitrum
@@ -78,15 +72,13 @@ pub enum ArbitrumConsensusProof {
 
 pub struct ArbitrumConsensusClient<
 	H: IsmpHost,
-	C: Config,
 	T: pallet_ismp_host_executive::Config + crate::pallet::Config,
->(core::marker::PhantomData<(H, C, T)>);
+>(core::marker::PhantomData<(H, T)>);
 
 impl<
 	H: IsmpHost + Send + Sync + Default + 'static,
-	C: Config + Send + Sync + Default + 'static,
 	T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-> Default for ArbitrumConsensusClient<H, C, T>
+> Default for ArbitrumConsensusClient<H, T>
 {
 	fn default() -> Self {
 		Self(core::marker::PhantomData)
@@ -95,9 +87,8 @@ impl<
 
 impl<
 	H: IsmpHost + Send + Sync + Default + 'static,
-	C: Config + Send + Sync + Default + 'static,
 	T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-> Clone for ArbitrumConsensusClient<H, C, T>
+> Clone for ArbitrumConsensusClient<H, T>
 {
 	fn clone(&self) -> Self {
 		Self(core::marker::PhantomData)
@@ -106,9 +97,8 @@ impl<
 
 impl<
 	H: IsmpHost + Send + Sync + Default + 'static,
-	C: Config + Send + Sync + Default + 'static,
 	T: pallet_ismp_host_executive::Config + pallet::Config + 'static,
-> ConsensusClient for ArbitrumConsensusClient<H, C, T>
+> ConsensusClient for ArbitrumConsensusClient<H, T>
 {
 	fn verify_consensus(
 		&self,

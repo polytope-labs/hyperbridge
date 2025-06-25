@@ -614,7 +614,7 @@ async fn submit_consensus_update(
 
 			return match consensus_state.optimism_consensus_type {
 				Some(OptimismConsensusType::OpL2Oracle)  => {
-					match client.latest_event(previous_height, current_height).await {
+					match client.latest_event(previous_height + 1, current_height).await {
 						Ok(Some(event)) => {
 							match client.fetch_op_payload(current_height, event).await {
 								Ok(payload) => {
@@ -655,7 +655,7 @@ async fn submit_consensus_update(
 				Some(OptimismConsensusType::OpFaultProofGames) => {
 					if let Some(respected_game_types) = consensus_state.respected_game_types.clone()
 					{
-						match client.latest_dispute_games(previous_height, current_height, respected_game_types.clone()).await {
+						match client.latest_dispute_games(previous_height + 1, current_height, respected_game_types.clone()).await {
 							Ok(event) => {
 								match client.fetch_dispute_game_payload(current_height, respected_game_types, event).await {
 									Ok(maybe_payload) => {

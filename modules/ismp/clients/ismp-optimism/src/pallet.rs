@@ -24,8 +24,10 @@ pub mod pallet {
 	use alloc::vec::Vec;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use ismp::host::StateMachine;
-	use ismp::{consensus::StateMachineId, host::IsmpHost};
+	use ismp::{
+		consensus::StateMachineId,
+		host::{IsmpHost, StateMachine},
+	};
 	use primitive_types::H160;
 
 	#[pallet::pallet]

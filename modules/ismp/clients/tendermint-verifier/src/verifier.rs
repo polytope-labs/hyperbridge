@@ -23,7 +23,6 @@ pub fn verify_header_update(
 		return Err(VerificationError::Invalid("Trusted state is frozen".to_string()));
 	}
 
-
 	let chain_id = Id::try_from(trusted_state.chain_id.clone())
 		.map_err(|e| VerificationError::Invalid(e.to_string()))?;
 	let height = Height::try_from(trusted_state.height)
@@ -53,7 +52,7 @@ pub fn verify_header_update(
 		next_validators: Some(&next_validators_proof),
 	};
 
-	let verifier_options = convert_verification_options(&options)?;
+	let verifier_options = convert_verification_options(&options, trusted_state.trusting_period_duration())?;
 	let now = convert_timestamp(current_time)?;
 
 	let verifier = ProdVerifier::default();
@@ -115,7 +114,7 @@ pub fn verify_misbehaviour_header(
 		next_validators: Some(&next_validators_proof),
 	};
 
-	let verifier_options = convert_verification_options(&options)?;
+	let verifier_options = convert_verification_options(&options, trusted_state.trusting_period_duration())?;
 	let now = convert_timestamp(current_time)?;
 
 	let verifier = ProdVerifier::default();
@@ -213,6 +212,7 @@ pub fn verify_commit_against_trusted(
 		next_validators_hash,
 	};
 
+	// Convert consensus proof
 	let validators = ValidatorSet::new(consensus_proof.validators.clone(), None);
 	let next_validators_proof = ValidatorSet::new(
 		consensus_proof.next_validators.clone().unwrap_or_default(),
@@ -225,7 +225,7 @@ pub fn verify_commit_against_trusted(
 		next_validators: Some(&next_validators_proof),
 	};
 
-	let verifier_options = convert_verification_options(options)?;
+	let verifier_options = convert_verification_options(options, trusted_state.trusting_period_duration())?;
 	let verifier = ProdVerifier::default();
 	
 	let result = verifier.verify_commit_against_trusted(
@@ -317,7 +317,7 @@ pub fn validate_consensus_proof_against_trusted(
 
 // Helper functions for type conversion
 
-fn convert_verification_options(options: &VerificationOptions) -> Result<Options, VerificationError> {
+fn convert_verification_options(options: &VerificationOptions, trusting_period: Duration) -> Result<Options, VerificationError> {
 	let trust_threshold = TrustThreshold::new(
 		options.trust_threshold_numerator, 
 		options.trust_threshold_denominator
@@ -327,7 +327,7 @@ fn convert_verification_options(options: &VerificationOptions) -> Result<Options
 	
 	Ok(Options {
 		trust_threshold,
-		trusting_period: Duration::from_secs(3600), // Default 1 hour, should be configurable
+		trusting_period,
 		clock_drift: options.clock_drift_duration(),
 	})
 }

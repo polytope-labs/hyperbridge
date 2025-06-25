@@ -23,8 +23,10 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
-use frame_support::pallet_prelude::*;
+use frame_support::{
+	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
+	pallet_prelude::*,
+};
 use frame_system::pallet_prelude::*;
 use ismp::host::IsmpHost;
 use polkadot_sdk::*;

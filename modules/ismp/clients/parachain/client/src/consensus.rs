@@ -113,8 +113,9 @@ where
 		let mut intermediates = BTreeMap::new();
 
 		let header_keys = Parachains::<T>::iter_keys().map(|id| parachain_header_storage_key(id).0);
-		let headers = read_proof_check_for_parachain::<BlakeTwo256, _>(&root, storage_proof, header_keys)
-			.map_err(|e| Error::Custom(format!("Error verifying parachain header {e:?}",)))?;
+		let headers =
+			read_proof_check_for_parachain::<BlakeTwo256, _>(&root, storage_proof, header_keys)
+				.map_err(|e| Error::Custom(format!("Error verifying parachain header {e:?}",)))?;
 
 		for (key, header) in headers.into_iter() {
 			let Some(header) = header else { continue };

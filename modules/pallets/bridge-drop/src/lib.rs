@@ -365,8 +365,8 @@ pub mod pallet {
 			let unlock_per_block = amount / EIGHTEEN_MONTHS as u128;
 
 			let starting_block = StartingBlock::<T>::get()
-				.unwrap_or(frame_system::Pallet::<T>::block_number())
-				+ SIX_MONTHS.into();
+				.unwrap_or(frame_system::Pallet::<T>::block_number()) +
+				SIX_MONTHS.into();
 
 			pallet_vesting::Pallet::<T>::add_vesting_schedule(
 				&beneficiary,

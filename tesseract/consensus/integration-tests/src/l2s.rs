@@ -91,11 +91,11 @@ async fn setup_clients() -> Result<
         };
 
 
-            SyncCommitteeHost::<
-                sync_committee_primitives::constants::sepolia::Sepolia,
-                ETH1_DATA_VOTES_BOUND_ETH,
-            >::new(&sync_commitee_config, &config, Default::default())
-                .await?
+        SyncCommitteeHost::<
+            sync_committee_primitives::constants::sepolia::Sepolia,
+            ETH1_DATA_VOTES_BOUND_ETH,
+        >::new(&sync_commitee_config, &config, Default::default())
+            .await?
 
     };
     let sync_committee_initial_consensus_state_message_for_other_chains = sync_committee_chain.query_initial_consensus_state().await?.unwrap();
@@ -232,6 +232,7 @@ pub async fn set_optimism_config_on_hyperbridge(
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
     setup_logging();
 

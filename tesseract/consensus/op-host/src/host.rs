@@ -38,7 +38,9 @@ use crate::{
 	OpHost, ProposerConfig,
 };
 use codec::Decode;
+use log::trace;
 use tokio::sync::Mutex;
+use ismp_optimism::OptimismConsensusType::OpFaultProofGames;
 
 #[derive(Debug, Clone)]
 pub struct StateProposal {
@@ -181,7 +183,7 @@ impl IsmpHost for OpHost {
 				consensus_state_id: self.l1_consensus_state_id,
 			},
 			state_root: block.state_root.0.into(),
-			optimism_consensus_type: None,
+			optimism_consensus_type: Some(OpFaultProofGames),
 			respected_game_types: Some(vec![CANNON, _PERMISSIONED]),
 		};
 
@@ -586,6 +588,7 @@ async fn submit_consensus_update(
 	));
 
 	let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
+	trace!(target: "op-host", "Latest height found for l1 state machine is {initial_height:?}");
 	let latest_height = Arc::new(Mutex::new(initial_height));
 	let latest_height_for_stream = latest_height.clone();
 
@@ -606,16 +609,22 @@ async fn submit_consensus_update(
 						return Some((Err(anyhow!("Not a fatal error: Error fetching l1 latest height for {:?} on {:?}",
 								client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 				} as u64;
+			trace!(target: "op-host", "current height found for l1 state machine is {current_height:?}");
+
 
 			let previous_height = *latest_height.lock().await;
 			if current_height <= previous_height {
+				trace!(target: "op-host", "current height {current_height:?} is less than or equals {previous_height:?}");
 				return Some((Ok(None), interval));
 			}
 
+			trace!(target: "op-host", "consensus state type is {:?}", consensus_state.optimism_consensus_type.clone());
+			trace!(target: "op-host", "fetching event between {previous_height:?} and {current_height:?}");
 			return match consensus_state.optimism_consensus_type {
 				Some(OptimismConsensusType::OpL2Oracle)  => {
 					match client.latest_event(previous_height + 1, current_height).await {
 						Ok(Some(event)) => {
+							trace!(target: "op-host", "fetching l2 oracle payload");
 							match client.fetch_op_payload(current_height, event).await {
 								Ok(payload) => {
 									let update = OptimismUpdate {
@@ -633,16 +642,22 @@ async fn submit_consensus_update(
 										signer: counterparty.address(),
 									};
 
-									Some((Ok::<_, Error>(Some((consensus_message, current_height))), interval))
+									trace!(target: "op-host", "gotten updates for optimism");
+
+									Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
 								}
 								Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching op stack l2 oracle payload with height {:?} on {:?} {:?}",
 								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 							}
 						}
-						Ok(None) | Err(_) => {
+						Ok(None) => {
+							trace!(target: "op-host", "no events fetched for op l2 oracle");
+							Some((Ok::<_, Error>(Some((None, current_height))), interval))
+						}
+						Err(_) => {
 							Some((
 								Err(anyhow!(
-                                "Not a fatal error: Failed to fetch latest arbitrum orbit event for heights {:?} and {:?}, for {:?} on {:?}",
+                                "Not a fatal error: Failed to fetch latest op l2 oracle event for heights {:?} and {:?}, for {:?} on {:?}",
                                 latest_height,
                                 current_height,
 										client.state_machine, counterparty.state_machine_id().state_id
@@ -657,6 +672,7 @@ async fn submit_consensus_update(
 					{
 						match client.latest_dispute_games(previous_height + 1, current_height, respected_game_types.clone()).await {
 							Ok(event) => {
+								trace!(target: "op-host", "fetching op fault proof games payload");
 								match client.fetch_dispute_game_payload(current_height, respected_game_types, event).await {
 									Ok(maybe_payload) => {
 										if let Some(payload) = maybe_payload {
@@ -675,26 +691,20 @@ async fn submit_consensus_update(
 												signer: counterparty.address(),
 											};
 
-											Some((Ok::<_, Error>(Some((consensus_message, current_height))), interval))
+											trace!(target: "op-host", "gotten updates for optimism");
+
+											Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
 										} else {
-											Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum bold payload with height {:?} on {:?} {:?}",
-								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,))
+											Some((Ok::<_, Error>(Some((None, current_height))), interval))
 										}
 									}
-									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum bold payload with height {:?} on {:?} {:?}",
+									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching op fault prof game payload with height {:?} on {:?} {:?}",
 								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 								}
 							}
 							Err(_) => {
-								Some((
-									Err(anyhow!(
-                                "Not a fatal error: Failed to fetch latest arbitrum bold event for heights {:?} and {:?}, for {:?} on {:?}",
-                                latest_height,
-                                current_height,
-										client.state_machine, counterparty.state_machine_id().state_id
-                            )),
-									interval,
-								))
+								trace!(target: "op-host", "no events fetched for fault proof games");
+								Some((Ok::<_, Error>(Some((None, current_height))), interval))
 							}
 						}
 					} else {
@@ -719,7 +729,7 @@ async fn submit_consensus_update(
 	let mut stream = Box::pin(interval_stream);
 	while let Some(item) = stream.next().await {
 		match item {
-			Ok((consensus_message, height)) => {
+			Ok((Some(consensus_message), height)) => {
 				log::info!(
 					target: "tesseract",
 					"🛰️ Transmitting consensus message from {} to {}",
@@ -732,15 +742,24 @@ async fn submit_consensus_update(
 					)
 					.await;
 				if let Err(err) = res {
+					trace!(target: "op-host", "error submitting optimism update");
 					log::error!("Failed to submit transaction to {}: {err:?}", counterparty.name())
 				} else {
+					trace!(target: "op-host", "advancing current height with consensus message found");
 					let mut current_height = latest_height.lock().await;
 					*current_height = height;
 				}
 			},
+			Ok((None, height)) => {
+				trace!(target: "op-host", "advancing current height with no consensus message found");
+				let mut current_height = latest_height.lock().await;
+				*current_height = height;
+
+			},
 			Err(e) => {
 				log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 			},
+			_ => {}
 		}
 	}
 

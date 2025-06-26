@@ -6,6 +6,7 @@ use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use ethers::prelude::Middleware;
 use futures::{stream, StreamExt};
+use log::trace;
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
@@ -37,6 +38,7 @@ impl IsmpHost for ArbHost {
 		));
 
 		let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
+		trace!(target: "arb-host", "Latest height found for l1 state machine is {initial_height:?}");
 		let latest_height = Arc::new(Mutex::new(initial_height));
 		let latest_height_for_stream = latest_height.clone();
 
@@ -56,16 +58,21 @@ impl IsmpHost for ArbHost {
 							return Some((Err(anyhow!("Not a fatal error: Error fetching l1 latest height for {:?} on {:?}",
 								client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 					} as u64;
+				trace!(target: "arb-host", "current height found for l1 state machine is {current_height:?}");
 
 				let previous_height = *latest_height.lock().await;
 				if current_height <= previous_height {
+					trace!(target: "arb-host", "current height {current_height:?} is less than or equals {previous_height:?}");
 					return Some((Ok(None), interval));
 				}
 
+				trace!(target: "arb-host", "consensus state type is {:?}", consensus_state.arbitrum_consensus_type.clone());
+				trace!(target: "arb-host", "orbit fetching event between {previous_height:?} and  {current_height:?}");
 				return match consensus_state.arbitrum_consensus_type {
 					ArbitrumConsensusType::ArbitrumOrbit => {
 						match client.latest_event(previous_height + 1, current_height).await {
 							Ok(Some(event)) => {
+								trace!(target: "arb-host", "fetching arbitrum payload");
 								match self.fetch_arbitrum_payload(current_height, event).await {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
@@ -83,13 +90,19 @@ impl IsmpHost for ArbHost {
 											signer: counterparty.address(),
 										};
 
-										Some((Ok::<_, Error>(Some((consensus_message, current_height))), interval))
+										trace!(target: "arb-host", "gotten updates for arbitrum");
+
+										Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
 									}
 									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum orbit payload with height {:?} on {:?} {:?}",
 								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 								}
 							}
-							Ok(None) | Err(_) => {
+							Ok(None) => {
+								trace!(target: "arb-host", "no event is being returned for arb orbit");
+								Some((Ok::<_, Error>(Some((None, current_height))), interval))
+							}
+							Err(_) => {
 								Some((
 									Err(anyhow!(
                                 "Not a fatal error: Failed to fetch latest arbitrum orbit event for heights {:?} and {:?}, for {:?} on {:?}",
@@ -103,8 +116,10 @@ impl IsmpHost for ArbHost {
 						}
 					}
 					ArbitrumConsensusType::ArbitrumBold => {
+						trace!(target: "arb-host", "bold fetching event between {previous_height:?} is less than or equals {current_height:?}");
 						match client.latest_assertion_event(previous_height + 1, current_height).await {
 							Ok(Some(event)) => {
+								trace!(target: "arb-host", "fetching bold payload");
 								match self.fetch_arbitrum_bold_payload(current_height, event).await {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
@@ -122,13 +137,19 @@ impl IsmpHost for ArbHost {
 											signer: counterparty.address(),
 										};
 
-										Some((Ok::<_, Error>(Some((consensus_message, current_height))), interval))
+										trace!(target: "arb-host", "gotten bold update");
+
+										Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
 									}
 									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum bold payload with height {:?} on {:?} {:?}",
 								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 								}
 							}
-							Ok(None) | Err(_) => {
+							Ok(None) => {
+								trace!(target: "arb-host", "no events is being returned for arb bold");
+								Some((Ok::<_, Error>(Some((None, current_height))), interval))
+							}
+							Err(_) => {
 								Some((
 									Err(anyhow!(
                                 "Not a fatal error: Failed to fetch latest arbitrum bold event for heights {:?} and {:?}, for {:?} on {:?}",
@@ -156,7 +177,7 @@ impl IsmpHost for ArbHost {
 		let mut stream = Box::pin(interval_stream);
 		while let Some(item) = stream.next().await {
 			match item {
-				Ok((consensus_message, height)) => {
+				Ok((Some(consensus_message), height)) => {
 					log::info!(
 						target: "tesseract",
 						"🛰️ Transmitting consensus message from {} to {}",
@@ -169,14 +190,22 @@ impl IsmpHost for ArbHost {
 						)
 						.await;
 					if let Err(err) = res {
+						trace!(target: "arb-host", "error submitting arbitrum update");
 						log::error!(
 							"Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					} else {
+						trace!(target: "arb-host", "advancing current height");
 						let mut current_height = latest_height.lock().await;
 						*current_height = height;
 					}
+				},
+				Ok((None, height)) => {
+					trace!(target: "arb-host", "advancing current height with no consensus message found");
+					let mut current_height = latest_height.lock().await;
+					*current_height = height;
+
 				},
 				Err(e) => {
 					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())

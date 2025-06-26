@@ -7768,6 +7768,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "gumdrop"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bc700f989d2f6f0248546222d9b4258f5b02a171a431f8285a81c08142629e3"
+dependencies = [
+ "gumdrop_derive",
+]
+
+[[package]]
+name = "gumdrop_derive"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "729f9bd3449d77e7831a18abfb7ba2f99ee813dfd15b8c2167c9a54ba20aa99d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "h2"
 version = "0.3.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -21484,6 +21504,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "simple-error"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e2accd2c41a0e920d2abd91b2badcfa1da784662f54fbc47e0e3a51f1e2e1cf"
+
+[[package]]
 name = "simple-mermaid"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -24116,13 +24142,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "tendermint-testgen"
+version = "0.40.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80eba190acf9b586f14ac19bd234589b4abd241ba63765e3de793785ee5c19ec"
+dependencies = [
+ "ed25519-consensus",
+ "gumdrop",
+ "serde",
+ "serde_json",
+ "simple-error",
+ "tempfile",
+ "tendermint",
+ "time",
+]
+
+[[package]]
 name = "tendermint-verifier"
 version = "0.1.0"
 dependencies = [
+ "polkadot-sdk 2503.0.1",
  "serde",
  "tendermint",
  "tendermint-light-client-verifier",
  "tendermint-proto",
+ "tendermint-testgen",
  "thiserror 2.0.12",
 ]
 

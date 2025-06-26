@@ -2,28 +2,27 @@
 name = "tendermint-verifier"
 version = "0.1.0"
 edition = "2021"
-authors = ["Polytope Labs"]
 description = "Tendermint light client verifier for ISMP"
-license = "Apache-2.0"
-
-
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
 
 [dependencies]
 # Core dependencies
 tendermint-light-client-verifier = "0.40.4"
+tendermint-testgen = "0.40.4"
 tendermint = "0.40.4"
 tendermint-proto = "0.40.4"
-
 thiserror = "2.0.12"
 serde = { version = "1.0.219", features = ["derive"], optional = true }
 
-
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime", "sp-core"]
 
 [features]
 default = ["std"]
-std = ["serde"]
-no-std = []
-
-[lib]
-name = "tendermint_verifier"
-path = "src/lib.rs" 
+std = [
+    "serde",
+    "polkadot-sdk/std",
+]
+no-std = [] 

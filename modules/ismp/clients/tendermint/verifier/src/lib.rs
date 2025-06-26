@@ -6,6 +6,8 @@ pub use tendermint::{
 	validator::{Info as Validator, Set as ValidatorSet},
 };
 
+pub use tendermint_testgen::Validator as TestValidator;
+
 pub mod types;
 pub use types::{ConsensusProof, TrustedState, UpdatedTrustedState, VerificationOptions};
 pub mod error;

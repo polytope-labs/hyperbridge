@@ -46,7 +46,6 @@ pub struct ConsensusState {
 	pub finalized_height: u64,
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
-	pub state_root: H256,
 	pub arbitrum_consensus_type: ArbitrumConsensusType,
 }
 
@@ -146,7 +145,6 @@ impl<
 						.insert(consensus_state.l1_state_machine_id, state_commitment_vec);
 
 					consensus_state.finalized_height = state.height.height;
-					consensus_state.state_root = state.commitment.state_root;
 				},
 				ArbitrumConsensusProof::ArbitrumBold(proof) => {
 					let state = verify_arbitrum_bold::<H>(
@@ -170,7 +168,6 @@ impl<
 						.insert(consensus_state.l1_state_machine_id, state_commitment_vec);
 
 					consensus_state.finalized_height = state.height.height;
-					consensus_state.state_root = state.commitment.state_root;
 				},
 			}
 		}

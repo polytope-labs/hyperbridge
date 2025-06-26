@@ -47,7 +47,6 @@ pub struct ConsensusState {
 	pub finalized_height: u64,
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
-	pub state_root: H256,
 	pub optimism_consensus_type: Option<OptimismConsensusType>,
 	pub respected_game_types: Option<Vec<u32>>,
 }
@@ -148,7 +147,6 @@ impl<
 						.insert(consensus_state.l1_state_machine_id, state_commitment_vec);
 
 					consensus_state.finalized_height = state.height.height;
-					consensus_state.state_root = state.commitment.state_root;
 				}
 			},
 			OptimismConsensusProof::OpFaultProofGames(dispute_proof) => {
@@ -174,7 +172,6 @@ impl<
 						.insert(consensus_state.l1_state_machine_id, state_commitment_vec);
 
 					consensus_state.finalized_height = state.height.height;
-					consensus_state.state_root = state.commitment.state_root;
 				}
 			},
 		}

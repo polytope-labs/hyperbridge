@@ -38,9 +38,9 @@ use crate::{
 	OpHost, ProposerConfig,
 };
 use codec::Decode;
+use ismp_optimism::OptimismConsensusType::OpFaultProofGames;
 use log::trace;
 use tokio::sync::Mutex;
-use ismp_optimism::OptimismConsensusType::OpFaultProofGames;
 
 #[derive(Debug, Clone)]
 pub struct StateProposal {
@@ -182,7 +182,6 @@ impl IsmpHost for OpHost {
 				state_id: self.l1_state_machine,
 				consensus_state_id: self.l1_consensus_state_id,
 			},
-			state_root: block.state_root.0.into(),
 			optimism_consensus_type: Some(OpFaultProofGames),
 			respected_game_types: Some(vec![CANNON, _PERMISSIONED]),
 		};
@@ -589,15 +588,13 @@ async fn submit_consensus_update(
 
 	let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
 	trace!(target: "op-host", "Latest height found for l1 state machine is {initial_height:?}");
-	let latest_height = Arc::new(Mutex::new(initial_height));
-	let latest_height_for_stream = latest_height.clone();
+	let mut latest_height = initial_height;
 
 	let counterparty_clone = counterparty.clone();
 	let interval_stream = stream::unfold(interval, move |mut interval| {
 		let client = client.clone();
 		let counterparty = counterparty_clone.clone();
 		let consensus_state = consensus_state.clone();
-		let latest_height = latest_height_for_stream.clone();
 
 		async move {
 			interval.tick().await;
@@ -612,7 +609,7 @@ async fn submit_consensus_update(
 			trace!(target: "op-host", "current height found for l1 state machine is {current_height:?}");
 
 
-			let previous_height = *latest_height.lock().await;
+			let previous_height = latest_height;
 			if current_height <= previous_height {
 				trace!(target: "op-host", "current height {current_height:?} is less than or equals {previous_height:?}");
 				return Some((Ok(None), interval));
@@ -746,20 +743,16 @@ async fn submit_consensus_update(
 					log::error!("Failed to submit transaction to {}: {err:?}", counterparty.name())
 				} else {
 					trace!(target: "op-host", "advancing current height with consensus message found");
-					let mut current_height = latest_height.lock().await;
-					*current_height = height;
+					latest_height = height;
 				}
 			},
 			Ok((None, height)) => {
 				trace!(target: "op-host", "advancing current height with no consensus message found");
-				let mut current_height = latest_height.lock().await;
-				*current_height = height;
-
+				latest_height = height;
 			},
 			Err(e) => {
 				log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 			},
-			_ => {}
 		}
 	}
 

@@ -133,7 +133,7 @@ async fn setup_clients() -> Result<
         state_id: StateMachine::Evm(421614),
         consensus_state_id: *b"ETH0",
     };
-    set_arbitrum_config_on_hyperbridge(hyperbridge_chain.clone(), arbitrum_state_machine_id, H160::from(hex!("042B2E6C5E99d4c521bd49beeD5E99651D9B0Cf4"))).await?;
+    set_arbitrum_config_on_hyperbridge(hyperbridge_chain.clone(), arbitrum_state_machine_id, arbitrum_chain.host.rollup_core).await?;
 
     let optimism_chain = {
         let evm_config = EvmConfig {
@@ -172,7 +172,7 @@ async fn setup_clients() -> Result<
         consensus_state_id: *b"ETH0",
     };
 
-    set_optimism_config_on_hyperbridge(hyperbridge_chain.clone(), optimism_state_machine_id, H160::from(hex!("05F9613aDB30026FFd634f38e5C4dFd30a197Fa1")), vec![0, 1]).await?;
+    set_optimism_config_on_hyperbridge(hyperbridge_chain.clone(), optimism_state_machine_id, optimism_chain.host.dispute_game_factory.unwrap(), vec![0, 1]).await?;
 
 
     let optimism_initial_consensus_state_message_for_other_chains = optimism_chain.query_initial_consensus_state().await?.unwrap();

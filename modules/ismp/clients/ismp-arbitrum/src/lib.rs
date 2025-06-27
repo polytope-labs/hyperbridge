@@ -141,8 +141,15 @@ impl<
 
 					let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 					state_commitment_vec.push(state_commitment_height);
-					state_machine_map
-						.insert(consensus_state.l1_state_machine_id, state_commitment_vec);
+					state_machine_map.insert(
+						StateMachineId {
+							state_id: consensus_state.state_machine_id.state_id,
+							consensus_state_id: consensus_state
+								.l1_state_machine_id
+								.consensus_state_id,
+						},
+						state_commitment_vec,
+					);
 
 					consensus_state.finalized_height = state.height.height;
 				},
@@ -164,8 +171,15 @@ impl<
 
 					let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 					state_commitment_vec.push(state_commitment_height);
-					state_machine_map
-						.insert(consensus_state.l1_state_machine_id, state_commitment_vec);
+					state_machine_map.insert(
+						StateMachineId {
+							state_id: consensus_state.state_machine_id.state_id,
+							consensus_state_id: consensus_state
+								.l1_state_machine_id
+								.consensus_state_id,
+						},
+						state_commitment_vec,
+					);
 
 					consensus_state.finalized_height = state.height.height;
 				},

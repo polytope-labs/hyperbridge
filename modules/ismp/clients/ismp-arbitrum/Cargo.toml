@@ -1,0 +1,40 @@
+[package]
+name = "ismp-arbitrum"
+version = "0.1.0"
+edition = "2024"
+description = "ISMP Consensus Client for the Arbitrum L2 Consensus Protocol"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+# polytope labs
+ismp = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
+evm-state-machine = { workspace = true }
+primitive-types = { workspace = true }
+arbitrum-verifier = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
+
+# crates.io
+codec = { workspace = true, default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = [
+    "derive",
+] }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system"]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "ismp/std",
+    "polkadot-sdk/std",
+    "scale-info/std",
+    "pallet-ismp/std",
+    "evm-state-machine/std",
+    "arbitrum-verifier/std",
+    "primitive-types/std",
+]
+
+try-runtime = ["polkadot-sdk/try-runtime"]

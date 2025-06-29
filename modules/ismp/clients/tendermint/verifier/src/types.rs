@@ -11,6 +11,8 @@ pub struct TrustedState {
 	pub height: u64,
 	/// Block timestamp
 	pub timestamp: u64,
+	/// Hash of the finalized header
+	pub finalized_header_hash: [u8; 32],
 	/// Current validator set
 	pub validators: Vec<Validator>,
 	/// Next validator set
@@ -19,6 +21,8 @@ pub struct TrustedState {
 	pub next_validators_hash: [u8; 32],
 	/// Trusting period in seconds
 	pub trusting_period: u64,
+	/// Verification options for this consensus state
+	pub verification_options: VerificationOptions,
 	/// Frozen height (if any)
 	pub frozen_height: Option<u64>,
 }
@@ -28,19 +32,23 @@ impl TrustedState {
 		chain_id: String,
 		height: u64,
 		timestamp: u64,
+		finalized_header_hash: [u8; 32],
 		validators: Vec<Validator>,
 		next_validators: Vec<Validator>,
 		next_validators_hash: [u8; 32],
 		trusting_period: u64,
+		verification_options: VerificationOptions,
 	) -> Self {
 		Self {
 			chain_id,
 			height,
 			timestamp,
+			finalized_header_hash,
 			validators,
 			next_validators,
 			next_validators_hash,
 			trusting_period,
+			verification_options,
 			frozen_height: None,
 		}
 	}
@@ -64,6 +72,9 @@ impl TrustedState {
 		if self.timestamp == 0 {
 			return Err("Timestamp cannot be zero".to_string());
 		}
+		if self.finalized_header_hash == [0u8; 32] {
+			return Err("Finalized header hash cannot be zero".to_string());
+		}
 		if self.validators.is_empty() {
 			return Err("Validator set cannot be empty".to_string());
 		}
@@ -73,6 +84,8 @@ impl TrustedState {
 		if self.trusting_period == 0 {
 			return Err("Trusting period cannot be zero".to_string());
 		}
+		// Validate verification options
+		self.verification_options.validate()?;
 		Ok(())
 	}
 
@@ -89,6 +102,26 @@ impl TrustedState {
 			None => true,
 		}
 	}
+
+	/// Update the finalized header hash
+	pub fn update_finalized_header_hash(&mut self, new_hash: [u8; 32]) {
+		self.finalized_header_hash = new_hash;
+	}
+
+	/// Get the finalized header hash
+	pub fn get_finalized_header_hash(&self) -> [u8; 32] {
+		self.finalized_header_hash
+	}
+
+	/// Get verification options
+	pub fn get_verification_options(&self) -> &VerificationOptions {
+		&self.verification_options
+	}
+
+	/// Update verification options
+	pub fn update_verification_options(&mut self, options: VerificationOptions) {
+		self.verification_options = options;
+	}
 }
 
 impl Default for TrustedState {
@@ -97,10 +130,12 @@ impl Default for TrustedState {
 			chain_id: "test-chain".to_string(),
 			height: 1,
 			timestamp: 0,
+			finalized_header_hash: [0u8; 32],
 			validators: Vec::new(),
 			next_validators: Vec::new(),
 			next_validators_hash: [0u8; 32],
 			trusting_period: 3600, // 1 hour default
+			verification_options: VerificationOptions::default(),
 			frozen_height: None,
 		}
 	}
@@ -110,8 +145,10 @@ impl Default for TrustedState {
 pub struct ConsensusProof {
 	/// Signed header containing the block header and commit
 	pub signed_header: SignedHeader,
-	/// Validator set at the block height
-	pub validators: Vec<Validator>,
+	/// Ancestry of signed headers from trusted block height to the latest signed header
+	/// This is needed for Tendermint's single-slot finality when not submitting proofs for each
+	/// slot
+	pub ancestry: Vec<SignedHeader>,
 	/// Next validator set (optional)
 	pub next_validators: Option<Vec<Validator>>,
 }
@@ -119,10 +156,10 @@ pub struct ConsensusProof {
 impl ConsensusProof {
 	pub fn new(
 		signed_header: SignedHeader,
-		validators: Vec<Validator>,
+		ancestry: Vec<SignedHeader>,
 		next_validators: Option<Vec<Validator>>,
 	) -> Self {
-		Self { signed_header, validators, next_validators }
+		Self { signed_header, ancestry, next_validators }
 	}
 
 	pub fn height(&self) -> u64 {
@@ -137,10 +174,44 @@ impl ConsensusProof {
 		self.signed_header.header.chain_id.as_str()
 	}
 
+	/// Get the lowest height in the ancestry (trusted block height)
+	pub fn trusted_height(&self) -> u64 {
+		self.ancestry
+			.first()
+			.map(|header| header.header.height.value())
+			.unwrap_or_else(|| self.signed_header.header.height.value())
+	}
+
+	/// Get the highest height in the ancestry (before the latest signed header)
+	pub fn ancestry_highest_height(&self) -> u64 {
+		self.ancestry
+			.last()
+			.map(|header| header.header.height.value())
+			.unwrap_or_else(|| self.trusted_height())
+	}
+
+	/// Check if the ancestry is continuous (no gaps in heights)
+	pub fn is_ancestry_continuous(&self) -> bool {
+		if self.ancestry.is_empty() {
+			return true;
+		}
+
+		let mut expected_height = self.trusted_height();
+		for header in &self.ancestry {
+			if header.header.height.value() != expected_height {
+				return false;
+			}
+			expected_height += 1;
+		}
+
+		// Check that the latest signed header follows the ancestry
+		self.signed_header.header.height.value() == expected_height
+	}
+
 	/// Validate the consensus proof
 	pub fn validate(&self) -> Result<(), String> {
-		if self.validators.is_empty() {
-			return Err("Validator set cannot be empty".to_string());
+		if self.next_validators.is_none() || self.next_validators.as_ref().unwrap().is_empty() {
+			return Err("Next validator set cannot be empty".to_string());
 		}
 		if self.height() == 0 {
 			return Err("Height cannot be zero".to_string());
@@ -150,6 +221,9 @@ impl ConsensusProof {
 		}
 		if self.chain_id().is_empty() {
 			return Err("Chain ID cannot be empty".to_string());
+		}
+		if !self.is_ancestry_continuous() {
+			return Err("Ancestry is not continuous - there are gaps in block heights".to_string());
 		}
 		Ok(())
 	}
@@ -162,6 +236,18 @@ impl ConsensusProof {
 	/// Get the next validators if available
 	pub fn get_next_validators(&self) -> Option<&Vec<Validator>> {
 		self.next_validators.as_ref()
+	}
+
+	/// Get the total number of blocks in the proof (ancestry + latest)
+	pub fn total_blocks(&self) -> usize {
+		self.ancestry.len() + 1
+	}
+
+	/// Get all signed headers in order (ancestry + latest)
+	pub fn all_signed_headers(&self) -> Vec<&SignedHeader> {
+		let mut headers: Vec<&SignedHeader> = self.ancestry.iter().collect();
+		headers.push(&self.signed_header);
+		headers
 	}
 }
 

@@ -10,14 +10,14 @@ publish = false
 # Core dependencies
 tendermint-light-client-verifier = "0.40.4"
 tendermint-testgen = "0.40.4"
-tendermint = "0.40.4"
+tendermint = { version = "0.40.4", features = ["secp256k1"] }
 tendermint-proto = "0.40.4"
 thiserror = "2.0.12"
 serde = { version = "1.0.219", features = ["derive"], optional = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
-features = ["sp-runtime", "sp-core"]
+features = ["sp-runtime", "sp-core", "sp-io"]
 
 [features]
 default = ["std"]

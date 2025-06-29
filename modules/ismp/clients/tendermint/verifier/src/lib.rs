@@ -11,7 +11,10 @@ pub use tendermint_testgen::Validator as TestValidator;
 pub mod types;
 pub use types::{ConsensusProof, TrustedState, UpdatedTrustedState, VerificationOptions};
 pub mod error;
+pub mod hashing;
+pub mod sp_io_verifier;
 pub mod verifier;
 pub use error::VerificationError;
 
+pub use sp_io_verifier::SpIoVerifier;
 pub use verifier::{verify_header_update, verify_misbehaviour_header};

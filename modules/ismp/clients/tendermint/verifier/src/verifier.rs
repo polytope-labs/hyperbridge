@@ -4,12 +4,13 @@ use tendermint::{block::Height, chain::Id, Hash, Time};
 use tendermint_light_client_verifier::{
 	options::Options,
 	types::{TrustThreshold, TrustedBlockState, UntrustedBlockState, ValidatorSet},
-	ProdVerifier, Verdict, Verifier,
+	Verdict, Verifier,
 };
 use tendermint_proto::google::protobuf::Timestamp;
 
 use crate::{
-	ConsensusProof, TrustedState, UpdatedTrustedState, VerificationError, VerificationOptions,
+	ConsensusProof, SpIoVerifier, TrustedState, UpdatedTrustedState, VerificationError,
+	VerificationOptions,
 };
 
 /// Main verification function for header updates
@@ -54,7 +55,7 @@ pub fn verify_header_update(
 		convert_verification_options(&options, trusted_state.trusting_period_duration())?;
 	let now = convert_timestamp(current_time)?;
 
-	let verifier = ProdVerifier::default();
+	let verifier = SpIoVerifier::default();
 	let result = verifier.verify_update_header(
 		untrusted_block_state,
 		tendermint_trusted_state,
@@ -115,7 +116,7 @@ pub fn verify_misbehaviour_header(
 		convert_verification_options(&options, trusted_state.trusting_period_duration())?;
 	let now = convert_timestamp(current_time)?;
 
-	let verifier = ProdVerifier::default();
+	let verifier = SpIoVerifier::default();
 	let result = verifier.verify_misbehaviour_header(
 		untrusted_block_state,
 		tendermint_trusted_state,
@@ -164,7 +165,7 @@ fn create_updated_trusted_state(
 		height: consensus_proof.height(),
 		timestamp: consensus_proof.timestamp(),
 		validators: old_trusted_state.validators.clone(),
-		next_validators: old_trusted_state.next_validators.clone(),
+		next_validators: consensus_proof.next_validators.clone().unwrap_or_default(),
 		next_validators_hash: consensus_proof
 			.signed_header
 			.header

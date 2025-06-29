@@ -146,8 +146,6 @@ pub struct ConsensusProof {
 	/// Signed header containing the block header and commit
 	pub signed_header: SignedHeader,
 	/// Ancestry of signed headers from trusted block height to the latest signed header
-	/// This is needed for Tendermint's single-slot finality when not submitting proofs for each
-	/// slot
 	pub ancestry: Vec<SignedHeader>,
 	/// Next validator set (optional)
 	pub next_validators: Option<Vec<Validator>>,

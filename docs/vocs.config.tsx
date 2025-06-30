@@ -450,14 +450,19 @@ export default defineConfig({
           },
 
           {
-            text: "Running a Relayer",
-            link: "/developers/network/relayer",
+            text: "Running a Messaging Relayer",
+            link: "/developers/network/relayer/messaging/relayer",
             items: [
               {
                 text: "Common Errors",
-                link: "/developers/network/relayer/errors",
+                link: "/developers/network/relayer/messaging/errors",
               },
             ]
+          },
+
+          {
+            text: "Running a Consensus Relayer",
+            link: "/developers/network/relayer/consensus/relayer",
           },
         ],
       },

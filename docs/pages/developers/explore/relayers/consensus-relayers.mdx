@@ -1,10 +1,9 @@
 ---
 title: Permissionless Consensus Relayers
-description: The Hyperbridge Tesseract consensus relayer is the backbone of its trust-free interoperability, responsible for providing verifiable consensus proofs from various connected blockchains.
-This specialized service operates by monitoring different state machines—from EVM and Substrate-based chains to Polkadot(Parachains) and Standalone chains, preparing their consensus proof or updates for submission to Hyperbridge.
+description: The Hyperbridge Tesseract consensus relayer is the backbone of its trust free interoperability, responsible for providing verifiable consensus proofs from various connected blockchains. This specialized service operates by monitoring different state machines from EVM and Substrate-based chains to Polkadot's Parachains and Standalone chains, preparing their consensus proof or updates for submission to Hyperbridge.
 ---
 
-# Permissionless Relayers
+# Permissionless Consensus Relayers
 
 <figure>
   <img src="/relayers.png" alt="Hyperbridge relayers" />
@@ -12,7 +11,7 @@ This specialized service operates by monitoring different state machines—from 
 </figure>
 
 Hyperbridge consensus relayers like it's messaging relayers are totally permissionless i.e there is no need for staking or whitelisting to relay consensus updates or proofs on Hyperbridge.
-The primary goal of the Tesseract consensus relayer is to observe the state of a source blockchain and generate a verifiable proof for submission to a destination chain (typically Hyperbridge).
+The primary goal of the Tesseract consensus relayer is to observe the state of a source blockchain and query a verifiable proof for submission to a destination chain (typically Hyperbridge).
 
 Hyperbridge's security and functionality rely on the continuous and timely flow of consensus proofs from its connected blockchains. To ensure the liveness and accuracy of this cross-chain state information,
 Hyperbridge incorporates an on-chain incentive mechanism that economically rewards consensus relayers for their vital contributions. This system is designed to be fully autonomous and permissionless, fostering a robust and competitive ecosystem of relayers.

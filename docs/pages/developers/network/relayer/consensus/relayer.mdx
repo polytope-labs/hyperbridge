@@ -5,7 +5,8 @@ description: Running the Hyperbridge Consensus relayer
 
 # Running a Relayer
 
-The Hyperbridge consensus relayer (tesseract) can be obtained through a variety of ways. For now only release artifacts for x86 linux environments are officially distributed. You can also build the relayer from source if you prefer.
+The Hyperbridge consensus relayer (tesseract) can be obtained through a variety of ways. For now only release artifacts for x86 linux environments are officially distributed.
+Please note that building the Tesseract relayer from source is not supported at this time. The codebase includes private dependencies that are not publicly available, making it impossible to compile independently.
 
 ## Prebuilt binaries
 
@@ -205,7 +206,7 @@ type = "evm"
 # The state machine identifier for this chain, formatted as "EVM-{chainId}".
 state_machine = "EVM-11155111"
 # A list of HTTP(s) RPC URLs for this chain.
-rpc_urls = ["http://localhost:3000]
+rpc_urls = ["http://localhost:3000"]
 # The consensus state identifier for this chain on Hyperbridge.
 consensus_state_id = "ETH0"
 # Etherscan API key for this chain.
@@ -286,7 +287,7 @@ type = "op_stack"
 # The state machine identifier for this chain, formatted as "EVM-{chainId}".
 state_machine = "EVM-11155420"
 # A list of HTTP(s) RPC URLs for this chain.
-rpc_urls = ["http://localhost:3400]
+rpc_urls = ["http://localhost:3400"]
 # Etherscan API key for this chain.
 etherscan_api_key = "API-KEY"
 # The deployed IsmpHost contract address on this Optimism chain.

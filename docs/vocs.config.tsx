@@ -300,12 +300,18 @@ export default defineConfig({
             link: "/developers/explore",
           },
           {
-            text: "Permissionless Messaging Relayers",
-            link: "/developers/explore/relayers/messaging-relayers.mdx",
-          },
-          {
-            text: "Permissionless Consensus Relayers",
-            link: "/developers/explore/relayers/consensus-relayers.mdx",
+            text: "Permissionless Relayers",
+            link: "/developers/explore/relayer",
+            items: [
+              {
+                text: "Permissionless Messaging Relayers",
+                link: "/developers/explore/relayers/messaging-relayers",
+              },
+              {
+                text: "Permissionless Consensus Relayers",
+                link: "/developers/explore/relayers/consensus-relayers",
+              },
+            ]
           },
           {
             text: "Fishermen",

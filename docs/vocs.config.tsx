@@ -151,7 +151,7 @@ export default defineConfig({
             ],
           },
           {
-            text: "Digital Signatrues",
+            text: "Digital Signatures",
             link: "/protocol/cryptography/digital-signatures",
           },
           {
@@ -300,8 +300,12 @@ export default defineConfig({
             link: "/developers/explore",
           },
           {
-            text: "Permissionless Relayers",
-            link: "/developers/explore/relayers",
+            text: "Permissionless Messaging Relayers",
+            link: "/developers/explore/relayers/messaging-relayers.mdx",
+          },
+          {
+            text: "Permissionless Consensus Relayers",
+            link: "/developers/explore/relayers/consensus-relayers.mdx",
           },
           {
             text: "Fishermen",

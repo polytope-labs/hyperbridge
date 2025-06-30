@@ -1,0 +1,375 @@
+---
+title: Consensus Relayers
+description: Running the Hyperbridge Consensus relayer
+---
+
+# Running a Relayer
+
+The Hyperbridge consensus relayer (tesseract) can be obtained through a variety of ways. For now only release artifacts for x86 linux environments are officially distributed. You can also build the relayer from source if you prefer.
+
+## Prebuilt binaries
+
+You can install a prebuilt binary for the Tesseract consensus relayer with the following bash script
+
+```bash
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract-consensus/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-consensus-$LATEST_TAG/tesseract-x86_64-unknown-linux-gnu.tar.gz
+tar -xvzf tesseract-x86_64-unknown-linux-gnu.tar.gz
+# copy to $PATH
+cp tesseract-x86_64-unknown-linux-gnu/tesseract $HOME/.local/bin/
+```
+
+or a 1-liner
+
+```bash
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract-consensus/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-consensus-$LATEST_TAG/tesseract-installer.sh | sh
+```
+
+## Docker
+
+Tesseract Consensus is available at the official docker repository [`polytopelabs/tesseract-consensus`](https://hub.docker.com/r/polytopelabs/tesseract-consensus)
+
+```bash
+docker pull polytopelabs/tesseract-consensus:latest
+```
+
+## Building from source
+
+You can follow the steps below if you'd prefer to build the tesseract consensus relayer from source:
+
+::::steps
+
+### Install dependencies
+
+Building the Tesseract consensus relayer requires some dependencies
+
+- git
+- clang
+- curl
+- make
+- build-essential
+- libssl-dev
+- llvm
+- libudev-dev
+- protobuf-compiler
+
+:::code-group
+
+```bash [Debian]
+sudo apt update
+sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+```
+
+```bash [Arch]
+pacman -Syu --needed --noconfirm curl git clang make protobuf
+```
+
+```bash [Fedora]
+sudo dnf update
+sudo dnf install clang curl git openssl-devel make protobuf-compiler
+```
+
+```bash [Opensuse]
+sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
+```
+
+:::
+
+### Install the rust compiler
+
+If you don't have an already existing rust installation, you can install it using the one-liner below. Follow the prompts displayed to proceed with a default installation.
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### Clone the repo
+
+Download a local copy of the repo and checkout the latest release version.
+
+```bash
+# fetch the latest tag from docker hub
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract-consensus/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+git clone https://github.com/polytope-labs/hyperbridge.git
+cd ./hyperbridge
+git checkout tesseract-consensus-${LATEST_TAG}
+```
+
+### Build the tesseract consensus relayer
+
+```bash
+cargo build --release -p tesseract-consensus
+```
+
+The Tesseract consensus relayer will now be available at `target/release/tesseract-consensus`, You can move the binary to your `$PATH` so you can run it directly.
+
+<br />
+Update your path to include `${HOME}/.local/bin`. If you are using Bash, run the
+following. Alternatively, replace `${HOME}/.bashrc` with `${HOME}/.zshrc` if
+using Zsh. Replace `source` with `.` if necessary.
+
+```bash
+# add .local/bin to path if it doesn't exist
+export RC_PATH=${HOME}/.bashrc
+echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ${RC_PATH}
+source ${RC_PATH}
+
+# create dir if it doesn't exist
+mkdir -p $HOME/.local/bin/
+mv target/release/tesseract $HOME/.local/bin/
+```
+
+::::
+
+## Running the relayer
+
+The tesseract consensus relayer command line interface expects two arguments, which are the paths to its configuration file and optional base state machine to use for consensus initialization.
+If you're running it in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration file on your host into the docker container.
+```bash
+docker run -d \
+  --name=tesseract-consensus \
+  --network=host \
+  --restart=always \
+  --volume=/dir/on/host:/home/root \
+  polytopelabs/tesseract-consensus:latest \
+  --config=/home/root/consensus-config.toml \
+  #--base='<STRING_REPRESENTATION_OF_STATEMACHINE>'
+```
+
+
+Access its logs using
+
+```bash
+docker logs -f tesseract-consensus
+```
+
+### System Requirements
+
+At the minimum, the hyperbridge consensus relayer should be run on a machine with at least 4GB of RAM and a quad-core cpu. This relayer should also have at least a 100Mb/s connection if it is to query nodes over the internet.
+
+## Configuration
+
+The configuration file is a toml file at the moment, that expects the following configuration options:
+
+```toml
+# Hyperbridge consensus client config, required.
+# This section defines how the relayer connects to and interprets the Hyperbridge chain.
+[hyperbridge]
+# Specifies the consensus mechanism of the Hyperbridge chain.
+# "grandpa" is used for Substrate-based chains utilizing the GRANDPA finality gadget.
+# "beefy" is used for chains utilizing the BEEFY finality gadget
+type = "grandpa"
+
+# Configuration specific to the GRANDPA consensus client.
+[hyperbridge.grandpa]
+# The WebSocket RPC endpoint for a Standalone or Relay Chain.
+rpc = "wss://localhost:443"
+# The expected time duration for a block slot in milliseconds.
+slot_duration = 6000
+# (Optional) How often to query for consensus updates. This is in seconds
+consensus_update_frequency = 6000000000000000
+# A list of parachain IDs that are connected to this relay chain and should be monitored.
+para_ids = [4009]
+# (Optional) The maximum block range to prove finality for
+max_block_range = 10
+
+# Configuration for the Hyperbridge parachain itself.
+[hyperbridge.substrate]
+# The WebSocket RPC endpoint for the Hyperbridge parachain.
+rpc_ws = "wss://localhost:443"
+# (Optional) The hashing algorithm used by the parachain. Can be "Keccak" or "Blake2".
+hashing = "Keccak"
+# (Optional) The consensus state identifier for Hyperbridge itself.
+# For Paseo Testnet, this is "PAS0".
+consensus_state_id = "PAS0"
+# The state machine identifier for the Hyperbridge parachain.
+state_machine = "KUSAMA-4009"
+# (Optional) Maximum size in bytes for the rpc payloads, both requests & responses.
+max_rpc_payload_size = 2
+# (Optional) Relayer account seed.
+signer = "SIGNER"
+# (Optional) Initial height from which to start querying messages.
+initial_height = 0
+# (Optional) Maximum concurrent rpc requests allowed.
+max_concurent_queries = 0
+# (Optional) Frequency at which state machine updates will be queried in seconds.
+poll_interval = 0
+# (Optional) Decimals for the fee token on this substrate chain.
+fee_token_decimals = 12
+
+# Configuration for the Sepolia testnet (L1).
+[sepolia]
+# The type of chain configuration. "evm" is for standard EVM-compatible chains.
+type = "evm"
+# The state machine identifier for this chain, formatted as "EVM-{chainId}".
+state_machine = "EVM-11155111"
+# A list of HTTP(s) RPC URLs for this chain.
+rpc_urls = ["http://localhost:3000]
+# The consensus state identifier for this chain on Hyperbridge.
+consensus_state_id = "ETH0"
+# Etherscan API key for this chain.
+etherscan_api_key = "API-KEY"
+# The deployed IsmpHost contract address on this chain.
+ismp_host = "ISMP-HOST"
+# Hex-encoded private key for the relayer account on this chain.
+signer = "SIGNER-KEY"
+# (Optional) A list of Layer 2 state machine identifiers that are hosted by this L1 chain.
+layer_twos = ["EVM-421614", "EVM-11155420", "EVM-84532"]
+# (Optional) A percentage buffer to add to gas prices.
+gas_price_buffer = 5
+# (Optional) Batch size to parallelize tracing.
+tracing_batch_size = 5
+# (Optional) Batch size when querying events.
+query_batch_size = 5
+# (Optional) Polling frequency for state machine updates in seconds.
+poll_interval = 5
+# (Optional) The client type the rpc is running, defaults to Geth.
+poll_interval = 5
+# (Optional) Initial height from which to start querying messages.
+initial_height = 5
+
+# Host configuration for this chain (as it hosts L2s).
+[sepolia.host]
+# A list of HTTP URLs for the consensus layer beacon node.
+beacon_http_urls = [
+    "http://localhost:3000"
+]
+# How frequently consensus updates are fetched from the beacon node, in seconds.
+consensus_update_frequency = 60
+
+# Configuration for an Arbitrum Orbit chain (L2).
+[arbitrum]
+# The type of chain configuration. "arbitrum_orbit" is for Arbitrum L2s.
+type = "arbitrum_orbit"
+# The state machine identifier for this chain, formatted as "EVM-{chainId}".
+state_machine = "EVM-421614"
+# A list of HTTP(s) RPC URLs for this chain. Multiple endpoints can be provided for reliability.
+rpc_urls = ["http://localhost:3100"]
+# The consensus state identifier for this chain's host (L1) on Hyperbridge.
+# For Ethereum and its L2s, this is typically "ETH0".
+consensus_state_id = "ETH0"
+# Etherscan API key for fetching gas prices and other on-chain data.
+etherscan_api_key = "API-KEY"
+# The deployed IsmpHost contract address on this Arbitrum chain.
+ismp_host = "ISMP-HOST"
+# Hex-encoded private key for the relayer account on this chain.
+signer = "SIGNER-KEY"
+# (Optional) A percentage buffer to add to gas prices to improve transaction confirmation speed.
+gas_price_buffer = 8
+# (Optional) Batch size to parallelize tracing.
+tracing_batch_size = 5
+# (Optional) Batch size when querying events.
+query_batch_size = 5
+# (Optional) Polling frequency for state machine updates in seconds.
+poll_interval = 5
+# (Optional) The client type the rpc is running, defaults to Geth.
+poll_interval = 5
+# (Optional) Initial height from which to start querying messages.
+initial_height = 5
+
+# Host (L1) configuration for the Arbitrum Orbit chain above.
+[arbitrum.host]
+# The RPC URL for the L1 beacon node (e.g., Ethereum Sepolia).
+beacon_rpc_url = ["http://localhost:3400"]
+# The address of the RollupCore contract on the L1.
+rollup_core = "ROLLUP-CONTRACT-ADDRESS"
+# State machine Identifier for the L1/Beacon chain.
+l1_state_machine = "EVM-11155420"
+# L1 Consensus state Id representation.
+l1_consensus_state_id = "ETH0"
+
+# Configuration for an OP Stack chain (L2).
+[optimism]
+# The type of chain configuration. "op_stack" is for Optimism L2s and other OP Stack chains.
+type = "op_stack"
+# The state machine identifier for this chain, formatted as "EVM-{chainId}".
+state_machine = "EVM-11155420"
+# A list of HTTP(s) RPC URLs for this chain.
+rpc_urls = ["http://localhost:3400]
+# Etherscan API key for this chain.
+etherscan_api_key = "API-KEY"
+# The deployed IsmpHost contract address on this Optimism chain.
+ismp_host = "ISMP-HOST"
+# The consensus state identifier for this chain's host (L1) on Hyperbridge.
+consensus_state_id = "ETH0"
+# Hex-encoded private key for the relayer account on this chain.
+signer = "SIGNER-KEY"
+# (Optional) A percentage buffer to add to gas prices.
+gas_price_buffer = 5
+# (Optional) Batch size to parallelize tracing.
+tracing_batch_size = 5
+# (Optional) Batch size when querying events.
+query_batch_size = 5
+# (Optional) Polling frequency for state machine updates in seconds.
+poll_interval = 5
+# (Optional) The client type the rpc is running, defaults to Geth.
+poll_interval = 5
+# (Optional) Initial height from which to start querying messages.
+initial_height = 5
+
+# Host (L1) configuration for the OP Stack chain above.
+[optimism.host]
+# The address of the DisputeGameFactory contract on the L1.
+dispute_game_factory = "DISPUTE-GAME-FACTORY-ADDRESS"
+# The respected game type for fraud proofs.
+respected_game_type = 0
+# The address of the L2OutputOracle or similar message parsing contract.
+message_parser = "0x4200000000000000000000000000000000000016"
+# The RPC URL for the L1 beacon node.
+beacon_rpc_url = ["http://localhost:3400"]
+# State machine Identifier for the L1/Beacon chain.
+l1_state_machine = "EVM-11155420"
+# L1 Consensus state Id representation.
+l1_consensus_state_id = "ETH0"
+
+# Configuration for BSC.
+[bsc]
+# The type of chain configuration. "bsc" is for the Binance Smart Chain.
+type = "bsc"
+# The state machine identifier for this chain, formatted as "EVM-{chainId}".
+state_machine = "EVM-421615"
+# A list of HTTP(s) RPC URLs for this chain. Multiple endpoints can be provided for reliability.
+rpc_urls = ["http://localhost:3400"]
+# The consensus state identifier for this chain's host (L1) on Hyperbridge.
+consensus_state_id = "BSC0"
+# Etherscan API key for fetching gas prices and other on-chain data.
+etherscan_api_key = "API-KEY"
+# The deployed IsmpHost contract address on this Arbitrum chain.
+ismp_host = "ISMP-HOST"
+# Hex-encoded private key for the relayer account on this chain.
+signer = "SIGNER-KEY"
+# (Optional) A percentage buffer to add to gas prices to improve transaction confirmation speed.
+gas_price_buffer = 8
+# (Optional) Batch size to parallelize tracing.
+tracing_batch_size = 5
+# (Optional) Batch size when querying events.
+query_batch_size = 5
+# (Optional) Polling frequency for state machine updates in seconds.
+poll_interval = 5
+# (Optional) The client type the rpc is running, defaults to Geth.
+poll_interval = 5
+# (Optional) Initial height from which to start querying messages.
+initial_height = 5
+
+# Host (L1) configuration for BSC
+[bsc.host]
+# How often to query for consensus updates. This is in seconds
+consensus_update_frequency = 60
+# This represent the length of an epoch for BSC
+epoch_length = 120
+
+
+# Relayer-specific configuration.
+[relayer]
+# A list of maximum update intervals for specific chains. (Currently empty).
+maximum_update_intervals = []
+# Controls whether the relayer should start Hyberbridge consensus task
+enable_hyperbridge_consensus = false
+```
+
+You can obtain the required etherscan API key by following [this guide](https://docs.etherscan.io/getting-started/viewing-api-usage-statistics) for the appropriate network. Do note that since Ethereum and its L2s all use Ether as the gas token. They can all share the same etherscan API key.
+
+### Contract addresses
+
+You can find the addresses for the `IsmpHost` contracts for [mainnet](/developers/evm/contracts/mainnet) and [testnet](/developers/evm/contracts/testnet)

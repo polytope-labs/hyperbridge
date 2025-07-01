@@ -111,12 +111,12 @@ max_concurent_queries = 0
 # (Optional) Decimals for the fee token on this substrate chain.
 fee_token_decimals = 12
 
-# Configuration for the Sepolia testnet (L1).
+# Configuration for Sepolia (L1).
 [sepolia]
 # The type of chain configuration. "evm" is for standard EVM-compatible chains.
 type = "evm"
 # The state machine identifier for this chain, formatted as "EVM-{chainId}".
-state_machine = "EVM-11155111"
+state_machine = "EVM-1"
 # A list of HTTP(s) RPC URLs for this chain.
 rpc_urls = ["http://localhost:3000"]
 # The consensus state identifier for this chain on Hyperbridge.
@@ -127,8 +127,6 @@ etherscan_api_key = "API-KEY"
 ismp_host = "ISMP-HOST"
 # Hex-encoded private key for the relayer account on this chain.
 signer = "SIGNER-KEY"
-# (Optional) A list of Layer 2 state machine identifiers that are hosted by this L1 chain.
-layer_twos = ["EVM-421614", "EVM-11155420", "EVM-84532"]
 # (Optional) A percentage buffer to add to gas prices.
 # gas_price_buffer = 5
 # (Optional) Batch size to parallelize tracing.
@@ -156,7 +154,7 @@ consensus_update_frequency = 60
 # The type of chain configuration. "arbitrum_orbit" is for Arbitrum L2s.
 type = "arbitrum_orbit"
 # The state machine identifier for this chain, formatted as "EVM-{chainId}".
-state_machine = "EVM-421614"
+state_machine = "EVM-42161"
 # A list of HTTP(s) RPC URLs for this chain. Multiple endpoints can be provided for reliability.
 rpc_urls = ["http://localhost:3100"]
 # The consensus state identifier for this chain's host (L1) on Hyperbridge.
@@ -197,7 +195,7 @@ l1_consensus_state_id = "ETH0"
 # The type of chain configuration. "op_stack" is for Optimism L2s and other OP Stack chains.
 type = "op_stack"
 # The state machine identifier for this chain, formatted as "EVM-{chainId}".
-state_machine = "EVM-11155420"
+state_machine = "EVM-10"
 # A list of HTTP(s) RPC URLs for this chain.
 rpc_urls = ["http://localhost:3400"]
 # Etherscan API key for this chain.
@@ -241,7 +239,7 @@ l1_consensus_state_id = "ETH0"
 # The type of chain configuration. "bsc" is for the Binance Smart Chain.
 type = "bsc"
 # The state machine identifier for this chain, formatted as "EVM-{chainId}".
-state_machine = "EVM-421615"
+state_machine = "EVM-56"
 # A list of HTTP(s) RPC URLs for this chain. Multiple endpoints can be provided for reliability.
 rpc_urls = ["http://localhost:3400"]
 # The consensus state identifier for this chain's host (L1) on Hyperbridge.

@@ -188,24 +188,6 @@ impl ConsensusProof {
 			.unwrap_or_else(|| self.trusted_height())
 	}
 
-	/// Check if the ancestry is continuous (no gaps in heights)
-	pub fn is_ancestry_continuous(&self) -> bool {
-		if self.ancestry.is_empty() {
-			return true;
-		}
-
-		let mut expected_height = self.trusted_height();
-		for header in &self.ancestry {
-			if header.header.height.value() != expected_height {
-				return false;
-			}
-			expected_height += 1;
-		}
-
-		// Check that the latest signed header follows the ancestry
-		self.signed_header.header.height.value() == expected_height
-	}
-
 	/// Validate the consensus proof
 	pub fn validate(&self) -> Result<(), String> {
 		if self.next_validators.is_none() || self.next_validators.as_ref().unwrap().is_empty() {
@@ -219,9 +201,6 @@ impl ConsensusProof {
 		}
 		if self.chain_id().is_empty() {
 			return Err("Chain ID cannot be empty".to_string());
-		}
-		if !self.is_ancestry_continuous() {
-			return Err("Ancestry is not continuous - there are gaps in block heights".to_string());
 		}
 		Ok(())
 	}

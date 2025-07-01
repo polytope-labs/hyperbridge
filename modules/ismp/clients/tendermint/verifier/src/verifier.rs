@@ -63,6 +63,9 @@ pub fn verify_header_update(
 		now,
 	);
 
+	// Validate ancestry chain before cryptographic verification
+	validate_ancestry_chain(&consensus_proof, &trusted_state)?;
+
 	match result {
 		Verdict::Success => {
 			let updated_state = create_updated_trusted_state(&trusted_state, &consensus_proof)?;
@@ -124,6 +127,10 @@ pub fn verify_misbehaviour_header(
 		now,
 	);
 
+	// For misbehaviour detection, we still validate the ancestry chain
+	// but the cryptographic verification will be more relaxed
+	validate_ancestry_chain(&consensus_proof, &trusted_state)?;
+
 	match result {
 		Verdict::Success => {
 			let updated_state = create_updated_trusted_state(&trusted_state, &consensus_proof)?;
@@ -133,6 +140,81 @@ pub fn verify_misbehaviour_header(
 			Err(VerificationError::NotEnoughTrust(format!("Voting power tally: {}", tally))),
 		Verdict::Invalid(detail) => Err(VerificationError::Invalid(format!("{:?}", detail))),
 	}
+}
+
+/// Validate ancestry chain by following parent hashes back to trusted finalized hash
+fn validate_ancestry_chain(
+	consensus_proof: &ConsensusProof,
+	trusted_state: &TrustedState,
+) -> Result<(), VerificationError> {
+	// If there's no ancestry, the target header should directly connect to trusted state
+	if consensus_proof.ancestry.is_empty() {
+		let target_parent_hash = consensus_proof
+			.signed_header
+			.header
+			.last_block_id
+			.as_ref()
+			.ok_or_else(|| {
+				VerificationError::Invalid(
+					"Target header has no last_block_id (possibly genesis block)".to_string(),
+				)
+			})?
+			.hash;
+
+		if target_parent_hash.as_bytes() != trusted_state.finalized_header_hash {
+			return Err(VerificationError::Invalid(format!(
+				"Target header parent hash {:?} does not match trusted finalized hash {:?}",
+				target_parent_hash.as_bytes(),
+				trusted_state.finalized_header_hash
+			)));
+		}
+		return Ok(());
+	}
+
+	// Start from the target header and work backwards through ancestry
+	let mut expected_parent_hash = consensus_proof
+		.signed_header
+		.header
+		.last_block_id
+		.as_ref()
+		.ok_or_else(|| {
+			VerificationError::Invalid("Target header has no last_block_id".to_string())
+		})?
+		.hash;
+
+	for (i, header) in consensus_proof.ancestry.iter().enumerate().rev() {
+		let header_hash = header.header.hash();
+		if header_hash.as_bytes() != expected_parent_hash.as_bytes() {
+			return Err(VerificationError::Invalid(format!(
+				"Ancestry header {} hash mismatch: expected {:?}, got {:?}",
+				i,
+				expected_parent_hash.as_bytes(),
+				header_hash.as_bytes()
+			)));
+		}
+
+		expected_parent_hash = header
+			.header
+			.last_block_id
+			.as_ref()
+			.ok_or_else(|| {
+				VerificationError::Invalid(format!(
+					"Ancestry header {} has no last_block_id (possibly genesis block)",
+					i
+				))
+			})?
+			.hash;
+	}
+
+	if expected_parent_hash.as_bytes() != trusted_state.finalized_header_hash {
+		return Err(VerificationError::Invalid(format!(
+			"Ancestry chain does not connect to trusted finalized hash: expected {:?}, got {:?}",
+			trusted_state.finalized_header_hash,
+			expected_parent_hash.as_bytes()
+		)));
+	}
+
+	Ok(())
 }
 
 // Helper functions for type conversion

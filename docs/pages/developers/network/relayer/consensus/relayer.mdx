@@ -112,7 +112,7 @@ max_concurent_queries = 0
 fee_token_decimals = 12
 
 # Configuration for Sepolia (L1).
-[sepolia]
+[ethereum]
 # The type of chain configuration. "evm" is for standard EVM-compatible chains.
 type = "evm"
 # The state machine identifier for this chain, formatted as "EVM-{chainId}".
@@ -141,7 +141,7 @@ signer = "SIGNER-KEY"
 # initial_height = 5
 
 # Host configuration for this chain (as it hosts L2s).
-[sepolia.host]
+[ethereum.host]
 # A list of HTTP URLs for the consensus layer beacon node.
 beacon_http_urls = [
     "http://localhost:3000"
@@ -186,7 +186,7 @@ beacon_rpc_url = ["http://localhost:3400"]
 # [The address of the RollupCore contract on the L1.](https://docs.arbitrum.io/build-decentralized-apps/reference/contract-addresses)
 rollup_core = "ROLLUP-CONTRACT-ADDRESS"
 # State machine Identifier for the L1/Beacon chain.
-l1_state_machine = "EVM-11155420"
+l1_state_machine = "EVM-1"
 # L1 Consensus state Id representation.
 l1_consensus_state_id = "ETH0"
 
@@ -230,7 +230,7 @@ message_parser = "0x4200000000000000000000000000000000000016"
 # The RPC URL for the L1 beacon node.
 beacon_rpc_url = ["http://localhost:3400"]
 # State machine Identifier for the L1/Beacon chain.
-l1_state_machine = "EVM-11155420"
+l1_state_machine = "EVM-1"
 # L1 Consensus state Id representation.
 l1_consensus_state_id = "ETH0"
 

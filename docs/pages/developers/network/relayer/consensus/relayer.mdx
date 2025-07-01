@@ -99,15 +99,15 @@ consensus_state_id = "PAS0"
 # The state machine identifier for the Hyperbridge parachain.
 state_machine = "KUSAMA-4009"
 # (Optional) Maximum size in bytes for the rpc payloads, both requests & responses.
-max_rpc_payload_size = 2
-# (Optional) Relayer account seed.
+# max_rpc_payload_size = 2
+# Relayer account seed.
 signer = "SIGNER"
 # (Optional) Initial height from which to start querying messages.
-initial_height = 0
+# initial_height = 0
 # (Optional) Maximum concurrent rpc requests allowed.
 max_concurent_queries = 0
 # (Optional) Frequency at which state machine updates will be queried in seconds.
-poll_interval = 0
+# poll_interval = 0
 # (Optional) Decimals for the fee token on this substrate chain.
 fee_token_decimals = 12
 
@@ -130,17 +130,17 @@ signer = "SIGNER-KEY"
 # (Optional) A list of Layer 2 state machine identifiers that are hosted by this L1 chain.
 layer_twos = ["EVM-421614", "EVM-11155420", "EVM-84532"]
 # (Optional) A percentage buffer to add to gas prices.
-gas_price_buffer = 5
+# gas_price_buffer = 5
 # (Optional) Batch size to parallelize tracing.
-tracing_batch_size = 5
+# tracing_batch_size = 5
 # (Optional) Batch size when querying events.
-query_batch_size = 5
+# query_batch_size = 5
 # (Optional) Polling frequency for state machine updates in seconds.
-poll_interval = 5
+# poll_interval = 5
 # (Optional) The client type the rpc is running, defaults to Geth.
-client_type = "Geth"
+# client_type = "Geth"
 # (Optional) Initial height from which to start querying messages.
-initial_height = 5
+# initial_height = 5
 
 # Host configuration for this chain (as it hosts L2s).
 [sepolia.host]
@@ -161,7 +161,7 @@ state_machine = "EVM-421614"
 rpc_urls = ["http://localhost:3100"]
 # The consensus state identifier for this chain's host (L1) on Hyperbridge.
 # For Ethereum and its L2s, this is typically "ETH0".
-consensus_state_id = "ETH0"
+consensus_state_id = "ARB0"
 # Etherscan API key for fetching gas prices and other on-chain data.
 etherscan_api_key = "API-KEY"
 # The deployed IsmpHost contract address on this Arbitrum chain.
@@ -169,17 +169,17 @@ ismp_host = "ISMP-HOST"
 # Hex-encoded private key for the relayer account on this chain.
 signer = "SIGNER-KEY"
 # (Optional) A percentage buffer to add to gas prices to improve transaction confirmation speed.
-gas_price_buffer = 8
+# gas_price_buffer = 8
 # (Optional) Batch size to parallelize tracing.
-tracing_batch_size = 5
+# tracing_batch_size = 5
 # (Optional) Batch size when querying events.
-query_batch_size = 5
+# query_batch_size = 5
 # (Optional) Polling frequency for state machine updates in seconds.
-poll_interval = 5
+# poll_interval = 5
 # (Optional) The client type the rpc is running, defaults to Geth.
-client_type = "Geth"
+# client_type = "Geth"
 # (Optional) Initial height from which to start querying messages.
-initial_height = 5
+# initial_height = 5
 
 # Host (L1) configuration for the Arbitrum Orbit chain above.
 [arbitrum.host]
@@ -205,21 +205,21 @@ etherscan_api_key = "API-KEY"
 # The deployed IsmpHost contract address on this Optimism chain.
 ismp_host = "ISMP-HOST"
 # The consensus state identifier for this chain's host (L1) on Hyperbridge.
-consensus_state_id = "ETH0"
+consensus_state_id = "OPT0"
 # Hex-encoded private key for the relayer account on this chain.
 signer = "SIGNER-KEY"
 # (Optional) A percentage buffer to add to gas prices.
 gas_price_buffer = 5
 # (Optional) Batch size to parallelize tracing.
-tracing_batch_size = 5
+# tracing_batch_size = 5
 # (Optional) Batch size when querying events.
-query_batch_size = 5
+# query_batch_size = 1000
 # (Optional) Polling frequency for state machine updates in seconds.
-poll_interval = 5
+# poll_interval = 5
 # (Optional) The client type the rpc is running, defaults to Geth.
-client_type = "Geth"
+# client_type = "Geth"
 # (Optional) Initial height from which to start querying messages.
-initial_height = 5
+# initial_height = 5
 
 # Host (L1) configuration for the OP Stack chain above.
 [optimism.host]
@@ -253,24 +253,24 @@ ismp_host = "ISMP-HOST"
 # Hex-encoded private key for the relayer account on this chain.
 signer = "SIGNER-KEY"
 # (Optional) A percentage buffer to add to gas prices to improve transaction confirmation speed.
-gas_price_buffer = 8
+# gas_price_buffer = 8
 # (Optional) Batch size to parallelize tracing.
-tracing_batch_size = 5
+# tracing_batch_size = 5
 # (Optional) Batch size when querying events.
-query_batch_size = 5
+# query_batch_size = 5
 # (Optional) Polling frequency for state machine updates in seconds.
-poll_interval = 5
+# poll_interval = 5
 # (Optional) The client type the rpc is running, defaults to Geth.
-poll_interval = 5
+# poll_interval = 5
 # (Optional) Initial height from which to start querying messages.
-initial_height = 5
+# initial_height = 5
 
 # Host (L1) configuration for BSC
 [bsc.host]
 # How often to query for consensus updates. This is in seconds
 consensus_update_frequency = 60
 # This represent the length of an epoch for BSC
-epoch_length = 120
+epoch_length = 1000
 
 
 # Relayer-specific configuration.

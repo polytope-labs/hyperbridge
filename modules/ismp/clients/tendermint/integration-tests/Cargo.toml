@@ -1,0 +1,21 @@
+[package]
+name = "tendermint-integration-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Integration tests for Tendermint prover and verifier"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+# Core dependencies
+tendermint-rpc = { version = "0.40.4", features = ["http-client"] }
+tendermint = { version = "0.40.4", features = ["secp256k1"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+
+# Internal dependencies
+tendermint-prover = { path = "../prover" }
+tendermint-verifier = { path = "../verifier" }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime", "sp-core", "sp-io"] 

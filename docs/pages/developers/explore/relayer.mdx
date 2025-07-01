@@ -34,7 +34,7 @@ This service is a **public good**; it keeps Hyperbridge's view of all connected 
 
 ### Messaging Relayers: The Cross-Chain Couriers
 
-A **Messaging Relayer** acts as a courier, responsible for delivering specific user-initiated requests and responses between chains. Their job begins only *after* a Consensus Relayer has provided the necessary proof-of-liveness for the block containing the user's message.
+A **Messaging Relayer** acts as a courier, responsible for delivering specific user-initiated requests and responses between chains. Their job begins only *after* a Consensus Relayer has provided the necessary finality proof for the block containing the user's message.
 
 This service is funded directly by the end-user or application. When dispatching a message, a user attaches a fee (in a stablecoin like `DAI`) to pay for the cost of delivery and execution on the destination chain. Messaging relayers compete to deliver these messages, covering the gas costs upfront and claiming the user-provided fee as their reward.
 

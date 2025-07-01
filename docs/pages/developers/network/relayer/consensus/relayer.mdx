@@ -35,48 +35,6 @@ Tesseract Consensus is available at the official docker repository [`polytopelab
 docker pull polytopelabs/tesseract-consensus:latest
 ```
 
-## Building from source
-
-You can follow the steps below if you'd prefer to build the tesseract consensus relayer from source:
-
-::::steps
-
-### Install dependencies
-
-Building the Tesseract consensus relayer requires some dependencies
-
-- git
-- clang
-- curl
-- make
-- build-essential
-- libssl-dev
-- llvm
-- libudev-dev
-- protobuf-compiler
-
-:::code-group
-
-```bash [Debian]
-sudo apt update
-sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
-```
-
-```bash [Arch]
-pacman -Syu --needed --noconfirm curl git clang make protobuf
-```
-
-```bash [Fedora]
-sudo dnf update
-sudo dnf install clang curl git openssl-devel make protobuf-compiler
-```
-
-```bash [Opensuse]
-sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
-```
-
-:::
-
 ### Install the rust compiler
 
 If you don't have an already existing rust installation, you can install it using the one-liner below. Follow the prompts displayed to proceed with a default installation.
@@ -226,7 +184,7 @@ query_batch_size = 5
 # (Optional) Polling frequency for state machine updates in seconds.
 poll_interval = 5
 # (Optional) The client type the rpc is running, defaults to Geth.
-poll_interval = 5
+client_type = "Geth"
 # (Optional) Initial height from which to start querying messages.
 initial_height = 5
 
@@ -265,7 +223,7 @@ query_batch_size = 5
 # (Optional) Polling frequency for state machine updates in seconds.
 poll_interval = 5
 # (Optional) The client type the rpc is running, defaults to Geth.
-poll_interval = 5
+client_type = "Geth"
 # (Optional) Initial height from which to start querying messages.
 initial_height = 5
 
@@ -273,7 +231,7 @@ initial_height = 5
 [arbitrum.host]
 # The RPC URL for the L1 beacon node (e.g., Ethereum Sepolia).
 beacon_rpc_url = ["http://localhost:3400"]
-# The address of the RollupCore contract on the L1.
+# [The address of the RollupCore contract on the L1.](https://docs.arbitrum.io/build-decentralized-apps/reference/contract-addresses)
 rollup_core = "ROLLUP-CONTRACT-ADDRESS"
 # State machine Identifier for the L1/Beacon chain.
 l1_state_machine = "EVM-11155420"
@@ -305,13 +263,13 @@ query_batch_size = 5
 # (Optional) Polling frequency for state machine updates in seconds.
 poll_interval = 5
 # (Optional) The client type the rpc is running, defaults to Geth.
-poll_interval = 5
+client_type = "Geth"
 # (Optional) Initial height from which to start querying messages.
 initial_height = 5
 
 # Host (L1) configuration for the OP Stack chain above.
 [optimism.host]
-# The address of the DisputeGameFactory contract on the L1.
+# [The address of the DisputeGameFactory contract on the L1.](https://docs.optimism.io/superchain/addresses)
 dispute_game_factory = "DISPUTE-GAME-FACTORY-ADDRESS"
 # The respected game type for fraud proofs.
 respected_game_type = 0

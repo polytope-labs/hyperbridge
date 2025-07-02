@@ -38,6 +38,8 @@ members = [
     "modules/ismp/clients/tendermint/verifier",
     "modules/ismp/clients/tendermint/prover",
     "modules/ismp/testsuite",
+    "modules/ismp/clients/ismp-arbitrum",
+    "modules/ismp/clients/ismp-optimism",
 
     # cryptography
     "modules/consensus/sync-committee/prover",
@@ -181,6 +183,12 @@ jsonrpsee = { version = "0.24" }
 jsonrpsee-core = { version = "0.24" }
 rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
 tracing = "0.1.40"
+dotenv = "0.15.0"
+futures = "0.3.28"
+async-trait = "0.1.53"
+reqwest-chain = "0.1.0"
+reqwest-middleware = "0.2.4"
+reqwest = { version="0.11.14", features=["json"]}
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }
@@ -226,6 +234,8 @@ ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
+ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features = false }
+ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }

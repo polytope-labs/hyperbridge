@@ -38,6 +38,7 @@ use grandpa_verifier_primitives::{
 	justification::{AncestryChain, GrandpaJustification},
 	ConsensusState, FinalityProof, ParachainHeadersWithFinalityProof,
 };
+use ismp::consensus::StateMachineId;
 use sp_core::Get;
 use sp_runtime::traits::Header;
 use substrate_state_machine::{fetch_overlay_root_and_timestamp, SubstrateStateMachine};
@@ -164,7 +165,10 @@ where
 						state_commitments_vec.push(intermediate);
 					}
 
-					intermediates.insert(state_id, state_commitments_vec);
+					intermediates.insert(
+						StateMachineId { state_id, consensus_state_id },
+						state_commitments_vec,
+					);
 				}
 
 				Ok((consensus_state.encode(), intermediates))
@@ -208,7 +212,8 @@ where
 				let mut state_commitments_vec = Vec::new();
 				state_commitments_vec.push(intermediate);
 
-				intermediates.insert(state_id, state_commitments_vec);
+				intermediates
+					.insert(StateMachineId { state_id, consensus_state_id }, state_commitments_vec);
 
 				Ok((consensus_state.encode(), intermediates))
 			},
@@ -269,7 +274,10 @@ where
 					}
 
 					intermediates.insert(
-						StateMachine::Relay { relay: consensus_state_id, para_id },
+						StateMachineId {
+							state_id: StateMachine::Relay { relay: consensus_state_id, para_id },
+							consensus_state_id,
+						},
 						state_commitments_vec,
 					);
 				}

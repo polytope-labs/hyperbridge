@@ -7,7 +7,6 @@
 mod ping;
 // mod substrate;
 mod util;
-//mod l2s;
 
 // use std::{
 // 	sync::Arc,

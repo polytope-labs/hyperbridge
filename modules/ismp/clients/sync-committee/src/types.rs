@@ -13,10 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use alloc::{collections::BTreeMap, vec::Vec};
-use arbitrum_verifier::{ArbitrumBoldProof, ArbitrumPayloadProof};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use ismp::host::StateMachine;
-use op_verifier::{OptimismDisputeGameProof, OptimismPayloadProof};
 use primitive_types::H160;
 use sync_committee_primitives::types::{VerifierState, VerifierStateUpdate};
 
@@ -31,10 +29,6 @@ pub struct ConsensusState {
 #[derive(Encode, Decode)]
 pub struct BeaconClientUpdate {
 	pub consensus_update: VerifierStateUpdate,
-	pub l2_oracle_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
-	pub dispute_game_payload: BTreeMap<StateMachine, OptimismDisputeGameProof>,
-	pub arbitrum_payload: BTreeMap<StateMachine, ArbitrumPayloadProof>,
-	pub arbitrum_bold: BTreeMap<StateMachine, ArbitrumBoldProof>,
 }
 
 /// Description of the various consensus mechanics supported for ethereum L2s

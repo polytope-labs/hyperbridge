@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [build-dependencies]
-anyhow = { workspace = true }
+anyhow = "1.0.75"
 ethers-contract-abigen = { workspace = true }
 
 
@@ -12,35 +12,33 @@ ethers-contract-abigen = { workspace = true }
 tesseract-evm = { workspace = true }
 ethers = { workspace = true, features = ["rustls"] }
 geth-primitives = { workspace = true }
-ethabi = { workspace = true, features = ["rlp", "full-serde"], default-features = false }
+ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
 op-verifier = { workspace = true }
-anyhow = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+anyhow = "1.0.75"
+serde = { version = "1.0.164", features = ["derive"] }
 tesseract-primitives = { workspace = true }
 ismp = { workspace = true }
-log = { workspace = true }
+log = "0.4.19"
 sp-core = { workspace = true,  features = ["full_crypto"] }
-async-trait = { workspace = true }
-futures = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-tokio-stream = { workspace = true }
+async-trait = "0.1.53"
+futures = "0.3.28"
+tokio = { version = "1.32.0", features = ["full"] }
+tokio-stream = "0.1.14"
 alloy-primitives = { workspace = true, features = ["rlp"] }
 serde-hex-utils = { workspace = true }
-reqwest = { workspace = true, features=["json"]}
-codec = { workspace = true }
-reqwest-middleware = { workspace = true }
-reqwest-chain = {workspace = true}
+reqwest = { version="0.11.14", features=["json"]}
+reqwest-middleware = "0.2.4"
+reqwest-chain = "0.1.0"
 sync-committee-prover = { workspace = true }
 sync-committee-primitives = { workspace = true }
 primitive-types = { workspace = true }
-ismp-optimism = { workspace = true }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }
 alloy-rlp-derive = { workspace = true }
-hex = { workspace = true }
-dotenv = { workspace = true }
+hex = "0.4.3"
+dotenv = "0.15.0"
 tesseract-evm = { workspace = true, features = ["testing"] }
-tokio = { workspace = true, features = ["macros", "sync"] }
-hex-literal = { workspace = true}
+tokio = { version = "1.32.0", features = ["macros", "sync"] }
+hex-literal = { version ="0.4.1"}
 ismp-testsuite = { workspace = true }

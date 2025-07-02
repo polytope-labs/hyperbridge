@@ -6,32 +6,14 @@ use std::collections::HashMap;
 
 use toml::Table;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RelayerConfig {
 	/// Challenge period to be used when creating consensus states
 	pub challenge_period: Option<u64>,
 	/// The maximum interval in seconds allowed between consensus updates for each state machine
 	/// before the process should be restarted
 	pub maximum_update_intervals: Option<Vec<(StateMachineId, u64)>>,
-	/// Enables the hyperbridge host
-	#[serde(default = "default_true")]
-	pub enable_hyperbridge_consensus: bool,
 }
-
-fn default_true() -> bool {
-	true
-}
-
-impl Default for RelayerConfig {
-	fn default() -> Self {
-		Self {
-			challenge_period: None,
-			maximum_update_intervals: None,
-			enable_hyperbridge_consensus: true,
-		}
-	}
-}
-
 /// Defines the format of the tesseract config.toml file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperbridgeConfig {

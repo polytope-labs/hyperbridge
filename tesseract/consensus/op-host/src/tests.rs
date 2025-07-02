@@ -4,7 +4,6 @@ use hex_literal::hex;
 use primitive_types::H160;
 // use ismp_testsuite::mocks::Host;
 // use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
-use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use tesseract_evm::EvmConfig;
 
 const L2_ORACLE: [u8; 20] = hex!("90E9c4f8a994a250F6aEfd61CAFb4F2e895D458F");
@@ -23,11 +22,6 @@ async fn test_payload_proof_verification() {
 		message_parser: H160::from(MESSAGE_PARSER),
 		dispute_game_factory: Some(H160::from(DISPUTE_GAME_FACTORY)),
 		proposer_config: None,
-
-		state_machine: StateMachine::Evm(1000),
-		l1_state_machine: StateMachine::Evm(10),
-		l1_consensus_state_id: *b"ETH0",
-		consensus_update_frequency: None,
 	};
 	let config = OpConfig {
 		host: host.clone(),
@@ -81,10 +75,6 @@ async fn test_dispute_game_proof_verification() {
 		message_parser: H160::from(MESSAGE_PARSER),
 		dispute_game_factory: Some(H160::from(DISPUTE_GAME_FACTORY)),
 		proposer_config: None,
-		state_machine: StateMachine::Evm(1000),
-		l1_state_machine: StateMachine::Evm(10),
-		l1_consensus_state_id: *b"ETH0",
-		consensus_update_frequency: None,
 	};
 	let config = OpConfig {
 		host: host.clone(),

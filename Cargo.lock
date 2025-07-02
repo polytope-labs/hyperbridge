@@ -569,8 +569,10 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-arbitrum",
  "ismp-testsuite",
  "log",
+ "parity-scale-codec",
  "primitive-types 0.13.1",
  "serde",
  "tesseract-evm",
@@ -7241,8 +7243,10 @@ dependencies = [
  "hex-literal 0.4.1",
  "hyperbridge-client-machine",
  "ismp",
+ "ismp-arbitrum",
  "ismp-bsc",
  "ismp-grandpa",
+ "ismp-optimism",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
  "ismp-sync-committee",
@@ -8996,6 +9000,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-arbitrum"
+version = "0.1.0"
+dependencies = [
+ "arbitrum-verifier",
+ "evm-state-machine",
+ "ismp",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "polkadot-sdk 2503.0.1",
+ "primitive-types 0.13.1",
+ "scale-info",
+]
+
+[[package]]
 name = "ismp-bsc"
 version = "0.1.1"
 dependencies = [
@@ -9033,6 +9052,30 @@ dependencies = [
  "primitive-types 0.13.1",
  "scale-info",
  "substrate-state-machine",
+]
+
+[[package]]
+name = "ismp-optimism"
+version = "0.1.0"
+dependencies = [
+ "arbitrum-verifier",
+ "ethabi",
+ "ethereum-triedb",
+ "evm-state-machine",
+ "geth-primitives",
+ "hex",
+ "hex-literal 0.4.1",
+ "ismp",
+ "op-verifier",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "polkadot-sdk 2503.0.1",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sp-io",
+ "sync-committee-primitives",
+ "sync-committee-verifier",
 ]
 
 [[package]]
@@ -9133,7 +9176,6 @@ dependencies = [
 name = "ismp-sync-committee"
 version = "0.1.1"
 dependencies = [
- "arbitrum-verifier",
  "ethabi",
  "ethereum-triedb",
  "evm-state-machine",
@@ -9141,7 +9183,6 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
- "op-verifier",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
@@ -11972,9 +12013,11 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-optimism",
  "ismp-testsuite",
  "log",
  "op-verifier",
+ "parity-scale-codec",
  "primitive-types 0.13.1",
  "reqwest 0.11.27",
  "reqwest-chain",

@@ -340,7 +340,7 @@ pub fn run() -> Result<()> {
 
 		Some(Subcommand::Simnode(cmd)) => {
 			use crate::rpc;
-			let mut runner = cli.create_runner(&cmd.run.normalize())?;
+			let mut runner = cli.create_runner(&cmd.rest.run.normalize())?;
 			let config = runner.config_mut();
 			config.offchain_worker.indexing_enabled = true;
 
@@ -363,7 +363,7 @@ pub fn run() -> Result<()> {
 						>(sc_simnode::SimnodeParams {
 							components,
 							config,
-							instant: false,
+							instant: cmd.instant,
 							rpc_builder: Box::new(move |_| {
 								let client = client.clone();
 								let pool = pool.clone();

@@ -14,25 +14,23 @@
 // limitations under the License.
 
 use alloc::{collections::BTreeMap, format, string::ToString};
-use arbitrum_verifier::{verify_arbitrum_bold, verify_arbitrum_payload};
 use codec::{Decode, Encode};
 use evm_state_machine::construct_intermediate_state;
 
 use crate::{
 	pallet::{self, SupportedStatemachines},
-	types::{BeaconClientUpdate, ConsensusState, L2Consensus},
+	types::{BeaconClientUpdate, ConsensusState},
 };
 use evm_state_machine::EvmStateMachine;
 use ismp::{
 	consensus::{
-		ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineClient,
+		ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineClient, StateMachineId,
 		VerifiedCommitments,
 	},
 	error::Error,
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
 use sync_committee_primitives::constants::Config;
 
 use crate::prelude::*;
@@ -84,14 +82,9 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		consensus_proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let BeaconClientUpdate {
-			mut l2_oracle_payload,
-			mut dispute_game_payload,
-			consensus_update,
-			mut arbitrum_payload,
-			mut arbitrum_bold,
-		} = BeaconClientUpdate::decode(&mut &consensus_proof[..])
-			.map_err(|_| Error::Custom("Cannot decode beacon client update".to_string()))?;
+		let BeaconClientUpdate { consensus_update } =
+			BeaconClientUpdate::decode(&mut &consensus_proof[..])
+				.map_err(|_| Error::Custom("Cannot decode beacon client update".to_string()))?;
 
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
@@ -103,7 +96,7 @@ impl<
 			)
 			.map_err(|e| Error::Custom(format!("{:?}", e)))?;
 
-		let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
+		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
 			BTreeMap::new();
 
 		let state_root = consensus_update.execution_payload.state_root;
@@ -123,112 +116,13 @@ impl<
 		let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
 		state_commitment_vec.push(ethereum_state_commitment_height);
 
-		state_machine_map.insert(StateMachine::Evm(consensus_state.chain_id), state_commitment_vec);
-
-		let l2_consensus = consensus_state.l2_consensus.clone();
-
-		for (state_machine, consensus_mechanic) in l2_consensus {
-			match consensus_mechanic {
-				L2Consensus::ArbitrumOrbit(rollup_core_address) => {
-					if let Some(arbitrum_payload) = arbitrum_payload.remove(&state_machine) {
-						let state = verify_arbitrum_payload::<H>(
-							arbitrum_payload,
-							state_root,
-							rollup_core_address,
-							consensus_state_id.clone(),
-						)?;
-
-						let arbitrum_state_commitment_height = StateCommitmentHeight {
-							commitment: state.commitment,
-							height: state.height.height,
-						};
-
-						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-						state_commitment_vec.push(arbitrum_state_commitment_height);
-						state_machine_map.insert(state_machine, state_commitment_vec);
-					}
-				},
-
-				L2Consensus::ArbitrumBold(rollup_core_address) => {
-					if let Some(arbitrum_payload) = arbitrum_bold.remove(&state_machine) {
-						let state = verify_arbitrum_bold::<H>(
-							arbitrum_payload,
-							state_root,
-							rollup_core_address,
-							consensus_state_id.clone(),
-						)
-						.map_err(|e| Error::Custom(e.to_string()))?;
-
-						let arbitrum_state_commitment_height = StateCommitmentHeight {
-							commitment: state.commitment,
-							height: state.height.height,
-						};
-
-						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-						state_commitment_vec.push(arbitrum_state_commitment_height);
-						state_machine_map.insert(state_machine, state_commitment_vec);
-					}
-				},
-				L2Consensus::OpL2Oracle(l2_oracle) => {
-					if let Some(payload) = l2_oracle_payload.remove(&state_machine) {
-						let state = verify_optimism_payload::<H>(
-							payload,
-							state_root,
-							l2_oracle,
-							consensus_state_id.clone(),
-						)?;
-
-						let state_commitment_height = StateCommitmentHeight {
-							commitment: state.commitment,
-							height: state.height.height,
-						};
-
-						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-						state_commitment_vec.push(state_commitment_height);
-						state_machine_map.insert(state_machine, state_commitment_vec);
-					}
-				},
-				L2Consensus::OpFaultProofs((dispute_game_factory, respected_game_type)) =>
-					if let Some(payload) = dispute_game_payload.remove(&state_machine) {
-						let state = verify_optimism_dispute_game_proof::<H>(
-							payload,
-							state_root,
-							dispute_game_factory,
-							vec![respected_game_type],
-							consensus_state_id.clone(),
-						)?;
-
-						let state_commitment_height = StateCommitmentHeight {
-							commitment: state.commitment,
-							height: state.height.height,
-						};
-
-						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-						state_commitment_vec.push(state_commitment_height);
-						state_machine_map.insert(state_machine, state_commitment_vec);
-					},
-
-				L2Consensus::OpFaultProofGames((dispute_game_factory, respected_game_types)) =>
-					if let Some(payload) = dispute_game_payload.remove(&state_machine) {
-						let state = verify_optimism_dispute_game_proof::<H>(
-							payload,
-							state_root,
-							dispute_game_factory,
-							respected_game_types,
-							consensus_state_id.clone(),
-						)?;
-
-						let state_commitment_height = StateCommitmentHeight {
-							commitment: state.commitment,
-							height: state.height.height,
-						};
-
-						let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-						state_commitment_vec.push(state_commitment_height);
-						state_machine_map.insert(state_machine, state_commitment_vec);
-					},
-			}
-		}
+		state_machine_map.insert(
+			StateMachineId {
+				state_id: StateMachine::Evm(consensus_state.chain_id),
+				consensus_state_id,
+			},
+			state_commitment_vec,
+		);
 
 		let new_consensus_state = ConsensusState {
 			frozen_height: None,

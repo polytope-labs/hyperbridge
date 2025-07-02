@@ -22,12 +22,12 @@ use ismp::{
 	consensus::{StateCommitment, StateMachineId},
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
-use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
+use ismp_sync_committee::types::ConsensusState;
 use primitive_types::H160;
 use std::{collections::BTreeMap, sync::Arc};
 use sync_committee_primitives::{constants::Config, util::compute_sync_committee_period};
 
-use crate::notification::consensus_notification;
+use crate::notification::{consensus_notification, get_beacon_update};
 use op_verifier::{CANNON, _PERMISSIONED};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
@@ -66,7 +66,19 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 							"Fetching sync update for sync committee period: {next_period}"
 						);
 						let update = client.prover.latest_update_for_period(next_period).await?;
-						let message = BeaconClientUpdate { consensus_update: update };
+						let state_machine_id = StateMachineId {
+							state_id: client.state_machine,
+							consensus_state_id: client.consensus_state_id,
+						};
+						let execution_layer_height =
+							counterparty.query_latest_height(state_machine_id).await? as u64;
+						let message = get_beacon_update(
+							&client,
+							consensus_state.l2_consensus,
+							update,
+							execution_layer_height,
+						)
+						.await?;
 						return Ok::<_, Error>(Some(message));
 					}
 					Ok(None)

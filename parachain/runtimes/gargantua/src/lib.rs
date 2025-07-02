@@ -821,6 +821,10 @@ mod runtime {
 	pub type BridgeDrop = pallet_bridge_airdrop;
 	#[runtime::pallet_index(82)]
 	pub type Vesting = pallet_vesting;
+	#[runtime::pallet_index(83)]
+	pub type IsmpArbitrum = ismp_arbitrum::pallet;
+	#[runtime::pallet_index(84)]
+	pub type IsmpOptimism = ismp_optimism::pallet;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;

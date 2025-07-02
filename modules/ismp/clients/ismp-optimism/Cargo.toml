@@ -1,11 +1,9 @@
 [package]
-name = "ismp-sync-committee"
-version = "0.1.1"
-edition = "2021"
-description = "ISMP Consensus Client for the Beacon Chain's Sync Committee Consensus Protocol"
+name = "ismp-optimism"
+version = "0.1.0"
+edition = "2024"
+description = "ISMP Consensus Client for the Optimism L2 Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
-publish = false
-
 
 [dependencies]
 # polytope labs
@@ -16,7 +14,9 @@ ethereum-triedb = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 evm-state-machine = { workspace = true }
+arbitrum-verifier = { workspace = true }
 primitive-types = { workspace = true }
+op-verifier = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 
 # crates.io
@@ -48,6 +48,8 @@ std = [
     "pallet-ismp/std",
     "geth-primitives/std",
     "evm-state-machine/std",
+    "arbitrum-verifier/std",
+    "op-verifier/std",
     "primitive-types/std",
 ]
 

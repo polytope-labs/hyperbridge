@@ -81,6 +81,18 @@ impl pallet_state_coprocessor::Config for Runtime {
 	type Mmr = Mmr;
 }
 
+impl ismp_arbitrum::pallet::Config for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+}
+
+impl ismp_optimism::pallet::Config for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+}
+
 pub struct Coprocessor;
 
 impl Get<Option<StateMachine>> for Coprocessor {
@@ -111,6 +123,8 @@ impl pallet_ismp::Config for Runtime {
 			Runtime,
 			HyperbridgeClientMachine<Runtime, Ismp>,
 		>,
+		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
+		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<()>;

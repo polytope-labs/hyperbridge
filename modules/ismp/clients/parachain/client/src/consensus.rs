@@ -43,6 +43,7 @@ use sp_runtime::{
 };
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check_for_parachain, SubstrateStateMachine};
+use ismp::consensus::StateMachineId;
 
 use crate::{Parachains, RelayChainOracle};
 
@@ -83,7 +84,7 @@ where
 	fn verify_consensus(
 		&self,
 		host: &dyn IsmpHost,
-		_consensus_state_id: ConsensusStateId,
+		consensus_state_id: ConsensusStateId,
 		state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
@@ -192,7 +193,10 @@ where
 			};
 
 			state_commitments_vec.push(intermediate);
-			intermediates.insert(state_id, state_commitments_vec);
+			intermediates.insert(StateMachineId {
+				state_id,
+				consensus_state_id
+			}, state_commitments_vec);
 		}
 
 		Ok((state, intermediates))

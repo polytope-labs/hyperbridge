@@ -92,21 +92,18 @@ impl Cli {
 			let hyper_bridge_name = hyperbridge.provider().name();
 			let name =
 				format!("consensus-{}-{}", hyper_bridge_name.clone(), client.provider().name());
-
-			if relayer.enable_hyperbridge_consensus {
-				task_manager.spawn_essential_handle().spawn_blocking(
-					Box::leak(Box::new(name.clone())),
-					"consensus",
-					{
-						let client = client.clone();
-						async move {
-							let res = hyperbridge.start_consensus(client.provider()).await;
-							log::error!(target: "tesseract", "{name} has terminated with result {res:?}")
-						}
-						.boxed()
-					},
-				);
-			}
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name.clone())),
+				"consensus",
+				{
+					let client = client.clone();
+					async move {
+						let res = hyperbridge.start_consensus(client.provider()).await;
+						log::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+					}
+					.boxed()
+				},
+			);
 
 			let name = format!("consensus-{}-{}", client.provider().name(), hyper_bridge_name);
 			task_manager.spawn_essential_handle().spawn_blocking(

@@ -1,0 +1,38 @@
+[package]
+name = "tendermint-prover"
+version = "0.1.0"
+edition = "2021"
+description = "Tendermint light client prover for ISMP"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+# Core dependencies
+tendermint-rpc = { version = "0.40.4", features = ["http-client"] }
+tendermint = { version = "0.40.4", features = ["secp256k1"] }
+thiserror = "2.0.12"
+serde = { version = "1.0.219", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+reqwest = { version = "0.11", features = ["json"], optional = true }
+base64 = { version = "0.21", optional = true }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"], optional = true }
+
+# Internal dependencies
+tendermint-verifier = { path = "../verifier", features = ["secp256k1"] }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime", "sp-core", "sp-io"]
+
+[features]
+default = ["std"]
+std = [
+    "serde",
+    "serde_json",
+    "reqwest",
+    "base64",
+    "tokio",
+    "polkadot-sdk/std",
+]
+no-std = []
+secp256k1 = [] 

@@ -24133,18 +24133,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tendermint-integration-tests"
-version = "0.1.0"
-dependencies = [
- "polkadot-sdk 2503.0.1",
- "tendermint",
- "tendermint-prover",
- "tendermint-rpc",
- "tendermint-verifier",
- "tokio",
-]
-
-[[package]]
 name = "tendermint-light-client-verifier"
 version = "0.40.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -24176,8 +24164,11 @@ dependencies = [
 name = "tendermint-prover"
 version = "0.1.0"
 dependencies = [
+ "base64 0.21.7",
  "polkadot-sdk 2503.0.1",
+ "reqwest 0.11.27",
  "serde",
+ "serde_json",
  "tendermint",
  "tendermint-rpc",
  "tendermint-verifier",

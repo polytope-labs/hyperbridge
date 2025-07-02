@@ -27,5 +27,6 @@ std = [
     "polkadot-sdk/std",
 ]
 no-std = []
+secp256k1 = []
 
  

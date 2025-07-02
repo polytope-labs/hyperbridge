@@ -9,6 +9,7 @@ use crate::{ArbConfig, ArbHost, HostConfig};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use ethers::{providers::Middleware, utils::keccak256};
 use hex_literal::hex;
+use ismp::host::StateMachine;
 use primitive_types::{H160, H256};
 
 const ROLLUP_CORE: [u8; 20] = hex!("d80810638dbDF9081b72C1B33c65375e807281C8");
@@ -19,8 +20,14 @@ async fn test_payload_proof_verification() {
 	dotenv::dotenv().ok();
 	let arb_url = std::env::var("ARB_URL").expect("ARB_URL must be set.");
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
-	let host =
-		HostConfig { beacon_rpc_url: vec![geth_url], rollup_core: H160::from_slice(&ROLLUP_CORE) };
+	let host = HostConfig {
+		beacon_rpc_url: vec![geth_url],
+		rollup_core: H160::from_slice(&ROLLUP_CORE),
+		state_machine: StateMachine::Evm(1001),
+		l1_state_machine: StateMachine::Evm(10),
+		l1_consensus_state_id: *b"ETH0",
+		consensus_update_frequency: None,
+	};
 	let config = ArbConfig {
 		host: host.clone(),
 		evm_config: EvmConfig {

@@ -37,7 +37,6 @@ members = [
     "modules/ismp/clients/grandpa",
     "modules/ismp/clients/tendermint/verifier",
     "modules/ismp/clients/tendermint/prover",
-    "modules/ismp/clients/tendermint/integration-tests",
     "modules/ismp/testsuite",
 
     # cryptography

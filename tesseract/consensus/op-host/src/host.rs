@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 
 use ethers::{
 	core::k256::ecdsa::SigningKey,
@@ -8,12 +8,20 @@ use ethers::{
 	providers::{Http, Middleware, Provider},
 	signers::Wallet,
 };
-use futures::StreamExt;
+use futures::{stream, StreamExt};
 use geth_primitives::{new_u256, old_u256, CodecHeader, Header};
-use ismp::{events::Event, messaging::CreateConsensusState};
-use op_verifier::{calculate_output_root, CANNON};
+use ismp::{
+	consensus::{StateCommitment, StateMachineId},
+	events::Event,
+	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
+};
+use ismp_optimism::{
+	ConsensusState, OptimismConsensusProof, OptimismConsensusType, OptimismUpdate,
+	OPTIMISM_CONSENSUS_CLIENT_ID,
+};
+use op_verifier::{calculate_output_root, CANNON, _PERMISSIONED};
 use reqwest::Url;
-use sp_core::{bytes::from_hex, H160, H256, U256};
+use sp_core::{bytes::from_hex, Encode, H160, H256, U256};
 use sync_committee_primitives::consensus_types::{BeaconBlockHeader, Checkpoint};
 use sync_committee_prover::{
 	responses::{self, finality_checkpoint_response::FinalityCheckpoint},
@@ -29,6 +37,10 @@ use crate::{
 	abi::{dispute_game_factory::DisputeGameFactory, fault_dispute_game::FaultDisputeGame},
 	OpHost, ProposerConfig,
 };
+use codec::Decode;
+use ismp_optimism::OptimismConsensusType::OpFaultProofGames;
+use log::trace;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct StateProposal {
@@ -50,83 +62,98 @@ impl IsmpHost for OpHost {
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		if self.dispute_game_factory.is_none() || self.host.proposer_config.is_none() {
-			let mut stream = Box::pin(futures::stream::pending::<()>());
-			while let Some(_) = stream.next().await {}
-		} else {
+		if self.dispute_game_factory.is_some() && self.host.proposer_config.is_some() {
 			let dispute_game_factory_address = self
 				.dispute_game_factory
 				.clone()
 				.ok_or_else(|| anyhow!("Expected dispute game factory address"))?;
+
 			let proposer_config = self
 				.host
 				.proposer_config
 				.clone()
 				.ok_or_else(|| anyhow!("Expected proposer config"))?;
+
 			let proposer = self.proposer.clone().ok_or_else(|| anyhow!("Expected proposer"))?;
-			let (tx, recv) = tokio::sync::broadcast::channel(512);
+
 			let client = self.clone();
-			let initial_height = client.op_execution_client.get_block_number().await?.low_u64();
+			let proposer_client = client.clone();
+
 			// Watch for requests on the opstack chain
 			// propose commitment after a confirmation delay
-			tokio::task::spawn({
-				let client = client.clone();
-				let dispute_game_factory_address = dispute_game_factory_address.clone();
-				let proposer_config = proposer_config.clone();
-				async move {
+			tokio::task::spawn(async move {
+				let initial_height =
+					proposer_client.op_execution_client.get_block_number().await?.low_u64();
+
+				let (tx, mut stream) = {
+					let (tx, recv) = tokio::sync::broadcast::channel(512);
+					let stream = tokio_stream::wrappers::BroadcastStream::new(recv);
+					(tx, stream)
+				};
+
+				let proposer_config_clone = proposer_config.clone();
+				let proposer_loop = async move {
+					let proposer_config = proposer_config_clone.clone();
 					let mut latest_height = initial_height;
-					log::trace!(target: "tesseract", "Started Proposer for {:?} at {latest_height}", client.evm.state_machine());
+					log::trace!(target: "tesseract", "Started Proposer for {:?} at {latest_height}", proposer_client.evm.state_machine());
 
 					loop {
 						tokio::time::sleep(Duration::from_secs(30)).await;
+
 						match construct_state_proposal(
-							&client,
+							&proposer_client,
 							&mut latest_height,
 							dispute_game_factory_address,
 							&proposer_config,
 						)
 						.await
 						{
-							Ok(Some(proposal)) => match tx.send(proposal) {
-								Ok(_) => {},
-								Err(err) => {
-									log::error!(target: "tesseract",
-										"Failed to send state proposal over channel {err:?}"
-									);
-									return;
+							Ok(Some(proposal)) =>
+								if let Err(err) = tx.send(proposal) {
+									log::error!(target: "tesseract", "Failed to send state proposal: {err:?}");
+									break;
 								},
-							},
-							Ok(_) => {},
+							Ok(None) => {}, // No proposal to send
 							Err(e) => {
-								log::error!(target: "tesseract","Encountered error fetching state proposal {e:?}");
+								log::error!(target: "tesseract", "Error constructing state proposal: {e:?}");
 							},
 						}
 					}
-				}
-			});
+				};
 
-			let mut stream = tokio_stream::wrappers::BroadcastStream::new(recv);
-			while let Some(proposal) = stream.next().await {
-				match proposal {
-					Ok(proposal) => {
-						if let Err(err) = submit_state_proposal(
-							&self,
-							dispute_game_factory_address,
-							proposer.clone(),
-							&proposer_config,
-							proposal,
-						)
-						.await
-						{
-							log::error!(target: "tesseract", "Error submitting state proposal {err:?}")
+				let proposer_config_clone = proposer_config.clone();
+				let proposal_submit_loop = async move {
+					let proposer_config = proposer_config_clone.clone();
+					while let Some(proposal) = stream.next().await {
+						match proposal {
+							Ok(proposal) => {
+								if let Err(err) = submit_state_proposal(
+									&client,
+									dispute_game_factory_address,
+									proposer.clone(),
+									&proposer_config,
+									proposal,
+								)
+								.await
+								{
+									log::error!(target: "tesseract", "Error submitting state proposal: {err:?}");
+								}
+							},
+							Err(e) => {
+								log::error!(target: "tesseract", "Proposal stream error: {e:?}");
+							},
 						}
-					},
-					Err(e) => {
-						log::error!(target: "tesseract","Stream returned error {e:?}")
-					},
-				}
-			}
+					}
+				};
+
+				tokio::spawn(proposer_loop);
+				tokio::spawn(proposal_submit_loop);
+
+				Ok::<(), anyhow::Error>(())
+			});
 		}
+
+		submit_consensus_update(self, counterparty.clone()).await?;
 
 		Err(anyhow!(
 			"{}-{} consensus task has failed, Please restart relayer",
@@ -138,7 +165,49 @@ impl IsmpHost for OpHost {
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
-		Ok(None)
+		let mut state_machine_commitments = vec![];
+
+		let number = self.op_execution_client.get_block_number().await?;
+		let block = self.op_execution_client.get_block(number).await?.ok_or_else(|| {
+			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+		})?;
+		let state_machine_id = StateMachineId {
+			state_id: self.state_machine,
+			consensus_state_id: self.consensus_state_id.clone(),
+		};
+		let initial_consensus_state = ConsensusState {
+			finalized_height: number.as_u64(),
+			state_machine_id,
+			l1_state_machine_id: StateMachineId {
+				state_id: self.l1_state_machine,
+				consensus_state_id: self.l1_consensus_state_id,
+			},
+			optimism_consensus_type: Some(OpFaultProofGames),
+			respected_game_types: Some(vec![CANNON, _PERMISSIONED]),
+		};
+
+		state_machine_commitments.push((
+			state_machine_id,
+			StateCommitmentHeight {
+				commitment: StateCommitment {
+					timestamp: block.timestamp.as_u64(),
+					overlay_root: None,
+					state_root: block.state_root.0.into(),
+				},
+				height: number.as_u64(),
+			},
+		));
+		Ok(Some(CreateConsensusState {
+			consensus_state: initial_consensus_state.encode(),
+			consensus_client_id: OPTIMISM_CONSENSUS_CLIENT_ID,
+			consensus_state_id: self.consensus_state_id,
+			unbonding_period: u64::MAX,
+			challenge_periods: state_machine_commitments
+				.iter()
+				.map(|(state_machine, ..)| (state_machine.state_id, 5 * 60))
+				.collect(),
+			state_machine_commitments,
+		}))
 	}
 
 	fn provider(&self) -> Arc<dyn IsmpProvider> {
@@ -498,6 +567,196 @@ async fn fetch_finalized_checkpoint(
 	let checkpoint = response_data.data.finalized;
 
 	Ok(checkpoint)
+}
+
+async fn submit_consensus_update(
+	client: &OpHost,
+	counterparty: Arc<dyn IsmpProvider>,
+) -> Result<(), anyhow::Error> {
+	let consensus_state =
+		counterparty.query_consensus_state(None, client.consensus_state_id).await?;
+	let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
+
+	let l1_state_machine_id = StateMachineId {
+		state_id: client.l1_state_machine,
+		consensus_state_id: client.l1_consensus_state_id,
+	};
+
+	let interval = tokio::time::interval(Duration::from_secs(
+		client.host.consensus_update_frequency.unwrap_or(300),
+	));
+
+	let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
+	trace!(target: "op-host", "Latest height found for l1 state machine is {initial_height:?}");
+	let mut latest_height = initial_height;
+
+	let counterparty_clone = counterparty.clone();
+	let interval_stream = stream::unfold(interval, move |mut interval| {
+		let client = client.clone();
+		let counterparty = counterparty_clone.clone();
+		let consensus_state = consensus_state.clone();
+
+		async move {
+			interval.tick().await;
+
+			let current_height =
+				match counterparty.query_latest_height(l1_state_machine_id).await {
+					Ok(height) => height,
+					Err(_) =>
+						return Some((Err(anyhow!("Not a fatal error: Error fetching l1 latest height for {:?} on {:?}",
+								client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+				} as u64;
+			trace!(target: "op-host", "current height found for l1 state machine is {current_height:?}");
+
+
+			let previous_height = latest_height;
+			if current_height <= previous_height {
+				trace!(target: "op-host", "current height {current_height:?} is less than or equals {previous_height:?}");
+				return Some((Ok(None), interval));
+			}
+
+			trace!(target: "op-host", "consensus state type is {:?}", consensus_state.optimism_consensus_type.clone());
+			trace!(target: "op-host", "fetching event between {previous_height:?} and {current_height:?}");
+			return match consensus_state.optimism_consensus_type {
+				Some(OptimismConsensusType::OpL2Oracle)  => {
+					match client.latest_event(previous_height + 1, current_height).await {
+						Ok(Some(event)) => {
+							trace!(target: "op-host", "fetching l2 oracle payload");
+							match client.fetch_op_payload(current_height, event).await {
+								Ok(payload) => {
+									let update = OptimismUpdate {
+										state_machine_id: StateMachineId {
+											state_id: client.state_machine,
+											consensus_state_id: client.consensus_state_id,
+										},
+										l1_height: current_height,
+										proof: OptimismConsensusProof::OpL2Oracle(payload),
+									};
+
+									let consensus_message = ConsensusMessage {
+										consensus_proof: update.encode(),
+										consensus_state_id: client.consensus_state_id,
+										signer: counterparty.address(),
+									};
+
+									trace!(target: "op-host", "gotten updates for optimism");
+
+									Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
+								}
+								Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching op stack l2 oracle payload with height {:?} on {:?} {:?}",
+								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+							}
+						}
+						Ok(None) => {
+							trace!(target: "op-host", "no events fetched for op l2 oracle");
+							Some((Ok::<_, Error>(Some((None, current_height))), interval))
+						}
+						Err(_) => {
+							Some((
+								Err(anyhow!(
+                                "Not a fatal error: Failed to fetch latest op l2 oracle event for heights {:?} and {:?}, for {:?} on {:?}",
+                                latest_height,
+                                current_height,
+										client.state_machine, counterparty.state_machine_id().state_id
+                            )),
+								interval,
+							))
+						}
+					}
+				}
+				Some(OptimismConsensusType::OpFaultProofGames) => {
+					if let Some(respected_game_types) = consensus_state.respected_game_types.clone()
+					{
+						match client.latest_dispute_games(previous_height + 1, current_height, respected_game_types.clone()).await {
+							Ok(event) => {
+								trace!(target: "op-host", "fetching op fault proof games payload");
+								match client.fetch_dispute_game_payload(current_height, respected_game_types, event).await {
+									Ok(maybe_payload) => {
+										if let Some(payload) = maybe_payload {
+											let update = OptimismUpdate {
+												state_machine_id: StateMachineId {
+													state_id: client.state_machine,
+													consensus_state_id: client.consensus_state_id,
+												},
+												l1_height: current_height,
+												proof: OptimismConsensusProof::OpFaultProofGames(payload),
+											};
+
+											let consensus_message = ConsensusMessage {
+												consensus_proof: update.encode(),
+												consensus_state_id: client.consensus_state_id,
+												signer: counterparty.address(),
+											};
+
+											trace!(target: "op-host", "gotten updates for optimism");
+
+											Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
+										} else {
+											Some((Ok::<_, Error>(Some((None, current_height))), interval))
+										}
+									}
+									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching op fault prof game payload with height {:?} on {:?} {:?}",
+								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								}
+							}
+							Err(_) => {
+								trace!(target: "op-host", "no events fetched for fault proof games");
+								Some((Ok::<_, Error>(Some((None, current_height))), interval))
+							}
+						}
+					} else {
+						Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum bold payload with height {:?} on {:?} {:?}",
+								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,))
+					}
+				}
+				_ => return Some((Err(anyhow!("Not a fatal error: No op stack consensus type in consensus state {:?} on {:?}",
+								client.state_machine,counterparty.state_machine_id().state_id)), interval,))
+			}
+		}
+	})
+		.filter_map(|res| async move {
+			match res {
+				Ok(Some(update)) => Some(Ok(update)),
+				Ok(None) => None,
+				Err(err) => Some(Err(err)),
+			}
+		});
+
+	let provider = client.provider();
+	let mut stream = Box::pin(interval_stream);
+	while let Some(item) = stream.next().await {
+		match item {
+			Ok((Some(consensus_message), height)) => {
+				log::info!(
+					target: "tesseract",
+					"🛰️ Transmitting consensus message from {} to {}",
+					provider.name(), counterparty.name()
+				);
+				let res = counterparty
+					.submit(
+						vec![Message::Consensus(consensus_message)],
+						counterparty.state_machine_id().state_id,
+					)
+					.await;
+				if let Err(err) = res {
+					trace!(target: "op-host", "error submitting optimism update");
+					log::error!("Failed to submit transaction to {}: {err:?}", counterparty.name())
+				} else {
+					trace!(target: "op-host", "advancing current height with consensus message found");
+					latest_height = height;
+				}
+			},
+			Ok((None, height)) => {
+				trace!(target: "op-host", "advancing current height with no consensus message found");
+				latest_height = height;
+			},
+			Err(e) => {
+				log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+			},
+		}
+	}
+
+	Ok(())
 }
 
 fn get_block_id(root: H256) -> String {

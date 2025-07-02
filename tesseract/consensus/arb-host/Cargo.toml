@@ -12,24 +12,27 @@ ethers-contract-abigen = { workspace = true }
 tesseract-evm = { workspace = true }
 ethers = { workspace = true, features = ["rustls"] }
 geth-primitives = { workspace = true }
-ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
+ethabi = { workspace = true, features = ["rlp", "full-serde"], default-features = false }
 arbitrum-verifier = { workspace = true }
-anyhow = "1.0.75"
-serde = { version = "1.0.164", features = ["derive"] }
+anyhow = {workspace = true}
+serde = { workspace = true, features = ["derive"] }
 tesseract-primitives = { workspace = true }
 ismp = { workspace = true }
-async-trait = "0.1.53"
-log = "0.4.20"
-futures = "0.3.28"
+async-trait = { workspace = true }
+log = { workspace = true }
+futures = { workspace = true }
 primitive-types = { workspace = true }
+ismp-arbitrum = { workspace = true }
+codec = { workspace = true }
+tokio = { workspace = true , features = ["full"] }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }
 alloy-rlp-derive = { workspace = true }
 alloy-primitives = { workspace = true, features = ["rlp"] }
-hex = "0.4.3"
-dotenv = "0.15.0"
+hex = { workspace = true}
+dotenv = { workspace = true}
 tesseract-evm = { workspace = true, features = ["testing"] }
-tokio = { version = "1.32.0", features = ["macros", "sync"] }
-hex-literal = { version ="0.4.1"}
+tokio = { workspace = true, features = ["macros", "sync"] }
+hex-literal = { workspace = true}
 ismp-testsuite = { workspace = true }

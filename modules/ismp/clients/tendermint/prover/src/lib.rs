@@ -7,10 +7,15 @@ pub use tendermint::{
 };
 
 pub mod error;
+pub mod peppermint_rpc;
 pub mod prover;
 pub mod rpc_client;
 
+#[cfg(test)]
+mod tests;
+
 pub use error::ProverError;
+pub use peppermint_rpc::PeppermintRpcClient;
 pub use prover::{prove_header_update, prove_misbehaviour_header};
 pub use rpc_client::TendermintRpcClient;
 

@@ -54,8 +54,12 @@ impl signature::Verifier for SpIoSignatureVerifier {
 			PublicKey::Secp256k1(pk) => {
 				let sig = polkadot_sdk::sp_core::ecdsa::Signature::try_from(signature.as_bytes())
 					.map_err(|_| signature::Error::MalformedSignature)?;
-				let pub_key = polkadot_sdk::sp_core::ecdsa::Public::try_from(pk.as_bytes())
-					.map_err(|_| signature::Error::MalformedPublicKey)?;
+				let pub_key = polkadot_sdk::sp_core::ecdsa::Public::from_raw(
+					pk.to_encoded_point(true)
+						.as_bytes()
+						.try_into()
+						.map_err(|_| signature::Error::MalformedPublicKey)?,
+				);
 
 				if sp_io::crypto::ecdsa_verify(&sig, msg, &pub_key) {
 					Ok(())

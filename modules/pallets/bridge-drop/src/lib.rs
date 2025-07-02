@@ -84,24 +84,14 @@ pub mod pallet {
 	/// Rewards for Crowdloan
 	#[pallet::storage]
 	#[pallet::getter(fn crowdloan_allocations)]
-	pub type CrowdloanAllocations<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		u128,
-		OptionQuery,
-	>;
+	pub type CrowdloanAllocations<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, u128, OptionQuery>;
 
 	/// Rewards for IRO
 	#[pallet::storage]
 	#[pallet::getter(fn iro_allocations)]
-	pub type IroAllocations<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		u128,
-		OptionQuery,
-	>;
+	pub type IroAllocations<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, u128, OptionQuery>;
 
 	/// Merkle root and total leafcount
 	#[pallet::storage]
@@ -232,7 +222,6 @@ pub mod pallet {
 			MerkleRoot::<T>::put((root, leaf_count));
 			Ok(())
 		}
-
 
 		/// Claim bridge tokens
 		#[pallet::call_index(3)]

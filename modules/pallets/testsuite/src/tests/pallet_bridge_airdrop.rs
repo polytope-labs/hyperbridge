@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use codec::Encode;
-use pallet_bridge_airdrop::{KeccakHasher, MerkleRoot, Proof, EIGHTEEN_MONTHS,
-	ETHEREUM_MESSAGE_PREFIX, SIX_MONTHS,
+use pallet_bridge_airdrop::{
+	KeccakHasher, MerkleRoot, Proof, EIGHTEEN_MONTHS, ETHEREUM_MESSAGE_PREFIX, SIX_MONTHS,
 };
 use polkadot_sdk::{
 	frame_support::{assert_err, assert_noop, crypto::ecdsa::ECDSAExt},
@@ -139,8 +139,12 @@ fn should_allocate_iro_correctly() {
 		let beneficiary = AccountId32::new(H256::random().0);
 		let amount = 3500_000_000_000_000u128;
 
-		pallet_bridge_airdrop::Pallet::<Test>::allocate_iro_tokens(RuntimeOrigin::root(), beneficiary.clone(), amount)
-			.unwrap();
+		pallet_bridge_airdrop::Pallet::<Test>::allocate_iro_tokens(
+			RuntimeOrigin::root(),
+			beneficiary.clone(),
+			amount,
+		)
+		.unwrap();
 
 		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
@@ -181,8 +185,11 @@ fn should_allocate_iro_correctly() {
 
 		assert_eq!(account_data.data.frozen, current_locked - unlocked);
 
-		let res =
-			pallet_bridge_airdrop::Pallet::<Test>::allocate_iro_tokens(RuntimeOrigin::root(), beneficiary.clone(), amount.clone());
+		let res = pallet_bridge_airdrop::Pallet::<Test>::allocate_iro_tokens(
+			RuntimeOrigin::root(),
+			beneficiary.clone(),
+			amount.clone(),
+		);
 
 		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyAllocated);
 	})
@@ -198,7 +205,8 @@ fn should_allocate_crowdloan_correctly() {
 
 		pallet_bridge_airdrop::Pallet::<Test>::allocate_crowdloan_tokens(
 			RuntimeOrigin::root(),
-			beneficiary.clone(), amount
+			beneficiary.clone(),
+			amount,
 		)
 		.unwrap();
 
@@ -238,7 +246,8 @@ fn should_allocate_crowdloan_correctly() {
 
 		let res = pallet_bridge_airdrop::Pallet::<Test>::allocate_crowdloan_tokens(
 			RuntimeOrigin::root(),
-			beneficiary.clone(), amount
+			beneficiary.clone(),
+			amount,
 		);
 
 		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyAllocated);

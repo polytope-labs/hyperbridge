@@ -583,10 +583,13 @@ fn mock_state_commitments() -> BTreeMap<StateMachineId, Vec<StateCommitmentHeigh
 
 	let height_entry = StateCommitmentHeight { commitment: state_commitment, height: 42 };
 
-	map.insert(StateMachineId {
-		state_id: StateMachine::Polkadot(1000),
-		consensus_state_id: MOCK_CONSENSUS_STATE_ID
-	}, vec![height_entry.clone()]);
+	map.insert(
+		StateMachineId {
+			state_id: StateMachine::Polkadot(1000),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		},
+		vec![height_entry.clone()],
+	);
 
 	map
 }

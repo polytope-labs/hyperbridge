@@ -16,6 +16,7 @@ use geth_primitives::Header;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+		StateMachineId,
 	},
 	error::Error,
 	host::{IsmpHost, StateMachine},
@@ -23,7 +24,6 @@ use ismp::{
 };
 use polkadot_sdk::*;
 use sp_core::H256;
-use ismp::consensus::StateMachineId;
 use sync_committee_primitives::constants::BlsPublicKey;
 pub mod pallet;
 use pallet::Pallet;
@@ -135,11 +135,13 @@ impl<
 			consensus_state.next_validators = Some(next_validators);
 		}
 		consensus_state.finalized_height = finalized_header.number.low_u64();
-		state_machine_map
-			.insert(StateMachineId {
+		state_machine_map.insert(
+			StateMachineId {
 				state_id: StateMachine::Evm(consensus_state.chain_id),
-				consensus_state_id
-			}, vec![state_commitment]);
+				consensus_state_id,
+			},
+			vec![state_commitment],
+		);
 
 		Ok((consensus_state.encode(), state_machine_map))
 	}

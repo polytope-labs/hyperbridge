@@ -76,11 +76,6 @@ pub mod pallet {
 	#[pallet::getter(fn claimed)]
 	pub type Claimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
 
-	/// Set of leaf indexes that have been claimed
-	#[pallet::storage]
-	#[pallet::getter(fn iro_claimed)]
-	pub type IroDisbursed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
-
 	/// Rewards for Crowdloan
 	#[pallet::storage]
 	#[pallet::getter(fn crowdloan_allocations)]

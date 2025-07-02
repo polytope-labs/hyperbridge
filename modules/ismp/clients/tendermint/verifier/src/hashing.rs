@@ -1,7 +1,7 @@
 use polkadot_sdk::sp_io;
 use tendermint::{
 	crypto::{signature, Sha256},
-	merkle::MerkleHash,
+	merkle::{MerkleHash, NonIncremental},
 	PublicKey, Signature,
 };
 
@@ -16,18 +16,15 @@ impl Sha256 for SpIoSha256 {
 
 impl MerkleHash for SpIoSha256 {
 	fn empty_hash(&mut self) -> [u8; 32] {
-		Self::digest(&[])
+		NonIncremental::<Self>::default().empty_hash()
 	}
 
 	fn leaf_hash(&mut self, bytes: &[u8]) -> [u8; 32] {
-		Self::digest(bytes)
+		NonIncremental::<Self>::default().leaf_hash(bytes)
 	}
 
 	fn inner_hash(&mut self, left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
-		let mut combined = Vec::new();
-		combined.extend_from_slice(&left);
-		combined.extend_from_slice(&right);
-		Self::digest(combined)
+		NonIncremental::<Self>::default().inner_hash(left, right)
 	}
 }
 

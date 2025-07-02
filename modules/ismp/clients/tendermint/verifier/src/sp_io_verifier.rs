@@ -15,7 +15,7 @@ use crate::hashing::{SpIoSha256, SpIoSignatureVerifier};
 pub struct SpIoPredicates;
 
 impl VerificationPredicates for SpIoPredicates {
-	type Sha256 = tendermint::crypto::default::Sha256;
+	type Sha256 = SpIoSha256;
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -74,5 +74,23 @@ impl Verifier for SpIoVerifier {
 			options,
 			now,
 		)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use tendermint::crypto::{default::Sha256 as DefaultSha256, Sha256};
+
+	#[test]
+	fn test_hash_consistency() {
+		let test_data = b"Hello, Tendermint!";
+
+		let sp_io_hash = SpIoSha256::digest(test_data);
+		let default_hash = DefaultSha256::digest(test_data);
+		println!("sp_io_hash: {:?}", sp_io_hash);
+		println!("default_hash: {:?}", default_hash);
+
+		assert_eq!(sp_io_hash, default_hash, "Hash implementations should be identical");
 	}
 }

@@ -1,8 +1,7 @@
 #![cfg(test)]
 
 use codec::Encode;
-use pallet_bridge_airdrop::{
-	CrowdloanMerkleRoot, IroMerkleRoot, IroProof, KeccakHasher, MerkleRoot, Proof, EIGHTEEN_MONTHS,
+use pallet_bridge_airdrop::{KeccakHasher, MerkleRoot, Proof, EIGHTEEN_MONTHS,
 	ETHEREUM_MESSAGE_PREFIX, SIX_MONTHS,
 };
 use polkadot_sdk::{
@@ -133,35 +132,22 @@ fn should_claim_airdrop_correctly() {
 }
 
 #[test]
-fn should_claim_iro_correctly() {
+fn should_allocate_iro_correctly() {
 	new_test_ext().execute_with(|| {
-		let leaf_count = 500usize;
-		let leaf_index = 250usize;
 		frame_system::Pallet::<Test>::set_block_number(0);
 
 		let beneficiary = AccountId32::new(H256::random().0);
+		let amount = 3500_000_000_000_000u128;
 
-		let proof_gen =
-			generate_merkle_tree_and_proof(leaf_count, leaf_index, beneficiary.to_raw_vec());
-
-		let params = IroProof {
-			beneficiary: beneficiary.clone(),
-			proof_items: proof_gen.proof_items,
-			leaf_index: leaf_index as u64,
-			amount: proof_gen.leaf.1,
-		};
-
-		IroMerkleRoot::<Test>::put((proof_gen.root, leaf_count as u64));
-
-		pallet_bridge_airdrop::Pallet::<Test>::claim_iro(RuntimeOrigin::none(), params.clone())
+		pallet_bridge_airdrop::Pallet::<Test>::allocate_iro_tokens(RuntimeOrigin::root(), beneficiary.clone(), amount)
 			.unwrap();
 
 		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
-		let initial_unlocked = Permill::from_parts(250_000) * params.amount;
-		let locked = params.amount.saturating_sub(initial_unlocked);
+		let initial_unlocked = Permill::from_parts(250_000) * amount;
+		let locked = amount.saturating_sub(initial_unlocked);
 
-		assert_eq!(account_data.data.free, params.amount);
+		assert_eq!(account_data.data.free, amount);
 
 		// transfer above unlocked balance should fail
 		let res = Balances::transfer_keep_alive(
@@ -187,7 +173,7 @@ fn should_claim_iro_correctly() {
 
 		pallet_vesting::Pallet::<Test>::vest(RuntimeOrigin::signed(beneficiary.clone())).unwrap();
 
-		let account_data = frame_system::Account::<Test>::get(beneficiary);
+		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
 		let unlock_per_block = locked / EIGHTEEN_MONTHS as u128;
 
@@ -196,36 +182,23 @@ fn should_claim_iro_correctly() {
 		assert_eq!(account_data.data.frozen, current_locked - unlocked);
 
 		let res =
-			pallet_bridge_airdrop::Pallet::<Test>::claim_iro(RuntimeOrigin::none(), params.clone());
+			pallet_bridge_airdrop::Pallet::<Test>::allocate_iro_tokens(RuntimeOrigin::root(), beneficiary.clone(), amount.clone());
 
-		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyClaimed);
+		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyAllocated);
 	})
 }
 
 #[test]
-fn should_claim_crowdloan_correctly() {
+fn should_allocate_crowdloan_correctly() {
 	new_test_ext().execute_with(|| {
-		let leaf_count = 500usize;
-		let leaf_index = 250usize;
 		frame_system::Pallet::<Test>::set_block_number(0);
 
 		let beneficiary = AccountId32::new(H256::random().0);
+		let amount = 3500_000_000_000_000u128;
 
-		let proof_gen =
-			generate_merkle_tree_and_proof(leaf_count, leaf_index, beneficiary.to_raw_vec());
-
-		let params = IroProof {
-			beneficiary: beneficiary.clone(),
-			proof_items: proof_gen.proof_items,
-			leaf_index: leaf_index as u64,
-			amount: proof_gen.leaf.1,
-		};
-
-		CrowdloanMerkleRoot::<Test>::put((proof_gen.root, leaf_count as u64));
-
-		pallet_bridge_airdrop::Pallet::<Test>::claim_crowdloan(
-			RuntimeOrigin::none(),
-			params.clone(),
+		pallet_bridge_airdrop::Pallet::<Test>::allocate_crowdloan_tokens(
+			RuntimeOrigin::root(),
+			beneficiary.clone(), amount
 		)
 		.unwrap();
 
@@ -233,9 +206,9 @@ fn should_claim_crowdloan_correctly() {
 
 		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
-		let locked = params.amount;
+		let locked = amount;
 
-		assert_eq!(account_data.data.frozen, params.amount);
+		assert_eq!(account_data.data.frozen, amount);
 
 		// transfer above unlocked balance should fail
 		let res = Balances::transfer_keep_alive(
@@ -254,7 +227,7 @@ fn should_claim_crowdloan_correctly() {
 
 		pallet_vesting::Pallet::<Test>::vest(RuntimeOrigin::signed(beneficiary.clone())).unwrap();
 
-		let account_data = frame_system::Account::<Test>::get(beneficiary);
+		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
 		let unlock_per_block = locked / EIGHTEEN_MONTHS as u128;
 
@@ -263,11 +236,11 @@ fn should_claim_crowdloan_correctly() {
 
 		assert_eq!(account_data.data.frozen, current_locked - unlocked);
 
-		let res = pallet_bridge_airdrop::Pallet::<Test>::claim_crowdloan(
-			RuntimeOrigin::none(),
-			params.clone(),
+		let res = pallet_bridge_airdrop::Pallet::<Test>::allocate_crowdloan_tokens(
+			RuntimeOrigin::root(),
+			beneficiary.clone(), amount
 		);
 
-		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyClaimed);
+		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyAllocated);
 	})
 }

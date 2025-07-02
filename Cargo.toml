@@ -35,6 +35,8 @@ members = [
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/bsc",
     "modules/ismp/clients/grandpa",
+    "modules/ismp/clients/tendermint/verifier",
+    "modules/ismp/clients/tendermint/prover",
     "modules/ismp/testsuite",
     "modules/ismp/clients/ismp-arbitrum",
     "modules/ismp/clients/ismp-optimism",

@@ -8,9 +8,10 @@
 ## Join the network
 
 Hyperbridge is the first fully permissionless and decentralized cross-chain protocol powered by interoperability proofs.
-It allows **anyone** to run a relayer which transmits messages across chains without any staking or whitelisting. [Learn more about relayers.](https://docs.hyperbridge.network/developers/explore/relayers)
+It allows **anyone** to run a relayer which transmits messages across chains without any staking or whitelisting. [Learn more about messaging relayers.](https://docs.hyperbridge.network/developers/explore/relayers/messaging-relayers)
 
- - [Run a relayer](https://docs.hyperbridge.network/developers/network/relayer)
+ - [Run a messaging relayer](https://docs.hyperbridge.network/developers/network/relayer/messaging/relayer)
+ - [Run a consensus relayer](https://docs.hyperbridge.network/developers/network/relayer/consensus/relayer)
  - [Run a node](https://docs.hyperbridge.network/developers/network/node)
 
 

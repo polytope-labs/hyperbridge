@@ -1,0 +1,58 @@
+---
+title: An Introduction to Hyperbridge Relayers
+description: Learn about the two types of permissionless relayers that power the Hyperbridge network, Consensus Relayers and Messaging Relayers.
+---
+
+# An Introduction to Hyperbridge Relayers
+
+<figure>
+  <img src="/relayers.png" alt="Hyperbridge relayers" />
+  <figcaption style={{ textAlign: "center" }}>Hyperbridge relayers</figcaption>
+</figure>
+
+Relayers are the backbone of the Hyperbridge network, responsible for facilitating all cross-chain interactions. In a departure from many interoperability protocols, Hyperbridge's relayer ecosystem is fundamentally **permissionless**. This means any operator can participate without needing to be staked or whitelisted, fostering a decentralized, robust, and censorship-resistant environment.
+
+While united by this core philosophy, relayers in Hyperbridge perform two distinct but interconnected roles: **Consensus Relaying** and **Message Relaying**. Understanding the difference between them is key to understanding how Hyperbridge functions.
+
+## Shared Principles: A Free Market Design
+
+Before diving into their differences, it's important to recognize the principles that govern both relayer types:
+
+* **Fully Permissionless**: No staking or approval is required to operate. This lowers the barrier to entry and maximizes decentralization.
+* **Economically Incentivized**: Relayers are not altruistic; they are compensated for the vital services they provide to the network.
+* **Competitive**: Both systems are designed as a free-market race. The most efficient and fastest relayers are the most likely to capture economic rewards, which ensures high performance and liveness for the entire network.
+
+## The Two Relayer Roles
+
+While they operate within the same permissionless framework, the two relayer types have fundamentally different goals, incentives, and operational flows.
+
+### Consensus Relayers: The Network Notaries
+
+The primary goal of a **Consensus Relayer** is to provide **finality proofs**. They act as decentralized notaries, observing the finalized state of one blockchain and submitting a verifiable cryptographic proof of that state to Hyperbridge or any destination chain.
+
+This service is a **public good**; it keeps Hyperbridge's view of all connected chains fresh and accurate. Without this constant stream of consensus updates, secure cross-chain communication would be impossible. For providing this foundational service, consensus relayers are rewarded directly by the Hyperbridge protocol from its treasury with native `$BRIDGE` tokens.
+
+### Messaging Relayers: The Cross-Chain Couriers
+
+A **Messaging Relayer** acts as a courier, responsible for delivering specific user-initiated requests and responses between chains. Their job begins only *after* a Consensus Relayer has provided the necessary finality proof for the block containing the user's message.
+
+This service is funded directly by the end-user or application. When dispatching a message, a user attaches a fee (in a stablecoin like `DAI`) to pay for the cost of delivery and execution on the destination chain. Messaging relayers compete to deliver these messages, covering the gas costs upfront and claiming the user-provided fee as their reward.
+
+## At a Glance: Consensus Relaying vs. Messaging Relaying
+
+| Feature               | Consensus Relayer                                      | Messaging Relayer                                      |
+| --------------------- | ------------------------------------------------------ | ------------------------------------------------------ |
+| **Primary Role** | Provide finality proofs for an entire chain.         | Deliver specific user messages and data payloads.      |
+| **Service Type** | A public good for the entire network.                  | A private service for an individual user's transaction.  |
+| **Incentive Source** | Protocol-issued rewards from the Hyperbridge Treasury. | User-paid fees attached to each message.               |
+| **Reward Currency** | `$BRIDGE` (Native Token)                               | `DAI` (Stablecoin)                                     |
+| **Triggers Action** | A new block is finalized on a connected chain.         | A user dispatches a message with an attached fee.      |
+| **Core Relationship** | **Enabler**: Provides the security foundation.         | **Consumer**: Depends on the state provided by consensus. |
+
+## Learn More
+
+To dive deeper into the specific mechanics, economic models, and competitive dynamics of each relayer type, please see the detailed documentation:
+
+* **[Permissionless Consensus Relayers](/developers/explore/relayers/consensus-relayers.mdx)**
+* **[Permissionless Messaging Relayers](/developers/explore/relayers/messaging-relayers.mdx)**
+```

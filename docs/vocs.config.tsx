@@ -151,7 +151,7 @@ export default defineConfig({
             ],
           },
           {
-            text: "Digital Signatrues",
+            text: "Digital Signatures",
             link: "/protocol/cryptography/digital-signatures",
           },
           {
@@ -301,7 +301,17 @@ export default defineConfig({
           },
           {
             text: "Permissionless Relayers",
-            link: "/developers/explore/relayers",
+            link: "/developers/explore/relayer",
+            items: [
+              {
+                text: "Permissionless Messaging Relayers",
+                link: "/developers/explore/relayers/messaging-relayers",
+              },
+              {
+                text: "Permissionless Consensus Relayers",
+                link: "/developers/explore/relayers/consensus-relayers",
+              },
+            ]
           },
           {
             text: "Fishermen",
@@ -450,14 +460,19 @@ export default defineConfig({
           },
 
           {
-            text: "Running a Relayer",
-            link: "/developers/network/relayer",
+            text: "Running a Messaging Relayer",
+            link: "/developers/network/relayer/messaging/relayer",
             items: [
               {
                 text: "Common Errors",
-                link: "/developers/network/relayer/errors",
+                link: "/developers/network/relayer/messaging/errors",
               },
             ]
+          },
+
+          {
+            text: "Running a Consensus Relayer",
+            link: "/developers/network/relayer/consensus/relayer",
           },
         ],
       },

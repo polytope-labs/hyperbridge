@@ -207,7 +207,7 @@ pallet-ismp-runtime-api = { version = "2503.0.0", path = "modules/pallets/ismp/r
 pallet-hyperbridge = { version = "2503.0.0", path = "modules/pallets/hyperbridge", default-features = false }
 pallet-token-gateway = { version = "2503.0.0", path = "modules/pallets/token-gateway", default-features = false }
 token-gateway-primitives = { version = "2503.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
-substrate-state-machine = { version = "2503.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
+substrate-state-machine = { version = "2503.1.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # local crates
 ismp-testsuite = { path = "./modules/ismp/testsuite" }

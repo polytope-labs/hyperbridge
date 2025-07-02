@@ -24969,7 +24969,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "2503.0.0"
+version = "2503.1.0"
 dependencies = [
  "hash-db",
  "ismp",

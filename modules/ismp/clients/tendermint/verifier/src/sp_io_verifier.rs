@@ -15,7 +15,7 @@ use crate::hashing::{SpIoSha256, SpIoSignatureVerifier};
 pub struct SpIoPredicates;
 
 impl VerificationPredicates for SpIoPredicates {
-	type Sha256 = SpIoSha256;
+	type Sha256 = tendermint::crypto::default::Sha256;
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

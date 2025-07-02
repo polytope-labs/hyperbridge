@@ -46,9 +46,7 @@ impl TendermintRpcClient {
 	}
 
 	pub async fn next_validators(&self, height: u64) -> Result<Vec<Validator>, ProverError> {
-		// For Tendermint, the next validator set is typically available at the current height
-		// We fetch validators at the current height which should include the next validator set
-		self.validators(height).await
+		self.validators(height + 1).await
 	}
 
 	/// Get a range of signed headers (ancestry)

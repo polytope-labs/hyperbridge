@@ -12190,6 +12190,7 @@ dependencies = [
  "log",
  "orml-traits",
  "orml-xcm-support",
+ "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
  "pallet-ismp",

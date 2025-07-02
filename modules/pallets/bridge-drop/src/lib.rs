@@ -219,7 +219,7 @@ pub mod pallet {
 		}
 
 		/// Claim bridge tokens
-		#[pallet::call_index(3)]
+		#[pallet::call_index(1)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn claim_tokens(
 			origin: OriginFor<T>,
@@ -265,7 +265,7 @@ pub mod pallet {
 		}
 
 		/// Allocate iro tokens
-		#[pallet::call_index(4)]
+		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn allocate_iro_tokens(
 			origin: OriginFor<T>,
@@ -311,7 +311,7 @@ pub mod pallet {
 		}
 
 		/// Allocate crowdloan tokens
-		#[pallet::call_index(5)]
+		#[pallet::call_index(3)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn allocate_crowdloan_tokens(
 			origin: OriginFor<T>,

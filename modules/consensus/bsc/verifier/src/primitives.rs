@@ -65,7 +65,7 @@ pub struct BscClientUpdate {
 	pub attested_header: CodecHeader,
 	/// Epoch header ancestry up to source header
 	/// The Epoch header should the first header in the vector
-	pub epoch_header_ancestry: sp_runtime::BoundedVec<CodecHeader, ConstU32<200>>,
+	pub epoch_header_ancestry: sp_runtime::BoundedVec<CodecHeader, ConstU32<1000>>,
 }
 
 #[derive(Debug, Clone)]

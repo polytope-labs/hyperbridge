@@ -59,6 +59,7 @@ pub struct HostConfig {
 	#[serde(with = "serde_hex_utils::as_string")]
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub l1_consensus_state_id: String,
 	/// consensus update frequency in seconds
 	pub consensus_update_frequency: Option<u64>,

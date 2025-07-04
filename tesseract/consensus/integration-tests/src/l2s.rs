@@ -76,7 +76,7 @@ async fn setup_clients() -> Result<
     let sync_committee_chain = {
         let config = EvmConfig {
             rpc_urls: vec![
-                beacon_url
+                beacon_url.clone()
             ],
             state_machine: StateMachine::Evm(11155111),
             consensus_state_id: "ETH0".to_string(),
@@ -86,7 +86,7 @@ async fn setup_clients() -> Result<
         };
 
         let sync_commitee_config = tesseract_sync_committee::HostConfig {
-            beacon_http_urls: vec![beacon_url],
+            beacon_http_urls: vec![beacon_url.clone()],
             consensus_update_frequency: 60,
         };
 
@@ -115,7 +115,7 @@ async fn setup_clients() -> Result<
 
         let host =  arb_host::HostConfig {
             beacon_rpc_url: vec![
-                beacon_url
+                beacon_url.clone()
             ],
             rollup_core: H160::from(hex!("042B2E6C5E99d4c521bd49beeD5E99651D9B0Cf4")),
             l1_state_machine: StateMachine::Evm(11155111),
@@ -130,7 +130,7 @@ async fn setup_clients() -> Result<
     let arbirtum_initial_consensus_state_message_for_other_chains = arbitrum_chain.query_initial_consensus_state().await?.unwrap();
     let arbitrum_state_machine_id = StateMachineId {
         state_id: StateMachine::Evm(421614),
-        consensus_state_id: arbitrum_chain.evm_config.consensus_state_id,
+        consensus_state_id: *b"ARB0",
     };
     set_arbitrum_config_on_hyperbridge(hyperbridge_chain.clone(), arbitrum_state_machine_id, arbitrum_chain.host.rollup_core).await?;
 
@@ -167,7 +167,7 @@ async fn setup_clients() -> Result<
     };
     let optimism_state_machine_id = StateMachineId {
         state_id: StateMachine::Evm(11155420),
-        consensus_state_id: optimism_chain.evm_config.consensus_state_id,
+        consensus_state_id: *b"OPT0",
     };
 
     set_optimism_config_on_hyperbridge(hyperbridge_chain.clone(), optimism_state_machine_id, optimism_chain.host.dispute_game_factory.unwrap(), vec![0, 1]).await?;

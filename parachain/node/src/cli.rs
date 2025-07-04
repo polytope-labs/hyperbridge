@@ -68,7 +68,7 @@ pub struct SimnodeCli {
 	#[arg(long)]
 	pub instant: bool,
 	#[command(flatten)]
-	pub rest: sc_simnode::cli::SimnodeCli
+	pub rest: sc_simnode::cli::SimnodeCli,
 }
 
 #[derive(Debug, clap::Parser)]

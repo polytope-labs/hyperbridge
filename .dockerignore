@@ -1,5 +1,6 @@
 # Exclude the executable files to be copied into the image
 target
+!target/release/tesseract-consensus
 !target/release/tesseract
 !target/release/telemetry-server
 !target/release/hyperbridge

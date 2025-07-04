@@ -49,6 +49,7 @@ pallet-token-gateway-inspector = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
+pallet-bridge-airdrop = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
 
@@ -116,6 +117,7 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
+    "pallet-vesting"
 ]
 
 [features]
@@ -149,6 +151,7 @@ std = [
     "pallet-fishermen/std",
     "pallet-state-coprocessor/std",
     "ismp-grandpa/std",
+    "pallet-bridge-airdrop/std",
     "polkadot-sdk/std",
 ]
 runtime-benchmarks = [

@@ -76,30 +76,23 @@ pub mod pallet {
 	#[pallet::getter(fn claimed)]
 	pub type Claimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
 
-	/// Set of leaf indexes that have been claimed
+	/// Rewards for Crowdloan
 	#[pallet::storage]
-	#[pallet::getter(fn iro_claimed)]
-	pub type IroClaimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
+	#[pallet::getter(fn crowdloan_allocations)]
+	pub type CrowdloanAllocations<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, u128, OptionQuery>;
 
-	/// Set of leaf indexes that have been claimed
+	/// Rewards for IRO
 	#[pallet::storage]
-	#[pallet::getter(fn crowdloan_claimed)]
-	pub type CrowdloanClaimed<T: Config> = StorageMap<_, Blake2_128Concat, u64, bool, OptionQuery>;
+	#[pallet::getter(fn iro_allocations)]
+	pub type IroAllocations<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, u128, OptionQuery>;
 
 	/// Merkle root and total leafcount
 	#[pallet::storage]
 	#[pallet::getter(fn merkle_root)]
 	pub type MerkleRoot<T: Config> = StorageValue<_, (H256, u64), OptionQuery>;
 
-	/// Merkle root and total leafcount
-	#[pallet::storage]
-	#[pallet::getter(fn iro_merkle_root)]
-	pub type IroMerkleRoot<T: Config> = StorageValue<_, (H256, u64), OptionQuery>;
-
-	/// Merkle root and total leafcount
-	#[pallet::storage]
-	#[pallet::getter(fn crowdloan_merkle_root)]
-	pub type CrowdloanMerkleRoot<T: Config> = StorageValue<_, (H256, u64), OptionQuery>;
 	/// Merkle root and total leafcount
 	#[pallet::storage]
 	#[pallet::getter(fn starting_block)]
@@ -115,6 +108,8 @@ pub mod pallet {
 		MerkleRootNotFound,
 		/// Invalid Leaf Index
 		InvalidLeafIndex,
+		/// Account has already been allocated tokens
+		AlreadyAllocated,
 	}
 
 	#[pallet::event]
@@ -122,6 +117,10 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// Airdrop claimed
 		Claimed {
+			beneficiary: T::AccountId,
+			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+		},
+		Allocated {
 			beneficiary: T::AccountId,
 			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
 		},
@@ -219,36 +218,8 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Set merkle root for iro
-		#[pallet::call_index(1)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn set_iro_merkle_root(
-			origin: OriginFor<T>,
-			root: H256,
-			leaf_count: u64,
-		) -> DispatchResult {
-			T::BridgeDropOrigin::ensure_origin(origin)?;
-
-			IroMerkleRoot::<T>::put((root, leaf_count));
-			Ok(())
-		}
-
-		/// Set merkle root for crowdloan claims
-		#[pallet::call_index(2)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn set_crowdloan_merkle_root(
-			origin: OriginFor<T>,
-			root: H256,
-			leaf_count: u64,
-		) -> DispatchResult {
-			T::BridgeDropOrigin::ensure_origin(origin)?;
-
-			CrowdloanMerkleRoot::<T>::put((root, leaf_count));
-			Ok(())
-		}
-
 		/// Claim bridge tokens
-		#[pallet::call_index(3)]
+		#[pallet::call_index(1)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn claim_tokens(
 			origin: OriginFor<T>,
@@ -293,21 +264,19 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Claim iro tokens
-		#[pallet::call_index(4)]
+		/// Allocate iro tokens
+		#[pallet::call_index(2)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn claim_iro(
+		pub fn allocate_iro_tokens(
 			origin: OriginFor<T>,
-			params: IroProof<
-				T::AccountId,
-				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
-			>,
+			beneficiary: T::AccountId,
+			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
 		) -> DispatchResult {
-			ensure_none(origin)?;
+			T::BridgeDropOrigin::ensure_origin(origin)?;
 
-			let beneficiary = params.beneficiary.clone();
-			let amount = params.amount;
-			Self::execute_iro_claim(params)?;
+			if IroAllocations::<T>::get(&beneficiary).is_some() {
+				Err(Error::<T>::AlreadyAllocated)?
+			}
 
 			// Unlock 25% of token amount
 			let percent = Permill::from_parts(250_000);
@@ -334,26 +303,28 @@ pub mod pallet {
 				starting_block,
 			)?;
 
-			Self::deposit_event(Event::<T>::Claimed { beneficiary, amount });
+			IroAllocations::<T>::insert(&beneficiary, u128::from(amount));
+
+			Self::deposit_event(Event::<T>::Allocated { beneficiary, amount });
 
 			Ok(())
 		}
 
-		/// Claim crowdloan tokens
-		#[pallet::call_index(5)]
+		/// Allocate crowdloan tokens
+		#[pallet::call_index(3)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
-		pub fn claim_crowdloan(
+		pub fn allocate_crowdloan_tokens(
 			origin: OriginFor<T>,
-			params: IroProof<
-				T::AccountId,
-				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
-			>,
+			beneficiary: T::AccountId,
+			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
 		) -> DispatchResult {
-			ensure_none(origin)?;
+			T::BridgeDropOrigin::ensure_origin(origin)?;
 
-			let beneficiary = params.beneficiary.clone();
-			let amount = u128::from(params.amount);
-			Self::execute_crowdloan_claim(params)?;
+			if CrowdloanAllocations::<T>::get(&beneficiary).is_some() {
+				Err(Error::<T>::AlreadyAllocated)?
+			}
+
+			let amount = u128::from(amount);
 
 			<<T as Config>::Currency as Currency<T::AccountId>>::transfer(
 				&Self::account_id(),
@@ -375,7 +346,9 @@ pub mod pallet {
 				starting_block,
 			)?;
 
-			Self::deposit_event(Event::<T>::Claimed { beneficiary, amount: amount.into() });
+			CrowdloanAllocations::<T>::insert(&beneficiary, amount);
+
+			Self::deposit_event(Event::<T>::Allocated { beneficiary, amount: amount.into() });
 
 			Ok(())
 		}
@@ -399,10 +372,6 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			let res = match call {
 				Call::claim_tokens { params } => Self::execute_claim(params.clone())
-					.map(|_| sp_io::hashing::keccak_256(&params.encode())),
-				Call::claim_iro { params } => Self::execute_iro_claim(params.clone())
-					.map(|_| sp_io::hashing::keccak_256(&params.encode())),
-				Call::claim_crowdloan { params } => Self::execute_crowdloan_claim(params.clone())
 					.map(|_| sp_io::hashing::keccak_256(&params.encode())),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
@@ -445,54 +414,6 @@ pub mod pallet {
 			verify_proof(root, leaf_count, params.clone()).map_err(|_| Error::<T>::InvalidProof)?;
 
 			Claimed::<T>::insert(params.leaf_index, true);
-			Ok(())
-		}
-
-		fn execute_iro_claim(
-			params: IroProof<
-				T::AccountId,
-				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
-			>,
-		) -> DispatchResult {
-			let (root, leaf_count) =
-				IroMerkleRoot::<T>::get().ok_or_else(|| Error::<T>::MerkleRootNotFound)?;
-
-			if IroClaimed::<T>::get(params.leaf_index).is_some() {
-				Err(Error::<T>::AlreadyClaimed)?
-			}
-
-			if params.leaf_index >= leaf_count {
-				Err(Error::<T>::InvalidLeafIndex)?
-			}
-
-			verify_iro_proof(root, leaf_count, params.clone())
-				.map_err(|_| Error::<T>::InvalidProof)?;
-
-			IroClaimed::<T>::insert(params.leaf_index, true);
-			Ok(())
-		}
-
-		fn execute_crowdloan_claim(
-			params: IroProof<
-				T::AccountId,
-				<<T as Config>::Currency as Currency<T::AccountId>>::Balance,
-			>,
-		) -> DispatchResult {
-			let (root, leaf_count) =
-				CrowdloanMerkleRoot::<T>::get().ok_or_else(|| Error::<T>::MerkleRootNotFound)?;
-
-			if CrowdloanClaimed::<T>::get(params.leaf_index).is_some() {
-				Err(Error::<T>::AlreadyClaimed)?
-			}
-
-			if params.leaf_index >= leaf_count {
-				Err(Error::<T>::InvalidLeafIndex)?
-			}
-
-			verify_iro_proof(root, leaf_count, params.clone())
-				.map_err(|_| Error::<T>::InvalidProof)?;
-
-			CrowdloanClaimed::<T>::insert(params.leaf_index, true);
 			Ok(())
 		}
 
@@ -540,29 +461,6 @@ pub mod pallet {
 		);
 
 		let leaf_hash = sp_io::hashing::keccak_256(&(params.who, params.amount).encode());
-
-		if !proof.verify(
-			merkle_root.0,
-			&[params.leaf_index as usize],
-			&[leaf_hash],
-			leaf_count as usize,
-		) {
-			Err(anyhow!("Invalid Merkle Proof"))?
-		}
-
-		Ok(())
-	}
-
-	fn verify_iro_proof<AccountId: Encode, Balance: Encode>(
-		merkle_root: H256,
-		leaf_count: u64,
-		params: IroProof<AccountId, Balance>,
-	) -> Result<(), anyhow::Error> {
-		let proof = MerkleProof::<KeccakHasher>::new(
-			params.proof_items.into_iter().map(|val| val.0).collect(),
-		);
-
-		let leaf_hash = sp_io::hashing::keccak_256(&(params.beneficiary, params.amount).encode());
 
 		if !proof.verify(
 			merkle_root.0,

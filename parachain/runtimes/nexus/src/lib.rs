@@ -33,7 +33,7 @@ pub mod xcm;
 use alloc::sync::Arc;
 
 use cumulus_primitives_core::AggregateMessageOrigin;
-use frame_support::traits::{EverythingBut, TransformOrigin};
+use frame_support::traits::{EverythingBut, TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use alloc::borrow::Cow;
@@ -326,6 +326,7 @@ use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, Contains},
 };
+use orml_traits::parameters::sp_runtime::traits::ConvertInto;
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
@@ -738,6 +739,29 @@ impl pallet_multisig::Config for Runtime {
 }
 
 parameter_types! {
+	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT * 1000;
+	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+		WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
+impl pallet_vesting::Config for Runtime {
+	type BlockNumberToBalance = ConvertInto;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	const MAX_VESTING_SCHEDULES: u32 = 28;
+	type MinVestedTransfer = MinVestedTransfer;
+	type WeightInfo = ();
+	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+	type BlockNumberProvider = System;
+}
+
+impl pallet_bridge_airdrop::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type BridgeDropOrigin = EnsureRoot<Self::AccountId>;
+}
+
+parameter_types! {
 	// One storage item; key size 32, value size 8; .
 	pub const ProxyDepositBase: Balance = EXISTENTIAL_DEPOSIT * 5;
 	// Additional storage item size of 33 bytes.
@@ -949,6 +973,10 @@ mod runtime {
 	pub type Scheduler = pallet_scheduler;
 	#[runtime::pallet_index(86)]
 	pub type Preimage = pallet_preimage;
+	#[runtime::pallet_index(87)]
+	pub type BridgeDrop = pallet_bridge_airdrop;
+	#[runtime::pallet_index(88)]
+	pub type Vesting = pallet_vesting;
 
 	// consensus clients
 	#[runtime::pallet_index(255)]
@@ -989,6 +1017,7 @@ mod benches {
 		[pallet_conviction_voting, ConvictionVoting]
 		[pallet_scheduler, Scheduler]
 		[pallet_preimage, Preimage]
+		[pallet_vesting, Vesting]
 	);
 }
 

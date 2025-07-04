@@ -811,6 +811,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "serde",
+ "serde-hex-utils",
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",

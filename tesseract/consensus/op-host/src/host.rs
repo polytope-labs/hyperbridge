@@ -40,7 +40,6 @@ use crate::{
 use codec::Decode;
 use ismp_optimism::OptimismConsensusType::OpFaultProofGames;
 use log::trace;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct StateProposal {
@@ -172,7 +171,7 @@ impl IsmpHost for OpHost {
 			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
 		})?;
 		let state_machine_id = StateMachineId {
-			state_id: self.state_machine,
+			state_id: self.evm.state_machine,
 			consensus_state_id: self.consensus_state_id.clone(),
 		};
 		let initial_consensus_state = ConsensusState {
@@ -604,7 +603,7 @@ async fn submit_consensus_update(
 					Ok(height) => height,
 					Err(_) =>
 						return Some((Err(anyhow!("Not a fatal error: Error fetching l1 latest height for {:?} on {:?}",
-								client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								client.evm.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 				} as u64;
 			trace!(target: "op-host", "current height found for l1 state machine is {current_height:?}");
 
@@ -626,7 +625,7 @@ async fn submit_consensus_update(
 								Ok(payload) => {
 									let update = OptimismUpdate {
 										state_machine_id: StateMachineId {
-											state_id: client.state_machine,
+											state_id: client.evm.state_machine,
 											consensus_state_id: client.consensus_state_id,
 										},
 										l1_height: current_height,
@@ -644,7 +643,7 @@ async fn submit_consensus_update(
 									Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
 								}
 								Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching op stack l2 oracle payload with height {:?} on {:?} {:?}",
-								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								current_height, client.evm.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 							}
 						}
 						Ok(None) => {
@@ -657,7 +656,7 @@ async fn submit_consensus_update(
                                 "Not a fatal error: Failed to fetch latest op l2 oracle event for heights {:?} and {:?}, for {:?} on {:?}",
                                 latest_height,
                                 current_height,
-										client.state_machine, counterparty.state_machine_id().state_id
+										client.evm.state_machine, counterparty.state_machine_id().state_id
                             )),
 								interval,
 							))
@@ -675,7 +674,7 @@ async fn submit_consensus_update(
 										if let Some(payload) = maybe_payload {
 											let update = OptimismUpdate {
 												state_machine_id: StateMachineId {
-													state_id: client.state_machine,
+													state_id: client.evm.state_machine,
 													consensus_state_id: client.consensus_state_id,
 												},
 												l1_height: current_height,
@@ -696,7 +695,7 @@ async fn submit_consensus_update(
 										}
 									}
 									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching op fault prof game payload with height {:?} on {:?} {:?}",
-								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								current_height, client.evm.state_machine,counterparty.state_machine_id().state_id)), interval,)),
 								}
 							}
 							Err(_) => {
@@ -706,11 +705,11 @@ async fn submit_consensus_update(
 						}
 					} else {
 						Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum bold payload with height {:?} on {:?} {:?}",
-								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,))
+								current_height, client.evm.state_machine,counterparty.state_machine_id().state_id)), interval,))
 					}
 				}
 				_ => return Some((Err(anyhow!("Not a fatal error: No op stack consensus type in consensus state {:?} on {:?}",
-								client.state_machine,counterparty.state_machine_id().state_id)), interval,))
+								client.evm.state_machine,counterparty.state_machine_id().state_id)), interval,))
 			}
 		}
 	})

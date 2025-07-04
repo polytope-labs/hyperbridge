@@ -16,6 +16,7 @@ ethabi = { workspace = true, features = ["rlp", "full-serde"], default-features 
 arbitrum-verifier = { workspace = true }
 anyhow = {workspace = true}
 serde = { workspace = true, features = ["derive"] }
+serde-hex-utils = { workspace = true }
 tesseract-primitives = { workspace = true }
 ismp = { workspace = true }
 async-trait = { workspace = true }

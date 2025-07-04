@@ -39,12 +39,11 @@ pub struct HostConfig {
 	pub beacon_rpc_url: Vec<String>,
 	/// RollupCore contract address on L1
 	pub rollup_core: H160,
-	/// State machine identifier for this chain
-	pub state_machine: StateMachine,
 	/// State machine Identifier for the L1/Beacon chain.
+	#[serde(with = "serde_hex_utils::as_string")]
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
-	pub l1_consensus_state_id: ConsensusStateId,
+	pub l1_consensus_state_id: String,
 	/// consensus update frequency in seconds
 	pub consensus_update_frequency: Option<u64>,
 }
@@ -78,8 +77,6 @@ pub struct ArbHost {
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
 	pub provider: Arc<dyn IsmpProvider>,
-	/// State machine Identifier for this chain.
-	pub state_machine: StateMachine,
 	/// State machine Identifier for the L1/Beacon chain.
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
@@ -111,9 +108,14 @@ impl ArbHost {
 				consensus_state_id
 			},
 			provider,
-			state_machine: host.state_machine,
 			l1_state_machine: host.l1_state_machine,
-			l1_consensus_state_id: host.l1_consensus_state_id,
+			l1_consensus_state_id: {
+				{
+					let mut consensus_state_id: ConsensusStateId = Default::default();
+					consensus_state_id.copy_from_slice(host.l1_consensus_state_id.as_bytes());
+					consensus_state_id
+				}
+			},
 		})
 	}
 

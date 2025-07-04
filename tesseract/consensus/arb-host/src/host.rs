@@ -193,7 +193,7 @@ impl IsmpHost for ArbHost {
 							counterparty.name()
 						)
 					} else {
-						trace!(target: "arb-host", "advancing current height");
+						trace!(target: "arb-host", "arbitrum update successful");
 					}
 				},
 				Err(e) => {

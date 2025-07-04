@@ -741,7 +741,7 @@ async fn submit_consensus_update(
 					trace!(target: "op-host", "error submitting optimism update");
 					log::error!("Failed to submit transaction to {}: {err:?}", counterparty.name())
 				} else {
-					trace!(target: "op-host", "advancing current height with consensus message found");
+					trace!(target: "op-host", "optimism consensus message update successful");
 				}
 			},
 			Err(e) => {

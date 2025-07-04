@@ -192,6 +192,8 @@ impl IsmpHost for ArbHost {
 							"Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
+					} else {
+						trace!(target: "arb-host", "advancing current height");
 					}
 				},
 				Err(e) => {

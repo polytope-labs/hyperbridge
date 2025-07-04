@@ -118,9 +118,8 @@ async fn setup_clients() -> Result<
                 beacon_url
             ],
             rollup_core: H160::from(hex!("042B2E6C5E99d4c521bd49beeD5E99651D9B0Cf4")),
-            state_machine: StateMachine::Evm(421614),
             l1_state_machine: StateMachine::Evm(11155111),
-            l1_consensus_state_id: *b"ETH0",
+            l1_consensus_state_id: "ETH0".to_string(),
             consensus_update_frequency: None,
         };
 
@@ -152,9 +151,8 @@ async fn setup_clients() -> Result<
             beacon_rpc_url: vec![
                 beacon_url
             ],
-            state_machine: StateMachine::Evm(11155420),
             l1_state_machine: StateMachine::Evm(11155111),
-            l1_consensus_state_id: *b"ETH0",
+            l1_consensus_state_id: "ETH0".to_string(),
             consensus_update_frequency: None,
 
             l2_oracle: None,

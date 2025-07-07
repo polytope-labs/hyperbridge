@@ -226,7 +226,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 3_500,
+	spec_version: 3_600,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -977,6 +977,12 @@ mod runtime {
 	pub type BridgeDrop = pallet_bridge_airdrop;
 	#[runtime::pallet_index(88)]
 	pub type Vesting = pallet_vesting;
+	#[runtime::pallet_index(89)]
+	pub type IsmpArbitrum = ismp_arbitrum::pallet;
+	#[runtime::pallet_index(90)]
+	pub type IsmpOptimism = ismp_optimism::pallet;
+	#[runtime::pallet_index(91)]
+	pub type RelayerIncentives = pallet_relayer_incentives::pallet;
 
 	// consensus clients
 	#[runtime::pallet_index(255)]

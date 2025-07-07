@@ -156,6 +156,8 @@ impl pallet_ismp::Config for Runtime {
 			Runtime,
 			HyperbridgeClientMachine<Runtime, Ismp>,
 		>,
+		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
+		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<()>;

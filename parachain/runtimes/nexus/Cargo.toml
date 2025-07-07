@@ -50,6 +50,9 @@ pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
+ismp-arbitrum = { workspace = true }
+ismp-optimism = { workspace = true }
+pallet-relayer-incentives = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
 
@@ -152,6 +155,9 @@ std = [
     "pallet-state-coprocessor/std",
     "ismp-grandpa/std",
     "pallet-bridge-airdrop/std",
+    "ismp-arbitrum/std",
+    "ismp-optimism/std",
+    "pallet-relayer-incentives/std",
     "polkadot-sdk/std",
 ]
 runtime-benchmarks = [

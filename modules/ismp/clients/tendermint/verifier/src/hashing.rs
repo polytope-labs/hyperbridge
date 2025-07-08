@@ -1,9 +1,9 @@
-use polkadot_sdk::sp_io;
-use tendermint::{
+use cometbft::{
 	crypto::{signature, Sha256},
 	merkle::{MerkleHash, NonIncremental},
 	PublicKey, Signature,
 };
+use polkadot_sdk::sp_io;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SpIoSha256;

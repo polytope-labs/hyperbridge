@@ -5,9 +5,9 @@ mod tests {
 	use crate::{prove_header_update, TendermintRpcClient};
 	use tendermint_verifier::{TrustedState, VerificationError, VerificationOptions};
 
-	// Test both standard Tendermint and Polygon's peppermint fork
-	const STANDARD_RPC_URL: &str = "https://rpc.osmotest5.osmosis.zone:443";
-	const POLYGON_RPC_URL: &str = "https://polygon-heimdall-rpc.publicnode.com:443";
+	const STANDARD_RPC_URL: &str =
+		"";
+	const POLYGON_RPC_URL: &str = "https://polygon-amoy-heimdall-rpc.publicnode.com:443";
 
 	#[tokio::test]
 	async fn test_standard_tendermint_integration() {

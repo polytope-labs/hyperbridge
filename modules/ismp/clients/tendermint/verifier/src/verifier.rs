@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use tendermint::{block::Height, chain::Id, Hash, Time};
-use tendermint_light_client_verifier::{
+use cometbft::{block::Height, chain::Id, trust_threshold::TrustThresholdFraction, Hash, Time};
+use cometbft_light_client_verifier::{
 	options::Options,
-	types::{TrustThreshold, TrustedBlockState, UntrustedBlockState, ValidatorSet},
+	types::{TrustedBlockState, UntrustedBlockState, ValidatorSet},
 	Verdict, Verifier,
 };
-use tendermint_proto::google::protobuf::Timestamp;
+use cometbft_proto::google::protobuf::Timestamp;
 
 use crate::{
 	ConsensusProof, SpIoVerifier, TrustedState, UpdatedTrustedState, VerificationError,
@@ -223,11 +223,11 @@ fn convert_verification_options(
 	options: &VerificationOptions,
 	trusting_period: Duration,
 ) -> Result<Options, VerificationError> {
-	let trust_threshold =
-		TrustThreshold::new(options.trust_threshold_numerator, options.trust_threshold_denominator)
-			.map_err(|e| {
-				VerificationError::ConversionError(format!("Invalid trust threshold: {}", e))
-			})?;
+	let trust_threshold = TrustThresholdFraction::new(
+		options.trust_threshold_numerator,
+		options.trust_threshold_denominator,
+	)
+	.map_err(|e| VerificationError::ConversionError(format!("Invalid trust threshold: {}", e)))?;
 
 	Ok(Options { trust_threshold, trusting_period, clock_drift: options.clock_drift_duration() })
 }

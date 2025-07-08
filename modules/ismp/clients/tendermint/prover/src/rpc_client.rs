@@ -1,5 +1,5 @@
-use tendermint::{block::Height, validator::Info as Validator};
-use tendermint_rpc::{Client, HttpClient, Paging, Url};
+use cometbft::{block::Height, validator::Info as Validator};
+use cometbft_rpc::{Client, HttpClient, Paging, Url};
 
 use crate::{error::ProverError, peppermint_rpc::PeppermintRpcClient, SignedHeader};
 

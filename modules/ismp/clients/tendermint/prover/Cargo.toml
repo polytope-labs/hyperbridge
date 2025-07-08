@@ -2,14 +2,14 @@
 name = "tendermint-prover"
 version = "0.1.0"
 edition = "2021"
-description = "Tendermint light client prover for ISMP"
+description = "CometBFT light client prover for ISMP"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [dependencies]
 # Core dependencies
-tendermint-rpc = { version = "0.40.4", features = ["http-client"] }
-tendermint = { version = "0.40.4", features = ["secp256k1"] }
+cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-rpc", features = ["http-client", "secp256k1"] }
+cometbft = { git = "https://github.com/cometbft/cometbft-rs", features = ["rust-crypto", "secp256k1"] }
 thiserror = "2.0.12"
 serde = { version = "1.0.219", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }

@@ -46,8 +46,8 @@ pub enum ProverError {
 	ProofConstructionError(String),
 }
 
-impl From<tendermint_rpc::Error> for ProverError {
-	fn from(err: tendermint_rpc::Error) -> Self {
+impl From<cometbft_rpc::Error> for ProverError {
+	fn from(err: cometbft_rpc::Error) -> Self {
 		ProverError::RpcError(err.to_string())
 	}
 }

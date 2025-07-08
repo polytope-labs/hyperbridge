@@ -1,4 +1,4 @@
-pub use tendermint::{
+pub use cometbft::{
 	block::{signed_header::SignedHeader, Header, Height},
 	chain::Id as ChainId,
 	hash::Hash,

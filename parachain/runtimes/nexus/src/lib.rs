@@ -739,7 +739,7 @@ impl pallet_multisig::Config for Runtime {
 }
 
 parameter_types! {
-	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT * 1000;
+	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT;
 	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
 		WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
 }

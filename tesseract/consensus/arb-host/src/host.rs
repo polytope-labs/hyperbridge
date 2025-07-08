@@ -16,7 +16,6 @@ use ismp_arbitrum::{
 };
 use log::trace;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
-use tokio::sync::Mutex;
 
 #[async_trait::async_trait]
 impl IsmpHost for ArbHost {
@@ -39,10 +38,10 @@ impl IsmpHost for ArbHost {
 
 		let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
 		trace!(target: "arb-host", "Latest height found for l1 state machine is {initial_height:?}");
-		let mut latest_height = initial_height;
+		let latest_height = initial_height;
 
 		let counterparty_clone = counterparty.clone();
-		let interval_stream = stream::unfold(interval, move |mut interval| {
+		let interval_stream = stream::unfold((interval, latest_height), move |(mut interval, latest_height)| {
 			let client = self.clone();
 			let counterparty = counterparty_clone.clone();
 			let consensus_state = consensus_state.clone();
@@ -54,14 +53,14 @@ impl IsmpHost for ArbHost {
 						Ok(height) => height,
 						Err(_) =>
 							return Some((Err(anyhow!("Not a fatal error: Error fetching l1 latest height for {:?} on {:?}",
-								client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								client.evm.state_machine,counterparty.state_machine_id().state_id)), (interval, latest_height),)),
 					} as u64;
 				trace!(target: "arb-host", "current height found for l1 state machine is {current_height:?}");
 
 				let previous_height = latest_height;
 				if current_height <= previous_height {
 					trace!(target: "arb-host", "current height {current_height:?} is less than or equals {previous_height:?}");
-					return Some((Ok(None), interval));
+					return Some((Ok(None), (interval, previous_height)));
 				}
 
 				trace!(target: "arb-host", "consensus state type is {:?}", consensus_state.arbitrum_consensus_type.clone());
@@ -75,7 +74,7 @@ impl IsmpHost for ArbHost {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
 											state_machine_id: StateMachineId {
-												state_id: self.state_machine,
+												state_id: self.evm.state_machine,
 												consensus_state_id: self.consensus_state_id,
 											},
 											l1_height: current_height,
@@ -90,15 +89,15 @@ impl IsmpHost for ArbHost {
 
 										trace!(target: "arb-host", "gotten updates for arbitrum");
 
-										Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
+										Some((Ok::<_, Error>(Some(consensus_message)), (interval, current_height)))
 									}
 									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum orbit payload with height {:?} on {:?} {:?}",
-								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								current_height, client.evm.state_machine,counterparty.state_machine_id().state_id)), (interval, latest_height),)),
 								}
 							}
 							Ok(None) => {
 								trace!(target: "arb-host", "no event is being returned for arb orbit");
-								Some((Ok::<_, Error>(Some((None, current_height))), interval))
+								Some((Ok::<_, Error>(None), (interval, current_height)))
 							}
 							Err(_) => {
 								Some((
@@ -106,9 +105,9 @@ impl IsmpHost for ArbHost {
                                 "Not a fatal error: Failed to fetch latest arbitrum orbit event for heights {:?} and {:?}, for {:?} on {:?}",
                                 latest_height,
                                 current_height,
-										client.state_machine, counterparty.state_machine_id().state_id
+										client.evm.state_machine, counterparty.state_machine_id().state_id
                             )),
-									interval,
+									(interval, latest_height),
 								))
 							}
 						}
@@ -122,7 +121,7 @@ impl IsmpHost for ArbHost {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
 											state_machine_id: StateMachineId {
-												state_id: self.state_machine,
+												state_id: self.evm.state_machine,
 												consensus_state_id: self.consensus_state_id,
 											},
 											l1_height: current_height,
@@ -137,15 +136,15 @@ impl IsmpHost for ArbHost {
 
 										trace!(target: "arb-host", "gotten bold update");
 
-										Some((Ok::<_, Error>(Some((Some(consensus_message), current_height))), interval))
+										Some((Ok::<_, Error>(Some(consensus_message)), (interval, current_height)))
 									}
 									Err(_) => Some((Err(anyhow!("Not a fatal error: Error fetching arbitrum bold payload with height {:?} on {:?} {:?}",
-								current_height, client.state_machine,counterparty.state_machine_id().state_id)), interval,)),
+								current_height, client.evm.state_machine,counterparty.state_machine_id().state_id)), (interval, latest_height))),
 								}
 							}
 							Ok(None) => {
 								trace!(target: "arb-host", "no events is being returned for arb bold");
-								Some((Ok::<_, Error>(Some((None, current_height))), interval))
+								Some((Ok::<_, Error>(None), (interval, current_height)))
 							}
 							Err(_) => {
 								Some((
@@ -153,9 +152,9 @@ impl IsmpHost for ArbHost {
                                 "Not a fatal error: Failed to fetch latest arbitrum bold event for heights {:?} and {:?}, for {:?} on {:?}",
                                 latest_height,
                                 current_height,
-										client.state_machine, counterparty.state_machine_id().state_id
+										client.evm.state_machine, counterparty.state_machine_id().state_id
                             )),
-									interval,
+									(interval, latest_height),
 								))
 							}
 						}
@@ -175,7 +174,7 @@ impl IsmpHost for ArbHost {
 		let mut stream = Box::pin(interval_stream);
 		while let Some(item) = stream.next().await {
 			match item {
-				Ok((Some(consensus_message), height)) => {
+				Ok(consensus_message) => {
 					log::info!(
 						target: "tesseract",
 						"🛰️ Transmitting consensus message from {} to {}",
@@ -194,13 +193,8 @@ impl IsmpHost for ArbHost {
 							counterparty.name()
 						)
 					} else {
-						trace!(target: "arb-host", "advancing current height");
-						latest_height = height;
+						trace!(target: "arb-host", "arbitrum update successful");
 					}
-				},
-				Ok((None, height)) => {
-					trace!(target: "arb-host", "advancing current height with no consensus message found");
-					latest_height = height;
 				},
 				Err(e) => {
 					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
@@ -226,7 +220,7 @@ impl IsmpHost for ArbHost {
 		})?;
 
 		let state_machine_id = StateMachineId {
-			state_id: self.state_machine,
+			state_id: self.evm.state_machine,
 			consensus_state_id: self.consensus_state_id.clone(),
 		};
 

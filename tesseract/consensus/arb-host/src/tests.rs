@@ -23,9 +23,8 @@ async fn test_payload_proof_verification() {
 	let host = HostConfig {
 		beacon_rpc_url: vec![geth_url],
 		rollup_core: H160::from_slice(&ROLLUP_CORE),
-		state_machine: StateMachine::Evm(1001),
 		l1_state_machine: StateMachine::Evm(10),
-		l1_consensus_state_id: *b"ETH0",
+		l1_consensus_state_id: "ETH0".to_string(),
 		consensus_update_frequency: None,
 	};
 	let config = ArbConfig {

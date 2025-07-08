@@ -37,7 +37,6 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use primitive_types::H256;
 
 pub const ARBITRUM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"ARBC";
 

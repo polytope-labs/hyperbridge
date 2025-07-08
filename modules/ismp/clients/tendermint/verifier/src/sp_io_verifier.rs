@@ -1,4 +1,4 @@
-use tendermint_light_client_verifier::{
+use cometbft_light_client_verifier::{
 	errors::VerificationError,
 	operations::{
 		ProdCommitValidator, ProvidedVotingPowerCalculator, VotingPowerCalculator, VotingPowerTally,
@@ -52,7 +52,7 @@ impl Verifier for SpIoVerifier {
 		untrusted_block_state: UntrustedBlockState,
 		trusted_block_state: TrustedBlockState,
 		options: &Options,
-		now: tendermint::time::Time,
+		now: cometbft::time::Time,
 	) -> Verdict {
 		let verifier =
 			PredicateVerifier::new(SpIoPredicates, SpIoVotingPowerCalculator, ProdCommitValidator);
@@ -64,7 +64,7 @@ impl Verifier for SpIoVerifier {
 		untrusted_block_state: UntrustedBlockState,
 		trusted_block_state: TrustedBlockState,
 		options: &Options,
-		now: tendermint::time::Time,
+		now: cometbft::time::Time,
 	) -> Verdict {
 		let verifier =
 			PredicateVerifier::new(SpIoPredicates, SpIoVotingPowerCalculator, ProdCommitValidator);
@@ -80,11 +80,11 @@ impl Verifier for SpIoVerifier {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use tendermint::crypto::{default::Sha256 as DefaultSha256, Sha256};
+	use cometbft::crypto::{default::Sha256 as DefaultSha256, Sha256};
 
 	#[test]
 	fn test_hash_consistency() {
-		let test_data = b"Hello, Tendermint!";
+		let test_data = b"Hello, CometBFT!";
 
 		let sp_io_hash = SpIoSha256::digest(test_data);
 		let default_hash = DefaultSha256::digest(test_data);

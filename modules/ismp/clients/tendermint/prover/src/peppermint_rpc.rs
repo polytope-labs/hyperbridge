@@ -1,7 +1,7 @@
 use base64::Engine;
+use cometbft::validator::Info as Validator;
 use reqwest::Client as ReqwestClient;
 use serde_json::{json, Value};
-use tendermint::validator::Info as Validator;
 
 use crate::{error::ProverError, SignedHeader};
 
@@ -18,6 +18,7 @@ impl PeppermintRpcClient {
 	}
 
 	pub async fn latest_height(&self) -> Result<u64, ProverError> {
+		println!("Getting latest height from Polygon/peppermint endpoint");
 		let response = self.raw_request("status", json!({})).await?;
 
 		let sync_info = response
@@ -40,6 +41,7 @@ impl PeppermintRpcClient {
 	}
 
 	pub async fn signed_header(&self, height: u64) -> Result<SignedHeader, ProverError> {
+		println!("Getting signed header from Polygon/peppermint endpoint");
 		let response = self.raw_request("commit", json!({"height": height.to_string()})).await?;
 		let signed_header = response
 			.get("signed_header")
@@ -57,6 +59,7 @@ impl PeppermintRpcClient {
 	}
 
 	pub async fn validators(&self, height: u64) -> Result<Vec<Validator>, ProverError> {
+		println!("Getting validators from Polygon/peppermint endpoint");
 		let response =
 			self.raw_request("validators", json!({"height": height.to_string()})).await?;
 
@@ -66,9 +69,15 @@ impl PeppermintRpcClient {
 			.as_array()
 			.ok_or_else(|| ProverError::RpcError("validators is not an array".to_string()))?;
 
+		// Detect if this is a Polygon/peppermint endpoint and apply transformation
+		let is_polygon = self.is_polygon_chain().await.unwrap_or(false);
+
 		let mut result = Vec::new();
 		for validator in validators {
-			let parsed = serde_json::from_value(validator.clone())
+			let validator_value =
+				if is_polygon { transform_validator(validator.clone()) } else { validator.clone() };
+
+			let parsed = serde_json::from_value(validator_value)
 				.map_err(|e| ProverError::RpcError(format!("Failed to parse validator: {}", e)))?;
 			result.push(parsed);
 		}
@@ -77,6 +86,7 @@ impl PeppermintRpcClient {
 	}
 
 	pub async fn chain_id(&self) -> Result<String, ProverError> {
+		println!("Getting chain_id from Polygon/peppermint endpoint");
 		let response = self.raw_request("status", json!({})).await?;
 
 		let node_info = response
@@ -93,6 +103,7 @@ impl PeppermintRpcClient {
 	}
 
 	pub async fn is_healthy(&self) -> Result<bool, ProverError> {
+		println!("Checking health of Polygon/peppermint endpoint");
 		match self.raw_client.get(&format!("{}/health", self.base_url)).send().await {
 			Ok(response) => Ok(response.status().is_success()),
 			Err(_) => Ok(false),
@@ -143,30 +154,19 @@ impl PeppermintRpcClient {
 }
 
 pub fn transform_signed_header(mut signed_header: Value, height: u64) -> Value {
-	// Remove peppermint-specific fields from header if they exist
-	if let Some(header) = signed_header.get_mut("header") {
-		if let Some(header_obj) = header.as_object_mut() {
-			header_obj.remove("num_txs");
-			header_obj.remove("total_txs");
-		}
-	}
+	// Note: Based on actual RPC response, the header structure is standard Tendermint
+	// and doesn't contain peppermint-specific fields like num_txs or total_txs
 
-	// Handle commit structure differences between standard tendermint and peppermint
+	// Handle commit structure - the actual response uses block_id_flag (not type)
+	// and signatures are already in the correct format, but may need signature trimming
 	if let Some(commit) = signed_header.get_mut("commit") {
 		if let Some(commit_obj) = commit.as_object_mut() {
-			// Peppermint uses 'precommits' instead of 'signatures'
-			if let Some(precommits) = commit_obj.remove("precommits") {
-				if let Some(precommits_array) = precommits.as_array() {
-					let mut signatures = Vec::new();
-					for precommit in precommits_array {
-						if let Some(precommit_obj) = precommit.as_object() {
-							let mut signature = serde_json::Map::new();
-							// Transform 'type' to 'block_id_flag'
-							if let Some(type_val) = precommit_obj.get("type") {
-								signature.insert("block_id_flag".to_string(), type_val.clone());
-							}
+			if let Some(signatures) = commit_obj.get_mut("signatures") {
+				if let Some(signatures_array) = signatures.as_array_mut() {
+					for signature in signatures_array {
+						if let Some(signature_obj) = signature.as_object_mut() {
 							// Handle secp256k1 signature format (65 bytes -> 64 bytes)
-							if let Some(sig) = precommit_obj.get("signature") {
+							if let Some(sig) = signature_obj.get("signature") {
 								if let Some(sig_str) = sig.as_str() {
 									if let Ok(sig_bytes) =
 										base64::engine::general_purpose::STANDARD.decode(sig_str)
@@ -176,36 +176,20 @@ pub fn transform_signed_header(mut signed_header: Value, height: u64) -> Value {
 											let trimmed_sig_b64 =
 												base64::engine::general_purpose::STANDARD
 													.encode(trimmed_sig);
-											signature.insert(
+											signature_obj.insert(
 												"signature".to_string(),
 												json!(trimmed_sig_b64),
 											);
-										} else {
-											signature.insert("signature".to_string(), sig.clone());
 										}
-									} else {
-										signature.insert("signature".to_string(), sig.clone());
 									}
-								} else {
-									signature.insert("signature".to_string(), sig.clone());
 								}
 							}
-							if let Some(timestamp) = precommit_obj.get("timestamp") {
-								signature.insert("timestamp".to_string(), timestamp.clone());
-							}
-							if let Some(validator_address) = precommit_obj.get("validator_address")
-							{
-								signature.insert(
-									"validator_address".to_string(),
-									validator_address.clone(),
-								);
-							}
-							signatures.push(Value::Object(signature));
 						}
 					}
-					commit_obj.insert("signatures".to_string(), Value::Array(signatures));
 				}
 			}
+
+			// Ensure required fields are present
 			if !commit_obj.contains_key("height") {
 				commit_obj.insert("height".to_string(), json!(height.to_string()));
 			}
@@ -215,4 +199,21 @@ pub fn transform_signed_header(mut signed_header: Value, height: u64) -> Value {
 		}
 	}
 	signed_header
+}
+
+pub fn transform_validator(mut validator: Value) -> Value {
+	// Transform peppermint-specific validator fields to standard tendermint format
+	if let Some(pub_key) = validator.get_mut("pub_key") {
+		if let Some(pub_key_obj) = pub_key.as_object_mut() {
+			// Transform cometbft/PubKeySecp256k1eth to tendermint/PubKeySecp256k1
+			if let Some(key_type) = pub_key_obj.get("type") {
+				if let Some(type_str) = key_type.as_str() {
+					if type_str == "cometbft/PubKeySecp256k1eth" {
+						pub_key_obj.insert("type".to_string(), json!("tendermint/PubKeySecp256k1"));
+					}
+				}
+			}
+		}
+	}
+	validator
 }

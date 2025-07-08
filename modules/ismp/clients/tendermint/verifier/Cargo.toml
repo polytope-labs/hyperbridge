@@ -2,18 +2,17 @@
 name = "tendermint-verifier"
 version = "0.1.0"
 edition = "2021"
-description = "Tendermint light client verifier for ISMP"
+description = "CometBFT light client verifier for ISMP"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [dependencies]
 # Core dependencies
-tendermint-light-client-verifier = "0.40.4"
-tendermint = { version = "0.40.4", features = ["secp256k1"] }
-tendermint-proto = "0.40.4"
+cometbft-light-client-verifier = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-light-client-verifier" }
+cometbft = { git = "https://github.com/cometbft/cometbft-rs", features = ["rust-crypto", "secp256k1"] }
+cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto" }
 thiserror = "2.0.12"
 serde = { version = "1.0.219", features = ["derive"], optional = true }
-
 
 
 [dependencies.polkadot-sdk]

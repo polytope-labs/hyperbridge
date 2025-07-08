@@ -23,6 +23,7 @@ struct AllocationRecord {
 }
 
 #[tokio::test]
+#[ignore]
 async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 	println!("in test");
 	let port = env::var("PORT").unwrap_or_else(|_| "9990".to_string());

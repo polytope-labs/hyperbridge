@@ -38,7 +38,6 @@ use op_verifier::{
 	OptimismDisputeGameProof, OptimismPayloadProof, verify_optimism_dispute_game_proof,
 	verify_optimism_payload,
 };
-use primitive_types::H256;
 
 pub const OPTIMISM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"OPTC";
 

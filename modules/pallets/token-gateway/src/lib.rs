@@ -244,7 +244,7 @@ pub mod pallet {
 		/// Teleports a registered asset
 		/// locks the asset and dispatches a request to token gateway on the destination
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::WeightInfo::teleport())]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::teleport())]
 		pub fn teleport(
 			origin: OriginFor<T>,
 			params: TeleportParams<
@@ -380,7 +380,7 @@ pub mod pallet {
 
 		/// Set the token gateway address for specified chains
 		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::set_token_gateway_addresses(addresses.len() as u32))]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::set_token_gateway_addresses(addresses.len() as u32))]
 		pub fn set_token_gateway_addresses(
 			origin: OriginFor<T>,
 			addresses: BTreeMap<StateMachine, Vec<u8>>,
@@ -398,7 +398,7 @@ pub mod pallet {
 		/// to create the asset.
 		/// `native` should be true if this asset originates from this chain
 		#[pallet::call_index(2)]
-		#[pallet::weight(T::WeightInfo::create_erc6160_asset(asset.precision.len() as u32))]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::create_erc6160_asset(asset.precision.len() as u32))]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
@@ -453,7 +453,7 @@ pub mod pallet {
 		/// This works by dispatching a request to the TokenGateway module on each requested chain
 		/// to create the asset.
 		#[pallet::call_index(3)]
-		#[pallet::weight(T::WeightInfo::update_erc6160_asset())]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::update_erc6160_asset())]
 		pub fn update_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: GatewayAssetUpdate,
@@ -495,7 +495,7 @@ pub mod pallet {
 
 		/// Update the precision for an existing asset
 		#[pallet::call_index(4)]
-		#[pallet::weight(T::WeightInfo::update_asset_precision(update.precisions.len() as u32))]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::update_asset_precision(update.precisions.len() as u32))]
 		pub fn update_asset_precision(
 			origin: OriginFor<T>,
 			update: PrecisionUpdate<AssetId<T>>,

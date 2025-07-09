@@ -32,6 +32,7 @@ features = [
     "sp-std",
     "sp-api",
     "sp-mmr-primitives",
+    "pallet-timestamp",
 ]
 
 [dev-dependencies]

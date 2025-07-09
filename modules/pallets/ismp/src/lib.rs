@@ -86,7 +86,9 @@ pub mod pallet {
 	pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
 	#[pallet::config]
-	pub trait Config: polkadot_sdk::frame_system::Config {
+	pub trait Config:
+		polkadot_sdk::frame_system::Config + polkadot_sdk::pallet_timestamp::Config
+	{
 		// /// The overarching event type.
 		type RuntimeEvent: From<Event<Self>>
 			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
@@ -259,6 +261,7 @@ pub mod pallet {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
 	where
 		<T as frame_system::Config>::Hash: From<H256>,
+		<T as pallet_timestamp::Config>::Moment: Into<u64>,
 	{
 		fn on_finalize(_n: BlockNumberFor<T>) {
 			let state_version = <T as polkadot_sdk::frame_system::Config>::Version::get()
@@ -280,9 +283,16 @@ pub mod pallet {
 			};
 
 			let log = ConsensusDigest { child_trie_root, mmr_root: root.into() };
-
 			let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
 			<frame_system::Pallet<T>>::deposit_log(digest);
+
+			let timestamp_millis = <pallet_timestamp::Pallet<T>>::get();
+			let timestamp_log = TimestampDigest { timestamp: timestamp_millis.into() };
+			let timestamp_digest = sp_runtime::generic::DigestItem::PreRuntime(
+				HYPERBRIDGE_TIMESTAMP_ID,
+				timestamp_log.encode(),
+			);
+			<frame_system::Pallet<T>>::deposit_log(timestamp_digest);
 		}
 	}
 

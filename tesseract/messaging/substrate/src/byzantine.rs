@@ -73,7 +73,7 @@ where
 
 		let digest =
 			polkadot_sdk::sp_runtime::generic::Digest::decode(&mut &*header.digest.encode())?;
-		let digest_result = fetch_overlay_root_and_timestamp(&digest, Default::default())
+		let digest_result = fetch_overlay_root_and_timestamp(&digest)
 			.map_err(|_| anyhow!("Failed to extract disgest logs in byzantine handler"))?;
 
 		let state_root = if self.state_machine_id().state_id == coprocessor {

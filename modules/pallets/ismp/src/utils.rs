@@ -144,3 +144,13 @@ pub struct ConsensusDigest {
 	/// Child trie root hash
 	pub child_trie_root: H256,
 }
+
+/// The `ConsensusEngineId` of Hyperbridge `TimestampDigest` in the parachain header.
+pub const HYPERBRIDGE_TIMESTAMP_ID: sp_runtime::ConsensusEngineId = *b"HYTM";
+
+/// Timestamp log digest for pallet ismp
+#[derive(Encode, Decode, Clone, scale_info::TypeInfo, Default)]
+pub struct TimestampDigest {
+	/// Timestamp digest
+	pub timestamp: u64,
+}

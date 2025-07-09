@@ -145,8 +145,8 @@ pub struct ConsensusDigest {
 	pub child_trie_root: H256,
 }
 
-/// The `ConsensusEngineId` of Hyperbridge `TimestampDigest` in the parachain header.
-pub const HYPERBRIDGE_TIMESTAMP_ID: sp_runtime::ConsensusEngineId = *b"HYTM";
+/// The `ConsensusEngineId` of Ismp `TimestampDigest` in the parachain header.
+pub const ISMP_TIMESTAMP_ID: sp_runtime::ConsensusEngineId = *b"ISTM";
 
 /// Timestamp log digest for pallet ismp
 #[derive(Encode, Decode, Clone, scale_info::TypeInfo, Default)]

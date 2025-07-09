@@ -134,7 +134,7 @@ where
 
 					for header in header_vec {
 						let digest_result =
-							fetch_overlay_root_and_timestamp(header.digest())?;
+							fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 						if digest_result.timestamp == 0 {
 							Err(Error::Custom("Timestamp or ismp root not found".into()))?
@@ -190,7 +190,7 @@ where
 						))
 					})?;
 				let digest_result =
-					fetch_overlay_root_and_timestamp(header.digest())?;
+					fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 				if digest_result.timestamp == 0 {
 					Err(Error::Custom("Timestamp or ismp root not found".into()))?
@@ -254,7 +254,7 @@ where
 
 					for header in header_vec {
 						let digest_result =
-							fetch_overlay_root_and_timestamp(header.digest())?;
+							fetch_overlay_root_and_timestamp(header.digest(), slot_duration)?;
 
 						if digest_result.timestamp == 0 {
 							Err(Error::Custom("Timestamp or ismp root not found".into()))?

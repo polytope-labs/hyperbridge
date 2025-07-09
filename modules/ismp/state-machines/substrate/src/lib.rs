@@ -33,9 +33,11 @@ use ismp::{
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
-	ConsensusDigest, TimestampDigest, HYPERBRIDGE_TIMESTAMP_ID, ISMP_ID,
+	ConsensusDigest, TimestampDigest, ISMP_TIMESTAMP_ID, ISMP_ID,
 };
 use polkadot_sdk::*;
+use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
+use sp_consensus_babe::{digests::PreDigest, BABE_ENGINE_ID};
 use sp_runtime::{
 	traits::{BlakeTwo256, Keccak256},
 	Digest, DigestItem,
@@ -365,19 +367,37 @@ pub struct DigestResult {
 }
 
 /// Fetches the overlay (ismp) root and timestamp from the header digest
-pub fn fetch_overlay_root_and_timestamp(digest: &Digest) -> Result<DigestResult, Error> {
+pub fn fetch_overlay_root_and_timestamp(
+	digest: &Digest,
+	slot_duration: u64,
+) -> Result<DigestResult, Error> {
 	let mut digest_result = DigestResult::default();
 
 	for digest in digest.logs.iter() {
 		match digest {
 			DigestItem::PreRuntime(consensus_engine_id, value)
-				if *consensus_engine_id == HYPERBRIDGE_TIMESTAMP_ID =>
+			if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
+				{
+					let timestamp_digest = TimestampDigest::decode(&mut &value[..]).map_err(|e| {
+						Error::Custom(format!("Failed to decode timestamp digest: {e:?}"))
+					})?;
+					digest_result.timestamp =
+						Duration::from_millis(timestamp_digest.timestamp).as_secs();
+				},
+			DigestItem::PreRuntime(consensus_engine_id, value)
+				if *consensus_engine_id == AURA_ENGINE_ID =>
 			{
-				let timestamp_digest = TimestampDigest::decode(&mut &value[..]).map_err(|e| {
-					Error::Custom(format!("Failed to decode timestamp digest: {e:?}"))
-				})?;
-				digest_result.timestamp =
-					Duration::from_millis(timestamp_digest.timestamp).as_secs();
+				let slot = Slot::decode(&mut &value[..])
+					.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
+				digest_result.timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+			},
+			DigestItem::PreRuntime(consensus_engine_id, value)
+				if *consensus_engine_id == BABE_ENGINE_ID =>
+			{
+				let slot = PreDigest::decode(&mut &value[..])
+					.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?
+					.slot();
+				digest_result.timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
 			},
 			DigestItem::Consensus(consensus_engine_id, value)
 				if *consensus_engine_id == ISMP_ID =>

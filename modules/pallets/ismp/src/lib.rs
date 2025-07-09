@@ -289,7 +289,7 @@ pub mod pallet {
 			let timestamp_millis = <pallet_timestamp::Pallet<T>>::get();
 			let timestamp_log = TimestampDigest { timestamp: timestamp_millis.into() };
 			let timestamp_digest = sp_runtime::generic::DigestItem::PreRuntime(
-				HYPERBRIDGE_TIMESTAMP_ID,
+				ISMP_TIMESTAMP_ID,
 				timestamp_log.encode(),
 			);
 			<frame_system::Pallet<T>>::deposit_log(timestamp_digest);

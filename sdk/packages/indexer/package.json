@@ -55,7 +55,7 @@
 		"@polkadot/util": "latest",
 		"@polkadot/util-crypto": "latest",
 		"@subql/common": "latest",
-		"@subql/common-ethereum": "latest",
+		"@subql/common-ethereum": "4.7.0",
 		"@subql/types-core": "latest",
 		"@subql/types-ethereum": "latest",
 		"@subql/validator": "latest",

@@ -4,7 +4,7 @@ import { hexToBytes } from "viem"
 import { Option as PolkadotOption } from "@polkadot/types"
 import { Codec } from "@polkadot/types/types"
 
-import { EVM_RPC_URL } from "@/constants"
+import { ENV_CONFIG } from "@/constants"
 
 /**
  * Replace Websocket with HTTP is a function that replaces a websocket URL with an HTTP URL.
@@ -51,7 +51,7 @@ interface ETHGetBlockByHashResponse {
  * @throws Error if the RPC call fails or returns an unexpected response
  */
 export async function getEvmBlockTimestamp(blockHash: string, chain: string): Promise<bigint> {
-	const rpcUrl = replaceWebsocketWithHttp(EVM_RPC_URL[chain] || "")
+	const rpcUrl = replaceWebsocketWithHttp(ENV_CONFIG[chain] || "")
 	if (!rpcUrl) {
 		throw new Error(`No RPC URL found for chain: ${chain}`)
 	}

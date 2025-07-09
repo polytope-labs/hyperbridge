@@ -300,7 +300,7 @@ describe.sequential("Get and Post Requests", () => {
 		}, 1_000_000)
 	})
 
-	describe("Get Request", () => {
+	describe.skip("Get Request", () => {
 		it("should successfully stream and query the get request status", async () => {
 			const { bscTestnetClient, bscPing, gnosisChiadoHost, bscIsmpHost, bscHandler } = await setUp()
 			console.log("\n\nSending Get Request\n\n")

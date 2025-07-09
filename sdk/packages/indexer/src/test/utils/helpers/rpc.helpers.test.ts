@@ -1,4 +1,4 @@
-import { EVM_RPC_URL, SUBSTRATE_RPC_URL } from "@/constants"
+import { ENV_CONFIG } from "@/constants"
 import {
 	getBlockTimestamp,
 	getEvmBlockTimestamp,
@@ -12,7 +12,7 @@ describe("Get Substrate Block Timestamp", () => {
 
 	beforeAll(async () => {
 		const { ApiPromise, WsProvider } = await import("@polkadot/api")
-		;(globalThis as any).api = await ApiPromise.create({ provider: new WsProvider(SUBSTRATE_RPC_URL[chain]) })
+		;(globalThis as any).api = await ApiPromise.create({ provider: new WsProvider(ENV_CONFIG[chain]) })
 	})
 
 	test("should get a valid milliseconds timestamp from a substrate block", async () => {
@@ -62,11 +62,11 @@ describe("Get Block Timestamp", () => {
 
 describe("replaceWebsocketWithHttp", () => {
 	test("should replace the websocket URL with an HTTP URL or throw an error", async () => {
-		expect(replaceWebsocketWithHttp(SUBSTRATE_RPC_URL["KUSAMA-4009"])).toBe(
+		expect(replaceWebsocketWithHttp(ENV_CONFIG["KUSAMA-4009"])).toBe(
 			"https://hyperbridge-paseo-rpc.blockops.network",
 		)
-		expect(() => replaceWebsocketWithHttp(SUBSTRATE_RPC_URL["UNKNOWN"])).toThrow()
-		expect(replaceWebsocketWithHttp(EVM_RPC_URL["EVM-97"])).toBe(
+		expect(() => replaceWebsocketWithHttp(ENV_CONFIG["UNKNOWN"])).toThrow()
+		expect(replaceWebsocketWithHttp(ENV_CONFIG["EVM-97"])).toBe(
 			"https://wandering-delicate-silence.bsc-testnet.quiknode.pro/74d3977082e2021a0e005e12dbdcbb6732ed74ee",
 		)
 		expect(replaceWebsocketWithHttp("https://")).toBe("https://")

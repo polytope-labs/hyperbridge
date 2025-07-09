@@ -5,7 +5,7 @@ import { bytesToHex, hexToBytes, toHex } from "viem"
 import { RequestService } from "@/services/request.service"
 import { RequestStatusMetadata, Status } from "@/configs/src/types"
 import { formatChain, getHostStateMachine, isHyperbridge, isSubstrateChain } from "@/utils/substrate.helpers"
-import { SUBSTRATE_RPC_URL } from "@/constants"
+import { ENV_CONFIG } from "@/constants"
 import { RequestMetadata } from "@/utils/state-machine.helper"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import { timestampToDate } from "@/utils/date.helpers"
@@ -36,7 +36,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		return
 	}
 
-	if (!SUBSTRATE_RPC_URL[sourceId]) {
+	if (!ENV_CONFIG[sourceId]) {
 		logger.error(`No WS URL found for chain ${sourceId}`)
 		return
 	}
@@ -48,7 +48,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		params: [[{ commitment: commitment.toString() }]],
 	}
 
-	const response = await fetch(replaceWebsocketWithHttp(SUBSTRATE_RPC_URL[sourceId]), {
+	const response = await fetch(replaceWebsocketWithHttp(ENV_CONFIG[sourceId]), {
 		method: "POST",
 		headers: {
 			accept: "application/json",
@@ -80,7 +80,7 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 		]),
 	)
 
-	const metadataResponse = await fetch(replaceWebsocketWithHttp(SUBSTRATE_RPC_URL[sourceId]), {
+	const metadataResponse = await fetch(replaceWebsocketWithHttp(ENV_CONFIG[sourceId]), {
 		method: "POST",
 		headers: {
 			accept: "application/json",

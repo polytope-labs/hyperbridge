@@ -32,6 +32,11 @@ const substrateTemplate = Handlebars.compile(
 const evmTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "evm-chain.yaml.hbs"), "utf8"))
 const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "multichain.yaml.hbs"), "utf8"))
 
+const EVM_TRACKED = [
+	// Envrionment Variable Tracked
+	"COIN_GECKGO_API_KEY",
+] as const
+
 const getChainTypesPath = (chain: string) => {
 	// Extract base chain name before the hyphen
 	const baseChainName = chain.split("-")[0]
@@ -194,42 +199,6 @@ const generateMultichainYaml = () => {
 	console.log("Generated subquery-multichain.yaml")
 }
 
-const generateSubstrateWsJson = () => {
-	const substrateWsConfig = {}
-
-	validChains.forEach((config, chain) => {
-		if (config.type === "substrate") {
-			const envKey = chain.replace(/-/g, "_").toUpperCase()
-			const endpoints = process.env[envKey]?.split(",") || []
-
-			if (endpoints.length > 0) {
-				substrateWsConfig[config.stateMachineId] = endpoints[0].trim()
-			}
-		}
-	})
-
-	fs.writeFileSync(root + "/src/substrate-ws.json", JSON.stringify(substrateWsConfig, null, 2))
-	console.log("Generated substrate-ws.json")
-}
-
-const generateEvmWsJson = () => {
-	const evmWsConfig = {}
-
-	validChains.forEach((config, chain) => {
-		if (config.type === "evm") {
-			const envKey = chain.replace(/-/g, "_").toUpperCase()
-			const endpoints = process.env[envKey]?.split(",") || []
-
-			if (endpoints.length > 0) {
-				evmWsConfig[config.stateMachineId] = endpoints[0].trim()
-			}
-		}
-	})
-
-	fs.writeFileSync(root + "/src/evm-ws.json", JSON.stringify(evmWsConfig, null, 2))
-	console.log("Generated evm-ws.json")
-}
-
 const generateChainIdsByGenesis = () => {
 	const chainIdsByGenesis = {}
 
@@ -261,13 +230,31 @@ const generateChainsByIsmpHost = () => {
 	console.log("Generated chains-by-ismp-host.ts")
 }
 
+const generateEnvironmentConfig = () => {
+	const configurations = {}
+
+	// Set evm and substrate environment configurations
+	validChains.forEach((config, chain) => {
+		const envKey = chain.replace(/-/g, "_").toUpperCase()
+		const endpoints = process.env[envKey]?.split(",") || []
+
+		if (endpoints.length > 0) {
+			configurations[config.stateMachineId] = endpoints[0].trim()
+		}
+	})
+
+	EVM_TRACKED.forEach((e: string) => (configurations[e] = process.env?.[e] ?? null))
+
+	fs.writeFileSync(root + "/src/env-config.json", JSON.stringify(configurations, null, 2))
+	console.log("Generated env-config.json")
+}
+
 try {
 	await generateAllChainYamls()
 	generateMultichainYaml()
-	generateSubstrateWsJson()
-	generateEvmWsJson()
 	generateChainIdsByGenesis()
 	generateChainsByIsmpHost()
+	generateEnvironmentConfig()
 	process.exit(0)
 } catch (err) {
 	console.error("Error generating YAMLs:", err)

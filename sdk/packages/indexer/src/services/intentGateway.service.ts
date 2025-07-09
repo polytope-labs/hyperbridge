@@ -145,13 +145,15 @@ export class IntentGatewayService {
 			tokens.map(async (token) => {
 				const tokenAddress = this.bytes32ToBytes20(token.token)
 				let decimals = 18
+				let symbol = "eth"
 
 				if (tokenAddress != "0x0000000000000000000000000000000000000000") {
 					const tokenContract = ERC6160Ext20Abi__factory.connect(tokenAddress, api)
 					decimals = await tokenContract.decimals()
+					symbol = await tokenContract.symbol()
 				}
 
-				return PriceHelper.getTokenPriceInUSDUniswap(tokenAddress, token.amount, decimals)
+				return PriceHelper.getTokenPriceInUSDCoingecko(symbol, token.amount, decimals)
 			}),
 		)
 

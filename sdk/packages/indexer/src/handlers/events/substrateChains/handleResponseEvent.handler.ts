@@ -1,7 +1,7 @@
 import { SubstrateEvent } from "@subql/types"
 import fetch from "node-fetch"
 import { formatChain, getHostStateMachine } from "@/utils/substrate.helpers"
-import { SUBSTRATE_RPC_URL } from "@/constants"
+import { ENV_CONFIG } from "@/constants"
 import { Get } from "@/utils/substrate.helpers"
 import { GetResponseService } from "@/services/getResponse.service"
 import { Status } from "@/configs/src/types"
@@ -38,7 +38,7 @@ export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promi
 		params: [[{ commitment: commitment.toString() }]],
 	}
 
-	const response = await fetch(replaceWebsocketWithHttp(SUBSTRATE_RPC_URL[host]), {
+	const response = await fetch(replaceWebsocketWithHttp(ENV_CONFIG[host]), {
 		method: "POST",
 		headers: {
 			accept: "application/json",

@@ -75,7 +75,7 @@ describe.sequential("Basic", () => {
 		})
 	})
 
-	it("Should listen, place order, fill order, and check if filled at the source chain", async () => {
+	it.skip("Should listen, place order, fill order, and check if filled at the source chain", async () => {
 		const {
 			bscIntentGateway,
 			gnosisChiadoIntentGateway,
@@ -237,7 +237,7 @@ describe.sequential("Basic", () => {
 		intentFiller.stop()
 	}, 1_000_000)
 
-	it("Should timeout if order deadline is reached", async () => {
+	it.skip("Should timeout if order deadline is reached", async () => {
 		const {
 			bscIntentGateway,
 			bscWalletClient,

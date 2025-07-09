@@ -77,8 +77,7 @@ Thumbs.db
 .tsconfig
 .tsbuildinfo
 
-evm-ws.json
-substrate-ws.json
+env-config.json
 chain-ids-by-genesis.ts
 chains-by-ismp-host.ts
 

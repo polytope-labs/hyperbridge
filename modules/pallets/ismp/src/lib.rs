@@ -86,9 +86,7 @@ pub mod pallet {
 	pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
 	#[pallet::config]
-	pub trait Config:
-		polkadot_sdk::frame_system::Config
-	{
+	pub trait Config: polkadot_sdk::frame_system::Config {
 		// /// The overarching event type.
 		type RuntimeEvent: From<Event<Self>>
 			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
@@ -260,7 +258,7 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
 	where
-		<T as frame_system::Config>::Hash: From<H256>
+		<T as frame_system::Config>::Hash: From<H256>,
 	{
 		fn on_finalize(_n: BlockNumberFor<T>) {
 			let state_version = <T as polkadot_sdk::frame_system::Config>::Version::get()

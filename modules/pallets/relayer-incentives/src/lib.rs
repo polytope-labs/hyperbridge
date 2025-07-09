@@ -113,7 +113,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Update cost per block for a state machine
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as pallet::Config>::WeightInfo::update_cost_per_block())]
+		#[pallet::weight(T::WeightInfo::update_cost_per_block())]
 		pub fn update_cost_per_block(
 			origin: OriginFor<T>,
 			state_machine_id: StateMachineId,

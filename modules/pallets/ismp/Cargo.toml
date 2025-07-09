@@ -31,7 +31,7 @@ features = [
     "sp-core",
     "sp-std",
     "sp-api",
-    "sp-mmr-primitives"
+    "sp-mmr-primitives",
 ]
 
 [dev-dependencies]

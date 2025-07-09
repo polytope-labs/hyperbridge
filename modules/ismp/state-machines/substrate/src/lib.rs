@@ -381,8 +381,7 @@ pub fn fetch_overlay_root_and_timestamp(
 					let timestamp_digest = TimestampDigest::decode(&mut &value[..]).map_err(|e| {
 						Error::Custom(format!("Failed to decode timestamp digest: {e:?}"))
 					})?;
-					digest_result.timestamp =
-						Duration::from_millis(timestamp_digest.timestamp).as_secs();
+					digest_result.timestamp = timestamp_digest.timestamp;
 				},
 			DigestItem::PreRuntime(consensus_engine_id, value)
 				if *consensus_engine_id == AURA_ENGINE_ID =>

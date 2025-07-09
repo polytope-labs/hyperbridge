@@ -77,7 +77,7 @@ pub mod pallet {
 	};
 	use sp_runtime::{
 		traits::{AccountIdConversion, AtLeast32BitUnsigned},
-		FixedPointOperand,
+		FixedPointOperand, SaturatedConversion
 	};
 	use sp_std::prelude::*;
 	pub use utils::*;
@@ -87,7 +87,7 @@ pub mod pallet {
 
 	#[pallet::config]
 	pub trait Config:
-		polkadot_sdk::frame_system::Config + polkadot_sdk::pallet_timestamp::Config
+		polkadot_sdk::frame_system::Config
 	{
 		// /// The overarching event type.
 		type RuntimeEvent: From<Event<Self>>
@@ -260,8 +260,7 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
 	where
-		<T as frame_system::Config>::Hash: From<H256>,
-		<T as pallet_timestamp::Config>::Moment: Into<u64>,
+		<T as frame_system::Config>::Hash: From<H256>
 	{
 		fn on_finalize(_n: BlockNumberFor<T>) {
 			let state_version = <T as polkadot_sdk::frame_system::Config>::Version::get()
@@ -286,8 +285,11 @@ pub mod pallet {
 			let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
 			<frame_system::Pallet<T>>::deposit_log(digest);
 
-			let timestamp_millis = <pallet_timestamp::Pallet<T>>::get();
-			let timestamp_log = TimestampDigest { timestamp: timestamp_millis.into() };
+			let timestamp_secs = T::TimestampProvider::now()
+				.as_millis()
+				.saturated_into::<u64>()
+				.saturating_div(1000);
+			let timestamp_log = TimestampDigest { timestamp: timestamp_secs };
 			let timestamp_digest = sp_runtime::generic::DigestItem::PreRuntime(
 				ISMP_TIMESTAMP_ID,
 				timestamp_log.encode(),

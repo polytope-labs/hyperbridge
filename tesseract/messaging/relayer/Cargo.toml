@@ -53,7 +53,7 @@ features = ["sc-service"]
 
 [dev-dependencies]
 divide_range = "0.1.1"
-subxt = { workspace = true, features = ["substrate-compat"] }
+subxt = { workspace = true }
 pallet-ismp-rpc = { workspace = true, default-features = true }
 itertools = "0.12.1"
 pallet-ismp-host-executive = { workspace = true, default-features = true }

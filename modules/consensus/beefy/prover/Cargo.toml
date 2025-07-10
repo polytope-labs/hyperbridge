@@ -19,7 +19,7 @@ rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun
 hex-literal = "0.4.1"
 hex = { version = "0.4.3" }
 
-subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
+subxt = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true }
 merkle-mountain-range = { workspace = true }
 

@@ -18,7 +18,7 @@ itertools = "0.12.1"
 tracing = "0.1.40"
 sp-core = { workspace = true, default-features = true }
 hex = "0.4.3"
-subxt = { workspace = true, features = ["substrate-compat"] }
+subxt = { workspace = true }
 chrono = "0.4.31"
 codec = { workspace = true, features = ["derive"] }
 

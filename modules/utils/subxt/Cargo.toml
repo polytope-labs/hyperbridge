@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 subxt = { workspace = true }
+subxt-rpcs = { workspace = true }
 ismp = { workspace = true }
 codec = { workspace = true }
 anyhow = { workspace = true }
@@ -35,5 +36,4 @@ std = [
     "reconnecting-jsonrpsee-ws-client/native",
     "pallet-hyperbridge/std",
     "pallet-ismp-host-executive/std",
-    "subxt/substrate-compat",
 ]

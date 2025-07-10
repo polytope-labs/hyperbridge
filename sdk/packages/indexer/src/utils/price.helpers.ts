@@ -337,7 +337,7 @@ export default class PriceHelper {
 			}
 
 			const data = (await response.json()) as Record<string, { usd: number }>
-			const priceUsd = data[symbol]?.usd
+			const priceUsd = data[symbol.toLowerCase()]?.usd
 
 			if (!priceUsd || priceUsd <= 0) {
 				throw new Error(`Price not found for symbol: ${symbol}`)

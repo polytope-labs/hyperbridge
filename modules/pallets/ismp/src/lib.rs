@@ -77,7 +77,7 @@ pub mod pallet {
 	};
 	use sp_runtime::{
 		traits::{AccountIdConversion, AtLeast32BitUnsigned},
-		FixedPointOperand, SaturatedConversion
+		FixedPointOperand,
 	};
 	use sp_std::prelude::*;
 	pub use utils::*;
@@ -283,10 +283,7 @@ pub mod pallet {
 			let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
 			<frame_system::Pallet<T>>::deposit_log(digest);
 
-			let timestamp_secs = T::TimestampProvider::now()
-				.as_millis()
-				.saturated_into::<u64>()
-				.saturating_div(1000);
+			let timestamp_secs = T::TimestampProvider::now().as_secs();
 			let timestamp_log = TimestampDigest { timestamp: timestamp_secs };
 			let timestamp_digest = sp_runtime::generic::DigestItem::PreRuntime(
 				ISMP_TIMESTAMP_ID,

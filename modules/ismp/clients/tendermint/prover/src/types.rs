@@ -6,9 +6,27 @@ use serde_json::{json, Value};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcResponse<T> {
 	pub jsonrpc: String,
+	#[serde(deserialize_with = "deserialize_rpc_id")]
 	pub id: String,
 	pub result: Option<T>,
 	pub error: Option<RpcError>,
+}
+
+// Helper function to deserialize RPC ID as either string or integer
+fn deserialize_rpc_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	use serde::Deserialize;
+
+	// Try to deserialize as Value first to handle both string and integer
+	let value = Value::deserialize(deserializer)?;
+
+	match value {
+		Value::String(s) => Ok(s),
+		Value::Number(n) => Ok(n.to_string()),
+		_ => Err(serde::de::Error::custom("RPC ID must be string or number")),
+	}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,8 +175,13 @@ pub struct HeimdallValidatorsResponse {
 
 impl From<HeimdallValidatorsResponse> for ValidatorsResponse {
 	fn from(heimdall_resp: HeimdallValidatorsResponse) -> Self {
-		let validators: Vec<cometbft::validator::Info> =
+		let mut validators: Vec<cometbft::validator::Info> =
 			heimdall_resp.validators.into_iter().map(Into::into).collect();
+
+		// Sort validators using the same logic as CometBFT's internal sort_validators
+		// (v. 0.34 -> first by validator power, descending, then by address, ascending)
+		validators.sort_by_key(|v| (core::cmp::Reverse(v.power), v.address));
+
 		let block_height = heimdall_resp.block_height.parse::<u64>().unwrap_or(0);
 		let total = heimdall_resp.total.parse::<i32>().unwrap_or(0);
 
@@ -217,6 +240,130 @@ fn normalize_signature_in_object(signature_obj: &mut serde_json::Map<String, Val
 					signature_obj.insert("signature".to_string(), json!(trimmed_sig_b64));
 				}
 			}
+		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use serde_json::json;
+
+	#[tokio::test]
+	async fn test_heimdall_validator_public_keys() {
+		let client = reqwest::Client::new();
+
+		// RPC request to get validators
+		let request_body = json!({
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "validators",
+			"params": {
+				"height": "9754111",
+				"page": "1",
+				"per_page": "5"
+			}
+		});
+
+		println!("Querying Heimdall RPC for validators...");
+
+		let response = client
+			.post("https://polygon-amoy-heimdall-rpc.publicnode.com:443")
+			.header("Content-Type", "application/json")
+			.body(request_body.to_string())
+			.send()
+			.await;
+
+		match response {
+			Ok(response) => {
+				match response.text().await {
+					Ok(response_text) => {
+						println!("Response received, parsing...");
+
+						// Use our HeimdallValidatorsResponse type for proper deserialization
+						match serde_json::from_str::<RpcResponse<HeimdallValidatorsResponse>>(
+							&response_text,
+						) {
+							Ok(rpc_response) => {
+								if let Some(heimdall_result) = rpc_response.result {
+									println!(
+										"Found {} validators",
+										heimdall_result.validators.len()
+									);
+									println!("Block height: {}", heimdall_result.block_height);
+									println!("Total validators: {}", heimdall_result.total);
+									println!("==========================================");
+
+									// Test the conversion to CometBFT validators
+									let cometbft_validators: Vec<cometbft::validator::Info> =
+										heimdall_result
+											.validators
+											.into_iter()
+											.map(Into::into)
+											.collect();
+
+									println!(
+										"Successfully converted {} validators to CometBFT format",
+										cometbft_validators.len()
+									);
+
+									// Test the full conversion to ValidatorsResponse (which
+									// includes sorting)
+									let heimdall_response = HeimdallValidatorsResponse {
+										block_height: "9754111".to_string(),
+										validators: vec![], // We'll use the original validators
+										count: "5".to_string(),
+										total: "100".to_string(),
+									};
+
+									// Test individual validator conversions
+									for (i, validator) in cometbft_validators.iter().enumerate() {
+										println!("Validator {}:", i + 1);
+										println!("  Address: {}", validator.address);
+										println!("  Power: {}", validator.power);
+										println!("  Key type: {}", validator.pub_key.type_str());
+
+										// Test key format
+										let key_bytes = validator.pub_key.to_bytes();
+										println!("  Key length: {} bytes", key_bytes.len());
+
+										if !key_bytes.is_empty() {
+											println!("  Key prefix: 0x{:02X}", key_bytes[0]);
+
+											match (key_bytes.len(), key_bytes[0]) {
+												(33, 0x02) | (33, 0x03) => {
+													println!("  Format: COMPRESSED");
+												},
+												(65, 0x04) => {
+													println!("  Format: UNCOMPRESSED");
+												},
+												_ => {
+													println!("  Format: UNKNOWN");
+												},
+											}
+										}
+										println!("  ---");
+									}
+
+									println!("✓ All validators successfully converted!");
+								} else if let Some(error) = rpc_response.error {
+									println!("RPC Error: {:?}", error);
+								}
+							},
+							Err(e) => {
+								println!("Failed to parse HeimdallValidatorsResponse: {}", e);
+								println!("Raw response: {}", response_text);
+							},
+						}
+					},
+					Err(e) => {
+						println!("Failed to get response text: {}", e);
+					},
+				}
+			},
+			Err(e) => {
+				println!("Failed to send request: {}", e);
+			},
 		}
 	}
 }

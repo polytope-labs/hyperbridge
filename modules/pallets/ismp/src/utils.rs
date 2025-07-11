@@ -151,6 +151,6 @@ pub const ISMP_TIMESTAMP_ID: sp_runtime::ConsensusEngineId = *b"ISTM";
 /// Timestamp log digest for pallet ismp
 #[derive(Encode, Decode, Clone, scale_info::TypeInfo, Default)]
 pub struct TimestampDigest {
-	/// Timestamp digest	Timestamp value in seconds
+	/// Timestamp value in seconds
 	pub timestamp: u64,
 }

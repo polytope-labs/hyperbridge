@@ -6,18 +6,17 @@ pub use cometbft::{
 	validator::{Info as Validator, Set as ValidatorSet},
 };
 
+pub mod client;
 pub mod error;
-pub mod peppermint_rpc;
 pub mod prover;
-pub mod rpc_client;
+pub mod types;
 
 #[cfg(test)]
 mod tests;
 
+pub use client::{Client, CometBFTClient, HeimdallClient};
 pub use error::ProverError;
-pub use peppermint_rpc::PeppermintRpcClient;
 pub use prover::{prove_header_update, prove_misbehaviour_header};
-pub use rpc_client::TendermintRpcClient;
 
 pub use tendermint_verifier::{
 	ConsensusProof, TrustedState, UpdatedTrustedState, VerificationOptions,

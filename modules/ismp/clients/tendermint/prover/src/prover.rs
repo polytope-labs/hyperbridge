@@ -1,9 +1,9 @@
-use crate::{error::ProverError, rpc_client::TendermintRpcClient, ConsensusProof, TrustedState};
+use crate::{client::Client, error::ProverError, ConsensusProof, TrustedState};
 
 /// Main function to prove a header update
 /// This constructs a consensus proof that can be verified by the verifier
 pub async fn prove_header_update(
-	rpc_client: &TendermintRpcClient,
+	rpc_client: &impl Client,
 	trusted_state: &TrustedState,
 	target_height: u64,
 ) -> Result<ConsensusProof, ProverError> {
@@ -31,7 +31,7 @@ pub async fn prove_header_update(
 
 /// Prove a header for misbehaviour detection
 pub async fn prove_misbehaviour_header(
-	rpc_client: &TendermintRpcClient,
+	rpc_client: &impl Client,
 	trusted_state: &TrustedState,
 	target_height: u64,
 ) -> Result<ConsensusProof, ProverError> {

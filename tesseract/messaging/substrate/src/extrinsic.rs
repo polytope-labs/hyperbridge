@@ -19,15 +19,17 @@ use anyhow::Context;
 use codec::{Decode, Encode};
 use sp_core::H256;
 use subxt::{
-	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
-	ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType, sp_runtime::MultiSignature},
-	rpc::types::DryRunResult,
-	tx::TxPayload,
+	config:: ExtrinsicParams,
+	tx::Payload,
 	OnlineClient,
 };
+use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};
+use subxt::ext::subxt_rpcs::methods::legacy::DryRunResult;
+use polkadot_sdk::sp_runtime::MultiSignature;
+use subxt::config::HashFor;
 
 use subxt_utils::refine_subxt_error;
-pub use subxt_utils::{Extrinsic, InMemorySigner};
+pub use subxt_utils::{InMemorySigner};
 
 #[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
@@ -56,14 +58,12 @@ impl subxt::events::StaticEvent for PostResponseHandledEvent {
 }
 
 /// Send an unsigned extrinsic for ISMP messages.
-pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: TxPayload>(
+pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
 	payload: Tx,
 	wait_for_finalization: bool,
-) -> Result<Option<(T::Hash, Vec<H256>)>, anyhow::Error>
+) -> Result<Option<(HashFor<T>, Vec<H256>)>, anyhow::Error>
 where
-	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
 	let ext = client.tx().create_unsigned(&payload)?;
@@ -115,13 +115,11 @@ where
 }
 
 /// Dry run extrinsic
-pub async fn system_dry_run_unsigned<T: subxt::Config, Tx: TxPayload>(
+pub async fn system_dry_run_unsigned<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
 	payload: Tx,
 ) -> Result<DryRunResult, anyhow::Error>
 where
-	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
 	let ext = client.tx().create_unsigned(&payload)?;

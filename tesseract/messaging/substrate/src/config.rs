@@ -21,8 +21,9 @@ use subxt::{
 	config::{substrate::SubstrateHeader, Hasher},
 	utils::{AccountId32, MultiAddress, MultiSignature, H256},
 };
+use subxt::metadata::types::Metadata;
 
-pub use subxt_utils::{Hyperbridge as KeccakSubstrateChain, PolkadotExtrinsicParams};
+pub use subxt_utils::{Hyperbridge as KeccakSubstrateChain, SubstrateExtrinsicParams};
 
 /// Implements [`subxt::Config`] for substrate chains with blake2 as their hashing algorithm
 #[derive(Clone)]
@@ -34,17 +35,22 @@ pub struct Blake2Hasher;
 
 impl Hasher for Blake2Hasher {
 	type Output = H256;
-	fn hash(s: &[u8]) -> Self::Output {
+
+	fn new(metadata: &Metadata) -> Self {
+		Self
+	}
+
+	fn hash(&self, s: &[u8]) -> Self::Output {
 		blake2_256(s).into()
 	}
 }
 
 impl subxt::Config for Blake2SubstrateChain {
-	type Hash = H256;
 	type AccountId = AccountId32;
 	type Address = MultiAddress<Self::AccountId, u32>;
 	type Signature = MultiSignature;
 	type Hasher = Blake2Hasher;
 	type Header = SubstrateHeader<u32, Blake2Hasher>;
-	type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
+	type ExtrinsicParams = SubstrateExtrinsicParams<Self>;
+	type AssetId = ();
 }

@@ -35,11 +35,9 @@ use sp_core::H256;
 use sp_runtime::traits::{One, Zero};
 use std::collections::{BTreeMap, BTreeSet};
 use subxt::{config::Header, Config, OnlineClient, PolkadotConfig};
-//use subxt::ext::jsonrpsee::rpc_params;
 use subxt::config::HashFor;
 use subxt::backend::{legacy::LegacyRpcMethods, rpc::RpcClient};
-use subxt::ext::subxt_rpcs;
-use subxt_rpcs::rpc_params;
+use subxt::ext::subxt_rpcs::rpc_params;
 
 /// Head data for parachain
 #[derive(Decode, Encode)]

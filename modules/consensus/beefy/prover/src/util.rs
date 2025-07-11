@@ -24,6 +24,9 @@ use sp_runtime::traits::Keccak256;
 use sp_trie::{LayoutV0, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 use std::collections::HashSet;
 use subxt::{Config, OnlineClient};
+use subxt_core::config::HashFor;
+use subxt::backend::legacy::LegacyRpcMethods;
+
 
 /// Holds the timestamp inherent alongside a merkle-patricia trie proof of its existence in a given
 /// block.
@@ -58,10 +61,10 @@ pub struct ParaHeadsProof {
 
 /// Fetch timestamp extrinsic and it's proof
 pub async fn fetch_timestamp_extrinsic_with_proof<T: Config>(
-	client: &OnlineClient<T>,
-	block_hash: Option<T::Hash>,
+	rpc: &LegacyRpcMethods<T>,
+	block_hash: Option<HashFor<T>>,
 ) -> Result<TimeStampExtWithProof, anyhow::Error> {
-	let block = client.rpc().block(block_hash).await?.ok_or_else(|| {
+	let block = rpc.chain_get_block(block_hash).await?.ok_or_else(|| {
 		anyhow!("[get_parachain_headers] Block with hash :{block_hash:?} not found",)
 	})?;
 

@@ -11,7 +11,6 @@ log = { workspace = true, default-features = true }
 anyhow = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true }
 subxt = { workspace = true, default-features = true }
-subxt-rpcs = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true, features = ["derive"] }
 hex-literal = { workspace = true }
 derive_more = { workspace = true, default-features = true }

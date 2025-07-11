@@ -2157,6 +2157,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "rs_merkle 1.2.0",
  "subxt 0.42.1",
+ "subxt-core 0.42.1",
  "subxt-utils",
  "tokio",
 ]
@@ -8162,7 +8163,6 @@ dependencies = [
  "polkadot-sdk 2503.0.1",
  "serde",
  "subxt 0.42.1",
- "subxt-rpcs",
  "subxt-utils",
 ]
 

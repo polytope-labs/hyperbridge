@@ -40,7 +40,11 @@ use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, mmr::BeefyAuthoritySet,
 };
 use sp_io::hashing::keccak_256;
-use subxt::{rpc_params, Config, OnlineClient};
+use subxt::{Config, OnlineClient};
+use subxt::backend::rpc::RpcClient;
+use subxt::ext::subxt_rpcs::rpc_params;
+use subxt_core::config::HashFor;
+use subxt::backend::legacy::LegacyRpcMethods;
 use util::hash_authority_addresses;
 
 /// This contains methods for fetching BEEFY proofs for parachain headers.
@@ -50,8 +54,16 @@ pub struct Prover<R: Config, P: Config> {
 	pub beefy_activation_block: u32,
 	/// Subxt client for the relay chain
 	pub relay: OnlineClient<R>,
+	/// Rpc for the relay chain
+	pub relay_rpc: LegacyRpcMethods<R>,
+	/// Rpc client for making rpc request for the relay chain
+	pub relay_rpc_client: RpcClient,
 	/// Subxt client for the parachain
 	pub para: OnlineClient<P>,
+	/// Rpc for the parachain
+	pub para_rpc: LegacyRpcMethods<P>,
+	/// Rpc client for making rpc request for the parachain
+	pub para_rpc_client: RpcClient,
 	/// Para Id for the associated parachains.
 	pub para_ids: Vec<u32>,
 }
@@ -86,9 +98,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 	/// Construct a beefy client state to be submitted to the counterparty chain
 	pub async fn get_initial_consensus_state(&self) -> Result<ConsensusState, anyhow::Error> {
 		let latest_finalized_head =
-			self.relay.rpc().request("beefy_getFinalizedHead", rpc_params!()).await?;
+			self.relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await?;
 		let (signed_commitment, latest_beefy_finalized) =
-			fetch_latest_beefy_justification(&self.relay, latest_finalized_head).await?;
+			fetch_latest_beefy_justification(&self.relay_rpc, latest_finalized_head).await?;
 
 		let mmr_root_hash = signed_commitment
 			.commitment
@@ -104,7 +116,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 				.mmr_leaf_current_authorities(Some(latest_beefy_finalized))
 				.await?,
 			next_authorities: beefy_mmr_leaf_next_authorities(
-				&self.relay,
+				&self.relay_rpc,
 				Some(latest_beefy_finalized),
 			)
 			.await?,
@@ -116,16 +128,14 @@ impl<R: Config, P: Config> Prover<R, P> {
 	/// Fetch the current BEEFY authority set commitment at the provided height
 	pub async fn mmr_leaf_current_authorities(
 		&self,
-		at: Option<R::Hash>,
+		at: Option<HashFor<R>>,
 	) -> Result<BeefyAuthoritySet<H256>, anyhow::Error> {
 		let current_authority_set = {
 			let authority_set = self
-				.relay
-				.rpc()
-				.storage(BEEFY_MMR_LEAF_BEEFY_AUTHORITIES.as_slice(), at)
+				.relay_rpc
+				.state_get_storage(BEEFY_MMR_LEAF_BEEFY_AUTHORITIES.as_slice(), at)
 				.await?
-				.expect("Should retrieve next authority set")
-				.0;
+				.expect("Should retrieve next authority set");
 			BeefyAuthoritySet::decode(&mut &*authority_set)?
 		};
 
@@ -135,13 +145,12 @@ impl<R: Config, P: Config> Prover<R, P> {
 	/// Fetch the BEEFY authority public keys at the provided height
 	pub async fn beefy_authorities(
 		&self,
-		at: Option<R::Hash>,
+		at: Option<HashFor<R>>,
 	) -> Result<Vec<[u8; 33]>, anyhow::Error> {
 		// Encoding and decoding to fix dependency version conflicts
 		let current_authorities = {
-			self.relay
-				.rpc()
-				.storage(BEEFY_AUTHORITIES.as_slice(), at)
+			self.relay_rpc
+				.state_get_storage(BEEFY_AUTHORITIES.as_slice(), at)
 				.await?
 				.map(|data| Vec::<[u8; 33]>::decode(&mut data.as_ref()))
 				.transpose()?
@@ -156,17 +165,16 @@ impl<R: Config, P: Config> Prover<R, P> {
 		&self,
 		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
 	) -> Result<ConsensusMessage, anyhow::Error> {
-		let block_number: subxt::rpc::types::NumberOrHex =
+		let block_number: u32 =
 			signed_commitment.commitment.block_number.into();
 		let block_hash = self
-			.relay
-			.rpc()
-			.block_hash(Some(block_number.into()))
+			.relay_rpc
+			.chain_get_block_hash(Some(block_number.into()))
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
 		let (mmr_proof, latest_leaf) =
-			fetch_mmr_proof(&self.relay, block_number.try_into()?).await?;
+			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?).await?;
 
 		// create authorities proof
 		let signatures = signed_commitment
@@ -208,8 +216,8 @@ impl<R: Config, P: Config> Prover<R, P> {
 		};
 
 		let heads = paras_parachains(
-			&self.relay,
-			Some(R::Hash::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
+			&self.relay_rpc,
+			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
 		)
 		.await?;
 		let (parachains, indices): (Vec<_>, Vec<_>) = self

@@ -540,8 +540,8 @@ mod tests {
 		uncompressed_validators.sort_by_key(|v| (core::cmp::Reverse(v.power), v.address));
 
 		// Step 6: Compute validator hashes using both formats
-		let compressed_hash = compute_validator_hash(&compressed_validators);
-		let uncompressed_hash = compute_validator_hash(&uncompressed_validators);
+		let compressed_hash = compute_validator_hash_with_key_format(&cometbft_validators, false);
+		let uncompressed_hash = compute_validator_hash_with_key_format(&cometbft_validators, true);
 
 		println!("\n=== Results ===");
 		println!("Header validators hash: {}", header_validators_hash);
@@ -578,13 +578,33 @@ mod tests {
 	) -> cometbft::validator::Info {
 		// For secp256k1 keys, we need to convert from compressed to uncompressed
 		if let Some(secp256k1_key) = validator.pub_key.secp256k1() {
+			// Get original compressed bytes
+			let original_bytes = validator.pub_key.to_bytes();
+			println!(
+				"Original key: {} bytes, prefix: 0x{:02X}",
+				original_bytes.len(),
+				original_bytes[0]
+			);
+
 			// Convert to uncompressed format (65 bytes with 0x04 prefix)
 			let uncompressed_bytes = secp256k1_key.to_encoded_point(false).as_bytes().to_vec();
+			println!(
+				"Uncompressed bytes: {} bytes, prefix: 0x{:02X}",
+				uncompressed_bytes.len(),
+				uncompressed_bytes[0]
+			);
 
 			// Create a new public key from uncompressed bytes
 			if let Some(uncompressed_pubkey) =
 				cometbft::PublicKey::from_raw_secp256k1(&uncompressed_bytes)
 			{
+				let new_bytes = uncompressed_pubkey.to_bytes();
+				println!(
+					"New key from uncompressed: {} bytes, prefix: 0x{:02X}",
+					new_bytes.len(),
+					new_bytes[0]
+				);
+
 				return cometbft::validator::Info {
 					pub_key: uncompressed_pubkey,
 					..validator.clone()
@@ -594,6 +614,59 @@ mod tests {
 
 		// For non-secp256k1 keys, return as-is
 		validator.clone()
+	}
+
+	/// Compute validator hash with manually controlled key format
+	fn compute_validator_hash_with_key_format(
+		validators: &[cometbft::validator::Info],
+		use_uncompressed: bool,
+	) -> cometbft::Hash {
+		use cometbft::{crypto::default::Sha256, merkle::simple_hash_from_byte_vectors};
+
+		// Convert validators to SimpleValidator format (pub_key + voting_power)
+		let validator_bytes: Vec<Vec<u8>> = validators
+			.iter()
+			.map(|validator| {
+				let pub_key_bytes = if use_uncompressed {
+					// Manually create uncompressed key bytes
+					if let Some(secp256k1_key) = validator.pub_key.secp256k1() {
+						secp256k1_key.to_encoded_point(false).as_bytes().to_vec()
+					} else {
+						validator.pub_key.to_bytes()
+					}
+				} else {
+					validator.pub_key.to_bytes()
+				};
+
+				// Create SimpleValidator protobuf with manual key bytes
+				// Note: Go CometBFT uses Secp256K1Uncompressed for secp256k1 keys
+				let simple_validator = if use_uncompressed {
+					cometbft_proto::types::v1::SimpleValidator {
+						pub_key: Some(cometbft_proto::crypto::v1::PublicKey {
+							sum: Some(cometbft_proto::crypto::v1::public_key::Sum::Bls12381(
+								pub_key_bytes,
+							)),
+						}),
+						voting_power: validator.power.into(),
+					}
+				} else {
+					cometbft_proto::types::v1::SimpleValidator {
+						pub_key: Some(cometbft_proto::crypto::v1::PublicKey {
+							sum: Some(cometbft_proto::crypto::v1::public_key::Sum::Secp256k1(
+								pub_key_bytes,
+							)),
+						}),
+						voting_power: validator.power.into(),
+					}
+				};
+
+				// Serialize to bytes
+				simple_validator.encode_to_vec()
+			})
+			.collect();
+
+		// Hash the validator bytes
+		cometbft::Hash::Sha256(simple_hash_from_byte_vectors::<Sha256>(&validator_bytes))
 	}
 
 	/// Compute validator hash using the same algorithm as CometBFT

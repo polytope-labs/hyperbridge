@@ -13,6 +13,7 @@ cometbft = { git = "https://github.com/cometbft/cometbft-rs", features = ["rust-
 cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto" }
 thiserror = "2.0.12"
 serde = { version = "1.0.219", features = ["derive"], optional = true }
+k256 = { version = "0.13", features = ["ecdsa"], optional = true }
 
 
 [dependencies.polkadot-sdk]
@@ -23,6 +24,7 @@ features = ["sp-runtime", "sp-core", "sp-io"]
 default = ["std"]
 std = [
     "serde",
+    "k256",
     "polkadot-sdk/std",
 ]
 no-std = []

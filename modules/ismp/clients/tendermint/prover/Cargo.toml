@@ -16,7 +16,9 @@ serde_json = { version = "1.0", optional = true }
 reqwest = { version = "0.11", features = ["json"], optional = true }
 base64 = { version = "0.21", optional = true }
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"], optional = true }
-k256 = { version = "0.13", features = ["ecdsa"], optional = true }
+sha2 = "0.10.7"
+cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto" }
+prost = "0.13"
 
 # Internal dependencies
 tendermint-verifier = { path = "../verifier", features = ["secp256k1"] }
@@ -33,7 +35,6 @@ std = [
     "reqwest",
     "base64",
     "tokio",
-    "k256",
     "polkadot-sdk/std",
 ]
 no-std = []

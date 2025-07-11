@@ -5,7 +5,8 @@ mod tests {
 	use crate::{prove_header_update, Client, CometBFTClient, HeimdallClient};
 	use tendermint_verifier::{TrustedState, VerificationError, VerificationOptions};
 
-	const STANDARD_RPC_URL: &str = "";
+	const STANDARD_RPC_URL: &str =
+		"https://rpc.ankr.com/sei/d9c18fde9e1f76458a3f5ab81a9fe3be38a0863de3a6274335a08389b5d62a59";
 	const POLYGON_RPC_URL: &str = "https://polygon-amoy-heimdall-rpc.publicnode.com:443";
 
 	#[tokio::test]
@@ -47,7 +48,7 @@ mod tests {
 			trusted_validators,
 			trusted_next_validators,
 			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
-			3600, // 1 hour trusting period
+			7200, // 1 hour trusting period
 			VerificationOptions::default(),
 		);
 		trusted_state.validate()?;

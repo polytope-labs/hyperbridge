@@ -6,8 +6,7 @@ chain = "rococo-local"
 [[relaychain.nodes]]
 name = "alice"
 validator = true
-rpc_port = 9912
-ws_port = 9922
+rpc_port = 9922
 args = [
 	"--enable-offchain-indexing=true", "--pruning=archive",
 ]
@@ -15,8 +14,7 @@ args = [
 [[relaychain.nodes]]
 name = "bob"
 validator = true
-rpc_port = 9913
-ws_port = 9923
+rpc_port = 9923
 args = []
 
 [[relaychain.nodes]]
@@ -29,8 +27,7 @@ args = []
 [[relaychain.nodes]]
 name = "dave"
 validator = true
-rpc_port = 9915
-ws_port = 9925
+rpc_port = 9925
 args = []
 
 [[parachains]]
@@ -42,8 +39,7 @@ cumulus_based = true
 [[parachains.collators]]
 name = "alice"
 validator = true
-rpc_port = 8955
-ws_port = 9990
+rpc_port = 9990
 port = 40337
 command = "./target/release/hyperbridge"
 args = [
@@ -59,8 +55,7 @@ cumulus_based = true
 [[parachains.collators]]
 name = "alice"
 validator = true
-rpc_port = 8956
-ws_port = 9991
+rpc_port = 9991
 port = 40338
 command = "./target/release/hyperbridge"
 args = [

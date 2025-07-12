@@ -33,7 +33,7 @@ use ismp::{
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
-	ConsensusDigest, ISMP_ID,
+	ConsensusDigest, TimestampDigest, ISMP_ID, ISMP_TIMESTAMP_ID,
 };
 use polkadot_sdk::*;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
@@ -375,6 +375,14 @@ pub fn fetch_overlay_root_and_timestamp(
 
 	for digest in digest.logs.iter() {
 		match digest {
+			DigestItem::PreRuntime(consensus_engine_id, value)
+				if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
+			{
+				let timestamp_digest = TimestampDigest::decode(&mut &value[..]).map_err(|e| {
+					Error::Custom(format!("Failed to decode timestamp digest: {e:?}"))
+				})?;
+				digest_result.timestamp = timestamp_digest.timestamp;
+			},
 			DigestItem::PreRuntime(consensus_engine_id, value)
 				if *consensus_engine_id == AURA_ENGINE_ID =>
 			{

@@ -280,9 +280,16 @@ pub mod pallet {
 			};
 
 			let log = ConsensusDigest { child_trie_root, mmr_root: root.into() };
-
 			let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
 			<frame_system::Pallet<T>>::deposit_log(digest);
+
+			let timestamp_secs = T::TimestampProvider::now().as_secs();
+			let timestamp_log = TimestampDigest { timestamp: timestamp_secs };
+			let timestamp_digest = sp_runtime::generic::DigestItem::PreRuntime(
+				ISMP_TIMESTAMP_ID,
+				timestamp_log.encode(),
+			);
+			<frame_system::Pallet<T>>::deposit_log(timestamp_digest);
 		}
 	}
 

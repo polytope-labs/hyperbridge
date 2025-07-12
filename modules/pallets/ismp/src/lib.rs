@@ -285,7 +285,7 @@ pub mod pallet {
 
 			let timestamp_secs = T::TimestampProvider::now().as_secs();
 			let timestamp_log = TimestampDigest { timestamp: timestamp_secs };
-			let timestamp_digest = sp_runtime::generic::DigestItem::PreRuntime(
+			let timestamp_digest = sp_runtime::generic::DigestItem::Consensus(
 				ISMP_TIMESTAMP_ID,
 				timestamp_log.encode(),
 			);

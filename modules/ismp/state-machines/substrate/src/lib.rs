@@ -375,7 +375,7 @@ pub fn fetch_overlay_root_and_timestamp(
 
 	for digest in digest.logs.iter() {
 		match digest {
-			DigestItem::PreRuntime(consensus_engine_id, value)
+			DigestItem::Consensus(consensus_engine_id, value)
 				if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
 			{
 				let timestamp_digest = TimestampDigest::decode(&mut &value[..]).map_err(|e| {

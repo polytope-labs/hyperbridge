@@ -37,23 +37,21 @@ use pallet_ismp::{
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
-use subxt::ext::sp_core::{
+use polkadot_sdk::sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	Pair, H160, H256, U256,
+	crypto::AccountId32
 };
-
+use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
 use subxt::{
 	config::{
-		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
+		 ExtrinsicParams, Header, HashFor
 	},
 	ext::{
-		sp_core::crypto::AccountId32,
-		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+		subxt_rpcs::{rpc_params, methods::legacy::DryRunResult}
 	},
-	rpc::types::DryRunResult,
-	rpc_params,
-	tx::TxPayload,
+	tx::Payload,
 };
 
 use subxt_utils::{
@@ -67,7 +65,7 @@ use tesseract_primitives::{
 
 use crate::{
 	calls::RequestMetadata,
-	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner},
+	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner},
 	SubstrateClient,
 };
 
@@ -76,11 +74,9 @@ impl<C> IsmpProvider for SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	H256: From<<C as subxt::Config>::Hash>,
+	H256: From<<C as subxt::Config>::HashFor<T>>,
 {
 	async fn query_consensus_state(
 		&self,

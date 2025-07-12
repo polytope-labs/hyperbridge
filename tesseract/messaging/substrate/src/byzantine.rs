@@ -12,11 +12,10 @@ use sp_core::H256;
 use substrate_state_machine::fetch_overlay_root_and_timestamp;
 use subxt::{
 	config::{
-		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip,
 		substrate::SubstrateHeader, ExtrinsicParams, Header,
 	},
-	ext::sp_runtime::{AccountId32, MultiSignature},
 };
+use polkadot_sdk::sp_runtime::{AccountId32, MultiSignature};
 
 use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpProvider};
 

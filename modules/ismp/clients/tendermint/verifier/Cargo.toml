@@ -13,6 +13,9 @@ cometbft = { git = "https://github.com/cometbft/cometbft-rs", features = ["rust-
 cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto" }
 thiserror = "2.0.12"
 serde = { version = "1.0.219", features = ["derive"], optional = true }
+prost = "0.13"
+sha3 = "0.10"
+k256 = { version = "0.13", features = ["ecdsa"] }
 
 
 [dependencies.polkadot-sdk]

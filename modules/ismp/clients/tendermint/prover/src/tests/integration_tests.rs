@@ -4,27 +4,27 @@ mod tests {
 
 	use crate::{prove_header_update, Client, CometBFTClient, HeimdallClient};
 	use tendermint_verifier::{TrustedState, VerificationError, VerificationOptions};
+	use tracing::trace;
 
-	const STANDARD_RPC_URL: &str =
-		"https://rpc.ankr.com/sei/d9c18fde9e1f76458a3f5ab81a9fe3be38a0863de3a6274335a08389b5d62a59";
+	const STANDARD_RPC_URL: &str = "https://rpc.osmotest5.osmosis.zone:443";
 	const POLYGON_RPC_URL: &str = "https://polygon-amoy-heimdall-rpc.publicnode.com:443";
 
 	#[tokio::test]
 	async fn test_standard_tendermint_integration() {
-		println!("Testing Standard Tendermint");
+		trace!("Testing Standard Tendermint");
 		run_integration_test_standard(STANDARD_RPC_URL).await.unwrap();
 	}
 
 	#[tokio::test]
 	async fn test_polygon_heimdall_basic_rpc() {
-		println!("Testing Polygon's Heimdall Fork (Basic RPC)");
+		trace!("Testing Polygon's Heimdall Fork (Basic RPC)");
 		test_polygon_basic_rpc(POLYGON_RPC_URL).await.unwrap();
 	}
 
 	// Fails with Invalid Proof, debugging
 	#[tokio::test]
 	async fn test_polygon_heimdall_full_verification() {
-		println!("Testing Polygon's Heimdall Fork (Full Verification)");
+		trace!("Testing Polygon's Heimdall Fork (Full Verification)");
 		run_integration_test_heimdall(POLYGON_RPC_URL).await.unwrap();
 	}
 
@@ -48,17 +48,17 @@ mod tests {
 			trusted_validators,
 			trusted_next_validators,
 			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
-			7200, // 1 hour trusting period
+			7200, // 2 hour trusting period
 			VerificationOptions::default(),
 		);
 		trusted_state.validate()?;
 		let target_height = latest_height.saturating_sub(5);
-		println!("Consensus proof generation started");
+		trace!("Consensus proof generation started");
 		let consensus_proof = prove_header_update(&client, &trusted_state, target_height).await?;
-		println!("Consensus proof generated");
+		trace!("Consensus proof generated");
 		consensus_proof.validate()?;
 		let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-		println!("Verification started");
+		trace!("Verification started");
 		match tendermint_verifier::verify_header_update(
 			trusted_state,
 			consensus_proof,
@@ -66,7 +66,7 @@ mod tests {
 			current_time,
 		) {
 			Ok(updated_state) => {
-				println!(
+				trace!(
 					"Verification successful! Updated trusted state height: {}",
 					updated_state.trusted_state.height
 				);
@@ -109,12 +109,12 @@ mod tests {
 		);
 		trusted_state.validate()?;
 		let target_height = latest_height.saturating_sub(5);
-		println!("Consensus proof generation started");
+		trace!("Consensus proof generation started");
 		let consensus_proof = prove_header_update(&client, &trusted_state, target_height).await?;
-		println!("Consensus proof generated");
+		trace!("Consensus proof generated");
 		consensus_proof.validate()?;
 		let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-		println!("Verification started");
+		trace!("Verification started");
 		match tendermint_verifier::verify_header_update(
 			trusted_state,
 			consensus_proof,
@@ -122,7 +122,7 @@ mod tests {
 			current_time,
 		) {
 			Ok(updated_state) => {
-				println!(
+				trace!(
 					"Verification successful! Updated trusted state height: {}",
 					updated_state.trusted_state.height
 				);
@@ -145,18 +145,18 @@ mod tests {
 		let client = HeimdallClient::new(rpc_url);
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
-		println!("Chain ID: {}", chain_id);
+		trace!("Chain ID: {}", chain_id);
 		let latest_height = client.latest_height().await?;
-		println!("Latest height: {}", latest_height);
+		trace!("Latest height: {}", latest_height);
 		let test_height = latest_height.saturating_sub(10);
 		let header = client.signed_header(test_height).await?;
-		println!("Successfully retrieved signed header for height {}", test_height);
-		println!("Header chain ID: {}", header.header.chain_id);
-		println!("Header time: {}", header.header.time);
+		trace!("Successfully retrieved signed header for height {}", test_height);
+		trace!("Header chain ID: {}", header.header.chain_id);
+		trace!("Header time: {}", header.header.time);
 		let validators = client.validators(test_height).await?;
-		println!("Successfully retrieved {} validators", validators.len());
+		trace!("Successfully retrieved {} validators", validators.len());
 		if !validators.is_empty() {
-			println!("First validator pub key type: {:?}", validators[0].pub_key);
+			trace!("First validator pub key type: {:?}", validators[0].pub_key);
 		}
 		Ok(())
 	}

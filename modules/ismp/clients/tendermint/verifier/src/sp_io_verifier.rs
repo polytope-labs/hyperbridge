@@ -1,21 +1,101 @@
+use cometbft::{crypto::Sha256, merkle::simple_hash_from_byte_vectors};
 use cometbft_light_client_verifier::{
 	errors::VerificationError,
 	operations::{
-		ProdCommitValidator, ProvidedVotingPowerCalculator, VotingPowerCalculator, VotingPowerTally,
+		CommitValidator, ProdCommitValidator, ProvidedVotingPowerCalculator, VotingPowerCalculator,
+		VotingPowerTally,
 	},
 	options::Options,
 	predicates::VerificationPredicates,
 	types::{SignedHeader, TrustThreshold, TrustedBlockState, UntrustedBlockState, ValidatorSet},
 	PredicateVerifier, Verdict, Verifier,
 };
+use cometbft_proto::types::v1::SimpleValidator;
 
 use crate::hashing::{SpIoSha256, SpIoSignatureVerifier};
+use prost::Message;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SpIoPredicates;
 
+impl SpIoPredicates {
+	fn validate_validator_set_hash(
+		validators: &ValidatorSet,
+		header_validators_hash: cometbft::Hash,
+		is_next_validators: bool,
+	) -> Result<(), VerificationError> {
+		let hash = validators.hash_with::<SpIoSha256>();
+		if hash != header_validators_hash {
+			let validator_bytes: Vec<Vec<u8>> = validators
+				.validators
+				.iter()
+				.map(|validator| {
+					let pub_key_bytes = {
+						if let Some(secp256k1_key) = validator.pub_key.secp256k1() {
+							secp256k1_key.to_encoded_point(false).as_bytes().to_vec()
+						} else {
+							validator.pub_key.to_bytes()
+						}
+					};
+
+					let simple_validator_bytes = SimpleValidator {
+						pub_key: Some(cometbft_proto::crypto::v1::PublicKey {
+							sum: Some(cometbft_proto::crypto::v1::public_key::Sum::Bls12381(
+								pub_key_bytes,
+							)),
+						}),
+						voting_power: validator.power.into(),
+					};
+
+					simple_validator_bytes.encode_to_vec()
+				})
+				.collect();
+
+			let simple_validator_hash =
+				simple_hash_from_byte_vectors::<SpIoSha256>(&validator_bytes);
+
+			if cometbft::Hash::Sha256(simple_validator_hash) != header_validators_hash {
+				return if is_next_validators {
+					Err(VerificationError::invalid_next_validator_set(header_validators_hash, hash))
+				} else {
+					Err(VerificationError::invalid_validator_set(header_validators_hash, hash))
+				};
+			}
+		}
+		Ok(())
+	}
+}
+
 impl VerificationPredicates for SpIoPredicates {
 	type Sha256 = SpIoSha256;
+
+	fn validator_sets_match(
+		&self,
+		validators: &ValidatorSet,
+		header_validators_hash: cometbft::Hash,
+	) -> Result<(), VerificationError> {
+		Self::validate_validator_set_hash(validators, header_validators_hash, false)
+	}
+
+	fn next_validators_match(
+		&self,
+		next_validators: &ValidatorSet,
+		header_next_validators_hash: cometbft::Hash,
+	) -> Result<(), VerificationError> {
+		Self::validate_validator_set_hash(next_validators, header_next_validators_hash, true)
+	}
+
+	fn valid_commit(
+		&self,
+		signed_header: &SignedHeader,
+		validators: &ValidatorSet,
+		commit_validator: &dyn CommitValidator,
+	) -> Result<(), VerificationError> {
+		commit_validator.validate(signed_header, validators)?;
+		commit_validator.validate_full(signed_header, validators)?;
+
+		Ok(())
+	}
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

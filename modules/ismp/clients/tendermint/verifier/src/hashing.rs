@@ -52,16 +52,33 @@ impl signature::Verifier for SpIoSignatureVerifier {
 			},
 			#[cfg(feature = "secp256k1")]
 			PublicKey::Secp256k1(pk) => {
-				let sig = polkadot_sdk::sp_core::ecdsa::Signature::try_from(signature.as_bytes())
-					.map_err(|_| signature::Error::MalformedSignature)?;
+				use polkadot_sdk::sp_core::ByteArray;
+
 				let pub_key = polkadot_sdk::sp_core::ecdsa::Public::from_raw(
-					pk.to_encoded_point(true)
-						.as_bytes()
-						.try_into()
-						.map_err(|_| signature::Error::MalformedPublicKey)?,
+					pk.to_encoded_point(true).as_bytes().try_into().map_err(|e| {
+						println!("[DEBUG] Failed to parse public key: {:?}", e);
+						signature::Error::MalformedPublicKey
+					})?,
 				);
 
-				if sp_io::crypto::ecdsa_verify(&sig, msg, &pub_key) {
+				let raw_sig = signature.as_bytes();
+
+				let msg_hash = sp_io::hashing::keccak_256(msg);
+
+				let mut sig_65_bytes = [0u8; 65];
+				sig_65_bytes[..64].copy_from_slice(raw_sig);
+				sig_65_bytes[64] = 0;
+
+				let sig = polkadot_sdk::sp_core::ecdsa::Signature::from_raw(sig_65_bytes);
+				let mut result = sp_io::crypto::ecdsa_verify_prehashed(&sig, &msg_hash, &pub_key);
+
+				if !result {
+					sig_65_bytes[64] = 1;
+					let sig = polkadot_sdk::sp_core::ecdsa::Signature::from_raw(sig_65_bytes);
+					result = sp_io::crypto::ecdsa_verify_prehashed(&sig, &msg_hash, &pub_key);
+				}
+
+				if result {
 					Ok(())
 				} else {
 					Err(signature::Error::VerificationFailed)

@@ -19,6 +19,9 @@ tokio = { version = "1.0", features = ["rt-multi-thread", "macros"], optional = 
 sha2 = "0.10.7"
 cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto" }
 prost = "0.13"
+sha3 = "0.10"
+hex = "0.4.3"
+tracing = "0.1.40"
 
 # Internal dependencies
 tendermint-verifier = { path = "../verifier", features = ["secp256k1"] }

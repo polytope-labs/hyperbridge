@@ -370,6 +370,10 @@ jobs:
               run: |
                   cargo test -p bsc-prover -- --nocapture --ignored
 
+            - name: Tendermint Polygon Integration Test
+              run: |
+                  cargo test test_polygon_heimdall_full_verification -- --nocapture
+
             - name: Clean up docker
               if: always()
               run: |

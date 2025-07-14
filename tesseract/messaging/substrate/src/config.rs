@@ -18,12 +18,12 @@
 use codec::Encode;
 use sp_core::blake2_256;
 use subxt::{
-	config::{substrate::SubstrateHeader, Hasher},
+	config::{substrate::SubstrateHeader, Hasher, SubstrateExtrinsicParams},
 	utils::{AccountId32, MultiAddress, MultiSignature, H256},
 };
 use subxt::metadata::types::Metadata;
 
-pub use subxt_utils::{Hyperbridge as KeccakSubstrateChain, SubstrateExtrinsicParams};
+pub use subxt_utils::{Hyperbridge as KeccakSubstrateChain};
 
 /// Implements [`subxt::Config`] for substrate chains with blake2 as their hashing algorithm
 #[derive(Clone)]

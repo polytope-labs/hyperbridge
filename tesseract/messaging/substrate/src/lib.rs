@@ -34,6 +34,10 @@ use subxt::{
 	},
 	OnlineClient,
 };
+use subxt::config::{Hash, HashFor};
+use subxt::ext::subxt_rpcs::RpcClient;
+use subxt::backend::legacy::LegacyRpcMethods;
+use subxt::tx::DefaultParams;
 
 mod byzantine;
 pub mod calls;
@@ -73,6 +77,10 @@ pub struct SubstrateConfig {
 pub struct SubstrateClient<C: subxt::Config> {
 	/// Subxt client for the substrate chain
 	pub client: OnlineClient<C>,
+	/// Rpc for the relay chain
+	pub rpc: LegacyRpcMethods<C>,
+	/// Rpc client for making rpc request for the relay chain
+	pub rpc_client: RpcClient,
 	/// Consensus state Id
 	consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this client.
@@ -100,24 +108,24 @@ pub struct SubstrateClient<C: subxt::Config> {
 impl<C> SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
-	H256: From<<C as subxt::Config>::Hash>,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
+	H256: From<HashFor<C>>,
 {
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
 		let client =
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
+		let rpc_client = RpcClient::from_url(&config.rpc_ws).await?;
+		let rpc = LegacyRpcMethods::<C>::new(rpc_client.clone());
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height
 		let initial_height = if let Some(initial_height) = config.initial_height {
 			initial_height
 		} else {
-			client
-				.rpc()
-				.header(None)
+			rpc
+				.chain_get_header(None)
 				.await?
 				.expect("block header should be available")
 				.number()
@@ -135,6 +143,8 @@ where
 		let address = signer.public().0.to_vec();
 		Ok(Self {
 			client,
+			rpc,
+			rpc_client,
 			consensus_state_id,
 			state_machine: config.state_machine,
 			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
@@ -192,6 +202,8 @@ impl<C: subxt::Config> Clone for SubstrateClient<C> {
 	fn clone(&self) -> Self {
 		Self {
 			client: self.client.clone(),
+			rpc: self.rpc.clone(),
+			rpc_client: self.rpc_client.clone(),
 			consensus_state_id: self.consensus_state_id,
 			state_machine: self.state_machine,
 			hashing: self.hashing.clone(),

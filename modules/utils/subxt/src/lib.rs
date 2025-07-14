@@ -4,18 +4,13 @@ use derivative::Derivative;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use polkadot_sdk::*;
 use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
-use subxt::{
-	config::{
-		substrate::{
-			BlakeTwo256, SubstrateExtrinsicParams, SubstrateExtrinsicParamsBuilder,
-			SubstrateHeader,
-		},
-		Hasher,
+use subxt::{config::{
+	substrate::{
+		BlakeTwo256, SubstrateExtrinsicParams, SubstrateExtrinsicParamsBuilder as Params,
+		SubstrateHeader,
 	},
-	tx::Payload,
-	utils::{AccountId32, MultiAddress, H256},
-	Metadata,
-};
+	Hasher,
+}, tx::Payload, utils::{AccountId32, MultiAddress, H256}, Metadata, OnlineClient, PolkadotConfig};
 
 pub mod client;
 
@@ -73,7 +68,9 @@ pub mod signer {
 	};
 	use polkadot_sdk::sp_core::{crypto, sr25519, Pair};
 	use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner};
-	use subxt::config::{DefaultExtrinsicParamsBuilder, ExtrinsicParams, HashFor};
+	use subxt::config::{DefaultExtrinsicParams, DefaultExtrinsicParamsBuilder, ExtrinsicParams, HashFor, substrate::SubstrateExtrinsicParamsBuilder as Params, transaction_extensions};
+	use subxt::config::substrate::SubstrateExtrinsicParamsBuilder;
+	use subxt::config::transaction_extensions::{ChargeAssetTxPayment, ChargeAssetTxPaymentParams, ChargeTransactionPayment, ChargeTransactionPaymentParams, CheckGenesis, CheckMortality, CheckMortalityParams, CheckNonce, CheckNonceParams, CheckSpecVersion, CheckTxVersion, VerifySignature};
 	use subxt::tx::DefaultParams;
 
 	#[derive(Clone)]
@@ -113,11 +110,12 @@ pub mod signer {
 		client: &OnlineClient<T>,
 		signer: &InMemorySigner<T>,
 		payload: &Tx,
+		tip: Option<u128>,
 	) -> Result<HashFor<T>, anyhow::Error>
 	where
 		T::AccountId: Into<T::Address> + Clone + 'static,
 		T::Signature: From<MultiSignature> + Send + Sync,
-		<T::ExtrinsicParams as ExtrinsicParams<T>>::Params: DefaultParams,
+		<T::ExtrinsicParams as ExtrinsicParams<T>>::Params: Send + Sync + DefaultParams,
 	{
 		let params = DefaultParams::default_params();
 		let ext = client.tx().create_signed(payload, signer, params).await?;

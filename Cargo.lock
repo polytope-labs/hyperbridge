@@ -25436,7 +25436,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "reconnecting-jsonrpsee-ws-client",
  "subxt 0.42.1",
- "subxt-rpcs",
+ "subxt-signer 0.41.0",
 ]
 
 [[package]]

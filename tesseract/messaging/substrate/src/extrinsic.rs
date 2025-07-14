@@ -15,7 +15,7 @@
 
 //! Extrinsic utilities
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use codec::{Decode, Encode};
 use sp_core::H256;
 use subxt::{
@@ -23,10 +23,12 @@ use subxt::{
 	tx::Payload,
 	OnlineClient,
 };
-use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};
+use subxt::ext::{scale_decode::DecodeAsFields, scale_encode::EncodeAsType, scale_decode::DecodeAsType};
 use subxt::ext::subxt_rpcs::methods::legacy::DryRunResult;
 use polkadot_sdk::sp_runtime::MultiSignature;
+use subxt::backend::chain_head::rpc_methods::DryRunResultBytes;
 use subxt::config::HashFor;
+use subxt::backend::legacy::LegacyRpcMethods;
 
 use subxt_utils::refine_subxt_error;
 pub use subxt_utils::{InMemorySigner};
@@ -35,7 +37,7 @@ pub use subxt_utils::{InMemorySigner};
 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 pub struct RequestResponseHandled {
-	pub commitment: primitive_types_old::H256,
+	pub commitment: H256,
 	pub relayer: Vec<u8>,
 }
 
@@ -81,11 +83,7 @@ where
 	};
 	let ext_hash = progress.extrinsic_hash();
 
-	let tx_in_block = if wait_for_finalization {
-		progress.wait_for_finalized().await
-	} else {
-		progress.wait_for_in_block().await
-	};
+	let tx_in_block = progress.wait_for_finalized().await;
 
 	let extrinsic = match tx_in_block {
 		Ok(p) => p,
@@ -93,6 +91,8 @@ where
 			"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
 		))?,
 	};
+
+	let block_hash = extrinsic.block_hash();
 
 	let (hash, receipts) = match extrinsic.wait_for_success().await {
 		Ok(p) => {
@@ -106,7 +106,7 @@ where
 				.filter_map(|ev| ev.ok().map(|e| e.0.commitment.0.into()))
 				.collect::<Vec<H256>>();
 			receipts.extend(temp_2);
-			(p.block_hash(), receipts)
+			(block_hash, receipts)
 		},
 		Err(err) => Err(refine_subxt_error(err))
 			.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
@@ -115,14 +115,15 @@ where
 }
 
 /// Dry run extrinsic
-pub async fn system_dry_run_unsigned<T: subxt::Config, Tx: Payload>(
+pub async fn system_dry_run_unsigned< T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
+	rpc:  &LegacyRpcMethods<T>,
 	payload: Tx,
-) -> Result<DryRunResult, anyhow::Error>
+) -> Result<DryRunResultBytes, anyhow::Error>
 where
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
 	let ext = client.tx().create_unsigned(&payload)?;
-	let result = ext.dry_run(None).await?;
+	let result = rpc.dry_run(ext.encoded(), None).await?;
 	Ok(result)
 }

@@ -42,7 +42,7 @@ use polkadot_sdk::sp_core::{
 	Pair, H160, H256, U256,
 	crypto::AccountId32
 };
-use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner};
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
 use subxt::{
 	config::{
@@ -53,6 +53,8 @@ use subxt::{
 	},
 	tx::Payload,
 };
+use subxt::dynamic::Value;
+use subxt::tx::DefaultParams;
 
 use subxt_utils::{
 	fisherman_storage_key, host_params_storage_key, send_extrinsic,
@@ -76,7 +78,8 @@ where
 	C::Header: Send + Sync,
 	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	H256: From<<C as subxt::Config>::HashFor<T>>,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
+	H256: From<HashFor<C>>,
 {
 	async fn query_consensus_state(
 		&self,
@@ -84,7 +87,7 @@ where
 		id: ConsensusClientId,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		let params = rpc_params![at, id];
-		let response = self.client.rpc().request("ismp_queryConsensusState", params).await?;
+		let response = self.rpc_client.request("ismp_queryConsensusState", params).await?;
 
 		Ok(response)
 	}
@@ -92,17 +95,16 @@ where
 	async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, anyhow::Error> {
 		let params = rpc_params![id];
 		let response =
-			self.client.rpc().request("ismp_queryStateMachineLatestHeight", params).await?;
+			self.rpc_client.request("ismp_queryStateMachineLatestHeight", params).await?;
 
 		Ok(response)
 	}
 
 	async fn query_finalized_height(&self) -> Result<u64, anyhow::Error> {
-		let finalized = self.client.rpc().finalized_head().await?;
+		let finalized = self.rpc.chain_get_finalized_head().await?;
 		let block = self
-			.client
-			.rpc()
-			.header(Some(finalized))
+			.rpc
+			.chain_get_header(Some(finalized))
 			.await?
 			.ok_or_else(|| anyhow!("Finalized header should exist {finalized:?}"))?;
 		Ok(block.number().into())
@@ -115,7 +117,7 @@ where
 		let key = state_machine_update_time_storage_key(height);
 		let block = self.client.blocks().at_latest().await?;
 		let raw_value =
-			self.client.storage().at(block.hash()).fetch_raw(&key).await?.ok_or_else(|| {
+			self.client.storage().at(block.hash()).fetch_raw(key.clone()).await?.ok_or_else(|| {
 				anyhow!(
 					"State machine update for {:?} not found at block {:?}",
 					height,
@@ -147,7 +149,7 @@ where
 					ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
 				let response: pallet_ismp_rpc::Proof =
-					self.client.rpc().request("mmr_queryProof", params).await?;
+					self.rpc_client.request("mmr_queryProof", params).await?;
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
@@ -158,7 +160,7 @@ where
 					.collect();
 				let params = rpc_params![at, keys];
 				let response: pallet_ismp_rpc::Proof =
-					self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
+					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
 				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
 					hasher: self.hashing.clone(),
@@ -187,7 +189,7 @@ where
 					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
 				let response: pallet_ismp_rpc::Proof =
-					self.client.rpc().request("mmr_queryProof", params).await?;
+					self.rpc_client.request("mmr_queryProof", params).await?;
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
@@ -198,7 +200,7 @@ where
 					.collect();
 				let params = rpc_params![at, keys];
 				let response: pallet_ismp_rpc::Proof =
-					self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
+					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
 				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
 					hasher: self.hashing.clone(),
@@ -219,7 +221,7 @@ where
 			StateProofQueryType::Ismp(keys) => {
 				let params = rpc_params![at, keys];
 				let response: pallet_ismp_rpc::Proof =
-					self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
+					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
 				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
 					hasher: self.hashing.clone(),
@@ -230,7 +232,7 @@ where
 			StateProofQueryType::Arbitrary(keys) => {
 				let params = rpc_params![at, keys];
 				let response: pallet_ismp_rpc::Proof =
-					self.client.rpc().request("ismp_queryStateProof", params).await?;
+					self.rpc_client.request("ismp_queryStateProof", params).await?;
 
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
 				let proof = SubstrateStateProof::StateProof(StateMachineProof {
@@ -263,8 +265,7 @@ where
 				BlockNumberOrHash::<H256>::Number(end as u32)
 			];
 			let response = self
-				.client
-				.rpc()
+				.rpc_client
 				.request::<HashMap<String, Vec<Event>>>("ismp_queryEvents", params)
 				.await;
 			match response {
@@ -316,10 +317,16 @@ where
 				.into_iter()
 				.map(|msg| {
 					let call = vec![msg].encode();
-					let extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
+					let extrinsic = subxt::dynamic::tx(
+						"Ismp",
+						"handle_unsigned",
+						vec![Value::from_bytes(call)]
+					);
 					let client = self.client.clone();
+					let rpc = self.rpc.clone();
 					tokio::spawn(async move {
-						let result = system_dry_run_unsigned(&client, extrinsic).await?;
+						let result_bytes = system_dry_run_unsigned(&client, &rpc, extrinsic).await?;
+						let result = result_bytes.into_dry_run_result().map_err(|e| anyhow!("error dry running call"))?;
 						match result {
 							DryRunResult::Success => Ok::<_, Error>(EstimateGasReturnParams {
 								execution_cost: Default::default(),
@@ -350,10 +357,10 @@ where
 		let key = self.req_commitments_key(_hash);
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		let data = response.ok_or_else(|| anyhow!("Request fee metadata query returned None"))?;
 		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
 		Ok(leaf_meta.meta.fee.into())
@@ -363,10 +370,10 @@ where
 		let key = self.req_receipts_key(_hash);
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		if let Some(data) = response {
 			let relayer = Vec::<u8>::decode(&mut &*data.0)?;
 			Ok(relayer)
@@ -379,10 +386,10 @@ where
 		let key = self.res_receipt_key(_hash);
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		if let Some(data) = response {
 			let relayer = pallet_ismp::ResponseReceipt::decode(&mut &*data.0)?.relayer;
 			Ok(relayer)
@@ -395,10 +402,10 @@ where
 		let key = self.res_commitments_key(_hash);
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		let data = response.ok_or_else(|| anyhow!("Response fee metadata query returned None"))?;
 		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
 		Ok(leaf_meta.meta.fee.into())
@@ -420,7 +427,7 @@ where
 					return
 				}
 				tokio::time::sleep(Duration::from_secs(10)).await;
-				let header = match client.client.rpc().header(None).await {
+				let header = match client.rpc.chain_get_header(None).await {
 					Ok(Some(header)) => header,
 					_ => {
 						if let Err(err) = tx
@@ -514,8 +521,8 @@ where
 				let poll_interval = client.config.poll_interval.unwrap_or(10);
 				loop {
 					tokio::time::sleep(Duration::from_secs(poll_interval)).await;
-					let header = match client.client.rpc().finalized_head().await {
-						Ok(hash) => match client.client.rpc().header(Some(hash)).await {
+					let header = match client.rpc.chain_get_finalized_head().await {
+						Ok(hash) => match client.rpc.chain_get_header(Some(hash)).await {
 							Ok(Some(header)) => header,
 							_ => {
 								if let Err(err) = tx
@@ -654,7 +661,11 @@ where
 		for msg in messages.clone() {
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
 			let call = vec![msg].encode();
-			let extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
+			let extrinsic = subxt::dynamic::tx(
+				"Ismp",
+				"handle_unsigned",
+				vec![Value::from_bytes(call)]
+			);
 			// We don't compress consensus messages
 			// We only consider compression for hyperbridge
 			if is_consensus_message || !is_hyperbridge {
@@ -676,7 +687,11 @@ where
 			} else {
 				let compressed_call = buffer[0..compressed_call_len].to_vec();
 				let call = (compressed_call, uncompressed_len as u32).encode();
-				let extrinsic = Extrinsic::new("CallDecompressor", "decompress_call", call);
+				let extrinsic = subxt::dynamic::tx(
+					"CallDecompressor",
+					"decompress_call",
+					vec![Value::from_bytes(call)]
+				);
 				log::trace!(target: "tesseract", "Submitting compressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			}
@@ -694,9 +709,8 @@ where
 		let mut results = vec![];
 		let height = {
 			let block = self
-				.client
-				.rpc()
-				.header(None)
+				.rpc
+				.chain_get_header(None)
 				.await?
 				.ok_or_else(|| anyhow!("Failed to get latest height"))?;
 			block.number().into()
@@ -751,7 +765,7 @@ where
 
 	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, anyhow::Error> {
 		let params = rpc_params![id];
-		let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
+		let response: u64 = self.rpc_client.request("ismp_queryChallengePeriod", params).await?;
 
 		Ok(Duration::from_secs(response))
 	}
@@ -760,12 +774,11 @@ where
 		let timestamp_key =
 			hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb").to_vec();
 		let response = self
-			.client
-			.rpc()
-			.storage(&timestamp_key, None)
+			.rpc
+			.state_get_storage(&timestamp_key, None)
 			.await?
 			.ok_or_else(|| anyhow!("Failed to fetch timestamp"))?;
-		let timestamp: u64 = codec::Decode::decode(&mut response.0.as_slice())?;
+		let timestamp: u64 = codec::Decode::decode(&mut response.as_slice())?;
 
 		Ok(Duration::from_millis(timestamp))
 	}
@@ -817,10 +830,10 @@ where
 		let key = pallet_ismp::child_trie::state_commitment_storage_key(height);
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		let data =
 			response.ok_or_else(|| anyhow!("State commitment not present for state machine"))?;
 		let commitment = Decode::decode(&mut &*data.0)?;
@@ -830,7 +843,7 @@ where
 
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
 		let key = fisherman_storage_key(self.address());
-		let raw_params = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
+		let raw_params = self.client.storage().at_latest().await?.fetch_raw(key.clone()).await?;
 		if raw_params.is_none() {
 			return Ok(());
 		}
@@ -841,8 +854,12 @@ where
 		};
 
 		let call = height.encode();
-		let call = Extrinsic::new("Fishermen", "veto_state_commitment", call);
-		send_extrinsic(&self.client, signer, call, Some(PlainTip::new(100))).await?;
+		let call = subxt::dynamic::tx(
+			"Fishermen",
+			"veto_state_commitment",
+			vec![Value::from_bytes(call)]
+		);
+		send_extrinsic(&self.client, &signer, &call, Some(100)).await?;
 		Ok(())
 	}
 
@@ -856,7 +873,7 @@ where
 			.storage()
 			.at_latest()
 			.await?
-			.fetch_raw(&key)
+			.fetch_raw(key.clone())
 			.await?
 			.ok_or_else(|| anyhow!("Missing host params for {state_machine:?}"))?;
 

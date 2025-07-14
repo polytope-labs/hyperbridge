@@ -16,6 +16,8 @@ use subxt::{
 	},
 };
 use polkadot_sdk::sp_runtime::{AccountId32, MultiSignature};
+use subxt::config::{Hash, HashFor};
+use subxt::tx::DefaultParams;
 
 use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpProvider};
 
@@ -26,11 +28,10 @@ impl<C> ByzantineHandler for SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	H256: From<<C as subxt::Config>::Hash>,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
+	H256: From<HashFor<C>>,
 {
 	async fn check_for_byzantine_attack(
 		&self,
@@ -47,7 +48,7 @@ where
 		};
 
 		let Some(block_hash) =
-			self.client.rpc().block_hash(Some(event.latest_height.into())).await?
+			self.rpc.chain_get_block_hash(Some(event.latest_height.into())).await?
 		else {
 			// If block header is not found veto the state commitment
 
@@ -62,9 +63,8 @@ where
 			return Ok(());
 		};
 		let header = self
-			.client
-			.rpc()
-			.header(Some(block_hash))
+			.rpc
+			.chain_get_header(Some(block_hash))
 			.await?
 			.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
 
@@ -109,7 +109,7 @@ where
 				let state_machine = client.state_machine;
 				loop {
 					tokio::time::sleep(Duration::from_secs(3)).await;
-					let header = match client.client.rpc().header(None).await {
+					let header = match client.rpc.chain_get_header(None).await {
 						Ok(Some(header)) => header,
 						_ => {
 							if let Err(err) = tx

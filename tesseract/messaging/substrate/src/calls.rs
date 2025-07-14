@@ -1,7 +1,7 @@
 //! Functions for updating configuration on pallets
 
 use crate::{
-	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner},
+	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner},
 	SubstrateClient,
 };
 use anyhow::anyhow;
@@ -37,6 +37,9 @@ use subxt::{
 };
 use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner};
 use polkadot_sdk::sp_core::{crypto, Pair};
+use subxt::config::{Hash, HashFor};
+use subxt::dynamic::Value;
+use subxt::tx::DefaultParams;
 use subxt_utils::{relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic};
 use tesseract_primitives::{
 	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
@@ -56,12 +59,11 @@ impl<C> SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	H256: From<<C as subxt::Config>::Hash>,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
+	H256: From<HashFor<C>>,
 {
 	pub async fn create_consensus_state(
 		&self,
@@ -73,10 +75,18 @@ where
 		};
 
 		let call = message.encode();
-		let call = Extrinsic::new("Ismp", "create_consensus_client", call)
-			.encode_call_data(&self.client.metadata())?;
-		let tx = Extrinsic::new("Sudo", "sudo", call);
-		send_extrinsic(&self.client, signer, tx, None).await?;
+		let call = subxt::dynamic::tx(
+			"Ismp",
+			"create_consensus_client",
+			vec![Value::from_bytes(call)]
+		);
+		let call = call.encode_call_data(&self.client.metadata())?;
+		let sudo_payload = subxt::dynamic::tx(
+			"Sudo",
+			"sudo",
+			vec![Value::from_bytes(call)]
+		);
+		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
 
 		Ok(())
 	}
@@ -85,11 +95,19 @@ where
 		&self,
 		params: BTreeMap<StateMachine, HostParam<u128>>,
 	) -> anyhow::Result<()> {
-		let encoded_call = Extrinsic::new("HostExecutive", "set_host_params", params.encode())
-			.encode_call_data(&self.client.metadata())?;
-		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
+		let host_executive_payload = subxt::dynamic::tx(
+			"HostExecutive",
+			"set_host_params",
+			vec![Value::from_bytes(params.encode())]
+		);
+		let encoded_call = host_executive_payload.encode_call_data(&self.client.metadata())?;
+		let sudo_payload = subxt::dynamic::tx(
+			"Sudo",
+			"sudo",
+			vec![Value::from_bytes(encoded_call)]
+		);
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, None).await?;
+		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
 
 		Ok(())
 	}
@@ -100,12 +118,11 @@ impl<C> HyperbridgeClaim for SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	H256: From<<C as subxt::Config>::Hash>,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
+	H256: From<HashFor<C>>,
 {
 	async fn available_amount(
 		&self,
@@ -117,7 +134,11 @@ where
 
 	/// Accumulate accrued fees on hyperbridge by submitting a claim proof
 	async fn accumulate_fees(&self, proof: WithdrawalProof) -> anyhow::Result<()> {
-		let extrinsic = Extrinsic::new("Relayer", "accumulate_fees", proof.encode());
+		let extrinsic = subxt::dynamic::tx(
+			"Relayer",
+			"accumulate_fees",
+			vec![Value::from_bytes(proof.encode())]
+		);
 		let encoded_call = extrinsic.encode_call_data(&self.client.metadata())?;
 		let uncompressed_len = encoded_call.len();
 		let max_compressed_size = zstd_safe::compress_bound(uncompressed_len);
@@ -131,7 +152,11 @@ where
 		} else {
 			let compressed_call = buffer[0..compressed_call_len].to_vec();
 			let call = (compressed_call, uncompressed_len as u32).encode();
-			let extrinsic = Extrinsic::new("CallDecompressor", "decompress_call", call);
+			let extrinsic = subxt::dynamic::tx(
+				"CallDecompressor",
+				"decompress_call",
+				vec![Value::from_bytes(call)]
+			);
 			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		}
 
@@ -145,7 +170,7 @@ where
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
 		let key = relayer_nonce_storage_key(counterparty.address(), chain);
-		let raw_value = self.client.storage().at_latest().await?.fetch_raw(&key).await?;
+		let raw_value = self.client.storage().at_latest().await?.fetch_raw(key.clone()).await?;
 		let nonce =
 			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
 
@@ -155,17 +180,20 @@ where
 		};
 
 		let input_data = WithdrawalInputData { signature, dest_chain: chain };
+		let tx = subxt::dynamic::tx(
+			"Relayer",
+			"withdraw_fees",
+			vec![Value::from_bytes(input_data.encode())]
+		);
 
-		let tx = Extrinsic::new("Relayer", "withdraw_fees", input_data.encode());
 		// Wait for finalization so we still get the correct block with the post request event even
 		// if a reorg happens
 		let (hash, _) = send_unsigned_extrinsic(&self.client, tx, true)
 			.await?
 			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
 		let block_number = self
-			.client
-			.rpc()
-			.header(Some(hash))
+			.rpc
+			.chain_get_header(Some(hash))
 			.await?
 			.ok_or_else(|| anyhow!("Header should exists"))?
 			.number()
@@ -219,19 +247,19 @@ where
 					ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 				let storage_key = StorageKey(key);
 
-				rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None]
+				rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None]
 			},
 			Key::Response { response_commitment, .. } => {
 				let key = self.res_commitments_key(response_commitment);
 				let child_storage_key =
 					ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
 				let storage_key = StorageKey(key);
-				rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None]
+				rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None]
 			},
 		};
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		let data = response.ok_or_else(|| anyhow!("Request fee metadata query returned None"))?;
 		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
 
@@ -244,14 +272,16 @@ impl<C> HandleGetResponse for SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::AccountId:
 		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
 	async fn submit_get_response(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
-		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
+		let tx = subxt::dynamic::tx(
+			"StateCoprocessor",
+			"handle_unsigned",
+			vec![Value::from_bytes(msg.encode())]
+		);
 		let _ = send_unsigned_extrinsic(&self.client, tx, false)
 			.await?
 			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
@@ -259,8 +289,14 @@ where
 	}
 
 	async fn dry_run_submission(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
-		let tx = Extrinsic::new("StateCoprocessor", "handle_unsigned", msg.encode());
-		match system_dry_run_unsigned(&self.client, tx).await? {
+		let tx = subxt::dynamic::tx(
+			"StateCoprocessor",
+			"handle_unsigned",
+			vec![Value::from_bytes(msg.encode())]
+		);
+		let dry_run_result_bytes = system_dry_run_unsigned(&self.client, &self.rpc, tx).await?;
+		let dry_run_result = dry_run_result_bytes.into_dry_run_result().map_err(|e| anyhow!("error dry running call"))?;
+		match  dry_run_result {
 			DryRunResult::Success => Ok(()),
 			_ => Err(anyhow!("Tracing of get response message returned an error")),
 		}
@@ -274,7 +310,7 @@ async fn relayer_account_balance<C: subxt::Config>(
 ) -> anyhow::Result<U256> {
 	let key = relayer_account_balance_storage_key(chain, address);
 
-	let raw_value = client.storage().at_latest().await?.fetch_raw(&key).await?;
+	let raw_value = client.storage().at_latest().await?.fetch_raw(key.clone()).await?;
 	let balance = if let Some(raw_value) = raw_value {
 		Decode::decode(&mut &*raw_value)?
 	} else {

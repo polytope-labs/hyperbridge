@@ -21,10 +21,12 @@ use serde::{Deserialize, Serialize};
 pub use beefy_verifier_primitives::ConsensusState;
 use primitive_types::H256;
 use subxt::{
-	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
-	ext::sp_runtime::MultiSignature,
+	config::{ExtrinsicParams},
 };
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
+use polkadot_sdk::sp_runtime::MultiSignature;
+use subxt::config::HashFor;
+use subxt::tx::DefaultParams;
 
 pub mod host;
 pub mod prover;
@@ -51,12 +53,11 @@ impl BeefyConfig {
 	where
 		R: subxt::Config + Send + Sync + Clone,
 		P: subxt::Config + Send + Sync + Clone,
-		<P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
-			Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+		<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 		P::Signature: From<MultiSignature> + Send + Sync,
 		P::AccountId:
 			From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-		H256: From<<P as subxt::Config>::Hash>,
+		H256: From<HashFor::<P>>,
 	{
 		let client = SubstrateClient::<P>::new(self.substrate).await?;
 		let prover = Prover::<R, P>::new(self.prover.clone()).await?;

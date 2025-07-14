@@ -25,9 +25,9 @@ use std::{
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use subxt::{
-	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
-	ext::sp_runtime::MultiSignature,
+	config::{ExtrinsicParams},
 };
+use polkadot_sdk::sp_runtime::MultiSignature;
 use tesseract_substrate::SubstrateClient;
 
 use crate::{
@@ -43,6 +43,8 @@ use ismp::{
 };
 use redis_async::client::PubsubConnection;
 use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError, RsmqMessage};
+use subxt::config::HashFor;
+use subxt::tx::DefaultParams;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tokio::sync::Mutex;
 
@@ -79,12 +81,11 @@ where
 	R: subxt::Config,
 	P: subxt::Config,
 	P: subxt::Config + Send + Sync + Clone,
-	<P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-	H256: From<<P as subxt::Config>::Hash>,
+	H256: From<HashFor::<P>>,
 {
 	/// Construct an implementation of the [`BeefyHost`]
 	pub async fn new(
@@ -176,15 +177,14 @@ where
 			Some(state) => {
 				let inner = self.prover.inner();
 				let hash = inner
-					.relay
-					.rpc()
-					.block_hash(Some(state.latest_beefy_height.into()))
+					.relay_rpc
+					.chain_get_block_hash(Some(state.latest_beefy_height.into()))
 					.await?
 					.ok_or_else(|| {
 						anyhow!("Failed to find block hash for num: {}", state.latest_beefy_height)
 					})?;
 				let para_header =
-					query_parachain_header(&inner.relay, hash, inner.para_ids[0]).await?;
+					query_parachain_header(&inner.relay_rpc, hash, inner.para_ids[0]).await?;
 
 				ProverConsensusState {
 					inner: state,
@@ -287,12 +287,11 @@ impl<R, P> IsmpHost for BeefyHost<R, P>
 where
 	R: subxt::Config + Send + Sync + Clone,
 	P: subxt::Config + Send + Sync + Clone,
-	<P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-	H256: From<<P as subxt::Config>::Hash>,
+	H256: From<HashFor::<P>>,
 {
 	async fn start_consensus(
 		&self,

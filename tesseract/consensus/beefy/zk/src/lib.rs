@@ -17,6 +17,7 @@ use sp1_beefy_primitives::{
 use sp_consensus_beefy::ecdsa_crypto::Signature;
 use sp_crypto_hashing::keccak_256;
 use std::sync::Arc;
+use subxt::config::HashFor;
 
 /// Consensus prover for zk BEEFY.
 #[derive(Clone)]
@@ -51,12 +52,11 @@ where
 
 		let message = self.inner.consensus_proof(signed_commitment.clone()).await?;
 
-		let num: subxt::rpc::types::BlockNumber = signed_commitment.commitment.block_number.into();
+		let num: subxt::ext::subxt_rpcs::methods::legacy::BlockNumber = signed_commitment.commitment.block_number.into();
 		let block_hash = self
 			.inner
-			.relay
-			.rpc()
-			.block_hash(Some(num))
+			.relay_rpc
+			.chain_get_block_hash(Some(num))
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
@@ -80,8 +80,8 @@ where
 		let (para_header_witness, paras_len) = {
 			let block_hash = message.mmr.latest_mmr_leaf.parent_number_and_hash.1;
 			let paras = beefy_prover::relay::paras_parachains(
-				&self.inner.relay,
-				Some(R::Hash::decode(&mut &*block_hash.encode())?),
+				&self.inner.relay_rpc,
+				Some(HashFor::<R>::decode(&mut &*block_hash.encode())?),
 			)
 			.await?;
 			let leaf_hashes = paras.iter().map(|l| keccak_256(&l.encode())).collect::<Vec<_>>();

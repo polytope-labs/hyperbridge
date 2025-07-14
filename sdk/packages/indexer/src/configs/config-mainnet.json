@@ -23,6 +23,12 @@
 		"startBlock": 70515,
 		"stateMachineId": "SUBSTRATE-argn"
 	},
+	"kilt-mainnet": {
+  	"type": "substrate",
+  	"chainId": "0x411f057b9107718c9624d6aa4a3f23c1653898297f3d4d529d9bb6511a39dd21",
+  	"startBlock": 9081787,
+  	"stateMachineId": "POLKADOT-2086"
+	},
 	"ethereum-mainnet": {
 		"type": "evm",
 		"chainId": "1",

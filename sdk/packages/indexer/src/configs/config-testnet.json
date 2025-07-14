@@ -11,6 +11,18 @@
 		"startBlock": 940053,
 		"stateMachineId": "KUSAMA-2030"
 	},
+	"zkverify-testnet": {
+  	"type": "substrate",
+  	"chainId": "0xff7fe5a610f15fe7a0c52f94f86313fb7db7d3786e7f8acf2b66c11d5be7c242",
+  	"startBlock": 1,
+  	"stateMachineId": "KUSAMA-zkv_"
+	},
+	"kilt-paseo": {
+  	"type": "substrate",
+  	"chainId": "0xa0c6e3bac382b316a68bca7141af1fba507207594c761076847ce358aeedcc21",
+  	"startBlock": 8430884,
+  	"stateMachineId": "KUSAMA-2086"
+	},
 	"sepolia": {
 		"type": "evm",
 		"chainId": "11155111",

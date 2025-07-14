@@ -1,5 +1,4 @@
 import Decimal from "decimal.js"
-import stringify from "safe-stable-stringify"
 
 import { ERC6160Ext20Abi__factory, TokenGatewayAbi__factory } from "@/configs/src/types/contracts"
 import PriceHelper from "@/utils/price.helpers"
@@ -9,7 +8,6 @@ import {
 	TokenGatewayAssetTeleported,
 	ProtocolParticipant,
 	RewardPointsActivityType,
-	CumulativeVolumeUSD,
 } from "@/configs/src/types"
 import { timestampToDate } from "@/utils/date.helpers"
 import { TOKEN_GATEWAY_CONTRACT_ADDRESSES } from "@/addresses/tokenGateway.addresses"
@@ -109,22 +107,6 @@ export class TokenGatewayService {
 				`Points awarded for teleporting token ${teleportParams.assetId} with value ${usdValue.amountValueInUSD} USD`,
 				timestamp,
 			)
-
-			// Count the volume in USD
-			let cumulativeVolumeUSD = await CumulativeVolumeUSD.get(`TokenGateway`)
-			if (cumulativeVolumeUSD) {
-				cumulativeVolumeUSD.volumeUSD = new Decimal(cumulativeVolumeUSD.volumeUSD)
-					.plus(new Decimal(usdValue.amountValueInUSD))
-					.toFixed(18)
-			} else {
-				cumulativeVolumeUSD = await CumulativeVolumeUSD.create({
-					id: `TokenGateway`,
-					volumeUSD: new Decimal(usdValue.amountValueInUSD).toFixed(18),
-					lastUpdatedAt: timestamp,
-				})
-			}
-
-			await cumulativeVolumeUSD.save()
 		}
 
 		return teleport
@@ -188,5 +170,12 @@ export class TokenGatewayService {
 
 			await teleportStatusMetadata.save()
 		}
+	}
+
+	static async getAssetTokenContract(assetId: string) {
+		const tokenDetails = await TokenGatewayService.getAssetDetails(assetId.toString())
+		const tokenAddress = tokenDetails.is_erc20 ? tokenDetails.erc20_address : tokenDetails.erc6160_address
+
+		return ERC6160Ext20Abi__factory.connect(tokenAddress, api)
 	}
 }

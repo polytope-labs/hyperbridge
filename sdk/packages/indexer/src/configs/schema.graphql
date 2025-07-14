@@ -1095,3 +1095,25 @@ type CumulativeVolumeUSD @entity {
 	"""
 	volumeUSD: String!
 }
+
+type DailyVolumeUSD @entity {
+	"""
+	Unique identifier for the cumulative stats
+	"""
+	id: ID!
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt!
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date!
+
+	"""
+	Last 24hrs Volume in USD
+	"""
+	last24HoursVolumeUSD: String!
+}

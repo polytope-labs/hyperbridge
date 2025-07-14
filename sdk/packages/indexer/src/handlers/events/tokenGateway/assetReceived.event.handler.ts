@@ -1,9 +1,9 @@
-import Decimal from "decimal.js"
 import stringify from "safe-stable-stringify"
 
+import { TeleportStatus } from "@/configs/src/types"
 import { AssetReceivedLog } from "@/configs/src/types/abi-interfaces/TokenGatewayAbi"
 import { TokenGatewayService } from "@/services/tokenGateway.service"
-import { CumulativeVolumeUSD, TeleportStatus } from "@/configs/src/types"
+import { VolumeService } from "@/services/volume.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import PriceHelper from "@/utils/price.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
@@ -33,21 +33,7 @@ export async function handleAssetReceivedEvent(event: AssetReceivedLog): Promise
 
 	const usdValue = await PriceHelper.getTokenPriceInUSDCoingecko(symbol, amount.toBigInt(), decimals)
 
-	// Count the volume in USD
-	let cumulativeVolumeUSD = await CumulativeVolumeUSD.get(`TokenGateway`)
-	if (!cumulativeVolumeUSD) {
-		cumulativeVolumeUSD = CumulativeVolumeUSD.create({
-			id: `TokenGateway`,
-			volumeUSD: new Decimal(usdValue.amountValueInUSD).toFixed(18),
-			lastUpdatedAt: timestamp,
-		})
-	}
-
-	if (cumulativeVolumeUSD.lastUpdatedAt !== timestamp) {
-		cumulativeVolumeUSD.volumeUSD = new Decimal(cumulativeVolumeUSD.volumeUSD)
-			.plus(new Decimal(usdValue.amountValueInUSD))
-			.toFixed(18)
-	}
+	await VolumeService.updateVolume("TokenGateway", usdValue.amountValueInUSD, timestamp)
 
 	await TokenGatewayService.updateTeleportStatus(commitment, TeleportStatus.RECEIVED, {
 		transactionHash,

@@ -147,17 +147,20 @@ pub struct ConsensusProof {
 	pub signed_header: SignedHeader,
 	/// Ancestry of signed headers from trusted block height to the latest signed header
 	pub ancestry: Vec<SignedHeader>,
-	/// Next validator set (optional)
-	pub next_validators: Option<Vec<Validator>>,
+	/// Validator set of the proof at the height we want to verify - target height
+	pub validators: Vec<Validator>,
+	/// Next validator set  (optional) - target height + 1
+	pub next_validators: Vec<Validator>,
 }
 
 impl ConsensusProof {
 	pub fn new(
 		signed_header: SignedHeader,
 		ancestry: Vec<SignedHeader>,
-		next_validators: Option<Vec<Validator>>,
+		validators: Vec<Validator>,
+		next_validators: Vec<Validator>,
 	) -> Self {
-		Self { signed_header, ancestry, next_validators }
+		Self { signed_header, ancestry, validators, next_validators }
 	}
 
 	pub fn height(&self) -> u64 {
@@ -190,7 +193,10 @@ impl ConsensusProof {
 
 	/// Validate the consensus proof
 	pub fn validate(&self) -> Result<(), String> {
-		if self.next_validators.is_none() || self.next_validators.as_ref().unwrap().is_empty() {
+		if self.validators.is_empty() {
+			return Err("Current validator set cannot be empty".to_string());
+		}
+		if self.next_validators.is_empty() {
 			return Err("Next validator set cannot be empty".to_string());
 		}
 		if self.height() == 0 {
@@ -207,12 +213,12 @@ impl ConsensusProof {
 
 	/// Check if the proof has next validators
 	pub fn has_next_validators(&self) -> bool {
-		self.next_validators.is_some()
+		!self.next_validators.is_empty()
 	}
 
 	/// Get the next validators if available
-	pub fn get_next_validators(&self) -> Option<&Vec<Validator>> {
-		self.next_validators.as_ref()
+	pub fn get_next_validators(&self) -> &Vec<Validator> {
+		&self.next_validators
 	}
 
 	/// Get the total number of blocks in the proof (ancestry + latest)

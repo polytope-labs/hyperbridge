@@ -8,10 +8,14 @@ mod tests {
 
 	const STANDARD_RPC_URL: &str = "https://rpc.osmotest5.osmosis.zone:443";
 	const POLYGON_RPC_URL: &str = "https://polygon-amoy-heimdall-rpc.publicnode.com:443";
+	const VALIDATOR_SET_TRANSITIONS: u32 = 4;
 
 	#[tokio::test]
 	async fn test_standard_tendermint_integration() {
-		trace!("Testing Standard Tendermint");
+		trace!(
+			"Testing Standard Tendermint with {} validator set transitions",
+			VALIDATOR_SET_TRANSITIONS
+		);
 		run_integration_test_standard(STANDARD_RPC_URL).await.unwrap();
 	}
 
@@ -24,11 +28,15 @@ mod tests {
 	// Fails with Invalid Proof, debugging
 	#[tokio::test]
 	async fn test_polygon_heimdall_full_verification() {
-		trace!("Testing Polygon's Heimdall Fork (Full Verification)");
+		trace!(
+			"Testing Polygon's Heimdall Fork (Full Verification) with {} validator set transitions",
+			VALIDATOR_SET_TRANSITIONS
+		);
 		run_integration_test_heimdall(POLYGON_RPC_URL).await.unwrap();
 	}
 
-	/// Full integration test: prover and verifier for standard CometBFT
+	/// Full integration test: prover and verifier for standard CometBFT with multiple validator set
+	/// transitions
 	async fn run_integration_test_standard(
 		rpc_url: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
@@ -36,11 +44,13 @@ mod tests {
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		let latest_height = client.latest_height().await?;
-		let trusted_height = latest_height.saturating_sub(10);
+
+		let trusted_height = latest_height.saturating_sub(50);
 		let trusted_header = client.signed_header(trusted_height).await?;
 		let trusted_validators = client.validators(trusted_height).await?;
 		let trusted_next_validators = client.next_validators(trusted_height).await?;
-		let trusted_state = TrustedState::new(
+
+		let mut trusted_state = TrustedState::new(
 			chain_id,
 			trusted_height,
 			trusted_header.header.time.unix_timestamp() as u64,
@@ -52,39 +62,78 @@ mod tests {
 			VerificationOptions::default(),
 		);
 		trusted_state.validate()?;
-		let target_height = latest_height.saturating_sub(5);
-		trace!("Consensus proof generation started");
-		let consensus_proof = prove_header_update(&client, &trusted_state, target_height).await?;
-		trace!("Consensus proof generated");
-		consensus_proof.validate()?;
-		let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-		trace!("Verification started");
-		match tendermint_verifier::verify_header_update(
-			trusted_state,
-			consensus_proof,
-			VerificationOptions::default(),
-			current_time,
-		) {
-			Ok(updated_state) => {
+
+		trace!(
+			"Starting verification with {} validator set transitions",
+			VALIDATOR_SET_TRANSITIONS
+		);
+		trace!("Initial trusted height: {}", trusted_state.height);
+
+		// Perform multiple validator set transitions
+		for transition in 1..=VALIDATOR_SET_TRANSITIONS {
+			let target_height = trusted_state.height + 5;
+
+			if target_height > latest_height {
 				trace!(
-					"Verification successful! Updated trusted state height: {}",
-					updated_state.trusted_state.height
+					"Reached latest height {}, stopping at transition {}",
+					latest_height,
+					transition - 1
 				);
-			},
-			Err(VerificationError::NotEnoughTrust(tally)) => {
-				return Err(format!("Not enough trust: {}", tally).into());
-			},
-			Err(VerificationError::Invalid(detail)) => {
-				return Err(format!("Invalid proof: {}", detail).into());
-			},
-			Err(e) => {
-				return Err(format!("Verification failed: {:?}", e).into());
-			},
+				break;
+			}
+
+			trace!(
+				"Transition {}: Generating consensus proof from height {} to {}",
+				transition,
+				trusted_state.height,
+				target_height
+			);
+
+			let consensus_proof =
+				prove_header_update(&client, &trusted_state, target_height).await?;
+			consensus_proof.validate()?;
+
+			let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+			trace!("Transition {}: Verifying consensus proof", transition);
+
+			match tendermint_verifier::verify_header_update(
+				trusted_state,
+				consensus_proof,
+				VerificationOptions::default(),
+				current_time,
+			) {
+				Ok(updated_state) => {
+					trace!(
+						"Transition {} successful! Updated trusted state height: {}",
+						transition,
+						updated_state.trusted_state.height
+					);
+					trusted_state = updated_state.trusted_state;
+				},
+				Err(VerificationError::NotEnoughTrust(tally)) => {
+					return Err(
+						format!("Transition {}: Not enough trust: {}", transition, tally).into()
+					);
+				},
+				Err(VerificationError::Invalid(detail)) => {
+					return Err(
+						format!("Transition {}: Invalid proof: {}", transition, detail).into()
+					);
+				},
+				Err(e) => {
+					return Err(
+						format!("Transition {}: Verification failed: {:?}", transition, e).into()
+					);
+				},
+			}
 		}
+
+		trace!("Successfully completed {} validator set transitions", VALIDATOR_SET_TRANSITIONS);
 		Ok(())
 	}
 
-	/// Full integration test: prover and verifier for Heimdall
+	/// Full integration test: prover and verifier for Heimdall with multiple validator set
+	/// transitions
 	async fn run_integration_test_heimdall(
 		rpc_url: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
@@ -92,11 +141,13 @@ mod tests {
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		let latest_height = client.latest_height().await?;
-		let trusted_height = latest_height.saturating_sub(10);
+
+		let trusted_height = latest_height.saturating_sub(50);
 		let trusted_header = client.signed_header(trusted_height).await?;
 		let trusted_validators = client.validators(trusted_height).await?;
 		let trusted_next_validators = client.next_validators(trusted_height).await?;
-		let trusted_state = TrustedState::new(
+
+		let mut trusted_state = TrustedState::new(
 			chain_id,
 			trusted_height,
 			trusted_header.header.time.unix_timestamp() as u64,
@@ -104,39 +155,76 @@ mod tests {
 			trusted_validators,
 			trusted_next_validators,
 			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
-			3600, // 1 hour trusting period
+			7200, // 2 hour trusting period
 			VerificationOptions::default(),
 		);
 		trusted_state.validate()?;
-		let target_height = latest_height.saturating_sub(5);
-		trace!("Consensus proof generation started");
-		let consensus_proof = prove_header_update(&client, &trusted_state, target_height).await?;
-		trace!("Consensus proof generated");
-		consensus_proof.validate()?;
-		let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-		trace!("Verification started");
-		match tendermint_verifier::verify_header_update(
-			trusted_state,
-			consensus_proof,
-			VerificationOptions::default(),
-			current_time,
-		) {
-			Ok(updated_state) => {
+
+		trace!(
+			"Starting verification with {} validator set transitions",
+			VALIDATOR_SET_TRANSITIONS
+		);
+		trace!("Initial trusted height: {}", trusted_state.height);
+
+		for transition in 1..=VALIDATOR_SET_TRANSITIONS {
+			let target_height = trusted_state.height + 5;
+
+			if target_height > latest_height {
 				trace!(
-					"Verification successful! Updated trusted state height: {}",
-					updated_state.trusted_state.height
+					"Reached latest height {}, stopping at transition {}",
+					latest_height,
+					transition - 1
 				);
-			},
-			Err(VerificationError::NotEnoughTrust(tally)) => {
-				return Err(format!("Not enough trust: {}", tally).into());
-			},
-			Err(VerificationError::Invalid(detail)) => {
-				return Err(format!("Invalid proof: {}", detail).into());
-			},
-			Err(e) => {
-				return Err(format!("Verification failed: {:?}", e).into());
-			},
+				break;
+			}
+
+			trace!(
+				"Transition {}: Generating consensus proof from height {} to {}",
+				transition,
+				trusted_state.height,
+				target_height
+			);
+
+			let consensus_proof =
+				prove_header_update(&client, &trusted_state, target_height).await?;
+			consensus_proof.validate()?;
+
+			let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+			trace!("Transition {}: Verifying consensus proof", transition);
+
+			match tendermint_verifier::verify_header_update(
+				trusted_state,
+				consensus_proof,
+				VerificationOptions::default(),
+				current_time,
+			) {
+				Ok(updated_state) => {
+					trace!(
+						"Transition {} successful! Updated trusted state height: {}",
+						transition,
+						updated_state.trusted_state.height
+					);
+					trusted_state = updated_state.trusted_state;
+				},
+				Err(VerificationError::NotEnoughTrust(tally)) => {
+					return Err(
+						format!("Transition {}: Not enough trust: {}", transition, tally).into()
+					);
+				},
+				Err(VerificationError::Invalid(detail)) => {
+					return Err(
+						format!("Transition {}: Invalid proof: {}", transition, detail).into()
+					);
+				},
+				Err(e) => {
+					return Err(
+						format!("Transition {}: Verification failed: {:?}", transition, e).into()
+					);
+				},
+			}
 		}
+
+		trace!("Successfully completed {} validator set transitions", VALIDATOR_SET_TRANSITIONS);
 		Ok(())
 	}
 

@@ -41,9 +41,8 @@ pub fn verify_header_update(
 		next_validators_hash,
 	};
 
-	let validators = ValidatorSet::new(trusted_state.validators.clone(), None);
-	let next_validators_proof =
-		ValidatorSet::new(consensus_proof.next_validators.clone().unwrap_or_default(), None);
+	let validators = ValidatorSet::new(consensus_proof.validators.clone(), None);
+	let next_validators_proof = ValidatorSet::new(consensus_proof.next_validators.clone(), None);
 
 	let untrusted_block_state = UntrustedBlockState {
 		signed_header: &consensus_proof.signed_header,
@@ -105,9 +104,8 @@ pub fn verify_misbehaviour_header(
 		next_validators_hash,
 	};
 
-	let validators = ValidatorSet::new(trusted_state.validators.clone(), None);
-	let next_validators_proof =
-		ValidatorSet::new(consensus_proof.next_validators.clone().unwrap_or_default(), None);
+	let validators = ValidatorSet::new(consensus_proof.validators.clone(), None);
+	let next_validators_proof = ValidatorSet::new(consensus_proof.next_validators.clone(), None);
 
 	let untrusted_block_state = UntrustedBlockState {
 		signed_header: &consensus_proof.signed_header,
@@ -246,8 +244,8 @@ fn create_updated_trusted_state(
 		chain_id: consensus_proof.chain_id().to_string(),
 		height: consensus_proof.height(),
 		timestamp: consensus_proof.timestamp(),
-		validators: old_trusted_state.validators.clone(),
-		next_validators: consensus_proof.next_validators.clone().unwrap_or_default(),
+		validators: consensus_proof.validators.clone(),
+		next_validators: consensus_proof.next_validators.clone(),
 		next_validators_hash: consensus_proof
 			.signed_header
 			.header
@@ -258,7 +256,13 @@ fn create_updated_trusted_state(
 		trusting_period: old_trusted_state.trusting_period,
 		frozen_height: old_trusted_state.frozen_height,
 		verification_options: old_trusted_state.verification_options.clone(),
-		finalized_header_hash: old_trusted_state.finalized_header_hash,
+		finalized_header_hash: consensus_proof
+			.signed_header
+			.header
+			.hash()
+			.as_bytes()
+			.try_into()
+			.unwrap(),
 	};
 
 	Ok(UpdatedTrustedState::new(

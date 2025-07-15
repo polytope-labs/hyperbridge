@@ -3508,7 +3508,7 @@ dependencies = [
 [[package]]
 name = "cometbft"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
 dependencies = [
  "bytes",
  "cometbft-proto",
@@ -3537,7 +3537,7 @@ dependencies = [
 [[package]]
 name = "cometbft-config"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
 dependencies = [
  "cometbft",
  "flex-error",
@@ -3550,7 +3550,7 @@ dependencies = [
 [[package]]
 name = "cometbft-light-client-verifier"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
 dependencies = [
  "cometbft",
  "derive_more 0.99.20",
@@ -3562,7 +3562,7 @@ dependencies = [
 [[package]]
 name = "cometbft-proto"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
 dependencies = [
  "bytes",
  "flex-error",
@@ -3576,7 +3576,7 @@ dependencies = [
 [[package]]
 name = "cometbft-rpc"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -26054,15 +26054,19 @@ version = "0.1.0"
 dependencies = [
  "base64 0.21.7",
  "cometbft",
+ "cometbft-proto",
  "cometbft-rpc",
- "k256",
  "polkadot-sdk 2503.0.1",
+ "prost 0.13.5",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "sha3",
  "tendermint-verifier",
  "thiserror 2.0.12",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -26072,8 +26076,8 @@ dependencies = [
  "cometbft",
  "cometbft-light-client-verifier",
  "cometbft-proto",
- "k256",
  "polkadot-sdk 2503.0.1",
+ "prost 0.13.5",
  "serde",
  "thiserror 2.0.12",
 ]

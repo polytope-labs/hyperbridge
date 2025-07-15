@@ -20,10 +20,6 @@ pub fn verify_header_update(
 	options: VerificationOptions,
 	current_time: u64,
 ) -> Result<UpdatedTrustedState, VerificationError> {
-	if trusted_state.is_frozen() {
-		return Err(VerificationError::Invalid("Trusted state is frozen".to_string()));
-	}
-
 	let chain_id = Id::try_from(trusted_state.chain_id.clone())
 		.map_err(|e| VerificationError::Invalid(e.to_string()))?;
 	let height = Height::try_from(trusted_state.height)
@@ -41,7 +37,7 @@ pub fn verify_header_update(
 		next_validators_hash,
 	};
 
-	let validators = ValidatorSet::new(consensus_proof.validators.clone(), None);
+	let validators = ValidatorSet::new(trusted_state.next_validators.clone(), None);
 	let next_validators_proof = ValidatorSet::new(consensus_proof.next_validators.clone(), None);
 
 	let untrusted_block_state = UntrustedBlockState {
@@ -83,10 +79,6 @@ pub fn verify_misbehaviour_header(
 	options: VerificationOptions,
 	current_time: u64,
 ) -> Result<UpdatedTrustedState, VerificationError> {
-	if trusted_state.is_frozen() {
-		return Err(VerificationError::Invalid("Trusted state is frozen".to_string()));
-	}
-
 	let chain_id = Id::try_from(trusted_state.chain_id.clone())
 		.map_err(|e| VerificationError::Invalid(e.to_string()))?;
 	let height = Height::try_from(trusted_state.height)
@@ -104,7 +96,7 @@ pub fn verify_misbehaviour_header(
 		next_validators_hash,
 	};
 
-	let validators = ValidatorSet::new(consensus_proof.validators.clone(), None);
+	let validators = ValidatorSet::new(trusted_state.next_validators.clone(), None);
 	let next_validators_proof = ValidatorSet::new(consensus_proof.next_validators.clone(), None);
 
 	let untrusted_block_state = UntrustedBlockState {
@@ -240,19 +232,32 @@ fn create_updated_trusted_state(
 	consensus_proof: &ConsensusProof,
 ) -> Result<UpdatedTrustedState, VerificationError> {
 	// Create new trusted state with the verified header information
-	let new_trusted_state = TrustedState {
+	let new_next_validators_hash = consensus_proof
+		.signed_header
+		.header
+		.next_validators_hash
+		.as_bytes()
+		.try_into()
+		.map_err(|_| VerificationError::Invalid("Invalid next_validators_hash".to_string()))?;
+
+	// Check if validator set rotation is needed
+	let (validators, next_validators) =
+		if new_next_validators_hash != old_trusted_state.next_validators_hash {
+			// Rotate validator set: current validators become next_validators,
+			// and new next_validators come from the signed header
+			(old_trusted_state.next_validators.clone(), consensus_proof.next_validators.clone())
+		} else {
+			// No rotation needed
+			(old_trusted_state.validators.clone(), consensus_proof.next_validators.clone())
+		};
+
+	let mut new_trusted_state = TrustedState {
 		chain_id: consensus_proof.chain_id().to_string(),
 		height: consensus_proof.height(),
 		timestamp: consensus_proof.timestamp(),
-		validators: consensus_proof.validators.clone(),
-		next_validators: consensus_proof.next_validators.clone(),
-		next_validators_hash: consensus_proof
-			.signed_header
-			.header
-			.next_validators_hash
-			.as_bytes()
-			.try_into()
-			.unwrap(),
+		validators,
+		next_validators,
+		next_validators_hash: new_next_validators_hash,
 		trusting_period: old_trusted_state.trusting_period,
 		verification_options: old_trusted_state.verification_options.clone(),
 		finalized_header_hash: consensus_proof
@@ -261,7 +266,7 @@ fn create_updated_trusted_state(
 			.hash()
 			.as_bytes()
 			.try_into()
-			.unwrap(),
+			.map_err(|_| VerificationError::Invalid("Invalid finalized_header_hash".to_string()))?,
 	};
 
 	Ok(UpdatedTrustedState::new(

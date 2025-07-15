@@ -50,10 +50,7 @@ impl signature::Verifier for SpIoSignatureVerifier {
 					Err(signature::Error::VerificationFailed)
 				}
 			},
-			#[cfg(feature = "secp256k1")]
 			PublicKey::Secp256k1(pk) => {
-				use polkadot_sdk::sp_core::ByteArray;
-
 				let pub_key = polkadot_sdk::sp_core::ecdsa::Public::from_raw(
 					pk.to_encoded_point(true).as_bytes().try_into().map_err(|e| {
 						println!("[DEBUG] Failed to parse public key: {:?}", e);

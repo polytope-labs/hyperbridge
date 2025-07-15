@@ -84,18 +84,6 @@ impl VerificationPredicates for SpIoPredicates {
 	) -> Result<(), VerificationError> {
 		Self::validate_validator_set_hash(next_validators, header_next_validators_hash, true)
 	}
-
-	fn valid_commit(
-		&self,
-		signed_header: &SignedHeader,
-		validators: &ValidatorSet,
-		commit_validator: &dyn CommitValidator,
-	) -> Result<(), VerificationError> {
-		commit_validator.validate(signed_header, validators)?;
-		commit_validator.validate_full(signed_header, validators)?;
-
-		Ok(())
-	}
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

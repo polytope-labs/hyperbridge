@@ -23,8 +23,6 @@ pub struct TrustedState {
 	pub trusting_period: u64,
 	/// Verification options for this consensus state
 	pub verification_options: VerificationOptions,
-	/// Frozen height (if any)
-	pub frozen_height: Option<u64>,
 }
 
 impl TrustedState {
@@ -49,7 +47,6 @@ impl TrustedState {
 			next_validators_hash,
 			trusting_period,
 			verification_options,
-			frozen_height: None,
 		}
 	}
 
@@ -136,7 +133,6 @@ impl Default for TrustedState {
 			next_validators_hash: [0u8; 32],
 			trusting_period: 3600, // 1 hour default
 			verification_options: VerificationOptions::default(),
-			frozen_height: None,
 		}
 	}
 }

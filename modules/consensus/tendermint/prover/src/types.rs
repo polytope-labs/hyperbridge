@@ -3,13 +3,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha3::{Digest, Keccak256};
 
-// RPC Response types for Heimdall client
+/// RPC Response wrapper for Heimdall client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcResponse<T> {
+	/// JSON-RPC version
 	pub jsonrpc: String,
+	/// Request ID
 	#[serde(deserialize_with = "deserialize_rpc_id")]
 	pub id: String,
+	/// Response result
 	pub result: Option<T>,
+	/// Error information if request failed
 	pub error: Option<RpcError>,
 }
 
@@ -30,100 +34,145 @@ where
 	}
 }
 
+/// RPC error information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcError {
+	/// Error code
 	pub code: i32,
+	/// Error message
 	pub message: String,
+	/// Additional error data
 	pub data: Option<Value>,
 }
 
-// Status response types
+/// Node status response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusResponse {
+	/// Node information
 	pub node_info: NodeInfo,
+	/// Synchronization information
 	pub sync_info: SyncInfo,
+	/// Validator information
 	pub validator_info: ValidatorInfo,
 }
 
+/// Node information details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInfo {
+	/// Protocol version information
 	pub protocol_version: ProtocolVersion,
+	/// Node identifier
 	pub id: String,
+	/// Listen address
 	pub listen_addr: String,
+	/// Network identifier
 	pub network: String,
+	/// Node version
 	pub version: String,
+	/// Channel information
 	pub channels: String,
+	/// Node moniker
 	pub moniker: String,
+	/// Additional node information
 	pub other: std::collections::HashMap<String, Value>,
 }
 
+/// Protocol version information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtocolVersion {
+	/// P2P protocol version
 	#[serde(with = "cometbft::serializers::from_str")]
 	pub p2p: u64,
+	/// Block protocol version
 	#[serde(with = "cometbft::serializers::from_str")]
 	pub block: u64,
+	/// Application protocol version
 	#[serde(with = "cometbft::serializers::from_str")]
 	pub app: u64,
 }
 
+/// Synchronization information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncInfo {
+	/// Latest block hash
 	#[serde(with = "cometbft::serializers::hash")]
 	pub latest_block_hash: cometbft::Hash,
+	/// Latest application hash
 	#[serde(with = "cometbft::serializers::apphash")]
 	pub latest_app_hash: cometbft::AppHash,
+	/// Latest block height
 	pub latest_block_height: cometbft::block::Height,
+	/// Latest block timestamp
 	#[serde(with = "cometbft::serializers::time")]
 	pub latest_block_time: cometbft::Time,
+	/// Earliest block hash
 	#[serde(with = "cometbft::serializers::hash")]
 	pub earliest_block_hash: cometbft::Hash,
+	/// Earliest application hash
 	#[serde(with = "cometbft::serializers::apphash")]
 	pub earliest_app_hash: cometbft::AppHash,
+	/// Earliest block height
 	pub earliest_block_height: cometbft::block::Height,
+	/// Earliest block timestamp
 	#[serde(with = "cometbft::serializers::time")]
 	pub earliest_block_time: cometbft::Time,
+	/// Whether node is catching up
 	pub catching_up: bool,
 }
 
+/// Validator information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidatorInfo {
+	/// Validator address
 	pub address: String,
+	/// Validator public key
 	pub pub_key: PubKey,
+	/// Validator voting power
 	pub voting_power: String,
 }
 
-// Commit response types
+/// Commit response containing signed header
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitResponse {
+	/// Signed header information
 	#[serde(deserialize_with = "deserialize_signed_header_for_heimdall")]
 	pub signed_header: crate::SignedHeader,
+	/// Whether the commit is canonical
 	pub canonical: bool,
 }
 
-// Validators response types
+/// Validators response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidatorsResponse {
+	/// Block height for validators
 	pub block_height: cometbft::block::Height,
+	/// List of validators
 	pub validators: Vec<cometbft::validator::Info>,
+	/// Total number of validators
 	#[serde(with = "cometbft::serializers::from_str")]
 	pub total: i32,
 }
 
-// Public key type for Heimdall responses
+/// Public key representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PubKey {
+	/// Key type identifier
 	#[serde(rename = "type")]
 	pub key_type: String,
+	/// Base64 encoded key value
 	pub value: String,
 }
 
-// Heimdall-specific validator type that can be converted to cometbft::validator::Info
+/// Heimdall-specific validator information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeimdallValidator {
+	/// Validator address
 	pub address: String,
+	/// Validator public key
 	pub pub_key: PubKey,
+	/// Validator voting power
 	pub voting_power: String,
+	/// Validator proposer priority
 	pub proposer_priority: Option<String>,
 }
 
@@ -167,12 +216,16 @@ impl From<HeimdallValidator> for cometbft::validator::Info {
 	}
 }
 
-// Heimdall-specific validators response
+/// Heimdall-specific validators response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeimdallValidatorsResponse {
+	/// Block height as string
 	pub block_height: String,
+	/// List of Heimdall validators
 	pub validators: Vec<HeimdallValidator>,
+	/// Validator count
 	pub count: String,
+	/// Total validator count
 	pub total: String,
 }
 

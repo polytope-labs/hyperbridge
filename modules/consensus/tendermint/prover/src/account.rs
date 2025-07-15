@@ -22,7 +22,7 @@ pub fn custom_account_id_from_pubkey(pub_key: &PublicKey) -> CometbftAccountId {
 		#[allow(unreachable_patterns)]
 		_ => {
 			// Catch-all for non_exhaustive enum
-			panic!("Unsupported public key type for Polygon/Heimdall verification")
+			CometbftAccountId::new([0u8; 20])
 		},
 	}
 }

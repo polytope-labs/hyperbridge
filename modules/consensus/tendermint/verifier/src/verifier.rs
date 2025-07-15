@@ -254,7 +254,6 @@ fn create_updated_trusted_state(
 			.try_into()
 			.unwrap(),
 		trusting_period: old_trusted_state.trusting_period,
-		frozen_height: old_trusted_state.frozen_height,
 		verification_options: old_trusted_state.verification_options.clone(),
 		finalized_header_hash: consensus_proof
 			.signed_header

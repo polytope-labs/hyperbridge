@@ -22,9 +22,9 @@ pub use beefy_verifier_primitives::ConsensusState;
 use primitive_types::H256;
 use subxt::{
 	config::{ExtrinsicParams},
+	utils::{AccountId32, MultiSignature}
 };
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
-use polkadot_sdk::sp_runtime::MultiSignature;
 use subxt::config::HashFor;
 use subxt::tx::DefaultParams;
 
@@ -56,7 +56,7 @@ impl BeefyConfig {
 		<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 		P::Signature: From<MultiSignature> + Send + Sync,
 		P::AccountId:
-			From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+			From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 		H256: From<HashFor::<P>>,
 	{
 		let client = SubstrateClient::<P>::new(self.substrate).await?;

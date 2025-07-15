@@ -16,6 +16,7 @@ use ismp::{consensus::StateMachineHeight, host::StateMachine};
 pub use signer::*;
 
 pub mod client;
+pub mod values;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Hyperbridge;

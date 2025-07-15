@@ -48,10 +48,10 @@ use subxt::{
 		ExtrinsicParams, Header,
 	},
 	OnlineClient,
-	ext::subxt_rpcs::rpc_params
+	ext::subxt_rpcs::rpc_params,
+	utils::{AccountId32, MultiSignature}
 };
 use subxt::backend::{legacy::LegacyRpcMethods, rpc::RpcClient};
-use polkadot_sdk::sp_runtime::MultiSignature;
 use subxt::config::{Hasher, HashFor};
 use subxt::tx::DefaultParams;
 use tesseract_primitives::IsmpProvider;
@@ -111,7 +111,7 @@ where
 	P: subxt::Config + Send + Sync + Clone,
 	P::Header: Send + Sync,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
-	P::AccountId: From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + Send + Sync,
+	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + Send + Sync,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor::<P>>,
 {

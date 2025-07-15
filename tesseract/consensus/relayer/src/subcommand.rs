@@ -5,8 +5,8 @@ use anyhow::anyhow;
 use codec::{Compact, Encode};
 use ismp::host::StateMachine;
 use std::sync::Arc;
-use subxt::tx::TxPayload;
-use subxt_utils::Extrinsic;
+use subxt::dynamic::Value;
+use subxt::tx::Payload;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 
@@ -67,24 +67,30 @@ impl LogMetatdata {
 		let evm_hosts: BTreeMap<_, _> = vec![(state_machine, host_address)].into_iter().collect();
 
 		// Call to set the HostParams
-		let set_host_params =
-			Extrinsic::new("HostExecutive", "set_host_params", host_params.encode())
-				.encode_call_data(&hyperbridge.client().client.metadata())?;
+		let set_host_params = subxt::dynamic::tx(
+			"HostExecutive",
+			"set_host_params",
+			vec![Value::from_bytes(host_params.encode())]
+		).encode_call_data(&hyperbridge.client().client.metadata())?;
 		// Call to set the Host address
-		let update_evm_hosts =
-			Extrinsic::new("HostExecutive", "update_evm_hosts", evm_hosts.encode())
-				.encode_call_data(&hyperbridge.client().client.metadata())?;
+		let update_evm_hosts = subxt::dynamic::tx(
+			"HostExecutive",
+			"update_evm_hosts",
+			vec![Value::from_bytes(evm_hosts.encode())]
+		).encode_call_data(&hyperbridge.client().client.metadata())?;
 		// batch them both
-		let batch = Extrinsic::new(
+		let batch = subxt::dynamic::tx(
 			"Utility",
 			"batch_all",
-			vec![Compact(2u32).encode(), set_host_params, update_evm_hosts].concat(),
-		)
-		.encode_call_data(&hyperbridge.client().client.metadata())?;
+			vec![Compact(2u32).encode(), set_host_params, update_evm_hosts].concat()
+		).encode_call_data(&hyperbridge.client().client.metadata())?;
 
 		let proposal = if self.sudo.unwrap_or_default() {
-			Extrinsic::new("Sudo", "sudo", batch)
-				.encode_call_data(&hyperbridge.client().client.metadata())?
+			subxt::dynamic::tx(
+				"Sudo",
+				"sudo",
+				batch
+			).encode_call_data(&hyperbridge.client().client.metadata())?
 		} else {
 			batch
 		};

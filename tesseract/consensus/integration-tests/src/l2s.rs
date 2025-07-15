@@ -5,7 +5,10 @@ use hex_literal::hex;
 use polkadot_sdk::sp_runtime::MultiSigner;
 use polkadot_sdk::sp_runtime::traits::IdentifyAccount;
 use sp_core::{H160, Pair};
-use subxt::tx::TxPayload;
+use subxt::dynamic::Value;
+use subxt::ext::scale_value::{Composite, value};
+use subxt::tx::Payload;
+use subxt::utils::AccountId32;
 use arb_host::{ArbConfig, ArbHost};
 use ismp::consensus::StateMachineId;
 
@@ -13,7 +16,8 @@ use ismp::host::StateMachine;
 use ismp::messaging::CreateConsensusState;
 use op_host::OpHost;
 use substrate_state_machine::HashAlgorithm;
-use subxt_utils::{Extrinsic, Hyperbridge, InMemorySigner, send_extrinsic};
+use subxt_utils::{Hyperbridge, InMemorySigner, send_extrinsic};
+use subxt_utils::values::state_machine_id_to_value;
 use sync_committee_primitives::constants::ETH1_DATA_VOTES_BOUND_ETH;
 use tesseract_beefy::host::BeefyHost;
 use tesseract_evm::EvmConfig;
@@ -190,18 +194,44 @@ pub async fn set_arbitrum_config_on_hyperbridge(
     rollup_core_address: H160,
 ) -> Result<(), anyhow::Error> {
     let client = hyperbridge_chain.substrate_client;
+
+    let binding = client.signer.public();
+    let public_key_slice: &[u8] = binding.as_ref();
+
+    let public_key_array: [u8; 32] = public_key_slice
+        .try_into()
+        .expect("sr25519 public key should be 32 bytes");
+
+    let account_id = AccountId32::from(public_key_array);
+
     let signer = InMemorySigner {
-        account_id: MultiSigner::Sr25519(client.signer.public()).into_account().into(),
+        account_id: account_id.into(),
         signer: client.signer.clone(),
     };
 
-    let message = (state_machine_id, rollup_core_address);
+    let state_machine_id_value = state_machine_id_to_value(&state_machine_id);
 
-    let call = message.encode();
-    let call = Extrinsic::new("IsmpArbitrum", "set_rollup_core_address", call)
-        .encode_call_data(&client.client.metadata())?;
-    let tx = Extrinsic::new("Sudo", "sudo", call);
-    send_extrinsic(&client.client, signer, tx, None).await?;
+    let rollup_core_address_value = Value::from_bytes(rollup_core_address.0.to_vec());
+
+    let inner_tx_args = vec![
+        state_machine_id_value,
+        rollup_core_address_value,
+    ];
+
+    let call = subxt::dynamic::tx(
+        "IsmpArbitrum",
+        "set_rollup_core_address",
+        inner_tx_args
+    );
+
+    let tx = subxt::dynamic::tx(
+        "Sudo",
+        "sudo",
+        vec![
+            call.into_value(),
+        ],
+    );
+    send_extrinsic(&client.client, &signer, &tx, None).await?;
 
     Ok(())
 }
@@ -212,25 +242,55 @@ pub async fn set_optimism_config_on_hyperbridge(
     dispute_game_factory: H160,
     respected_game_types: Vec<u32>,
 ) -> Result<(), anyhow::Error> {
+    println!("trying to set optimism config");
+
     let client = hyperbridge_chain.substrate_client;
+
+    let binding = client.signer.public();
+    let public_key_slice: &[u8] = binding.as_ref();
+
+    let public_key_array: [u8; 32] = public_key_slice
+        .try_into()
+        .expect("sr25519 public key should be 32 bytes");
+
+    let account_id = AccountId32::from(public_key_array);
+
     let signer = InMemorySigner {
-        account_id: MultiSigner::Sr25519(client.signer.public()).into_account().into(),
+        account_id: account_id.into(),
         signer: client.signer.clone(),
     };
 
-    let message = (state_machine_id, dispute_game_factory, respected_game_types);
+    let state_machine_id_value = state_machine_id_to_value(&state_machine_id);
 
-    let call = message.encode();
-    let call = Extrinsic::new("IsmpOptimism", "set_dispute_game_factories", call)
-        .encode_call_data(&client.client.metadata())?;
-    let tx = Extrinsic::new("Sudo", "sudo", call);
-    send_extrinsic(&client.client, signer, tx, None).await?;
+    let dispute_game_factory_value = Value::from_bytes(dispute_game_factory.0.to_vec());
+    let respected_game_types_value = value!(respected_game_types);
+
+    let inner_tx_args = vec![
+        state_machine_id_value,
+        dispute_game_factory_value,
+        respected_game_types_value
+    ];
+
+
+    let call = subxt::dynamic::tx(
+        "IsmpOptimism",
+        "set_dispute_game_factories",
+        inner_tx_args
+    );
+    println!("constructing sudo call");
+    let tx = subxt::dynamic::tx(
+        "Sudo",
+        "sudo",
+        vec![
+            call.into_value(),
+        ],
+    );
+    send_extrinsic(&client.client, &signer, &tx, None).await?;
 
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
     setup_logging();
 

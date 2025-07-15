@@ -16,7 +16,7 @@
 //! Testing utilities
 
 use crate::{
-	extrinsic::{Extrinsic, InMemorySigner},
+	extrinsic::{InMemorySigner},
 	SubstrateClient,
 };
 use codec::Encode;
@@ -25,12 +25,16 @@ use pallet_ismp_demo::{EvmParams, GetRequest, TransferParams};
 use sp_core::H256;
 use subxt::{
 	config::{
-		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
+		 ExtrinsicParams, Header,
 	},
 	events::EventDetails,
-	ext::{sp_core::crypto, sp_runtime::MultiSignature},
-	tx::TxPayload,
+	tx::Payload,
+	utils::{MultiSignature, AccountId32}
 };
+use polkadot_sdk::sp_core::crypto;
+use subxt::config::{Hasher, HashFor};
+use subxt::dynamic::Value;
+use subxt::tx::DefaultParams;
 
 use subxt_utils::send_extrinsic;
 
@@ -38,12 +42,11 @@ impl<C> SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	C::AccountId:
-		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+		From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	H256: From<<C as subxt::Config>::Hash>,
+	H256: From<HashFor<C>>,
 {
 	pub fn latest_height(&self) -> u64 {
 		self.initial_height
@@ -52,29 +55,41 @@ where
 	pub async fn transfer(
 		&self,
 		params: TransferParams<C::AccountId, u128>,
-	) -> Result<C::Hash, anyhow::Error> {
+	) -> Result<HashFor::<C>, anyhow::Error> {
 		let call = params.encode();
-		let tx = Extrinsic::new("IsmpDemo", "transfer", call);
+		let call = subxt::dynamic::tx(
+			"IsmpDemo",
+			"transfer",
+			vec![Value::from_bytes(call)]
+		);
 
-		let signer = InMemorySigner::new(self.signer());
-		let tx_block_hash = send_extrinsic(&self.client, signer, tx, None).await?;
+		let signer = InMemorySigner::new(self.signer.clone());
+		let tx_block_hash = send_extrinsic(&self.client, &signer, &call, None).await?;
 		Ok(tx_block_hash)
 	}
 
 	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
 		let call = params.encode();
-		let tx = Extrinsic::new("IsmpDemo", "dispatch_to_evm", call);
-		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, None).await?;
+		let call = subxt::dynamic::tx(
+			"IsmpDemo",
+			"dispatch_to_evm",
+			vec![Value::from_bytes(call)]
+		);
+		let signer = InMemorySigner::new(self.signer.clone());
+		send_extrinsic(&self.client, &signer, &call, None).await?;
 
 		Ok(())
 	}
 
-	pub async fn get_request(&self, get_req: GetRequest) -> Result<C::Hash, anyhow::Error> {
+	pub async fn get_request(&self, get_req: GetRequest) -> Result<HashFor::<C>, anyhow::Error> {
 		let call = get_req.encode();
-		let tx = Extrinsic::new("IsmpDemo", "get_request", call);
-		let signer = InMemorySigner::new(self.signer());
-		let tx_block_hash = send_extrinsic(&self.client, signer, tx, None).await?;
+		let tx = subxt::dynamic::tx(
+			"IsmpDemo",
+			"get_request",
+			vec![Value::from_bytes(call)]
+		);
+		let signer = InMemorySigner::new(self.signer.clone());
+		let tx_block_hash = send_extrinsic(&self.client, &signer, &tx, None).await?;
 
 		Ok(tx_block_hash)
 	}
@@ -85,12 +100,17 @@ where
 		pallet_name: &'static str,
 		variant_name: &'static str,
 	) -> Result<Vec<EventDetails<C>>, anyhow::Error> {
-		let subscription = self.client.rpc().subscribe_all_block_headers().await?;
+		let subscription = self.rpc.chain_subscribe_all_heads().await?;
 		let client = self.client.clone();
-		let stream = subscription.filter_map(move |header| {
+		let stream = subscription.filter_map(move |header_result| {
 			let client = client.clone();
 			async move {
-				let events = client.events().at(header.ok()?.hash()).await.ok()?;
+				let header = header_result.ok()?;
+
+				let hasher = C::Hasher::new(&client.metadata());
+				let header_hash = header.hash_with(hasher);
+
+				let events = client.events().at(header_hash).await.ok()?;
 
 				let events = events
 					.iter()
@@ -123,23 +143,37 @@ where
 
 	pub async fn runtime_upgrade(&self, code_blob: Vec<u8>) -> anyhow::Result<()> {
 		// Set code
+		let encoded_call = subxt::dynamic::tx(
+			"System",
+			"set_code",
+			vec![Value::from_bytes(code_blob.encode())]
+		).encode_call_data(&self.client.metadata())?;
 
-		let encoded_call = Extrinsic::new("System", "set_code", code_blob.encode())
-			.encode_call_data(&self.client.metadata())?;
-		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, None).await?;
+		let tx = subxt::dynamic::tx(
+			"Sudo",
+			"sudo",
+			vec![Value::from_bytes(encoded_call)]
+		);
+
+		let signer = InMemorySigner::new(self.signer().clone());
+		send_extrinsic(&self.client, &signer, &tx, None).await?;
 
 		Ok(())
 	}
 
 	pub async fn set_invulnerables(&self, accounts: Vec<C::AccountId>) -> anyhow::Result<()> {
-		let encoded_call =
-			Extrinsic::new("CollatorSelection", "set_invulnerables", accounts.encode())
-				.encode_call_data(&self.client.metadata())?;
-		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, None).await?;
+		let encoded_call = subxt::dynamic::tx(
+			"CollatorSelection",
+			"set_invulnerables",
+			vec![Value::from_bytes(accounts.encode())]
+		).encode_call_data(&self.client.metadata())?;
+		let tx = subxt::dynamic::tx(
+			"Sudo",
+			"sudo",
+			vec![Value::from_bytes(encoded_call)]
+		);
+		let signer = InMemorySigner::new(self.signer().clone());
+		send_extrinsic(&self.client, &signer, &tx, None).await?;
 
 		Ok(())
 	}

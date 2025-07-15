@@ -18,15 +18,16 @@ use std::sync::Arc;
 use grandpa_prover::{GrandpaProver, ProverOptions, GRANDPA_CURRENT_SET_ID};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
-use sp_core::{crypto, H256};
+use sp_core::{crypto};
 use subxt::{
 	config::{
 		ExtrinsicParams, Header,
 	},
 };
-use::polkadot_sdk::sp_runtime::{traits::{One, Zero}, MultiSignature, };
+use::polkadot_sdk::sp_runtime::{traits::{One, Zero}};
 use subxt::config::HashFor;
 use subxt::tx::DefaultParams;
+use subxt::utils::{AccountId32, MultiSignature, H256};
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
@@ -52,17 +53,17 @@ impl GrandpaConfig {
 		<H::Header as Header>::Number:
 			Ord + Zero + finality_grandpa::BlockNumberOps + One + From<u32>,
 		u32: From<<H::Header as Header>::Number>,
-		sp_core::H256: From<HashFor::<H>>,
+		H256: From<HashFor::<H>>,
 		H::Header: codec::Decode,
 		<H::Hasher as subxt::config::Hasher>::Output: From<HashFor::<H>>,
 		HashFor::<H>: From<<H::Hasher as subxt::config::Hasher>::Output>,
-		HashFor::<H>: From<sp_core::H256>,
+		HashFor::<H>: From<H256>,
 		<H::ExtrinsicParams as ExtrinsicParams<H>>::Params: Send + Sync + DefaultParams,
 		H::Signature: From<MultiSignature> + Send + Sync,
-		H::AccountId: From<crypto::AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
+		H::AccountId: From<AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
 		<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 		C::Signature: From<MultiSignature> + Send + Sync,
-		C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+		C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 		<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 		H256: From<HashFor<C>>,
 	{
@@ -105,15 +106,15 @@ where
 	C: subxt::Config + Send + Sync + Clone,
 	<H::Header as Header>::Number: Ord + Zero + From<u32>,
 	u32: From<<H::Header as Header>::Number>,
-	sp_core::H256: From<HashFor::<H>>,
+	H256: From<HashFor::<H>>,
 	H::Header: codec::Decode,
 	<H::ExtrinsicParams as ExtrinsicParams<H>>::Params: Send + Sync + DefaultParams,
 	H::Signature: From<MultiSignature> + Send + Sync,
-	H::AccountId: From<crypto::AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
+	H::AccountId: From<AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
 
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 	H256: From<HashFor<C>>,
 {
 	pub async fn new(config: &GrandpaConfig) -> Result<Self, anyhow::Error> {

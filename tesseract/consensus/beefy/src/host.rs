@@ -18,7 +18,6 @@ use codec::{Decode, Encode};
 use ismp_solidity_abi::beefy::BeefyConsensusState;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
-use sp_core::H256;
 use std::{
 	pin::Pin,
 	sync::Arc,
@@ -26,8 +25,8 @@ use std::{
 };
 use subxt::{
 	config::{ExtrinsicParams},
+	utils::{AccountId32, MultiSignature, H256}
 };
-use polkadot_sdk::sp_runtime::MultiSignature;
 use tesseract_substrate::SubstrateClient;
 
 use crate::{
@@ -84,7 +83,7 @@ where
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId:
-		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+		From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 	H256: From<HashFor::<P>>,
 {
 	/// Construct an implementation of the [`BeefyHost`]
@@ -290,7 +289,7 @@ where
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId:
-		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+		From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 	H256: From<HashFor::<P>>,
 {
 	async fn start_consensus(

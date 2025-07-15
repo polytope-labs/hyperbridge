@@ -1,4 +1,4 @@
-use std::time::Duration;
+use core::time::Duration;
 
 use cometbft::{block::Height, chain::Id, trust_threshold::TrustThresholdFraction, Hash, Time};
 use cometbft_light_client_verifier::{

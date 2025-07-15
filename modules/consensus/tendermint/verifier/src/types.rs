@@ -1,4 +1,4 @@
-use std::time::Duration;
+use core::time::Duration;
 
 use crate::{SignedHeader, Validator};
 use serde::{Deserialize, Serialize};

@@ -1,7 +1,6 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha3::{Digest, Keccak256};
 
 /// RPC Response wrapper for Heimdall client
 #[derive(Debug, Clone, Serialize, Deserialize)]

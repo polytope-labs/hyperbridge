@@ -9,8 +9,8 @@ use cometbft_light_client_verifier::{
 use cometbft_proto::google::protobuf::Timestamp;
 
 use crate::{
-	ConsensusProof, SpIoVerifier, TrustedState, UpdatedTrustedState, VerificationError,
-	VerificationOptions,
+	hashing::SpIoSha256, ConsensusProof, SpIoVerifier, TrustedState, UpdatedTrustedState,
+	VerificationError, VerificationOptions,
 };
 
 /// Main verification function for header updates
@@ -257,34 +257,43 @@ fn create_updated_trusted_state(
 	old_trusted_state: &TrustedState,
 	consensus_proof: &ConsensusProof,
 ) -> Result<UpdatedTrustedState, VerificationError> {
-	// Create new trusted state with the verified header information
-	let new_next_validators_hash = consensus_proof
-		.signed_header
-		.header
-		.next_validators_hash
-		.as_bytes()
-		.try_into()
-		.map_err(|_| VerificationError::Invalid("Invalid next_validators_hash".to_string()))?;
-
 	// Check if validator set rotation is needed
-	// Only rotate if:
-	// 1. The next_validators_hash has changed AND
-	// 2. The consensus_proof contains next_validators (not None)
-	let (validators, next_validators) =
-		if new_next_validators_hash != old_trusted_state.next_validators_hash {
-			// Hash changed, check if we have next_validators to rotate to
-			if let Some(new_next_validators) = &consensus_proof.next_validators {
-				// Rotate validator set: current validators become next_validators,
-				// and new next_validators come from the signed header
-				(old_trusted_state.next_validators.clone(), new_next_validators.clone())
+	let (validators, next_validators, new_next_validators_hash) = {
+		let signed_header_hash = &consensus_proof.signed_header.header.next_validators_hash;
+
+		// Only rotate if signed header has next_validators_hash and consensus proof has
+		// next_validators
+		if !signed_header_hash.is_empty() && consensus_proof.next_validators.is_some() {
+			let consensus_proof_validators = consensus_proof.next_validators.as_ref().unwrap();
+			let validator_set = ValidatorSet::new(consensus_proof_validators.clone(), None);
+			let consensus_proof_hash = validator_set.hash_with::<SpIoSha256>();
+
+			// Only rotate if hashes match
+			if consensus_proof_hash.as_bytes() == signed_header_hash.as_bytes() {
+				// Perform rotation and update hash
+				let new_hash = signed_header_hash.as_bytes().try_into().map_err(|_| {
+					VerificationError::Invalid("Invalid next_validators_hash".to_string())
+				})?;
+				(
+					old_trusted_state.next_validators.clone(),
+					consensus_proof_validators.clone(),
+					new_hash,
+				)
 			} else {
-				// Hash changed but no next_validators provided, don't rotate
-				(old_trusted_state.validators.clone(), old_trusted_state.next_validators.clone())
+				(
+					old_trusted_state.validators.clone(),
+					old_trusted_state.next_validators.clone(),
+					old_trusted_state.next_validators_hash,
+				)
 			}
 		} else {
-			// Hash unchanged, no rotation needed
-			(old_trusted_state.validators.clone(), old_trusted_state.next_validators.clone())
-		};
+			(
+				old_trusted_state.validators.clone(),
+				old_trusted_state.next_validators.clone(),
+				old_trusted_state.next_validators_hash,
+			)
+		}
+	};
 
 	let new_trusted_state = TrustedState {
 		chain_id: consensus_proof.chain_id().to_string(),

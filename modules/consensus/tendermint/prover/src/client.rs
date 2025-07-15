@@ -1,4 +1,3 @@
-use base64::Engine;
 use cometbft::{block::Height, validator::Info as Validator};
 use cometbft_rpc::{Client as OtherClient, HttpClient, Paging, Url};
 use reqwest::Client as ReqwestClient;

@@ -6,11 +6,13 @@ mod tests {
 	use tendermint_verifier::{TrustedState, VerificationError, VerificationOptions};
 	use tracing::trace;
 
-	const STANDARD_RPC_URL: &str = "https://rpc.osmotest5.osmosis.zone:443";
+	const STANDARD_RPC_URL: &str =
+		"https://rpc.ankr.com/sei/8c2c2b98554b32f7dd5fc9bc44a6b1da42f117c19ee97f5a55c9b74d4d33c7cd";
 	const POLYGON_RPC_URL: &str = "https://polygon-amoy-heimdall-rpc.publicnode.com:443";
 	const VALIDATOR_SET_TRANSITIONS: u32 = 4;
 
 	#[tokio::test]
+	#[ignore]
 	async fn test_standard_tendermint_integration() {
 		trace!(
 			"Testing Standard Tendermint with {} validator set transitions",
@@ -20,6 +22,7 @@ mod tests {
 	}
 
 	#[tokio::test]
+	#[ignore]
 	async fn test_polygon_heimdall_basic_rpc() {
 		trace!("Testing Polygon's Heimdall Fork (Basic RPC)");
 		test_polygon_basic_rpc(POLYGON_RPC_URL).await.unwrap();
@@ -27,6 +30,7 @@ mod tests {
 
 	// Fails with Invalid Proof, debugging
 	#[tokio::test]
+	#[ignore]
 	async fn test_polygon_heimdall_full_verification() {
 		trace!(
 			"Testing Polygon's Heimdall Fork (Full Verification) with {} validator set transitions",

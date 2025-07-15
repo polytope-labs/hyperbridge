@@ -1,9 +1,8 @@
-use cometbft::{crypto::Sha256, merkle::simple_hash_from_byte_vectors};
+use cometbft::merkle::simple_hash_from_byte_vectors;
 use cometbft_light_client_verifier::{
 	errors::VerificationError,
 	operations::{
-		CommitValidator, ProdCommitValidator, ProvidedVotingPowerCalculator, VotingPowerCalculator,
-		VotingPowerTally,
+		ProdCommitValidator, ProvidedVotingPowerCalculator, VotingPowerCalculator, VotingPowerTally,
 	},
 	options::Options,
 	predicates::VerificationPredicates,

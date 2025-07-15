@@ -21,7 +21,7 @@ use pallet_ismp_relayer::{
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
-	H256, U256,
+	U256,
 };
 use std::{collections::BTreeMap, sync::Arc};
 use subxt::{
@@ -32,11 +32,11 @@ use subxt::{
 		subxt_rpcs::{rpc_params, methods::legacy::DryRunResult}
 	},
 	tx::Payload,
-	utils::AccountId32,
 	OnlineClient,
 };
-use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner};
+use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSigner};
 use polkadot_sdk::sp_core::{crypto, Pair};
+use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
 use subxt::config::{Hash, HashFor};
 use subxt::dynamic::Value;
 use subxt::tx::DefaultParams;
@@ -60,7 +60,7 @@ where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	C::AccountId:
-		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+		From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	H256: From<HashFor<C>>,
@@ -69,8 +69,17 @@ where
 		&self,
 		message: CreateConsensusState,
 	) -> Result<(), anyhow::Error> {
+		let binding = self.signer.public();
+		let public_key_slice: &[u8] = binding.as_ref();
+
+		let public_key_array: [u8; 32] = public_key_slice
+			.try_into()
+			.expect("sr25519 public key should be 32 bytes");
+
+		let account_id = AccountId32::from(public_key_array);
+
 		let signer = InMemorySigner {
-			account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
+			account_id: account_id.into(),
 			signer: self.signer.clone(),
 		};
 
@@ -106,7 +115,7 @@ where
 			"sudo",
 			vec![Value::from_bytes(encoded_call)]
 		);
-		let signer = InMemorySigner::new(self.signer());
+		let signer = InMemorySigner::new(self.signer.clone());
 		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
 
 		Ok(())
@@ -119,7 +128,7 @@ where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	C::AccountId:
-		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+		From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	H256: From<HashFor<C>>,
@@ -273,7 +282,7 @@ where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	C::AccountId:
-		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+		From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
 	async fn submit_get_response(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {

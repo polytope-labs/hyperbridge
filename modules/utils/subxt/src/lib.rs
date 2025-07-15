@@ -1,21 +1,21 @@
 use anyhow::anyhow;
 use codec::Encode;
 use derivative::Derivative;
-use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use polkadot_sdk::*;
 use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
 use subxt::{config::{
+	Hasher,
 	substrate::{
 		BlakeTwo256, SubstrateExtrinsicParams, SubstrateExtrinsicParamsBuilder as Params,
 		SubstrateHeader,
 	},
-	Hasher,
-}, tx::Payload, utils::{AccountId32, MultiAddress, H256}, Metadata, OnlineClient, PolkadotConfig};
+}, Metadata, OnlineClient, PolkadotConfig, tx::Payload, utils::{AccountId32, H256, MultiAddress}};
 
-pub mod client;
-
+use ismp::{consensus::StateMachineHeight, host::StateMachine};
 #[cfg(feature = "std")]
 pub use signer::*;
+
+pub mod client;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Hyperbridge;
@@ -37,7 +37,7 @@ impl Hasher for RuntimeHasher {
 
 impl subxt::Config for Hyperbridge {
 	type AccountId = AccountId32;
-	type Address = MultiAddress<Self::AccountId, ()>;
+	type Address = MultiAddress<Self::AccountId, u32>;
 	type Signature = subxt::utils::MultiSignature;
 	type Hasher = RuntimeHasher;
 	type Header = SubstrateHeader<u32, RuntimeHasher>;
@@ -60,18 +60,18 @@ impl subxt::Config for BlakeSubstrateChain {
 
 #[cfg(feature = "std")]
 pub mod signer {
-	use super::*;
 	use anyhow::Context;
+	use polkadot_sdk::sp_core::{ByteArray, crypto, Pair, sr25519};
+	use polkadot_sdk::sp_runtime::{MultiSigner, traits::IdentifyAccount};
 	use subxt::{
-		tx::Signer,
 		OnlineClient,
+		tx::Signer,
 	};
-	use polkadot_sdk::sp_core::{crypto, sr25519, Pair};
-	use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner};
-	use subxt::config::{DefaultExtrinsicParams, DefaultExtrinsicParamsBuilder, ExtrinsicParams, HashFor, substrate::SubstrateExtrinsicParamsBuilder as Params, transaction_extensions};
-	use subxt::config::substrate::SubstrateExtrinsicParamsBuilder;
-	use subxt::config::transaction_extensions::{ChargeAssetTxPayment, ChargeAssetTxPaymentParams, ChargeTransactionPayment, ChargeTransactionPaymentParams, CheckGenesis, CheckMortality, CheckMortalityParams, CheckNonce, CheckNonceParams, CheckSpecVersion, CheckTxVersion, VerifySignature};
+	use subxt::config::{ExtrinsicParams, HashFor};
 	use subxt::tx::DefaultParams;
+	use subxt::utils::{MultiSignature, AccountId32};
+
+	use super::*;
 
 	#[derive(Clone)]
 	pub struct InMemorySigner<T: subxt::Config> {
@@ -82,11 +82,19 @@ pub mod signer {
 	impl<T: subxt::Config> InMemorySigner<T>
 	where
 		T::Signature: From<MultiSignature>,
-		T::AccountId: From<crypto::AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
+		T::AccountId: From<AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
 	{
 		pub fn new(pair: sr25519::Pair) -> Self {
+			let binding = pair.public();
+			let public_key_slice: &[u8] = binding.as_ref();
+
+			let public_key_array: [u8; 32] = public_key_slice
+				.try_into()
+				.expect("sr25519 public key should be 32 bytes");
+
+			let account_id = AccountId32::from(public_key_array);
 			InMemorySigner {
-				account_id: MultiSigner::Sr25519(pair.public()).into_account().into(),
+				account_id: account_id.into(),
 				signer: pair,
 			}
 		}
@@ -102,7 +110,7 @@ pub mod signer {
 		}
 
 		fn sign(&self, payload: &[u8]) -> T::Signature {
-			MultiSignature::Sr25519(self.signer.sign(payload)).into()
+			MultiSignature::Sr25519(<[u8; 64]>::from(self.signer.sign(payload))).into()
 		}
 	}
 

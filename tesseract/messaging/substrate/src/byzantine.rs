@@ -8,16 +8,15 @@ use ismp::{
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 };
-use sp_core::H256;
 use substrate_state_machine::fetch_overlay_root_and_timestamp;
 use subxt::{
 	config::{
 		substrate::SubstrateHeader, ExtrinsicParams, Header,
 	},
 };
-use polkadot_sdk::sp_runtime::{AccountId32, MultiSignature};
 use subxt::config::{Hash, HashFor};
 use subxt::tx::DefaultParams;
+use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
 
 use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpProvider};
 

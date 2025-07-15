@@ -24,8 +24,9 @@ use pallet_ismp::child_trie::{
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated, StreamError};
 
 use serde::{Deserialize, Serialize};
-use polkadot_sdk::sp_core::{bytes::from_hex, crypto, sr25519, Pair, H256};
-use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner};
+use polkadot_sdk::sp_core::{bytes::from_hex, crypto, sr25519, Pair};
+use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSigner};
+use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
 
 use substrate_state_machine::HashAlgorithm;
 use subxt::{
@@ -109,7 +110,7 @@ impl<C> SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	H256: From<HashFor<C>>,
 {
@@ -162,7 +163,16 @@ where
 	}
 
 	pub fn account(&self) -> C::AccountId {
-		MultiSigner::Sr25519(self.signer.public()).into_account().into()
+		let binding = self.signer.public();
+		let public_key_slice: &[u8] = binding.as_ref();
+
+		let public_key_array: [u8; 32] = public_key_slice
+			.try_into()
+			.expect("Public key must be 32 bytes");
+
+		let account_id = subxt::utils::AccountId32::from(public_key_array);
+
+		account_id.into()
 	}
 
 	pub async fn set_latest_finalized_height(

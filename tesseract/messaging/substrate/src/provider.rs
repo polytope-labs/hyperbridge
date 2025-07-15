@@ -39,10 +39,10 @@ use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
 use polkadot_sdk::sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
-	Pair, H160, H256, U256,
-	crypto::AccountId32
+	Pair, H160, U256,
 };
-use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner};
+use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSigner};
+use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
 use subxt::{
 	config::{
@@ -848,10 +848,21 @@ where
 			return Ok(());
 		}
 
+		let binding = self.signer.public();
+
+		let public_key_slice: &[u8] = binding.as_ref();
+
+		let public_key_array: [u8; 32] = public_key_slice
+			.try_into()
+			.expect("Public key must be 32 bytes");
+
+		let account_id = AccountId32::from(public_key_array);
+
 		let signer = InMemorySigner {
-			account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
+			account_id: account_id.into(),
 			signer: self.signer.clone(),
 		};
+
 
 		let call = height.encode();
 		let call = subxt::dynamic::tx(

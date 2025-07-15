@@ -17,15 +17,14 @@
 
 use anyhow::{anyhow, Context};
 use codec::{Decode, Encode};
-use sp_core::H256;
 use subxt::{
 	config:: ExtrinsicParams,
 	tx::Payload,
 	OnlineClient,
 };
+use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
 use subxt::ext::{scale_decode::DecodeAsFields, scale_encode::EncodeAsType, scale_decode::DecodeAsType};
 use subxt::ext::subxt_rpcs::methods::legacy::DryRunResult;
-use polkadot_sdk::sp_runtime::MultiSignature;
 use subxt::backend::chain_head::rpc_methods::DryRunResultBytes;
 use subxt::config::HashFor;
 use subxt::backend::legacy::LegacyRpcMethods;

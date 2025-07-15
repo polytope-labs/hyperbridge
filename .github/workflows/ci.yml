@@ -372,7 +372,7 @@ jobs:
 
             - name: Tendermint Polygon Integration Test
               run: |
-                  cargo test test_polygon_heimdall_full_verification -- --nocapture
+                  cargo test test_polygon_heimdall_full_verification -- --nocapture --ignored
 
             - name: Clean up docker
               if: always()

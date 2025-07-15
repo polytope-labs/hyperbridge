@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-	use std::time::{SystemTime, UNIX_EPOCH};
+	use std::{
+		ops::{Add, Sub},
+		time::{SystemTime, UNIX_EPOCH},
+	};
 
 	use crate::{prove_header_update, Client, CometBFTClient, HeimdallClient};
 	use tendermint_verifier::{TrustedState, VerificationError, VerificationOptions};

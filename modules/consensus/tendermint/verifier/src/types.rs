@@ -131,14 +131,14 @@ pub struct ConsensusProof {
 	/// Ancestry of signed headers from trusted block height to the latest signed header
 	pub ancestry: Vec<SignedHeader>,
 	/// Next validator set  (optional) - target height + 1
-	pub next_validators: Vec<Validator>,
+	pub next_validators: Option<Vec<Validator>>,
 }
 
 impl ConsensusProof {
 	pub fn new(
 		signed_header: SignedHeader,
 		ancestry: Vec<SignedHeader>,
-		next_validators: Vec<Validator>,
+		next_validators: Option<Vec<Validator>>,
 	) -> Self {
 		Self { signed_header, ancestry, next_validators }
 	}
@@ -173,9 +173,18 @@ impl ConsensusProof {
 
 	/// Validate the consensus proof
 	pub fn validate(&self) -> Result<(), String> {
-		if self.next_validators.is_empty() {
-			return Err("Next validator set cannot be empty".to_string());
+		// Validate that if next_validators_hash is not empty, next_validators must be provided
+		let header_next_validators_hash = &self.signed_header.header.next_validators_hash;
+		if !header_next_validators_hash.is_empty() {
+			// Hash is not empty, so next_validators must be provided
+			if self.next_validators.is_none() {
+				return Err("Header has non-empty next_validators_hash but consensus proof has no next_validators".to_string());
+			}
+			if self.next_validators.as_ref().unwrap().is_empty() {
+				return Err("Header has non-empty next_validators_hash but consensus proof has empty next_validators".to_string());
+			}
 		}
+
 		if self.height() == 0 {
 			return Err("Height cannot be zero".to_string());
 		}
@@ -190,12 +199,12 @@ impl ConsensusProof {
 
 	/// Check if the proof has next validators
 	pub fn has_next_validators(&self) -> bool {
-		!self.next_validators.is_empty()
+		self.next_validators.is_some() && !self.next_validators.as_ref().unwrap().is_empty()
 	}
 
 	/// Get the next validators if available
-	pub fn get_next_validators(&self) -> &Vec<Validator> {
-		&self.next_validators
+	pub fn get_next_validators(&self) -> Option<&Vec<Validator>> {
+		self.next_validators.as_ref()
 	}
 
 	/// Get the total number of blocks in the proof (ancestry + latest)

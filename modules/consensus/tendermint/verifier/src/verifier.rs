@@ -20,6 +20,8 @@ pub fn verify_header_update(
 	options: VerificationOptions,
 	current_time: u64,
 ) -> Result<UpdatedTrustedState, VerificationError> {
+	consensus_proof.validate().map_err(|e| VerificationError::Invalid(e))?;
+
 	let chain_id = Id::try_from(trusted_state.chain_id.clone())
 		.map_err(|e| VerificationError::Invalid(e.to_string()))?;
 	let height = Height::try_from(trusted_state.height)
@@ -38,12 +40,15 @@ pub fn verify_header_update(
 	};
 
 	let validators = ValidatorSet::new(trusted_state.next_validators.clone(), None);
-	let next_validators_proof = ValidatorSet::new(consensus_proof.next_validators.clone(), None);
+	let next_validators_proof = consensus_proof
+		.next_validators
+		.as_ref()
+		.map(|validators| ValidatorSet::new(validators.clone(), None));
 
 	let untrusted_block_state = UntrustedBlockState {
 		signed_header: &consensus_proof.signed_header,
 		validators: &validators,
-		next_validators: Some(&next_validators_proof),
+		next_validators: next_validators_proof.as_ref(),
 	};
 
 	let verifier_options =
@@ -79,6 +84,24 @@ pub fn verify_misbehaviour_header(
 	options: VerificationOptions,
 	current_time: u64,
 ) -> Result<UpdatedTrustedState, VerificationError> {
+	consensus_proof.validate().map_err(|e| VerificationError::Invalid(e))?;
+
+	// Validate that if next_validators_hash is not empty, next_validators must be provided
+	let header_next_validators_hash = &consensus_proof.signed_header.header.next_validators_hash;
+	if !header_next_validators_hash.is_empty() {
+		// Hash is not empty, so next_validators must be provided
+		if consensus_proof.next_validators.is_none() {
+			return Err(VerificationError::Invalid(
+				"Header has non-empty next_validators_hash but consensus proof has no next_validators".to_string(),
+			));
+		}
+		if consensus_proof.next_validators.as_ref().unwrap().is_empty() {
+			return Err(VerificationError::Invalid(
+				"Header has non-empty next_validators_hash but consensus proof has empty next_validators".to_string(),
+			));
+		}
+	}
+
 	let chain_id = Id::try_from(trusted_state.chain_id.clone())
 		.map_err(|e| VerificationError::Invalid(e.to_string()))?;
 	let height = Height::try_from(trusted_state.height)
@@ -97,12 +120,15 @@ pub fn verify_misbehaviour_header(
 	};
 
 	let validators = ValidatorSet::new(trusted_state.next_validators.clone(), None);
-	let next_validators_proof = ValidatorSet::new(consensus_proof.next_validators.clone(), None);
+	let next_validators_proof = consensus_proof
+		.next_validators
+		.as_ref()
+		.map(|validators| ValidatorSet::new(validators.clone(), None));
 
 	let untrusted_block_state = UntrustedBlockState {
 		signed_header: &consensus_proof.signed_header,
 		validators: &validators,
-		next_validators: Some(&next_validators_proof),
+		next_validators: next_validators_proof.as_ref(),
 	};
 
 	let verifier_options =
@@ -241,17 +267,26 @@ fn create_updated_trusted_state(
 		.map_err(|_| VerificationError::Invalid("Invalid next_validators_hash".to_string()))?;
 
 	// Check if validator set rotation is needed
+	// Only rotate if:
+	// 1. The next_validators_hash has changed AND
+	// 2. The consensus_proof contains next_validators (not None)
 	let (validators, next_validators) =
 		if new_next_validators_hash != old_trusted_state.next_validators_hash {
-			// Rotate validator set: current validators become next_validators,
-			// and new next_validators come from the signed header
-			(old_trusted_state.next_validators.clone(), consensus_proof.next_validators.clone())
+			// Hash changed, check if we have next_validators to rotate to
+			if let Some(new_next_validators) = &consensus_proof.next_validators {
+				// Rotate validator set: current validators become next_validators,
+				// and new next_validators come from the signed header
+				(old_trusted_state.next_validators.clone(), new_next_validators.clone())
+			} else {
+				// Hash changed but no next_validators provided, don't rotate
+				(old_trusted_state.validators.clone(), old_trusted_state.next_validators.clone())
+			}
 		} else {
-			// No rotation needed
-			(old_trusted_state.validators.clone(), consensus_proof.next_validators.clone())
+			// Hash unchanged, no rotation needed
+			(old_trusted_state.validators.clone(), old_trusted_state.next_validators.clone())
 		};
 
-	let mut new_trusted_state = TrustedState {
+	let new_trusted_state = TrustedState {
 		chain_id: consensus_proof.chain_id().to_string(),
 		height: consensus_proof.height(),
 		timestamp: consensus_proof.timestamp(),

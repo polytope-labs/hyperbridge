@@ -18,10 +18,11 @@ pub async fn prove_header_update(
 		Vec::new()
 	};
 
-	let next_validators = rpc_client.next_validators(target_height).await?;
-	if next_validators.is_empty() {
-		return Err(ProverError::NoValidators(target_height));
-	}
+	let next_validators = if target_signed_header.header.next_validators_hash.is_empty() {
+		None
+	} else {
+		Some(rpc_client.next_validators(target_height).await?)
+	};
 
 	let consensus_proof = ConsensusProof::new(target_signed_header, ancestry, next_validators);
 
@@ -45,10 +46,11 @@ pub async fn prove_misbehaviour_header(
 		Vec::new()
 	};
 
-	let next_validators = rpc_client.next_validators(target_height).await?;
-	if next_validators.is_empty() {
-		return Err(ProverError::NoValidators(target_height));
-	}
+	let next_validators = if target_signed_header.header.next_validators_hash.is_empty() {
+		None
+	} else {
+		Some(rpc_client.next_validators(target_height).await?)
+	};
 
 	let consensus_proof = ConsensusProof::new(target_signed_header, ancestry, next_validators);
 

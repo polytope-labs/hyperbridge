@@ -149,35 +149,46 @@ fn extract_validators<'a>(
 	trusted_state: &'a TrustedState,
 	consensus_proof: &'a ConsensusProof,
 ) -> Result<ValidatorSet, VerificationError> {
-	let signed_header_validators_hash = &consensus_proof.signed_header.header.validators_hash;
-	let current_validators_hash =
-		ValidatorSet::new(trusted_state.validators.clone(), None).hash_with::<SpIoSha256>();
-	let next_validators_hash = Hash::Sha256(trusted_state.next_validators_hash);
+	use crate::sp_io_verifier::validate_validator_set_hash;
 
-	let validators = if signed_header_validators_hash == &current_validators_hash {
-		ValidatorSet::new(trusted_state.validators.clone(), None)
-	} else if signed_header_validators_hash == &next_validators_hash {
-		ValidatorSet::new(trusted_state.next_validators.clone(), None)
+	let header = &consensus_proof.signed_header.header;
+	let current_set = ValidatorSet::new(trusted_state.validators.clone(), None);
+	let next_set = ValidatorSet::new(trusted_state.next_validators.clone(), None);
+
+	// Validate current and next validator set hashes using the shared helper
+	let current_hash_result =
+		validate_validator_set_hash(&current_set, header.validators_hash, false);
+	let next_hash_result = validate_validator_set_hash(&next_set, header.validators_hash, true);
+
+	let validators = if current_hash_result.is_ok() {
+		current_set
+	} else if next_hash_result.is_ok() {
+		next_set
 	} else {
 		return Err(VerificationError::Invalid(format!(
 			"Unknown validator set hash: {:?}",
-			signed_header_validators_hash
-		)));
+			header.validators_hash
+		)))
 	};
 
-	// Validate next_validators_hash rotation if signaled
-	let signed_header_next_validators_hash =
-		&consensus_proof.signed_header.header.next_validators_hash;
-	if signed_header_next_validators_hash != &next_validators_hash {
-		let provided_next_validators = consensus_proof.next_validators.as_ref().ok_or_else(||
-			VerificationError::Invalid("Header signals next_validators_hash rotation but consensus proof has no next_validators".to_string())
-		)?;
-		let provided_set = ValidatorSet::new(provided_next_validators.clone(), None);
-		let provided_hash = provided_set.hash_with::<SpIoSha256>();
-		if &provided_hash != signed_header_next_validators_hash {
+	let next_header_hash = &header.next_validators_hash;
+	let next_hash = Hash::Sha256(trusted_state.next_validators_hash);
+	if next_header_hash.is_empty() && consensus_proof.next_validators.is_some() {
+		return Err(VerificationError::ValidatorSetError(
+			"Next validators from Consensus Proof does not match signed header".to_string(),
+		));
+	} else if next_header_hash != &next_hash {
+		let provided = consensus_proof.next_validators.as_ref().ok_or_else(|| {
+			VerificationError::Invalid(
+				"Header signals next_validators_hash rotation but consensus proof has no next_validators".to_string()
+			)
+		})?;
+		let provided_set = ValidatorSet::new(provided.clone(), None);
+		let provided_hash_result =
+			validate_validator_set_hash(&provided_set, *next_header_hash, true);
+		if provided_hash_result.is_err() {
 			return Err(VerificationError::Invalid(format!(
-				"Provided next_validators hash {:?} does not match signed_header.next_validators_hash {:?}",
-				provided_hash, signed_header_next_validators_hash
+				"Provided next_validators hash does not match signed_header.next_validators_hash"
 			)));
 		}
 	}
@@ -284,68 +295,41 @@ fn create_updated_trusted_state(
 	old_trusted_state: &TrustedState,
 	consensus_proof: &ConsensusProof,
 ) -> Result<UpdatedTrustedState, VerificationError> {
-	let signed_header_hash = &consensus_proof.signed_header.header.next_validators_hash;
-	if !signed_header_hash.is_empty() && consensus_proof.next_validators.is_none() ||
-		signed_header_hash.is_empty() && consensus_proof.next_validators.is_some()
-	{
-		return Err(VerificationError::Invalid(
-			"Invalid next_validators_hash and next_validators in consensus proof".to_string(),
-		));
-	}
+	let header = &consensus_proof.signed_header.header;
 
-	// Check if validator set rotation is needed
-	let (validators, next_validators, new_next_validators_hash) = {
-		// Only rotate if signed header has next_validators_hash and consensus proof has
-		// next_validators
-		if !signed_header_hash.is_empty() && consensus_proof.next_validators.is_some() {
-			let consensus_proof_validators = consensus_proof.next_validators.as_ref().unwrap();
-			let validator_set = ValidatorSet::new(consensus_proof_validators.clone(), None);
-			let consensus_proof_hash = validator_set.hash_with::<SpIoSha256>();
+	// Promote next_validators to validators
+	let validators = old_trusted_state.next_validators.clone();
 
-			// Only rotate if hashes match
-			if consensus_proof_hash.as_bytes() == signed_header_hash.as_bytes() {
-				// Perform rotation and update hash
-				let new_hash = signed_header_hash.as_bytes().try_into().map_err(|_| {
-					VerificationError::Invalid("Invalid next_validators_hash".to_string())
-				})?;
-				(
-					old_trusted_state.next_validators.clone(),
-					consensus_proof_validators.clone(),
-					new_hash,
-				)
-			} else {
-				(
-					old_trusted_state.validators.clone(),
-					old_trusted_state.next_validators.clone(),
-					old_trusted_state.next_validators_hash,
-				)
-			}
+	// Use new next_validators if present, else keep old
+	let next_validators = consensus_proof
+		.next_validators
+		.clone()
+		.unwrap_or_else(|| old_trusted_state.next_validators.clone());
+
+	// Use new next_validators_hash if present, else keep old
+	let next_validators_hash =
+		if !header.next_validators_hash.is_empty() {
+			header.next_validators_hash.as_bytes().try_into().map_err(|_| {
+				VerificationError::Invalid("Invalid next_validators_hash".to_string())
+			})?
 		} else {
-			(
-				old_trusted_state.validators.clone(),
-				old_trusted_state.next_validators.clone(),
-				old_trusted_state.next_validators_hash,
-			)
-		}
-	};
+			old_trusted_state.next_validators_hash
+		};
 
-	let new_trusted_state = TrustedState {
-		chain_id: consensus_proof.chain_id().to_string(),
-		height: consensus_proof.height(),
-		timestamp: consensus_proof.timestamp(),
-		validators,
-		next_validators,
-		next_validators_hash: new_next_validators_hash,
-		trusting_period: old_trusted_state.trusting_period,
-		verification_options: old_trusted_state.verification_options.clone(),
-		finalized_header_hash: consensus_proof
-			.signed_header
-			.header
-			.hash()
-			.as_bytes()
-			.try_into()
-			.map_err(|_| VerificationError::Invalid("Invalid finalized_header_hash".to_string()))?,
-	};
+	let new_trusted_state =
+		TrustedState {
+			chain_id: consensus_proof.chain_id().to_string(),
+			height: consensus_proof.height(),
+			timestamp: consensus_proof.timestamp(),
+			validators,
+			next_validators,
+			next_validators_hash,
+			trusting_period: old_trusted_state.trusting_period,
+			verification_options: old_trusted_state.verification_options.clone(),
+			finalized_header_hash: header.hash().as_bytes().try_into().map_err(|_| {
+				VerificationError::Invalid("Invalid finalized_header_hash".to_string())
+			})?,
+		};
 
 	Ok(UpdatedTrustedState::new(
 		new_trusted_state,

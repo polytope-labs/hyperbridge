@@ -11,11 +11,11 @@ publish = false
 cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-rpc", features = ["http-client", "secp256k1"], rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
 cometbft = { git = "https://github.com/cometbft/cometbft-rs", features = ["rust-crypto", "secp256k1"], rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
 thiserror = "2.0.12"
-serde = { version = "1.0.219", features = ["derive"], optional = true }
-serde_json = { version = "1.0", optional = true }
-reqwest = { version = "0.11", features = ["json"], optional = true }
-base64 = { version = "0.21", optional = true }
-tokio = { version = "1.0", features = ["rt-multi-thread", "macros"], optional = true }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { version = "1.0" }
+reqwest = { version = "0.11", features = ["json"] }
+base64 = { version = "0.21" }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 sha2 = "0.10.7"
 cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
 prost = "0.13"
@@ -31,15 +31,3 @@ tendermint-verifier = { path = "../verifier" }
 workspace = true
 features = ["sp-runtime", "sp-core", "sp-io"]
 
-[features]
-default = ["std"]
-std = [
-    "serde",
-    "serde_json",
-    "reqwest",
-    "base64",
-    "tokio",
-    "polkadot-sdk/std",
-]
-no-std = []
-secp256k1 = [] 

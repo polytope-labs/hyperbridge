@@ -6,19 +6,11 @@ edition = "2024"
 [dependencies]
 cometbft = { git = "https://github.com/cometbft/cometbft-rs",  rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
 cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-rpc", features = ["http-client", "secp256k1"], rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
-serde = { version = "1.0.219", features = ["derive"], optional = true, default-features = false }
-thiserror = { version = "2.0.12", default-features = false, optional = true }
-base64 = { version = "0.21", optional = true }
-serde_json = { version = "1.0", optional = true }
+serde = { version = "1.0.219", features = ["derive"]}
+thiserror = { version = "2.0.12", default-features = false}
+base64 = { version = "0.21"}
+serde_json = { version = "1.0"}
 sha2 = "0.10.7"
 sha3 = "0.10"
 
 
-[features]
-default = ["std"]
-std = [
-    "serde/std",
-    "thiserror/std",
-    "serde_json",
-    "base64"
-]

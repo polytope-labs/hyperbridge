@@ -3,7 +3,7 @@ name: CI
 on:
     push:
         branches:
-            - main
+            # - main
             - tendermint
 
     pull_request_target:

@@ -6,8 +6,15 @@ mod tests {
 	use tendermint_primitives::{TrustedState, VerificationError, VerificationOptions};
 	use tracing::trace;
 
-	const STANDARD_RPC_URL: &str = env!("STANDARD_TENDERMINT_URL");
-	const POLYGON_RPC_URL: &str = env!("POLYGON_HEIMDALL");
+	fn get_standard_rpc_url() -> String {
+		std::env::var("STANDARD_TENDERMINT_URL")
+			.expect("STANDARD_TENDERMINT_URL environment variable must be set")
+	}
+
+	fn get_polygon_rpc_url() -> String {
+		std::env::var("POLYGON_HEIMDALL")
+			.expect("POLYGON_HEIMDALL environment variable must be set")
+	}
 	const VALIDATOR_SET_TRANSITIONS: u32 = 4;
 
 	#[tokio::test]
@@ -17,14 +24,14 @@ mod tests {
 			"Testing Standard Tendermint with {} validator set transitions",
 			VALIDATOR_SET_TRANSITIONS
 		);
-		run_integration_test_standard(STANDARD_RPC_URL).await.unwrap();
+		run_integration_test_standard(&get_standard_rpc_url()).await.unwrap();
 	}
 
 	#[tokio::test]
 	#[ignore]
 	async fn test_polygon_heimdall_basic_rpc() {
 		trace!("Testing Polygon's Heimdall Fork (Basic RPC)");
-		test_polygon_basic_rpc(POLYGON_RPC_URL).await.unwrap();
+		test_polygon_basic_rpc(&get_polygon_rpc_url()).await.unwrap();
 	}
 
 	// Fails with Invalid Proof, debugging
@@ -35,7 +42,7 @@ mod tests {
 			"Testing Polygon's Heimdall Fork (Full Verification) with {} validator set transitions",
 			VALIDATOR_SET_TRANSITIONS
 		);
-		run_integration_test_heimdall(POLYGON_RPC_URL).await.unwrap();
+		run_integration_test_heimdall(&get_polygon_rpc_url()).await.unwrap();
 	}
 
 	/// Full integration test: prover and verifier for standard CometBFT with multiple validator set

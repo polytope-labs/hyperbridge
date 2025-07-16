@@ -14,6 +14,9 @@ primitive-types = { workspace = true, features = ["scale-info", "serde"] }
 alloy-primitives = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
+pallet-ismp-relayer = { workspace = true }
+pallet-state-coprocessor = { workspace = true }
+pallet-ismp-demo = { workspace = true }
 derivative = { version = "2.2.0" }
 futures = "0.3.30"
 subxt-signer="0.41.0"
@@ -35,4 +38,7 @@ std = [
     "reconnecting-jsonrpsee-ws-client/native",
     "pallet-hyperbridge/std",
     "pallet-ismp-host-executive/std",
+    "pallet-ismp-relayer/std",
+    "pallet-state-coprocessor/std",
+    "pallet-ismp-demo/std"
 ]

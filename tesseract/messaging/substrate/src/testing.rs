@@ -37,6 +37,7 @@ use subxt::dynamic::Value;
 use subxt::tx::DefaultParams;
 
 use subxt_utils::send_extrinsic;
+use subxt_utils::values::{account_vec_to_value, evm_params_to_value, get_request_ismp_demo_to_value, transfer_params_to_value};
 
 impl<C> SubstrateClient<C>
 where
@@ -56,11 +57,10 @@ where
 		&self,
 		params: TransferParams<C::AccountId, u128>,
 	) -> Result<HashFor::<C>, anyhow::Error> {
-		let call = params.encode();
 		let call = subxt::dynamic::tx(
 			"IsmpDemo",
 			"transfer",
-			vec![Value::from_bytes(call)]
+			vec![transfer_params_to_value::<C>(&params)]
 		);
 
 		let signer = InMemorySigner::new(self.signer.clone());
@@ -69,11 +69,10 @@ where
 	}
 
 	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
-		let call = params.encode();
 		let call = subxt::dynamic::tx(
 			"IsmpDemo",
 			"dispatch_to_evm",
-			vec![Value::from_bytes(call)]
+			vec![evm_params_to_value(&params)]
 		);
 		let signer = InMemorySigner::new(self.signer.clone());
 		send_extrinsic(&self.client, &signer, &call, None).await?;
@@ -82,11 +81,10 @@ where
 	}
 
 	pub async fn get_request(&self, get_req: GetRequest) -> Result<HashFor::<C>, anyhow::Error> {
-		let call = get_req.encode();
 		let tx = subxt::dynamic::tx(
 			"IsmpDemo",
 			"get_request",
-			vec![Value::from_bytes(call)]
+			vec![get_request_ismp_demo_to_value(&get_req)]
 		);
 		let signer = InMemorySigner::new(self.signer.clone());
 		let tx_block_hash = send_extrinsic(&self.client, &signer, &tx, None).await?;
@@ -143,16 +141,16 @@ where
 
 	pub async fn runtime_upgrade(&self, code_blob: Vec<u8>) -> anyhow::Result<()> {
 		// Set code
-		let encoded_call = subxt::dynamic::tx(
+		let call = subxt::dynamic::tx(
 			"System",
 			"set_code",
-			vec![Value::from_bytes(code_blob.encode())]
-		).encode_call_data(&self.client.metadata())?;
+			vec![Value::from_bytes(code_blob)]
+		);
 
 		let tx = subxt::dynamic::tx(
 			"Sudo",
 			"sudo",
-			vec![Value::from_bytes(encoded_call)]
+			vec![call.into_value()]
 		);
 
 		let signer = InMemorySigner::new(self.signer().clone());
@@ -162,15 +160,15 @@ where
 	}
 
 	pub async fn set_invulnerables(&self, accounts: Vec<C::AccountId>) -> anyhow::Result<()> {
-		let encoded_call = subxt::dynamic::tx(
+		let call = subxt::dynamic::tx(
 			"CollatorSelection",
 			"set_invulnerables",
-			vec![Value::from_bytes(accounts.encode())]
-		).encode_call_data(&self.client.metadata())?;
+			vec![account_vec_to_value::<C>(&accounts)]
+		);
 		let tx = subxt::dynamic::tx(
 			"Sudo",
 			"sudo",
-			vec![Value::from_bytes(encoded_call)]
+			vec![call.into_value()]
 		);
 		let signer = InMemorySigner::new(self.signer().clone());
 		send_extrinsic(&self.client, &signer, &tx, None).await?;

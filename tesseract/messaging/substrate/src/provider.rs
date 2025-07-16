@@ -54,12 +54,14 @@ use subxt::{
 	tx::Payload,
 };
 use subxt::dynamic::Value;
+use subxt::ext::scale_value::value;
 use subxt::tx::DefaultParams;
 
 use subxt_utils::{
 	fisherman_storage_key, host_params_storage_key, send_extrinsic,
 	state_machine_update_time_storage_key,
 };
+use subxt_utils::values::{messages_to_value, state_machine_height_to_value};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query,
 	StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
@@ -316,11 +318,10 @@ where
 			> = chunk
 				.into_iter()
 				.map(|msg| {
-					let call = vec![msg].encode();
 					let extrinsic = subxt::dynamic::tx(
 						"Ismp",
 						"handle_unsigned",
-						vec![Value::from_bytes(call)]
+						vec![messages_to_value(vec![msg.clone()])]
 					);
 					let client = self.client.clone();
 					let rpc = self.rpc.clone();
@@ -656,19 +657,22 @@ where
 		messages: Vec<Message>,
 		coprocessor: StateMachine,
 	) -> Result<TxResult, anyhow::Error> {
+		log::trace!(target: "tesseract", "in submission ");
 		let mut futs = vec![];
 		let is_hyperbridge = self.state_machine == coprocessor;
 		for msg in messages.clone() {
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
-			let call = vec![msg].encode();
+			log::trace!(target: "tesseract", "converted to value for message submission");
 			let extrinsic = subxt::dynamic::tx(
 				"Ismp",
 				"handle_unsigned",
-				vec![Value::from_bytes(call)]
+				vec![messages_to_value(vec![msg])]
 			);
+			log::trace!(target: "tesseract", "gotten dynamic payload for message submission");
 			// We don't compress consensus messages
 			// We only consider compression for hyperbridge
 			if is_consensus_message || !is_hyperbridge {
+				log::trace!(target: "tesseract", "sending unsigned extrinsic");
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false));
 				continue;
 			}
@@ -686,11 +690,14 @@ where
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			} else {
 				let compressed_call = buffer[0..compressed_call_len].to_vec();
-				let call = (compressed_call, uncompressed_len as u32).encode();
+				let call = vec![
+       				value!(compressed_call),
+					value!(uncompressed_len as u32)
+    			];
 				let extrinsic = subxt::dynamic::tx(
 					"CallDecompressor",
 					"decompress_call",
-					vec![Value::from_bytes(call)]
+					call
 				);
 				log::trace!(target: "tesseract", "Submitting compressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
@@ -864,11 +871,10 @@ where
 		};
 
 
-		let call = height.encode();
 		let call = subxt::dynamic::tx(
 			"Fishermen",
 			"veto_state_commitment",
-			vec![Value::from_bytes(call)]
+			vec![state_machine_height_to_value(&height)]
 		);
 		send_extrinsic(&self.client, &signer, &call, Some(100)).await?;
 		Ok(())

@@ -67,8 +67,8 @@ pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: Payload>(
 where
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
+	log::trace!(target: "tesseract", "creating unsigned extrinsic");
 	let ext = client.tx().create_unsigned(&payload)?;
-
 	let progress = match ext.submit_and_watch().await {
 		Ok(p) => {
 			log::info!(
@@ -80,6 +80,7 @@ where
 		},
 		Err(err) => Err(refine_subxt_error(err)).context("Failed to submit unsigned extrinsic")?,
 	};
+	log::trace!(target: "tesseract", "trying to get progress for unsigned extrinsic");
 	let ext_hash = progress.extrinsic_hash();
 
 	let tx_in_block = progress.wait_for_finalized().await;
@@ -95,7 +96,7 @@ where
 
 	let (hash, receipts) = match extrinsic.wait_for_success().await {
 		Ok(p) => {
-			log::info!("Successfully executed unsigned extrinsic {ext_hash:?}");
+			log::trace!(target: "tesseract", "Successfully executed unsigned extrinsic {ext_hash:?}");
 			let mut receipts = p
 				.find::<PostRequestHandledEvent>()
 				.filter_map(|ev| ev.ok().map(|e| e.0.commitment.0.into()))
@@ -107,8 +108,11 @@ where
 			receipts.extend(temp_2);
 			(block_hash, receipts)
 		},
-		Err(err) => Err(refine_subxt_error(err))
-			.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
+		Err(err) => {
+			log::trace!(target: "tesseract", "extrinsic execution failed {:?}", err);
+			Err(refine_subxt_error(err))
+				.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?
+		},
 	};
 	Ok(Some((hash, receipts)))
 }

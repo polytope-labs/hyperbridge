@@ -1,10 +1,13 @@
 use std::sync::Arc;
 use codec::Encode;
+use futures::TryStreamExt;
 
 use hex_literal::hex;
 use polkadot_sdk::sp_runtime::MultiSigner;
+use polkadot_sdk::sp_runtime::testing::H256;
 use polkadot_sdk::sp_runtime::traits::IdentifyAccount;
 use sp_core::{H160, Pair};
+use subxt::config::HashFor;
 use subxt::dynamic::Value;
 use subxt::ext::scale_value::{Composite, value};
 use subxt::tx::Payload;
@@ -13,11 +16,12 @@ use arb_host::{ArbConfig, ArbHost};
 use ismp::consensus::StateMachineId;
 
 use ismp::host::StateMachine;
-use ismp::messaging::CreateConsensusState;
+use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 use op_host::OpHost;
+use pallet_ismp::weights::IsmpModuleWeight;
 use substrate_state_machine::HashAlgorithm;
 use subxt_utils::{Hyperbridge, InMemorySigner, send_extrinsic};
-use subxt_utils::values::state_machine_id_to_value;
+use subxt_utils::values::{messages_to_value, state_machine_id_to_value};
 use sync_committee_primitives::constants::ETH1_DATA_VOTES_BOUND_ETH;
 use tesseract_beefy::host::BeefyHost;
 use tesseract_evm::EvmConfig;
@@ -25,6 +29,7 @@ use tesseract_grandpa::{GrandpaConfig, GrandpaHost};
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 use tesseract_substrate::config::Blake2SubstrateChain;
+use tesseract_substrate::extrinsic::send_unsigned_extrinsic;
 use tesseract_sync_committee::SyncCommitteeHost;
 use crate::util::setup_logging;
 
@@ -136,7 +141,7 @@ async fn setup_clients() -> Result<
         state_id: StateMachine::Evm(421614),
         consensus_state_id: *b"ARB0",
     };
-    set_arbitrum_config_on_hyperbridge(hyperbridge_chain.clone(), arbitrum_state_machine_id, arbitrum_chain.host.rollup_core).await?;
+   set_arbitrum_config_on_hyperbridge(hyperbridge_chain.clone(), arbitrum_state_machine_id, arbitrum_chain.host.rollup_core).await?;
 
     let optimism_chain = {
         let evm_config = EvmConfig {
@@ -290,14 +295,43 @@ pub async fn set_optimism_config_on_hyperbridge(
     Ok(())
 }
 
+async fn test_unsigned_transaction(hyperbridge_chain: GrandpaHost<Blake2SubstrateChain, Hyperbridge>,)  {
+    println!("making unsigned transaction");
+    let relayer = H256::random().0;
+
+    let msg = Message::Consensus(ConsensusMessage {
+        consensus_proof: vec![],
+        consensus_state_id: *b"mock",
+        signer: relayer.into(),
+    });
+
+    // Pass a Vec directly to the helper function
+    let list_of_messages_value = messages_to_value(vec![msg]);
+
+    let extrinsic = subxt::dynamic::tx(
+        "Ismp",
+        "handle_unsigned",
+        vec![list_of_messages_value]
+    );
+
+    println!("sending extrinsic");
+
+    send_unsigned_extrinsic(&hyperbridge_chain.substrate_client.client, extrinsic, false)
+        .await
+        .map_err(|err| println!("error making extrinsic call {:?}", err))
+        .expect("TODO: panic message");
+}
+
 #[tokio::test]
 async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
     setup_logging();
 
     log::info!("🧊 Initializing tesseract consensus");
 
+
     let (hyperbridge_chain, sync_committee_chain, arbitrum_chain, optimism_chain) = setup_clients().await?;
 
+    //test_unsigned_transaction(hyperbridge_chain).await;
     let handle_a = tokio::spawn({
         let hyperbridge_chain = hyperbridge_chain.clone();
         let sync_committee_chain = sync_committee_chain.clone();

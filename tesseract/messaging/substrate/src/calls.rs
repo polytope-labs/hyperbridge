@@ -39,8 +39,10 @@ use polkadot_sdk::sp_core::{crypto, Pair};
 use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
 use subxt::config::{Hash, HashFor};
 use subxt::dynamic::Value;
+use subxt::ext::scale_value::value;
 use subxt::tx::DefaultParams;
 use subxt_utils::{relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic};
+use subxt_utils::values::{create_consensus_state_to_value, get_requests_with_proof_to_value, host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value};
 use tesseract_primitives::{
 	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
 };
@@ -83,17 +85,16 @@ where
 			signer: self.signer.clone(),
 		};
 
-		let call = message.encode();
 		let call = subxt::dynamic::tx(
 			"Ismp",
 			"create_consensus_client",
-			vec![Value::from_bytes(call)]
+			vec![create_consensus_state_to_value(&message)]
 		);
-		let call = call.encode_call_data(&self.client.metadata())?;
+
 		let sudo_payload = subxt::dynamic::tx(
 			"Sudo",
 			"sudo",
-			vec![Value::from_bytes(call)]
+			vec![call.into_value()]
 		);
 		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
 
@@ -107,13 +108,12 @@ where
 		let host_executive_payload = subxt::dynamic::tx(
 			"HostExecutive",
 			"set_host_params",
-			vec![Value::from_bytes(params.encode())]
+			vec![host_params_btreemap_to_value(&params)]
 		);
-		let encoded_call = host_executive_payload.encode_call_data(&self.client.metadata())?;
 		let sudo_payload = subxt::dynamic::tx(
 			"Sudo",
 			"sudo",
-			vec![Value::from_bytes(encoded_call)]
+			vec![host_executive_payload.into_value()]
 		);
 		let signer = InMemorySigner::new(self.signer.clone());
 		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
@@ -146,7 +146,7 @@ where
 		let extrinsic = subxt::dynamic::tx(
 			"Relayer",
 			"accumulate_fees",
-			vec![Value::from_bytes(proof.encode())]
+			vec![withdrawal_proof_to_value(&proof)]
 		);
 		let encoded_call = extrinsic.encode_call_data(&self.client.metadata())?;
 		let uncompressed_len = encoded_call.len();
@@ -160,11 +160,14 @@ where
 			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		} else {
 			let compressed_call = buffer[0..compressed_call_len].to_vec();
-			let call = (compressed_call, uncompressed_len as u32).encode();
+			let call = vec![
+				value!(compressed_call),
+				value!(uncompressed_len as u32)
+			];
 			let extrinsic = subxt::dynamic::tx(
 				"CallDecompressor",
 				"decompress_call",
-				vec![Value::from_bytes(call)]
+				vec![call]
 			);
 			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		}
@@ -192,7 +195,7 @@ where
 		let tx = subxt::dynamic::tx(
 			"Relayer",
 			"withdraw_fees",
-			vec![Value::from_bytes(input_data.encode())]
+			vec![withdrawal_input_data_to_value(&input_data)]
 		);
 
 		// Wait for finalization so we still get the correct block with the post request event even
@@ -289,7 +292,7 @@ where
 		let tx = subxt::dynamic::tx(
 			"StateCoprocessor",
 			"handle_unsigned",
-			vec![Value::from_bytes(msg.encode())]
+			vec![get_requests_with_proof_to_value(&msg)]
 		);
 		let _ = send_unsigned_extrinsic(&self.client, tx, false)
 			.await?
@@ -301,7 +304,7 @@ where
 		let tx = subxt::dynamic::tx(
 			"StateCoprocessor",
 			"handle_unsigned",
-			vec![Value::from_bytes(msg.encode())]
+			vec![get_requests_with_proof_to_value(&msg)]
 		);
 		let dry_run_result_bytes = system_dry_run_unsigned(&self.client, &self.rpc, tx).await?;
 		let dry_run_result = dry_run_result_bytes.into_dry_run_result().map_err(|e| anyhow!("error dry running call"))?;

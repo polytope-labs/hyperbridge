@@ -349,6 +349,9 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 			signature_slot: block.slot,
 		};
 
+		trace!(target: "sync-committee-prover", "got light client update");
+
+
 		Ok(Some(light_client_update))
 	}
 
@@ -455,6 +458,8 @@ pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 		&mut beacon_state.latest_execution_payload_header,
 		indices.as_slice(),
 	)?;
+
+	trace!(target: "sync-committee-prover", "finished proving execution payload");
 
 	Ok(ExecutionPayloadProof {
 		state_root: H256::from_slice(

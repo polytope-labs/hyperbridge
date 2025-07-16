@@ -14,6 +14,7 @@ cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "c
 thiserror = { version = "2.0.12", default-features = false, optional = true }
 serde = { version = "1.0.219", features = ["derive"], optional = true, default-features = false }
 prost = { version = "0.13", default-features = false }
+tendermint-primitives = { path = "../primitives" }
 
 [dependencies.polkadot-sdk]
 workspace = true

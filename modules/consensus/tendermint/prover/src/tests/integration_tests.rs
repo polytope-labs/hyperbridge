@@ -3,12 +3,11 @@ mod tests {
 	use std::time::{SystemTime, UNIX_EPOCH};
 
 	use crate::{prove_header_update, Client, CometBFTClient, HeimdallClient};
-	use tendermint_verifier::{TrustedState, VerificationError, VerificationOptions};
+	use tendermint_primitives::{TrustedState, VerificationError, VerificationOptions};
 	use tracing::trace;
 
-	const STANDARD_RPC_URL: &str =
-		"https://rpc.ankr.com/sei/8c2c2b98554b32f7dd5fc9bc44a6b1da42f117c19ee97f5a55c9b74d4d33c7cd";
-	const POLYGON_RPC_URL: &str = "https://polygon-amoy-heimdall-rpc.publicnode.com:443";
+	const STANDARD_RPC_URL: &str = env!("STANDARD_TENDERMINT_URL");
+	const POLYGON_RPC_URL: &str = env!("POLYGON_HEIMDALL");
 	const VALIDATOR_SET_TRANSITIONS: u32 = 4;
 
 	#[tokio::test]

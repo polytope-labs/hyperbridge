@@ -53,6 +53,7 @@ members = [
     "modules/consensus/grandpa/verifier",
     "modules/consensus/tendermint/verifier",
     "modules/consensus/tendermint/prover",
+    "modules/consensus/tendermint/primitives",
     "modules/trees/ethereum",
     "modules/pallets/mmr",
     "modules/pallets/mmr/primitives",

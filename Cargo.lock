@@ -25999,6 +25999,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tendermint-primitives"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.7",
+ "cometbft",
+ "cometbft-rpc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "tendermint-prover"
 version = "0.1.0"
 dependencies = [
@@ -26013,6 +26027,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sha3",
+ "tendermint-primitives",
  "tendermint-verifier",
  "thiserror 2.0.12",
  "tokio",
@@ -26029,6 +26044,7 @@ dependencies = [
  "polkadot-sdk 2503.0.1",
  "prost 0.13.5",
  "serde",
+ "tendermint-primitives",
  "thiserror 2.0.12",
 ]
 

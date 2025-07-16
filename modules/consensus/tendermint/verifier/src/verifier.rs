@@ -8,9 +8,10 @@ use cometbft_light_client_verifier::{
 };
 use cometbft_proto::google::protobuf::Timestamp;
 
-use crate::{
-	hashing::SpIoSha256, ConsensusProof, SpIoVerifier, TrustedState, UpdatedTrustedState,
-	VerificationError, VerificationOptions,
+use crate::SpIoVerifier;
+
+use tendermint_primitives::{
+	ConsensusProof, TrustedState, UpdatedTrustedState, VerificationError, VerificationOptions,
 };
 
 /// Main verification function for header updates

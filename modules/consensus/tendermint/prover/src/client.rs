@@ -1,10 +1,15 @@
+use crate::SignedHeader;
 use cometbft::{block::Height, validator::Info as Validator};
 use cometbft_rpc::{Client as OtherClient, HttpClient, Paging, Url};
 use reqwest::Client as ReqwestClient;
 use serde::Deserialize;
 use serde_json::{json, Value};
-
-use crate::{error::ProverError, types::*, SignedHeader};
+use tendermint_primitives::{
+	prover::{
+		CommitResponse, HeimdallValidatorsResponse, RpcResponse, StatusResponse, ValidatorsResponse,
+	},
+	ProverError,
+};
 
 /// A trait defining the interface for interacting with Tendermint-compatible blockchain nodes.
 ///

@@ -1,6 +1,7 @@
 use base64::Engine;
+use cometbft::{account::Id as CometbftAccountId, public_key::PublicKey};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// RPC Response wrapper for Heimdall client
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,7 +200,7 @@ impl From<HeimdallValidator> for cometbft::validator::Info {
 			});
 
 		let power = heimdall_val.voting_power.parse::<u64>().unwrap_or(0);
-		let address = crate::custom_account_id_from_pubkey(&pub_key);
+		let address = custom_account_id_from_pubkey(&pub_key);
 
 		cometbft::validator::Info {
 			address,
@@ -292,5 +293,116 @@ fn normalize_signature_in_object(signature_obj: &mut serde_json::Map<String, Val
 				}
 			}
 		}
+	}
+}
+
+/// Custom account ID that matches Go CometBFT fork's address calculation
+/// For Secp256k1: uses Keccak256 (Ethereum-style) instead of RIPEMD160(SHA256)
+pub fn custom_account_id_from_pubkey(pub_key: &PublicKey) -> CometbftAccountId {
+	match pub_key {
+		PublicKey::Ed25519(pk) => {
+			// SHA256(pk)[:20] - same as standard
+			use sha2::{Digest, Sha256};
+			let digest = Sha256::digest(pk.as_bytes());
+			CometbftAccountId::new(digest[..20].try_into().unwrap())
+		},
+		PublicKey::Secp256k1(pk) => {
+			// Keccak256(pubkey)[12:] - Ethereum-style like Go fork
+			use sha3::{Digest, Keccak256};
+			let pubkey_bytes = pk.to_encoded_point(false).as_bytes().to_vec();
+			// Remove the 0x04 prefix (first byte) as done in Go implementation
+			let keccak_hash = Keccak256::digest(&pubkey_bytes[1..]);
+			// Take last 20 bytes (bytes 12-31)
+			CometbftAccountId::new(keccak_hash[12..32].try_into().unwrap())
+		},
+		#[allow(unreachable_patterns)]
+		_ => {
+			// Catch-all for non_exhaustive enum
+			CometbftAccountId::new([0u8; 20])
+		},
+	}
+}
+
+use thiserror::Error;
+
+/// Errors that can occur during proof generation
+#[derive(Error, Debug, Clone)]
+pub enum ProverError {
+	/// RPC communication error
+	#[error("RPC error: {0}")]
+	RpcError(String),
+
+	/// Invalid block height
+	#[error("Invalid height: {0}")]
+	InvalidHeight(String),
+
+	/// Invalid chain identifier
+	#[error("Invalid chain ID: {0}")]
+	InvalidChainId(String),
+
+	/// No signed header found at specified height
+	#[error("No signed header found at height {0}")]
+	NoSignedHeader(u64),
+
+	/// No validators found at specified height
+	#[error("No validators found at height {0}")]
+	NoValidators(u64),
+
+	/// Invalid ancestry information
+	#[error("Invalid ancestry: {0}")]
+	InvalidAncestry(String),
+
+	/// Height gap detected between expected and actual values
+	#[error("Height gap detected: expected {expected}, got {actual}")]
+	HeightGap {
+		/// Expected height value
+		expected: u64,
+		/// Actual height value
+		actual: u64,
+	},
+
+	/// Chain ID mismatch between expected and actual values
+	#[error("Chain ID mismatch: expected {expected}, got {actual}")]
+	ChainIdMismatch {
+		/// Expected chain ID
+		expected: String,
+		/// Actual chain ID
+		actual: String,
+	},
+
+	/// Timestamp-related error
+	#[error("Timestamp error: {0}")]
+	TimestampError(String),
+
+	/// Data conversion error
+	#[error("Conversion error: {0}")]
+	ConversionError(String),
+
+	/// Network communication error
+	#[error("Network error: {0}")]
+	NetworkError(String),
+
+	/// Request timeout error
+	#[error("Timeout error: {0}")]
+	TimeoutError(String),
+
+	/// Invalid trusted state
+	#[error("Invalid trusted state: {0}")]
+	InvalidTrustedState(String),
+
+	/// Proof construction failure
+	#[error("Proof construction failed: {0}")]
+	ProofConstructionError(String),
+}
+
+impl From<cometbft_rpc::Error> for ProverError {
+	fn from(err: cometbft_rpc::Error) -> Self {
+		ProverError::RpcError(err.to_string())
+	}
+}
+
+impl From<std::time::SystemTimeError> for ProverError {
+	fn from(err: std::time::SystemTimeError) -> Self {
+		ProverError::TimestampError(err.to_string())
 	}
 }

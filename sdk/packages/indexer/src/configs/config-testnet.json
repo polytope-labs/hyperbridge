@@ -15,7 +15,7 @@
   	"type": "substrate",
   	"chainId": "0xff7fe5a610f15fe7a0c52f94f86313fb7db7d3786e7f8acf2b66c11d5be7c242",
   	"startBlock": 1,
-  	"stateMachineId": "KUSAMA-zkv_"
+  	"stateMachineId": "SUBSTRATE-zkv_"
 	},
 	"kilt-paseo": {
   	"type": "substrate",

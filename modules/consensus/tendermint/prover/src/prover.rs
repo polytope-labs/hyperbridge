@@ -1,4 +1,5 @@
-use crate::{client::Client, error::ProverError, ConsensusProof, TrustedState};
+use crate::{client::Client, error::ProverError};
+use tendermint_verifier::{ConsensusProof, TrustedState};
 
 /// Main function to prove a header update
 /// This constructs a consensus proof that can be verified by the verifier

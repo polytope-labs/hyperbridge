@@ -37,7 +37,3 @@ pub use prover::{prove_header_update, prove_misbehaviour_header};
 
 /// Utility function for creating custom account IDs from public keys
 pub use account::custom_account_id_from_pubkey;
-/// Re-exported verification types from tendermint-verifier
-pub use tendermint_verifier::{
-	ConsensusProof, TrustedState, UpdatedTrustedState, VerificationOptions,
-};

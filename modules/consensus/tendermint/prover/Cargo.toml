@@ -21,8 +21,6 @@ cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "c
 prost = "0.13"
 sha3 = "0.10"
 tracing = "0.1.40"
-
-# Internal dependencies
 tendermint-verifier = { path = "../verifier" }
 
 [dependencies.polkadot-sdk]

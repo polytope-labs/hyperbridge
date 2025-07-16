@@ -17,7 +17,6 @@ use crate::{
 pub fn verify_header_update(
 	trusted_state: TrustedState,
 	consensus_proof: ConsensusProof,
-	options: VerificationOptions,
 	current_time: u64,
 ) -> Result<UpdatedTrustedState, VerificationError> {
 	consensus_proof.validate().map_err(|e| VerificationError::Invalid(e))?;
@@ -51,8 +50,10 @@ pub fn verify_header_update(
 		next_validators: next_validators.as_ref(),
 	};
 
-	let verifier_options =
-		convert_verification_options(&options, trusted_state.trusting_period_duration())?;
+	let verifier_options = convert_verification_options(
+		&trusted_state.verification_options,
+		trusted_state.trusting_period_duration(),
+	)?;
 	let now = convert_timestamp(current_time)?;
 
 	validate_ancestry_chain(&consensus_proof, &trusted_state)?;
@@ -80,7 +81,6 @@ pub fn verify_header_update(
 pub fn verify_misbehaviour_header(
 	trusted_state: TrustedState,
 	consensus_proof: ConsensusProof,
-	options: VerificationOptions,
 	current_time: u64,
 ) -> Result<UpdatedTrustedState, VerificationError> {
 	consensus_proof.validate().map_err(|e| VerificationError::Invalid(e))?;
@@ -114,8 +114,10 @@ pub fn verify_misbehaviour_header(
 		next_validators: next_validators.as_ref(),
 	};
 
-	let verifier_options =
-		convert_verification_options(&options, trusted_state.trusting_period_duration())?;
+	let verifier_options = convert_verification_options(
+		&trusted_state.verification_options,
+		trusted_state.trusting_period_duration(),
+	)?;
 	let now = convert_timestamp(current_time)?;
 
 	let verifier = SpIoVerifier::default();

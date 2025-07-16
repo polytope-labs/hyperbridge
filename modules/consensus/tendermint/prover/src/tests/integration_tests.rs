@@ -103,7 +103,6 @@ mod tests {
 			match tendermint_verifier::verify_header_update(
 				trusted_state,
 				consensus_proof,
-				VerificationOptions::default(),
 				current_time,
 			) {
 				Ok(updated_state) => {
@@ -199,7 +198,6 @@ mod tests {
 			match tendermint_verifier::verify_header_update(
 				trusted_state,
 				consensus_proof,
-				VerificationOptions::default(),
 				current_time,
 			) {
 				Ok(updated_state) => {

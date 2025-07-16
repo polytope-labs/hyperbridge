@@ -6,8 +6,12 @@ on:
             # - main
             - tendermint
 
-    pull_request_target:
-        types: [opened, synchronize]
+    pull_request:
+      branches:
+        - main
+
+    # pull_request_target:
+    #     types: [opened, synchronize]
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -25,6 +29,9 @@ env:
     GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
     MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
     TELEMETRY_SECRET_KEY: ${{ secrets.TELEMETRY_SECRET_KEY }}
+    STANDARD_RPC_URL: ${{secrets.STANDARD_TENDERMINT_URL}}
+    POLYGON_RPC_URL: ${{secrets.POLYGON_HEIMDALL}}
+
 
 jobs:
     check-wasm:

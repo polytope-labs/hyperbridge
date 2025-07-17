@@ -25589,6 +25589,7 @@ dependencies = [
  "derivative",
  "futures",
  "ismp",
+ "ismp-parachain",
  "pallet-hyperbridge",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",

@@ -1,4 +1,5 @@
 use crate::SignedHeader;
+use async_trait::async_trait;
 use cometbft::{block::Height, validator::Info as Validator};
 use cometbft_rpc::{Client as OtherClient, HttpClient, Paging, Url};
 use reqwest::Client as ReqwestClient;
@@ -16,6 +17,7 @@ use tendermint_primitives::{
 /// This trait provides methods to query blockchain data such as block headers, validators,
 /// and network status. It is implemented by different client types that can communicate
 /// with various Tendermint-based networks (e.g., CometBFT, Heimdall).
+#[async_trait]
 pub trait Client {
 	/// Retrieves the latest block height from the blockchain.
 	///
@@ -130,6 +132,7 @@ impl CometBFTClient {
 	}
 }
 
+#[async_trait]
 impl Client for CometBFTClient {
 	async fn latest_height(&self) -> Result<u64, ProverError> {
 		let status = self
@@ -279,6 +282,7 @@ impl HeimdallClient {
 	}
 }
 
+#[async_trait]
 impl Client for HeimdallClient {
 	async fn latest_height(&self) -> Result<u64, ProverError> {
 		let status: StatusResponse = self.rpc_request("status", json!({})).await?;

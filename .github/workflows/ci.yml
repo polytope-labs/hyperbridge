@@ -24,6 +24,9 @@ env:
     GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
     MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
     TELEMETRY_SECRET_KEY: ${{ secrets.TELEMETRY_SECRET_KEY }}
+    STANDARD_TENDERMINT_URL: ${{secrets.STANDARD_TENDERMINT_URL}}
+    POLYGON_HEIMDALL: ${{secrets.POLYGON_HEIMDALL}}
+
 
 jobs:
     check-wasm:
@@ -369,6 +372,10 @@ jobs:
             - name: Binance Smart Chain integration tests
               run: |
                   cargo test -p bsc-prover -- --nocapture --ignored
+
+            - name: Tendermint Integration Test
+              run: |
+                  RUST_LOG=trace cargo test -p tendermint-prover -- --nocapture --ignored
 
             - name: Clean up docker
               if: always()

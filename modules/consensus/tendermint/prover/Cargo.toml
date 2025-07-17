@@ -1,0 +1,35 @@
+[package]
+name = "tendermint-prover"
+version = "0.1.0"
+edition = "2021"
+description = "CometBFT light client prover for ISMP"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+# Core dependencies
+cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-rpc", features = ["http-client", "secp256k1"], rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
+cometbft = { git = "https://github.com/cometbft/cometbft-rs", features = ["rust-crypto", "secp256k1"], rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
+thiserror = "2.0.12"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { version = "1.0" }
+reqwest = { version = "0.11", features = ["json"] }
+async-trait = "0.1.88"
+base64 = { version = "0.21" }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+sha2 = "0.10.7"
+cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
+prost = "0.13"
+sha3 = "0.10"
+tracing = "0.1.40"
+tendermint-primitives = { path = "../primitives" }
+tracing-subscriber = "0.3"
+
+
+[dev-dependencies]
+tendermint-verifier = { path = "../verifier" }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime", "sp-core", "sp-io"]
+

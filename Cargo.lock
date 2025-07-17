@@ -3506,6 +3506,106 @@ dependencies = [
 ]
 
 [[package]]
+name = "cometbft"
+version = "0.1.0-alpha.2"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+dependencies = [
+ "bytes",
+ "cometbft-proto",
+ "digest 0.10.7",
+ "ed25519",
+ "ed25519-consensus",
+ "flex-error",
+ "futures",
+ "k256",
+ "num-traits",
+ "once_cell",
+ "prost 0.13.5",
+ "ripemd",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "serde_repr",
+ "sha2 0.10.9",
+ "signature",
+ "subtle 2.6.1",
+ "subtle-encoding",
+ "time",
+ "zeroize",
+]
+
+[[package]]
+name = "cometbft-config"
+version = "0.1.0-alpha.2"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+dependencies = [
+ "cometbft",
+ "flex-error",
+ "serde",
+ "serde_json",
+ "toml 0.8.23",
+ "url",
+]
+
+[[package]]
+name = "cometbft-light-client-verifier"
+version = "0.1.0-alpha.2"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+dependencies = [
+ "cometbft",
+ "derive_more 0.99.20",
+ "flex-error",
+ "serde",
+ "time",
+]
+
+[[package]]
+name = "cometbft-proto"
+version = "0.1.0-alpha.2"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+dependencies = [
+ "bytes",
+ "flex-error",
+ "prost 0.13.5",
+ "serde",
+ "serde_bytes",
+ "subtle-encoding",
+ "time",
+]
+
+[[package]]
+name = "cometbft-rpc"
+version = "0.1.0-alpha.2"
+source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "cometbft",
+ "cometbft-config",
+ "cometbft-proto",
+ "flex-error",
+ "futures",
+ "getrandom 0.2.16",
+ "peg",
+ "pin-project",
+ "rand 0.8.5",
+ "reqwest 0.11.27",
+ "semver 1.0.26",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "subtle 2.6.1",
+ "subtle-encoding",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid 1.17.0",
+ "walkdir",
+]
+
+[[package]]
 name = "comfy-table"
 version = "6.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5598,6 +5698,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ed25519-consensus"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c8465edc8ee7436ffea81d21a019b16676ee3db267aa8d5a8d729581ecf998b"
+dependencies = [
+ "curve25519-dalek-ng",
+ "hex",
+ "rand_core 0.6.4",
+ "sha2 0.9.9",
+ "zeroize",
+]
+
+[[package]]
 name = "ed25519-dalek"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6762,6 +6875,16 @@ dependencies = [
  "crc32fast",
  "libz-sys",
  "miniz_oxide",
+]
+
+[[package]]
+name = "flex-error"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c606d892c9de11507fa0dcffc116434f94e105d0bbdc4e405b61519464c49d7b"
+dependencies = [
+ "eyre",
+ "paste",
 ]
 
 [[package]]
@@ -15888,6 +16011,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
+name = "peg"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9928cfca101b36ec5163e70049ee5368a8a1c3c6efc9ca9c5f9cc2f816152477"
+dependencies = [
+ "peg-macros",
+ "peg-runtime",
+]
+
+[[package]]
+name = "peg-macros"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6298ab04c202fa5b5d52ba03269fb7b74550b150323038878fe6c372d8280f71"
+dependencies = [
+ "peg-runtime",
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
+name = "peg-runtime"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "132dca9b868d927b35b5dd728167b2dee150eb1ad686008fc71ccb298b776fca"
+
+[[package]]
 name = "pem"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -19202,6 +19352,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "rustls 0.21.12",
+ "rustls-native-certs 0.6.3",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
@@ -25151,6 +25302,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "subtle-encoding"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dcb1ed7b8330c5eed5441052651dd7a12c75e2ed88f2ec024ae1fa3a5e59945"
+dependencies = [
+ "zeroize",
+]
+
+[[package]]
 name = "subtle-ng"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -25836,6 +25996,58 @@ dependencies = [
  "once_cell",
  "rustix 1.0.7",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "tendermint-primitives"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.7",
+ "cometbft",
+ "cometbft-rpc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "tendermint-prover"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.21.7",
+ "cometbft",
+ "cometbft-proto",
+ "cometbft-rpc",
+ "polkadot-sdk 2503.0.1",
+ "prost 0.13.5",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3",
+ "tendermint-primitives",
+ "tendermint-verifier",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "tendermint-verifier"
+version = "0.1.0"
+dependencies = [
+ "cometbft",
+ "cometbft-light-client-verifier",
+ "cometbft-proto",
+ "polkadot-sdk 2503.0.1",
+ "prost 0.13.5",
+ "serde",
+ "tendermint-primitives",
+ "thiserror 2.0.12",
 ]
 
 [[package]]

@@ -4,6 +4,7 @@ mod tests {
 
 	use crate::{prove_header_update, Client, CometBFTClient, HeimdallClient};
 	use tendermint_primitives::{TrustedState, VerificationError, VerificationOptions};
+	use tokio::time::{timeout, Duration};
 	use tracing::trace;
 
 	fn get_standard_rpc_url() -> String {
@@ -25,7 +26,15 @@ mod tests {
 			"Testing Standard Tendermint with {} validator set transitions",
 			VALIDATOR_SET_TRANSITIONS
 		);
-		run_integration_test_standard(&get_standard_rpc_url()).await.unwrap();
+		let result = timeout(
+			Duration::from_secs(600),
+			run_integration_test_standard(&get_standard_rpc_url()),
+		)
+		.await;
+		match result {
+			Ok(inner) => inner.unwrap(),
+			Err(_) => panic!("Test timed out after 10 minutes"),
+		}
 	}
 
 	#[tokio::test]
@@ -33,7 +42,12 @@ mod tests {
 	async fn test_polygon_heimdall_basic_rpc() {
 		let _ = tracing_subscriber::fmt::try_init();
 		trace!("Testing Polygon's Heimdall Fork (Basic RPC)");
-		test_polygon_basic_rpc(&get_polygon_rpc_url()).await.unwrap();
+		let result =
+			timeout(Duration::from_secs(600), test_polygon_basic_rpc(&get_polygon_rpc_url())).await;
+		match result {
+			Ok(inner) => inner.unwrap(),
+			Err(_) => panic!("Test timed out after 10 minutes"),
+		}
 	}
 
 	#[tokio::test]
@@ -44,7 +58,15 @@ mod tests {
 			"Testing Polygon's Heimdall Fork (Full Verification) with {} validator set transitions",
 			VALIDATOR_SET_TRANSITIONS
 		);
-		run_integration_test_heimdall(&get_polygon_rpc_url()).await.unwrap();
+		let result = timeout(
+			Duration::from_secs(600),
+			run_integration_test_heimdall(&get_polygon_rpc_url()),
+		)
+		.await;
+		match result {
+			Ok(inner) => inner.unwrap(),
+			Err(_) => panic!("Test timed out after 10 minutes"),
+		}
 	}
 
 	/// Full integration test: prover and verifier for standard CometBFT with multiple validator set
@@ -85,26 +107,8 @@ mod tests {
 		let mut actual_transitions = 0;
 		let mut attempt = 1;
 		while actual_transitions < VALIDATOR_SET_TRANSITIONS {
-			let target_height = trusted_state.height + 5;
-
-			if target_height > latest_height {
-				trace!(
-					"Reached latest height {}, stopping at transition {}",
-					latest_height,
-					actual_transitions
-				);
-				break;
-			}
-
-			trace!(
-				"Attempt {}: Generating consensus proof from height {} to {}",
-				attempt,
-				trusted_state.height,
-				target_height
-			);
-
 			let consensus_proof =
-				prove_header_update(&client, &trusted_state, target_height).await?;
+				prove_header_update(&client, &trusted_state, trusted_state.height + 5).await?;
 			consensus_proof.validate()?;
 
 			let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -196,26 +200,8 @@ mod tests {
 		let mut actual_transitions = 0;
 		let mut attempt = 1;
 		while actual_transitions < VALIDATOR_SET_TRANSITIONS {
-			let target_height = trusted_state.height + 5;
-
-			if target_height > latest_height {
-				trace!(
-					"Reached latest height {}, stopping at transition {}",
-					latest_height,
-					actual_transitions
-				);
-				break;
-			}
-
-			trace!(
-				"Attempt {}: Generating consensus proof from height {} to {}",
-				attempt,
-				trusted_state.height,
-				target_height
-			);
-
 			let consensus_proof =
-				prove_header_update(&client, &trusted_state, target_height).await?;
+				prove_header_update(&client, &trusted_state, trusted_state.height + 5).await?;
 			consensus_proof.validate()?;
 
 			let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();

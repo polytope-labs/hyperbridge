@@ -1,13 +1,17 @@
 name: CI
 
 on:
-    push:
+    # push:
+    #     branches:
+    #         - main
+
+    pull_request:
         branches:
             - main
-            - tendermint
 
-    pull_request_target:
-        types: [opened, synchronize]
+
+    # pull_request_target:
+    #     types: [opened, synchronize]
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}

@@ -8,7 +8,6 @@ use polkadot_sdk::{
 	pallet_sudo::pallet::Call as SudoCall,
 	pallet_utility::pallet::Call as UtilityCall,
 	pallet_vesting::{pallet::Call as VestingCall, VestingInfo},
-	polkadot_service::Error::Sub,
 	sc_consensus_manual_seal::CreatedBlock,
 	sp_keyring::sr25519::Keyring,
 };

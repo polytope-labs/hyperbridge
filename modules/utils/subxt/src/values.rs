@@ -37,7 +37,7 @@ fn to_single_message_value(message: &Message) -> Value<()> {
         Message::Request(msg) => {
             let inner_struct = Value::named_composite(vec![
                 ("requests", Value::unnamed_composite(msg.requests.iter().map(post_request_to_value))),
-                ("proof", Value::from_bytes(msg.proof.encode())),
+                ("proof", proof_to_value(&msg.proof)),
                 ("signer", Value::from_bytes(msg.signer.clone())),
             ]);
             Value::variant("Request", Composite::unnamed(vec![inner_struct]))
@@ -66,7 +66,7 @@ fn response_message_to_composite(msg: &ResponseMessage) -> Composite<()> {
     };
     Composite::named(vec![
         ("datagram".to_string(), datagram_value),
-        ("proof".to_string(), Value::from_bytes(msg.proof.encode())),
+        ("proof".to_string(), proof_to_value(&msg.proof)),
         ("signer".to_string(), Value::from_bytes(msg.signer.clone())),
     ])
 }
@@ -76,13 +76,13 @@ fn timeout_message_to_value(msg: &TimeoutMessage) -> Value<()> {
         TimeoutMessage::Post { requests, timeout_proof } => {
             Value::variant("Post", Composite::named(vec![
                 ("requests".to_string(), Value::unnamed_composite(requests.iter().map(request_to_value))),
-                ("timeout_proof".to_string(), Value::from_bytes(timeout_proof.encode())),
+                ("timeout_proof".to_string(), proof_to_value(timeout_proof)),
             ]))
         },
         TimeoutMessage::PostResponse { responses, timeout_proof } => {
             Value::variant("PostResponse", Composite::named(vec![
                 ("responses".to_string(), Value::unnamed_composite(responses.iter().map(post_response_to_value))),
-                ("timeout_proof".to_string(), Value::from_bytes(timeout_proof.encode())),
+                ("timeout_proof".to_string(), proof_to_value(timeout_proof)),
             ]))
         },
         TimeoutMessage::Get { requests } => {

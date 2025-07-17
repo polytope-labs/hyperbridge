@@ -374,9 +374,9 @@ jobs:
               run: |
                   cargo test -p bsc-prover -- --nocapture --ignored
 
-            - name: Tendermint Polygon Integration Test
+            - name: Tendermint Integration Test
               run: |
-                  cargo test -p tendermint-prover -- --nocapture --ignored
+                  RUST_LOG=trace cargo test -p tendermint-prover -- --nocapture --ignored
 
             - name: Clean up docker
               if: always()

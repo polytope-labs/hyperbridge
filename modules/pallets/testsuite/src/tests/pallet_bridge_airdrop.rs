@@ -10,7 +10,7 @@ use polkadot_sdk::{
 	sp_runtime::{Permill, TokenError},
 };
 use rs_merkle::MerkleTree;
-use sp_core::{crypto::AccountId32, keccak_256, ByteArray, Pair, H160, H256};
+use sp_core::{crypto::AccountId32, keccak_256, Pair, H160, H256};
 
 use crate::runtime::{new_test_ext, Balances, RuntimeOrigin, Test};
 

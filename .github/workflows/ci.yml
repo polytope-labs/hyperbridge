@@ -319,9 +319,9 @@ jobs:
                   cd ../
                   mkdir -p polkadot-sdk/target/release
                   cd polkadot-sdk/target/release
-                  wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2407-1/polkadot'
-                  wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2407-1/polkadot-execute-worker'
-                  wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2407-1/polkadot-prepare-worker'
+                  wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot'
+                  wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-execute-worker'
+                  wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-prepare-worker'
                   sudo chmod +x ./polkadot
                   sudo chmod +x ./polkadot-execute-worker
                   sudo chmod +x ./polkadot-prepare-worker
@@ -330,7 +330,7 @@ jobs:
                   cd ../../../hyperbridge
 
                   # install zombienet
-                  wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
+                  wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.133/zombienet-linux-x64
                   sudo chmod +x ./zombienet
 
                   # spawn devnet

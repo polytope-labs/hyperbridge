@@ -26016,6 +26016,7 @@ dependencies = [
 name = "tendermint-prover"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64 0.21.7",
  "cometbft",
  "cometbft-proto",
@@ -26032,6 +26033,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

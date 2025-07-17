@@ -1,11 +1,29 @@
 //! Functions for updating configuration on pallets
 
-use crate::{
-	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner},
-	SubstrateClient,
-};
+use std::{collections::BTreeMap, sync::Arc};
+
 use anyhow::anyhow;
 use codec::{Decode, Encode};
+use polkadot_sdk::{
+	sp_core::{crypto, Pair},
+	sp_runtime::{MultiSigner, traits::IdentifyAccount},
+};
+use sp_core::{
+	storage::{ChildInfo, StorageData, StorageKey},
+	U256,
+};
+use subxt::{
+	config::{ExtrinsicParams, Hash, HashFor, Header},
+	dynamic::Value,
+	ext::{
+		scale_value::value,
+		subxt_rpcs::{methods::legacy::DryRunResult, rpc_params},
+	},
+	OnlineClient,
+	tx::{DefaultParams, Payload},
+	utils::{AccountId32, H256, MultiAddress, MultiSignature},
+};
+
 use ismp::{
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
@@ -19,32 +37,20 @@ use pallet_ismp_relayer::{
 	withdrawal::{Key, WithdrawalInputData, WithdrawalProof},
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
-use sp_core::{
-	storage::{ChildInfo, StorageData, StorageKey},
-	U256,
-};
-use std::{collections::BTreeMap, sync::Arc};
-use subxt::{
-	config::{
-		ExtrinsicParams, Header,
+use subxt_utils::{
+	relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic,
+	values::{
+		create_consensus_state_to_value, get_requests_with_proof_to_value,
+		host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
 	},
-	ext::{
-		subxt_rpcs::{rpc_params, methods::legacy::DryRunResult}
-	},
-	tx::Payload,
-	OnlineClient,
 };
-use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSigner};
-use polkadot_sdk::sp_core::{crypto, Pair};
-use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
-use subxt::config::{Hash, HashFor};
-use subxt::dynamic::Value;
-use subxt::ext::scale_value::value;
-use subxt::tx::DefaultParams;
-use subxt_utils::{relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic};
-use subxt_utils::values::{create_consensus_state_to_value, get_requests_with_proof_to_value, host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value};
 use tesseract_primitives::{
 	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
+};
+
+use crate::{
+	extrinsic::{InMemorySigner, send_unsigned_extrinsic, system_dry_run_unsigned},
+	SubstrateClient,
 };
 
 #[derive(codec::Encode, codec::Decode)]
@@ -61,8 +67,7 @@ impl<C> SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId:
-		From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	H256: From<HashFor<C>>,
@@ -74,28 +79,20 @@ where
 		let binding = self.signer.public();
 		let public_key_slice: &[u8] = binding.as_ref();
 
-		let public_key_array: [u8; 32] = public_key_slice
-			.try_into()
-			.expect("sr25519 public key should be 32 bytes");
+		let public_key_array: [u8; 32] =
+			public_key_slice.try_into().expect("sr25519 public key should be 32 bytes");
 
 		let account_id = AccountId32::from(public_key_array);
 
-		let signer = InMemorySigner {
-			account_id: account_id.into(),
-			signer: self.signer.clone(),
-		};
+		let signer = InMemorySigner { account_id: account_id.into(), signer: self.signer.clone() };
 
 		let call = subxt::dynamic::tx(
 			"Ismp",
 			"create_consensus_client",
-			vec![create_consensus_state_to_value(&message)]
+			vec![create_consensus_state_to_value(&message)],
 		);
 
-		let sudo_payload = subxt::dynamic::tx(
-			"Sudo",
-			"sudo",
-			vec![call.into_value()]
-		);
+		let sudo_payload = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
 
 		Ok(())
@@ -108,13 +105,10 @@ where
 		let host_executive_payload = subxt::dynamic::tx(
 			"HostExecutive",
 			"set_host_params",
-			vec![host_params_btreemap_to_value(&params)]
+			vec![host_params_btreemap_to_value(&params)],
 		);
-		let sudo_payload = subxt::dynamic::tx(
-			"Sudo",
-			"sudo",
-			vec![host_executive_payload.into_value()]
-		);
+		let sudo_payload =
+			subxt::dynamic::tx("Sudo", "sudo", vec![host_executive_payload.into_value()]);
 		let signer = InMemorySigner::new(self.signer.clone());
 		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
 
@@ -127,8 +121,7 @@ impl<C> HyperbridgeClaim for SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId:
-		From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	H256: From<HashFor<C>>,
@@ -146,7 +139,7 @@ where
 		let extrinsic = subxt::dynamic::tx(
 			"Relayer",
 			"accumulate_fees",
-			vec![withdrawal_proof_to_value(&proof)]
+			vec![withdrawal_proof_to_value(&proof)],
 		);
 		let encoded_call = extrinsic.encode_call_data(&self.client.metadata())?;
 		let uncompressed_len = encoded_call.len();
@@ -160,15 +153,8 @@ where
 			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		} else {
 			let compressed_call = buffer[0..compressed_call_len].to_vec();
-			let call = vec![
-				value!(compressed_call),
-				value!(uncompressed_len as u32)
-			];
-			let extrinsic = subxt::dynamic::tx(
-				"CallDecompressor",
-				"decompress_call",
-				vec![call]
-			);
+			let call = vec![value!(compressed_call), value!(uncompressed_len as u32)];
+			let extrinsic = subxt::dynamic::tx("CallDecompressor", "decompress_call", vec![call]);
 			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		}
 
@@ -195,7 +181,7 @@ where
 		let tx = subxt::dynamic::tx(
 			"Relayer",
 			"withdraw_fees",
-			vec![withdrawal_input_data_to_value(&input_data)]
+			vec![withdrawal_input_data_to_value(&input_data)],
 		);
 
 		// Wait for finalization so we still get the correct block with the post request event even
@@ -284,15 +270,14 @@ impl<C> HandleGetResponse for SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId:
-		From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
 	async fn submit_get_response(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
 		let tx = subxt::dynamic::tx(
 			"StateCoprocessor",
 			"handle_unsigned",
-			vec![get_requests_with_proof_to_value(&msg)]
+			vec![get_requests_with_proof_to_value(&msg)],
 		);
 		let _ = send_unsigned_extrinsic(&self.client, tx, false)
 			.await?
@@ -304,11 +289,13 @@ where
 		let tx = subxt::dynamic::tx(
 			"StateCoprocessor",
 			"handle_unsigned",
-			vec![get_requests_with_proof_to_value(&msg)]
+			vec![get_requests_with_proof_to_value(&msg)],
 		);
 		let dry_run_result_bytes = system_dry_run_unsigned(&self.client, &self.rpc, tx).await?;
-		let dry_run_result = dry_run_result_bytes.into_dry_run_result().map_err(|e| anyhow!("error dry running call"))?;
-		match  dry_run_result {
+		let dry_run_result = dry_run_result_bytes
+			.into_dry_run_result()
+			.map_err(|e| anyhow!("error dry running call"))?;
+		match dry_run_result {
 			DryRunResult::Success => Ok(()),
 			_ => Err(anyhow!("Tracing of get response message returned an error")),
 		}

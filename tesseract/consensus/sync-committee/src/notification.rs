@@ -1,14 +1,17 @@
-use crate::SyncCommitteeHost;
+use std::sync::Arc;
+
 use codec::Decode;
+use log::trace;
+
 use ismp::consensus::StateMachineId;
 use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
-use std::sync::Arc;
-use log::trace;
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
 	constants::{Config, Root},
 };
 use tesseract_primitives::IsmpProvider;
+
+use crate::SyncCommitteeHost;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EventResponse {

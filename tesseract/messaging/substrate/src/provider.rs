@@ -19,57 +19,56 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
-use futures::{stream::FuturesOrdered, FutureExt};
+use futures::{FutureExt, stream::FuturesOrdered};
 use hex_literal::hex;
+use polkadot_sdk::{
+	sp_core::{
+		H160,
+		Pair, storage::{ChildInfo, StorageData, StorageKey}, U256,
+	},
+	sp_runtime::{MultiSigner, traits::IdentifyAccount},
+};
+use subxt::{
+	config::{ExtrinsicParams, HashFor, Header},
+	dynamic::Value,
+	ext::{
+		scale_value::value,
+		subxt_rpcs::{methods::legacy::DryRunResult, rpc_params},
+	},
+	tx::{DefaultParams, Payload},
+	utils::{AccountId32, H256, MultiAddress, MultiSignature},
+};
+
 use ismp::{
 	consensus::{ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
 	host::StateMachine,
-	messaging::{hash_request, hash_response, CreateConsensusState, Message, ResponseMessage},
+	messaging::{CreateConsensusState, hash_request, hash_response, Message, ResponseMessage},
 	router::{Request, RequestResponse},
 };
 use pallet_ismp::{
 	child_trie::{
-		request_commitment_storage_key, response_commitment_storage_key, CHILD_TRIE_PREFIX,
+		CHILD_TRIE_PREFIX, request_commitment_storage_key, response_commitment_storage_key,
 	},
 	offchain::ProofKeys,
 };
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
-use polkadot_sdk::sp_core::{
-	storage::{ChildInfo, StorageData, StorageKey},
-	Pair, H160, U256,
-};
-use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSigner};
-use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
-use subxt::{
-	config::{
-		 ExtrinsicParams, Header, HashFor
-	},
-	ext::{
-		subxt_rpcs::{rpc_params, methods::legacy::DryRunResult}
-	},
-	tx::Payload,
-};
-use subxt::dynamic::Value;
-use subxt::ext::scale_value::value;
-use subxt::tx::DefaultParams;
-
 use subxt_utils::{
 	fisherman_storage_key, host_params_storage_key, send_extrinsic,
 	state_machine_update_time_storage_key,
+	values::{messages_to_value, state_machine_height_to_value},
 };
-use subxt_utils::values::{messages_to_value, state_machine_height_to_value};
 use tesseract_primitives::{
-	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query,
-	StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
+	BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query, StateMachineUpdated,
+	StateProofQueryType, TxReceipt, TxResult, wait_for_challenge_period,
 };
 
 use crate::{
 	calls::RequestMetadata,
-	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner},
+	extrinsic::{InMemorySigner, send_unsigned_extrinsic, system_dry_run_unsigned},
 	SubstrateClient,
 };
 
@@ -118,8 +117,13 @@ where
 	) -> Result<Duration, anyhow::Error> {
 		let key = state_machine_update_time_storage_key(height);
 		let block = self.client.blocks().at_latest().await?;
-		let raw_value =
-			self.client.storage().at(block.hash()).fetch_raw(key.clone()).await?.ok_or_else(|| {
+		let raw_value = self
+			.client
+			.storage()
+			.at(block.hash())
+			.fetch_raw(key.clone())
+			.await?
+			.ok_or_else(|| {
 				anyhow!(
 					"State machine update for {:?} not found at block {:?}",
 					height,
@@ -321,13 +325,16 @@ where
 					let extrinsic = subxt::dynamic::tx(
 						"Ismp",
 						"handle_unsigned",
-						vec![messages_to_value(vec![msg.clone()])]
+						vec![messages_to_value(vec![msg.clone()])],
 					);
 					let client = self.client.clone();
 					let rpc = self.rpc.clone();
 					tokio::spawn(async move {
-						let result_bytes = system_dry_run_unsigned(&client, &rpc, extrinsic).await?;
-						let result = result_bytes.into_dry_run_result().map_err(|e| anyhow!("error dry running call"))?;
+						let result_bytes =
+							system_dry_run_unsigned(&client, &rpc, extrinsic).await?;
+						let result = result_bytes
+							.into_dry_run_result()
+							.map_err(|e| anyhow!("error dry running call"))?;
 						match result {
 							DryRunResult::Success => Ok::<_, Error>(EstimateGasReturnParams {
 								execution_cost: Default::default(),
@@ -663,11 +670,8 @@ where
 		for msg in messages.clone() {
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
 			log::trace!(target: "tesseract", "converted to value for message submission");
-			let extrinsic = subxt::dynamic::tx(
-				"Ismp",
-				"handle_unsigned",
-				vec![messages_to_value(vec![msg])]
-			);
+			let extrinsic =
+				subxt::dynamic::tx("Ismp", "handle_unsigned", vec![messages_to_value(vec![msg])]);
 			log::trace!(target: "tesseract", "gotten dynamic payload for message submission");
 			// We don't compress consensus messages
 			// We only consider compression for hyperbridge
@@ -690,15 +694,8 @@ where
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			} else {
 				let compressed_call = buffer[0..compressed_call_len].to_vec();
-				let call = vec![
-       				value!(compressed_call),
-					value!(uncompressed_len as u32)
-    			];
-				let extrinsic = subxt::dynamic::tx(
-					"CallDecompressor",
-					"decompress_call",
-					call
-				);
+				let call = vec![value!(compressed_call), value!(uncompressed_len as u32)];
+				let extrinsic = subxt::dynamic::tx("CallDecompressor", "decompress_call", call);
 				log::trace!(target: "tesseract", "Submitting compressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			}
@@ -859,22 +856,17 @@ where
 
 		let public_key_slice: &[u8] = binding.as_ref();
 
-		let public_key_array: [u8; 32] = public_key_slice
-			.try_into()
-			.expect("Public key must be 32 bytes");
+		let public_key_array: [u8; 32] =
+			public_key_slice.try_into().expect("Public key must be 32 bytes");
 
 		let account_id = AccountId32::from(public_key_array);
 
-		let signer = InMemorySigner {
-			account_id: account_id.into(),
-			signer: self.signer.clone(),
-		};
-
+		let signer = InMemorySigner { account_id: account_id.into(), signer: self.signer.clone() };
 
 		let call = subxt::dynamic::tx(
 			"Fishermen",
 			"veto_state_commitment",
-			vec![state_machine_height_to_value(&height)]
+			vec![state_machine_height_to_value(&height)],
 		);
 		send_extrinsic(&self.client, &signer, &call, Some(100)).await?;
 		Ok(())

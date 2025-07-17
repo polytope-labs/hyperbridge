@@ -1,6 +1,10 @@
 // Copyright (C) 2022 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::anyhow;
+use codec::{Decode, Encode};
+use hex_literal::hex;
+use merkle_mountain_range::{helper::get_peaks, leaf_index_to_mmr_size};
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -12,12 +16,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use polkadot_sdk::{sp_consensus_beefy::mmr::BeefyAuthoritySet, *};
-
-use anyhow::anyhow;
-use codec::{Decode, Encode};
-use hex_literal::hex;
-use merkle_mountain_range::{helper::get_peaks, leaf_index_to_mmr_size};
+use polkadot_sdk::{*, sp_consensus_beefy::mmr::BeefyAuthoritySet};
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
 use sp_consensus_beefy::{
@@ -29,16 +28,15 @@ use sp_mmr_primitives::LeafProof;
 use sp_runtime::{generic::Header, traits::BlakeTwo256};
 use sp_storage::StorageKey;
 use subxt::{
-	config::{substrate::SubstrateHeader, Header as _, HashFor},
-	Config, OnlineClient,
+	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
+	config::{HashFor, Header as _, substrate::SubstrateHeader},
+	Config,
+	ext::subxt_rpcs::rpc_params, OnlineClient,
 };
-use subxt::backend::{legacy::LegacyRpcMethods, rpc::RpcClient};
-use subxt::ext::subxt_rpcs::rpc_params;
-use subxt::backend::chain_head::rpc_methods::NumberOrHex;
 
 use crate::{
-	util::MerkleHasher, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID,
-	PARAS_PARACHAINS,
+	BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID, PARAS_PARACHAINS,
+	util::MerkleHasher,
 };
 
 /// Storage key for mmr.numberOfLeaves
@@ -236,8 +234,7 @@ pub async fn query_mmr_leaf<T: Config>(
 
 	let header = Header::<u32, BlakeTwo256>::decode(&mut &header.encode()[..])?;
 	let parent_hash = HashFor::<T>::decode(&mut header.parent_hash.as_ref())?;
-	let beefy_next_authority_set =
-		beefy_mmr_leaf_next_authorities(rpc, Some(block_hash)).await?;
+	let beefy_next_authority_set = beefy_mmr_leaf_next_authorities(rpc, Some(block_hash)).await?;
 	let leaf_extra = {
 		let heads = paras_parachains(rpc, Some(parent_hash)).await?;
 

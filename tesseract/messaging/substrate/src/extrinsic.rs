@@ -18,19 +18,20 @@
 use anyhow::{anyhow, Context};
 use codec::{Decode, Encode};
 use subxt::{
-	config:: ExtrinsicParams,
-	tx::Payload,
+	backend::{chain_head::rpc_methods::DryRunResultBytes, legacy::LegacyRpcMethods},
+	config::{ExtrinsicParams, HashFor},
+	ext::{
+		scale_decode::{DecodeAsFields, DecodeAsType},
+		scale_encode::EncodeAsType,
+		subxt_rpcs::methods::legacy::DryRunResult,
+	},
 	OnlineClient,
+	tx::Payload,
+	utils::{AccountId32, H256, MultiAddress, MultiSignature},
 };
-use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
-use subxt::ext::{scale_decode::DecodeAsFields, scale_encode::EncodeAsType, scale_decode::DecodeAsType};
-use subxt::ext::subxt_rpcs::methods::legacy::DryRunResult;
-use subxt::backend::chain_head::rpc_methods::DryRunResultBytes;
-use subxt::config::HashFor;
-use subxt::backend::legacy::LegacyRpcMethods;
 
+pub use subxt_utils::InMemorySigner;
 use subxt_utils::refine_subxt_error;
-pub use subxt_utils::{InMemorySigner};
 
 #[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
@@ -118,9 +119,9 @@ where
 }
 
 /// Dry run extrinsic
-pub async fn system_dry_run_unsigned< T: subxt::Config, Tx: Payload>(
+pub async fn system_dry_run_unsigned<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
-	rpc:  &LegacyRpcMethods<T>,
+	rpc: &LegacyRpcMethods<T>,
 	payload: Tx,
 ) -> Result<DryRunResultBytes, anyhow::Error>
 where

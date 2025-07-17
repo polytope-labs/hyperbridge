@@ -17,27 +17,31 @@
 
 //! GRANDPA consensus prover utilities
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use finality_grandpa::Chain as _;
-use grandpa_verifier::verify_grandpa_finality_proof;
-use grandpa_verifier_primitives::{
-	justification::{find_scheduled_change, AncestryChain},
-	parachain_header_storage_key, ConsensusState, DefaultHeader, FinalityProof,
-	ParachainHeaderProofs,
-};
 use indicatif::ProgressBar;
-use ismp::host::StateMachine;
-use polkadot_sdk::{sp_consensus_grandpa::GRANDPA_ENGINE_ID, *};
+use polkadot_sdk::{*, sp_consensus_grandpa::GRANDPA_ENGINE_ID};
 use serde::{Deserialize, Serialize};
 use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_core::H256;
 use sp_runtime::traits::{One, Zero};
-use std::collections::{BTreeMap, BTreeSet};
-use subxt::{config::Header, Config, OnlineClient, PolkadotConfig};
-use subxt::config::HashFor;
-use subxt::backend::{legacy::LegacyRpcMethods, rpc::RpcClient};
-use subxt::ext::subxt_rpcs::rpc_params;
+use subxt::{
+	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
+	config::{HashFor, Header},
+	Config,
+	ext::subxt_rpcs::rpc_params, OnlineClient, PolkadotConfig,
+};
+
+use grandpa_verifier::verify_grandpa_finality_proof;
+use grandpa_verifier_primitives::{
+	ConsensusState,
+	DefaultHeader, FinalityProof, justification::{AncestryChain, find_scheduled_change}, parachain_header_storage_key,
+	ParachainHeaderProofs,
+};
+use ismp::host::StateMachine;
 
 /// Head data for parachain
 #[derive(Decode, Encode)]
@@ -336,8 +340,8 @@ where
 			.chain_get_block(Some(target_block_hash.expect("Infallible")))
 			.await?
 			.ok_or_else(|| {
-				anyhow!("Block not found for number: {:#?}", target_block_hash.expect("Infallible"))
-			})?;
+			anyhow!("Block not found for number: {:#?}", target_block_hash.expect("Infallible"))
+		})?;
 		// get GRANDPA justification
 		let justification = block
 			.justifications

@@ -15,37 +15,34 @@
 
 //! Testing utilities
 
-use crate::{
-	extrinsic::{InMemorySigner},
-	SubstrateClient,
-};
 use codec::Encode;
 use futures::stream::StreamExt;
-use pallet_ismp_demo::{EvmParams, GetRequest, TransferParams};
 use sp_core::H256;
 use subxt::{
-	config::{
-		 ExtrinsicParams, Header,
-	},
+	config::{ExtrinsicParams, Hasher, HashFor, Header},
+	dynamic::Value,
 	events::EventDetails,
-	tx::Payload,
-	utils::{MultiSignature, AccountId32}
+	tx::DefaultParams,
+	utils::{AccountId32, MultiSignature},
 };
-use polkadot_sdk::sp_core::crypto;
-use subxt::config::{Hasher, HashFor};
-use subxt::dynamic::Value;
-use subxt::tx::DefaultParams;
 
-use subxt_utils::send_extrinsic;
-use subxt_utils::values::{account_vec_to_value, evm_params_to_value, get_request_ismp_demo_to_value, transfer_params_to_value};
+use pallet_ismp_demo::{EvmParams, GetRequest, TransferParams};
+use subxt_utils::{
+	send_extrinsic,
+	values::{
+		account_vec_to_value, evm_params_to_value, get_request_ismp_demo_to_value,
+		transfer_params_to_value,
+	},
+};
+
+use crate::{extrinsic::InMemorySigner, SubstrateClient};
 
 impl<C> SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
-	C::AccountId:
-		From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor<C>>,
 {
@@ -56,11 +53,11 @@ where
 	pub async fn transfer(
 		&self,
 		params: TransferParams<C::AccountId, u128>,
-	) -> Result<HashFor::<C>, anyhow::Error> {
+	) -> Result<HashFor<C>, anyhow::Error> {
 		let call = subxt::dynamic::tx(
 			"IsmpDemo",
 			"transfer",
-			vec![transfer_params_to_value::<C>(&params)]
+			vec![transfer_params_to_value::<C>(&params)],
 		);
 
 		let signer = InMemorySigner::new(self.signer.clone());
@@ -69,22 +66,19 @@ where
 	}
 
 	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
-		let call = subxt::dynamic::tx(
-			"IsmpDemo",
-			"dispatch_to_evm",
-			vec![evm_params_to_value(&params)]
-		);
+		let call =
+			subxt::dynamic::tx("IsmpDemo", "dispatch_to_evm", vec![evm_params_to_value(&params)]);
 		let signer = InMemorySigner::new(self.signer.clone());
 		send_extrinsic(&self.client, &signer, &call, None).await?;
 
 		Ok(())
 	}
 
-	pub async fn get_request(&self, get_req: GetRequest) -> Result<HashFor::<C>, anyhow::Error> {
+	pub async fn get_request(&self, get_req: GetRequest) -> Result<HashFor<C>, anyhow::Error> {
 		let tx = subxt::dynamic::tx(
 			"IsmpDemo",
 			"get_request",
-			vec![get_request_ismp_demo_to_value(&get_req)]
+			vec![get_request_ismp_demo_to_value(&get_req)],
 		);
 		let signer = InMemorySigner::new(self.signer.clone());
 		let tx_block_hash = send_extrinsic(&self.client, &signer, &tx, None).await?;
@@ -141,17 +135,9 @@ where
 
 	pub async fn runtime_upgrade(&self, code_blob: Vec<u8>) -> anyhow::Result<()> {
 		// Set code
-		let call = subxt::dynamic::tx(
-			"System",
-			"set_code",
-			vec![Value::from_bytes(code_blob)]
-		);
+		let call = subxt::dynamic::tx("System", "set_code", vec![Value::from_bytes(code_blob)]);
 
-		let tx = subxt::dynamic::tx(
-			"Sudo",
-			"sudo",
-			vec![call.into_value()]
-		);
+		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 
 		let signer = InMemorySigner::new(self.signer().clone());
 		send_extrinsic(&self.client, &signer, &tx, None).await?;
@@ -163,13 +149,9 @@ where
 		let call = subxt::dynamic::tx(
 			"CollatorSelection",
 			"set_invulnerables",
-			vec![account_vec_to_value::<C>(&accounts)]
+			vec![account_vec_to_value::<C>(&accounts)],
 		);
-		let tx = subxt::dynamic::tx(
-			"Sudo",
-			"sudo",
-			vec![call.into_value()]
-		);
+		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 		let signer = InMemorySigner::new(self.signer().clone());
 		send_extrinsic(&self.client, &signer, &tx, None).await?;
 

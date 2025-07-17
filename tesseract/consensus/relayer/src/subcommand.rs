@@ -1,15 +1,18 @@
 use std::{collections::BTreeMap, str::FromStr};
+use std::sync::Arc;
 
-use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
 use anyhow::anyhow;
 use codec::{Compact, Encode};
+use subxt::{dynamic::Value, tx::Payload};
+
 use ismp::host::StateMachine;
-use std::sync::Arc;
-use subxt::dynamic::Value;
-use subxt::tx::Payload;
-use subxt_utils::values::{compact_u32_to_value, evm_hosts_btreemap_to_value, host_params_btreemap_to_value};
+use subxt_utils::values::{
+	compact_u32_to_value, evm_hosts_btreemap_to_value, host_params_btreemap_to_value,
+};
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
+
+use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {
@@ -71,27 +74,30 @@ impl LogMetatdata {
 		let set_host_params = subxt::dynamic::tx(
 			"HostExecutive",
 			"set_host_params",
-			vec![host_params_btreemap_to_value(&host_params)]
+			vec![host_params_btreemap_to_value(&host_params)],
 		);
 		// Call to set the Host address
 		let update_evm_hosts = subxt::dynamic::tx(
 			"HostExecutive",
 			"update_evm_hosts",
-			vec![evm_hosts_btreemap_to_value(&evm_hosts)]
+			vec![evm_hosts_btreemap_to_value(&evm_hosts)],
 		);
 		// batch them both
 		let batch = subxt::dynamic::tx(
 			"Utility",
 			"batch_all",
-			vec![compact_u32_to_value(Compact(2u32)), set_host_params.into_value(), update_evm_hosts.into_value()].concat()
-		).encode_call_data(&hyperbridge.client().client.metadata())?;
+			vec![
+				compact_u32_to_value(Compact(2u32)),
+				set_host_params.into_value(),
+				update_evm_hosts.into_value(),
+			]
+			.concat(),
+		)
+		.encode_call_data(&hyperbridge.client().client.metadata())?;
 
 		let proposal = if self.sudo.unwrap_or_default() {
-			subxt::dynamic::tx(
-				"Sudo",
-				"sudo",
-				batch
-			).encode_call_data(&hyperbridge.client().client.metadata())?
+			subxt::dynamic::tx("Sudo", "sudo", batch)
+				.encode_call_data(&hyperbridge.client().client.metadata())?
 		} else {
 			batch
 		};

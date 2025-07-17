@@ -1,23 +1,25 @@
-// mod plonk;
-#[cfg(test)]
-mod tests;
+use std::sync::Arc;
 
 use anyhow::anyhow;
-use beefy_prover::util::hash_authority_addresses;
-use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
-use ismp_solidity_abi::sp1_beefy::Sp1BeefyProof;
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
-use sp1_beefy::{Sp1Beefy, SP1_BEEFY};
+use sp1_beefy::{SP1_BEEFY, Sp1Beefy};
 use sp1_beefy_primitives::{
 	AuthoritiesProof, BeefyCommitment, KeccakHasher, MmrLeafProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex,
 };
 use sp_consensus_beefy::ecdsa_crypto::Signature;
 use sp_crypto_hashing::keccak_256;
-use std::sync::Arc;
 use subxt::config::HashFor;
+
+use beefy_prover::util::hash_authority_addresses;
+use beefy_verifier_primitives::ConsensusState;
+use ismp_solidity_abi::sp1_beefy::Sp1BeefyProof;
+
+// mod plonk;
+#[cfg(test)]
+mod tests;
 
 /// Consensus prover for zk BEEFY.
 #[derive(Clone)]
@@ -52,7 +54,8 @@ where
 
 		let message = self.inner.consensus_proof(signed_commitment.clone()).await?;
 
-		let num: subxt::ext::subxt_rpcs::methods::legacy::BlockNumber = signed_commitment.commitment.block_number.into();
+		let num: subxt::ext::subxt_rpcs::methods::legacy::BlockNumber =
+			signed_commitment.commitment.block_number.into();
 		let block_hash = self
 			.inner
 			.relay_rpc

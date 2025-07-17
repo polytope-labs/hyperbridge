@@ -18,34 +18,36 @@
 #![allow(clippy::all)]
 #![deny(missing_docs)]
 
-/// Methods for querying the relay chain
-pub mod relay;
-/// Helper functions and types
-pub mod util;
-use polkadot_sdk::*;
-
 use anyhow::anyhow;
-use beefy_verifier_primitives::{
-	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
-	SignatureWithAuthorityIndex, SignedCommitment,
-};
 use codec::{Decode, Encode};
 use hex_literal::hex;
+use polkadot_sdk::*;
 use primitive_types::H256;
-use relay::{
-	beefy_mmr_leaf_next_authorities, fetch_latest_beefy_justification, fetch_mmr_proof,
-	paras_parachains,
-};
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, mmr::BeefyAuthoritySet,
 };
 use sp_io::hashing::keccak_256;
-use subxt::{Config, OnlineClient};
-use subxt::backend::rpc::RpcClient;
-use subxt::ext::subxt_rpcs::rpc_params;
+use subxt::{
+	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
+	Config,
+	ext::subxt_rpcs::rpc_params, OnlineClient,
+};
 use subxt_core::config::HashFor;
-use subxt::backend::legacy::LegacyRpcMethods;
+
+use beefy_verifier_primitives::{
+	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
+	SignatureWithAuthorityIndex, SignedCommitment,
+};
+use relay::{
+	beefy_mmr_leaf_next_authorities, fetch_latest_beefy_justification, fetch_mmr_proof,
+	paras_parachains,
+};
 use util::hash_authority_addresses;
+
+/// Methods for querying the relay chain
+pub mod relay;
+/// Helper functions and types
+pub mod util;
 
 /// This contains methods for fetching BEEFY proofs for parachain headers.
 #[derive(Clone, Debug)]
@@ -165,8 +167,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 		&self,
 		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
 	) -> Result<ConsensusMessage, anyhow::Error> {
-		let block_number: u32 =
-			signed_commitment.commitment.block_number.into();
+		let block_number: u32 = signed_commitment.commitment.block_number.into();
 		let block_hash = self
 			.relay_rpc
 			.chain_get_block_hash(Some(block_number.into()))

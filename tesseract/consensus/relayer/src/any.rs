@@ -1,20 +1,18 @@
 use std::sync::Arc;
 
-use arb_host::ArbConfig;
-use ismp::{host::StateMachine, messaging::CreateConsensusState};
-use op_host::OpConfig;
+use polkadot_sdk::sp_runtime::traits::{One, Zero};
 use primitive_types::{H160, H256};
 use serde::{Deserialize, Serialize};
 use sp_core::crypto;
 use subxt::{
-	config::{
-		ExtrinsicParams, Header,
-	},
-	utils::{MultiSignature,AccountId32}
+	config::{ExtrinsicParams, HashFor, Header},
+	tx::DefaultParams,
+	utils::{AccountId32, MultiSignature},
 };
-use polkadot_sdk::sp_runtime::{traits::{One, Zero}, };
-use subxt::config::HashFor;
-use subxt::tx::DefaultParams;
+
+use arb_host::ArbConfig;
+use ismp::{host::StateMachine, messaging::CreateConsensusState};
+use op_host::OpConfig;
 use tesseract_beefy::{
 	host::{BeefyHost, BeefyHostConfig},
 	prover::{Prover, ProverConfig},
@@ -75,19 +73,18 @@ where
 	P: subxt::Config + Send + Sync + Clone,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
-	P::AccountId:
-		From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-	H256: From<HashFor::<P>>,
+	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	H256: From<HashFor<P>>,
 
 	R: subxt::Config + Send + Sync + Clone,
 	R::Header: Send + Sync,
 	<R::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One + From<u32>,
 	u32: From<<R::Header as Header>::Number>,
-	H256: From<HashFor::<R>>,
+	H256: From<HashFor<R>>,
 	R::Header: codec::Decode,
-	<R::Hasher as subxt::config::Hasher>::Output: From<HashFor::<R>>,
-	HashFor::<R>: From<<R::Hasher as subxt::config::Hasher>::Output>,
-	HashFor::<R>: From<H256>,
+	<R::Hasher as subxt::config::Hasher>::Output: From<HashFor<R>>,
+	HashFor<R>: From<<R::Hasher as subxt::config::Hasher>::Output>,
+	HashFor<R>: From<H256>,
 	<R::ExtrinsicParams as ExtrinsicParams<R>>::Params: Send + Sync + DefaultParams,
 	R::Signature: From<MultiSignature> + Send + Sync,
 	R::AccountId: From<AccountId32> + Into<R::Address> + Clone + 'static + Send + Sync,
@@ -148,13 +145,12 @@ impl HyperbridgeHostConfig {
 		P: subxt::Config + Send + Sync + Clone,
 		<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 		P::Signature: From<MultiSignature> + Send + Sync,
-		P::AccountId:
-			From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-		H256: From<HashFor::<P>>,
+		P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+		H256: From<HashFor<P>>,
 
 		<R::Header as Header>::Number: Ord + Zero + From<u32>,
 		u32: From<<R::Header as Header>::Number>,
-		H256: From<HashFor::<R>>,
+		H256: From<HashFor<R>>,
 		R::Header: codec::Decode,
 		<R::ExtrinsicParams as ExtrinsicParams<R>>::Params: Send + Sync + DefaultParams,
 		R::Signature: From<MultiSignature> + Send + Sync,

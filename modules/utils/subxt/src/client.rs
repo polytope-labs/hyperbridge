@@ -1,7 +1,7 @@
-use anyhow::Context;
 use std::time::Duration;
-use subxt::ext::jsonrpsee;
-use subxt::OnlineClient;
+
+use anyhow::Context;
+use subxt::{ext::jsonrpsee, OnlineClient};
 
 #[cfg(feature = "std")]
 pub async fn ws_client<T: subxt::Config>(
@@ -12,9 +12,11 @@ pub async fn ws_client<T: subxt::Config>(
 		.connection_timeout(Duration::from_secs(1))
 		.max_request_size(max_rpc_payload_size)
 		.max_response_size(max_rpc_payload_size)
-		.enable_ws_ping(reconnecting_jsonrpsee_ws_client::PingConfig::new()
-							.ping_interval(Duration::from_secs(6))
-							.inactive_limit(Duration::from_secs(30)))
+		.enable_ws_ping(
+			reconnecting_jsonrpsee_ws_client::PingConfig::new()
+				.ping_interval(Duration::from_secs(6))
+				.inactive_limit(Duration::from_secs(30)),
+		)
 		.build(rpc_ws)
 		.await
 		.context(format!("Failed to connect to substrate rpc {rpc_ws}"))?;

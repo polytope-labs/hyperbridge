@@ -13,39 +13,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use beefy_verifier_primitives::ConsensusState;
-use codec::{Decode, Encode};
-use ismp_solidity_abi::beefy::BeefyConsensusState;
-use redis::AsyncCommands;
-use serde::{Deserialize, Serialize};
 use std::{
 	pin::Pin,
 	sync::Arc,
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use subxt::{
-	config::{ExtrinsicParams},
-	utils::{AccountId32, MultiSignature, H256}
-};
-use tesseract_substrate::SubstrateClient;
 
-use crate::{
-	prover::{query_parachain_header, Prover, ProverConsensusState, REDIS_CONSENSUS_STATE_KEY},
-	redis_utils::{self, RedisConfig},
-};
 use anyhow::{anyhow, Context};
-use futures::{stream::TryStreamExt, Stream, StreamExt};
+use codec::{Decode, Encode};
+use futures::{Stream, stream::TryStreamExt, StreamExt};
+use redis::AsyncCommands;
+use redis_async::client::PubsubConnection;
+use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError, RsmqMessage};
+use serde::{Deserialize, Serialize};
+use subxt::{
+	config::ExtrinsicParams,
+	utils::{AccountId32, H256, MultiSignature},
+};
+use subxt::{config::HashFor, tx::DefaultParams};
+use tokio::sync::Mutex;
+
+use beefy_verifier_primitives::ConsensusState;
 use ismp::{
 	consensus::ConsensusStateId,
 	host::StateMachine,
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
-use redis_async::client::PubsubConnection;
-use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError, RsmqMessage};
-use subxt::config::HashFor;
-use subxt::tx::DefaultParams;
+use ismp_solidity_abi::beefy::BeefyConsensusState;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
-use tokio::sync::Mutex;
+use tesseract_substrate::SubstrateClient;
+
+use crate::{
+	prover::{Prover, ProverConsensusState, query_parachain_header, REDIS_CONSENSUS_STATE_KEY},
+	redis_utils::{self, RedisConfig},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyHostConfig {
@@ -82,9 +83,8 @@ where
 	P: subxt::Config + Send + Sync + Clone,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
-	P::AccountId:
-		From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-	H256: From<HashFor::<P>>,
+	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	H256: From<HashFor<P>>,
 {
 	/// Construct an implementation of the [`BeefyHost`]
 	pub async fn new(
@@ -171,7 +171,6 @@ where
 		&self,
 		consensus_state: Option<ConsensusState>,
 	) -> Result<CreateConsensusState, anyhow::Error> {
-		use ethers::abi::AbiEncode;
 		let prover_consensus_state = match consensus_state {
 			Some(state) => {
 				let inner = self.prover.inner();
@@ -288,9 +287,8 @@ where
 	P: subxt::Config + Send + Sync + Clone,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
-	P::AccountId:
-		From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-	H256: From<HashFor::<P>>,
+	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	H256: From<HashFor<P>>,
 {
 	async fn start_consensus(
 		&self,
@@ -491,7 +489,6 @@ where
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
-		use ethers::abi::AbiEncode;
 		let consensus_state: BeefyConsensusState =
 			self.prover.query_initial_consensus_state(None).await?.inner.into();
 

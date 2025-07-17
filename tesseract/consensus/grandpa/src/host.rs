@@ -15,10 +15,17 @@
 
 use std::{sync::Arc, time::Duration};
 
-use crate::GrandpaHost;
 use anyhow::{anyhow, Error};
 use codec::Encode;
 use futures::{stream, StreamExt};
+use polkadot_sdk::sp_runtime::traits::{One, Zero};
+use sp_core::crypto;
+use subxt::{
+	config::{ExtrinsicParams, HashFor, Header},
+	tx::DefaultParams,
+	utils::{AccountId32, MultiSignature, H256},
+};
+
 use grandpa_verifier_primitives::ConsensusState;
 use ismp::{
 	host::StateMachine,
@@ -28,16 +35,9 @@ use ismp_grandpa::{
 	consensus::GRANDPA_CONSENSUS_ID,
 	messages::{RelayChainMessage, StandaloneChainMessage},
 };
-
-use sp_core::{crypto};
-use subxt::config::{ExtrinsicParams, HashFor, Header};
-use subxt::utils::{AccountId32, MultiSignature, H256};
-
-use polkadot_sdk::sp_runtime::{
-	traits::{One, Zero},
-};
-use subxt::tx::DefaultParams;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
+
+use crate::GrandpaHost;
 
 #[async_trait::async_trait]
 impl<H, C> IsmpHost for GrandpaHost<H, C>
@@ -46,11 +46,11 @@ where
 	C: subxt::Config + Send + Sync + Clone,
 	<H::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One + From<u32>,
 	u32: From<<H::Header as Header>::Number>,
-	H256: From<HashFor::<H>>,
+	H256: From<HashFor<H>>,
 	H::Header: codec::Decode,
-	<H::Hasher as subxt::config::Hasher>::Output: From<HashFor::<H>>,
-	HashFor::<H>: From<<H::Hasher as subxt::config::Hasher>::Output>,
-	HashFor::<H>: From<H256>,
+	<H::Hasher as subxt::config::Hasher>::Output: From<HashFor<H>>,
+	HashFor<H>: From<<H::Hasher as subxt::config::Hasher>::Output>,
+	HashFor<H>: From<H256>,
 	<H::ExtrinsicParams as ExtrinsicParams<H>>::Params: Send + Sync + DefaultParams,
 	H::Signature: From<MultiSignature> + Send + Sync,
 	H::AccountId: From<AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,

@@ -13,32 +13,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use crate::provider::system_events_key;
 use std::sync::Arc;
+
+use polkadot_sdk::{
+	sp_core::{bytes::from_hex, crypto, Pair, sr25519},
+	sp_runtime::{MultiSigner, traits::IdentifyAccount},
+};
+use serde::{Deserialize, Serialize};
+use subxt::{
+	backend::legacy::LegacyRpcMethods,
+	config::{ExtrinsicParams, Hash, HashFor, Header},
+	ext::subxt_rpcs::RpcClient,
+	OnlineClient,
+	tx::DefaultParams,
+};
+use subxt::utils::{AccountId32, H256, MultiAddress, MultiSignature};
 
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::child_trie::{
 	request_commitment_storage_key, request_receipt_storage_key, response_commitment_storage_key,
 	response_receipt_storage_key,
 };
+use substrate_state_machine::HashAlgorithm;
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated, StreamError};
 
-use serde::{Deserialize, Serialize};
-use polkadot_sdk::sp_core::{bytes::from_hex, crypto, sr25519, Pair};
-use polkadot_sdk::sp_runtime::{traits::IdentifyAccount, MultiSigner};
-use subxt::utils::{AccountId32, MultiAddress, MultiSignature, H256};
-
-use substrate_state_machine::HashAlgorithm;
-use subxt::{
-	config::{
-		ExtrinsicParams, Header,
-	},
-	OnlineClient,
-};
-use subxt::config::{Hash, HashFor};
-use subxt::ext::subxt_rpcs::RpcClient;
-use subxt::backend::legacy::LegacyRpcMethods;
-use subxt::tx::DefaultParams;
+pub use crate::provider::system_events_key;
 
 mod byzantine;
 pub mod calls;
@@ -125,8 +124,7 @@ where
 		let initial_height = if let Some(initial_height) = config.initial_height {
 			initial_height
 		} else {
-			rpc
-				.chain_get_header(None)
+			rpc.chain_get_header(None)
 				.await?
 				.expect("block header should be available")
 				.number()
@@ -166,9 +164,8 @@ where
 		let binding = self.signer.public();
 		let public_key_slice: &[u8] = binding.as_ref();
 
-		let public_key_array: [u8; 32] = public_key_slice
-			.try_into()
-			.expect("Public key must be 32 bytes");
+		let public_key_array: [u8; 32] =
+			public_key_slice.try_into().expect("Public key must be 32 bytes");
 
 		let account_id = subxt::utils::AccountId32::from(public_key_array);
 

@@ -1,20 +1,5 @@
-pub mod middleware;
-#[warn(unused_imports)]
-#[warn(unused_variables)]
-pub mod responses;
-pub mod routes;
+use std::marker::PhantomData;
 
-#[cfg(test)]
-mod test;
-
-use crate::{
-	middleware::SwitchProviderMiddleware,
-	responses::{
-		finality_checkpoint_response::FinalityCheckpoint,
-		sync_committee_response::NodeSyncCommittee,
-	},
-	routes::*,
-};
 use anyhow::anyhow;
 use bls::{point_to_pubkey, types::G1ProjectivePoint};
 use log::trace;
@@ -23,18 +8,19 @@ use reqwest::{Client, Url};
 use reqwest_chain::ChainMiddleware;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use ssz_rs::{Merkleized, Node};
-use std::marker::PhantomData;
+use tracing::instrument;
+
 use sync_committee_primitives::{
 	consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
 	constants::{
-		BlsPublicKey, Config, Root, BYTES_PER_LOGS_BLOOM, EPOCHS_PER_HISTORICAL_VECTOR,
-		EPOCHS_PER_SLASHINGS_VECTOR, HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS,
-		MAX_ATTESTER_SLASHINGS, MAX_BLS_TO_EXECUTION_CHANGES, MAX_BYTES_PER_TRANSACTION,
-		MAX_COMMITTEES_PER_SLOT, MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD, MAX_DEPOSITS,
-		MAX_DEPOSIT_REQUESTS_PER_PAYLOAD, MAX_EXTRA_DATA_BYTES, MAX_PROPOSER_SLASHINGS,
-		MAX_TRANSACTIONS_PER_PAYLOAD, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS,
-		MAX_WITHDRAWALS_PER_PAYLOAD, MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
-		PENDING_CONSOLIDATIONS_LIMIT, PENDING_DEPOSITS_LIMIT, PENDING_PARTIAL_WITHDRAWALS_LIMIT,
+		BlsPublicKey, BYTES_PER_LOGS_BLOOM, Config, EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR,
+		HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS, MAX_ATTESTER_SLASHINGS,
+		MAX_BLS_TO_EXECUTION_CHANGES, MAX_BYTES_PER_TRANSACTION, MAX_COMMITTEES_PER_SLOT,
+		MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD, MAX_DEPOSIT_REQUESTS_PER_PAYLOAD, MAX_DEPOSITS,
+		MAX_EXTRA_DATA_BYTES, MAX_PROPOSER_SLASHINGS, MAX_TRANSACTIONS_PER_PAYLOAD,
+		MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS, MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
+		MAX_WITHDRAWALS_PER_PAYLOAD, PENDING_CONSOLIDATIONS_LIMIT,
+		PENDING_DEPOSITS_LIMIT, PENDING_PARTIAL_WITHDRAWALS_LIMIT, Root,
 		SLOTS_PER_HISTORICAL_ROOT, SYNC_COMMITTEE_SIZE, VALIDATOR_REGISTRY_LIMIT,
 	},
 	deneb::MAX_BLOB_COMMITMENTS_PER_BLOCK,
@@ -44,9 +30,25 @@ use sync_committee_primitives::{
 	},
 	util::{compute_sync_committee_period_at_slot, should_have_sync_committee_update},
 };
-use tracing::instrument;
-
 use sync_committee_verifier::crypto::pubkey_to_projective;
+
+use crate::{
+	middleware::SwitchProviderMiddleware,
+	responses::{
+		finality_checkpoint_response::FinalityCheckpoint,
+		sync_committee_response::NodeSyncCommittee,
+	},
+	routes::*,
+};
+
+pub mod middleware;
+#[warn(unused_imports)]
+#[warn(unused_variables)]
+pub mod responses;
+pub mod routes;
+
+#[cfg(test)]
+mod test;
 
 pub type BeaconStateType<const ETH1_DATA_VOTES_BOUND: usize> = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
@@ -350,7 +352,6 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 		};
 
 		trace!(target: "sync-committee-prover", "got light client update");
-
 
 		Ok(Some(light_client_update))
 	}

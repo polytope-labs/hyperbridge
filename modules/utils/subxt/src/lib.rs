@@ -3,13 +3,18 @@ use codec::Encode;
 use derivative::Derivative;
 use polkadot_sdk::*;
 use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
-use subxt::{config::{
-	Hasher,
-	substrate::{
-		BlakeTwo256, SubstrateExtrinsicParams, SubstrateExtrinsicParamsBuilder as Params,
-		SubstrateHeader,
+use subxt::{
+	config::{
+		substrate::{
+			BlakeTwo256, SubstrateExtrinsicParams, SubstrateExtrinsicParamsBuilder as Params,
+			SubstrateHeader,
+		},
+		Hasher,
 	},
-}, Metadata, OnlineClient, PolkadotConfig, tx::Payload, utils::{AccountId32, H256, MultiAddress}};
+	tx::Payload,
+	utils::{AccountId32, MultiAddress, H256},
+	Metadata, OnlineClient, PolkadotConfig,
+};
 
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 #[cfg(feature = "std")]
@@ -62,15 +67,16 @@ impl subxt::Config for BlakeSubstrateChain {
 #[cfg(feature = "std")]
 pub mod signer {
 	use anyhow::Context;
-	use polkadot_sdk::sp_core::{ByteArray, crypto, Pair, sr25519};
-	use polkadot_sdk::sp_runtime::{MultiSigner, traits::IdentifyAccount};
-	use subxt::{
-		OnlineClient,
-		tx::Signer,
+	use polkadot_sdk::{
+		sp_core::{sr25519, Pair},
+		sp_runtime::traits::IdentifyAccount,
 	};
-	use subxt::config::{ExtrinsicParams, HashFor};
-	use subxt::tx::DefaultParams;
-	use subxt::utils::{MultiSignature, AccountId32};
+	use subxt::{
+		config::{ExtrinsicParams, HashFor},
+		tx::{DefaultParams, Signer},
+		utils::{AccountId32, MultiSignature},
+		OnlineClient,
+	};
 
 	use super::*;
 
@@ -89,15 +95,11 @@ pub mod signer {
 			let binding = pair.public();
 			let public_key_slice: &[u8] = binding.as_ref();
 
-			let public_key_array: [u8; 32] = public_key_slice
-				.try_into()
-				.expect("sr25519 public key should be 32 bytes");
+			let public_key_array: [u8; 32] =
+				public_key_slice.try_into().expect("sr25519 public key should be 32 bytes");
 
 			let account_id = AccountId32::from(public_key_array);
-			InMemorySigner {
-				account_id: account_id.into(),
-				signer: pair,
-			}
+			InMemorySigner { account_id: account_id.into(), signer: pair }
 		}
 	}
 
@@ -106,7 +108,7 @@ pub mod signer {
 		T::AccountId: Into<T::Address> + Clone + 'static,
 		T::Signature: From<MultiSignature>,
 	{
-		fn account_id(&self) ->  T::AccountId {
+		fn account_id(&self) -> T::AccountId {
 			self.account_id.clone()
 		}
 

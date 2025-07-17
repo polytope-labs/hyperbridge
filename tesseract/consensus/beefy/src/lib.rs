@@ -13,20 +13,19 @@
 // limitations under the License.
 
 use anyhow::anyhow;
+use primitive_types::H256;
+use serde::{Deserialize, Serialize};
+use subxt::{
+	config::{ExtrinsicParams, HashFor},
+	tx::DefaultParams,
+	utils::{AccountId32, MultiSignature},
+};
+
+pub use beefy_verifier_primitives::ConsensusState;
 use host::{BeefyHost, BeefyHostConfig};
 use ismp::host::StateMachine;
 use prover::{Prover, ProverConfig};
-use serde::{Deserialize, Serialize};
-
-pub use beefy_verifier_primitives::ConsensusState;
-use primitive_types::H256;
-use subxt::{
-	config::{ExtrinsicParams},
-	utils::{AccountId32, MultiSignature}
-};
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
-use subxt::config::HashFor;
-use subxt::tx::DefaultParams;
 
 pub mod host;
 pub mod prover;
@@ -55,9 +54,8 @@ impl BeefyConfig {
 		P: subxt::Config + Send + Sync + Clone,
 		<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 		P::Signature: From<MultiSignature> + Send + Sync,
-		P::AccountId:
-			From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-		H256: From<HashFor::<P>>,
+		P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+		H256: From<HashFor<P>>,
 	{
 		let client = SubstrateClient::<P>::new(self.substrate).await?;
 		let prover = Prover::<R, P>::new(self.prover.clone()).await?;

@@ -171,6 +171,7 @@ where
 		&self,
 		consensus_state: Option<ConsensusState>,
 	) -> Result<CreateConsensusState, anyhow::Error> {
+		use ethers::abi::AbiEncode;
 		let prover_consensus_state = match consensus_state {
 			Some(state) => {
 				let inner = self.prover.inner();
@@ -489,6 +490,7 @@ where
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
+		use ethers::abi::AbiEncode;
 		let consensus_state: BeefyConsensusState =
 			self.prover.query_initial_consensus_state(None).await?.inner.into();
 

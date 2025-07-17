@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use codec::{Compact, Encode};
-use subxt::{dynamic::Value, tx::Payload};
+use subxt::tx::Payload;
 
 use ismp::host::StateMachine;
 use subxt_utils::values::{
@@ -90,8 +90,7 @@ impl LogMetatdata {
 				compact_u32_to_value(Compact(2u32)),
 				set_host_params.into_value(),
 				update_evm_hosts.into_value(),
-			]
-			.concat(),
+			],
 		)
 		.encode_call_data(&hyperbridge.client().client.metadata())?;
 

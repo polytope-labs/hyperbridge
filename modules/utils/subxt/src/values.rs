@@ -19,6 +19,7 @@ use ismp::{
 		GetRequest, GetResponse, PostRequest, PostResponse, Request, RequestResponse, Response,
 	},
 };
+use ismp_parachain::ParachainData;
 use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
 use pallet_ismp_demo::{EvmParams, GetRequest as GetRequestIsmpDemo, TransferParams};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
@@ -526,4 +527,34 @@ pub fn evm_hosts_btreemap_to_value(evm_hosts: &BTreeMap<StateMachine, H160>) -> 
 
 pub fn compact_u32_to_value(compact_int: Compact<u32>) -> Value<()> {
 	Value::from_bytes(compact_int.encode())
+}
+pub fn host_param_tuple_to_value(
+	state_machine: &StateMachine,
+	host_param: &HostParam<u128>,
+) -> Value<()> {
+	let state_machine_value = state_machine_to_value(state_machine);
+	let host_param_value = host_param_to_value(host_param);
+
+	Value::unnamed_composite(vec![state_machine_value, host_param_value])
+}
+
+pub fn storage_kv_list_to_value(kv_list: &Vec<(Vec<u8>, Vec<u8>)>) -> Value<()> {
+	let value_pairs: Vec<Value<()>> = kv_list
+		.iter()
+		.map(|(key, value)| {
+			Value::unnamed_composite(vec![
+				Value::from_bytes(key.clone()),
+				Value::from_bytes(value.clone()),
+			])
+		})
+		.collect();
+
+	Value::unnamed_composite(value_pairs)
+}
+
+pub fn parachain_data_to_value(data: &ParachainData) -> Value<()> {
+	Value::named_composite(vec![
+		("id".to_string(), Value::u128(data.id.into())),
+		("slot_duration".to_string(), Value::u128(data.slot_duration.into())),
+	])
 }

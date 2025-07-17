@@ -15,12 +15,16 @@ use staging_xcm::{
 };
 use subxt::{
 	config::Header,
-	ext::sp_core::{bytes::from_hex, sr25519, Pair, H256},
-	rpc_params,
-	tx::TxPayload,
+	ext::subxt_rpcs::rpc_params,
+	tx::Payload,
 	OnlineClient,
+	backend::legacy::LegacyRpcMethods,
+	ext::subxt_rpcs::RpcClient,
 };
-use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Extrinsic, Hyperbridge, InMemorySigner};
+use polkadot_sdk::sp_core::{bytes::from_hex, sr25519, Pair, H256};
+use polkadot_sdk::staging_xcm::v4::{Asset, AssetId, Assets, Fungibility};
+use subxt::dynamic::Value;
+use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Hyperbridge, InMemorySigner};
 
 const SEND_AMOUNT: u128 = 2_000_000_000_000;
 
@@ -38,15 +42,19 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9922".to_string());
 	let client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
+	let rpc_client = RpcClient::from_url(&url).await?;
+	let rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 
 	let para_url = std::env::var("PARA_LOCAL_URL")
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9990".to_string());
 	let para_client = OnlineClient::<Hyperbridge>::from_url(&para_url).await?;
+	let para_rpc_client = RpcClient::from_url(&para_url).await?;
+	let para_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(para_rpc_client.clone());
 
 	// Wait for parachain block production
 
-	let sub = para_client.rpc().subscribe_all_block_headers().await?;
+	let sub = para_rpc.chain_subscribe_finalized_heads().await?;
 	let _block = sub
 		.take(1)
 		.collect::<Vec<_>>()
@@ -80,32 +88,26 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	{
 		let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
 		// Force set the xcm version to our supported version
-		let encoded_call = Extrinsic::new(
-			"XcmPallet",
-			"force_xcm_version",
-			(Box::new(para_absolute_location), 4u32).encode(),
-		)
-		.encode_call_data(&client.metadata())?;
-		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-		send_extrinsic(&client, signer, tx, None).await?;
+		let call = subxt::dynamic::tx("XcmPallet", "force_xcm_version", vec![force_xcm_version_value()]);
+		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
+		send_extrinsic(&client, &signer, &tx, None).await?;
 	}
 
-	let ext = Extrinsic::new(
-		"XcmPallet".to_string(),
-		"limited_reserve_transfer_assets".to_string(),
-		call.encode(),
+	let ext = subxt::dynamic::tx(
+		"XcmPallet",
+		"limited_reserve_transfer_assets",
+		vec![create_full_xcm_transfer_value()],
 	);
 
-	let init_block = para_client
-		.rpc()
-		.header(None)
+	let init_block = para_rpc
+		.chain_get_header(None)
 		.await?
 		.ok_or_else(|| anyhow!("Failed to fetch latest header"))?
 		.number();
 
-	send_extrinsic(&client, signer, ext, None).await?;
+	send_extrinsic(&client, &signer, &ext, None).await?;
 
-	let mut sub = para_client.rpc().subscribe_finalized_block_headers().await?;
+	let mut sub = para_rpc.chain_subscribe_finalized_heads().await?;
 
 	while let Some(res) = sub.next().await {
 		match res {
@@ -121,7 +123,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 				];
 
 				let response: HashMap<String, Vec<ismp::events::Event>> =
-					para_client.rpc().request("ismp_queryEvents", params).await?;
+					para_rpc_client.request("ismp_queryEvents", params).await?;
 
 				let events = response.values().into_iter().cloned().flatten().collect::<Vec<_>>();
 				if let Some(post) = events.into_iter().find_map(|ev| match ev {
@@ -149,4 +151,85 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	}
 
 	Err(anyhow!("XCM Integration test failed"))
+}
+
+fn location_to_value(location: &Location) -> Value<()> {
+	Value::named_composite(vec![
+		(
+			"parents".to_string(),
+			Value::u128(location.parents.into()),
+		),
+		(
+			"interior".to_string(),
+			Value::from_bytes(location.interior.encode()),
+		),
+	])
+}
+
+pub fn force_xcm_version_value() -> Value<()> {
+	let para_absolute_location: Location = Junction::Parachain(2000).into();
+	let some_u32 = 4u32;
+
+	let location_as_value = location_to_value(&para_absolute_location);
+
+	let u32_as_value = Value::u128(some_u32.into());
+
+	let extrinsic_params = Value::unnamed_composite(vec![
+		location_as_value,
+		u32_as_value,
+	]);
+
+	extrinsic_params
+}
+
+fn versioned_location_to_value(loc: &VersionedLocation) -> Value<()> {
+	Value::from_bytes(loc.encode())
+}
+
+fn versioned_assets_to_value(assets: &VersionedAssets) -> Value<()> {
+	Value::from_bytes(assets.encode())
+}
+
+fn weight_limit_to_value(limit: &WeightLimit) -> Value<()> {
+	Value::from_bytes(limit.encode())
+}
+
+
+
+pub fn create_full_xcm_transfer_value() -> Value<()> {
+	const FEE_ASSET_INDEX: u32 = 0;
+
+	let dest_location = Location::new(1, [Junction::Parachain(2000)]);
+	let dest = VersionedLocation::V4(dest_location);
+
+	let public_key: [u8; 32] = [42; 32];
+	let beneficiary = Location::new(
+		0,
+		[
+			Junction::AccountId32 { network: None, id: public_key },
+			Junction::AccountKey20 {
+				network: Some(NetworkId::Ethereum { chain_id: 1 }),
+				key: [1; 20],
+			},
+			Junction::GeneralIndex(60 * 60),
+		],
+	);
+	let beneficiary_as_versioned = VersionedLocation::V4(beneficiary);
+
+
+	let assets_as_versioned = VersionedAssets::V4(
+		vec![(Junctions::Here, SEND_AMOUNT).into()].into(),
+	);
+
+	let weight_limit = WeightLimit::Unlimited;
+
+	let extrinsic_params = Value::unnamed_composite(vec![
+		versioned_location_to_value(&dest),
+		versioned_location_to_value(&beneficiary_as_versioned),
+		versioned_assets_to_value(&assets_as_versioned),
+		Value::u128(FEE_ASSET_INDEX.into()),
+		weight_limit_to_value(&weight_limit),
+	]);
+
+	extrinsic_params
 }

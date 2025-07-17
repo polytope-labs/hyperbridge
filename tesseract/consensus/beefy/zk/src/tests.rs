@@ -6,7 +6,12 @@ use hex_literal::hex;
 use ismp_solidity_abi::beefy::BeefyConsensusState;
 use serde::Deserialize;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
-use subxt::{config::Header, rpc::Subscription, rpc_params, PolkadotConfig};
+use subxt::{
+	backend::legacy::LegacyRpcMethods,
+	config::{Hasher, Header},
+	ext::subxt_rpcs::{rpc_params, RpcClient},
+	PolkadotConfig,
+};
 use subxt_utils::Hyperbridge;
 use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
 
@@ -54,28 +59,37 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	let relay = subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, u32::MAX).await?;
 	let para = subxt_utils::client::ws_client::<Hyperbridge>(&para_ws_url, u32::MAX).await?;
 
-	let header = relay
-		.rpc()
-		.header(None)
+	let para_rpc_client = RpcClient::from_url(&para_ws_url).await?;
+	let para_rpc = LegacyRpcMethods::<Hyperbridge>::new(para_rpc_client.clone());
+
+	let relay_rpc_client = RpcClient::from_url(&relay_ws_url).await?;
+	let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
+
+	let metadata = relay.metadata();
+	let hasher = <PolkadotConfig as subxt::Config>::Hasher::new(&metadata);
+
+	let header = relay_rpc
+		.chain_get_header(None)
 		.await?
 		.ok_or_else(|| anyhow!("No blocks on the relay chain?"))?;
 
-	let leaves = relay
-		.rpc()
-		.storage(
+	let header_hash = header.hash_with(hasher);
+
+	let leaves = relay_rpc
+		.state_get_storage(
 			hex!("a8c65209d47ee80f56b0011e8fd91f508156209906244f2341137c136774c91d").as_slice(),
-			Some(header.hash()),
+			Some(header_hash),
 		)
 		.await?
 		.map(|data| u64::decode(&mut data.as_ref()))
 		.transpose()?
 		.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
 
-	dbg!(header.hash());
-	dbg!(header.number());
+	dbg!(header_hash);
+	dbg!(header.number);
 	dbg!(leaves);
 
-	let activation_block = header.number() - leaves as u32;
+	let activation_block = header.number - leaves as u32;
 
 	dbg!(activation_block);
 
@@ -100,7 +114,11 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	let prover = Prover::new(beefy_prover::Prover {
 		beefy_activation_block: activation_block,
 		relay: relay.clone(),
+		relay_rpc: relay_rpc.clone(),
+		relay_rpc_client: relay_rpc_client.clone(),
 		para,
+		para_rpc,
+		para_rpc_client,
 		para_ids: vec![para_id],
 	});
 
@@ -109,10 +127,10 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 		<BeefyConsensusState as ethers::core::abi::AbiDecode>::decode(&consensus_state_bytes)
 			.unwrap();
 
-	let block_hash = relay.rpc().block_hash(Some(25420895u64.into())).await.unwrap().unwrap();
-	let (_, proof) = relay
-		.rpc()
-		.block(Some(block_hash))
+	let block_hash =
+		relay_rpc.chain_get_block_hash(Some(25420895u64.into())).await.unwrap().unwrap();
+	let (_, proof) = relay_rpc
+		.chain_get_block(Some(block_hash))
 		.await
 		.unwrap()
 		.unwrap()

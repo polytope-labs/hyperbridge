@@ -358,7 +358,11 @@ mod tests {
 		sp_mmr_primitives::mmr_lib::{leaf_index_to_mmr_size, leaf_index_to_pos},
 	};
 	use primitive_types::H256;
+	use subxt::backend::rpc::RpcClient;
 	use subxt::PolkadotConfig;
+	use subxt_utils::Hyperbridge;
+	use subxt::backend::legacy::LegacyRpcMethods;
+
 
 	use crate::relay::{fetch_mmr_proof, subtree_heights};
 
@@ -391,11 +395,14 @@ mod tests {
 		let relay = subxt_utils::client::ws_client::<PolkadotConfig>(&ws_url, u32::MAX)
 			.await
 			.unwrap();
+        let relay_rpc_client = RpcClient::from_url(&ws_url).await.unwrap();
+        let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
 
-		for block in 25420896..25420999 {
+
+        for block in 25420896..25420999 {
 			dbg!();
 			dbg!(block);
-			let (proof, leaf) = fetch_mmr_proof(&relay, block).await.unwrap();
+			let (proof, leaf) = fetch_mmr_proof(&relay_rpc, block).await.unwrap();
 
 			// dbg!(&leaf);
 
@@ -408,15 +415,13 @@ mod tests {
 				)])
 				.unwrap();
 
-			let block_hash = relay.rpc().block_hash(Some(block.into())).await.unwrap().unwrap();
+			let block_hash = relay_rpc.chain_get_block_hash(Some(block.into())).await.unwrap().unwrap();
 			let onchain_root = {
-				let encoded = relay
-					.rpc()
-					.storage(&MMR_ROOT_HASH, Some(block_hash))
+				let encoded = relay_rpc
+					.state_get_storage(&MMR_ROOT_HASH, Some(block_hash))
 					.await
 					.unwrap()
-					.expect("Should retrieve mmr root hash")
-					.0;
+					.expect("Should retrieve mmr root hash");
 
 				H256::decode(&mut &encoded[..]).unwrap()
 			};

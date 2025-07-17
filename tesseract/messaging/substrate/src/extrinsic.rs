@@ -25,13 +25,13 @@ use subxt::{
 		scale_encode::EncodeAsType,
 		subxt_rpcs::methods::legacy::DryRunResult,
 	},
-	OnlineClient,
 	tx::Payload,
-	utils::{AccountId32, H256, MultiAddress, MultiSignature},
+	utils::{AccountId32, MultiAddress, MultiSignature, H256},
+	OnlineClient,
 };
 
-pub use subxt_utils::InMemorySigner;
 use subxt_utils::refine_subxt_error;
+pub use subxt_utils::InMemorySigner;
 
 #[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]

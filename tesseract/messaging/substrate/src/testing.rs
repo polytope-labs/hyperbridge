@@ -19,7 +19,7 @@ use codec::Encode;
 use futures::stream::StreamExt;
 use sp_core::H256;
 use subxt::{
-	config::{ExtrinsicParams, Hasher, HashFor, Header},
+	config::{ExtrinsicParams, HashFor, Hasher, Header},
 	dynamic::Value,
 	events::EventDetails,
 	tx::DefaultParams,

@@ -18,9 +18,9 @@
 use codec::Encode;
 use sp_core::blake2_256;
 use subxt::{
-	config::{Hasher, substrate::SubstrateHeader, SubstrateExtrinsicParams},
+	config::{substrate::SubstrateHeader, Hasher, SubstrateExtrinsicParams},
 	metadata::types::Metadata,
-	utils::{AccountId32, H256, MultiAddress, MultiSignature},
+	utils::{AccountId32, MultiAddress, MultiSignature, H256},
 };
 
 pub use subxt_utils::Hyperbridge as KeccakSubstrateChain;

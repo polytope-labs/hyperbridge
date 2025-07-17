@@ -33,9 +33,7 @@ pub async fn ws_client<T: subxt::Config>(
 	rpc_ws: &str,
 	max_rpc_payload_size: u32,
 ) -> Result<OnlineClient<T>, anyhow::Error> {
-	let rpc_client = jsonrpsee::ws_client::WsClientBuilder::new()
-		.max_request_size(max_rpc_payload_size)
-		.max_response_size(max_rpc_payload_size)
+	let rpc_client = jsonrpsee::wasm_client::WasmClientBuilder::new()
 		.build(rpc_ws)
 		.await
 		.context(format!("Failed to connect to substrate rpc {rpc_ws}"))?;

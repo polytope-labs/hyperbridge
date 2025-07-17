@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use codec::{Decode, Encode};
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
-use sp1_beefy::{SP1_BEEFY, Sp1Beefy};
+use sp1_beefy::{Sp1Beefy, SP1_BEEFY};
 use sp1_beefy_primitives::{
 	AuthoritiesProof, BeefyCommitment, KeccakHasher, MmrLeafProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex,

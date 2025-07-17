@@ -23,21 +23,19 @@ use futures::{stream, StreamExt, TryStreamExt};
 use gloo_timers::future::*;
 use hashbrown::HashMap;
 use hex_literal::hex;
-use polkadot_sdk::sc_telemetry::log;
 use primitive_types::{H160, H256};
 use serde::{Deserialize, Serialize};
 use sp_core::storage::ChildInfo;
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
-	config::Header,
+	config::{HashFor, Header},
 	ext::subxt_rpcs::{
 		methods::legacy::{StorageData, StorageKey},
 		rpc_params, RpcClient,
 	},
-	OnlineClient,
 	tx::Payload,
+	OnlineClient,
 };
-use subxt::config::HashFor;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::*;
 #[cfg(all(target_arch = "wasm32", feature = "nodejs"))]
@@ -52,19 +50,20 @@ use ismp::{
 };
 use pallet_ismp::{
 	child_trie::{
-		CHILD_TRIE_PREFIX, request_commitment_storage_key, response_commitment_storage_key,
+		request_commitment_storage_key, response_commitment_storage_key, CHILD_TRIE_PREFIX,
 	},
 	offchain::ProofKeys,
 	ResponseReceipt,
 };
 use substrate_state_machine::StateMachineProof;
-use subxt_utils::{refine_subxt_error, state_machine_update_time_storage_key};
-use subxt_utils::values::messages_to_value;
+use subxt_utils::{
+	refine_subxt_error, state_machine_update_time_storage_key, values::messages_to_value,
+};
 
 use crate::{
-	Keccak256,
 	providers::interface::{Client, WithMetadata},
 	types::{BoxStream, EventMetadata, HashAlgorithm, SubstrateStateProof},
+	Keccak256,
 };
 
 use super::interface::Query;

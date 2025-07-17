@@ -8,13 +8,19 @@ use polkadot_sdk::{
 	pallet_sudo::pallet::Call as SudoCall,
 	pallet_utility::pallet::Call as UtilityCall,
 	pallet_vesting::{pallet::Call as VestingCall, VestingInfo},
+	polkadot_service::Error::Sub,
 	sc_consensus_manual_seal::CreatedBlock,
 	sp_keyring::sr25519::Keyring,
 };
 use sp_core::{blake2_256, crypto::Ss58Codec, sr25519, Bytes, Pair, H256};
 use std::{env, fs, str::FromStr};
-use subxt::{rpc::rpc_params, tx::SubmittableExtrinsic, OnlineClient};
-use subxt_utils::Hyperbridge;
+use subxt::{
+	ext::subxt_rpcs::{rpc_params, RpcClient},
+	storage::StorageKey,
+	tx::SubmittableTransaction,
+	OnlineClient,
+};
+use subxt_utils::{BlakeSubstrateChain, Hyperbridge};
 
 #[derive(serde::Deserialize, Debug)]
 struct AllocationRecord {
@@ -34,6 +40,8 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 	let manual_allocations_path = "./allocations/manual_allocations.json";
 
 	let client = subxt_utils::client::ws_client::<Hyperbridge>(&ws_url, u32::MAX).await?;
+	let rpc_client = RpcClient::from_url(&ws_url).await?;
+
 	let sudo_account = match env::var("SUDO_SEED") {
 		Ok(seed) => {
 			let pair = sr25519::Pair::from_string(&seed, None)
@@ -50,7 +58,7 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 	println!("Connecting to node at: {}", ws_url);
 	println!("Using Sudo account: {}", sudo_account.to_ss58check());
 
-	let storage_address = subxt::dynamic::storage("BridgeDrop", "StartingBlock", Vec::<()>::new());
+	let storage_address = subxt::dynamic::storage("BridgeDrop", "StartingBlock", ());
 	let maybe_starting_block = client.storage().at_latest().await?.fetch(&storage_address).await?;
 	let starting_block_for_vesting = if let Some(encoded_block) = maybe_starting_block {
 		let value = encoded_block.to_value()?;
@@ -125,6 +133,7 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 
 	mint_tokens(
 		client.clone(),
+		rpc_client.clone(),
 		&sudo_account,
 		recipient_account.clone(),
 		1_000_000_000 * 10u128.pow(12),
@@ -132,6 +141,7 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 	.await?;
 	mint_tokens(
 		client.clone(),
+		rpc_client.clone(),
 		&sudo_account,
 		sudo_account.clone(),
 		10_000_000_000_000 * 100u128.pow(12),
@@ -149,23 +159,20 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 	let sudo_call = RuntimeCall::Sudo(SudoCall::sudo { call: Box::new(batch_call) });
 	let final_call_data = sudo_call.encode();
 
-	let extrinsic: Bytes = client
-		.rpc()
+	let extrinsic: Bytes = rpc_client
 		.request(
 			"simnode_authorExtrinsic",
 			rpc_params![Bytes::from(final_call_data), sudo_account.to_ss58check()],
 		)
 		.await?;
 
-	let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 	let progress = submittable.submit_and_watch().await?;
 
-	let block = client
-		.rpc()
+	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
-	let finalized = client
-		.rpc()
+	let finalized = rpc_client
 		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
 		.await?;
 	assert!(finalized, "Block was not finalized");
@@ -193,6 +200,7 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 
 async fn mint_tokens(
 	client: OnlineClient<Hyperbridge>,
+	rpc_client: RpcClient,
 	sudo_account: &sp_core::crypto::AccountId32,
 	recipient_account: sp_core::crypto::AccountId32,
 	amount: u128,
@@ -208,23 +216,20 @@ async fn mint_tokens(
 	let sudo_mint_call = RuntimeCall::Sudo(SudoCall::sudo { call: Box::new(mint_call) });
 	let mint_call_data = sudo_mint_call.encode();
 
-	let mint_extrinsic: Bytes = client
-		.rpc()
+	let mint_extrinsic: Bytes = rpc_client
 		.request(
 			"simnode_authorExtrinsic",
 			rpc_params![Bytes::from(mint_call_data), sudo_account.to_ss58check()],
 		)
 		.await?;
 
-	let mint_submittable = SubmittableExtrinsic::from_bytes(client.clone(), mint_extrinsic.0);
+	let mint_submittable = SubmittableTransaction::from_bytes(client.clone(), mint_extrinsic.0);
 	let mint_progress = mint_submittable.submit_and_watch().await?;
 
-	let mint_block = client
-		.rpc()
+	let mint_block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
-	let mint_finalized = client
-		.rpc()
+	let mint_finalized = rpc_client
 		.request::<bool>("engine_finalizeBlock", rpc_params![mint_block.hash])
 		.await?;
 	assert!(mint_finalized, "Minting block was not finalized");

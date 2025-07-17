@@ -17,9 +17,9 @@ pallet-hyperbridge = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-ismp-demo = { workspace = true }
+ismp-parachain = { workspace = true }
 derivative = { version = "2.2.0" }
 futures = "0.3.30"
-subxt-signer="0.41.0"
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -40,5 +40,6 @@ std = [
     "pallet-ismp-host-executive/std",
     "pallet-ismp-relayer/std",
     "pallet-state-coprocessor/std",
-    "pallet-ismp-demo/std"
+    "pallet-ismp-demo/std",
+    "ismp-parachain/std",
 ]

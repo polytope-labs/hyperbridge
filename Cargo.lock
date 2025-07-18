@@ -25517,6 +25517,7 @@ dependencies = [
  "subxt-core 0.42.1",
  "subxt-lightclient 0.42.1",
  "thiserror 2.0.12",
+ "tokio",
  "tokio-util 0.7.15",
  "tracing",
  "url",

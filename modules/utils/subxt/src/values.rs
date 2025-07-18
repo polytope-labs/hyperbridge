@@ -549,15 +549,24 @@ fn host_param_to_value(param: &HostParam<u128>) -> Value<()> {
 					]);
 
 					Value::variant("V1", Composite::unnamed(vec![substrate_host_params_value]))
-				}
+				},
 			};
-			Value::variant("SubstrateHostParam", Composite::unnamed(vec![versioned_host_params_value]))
-		}
+			Value::variant(
+				"SubstrateHostParam",
+				Composite::unnamed(vec![versioned_host_params_value]),
+			)
+		},
 		HostParam::EvmHostParam(p) => {
 			let evm_host_param_value = Value::named_composite(vec![
 				("default_timeout".to_string(), Value::u128(p.default_timeout)),
-				("default_per_byte_fee".to_string(), Value::from_bytes(p.default_per_byte_fee.encode())),
-				("state_commitment_fee".to_string(), Value::from_bytes(p.state_commitment_fee.encode())),
+				(
+					"default_per_byte_fee".to_string(),
+					Value::from_bytes(p.default_per_byte_fee.encode()),
+				),
+				(
+					"state_commitment_fee".to_string(),
+					Value::from_bytes(p.state_commitment_fee.encode()),
+				),
 				("fee_token".to_string(), Value::from_bytes(p.fee_token.0.to_vec())),
 				("admin".to_string(), Value::from_bytes(p.admin.0.to_vec())),
 				("handler".to_string(), Value::from_bytes(p.handler.0.to_vec())),
@@ -566,12 +575,20 @@ fn host_param_to_value(param: &HostParam<u128>) -> Value<()> {
 				("un_staking_period".to_string(), Value::u128(p.un_staking_period)),
 				("challenge_period".to_string(), Value::u128(p.challenge_period)),
 				("consensus_client".to_string(), Value::from_bytes(p.consensus_client.0.to_vec())),
-				("state_machines".to_string(), Value::unnamed_composite(p.state_machines.iter().map(|id| Value::u128((*id).into())))),
-				("per_byte_fees".to_string(), Value::unnamed_composite(p.per_byte_fees.iter().map(per_byte_fee_to_value))),
+				(
+					"state_machines".to_string(),
+					Value::unnamed_composite(
+						p.state_machines.iter().map(|id| Value::u128((*id).into())),
+					),
+				),
+				(
+					"per_byte_fees".to_string(),
+					Value::unnamed_composite(p.per_byte_fees.iter().map(per_byte_fee_to_value)),
+				),
 				("hyperbridge".to_string(), Value::from_bytes(p.hyperbridge.clone())),
 			]);
 			Value::variant("EvmHostParam", Composite::unnamed(vec![evm_host_param_value]))
-		}
+		},
 	}
 }
 

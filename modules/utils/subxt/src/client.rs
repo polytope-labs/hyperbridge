@@ -1,15 +1,23 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use subxt::{ext::jsonrpsee, OnlineClient};
+use reconnecting_jsonrpsee_ws_client::FixedInterval;
+use subxt::{
+	ext::{
+		jsonrpsee,
+		subxt_rpcs::client::reconnecting_rpc_client::{RpcClient, RpcClientBuilder},
+	},
+	OnlineClient,
+};
 
 #[cfg(feature = "std")]
 pub async fn ws_client<T: subxt::Config>(
 	rpc_ws: &str,
 	max_rpc_payload_size: u32,
 ) -> Result<OnlineClient<T>, anyhow::Error> {
-	let rpc_client = subxt::ext::jsonrpsee::ws_client::WsClientBuilder::new()
-		.connection_timeout(Duration::from_secs(1))
+	let rpc_client = RpcClientBuilder::new()
+		// retry every second
+		.retry_policy(FixedInterval::new(Duration::from_secs(1)))
 		.max_request_size(max_rpc_payload_size)
 		.max_response_size(max_rpc_payload_size)
 		.enable_ws_ping(

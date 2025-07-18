@@ -30,6 +30,7 @@ default = ["std"]
 wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web"]
 std = [
     "subxt/default",
+    "subxt/reconnecting-rpc-client",
     "ismp/std",
     "polkadot-sdk/std",
     "codec/std",

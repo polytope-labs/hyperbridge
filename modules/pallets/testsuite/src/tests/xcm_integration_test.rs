@@ -1,33 +1,32 @@
 #![cfg(test)]
 
-use polkadot_sdk::*;
 use std::{collections::HashMap, sync::Arc};
-use std::ops::Deref;
 
 use alloy_sol_types::SolType;
 use anyhow::anyhow;
-use codec::Encode;
 use futures::StreamExt;
-use ismp::host::StateMachine;
-use pallet_ismp_rpc::BlockNumberOrHash;
+use polkadot_sdk::*;
+use polkadot_sdk::sp_core::{bytes::from_hex, H256, Pair, sr25519};
+use polkadot_sdk::sp_runtime::Weight;
+use polkadot_sdk::staging_xcm::v4::{Asset, AssetId, Fungibility};
 use staging_xcm::{
-	v4::{Junction, Junctions, Location, NetworkId, WeightLimit},
-	VersionedAssets, VersionedLocation,
+	v4::{Junction, Junctions, Location, NetworkId, WeightLimit}
+	, VersionedLocation,
 };
 use subxt::{
-	config::Header,
-	ext::subxt_rpcs::rpc_params,
-	tx::Payload,
-	OnlineClient,
 	backend::legacy::LegacyRpcMethods,
+	config::Header
+	,
+	ext::subxt_rpcs::rpc_params,
 	ext::subxt_rpcs::RpcClient,
+	OnlineClient,
 };
-use polkadot_sdk::sp_core::{bytes::from_hex, sr25519, Pair, H256};
-use polkadot_sdk::sp_runtime::Weight;
-use polkadot_sdk::staging_xcm::v4::{Asset, AssetId, Assets, Fungibility};
 use subxt::dynamic::Value;
 use subxt::ext::scale_value::Composite;
-use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Hyperbridge, InMemorySigner};
+
+use ismp::host::StateMachine;
+use pallet_ismp_rpc::BlockNumberOrHash;
+use subxt_utils::{BlakeSubstrateChain, Hyperbridge, InMemorySigner, send_extrinsic};
 
 const SEND_AMOUNT: u128 = 2_000_000_000_000;
 
@@ -76,30 +75,10 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	let weight_limit = WeightLimit::Unlimited;
 
 	let dest: VersionedLocation = VersionedLocation::V4(Junction::Parachain(2000).into());
-	let para_absolute_location: Location = Junction::Parachain(2000).into();
-
-	let call = (
-		Box::<VersionedLocation>::new(dest.clone()),
-		Box::<VersionedLocation>::new(VersionedLocation::V4(beneficiary.clone().into())),
-		Box::<VersionedAssets>::new(VersionedAssets::V4(
-			vec![(Junctions::Here, SEND_AMOUNT).into()].into(),
-		)),
-		0,
-		weight_limit,
-	);
-
-	let dest_location = Location::new(1, [Junction::Parachain(2000)]);
-	let dest = VersionedLocation::V4(dest_location);
 
 
 	let beneficiary_as_versioned = VersionedLocation::V4(beneficiary);
-
-	let assets = Assets::from(vec![(Junctions::Here, SEND_AMOUNT).into()]);
-	let assets_as_versioned = VersionedAssets::V4(assets);
-
 	let assets_vec = vec![(Junctions::Here, SEND_AMOUNT).into()];
-
-	let weight_limit = WeightLimit::Unlimited;
 
 	let dest_value = versioned_location_to_value(&dest);
 	let beneficiary_value = versioned_location_to_value(&beneficiary_as_versioned);
@@ -107,7 +86,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	let fee_asset_index_value = Value::u128(0);
 	let weight_limit_value = weight_limit_to_value(&weight_limit);
 
-	println!("making xcm call");
 	{
 		let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
 		let para_absolute_location: Location = Junction::Parachain(2000).into();
@@ -121,7 +99,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 		send_extrinsic(&client, &signer, &tx, None).await?;
 	}
-	println!("finished making xcm call");
 
 	let ext = subxt::dynamic::tx(
 		"XcmPallet",
@@ -142,7 +119,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.number();
 
 	send_extrinsic(&client, &signer, &ext, None).await?;
-	println!("finished making limited_reserve_transfer_assets call");
 
 	let mut sub = para_rpc.chain_subscribe_finalized_heads().await?;
 
@@ -225,21 +201,15 @@ fn junction_to_value(junction: &Junction) -> Value<()> {
 }
 
 
-/// Converts the complex `Junctions` enum into its `Value` representation.
 fn junctions_to_value(junctions: &Junctions) -> Value<()> {
 	match junctions {
 		Junctions::Here => Value::variant("Here", Composite::unnamed(vec![])),
-		// The X1..X8 variants are all tuple-structs containing an array of Junctions.
-		// We handle them by getting the name of the variant (e.g., "X1") and
-		// converting the inner array of junctions into a Value.
 		_ => {
 			let junctions_slice = junctions.as_slice();
 			let variant_name = format!("X{}", junctions_slice.len());
 			let junction_values: Vec<Value<()>> =
 				junctions_slice.iter().map(junction_to_value).collect();
 
-			// The variant (e.g., X1) contains a tuple, which contains the array of junctions.
-			// So we must create a Value::unnamed_composite to represent that inner array.
 			let inner_array_value = Value::unnamed_composite(junction_values);
 
 			Value::variant(variant_name, Composite::unnamed(vec![inner_array_value]))
@@ -247,8 +217,6 @@ fn junctions_to_value(junctions: &Junctions) -> Value<()> {
 	}
 }
 
-/// Precisely builds the `Value` for a `Location` struct by correctly
-/// representing its nested structure.
 fn location_to_value(location: &Location) -> Value<()> {
 	Value::named_composite(vec![
 		(
@@ -272,8 +240,6 @@ fn network_id_to_value(network_id: &NetworkId) -> Value<()> {
 		_ => unimplemented!("This helper only supports Ethereum NetworkId for now"),
 	}
 }
-
-
 
 pub fn force_xcm_version_value() -> Value<()> {
 	let para_absolute_location: Location = Junction::Parachain(2000).into();
@@ -345,50 +311,4 @@ fn weight_limit_to_value(limit: &WeightLimit) -> Value<()> {
 			Value::variant("Limited", Composite::unnamed(vec![weight_value]))
 		}
 	}
-}
-
-
-
-
-pub fn create_full_xcm_transfer_value() -> Value<()> {
-	const FEE_ASSET_INDEX: u32 = 0;
-
-	let dest_location = Location::new(1, [Junction::Parachain(2000)]);
-	let dest = VersionedLocation::V4(dest_location);
-
-	let public_key: [u8; 32] = [42; 32];
-	let beneficiary = Location::new(
-		0,
-		[
-			Junction::AccountId32 { network: None, id: public_key },
-			Junction::AccountKey20 {
-				network: Some(NetworkId::Ethereum { chain_id: 1 }),
-				key: [1; 20],
-			},
-			Junction::GeneralIndex(60 * 60),
-		],
-	);
-	let beneficiary_as_versioned = VersionedLocation::V4(beneficiary);
-
-
-	/*let assets_as_versioned = VersionedAssets::V4(
-		vec![(Junctions::Here, SEND_AMOUNT).into()].into(),
-	);*/
-
-	let assets_vec = vec![Asset {
-		id: AssetId(Location::here()),
-		fun: Fungibility::Fungible(SEND_AMOUNT),
-	}];
-
-	let weight_limit = WeightLimit::Unlimited;
-
-	let extrinsic_params = Value::unnamed_composite(vec![
-		versioned_location_to_value(&dest),
-		versioned_location_to_value(&beneficiary_as_versioned),
-		versioned_assets_to_value(&assets_vec),
-		Value::u128(FEE_ASSET_INDEX.into()),
-		weight_limit_to_value(&weight_limit),
-	]);
-
-	extrinsic_params
 }

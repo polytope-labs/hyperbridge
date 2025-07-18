@@ -7,8 +7,9 @@ import { VolumeService } from "@/services/volume.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import PriceHelper from "@/utils/price.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleAssetReceivedEvent(event: AssetReceivedLog): Promise<void> {
+export const handleAssetReceivedEvent = wrap(async (event: AssetReceivedLog): Promise<void> => {
 	logger.info(`Asset Received Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash } = event
@@ -40,4 +41,4 @@ export async function handleAssetReceivedEvent(event: AssetReceivedLog): Promise
 		blockNumber,
 		timestamp,
 	})
-}
+})

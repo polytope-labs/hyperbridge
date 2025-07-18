@@ -5,11 +5,12 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { GetRequestService } from "@/services/getRequest.service"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
 /**
  * Handles the GetRequestTimeoutHandled event from EVMHost
  */
-export async function handleGetRequestTimeoutHandled(event: GetRequestTimeoutHandledLog): Promise<void> {
+export const handleGetRequestTimeoutHandled = wrap(async (event: GetRequestTimeoutHandledLog): Promise<void> => {
 	if (!event.args) return
 
 	const { args, block, transactionHash, blockNumber, blockHash } = event
@@ -36,4 +37,4 @@ export async function handleGetRequestTimeoutHandled(event: GetRequestTimeoutHan
 		status: Status.TIMED_OUT,
 		transactionHash,
 	})
-}
+})

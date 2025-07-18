@@ -4,8 +4,9 @@ import { OrderFilledLog } from "@/configs/src/types/abi-interfaces/IntentGateway
 import { IntentGatewayService } from "@/services/intentGateway.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleOrderFilledEvent(event: OrderFilledLog): Promise<void> {
+export const handleOrderFilledEvent = wrap(async (event: OrderFilledLog): Promise<void> => {
 	logger.info(`Order Filled Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, block, blockHash } = event
@@ -32,4 +33,4 @@ export async function handleOrderFilledEvent(event: OrderFilledLog): Promise<voi
 		},
 		filler,
 	)
-}
+})

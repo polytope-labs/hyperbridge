@@ -7,8 +7,9 @@ import { GetResponseService } from "@/services/getResponse.service"
 import { Status } from "@/configs/src/types"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promise<void> {
+export const handleSubstrateResponseEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
 	const host = getHostStateMachine(chainId)
 	logger.info(`Saw Ismp.Response Event on ${host}`)
 
@@ -72,4 +73,4 @@ export async function handleSubstrateResponseEvent(event: SubstrateEvent): Promi
 			blockTimestamp,
 		})
 	}
-}
+})

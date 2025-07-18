@@ -6,11 +6,12 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
 /**
  * Handles the PostRequest event from Evm Hosts
  */
-export async function handlePostRequestEvent(event: PostRequestEventLog): Promise<void> {
+export const handlePostRequestEvent = wrap(async (event: PostRequestEventLog): Promise<void> => {
 	logger.info(
 		`Handling PostRequest Event: ${stringify({
 			event,
@@ -92,4 +93,4 @@ export async function handlePostRequestEvent(event: PostRequestEventLog): Promis
 	})
 
 	await requestStatusMetadata.save()
-}
+})

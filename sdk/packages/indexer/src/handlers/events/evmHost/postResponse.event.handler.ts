@@ -6,11 +6,12 @@ import { RequestService } from "@/services/request.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
 /**
  * Handles the PostResponse event from Evm Hosts
  */
-export async function handlePostResponseEvent(event: PostResponseEventLog): Promise<void> {
+export const handlePostResponseEvent = wrap(async (event: PostResponseEventLog): Promise<void> => {
 	logger.info(
 		`Handling PostRequest Event: ${stringify({
 			event,
@@ -91,4 +92,4 @@ export async function handlePostResponseEvent(event: PostResponseEventLog): Prom
 		transactionHash,
 		blockTimestamp,
 	})
-}
+})

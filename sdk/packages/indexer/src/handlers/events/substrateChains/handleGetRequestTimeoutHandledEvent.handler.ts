@@ -4,8 +4,9 @@ import { GetRequest } from "@/configs/src/types/models"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { GetRequestService } from "@/services/getRequest.service"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleSubstrateGetRequestTimeoutHandledEvent(event: SubstrateEvent): Promise<void> {
+export const handleSubstrateGetRequestTimeoutHandledEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
 	logger.info(`Saw Ismp.GetRequestTimeoutHandled Event on ${getHostStateMachine(chainId)}`)
 
 	const host = getHostStateMachine(chainId)
@@ -56,4 +57,4 @@ export async function handleSubstrateGetRequestTimeoutHandledEvent(event: Substr
 		status: timeoutStatus,
 		transactionHash: extrinsic.extrinsic.hash.toString(),
 	})
-}
+})

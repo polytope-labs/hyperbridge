@@ -4,8 +4,9 @@ import { EscrowRefundedLog } from "@/configs/src/types/abi-interfaces/IntentGate
 import { IntentGatewayService } from "@/services/intentGateway.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleEscrowRefundedEvent(event: EscrowRefundedLog): Promise<void> {
+export const handleEscrowRefundedEvent = wrap(async (event: EscrowRefundedLog): Promise<void> => {
 	logger.info(`Order Filled Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, block, blockHash } = event
@@ -27,4 +28,4 @@ export async function handleEscrowRefundedEvent(event: EscrowRefundedLog): Promi
 		blockNumber,
 		timestamp,
 	})
-}
+})

@@ -8,6 +8,7 @@ import {
 } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
 /**
  * Extract consensusStateId from event data
@@ -68,7 +69,7 @@ export function extractConsensusStateIdFromEvent(event: SubstrateEvent): string 
 	}
 }
 
-export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent): Promise<void> {
+export const handleIsmpStateMachineUpdatedEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
 	logger.info(`Saw Ismp.StateMachineUpdated Event on ${getHostStateMachine(chainId)}`)
 
 	const stateMachineId = extractStateMachineIdFromSubstrateEventData(event.event.data.toString())
@@ -154,4 +155,4 @@ export async function handleIsmpStateMachineUpdatedEvent(event: SubstrateEvent):
 		// Re-throw to maintain indexer state
 		throw error
 	}
-}
+})

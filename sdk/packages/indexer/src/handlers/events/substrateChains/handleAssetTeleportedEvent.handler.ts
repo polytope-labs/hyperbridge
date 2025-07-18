@@ -5,8 +5,9 @@ import { decodeAddress } from "@polkadot/util-crypto"
 import { u8aToHex } from "@polkadot/util"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleSubstrateAssetTeleportedEvent(event: SubstrateEvent): Promise<void> {
+export const handleSubstrateAssetTeleportedEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
 	logger.info(`Saw XcmGateway.AssetTeleported Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.event.data) return
@@ -54,4 +55,4 @@ export async function handleSubstrateAssetTeleportedEvent(event: SubstrateEvent)
 		blockHash: event.block.block.header.hash.toString(),
 		blockTimestamp,
 	})
-}
+})

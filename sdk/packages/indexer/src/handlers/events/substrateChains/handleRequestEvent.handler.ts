@@ -10,8 +10,9 @@ import { RequestMetadata } from "@/utils/state-machine.helper"
 import { getBlockTimestamp, replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import { timestampToDate } from "@/utils/date.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promise<void> {
+export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
 	logger.info(`Saw Ismp.Request Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.event.data) return
@@ -137,4 +138,4 @@ export async function handleSubstrateRequestEvent(event: SubstrateEvent): Promis
 	})
 
 	await requestStatusMetadata.save()
-}
+})

@@ -6,11 +6,12 @@ import { GetRequestStatusMetadata, Status } from "@/configs/src/types"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
 /**
  * Handles the GetRequest event from Evm Hosts
  */
-export async function handleGetRequestEvent(event: GetRequestEventLog): Promise<void> {
+export const handleGetRequestEvent = wrap(async (event: GetRequestEventLog): Promise<void> => {
 	logger.info(
 		`Handling GetRequest Event: ${stringify({
 			event,
@@ -93,4 +94,4 @@ export async function handleGetRequestEvent(event: GetRequestEventLog): Promise<
 	})
 
 	await getRequestStatusMetadata.save()
-}
+})

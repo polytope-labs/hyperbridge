@@ -5,11 +5,12 @@ import { ResponseService } from "@/services/response.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
 /**
  * Handles the PostResponseHandled event from Hyperbridge
  */
-export async function handlePostResponseHandledEvent(event: PostResponseHandledLog): Promise<void> {
+export const handlePostResponseHandledEvent = wrap(async (event: PostResponseHandledLog): Promise<void> => {
 	if (!event.args) return
 
 	const { args, block, transaction, transactionHash, transactionIndex, blockHash, blockNumber, data } = event
@@ -40,4 +41,4 @@ export async function handlePostResponseHandledEvent(event: PostResponseHandledL
 	} catch (error) {
 		logger.error(`Error updating handling post response: ${stringify(error)}`)
 	}
-}
+})

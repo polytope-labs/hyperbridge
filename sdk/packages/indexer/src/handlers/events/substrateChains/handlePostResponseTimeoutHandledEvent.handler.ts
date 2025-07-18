@@ -4,8 +4,9 @@ import { ResponseService } from "@/services/response.service"
 import { Status } from "@/configs/src/types"
 import { getHostStateMachine, isHyperbridge } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleSubstratePostResponseTimeoutHandledEvent(event: SubstrateEvent): Promise<void> {
+export const handleSubstratePostResponseTimeoutHandledEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
 	logger.info(`Saw Ismp.PostResponseTimeoutHandled Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.extrinsic && event.event.data) return
@@ -41,4 +42,4 @@ export async function handleSubstratePostResponseTimeoutHandledEvent(event: Subs
 		status: timeoutStatus,
 		transactionHash: extrinsic!.extrinsic.hash.toString(),
 	})
-}
+})

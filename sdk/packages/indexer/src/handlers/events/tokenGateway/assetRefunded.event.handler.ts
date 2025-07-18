@@ -4,8 +4,9 @@ import { AssetRefundedLog } from "@/configs/src/types/abi-interfaces/TokenGatewa
 import { TokenGatewayService } from "@/services/tokenGateway.service"
 import { TeleportStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleAssetRefundedEvent(event: AssetRefundedLog): Promise<void> {
+export const handleAssetRefundedEvent = wrap(async (event: AssetRefundedLog): Promise<void> => {
 	logger.info(`Asset Refunded Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash } = event
@@ -28,4 +29,4 @@ export async function handleAssetRefundedEvent(event: AssetRefundedLog): Promise
 		blockNumber,
 		timestamp,
 	})
-}
+})

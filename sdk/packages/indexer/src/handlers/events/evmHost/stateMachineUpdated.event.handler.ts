@@ -3,11 +3,12 @@ import { StateMachineService } from "@/services/stateMachine.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
 
 /**
  * Handle the StateMachineUpdated event
  */
-export async function handleStateMachineUpdatedEvent(event: StateMachineUpdatedLog): Promise<void> {
+export const handleStateMachineUpdatedEvent = wrap(async (event: StateMachineUpdatedLog): Promise<void> => {
 	if (!event.args) return
 
 	const { blockHash, blockNumber, transactionHash, transactionIndex, block, args } = event
@@ -44,4 +45,4 @@ export async function handleStateMachineUpdatedEvent(event: StateMachineUpdatedL
 		},
 		chain,
 	)
-}
+})

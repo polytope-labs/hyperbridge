@@ -4,8 +4,9 @@ import { AssetTeleportedLog } from "@/configs/src/types/abi-interfaces/TokenGate
 import { TokenGatewayService } from "@/services/tokenGateway.service"
 import { TeleportStatus } from "@/configs/src/types"
 import { getHostStateMachine, isSubstrateChain } from "@/utils/substrate.helpers"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleAssetTeleportedEvent(event: AssetTeleportedLog): Promise<void> {
+export const handleAssetTeleportedEvent = wrap(async (event: AssetTeleportedLog): Promise<void> => {
 	logger.info(`Asset Teleported Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, block, blockHash } = event
@@ -53,4 +54,4 @@ export async function handleAssetTeleportedEvent(event: AssetTeleportedLog): Pro
 		blockNumber,
 		timestamp,
 	})
-}
+})

@@ -5,8 +5,9 @@ import { IntentGatewayService, Order } from "@/services/intentGateway.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
+import { wrap } from "@/utils/event.utils"
 
-export async function handleOrderPlacedEvent(event: OrderPlacedLog): Promise<void> {
+export const handleOrderPlacedEvent = wrap(async (event: OrderPlacedLog): Promise<void> => {
 	logger.info(`Order Placed Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, block, blockHash } = event
@@ -59,4 +60,4 @@ export async function handleOrderPlacedEvent(event: OrderPlacedLog): Promise<voi
 		blockNumber,
 		timestamp,
 	})
-}
+})

@@ -2,6 +2,7 @@
 
 use polkadot_sdk::*;
 use std::{collections::HashMap, sync::Arc};
+use std::ops::Deref;
 
 use alloy_sol_types::SolType;
 use anyhow::anyhow;
@@ -22,8 +23,10 @@ use subxt::{
 	ext::subxt_rpcs::RpcClient,
 };
 use polkadot_sdk::sp_core::{bytes::from_hex, sr25519, Pair, H256};
+use polkadot_sdk::sp_runtime::Weight;
 use polkadot_sdk::staging_xcm::v4::{Asset, AssetId, Assets, Fungibility};
 use subxt::dynamic::Value;
+use subxt::ext::scale_value::Composite;
 use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Hyperbridge, InMemorySigner};
 
 const SEND_AMOUNT: u128 = 2_000_000_000_000;
@@ -85,18 +88,51 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		weight_limit,
 	);
 
+	let dest_location = Location::new(1, [Junction::Parachain(2000)]);
+	let dest = VersionedLocation::V4(dest_location);
+
+
+	let beneficiary_as_versioned = VersionedLocation::V4(beneficiary);
+
+	let assets = Assets::from(vec![(Junctions::Here, SEND_AMOUNT).into()]);
+	let assets_as_versioned = VersionedAssets::V4(assets);
+
+	let assets_vec = vec![(Junctions::Here, SEND_AMOUNT).into()];
+
+	let weight_limit = WeightLimit::Unlimited;
+
+	let dest_value = versioned_location_to_value(&dest);
+	let beneficiary_value = versioned_location_to_value(&beneficiary_as_versioned);
+	let assets_value = versioned_assets_to_value(&assets_vec);
+	let fee_asset_index_value = Value::u128(0);
+	let weight_limit_value = weight_limit_to_value(&weight_limit);
+
+	println!("making xcm call");
 	{
 		let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
+		let para_absolute_location: Location = Junction::Parachain(2000).into();
+		let version = 4u32;
+
+		let location_as_value = location_to_value(&para_absolute_location);
+		let version_as_value = Value::u128(version.into());
+
 		// Force set the xcm version to our supported version
-		let call = subxt::dynamic::tx("XcmPallet", "force_xcm_version", vec![force_xcm_version_value()]);
+		let call = subxt::dynamic::tx("XcmPallet", "force_xcm_version", vec![location_as_value, version_as_value]);
 		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 		send_extrinsic(&client, &signer, &tx, None).await?;
 	}
+	println!("finished making xcm call");
 
 	let ext = subxt::dynamic::tx(
 		"XcmPallet",
 		"limited_reserve_transfer_assets",
-		vec![create_full_xcm_transfer_value()],
+		vec![
+			dest_value,
+			beneficiary_value,
+			assets_value,
+			fee_asset_index_value,
+			weight_limit_value,
+		],
 	);
 
 	let init_block = para_rpc
@@ -106,6 +142,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.number();
 
 	send_extrinsic(&client, &signer, &ext, None).await?;
+	println!("finished making limited_reserve_transfer_assets call");
 
 	let mut sub = para_rpc.chain_subscribe_finalized_heads().await?;
 
@@ -153,6 +190,65 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	Err(anyhow!("XCM Integration test failed"))
 }
 
+fn junction_to_value(junction: &Junction) -> Value<()> {
+	match junction {
+		Junction::Parachain(id) => {
+			Value::variant("Parachain", Composite::unnamed(vec![Value::u128((*id).into())]))
+		}
+		Junction::AccountId32 { network, id } => {
+			let network_value = match network {
+				Some(n) => Value::variant("Some", Composite::unnamed(vec![network_id_to_value(n)])),
+				None => Value::variant("None", Composite::unnamed(vec![])),
+			};
+			let composite = Composite::named(vec![
+				("network".to_string(), network_value),
+				("id".to_string(), Value::from_bytes(id.to_vec())),
+			]);
+			Value::variant("AccountId32", composite)
+		}
+		Junction::AccountKey20 { network, key } => {
+			let network_value = match network {
+				Some(n) => Value::variant("Some", Composite::unnamed(vec![network_id_to_value(n)])),
+				None => Value::variant("None", Composite::unnamed(vec![])),
+			};
+			let composite = Composite::named(vec![
+				("network".to_string(), network_value),
+				("key".to_string(), Value::from_bytes(key.to_vec())),
+			]);
+			Value::variant("AccountKey20", composite)
+		}
+		Junction::GeneralIndex(index) => {
+			Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(*index)]))
+		}
+		_ => unimplemented!("This helper only supports a subset of junctions for now"),
+	}
+}
+
+
+/// Converts the complex `Junctions` enum into its `Value` representation.
+fn junctions_to_value(junctions: &Junctions) -> Value<()> {
+	match junctions {
+		Junctions::Here => Value::variant("Here", Composite::unnamed(vec![])),
+		// The X1..X8 variants are all tuple-structs containing an array of Junctions.
+		// We handle them by getting the name of the variant (e.g., "X1") and
+		// converting the inner array of junctions into a Value.
+		_ => {
+			let junctions_slice = junctions.as_slice();
+			let variant_name = format!("X{}", junctions_slice.len());
+			let junction_values: Vec<Value<()>> =
+				junctions_slice.iter().map(junction_to_value).collect();
+
+			// The variant (e.g., X1) contains a tuple, which contains the array of junctions.
+			// So we must create a Value::unnamed_composite to represent that inner array.
+			let inner_array_value = Value::unnamed_composite(junction_values);
+
+			Value::variant(variant_name, Composite::unnamed(vec![inner_array_value]))
+		}
+	}
+}
+
+/// Precisely builds the `Value` for a `Location` struct by correctly
+/// representing its nested structure.
 fn location_to_value(location: &Location) -> Value<()> {
 	Value::named_composite(vec![
 		(
@@ -161,10 +257,23 @@ fn location_to_value(location: &Location) -> Value<()> {
 		),
 		(
 			"interior".to_string(),
-			Value::from_bytes(location.interior.encode()),
+			junctions_to_value(&location.interior),
 		),
 	])
 }
+
+fn network_id_to_value(network_id: &NetworkId) -> Value<()> {
+	match network_id {
+		NetworkId::Ethereum { chain_id } => {
+			let composite =
+				Composite::named(vec![("chain_id".to_string(), Value::u128((*chain_id).into()))]);
+			Value::variant("Ethereum", composite)
+		}
+		_ => unimplemented!("This helper only supports Ethereum NetworkId for now"),
+	}
+}
+
+
 
 pub fn force_xcm_version_value() -> Value<()> {
 	let para_absolute_location: Location = Junction::Parachain(2000).into();
@@ -183,16 +292,61 @@ pub fn force_xcm_version_value() -> Value<()> {
 }
 
 fn versioned_location_to_value(loc: &VersionedLocation) -> Value<()> {
-	Value::from_bytes(loc.encode())
+	match loc {
+		VersionedLocation::V4(location) => {
+			let location_value = location_to_value(location);
+			Value::variant("V4", Composite::unnamed(vec![location_value]))
+		}
+		_ => unimplemented!("This helper only supports V4 VersionedLocation"),
+	}
 }
 
-fn versioned_assets_to_value(assets: &VersionedAssets) -> Value<()> {
-	Value::from_bytes(assets.encode())
+fn fungibility_to_value(fun: &Fungibility) -> Value<()> {
+	match fun {
+		Fungibility::Fungible(amount) => {
+			Value::variant("Fungible", Composite::unnamed(vec![Value::u128(*amount)]))
+		}
+		_ => unimplemented!("This helper only supports Fungible variant"),
+	}
+}
+
+fn asset_id_to_value(id: &AssetId) -> Value<()> {
+	location_to_value(&id.0)
+}
+
+fn asset_to_value(asset: &Asset) -> Value<()> {
+	Value::named_composite(vec![
+		("id".to_string(), asset_id_to_value(&asset.id)),
+		("fun".to_string(), fungibility_to_value(&asset.fun)),
+	])
+}
+
+fn versioned_assets_to_value(assets_vec: &Vec<Asset>) -> Value<()> {
+	let asset_values: Vec<Value<()>> = assets_vec.iter().map(asset_to_value).collect();
+	let inner_assets_value = Value::unnamed_composite(asset_values);
+
+	let assets_struct_value = Value::unnamed_composite(vec![inner_assets_value]);
+	Value::variant("V4", Composite::unnamed(vec![assets_struct_value]))
+}
+
+
+fn weight_to_value(weight: &Weight) -> Value<()> {
+	Value::named_composite(vec![
+		("ref_time".to_string(), Value::u128(weight.ref_time().into())),
+		("proof_size".to_string(), Value::u128(weight.proof_size().into())),
+	])
 }
 
 fn weight_limit_to_value(limit: &WeightLimit) -> Value<()> {
-	Value::from_bytes(limit.encode())
+	match limit {
+		WeightLimit::Unlimited => Value::variant("Unlimited", Composite::unnamed(vec![])),
+		WeightLimit::Limited(weight) => {
+			let weight_value = weight_to_value(weight);
+			Value::variant("Limited", Composite::unnamed(vec![weight_value]))
+		}
+	}
 }
+
 
 
 
@@ -217,16 +371,21 @@ pub fn create_full_xcm_transfer_value() -> Value<()> {
 	let beneficiary_as_versioned = VersionedLocation::V4(beneficiary);
 
 
-	let assets_as_versioned = VersionedAssets::V4(
+	/*let assets_as_versioned = VersionedAssets::V4(
 		vec![(Junctions::Here, SEND_AMOUNT).into()].into(),
-	);
+	);*/
+
+	let assets_vec = vec![Asset {
+		id: AssetId(Location::here()),
+		fun: Fungibility::Fungible(SEND_AMOUNT),
+	}];
 
 	let weight_limit = WeightLimit::Unlimited;
 
 	let extrinsic_params = Value::unnamed_composite(vec![
 		versioned_location_to_value(&dest),
 		versioned_location_to_value(&beneficiary_as_versioned),
-		versioned_assets_to_value(&assets_as_versioned),
+		versioned_assets_to_value(&assets_vec),
 		Value::u128(FEE_ASSET_INDEX.into()),
 		weight_limit_to_value(&weight_limit),
 	]);

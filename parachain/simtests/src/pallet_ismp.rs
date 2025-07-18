@@ -5,6 +5,7 @@ use std::{
 	env,
 	time::{SystemTime, UNIX_EPOCH},
 };
+use std::collections::BTreeMap;
 
 use anyhow::anyhow;
 use codec::{Decode, Encode};
@@ -37,6 +38,7 @@ use subxt_utils::{
 	values::{messages_to_value, parachain_data_to_value, storage_kv_list_to_value},
 	BlakeSubstrateChain, Hyperbridge,
 };
+use subxt_utils::values::host_params_btreemap_to_value_2;
 
 #[derive(Clone, Default)]
 pub struct Keccak256;
@@ -67,7 +69,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		let add_parachain_call = subxt::dynamic::tx(
 			"IsmpParachain",
 			"add_parachain",
-			vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })],
+			vec![vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })]],
 		);
 		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![add_parachain_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;
@@ -94,16 +96,21 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 
 	// Init the host executive extrinsic
 	{
+		let mut host_params = BTreeMap::new();
+		host_params.insert(
+			StateMachine::Kusama(para_id),
+			HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
+				default_per_byte_fee: 0u128,
+				..Default::default()
+			})),
+		);
+
+		let host_params_value = host_params_btreemap_to_value_2(&host_params);
+
 		let set_host_params_call = subxt::dynamic::tx(
 			"HostExecutive",
 			"set_host_params",
-			vec![values::host_param_tuple_to_value(
-				&StateMachine::Kusama(para_id),
-				&HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-					default_per_byte_fee: 0u128,
-					..Default::default()
-				})),
-			)],
+			vec![host_params_value],
 		);
 		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![set_host_params_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;

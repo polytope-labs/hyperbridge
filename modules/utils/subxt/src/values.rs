@@ -306,14 +306,6 @@ fn state_commitment_to_value(sc: &StateCommitment) -> Value<()> {
 	])
 }
 
-pub fn host_params_btreemap_to_value(
-	params: &BTreeMap<StateMachine, HostParam<u128>>,
-) -> Value<()> {
-	Value::unnamed_composite(params.iter().map(|(sm, param)| {
-		Value::unnamed_composite(vec![state_machine_to_value(sm), host_param_to_value(param)])
-	}))
-}
-
 fn versioned_host_params_to_composite(params: &VersionedHostParams<u128>) -> Composite<()> {
 	match params {
 		VersionedHostParams::V1(p) => {
@@ -583,7 +575,7 @@ fn host_param_to_value(param: &HostParam<u128>) -> Value<()> {
 	}
 }
 
-pub fn host_params_btreemap_to_value_2(
+pub fn host_params_btreemap_to_value(
 	params: &BTreeMap<StateMachine, HostParam<u128>>,
 ) -> Value<()> {
 	let value_pairs: Vec<Value<()>> = params

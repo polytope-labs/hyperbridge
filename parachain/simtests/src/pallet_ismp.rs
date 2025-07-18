@@ -38,7 +38,7 @@ use subxt_utils::{
 	values::{messages_to_value, parachain_data_to_value, storage_kv_list_to_value},
 	BlakeSubstrateChain, Hyperbridge,
 };
-use subxt_utils::values::host_params_btreemap_to_value_2;
+use subxt_utils::values::host_params_btreemap_to_value;
 
 #[derive(Clone, Default)]
 pub struct Keccak256;
@@ -105,7 +105,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 			})),
 		);
 
-		let host_params_value = host_params_btreemap_to_value_2(&host_params);
+		let host_params_value = host_params_btreemap_to_value(&host_params);
 
 		let set_host_params_call = subxt::dynamic::tx(
 			"HostExecutive",
@@ -201,7 +201,17 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		)
 		.await?;
 	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
-	submittable.submit().await?;
+	let progress = submittable.submit_and_watch().await?;
+
+	let block = rpc_client
+		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+		.await?;
+	let finalized = rpc_client
+		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+		.await?;
+	assert!(finalized);
+
+	progress.wait_for_finalized_success().await?;
 
 	// create a block
 	let _ = rpc_client

@@ -40,7 +40,7 @@ use subxt_utils::{
 	BlakeSubstrateChain, Hyperbridge,
 };
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
-use subxt_utils::values::{host_params_btreemap_to_value, host_params_btreemap_to_value_2};
+use subxt_utils::values::{host_params_btreemap_to_value};
 
 #[tokio::test]
 #[ignore]
@@ -97,7 +97,7 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 			})),
 		);
 
-		let host_params_value = host_params_btreemap_to_value_2(&host_params);
+		let host_params_value = host_params_btreemap_to_value(&host_params);
 
 		// Init the host executive extrinsic
 		{
@@ -201,12 +201,19 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 		)
 		.await?;
 	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
-	submittable.submit().await?;
+	let progress = submittable.submit_and_watch().await?;
 
 	// create a block
-	let _ = rpc_client
+	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
+
+	let finalized = rpc_client
+		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+		.await?;
+	assert!(finalized);
+
+	progress.wait_for_finalized_success().await?;
 
 	// sanity check that it was properly stored
 	let item = client
@@ -317,7 +324,7 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 				})),
 			);
 
-			let host_params_value = host_params_btreemap_to_value_2(&host_params);
+			let host_params_value = host_params_btreemap_to_value(&host_params);
 
 			let set_host_params_call = subxt::dynamic::tx(
 				"HostExecutive",
@@ -414,12 +421,19 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 		)
 		.await?;
 	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
-	submittable.submit().await?;
+	let progress = submittable.submit_and_watch().await?;
 
 	// create a block
-	let _ = rpc_client
+	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
+
+	let finalized = rpc_client
+		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+		.await?;
+	assert!(finalized);
+
+	progress.wait_for_finalized_success().await?;
 
 	// sanity check that it was properly stored
 	let item = client
@@ -524,7 +538,7 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 				})),
 			);
 
-			let host_params_value = host_params_btreemap_to_value_2(&host_params);
+			let host_params_value = host_params_btreemap_to_value(&host_params);
 
 			let set_host_params_call = subxt::dynamic::tx(
 				"HostExecutive",
@@ -626,12 +640,19 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 		)
 		.await?;
 	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
-	submittable.submit().await?;
+	let progress = submittable.submit_and_watch().await?;
 
 	// create a block
-	let _ = rpc_client
+	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
+
+	let finalized = rpc_client
+		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+		.await?;
+	assert!(finalized);
+
+	progress.wait_for_finalized_success().await?;
 
 	// sanity check that it was properly stored
 	let item = client

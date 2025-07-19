@@ -8285,6 +8285,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk 2503.0.1",
  "serde",
+ "serde_json",
  "subxt 0.42.1",
  "subxt-utils",
 ]

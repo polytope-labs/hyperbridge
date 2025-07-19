@@ -688,12 +688,11 @@ where
 {
 	pub async fn new(config: ProverConfig) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
-		let relay_chain =
+		let (relay_chain, relay_rpc_client) =
 			subxt_utils::client::ws_client::<R>(&config.relay_rpc_ws, max_rpc_payload_size).await?;
-		let parachain =
+		let (parachain, parachain_rpc_client) =
 			subxt_utils::client::ws_client::<P>(&config.para_rpc_ws, max_rpc_payload_size).await?;
 
-		let relay_rpc_client = RpcClient::from_url(&config.relay_rpc_ws).await?;
 		let relay_rpc = LegacyRpcMethods::<R>::new(relay_rpc_client.clone());
 
 		let header = relay_rpc
@@ -701,7 +700,6 @@ where
 			.await?
 			.ok_or_else(|| anyhow!("No blocks on the relay chain?"))?;
 
-		let parachain_rpc_client = RpcClient::from_url(&config.para_rpc_ws).await?;
 		let parachain_rpc = LegacyRpcMethods::<P>::new(parachain_rpc_client.clone());
 
 		let metadata = relay_chain.metadata();

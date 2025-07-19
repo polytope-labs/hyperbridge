@@ -5,16 +5,18 @@ use reconnecting_jsonrpsee_ws_client::FixedInterval;
 use subxt::{
 	ext::{
 		jsonrpsee,
-		subxt_rpcs::client::reconnecting_rpc_client::{RpcClient, RpcClientBuilder},
 	},
+	backend::rpc::RpcClient,
 	OnlineClient,
 };
+#[cfg(feature = "std")]
+use subxt::ext::subxt_rpcs::client::reconnecting_rpc_client::RpcClientBuilder;
 
 #[cfg(feature = "std")]
 pub async fn ws_client<T: subxt::Config>(
 	rpc_ws: &str,
 	max_rpc_payload_size: u32,
-) -> Result<OnlineClient<T>, anyhow::Error> {
+) -> Result<(OnlineClient<T>, RpcClient), anyhow::Error> {
 	let rpc_client = RpcClientBuilder::new()
 		// retry every second
 		.retry_policy(FixedInterval::new(Duration::from_secs(1)))
@@ -29,11 +31,11 @@ pub async fn ws_client<T: subxt::Config>(
 		.await
 		.context(format!("Failed to connect to substrate rpc {rpc_ws}"))?;
 
-	let client = OnlineClient::<T>::from_rpc_client(rpc_client)
+	let client = OnlineClient::<T>::from_rpc_client(rpc_client.clone())
 		.await
 		.context(format!("Failed to query from substrate rpc: {rpc_ws}"))?;
 
-	Ok(client)
+	Ok((client, RpcClient::new(rpc_client)))
 }
 
 #[cfg(feature = "wasm")]

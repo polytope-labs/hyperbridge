@@ -115,9 +115,8 @@ where
 {
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
-		let client =
+		let (client, rpc_client) =
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
-		let rpc_client = RpcClient::from_url(&config.rpc_ws).await?;
 		let rpc = LegacyRpcMethods::<C>::new(rpc_client.clone());
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height

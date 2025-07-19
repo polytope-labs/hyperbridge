@@ -99,8 +99,7 @@ where
 		consensus_state_id: [u8; 4],
 		state_id: StateMachine,
 	) -> Result<Self, Error> {
-		let client = subxt_utils::client::ws_client(&rpc_url, 10 * 1024 * 1024).await?;
-		let rpc_client = RpcClient::from_url(&rpc_url).await?;
+		let (client, rpc_client) = subxt_utils::client::ws_client(&rpc_url, 10 * 1024 * 1024).await?;
 		let rpc = LegacyRpcMethods::<C>::new(rpc_client.clone());
 		let state_machine = StateMachineId { state_id, consensus_state_id };
 

@@ -32,7 +32,7 @@ use subxt::{
 	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
 	config::{HashFor, Header},
 	Config,
-	ext::subxt_rpcs::rpc_params, OnlineClient, PolkadotConfig,
+	ext::subxt_rpcs::{rpc_params}, OnlineClient, PolkadotConfig,
 };
 
 use grandpa_verifier::verify_grandpa_finality_proof;
@@ -112,9 +112,8 @@ where
 	/// provided RPC
 	pub async fn new(options: ProverOptions) -> Result<Self, anyhow::Error> {
 		let ProverOptions { max_rpc_payload_size, ref ws_url, .. } = options;
-		let client = subxt_utils::client::ws_client(&ws_url, max_rpc_payload_size).await?;
+		let (client, rpc_client) = subxt_utils::client::ws_client(&ws_url, max_rpc_payload_size).await?;
 
-		let rpc_client = RpcClient::from_url(ws_url).await?;
 		let rpc = LegacyRpcMethods::<T>::new(rpc_client.clone());
 
 		Ok(Self { client, options, rpc, rpc_client })

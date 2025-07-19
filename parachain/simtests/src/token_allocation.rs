@@ -38,8 +38,7 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 	let crowdloan_allocations_path = "./allocations/crowdloan_allocations.json";
 	let manual_allocations_path = "./allocations/manual_allocations.json";
 
-	let client = subxt_utils::client::ws_client::<Hyperbridge>(&ws_url, u32::MAX).await?;
-	let rpc_client = RpcClient::from_url(&ws_url).await?;
+	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(&ws_url, u32::MAX).await?;
 
 	let sudo_account = match env::var("SUDO_SEED") {
 		Ok(seed) => {

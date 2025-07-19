@@ -94,8 +94,7 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
-	let client = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
-	let rpc_client = RpcClient::from_url(url).await?;
+	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
 	let rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
 
 	let pb = ProgressBar::new(100_000);
@@ -140,8 +139,7 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
-	let client = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
-	let rpc_client = RpcClient::from_url(url).await?;
+	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
 	let rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
 
 	let leaf_count_at_start = client

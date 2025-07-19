@@ -503,7 +503,7 @@ pub async fn timeout_post_request_stream(
 						if relayer == H160::zero() && req.source_chain().is_evm() {
 							// request was never delivered
 							let latest_height =
-								hyperbridge_client.client.rpc().header(None).await?.ok_or_else(
+								hyperbridge_client.rpc.chain_get_header(None).await?.ok_or_else(
 									|| anyhow!("Failed to query latest hyperbridge height!"),
 								)?;
 							return Ok(Some((

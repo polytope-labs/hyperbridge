@@ -1,6 +1,11 @@
 // Copyright (C) 2022 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashSet;
+
+use anyhow::anyhow;
+use codec::{Compact, Decode, Encode};
+use frame_support::sp_runtime::traits::Convert;
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -13,17 +18,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use polkadot_sdk::*;
-
-use anyhow::anyhow;
-use beefy_verifier_primitives::{Hash, SignatureWithAuthorityIndex};
-use codec::{Compact, Decode, Encode};
-use frame_support::sp_runtime::traits::Convert;
 use rs_merkle::MerkleTree;
 use sp_io::hashing::keccak_256;
 use sp_runtime::traits::Keccak256;
 use sp_trie::{LayoutV0, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
-use std::collections::HashSet;
-use subxt::{Config, OnlineClient};
+use subxt::{backend::legacy::LegacyRpcMethods, Config, OnlineClient};
+use subxt_core::config::HashFor;
+
+use beefy_verifier_primitives::{Hash, SignatureWithAuthorityIndex};
 
 /// Holds the timestamp inherent alongside a merkle-patricia trie proof of its existence in a given
 /// block.
@@ -58,10 +60,10 @@ pub struct ParaHeadsProof {
 
 /// Fetch timestamp extrinsic and it's proof
 pub async fn fetch_timestamp_extrinsic_with_proof<T: Config>(
-	client: &OnlineClient<T>,
-	block_hash: Option<T::Hash>,
+	rpc: &LegacyRpcMethods<T>,
+	block_hash: Option<HashFor<T>>,
 ) -> Result<TimeStampExtWithProof, anyhow::Error> {
-	let block = client.rpc().block(block_hash).await?.ok_or_else(|| {
+	let block = rpc.chain_get_block(block_hash).await?.ok_or_else(|| {
 		anyhow!("[get_parachain_headers] Block with hash :{block_hash:?} not found",)
 	})?;
 

@@ -1,6 +1,10 @@
 // Copyright (C) 2022 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::anyhow;
+use codec::{Decode, Encode};
+use hex_literal::hex;
+use merkle_mountain_range::{helper::get_peaks, leaf_index_to_mmr_size};
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -12,12 +16,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use polkadot_sdk::{sp_consensus_beefy::mmr::BeefyAuthoritySet, *};
-
-use anyhow::anyhow;
-use codec::{Decode, Encode};
-use hex_literal::hex;
-use merkle_mountain_range::{helper::get_peaks, leaf_index_to_mmr_size};
+use polkadot_sdk::{*, sp_consensus_beefy::mmr::BeefyAuthoritySet};
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
 use sp_consensus_beefy::{
@@ -29,14 +28,15 @@ use sp_mmr_primitives::LeafProof;
 use sp_runtime::{generic::Header, traits::BlakeTwo256};
 use sp_storage::StorageKey;
 use subxt::{
-	config::{substrate::SubstrateHeader, Header as _},
-	rpc::rpc_params,
-	Config, OnlineClient,
+	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
+	config::{HashFor, Header as _, substrate::SubstrateHeader},
+	Config,
+	ext::subxt_rpcs::rpc_params, OnlineClient,
 };
 
 use crate::{
-	util::MerkleHasher, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID,
-	PARAS_PARACHAINS,
+	BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID, PARAS_PARACHAINS,
+	util::MerkleHasher,
 };
 
 /// Storage key for mmr.numberOfLeaves
@@ -49,15 +49,14 @@ pub const MMR_NODES: [u8; 32] =
 
 /// Get beefy justification for block_hash
 pub async fn fetch_latest_beefy_justification<T: Config>(
-	client: &OnlineClient<T>,
-	latest_beefy_finalized: T::Hash,
+	rpc: &LegacyRpcMethods<T>,
+	latest_beefy_finalized: HashFor<T>,
 ) -> Result<
-	(SignedCommitment<u32, sp_consensus_beefy::ecdsa_crypto::Signature>, T::Hash),
+	(SignedCommitment<u32, sp_consensus_beefy::ecdsa_crypto::Signature>, HashFor<T>),
 	anyhow::Error,
 > {
-	let block = client
-		.rpc()
-		.block(Some(latest_beefy_finalized))
+	let block = rpc
+		.chain_get_block(Some(latest_beefy_finalized))
 		.await
 		.ok()
 		.flatten()
@@ -82,12 +81,11 @@ pub async fn fetch_latest_beefy_justification<T: Config>(
 
 /// Fetch all parachain headers committed by BEEFY at provided height
 pub async fn paras_parachains<T: Config>(
-	client: &OnlineClient<T>,
-	at: Option<T::Hash>,
+	rpc: &LegacyRpcMethods<T>,
+	at: Option<HashFor<T>>,
 ) -> Result<Vec<(u32, Vec<u8>)>, anyhow::Error> {
-	let ids = client
-		.rpc()
-		.storage(PARAS_PARACHAINS.as_slice(), at)
+	let ids = rpc
+		.state_get_storage(PARAS_PARACHAINS.as_slice(), at)
 		.await?
 		.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
 		.transpose()?
@@ -95,9 +93,8 @@ pub async fn paras_parachains<T: Config>(
 
 	let mut heads = vec![];
 	for id in ids {
-		let head = client
-			.rpc()
-			.storage(parachain_header_storage_key(id).as_ref(), at)
+		let head = rpc
+			.state_get_storage(parachain_header_storage_key(id).as_ref(), at)
 			.await?
 			.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
 			.transpose()?
@@ -111,17 +108,15 @@ pub async fn paras_parachains<T: Config>(
 
 /// Fetch the next BEEFY authority set commitment at the provided height
 pub async fn beefy_mmr_leaf_next_authorities<T: Config>(
-	client: &OnlineClient<T>,
-	at: Option<T::Hash>,
+	rpc: &LegacyRpcMethods<T>,
+	at: Option<HashFor<T>>,
 ) -> Result<BeefyAuthoritySet<H256>, anyhow::Error> {
 	// Encoding and decoding to fix dependency version conflicts
 	let next_authority_set = {
-		let next_authority_set = client
-			.rpc()
-			.storage(BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(), at)
+		let next_authority_set = rpc
+			.state_get_storage(BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES.as_slice(), at)
 			.await?
-			.expect("Should retrieve next authority set")
-			.0;
+			.expect("Should retrieve next authority set");
 		BeefyAuthoritySet::decode(&mut &*next_authority_set)
 			.expect("Should decode next authority set correctly")
 	};
@@ -130,27 +125,26 @@ pub async fn beefy_mmr_leaf_next_authorities<T: Config>(
 
 /// Get beefy justification for latest finalized beefy block
 pub async fn fetch_next_beefy_justification<T: Config>(
-	client: &OnlineClient<T>,
+	rpc: &LegacyRpcMethods<T>,
+	rpc_client: RpcClient,
 	latest_client_height: u64,
 	current_set_id: u64,
 ) -> Result<
-	Option<(SignedCommitment<u32, sp_consensus_beefy::ecdsa_crypto::Signature>, T::Hash)>,
+	Option<(SignedCommitment<u32, sp_consensus_beefy::ecdsa_crypto::Signature>, HashFor<T>)>,
 	anyhow::Error,
 > {
-	let mut block_hash = client.rpc().request("beefy_getFinalizedHead", rpc_params!()).await?;
+	let mut block_hash = rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await?;
 
 	let (signed_commitment, latest_beefy_finalized) = loop {
-		let set_id = client
-			.rpc()
-			.storage(BEEFY_VALIDATOR_SET_ID.as_slice(), Some(block_hash))
+		let set_id = rpc
+			.state_get_storage(BEEFY_VALIDATOR_SET_ID.as_slice(), Some(block_hash))
 			.await?
 			.map(|data| u64::decode(&mut data.as_ref()))
 			.transpose()?
 			.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
 
-		let block = client
-			.rpc()
-			.block(Some(block_hash))
+		let block = rpc
+			.chain_get_block(Some(block_hash))
 			.await
 			.ok()
 			.flatten()
@@ -230,21 +224,19 @@ fn subtree_heights(leaves_length: u64) -> Vec<u64> {
 /// # Returns
 /// * `Result<MmrLeaf<u32, H256, H256, H256>, anyhow::Error>` - The MMR leaf on success, or an error
 pub async fn query_mmr_leaf<T: Config>(
-	client: &OnlineClient<T>,
-	block_hash: T::Hash,
+	rpc: &LegacyRpcMethods<T>,
+	block_hash: HashFor<T>,
 ) -> Result<MmrLeaf<u32, H256, H256, H256>, anyhow::Error> {
-	let header = client
-		.rpc()
-		.header(Some(block_hash))
+	let header = rpc
+		.chain_get_header(Some(block_hash))
 		.await?
 		.ok_or_else(|| anyhow!("Block hash not found"))?;
 
 	let header = Header::<u32, BlakeTwo256>::decode(&mut &header.encode()[..])?;
-	let parent_hash = T::Hash::decode(&mut header.parent_hash.as_ref())?;
-	let beefy_next_authority_set =
-		beefy_mmr_leaf_next_authorities(client, Some(block_hash)).await?;
+	let parent_hash = HashFor::<T>::decode(&mut header.parent_hash.as_ref())?;
+	let beefy_next_authority_set = beefy_mmr_leaf_next_authorities(rpc, Some(block_hash)).await?;
 	let leaf_extra = {
-		let heads = paras_parachains(client, Some(parent_hash)).await?;
+		let heads = paras_parachains(rpc, Some(parent_hash)).await?;
 
 		// Calculate leaf hashes from the parachain headers
 		let leaf_hashes = heads.iter().map(|leaf| keccak_256(&leaf.encode())).collect::<Vec<_>>();
@@ -267,22 +259,19 @@ pub async fn query_mmr_leaf<T: Config>(
 
 /// Query the mmr proof for the leaf at the provided block number
 pub async fn fetch_mmr_proof<T: Config>(
-	client: &OnlineClient<T>,
+	rpc: &LegacyRpcMethods<T>,
 	block_number: u32,
 ) -> Result<(LeafProof<H256>, MmrLeaf<u32, H256, H256, H256>), anyhow::Error> {
-	let block_hash = client
-		.rpc()
-		.block_hash(Some(block_number.into()))
+	let block_hash = rpc
+		.chain_get_block_hash(Some(block_number.into()))
 		.await?
 		.ok_or_else(|| anyhow!("Block hash not found for block {block_number}"))?;
 
 	let number_of_mmr_leaves = {
-		let encoded = client
-			.rpc()
-			.storage(MMR_NUMBER_OF_LEAVES.as_slice(), Some(block_hash))
+		let encoded = rpc
+			.state_get_storage(MMR_NUMBER_OF_LEAVES.as_slice(), Some(block_hash))
 			.await?
-			.expect("Should retrieve total number of leaves in mmr")
-			.0;
+			.expect("Should retrieve total number of leaves in mmr");
 
 		u64::decode(&mut &encoded[..])?
 	};
@@ -300,12 +289,10 @@ pub async fn fetch_mmr_proof<T: Config>(
 	for peak in peaks.iter().take(peaks.len().saturating_sub(1)) {
 		let key = [MMR_NODES.to_vec(), u64::encode(peak)].concat();
 
-		let encoded = client
-			.rpc()
-			.storage(&key, Some(block_hash))
+		let encoded = rpc
+			.state_get_storage(&key, Some(block_hash))
 			.await?
-			.expect(&format!("Should retrieve hash for peak {peak}"))
-			.0;
+			.expect(&format!("Should retrieve hash for peak {peak}"));
 
 		let peak_root = H256::decode(&mut &encoded[..])?;
 		proof.push(peak_root);
@@ -322,13 +309,12 @@ pub async fn fetch_mmr_proof<T: Config>(
 		for block in first_leaf..=block_number {
 			// we try to reconstruct the mmr leaf from onchain data because offchain db where
 			// mmr_generateProof fetches leaves from might be corrupted
-			let block_hash = client
-				.rpc()
-				.block_hash(Some(block.into()))
+			let block_hash = rpc
+				.chain_get_block_hash(Some(block.into()))
 				.await?
 				.ok_or_else(|| anyhow!("Block hash not found"))?;
 
-			let leaf = query_mmr_leaf(client, block_hash).await?;
+			let leaf = query_mmr_leaf(rpc, block_hash).await?;
 			leaves.push(leaf);
 		}
 
@@ -340,7 +326,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 
 		leaves.pop().expect("leaves is always > 1; qed")
 	} else {
-		query_mmr_leaf(client, block_hash).await?
+		query_mmr_leaf(rpc, block_hash).await?
 	};
 
 	Ok((
@@ -372,7 +358,11 @@ mod tests {
 		sp_mmr_primitives::mmr_lib::{leaf_index_to_mmr_size, leaf_index_to_pos},
 	};
 	use primitive_types::H256;
+	use subxt::backend::rpc::RpcClient;
 	use subxt::PolkadotConfig;
+	use subxt_utils::Hyperbridge;
+	use subxt::backend::legacy::LegacyRpcMethods;
+
 
 	use crate::relay::{fetch_mmr_proof, subtree_heights};
 
@@ -405,11 +395,14 @@ mod tests {
 		let relay = subxt_utils::client::ws_client::<PolkadotConfig>(&ws_url, u32::MAX)
 			.await
 			.unwrap();
+        let relay_rpc_client = RpcClient::from_url(&ws_url).await.unwrap();
+        let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
 
-		for block in 25420896..25420999 {
+
+        for block in 25420896..25420999 {
 			dbg!();
 			dbg!(block);
-			let (proof, leaf) = fetch_mmr_proof(&relay, block).await.unwrap();
+			let (proof, leaf) = fetch_mmr_proof(&relay_rpc, block).await.unwrap();
 
 			// dbg!(&leaf);
 
@@ -422,15 +415,13 @@ mod tests {
 				)])
 				.unwrap();
 
-			let block_hash = relay.rpc().block_hash(Some(block.into())).await.unwrap().unwrap();
+			let block_hash = relay_rpc.chain_get_block_hash(Some(block.into())).await.unwrap().unwrap();
 			let onchain_root = {
-				let encoded = relay
-					.rpc()
-					.storage(&MMR_ROOT_HASH, Some(block_hash))
+				let encoded = relay_rpc
+					.state_get_storage(&MMR_ROOT_HASH, Some(block_hash))
 					.await
 					.unwrap()
-					.expect("Should retrieve mmr root hash")
-					.0;
+					.expect("Should retrieve mmr root hash");
 
 				H256::decode(&mut &encoded[..]).unwrap()
 			};

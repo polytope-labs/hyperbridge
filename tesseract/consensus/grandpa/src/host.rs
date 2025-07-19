@@ -15,10 +15,17 @@
 
 use std::{sync::Arc, time::Duration};
 
-use crate::GrandpaHost;
 use anyhow::{anyhow, Error};
 use codec::Encode;
 use futures::{stream, StreamExt};
+use polkadot_sdk::sp_runtime::traits::{One, Zero};
+use sp_core::crypto;
+use subxt::{
+	config::{ExtrinsicParams, HashFor, Header},
+	tx::DefaultParams,
+	utils::{AccountId32, MultiSignature, H256},
+};
+
 use grandpa_verifier_primitives::ConsensusState;
 use ismp::{
 	host::StateMachine,
@@ -28,17 +35,9 @@ use ismp_grandpa::{
 	consensus::GRANDPA_CONSENSUS_ID,
 	messages::{RelayChainMessage, StandaloneChainMessage},
 };
-
-use sp_core::{crypto, H256};
-use subxt::config::{
-	extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
-};
-
-use subxt::ext::sp_runtime::{
-	traits::{One, Zero},
-	MultiSignature,
-};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
+
+use crate::GrandpaHost;
 
 #[async_trait::async_trait]
 impl<H, C> IsmpHost for GrandpaHost<H, C>
@@ -47,21 +46,19 @@ where
 	C: subxt::Config + Send + Sync + Clone,
 	<H::Header as Header>::Number: Ord + Zero + finality_grandpa::BlockNumberOps + One + From<u32>,
 	u32: From<<H::Header as Header>::Number>,
-	sp_core::H256: From<H::Hash>,
+	H256: From<HashFor<H>>,
 	H::Header: codec::Decode,
-	<H::Hasher as subxt::config::Hasher>::Output: From<H::Hash>,
-	H::Hash: From<<H::Hasher as subxt::config::Hasher>::Output>,
-	<H as subxt::Config>::Hash: From<sp_core::H256>,
-	<H::ExtrinsicParams as ExtrinsicParams<H::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<H, PlainTip>>,
+	<H::Hasher as subxt::config::Hasher>::Output: From<HashFor<H>>,
+	HashFor<H>: From<<H::Hasher as subxt::config::Hasher>::Output>,
+	HashFor<H>: From<H256>,
+	<H::ExtrinsicParams as ExtrinsicParams<H>>::Params: Send + Sync + DefaultParams,
 	H::Signature: From<MultiSignature> + Send + Sync,
-	H::AccountId: From<crypto::AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
+	H::AccountId: From<AccountId32> + Into<H::Address> + Clone + 'static + Send + Sync,
 
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
-	H256: From<<C as subxt::Config>::Hash>,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	H256: From<HashFor<C>>,
 {
 	async fn start_consensus(
 		&self,
@@ -129,12 +126,11 @@ where
 								);
 
 								let finalized_hash =
-									client.prover.client.rpc().finalized_head().await?;
+									client.prover.rpc.chain_get_finalized_head().await?;
 								let latest_finalized_head: u64 = client
 									.prover
-									.client
-									.rpc()
-									.header(Some(finalized_hash))
+									.rpc
+									.chain_get_header(Some(finalized_hash))
 									.await?
 									.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?
 									.number()
@@ -195,12 +191,11 @@ where
 								);
 
 								let finalized_hash =
-									client.prover.client.rpc().finalized_head().await?;
+									client.prover.rpc.chain_get_finalized_head().await?;
 								let latest_finalized_head: u64 = client
 									.prover
-									.client
-									.rpc()
-									.header(Some(finalized_hash))
+									.rpc
+									.chain_get_header(Some(finalized_hash))
 									.await?
 									.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?
 									.number()
@@ -261,12 +256,11 @@ where
 								);
 
 								let finalized_hash =
-									client.prover.client.rpc().finalized_head().await?;
+									client.prover.rpc.chain_get_finalized_head().await?;
 								let latest_finalized_head: u64 = client
 									.prover
-									.client
-									.rpc()
-									.header(Some(finalized_hash))
+									.rpc
+									.chain_get_header(Some(finalized_hash))
 									.await?
 									.ok_or_else(|| anyhow!("Failed to fetch finalized head"))?
 									.number()
@@ -359,7 +353,7 @@ where
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
-		let finalized_hash = self.prover.client.rpc().finalized_head().await?;
+		let finalized_hash = self.prover.rpc.chain_get_finalized_head().await?;
 		let consensus_state: ConsensusState = self
 			.prover
 			.initialize_consensus_state(self.config.grandpa.slot_duration, finalized_hash)

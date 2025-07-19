@@ -26,7 +26,6 @@ use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 pub use substrate_state_machine::{HashAlgorithm, SubstrateStateProof};
 use subxt::{utils::H256, Config};
-pub use subxt_utils::Extrinsic;
 use subxt_utils::{BlakeSubstrateChain, Hyperbridge};
 
 // ========================================

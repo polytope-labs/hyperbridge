@@ -20,6 +20,7 @@ grandpa-verifier = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 indicatif = "0.17.11"
+serde_json = "1.0"
 
 [dependencies.polkadot-sdk]
 workspace = true

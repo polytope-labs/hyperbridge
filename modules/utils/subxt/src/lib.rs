@@ -1,181 +1,84 @@
 use anyhow::anyhow;
 use codec::Encode;
 use derivative::Derivative;
-use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use polkadot_sdk::*;
 use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
 use subxt::{
 	config::{
-		extrinsic_params::{BaseExtrinsicParams, BaseExtrinsicParamsBuilder},
-		polkadot::PlainTip,
-		substrate::{BlakeTwo256, SubstrateHeader},
-		ExtrinsicParams, Hasher,
+		substrate::{
+			BlakeTwo256, SubstrateExtrinsicParams, SubstrateExtrinsicParamsBuilder as Params,
+			SubstrateHeader,
+		},
+		Hasher,
 	},
-	tx::TxPayload,
+	tx::Payload,
 	utils::{AccountId32, MultiAddress, H256},
-	Metadata,
+	Metadata, OnlineClient, PolkadotConfig,
 };
 
-pub mod client;
-
+use ismp::{consensus::StateMachineHeight, host::StateMachine};
 #[cfg(feature = "std")]
 pub use signer::*;
 
-/// Implements [`subxt::Config`] for substrate chains with keccak as their hashing algorithm
-#[derive(Clone)]
+pub mod client;
+pub mod values;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Hyperbridge;
 
-/// A type that can hash values using the keccak_256 algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode)]
 pub struct RuntimeHasher;
 
 impl Hasher for RuntimeHasher {
 	type Output = H256;
-	fn hash(s: &[u8]) -> Self::Output {
+
+	fn new(metadata: &subxt::metadata::types::Metadata) -> Self {
+		Self
+	}
+
+	fn hash(&self, s: &[u8]) -> Self::Output {
 		keccak_256(s).into()
 	}
 }
 
 impl subxt::Config for Hyperbridge {
-	type Hash = H256;
 	type AccountId = AccountId32;
 	type Address = MultiAddress<Self::AccountId, u32>;
 	type Signature = subxt::utils::MultiSignature;
 	type Hasher = RuntimeHasher;
 	type Header = SubstrateHeader<u32, RuntimeHasher>;
-	type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
+	type ExtrinsicParams = SubstrateExtrinsicParams<Self>;
+	type AssetId = ();
 }
 
-/// Implements [`subxt::Config`] for substrate chains with blake2b as their hashing algorithm
-#[derive(Clone)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BlakeSubstrateChain;
 
 impl subxt::Config for BlakeSubstrateChain {
-	type Hash = H256;
 	type AccountId = AccountId32;
-	type Address = MultiAddress<Self::AccountId, u32>;
+	type Address = MultiAddress<Self::AccountId, ()>;
 	type Signature = subxt::utils::MultiSignature;
 	type Hasher = BlakeTwo256;
 	type Header = SubstrateHeader<u32, BlakeTwo256>;
-	type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
+	type ExtrinsicParams = SubstrateExtrinsicParams<Self>;
+	type AssetId = ();
 }
-
-/// Implements [`TxPayload`] for extrinsic encoding
-pub struct Extrinsic {
-	/// The pallet name, used to query the metadata
-	pallet_name: String,
-	/// The call name
-	call_name: String,
-	/// The encoded pallet call. Note that this should be the pallet call. Not runtime call
-	encoded: Vec<u8>,
-}
-
-impl Extrinsic {
-	/// Creates a new extrinsic ready to be sent with subxt.
-	pub fn new(
-		pallet_name: impl Into<String>,
-		call_name: impl Into<String>,
-		encoded_call: Vec<u8>,
-	) -> Self {
-		Extrinsic {
-			pallet_name: pallet_name.into(),
-			call_name: call_name.into(),
-			encoded: encoded_call,
-		}
-	}
-}
-
-impl TxPayload for Extrinsic {
-	fn encode_call_data_to(
-		&self,
-		metadata: &Metadata,
-		out: &mut Vec<u8>,
-	) -> Result<(), subxt::error::Error> {
-		// encode the pallet index
-		let pallet = metadata.pallet_by_name_err(&self.pallet_name)?;
-		let call_index = pallet
-			.call_variant_by_name(&self.call_name)
-			.ok_or_else(|| {
-				subxt::error::Error::Other(format!(
-					"Can't find {} in pallet {} metadata",
-					self.call_name, self.pallet_name
-				))
-			})?
-			.index;
-		let pallet_index = pallet.index();
-		pallet_index.encode_to(out);
-		call_index.encode_to(out);
-
-		// copy the encoded call to out
-		out.extend_from_slice(&self.encoded);
-
-		Ok(())
-	}
-}
-
-#[derive(Derivative)]
-#[derivative(Debug(bound = "Tip: core::fmt::Debug"))]
-pub struct BasicExtrinsicParamWithCheckMetadata<T: subxt::Config, Tip: core::fmt::Debug>(
-	BaseExtrinsicParams<T, Tip>,
-);
-
-impl<T: subxt::Config, Tip: core::fmt::Debug + Encode + 'static> ExtrinsicParams<T::Hash>
-	for BasicExtrinsicParamWithCheckMetadata<T, Tip>
-{
-	type OtherParams = BaseExtrinsicParamsBuilder<T, Tip>;
-
-	fn new(
-		// Provided from subxt client:
-		spec_version: u32,
-		transaction_version: u32,
-		nonce: u64,
-		genesis_hash: T::Hash,
-		// Provided externally:
-		other_params: Self::OtherParams,
-	) -> Self {
-		Self(BaseExtrinsicParams::new(
-			spec_version,
-			transaction_version,
-			nonce,
-			genesis_hash,
-			other_params,
-		))
-	}
-
-	fn encode_extra_to(&self, v: &mut Vec<u8>) {
-		self.0.encode_extra_to(v);
-		// frame_metadata_hash_extension::CheckMetadataHash::encode_to_extra
-		// reference https://github.com/paritytech/subxt/blob/90b47faad85c34382f086e2cc886da8574453c36/core/src/config/signed_extensions.rs#L58
-		// Mode `0` means that the metadata hash is not added
-		0u8.encode_to(v);
-	}
-
-	fn encode_additional_to(&self, v: &mut Vec<u8>) {
-		self.0.encode_additional_to(v);
-		// frame_metadata_hash_extension::CheckMetadataHash::encode_additional_to
-		// https://github.com/paritytech/polkadot-sdk/blob/743dc632fd6115b408376a6e4efe815bd804cd52/substrate/frame/metadata-hash-extension/src/lib.rs#L142
-		// We don't use metadata hash in subxt so the it should be encoded as None
-		None::<()>.encode_to(v);
-	}
-}
-
-pub type PolkadotExtrinsicParams<T> = BasicExtrinsicParamWithCheckMetadata<T, PlainTip>;
 
 #[cfg(feature = "std")]
 pub mod signer {
-	use super::*;
 	use anyhow::Context;
+	use polkadot_sdk::{
+		sp_core::{sr25519, Pair},
+		sp_runtime::traits::IdentifyAccount,
+	};
 	use subxt::{
-		config::{
-			extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams,
-		},
-		ext::{
-			sp_core::{crypto, sr25519, Pair},
-			sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
-		},
-		tx::Signer,
+		config::{ExtrinsicParams, HashFor},
+		tx::{DefaultParams, Signer},
+		utils::{AccountId32, MultiSignature},
 		OnlineClient,
 	};
+
+	use super::*;
 
 	#[derive(Clone)]
 	pub struct InMemorySigner<T: subxt::Config> {
@@ -185,53 +88,52 @@ pub mod signer {
 
 	impl<T: subxt::Config> InMemorySigner<T>
 	where
-		T::Signature: From<MultiSignature> + Send + Sync,
-		T::AccountId: From<crypto::AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
+		T::Signature: From<MultiSignature>,
+		T::AccountId: From<AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
 	{
 		pub fn new(pair: sr25519::Pair) -> Self {
-			InMemorySigner {
-				account_id: MultiSigner::Sr25519(pair.public()).into_account().into(),
-				signer: pair,
-			}
+			let binding = pair.public();
+			let public_key_slice: &[u8] = binding.as_ref();
+
+			let public_key_array: [u8; 32] =
+				public_key_slice.try_into().expect("sr25519 public key should be 32 bytes");
+
+			let account_id = AccountId32::from(public_key_array);
+			InMemorySigner { account_id: account_id.into(), signer: pair }
 		}
 	}
 
 	impl<T: subxt::Config> Signer<T> for InMemorySigner<T>
 	where
 		T::AccountId: Into<T::Address> + Clone + 'static,
-		T::Signature: From<MultiSignature> + Send + Sync,
+		T::Signature: From<MultiSignature>,
 	{
 		fn account_id(&self) -> T::AccountId {
 			self.account_id.clone()
 		}
 
-		fn address(&self) -> T::Address {
-			self.account_id.clone().into()
-		}
-
 		fn sign(&self, payload: &[u8]) -> T::Signature {
-			MultiSignature::Sr25519(self.signer.sign(&payload)).into()
+			MultiSignature::Sr25519(<[u8; 64]>::from(self.signer.sign(payload))).into()
 		}
 	}
 
-	/// Send a transaction
-	pub async fn send_extrinsic<T: subxt::Config, Tx: TxPayload>(
+	pub async fn send_extrinsic<T: subxt::Config, Tx: Payload>(
 		client: &OnlineClient<T>,
-		signer: InMemorySigner<T>,
-		payload: Tx,
-		tip: Option<PlainTip>,
-	) -> Result<T::Hash, anyhow::Error>
+		signer: &InMemorySigner<T>,
+		payload: &Tx,
+		tip: Option<u128>,
+	) -> Result<HashFor<T>, anyhow::Error>
 	where
-		<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
-			Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
+		T::AccountId: Into<T::Address> + Clone + 'static,
 		T::Signature: From<MultiSignature> + Send + Sync,
+		<T::ExtrinsicParams as ExtrinsicParams<T>>::Params: Send + Sync + DefaultParams,
 	{
-		let other_params = BaseExtrinsicParamsBuilder::new().tip(tip.unwrap_or_default());
-		let ext = client.tx().create_signed(&payload, &signer, other_params.into()).await?;
+		let params = DefaultParams::default_params();
+		let ext = client.tx().create_signed(payload, signer, params).await?;
 		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
 		let ext_hash = progress.extrinsic_hash();
 
-		let extrinsic = match progress.wait_for_in_block().await {
+		let extrinsic = match progress.wait_for_finalized().await {
 			Ok(p) => p,
 			Err(err) => Err(refine_subxt_error(err)).context(format!(
 				"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
@@ -247,7 +149,6 @@ pub mod signer {
 	}
 }
 
-/// This prevents the runtime metadata from being displayed when module errors are encountered
 pub fn refine_subxt_error(err: subxt::Error) -> anyhow::Error {
 	match err {
 		subxt::Error::Runtime(subxt::error::DispatchError::Module(ref err)) => {

@@ -27,7 +27,7 @@ features = ["sp-crypto-hashing"]
 
 [features]
 default = ["std"]
-wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web"]
+wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web", "subxt/reconnecting-rpc-client"]
 std = [
     "subxt/default",
     "subxt/reconnecting-rpc-client",

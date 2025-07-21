@@ -77,9 +77,9 @@ pub struct SubstrateConfig {
 pub struct SubstrateClient<C: subxt::Config> {
 	/// Subxt client for the substrate chain
 	pub client: OnlineClient<C>,
-	/// Rpc for the relay chain
+	/// Legacy subxt rpc client
 	pub rpc: LegacyRpcMethods<C>,
-	/// Rpc client for making rpc request for the relay chain
+	/// Raw rpc client
 	pub rpc_client: RpcClient,
 	/// Consensus state Id
 	consensus_state_id: ConsensusStateId,

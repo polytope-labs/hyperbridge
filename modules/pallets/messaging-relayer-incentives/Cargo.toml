@@ -1,0 +1,34 @@
+[package]
+name = "pallet-messaging-relayer-incentives"
+version = "0.1.0"
+description = "FRAME pallet for incentivizing hyperbridge messaging relayers with rewards"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+edition = "2021"
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+pallet-ismp = { workspace = true, default-features = false }
+ismp = { workspace = true, default-features = false }
+pallet-ismp-host-executive = { workspace = true, default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-runtime"]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "polkadot-sdk/std",
+    "pallet-ismp/std",
+    "ismp/std",
+    "pallet-ismp-host-executive/std"
+]
+runtime-benchmarks = ["polkadot-sdk/runtime-benchmarks"]
+try-runtime = ["polkadot-sdk/try-runtime"]

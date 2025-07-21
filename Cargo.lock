@@ -14494,6 +14494,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-messaging-relayer-incentives"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "polkadot-sdk 2503.0.1",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-meta-tx"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

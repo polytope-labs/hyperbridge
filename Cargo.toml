@@ -64,6 +64,7 @@ members = [
     "modules/ismp/state-machines/substrate",
     "modules/ismp/state-machines/hyperbridge",
     "modules/pallets/relayer-incentives",
+    "modules/pallets/messaging-relayer-incentives",
 
     # evm stuff
     "evm/integration-tests",

@@ -27,27 +27,22 @@ use alloc::vec::Vec;
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
 	pallet_prelude::*,
-	traits::{
-		fungible::{Inspect, Mutate},
-		Get,
-	},
+	traits::Get
 };
 use frame_system::pallet_prelude::*;
 use ismp::host::{IsmpHost, StateMachine};
 use polkadot_sdk::*;
+use crate::types::*;
 
 mod impls;
+mod types;
 
 pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::{
-		traits::fungible::{Inspect, Mutate},
-		PalletId,
-	};
-	use ismp::consensus::{StateMachineHeight, StateMachineId};
+	use frame_support::PalletId;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -98,16 +93,21 @@ pub mod pallet {
 	pub type SupportedStateMachines<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
 
+	/// Current active Epoch for incentivization
 	#[pallet::storage]
 	#[pallet::getter(fn epoch)]
 	pub type Epoch<T: Config> = StorageValue<_, EpochInfo<BlockNumberFor<T>>, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
+		/// Reward transfer failed
 		RewardTransferFailed,
+		/// Calculation overflow
 		CalculationOverflow,
+		/// Oracle Price conversion error
 		ErrorInPriceConversion,
-		PerByteFeeNotFound
+		/// State machine per byte fee not found
+		PerByteFeeNotFound,
 	}
 
 	#[pallet::event]
@@ -170,39 +170,5 @@ pub mod pallet {
 
 			Ok(())
 		}
-	}
-}
-
-#[derive(Clone, Encode, Decode, TypeInfo, PartialEq, Eq, RuntimeDebug)]
-pub struct EpochInfo<BlockNumber> {
-	/// The index of the current epoch
-	pub index: u64,
-	/// The block number at which the epoch started
-	pub start_block: BlockNumber,
-}
-
-impl<BlockNumber: Zero> Default for EpochInfo<BlockNumber> {
-	fn default() -> Self {
-		Self { index: 0, start_block: BlockNumber::zero() }
-	}
-}
-
-/// A trait for a price oracle.
-pub trait PriceOracle<Balance> {
-	fn convert_to_usd(
-		source_state_machine: StateMachine,
-		amount: Balance,
-	) -> Result<Balance, DispatchError>;
-}
-
-/// Weight information for pallet operations
-pub trait WeightInfo {
-	fn set_supported_state_machines() -> Weight;
-}
-
-/// Default weight implementation using sensible defaults
-impl WeightInfo for () {
-	fn set_supported_state_machines() -> Weight {
-		Weight::from_parts(10_000_000, 0)
 	}
 }

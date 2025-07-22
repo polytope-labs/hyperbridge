@@ -1,27 +1,25 @@
-use crate::*;
-use polkadot_sdk::{frame_support::traits::fungible::Mutate, sp_runtime::traits::*};
-
 use alloc::collections::BTreeMap;
+
+use polkadot_sdk::{frame_support::traits::fungible::Mutate, sp_runtime::traits::*};
+use polkadot_sdk::frame_support::traits::tokens::Preservation;
+use polkadot_sdk::sp_core::U256;
+use sp_core::{H256, keccak_256};
+
 use ismp::{
-	events::Event as IsmpEvent,
-	host::IsmpHost,
+	events::Event as IsmpEvent
+	,
 	messaging::Message,
-	router::{PostRequest, Request, RequestResponse, Response},
+	router::RequestResponse,
 };
-use polkadot_sdk::frame_support::traits::{tokens::Preservation, Len};
-use sp_core::keccak_256;
-use pallet_ismp_host_executive::HostParams;
+use pallet_ismp_host_executive::HostParam::EvmHostParam;
 
-
-pub enum IncentivizedMessage {
-	Post(PostRequest),
-	Request(Request),
-	Response(Response),
-}
+use crate::*;
+use crate::types::IncentivizedMessage;
 
 impl<T: Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+	u128: From<<T as pallet_ismp::Config>::Balance>
 {
 	fn process_message(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
 		let mut messages_by_chain: BTreeMap<StateMachine, Vec<IncentivizedMessage>> =
@@ -29,19 +27,19 @@ where
 
 		match message {
 			Message::Request(msg) =>
-				for req in msg.requests {
-					if let Some(supported) = SupportedStateMachines::<T>::get(req.dest) {
+				for req in &msg.requests {
+					if let Some(_) = SupportedStateMachines::<T>::get(req.dest) {
 						messages_by_chain
 							.entry(req.dest)
 							.or_default()
-							.push(IncentivizedMessage::Post(req));
+							.push(IncentivizedMessage::Post(req.clone()));
 					}
 				},
 			Message::Response(msg) => match msg.datagram.clone() {
 				RequestResponse::Request(requests) =>
 					for req in requests {
 						let dest_chain = req.dest_chain();
-						if let Some(supported) = SupportedStateMachines::<T>::get(dest_chain) {
+						if let Some(_) = SupportedStateMachines::<T>::get(dest_chain) {
 							messages_by_chain
 								.entry(dest_chain)
 								.or_default()
@@ -63,59 +61,65 @@ where
 		};
 
 		for (state_machine, messages) in &messages_by_chain {
-			let bytes_processed = messages.len();
+			let bytes_processed = messages.len() as u32;
 			let current_total_bytes = TotalBytesProcessed::<T>::get();
 
 			TotalBytesProcessed::<T>::mutate(|total| {
 				*total = total.saturating_add(bytes_processed)
 			});
 
-			if let Some(host_params) = pallet_host_executive::HostParams::<T>::get(&state_machine) {
-				let per_byte_fee = host_params
-					.per_byte_fees
-					.iter()
-					.find(|fee| {
-						let hashed_chain_id = keccak_256(state_machine);
-						fee.state_id == hashed_chain_id
-					})
-					.map(|fee| fee.per_byte_fee)
-					.ok_or(Error::<T>::PerByteFeeNotFound)?;
+			if let Some(host_params) = pallet_ismp_host_executive::HostParams::<T>::get(&state_machine) {
+				match host_params {
+					EvmHostParam(evm_host_param) => {
+						let per_byte_fee = evm_host_param
+							.per_byte_fees
+							.iter()
+							.find(|fee| {
+								let hashed_chain_id = keccak_256(&state_machine.encode());
+								H256(hashed_chain_id) == fee.state_id
+							})
+							.map(|fee| fee.per_byte_fee)
+							.ok_or(Error::<T>::PerByteFeeNotFound)?;
 
-				let dollar_cost = per_byte_fee.saturating_mul(bytes_processed);
+						let dollar_cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
+						let dollar_cost:u128 = dollar_cost.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
 
-				let base_reward_in_token = T::PriceOracle::convert_to_usd(state_machine, dollar_cost)
-					.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
+						let base_reward_in_token = T::PriceOracle::convert_to_usd(state_machine.clone(), dollar_cost.saturated_into())
+							.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
-				let target_message_size = T::TargetMessageSize::get();
+						let target_message_size = T::TargetMessageSize::get();
 
-				if current_total_bytes <= target_message_size {
-					let reward_amount = Self::calculate_reward(
-						current_total_bytes,
-						target_message_size,
-						base_reward_in_token,
-					)?;
+						if current_total_bytes <= target_message_size {
+							let reward_amount = Self::calculate_reward(
+								current_total_bytes,
+								target_message_size,
+								base_reward_in_token.into(),
+							)?;
 
-					T::Currency::transfer(
-						&T::TreasuryAccount::get().into_account(),
-						&relayer,
-						reward_amount,
-						Preservation::Expendable,
-					)
-					.map_err(|_| Error::<T>::RewardTransferFailed)?;
-					Self::deposit_event(Event::RelayerRewarded { relayer, amount: reward_amount });
-				} else {
-					T::Currency::transfer(
-						&relayer,
-						&T::TreasuryAccount::get().into_account(),
-						base_reward_in_token,
-						Preservation::Expendable,
-					)
-					.map_err(|_| Error::<T>::RewardTransferFailed)?;
+							T::Currency::transfer(
+								&T::TreasuryAccount::get().into_account_truncating(),
+								&relayer,
+								reward_amount.saturated_into(),
+								Preservation::Expendable,
+							)
+								.map_err(|_| Error::<T>::RewardTransferFailed)?;
+							Self::deposit_event(Event::RelayerRewarded { relayer: relayer.clone(), amount: reward_amount.saturated_into() });
+						} else {
+							T::Currency::transfer(
+								&relayer,
+								&T::TreasuryAccount::get().into_account_truncating(),
+								base_reward_in_token,
+								Preservation::Expendable,
+							)
+								.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
-					Self::deposit_event(Event::RelayerCharged {
-						relayer,
-						amount: base_reward_in_token,
-					});
+							Self::deposit_event(Event::RelayerCharged {
+								relayer: relayer.clone(),
+								amount: base_reward_in_token.into(),
+							});
+						}
+					},
+					_ => {}
 				}
 			}
 		}
@@ -126,8 +130,8 @@ where
 	/// A curve for calculating reward
 	/// Reward=BaseReward×((TargetSize−TotalBytes)/TargetSize)^2
 	fn calculate_reward(
-		total_bytes: u128,
-		target_size: u128,
+		total_bytes: u32,
+		target_size: u32,
 		base_reward: u128,
 	) -> Result<u128, Error<T>> {
 		if total_bytes >= target_size || target_size.is_zero() {
@@ -139,10 +143,10 @@ where
 			.checked_mul(decay_numerator)
 			.ok_or(Error::<T>::CalculationOverflow)?;
 		let final_reward_numerator = base_reward
-			.checked_mul(decay_numerator_sq)
+			.checked_mul(decay_numerator_sq as u128)
 			.ok_or(Error::<T>::CalculationOverflow)?;
 		let target_size_sq =
-			target_size.checked_mul(target_size).ok_or(Error::<T>::CalculationOverflow)?;
+			target_size.checked_mul(target_size).ok_or(Error::<T>::CalculationOverflow)? as u128;
 
 		Ok(final_reward_numerator / target_size_sq)
 	}
@@ -151,6 +155,7 @@ where
 impl<T: Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+	u128: From<<T as pallet_ismp::Config>::Balance>
 {
 	fn on_executed(messages: Vec<Message>, _events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
 		for message in &messages {

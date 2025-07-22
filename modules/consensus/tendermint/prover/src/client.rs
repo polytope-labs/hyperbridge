@@ -1,15 +1,27 @@
+use std::{fmt::Debug, sync::Arc};
+
 use crate::SignedHeader;
 use async_trait::async_trait;
 use cometbft::{block::Height, validator::Info as Validator};
-use cometbft_rpc::{Client as OtherClient, HttpClient, Paging, Url};
+use cometbft_rpc::{
+	endpoint::abci_query::AbciQuery, Client as OtherClient, HttpClient, Paging, Url,
+};
+use geth_primitives::CodecHeader;
 use reqwest::Client as ReqwestClient;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tendermint_primitives::{
 	prover::{
-		CommitResponse, HeimdallValidatorsResponse, RpcResponse, StatusResponse, ValidatorsResponse,
+		CommitResponse, HeimdallValidatorsResponse, Milestone, RpcResponse, StatusResponse,
+		ValidatorsResponse,
 	},
 	ProverError,
+};
+
+use ethers::{
+	prelude::Provider,
+	providers::{Http, Middleware},
+	types::BlockId,
 };
 
 /// A trait defining the interface for interacting with Tendermint-compatible blockchain nodes.
@@ -213,7 +225,10 @@ impl Client for CometBFTClient {
 /// Heimdall nodes provide a JSON-RPC interface for querying blockchain data.
 pub struct HeimdallClient {
 	raw_client: ReqwestClient,
-	base_url: String,
+	consensus_rpc_url: String,
+	http_client: HttpClient,
+	rest_url: String,
+	execution_rpc_client: Arc<Provider<Http>>,
 }
 
 impl HeimdallClient {
@@ -226,10 +241,28 @@ impl HeimdallClient {
 	/// # Returns
 	///
 	/// A new Heimdall client instance
-	pub fn new(url: &str) -> Self {
+	pub fn new(url: &str, rest_url: &str, execution_rpc: &str) -> Result<Self, ProverError> {
 		let raw_client = ReqwestClient::new();
-		let base_url = url.to_string();
-		Self { raw_client, base_url }
+		let consensus_rpc_url = url.to_string();
+		let client_url = url
+			.parse::<Url>()
+			.map_err(|e| ProverError::ConversionError(format!("Invalid URL: {}", e)))?;
+
+		let http_client =
+			HttpClient::new(client_url).map_err(|e| ProverError::NetworkError(e.to_string()))?;
+
+		let provider = Provider::<Http>::try_from(execution_rpc).map_err(|e| {
+			ProverError::NetworkError(format!("Failed to create ethers provider: {}", e))
+		})?;
+		let execution_rpc_client = Arc::new(provider);
+
+		Ok(Self {
+			raw_client,
+			consensus_rpc_url,
+			http_client,
+			rest_url: rest_url.to_string(),
+			execution_rpc_client,
+		})
 	}
 
 	/// Performs a JSON-RPC request to the Heimdall node.
@@ -256,7 +289,7 @@ impl HeimdallClient {
 
 		let response = self
 			.raw_client
-			.post(&self.base_url)
+			.post(&self.consensus_rpc_url)
 			.json(&request_body)
 			.send()
 			.await
@@ -279,6 +312,142 @@ impl HeimdallClient {
 		rpc_response
 			.result
 			.ok_or_else(|| ProverError::RpcError("No result in response".to_string()))
+	}
+
+	/// Retrieves the number of milestones in the blockchain.
+	///
+	/// # Returns
+	///
+	/// - `Ok(u64)`: The number of milestones
+	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	pub async fn get_milestone_count(&self) -> Result<u64, ProverError> {
+		let response = self
+			.raw_client
+			.get(format!("{}/milestones/count", self.rest_url))
+			.send()
+			.await
+			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
+		let count_resp: serde_json::Value =
+			response.json().await.map_err(|e| ProverError::NetworkError(e.to_string()))?;
+
+		let latest_count = count_resp["count"].as_str().unwrap().parse::<u64>().unwrap();
+		Ok(latest_count)
+	}
+
+	/// Retrieves a milestone by its count.
+	///
+	/// # Arguments
+	///
+	/// * `count` - The count of the milestone to retrieve
+	///
+	/// # Returns
+	pub async fn get_milestone(&self, count: u64) -> Result<Milestone, ProverError> {
+		let response = self
+			.raw_client
+			.get(format!("{}/milestones/{}", self.rest_url, count))
+			.send()
+			.await
+			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
+		let milestone_resp: serde_json::Value =
+			response.json().await.map_err(|e| ProverError::NetworkError(e.to_string()))?;
+
+		// The actual milestone is likely under the "milestone" key, as seen in the integration test
+		let milestone_value = milestone_resp.get("milestone").ok_or_else(|| {
+			ProverError::NetworkError("Missing 'milestone' field in response".to_string())
+		})?;
+		let milestone: Milestone =
+			serde_json::from_value(milestone_value.clone()).map_err(|e| {
+				ProverError::NetworkError(format!("Failed to deserialize Milestone: {}", e))
+			})?;
+		Ok(milestone)
+	}
+
+	/// Retrieves the latest milestone.
+	///
+	/// # Returns
+	///
+	/// - `Ok(Milestone)`: The latest milestone
+	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	pub async fn get_latest_milestone(&self) -> Result<Milestone, ProverError> {
+		let latest_count = self.get_milestone_count().await?;
+		let milestone = self.get_milestone(latest_count).await?;
+		Ok(milestone)
+	}
+
+	/// Retrieves the ICS23 proof for the latest milestone.
+	///
+	/// # Returns
+	///
+	/// - `Ok(Vec<u8>)`: The ICS23 proof
+	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	pub async fn get_ics23_proof(&self) -> Result<AbciQuery, ProverError> {
+		let latest_count = self.get_milestone_count().await?;
+		let latest_height = self.latest_height().await?;
+
+		let mut key = vec![0x81];
+		key.extend_from_slice(&latest_count.to_be_bytes());
+
+		let abci_query: AbciQuery = self
+			.http_client
+			.abci_query(
+				Some("/store/milestone/key".to_string()),
+				key,
+				Some(Height::try_from(latest_height).unwrap()),
+				true,
+			)
+			.await
+			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
+
+		Ok(abci_query)
+	}
+
+	/// Fetches an Ethereum block header from the execution RPC client and converts it to a
+	/// CodecHeader.
+	///
+	/// # Arguments
+	///
+	/// * `block` - The block identifier (number or hash) to fetch. Must implement Into<BlockId>.
+	///
+	/// # Returns
+	///
+	/// - `Ok(Some(CodecHeader))` if the block exists and conversion succeeds
+	/// - `Ok(None)` if the block does not exist
+	/// - `Err(ProverError)` if the RPC call fails
+	pub async fn fetch_header<T: Into<BlockId> + Send + Sync + Debug + Copy>(
+		&self,
+		block: T,
+	) -> Result<Option<CodecHeader>, ProverError> {
+		let block = self
+			.execution_rpc_client
+			.get_block(block)
+			.await
+			.map_err(|e| ProverError::NetworkError(format!("Failed to get block: {}", e)))?;
+		if let Some(block) = block {
+			let header = block.into();
+			Ok(Some(header))
+		} else {
+			Ok(None)
+		}
+	}
+
+	/// Fetches the latest Ethereum block header from the execution RPC client and converts it to a
+	/// CodecHeader.
+	///
+	/// # Returns
+	///
+	/// - `Ok(CodecHeader)` if the latest block exists and conversion succeeds
+	/// - `Err(ProverError)` if the RPC call fails or the block cannot be fetched
+	pub async fn latest_header(&self) -> Result<CodecHeader, ProverError> {
+		let block_number =
+			self.execution_rpc_client.get_block_number().await.map_err(|e| {
+				ProverError::NetworkError(format!("Failed to get block number: {}", e))
+			})?;
+		let header = self.fetch_header(block_number.as_u64()).await?.ok_or_else(|| {
+			ProverError::NetworkError(format!(
+				"Latest header block could not be fetched {block_number}"
+			))
+		})?;
+		Ok(header)
 	}
 }
 
@@ -335,7 +504,7 @@ impl Client for HeimdallClient {
 	}
 
 	async fn is_healthy(&self) -> Result<bool, ProverError> {
-		match self.raw_client.get(&format!("{}/health", self.base_url)).send().await {
+		match self.raw_client.get(&format!("{}/health", self.consensus_rpc_url)).send().await {
 			Ok(response) => Ok(response.status().is_success()),
 			Err(_) => Ok(false),
 		}

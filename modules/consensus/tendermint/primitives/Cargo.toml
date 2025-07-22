@@ -12,5 +12,7 @@ base64 = { version = "0.21"}
 serde_json = { version = "1.0"}
 sha2 = "0.10.7"
 sha3 = "0.10"
+codec = { workspace = true, default-features = false }
+
 
 

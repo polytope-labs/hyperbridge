@@ -9199,6 +9199,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ics23"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73b17f1a5bd7d12ad30a21445cfa5f52fd7651cb3243ba866f9916b1ec112f12"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "hex",
+ "prost 0.13.5",
+]
+
+[[package]]
 name = "icu_collections"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9792,6 +9804,28 @@ name = "ismp-parachain-runtime-api"
 version = "2503.1.0"
 dependencies = [
  "polkadot-sdk 2503.0.1",
+]
+
+[[package]]
+name = "ismp-polygon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "bincode",
+ "geth-primitives",
+ "hex",
+ "ics23",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "rlp 0.5.2",
+ "scale-info",
+ "serde",
+ "serde_json",
+ "tendermint-primitives",
+ "tendermint-prover",
+ "tendermint-verifier",
 ]
 
 [[package]]
@@ -26005,6 +26039,7 @@ dependencies = [
  "base64 0.21.7",
  "cometbft",
  "cometbft-rpc",
+ "parity-scale-codec",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -26021,6 +26056,8 @@ dependencies = [
  "cometbft",
  "cometbft-proto",
  "cometbft-rpc",
+ "ethers",
+ "geth-primitives",
  "polkadot-sdk 2503.0.1",
  "prost 0.13.5",
  "reqwest 0.11.27",

@@ -13,4 +13,4 @@ pub use verifier::{
 
 pub mod prover;
 
-pub use prover::ProverError;
+pub use prover::{Milestone, ProverError};

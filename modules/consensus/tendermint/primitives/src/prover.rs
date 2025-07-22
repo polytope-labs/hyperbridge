@@ -228,6 +228,27 @@ pub struct HeimdallValidatorsResponse {
 	/// Total validator count
 	pub total: String,
 }
+use codec::{Decode, Encode};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+pub struct Milestone {
+	/// Proposer address (hex string)
+	pub proposer: String,
+	/// Start block number of the milestone (string)
+	pub start_block: String,
+	/// End block number of the milestone (string)
+	pub end_block: String,
+	/// Hash of the milestone (base64 string)
+	pub hash: String,
+	/// Bor chain ID (string)
+	pub bor_chain_id: String,
+	/// Milestone ID (hex string)
+	pub milestone_id: String,
+	/// Timestamp of the milestone (string)
+	pub timestamp: String,
+	/// Total difficulty at this milestone (string)
+	pub total_difficulty: String,
+}
 
 impl From<HeimdallValidatorsResponse> for ValidatorsResponse {
 	fn from(heimdall_resp: HeimdallValidatorsResponse) -> Self {

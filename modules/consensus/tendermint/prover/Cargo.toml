@@ -23,7 +23,9 @@ prost = "0.13"
 sha3 = "0.10"
 tracing = "0.1.40"
 tendermint-primitives = { path = "../primitives" }
+geth-primitives = { path = "../../geth-primitives" }
 tracing-subscriber = "0.3"
+ethers = { workspace = true, features = ["ws", "default"] }
 
 
 [dev-dependencies]

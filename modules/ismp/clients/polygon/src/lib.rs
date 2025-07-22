@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use alloc::{boxed::Box, string::ToString, vec::Vec};
 use base64::{engine::general_purpose::STANDARD as base64_engine, Engine};
 use ismp::{
 	consensus::{
@@ -14,6 +14,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 };
 
+use prost::Message;
 use tendermint_primitives::{ConsensusProof, Milestone, TrustedState, VerificationOptions};
 use tendermint_prover::{prove_header_update, Client, HeimdallClient};
 
@@ -22,14 +23,12 @@ use tendermint_prover::{prove_header_update, Client, HeimdallClient};
 pub struct PolygonConsensusUpdate {
 	/// Serialized Tendermint light client update (signed header, validator set, etc.)
 	pub tendermint_proof: ConsensusProof,
-	/// The milestone object (decoded from protobuf)
-	pub milestone: Milestone,
-	/// ICS23 proof for the milestone inclusion
-	pub milestone_proof: Vec<u8>,
-	/// Heimdall block height at which the proof is made
-	pub milestone_height: u64,
-	/// EVM block header for the milestone's end block (concrete type)
+	/// EVM block header for the milestone's end block
 	pub evm_header: geth_primitives::Header,
+	/// Milestone number
+	pub milestone_number: u64,
+	/// ICS23 proof for the milestone inclusion
+	pub ics23_state_proof: Vec<u8>,
 }
 
 /// The trusted consensus state for Polygon
@@ -85,7 +84,8 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for PolygonC
 	}
 }
 
-pub async fn polygon_consensus_update() -> Result<(Vec<u8>, VerifiedCommitments), Error> {
+pub async fn polygon_consensus_update() -> Result<PolygonConsensusUpdate, Error> {
+	// TODO: Cleanup urls
 	let heimdall_rpc_url = "";
 	let heimdall_rest_url = "";
 	let execution_rpc_url = "";
@@ -93,7 +93,7 @@ pub async fn polygon_consensus_update() -> Result<(Vec<u8>, VerifiedCommitments)
 	let client = HeimdallClient::new(heimdall_rpc_url, heimdall_rest_url, execution_rpc_url)
 		.map_err(|e| Error::Custom("PolygonProver: create HeimdallClient failed".to_string()))?;
 
-	let milestone = client
+	let (milestone_number, milestone) = client
 		.get_latest_milestone()
 		.await
 		.map_err(|_| Error::Custom("PolygonProver: fetch milestone failed".to_string()))?;
@@ -116,18 +116,59 @@ pub async fn polygon_consensus_update() -> Result<(Vec<u8>, VerifiedCommitments)
 		.ok_or_else(|| Error::Custom("PolygonProver: EVM header not found".to_string()))?;
 
 	let evm_header_struct: geth_primitives::Header = (&evm_header).into();
-	let evm_header_hash = evm_header_struct.hash(); // TODO: Add type param if needed
+	let evm_header_hash = evm_header_struct.hash();
 	if evm_header_hash.as_bytes() != hash_bytes.as_slice() {
 		return Err(Error::Custom("PolygonProver: EVM header hash mismatch".to_string()));
 	}
 
+	let latest_height = client
+		.latest_height()
+		.await
+		.map_err(|_| Error::Custom("PolygonProver: fetch latest height failed".to_string()))?;
+
 	let abci_query = client
-		.get_ics23_proof()
+		.get_ics23_proof(milestone_number, latest_height)
 		.await
 		.map_err(|_| Error::Custom("PolygonProver: fetch ICS23 proof failed".to_string()))?;
-	let milestone_proof = abci_query.proof.map(|p| p.ops).unwrap_or_default();
-	let milestone_proof_bytes = bincode::serialize(&milestone_proof)
-		.map_err(|_| Error::Custom("PolygonProver: serialize ICS23 proof failed".to_string()))?;
+
+	// ICS23 proof verification
+
+	let proof_bytes = abci_query
+		.proof
+		.as_ref()
+		.ok_or_else(|| Error::Custom("PolygonProver: no proof in abci_query".to_string()))?
+		.ops
+		.get(0)
+		.ok_or_else(|| Error::Custom("PolygonProver: no ops in proof".to_string()))?
+		.data
+		.as_slice();
+
+	let commitment_proof = ics23::CommitmentProof::decode(proof_bytes).map_err(|_| {
+		Error::Custom("PolygonProver: failed to decode CommitmentProof".to_string())
+	})?;
+
+	let spec = ics23::tendermint_spec();
+
+	let tendermint_header = client
+		.signed_header(end_block)
+		.await
+		.map_err(|_| Error::Custom("PolygonProver: fetch Signed header failed".to_string()))?;
+
+	let root = tendermint_header.header.app_hash.as_bytes().to_vec().into();
+
+	let verification_result = ics23::verify_membership(
+		&commitment_proof,
+		&spec,
+		&root,
+		&abci_query.key,
+		&abci_query.value,
+	);
+
+	if !verification_result {
+		return Err(Error::Custom("PolygonProver: ICS23 proof verification failed".to_string()));
+	}
+
+	// Consensus Proof generation
 
 	let chain_id = client
 		.chain_id()
@@ -171,16 +212,10 @@ pub async fn polygon_consensus_update() -> Result<(Vec<u8>, VerifiedCommitments)
 
 	let update = PolygonConsensusUpdate {
 		tendermint_proof: consensus_proof,
-		milestone: milestone.clone(),
-		milestone_proof: milestone_proof_bytes,
-		milestone_height: milestone.end_block.parse().unwrap_or(0),
+		ics23_state_proof: proof_bytes.to_vec(),
+		milestone_number,
 		evm_header: evm_header_struct,
 	};
 
-	// TODO: Update the returns
-	Ok((
-		bincode::serialize(&update)
-			.map_err(|_| Error::Custom("PolygonProver: serialize update failed".to_string()))?,
-		VerifiedCommitments::default(),
-	))
+	Ok(update)
 }

@@ -94,11 +94,14 @@ mod tests {
 		)
 		.expect("Failed to create client");
 
-		let milestone = client.get_latest_milestone().await.expect("Failed to fetch milestone");
+		let (milestone_number, _milestone) =
+			client.get_latest_milestone().await.expect("Failed to fetch milestone");
 
-		trace!("Milestone response: {:?}", milestone);
-
-		let abci_query: AbciQuery = client.get_ics23_proof().await.expect("ABCI query failed");
+		let latest_height = client.latest_height().await.expect("Failed to fetch latest height");
+		let abci_query: AbciQuery = client
+			.get_ics23_proof(milestone_number, latest_height)
+			.await
+			.expect("ABCI query failed");
 
 		assert_eq!(abci_query.code, cometbft::abci::Code::Ok);
 		assert!(abci_query.proof.is_some(), "Proof should be present");

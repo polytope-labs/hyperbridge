@@ -368,10 +368,10 @@ impl HeimdallClient {
 	///
 	/// - `Ok(Milestone)`: The latest milestone
 	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
-	pub async fn get_latest_milestone(&self) -> Result<Milestone, ProverError> {
+	pub async fn get_latest_milestone(&self) -> Result<(u64, Milestone), ProverError> {
 		let latest_count = self.get_milestone_count().await?;
 		let milestone = self.get_milestone(latest_count).await?;
-		Ok(milestone)
+		Ok((latest_count, milestone))
 	}
 
 	/// Retrieves the ICS23 proof for the latest milestone.
@@ -380,19 +380,20 @@ impl HeimdallClient {
 	///
 	/// - `Ok(Vec<u8>)`: The ICS23 proof
 	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
-	pub async fn get_ics23_proof(&self) -> Result<AbciQuery, ProverError> {
-		let latest_count = self.get_milestone_count().await?;
-		let latest_height = self.latest_height().await?;
-
+	pub async fn get_ics23_proof(
+		&self,
+		count: u64,
+		latest_consensus_height: u64,
+	) -> Result<AbciQuery, ProverError> {
 		let mut key = vec![0x81];
-		key.extend_from_slice(&latest_count.to_be_bytes());
+		key.extend_from_slice(&count.to_be_bytes());
 
 		let abci_query: AbciQuery = self
 			.http_client
 			.abci_query(
 				Some("/store/milestone/key".to_string()),
 				key,
-				Some(Height::try_from(latest_height).unwrap()),
+				Some(Height::try_from(latest_consensus_height).unwrap()),
 				true,
 			)
 			.await

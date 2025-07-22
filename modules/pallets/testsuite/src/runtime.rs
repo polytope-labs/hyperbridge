@@ -51,6 +51,9 @@ use sp_runtime::{
 };
 
 use substrate_state_machine::SubstrateStateMachine;
+use crate::runtime::sp_runtime::DispatchError;
+use pallet_messaging_relayer_incentives::types::PriceOracle;
+
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
@@ -85,7 +88,8 @@ frame_support::construct_runtime!(
 		TokenGatewayInspector: pallet_token_gateway_inspector,
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
-		RelayerIncentives: pallet_relayer_incentives
+		RelayerIncentives: pallet_relayer_incentives,
+		MessagingRelayerIncentives: pallet_messaging_relayer_incentives
 	}
 );
 
@@ -208,7 +212,24 @@ impl pallet_ismp::Config for Test {
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = pallet_relayer_incentives::Pallet<Test>;
+	type FeeHandler = CombinedFeeHandler;
+}
+
+use pallet_ismp::fee_handler::FeeHandler;
+use frame_support::dispatch::{DispatchResultWithPostInfo, PostDispatchInfo, Pays};
+use ismp::messaging::Message;
+use ismp::{
+	events::Event as IsmpEvent
+};
+
+pub struct CombinedFeeHandler;
+impl FeeHandler for CombinedFeeHandler {
+	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+		pallet_relayer_incentives::Pallet::<Test>::on_executed(messages.clone(), events.clone())?;
+		pallet_messaging_relayer_incentives::Pallet::<Test>::on_executed(messages, events)?;
+
+		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
+	}
 }
 
 impl pallet_hyperbridge::Config for Test {
@@ -311,6 +332,29 @@ impl pallet_relayer_incentives::Config for Test {
 	type TreasuryAccount = TreasuryAccount;
 	type WeightInfo = ();
 	type IncentivesOrigin = EnsureRoot<AccountId32>;
+}
+
+impl pallet_messaging_relayer_incentives::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+	type TreasuryAccount = TreasuryAccount;
+	type IncentivesOrigin = EnsureRoot<AccountId32>;
+
+	type PriceOracle = MockPriceOracle;
+	type EpochLength = ConstU64<100>;
+	type TargetMessageSize = ConstU32<1000>;
+	type WeightInfo = ();
+}
+
+pub struct MockPriceOracle;
+
+impl PriceOracle<<Test as pallet_balances::Config>::Balance> for MockPriceOracle {
+	fn convert_to_usd(
+		_source_state_machine: StateMachine,
+		amount: <Test as pallet_balances::Config>::Balance,
+	) -> Result<<Test as pallet_balances::Config>::Balance, DispatchError> {
+		Ok(amount)
+	}
 }
 
 parameter_types! {

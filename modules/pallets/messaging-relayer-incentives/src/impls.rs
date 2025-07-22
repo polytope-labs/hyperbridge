@@ -62,11 +62,11 @@ where
 
 		for (state_machine, messages) in &messages_by_chain {
 			let bytes_processed = messages.len() as u32;
-			let current_total_bytes = TotalBytesProcessed::<T>::get();
 
 			TotalBytesProcessed::<T>::mutate(|total| {
 				*total = total.saturating_add(bytes_processed)
 			});
+			let current_total_bytes = TotalBytesProcessed::<T>::get();
 
 			if let Some(host_params) = pallet_ismp_host_executive::HostParams::<T>::get(&state_machine) {
 				match host_params {
@@ -129,7 +129,7 @@ where
 
 	/// A curve for calculating reward
 	/// Reward=BaseReward×((TargetSize−TotalBytes)/TargetSize)^2
-	fn calculate_reward(
+	pub fn calculate_reward(
 		total_bytes: u32,
 		target_size: u32,
 		base_reward: u128,
@@ -148,7 +148,7 @@ where
 		let target_size_sq =
 			target_size.checked_mul(target_size).ok_or(Error::<T>::CalculationOverflow)? as u128;
 
-		Ok(final_reward_numerator / target_size_sq)
+		Ok(final_reward_numerator.saturating_div(target_size_sq))
 	}
 }
 
@@ -157,7 +157,7 @@ where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	u128: From<<T as pallet_ismp::Config>::Balance>
 {
-	fn on_executed(messages: Vec<Message>, _events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+	pub fn on_executed(messages: Vec<Message>, _events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
 		for message in &messages {
 			let relayer_address = match message {
 				Message::Request(msg) => Some(msg.signer.clone()),

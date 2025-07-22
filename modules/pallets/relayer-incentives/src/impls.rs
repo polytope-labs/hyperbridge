@@ -94,11 +94,11 @@ where
 }
 
 /// Implementation of the FeeHandler trait for the RelayerIncentives pallet
-impl<T: Config> FeeHandler for Pallet<T>
+impl<T: Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
-	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+	pub fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
 		let mut state_machine_map = BTreeMap::new();
 
 		for event in events {

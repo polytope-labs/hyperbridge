@@ -35,7 +35,7 @@ use polkadot_sdk::*;
 use crate::types::*;
 
 mod impls;
-mod types;
+pub mod types;
 
 pub use pallet::*;
 

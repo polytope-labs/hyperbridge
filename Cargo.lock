@@ -14420,6 +14420,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
+ "pallet-messaging-relayer-incentives",
  "pallet-mmr-tree",
  "pallet-relayer-incentives",
  "pallet-token-gateway",

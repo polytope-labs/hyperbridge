@@ -375,7 +375,7 @@ jobs:
 
             - name: Tendermint Integration Test
               run: |
-                  RUST_LOG=trace cargo test -p tendermint-prover -- --nocapture --ignored
+                  RUST_LOG=tendermint_prover=trace,tendermint_verifier=trace cargo test -p tendermint-prover -- --nocapture --ignored
 
             - name: Clean up docker
               if: always()

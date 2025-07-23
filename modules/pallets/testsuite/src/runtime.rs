@@ -50,9 +50,9 @@ use sp_runtime::{
 	AccountId32, BuildStorage,
 };
 
-use substrate_state_machine::SubstrateStateMachine;
 use crate::runtime::sp_runtime::DispatchError;
-use pallet_messaging_relayer_incentives::types::PriceOracle;
+use pallet_messaging_fees::types::PriceOracle;
+use substrate_state_machine::SubstrateStateMachine;
 
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 
@@ -89,7 +89,7 @@ frame_support::construct_runtime!(
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
 		RelayerIncentives: pallet_relayer_incentives,
-		MessagingRelayerIncentives: pallet_messaging_relayer_incentives
+		MessagingRelayerIncentives: pallet_messaging_fees
 	}
 );
 
@@ -215,18 +215,15 @@ impl pallet_ismp::Config for Test {
 	type FeeHandler = CombinedFeeHandler;
 }
 
+use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
+use ismp::{events::Event as IsmpEvent, messaging::Message};
 use pallet_ismp::fee_handler::FeeHandler;
-use frame_support::dispatch::{DispatchResultWithPostInfo, PostDispatchInfo, Pays};
-use ismp::messaging::Message;
-use ismp::{
-	events::Event as IsmpEvent
-};
 
 pub struct CombinedFeeHandler;
 impl FeeHandler for CombinedFeeHandler {
 	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
 		pallet_relayer_incentives::Pallet::<Test>::on_executed(messages.clone(), events.clone())?;
-		pallet_messaging_relayer_incentives::Pallet::<Test>::on_executed(messages, events)?;
+		pallet_messaging_fees::Pallet::<Test>::on_executed(messages, events)?;
 
 		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 	}
@@ -334,7 +331,7 @@ impl pallet_relayer_incentives::Config for Test {
 	type IncentivesOrigin = EnsureRoot<AccountId32>;
 }
 
-impl pallet_messaging_relayer_incentives::Config for Test {
+impl pallet_messaging_fees::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryAccount;

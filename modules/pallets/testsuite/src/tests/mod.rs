@@ -10,6 +10,6 @@ mod pallet_xcm_gateway;
 mod xcm_integration_test;
 
 mod pallet_bridge_airdrop;
+mod pallet_messaging_fees;
 mod pallet_relayer_incentives;
 mod pallet_token_gateway;
-mod pallet_messaging_relayer_incentives;

@@ -64,7 +64,7 @@ members = [
     "modules/ismp/state-machines/substrate",
     "modules/ismp/state-machines/hyperbridge",
     "modules/pallets/relayer-incentives",
-    "modules/pallets/messaging-relayer-incentives",
+    "modules/pallets/messaging-fees",
 
     # evm stuff
     "evm/integration-tests",
@@ -250,7 +250,7 @@ pallet-ismp-relayer = { path = "modules/pallets/relayer", default-features = fal
 pallet-ismp-host-executive = { path = "modules/pallets/host-executive", default-features = false }
 pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default-features = false }
 pallet-relayer-incentives = { path = "modules/pallets/relayer-incentives", default-features = false }
-pallet-messaging-relayer-incentives = { path = "modules/pallets/messaging-relayer-incentives", default-features = false }
+pallet-messaging-fees= { path = "modules/pallets/messaging-fees", default-features = false }
 pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = false }
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }

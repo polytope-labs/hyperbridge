@@ -23,16 +23,16 @@
 
 extern crate alloc;
 
+use crate::types::*;
 use alloc::vec::Vec;
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
 	pallet_prelude::*,
-	traits::Get
+	traits::{Get, OneSessionHandler},
 };
 use frame_system::pallet_prelude::*;
 use ismp::host::{IsmpHost, StateMachine};
 use polkadot_sdk::*;
-use crate::types::*;
 
 mod impls;
 pub mod types;
@@ -82,16 +82,24 @@ pub mod pallet {
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
 	}
+
 	/// Total bytes processed in the current epoch for all chains
 	#[pallet::storage]
 	#[pallet::getter(fn total_bytes_processed)]
 	pub type TotalBytesProcessed<T: Config> = StorageValue<_, u32, ValueQuery>;
 
-	/// Chains we want to incentivize for
+	/// Stores whitelisted routes for incentives. The key is a tuple of (source, destination).
 	#[pallet::storage]
-	#[pallet::getter(fn supported_state_machines)]
-	pub type SupportedStateMachines<T: Config> =
-		StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
+	#[pallet::getter(fn incentivized_routes)]
+	pub type IncentivizedRoutes<T: Config> = StorageDoubleMap<
+		_,
+		Twox64Concat,
+		StateMachine,
+		Twox64Concat,
+		StateMachine,
+		bool,
+		OptionQuery,
+	>;
 
 	/// Current active Epoch for incentivization
 	#[pallet::storage]
@@ -111,13 +119,10 @@ pub mod pallet {
 	}
 
 	#[pallet::event]
-	#[pallet::generate_deposit(pub(super) fn deposit_event)]
+	#[pallet::generate_deposit(pub (super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// State machine supported for incentives
-		StateMachineSupported {
-			/// State machine that is now supported
-			state_machine: StateMachine,
-		},
+		/// State machine Routes supported for incentives
+		RouteSupported { source_chain: StateMachine, destination_chain: StateMachine },
 		/// A relayer was rewarded
 		RelayerRewarded {
 			/// Relayer account that received the reward
@@ -155,18 +160,22 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Sets the supported state machine for messaging incentives
+		/// Whitelists a route for messaging incentives.
 		#[pallet::call_index(0)]
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-		pub fn set_supported_state_machines(
+		#[pallet::weight(T::WeightInfo::set_supported_route())]
+		pub fn set_supported_route(
 			origin: OriginFor<T>,
-			state_machine: StateMachine,
+			source: StateMachine,
+			destination: StateMachine,
 		) -> DispatchResult {
 			<T as Config>::IncentivesOrigin::ensure_origin(origin)?;
 
-			SupportedStateMachines::<T>::insert(state_machine, true);
+			IncentivizedRoutes::<T>::insert(source, destination, true);
 
-			Self::deposit_event(Event::<T>::StateMachineSupported { state_machine });
+			Self::deposit_event(Event::<T>::RouteSupported {
+				source_chain: source,
+				destination_chain: destination,
+			});
 
 			Ok(())
 		}

@@ -1,5 +1,5 @@
 [package]
-name = "pallet-messaging-relayer-incentives"
+name = "pallet-messaging-fees"
 version = "0.1.0"
 description = "FRAME pallet for incentivizing hyperbridge messaging relayers with rewards"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -15,6 +15,7 @@ scale-info = { workspace = true }
 pallet-ismp = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 pallet-ismp-host-executive = { workspace = true, default-features = false }
+pallet-hyperbridge = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -28,7 +29,8 @@ std = [
     "polkadot-sdk/std",
     "pallet-ismp/std",
     "ismp/std",
-    "pallet-ismp-host-executive/std"
+    "pallet-ismp-host-executive/std",
+    "pallet-hyperbridge/std"
 ]
 runtime-benchmarks = ["polkadot-sdk/runtime-benchmarks"]
 try-runtime = ["polkadot-sdk/try-runtime"]

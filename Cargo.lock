@@ -14420,7 +14420,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
- "pallet-messaging-relayer-incentives",
+ "pallet-messaging-fees",
  "pallet-mmr-tree",
  "pallet-relayer-incentives",
  "pallet-token-gateway",
@@ -14495,10 +14495,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-messaging-relayer-incentives"
+name = "pallet-messaging-fees"
 version = "0.1.0"
 dependencies = [
  "ismp",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",

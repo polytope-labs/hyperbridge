@@ -7,7 +7,7 @@ use polkadot_sdk::{
 };
 use sp_core::{keccak_256, sr25519, Pair, H256};
 
-use ismp::{events::Event as IsmpEvent, messaging::Message, router::RequestResponse};
+use ismp::{messaging::Message, router::RequestResponse};
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
 

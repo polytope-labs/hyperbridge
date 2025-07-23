@@ -74,10 +74,6 @@ pub mod pallet {
 		/// Price oracle for price conversion to bridge tokens
 		type PriceOracle: PriceOracle<Self::Balance>;
 
-		/// The epoch length to reward messages in blocks
-		#[pallet::constant]
-		type EpochLength: Get<BlockNumberFor<Self>>;
-
 		/// The target message size
 		#[pallet::constant]
 		type TargetMessageSize: Get<u32>;

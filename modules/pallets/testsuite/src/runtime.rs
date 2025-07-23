@@ -336,9 +336,7 @@ impl pallet_messaging_fees::Config for Test {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryAccount;
 	type IncentivesOrigin = EnsureRoot<AccountId32>;
-
 	type PriceOracle = MockPriceOracle;
-	type EpochLength = ConstU64<100>;
 	type TargetMessageSize = ConstU32<1000>;
 	type WeightInfo = ();
 }

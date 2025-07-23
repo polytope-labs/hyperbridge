@@ -1,14 +1,17 @@
 use codec::{Decode, Encode};
 use ismp::{
 	host::StateMachine,
-	messaging::{RequestMessage, ResponseMessage},
 	router::{PostRequest, Request, Response},
 };
 use polkadot_sdk::{
 	frame_support::pallet_prelude::TypeInfo,
+	sp_core,
 	sp_core::RuntimeDebug,
 	sp_runtime::{traits::Zero, DispatchError, Weight},
 };
+
+pub type AuthorityId = sp_core::sr25519::Public;
+pub type AuthoritySignature = sp_core::sr25519::Signature;
 
 pub enum IncentivizedMessage {
 	Post(PostRequest),

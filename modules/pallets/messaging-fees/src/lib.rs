@@ -28,11 +28,14 @@ use alloc::vec::Vec;
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
 	pallet_prelude::*,
-	traits::{Get, OneSessionHandler},
+	traits::Get,
 };
 use frame_system::pallet_prelude::*;
 use ismp::host::{IsmpHost, StateMachine};
-use polkadot_sdk::*;
+use polkadot_sdk::{
+	sp_runtime::{traits::OpaqueKeys, KeyTypeId},
+	*,
+};
 
 mod impls;
 pub mod types;
@@ -144,23 +147,9 @@ pub mod pallet {
 		},
 	}
 
-	#[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		fn on_finalize(n: BlockNumberFor<T>) {
-			let mut epoch = Epoch::<T>::get();
-			if n - epoch.start_block >= T::EpochLength::get() {
-				epoch.index += 1;
-				epoch.start_block = n;
-				Epoch::<T>::put(epoch.clone());
-				TotalBytesProcessed::<T>::kill();
-				Self::deposit_event(Event::NewEpoch { index: epoch.index });
-			}
-		}
-	}
-
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Whitelists a route for messaging incentives.
+		/// Whitelists a route for messaging fees.
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::set_supported_route())]
 		pub fn set_supported_route(
@@ -180,4 +169,29 @@ pub mod pallet {
 			Ok(())
 		}
 	}
+}
+
+impl<T: Config> pallet_session::SessionHandler<T::AccountId> for Pallet<T> {
+	const KEY_TYPE_IDS: &'static [KeyTypeId] = &[];
+
+	fn on_genesis_session<Ks: OpaqueKeys>(_validators: &[(T::AccountId, Ks)]) {}
+
+	fn on_new_session<Ks: OpaqueKeys>(
+		_changed: bool,
+		_validators: &[(T::AccountId, Ks)],
+		_queued_validators: &[(T::AccountId, Ks)],
+	) {
+		let current_block = <frame_system::Pallet<T>>::block_number();
+		let mut epoch = Epoch::<T>::get();
+
+		epoch.index += 1;
+		epoch.start_block = current_block;
+		Epoch::<T>::put(epoch.clone());
+
+		TotalBytesProcessed::<T>::kill();
+
+		Self::deposit_event(Event::NewEpoch { index: epoch.index });
+	}
+
+	fn on_disabled(_validator_index: u32) {}
 }

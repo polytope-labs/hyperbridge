@@ -223,7 +223,7 @@ pub struct CombinedFeeHandler;
 impl FeeHandler for CombinedFeeHandler {
 	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
 		pallet_relayer_incentives::Pallet::<Test>::on_executed(messages.clone(), events.clone())?;
-		pallet_messaging_fees::Pallet::<Test>::on_executed(messages, events)?;
+		pallet_messaging_fees::Pallet::<Test>::on_executed(messages)?;
 
 		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 	}

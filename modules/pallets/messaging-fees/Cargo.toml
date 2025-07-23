@@ -19,7 +19,7 @@ pallet-hyperbridge = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
-features = ["frame-support", "frame-system", "sp-runtime"]
+features = ["frame-support", "frame-system", "sp-runtime", "pallet-session", "sp-application-crypto"]
 
 [features]
 default = ["std"]
@@ -30,7 +30,8 @@ std = [
     "pallet-ismp/std",
     "ismp/std",
     "pallet-ismp-host-executive/std",
-    "pallet-hyperbridge/std"
+    "pallet-hyperbridge/std",
+    "polkadot-sdk/sp-application-crypto"
 ]
 runtime-benchmarks = ["polkadot-sdk/runtime-benchmarks"]
 try-runtime = ["polkadot-sdk/try-runtime"]

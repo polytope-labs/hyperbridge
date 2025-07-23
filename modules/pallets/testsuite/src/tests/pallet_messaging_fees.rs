@@ -1,13 +1,19 @@
 #![cfg(test)]
 
-use codec::Encode;
+use codec::{Decode, Encode};
 use polkadot_sdk::{
 	frame_support::traits::{
 		fungible::{Inspect, Mutate},
-		Get, Hooks,
+		Get,
 	},
-	sp_runtime::traits::AccountIdConversion,
+	pallet_session::SessionHandler,
+	sp_runtime::{
+		traits::{AccountIdConversion, OpaqueKeys},
+		KeyTypeId,
+	},
 };
+
+use scale_info::TypeInfo;
 use sp_core::{crypto::AccountId32, keccak_256, sr25519, Pair, H256, U256};
 
 use ismp::{
@@ -16,13 +22,10 @@ use ismp::{
 	messaging::{Message, Proof, RequestMessage},
 	router::PostRequest,
 };
-use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 use pallet_messaging_fees::{Epoch, TotalBytesProcessed};
 
-use crate::runtime::{
-	new_test_ext, Balances, Ismp, RuntimeOrigin, System, Test, TreasuryAccount, UNIT,
-};
+use crate::runtime::{new_test_ext, Balances, RuntimeOrigin, Test, TreasuryAccount, UNIT};
 
 fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32) {
 	assert_eq!(Balances::balance(relayer_account), 0);
@@ -105,7 +108,7 @@ fn test_incentivize_relayer_for_request_message() {
 
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
 		let bytes_processed = 1;
 		let base_reward = 100_000u128;
@@ -148,7 +151,7 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 
 		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
 		let fee_charged = 100_000u128;
 
@@ -171,7 +174,7 @@ fn test_skip_incentivizing_for_unsupported_route() {
 
 		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
 		assert_eq!(Balances::balance(&relayer_account), 1000 * UNIT);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
@@ -200,7 +203,7 @@ fn test_skip_incentivizing_for_invalid_signature() {
 
 		let request_message = create_request_message(source_chain, dest_chain, &evil_pair);
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
 		assert_eq!(Balances::balance(&relayer_account), 1000 * UNIT);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
@@ -232,8 +235,7 @@ fn test_reward_decreases_as_messages_increase() {
 
 		for i in 0..number_of_messages {
 			let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
-			let _ =
-				pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
+			let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
 			let current_balance = Balances::balance(&relayer_account);
 			let reward_received = current_balance.saturating_sub(previous_balance);
@@ -250,5 +252,40 @@ fn test_reward_decreases_as_messages_increase() {
 			last_reward = reward_received;
 			previous_balance = current_balance;
 		}
+	});
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Default, Encode, Decode, TypeInfo)]
+pub struct MockOpaqueKeys;
+
+impl OpaqueKeys for MockOpaqueKeys {
+	type KeyTypeIdProviders = ();
+
+	fn key_ids() -> &'static [KeyTypeId] {
+		todo!()
+	}
+
+	fn get_raw(&self, _i: KeyTypeId) -> &[u8] {
+		todo!()
+	}
+}
+
+#[test]
+fn test_on_new_session_resets_state() {
+	new_test_ext().execute_with(|| {
+		TotalBytesProcessed::<Test>::put(500);
+		assert_eq!(Epoch::<Test>::get().index, 0);
+		assert_eq!(TotalBytesProcessed::<Test>::get(), 500);
+
+		let validators: Vec<(AccountId32, MockOpaqueKeys)> = vec![];
+		let queued_validators: Vec<(AccountId32, MockOpaqueKeys)> = vec![];
+		pallet_messaging_fees::Pallet::<Test>::on_new_session(
+			true,
+			&validators,
+			&queued_validators,
+		);
+
+		assert_eq!(Epoch::<Test>::get().index, 1);
+		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
 	});
 }

@@ -24,13 +24,49 @@ use ismp::{
 	host::IsmpHost,
 	messaging::Message,
 };
-use pallet_ismp::fee_handler::FeeHandler;
 use polkadot_sdk::{frame_support::traits::fungible::Mutate, sp_runtime::traits::*};
 
 impl<T: Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
+	pub fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+		let mut state_machine_map = BTreeMap::new();
+
+		for event in events {
+			if let IsmpEvent::StateMachineUpdated(update) = event {
+				state_machine_map.insert(
+					update.state_machine_id.clone(),
+					(update.state_machine_id.consensus_state_id.clone(), update.latest_height),
+				);
+			}
+		}
+
+		for message in messages {
+			if let Message::Consensus(consensus_msg) = message {
+				let maybe_match = state_machine_map.iter().find(|(_, (consensus_state_id, _))| {
+					*consensus_state_id == consensus_msg.consensus_state_id
+				});
+
+				if let Some((state_machine_id, (_, height))) = maybe_match {
+					let state_machine_height =
+						StateMachineHeight { id: state_machine_id.clone(), height: height.clone() };
+
+					Self::process_message(
+						state_machine_height,
+						state_machine_id.clone(),
+						consensus_msg.signer.clone(),
+					)?;
+				}
+			}
+		}
+
+		// Return with actual weight information
+		// We use Pays::No to indicate that someone (the message sender) doesn't pay for this
+		// operation, though we're using this mechanism to reward relayers rather than charge fees
+		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
+	}
+
 	/// Process a message and reward the relayer
 	///
 	/// This is an internal function used to handle relayer rewards for each
@@ -90,48 +126,5 @@ where
 		let reward = blocks_as_balance.saturating_mul(block_cost);
 
 		Ok(reward)
-	}
-}
-
-/// Implementation of the FeeHandler trait for the RelayerIncentives pallet
-impl<T: Config> Pallet<T>
-where
-	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-{
-	pub fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
-		let mut state_machine_map = BTreeMap::new();
-
-		for event in events {
-			if let IsmpEvent::StateMachineUpdated(update) = event {
-				state_machine_map.insert(
-					update.state_machine_id.clone(),
-					(update.state_machine_id.consensus_state_id.clone(), update.latest_height),
-				);
-			}
-		}
-
-		for message in messages {
-			if let Message::Consensus(consensus_msg) = message {
-				let maybe_match = state_machine_map.iter().find(|(_, (consensus_state_id, _))| {
-					*consensus_state_id == consensus_msg.consensus_state_id
-				});
-
-				if let Some((state_machine_id, (_, height))) = maybe_match {
-					let state_machine_height =
-						StateMachineHeight { id: state_machine_id.clone(), height: height.clone() };
-
-					Self::process_message(
-						state_machine_height,
-						state_machine_id.clone(),
-						consensus_msg.signer.clone(),
-					)?;
-				}
-			}
-		}
-
-		// Return with actual weight information
-		// We use Pays::No to indicate that someone (the message sender) doesn't pay for this
-		// operation, though we're using this mechanism to reward relayers rather than charge fees
-		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 	}
 }

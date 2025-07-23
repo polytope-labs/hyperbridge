@@ -18,6 +18,43 @@ where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	u128: From<<T as pallet_ismp::Config>::Balance>,
 {
+	pub fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo {
+		for message in &messages {
+			let relayer_account = match message {
+				Message::Request(msg) => {
+					let data = keccak_256(&msg.requests.encode());
+					Self::verify_and_get_relayer(&msg.signer, &data)
+				},
+				Message::Response(msg) => {
+					let data = keccak_256(&msg.datagram.encode());
+					Self::verify_and_get_relayer(&msg.signer, &data)
+				},
+				_ => None,
+			};
+
+			if let Some(relayer_account) = relayer_account {
+				let _ = Self::process_message(message, relayer_account);
+			}
+		}
+
+		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
+	}
+
+	fn verify_and_get_relayer(signer: &Vec<u8>, signed_data: &[u8; 32]) -> Option<T::AccountId>
+	where
+		T::AccountId: From<[u8; 32]>,
+	{
+		type Sr25519Signature = (sr25519::Public, sr25519::Signature);
+
+		if let Ok((pub_key, sig)) = Sr25519Signature::decode(&mut &signer[..]) {
+			if sr25519::Pair::verify(&sig, signed_data, &pub_key) {
+				return Some(pub_key.0.into());
+			}
+		}
+
+		None
+	}
+
 	fn process_message(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
 		let mut messages_by_chain: BTreeMap<StateMachine, Vec<IncentivizedMessage>> =
 			BTreeMap::new();
@@ -169,51 +206,5 @@ where
 			target_size.checked_mul(target_size).ok_or(Error::<T>::CalculationOverflow)? as u128;
 
 		Ok(final_reward_numerator.saturating_div(target_size_sq))
-	}
-}
-
-impl<T: Config> Pallet<T>
-where
-	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-	u128: From<<T as pallet_ismp::Config>::Balance>,
-{
-	pub fn on_executed(
-		messages: Vec<Message>,
-		_events: Vec<IsmpEvent>,
-	) -> DispatchResultWithPostInfo {
-		for message in &messages {
-			let relayer_account = match message {
-				Message::Request(msg) => {
-					let data = keccak_256(&msg.requests.encode());
-					Self::verify_and_get_relayer(&msg.signer, &data)
-				},
-				Message::Response(msg) => {
-					let data = keccak_256(&msg.datagram.encode());
-					Self::verify_and_get_relayer(&msg.signer, &data)
-				},
-				_ => None,
-			};
-
-			if let Some(relayer_account) = relayer_account {
-				let _ = Self::process_message(message, relayer_account);
-			}
-		}
-
-		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
-	}
-
-	fn verify_and_get_relayer(signer: &Vec<u8>, signed_data: &[u8; 32]) -> Option<T::AccountId>
-	where
-		T::AccountId: From<[u8; 32]>,
-	{
-		type Sr25519Signature = (sr25519::Public, sr25519::Signature);
-
-		if let Ok((pub_key, sig)) = Sr25519Signature::decode(&mut &signer[..]) {
-			if sr25519::Pair::verify(&sig, signed_data, &pub_key) {
-				return Some(pub_key.0.into());
-			}
-		}
-
-		None
 	}
 }

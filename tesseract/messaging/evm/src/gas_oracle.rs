@@ -155,21 +155,25 @@ pub async fn get_current_gas_cost_in_usd(
 				},
 				CHIADO_CHAIN_ID | GNOSIS_CHAIN_ID => {
 					let node_gas_price = client.get_gas_price().await?;
-					#[derive(Debug, Deserialize, Clone)]
+					#[derive(Debug, Deserialize, Clone, Default)]
 					struct BlockscoutResponse {
 						average: f32,
 					}
 					if CHIADO_CHAIN_ID == inner_evm {
 						let uri = "https://blockscout.chiadochain.net/api/v1/gas-price-oracle";
 						let response_json =
-							make_request::<BlockscoutResponse>(&uri, Default::default()).await?;
+							make_request::<BlockscoutResponse>(&uri, Default::default())
+								.await
+								.unwrap_or_default();
 						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
 						// needed because of ether-rs and polkadot-sdk incompatibility
 						gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price));
 					} else {
 						let uri = "https://blockscout.com/xdai/mainnet/api/v1/gas-price-oracle";
 						let response_json =
-							make_request::<BlockscoutResponse>(&uri, Default::default()).await?;
+							make_request::<BlockscoutResponse>(&uri, Default::default())
+								.await
+								.unwrap_or_default();
 						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
 						// needed because of ether-rs and polkadot-sdk incompatibility
 						gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price));

@@ -326,14 +326,13 @@ use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, Contains},
 };
-use orml_traits::parameters::sp_runtime::traits::ConvertInto;
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
-use sp_runtime::traits::IdentityLookup;
+use sp_runtime::traits::{ConvertInto, IdentityLookup};
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
 #[cfg(feature = "runtime-benchmarks")]

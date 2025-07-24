@@ -155,7 +155,6 @@ xcm-simulator-example = "=20.0.1"
 # supporting polkadot-sdk crates
 orml-xcm-support = { version = "=1.4.0", default-features = false }
 orml-traits = { version = "=1.4.0", default-features = false }
-orml-utilities = { version = "=1.4.0", default-features = false }
 sc-simnode = { version = "2506.0.0" }
 simnode-runtime-api = { version = "2506.0.0", default-features = false }
 

@@ -49,8 +49,10 @@ token-gateway-primitives = { workspace = true, default-features = true }
 pallet-bridge-airdrop = { workspace = true, default-features = true }
 pallet-relayer-incentives = { workspace = true, default-features = true }
 pallet-messaging-fees = { workspace = true, default-features = true }
+hyperbridge-client-machine =  {workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
+ismp-grandpa = { workspace = true, default-features = true }
 rs_merkle = { version = "1.5.0"}
 
 [dependencies.polkadot-sdk]

@@ -89,7 +89,8 @@ frame_support::construct_runtime!(
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
 		RelayerIncentives: pallet_relayer_incentives,
-		MessagingRelayerIncentives: pallet_messaging_fees
+		MessagingRelayerIncentives: pallet_messaging_fees,
+		IsmpGrandpa: ismp_grandpa::pallet
 	}
 );
 
@@ -197,6 +198,14 @@ parameter_types! {
 	pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
 }
 
+pub struct OnRequestProcessor;
+
+impl OnRequestProcessed for OnRequestProcessor {
+	fn note_request_fee(commitment: H256, fee: u128) {
+		pallet_messaging_fees::Pallet::<Test>::note_request_fee(commitment, fee);
+	}
+}
+
 impl pallet_ismp::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type AdminOrigin = EnsureRoot<AccountId32>;
@@ -210,14 +219,20 @@ impl pallet_ismp::Config for Test {
 		MockConsensusClient,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test, ()>,
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<
+			Test,
+			HyperbridgeClientMachine<Test, Ismp, OnRequestProcessor>,
+		>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = CombinedFeeHandler;
 }
 
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
+use hyperbridge_client_machine::{HyperbridgeClientMachine, OnRequestProcessed};
 use ismp::{events::Event as IsmpEvent, messaging::Message};
 use pallet_ismp::fee_handler::FeeHandler;
+use crate::weights;
 
 pub struct CombinedFeeHandler;
 impl FeeHandler for CombinedFeeHandler {
@@ -282,6 +297,14 @@ impl ismp_bsc::pallet::Config for Test {
 	type IsmpHost = Ismp;
 	type RuntimeEvent = RuntimeEvent;
 }
+
+impl ismp_grandpa::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type IsmpHost = Ismp;
+	type WeightInfo = weights::ismp_grandpa::WeightInfo<Test>;
+	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
 
 parameter_types! {
 	pub const TreasuryAccount: PalletId = PalletId(*b"treasury");

@@ -16,6 +16,7 @@ pallet-ismp = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 pallet-ismp-host-executive = { workspace = true, default-features = false }
 pallet-hyperbridge = { workspace = true, default-features = false }
+hyperbridge-client-machine =  {workspace = true, default-features = false}
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -29,6 +30,7 @@ std = [
     "polkadot-sdk/std",
     "pallet-ismp/std",
     "ismp/std",
+    "hyperbridge-client-machine/std",
     "pallet-ismp-host-executive/std",
     "pallet-hyperbridge/std",
     "polkadot-sdk/sp-application-crypto"

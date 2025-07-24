@@ -8,6 +8,8 @@ use polkadot_sdk::{
 	sp_core::RuntimeDebug,
 	sp_runtime::{traits::Zero, DispatchError, Weight},
 };
+use polkadot_sdk::sp_core::sr25519;
+use ismp::host::StateMachine;
 
 pub type AuthorityId = sp_core::sr25519::Public;
 pub type AuthoritySignature = sp_core::sr25519::Signature;
@@ -16,6 +18,7 @@ pub enum IncentivizedMessage {
 	Request(Request),
 	Response(Response),
 }
+
 
 #[derive(Clone, Encode, Decode, TypeInfo, PartialEq, Eq, RuntimeDebug)]
 pub struct EpochInfo<BlockNumber> {
@@ -39,11 +42,15 @@ pub trait PriceOracle<Balance> {
 /// Weight information for pallet operations
 pub trait WeightInfo {
 	fn set_supported_route() -> Weight;
+	fn withdraw_fees() -> Weight;
 }
 
 /// Default weight implementation using sensible defaults
 impl WeightInfo for () {
 	fn set_supported_route() -> Weight {
 		Weight::from_parts(10_000_000, 0)
+	}
+	fn withdraw_fees() -> Weight {
+		Weight::from_parts(1_000_000_000, 0)
 	}
 }

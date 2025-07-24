@@ -1,25 +1,28 @@
 use alloc::collections::BTreeMap;
 
+use codec::{Decode, Encode};
 use polkadot_sdk::{
 	frame_support::traits::{fungible::Mutate, tokens::Preservation},
 	sp_core::U256,
 	sp_runtime::traits::*,
 };
-use sp_core::{keccak_256, sr25519, Pair, H256};
+use sp_core::{H256, keccak_256, Pair, sr25519};
 
 use ismp::{
-	messaging::Message,
-	router::{Request, RequestResponse, Response},
+	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata},
+	messaging::{hash_request, Message},
+	router::{Request, RequestResponse, Response}
 };
-use pallet_hyperbridge::VersionedHostParams;
+use pallet_hyperbridge::{VersionedHostParams, WithdrawalRequest};
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
 
-use crate::{types::IncentivizedMessage, *};
+use crate::{*, types::IncentivizedMessage};
 
 impl<T: Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	u128: From<<T as pallet_ismp::Config>::Balance>,
+	T::AccountId: AsRef<[u8]>,
 {
 	pub fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo {
 		for message in &messages {
@@ -36,7 +39,8 @@ where
 			};
 
 			if let Some(relayer_account) = relayer_account {
-				let _ = Self::process_message(message, relayer_account);
+				let _ = Self::accumulate_protocol_fees(message, &relayer_account);
+				let _ = Self::process_bridge_rewards(message, relayer_account);
 			}
 		}
 
@@ -57,7 +61,36 @@ where
 		None
 	}
 
-	fn process_message(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
+	fn accumulate_protocol_fees(
+		message: &Message,
+		relayer_account: &T::AccountId,
+	) -> Result<(), Error<T>> {
+		let requests = match message {
+			Message::Request(req) => req.requests.clone(),
+			_ => return Ok(()),
+		};
+
+		for req in requests {
+			let commitment =  hash_request::<<T as pallet::Config>::IsmpHost>(&Request::Post(req.clone()));
+			let  source_chain = &req.source;
+
+			if let Some(fee) = CommitmentFees::<T>::take(&commitment) {
+				AccumulatedFees::<T>::mutate(source_chain, relayer_account, |total_fee| {
+					*total_fee = total_fee.saturating_add(fee);
+				});
+
+				Self::deposit_event(Event::FeeAccumulated {
+					relayer: relayer_account.clone(),
+					source_chain: source_chain.clone(),
+					amount: fee,
+				});
+			}
+		}
+
+		Ok(())
+	}
+
+	fn process_bridge_rewards(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
 		let mut messages_by_chain: BTreeMap<StateMachine, Vec<IncentivizedMessage>> =
 			BTreeMap::new();
 
@@ -189,7 +222,7 @@ where
 						base_reward_in_token,
 						Preservation::Expendable,
 					)
-					.map_err(|_| Error::<T>::RewardTransferFailed)?;
+						.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
 					Self::deposit_event(Event::FeePaid {
 						relayer: relayer.clone(),
@@ -213,23 +246,75 @@ where
 			return Ok(u128::zero());
 		}
 
-		let total_bytes = total_bytes as u128;
-		let target_size = target_size as u128;
+		let total_bytes_u128 = total_bytes as u128;
+		let target_size_u128 = target_size as u128;
 
+		let decay_numerator = target_size_u128.saturating_sub(total_bytes_u128);
 
-		let decay_numerator = target_size.saturating_sub(total_bytes);
-		println!("calculating numerator");
 		let decay_numerator_sq = decay_numerator
 			.checked_mul(decay_numerator)
 			.ok_or(Error::<T>::CalculationOverflow)?;
-		println!("calculating denominator");
-		let final_reward_numerator = base_reward
-			.checked_mul(decay_numerator_sq as u128)
+
+		let target_size_sq = target_size_u128
+			.checked_mul(target_size_u128)
 			.ok_or(Error::<T>::CalculationOverflow)?;
-		println!("calculating square");
-		let target_size_sq =
-			target_size.checked_mul(target_size).ok_or(Error::<T>::CalculationOverflow)? as u128;
+
+		let final_reward_numerator = base_reward
+			.checked_mul(decay_numerator_sq)
+			.ok_or(Error::<T>::CalculationOverflow)?;
 
 		Ok(final_reward_numerator.saturating_div(target_size_sq))
+	}
+
+	pub fn do_withdraw_fees(
+		relayer: T::AccountId,
+		source_chain: StateMachine
+	) -> Result<(), DispatchError> {
+		let nonce = Nonce::<T>::get(&relayer, &source_chain);
+
+		let available_amount =
+			AccumulatedFees::<T>::take(source_chain, &relayer);
+		ensure!(available_amount > T::Balance::from(0u32), Error::<T>::NotEnoughBalance);
+
+		let body = pallet_hyperbridge::Message::WithdrawRelayerFees(WithdrawalRequest {
+			amount: available_amount,
+			account: relayer.clone()
+		}).encode();
+
+		let dispatcher = <T as Config>::IsmpHost::default();
+
+		let post = DispatchPost {
+			dest: source_chain,
+			from: MODULE_ID.to_vec(),
+			to: relayer.as_ref().to_vec(),
+			timeout: 0,
+			body
+		};
+
+		dispatcher
+			.dispatch_request(
+				DispatchRequest::Post(post),
+				FeeMetadata { payer: [0u8; 32].into(),  fee: Default::default() },
+			)
+			.map_err(|_| Error::<T>::DispatchFailed)?;
+
+		Nonce::<T>::try_mutate(relayer.clone(), source_chain, |value| {
+			*value = value.saturating_add(1);
+			Ok::<(), ()>(())
+		})
+			.map_err(|_| Error::<T>::ErrorCompletingCall)?;
+
+		Self::deposit_event(Event::Withdrawn {
+			relayer,
+			source_chain,
+			amount: available_amount,
+		});
+
+		Ok(())
+	}
+
+	pub fn note_request_fee(commitment: H256, fee: u128) {
+		let fee_balance: T::Balance = fee.saturated_into();
+		CommitmentFees::<T>::insert(commitment, fee_balance);
 	}
 }

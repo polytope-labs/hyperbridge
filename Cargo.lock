@@ -14407,8 +14407,10 @@ dependencies = [
  "futures",
  "hash-db",
  "hex",
+ "hyperbridge-client-machine",
  "ismp",
  "ismp-bsc",
+ "ismp-grandpa",
  "ismp-sync-committee",
  "ismp-testsuite",
  "mmr-primitives",
@@ -14498,6 +14500,7 @@ dependencies = [
 name = "pallet-messaging-fees"
 version = "0.1.0"
 dependencies = [
+ "hyperbridge-client-machine",
  "ismp",
  "pallet-hyperbridge",
  "pallet-ismp",

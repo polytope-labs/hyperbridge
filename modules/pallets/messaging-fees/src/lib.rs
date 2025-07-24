@@ -31,6 +31,7 @@ use frame_support::{
 	traits::Get,
 };
 use frame_system::pallet_prelude::*;
+use ismp::dispatcher::IsmpDispatcher;
 use ismp::host::{IsmpHost, StateMachine};
 use polkadot_sdk::{
 	sp_runtime::{traits::OpaqueKeys, KeyTypeId},
@@ -42,10 +43,13 @@ pub mod types;
 
 pub use pallet::*;
 
+pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use frame_support::PalletId;
+	use polkadot_sdk::sp_core::H256;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -63,7 +67,7 @@ pub mod pallet {
 			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The underlying [`IsmpHost`] implementation
-		type IsmpHost: IsmpHost + Default;
+		type IsmpHost: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance> + Default;
 
 		/// The account id for the treasury
 		type TreasuryAccount: Get<PalletId>;
@@ -93,6 +97,37 @@ pub mod pallet {
 	pub type IncentivizedRoutes<T: Config> =
 	StorageMap<_, Twox64Concat, (StateMachine, StateMachine), bool, OptionQuery>;
 
+	/// A map of request commitment to fees associated with them
+	#[pallet::storage]
+	#[pallet::getter(fn commitment_fees)]
+	pub type CommitmentFees<T: Config> = StorageMap<_, Blake2_128Concat, H256, T::Balance, OptionQuery>;
+
+	/// Accumulated fees for a relayer
+	#[pallet::storage]
+	#[pallet::getter(fn accumulated_fees)]
+	pub type AccumulatedFees<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		StateMachine,
+		Blake2_128Concat,
+		T::AccountId,
+		T::Balance,
+		ValueQuery,
+	>;
+
+	/// Latest nonce for each address and the state machine they want to withdraw from
+	#[pallet::storage]
+	#[pallet::getter(fn nonce)]
+	pub type Nonce<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		Blake2_128Concat,
+		StateMachine, // source Chain
+		u64,
+		ValueQuery,
+	>;
+
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -104,6 +139,12 @@ pub mod pallet {
 		ErrorInPriceConversion,
 		/// State machine per byte fee not found
 		PerByteFeeNotFound,
+		/// Not enough balance for withdrawal
+		NotEnoughBalance,
+		/// Dispactch request failed
+		DispatchFailed,
+		/// Error
+		ErrorCompletingCall
 	}
 
 	#[pallet::event]
@@ -126,11 +167,25 @@ pub mod pallet {
 			amount: <T as pallet_ismp::Config>::Balance,
 		},
 		/// Resetting of Incentives has occurred
-		IncentivesReset
+		IncentivesReset,
+		FeeAccumulated {
+			relayer: T::AccountId,
+			source_chain: StateMachine,
+			amount: <T as pallet_ismp::Config>::Balance,
+		},
+		Withdrawn {
+			relayer: T::AccountId,
+			source_chain: StateMachine,
+			amount: <T as pallet_ismp::Config>::Balance,
+		},
 	}
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T> {
+	impl<T: Config> Pallet<T>
+	where
+		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+		u128: From<<T as pallet_ismp::Config>::Balance>,
+		T::AccountId: AsRef<[u8]>,{
 		/// Whitelists a route for messaging fees.
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::set_supported_route())]
@@ -148,6 +203,17 @@ pub mod pallet {
 				destination_chain: destination,
 			});
 
+			Ok(())
+		}
+
+		#[pallet::call_index(1)]
+		#[pallet::weight(T::WeightInfo::withdraw_fees())]
+		pub fn withdraw_fees(
+			origin: OriginFor<T>,
+			source_chain: StateMachine
+		) -> DispatchResult {
+			let relayer = ensure_signed(origin)?;
+			Self::do_withdraw_fees(relayer, source_chain)?;
 			Ok(())
 		}
 	}

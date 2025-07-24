@@ -23,7 +23,7 @@ use ismp::{
 	router::PostRequest,
 };
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
-use pallet_messaging_fees::{Epoch, TotalBytesProcessed};
+use pallet_messaging_fees::TotalBytesProcessed;
 
 use crate::runtime::{new_test_ext, Balances, RuntimeOrigin, Test, TreasuryAccount, UNIT};
 
@@ -301,7 +301,6 @@ impl OpaqueKeys for MockOpaqueKeys {
 fn test_on_new_session_resets_state() {
 	new_test_ext().execute_with(|| {
 		TotalBytesProcessed::<Test>::put(500);
-		assert_eq!(Epoch::<Test>::get().index, 0);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 500);
 
 		let validators: Vec<(AccountId32, MockOpaqueKeys)> = vec![];
@@ -312,7 +311,6 @@ fn test_on_new_session_resets_state() {
 			&queued_validators,
 		);
 
-		assert_eq!(Epoch::<Test>::get().index, 1);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
 	});
 }

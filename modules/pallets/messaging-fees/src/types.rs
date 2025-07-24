@@ -1,6 +1,6 @@
 use codec::{Decode, Encode};
 use ismp::{
-	router::{PostRequest, Request, Response},
+	router::{Request, Response},
 };
 use polkadot_sdk::{
 	frame_support::pallet_prelude::TypeInfo,
@@ -13,7 +13,6 @@ pub type AuthorityId = sp_core::sr25519::Public;
 pub type AuthoritySignature = sp_core::sr25519::Signature;
 
 pub enum IncentivizedMessage {
-	Post(PostRequest),
 	Request(Request),
 	Response(Response),
 }
@@ -34,7 +33,7 @@ impl<BlockNumber: Zero> Default for EpochInfo<BlockNumber> {
 
 /// A trait for Bridge price oracle.
 pub trait PriceOracle<Balance> {
-	fn get_price() -> Result<Balance, DispatchError>;
+	fn get_bridge_price() -> Result<Balance, DispatchError>;
 }
 
 /// Weight information for pallet operations

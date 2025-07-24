@@ -65,10 +65,11 @@ where
 			Message::Request(msg) =>
 				for req in &msg.requests {
 					if IncentivizedRoutes::<T>::get((req.source, req.dest)).is_some() {
+						let request = Request::Post(req.clone());
 						messages_by_chain
 							.entry(req.dest)
 							.or_default()
-							.push(IncentivizedMessage::Post(req.clone()));
+							.push(IncentivizedMessage::Request(request));
 					}
 				},
 			Message::Response(msg) => match msg.datagram.clone() {
@@ -102,7 +103,6 @@ where
 			let bytes_processed: u32 = messages
 				.iter()
 				.map(|msg| match msg {
-					IncentivizedMessage::Post(req) => req.body.len() as u32,
 					IncentivizedMessage::Request(req) => match req {
 						Request::Post(post) => post.body.len() as u32,
 						Request::Get(_) => 0,
@@ -156,7 +156,7 @@ where
 				let dollar_cost: u128 =
 					dollar_cost.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
 
-				let bridge_usd_price = T::PriceOracle::get_price()
+				let bridge_usd_price = T::PriceOracle::get_bridge_price()
 					.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
 				let base_reward_in_token =

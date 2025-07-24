@@ -94,11 +94,6 @@ pub mod pallet {
 	StorageMap<_, Twox64Concat, (StateMachine, StateMachine), bool, OptionQuery>;
 
 
-	/// Current active Epoch for incentivization
-	#[pallet::storage]
-	#[pallet::getter(fn epoch)]
-	pub type Epoch<T: Config> = StorageValue<_, EpochInfo<BlockNumberFor<T>>, ValueQuery>;
-
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Reward transfer failed
@@ -130,11 +125,8 @@ pub mod pallet {
 			/// Amount of the fee
 			amount: <T as pallet_ismp::Config>::Balance,
 		},
-		/// A new epoch has started
-		NewEpoch {
-			/// The index of the new epoch
-			index: u64,
-		},
+		/// Resetting of Incentives has occurred
+		IncentivesReset
 	}
 
 	#[pallet::call]
@@ -175,16 +167,9 @@ impl<T: Config> pallet_session::SessionHandler<T::AccountId> for Pallet<T> {
 			return;
 		}
 
-		let current_block = <frame_system::Pallet<T>>::block_number();
-		let mut epoch = Epoch::<T>::get();
-
-		epoch.index += 1;
-		epoch.start_block = current_block;
-		Epoch::<T>::put(epoch.clone());
-
 		TotalBytesProcessed::<T>::kill();
 
-		Self::deposit_event(Event::NewEpoch { index: epoch.index });
+		Self::deposit_event(Event::IncentivesReset);
 	}
 
 	fn on_disabled(_validator_index: u32) {}

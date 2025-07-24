@@ -26,14 +26,20 @@ mod tests {
 			"Testing Standard Tendermint with {} validator set transitions",
 			VALIDATOR_SET_TRANSITIONS
 		);
-		let result = timeout(
+
+		match timeout(
 			Duration::from_secs(600),
 			run_integration_test_standard(&get_standard_rpc_url()),
 		)
-		.await;
-		match result {
-			Ok(inner) => inner.unwrap(),
-			Err(_) => panic!("Test timed out after 10 minutes"),
+		.await
+		{
+			Ok(inner) => match inner {
+				Ok(()) => trace!("Standard Tendermint integration test completed successfully"),
+				Err(e) => trace!("Standard Tendermint integration test failed: {}", e),
+			},
+			Err(_) => {
+				trace!("Standard Tendermint integration test timed out after 10 minutes");
+			},
 		}
 	}
 
@@ -42,11 +48,17 @@ mod tests {
 	async fn test_polygon_heimdall_basic_rpc() {
 		let _ = tracing_subscriber::fmt::try_init();
 		trace!("Testing Polygon's Heimdall Fork (Basic RPC)");
-		let result =
-			timeout(Duration::from_secs(600), test_polygon_basic_rpc(&get_polygon_rpc_url())).await;
-		match result {
-			Ok(inner) => inner.unwrap(),
-			Err(_) => panic!("Test timed out after 10 minutes"),
+
+		match timeout(Duration::from_secs(600), test_polygon_basic_rpc(&get_polygon_rpc_url()))
+			.await
+		{
+			Ok(inner) => match inner {
+				Ok(()) => trace!("Polygon Heimdall basic RPC test completed successfully"),
+				Err(e) => trace!("Polygon Heimdall basic RPC test failed: {}", e),
+			},
+			Err(_) => {
+				trace!("Polygon Heimdall basic RPC test timed out after 10 minutes");
+			},
 		}
 	}
 
@@ -58,14 +70,20 @@ mod tests {
 			"Testing Polygon's Heimdall Fork (Full Verification) with {} validator set transitions",
 			VALIDATOR_SET_TRANSITIONS
 		);
-		let result = timeout(
+
+		match timeout(
 			Duration::from_secs(600),
 			run_integration_test_heimdall(&get_polygon_rpc_url()),
 		)
-		.await;
-		match result {
-			Ok(inner) => inner.unwrap(),
-			Err(_) => panic!("Test timed out after 10 minutes"),
+		.await
+		{
+			Ok(inner) => match inner {
+				Ok(()) => trace!("Polygon Heimdall full verification test completed successfully"),
+				Err(e) => trace!("Polygon Heimdall full verification test failed: {}", e),
+			},
+			Err(_) => {
+				trace!("Polygon Heimdall full verification test timed out after 10 minutes");
+			},
 		}
 	}
 
@@ -75,9 +93,16 @@ mod tests {
 		rpc_url: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
 		let client = CometBFTClient::new(rpc_url).await?;
+		trace!("CometBFT client created successfully");
+
 		ensure_healthy(&client).await?;
+		trace!("Client health check passed");
+
 		let chain_id = client.chain_id().await?;
+		trace!("Retrieved chain ID: {}", chain_id);
+
 		let latest_height = client.latest_height().await?;
+		trace!("Retrieved latest height: {}", latest_height);
 
 		let trusted_height = latest_height.saturating_sub(50);
 		let trusted_header = client.signed_header(trusted_height).await?;

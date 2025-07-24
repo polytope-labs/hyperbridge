@@ -3,10 +3,9 @@ use std::time::Duration;
 use anyhow::Context;
 use reconnecting_jsonrpsee_ws_client::FixedInterval;
 use subxt::{
-	backend::rpc::RpcClient,
+	backend::rpc::RpcClient, ext::subxt_rpcs::client::reconnecting_rpc_client::RpcClientBuilder,
 	OnlineClient,
 };
-use subxt::ext::subxt_rpcs::client::reconnecting_rpc_client::RpcClientBuilder;
 
 #[cfg(feature = "std")]
 pub async fn ws_client<T: subxt::Config>(

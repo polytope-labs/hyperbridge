@@ -120,11 +120,7 @@ impl<T: frame_system::Config> cumulus_pallet_xcmp_queue::WeightInfo for WeightIn
 			.saturating_add(T::DbWeight::get().writes(2))
 	}
 
-	fn enqueue_2_empty_xcmp_messages() -> Weight {
-	Default::default()
-	}
-
 	fn enqueue_n_bytes_xcmp_message(_n: u32, ) -> Weight {
-	Default::default()
+		Default::default()
 	}
 }

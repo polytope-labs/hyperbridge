@@ -19,11 +19,10 @@ use sp_core::{crypto::Ss58Codec, Bytes, KeccakHasher};
 use sp_keyring::sr25519::Keyring;
 use sp_trie::{LayoutV0, MemoryDB};
 use std::{
-	collections::HashSet,
+	collections::{BTreeMap, HashSet},
 	env,
 	time::{SystemTime, UNIX_EPOCH},
 };
-use std::collections::BTreeMap;
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
@@ -34,20 +33,19 @@ use subxt::{
 use subxt_utils::{
 	state_machine_commitment_storage_key, state_machine_update_time_storage_key, values,
 	values::{
-		host_param_tuple_to_value, messages_to_value, parachain_data_to_value,
-		storage_kv_list_to_value,
+		host_param_tuple_to_value, host_params_btreemap_to_value, messages_to_value,
+		parachain_data_to_value, storage_kv_list_to_value,
 	},
 	BlakeSubstrateChain, Hyperbridge,
 };
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
-use subxt_utils::values::{host_params_btreemap_to_value};
 
 #[tokio::test]
 #[ignore]
 async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
-	let (client, rpc_client)  = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
+	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
 	let rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
 
 	let unit = 1_000_000_000_000u128;
@@ -100,11 +98,8 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 
 		// Init the host executive extrinsic
 		{
-			let set_host_params_call = subxt::dynamic::tx(
-				"HostExecutive",
-				"set_host_params",
-				vec![host_params_value],
-			);
+			let set_host_params_call =
+				subxt::dynamic::tx("HostExecutive", "set_host_params", vec![host_params_value]);
 			let sudo_call =
 				subxt::dynamic::tx("Sudo", "sudo", vec![set_host_params_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;
@@ -325,11 +320,8 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 
 			let host_params_value = host_params_btreemap_to_value(&host_params);
 
-			let set_host_params_call = subxt::dynamic::tx(
-				"HostExecutive",
-				"set_host_params",
-				vec![host_params_value],
-			);
+			let set_host_params_call =
+				subxt::dynamic::tx("HostExecutive", "set_host_params", vec![host_params_value]);
 			let sudo_call =
 				subxt::dynamic::tx("Sudo", "sudo", vec![set_host_params_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;
@@ -538,11 +530,8 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 
 			let host_params_value = host_params_btreemap_to_value(&host_params);
 
-			let set_host_params_call = subxt::dynamic::tx(
-				"HostExecutive",
-				"set_host_params",
-				vec![host_params_value],
-			);
+			let set_host_params_call =
+				subxt::dynamic::tx("HostExecutive", "set_host_params", vec![host_params_value]);
 			let sudo_call =
 				subxt::dynamic::tx("Sudo", "sudo", vec![set_host_params_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;

@@ -1,11 +1,10 @@
 #![cfg(test)]
 
 use std::{
-	collections::HashSet,
+	collections::{BTreeMap, HashSet},
 	env,
 	time::{SystemTime, UNIX_EPOCH},
 };
-use std::collections::BTreeMap;
 
 use anyhow::anyhow;
 use codec::{Decode, Encode};
@@ -35,10 +34,12 @@ use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStatePr
 use subxt::{backend::rpc::RpcClient, dynamic::Value};
 use subxt_utils::{
 	state_machine_commitment_storage_key, state_machine_update_time_storage_key, values,
-	values::{messages_to_value, parachain_data_to_value, storage_kv_list_to_value},
+	values::{
+		host_params_btreemap_to_value, messages_to_value, parachain_data_to_value,
+		storage_kv_list_to_value,
+	},
 	BlakeSubstrateChain, Hyperbridge,
 };
-use subxt_utils::values::host_params_btreemap_to_value;
 
 #[derive(Clone, Default)]
 pub struct Keccak256;
@@ -106,11 +107,8 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 
 		let host_params_value = host_params_btreemap_to_value(&host_params);
 
-		let set_host_params_call = subxt::dynamic::tx(
-			"HostExecutive",
-			"set_host_params",
-			vec![host_params_value],
-		);
+		let set_host_params_call =
+			subxt::dynamic::tx("HostExecutive", "set_host_params", vec![host_params_value]);
 		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![set_host_params_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;
 		let extrinsic: Bytes = rpc_client

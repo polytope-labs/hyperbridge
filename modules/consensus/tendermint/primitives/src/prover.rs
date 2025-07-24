@@ -250,6 +250,21 @@ pub struct Milestone {
 	pub total_difficulty: String,
 }
 
+impl Default for Milestone {
+	fn default() -> Self {
+		Self {
+			proposer: String::new(),
+			start_block: String::new(),
+			end_block: String::new(),
+			hash: String::new(),
+			bor_chain_id: String::new(),
+			milestone_id: String::new(),
+			timestamp: String::new(),
+			total_difficulty: String::new(),
+		}
+	}
+}
+
 impl From<HeimdallValidatorsResponse> for ValidatorsResponse {
 	fn from(heimdall_resp: HeimdallValidatorsResponse) -> Self {
 		let mut validators: Vec<cometbft::validator::Info> =

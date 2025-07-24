@@ -218,6 +218,7 @@ impl Client for CometBFTClient {
 	}
 }
 
+#[derive(Debug, Clone)]
 /// A client implementation for interacting with Heimdall nodes.
 ///
 /// This client uses HTTP requests to communicate with Heimdall nodes,

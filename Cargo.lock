@@ -9205,9 +9205,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73b17f1a5bd7d12ad30a21445cfa5f52fd7651cb3243ba866f9916b1ec112f12"
 dependencies = [
  "anyhow",
+ "blake2 0.10.6",
+ "blake3",
  "bytes",
  "hex",
+ "informalsystems-pbjson",
  "prost 0.13.5",
+ "ripemd",
+ "serde",
+ "sha2 0.10.9",
+ "sha3",
 ]
 
 [[package]]
@@ -9534,6 +9541,16 @@ name = "indoc"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa799dd5ed20a7e349f3b4639aa80d74549c81716d9ec4f994c9b5815598306"
+
+[[package]]
+name = "informalsystems-pbjson"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aa4a0980c8379295100d70854354e78df2ee1c6ca0f96ffe89afeb3140e3a3d"
+dependencies = [
+ "base64 0.21.7",
+ "serde",
+]
 
 [[package]]
 name = "inlinable_string"
@@ -26038,8 +26055,10 @@ version = "0.1.0"
 dependencies = [
  "base64 0.21.7",
  "cometbft",
+ "cometbft-proto",
  "cometbft-rpc",
  "parity-scale-codec",
+ "scale-info",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -26453,6 +26472,34 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "transaction-fees",
+]
+
+[[package]]
+name = "tesseract-polygon-pos"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.21.7",
+ "futures",
+ "geth-primitives",
+ "hex",
+ "ics23",
+ "ismp",
+ "ismp-polygon",
+ "log",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "prost 0.13.5",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "tendermint-primitives",
+ "tendermint-prover",
+ "tendermint-verifier",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
 ]
 
 [[package]]

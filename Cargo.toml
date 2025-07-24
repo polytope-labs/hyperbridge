@@ -102,6 +102,7 @@ members = [
     "tesseract/consensus/beefy",
     "tesseract/consensus/beefy/zk",
     "tesseract/consensus/relayer",
+    "tesseract/consensus/polygon-pos",
 
 
     # Airdrop
@@ -191,6 +192,7 @@ async-trait = "0.1.53"
 reqwest-chain = "0.1.0"
 reqwest-middleware = "0.2.4"
 reqwest = { version="0.11.14", features=["json"]}
+prost = { version = "0.13.0", default-features = false }
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }
@@ -241,6 +243,7 @@ arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features = false }
 ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
+ismp-polygon = { path = "modules/ismp/clients/polygon", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }

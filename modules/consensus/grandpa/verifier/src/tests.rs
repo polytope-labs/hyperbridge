@@ -12,7 +12,11 @@ use grandpa_verifier_primitives::{
 use ismp::host::StateMachine;
 use polkadot_core_primitives::Header;
 use serde::{Deserialize, Serialize};
-use subxt::{ext::subxt_rpcs::{rpc_params, RpcClient}, backend::{legacy::LegacyRpcMethods}, OnlineClient};
+use subxt::{
+	backend::legacy::LegacyRpcMethods,
+	ext::subxt_rpcs::{rpc_params, RpcClient},
+	OnlineClient,
+};
 use subxt_utils::Hyperbridge;
 
 pub type Justification = GrandpaJustification<Header>;
@@ -60,7 +64,8 @@ async fn follow_grandpa_justifications() {
 	.unwrap();
 
 	let prover_rpc_client = RpcClient::from_url(&ws_url).await.unwrap();
-	let prover_rpc = LegacyRpcMethods::<subxt_utils::BlakeSubstrateChain>::new(prover_rpc_client.clone());
+	let prover_rpc =
+		LegacyRpcMethods::<subxt_utils::BlakeSubstrateChain>::new(prover_rpc_client.clone());
 
 	log::info!("Connected to relay chain");
 	log::info!("Waiting for grandpa proofs to become available");

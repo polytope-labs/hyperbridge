@@ -29,8 +29,8 @@ use sp_consensus_beefy::{
 use sp_io::hashing::keccak_256;
 use subxt::{
 	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
-	Config,
-	ext::subxt_rpcs::rpc_params, OnlineClient,
+	ext::subxt_rpcs::rpc_params,
+	Config, OnlineClient,
 };
 use subxt_core::config::HashFor;
 

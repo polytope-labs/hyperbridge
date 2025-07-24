@@ -32,16 +32,16 @@ use sp_consensus_beefy::{
 };
 use subxt::{
 	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
-	config::{ExtrinsicParams, Hasher, HashFor, Header},
+	config::{ExtrinsicParams, HashFor, Hasher, Header},
 	ext::subxt_rpcs::rpc_params,
-	OnlineClient,
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
+	OnlineClient,
 };
 
 use beefy_prover::{
-	BEEFY_VALIDATOR_SET_ID,
 	relay::{fetch_latest_beefy_justification, parachain_header_storage_key},
+	BEEFY_VALIDATOR_SET_ID,
 };
 use beefy_verifier_primitives::ConsensusState;
 use ismp::{

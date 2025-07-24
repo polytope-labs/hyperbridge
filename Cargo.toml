@@ -137,27 +137,27 @@ lto = "thin"
 strip = true
 
 [workspace.dependencies]
-polkadot-sdk = { version = "=2503.0.1", default-features = false }
+polkadot-sdk = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503", default-features = false }
 
 # crates that can't be used in polkadot-sdk
-sp-core = { version = "36.1.0", default-features = false }
-frame-benchmarking = { version = "40.2.0", default-features = false }
-sp-io = { version = "40.0.1", default-features = false }
-cumulus-pallet-parachain-system = { version = "0.20.0", default-features = false }
-substrate-wasm-builder = "26.0.1"
-sc-service = "0.50.0"
-sc-tracing = "39.0.0"
-xcm-simulator-example = "=20.0.1"
-sp-api-proc-macro = "22.0.1"
+sp-core = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503", default-features = false }
+frame-benchmarking = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503", default-features = false }
+sp-io = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503", default-features = false }
+cumulus-pallet-parachain-system = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503", default-features = false }
+substrate-wasm-builder = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503" }
+sc-service = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503" }
+sc-tracing = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503" }
+xcm-simulator-example = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503" }
+
+sp-api-proc-macro = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503" }
 
 # supporting polkadot-sdk crates
-orml-xcm-support = { version = "=1.4.0", default-features = false }
-orml-traits = { version = "=1.4.0", default-features = false }
-orml-utilities = { version = "=1.4.0", default-features = false }
-sc-simnode = { version = "2503.0.0" }
-simnode-runtime-api = { version = "2503.0.0", default-features = false }
-sp-consensus-beefy = { version = "24.1.0" }
-sp-crypto-hashing = "0.1.0"
+orml-xcm-support = { git = "https://github.com/bifrost-io/open-runtime-module-library", branch = "release-polkadot-stable2503", default-features = false }
+orml-traits = { git = "https://github.com/bifrost-io/open-runtime-module-library", branch = "release-polkadot-stable2503", default-features = false }
+sc-simnode = { git = "https://github.com/polytope-labs/sc-simnode", rev = "6d951dce89294dc8588ecface6910ca24e8aad0c" }
+simnode-runtime-api = { git = "https://github.com/polytope-labs/sc-simnode", rev = "6d951dce89294dc8588ecface6910ca24e8aad0c", default-features = false }
+sp-consensus-beefy = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503" }
+sp-crypto-hashing = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2503" }
 
 # crates.io
 serde = { version = "1", default-features = false }

@@ -213,13 +213,20 @@ where
 			return Ok(u128::zero());
 		}
 
+		let total_bytes = total_bytes as u128;
+		let target_size = target_size as u128;
+
+
 		let decay_numerator = target_size.saturating_sub(total_bytes);
+		println!("calculating numerator");
 		let decay_numerator_sq = decay_numerator
 			.checked_mul(decay_numerator)
 			.ok_or(Error::<T>::CalculationOverflow)?;
+		println!("calculating denominator");
 		let final_reward_numerator = base_reward
 			.checked_mul(decay_numerator_sq as u128)
 			.ok_or(Error::<T>::CalculationOverflow)?;
+		println!("calculating square");
 		let target_size_sq =
 			target_size.checked_mul(target_size).ok_or(Error::<T>::CalculationOverflow)? as u128;
 

@@ -314,3 +314,42 @@ fn test_on_new_session_resets_state() {
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
 	});
 }
+
+#[test]
+fn test_reward_curve_visualization_to_one_megabyte() {
+	new_test_ext().execute_with(|| {
+		const ONE_MEGABYTE: u32 = 1_048_576;
+		const BASE_REWARD: u128 = 1_000_000_000;
+		const TARGET_SIZE: u32 = ONE_MEGABYTE;
+
+		println!("\n--- Reward Curve Visualization ---");
+		println!("Base Reward: {}, Target Size: {} bytes (1 MB)", BASE_REWARD, TARGET_SIZE);
+		println!("{:<20} | {:<20} | {}", "Progress", "Total Bytes", "Calculated Reward");
+		println!("{:-<22}|{:-<22}|{:-<22}", "", "", "");
+
+		let mut last_reward = u128::MAX;
+
+		for i in 0..=10 {
+			let percentage = i * 10;
+			let total_bytes = (TARGET_SIZE as u64 * percentage as u64 / 100) as u32;
+
+			let reward = pallet_messaging_fees::Pallet::<Test>::calculate_reward(
+				total_bytes,
+				TARGET_SIZE,
+				BASE_REWARD,
+			)
+				.unwrap();
+
+			println!(
+				"{:<20} | {:<20} | {}",
+				format!("{}%", percentage),
+				total_bytes,
+				reward
+			);
+
+
+			assert!(reward <= last_reward);
+			last_reward = reward;
+		}
+	});
+}

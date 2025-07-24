@@ -19,6 +19,7 @@ members = [
     "modules/pallets/demo",
     "modules/pallets/testsuite",
     "modules/pallets/call-decompressor",
+    "modules/pallets/revive-host",
     "modules/pallets/xcm-gateway",
     "modules/pallets/token-governor",
     "modules/pallets/token-gateway",
@@ -187,7 +188,7 @@ futures = "0.3.28"
 async-trait = "0.1.53"
 reqwest-chain = "0.1.0"
 reqwest-middleware = "0.2.4"
-reqwest = { version="0.11.14", features=["json"]}
+reqwest = { version = "0.11.14", features = ["json"] }
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }

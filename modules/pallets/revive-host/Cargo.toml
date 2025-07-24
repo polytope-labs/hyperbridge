@@ -1,0 +1,44 @@
+[package]
+name = "pallet-revive-ismp-host"
+version = "0.1.1"
+edition = "2021"
+description = "Ismp Host precompile implementation for pallet-revive"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge"
+documentation = "https://docs.rs/pallet-revive-ismp-host"
+keywords = ["pallet-revive", "pallet-ismp", "ismp", "polkadot-sdk"]
+readme = "./README.md"
+
+[dependencies]
+alloy-rlp = { workspace = true }
+alloy-primitives = { workspace = true }
+scale-info = { workspace = true }
+codec = { workspace = true }
+log = { workspace = true }
+ismp = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-runtime",
+    "sp-core",
+    "sp-std",
+    "sp-io",
+    "pallet-revive",
+]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "log/std",
+    "polkadot-sdk/std",
+    "scale-info/std",
+    "ismp/std",
+    # "pallet-ismp/std",
+    "alloy-primitives/std",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]

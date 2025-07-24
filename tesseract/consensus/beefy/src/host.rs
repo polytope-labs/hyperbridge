@@ -13,38 +13,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use beefy_verifier_primitives::ConsensusState;
-use codec::{Decode, Encode};
-use ismp_solidity_abi::beefy::BeefyConsensusState;
-use redis::AsyncCommands;
-use serde::{Deserialize, Serialize};
-use sp_core::H256;
 use std::{
 	pin::Pin,
 	sync::Arc,
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use subxt::{
-	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
-	ext::sp_runtime::MultiSignature,
-};
-use tesseract_substrate::SubstrateClient;
 
-use crate::{
-	prover::{query_parachain_header, Prover, ProverConsensusState, REDIS_CONSENSUS_STATE_KEY},
-	redis_utils::{self, RedisConfig},
-};
 use anyhow::{anyhow, Context};
-use futures::{stream::TryStreamExt, Stream, StreamExt};
+use codec::{Decode, Encode};
+use futures::{Stream, stream::TryStreamExt, StreamExt};
+use redis::AsyncCommands;
+use redis_async::client::PubsubConnection;
+use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError, RsmqMessage};
+use serde::{Deserialize, Serialize};
+use subxt::{
+	config::ExtrinsicParams,
+	utils::{AccountId32, H256, MultiSignature},
+};
+use subxt::{config::HashFor, tx::DefaultParams};
+use tokio::sync::Mutex;
+
+use beefy_verifier_primitives::ConsensusState;
 use ismp::{
 	consensus::ConsensusStateId,
 	host::StateMachine,
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
-use redis_async::client::PubsubConnection;
-use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError, RsmqMessage};
+use ismp_solidity_abi::beefy::BeefyConsensusState;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
-use tokio::sync::Mutex;
+use tesseract_substrate::SubstrateClient;
+
+use crate::{
+	prover::{Prover, ProverConsensusState, query_parachain_header, REDIS_CONSENSUS_STATE_KEY},
+	redis_utils::{self, RedisConfig},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyHostConfig {
@@ -79,12 +81,10 @@ where
 	R: subxt::Config,
 	P: subxt::Config,
 	P: subxt::Config + Send + Sync + Clone,
-	<P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
-	P::AccountId:
-		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-	H256: From<<P as subxt::Config>::Hash>,
+	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	H256: From<HashFor<P>>,
 {
 	/// Construct an implementation of the [`BeefyHost`]
 	pub async fn new(
@@ -176,15 +176,14 @@ where
 			Some(state) => {
 				let inner = self.prover.inner();
 				let hash = inner
-					.relay
-					.rpc()
-					.block_hash(Some(state.latest_beefy_height.into()))
+					.relay_rpc
+					.chain_get_block_hash(Some(state.latest_beefy_height.into()))
 					.await?
 					.ok_or_else(|| {
 						anyhow!("Failed to find block hash for num: {}", state.latest_beefy_height)
 					})?;
 				let para_header =
-					query_parachain_header(&inner.relay, hash, inner.para_ids[0]).await?;
+					query_parachain_header(&inner.relay_rpc, hash, inner.para_ids[0]).await?;
 
 				ProverConsensusState {
 					inner: state,
@@ -287,12 +286,10 @@ impl<R, P> IsmpHost for BeefyHost<R, P>
 where
 	R: subxt::Config + Send + Sync + Clone,
 	P: subxt::Config + Send + Sync + Clone,
-	<P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
-	P::AccountId:
-		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
-	H256: From<<P as subxt::Config>::Hash>,
+	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	H256: From<HashFor<P>>,
 {
 	async fn start_consensus(
 		&self,

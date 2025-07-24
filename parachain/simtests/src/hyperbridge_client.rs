@@ -23,42 +23,50 @@ use std::{
 	env,
 	time::{SystemTime, UNIX_EPOCH},
 };
+use std::collections::BTreeMap;
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
-use subxt::{error::RpcError, rpc_params, tx::SubmittableExtrinsic};
+use subxt::{
+	backend::legacy::LegacyRpcMethods,
+	error::RpcError,
+	ext::subxt_rpcs::{rpc_params, RpcClient},
+	tx::SubmittableTransaction,
+};
 use subxt_utils::{
-	state_machine_commitment_storage_key, state_machine_update_time_storage_key, Extrinsic,
-	Hyperbridge,
+	state_machine_commitment_storage_key, state_machine_update_time_storage_key, values,
+	values::{
+		host_param_tuple_to_value, messages_to_value, parachain_data_to_value,
+		storage_kv_list_to_value,
+	},
+	BlakeSubstrateChain, Hyperbridge,
 };
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
+use subxt_utils::values::{host_params_btreemap_to_value};
 
 #[tokio::test]
 #[ignore]
 async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	let port = env::var("PORT").unwrap_or("9990".into());
-	let client = subxt_utils::client::ws_client::<Hyperbridge>(
-		&format!("ws://127.0.0.1:{}", port),
-		u32::MAX,
-	)
-	.await?;
+	let url = &format!("ws://127.0.0.1:{}", port);
+	let (client, rpc_client)  = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
+	let rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
 
 	let unit = 1_000_000_000_000u128;
 	let per_byte_fee = 10 * unit;
 	let para_id = 3000u32;
-	let slot_duration = 6000u64;
+	let slot_duration: u64 = 6000u64;
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
 		// Add parachain extrinsic
 		{
-			let add_parachain_call = Extrinsic::new(
+			let add_parachain_call = subxt::dynamic::tx(
 				"IsmpParachain",
 				"add_parachain",
-				vec![ParachainData { id: para_id, slot_duration }].encode(),
+				vec![vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })]],
 			);
 			let sudo_call =
-				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&add_parachain_call)?);
+				subxt::dynamic::tx("Sudo", "sudo", vec![add_parachain_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;
-			let extrinsic: Bytes = client
-				.rpc()
+			let extrinsic: Bytes = rpc_client
 				.request(
 					"simnode_authorExtrinsic",
 					// author an extrinsic from alice, the sudo account
@@ -67,39 +75,40 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 				.await
 				.map_err(|err| println!("{:?}", err))
 				.expect("REASON");
-			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 			let progress = submittable.submit_and_watch().await?;
-			let block = client
-				.rpc()
+			let block = rpc_client
 				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 				.await?;
-			let finalized = client
-				.rpc()
+			let finalized = rpc_client
 				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
 				.await?;
 			assert!(finalized);
 			progress.wait_for_finalized_success().await?;
 		}
 
+		let mut host_params = BTreeMap::new();
+		host_params.insert(
+			StateMachine::Kusama(para_id),
+			HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
+				default_per_byte_fee: per_byte_fee,
+				..Default::default()
+			})),
+		);
+
+		let host_params_value = host_params_btreemap_to_value(&host_params);
+
 		// Init the host executive extrinsic
 		{
-			let set_host_params_call = Extrinsic::new(
+			let set_host_params_call = subxt::dynamic::tx(
 				"HostExecutive",
 				"set_host_params",
-				vec![(
-					StateMachine::Kusama(para_id),
-					HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-						default_per_byte_fee: per_byte_fee,
-						..Default::default()
-					})),
-				)]
-				.encode(),
+				vec![host_params_value],
 			);
 			let sudo_call =
-				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&set_host_params_call)?);
+				subxt::dynamic::tx("Sudo", "sudo", vec![set_host_params_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;
-			let extrinsic: Bytes = client
-				.rpc()
+			let extrinsic: Bytes = rpc_client
 				.request(
 					"simnode_authorExtrinsic",
 					// author an extrinsic from alice, the sudo account
@@ -108,14 +117,12 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 				.await
 				.map_err(|err| println!("{:?}", err))
 				.expect("REASON");
-			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 			let progress = submittable.submit_and_watch().await?;
-			let block = client
-				.rpc()
+			let block = rpc_client
 				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 				.await?;
-			let finalized = client
-				.rpc()
+			let finalized = rpc_client
 				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
 				.await?;
 			assert!(finalized);
@@ -178,37 +185,41 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	let start = SystemTime::now();
 	let now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
 
-	let call = Extrinsic::new(
-		"System",
-		"set_storage",
-		vec![(key1.clone(), state_commitment.encode()), (key2.clone(), now.as_secs().encode())]
-			.encode(),
-	);
-	let sudo_call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&call)?);
+	let kv_list =
+		vec![(key1.clone(), state_commitment.encode()), (key2.clone(), now.as_secs().encode())];
+
+	let call =
+		subxt::dynamic::tx("System", "set_storage", vec![storage_kv_list_to_value(&kv_list)]);
+	let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 	let call = client.tx().call_data(&sudo_call)?;
-	let extrinsic: Bytes = client
-		.rpc()
+	let extrinsic: Bytes = rpc_client
 		.request(
 			"simnode_authorExtrinsic",
 			// author an extrinsic from alice
 			rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
 		)
 		.await?;
-	let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
-	submittable.submit().await?;
+	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
+	let progress = submittable.submit_and_watch().await?;
 
 	// create a block
-	let _ = client
-		.rpc()
+	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
+
+	let finalized = rpc_client
+		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+		.await?;
+	assert!(finalized);
+
+	progress.wait_for_finalized_success().await?;
 
 	// sanity check that it was properly stored
 	let item = client
 		.storage()
 		.at_latest()
 		.await?
-		.fetch_raw(&key1)
+		.fetch_raw(key1.clone())
 		.await?
 		.ok_or_else(|| anyhow!("Failed to set state commitment"))?;
 
@@ -218,7 +229,7 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 		.storage()
 		.at_latest()
 		.await?
-		.fetch_raw(&key2)
+		.fetch_raw(key2.clone())
 		.await?
 		.ok_or_else(|| anyhow!("Failed to set state commitment"))?;
 	let update_time: u64 = Decode::decode(&mut &*item)?;
@@ -232,25 +243,22 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	let proof = Proof { height, proof };
 
 	// 3. next send the requests
-	let tx = Extrinsic::new(
+	let tx = subxt::dynamic::tx(
 		"Ismp",
 		"handle_unsigned",
-		vec![Message::Request(RequestMessage {
+		vec![messages_to_value(vec![Message::Request(RequestMessage {
 			requests: vec![post.clone().into()],
 			proof: proof.clone(),
 			signer: H256::random().as_bytes().to_vec(),
-		})]
-		.encode(),
+		})])],
 	);
 
 	let progress = client.tx().create_unsigned(&tx)?.submit_and_watch().await?;
-	let block = client
-		.rpc()
+	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
 
-	let finalized = client
-		.rpc()
+	let finalized = rpc_client
 		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
 		.await?;
 	assert!(finalized);
@@ -263,30 +271,27 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 #[ignore]
 async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 	let port = env::var("PORT").unwrap_or("9990".into());
-	let client = subxt_utils::client::ws_client::<Hyperbridge>(
-		&format!("ws://127.0.0.1:{}", port),
-		u32::MAX,
-	)
-	.await?;
+	let url = &format!("ws://127.0.0.1:{}", port);
+	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
+	let rpc_client = RpcClient::from_url(url).await?;
 
 	let unit = 1_000_000_000_000u128;
 	let per_byte_fee = 10 * unit;
 	let para_id = 3000u32;
-	let slot_duration = 6000u64;
+	let slot_duration: u64 = 6000u64;
 	// 1. initialize the ismp parachain client by adding the whitelisted paraId
 	{
 		// Add parachain extrinsic
 		{
-			let add_parachain_call = Extrinsic::new(
+			let add_parachain_call = subxt::dynamic::tx(
 				"IsmpParachain",
 				"add_parachain",
-				vec![ParachainData { id: para_id, slot_duration }].encode(),
+				vec![vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })]],
 			);
 			let sudo_call =
-				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&add_parachain_call)?);
+				subxt::dynamic::tx("Sudo", "sudo", vec![add_parachain_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;
-			let extrinsic: Bytes = client
-				.rpc()
+			let extrinsic: Bytes = rpc_client
 				.request(
 					"simnode_authorExtrinsic",
 					// author an extrinsic from alice, the sudo account
@@ -295,14 +300,12 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 				.await
 				.map_err(|err| println!("{:?}", err))
 				.expect("REASON");
-			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 			let progress = submittable.submit_and_watch().await?;
-			let block = client
-				.rpc()
+			let block = rpc_client
 				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 				.await?;
-			let finalized = client
-				.rpc()
+			let finalized = rpc_client
 				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
 				.await?;
 			assert!(finalized);
@@ -311,23 +314,26 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 
 		// Init the host executive extrinsic
 		{
-			let set_host_params_call = Extrinsic::new(
+			let mut host_params = BTreeMap::new();
+			host_params.insert(
+				StateMachine::Kusama(para_id),
+				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
+					default_per_byte_fee: per_byte_fee,
+					..Default::default()
+				})),
+			);
+
+			let host_params_value = host_params_btreemap_to_value(&host_params);
+
+			let set_host_params_call = subxt::dynamic::tx(
 				"HostExecutive",
 				"set_host_params",
-				vec![(
-					StateMachine::Kusama(para_id),
-					HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-						default_per_byte_fee: per_byte_fee,
-						..Default::default()
-					})),
-				)]
-				.encode(),
+				vec![host_params_value],
 			);
 			let sudo_call =
-				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&set_host_params_call)?);
+				subxt::dynamic::tx("Sudo", "sudo", vec![set_host_params_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;
-			let extrinsic: Bytes = client
-				.rpc()
+			let extrinsic: Bytes = rpc_client
 				.request(
 					"simnode_authorExtrinsic",
 					// author an extrinsic from alice, the sudo account
@@ -336,14 +342,12 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 				.await
 				.map_err(|err| println!("{:?}", err))
 				.expect("REASON");
-			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 			let progress = submittable.submit_and_watch().await?;
-			let block = client
-				.rpc()
+			let block = rpc_client
 				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 				.await?;
-			let finalized = client
-				.rpc()
+			let finalized = rpc_client
 				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
 				.await?;
 			assert!(finalized);
@@ -401,37 +405,41 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 	let start = SystemTime::now();
 	let now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
 
-	let call = Extrinsic::new(
-		"System",
-		"set_storage",
-		vec![(key1.clone(), state_commitment.encode()), (key2.clone(), now.as_secs().encode())]
-			.encode(),
-	);
-	let sudo_call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&call)?);
+	let kv_list =
+		vec![(key1.clone(), state_commitment.encode()), (key2.clone(), now.as_secs().encode())];
+
+	let call =
+		subxt::dynamic::tx("System", "set_storage", vec![storage_kv_list_to_value(&kv_list)]);
+	let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 	let call = client.tx().call_data(&sudo_call)?;
-	let extrinsic: Bytes = client
-		.rpc()
+	let extrinsic: Bytes = rpc_client
 		.request(
 			"simnode_authorExtrinsic",
 			// author an extrinsic from alice
 			rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
 		)
 		.await?;
-	let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
-	submittable.submit().await?;
+	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
+	let progress = submittable.submit_and_watch().await?;
 
 	// create a block
-	let _ = client
-		.rpc()
+	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
+
+	let finalized = rpc_client
+		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+		.await?;
+	assert!(finalized);
+
+	progress.wait_for_finalized_success().await?;
 
 	// sanity check that it was properly stored
 	let item = client
 		.storage()
 		.at_latest()
 		.await?
-		.fetch_raw(&key1)
+		.fetch_raw(key1.clone())
 		.await?
 		.ok_or_else(|| anyhow!("Failed to set state commitment"))?;
 
@@ -441,7 +449,7 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 		.storage()
 		.at_latest()
 		.await?
-		.fetch_raw(&key2)
+		.fetch_raw(key2.clone())
 		.await?
 		.ok_or_else(|| anyhow!("Failed to set state commitment"))?;
 	let update_time: u64 = Decode::decode(&mut &*item)?;
@@ -455,15 +463,14 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 	let proof = Proof { height, proof };
 
 	// 3. next send the requests
-	let tx = Extrinsic::new(
+	let tx = subxt::dynamic::tx(
 		"Ismp",
 		"handle_unsigned",
-		vec![Message::Request(RequestMessage {
+		vec![messages_to_value(vec![Message::Request(RequestMessage {
 			requests: vec![post.clone().into()],
 			proof: proof.clone(),
 			signer: H256::random().as_bytes().to_vec(),
-		})]
-		.encode(),
+		})])],
 	);
 
 	let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
@@ -478,11 +485,8 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 #[ignore]
 async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error> {
 	let port = env::var("PORT").unwrap_or("9990".into());
-	let client = subxt_utils::client::ws_client::<Hyperbridge>(
-		&format!("ws://127.0.0.1:{}", port),
-		u32::MAX,
-	)
-	.await?;
+	let url = &format!("ws://127.0.0.1:{}", port);
+	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
 
 	let unit = 1_000_000_000_000u128;
 	let per_byte_fee = 10 * unit;
@@ -492,16 +496,15 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	{
 		// Add parachain extrinsic
 		{
-			let add_parachain_call = Extrinsic::new(
+			let add_parachain_call = subxt::dynamic::tx(
 				"IsmpParachain",
 				"add_parachain",
-				vec![ParachainData { id: para_id, slot_duration }].encode(),
+				vec![vec![parachain_data_to_value(&ParachainData { id: para_id, slot_duration })]],
 			);
 			let sudo_call =
-				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&add_parachain_call)?);
+				subxt::dynamic::tx("Sudo", "sudo", vec![add_parachain_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;
-			let extrinsic: Bytes = client
-				.rpc()
+			let extrinsic: Bytes = rpc_client
 				.request(
 					"simnode_authorExtrinsic",
 					// author an extrinsic from alice, the sudo account
@@ -510,14 +513,12 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 				.await
 				.map_err(|err| println!("{:?}", err))
 				.expect("REASON");
-			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 			let progress = submittable.submit_and_watch().await?;
-			let block = client
-				.rpc()
+			let block = rpc_client
 				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 				.await?;
-			let finalized = client
-				.rpc()
+			let finalized = rpc_client
 				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
 				.await?;
 			assert!(finalized);
@@ -526,23 +527,26 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 
 		// Init the host executive extrinsic
 		{
-			let set_host_params_call = Extrinsic::new(
+			let mut host_params = BTreeMap::new();
+			host_params.insert(
+				StateMachine::Kusama(para_id),
+				HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
+					default_per_byte_fee: per_byte_fee,
+					..Default::default()
+				})),
+			);
+
+			let host_params_value = host_params_btreemap_to_value(&host_params);
+
+			let set_host_params_call = subxt::dynamic::tx(
 				"HostExecutive",
 				"set_host_params",
-				vec![(
-					StateMachine::Kusama(para_id),
-					HostParam::SubstrateHostParam(VersionedHostParams::V1(SubstrateHostParams {
-						default_per_byte_fee: per_byte_fee,
-						..Default::default()
-					})),
-				)]
-				.encode(),
+				vec![host_params_value],
 			);
 			let sudo_call =
-				Extrinsic::new("Sudo", "sudo", client.tx().call_data(&set_host_params_call)?);
+				subxt::dynamic::tx("Sudo", "sudo", vec![set_host_params_call.into_value()]);
 			let call = client.tx().call_data(&sudo_call)?;
-			let extrinsic: Bytes = client
-				.rpc()
+			let extrinsic: Bytes = rpc_client
 				.request(
 					"simnode_authorExtrinsic",
 					// author an extrinsic from alice, the sudo account
@@ -551,14 +555,12 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 				.await
 				.map_err(|err| println!("{:?}", err))
 				.expect("REASON");
-			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 			let progress = submittable.submit_and_watch().await?;
-			let block = client
-				.rpc()
+			let block = rpc_client
 				.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 				.await?;
-			let finalized = client
-				.rpc()
+			let finalized = rpc_client
 				.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
 				.await?;
 			assert!(finalized);
@@ -621,37 +623,41 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	let start = SystemTime::now();
 	let now = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
 
-	let call = Extrinsic::new(
-		"System",
-		"set_storage",
-		vec![(key1.clone(), state_commitment.encode()), (key2.clone(), now.as_secs().encode())]
-			.encode(),
-	);
-	let sudo_call = Extrinsic::new("Sudo", "sudo", client.tx().call_data(&call)?);
+	let kv_list =
+		vec![(key1.clone(), state_commitment.encode()), (key2.clone(), now.as_secs().encode())];
+
+	let call =
+		subxt::dynamic::tx("System", "set_storage", vec![storage_kv_list_to_value(&kv_list)]);
+	let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 	let call = client.tx().call_data(&sudo_call)?;
-	let extrinsic: Bytes = client
-		.rpc()
+	let extrinsic: Bytes = rpc_client
 		.request(
 			"simnode_authorExtrinsic",
 			// author an extrinsic from alice
 			rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
 		)
 		.await?;
-	let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
-	submittable.submit().await?;
+	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
+	let progress = submittable.submit_and_watch().await?;
 
 	// create a block
-	let _ = client
-		.rpc()
+	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
+
+	let finalized = rpc_client
+		.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
+		.await?;
+	assert!(finalized);
+
+	progress.wait_for_finalized_success().await?;
 
 	// sanity check that it was properly stored
 	let item = client
 		.storage()
 		.at_latest()
 		.await?
-		.fetch_raw(&key1)
+		.fetch_raw(key1.clone())
 		.await?
 		.ok_or_else(|| anyhow!("Failed to set state commitment"))?;
 
@@ -661,7 +667,7 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 		.storage()
 		.at_latest()
 		.await?
-		.fetch_raw(&key2)
+		.fetch_raw(key2.clone())
 		.await?
 		.ok_or_else(|| anyhow!("Failed to set state commitment"))?;
 	let update_time: u64 = Decode::decode(&mut &*item)?;
@@ -675,15 +681,14 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	let proof = Proof { height, proof };
 
 	// 3. next send the requests
-	let tx = Extrinsic::new(
+	let tx = subxt::dynamic::tx(
 		"Ismp",
 		"handle_unsigned",
-		vec![Message::Request(RequestMessage {
+		vec![messages_to_value(vec![Message::Request(RequestMessage {
 			requests: vec![post.clone().into()],
 			proof: proof.clone(),
 			signer: H256::random().as_bytes().to_vec(),
-		})]
-		.encode(),
+		})])],
 	);
 
 	let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();

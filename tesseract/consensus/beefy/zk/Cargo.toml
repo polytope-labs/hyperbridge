@@ -18,7 +18,7 @@ hex = { workspace = true }
 beefy-verifier-primitives = { workspace = true }
 beefy-prover = { workspace = true }
 sp-consensus-beefy = { workspace = true }
-subxt = { workspace = true, features = ["substrate-compat"] }
+subxt = { workspace = true }
 sp-crypto-hashing = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 merkle-mountain-range = { workspace = true }

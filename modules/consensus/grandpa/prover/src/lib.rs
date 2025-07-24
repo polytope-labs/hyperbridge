@@ -17,24 +17,31 @@
 
 //! GRANDPA consensus prover utilities
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use finality_grandpa::Chain as _;
-use grandpa_verifier::verify_grandpa_finality_proof;
-use grandpa_verifier_primitives::{
-	justification::{find_scheduled_change, AncestryChain},
-	parachain_header_storage_key, ConsensusState, DefaultHeader, FinalityProof,
-	ParachainHeaderProofs,
-};
 use indicatif::ProgressBar;
-use ismp::host::StateMachine;
-use polkadot_sdk::{sp_consensus_grandpa::GRANDPA_ENGINE_ID, *};
+use polkadot_sdk::{*, sp_consensus_grandpa::GRANDPA_ENGINE_ID};
 use serde::{Deserialize, Serialize};
 use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_core::H256;
 use sp_runtime::traits::{One, Zero};
-use std::collections::{BTreeMap, BTreeSet};
-use subxt::{config::Header, rpc_params, Config, OnlineClient};
+use subxt::{
+	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
+	config::{HashFor, Header},
+	Config,
+	ext::subxt_rpcs::{rpc_params}, OnlineClient, PolkadotConfig,
+};
+
+use grandpa_verifier::verify_grandpa_finality_proof;
+use grandpa_verifier_primitives::{
+	ConsensusState,
+	DefaultHeader, FinalityProof, justification::{AncestryChain, find_scheduled_change}, parachain_header_storage_key,
+	ParachainHeaderProofs,
+};
+use ismp::host::StateMachine;
 
 /// Head data for parachain
 #[derive(Decode, Encode)]
@@ -47,6 +54,10 @@ pub struct GrandpaProver<T: Config> {
 	pub client: OnlineClient<T>,
 	/// Options for the prover
 	pub options: ProverOptions,
+	/// rpc methods for the prover
+	pub rpc: LegacyRpcMethods<T>,
+	/// rpc client for making rpc request
+	pub rpc_client: RpcClient,
 }
 
 /// We redefine these here because we want the header to be bounded by subxt::config::Header in the
@@ -94,29 +105,30 @@ where
 	T: Config,
 	<T::Header as Header>::Number: Ord + Zero,
 	u32: From<<T::Header as Header>::Number>,
-	sp_core::H256: From<T::Hash>,
+	sp_core::H256: From<HashFor<T>>,
 	T::Header: codec::Decode,
 {
 	/// Initializes the GRANDPA prover given the parameters. Internally connects over WS to the
 	/// provided RPC
 	pub async fn new(options: ProverOptions) -> Result<Self, anyhow::Error> {
 		let ProverOptions { max_rpc_payload_size, ref ws_url, .. } = options;
-		let client = subxt_utils::client::ws_client(&ws_url, max_rpc_payload_size).await?;
+		let (client, rpc_client) = subxt_utils::client::ws_client(&ws_url, max_rpc_payload_size).await?;
 
-		Ok(Self { client, options })
+		let rpc = LegacyRpcMethods::<T>::new(rpc_client.clone());
+
+		Ok(Self { client, options, rpc, rpc_client })
 	}
 
 	/// Construct the initial consensus state.
 	pub async fn initialize_consensus_state(
 		&self,
 		slot_duration: u64,
-		hash: T::Hash,
+		hash: HashFor<T>,
 	) -> Result<ConsensusState, anyhow::Error> {
 		use sp_consensus_grandpa::AuthorityList;
 		let header = self
-			.client
-			.rpc()
-			.header(Some(hash))
+			.rpc
+			.chain_get_header(Some(hash))
 			.await?
 			.ok_or_else(|| anyhow!("Header not found for hash: {hash:?}"))?;
 
@@ -135,15 +147,14 @@ where
 
 		let current_authorities = {
 			let bytes = self
-				.client
-				.rpc()
+				.rpc_client
 				.request::<String>(
 					"state_call",
-					subxt::rpc_params!(
+					rpc_params![
 						"GrandpaApi_grandpa_authorities",
 						"0x",
 						Some(format!("{:?}", hash))
-					),
+					],
 				)
 				.await
 				.map(|res| hex::decode(&res[2..]))??;
@@ -177,17 +188,16 @@ where
 		consensus_state: ConsensusState,
 	) -> Result<FinalityProof<DefaultHeader>, anyhow::Error>
 	where
-		H256: From<T::Hash>,
+		H256: From<HashFor<T>>,
 		u32: From<<T::Header as Header>::Number>,
 		<T::Header as Header>::Number: finality_grandpa::BlockNumberOps + One,
 	{
 		let previous_finalized_height = consensus_state.latest_height;
 		let mut max_height = previous_finalized_height + self.options.max_block_range;
-		let finalized_hash = self.client.rpc().finalized_head().await?;
+		let finalized_hash = self.rpc.chain_get_finalized_head().await?;
 		let finalized_header = self
-			.client
-			.rpc()
-			.header(Some(finalized_hash))
+			.rpc
+			.chain_get_header(Some(finalized_hash))
 			.await?
 			.ok_or_else(|| anyhow!("Header not found for hash {finalized_hash:#?}"))?;
 		let finalized_number = u32::from(finalized_header.number());
@@ -198,8 +208,7 @@ where
 
 		if max_height > finalized_number {
 			let encoded = self
-				.client
-				.rpc()
+				.rpc_client
 				.request::<Option<JustificationNotification>>(
 					"grandpa_proveFinality",
 					rpc_params![finalized_number],
@@ -237,15 +246,13 @@ where
 		let pb = ProgressBar::new(diff as u64);
 		for height in previous_finalized_height..=max_height {
 			let current_hash = self
-				.client
-				.rpc()
-				.block_hash(Some(height.into()))
+				.rpc
+				.chain_get_block_hash(Some(height.into()))
 				.await?
 				.ok_or_else(|| anyhow!("Failed to fetch block hash for height {height}"))?;
 			let header = self
-				.client
-				.rpc()
-				.header(Some(current_hash))
+				.rpc
+				.chain_get_header(Some(current_hash))
 				.await?
 				.ok_or_else(|| anyhow!("Header with hash: {current_hash:?} not found!"))?;
 			let sp_runtime_header = DefaultHeader::decode(&mut header.encode().as_ref())?;
@@ -264,9 +271,8 @@ where
 			} else {
 				// check block justifications
 				let grandpa_justification = self
-					.client
-					.rpc()
-					.block(Some(current_hash))
+					.rpc
+					.chain_get_block(Some(current_hash))
 					.await?
 					.ok_or_else(|| anyhow!("Block not found for number: {current_hash:#?}"))?
 					.justifications
@@ -282,9 +288,8 @@ where
 					);
 
 					let previously_finalized_hash = self
-						.client
-						.rpc()
-						.block_hash(Some(previous_finalized_height.into()))
+						.rpc
+						.chain_get_block_hash(Some(previous_finalized_height.into()))
 						.await?
 						.ok_or_else(|| {
 							anyhow!(
@@ -330,13 +335,12 @@ where
 		}
 
 		let block = self
-			.client
-			.rpc()
-			.block(Some(target_block_hash.expect("Infallible")))
+			.rpc
+			.chain_get_block(Some(target_block_hash.expect("Infallible")))
 			.await?
 			.ok_or_else(|| {
-				anyhow!("Block not found for number: {:#?}", target_block_hash.expect("Infallible"))
-			})?;
+			anyhow!("Block not found for number: {:#?}", target_block_hash.expect("Infallible"))
+		})?;
 		// get GRANDPA justification
 		let justification = block
 			.justifications
@@ -347,9 +351,8 @@ where
 			})
 			.expect("Block {target_block_hash:#?} should contain GRANDPA justification; qed");
 		let previously_finalized_hash = self
-			.client
-			.rpc()
-			.block_hash(Some(previous_finalized_height.into()))
+			.rpc
+			.chain_get_block_hash(Some(previous_finalized_height.into()))
 			.await?
 			.ok_or_else(|| {
 				anyhow!(
@@ -402,15 +405,13 @@ where
 		let pb = ProgressBar::new((end.saturating_sub(start)) as u64);
 		for height in start..=end {
 			let hash = self
-				.client
-				.rpc()
-				.block_hash(Some(height.into()))
+				.rpc
+				.chain_get_block_hash(Some(height.into()))
 				.await?
 				.ok_or_else(|| anyhow!("Failed to fetch block has for height {height}"))?;
 			let header = self
-				.client
-				.rpc()
-				.header(Some(hash))
+				.rpc
+				.chain_get_header(Some(hash))
 				.await?
 				.ok_or_else(|| anyhow!("Header with hash: {hash:?} not found!"))?;
 			headers.push(DefaultHeader::decode(&mut header.encode().as_ref())?);
@@ -423,10 +424,10 @@ where
 	/// Returns the proof for parachain headers finalized by the provided finality proof
 	pub async fn query_finalized_parachain_headers_with_proof(
 		&self,
-		finalized_hash: T::Hash,
+		finalized_hash: HashFor<T>,
 	) -> Result<BTreeMap<H256, ParachainHeaderProofs>, anyhow::Error>
 	where
-		H256: From<T::Hash>,
+		H256: From<HashFor<T>>,
 		<T::Header as Header>::Number: finality_grandpa::BlockNumberOps + One,
 	{
 		// we are interested only in the blocks where our parachain header changes.
@@ -440,9 +441,8 @@ where
 		let mut parachain_headers_with_proof = BTreeMap::<H256, ParachainHeaderProofs>::default();
 
 		let state_proof = self
-			.client
-			.rpc()
-			.read_proof(keys, Some(finalized_hash))
+			.rpc
+			.state_get_read_proof(keys, Some(finalized_hash))
 			.await?
 			.proof
 			.into_iter()

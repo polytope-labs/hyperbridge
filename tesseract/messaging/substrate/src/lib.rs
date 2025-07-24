@@ -13,27 +13,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use crate::provider::system_events_key;
 use std::sync::Arc;
+
+use polkadot_sdk::{
+	sp_core::{bytes::from_hex, crypto, sr25519, Pair},
+	sp_runtime::{traits::IdentifyAccount, MultiSigner},
+};
+use serde::{Deserialize, Serialize};
+use subxt::{
+	backend::legacy::LegacyRpcMethods,
+	config::{ExtrinsicParams, Hash, HashFor, Header},
+	ext::subxt_rpcs::RpcClient,
+	tx::DefaultParams,
+	utils::{AccountId32, MultiAddress, MultiSignature, H256},
+	OnlineClient,
+};
 
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::child_trie::{
 	request_commitment_storage_key, request_receipt_storage_key, response_commitment_storage_key,
 	response_receipt_storage_key,
 };
+use substrate_state_machine::HashAlgorithm;
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated, StreamError};
 
-use serde::{Deserialize, Serialize};
-use subxt::ext::sp_core::{bytes::from_hex, crypto, sr25519, Pair, H256};
-
-use substrate_state_machine::HashAlgorithm;
-use subxt::{
-	config::{
-		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
-	},
-	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
-	OnlineClient,
-};
+pub use crate::provider::system_events_key;
 
 mod byzantine;
 pub mod calls;
@@ -73,6 +77,10 @@ pub struct SubstrateConfig {
 pub struct SubstrateClient<C: subxt::Config> {
 	/// Subxt client for the substrate chain
 	pub client: OnlineClient<C>,
+	/// Legacy subxt rpc client
+	pub rpc: LegacyRpcMethods<C>,
+	/// Raw rpc client
+	pub rpc_client: RpcClient,
 	/// Consensus state Id
 	consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this client.
@@ -100,24 +108,22 @@ pub struct SubstrateClient<C: subxt::Config> {
 impl<C> SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
-	H256: From<<C as subxt::Config>::Hash>,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
+	H256: From<HashFor<C>>,
 {
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
-		let client =
+		let (client, rpc_client) =
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
+		let rpc = LegacyRpcMethods::<C>::new(rpc_client.clone());
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height
 		let initial_height = if let Some(initial_height) = config.initial_height {
 			initial_height
 		} else {
-			client
-				.rpc()
-				.header(None)
+			rpc.chain_get_header(None)
 				.await?
 				.expect("block header should be available")
 				.number()
@@ -135,6 +141,8 @@ where
 		let address = signer.public().0.to_vec();
 		Ok(Self {
 			client,
+			rpc,
+			rpc_client,
 			consensus_state_id,
 			state_machine: config.state_machine,
 			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
@@ -152,7 +160,15 @@ where
 	}
 
 	pub fn account(&self) -> C::AccountId {
-		MultiSigner::Sr25519(self.signer.public()).into_account().into()
+		let binding = self.signer.public();
+		let public_key_slice: &[u8] = binding.as_ref();
+
+		let public_key_array: [u8; 32] =
+			public_key_slice.try_into().expect("Public key must be 32 bytes");
+
+		let account_id = subxt::utils::AccountId32::from(public_key_array);
+
+		account_id.into()
 	}
 
 	pub async fn set_latest_finalized_height(
@@ -192,6 +208,8 @@ impl<C: subxt::Config> Clone for SubstrateClient<C> {
 	fn clone(&self) -> Self {
 		Self {
 			client: self.client.clone(),
+			rpc: self.rpc.clone(),
+			rpc_client: self.rpc_client.clone(),
 			consensus_state_id: self.consensus_state_id,
 			state_machine: self.state_machine,
 			hashing: self.hashing.clone(),

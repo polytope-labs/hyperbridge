@@ -346,9 +346,8 @@ pub struct MockPriceOracle;
 impl PriceOracle<<Test as pallet_balances::Config>::Balance> for MockPriceOracle {
 	fn convert_to_usd(
 		_source_state_machine: StateMachine,
-		amount: <Test as pallet_balances::Config>::Balance,
 	) -> Result<<Test as pallet_balances::Config>::Balance, DispatchError> {
-		Ok(amount)
+		Ok(2000)
 	}
 }
 

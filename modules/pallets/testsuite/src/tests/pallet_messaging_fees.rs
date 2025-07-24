@@ -110,9 +110,9 @@ fn test_incentivize_relayer_for_request_message() {
 
 		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
-		let bytes_processed = 1;
+		let bytes_processed = 100;
 		let base_reward = 100_000u128;
-		let total_bytes_for_calc = 1;
+		let total_bytes_for_calc = 100;
 		let target_size: u32 = <Test as pallet_messaging_fees::Config>::TargetMessageSize::get();
 
 		let expected_reward = pallet_messaging_fees::Pallet::<Test>::calculate_reward(
@@ -127,6 +127,7 @@ fn test_incentivize_relayer_for_request_message() {
 	});
 }
 
+#[test]
 #[test]
 fn test_charge_relayer_when_target_size_is_exceeded() {
 	new_test_ext().execute_with(|| {
@@ -156,10 +157,9 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 		let fee_charged = 100_000u128;
 
 		assert_eq!(Balances::balance(&relayer_account), 1000 * UNIT - fee_charged);
-		assert_eq!(TotalBytesProcessed::<Test>::get(), target_size + 2);
+		assert_eq!(TotalBytesProcessed::<Test>::get(), target_size + 100);
 	});
 }
-
 #[test]
 fn test_skip_incentivizing_for_unsupported_route() {
 	new_test_ext().execute_with(|| {

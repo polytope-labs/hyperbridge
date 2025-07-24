@@ -71,7 +71,7 @@ pub mod pallet {
 		/// Origin for privileged actions
 		type IncentivesOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
-		/// Price oracle for price conversion to bridge tokens
+		/// Price oracle for usd price conversion to bridge tokens
 		type PriceOracle: PriceOracle<Self::Balance>;
 
 		/// The target message size
@@ -123,14 +123,14 @@ pub mod pallet {
 		/// State machine Routes supported for incentives
 		RouteSupported { source_chain: StateMachine, destination_chain: StateMachine },
 		/// A relayer was rewarded
-		RelayerRewarded {
+		FeeRewarded {
 			/// Relayer account that received the reward
 			relayer: T::AccountId,
 			/// Amount of the reward
 			amount: <T as pallet_ismp::Config>::Balance,
 		},
 		/// A relayer was charged a fee
-		RelayerCharged {
+		FeePaid {
 			/// Relayer account that was charged
 			relayer: T::AccountId,
 			/// Amount of the fee
@@ -173,10 +173,14 @@ impl<T: Config> pallet_session::SessionHandler<T::AccountId> for Pallet<T> {
 	fn on_genesis_session<Ks: OpaqueKeys>(_validators: &[(T::AccountId, Ks)]) {}
 
 	fn on_new_session<Ks: OpaqueKeys>(
-		_changed: bool,
+		changed: bool,
 		_validators: &[(T::AccountId, Ks)],
 		_queued_validators: &[(T::AccountId, Ks)],
 	) {
+		if !changed {
+			return;
+		}
+
 		let current_block = <frame_system::Pallet<T>>::block_number();
 		let mut epoch = Epoch::<T>::get();
 

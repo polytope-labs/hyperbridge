@@ -7,7 +7,10 @@ use polkadot_sdk::{
 };
 use sp_core::{keccak_256, sr25519, Pair, H256};
 
-use ismp::{messaging::Message, router::RequestResponse};
+use ismp::{
+	messaging::Message,
+	router::{Request, RequestResponse, Response},
+};
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
 
@@ -97,7 +100,20 @@ where
 		};
 
 		for (state_machine, messages) in &messages_by_chain {
-			let bytes_processed = messages.len() as u32;
+			let bytes_processed: u32 = messages
+				.iter()
+				.map(|msg| match msg {
+					IncentivizedMessage::Post(req) => req.body.len() as u32,
+					IncentivizedMessage::Request(req) => match req {
+						Request::Post(post) => post.body.len() as u32,
+						Request::Get(_) => 0,
+					},
+					IncentivizedMessage::Response(res) => match res {
+						Response::Post(post) => post.response.len() as u32,
+						Response::Get(_) => 0,
+					},
+				})
+				.sum();
 
 			TotalBytesProcessed::<T>::mutate(|total| {
 				*total = total.saturating_add(bytes_processed)
@@ -107,7 +123,7 @@ where
 			if let Some(host_params) =
 				pallet_ismp_host_executive::HostParams::<T>::get(&state_machine)
 			{
-				let per_byte_fee_u256 = match host_params {
+				let per_byte_fee = match host_params {
 					EvmHostParam(evm_host_param) => {
 						let fee = evm_host_param
 							.per_byte_fees
@@ -119,7 +135,7 @@ where
 							.map(|fee| fee.per_byte_fee)
 							.unwrap_or(evm_host_param.default_per_byte_fee);
 
-						Some(fee)
+						fee
 					},
 					SubstrateHostParam(VersionedHostParams::V1(substrate_params)) => {
 						let fee = substrate_params
@@ -128,55 +144,53 @@ where
 							.cloned()
 							.unwrap_or(substrate_params.default_per_byte_fee);
 						let fee_u128: u128 = fee.into();
-						Some(U256::from(fee_u128))
+						U256::from(fee_u128)
 					},
 				};
 
-				if let Some(per_byte_fee) = per_byte_fee_u256 {
-					let dollar_cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
-					let dollar_cost: u128 =
-						dollar_cost.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
+				let dollar_cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
+				let dollar_cost: u128 =
+					dollar_cost.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
 
-					let base_reward_in_token = T::PriceOracle::convert_to_usd(
-						state_machine.clone(),
-						dollar_cost.saturated_into(),
-					)
+				let bridge_usd_price = T::PriceOracle::convert_to_usd(state_machine.clone())
 					.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
-					let target_message_size = T::TargetMessageSize::get();
+				let base_reward_in_token =
+					bridge_usd_price.saturating_mul(dollar_cost.saturated_into());
 
-					if current_total_bytes <= target_message_size {
-						let reward_amount = Self::calculate_reward(
-							current_total_bytes,
-							target_message_size,
-							base_reward_in_token.into(),
-						)?;
+				let target_message_size = T::TargetMessageSize::get();
 
-						T::Currency::transfer(
-							&T::TreasuryAccount::get().into_account_truncating(),
-							&relayer,
-							reward_amount.saturated_into(),
-							Preservation::Expendable,
-						)
-						.map_err(|_| Error::<T>::RewardTransferFailed)?;
-						Self::deposit_event(Event::RelayerRewarded {
-							relayer: relayer.clone(),
-							amount: reward_amount.saturated_into(),
-						});
-					} else {
-						T::Currency::transfer(
-							&relayer,
-							&T::TreasuryAccount::get().into_account_truncating(),
-							base_reward_in_token,
-							Preservation::Expendable,
-						)
-						.map_err(|_| Error::<T>::RewardTransferFailed)?;
+				if current_total_bytes <= target_message_size {
+					let reward_amount = Self::calculate_reward(
+						current_total_bytes,
+						target_message_size,
+						base_reward_in_token.into(),
+					)?;
 
-						Self::deposit_event(Event::RelayerCharged {
-							relayer: relayer.clone(),
-							amount: base_reward_in_token.into(),
-						});
-					}
+					T::Currency::transfer(
+						&T::TreasuryAccount::get().into_account_truncating(),
+						&relayer,
+						reward_amount.saturated_into(),
+						Preservation::Expendable,
+					)
+					.map_err(|_| Error::<T>::RewardTransferFailed)?;
+					Self::deposit_event(Event::FeeRewarded {
+						relayer: relayer.clone(),
+						amount: reward_amount.saturated_into(),
+					});
+				} else {
+					T::Currency::transfer(
+						&relayer,
+						&T::TreasuryAccount::get().into_account_truncating(),
+						base_reward_in_token,
+						Preservation::Expendable,
+					)
+					.map_err(|_| Error::<T>::RewardTransferFailed)?;
+
+					Self::deposit_event(Event::FeePaid {
+						relayer: relayer.clone(),
+						amount: base_reward_in_token.into(),
+					});
 				}
 			}
 		}

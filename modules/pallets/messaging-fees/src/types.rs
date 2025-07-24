@@ -35,10 +35,7 @@ impl<BlockNumber: Zero> Default for EpochInfo<BlockNumber> {
 
 /// A trait for a price oracle.
 pub trait PriceOracle<Balance> {
-	fn convert_to_usd(
-		source_state_machine: StateMachine,
-		amount: Balance,
-	) -> Result<Balance, DispatchError>;
+	fn convert_to_usd(source_state_machine: StateMachine) -> Result<Balance, DispatchError>;
 }
 
 /// Weight information for pallet operations

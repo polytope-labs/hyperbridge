@@ -54,7 +54,6 @@ where
 				return Some(pub_key.0.into());
 			}
 		}
-
 		None
 	}
 
@@ -65,7 +64,7 @@ where
 		match message {
 			Message::Request(msg) =>
 				for req in &msg.requests {
-					if IncentivizedRoutes::<T>::get(req.source, req.dest).is_some() {
+					if IncentivizedRoutes::<T>::get((req.source, req.dest)).is_some() {
 						messages_by_chain
 							.entry(req.dest)
 							.or_default()
@@ -77,7 +76,7 @@ where
 					for req in requests {
 						let source_chain = req.source_chain();
 						let dest_chain = req.dest_chain();
-						if IncentivizedRoutes::<T>::get(source_chain, dest_chain).is_some() {
+						if IncentivizedRoutes::<T>::get((source_chain, dest_chain)).is_some() {
 							messages_by_chain
 								.entry(dest_chain)
 								.or_default()
@@ -88,7 +87,7 @@ where
 					for res in responses {
 						let source_chain = res.source_chain();
 						let dest_chain = res.dest_chain();
-						if IncentivizedRoutes::<T>::get(source_chain, dest_chain).is_some() {
+						if IncentivizedRoutes::<T>::get((source_chain, dest_chain)).is_some() {
 							messages_by_chain
 								.entry(dest_chain)
 								.or_default()
@@ -110,7 +109,12 @@ where
 					},
 					IncentivizedMessage::Response(res) => match res {
 						Response::Post(post) => post.response.len() as u32,
-						Response::Get(_) => 0,
+						Response::Get(get) => get
+							.values
+							.iter()
+							.filter_map(|storage_val| storage_val.value.as_ref())
+							.map(|bytes| bytes.len())
+							.sum::<usize>() as u32,
 					},
 				})
 				.sum();
@@ -152,7 +156,7 @@ where
 				let dollar_cost: u128 =
 					dollar_cost.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
 
-				let bridge_usd_price = T::PriceOracle::convert_to_usd(state_machine.clone())
+				let bridge_usd_price = T::PriceOracle::get_price()
 					.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
 				let base_reward_in_token =

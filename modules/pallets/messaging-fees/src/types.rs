@@ -1,6 +1,5 @@
 use codec::{Decode, Encode};
 use ismp::{
-	host::StateMachine,
 	router::{PostRequest, Request, Response},
 };
 use polkadot_sdk::{
@@ -33,9 +32,9 @@ impl<BlockNumber: Zero> Default for EpochInfo<BlockNumber> {
 	}
 }
 
-/// A trait for a price oracle.
+/// A trait for Bridge price oracle.
 pub trait PriceOracle<Balance> {
-	fn convert_to_usd(source_state_machine: StateMachine) -> Result<Balance, DispatchError>;
+	fn get_price() -> Result<Balance, DispatchError>;
 }
 
 /// Weight information for pallet operations

@@ -90,15 +90,9 @@ pub mod pallet {
 	/// Stores whitelisted routes for incentives. The key is a tuple of (source, destination).
 	#[pallet::storage]
 	#[pallet::getter(fn incentivized_routes)]
-	pub type IncentivizedRoutes<T: Config> = StorageDoubleMap<
-		_,
-		Twox64Concat,
-		StateMachine,
-		Twox64Concat,
-		StateMachine,
-		bool,
-		OptionQuery,
-	>;
+	pub type IncentivizedRoutes<T: Config> =
+	StorageMap<_, Twox64Concat, (StateMachine, StateMachine), bool, OptionQuery>;
+
 
 	/// Current active Epoch for incentivization
 	#[pallet::storage]
@@ -155,7 +149,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			<T as Config>::IncentivesOrigin::ensure_origin(origin)?;
 
-			IncentivizedRoutes::<T>::insert(source, destination, true);
+			IncentivizedRoutes::<T>::insert((source, destination), true);
 
 			Self::deposit_event(Event::<T>::RouteSupported {
 				source_chain: source,

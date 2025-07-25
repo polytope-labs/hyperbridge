@@ -482,6 +482,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
 	type SelectCore = DefaultCoreSelector<Self>;
+	type RelayParentOffset = ConstU32<0>;
 }
 
 type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
@@ -755,7 +756,6 @@ impl pallet_vesting::Config for Runtime {
 }
 
 impl pallet_bridge_airdrop::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type BridgeDropOrigin = EnsureRoot<Self::AccountId>;
 }

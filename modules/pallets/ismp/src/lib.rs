@@ -87,10 +87,6 @@ pub mod pallet {
 
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config {
-		// /// The overarching event type.
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// Admin origin for privileged actions such as adding new consensus clients as well as
 		/// modifying existing consensus clients (eg. challenge period, unbonding period)
 		type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;

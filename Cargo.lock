@@ -8194,8 +8194,6 @@ dependencies = [
  "ismp-parachain-runtime-api",
  "ismp-sync-committee",
  "log",
- "orml-traits",
- "orml-xcm-support",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
@@ -12673,8 +12671,6 @@ dependencies = [
  "ismp-parachain-runtime-api",
  "ismp-sync-committee",
  "log",
- "orml-traits",
- "orml-xcm-support",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
@@ -13372,58 +13368,6 @@ name = "ordermap"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a86ed3f5f244b372d6b1a00b72ef7f8876d0bc6a78a4c9985c53614041512063"
-
-[[package]]
-name = "orml-traits"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "142ad9ea7b701a24cf87a3920b59eece26068f36cd578ae44aa4d5df08cb3640"
-dependencies = [
- "frame-support 40.1.0",
- "impl-trait-for-tuples",
- "num-traits",
- "orml-utilities",
- "parity-scale-codec",
- "paste",
- "scale-info",
- "serde",
- "sp-core 36.1.0",
- "sp-io 40.0.1",
- "sp-runtime 41.1.0",
- "sp-std",
- "staging-xcm 16.2.0",
-]
-
-[[package]]
-name = "orml-utilities"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ca95a4630a73b8300db956207cb711ced71010a0c65659e00b9c4ed5cfd702b"
-dependencies = [
- "frame-support 40.1.0",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-core 36.1.0",
- "sp-io 40.0.1",
- "sp-runtime 41.1.0",
- "sp-std",
-]
-
-[[package]]
-name = "orml-xcm-support"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16d8120443a3b9082d2a3f6c6e13822e1098e4e1a1e129ad4e09a33a3a58f750"
-dependencies = [
- "frame-support 40.1.0",
- "orml-traits",
- "parity-scale-codec",
- "sp-runtime 41.1.0",
- "sp-std",
- "staging-xcm 16.2.0",
- "staging-xcm-executor 19.1.2",
-]
 
 [[package]]
 name = "overload"
@@ -25984,7 +25928,7 @@ dependencies = [
 
 [[package]]
 name = "sp1-sdk"
-version = "4.1.7"
+version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c7dc2c3c142eda28ff26ea38a1fbf21a1da403518051e73cca8c0a7460dfc7c"
 dependencies = [

@@ -52,10 +52,6 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
-		/// Because this pallet emits events, it depends on the runtime's definition of an event.
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// The [`IsmpDispatcher`] implementation to use for dispatching requests
 		type IsmpHost: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
 

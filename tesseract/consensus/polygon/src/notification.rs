@@ -1,6 +1,6 @@
 use crate::{ConsensusState, PolygonConsensusUpdate, PolygonPosHost};
-use anyhow::Ok as anyhow_Ok;
 use codec::Decode;
+use ismp_polygon::ICS23Proof;
 use std::{result::Result::Ok, sync::Arc};
 use tendermint_primitives::{CodecConsensusProof, CodecTrustedState, ConsensusProof, TrustedState};
 use tendermint_prover::{Client, ValidatorSet};
@@ -11,7 +11,7 @@ use tesseract_primitives::IsmpProvider;
 pub async fn consensus_notification(
 	client: &PolygonPosHost,
 	_counterparty: Arc<dyn IsmpProvider>,
-) -> anyhow::Result<(Option<PolygonConsensusUpdate>)> {
+) -> anyhow::Result<Option<PolygonConsensusUpdate>> {
 	let latest_height = client.prover.latest_height().await?;
 
 	let consensus_state_serialized: Vec<u8> =
@@ -49,6 +49,8 @@ pub async fn consensus_notification(
 				milestone_number,
 				milestone.clone(),
 				milestone_end_block,
+				untrusted_header.header.height.into(),
+				untrusted_header.header.app_hash.as_bytes().to_vec(),
 			)
 			.await?,
 		)
@@ -117,12 +119,12 @@ pub async fn consensus_notification(
 						ancestry,
 						Some(next_validators),
 					)),
-					milestone_update: maybe_milestone_update,
+					milestone_update: None,
 				}));
 			}
 		},
 	}
-	Ok((None))
+	Ok(None)
 }
 
 async fn build_milestone_update(
@@ -130,13 +132,16 @@ async fn build_milestone_update(
 	milestone_number: u64,
 	milestone: tendermint_primitives::Milestone,
 	milestone_end_block: u64,
+	untrusted_header_height: u64,
+	untrusted_header_app_hash: Vec<u8>,
 ) -> anyhow::Result<ismp_polygon::MilestoneUpdate> {
 	let evm_header = client
 		.prover
 		.fetch_header(milestone_end_block)
 		.await?
 		.ok_or_else(|| anyhow::anyhow!("EVM header not found"))?;
-	let abci_query = client.prover.get_ics23_proof(milestone_number, milestone_end_block).await?;
+	let abci_query =
+		client.prover.get_ics23_proof(milestone_number, untrusted_header_height).await?;
 	let ics23_state_proof = abci_query
 		.proof
 		.as_ref()
@@ -145,8 +150,13 @@ async fn build_milestone_update(
 		.unwrap_or_default();
 	return Ok(ismp_polygon::MilestoneUpdate {
 		evm_header,
-		milestone_number: Some(milestone_number),
-		ics23_state_proof,
+		milestone_number,
+		ics23_state_proof: ICS23Proof {
+			proof: ics23_state_proof,
+			key: abci_query.key,
+			value: abci_query.value,
+		},
 		milestone,
+		untrusted_header_app_hash,
 	});
 }

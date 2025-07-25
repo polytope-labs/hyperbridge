@@ -1,26 +1,18 @@
 use anyhow::Result;
-use base64::{engine::general_purpose::STANDARD as base64_engine, Engine};
 use codec::{Decode, Encode};
-use futures::StreamExt;
-use ics23::HostFunctionsManager;
 use ismp::{
 	consensus::{ConsensusClientId, ConsensusStateId},
-	error::Error,
 	host::StateMachine,
 	messaging::{CreateConsensusState, Keccak256, Message},
 };
 use ismp_polygon::{ConsensusState, PolygonConsensusUpdate};
-use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
-use tendermint_primitives::{TrustedState, VerificationOptions};
-use tendermint_prover::{prove_header_update, Client, HeimdallClient};
+use tendermint_prover::HeimdallClient;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod notification;
-#[cfg(test)]
-mod tests;
 
 /// Host configuration for Polygon POS relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,7 +123,7 @@ impl IsmpHost for PolygonPosHost {
 					let consensus_message = ConsensusMessage {
 						consensus_proof: update.encode(),
 						consensus_state_id: client.consensus_state_id,
-						signer: vec![], // Who is the signer?
+						signer: vec![], // Q for reviewer: Who is the signer?
 					};
 					log::info!(
 						target: "tesseract",

@@ -11,5 +11,5 @@ pub mod hashing;
 pub mod sp_io_verifier;
 pub mod verifier;
 
-pub use sp_io_verifier::SpIoVerifier;
+pub use sp_io_verifier::{validate_validator_set_hash, SpIoVerifier};
 pub use verifier::{verify_header_update, verify_misbehaviour_header};

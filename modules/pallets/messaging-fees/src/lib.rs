@@ -23,33 +23,38 @@
 
 extern crate alloc;
 
-use crate::types::*;
 use alloc::vec::Vec;
+
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
 	pallet_prelude::*,
 	traits::Get,
 };
 use frame_system::pallet_prelude::*;
-use ismp::dispatcher::IsmpDispatcher;
-use ismp::host::{IsmpHost, StateMachine};
 use polkadot_sdk::{
 	sp_runtime::{traits::OpaqueKeys, KeyTypeId},
 	*,
 };
 
+use ismp::{
+	dispatcher::IsmpDispatcher,
+	host::{IsmpHost, StateMachine},
+};
+pub use pallet::*;
+
+use crate::types::*;
+
 mod impls;
 pub mod types;
-
-pub use pallet::*;
 
 pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
 
 #[frame_support::pallet]
 pub mod pallet {
-	use super::*;
 	use frame_support::PalletId;
-	use polkadot_sdk::sp_core::H256;
+	use polkadot_sdk::sp_core::{H256, U256};
+
+	use super::*;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -61,13 +66,16 @@ pub mod pallet {
 		polkadot_sdk::frame_system::Config
 		+ pallet_ismp::Config
 		+ pallet_ismp_host_executive::Config
+		+ pallet_ismp_relayer::Config
 	{
 		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>>
 			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 
 		/// The underlying [`IsmpHost`] implementation
-		type IsmpHost: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance> + Default;
+		type IsmpHost: IsmpHost
+			+ IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>
+			+ Default;
 
 		/// The account id for the treasury
 		type TreasuryAccount: Get<PalletId>;
@@ -76,7 +84,7 @@ pub mod pallet {
 		type IncentivesOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
 		/// Price oracle for usd price conversion to bridge tokens
-		type PriceOracle: PriceOracle<Self::Balance>;
+		type PriceOracle: PriceOracle;
 
 		/// The target message size
 		#[pallet::constant]
@@ -95,39 +103,13 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn incentivized_routes)]
 	pub type IncentivizedRoutes<T: Config> =
-	StorageMap<_, Twox64Concat, (StateMachine, StateMachine), bool, OptionQuery>;
+		StorageMap<_, Twox64Concat, (StateMachine, StateMachine), bool, OptionQuery>;
 
 	/// A map of request commitment to fees associated with them
 	#[pallet::storage]
 	#[pallet::getter(fn commitment_fees)]
-	pub type CommitmentFees<T: Config> = StorageMap<_, Blake2_128Concat, H256, T::Balance, OptionQuery>;
-
-	/// Accumulated fees for a relayer
-	#[pallet::storage]
-	#[pallet::getter(fn accumulated_fees)]
-	pub type AccumulatedFees<T: Config> = StorageDoubleMap<
-		_,
-		Blake2_128Concat,
-		StateMachine,
-		Blake2_128Concat,
-		T::AccountId,
-		T::Balance,
-		ValueQuery,
-	>;
-
-	/// Latest nonce for each address and the state machine they want to withdraw from
-	#[pallet::storage]
-	#[pallet::getter(fn nonce)]
-	pub type Nonce<T: Config> = StorageDoubleMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		Blake2_128Concat,
-		StateMachine, // source Chain
-		u64,
-		ValueQuery,
-	>;
-
+	pub type CommitmentFees<T: Config> =
+		StorageMap<_, Blake2_128Concat, H256, T::Balance, OptionQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -144,7 +126,7 @@ pub mod pallet {
 		/// Dispactch request failed
 		DispatchFailed,
 		/// Error
-		ErrorCompletingCall
+		ErrorCompletingCall,
 	}
 
 	#[pallet::event]
@@ -164,7 +146,7 @@ pub mod pallet {
 			/// Relayer account that was charged
 			relayer: T::AccountId,
 			/// Amount of the fee
-			amount: <T as pallet_ismp::Config>::Balance,
+			amount: U256,
 		},
 		/// Resetting of Incentives has occurred
 		IncentivesReset,
@@ -185,7 +167,8 @@ pub mod pallet {
 	where
 		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 		u128: From<<T as pallet_ismp::Config>::Balance>,
-		T::AccountId: AsRef<[u8]>,{
+		T::AccountId: AsRef<[u8]>,
+	{
 		/// Whitelists a route for messaging fees.
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::set_supported_route())]
@@ -203,17 +186,6 @@ pub mod pallet {
 				destination_chain: destination,
 			});
 
-			Ok(())
-		}
-
-		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::withdraw_fees())]
-		pub fn withdraw_fees(
-			origin: OriginFor<T>,
-			source_chain: StateMachine
-		) -> DispatchResult {
-			let relayer = ensure_signed(origin)?;
-			Self::do_withdraw_fees(relayer, source_chain)?;
 			Ok(())
 		}
 	}

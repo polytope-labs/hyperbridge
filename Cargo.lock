@@ -14505,6 +14505,7 @@ dependencies = [
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
  "parity-scale-codec",
  "polkadot-sdk 2503.0.1",
  "scale-info",

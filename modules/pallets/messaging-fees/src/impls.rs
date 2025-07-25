@@ -6,17 +6,16 @@ use polkadot_sdk::{
 	sp_core::U256,
 	sp_runtime::traits::*,
 };
-use sp_core::{H256, keccak_256, Pair, sr25519};
+use sp_core::{keccak_256, sr25519, Pair, H256};
 
 use ismp::{
-	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata},
 	messaging::{hash_request, Message},
-	router::{Request, RequestResponse, Response}
+	router::{Request, RequestResponse, Response},
 };
-use pallet_hyperbridge::{VersionedHostParams, WithdrawalRequest};
+use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
 
-use crate::{*, types::IncentivizedMessage};
+use crate::{types::IncentivizedMessage, *};
 
 impl<T: Config> Pallet<T>
 where
@@ -40,7 +39,7 @@ where
 
 			if let Some(relayer_account) = relayer_account {
 				let _ = Self::accumulate_protocol_fees(message, &relayer_account);
-				let _ = Self::process_bridge_rewards(message, relayer_account);
+				let _ = Self::process_bridge_rewards(message, relayer_account)?;
 			}
 		}
 
@@ -61,33 +60,28 @@ where
 		None
 	}
 
-	fn accumulate_protocol_fees(
-		message: &Message,
-		relayer_account: &T::AccountId,
-	) -> Result<(), Error<T>> {
+	fn accumulate_protocol_fees(message: &Message, relayer_account: &T::AccountId) {
 		let requests = match message {
 			Message::Request(req) => req.requests.clone(),
-			_ => return Ok(()),
+			_ => return,
 		};
 
 		for req in requests {
-			let commitment =  hash_request::<<T as pallet::Config>::IsmpHost>(&Request::Post(req.clone()));
-			let  source_chain = &req.source;
+			let commitment =
+				hash_request::<<T as pallet::Config>::IsmpHost>(&Request::Post(req.clone()));
+			let source_chain = &req.source;
 
 			if let Some(fee) = CommitmentFees::<T>::take(&commitment) {
-				AccumulatedFees::<T>::mutate(source_chain, relayer_account, |total_fee| {
-					*total_fee = total_fee.saturating_add(fee);
-				});
+				let fee_u256: U256 = u128::from(fee).into();
+				let relayer_address = relayer_account.as_ref().to_vec();
 
-				Self::deposit_event(Event::FeeAccumulated {
-					relayer: relayer_account.clone(),
-					source_chain: source_chain.clone(),
-					amount: fee,
-				});
+				pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
+					source_chain.clone(),
+					relayer_address,
+					fee_u256,
+				);
 			}
 		}
-
-		Ok(())
 	}
 
 	fn process_bridge_rewards(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
@@ -192,6 +186,9 @@ where
 				let bridge_usd_price = T::PriceOracle::get_bridge_price()
 					.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
+				let bridge_usd_price: u128 =
+					bridge_usd_price.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
+
 				let base_reward_in_token =
 					bridge_usd_price.saturating_mul(dollar_cost.saturated_into());
 
@@ -219,10 +216,10 @@ where
 					T::Currency::transfer(
 						&relayer,
 						&T::TreasuryAccount::get().into_account_truncating(),
-						base_reward_in_token,
+						base_reward_in_token.saturated_into(),
 						Preservation::Expendable,
 					)
-						.map_err(|_| Error::<T>::RewardTransferFailed)?;
+					.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
 					Self::deposit_event(Event::FeePaid {
 						relayer: relayer.clone(),
@@ -265,54 +262,6 @@ where
 
 		Ok(final_reward_numerator.saturating_div(target_size_sq))
 	}
-
-	pub fn do_withdraw_fees(
-		relayer: T::AccountId,
-		source_chain: StateMachine
-	) -> Result<(), DispatchError> {
-		let nonce = Nonce::<T>::get(&relayer, &source_chain);
-
-		let available_amount =
-			AccumulatedFees::<T>::take(source_chain, &relayer);
-		ensure!(available_amount > T::Balance::from(0u32), Error::<T>::NotEnoughBalance);
-
-		let body = pallet_hyperbridge::Message::WithdrawRelayerFees(WithdrawalRequest {
-			amount: available_amount,
-			account: relayer.clone()
-		}).encode();
-
-		let dispatcher = <T as Config>::IsmpHost::default();
-
-		let post = DispatchPost {
-			dest: source_chain,
-			from: MODULE_ID.to_vec(),
-			to: relayer.as_ref().to_vec(),
-			timeout: 0,
-			body
-		};
-
-		dispatcher
-			.dispatch_request(
-				DispatchRequest::Post(post),
-				FeeMetadata { payer: [0u8; 32].into(),  fee: Default::default() },
-			)
-			.map_err(|_| Error::<T>::DispatchFailed)?;
-
-		Nonce::<T>::try_mutate(relayer.clone(), source_chain, |value| {
-			*value = value.saturating_add(1);
-			Ok::<(), ()>(())
-		})
-			.map_err(|_| Error::<T>::ErrorCompletingCall)?;
-
-		Self::deposit_event(Event::Withdrawn {
-			relayer,
-			source_chain,
-			amount: available_amount,
-		});
-
-		Ok(())
-	}
-
 	pub fn note_request_fee(commitment: H256, fee: u128) {
 		let fee_balance: T::Balance = fee.saturated_into();
 		CommitmentFees::<T>::insert(commitment, fee_balance);

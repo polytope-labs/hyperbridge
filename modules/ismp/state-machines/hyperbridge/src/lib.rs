@@ -266,7 +266,12 @@ where
 	}
 }
 
+/// A hook that is called by the hyperbridge state machine client after successful state proof verification.
 pub trait OnRequestProcessed {
+	/// Called by the state machine client to note the fee for a request.
+	///
+	/// - `commitment`: The keccak256 hash of the ISMP request.
+	/// - `fee`: The fee amount for the request.
 	fn note_request_fee(commitment: H256, fee: u128);
 }
 

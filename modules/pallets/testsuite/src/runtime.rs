@@ -41,10 +41,7 @@ use ismp::{
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
-use sp_core::{
-	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H160, H256,
-};
+use sp_core::{offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt}, H160, H256, U256};
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	AccountId32, BuildStorage,
@@ -366,10 +363,10 @@ impl pallet_messaging_fees::Config for Test {
 
 pub struct MockPriceOracle;
 
-impl PriceOracle<<Test as pallet_balances::Config>::Balance> for MockPriceOracle {
+impl PriceOracle for MockPriceOracle {
 	fn get_bridge_price(
-	) -> Result<<Test as pallet_balances::Config>::Balance, DispatchError> {
-		Ok(2000)
+	) -> Result<U256, DispatchError> {
+		Ok(U256::from(2000))
 	}
 }
 

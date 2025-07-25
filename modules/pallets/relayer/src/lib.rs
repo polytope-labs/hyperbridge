@@ -780,6 +780,12 @@ impl<T: Config> Pallet<T> {
 			*inner += fee;
 			Ok::<(), ()>(())
 		});
+
+		Self::deposit_event(Event::<T>::AccumulateFees {
+			address: sp_runtime::BoundedVec::truncate_from(address),
+			state_machine,
+			amount: fee,
+		});
 	}
 }
 

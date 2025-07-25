@@ -14,22 +14,16 @@ use ethers::{
 	core::k256::SecretKey,
 	prelude::{LocalWallet, MiddlewareBuilder, Signer},
 	providers::{Http, Middleware, Provider, ProviderExt},
-	types::BlockId,
 };
 use futures::TryStreamExt;
 use hex_literal::hex;
-use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
-	events::Event,
-	host::StateMachine,
-	router::Request,
-};
+use ismp::{events::Event, host::StateMachine, router::Request};
 use ismp_solidity_abi::evm_host::EvmHost;
 use primitive_types::{H160, U256};
 use sp_core::Pair;
 use tesseract_evm::{
-	abi::{erc_20::Erc20, GetRequest, PingMessage, PingModule},
-	state_comitment_key, EvmConfig,
+	abi::{erc_20::Erc20, PingMessage, PingModule},
+	EvmConfig,
 };
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 

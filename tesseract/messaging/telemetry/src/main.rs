@@ -59,8 +59,11 @@ impl AppState {
 async fn on_connect(socket: SocketRef, Data(data): Data<Message>, state: State<SharedAppState>) {
 	tracing::info!("socket connected {}", socket.id);
 
-	let bytes =
-		from_hex(env!("TELEMETRY_SECRET_KEY")).expect("TELEMETRY_SECRET_KEY should be valid hex!");
+	let bytes = from_hex(
+		option_env!("TELEMETRY_SECRET_KEY")
+			.unwrap_or("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+	)
+	.expect("TELEMETRY_SECRET_KEY should be valid hex!");
 	let pair =
 		ecdsa::Pair::from_seed_slice(&bytes).expect("TELEMETRY_SECRET_KEY must be 64 chars!");
 	let signature = ecdsa::Signature::from_slice(data.signature.as_slice())
@@ -163,8 +166,11 @@ mod tests {
 	#[test]
 	#[ignore]
 	fn test_socket_io_client() -> Result<(), anyhow::Error> {
-		let bytes = from_hex(env!("TELEMETRY_SECRET_KEY"))
-			.expect("TELEMETRY_SECRET_KEY should be valid hex!");
+		let bytes = from_hex(
+			option_env!("TELEMETRY_SECRET_KEY")
+				.unwrap_or("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+		)
+		.expect("TELEMETRY_SECRET_KEY should be valid hex!");
 		let pair =
 			ecdsa::Pair::from_seed_slice(&bytes).expect("TELEMETRY_SECRET_KEY must be 64 chars!");
 		let mut message =

@@ -31,10 +31,6 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
-		/// The overarching event type
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// Origin allowed to add or remove parachains in Consensus State
 		type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
 		/// IsmpHost implementation

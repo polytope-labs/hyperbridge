@@ -9,7 +9,6 @@ use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
 	config::{Hasher, Header},
-	ext::subxt_rpcs::{rpc_params, RpcClient},
 	PolkadotConfig,
 };
 use subxt_utils::Hyperbridge;
@@ -56,8 +55,10 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	dbg!(&config);
 
 	let Config { relay_ws_url, para_ws_url, para_id } = config;
-	let (relay,relay_rpc_client) = subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, u32::MAX).await?;
-	let (para, para_rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(&para_ws_url, u32::MAX).await?;
+	let (relay, relay_rpc_client) =
+		subxt_utils::client::ws_client::<PolkadotConfig>(&relay_ws_url, u32::MAX).await?;
+	let (para, para_rpc_client) =
+		subxt_utils::client::ws_client::<Hyperbridge>(&para_ws_url, u32::MAX).await?;
 
 	let para_rpc = LegacyRpcMethods::<Hyperbridge>::new(para_rpc_client.clone());
 

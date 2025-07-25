@@ -50,10 +50,6 @@ pub mod pallet {
 	pub trait Config:
 		polkadot_sdk::frame_system::Config + pallet_ismp::Config + pallet_token_governor::Config
 	{
-		/// The overarching runtime event type.
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// Origin for privileged actions
 		type GatewayOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}

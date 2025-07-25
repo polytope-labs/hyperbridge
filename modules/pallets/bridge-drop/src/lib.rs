@@ -60,10 +60,6 @@ pub mod pallet {
 		+ pallet_ismp::Config
 		+ pallet_vesting::Config
 	{
-		/// The overarching event type.
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// Currency implementation
 		type Currency: Currency<Self::AccountId>;
 

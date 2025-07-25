@@ -4,9 +4,9 @@ use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use futures::FutureExt;
 use subxt::{
-	config::{substrate::SubstrateHeader, ExtrinsicParams, Hash, HashFor, Header},
+	config::{substrate::SubstrateHeader, ExtrinsicParams, HashFor, Header},
 	tx::DefaultParams,
-	utils::{AccountId32, MultiAddress, MultiSignature, H256},
+	utils::{AccountId32, MultiSignature, H256},
 };
 
 use ismp::{

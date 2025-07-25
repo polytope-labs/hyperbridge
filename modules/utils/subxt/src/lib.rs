@@ -1,19 +1,16 @@
+#![allow(dead_code)]
+
 use anyhow::anyhow;
 use codec::Encode;
-use derivative::Derivative;
 use polkadot_sdk::*;
 use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
 use subxt::{
 	config::{
-		substrate::{
-			BlakeTwo256, SubstrateExtrinsicParams, SubstrateExtrinsicParamsBuilder as Params,
-			SubstrateHeader,
-		},
+		substrate::{BlakeTwo256, SubstrateExtrinsicParams, SubstrateHeader},
 		Hasher,
 	},
 	tx::Payload,
 	utils::{AccountId32, MultiAddress, H256},
-	Metadata, OnlineClient, PolkadotConfig,
 };
 
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
@@ -32,7 +29,7 @@ pub struct RuntimeHasher;
 impl Hasher for RuntimeHasher {
 	type Output = H256;
 
-	fn new(metadata: &subxt::metadata::types::Metadata) -> Self {
+	fn new(_metadata: &subxt::metadata::types::Metadata) -> Self {
 		Self
 	}
 
@@ -67,10 +64,7 @@ impl subxt::Config for BlakeSubstrateChain {
 #[cfg(feature = "std")]
 pub mod signer {
 	use anyhow::Context;
-	use polkadot_sdk::{
-		sp_core::{sr25519, Pair},
-		sp_runtime::traits::IdentifyAccount,
-	};
+	use polkadot_sdk::sp_core::{sr25519, Pair};
 	use subxt::{
 		config::{ExtrinsicParams, HashFor},
 		tx::{DefaultParams, Signer},
@@ -121,7 +115,7 @@ pub mod signer {
 		client: &OnlineClient<T>,
 		signer: &InMemorySigner<T>,
 		payload: &Tx,
-		tip: Option<u128>,
+		_tip: Option<u128>,
 	) -> Result<HashFor<T>, anyhow::Error>
 	where
 		T::AccountId: Into<T::Address> + Clone + 'static,

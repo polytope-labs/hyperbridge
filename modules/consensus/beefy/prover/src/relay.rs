@@ -16,7 +16,7 @@ use merkle_mountain_range::{helper::get_peaks, leaf_index_to_mmr_size};
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use polkadot_sdk::{*, sp_consensus_beefy::mmr::BeefyAuthoritySet};
+use polkadot_sdk::{sp_consensus_beefy::mmr::BeefyAuthoritySet, *};
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
 use sp_consensus_beefy::{
@@ -29,14 +29,14 @@ use sp_runtime::{generic::Header, traits::BlakeTwo256};
 use sp_storage::StorageKey;
 use subxt::{
 	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
-	config::{HashFor, Header as _, substrate::SubstrateHeader},
+	config::{substrate::SubstrateHeader, HashFor, Header as _},
+	ext::subxt_rpcs::rpc_params,
 	Config,
-	ext::subxt_rpcs::rpc_params, OnlineClient,
 };
 
 use crate::{
-	BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID, PARAS_PARACHAINS,
-	util::MerkleHasher,
+	util::MerkleHasher, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID,
+	PARAS_PARACHAINS,
 };
 
 /// Storage key for mmr.numberOfLeaves
@@ -358,11 +358,10 @@ mod tests {
 		sp_mmr_primitives::mmr_lib::{leaf_index_to_mmr_size, leaf_index_to_pos},
 	};
 	use primitive_types::H256;
-	use subxt::backend::rpc::RpcClient;
-	use subxt::PolkadotConfig;
-	use subxt_utils::Hyperbridge;
-	use subxt::backend::legacy::LegacyRpcMethods;
-
+	use subxt::{
+		backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
+		PolkadotConfig,
+	};
 
 	use crate::relay::{fetch_mmr_proof, subtree_heights};
 
@@ -392,14 +391,13 @@ mod tests {
 	#[tokio::test]
 	async fn test_mmr_proof() {
 		let Ok(ws_url) = std::env::var("RELAY_WS_URL") else { return };
-		let relay = subxt_utils::client::ws_client::<PolkadotConfig>(&ws_url, u32::MAX)
+		let _relay = subxt_utils::client::ws_client::<PolkadotConfig>(&ws_url, u32::MAX)
 			.await
 			.unwrap();
-        let relay_rpc_client = RpcClient::from_url(&ws_url).await.unwrap();
-        let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
+		let relay_rpc_client = RpcClient::from_url(&ws_url).await.unwrap();
+		let relay_rpc = LegacyRpcMethods::<PolkadotConfig>::new(relay_rpc_client.clone());
 
-
-        for block in 25420896..25420999 {
+		for block in 25420896..25420999 {
 			dbg!();
 			dbg!(block);
 			let (proof, leaf) = fetch_mmr_proof(&relay_rpc, block).await.unwrap();
@@ -415,7 +413,8 @@ mod tests {
 				)])
 				.unwrap();
 
-			let block_hash = relay_rpc.chain_get_block_hash(Some(block.into())).await.unwrap().unwrap();
+			let block_hash =
+				relay_rpc.chain_get_block_hash(Some(block.into())).await.unwrap().unwrap();
 			let onchain_root = {
 				let encoded = relay_rpc
 					.state_get_storage(&MMR_ROOT_HASH, Some(block_hash))

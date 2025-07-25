@@ -31,17 +31,16 @@ use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, SignedCommitment, VersionedFinalityProof,
 };
 use subxt::{
-	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
-	config::{ExtrinsicParams, Hasher, HashFor, Header},
+	backend::legacy::LegacyRpcMethods,
+	config::{ExtrinsicParams, HashFor, Hasher, Header},
 	ext::subxt_rpcs::rpc_params,
-	OnlineClient,
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 };
 
 use beefy_prover::{
-	BEEFY_VALIDATOR_SET_ID,
 	relay::{fetch_latest_beefy_justification, parachain_header_storage_key},
+	BEEFY_VALIDATOR_SET_ID,
 };
 use beefy_verifier_primitives::ConsensusState;
 use ismp::{
@@ -464,7 +463,10 @@ where
 								commitment.commitment.block_number;
 							self.rotate_authorities(epoch_change_block_hash).await?;
 							self.connection
-								.set(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())
+								.set::<_, _, ()>(
+									REDIS_CONSENSUS_STATE_KEY,
+									self.consensus_state.encode(),
+								)
 								.await?;
 						}
 					}
@@ -484,7 +486,10 @@ where
 					if messages.is_empty() {
 						self.consensus_state.finalized_parachain_height = latest_parachain_height;
 						self.connection
-							.set(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())
+							.set::<_, _, ()>(
+								REDIS_CONSENSUS_STATE_KEY,
+								self.consensus_state.encode(),
+							)
 							.await?;
 						continue;
 					}
@@ -621,7 +626,7 @@ where
 						latest_beefy_header.number().into() as u32;
 					self.consensus_state.finalized_parachain_height = latest_parachain_height;
 					self.connection
-						.set(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())
+						.set::<_, _, ()>(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())
 						.await?;
 				}
 

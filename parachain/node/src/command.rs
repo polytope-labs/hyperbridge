@@ -301,14 +301,28 @@ pub fn run() -> Result<()> {
 								new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
 							let db = components.backend.expose_db();
 							let storage = components.backend.expose_storage();
-							cmd.run(config, components.client.clone(), db, storage)
+							let shared_trie_cache = components.backend.expose_shared_trie_cache();
+							cmd.run(
+								config,
+								components.client.clone(),
+								db,
+								storage,
+								shared_trie_cache,
+							)
 						},
 						chain if chain.contains("nexus") => {
 							let components =
 								new_partial::<nexus_runtime::RuntimeApi, _>(&config, executor)?;
 							let db = components.backend.expose_db();
 							let storage = components.backend.expose_storage();
-							cmd.run(config, components.client.clone(), db, storage)
+							let shared_trie_cache = components.backend.expose_shared_trie_cache();
+							cmd.run(
+								config,
+								components.client.clone(),
+								db,
+								storage,
+								shared_trie_cache,
+							)
 						},
 						chain => panic!("Unknown chain with id: {}", chain),
 					}

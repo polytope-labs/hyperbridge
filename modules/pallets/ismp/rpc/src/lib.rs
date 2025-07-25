@@ -292,9 +292,12 @@ where
 			.map_err(|e| {
 				runtime_error_into_rpc_error(format!("Error generating child trie proof: {e:?}"))
 			})?;
-		let state = self.backend.state_at(at).map_err(|e| {
-			runtime_error_into_rpc_error(format!("Error accessing state backend: {e:?}"))
-		})?;
+		let state =
+			self.backend
+				.state_at(at, sc_client_api::TrieCacheContext::Untrusted)
+				.map_err(|e| {
+					runtime_error_into_rpc_error(format!("Error accessing state backend: {e:?}"))
+				})?;
 		let child_root = state
 			.storage(child_info.prefixed_storage_key().as_slice())
 			.map_err(|err| runtime_error_into_rpc_error(format!("Storage Read Error: {err:?}")))?

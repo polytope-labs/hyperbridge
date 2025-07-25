@@ -23,7 +23,7 @@ use anyhow::anyhow;
 use codec::{Decode, Encode};
 use finality_grandpa::Chain as _;
 use indicatif::ProgressBar;
-use polkadot_sdk::{*, sp_consensus_grandpa::GRANDPA_ENGINE_ID};
+use polkadot_sdk::{sp_consensus_grandpa::GRANDPA_ENGINE_ID, *};
 use serde::{Deserialize, Serialize};
 use sp_consensus_grandpa::{AuthorityId, AuthoritySignature};
 use sp_core::H256;
@@ -31,14 +31,14 @@ use sp_runtime::traits::{One, Zero};
 use subxt::{
 	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
 	config::{HashFor, Header},
-	Config,
-	ext::subxt_rpcs::{rpc_params}, OnlineClient, PolkadotConfig,
+	ext::subxt_rpcs::rpc_params,
+	Config, OnlineClient,
 };
 
 use grandpa_verifier::verify_grandpa_finality_proof;
 use grandpa_verifier_primitives::{
-	ConsensusState,
-	DefaultHeader, FinalityProof, justification::{AncestryChain, find_scheduled_change}, parachain_header_storage_key,
+	justification::{find_scheduled_change, AncestryChain},
+	parachain_header_storage_key, ConsensusState, DefaultHeader, FinalityProof,
 	ParachainHeaderProofs,
 };
 use ismp::host::StateMachine;
@@ -112,7 +112,8 @@ where
 	/// provided RPC
 	pub async fn new(options: ProverOptions) -> Result<Self, anyhow::Error> {
 		let ProverOptions { max_rpc_payload_size, ref ws_url, .. } = options;
-		let (client, rpc_client) = subxt_utils::client::ws_client(&ws_url, max_rpc_payload_size).await?;
+		let (client, rpc_client) =
+			subxt_utils::client::ws_client(&ws_url, max_rpc_payload_size).await?;
 
 		let rpc = LegacyRpcMethods::<T>::new(rpc_client.clone());
 

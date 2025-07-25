@@ -60,9 +60,9 @@ const PING_MODULE: H160 = H160(hex!("FE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"))
 pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");
 
-	let signing_key = env!("SIGNING_KEY").to_string();
-	let bsc_url = env!("BSC_URL").to_string();
-	let op_url = env!("OP_URL").to_string();
+	let signing_key = std::env::var("SIGNING_KEY").unwrap_or_else(|_| "".to_string());
+	let bsc_url = std::env::var("BSC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
+	let op_url = std::env::var("OP_URL").unwrap_or_else(|_| "http://localhost:8546".to_string());
 
 	let source_chain = EvmConfig {
 		rpc_url: bsc_url.clone(),
@@ -166,9 +166,10 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	tracing::info!("\n\n\n\nStarting timeout request test\n\n\n\n");
 
-	let signing_key = env!("SIGNING_KEY").to_string();
-	let bsc_url = env!("BSC_URL").to_string();
-	let sepolia_url = env!("SEPOLIA_URL").to_string();
+	let signing_key = std::env::var("SIGNING_KEY").unwrap_or_else(|_| "".to_string());
+	let bsc_url = std::env::var("BSC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
+	let sepolia_url =
+		std::env::var("SEPOLIA_URL").unwrap_or_else(|_| "http://localhost:8547".to_string());
 	let source_chain = EvmConfig {
 		rpc_url: bsc_url.clone(),
 		state_machine: StateMachine::Evm(97),
@@ -345,9 +346,10 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 	tracing::info!("\n\n\n\nStarting get request test\n\n\n\n");
 
-	let signing_key = env!("SIGNING_KEY").to_string();
-	let bsc_url = env!("BSC_URL").to_string();
-	let sepolia_url = env!("SEPOLIA_URL").to_string();
+	let signing_key = std::env::var("SIGNING_KEY").unwrap_or_else(|_| "".to_string());
+	let bsc_url = std::env::var("BSC_URL").unwrap_or_else(|_| "http://localhost:8545".to_string());
+	let sepolia_url =
+		std::env::var("SEPOLIA_URL").unwrap_or_else(|_| "http://localhost:8547".to_string());
 
 	let source_chain = EvmConfig {
 		rpc_url: bsc_url.clone(),

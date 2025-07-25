@@ -22,8 +22,6 @@ scale-info = { version = "2.3.1", default-features = false, features = [
     "derive",
 ] }
 smallvec = "1.10.0"
-orml-xcm-support = { workspace = true }
-orml-traits = { workspace = true }
 anyhow = { workspace = true, default-features = false }
 cumulus-pallet-parachain-system = { workspace = true }
 frame-benchmarking = { workspace = true, optional = true }
@@ -144,8 +142,6 @@ std = [
     "pallet-xcm-gateway/std",
     "pallet-token-governor/std",
     "pallet-mmr-tree/std",
-    "orml-xcm-support/std",
-    "orml-traits/std",
     "pallet-mmr-runtime-api/std",
     "simnode-runtime-api/std",
     "hyperbridge-client-machine/std",

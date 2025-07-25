@@ -11,15 +11,14 @@ use polkadot_sdk::{
 	sc_consensus_manual_seal::CreatedBlock,
 	sp_keyring::sr25519::Keyring,
 };
-use sp_core::{blake2_256, crypto::Ss58Codec, sr25519, Bytes, Pair, H256};
+use sp_core::{crypto::Ss58Codec, sr25519, Bytes, Pair, H256};
 use std::{env, fs, str::FromStr};
 use subxt::{
 	ext::subxt_rpcs::{rpc_params, RpcClient},
-	storage::StorageKey,
 	tx::SubmittableTransaction,
 	OnlineClient,
 };
-use subxt_utils::{BlakeSubstrateChain, Hyperbridge};
+use subxt_utils::Hyperbridge;
 
 #[derive(serde::Deserialize, Debug)]
 struct AllocationRecord {
@@ -38,7 +37,8 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 	let crowdloan_allocations_path = "./allocations/crowdloan_allocations.json";
 	let manual_allocations_path = "./allocations/manual_allocations.json";
 
-	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(&ws_url, u32::MAX).await?;
+	let (client, rpc_client) =
+		subxt_utils::client::ws_client::<Hyperbridge>(&ws_url, u32::MAX).await?;
 
 	let sudo_account = match env::var("SUDO_SEED") {
 		Ok(seed) => {
@@ -201,7 +201,7 @@ async fn mint_tokens(
 	rpc_client: RpcClient,
 	sudo_account: &sp_core::crypto::AccountId32,
 	recipient_account: sp_core::crypto::AccountId32,
-	amount: u128,
+	_amount: u128,
 ) -> Result<(), anyhow::Error> {
 	let mint_amount = 1_000_000_000 * 10u128.pow(12);
 

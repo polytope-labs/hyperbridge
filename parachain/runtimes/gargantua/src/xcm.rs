@@ -20,12 +20,10 @@ use super::{
 use crate::AllPalletsWithSystem;
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, Contains, Everything, Nothing},
+	traits::{ConstU32, Contains, ContainsPair, Everything, Nothing},
 	weights::Weight,
 };
 use frame_system::EnsureRoot;
-use orml_traits::location::AbsoluteReserveProvider;
-use orml_xcm_support::MultiNativeAsset;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
@@ -125,6 +123,34 @@ pub type Barrier = (
 	// ^^^ Parent and its exec plurality get free execution
 );
 
+fn chain_part(location: &Location) -> Option<Location> {
+	match (location.parents, location.first_interior()) {
+		// sibling parachain
+		(1, Some(Parachain(id))) => Some(Location::new(1, [Parachain(*id)])),
+		// parent
+		(1, _) => Some(Location::parent()),
+		// children parachain
+		(0, Some(Parachain(id))) => Some(Location::new(0, [Parachain(*id)])),
+		_ => None,
+	}
+}
+
+/// A `ContainsPair` implementation. Filters multi native assets whose
+/// reserve is same with `origin`.
+pub struct MultiNativeAsset;
+impl ContainsPair<Asset, Location> for MultiNativeAsset {
+	fn contains(asset: &Asset, origin: &Location) -> bool {
+		let AssetId(location) = &asset.id;
+		// Check if the asset location matches the origin location for reserve checking
+		if let Some(location) = chain_part(location) {
+			if location == *origin {
+				return true;
+			}
+		}
+		false
+	}
+}
+
 pub struct XcmConfig;
 impl staging_xcm_executor::Config for XcmConfig {
 	type RuntimeCall = RuntimeCall;
@@ -132,7 +158,7 @@ impl staging_xcm_executor::Config for XcmConfig {
 	// How to withdraw and deposit an asset.
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
-	type IsReserve = MultiNativeAsset<AbsoluteReserveProvider>;
+	type IsReserve = MultiNativeAsset;
 	type IsTeleporter = ();
 	type Aliasers = Nothing;
 	// Teleporting is disabled.

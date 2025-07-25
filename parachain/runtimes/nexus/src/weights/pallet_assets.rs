@@ -524,4 +524,16 @@ impl<T: frame_system::Config> pallet_assets::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(4))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
+
+	fn total_issuance() -> Weight {
+		Default::default()
+	}
+
+	fn balance() -> Weight {
+		Default::default()
+	}
+
+	fn allowance() -> Weight {
+		Default::default()
+	}
 }

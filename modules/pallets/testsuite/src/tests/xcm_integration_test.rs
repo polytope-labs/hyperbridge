@@ -5,28 +5,30 @@ use std::{collections::HashMap, sync::Arc};
 use alloy_sol_types::SolType;
 use anyhow::anyhow;
 use futures::StreamExt;
-use polkadot_sdk::*;
-use polkadot_sdk::sp_core::{bytes::from_hex, H256, Pair, sr25519};
-use polkadot_sdk::sp_runtime::Weight;
-use polkadot_sdk::staging_xcm::v4::{Asset, AssetId, Fungibility};
+use polkadot_sdk::{
+	sp_core::{bytes::from_hex, sr25519, Pair, H256},
+	sp_runtime::Weight,
+	staging_xcm::v4::{Asset, AssetId, Fungibility},
+	*,
+};
 use staging_xcm::{
-	v4::{Junction, Junctions, Location, NetworkId, WeightLimit}
-	, VersionedLocation,
+	v4::{Junction, Junctions, Location, NetworkId, WeightLimit},
+	VersionedLocation,
 };
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
-	config::Header
-	,
-	ext::subxt_rpcs::rpc_params,
-	ext::subxt_rpcs::RpcClient,
+	config::Header,
+	dynamic::Value,
+	ext::{
+		scale_value::Composite,
+		subxt_rpcs::{rpc_params, RpcClient},
+	},
 	OnlineClient,
 };
-use subxt::dynamic::Value;
-use subxt::ext::scale_value::Composite;
 
 use ismp::host::StateMachine;
 use pallet_ismp_rpc::BlockNumberOrHash;
-use subxt_utils::{BlakeSubstrateChain, Hyperbridge, InMemorySigner, send_extrinsic};
+use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Hyperbridge, InMemorySigner};
 
 const SEND_AMOUNT: u128 = 2_000_000_000_000;
 
@@ -45,12 +47,12 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.unwrap_or("ws://127.0.0.1:9922".to_string());
 	let client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
 	let rpc_client = RpcClient::from_url(&url).await?;
-	let rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
+	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 
 	let para_url = std::env::var("PARA_LOCAL_URL")
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9990".to_string());
-	let para_client = OnlineClient::<Hyperbridge>::from_url(&para_url).await?;
+	let _para_client = OnlineClient::<Hyperbridge>::from_url(&para_url).await?;
 	let para_rpc_client = RpcClient::from_url(&para_url).await?;
 	let para_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(para_rpc_client.clone());
 
@@ -76,7 +78,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 
 	let dest: VersionedLocation = VersionedLocation::V4(Junction::Parachain(2000).into());
 
-
 	let beneficiary_as_versioned = VersionedLocation::V4(beneficiary);
 	let assets_vec = vec![(Junctions::Here, SEND_AMOUNT).into()];
 
@@ -95,7 +96,11 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		let version_as_value = Value::u128(version.into());
 
 		// Force set the xcm version to our supported version
-		let call = subxt::dynamic::tx("XcmPallet", "force_xcm_version", vec![location_as_value, version_as_value]);
+		let call = subxt::dynamic::tx(
+			"XcmPallet",
+			"force_xcm_version",
+			vec![location_as_value, version_as_value],
+		);
 		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
 		send_extrinsic(&client, &signer, &tx, None).await?;
 	}
@@ -168,9 +173,8 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 
 fn junction_to_value(junction: &Junction) -> Value<()> {
 	match junction {
-		Junction::Parachain(id) => {
-			Value::variant("Parachain", Composite::unnamed(vec![Value::u128((*id).into())]))
-		}
+		Junction::Parachain(id) =>
+			Value::variant("Parachain", Composite::unnamed(vec![Value::u128((*id).into())])),
 		Junction::AccountId32 { network, id } => {
 			let network_value = match network {
 				Some(n) => Value::variant("Some", Composite::unnamed(vec![network_id_to_value(n)])),
@@ -181,7 +185,7 @@ fn junction_to_value(junction: &Junction) -> Value<()> {
 				("id".to_string(), Value::from_bytes(id.to_vec())),
 			]);
 			Value::variant("AccountId32", composite)
-		}
+		},
 		Junction::AccountKey20 { network, key } => {
 			let network_value = match network {
 				Some(n) => Value::variant("Some", Composite::unnamed(vec![network_id_to_value(n)])),
@@ -192,14 +196,12 @@ fn junction_to_value(junction: &Junction) -> Value<()> {
 				("key".to_string(), Value::from_bytes(key.to_vec())),
 			]);
 			Value::variant("AccountKey20", composite)
-		}
-		Junction::GeneralIndex(index) => {
-			Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(*index)]))
-		}
+		},
+		Junction::GeneralIndex(index) =>
+			Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(*index)])),
 		_ => unimplemented!("This helper only supports a subset of junctions for now"),
 	}
 }
-
 
 fn junctions_to_value(junctions: &Junctions) -> Value<()> {
 	match junctions {
@@ -213,20 +215,14 @@ fn junctions_to_value(junctions: &Junctions) -> Value<()> {
 			let inner_array_value = Value::unnamed_composite(junction_values);
 
 			Value::variant(variant_name, Composite::unnamed(vec![inner_array_value]))
-		}
+		},
 	}
 }
 
 fn location_to_value(location: &Location) -> Value<()> {
 	Value::named_composite(vec![
-		(
-			"parents".to_string(),
-			Value::u128(location.parents.into()),
-		),
-		(
-			"interior".to_string(),
-			junctions_to_value(&location.interior),
-		),
+		("parents".to_string(), Value::u128(location.parents.into())),
+		("interior".to_string(), junctions_to_value(&location.interior)),
 	])
 }
 
@@ -236,11 +232,12 @@ fn network_id_to_value(network_id: &NetworkId) -> Value<()> {
 			let composite =
 				Composite::named(vec![("chain_id".to_string(), Value::u128((*chain_id).into()))]);
 			Value::variant("Ethereum", composite)
-		}
+		},
 		_ => unimplemented!("This helper only supports Ethereum NetworkId for now"),
 	}
 }
 
+#[allow(dead_code)]
 pub fn force_xcm_version_value() -> Value<()> {
 	let para_absolute_location: Location = Junction::Parachain(2000).into();
 	let some_u32 = 4u32;
@@ -249,10 +246,7 @@ pub fn force_xcm_version_value() -> Value<()> {
 
 	let u32_as_value = Value::u128(some_u32.into());
 
-	let extrinsic_params = Value::unnamed_composite(vec![
-		location_as_value,
-		u32_as_value,
-	]);
+	let extrinsic_params = Value::unnamed_composite(vec![location_as_value, u32_as_value]);
 
 	extrinsic_params
 }
@@ -262,16 +256,15 @@ fn versioned_location_to_value(loc: &VersionedLocation) -> Value<()> {
 		VersionedLocation::V4(location) => {
 			let location_value = location_to_value(location);
 			Value::variant("V4", Composite::unnamed(vec![location_value]))
-		}
+		},
 		_ => unimplemented!("This helper only supports V4 VersionedLocation"),
 	}
 }
 
 fn fungibility_to_value(fun: &Fungibility) -> Value<()> {
 	match fun {
-		Fungibility::Fungible(amount) => {
-			Value::variant("Fungible", Composite::unnamed(vec![Value::u128(*amount)]))
-		}
+		Fungibility::Fungible(amount) =>
+			Value::variant("Fungible", Composite::unnamed(vec![Value::u128(*amount)])),
 		_ => unimplemented!("This helper only supports Fungible variant"),
 	}
 }
@@ -295,7 +288,6 @@ fn versioned_assets_to_value(assets_vec: &Vec<Asset>) -> Value<()> {
 	Value::variant("V4", Composite::unnamed(vec![assets_struct_value]))
 }
 
-
 fn weight_to_value(weight: &Weight) -> Value<()> {
 	Value::named_composite(vec![
 		("ref_time".to_string(), Value::u128(weight.ref_time().into())),
@@ -309,6 +301,6 @@ fn weight_limit_to_value(limit: &WeightLimit) -> Value<()> {
 		WeightLimit::Limited(weight) => {
 			let weight_value = weight_to_value(weight);
 			Value::variant("Limited", Composite::unnamed(vec![weight_value]))
-		}
+		},
 	}
 }

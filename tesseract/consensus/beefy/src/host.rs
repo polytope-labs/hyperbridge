@@ -21,16 +21,16 @@ use std::{
 
 use anyhow::{anyhow, Context};
 use codec::{Decode, Encode};
-use futures::{Stream, stream::TryStreamExt, StreamExt};
+use futures::{stream::TryStreamExt, Stream, StreamExt};
 use redis::AsyncCommands;
 use redis_async::client::PubsubConnection;
 use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqError, RsmqMessage};
 use serde::{Deserialize, Serialize};
 use subxt::{
-	config::ExtrinsicParams,
-	utils::{AccountId32, H256, MultiSignature},
+	config::{ExtrinsicParams, HashFor},
+	tx::DefaultParams,
+	utils::{AccountId32, MultiSignature, H256},
 };
-use subxt::{config::HashFor, tx::DefaultParams};
 use tokio::sync::Mutex;
 
 use beefy_verifier_primitives::ConsensusState;
@@ -44,7 +44,7 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::SubstrateClient;
 
 use crate::{
-	prover::{Prover, ProverConsensusState, query_parachain_header, REDIS_CONSENSUS_STATE_KEY},
+	prover::{query_parachain_header, Prover, ProverConsensusState, REDIS_CONSENSUS_STATE_KEY},
 	redis_utils::{self, RedisConfig},
 };
 
@@ -205,7 +205,7 @@ where
 		.get_connection_manager()
 		.await?;
 		connection
-			.set(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
+			.set::<_, _, ()>(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
 			.await?;
 
 		let start = SystemTime::now();

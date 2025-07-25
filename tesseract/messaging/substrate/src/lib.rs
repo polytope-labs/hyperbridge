@@ -15,17 +15,14 @@
 
 use std::sync::Arc;
 
-use polkadot_sdk::{
-	sp_core::{bytes::from_hex, crypto, sr25519, Pair},
-	sp_runtime::{traits::IdentifyAccount, MultiSigner},
-};
+use polkadot_sdk::sp_core::{bytes::from_hex, sr25519, Pair};
 use serde::{Deserialize, Serialize};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
-	config::{ExtrinsicParams, Hash, HashFor, Header},
+	config::{ExtrinsicParams, HashFor, Header},
 	ext::subxt_rpcs::RpcClient,
 	tx::DefaultParams,
-	utils::{AccountId32, MultiAddress, MultiSignature, H256},
+	utils::{AccountId32, MultiSignature, H256},
 	OnlineClient,
 };
 

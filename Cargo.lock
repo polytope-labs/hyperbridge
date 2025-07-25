@@ -9830,12 +9830,16 @@ dependencies = [
  "anyhow",
  "base64 0.21.7",
  "bincode",
+ "evm-state-machine",
  "geth-primitives",
  "hex",
  "ics23",
  "ismp",
  "log",
+ "pallet-ismp-host-executive",
  "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "prost 0.13.5",
  "rlp 0.5.2",
  "scale-info",
  "serde",
@@ -26475,7 +26479,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tesseract-polygon-pos"
+name = "tesseract-polygon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -26484,7 +26488,6 @@ dependencies = [
  "futures",
  "geth-primitives",
  "hex",
- "ics23",
  "ismp",
  "ismp-polygon",
  "log",

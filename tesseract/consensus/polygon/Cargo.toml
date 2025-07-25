@@ -1,0 +1,30 @@
+[package]
+name = "tesseract-polygon"
+version = "0.1.0"
+edition = "2021"
+description = "Polygon consensus relayer for tesseract"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+anyhow = {workspace = true, default-features = false}
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+futures = "0.3.28"
+log = { workspace = true, default-features = false }
+hex = "0.4"
+base64 = "0.21.0"
+prost = { workspace = true, default-features = false }
+geth-primitives = { workspace = true }
+tendermint-primitives = { workspace = true }
+tendermint-prover = { workspace = true }
+ismp = { workspace = true }
+tesseract-evm = { workspace = true }
+sp-core = { workspace = true }
+primitive-types = { workspace = true, features = ["impl-codec"] }
+tesseract-primitives = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1.88"
+ismp-polygon = { workspace = true }
+tendermint-verifier = { workspace = true }
+

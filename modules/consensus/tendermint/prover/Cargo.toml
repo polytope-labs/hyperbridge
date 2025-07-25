@@ -28,6 +28,7 @@ tracing-subscriber = "0.3"
 ethers = { workspace = true, features = ["ws", "default"] }
 
 
+
 [dev-dependencies]
 tendermint-verifier = { path = "../verifier" }
 

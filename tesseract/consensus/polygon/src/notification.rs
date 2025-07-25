@@ -50,7 +50,6 @@ pub async fn consensus_notification(
 				milestone.clone(),
 				milestone_end_block,
 				untrusted_header.header.height.into(),
-				untrusted_header.header.app_hash.as_bytes().to_vec(),
 			)
 			.await?,
 		)
@@ -133,7 +132,6 @@ async fn build_milestone_update(
 	milestone: tendermint_primitives::Milestone,
 	milestone_end_block: u64,
 	untrusted_header_height: u64,
-	untrusted_header_app_hash: Vec<u8>,
 ) -> anyhow::Result<ismp_polygon::MilestoneUpdate> {
 	let evm_header = client
 		.prover
@@ -157,6 +155,5 @@ async fn build_milestone_update(
 			value: abci_query.value,
 		},
 		milestone,
-		untrusted_header_app_hash,
 	});
 }

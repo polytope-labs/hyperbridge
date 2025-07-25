@@ -13,14 +13,14 @@ std = []
 [dependencies]
 log = { workspace = true, default-features = false, optional = true }
 anyhow = { workspace = true, default-features = false, optional = true }
-base64 = { version = "0.21", default-features = false, optional = true }
+base64 = { version = "0.21", default-features = false }
 hex = { version = "0.4", default-features = false, optional = true }
 rlp = { version = "0.5", default-features = false, optional = true }
 bincode = { version = "1.3", default-features = false, optional = true }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 primitive-types = { workspace = true, default-features = false }
 pallet-ismp-host-executive = { workspace = true, default-features = false }
-
+sp-core = { workspace = true }
 ismp = { workspace = true, default-features = false }
 tendermint-verifier = { workspace = true, default-features = false }
 tendermint-primitives = { workspace = true, default-features = false }

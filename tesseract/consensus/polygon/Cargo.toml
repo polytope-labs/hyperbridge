@@ -19,7 +19,6 @@ tendermint-primitives = { workspace = true }
 tendermint-prover = { workspace = true }
 ismp = { workspace = true }
 tesseract-evm = { workspace = true }
-sp-core = { workspace = true }
 primitive-types = { workspace = true, features = ["impl-codec"] }
 tesseract-primitives = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }

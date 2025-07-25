@@ -1,11 +1,11 @@
 use anyhow::Result;
 use codec::{Decode, Encode};
 use ismp::{
-	consensus::{ConsensusClientId, ConsensusStateId},
+	consensus::ConsensusStateId,
 	host::StateMachine,
-	messaging::{CreateConsensusState, Keccak256, Message},
+	messaging::{CreateConsensusState, Message},
 };
-use ismp_polygon::{ConsensusState, PolygonConsensusUpdate};
+use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLIENT_ID};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tendermint_prover::HeimdallClient;
@@ -88,16 +88,6 @@ impl PolygonPosHost {
 	/// Get the ISMP provider
 	pub fn provider(&self) -> Arc<dyn IsmpProvider> {
 		self.provider.clone()
-	}
-}
-
-pub const POLYGON_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"PLGN";
-
-/// Keccak hasher for EVM headers
-pub struct KeccakHasher;
-impl Keccak256 for KeccakHasher {
-	fn keccak256(bytes: &[u8]) -> primitive_types::H256 {
-		sp_core::keccak_256(bytes).into()
 	}
 }
 

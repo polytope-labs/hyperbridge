@@ -27,7 +27,6 @@ env:
     STANDARD_TENDERMINT_URL: ${{secrets.STANDARD_TENDERMINT_URL}}
     POLYGON_HEIMDALL: ${{secrets.POLYGON_HEIMDALL}}
 
-
 jobs:
     check-wasm:
         name: Check Wasm Crates
@@ -83,6 +82,8 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - name: check no-std
+              env:
+                  RUSTFLAGS: "--cfg substrate_runtime"
               run: |
                   cargo check -p ${{ matrix.crate }} --no-default-features --target=wasm32-unknown-unknown --locked
 
@@ -453,6 +454,8 @@ jobs:
               uses: browser-actions/setup-chrome@latest
 
             - name: Run WASM tests
+              env:
+                  RUSTFLAGS: "--cfg substrate_runtime"
               run: |
                   wasm-pack test --headless --chrome --no-default-features --features=wasm,testing
               working-directory: modules/hyperclient

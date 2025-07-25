@@ -47,12 +47,12 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.unwrap_or("ws://127.0.0.1:9922".to_string());
 	let client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
 	let rpc_client = RpcClient::from_url(&url).await?;
-	let rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
+	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 
 	let para_url = std::env::var("PARA_LOCAL_URL")
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9990".to_string());
-	let para_client = OnlineClient::<Hyperbridge>::from_url(&para_url).await?;
+	let _para_client = OnlineClient::<Hyperbridge>::from_url(&para_url).await?;
 	let para_rpc_client = RpcClient::from_url(&para_url).await?;
 	let para_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(para_rpc_client.clone());
 
@@ -237,6 +237,7 @@ fn network_id_to_value(network_id: &NetworkId) -> Value<()> {
 	}
 }
 
+#[allow(dead_code)]
 pub fn force_xcm_version_value() -> Value<()> {
 	let para_absolute_location: Location = Junction::Parachain(2000).into();
 	let some_u32 = 4u32;

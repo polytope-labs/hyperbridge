@@ -15,18 +15,14 @@
 
 //! Extrinsic utilities
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use codec::{Decode, Encode};
 use subxt::{
 	backend::{chain_head::rpc_methods::DryRunResultBytes, legacy::LegacyRpcMethods},
-	config::{ExtrinsicParams, HashFor},
-	ext::{
-		scale_decode::{DecodeAsFields, DecodeAsType},
-		scale_encode::EncodeAsType,
-		subxt_rpcs::methods::legacy::DryRunResult,
-	},
+	config::HashFor,
+	ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType},
 	tx::Payload,
-	utils::{AccountId32, MultiAddress, MultiSignature, H256},
+	utils::{MultiSignature, H256},
 	OnlineClient,
 };
 
@@ -63,7 +59,7 @@ impl subxt::events::StaticEvent for PostResponseHandledEvent {
 pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
 	payload: Tx,
-	wait_for_finalization: bool,
+	_wait_for_finalization: bool,
 ) -> Result<Option<(HashFor<T>, Vec<H256>)>, anyhow::Error>
 where
 	T::Signature: From<MultiSignature> + Send + Sync,

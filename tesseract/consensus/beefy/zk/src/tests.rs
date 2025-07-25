@@ -9,7 +9,6 @@ use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
 	config::{Hasher, Header},
-	ext::subxt_rpcs::{rpc_params, RpcClient},
 	PolkadotConfig,
 };
 use subxt_utils::Hyperbridge;

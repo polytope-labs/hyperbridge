@@ -1,5 +1,6 @@
+#![allow(dead_code)]
+
 use std::{future::Future, time::Duration};
-pub use subxt_utils::Hyperbridge;
 
 pub fn setup_logging() {
 	use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};

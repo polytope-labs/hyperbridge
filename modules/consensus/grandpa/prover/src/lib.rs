@@ -32,7 +32,7 @@ use subxt::{
 	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
 	config::{HashFor, Header},
 	ext::subxt_rpcs::rpc_params,
-	Config, OnlineClient, PolkadotConfig,
+	Config, OnlineClient,
 };
 
 use grandpa_verifier::verify_grandpa_finality_proof;

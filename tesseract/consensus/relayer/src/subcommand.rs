@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
 use anyhow::anyhow;
-use codec::{Compact, Encode};
+use codec::Compact;
 use subxt::tx::Payload;
 
 use ismp::host::StateMachine;

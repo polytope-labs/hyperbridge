@@ -31,9 +31,8 @@ use ismp::{
 use pallet_ismp::child_trie::{self};
 use primitive_types::H256;
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
-use subxt::{backend::rpc::RpcClient, dynamic::Value};
 use subxt_utils::{
-	state_machine_commitment_storage_key, state_machine_update_time_storage_key, values,
+	state_machine_commitment_storage_key, state_machine_update_time_storage_key,
 	values::{
 		host_params_btreemap_to_value, messages_to_value, parachain_data_to_value,
 		storage_kv_list_to_value,
@@ -59,7 +58,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
 	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
-	let rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
+	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 
 	let para_id = 3000u32;
 	let slot_duration = 6000u64;

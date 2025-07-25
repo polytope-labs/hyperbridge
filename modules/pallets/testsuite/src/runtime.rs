@@ -143,7 +143,6 @@ impl pallet_balances::Config for Test {
 }
 
 impl pallet_fishermen::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type FishermenOrigin = EnsureRoot<AccountId32>;
 }
@@ -194,7 +193,6 @@ parameter_types! {
 }
 
 impl pallet_ismp::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type HostStateMachine = StateMachineProvider;
 	type Coprocessor = Coprocessor;
@@ -212,7 +210,6 @@ impl pallet_ismp::Config for Test {
 }
 
 impl pallet_hyperbridge::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 }
 
@@ -237,7 +234,6 @@ impl Get<<Test as frame_system::Config>::AccountId> for AssetAdmin {
 }
 
 impl pallet_token_gateway::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type Dispatcher = Ismp;
 	type Assets = Assets;
 	type NativeCurrency = Balances;
@@ -250,7 +246,6 @@ impl pallet_token_gateway::Config for Test {
 }
 
 impl pallet_token_gateway_inspector::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type GatewayOrigin = EnsureRoot<AccountId32>;
 }
 
@@ -262,15 +257,12 @@ impl ismp_sync_committee::pallet::Config for Test {
 impl ismp_bsc::pallet::Config for Test {
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IsmpHost = Ismp;
-	type RuntimeEvent = RuntimeEvent;
 }
 
 parameter_types! {
 	pub const TreasuryAccount: PalletId = PalletId(*b"treasury");
 }
-
 impl pallet_token_governor::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type Dispatcher = Ismp;
 	type TreasuryAccount = TreasuryAccount;
 	type GovernorOrigin = EnsureRoot<AccountId32>;
@@ -284,13 +276,11 @@ impl pallet_mmr_tree::Config for Test {
 }
 
 impl pallet_ismp_relayer::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type RelayerOrigin = EnsureRoot<AccountId32>;
 }
 
 impl pallet_ismp_host_executive::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type HostExecutiveOrigin = EnsureRoot<AccountId32>;
 }
@@ -300,13 +290,11 @@ impl pallet_call_decompressor::Config for Test {
 }
 
 impl pallet_bridge_airdrop::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type BridgeDropOrigin = EnsureRoot<AccountId32>;
 }
 
 impl pallet_relayer_incentives::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryAccount;
 	type WeightInfo = ();

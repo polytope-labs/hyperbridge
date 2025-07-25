@@ -36,7 +36,7 @@ pub struct Blake2Hasher;
 impl Hasher for Blake2Hasher {
 	type Output = H256;
 
-	fn new(metadata: &Metadata) -> Self {
+	fn new(_metadata: &Metadata) -> Self {
 		Self
 	}
 

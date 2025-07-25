@@ -19,24 +19,20 @@ use pallet_ismp_relayer::{
 	withdrawal::{Key, WithdrawalInputData, WithdrawalProof},
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
-use polkadot_sdk::{
-	sp_core::{crypto, Pair},
-	sp_runtime::{traits::IdentifyAccount, MultiSigner},
-};
+use polkadot_sdk::sp_core::Pair;
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	U256,
 };
 use std::{collections::BTreeMap, sync::Arc};
 use subxt::{
-	config::{ExtrinsicParams, Hash, HashFor, Header},
-	dynamic::Value,
+	config::{ExtrinsicParams, HashFor, Header},
 	ext::{
 		scale_value::value,
 		subxt_rpcs::{methods::legacy::DryRunResult, rpc_params},
 	},
 	tx::{DefaultParams, Payload},
-	utils::{AccountId32, MultiAddress, MultiSignature, H256},
+	utils::{AccountId32, MultiSignature, H256},
 	OnlineClient,
 };
 use subxt_utils::{
@@ -291,7 +287,7 @@ where
 		let dry_run_result_bytes = system_dry_run_unsigned(&self.client, &self.rpc, tx).await?;
 		let dry_run_result = dry_run_result_bytes
 			.into_dry_run_result()
-			.map_err(|e| anyhow!("error dry running call"))?;
+			.map_err(|_e| anyhow!("error dry running call"))?;
 		match dry_run_result {
 			DryRunResult::Success => Ok(()),
 			_ => Err(anyhow!("Tracing of get response message returned an error")),

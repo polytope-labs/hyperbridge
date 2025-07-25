@@ -3,7 +3,6 @@ use std::sync::Arc;
 use polkadot_sdk::sp_runtime::traits::{One, Zero};
 use primitive_types::{H160, H256};
 use serde::{Deserialize, Serialize};
-use sp_core::crypto;
 use subxt::{
 	config::{ExtrinsicParams, HashFor, Header},
 	tx::DefaultParams,

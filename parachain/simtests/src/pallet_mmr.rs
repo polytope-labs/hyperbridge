@@ -13,9 +13,7 @@ use sp_keyring::sr25519::Keyring;
 use sp_mmr_primitives::{mmr_lib::leaf_index_to_pos, utils::NodesUtils, INDEXING_PREFIX};
 use sp_runtime::traits::Keccak256;
 use subxt::{
-	backend::legacy::LegacyRpcMethods,
-	ext::subxt_rpcs::{rpc_params, RpcClient},
-	tx::SubmittableTransaction,
+	backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, tx::SubmittableTransaction,
 	utils::H160,
 };
 
@@ -24,7 +22,7 @@ use mmr_primitives::DataOrHash;
 use pallet_ismp::offchain::{FullLeaf, Leaf, ProofKeys};
 use pallet_mmr_tree::mmr::Hasher as MmrHasher;
 use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};
-use subxt_utils::{values::evm_params_to_value, BlakeSubstrateChain, Hyperbridge};
+use subxt_utils::{values::evm_params_to_value, Hyperbridge};
 
 const NUMBER_OF_LEAVES_KEY: [u8; 32] =
 	hex!("a8c65209d47ee80f56b0011e8fd91f508156209906244f2341137c136774c91d");

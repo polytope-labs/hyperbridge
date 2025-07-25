@@ -19,7 +19,6 @@ use anyhow::{anyhow, Error};
 use codec::Encode;
 use futures::{stream, StreamExt};
 use polkadot_sdk::sp_runtime::traits::{One, Zero};
-use sp_core::crypto;
 use subxt::{
 	config::{ExtrinsicParams, HashFor, Header},
 	tx::DefaultParams,

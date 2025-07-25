@@ -17,7 +17,6 @@ use subxt::{
 	ext::subxt_rpcs::{rpc_params, RpcClient},
 	OnlineClient,
 };
-use subxt_utils::Hyperbridge;
 
 pub type Justification = GrandpaJustification<Header>;
 

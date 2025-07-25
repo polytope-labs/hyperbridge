@@ -17,7 +17,6 @@ use std::sync::Arc;
 
 use ::polkadot_sdk::sp_runtime::traits::{One, Zero};
 use serde::{Deserialize, Serialize};
-use sp_core::crypto;
 use subxt::{
 	config::{ExtrinsicParams, HashFor, Header},
 	tx::DefaultParams,

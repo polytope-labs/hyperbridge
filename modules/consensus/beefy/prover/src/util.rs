@@ -22,7 +22,7 @@ use rs_merkle::MerkleTree;
 use sp_io::hashing::keccak_256;
 use sp_runtime::traits::Keccak256;
 use sp_trie::{LayoutV0, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
-use subxt::{backend::legacy::LegacyRpcMethods, Config, OnlineClient};
+use subxt::{backend::legacy::LegacyRpcMethods, Config};
 use subxt_core::config::HashFor;
 
 use beefy_verifier_primitives::{Hash, SignatureWithAuthorityIndex};

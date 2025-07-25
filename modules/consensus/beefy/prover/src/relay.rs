@@ -31,7 +31,7 @@ use subxt::{
 	backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
 	config::{substrate::SubstrateHeader, HashFor, Header as _},
 	ext::subxt_rpcs::rpc_params,
-	Config, OnlineClient,
+	Config,
 };
 
 use crate::{
@@ -362,7 +362,6 @@ mod tests {
 		backend::{legacy::LegacyRpcMethods, rpc::RpcClient},
 		PolkadotConfig,
 	};
-	use subxt_utils::Hyperbridge;
 
 	use crate::relay::{fetch_mmr_proof, subtree_heights};
 
@@ -392,7 +391,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_mmr_proof() {
 		let Ok(ws_url) = std::env::var("RELAY_WS_URL") else { return };
-		let relay = subxt_utils::client::ws_client::<PolkadotConfig>(&ws_url, u32::MAX)
+		let _relay = subxt_utils::client::ws_client::<PolkadotConfig>(&ws_url, u32::MAX)
 			.await
 			.unwrap();
 		let relay_rpc_client = RpcClient::from_url(&ws_url).await.unwrap();

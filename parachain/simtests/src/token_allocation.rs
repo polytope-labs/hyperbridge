@@ -11,15 +11,14 @@ use polkadot_sdk::{
 	sc_consensus_manual_seal::CreatedBlock,
 	sp_keyring::sr25519::Keyring,
 };
-use sp_core::{blake2_256, crypto::Ss58Codec, sr25519, Bytes, Pair, H256};
+use sp_core::{crypto::Ss58Codec, sr25519, Bytes, Pair, H256};
 use std::{env, fs, str::FromStr};
 use subxt::{
 	ext::subxt_rpcs::{rpc_params, RpcClient},
-	storage::StorageKey,
 	tx::SubmittableTransaction,
 	OnlineClient,
 };
-use subxt_utils::{BlakeSubstrateChain, Hyperbridge};
+use subxt_utils::Hyperbridge;
 
 #[derive(serde::Deserialize, Debug)]
 struct AllocationRecord {
@@ -202,7 +201,7 @@ async fn mint_tokens(
 	rpc_client: RpcClient,
 	sudo_account: &sp_core::crypto::AccountId32,
 	recipient_account: sp_core::crypto::AccountId32,
-	amount: u128,
+	_amount: u128,
 ) -> Result<(), anyhow::Error> {
 	let mint_amount = 1_000_000_000 * 10u128.pow(12);
 

@@ -205,7 +205,7 @@ where
 		.get_connection_manager()
 		.await?;
 		connection
-			.set(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
+			.set::<_, _, ()>(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
 			.await?;
 
 		let start = SystemTime::now();

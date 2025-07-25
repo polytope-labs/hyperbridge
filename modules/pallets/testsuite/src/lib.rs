@@ -4,5 +4,5 @@ mod runtime;
 mod tests;
 
 pub mod relay_chain;
-pub mod xcm;
 mod weights;
+pub mod xcm;

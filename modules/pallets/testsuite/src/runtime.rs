@@ -41,7 +41,10 @@ use ismp::{
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
-use sp_core::{offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt}, H160, H256, U256};
+use sp_core::{
+	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
+	H160, H256, U256,
+};
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	AccountId32, BuildStorage,
@@ -225,11 +228,11 @@ impl pallet_ismp::Config for Test {
 	type FeeHandler = CombinedFeeHandler;
 }
 
+use crate::weights;
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
 use hyperbridge_client_machine::{HyperbridgeClientMachine, OnRequestProcessed};
 use ismp::{events::Event as IsmpEvent, messaging::Message};
 use pallet_ismp::fee_handler::FeeHandler;
-use crate::weights;
 
 pub struct CombinedFeeHandler;
 impl FeeHandler for CombinedFeeHandler {
@@ -302,7 +305,6 @@ impl ismp_grandpa::Config for Test {
 	type RootOrigin = EnsureRoot<AccountId32>;
 }
 
-
 parameter_types! {
 	pub const TreasuryAccount: PalletId = PalletId(*b"treasury");
 }
@@ -364,9 +366,9 @@ impl pallet_messaging_fees::Config for Test {
 pub struct MockPriceOracle;
 
 impl PriceOracle for MockPriceOracle {
-	fn get_bridge_price(
-	) -> Result<U256, DispatchError> {
-		Ok(U256::from(2000))
+	fn get_bridge_price() -> Result<U256, DispatchError> {
+		// return 0.05 with 18 decimals: 0.05 * 10^18
+		Ok(U256::from(50_000_000_000_000_000u128))
 	}
 }
 

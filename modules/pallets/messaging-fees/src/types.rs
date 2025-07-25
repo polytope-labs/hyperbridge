@@ -6,6 +6,8 @@ use polkadot_sdk::{
 
 use ismp::router::{Request, Response};
 
+pub const DECIMALS: u128 = 1_000_000_000_000_000_000;
+
 pub type AuthorityId = sp_core::sr25519::Public;
 pub type AuthoritySignature = sp_core::sr25519::Signature;
 
@@ -16,6 +18,7 @@ pub enum IncentivizedMessage {
 
 /// A trait for Bridge price oracle.
 pub trait PriceOracle {
+	/// Should return the price as a U256 with 18 decimals.
 	fn get_bridge_price() -> Result<U256, DispatchError>;
 }
 

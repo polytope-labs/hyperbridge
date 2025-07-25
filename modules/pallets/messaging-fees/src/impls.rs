@@ -189,8 +189,15 @@ where
 				let bridge_usd_price: u128 =
 					bridge_usd_price.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
 
-				let base_reward_in_token =
-					bridge_usd_price.saturating_mul(dollar_cost.saturated_into());
+				let base_reward_in_token_u256 = bridge_usd_price
+					.checked_mul(dollar_cost.into())
+					.ok_or(Error::<T>::CalculationOverflow)?
+					.checked_div(DECIMALS.into())
+					.ok_or(Error::<T>::CalculationOverflow)?;
+
+				let base_reward_in_token: T::Balance = base_reward_in_token_u256
+					.try_into()
+					.map_err(|_| Error::<T>::CalculationOverflow)?;
 
 				let target_message_size = T::TargetMessageSize::get();
 
@@ -223,7 +230,7 @@ where
 
 					Self::deposit_event(Event::FeePaid {
 						relayer: relayer.clone(),
-						amount: base_reward_in_token.into(),
+						amount: base_reward_in_token_u256.into(),
 					});
 				}
 			}

@@ -19,13 +19,11 @@ use sp_core::{crypto::AccountId32, keccak_256, sr25519, Pair, H256, U256};
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	messaging::{Message, Proof, RequestMessage},
-	router::PostRequest,
+	messaging::{hash_request, Message, Proof, RequestMessage},
+	router::{PostRequest, Request},
 };
-use ismp::messaging::hash_request;
-use ismp::router::Request;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
-use pallet_messaging_fees::{TotalBytesProcessed, AccumulatedFees, CommitmentFees, Nonce };
+use pallet_messaging_fees::TotalBytesProcessed;
 
 use crate::runtime::{new_test_ext, Balances, RuntimeOrigin, Test, TreasuryAccount, UNIT};
 
@@ -184,7 +182,6 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 
 		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
-
 		assert!(Balances::balance(&relayer_account) < initial_relayer_balance);
 		assert!(initial_bytes_processed < TotalBytesProcessed::<Test>::get());
 	});
@@ -230,7 +227,8 @@ fn test_skip_incentivizing_for_invalid_signature() {
 		)
 		.unwrap();
 
-		let request_message = create_bad_request_message(source_chain, dest_chain, &relayer_pair, &evil_pair);
+		let request_message =
+			create_bad_request_message(source_chain, dest_chain, &relayer_pair, &evil_pair);
 
 		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
@@ -340,15 +338,9 @@ fn test_reward_curve_visualization_to_one_megabyte() {
 				TARGET_SIZE,
 				BASE_REWARD,
 			)
-				.unwrap();
+			.unwrap();
 
-			println!(
-				"{:<20} | {:<20} | {}",
-				format!("{}%", percentage),
-				total_bytes,
-				reward
-			);
-
+			println!("{:<20} | {:<20} | {}", format!("{}%", percentage), total_bytes, reward);
 
 			assert!(reward <= last_reward);
 			last_reward = reward;
@@ -360,7 +352,6 @@ fn test_reward_curve_visualization_to_one_megabyte() {
 fn test_protocol_fee_accumulation() {
 	new_test_ext().execute_with(|| {
 		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let relayer_account: AccountId32 = relayer_pair.public().into();
 		let source_chain = StateMachine::Evm(2000);
 		let dest_chain = StateMachine::Evm(3000);
 		let request = PostRequest {
@@ -375,41 +366,21 @@ fn test_protocol_fee_accumulation() {
 		let commitment = hash_request::<<Test as pallet_messaging_fees::Config>::IsmpHost>(
 			&Request::Post(request.clone()),
 		);
-		let request_message =
-			create_request_message(source_chain, dest_chain, &relayer_pair);
+		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
 		let fee = 1_000_000u128;
 
 		pallet_messaging_fees::Pallet::<Test>::note_request_fee(commitment, fee);
-		assert!(CommitmentFees::<Test>::get(commitment).is_some());
+		assert!(pallet_messaging_fees::CommitmentFees::<Test>::get(commitment).is_some());
 
 		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
 
-		assert!(CommitmentFees::<Test>::get(commitment).is_none());
-		assert_eq!(AccumulatedFees::<Test>::get(source_chain, &relayer_account), fee);
-	});
-}
+		assert!(pallet_messaging_fees::CommitmentFees::<Test>::get(commitment).is_none());
 
-#[test]
-fn test_withdraw_fees_dispatches_request() {
-	new_test_ext().execute_with(|| {
-		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let relayer_account: AccountId32 = relayer_pair.public().into();
-		let source_chain = StateMachine::Evm(2000);
-		let accumulated_fee = 5000 * UNIT;
-
-		AccumulatedFees::<Test>::insert(source_chain, &relayer_account, accumulated_fee);
-		assert_eq!(Nonce::<Test>::get(&relayer_account, source_chain), 0);
-
-		let res = pallet_messaging_fees::Pallet::<Test>::withdraw_fees(
-			RuntimeOrigin::signed(relayer_account.clone()),
-			source_chain,
+		let relayer_address: Vec<u8> = relayer_pair.public().0.into();
+		let expected_fee_u256 = U256::from(fee);
+		assert_eq!(
+			pallet_ismp_relayer::Fees::<Test>::get(source_chain, relayer_address),
+			expected_fee_u256
 		);
-		assert!(res.is_ok());
-
-		assert_eq!(AccumulatedFees::<Test>::get(source_chain, &relayer_account), 0);
-		assert_eq!(Nonce::<Test>::get(&relayer_account, source_chain), 1);
-
-
 	});
 }
-

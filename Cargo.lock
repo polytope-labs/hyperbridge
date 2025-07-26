@@ -14817,8 +14817,10 @@ dependencies = [
  "futures",
  "hash-db",
  "hex",
+ "hyperbridge-client-machine",
  "ismp",
  "ismp-bsc",
+ "ismp-grandpa",
  "ismp-sync-committee",
  "ismp-testsuite",
  "mmr-primitives",
@@ -14830,6 +14832,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
+ "pallet-messaging-fees",
  "pallet-mmr-tree",
  "pallet-relayer-incentives",
  "pallet-token-gateway",
@@ -14921,6 +14924,21 @@ dependencies = [
  "sp-io 41.0.1",
  "sp-runtime 42.0.0",
  "sp-weights 32.0.0",
+]
+
+[[package]]
+name = "pallet-messaging-fees"
+version = "0.1.0"
+dependencies = [
+ "hyperbridge-client-machine",
+ "ismp",
+ "pallet-hyperbridge",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "parity-scale-codec",
+ "polkadot-sdk 2503.0.1",
+ "scale-info",
 ]
 
 [[package]]

@@ -15455,39 +15455,13 @@ dependencies = [
  "alloy-rlp",
  "ismp",
  "log",
+ "num-traits",
+ "pallet-hyperbridge",
+ "pallet-ismp",
  "parity-scale-codec",
- "polkadot-sdk 2503.0.1",
+ "polkadot-sdk",
+ "ruint",
  "scale-info",
-]
-
-[[package]]
-name = "pallet-revive-mock-network"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78dc337fa4265c93849f7a00d56ae19c6b5f4f78140b03ea752ef6f176507aaf"
-dependencies = [
- "frame-support",
- "frame-system",
- "pallet-assets",
- "pallet-balances",
- "pallet-message-queue",
- "pallet-revive",
- "pallet-revive-uapi",
- "pallet-timestamp",
- "pallet-xcm",
- "parity-scale-codec",
- "polkadot-parachain-primitives",
- "polkadot-primitives",
- "polkadot-runtime-parachains",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-tracing",
- "staging-xcm",
- "staging-xcm-builder",
- "staging-xcm-executor",
- "xcm-simulator",
 ]
 
 [[package]]

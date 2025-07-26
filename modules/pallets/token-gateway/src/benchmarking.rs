@@ -14,16 +14,19 @@ use sp_runtime::AccountId32;
 use token_gateway_primitives::{GatewayAssetRegistration, GatewayAssetUpdate};
 
 #[benchmarks(
-    where
-    <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
-    <T as frame_system::Config>::AccountId: From<[u8; 32]>,
-    u128: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-    T::Balance: From<u128>,
-    <T as pallet_ismp::Config>::Balance: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-    <<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-    <<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
-    [u8; 32]: From<<T as frame_system::Config>::AccountId>,
-    <T as frame_system::Config>::RuntimeOrigin: From<frame_system::RawOrigin<AccountId32>>,
+	where
+	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
+	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+	u128: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
+	T::Balance: From<u128>,
+	<T as pallet_ismp::Config>::Balance: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
+	<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
+	<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
+	[u8; 32]: From<<T as frame_system::Config>::AccountId>,
+	<T as frame_system::Config>::RuntimeOrigin: From<frame_system::RawOrigin<AccountId32>>,
+	<T as Config>::NativeCurrency: fungible::Mutate<T::AccountId>,
+	<T as Config>::NativeCurrency: fungible::Inspect<T::AccountId>,
+	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: Into<<<T as Config>::NativeCurrency as fungible::Inspect<T::AccountId>>::Balance>,
 )]
 mod benches {
 	use super::*;
@@ -51,7 +54,8 @@ mod benches {
 			precision,
 		};
 
-		<T::Currency as fungible::Mutate<T::AccountId>>::set_balance(&account, u128::MAX.into());
+		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, total_balance.into());
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(account), asset);
@@ -64,6 +68,12 @@ mod benches {
 		let account: T::AccountId = whitelisted_caller();
 
 		let asset_id = T::NativeAssetId::get();
+
+		let ed = T::NativeCurrency::minimum_balance();
+		let teleport_amount: <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance = 10_000_000_000_000u128.into();
+		let initial_balance = ed + teleport_amount + 1000u128.into();
+
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, initial_balance.into());
 
 		Pallet::<T>::create_erc6160_asset(
 			RawOrigin::Signed(account.clone()).into(),
@@ -80,7 +90,6 @@ mod benches {
 			},
 		)?;
 
-		let _ = T::NativeCurrency::deposit_creating(&account, u128::MAX.into());
 		let teleport_params = TeleportParams {
 			asset_id,
 			destination: StateMachine::Evm(100),
@@ -102,6 +111,9 @@ mod benches {
 	fn set_token_gateway_addresses(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 
+		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, total_balance.into());
+
 		let mut addresses = BTreeMap::new();
 		for i in 0..x {
 			let addr = i.to_string().as_bytes().to_vec();
@@ -116,6 +128,9 @@ mod benches {
 	#[benchmark]
 	fn update_erc6160_asset() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
+
+		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, total_balance.into());
 
 		let local_id = T::NativeAssetId::get();
 
@@ -149,6 +164,9 @@ mod benches {
 	#[benchmark]
 	fn update_asset_precision(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
+
+		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, total_balance.into());
 
 		let mut precisions = BTreeMap::new();
 		for i in 0..x {

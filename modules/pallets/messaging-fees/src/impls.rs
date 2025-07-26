@@ -66,22 +66,66 @@ where
 			_ => return,
 		};
 
+		let relayer_address = relayer_account.as_ref().to_vec();
+
 		for req in requests {
 			let commitment =
 				hash_request::<<T as pallet::Config>::IsmpHost>(&Request::Post(req.clone()));
 			let source_chain = &req.source;
 
-			if let Some(fee) = CommitmentFees::<T>::take(&commitment) {
-				let fee_u256: U256 = u128::from(fee).into();
-				let relayer_address = relayer_account.as_ref().to_vec();
+			if source_chain.is_evm() {
+				if let Some(per_byte_fee) = Self::get_per_byte_fee(&req.dest) {
+					let fee = per_byte_fee.saturating_mul(U256::from(req.body.len()));
+					if fee > U256::zero() {
+						pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
+							source_chain.clone(),
+							relayer_address.clone(),
+							fee,
+						);
+					}
+				}
+			} else {
+				if let Some(fee) = CommitmentFees::<T>::take(&commitment) {
+					let fee_u256: U256 = u128::from(fee).into();
 
-				pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
-					source_chain.clone(),
-					relayer_address,
-					fee_u256,
-				);
+					pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
+						source_chain.clone(),
+						relayer_address.clone(),
+						fee_u256,
+					);
+				}
 			}
 		}
+	}
+
+	fn get_per_byte_fee(state_machine: &StateMachine) -> Option<U256> {
+		let host_params = pallet_ismp_host_executive::HostParams::<T>::get(state_machine)?;
+
+		let per_byte_fee = match host_params {
+			EvmHostParam(evm_host_param) => {
+				let fee = evm_host_param
+					.per_byte_fees
+					.iter()
+					.find(|fee| {
+						let hashed_chain_id = keccak_256(&state_machine.encode());
+						fee.state_id == H256(hashed_chain_id)
+					})
+					.map(|fee| fee.per_byte_fee)
+					.unwrap_or(evm_host_param.default_per_byte_fee);
+				fee
+			},
+			SubstrateHostParam(VersionedHostParams::V1(substrate_params)) => {
+				let fee = substrate_params
+					.per_byte_fees
+					.get(state_machine)
+					.cloned()
+					.unwrap_or(substrate_params.default_per_byte_fee);
+				let fee_u128: u128 = fee.into();
+				U256::from(fee_u128)
+			},
+		};
+
+		Some(per_byte_fee)
 	}
 
 	fn process_bridge_rewards(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
@@ -151,34 +195,7 @@ where
 			});
 			let current_total_bytes = TotalBytesProcessed::<T>::get();
 
-			if let Some(host_params) =
-				pallet_ismp_host_executive::HostParams::<T>::get(&state_machine)
-			{
-				let per_byte_fee = match host_params {
-					EvmHostParam(evm_host_param) => {
-						let fee = evm_host_param
-							.per_byte_fees
-							.iter()
-							.find(|fee| {
-								let hashed_chain_id = keccak_256(&state_machine.encode());
-								fee.state_id == H256(hashed_chain_id)
-							})
-							.map(|fee| fee.per_byte_fee)
-							.unwrap_or(evm_host_param.default_per_byte_fee);
-
-						fee
-					},
-					SubstrateHostParam(VersionedHostParams::V1(substrate_params)) => {
-						let fee = substrate_params
-							.per_byte_fees
-							.get(&state_machine)
-							.cloned()
-							.unwrap_or(substrate_params.default_per_byte_fee);
-						let fee_u128: u128 = fee.into();
-						U256::from(fee_u128)
-					},
-				};
-
+			if let Some(per_byte_fee) = Self::get_per_byte_fee(&state_machine) {
 				let dollar_cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
 				let dollar_cost: u128 =
 					dollar_cost.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;

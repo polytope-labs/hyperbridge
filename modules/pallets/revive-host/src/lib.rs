@@ -49,6 +49,9 @@ use IIsmpHost::IIsmpHostCalls;
 /// [`pallet_revive::precompiles::Precompile`] implementation for [`ismp`] protocol implementations
 pub struct ReviveHost<Runtime, Dispatcher, FeeToken>(PhantomData<(Runtime, Dispatcher, FeeToken)>);
 
+// Todos
+// 1. figure out gas costs
+// 2. clarify env.account_id()
 impl<Runtime, Dispatcher, FeeToken> Precompile for ReviveHost<Runtime, Dispatcher, FeeToken>
 where
 	Runtime: pallet_ismp::Config + pallet_revive::Config + pallet_hyperbridge::Config,
@@ -102,7 +105,7 @@ where
 					return Ok(metadata.abi_encode());
 				}
 
-				return Ok(Vec::new());
+				return Ok(ResponseReceipt::default().abi_encode());
 			},
 			IIsmpHostCalls::responseCommitments(IIsmpHost::responseCommitmentsCall {
 				commitment,
@@ -146,9 +149,8 @@ where
 				let nonce = pallet_ismp::Nonce::<Runtime>::get();
 				return Ok(Uint::<256, 4>::from(nonce).abi_encode());
 			},
-			IIsmpHostCalls::feeToken(IIsmpHost::feeTokenCall) => {
-				return Ok(FeeToken::get().abi_encode())
-			},
+			IIsmpHostCalls::feeToken(IIsmpHost::feeTokenCall) =>
+				return Ok(FeeToken::get().abi_encode()),
 			IIsmpHostCalls::perByteFee(IIsmpHost::perByteFeeCall { dest }) => {
 				let utf8 = String::from_utf8(dest.to_vec()).map_err(|_| {
 					Error::Revert(Revert { reason: "Invalid state machine".into() })

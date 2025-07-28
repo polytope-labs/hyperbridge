@@ -6,7 +6,8 @@ use polkadot_sdk::{
 
 use ismp::router::{Request, Response};
 
-pub const DECIMALS: u128 = 1_000_000_000_000_000_000;
+pub const DECIMALS_18: u128 = 1_000_000_000_000_000_000;
+pub const SCALING_FACTOR_18_TO_12: u128 = 1_000_000;
 
 pub type AuthorityId = sp_core::sr25519::Public;
 pub type AuthoritySignature = sp_core::sr25519::Signature;

@@ -50,7 +50,7 @@ pub mod types;
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::PalletId;
-	use polkadot_sdk::sp_core::{H256, U256};
+	use polkadot_sdk::sp_core::H256;
 
 	use super::*;
 
@@ -144,7 +144,7 @@ pub mod pallet {
 			/// Relayer account that was charged
 			relayer: T::AccountId,
 			/// Amount of the fee
-			amount: U256,
+			amount: <T as pallet_ismp::Config>::Balance,
 		},
 		/// Resetting of Incentives has occurred
 		IncentivesReset,

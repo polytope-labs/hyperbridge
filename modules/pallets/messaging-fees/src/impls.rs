@@ -77,7 +77,7 @@ where
 				if let Some(per_byte_fee) = Self::get_per_byte_fee(&req.dest) {
 					let fee = per_byte_fee.saturating_mul(U256::from(req.body.len()));
 					if fee > U256::zero() {
-						pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
+						pallet_ismp_relayer::Pallet::<T>::accumulate_fee_and_deposit_event(
 							source_chain.clone(),
 							relayer_address.clone(),
 							fee,
@@ -196,33 +196,32 @@ where
 			let current_total_bytes = TotalBytesProcessed::<T>::get();
 
 			if let Some(per_byte_fee) = Self::get_per_byte_fee(&state_machine) {
-				let dollar_cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
-				let dollar_cost: u128 =
-					dollar_cost.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
-
-				let bridge_usd_price = T::PriceOracle::get_bridge_price()
+				let cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
+				let bridge_price = T::PriceOracle::get_bridge_price()
 					.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
-				let bridge_usd_price: u128 =
-					bridge_usd_price.try_into().map_err(|_| Error::<T>::CalculationOverflow)?;
-
-				let base_reward_in_token_u256 = bridge_usd_price
-					.checked_mul(dollar_cost.into())
+				let cost_bridge_price_18_decimals = cost
+					.checked_mul(bridge_price)
 					.ok_or(Error::<T>::CalculationOverflow)?
-					.checked_div(DECIMALS.into())
+					.checked_div(DECIMALS_18.into())
 					.ok_or(Error::<T>::CalculationOverflow)?;
 
-				let base_reward_in_token: T::Balance = base_reward_in_token_u256
+				let cost_bridge_price_12_decimals_u256 = cost_bridge_price_18_decimals
+					.checked_div(SCALING_FACTOR_18_TO_12.into())
+					.ok_or(Error::<T>::CalculationOverflow)?;
+
+				let base_reward_12_decimals: u128 = cost_bridge_price_12_decimals_u256
 					.try_into()
 					.map_err(|_| Error::<T>::CalculationOverflow)?;
 
+				let base_reward_as_balance: T::Balance = base_reward_12_decimals.saturated_into();
 				let target_message_size = T::TargetMessageSize::get();
 
 				if current_total_bytes <= target_message_size {
 					let reward_amount = Self::calculate_reward(
 						current_total_bytes,
 						target_message_size,
-						base_reward_in_token.into(),
+						base_reward_12_decimals.into(),
 					)?;
 
 					T::Currency::transfer(
@@ -240,14 +239,14 @@ where
 					T::Currency::transfer(
 						&relayer,
 						&T::TreasuryAccount::get().into_account_truncating(),
-						base_reward_in_token.saturated_into(),
+						base_reward_as_balance,
 						Preservation::Expendable,
 					)
 					.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
 					Self::deposit_event(Event::FeePaid {
 						relayer: relayer.clone(),
-						amount: base_reward_in_token_u256.into(),
+						amount: base_reward_as_balance,
 					});
 				}
 			}

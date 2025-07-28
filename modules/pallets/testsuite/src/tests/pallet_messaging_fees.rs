@@ -40,7 +40,7 @@ fn setup_host_params(dest_chain: StateMachine) {
 	let host_params = HostParam::EvmHostParam(EvmHostParam {
 		per_byte_fees: vec![PerByteFee {
 			state_id: H256(keccak_256(&dest_chain.encode())),
-			per_byte_fee: U256::from(100_000),
+			per_byte_fee: U256::from(50_000_000_000_000_000u128), // 0.05
 		}]
 		.try_into()
 		.unwrap(),
@@ -181,8 +181,10 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
 
 		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
-
-		assert!(Balances::balance(&relayer_account) < initial_relayer_balance);
+		let current_relayer_balance = Balances::balance(&relayer_account);
+		dbg!(initial_relayer_balance);
+		dbg!(current_relayer_balance);
+		assert!(current_relayer_balance < initial_relayer_balance);
 		assert!(initial_bytes_processed < TotalBytesProcessed::<Test>::get());
 	});
 }
@@ -352,8 +354,8 @@ fn test_reward_curve_visualization_to_one_megabyte() {
 fn test_protocol_fee_accumulation() {
 	new_test_ext().execute_with(|| {
 		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let source_chain = StateMachine::Evm(2000);
-		let dest_chain = StateMachine::Evm(3000);
+		let source_chain = StateMachine::Substrate(*b"dock");
+		let dest_chain = StateMachine::Evm(1000);
 		let request = PostRequest {
 			source: source_chain,
 			dest: dest_chain,
@@ -368,6 +370,8 @@ fn test_protocol_fee_accumulation() {
 		);
 		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
 		let fee = 1_000_000u128;
+
+		setup_host_params(dest_chain);
 
 		pallet_messaging_fees::Pallet::<Test>::note_request_fee(commitment, fee);
 		assert!(pallet_messaging_fees::CommitmentFees::<Test>::get(commitment).is_some());

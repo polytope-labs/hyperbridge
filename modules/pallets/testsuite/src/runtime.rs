@@ -228,7 +228,6 @@ impl pallet_ismp::Config for Test {
 	type FeeHandler = CombinedFeeHandler;
 }
 
-use crate::weights;
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
 use hyperbridge_client_machine::{HyperbridgeClientMachine, OnRequestProcessed};
 use ismp::{events::Event as IsmpEvent, messaging::Message};

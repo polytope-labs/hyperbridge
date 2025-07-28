@@ -100,7 +100,7 @@ query StateMachineUpdatesByTimestamp($statemachineId: String!, $commitmentTimest
      			{ chain: { equalTo: $chain } }
 			]
 		}
-		orderBy: COMMITMENT_TIMESTAMP_ASC
+		orderBy: COMMITMENT_TIMESTAMP_DESC
 		first: 1
 	) {
     nodes {

@@ -127,7 +127,7 @@ pub async fn consensus_notification(
 async fn build_milestone_update(
 	client: &PolygonPosHost,
 	milestone_number: u64,
-	milestone: tendermint_primitives::Milestone,
+	milestone: ismp_polygon::Milestone,
 	milestone_end_block: u64,
 	untrusted_header_height: u64,
 ) -> anyhow::Result<ismp_polygon::MilestoneUpdate> {

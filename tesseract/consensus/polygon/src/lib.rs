@@ -190,8 +190,8 @@ impl IsmpHost for PolygonPosHost {
 			consensus_state: initial_consensus_state.encode(),
 			consensus_client_id: POLYGON_CONSENSUS_CLIENT_ID,
 			consensus_state_id: self.consensus_state_id,
-			unbonding_period: 60 * 60 * 60 * 27,
-			challenge_periods: vec![(self.state_machine, 5 * 60)].into_iter().collect(),
+			unbonding_period: 82 * 3600, // 82 checkpoints x 3600 seconds per checkpoint
+			challenge_periods: vec![(self.state_machine, 25 * 60)].into_iter().collect(), /* 25 minutes in seconds */
 			state_machine_commitments: vec![],
 		}))
 	}

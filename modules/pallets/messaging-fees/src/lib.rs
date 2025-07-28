@@ -47,8 +47,6 @@ use crate::types::*;
 mod impls;
 pub mod types;
 
-pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
-
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::PalletId;
@@ -150,16 +148,6 @@ pub mod pallet {
 		},
 		/// Resetting of Incentives has occurred
 		IncentivesReset,
-		FeeAccumulated {
-			relayer: T::AccountId,
-			source_chain: StateMachine,
-			amount: <T as pallet_ismp::Config>::Balance,
-		},
-		Withdrawn {
-			relayer: T::AccountId,
-			source_chain: StateMachine,
-			amount: <T as pallet_ismp::Config>::Balance,
-		},
 	}
 
 	#[pallet::call]

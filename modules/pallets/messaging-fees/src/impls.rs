@@ -88,7 +88,7 @@ where
 				if let Some(fee) = CommitmentFees::<T>::take(&commitment) {
 					let fee_u256: U256 = u128::from(fee).into();
 
-					pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
+					pallet_ismp_relayer::Pallet::<T>::accumulate_fee_and_deposit_event(
 						source_chain.clone(),
 						relayer_address.clone(),
 						fee_u256,

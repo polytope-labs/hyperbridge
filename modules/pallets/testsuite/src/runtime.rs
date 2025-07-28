@@ -301,7 +301,7 @@ impl ismp_bsc::pallet::Config for Test {
 impl ismp_grandpa::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
-	type WeightInfo = weights::ismp_grandpa::WeightInfo<Test>;
+	type WeightInfo = ();
 	type RootOrigin = EnsureRoot<AccountId32>;
 }
 

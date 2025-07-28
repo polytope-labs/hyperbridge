@@ -1,6 +1,5 @@
 use crate::{ConsensusState, PolygonConsensusUpdate, PolygonPosHost};
 use codec::Decode;
-use ismp_polygon::ICS23Proof;
 use std::{result::Result::Ok, sync::Arc};
 use tendermint_primitives::{CodecConsensusProof, CodecTrustedState, ConsensusProof, TrustedState};
 use tendermint_prover::{Client, ValidatorSet};
@@ -40,15 +39,14 @@ pub async fn consensus_notification(
 	);
 
 	let (milestone_number, milestone) = client.prover.get_latest_milestone().await?;
-	let milestone_end_block = milestone.end_block.parse::<u64>().unwrap_or(0);
 
-	let maybe_milestone_update = if milestone_end_block > consensus_state.last_finalized_block {
+	let maybe_milestone_update = if milestone.end_block > consensus_state.last_finalized_block {
 		Some(
 			build_milestone_update(
 				client,
 				milestone_number,
 				milestone.clone(),
-				milestone_end_block,
+				milestone.end_block,
 				untrusted_header.header.height.into(),
 			)
 			.await?,
@@ -149,11 +147,7 @@ async fn build_milestone_update(
 	return Ok(ismp_polygon::MilestoneUpdate {
 		evm_header,
 		milestone_number,
-		ics23_state_proof: ICS23Proof {
-			proof: ics23_state_proof,
-			key: abci_query.key,
-			value: abci_query.value,
-		},
+		ics23_state_proof,
 		milestone,
 	});
 }

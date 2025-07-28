@@ -8,7 +8,9 @@ use ismp::{
 use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLIENT_ID};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
-use tendermint_prover::HeimdallClient;
+use tendermint_primitives;
+use tendermint_prover::{Client, HeimdallClient};
+use tendermint_verifier::hashing::SpIoSha256;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
@@ -80,9 +82,44 @@ impl PolygonPosHost {
 
 	/// Fetch the current consensus state (for initial state creation)
 	pub async fn get_consensus_state(&self) -> Result<ConsensusState, anyhow::Error> {
-		let consensus_state_serialized: Vec<u8> =
-			self.provider.query_consensus_state(None, self.consensus_state_id).await?;
-		Ok(ConsensusState::decode(&mut &consensus_state_serialized[..])?)
+		let trusted_height = self.provider.query_finalized_height().await?.into();
+
+		let trusted_header = self.prover.signed_header(trusted_height).await?;
+
+		let trusted_validators = self.prover.validators(trusted_height).await?;
+		let trusted_next_validators = self.prover.next_validators(trusted_height).await?;
+
+		let chain_id_str = self.prover.chain_id().await?;
+		let chain_id = chain_id_str.parse::<u32>().unwrap_or(137); // Default to Polygon mainnet
+
+		let trusted_state = tendermint_primitives::TrustedState::new(
+			chain_id_str,
+			trusted_height,
+			trusted_header.header.time.unix_timestamp() as u64,
+			trusted_header.header.hash().as_bytes().try_into().unwrap(),
+			trusted_validators,
+			trusted_next_validators,
+			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
+			7200, // 2 hour trusting period
+			tendermint_primitives::VerificationOptions::default(),
+		);
+
+		let codec_trusted_state =
+			tendermint_primitives::CodecTrustedState::from_trusted_state(&trusted_state);
+		let tendermint_state = codec_trusted_state.encode();
+
+		let consensus_state = ConsensusState {
+			tendermint_state,
+			last_finalized_block: trusted_height,
+			last_finalized_hash: trusted_header
+				.header
+				.hash_with::<SpIoSha256>()
+				.as_bytes()
+				.to_vec(),
+			chain_id,
+		};
+
+		Ok(consensus_state)
 	}
 
 	/// Get the ISMP provider

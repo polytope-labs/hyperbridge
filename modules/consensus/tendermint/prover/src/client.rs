@@ -7,13 +7,13 @@ use cometbft_rpc::{
 	endpoint::abci_query::AbciQuery, Client as OtherClient, HttpClient, Paging, Url,
 };
 use geth_primitives::CodecHeader;
+use ismp_polygon::Milestone;
 use reqwest::Client as ReqwestClient;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tendermint_primitives::{
 	prover::{
-		CommitResponse, HeimdallValidatorsResponse, Milestone, RpcResponse, StatusResponse,
-		ValidatorsResponse,
+		CommitResponse, HeimdallValidatorsResponse, RpcResponse, StatusResponse, ValidatorsResponse,
 	},
 	ProverError,
 };
@@ -352,14 +352,15 @@ impl HeimdallClient {
 		let milestone_resp: serde_json::Value =
 			response.json().await.map_err(|e| ProverError::NetworkError(e.to_string()))?;
 
-		// The actual milestone is likely under the "milestone" key, as seen in the integration test
 		let milestone_value = milestone_resp.get("milestone").ok_or_else(|| {
 			ProverError::NetworkError("Missing 'milestone' field in response".to_string())
 		})?;
+
 		let milestone: Milestone =
 			serde_json::from_value(milestone_value.clone()).map_err(|e| {
-				ProverError::NetworkError(format!("Failed to deserialize Milestone: {}", e))
+				ProverError::ConversionError(format!("Failed to deserialize Milestone: {}", e))
 			})?;
+
 		Ok(milestone)
 	}
 

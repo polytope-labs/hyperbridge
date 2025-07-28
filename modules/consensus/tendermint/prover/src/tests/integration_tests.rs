@@ -3,6 +3,7 @@ mod tests {
 	use std::time::{SystemTime, UNIX_EPOCH};
 
 	use crate::{prove_header_update, Client, CometBFTClient, HeimdallClient};
+	use ismp_polygon::Milestone;
 	use tendermint_primitives::{TrustedState, VerificationError, VerificationOptions};
 	use tokio::time::{timeout, Duration};
 	use tracing::trace;
@@ -94,7 +95,7 @@ mod tests {
 		)
 		.expect("Failed to create client");
 
-		let (milestone_number, _milestone) =
+		let (milestone_number, milestone) =
 			client.get_latest_milestone().await.expect("Failed to fetch milestone");
 
 		let latest_height = client.latest_height().await.expect("Failed to fetch latest height");
@@ -102,6 +103,10 @@ mod tests {
 			.get_ics23_proof(milestone_number, latest_height)
 			.await
 			.expect("ABCI query failed");
+
+		let milestone_proto =
+			Milestone::proto_decode(&abci_query.value).expect("Failed to decode milestone");
+		assert_eq!(milestone_proto, milestone);
 
 		assert_eq!(abci_query.code, cometbft::abci::Code::Ok);
 		assert!(abci_query.proof.is_some(), "Proof should be present");

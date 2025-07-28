@@ -21,11 +21,13 @@ use ismp::{
 
 use evm_state_machine::EvmStateMachine;
 use pallet_ismp_host_executive::Config as HostExecutiveConfig;
-use primitive_types::U256;
 use prost::Message;
 use scale_info::prelude::time::{SystemTime, UNIX_EPOCH};
-use tendermint_primitives::{CodecConsensusProof, CodecTrustedState, Milestone};
+use serde::{Deserialize, Serialize};
+use tendermint_primitives::{CodecConsensusProof, CodecTrustedState};
 use tendermint_verifier::verify_header_update;
+
+pub const POLYGON_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"PLGN";
 
 /// The consensus update/proof for Polygon
 #[derive(Debug, Clone, Encode, Decode)]
@@ -43,19 +45,9 @@ pub struct MilestoneUpdate {
 	/// Milestone number
 	pub milestone_number: u64,
 	/// ICS23 proof for the milestone inclusion
-	pub ics23_state_proof: ICS23Proof,
+	pub ics23_state_proof: Vec<u8>,
 	// Milestone
 	pub milestone: Milestone,
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct ICS23Proof {
-	/// Proof bytes
-	pub proof: Vec<u8>,
-	/// Key
-	pub key: Vec<u8>,
-	/// Value
-	pub value: Vec<u8>,
 }
 
 /// The trusted consensus state for Polygon
@@ -71,7 +63,112 @@ pub struct ConsensusState {
 	pub chain_id: u32,
 }
 
-pub const POLYGON_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"PLGN"; // TODO: Change to Polygon Consensus IDß
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+pub struct Milestone {
+	/// Proposer address (hex string)
+	pub proposer: String,
+	/// Start block number of the milestone
+	#[serde(deserialize_with = "deserialize_u64_from_str")]
+	pub start_block: u64,
+	/// End block number of the milestone
+	#[serde(deserialize_with = "deserialize_u64_from_str")]
+	pub end_block: u64,
+	/// Hash of the milestone
+	#[serde(deserialize_with = "deserialize_hash_from_base64")]
+	pub hash: Vec<u8>,
+	/// Bor chain ID (string)
+	pub bor_chain_id: String,
+	/// Milestone ID (hex string)
+	pub milestone_id: String,
+	/// Timestamp of the milestone
+	#[serde(deserialize_with = "deserialize_u64_from_str")]
+	pub timestamp: u64,
+	/// Total difficulty at this milestone
+	#[serde(deserialize_with = "deserialize_u64_from_str")]
+	pub total_difficulty: u64,
+}
+
+impl Milestone {
+	pub fn proto_encode(&self) -> Vec<u8> {
+		let proto: ProtoMilestone = self.into();
+		proto.encode_to_vec()
+	}
+
+	pub fn proto_decode(bytes: &[u8]) -> Result<Self, prost::DecodeError> {
+		let proto = ProtoMilestone::decode(bytes)?;
+		Ok((&proto).into())
+	}
+}
+
+fn deserialize_u64_from_str<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	use serde::Deserialize;
+	let s = String::deserialize(deserializer)?;
+	s.parse::<u64>().map_err(serde::de::Error::custom)
+}
+
+fn deserialize_hash_from_base64<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	use serde::Deserialize;
+	let s = String::deserialize(deserializer)?;
+	base64::engine::general_purpose::STANDARD
+		.decode(s)
+		.map_err(serde::de::Error::custom)
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct ProtoMilestone {
+	#[prost(string, tag = "1")]
+	pub proposer: String,
+	#[prost(uint64, tag = "2")]
+	pub start_block: u64,
+	#[prost(uint64, tag = "3")]
+	pub end_block: u64,
+	#[prost(bytes = "vec", tag = "4")]
+	pub hash: Vec<u8>,
+	#[prost(string, tag = "5")]
+	pub bor_chain_id: String,
+	#[prost(string, tag = "6")]
+	pub milestone_id: String,
+	#[prost(uint64, tag = "7")]
+	pub timestamp: u64,
+	#[prost(uint64, tag = "8")]
+	pub total_difficulty: u64,
+}
+
+impl From<&Milestone> for ProtoMilestone {
+	fn from(milestone: &Milestone) -> Self {
+		Self {
+			proposer: milestone.proposer.clone(),
+			start_block: milestone.start_block,
+			end_block: milestone.end_block,
+			hash: milestone.hash.clone(),
+			bor_chain_id: milestone.bor_chain_id.clone(),
+			milestone_id: milestone.milestone_id.clone(),
+			timestamp: milestone.timestamp,
+			total_difficulty: milestone.total_difficulty,
+		}
+	}
+}
+
+impl From<&ProtoMilestone> for Milestone {
+	fn from(proto: &ProtoMilestone) -> Self {
+		Self {
+			proposer: proto.proposer.clone(),
+			start_block: proto.start_block,
+			end_block: proto.end_block,
+			hash: proto.hash.clone(),
+			bor_chain_id: proto.bor_chain_id.clone(),
+			milestone_id: proto.milestone_id.clone(),
+			timestamp: proto.timestamp,
+			total_difficulty: proto.total_difficulty,
+		}
+	}
+}
 
 pub struct PolygonClient<H: IsmpHost, T: HostExecutiveConfig>(core::marker::PhantomData<(H, T)>);
 
@@ -146,18 +243,20 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 					}
 
 					let commitment_proof = ics23::CommitmentProof::decode(
-						&mut &milestone_update_ref.ics23_state_proof.proof[..],
+						&mut &milestone_update_ref.ics23_state_proof[..],
 					)
 					.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
 					let spec = ics23::tendermint_spec();
+					let mut key = vec![0x81];
+					key.extend_from_slice(&milestone_update_ref.milestone_number.to_be_bytes());
 
 					let verification_result = ics23::verify_membership::<HostFunctionsManager>(
 						&commitment_proof,
 						&spec,
 						&consensus_proof.signed_header.header.app_hash.as_bytes().to_vec(),
-						&milestone_update_ref.ics23_state_proof.key,
-						&milestone_update_ref.ics23_state_proof.value,
+						&key,
+						&milestone_update_ref.milestone.proto_encode(),
 					);
 
 					if !verification_result {

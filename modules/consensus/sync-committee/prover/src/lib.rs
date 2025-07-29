@@ -1,20 +1,5 @@
-pub mod middleware;
-#[warn(unused_imports)]
-#[warn(unused_variables)]
-pub mod responses;
-pub mod routes;
+use std::marker::PhantomData;
 
-#[cfg(test)]
-mod test;
-
-use crate::{
-	middleware::SwitchProviderMiddleware,
-	responses::{
-		finality_checkpoint_response::FinalityCheckpoint,
-		sync_committee_response::NodeSyncCommittee,
-	},
-	routes::*,
-};
 use anyhow::anyhow;
 use bls::{point_to_pubkey, types::G1ProjectivePoint};
 use log::trace;
@@ -23,7 +8,8 @@ use reqwest::{Client, Url};
 use reqwest_chain::ChainMiddleware;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use ssz_rs::{Merkleized, Node};
-use std::marker::PhantomData;
+use tracing::instrument;
+
 use sync_committee_primitives::{
 	consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
 	constants::{
@@ -44,9 +30,25 @@ use sync_committee_primitives::{
 	},
 	util::{compute_sync_committee_period_at_slot, should_have_sync_committee_update},
 };
-use tracing::instrument;
-
 use sync_committee_verifier::crypto::pubkey_to_projective;
+
+use crate::{
+	middleware::SwitchProviderMiddleware,
+	responses::{
+		finality_checkpoint_response::FinalityCheckpoint,
+		sync_committee_response::NodeSyncCommittee,
+	},
+	routes::*,
+};
+
+pub mod middleware;
+#[warn(unused_imports)]
+#[warn(unused_variables)]
+pub mod responses;
+pub mod routes;
+
+#[cfg(test)]
+mod test;
 
 pub type BeaconStateType<const ETH1_DATA_VOTES_BOUND: usize> = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
@@ -349,6 +351,8 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 			signature_slot: block.slot,
 		};
 
+		trace!(target: "sync-committee-prover", "got light client update");
+
 		Ok(Some(light_client_update))
 	}
 
@@ -455,6 +459,8 @@ pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize>(
 		&mut beacon_state.latest_execution_payload_header,
 		indices.as_slice(),
 	)?;
+
+	trace!(target: "sync-committee-prover", "finished proving execution payload");
 
 	Ok(ExecutionPayloadProof {
 		state_root: H256::from_slice(

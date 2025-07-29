@@ -71,10 +71,6 @@ pub mod pallet {
 		+ pallet_ismp::Config
 		+ cumulus_pallet_parachain_system::Config
 	{
-		/// The overarching event type
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost + Default;
 		/// WeightInfo

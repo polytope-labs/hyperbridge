@@ -280,6 +280,7 @@ impl cumulus_pallet_parachain_system::Config for Test {
 	type WeightInfo = ();
 	type ConsensusHook = RequireParentIncluded;
 	type SelectCore = DefaultCoreSelector<Self>;
+	type RelayParentOffset = ();
 }
 
 use frame_support::traits::TransformOrigin;
@@ -363,7 +364,6 @@ parameter_types! {
 }
 
 impl pallet_xcm_gateway::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
 	type Params = TransferParams;
 	type Assets = Assets;

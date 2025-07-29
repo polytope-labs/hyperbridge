@@ -72,7 +72,6 @@ impl ismp_sync_committee::pallet::Config<Gnosis> for Runtime {
 
 impl ismp_bsc::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 }
 
@@ -83,13 +82,11 @@ impl pallet_state_coprocessor::Config for Runtime {
 
 impl ismp_arbitrum::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 }
 
 impl ismp_optimism::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 }
 
@@ -101,7 +98,6 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 impl pallet_ismp::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
 	type Coprocessor = Coprocessor;
@@ -130,34 +126,29 @@ impl pallet_ismp::Config for Runtime {
 }
 
 impl ismp_grandpa::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = pallet_ismp::Pallet<Runtime>;
 	type WeightInfo = weights::ismp_grandpa::WeightInfo<Runtime>;
 	type RootOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_token_governor::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type Dispatcher = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
 	type GovernorOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_ismp_demo::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
 	type IsmpHost = Ismp;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type RelayerOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type HostExecutiveOrigin = EnsureRoot<AccountId>;
 }
@@ -167,14 +158,12 @@ impl pallet_call_decompressor::Config for Runtime {
 }
 
 impl ismp_parachain::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type WeightInfo = weights::ismp_parachain::WeightInfo<Runtime>;
 	type RootOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_fishermen::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type FishermenOrigin = EnsureRoot<AccountId>;
 }
@@ -185,7 +174,6 @@ parameter_types! {
 }
 
 impl pallet_xcm_gateway::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type PalletId = AssetPalletId;
 	type Params = TransferParams;
 	type Assets = Assets;
@@ -194,7 +182,6 @@ impl pallet_xcm_gateway::Config for Runtime {
 }
 
 impl pallet_token_gateway_inspector::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type GatewayOrigin = EnsureRoot<AccountId>;
 }
 

@@ -10,7 +10,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 [dependencies]
 serde = { version = "1.0.164", features = ["derive"] }
 anyhow = "1.0.75"
-subxt = { workspace = true, features = ["substrate-compat"] }
+subxt = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.53"

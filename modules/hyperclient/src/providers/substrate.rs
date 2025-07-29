@@ -13,18 +13,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::interface::Query;
-use crate::{
-	providers::interface::{Client, WithMetadata},
-	types::{BoxStream, EventMetadata, Extrinsic, HashAlgorithm, SubstrateStateProof},
-	Keccak256,
-};
-use anyhow::{anyhow, Error};
-use codec::{Decode, Encode};
 use core::time::Duration;
+use std::ops::RangeInclusive;
+
+use anyhow::{anyhow, Context, Error};
+use codec::{Decode, Encode};
 use futures::{stream, StreamExt, TryStreamExt};
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+use gloo_timers::future::*;
 use hashbrown::HashMap;
 use hex_literal::hex;
+use primitive_types::{H160, H256};
+use serde::{Deserialize, Serialize};
+use sp_core::storage::ChildInfo;
+use subxt::{
+	backend::legacy::LegacyRpcMethods,
+	config::{HashFor, Header},
+	ext::subxt_rpcs::{
+		methods::legacy::{StorageData, StorageKey},
+		rpc_params, RpcClient,
+	},
+	tx::Payload,
+	OnlineClient,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::time::*;
+#[cfg(all(target_arch = "wasm32", feature = "nodejs"))]
+use wasmtimer::tokio::*;
+
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, RequestResponseHandled, StateMachineUpdated},
@@ -39,23 +55,18 @@ use pallet_ismp::{
 	offchain::ProofKeys,
 	ResponseReceipt,
 };
-use primitive_types::{H160, H256};
-use serde::{Deserialize, Serialize};
-use sp_core::storage::ChildInfo;
-use std::ops::RangeInclusive;
 use substrate_state_machine::StateMachineProof;
-use subxt::{
-	config::Header, rpc::types::StorageData, rpc_params, storage::StorageKey, tx::TxPayload,
-	OnlineClient,
+use subxt_utils::{
+	refine_subxt_error, state_machine_update_time_storage_key, values::messages_to_value,
 };
-use subxt_utils::state_machine_update_time_storage_key;
 
-#[cfg(all(target_arch = "wasm32", feature = "web"))]
-use gloo_timers::future::*;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::time::*;
-#[cfg(all(target_arch = "wasm32", feature = "nodejs"))]
-use wasmtimer::tokio::*;
+use crate::{
+	providers::interface::{Client, WithMetadata},
+	types::{BoxStream, EventMetadata, HashAlgorithm, SubstrateStateProof},
+	Keccak256,
+};
+
+use super::interface::Query;
 
 /// Contains a scale encoded Mmr Proof or Trie proof
 #[derive(Serialize, Deserialize)]
@@ -74,6 +85,8 @@ pub struct SubstrateClient<C: subxt::Config + Clone> {
 	pub state_machine: StateMachineId,
 	/// An instance of Hyper bridge client using the default config
 	pub client: OnlineClient<C>,
+	pub rpc: LegacyRpcMethods<C>,
+	pub rpc_client: RpcClient,
 	pub hashing: HashAlgorithm,
 }
 impl<C> SubstrateClient<C>
@@ -86,22 +99,23 @@ where
 		consensus_state_id: [u8; 4],
 		state_id: StateMachine,
 	) -> Result<Self, Error> {
-		let client = subxt_utils::client::ws_client(&rpc_url, 10 * 1024 * 1024).await?;
+		let (client, rpc_client) =
+			subxt_utils::client::ws_client(&rpc_url, 10 * 1024 * 1024).await?;
+		let rpc = LegacyRpcMethods::<C>::new(rpc_client.clone());
 		let state_machine = StateMachineId { state_id, consensus_state_id };
 
-		Ok(Self { rpc_url, client, state_machine, hashing })
+		Ok(Self { rpc_url, client, state_machine, hashing, rpc_client, rpc })
 	}
 
 	pub async fn latest_timestamp(&self) -> Result<Duration, Error> {
 		let timestamp_key =
 			hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb").to_vec();
 		let response = self
-			.client
-			.rpc()
-			.storage(&timestamp_key, None)
+			.rpc
+			.state_get_storage(&timestamp_key, None)
 			.await?
 			.ok_or_else(|| anyhow!("Failed to fetch timestamp"))?;
-		let timestamp: u64 = codec::Decode::decode(&mut response.0.as_slice())?;
+		let timestamp: u64 = codec::Decode::decode(&mut response.as_slice())?;
 
 		Ok(Duration::from_millis(timestamp))
 	}
@@ -130,7 +144,7 @@ where
 			BlockNumberOrHash::<H256>::Number(latest_height as u32)
 		];
 		let response: HashMap<String, Vec<WithMetadata<Event>>> =
-			self.client.rpc().request("ismp_queryEventsWithMetadata", params).await?;
+			self.rpc_client.request("ismp_queryEventsWithMetadata", params).await?;
 		let events = response.values().into_iter().cloned().flatten().collect();
 		Ok(events)
 	}
@@ -151,13 +165,13 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 	async fn query_request_receipt(&self, request_hash: H256) -> Result<H160, Error> {
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-		let storage_key = StorageKey(self.request_receipt_full_key(request_hash));
+		let storage_key: StorageKey = self.request_receipt_full_key(request_hash);
 		let params = rpc_params![child_storage_key, storage_key];
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		if let Some(data) = response {
-			let relayer = Vec::decode(&mut &*data.0)?;
+			let relayer = Vec::decode(&mut &*data)?;
 			Ok(H160::from_slice(&relayer[..20]))
 		} else {
 			Ok(Default::default())
@@ -176,7 +190,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 		let params = rpc_params![at, keys];
 		let response: RpcProof =
-			self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
+			self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 		let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
 		let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
 			hasher: self.hashing.clone(),
@@ -200,7 +214,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				let keys =
 					ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
-				let response: Proof = self.client.rpc().request("mmr_queryProof", params).await?;
+				let response: Proof = self.rpc_client.request("mmr_queryProof", params).await?;
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
@@ -211,7 +225,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					.collect();
 				let params = rpc_params![at, keys];
 				let response: Proof =
-					self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
+					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
 				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
 					hasher: self.hashing.clone(),
@@ -239,7 +253,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				let keys =
 					ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
 				let params = rpc_params![at, keys];
-				let response: Proof = self.client.rpc().request("mmr_queryProof", params).await?;
+				let response: Proof = self.rpc_client.request("mmr_queryProof", params).await?;
 				Ok(response.proof)
 			},
 			// Use child trie proofs for queries going to substrate chains
@@ -250,7 +264,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					.collect();
 				let params = rpc_params![at, keys];
 				let response: Proof =
-					self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
+					self.rpc_client.request("ismp_queryChildTrieProof", params).await?;
 				let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
 				let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
 					hasher: self.hashing.clone(),
@@ -265,13 +279,13 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 	async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {
 		let key = self.response_receipt_full_key(request_commitment);
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-		let storage_key = StorageKey(key);
+		let storage_key: StorageKey = key;
 		let params = rpc_params![child_storage_key, storage_key];
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		if let Some(data) = response {
-			let receipt = ResponseReceipt::decode(&mut &*data.0)?;
+			let receipt = ResponseReceipt::decode(&mut &*data)?;
 			Ok(H160::from_slice(&receipt.relayer[..20]))
 		} else {
 			Ok(Default::default())
@@ -290,7 +304,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 					tracing::trace!("Sleeping for 30s");
 					sleep(Duration::from_secs(30)).await;
 
-					let header = match client.client.rpc().header(None).await {
+					let header = match client.rpc.chain_get_header(None).await {
 						Ok(Some(header)) => header,
 						Ok(None) => return Some((Ok(None), (latest_height, client))),
 						Err(_err) => {
@@ -378,7 +392,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 	) -> Result<u64, anyhow::Error> {
 		let params = rpc_params![state_machine];
 		let response: u64 =
-			self.client.rpc().request("ismp_queryStateMachineLatestHeight", params).await?;
+			self.rpc_client.request("ismp_queryStateMachineLatestHeight", params).await?;
 
 		Ok(response)
 	}
@@ -396,14 +410,14 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		.concat();
 
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+		let storage_key: StorageKey = key;
+		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor::<C>>::None];
 
 		let response: Option<StorageData> =
-			self.client.rpc().request("childstate_getStorage", params).await?;
+			self.rpc_client.request("childstate_getStorage", params).await?;
 		let data =
 			response.ok_or_else(|| anyhow!("State commitment not present for state machine"))?;
-		let commitment = Decode::decode(&mut &*data.0)?;
+		let commitment = Decode::decode(&mut &*data)?;
 		Ok(commitment)
 	}
 
@@ -418,7 +432,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 				tracing::trace!("Sleeping for 30s");
 				sleep(Duration::from_secs(30)).await;
 
-				let header = match client.client.rpc().header(None).await {
+				let header = match client.rpc.chain_get_header(None).await {
 					Ok(Some(header)) => header,
 					Ok(None) => return Some((Ok(None), (latest_height, client))),
 					Err(_err) => {
@@ -487,15 +501,16 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 	}
 
 	fn encode(&self, msg: Message) -> Result<Vec<u8>, Error> {
-		let call = vec![msg].encode();
+		let call = vec![messages_to_value(vec![msg])];
 		if let Some(_) =
 			self.client.metadata().pallet_by_name_err("Ismp")?.call_hash("handle_unsigned")
 		{
-			let extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
+			let extrinsic = subxt::dynamic::tx("Ismp", "handle_unsigned", call);
 			let ext = self.client.tx().create_unsigned(&extrinsic)?;
 			Ok(ext.into_encoded())
 		} else {
-			let extrinsic = Extrinsic::new("Ismp", "handle", call);
+			let extrinsic = subxt::dynamic::tx("Ismp", "handle", call);
+
 			let call_data = extrinsic.encode_call_data(&self.client.metadata())?;
 			Ok(call_data)
 		}
@@ -509,23 +524,39 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 	}
 
 	async fn submit(&self, msg: Message) -> Result<EventMetadata, Error> {
-		let call = vec![msg].encode();
+		let call = vec![messages_to_value(vec![msg])];
 
-		let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
+		let hyper_bridge_timeout_extrinsic = subxt::dynamic::tx("Ismp", "handle_unsigned", call);
 
 		let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
-		let in_block = ext.submit_and_watch().await?.wait_for_finalized_success().await?;
+		let in_block = ext.submit_and_watch().await?;
+		let ext_hash = in_block.extrinsic_hash();
+
+		let tx_in_block = in_block.wait_for_finalized().await;
+
+		let extrinsic = match tx_in_block {
+			Ok(p) => p,
+			Err(err) => Err(refine_subxt_error(err)).context(format!(
+				"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
+			))?,
+		};
+		let block_hash = extrinsic.block_hash();
+
+		match extrinsic.wait_for_success().await {
+			Ok(_) => {},
+			Err(err) => Err(refine_subxt_error(err))
+				.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
+		};
 
 		let header = self
-			.client
-			.rpc()
-			.header(Some(in_block.block_hash()))
+			.rpc
+			.chain_get_header(Some(block_hash))
 			.await?
 			.ok_or_else(|| anyhow!("Inconsistent node state."))?;
 
 		let event = EventMetadata {
-			block_hash: H256::from_slice(in_block.block_hash().as_ref()),
-			transaction_hash: H256::from_slice(in_block.extrinsic_hash().as_ref()),
+			block_hash: H256::from_slice(block_hash.as_ref()),
+			transaction_hash: H256::from_slice(ext_hash.as_ref()),
 			block_number: header.number().into(),
 		};
 
@@ -539,7 +570,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		let key = state_machine_update_time_storage_key(height);
 		let block = self.client.blocks().at_latest().await?;
 		let raw_value =
-			self.client.storage().at(block.hash()).fetch_raw(&key).await?.ok_or_else(|| {
+			self.client.storage().at(block.hash()).fetch_raw(key).await?.ok_or_else(|| {
 				anyhow!(
 					"State machine update for {:?} not found at block {:?}",
 					height,
@@ -554,7 +585,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, Error> {
 		let params = rpc_params![id];
-		let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
+		let response: u64 = self.rpc_client.request("ismp_queryChallengePeriod", params).await?;
 
 		Ok(Duration::from_secs(response))
 	}

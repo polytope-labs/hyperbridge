@@ -326,14 +326,13 @@ use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, Contains},
 };
-use orml_traits::parameters::sp_runtime::traits::ConvertInto;
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
-use sp_runtime::traits::IdentityLookup;
+use sp_runtime::traits::{ConvertInto, IdentityLookup};
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
 #[cfg(feature = "runtime-benchmarks")]
@@ -483,6 +482,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
 	type SelectCore = DefaultCoreSelector<Self>;
+	type RelayParentOffset = ConstU32<0>;
 }
 
 type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
@@ -756,7 +756,6 @@ impl pallet_vesting::Config for Runtime {
 }
 
 impl pallet_bridge_airdrop::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type BridgeDropOrigin = EnsureRoot<Self::AccountId>;
 }

@@ -63,9 +63,6 @@ pub mod pallet {
 	/// Pallet Configuration
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
-		/// Overarching event
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
 		/// Native balance
 		type Balance: Balance
 			+ Into<<Self::NativeCurrency as Inspect<Self::AccountId>>::Balance>

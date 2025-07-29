@@ -17,23 +17,23 @@
 
 use anyhow::Context;
 use codec::{Decode, Encode};
-use sp_core::H256;
 use subxt::{
-	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
-	ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType, sp_runtime::MultiSignature},
-	rpc::types::DryRunResult,
-	tx::TxPayload,
+	backend::{chain_head::rpc_methods::DryRunResultBytes, legacy::LegacyRpcMethods},
+	config::HashFor,
+	ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType},
+	tx::Payload,
+	utils::{MultiSignature, H256},
 	OnlineClient,
 };
 
 use subxt_utils::refine_subxt_error;
-pub use subxt_utils::{Extrinsic, InMemorySigner};
+pub use subxt_utils::InMemorySigner;
 
 #[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 pub struct RequestResponseHandled {
-	pub commitment: primitive_types_old::H256,
+	pub commitment: H256,
 	pub relayer: Vec<u8>,
 }
 
@@ -56,18 +56,16 @@ impl subxt::events::StaticEvent for PostResponseHandledEvent {
 }
 
 /// Send an unsigned extrinsic for ISMP messages.
-pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: TxPayload>(
+pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
 	payload: Tx,
-	wait_for_finalization: bool,
-) -> Result<Option<(T::Hash, Vec<H256>)>, anyhow::Error>
+	_wait_for_finalization: bool,
+) -> Result<Option<(HashFor<T>, Vec<H256>)>, anyhow::Error>
 where
-	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
+	log::trace!(target: "tesseract", "creating unsigned extrinsic");
 	let ext = client.tx().create_unsigned(&payload)?;
-
 	let progress = match ext.submit_and_watch().await {
 		Ok(p) => {
 			log::info!(
@@ -79,13 +77,10 @@ where
 		},
 		Err(err) => Err(refine_subxt_error(err)).context("Failed to submit unsigned extrinsic")?,
 	};
+	log::trace!(target: "tesseract", "trying to get progress for unsigned extrinsic");
 	let ext_hash = progress.extrinsic_hash();
 
-	let tx_in_block = if wait_for_finalization {
-		progress.wait_for_finalized().await
-	} else {
-		progress.wait_for_in_block().await
-	};
+	let tx_in_block = progress.wait_for_finalized().await;
 
 	let extrinsic = match tx_in_block {
 		Ok(p) => p,
@@ -94,9 +89,11 @@ where
 		))?,
 	};
 
+	let block_hash = extrinsic.block_hash();
+
 	let (hash, receipts) = match extrinsic.wait_for_success().await {
 		Ok(p) => {
-			log::info!("Successfully executed unsigned extrinsic {ext_hash:?}");
+			log::trace!(target: "tesseract", "Successfully executed unsigned extrinsic {ext_hash:?}");
 			let mut receipts = p
 				.find::<PostRequestHandledEvent>()
 				.filter_map(|ev| ev.ok().map(|e| e.0.commitment.0.into()))
@@ -106,25 +103,27 @@ where
 				.filter_map(|ev| ev.ok().map(|e| e.0.commitment.0.into()))
 				.collect::<Vec<H256>>();
 			receipts.extend(temp_2);
-			(p.block_hash(), receipts)
+			(block_hash, receipts)
 		},
-		Err(err) => Err(refine_subxt_error(err))
-			.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
+		Err(err) => {
+			log::trace!(target: "tesseract", "extrinsic execution failed {:?}", err);
+			Err(refine_subxt_error(err))
+				.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?
+		},
 	};
 	Ok(Some((hash, receipts)))
 }
 
 /// Dry run extrinsic
-pub async fn system_dry_run_unsigned<T: subxt::Config, Tx: TxPayload>(
+pub async fn system_dry_run_unsigned<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
+	rpc: &LegacyRpcMethods<T>,
 	payload: Tx,
-) -> Result<DryRunResult, anyhow::Error>
+) -> Result<DryRunResultBytes, anyhow::Error>
 where
-	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
 	let ext = client.tx().create_unsigned(&payload)?;
-	let result = ext.dry_run(None).await?;
+	let result = rpc.dry_run(ext.encoded(), None).await?;
 	Ok(result)
 }

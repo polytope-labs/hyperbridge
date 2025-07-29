@@ -61,10 +61,6 @@ pub mod pallet {
 	/// The config trait
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
-		/// The overarching event type
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// IsmpHost implementation
 		type IsmpHost: IsmpHost + Default;
 

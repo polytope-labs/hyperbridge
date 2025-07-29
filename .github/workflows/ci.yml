@@ -27,7 +27,6 @@ env:
     STANDARD_TENDERMINT_URL: ${{secrets.STANDARD_TENDERMINT_URL}}
     POLYGON_HEIMDALL: ${{secrets.POLYGON_HEIMDALL}}
 
-
 jobs:
     check-wasm:
         name: Check Wasm Crates
@@ -83,6 +82,8 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - name: check no-std
+              env:
+                  RUSTFLAGS: "--cfg substrate_runtime"
               run: |
                   cargo check -p ${{ matrix.crate }} --no-default-features --target=wasm32-unknown-unknown --locked
 
@@ -149,7 +150,7 @@ jobs:
             - name: Install Go
               uses: actions/setup-go@v5
               with:
-                go-version: '1.24'
+                  go-version: "1.24"
 
             - name: Add wasm toolchain
               run: |
@@ -225,7 +226,7 @@ jobs:
             - name: Install Go
               uses: actions/setup-go@v5
               with:
-                go-version: '1.24'
+                  go-version: "1.24"
 
             - name: Add wasm toolchain
               run: |
@@ -375,7 +376,7 @@ jobs:
 
             - name: Tendermint Integration Test
               run: |
-                  RUST_LOG=trace cargo test -p tendermint-prover -- --nocapture --ignored
+                  RUST_LOG=tendermint_prover=trace,tendermint_verifier=trace cargo test -p tendermint-prover -- --nocapture --ignored
 
             - name: Clean up docker
               if: always()
@@ -436,7 +437,7 @@ jobs:
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
-                ssh-private-key: ${{ secrets.SSH_KEY }}
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: actions/checkout@v3
               with:
@@ -453,6 +454,8 @@ jobs:
               uses: browser-actions/setup-chrome@latest
 
             - name: Run WASM tests
+              env:
+                  RUSTFLAGS: "--cfg substrate_runtime"
               run: |
                   wasm-pack test --headless --chrome --no-default-features --features=wasm,testing
               working-directory: modules/hyperclient

@@ -1,13 +1,17 @@
-use crate::SyncCommitteeHost;
+use std::sync::Arc;
+
 use codec::Decode;
+use log::trace;
+
 use ismp::consensus::StateMachineId;
 use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
-use std::sync::Arc;
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
 	constants::{Config, Root},
 };
 use tesseract_primitives::IsmpProvider;
+
+use crate::SyncCommitteeHost;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EventResponse {
@@ -43,6 +47,7 @@ pub async fn consensus_notification<
 	let consensus_update = if let Some(update) = update {
 		update
 	} else {
+		trace!(target: "sync-committee-prover", "light client update is none");
 		return Ok(None);
 	};
 
@@ -50,8 +55,10 @@ pub async fn consensus_notification<
 		consensus_update.sync_committee_update.is_none() ||
 		consensus_update.attested_header.slot <= light_client_state.finalized_header.slot
 	{
+		trace!(target: "sync-committee-prover", "light client update is still none {:?}, execution layer height is {:?},finalized header slot  is {:?}", consensus_update, execution_layer_height, light_client_state.finalized_header.slot);
 		return Ok(None);
 	}
+	trace!(target: "sync-committee-prover", "gotten consensus notification");
 
 	let message = BeaconClientUpdate { consensus_update };
 

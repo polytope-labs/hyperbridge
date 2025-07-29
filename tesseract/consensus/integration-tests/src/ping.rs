@@ -5,7 +5,7 @@ use std::{
 	time::{SystemTime, UNIX_EPOCH},
 };
 use substrate_state_machine::HashAlgorithm;
-use subxt::rpc_params;
+use subxt::ext::subxt_rpcs::rpc_params;
 use subxt_utils::Hyperbridge;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
@@ -14,22 +14,16 @@ use ethers::{
 	core::k256::SecretKey,
 	prelude::{LocalWallet, MiddlewareBuilder, Signer},
 	providers::{Http, Middleware, Provider, ProviderExt},
-	types::BlockId,
 };
 use futures::TryStreamExt;
 use hex_literal::hex;
-use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
-	events::Event,
-	host::StateMachine,
-	router::Request,
-};
+use ismp::{events::Event, host::StateMachine, router::Request};
 use ismp_solidity_abi::evm_host::EvmHost;
 use primitive_types::{H160, U256};
 use sp_core::Pair;
 use tesseract_evm::{
-	abi::{erc_20::Erc20, GetRequest, PingMessage, PingModule},
-	state_comitment_key, EvmConfig,
+	abi::{erc_20::Erc20, PingMessage, PingModule},
+	EvmConfig,
 };
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 
@@ -122,8 +116,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 						};
 
 						let request = hyperbridge
-							.client
-							.rpc()
+							.rpc_client
 							.request::<Vec<Request>>(
 								"ismp_queryRequests",
 								rpc_params![vec![LeafIndexQuery { commitment }]],

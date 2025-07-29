@@ -271,7 +271,6 @@ impl ismp_bsc::pallet::Config for Test {
 }
 
 impl ismp_grandpa::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type WeightInfo = ();
 	type RootOrigin = EnsureRoot<AccountId32>;
@@ -313,7 +312,6 @@ impl pallet_bridge_airdrop::Config for Test {
 }
 
 impl pallet_consensus_incentives::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryAccount;
 	type WeightInfo = ();
@@ -321,7 +319,6 @@ impl pallet_consensus_incentives::Config for Test {
 }
 
 impl pallet_messaging_fees::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryAccount;
 	type IncentivesOrigin = EnsureRoot<AccountId32>;

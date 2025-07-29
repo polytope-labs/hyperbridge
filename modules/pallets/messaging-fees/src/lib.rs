@@ -66,10 +66,6 @@ pub mod pallet {
 		+ pallet_ismp_host_executive::Config
 		+ pallet_ismp_relayer::Config
 	{
-		/// The overarching event type.
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// The underlying [`IsmpHost`] implementation
 		type IsmpHost: IsmpHost
 			+ IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>

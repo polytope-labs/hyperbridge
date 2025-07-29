@@ -14284,7 +14284,7 @@ dependencies = [
  "ismp",
  "pallet-ismp",
  "parity-scale-codec",
- "polkadot-sdk 2503.0.1",
+ "polkadot-sdk",
  "scale-info",
 ]
 
@@ -14949,7 +14949,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "parity-scale-codec",
- "polkadot-sdk 2503.0.1",
+ "polkadot-sdk",
  "scale-info",
 ]
 

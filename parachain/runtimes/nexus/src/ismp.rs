@@ -26,7 +26,7 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::EnsureRoot;
-use hyperbridge_client_machine::HyperbridgeClientMachine;
+use hyperbridge_client_machine::{HyperbridgeClientMachine, OnRequestProcessed};
 use ismp::{
 	error::Error,
 	host::StateMachine,
@@ -125,6 +125,14 @@ impl ismp_grandpa::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
+}
+
+pub struct OnRequestProcessor;
+
+impl OnRequestProcessed for OnRequestProcessor {
+	fn note_request_fee(_commitment: H256, _fee: u128) {
+		// do nothing
+	}
 }
 
 impl pallet_ismp::Config for Runtime {

@@ -40,7 +40,7 @@ use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::Permill;
 
-use hyperbridge_client_machine::HyperbridgeClientMachine;
+use hyperbridge_client_machine::{HyperbridgeClientMachine, OnRequestProcessed};
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
@@ -101,6 +101,14 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 
+pub struct OnRequestProcessor;
+
+impl OnRequestProcessed for OnRequestProcessor {
+	fn note_request_fee(_commitment: H256, _fee: u128) {
+		// do nothing
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type AdminOrigin = EnsureRoot<AccountId>;
@@ -117,11 +125,11 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp>,
+			HyperbridgeClientMachine<Runtime, Ismp, OnRequestProcessor>,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp>,
+			HyperbridgeClientMachine<Runtime, Ismp, OnRequestProcessor>,
 		>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,

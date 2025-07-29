@@ -40,7 +40,7 @@ fn setup_host_params(dest_chain: StateMachine) {
 	let host_params = HostParam::EvmHostParam(EvmHostParam {
 		per_byte_fees: vec![PerByteFee {
 			state_id: H256(keccak_256(&dest_chain.encode())),
-			per_byte_fee: U256::from(50_000_000_000_000_000u128), // 0.05
+			per_byte_fee: U256::from(50u128),
 		}]
 		.try_into()
 		.unwrap(),
@@ -148,6 +148,8 @@ fn test_incentivize_relayer_for_request_message() {
 		let initial_bytes_processed = TotalBytesProcessed::<Test>::get();
 
 		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
+		dbg!(initial_relayer_balance);
+		dbg!(Balances::balance(&relayer_account));
 
 		assert!(Balances::balance(&relayer_account) > initial_relayer_balance);
 		assert!(initial_bytes_processed < TotalBytesProcessed::<Test>::get());

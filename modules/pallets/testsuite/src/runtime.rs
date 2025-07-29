@@ -198,14 +198,6 @@ parameter_types! {
 	pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
 }
 
-pub struct OnRequestProcessor;
-
-impl OnRequestProcessed for OnRequestProcessor {
-	fn note_request_fee(commitment: H256, fee: u128) {
-		pallet_messaging_fees::Pallet::<Test>::note_request_fee(commitment, fee);
-	}
-}
-
 impl pallet_ismp::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type AdminOrigin = EnsureRoot<AccountId32>;
@@ -221,7 +213,7 @@ impl pallet_ismp::Config for Test {
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Test,
-			HyperbridgeClientMachine<Test, Ismp, OnRequestProcessor>,
+			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
 		>,
 	);
 	type OffchainDB = Mmr;
@@ -229,7 +221,7 @@ impl pallet_ismp::Config for Test {
 }
 
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
-use hyperbridge_client_machine::{HyperbridgeClientMachine, OnRequestProcessed};
+use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::{events::Event as IsmpEvent, messaging::Message};
 use pallet_ismp::fee_handler::FeeHandler;
 

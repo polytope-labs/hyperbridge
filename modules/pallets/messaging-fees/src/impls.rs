@@ -1,6 +1,7 @@
 use alloc::collections::BTreeMap;
 
 use codec::{Decode, Encode};
+use hyperbridge_client_machine::OnRequestProcessed;
 use polkadot_sdk::{
 	frame_support::traits::{fungible::Mutate, tokens::Preservation},
 	sp_core::U256,
@@ -200,11 +201,8 @@ where
 				let bridge_price = T::PriceOracle::get_bridge_price()
 					.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
-				let cost_bridge_price_18_decimals = cost
-					.checked_mul(bridge_price)
-					.ok_or(Error::<T>::CalculationOverflow)?
-					.checked_div(DECIMALS_18.into())
-					.ok_or(Error::<T>::CalculationOverflow)?;
+				let cost_bridge_price_18_decimals =
+					cost.checked_mul(bridge_price).ok_or(Error::<T>::CalculationOverflow)?;
 
 				let cost_bridge_price_12_decimals_u256 = cost_bridge_price_18_decimals
 					.checked_div(SCALING_FACTOR_18_TO_12.into())
@@ -286,6 +284,13 @@ where
 		Ok(final_reward_numerator.saturating_div(target_size_sq))
 	}
 	pub fn note_request_fee(commitment: H256, fee: u128) {
+		let fee_balance: T::Balance = fee.saturated_into();
+		CommitmentFees::<T>::insert(commitment, fee_balance);
+	}
+}
+
+impl<T: Config> OnRequestProcessed for Pallet<T> {
+	fn note_request_fee(commitment: H256, fee: u128) {
 		let fee_balance: T::Balance = fee.saturated_into();
 		CommitmentFees::<T>::insert(commitment, fee_balance);
 	}

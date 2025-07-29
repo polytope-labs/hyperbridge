@@ -7,7 +7,6 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [dependencies]
-env_logger = "0.10.0"
 subxt = { workspace = true, default-features = true }
 anyhow.workspace = true
 futures = "0.3.28"

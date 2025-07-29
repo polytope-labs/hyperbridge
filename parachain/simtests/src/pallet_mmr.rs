@@ -23,7 +23,6 @@ use pallet_ismp::offchain::{FullLeaf, Leaf, ProofKeys};
 use pallet_mmr_tree::mmr::Hasher as MmrHasher;
 use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};
 use subxt_utils::{values::evm_params_to_value, Hyperbridge};
-use crate::setup_logging;
 
 const NUMBER_OF_LEAVES_KEY: [u8; 32] =
 	hex!("a8c65209d47ee80f56b0011e8fd91f508156209906244f2341137c136774c91d");
@@ -90,7 +89,6 @@ async fn test_all_features() -> Result<(), anyhow::Error> {
 async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 	// try to estimate the storage requirements on offchaindb with 1 billion leaves in mmr
 	use indicatif::ProgressBar;
-	setup_logging();
 
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
@@ -137,7 +135,6 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 }
 
 async fn dispatch_requests() -> Result<(), anyhow::Error> {
-	setup_logging();
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
 	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;

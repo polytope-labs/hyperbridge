@@ -1,16 +1,12 @@
 name: CI
 
 on:
-#    push:
-#        branches:
-#            - main
+    push:
+        branches:
+            - main
 
-    pull_request:
-      branches:
-        - main
-
-#    pull_request_target:
-#        types: [opened, synchronize]
+    pull_request_target:
+        types: [opened, synchronize]
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -318,7 +314,7 @@ jobs:
                   cargo build -p hyperbridge --release
                   ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-                  RUST_LOG=jsonrpsee=trace cargo test -p simtests test_txpool_should_reject_duplicate_requests -- --nocapture --ignored --test-threads=1
+                  cargo test -p simtests -- --nocapture --ignored --test-threads=1
                   kill -9 $!
 
             - name: Run Parachain Devnet

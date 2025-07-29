@@ -39,12 +39,10 @@ use subxt_utils::{
 	Hyperbridge,
 };
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
-use crate::setup_logging;
 
 #[tokio::test]
 #[ignore]
 async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
-	setup_logging();
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
 	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
@@ -267,7 +265,6 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 #[tokio::test]
 #[ignore]
 async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
-	setup_logging();
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
 	let (client, _rpc_client) =
@@ -480,7 +477,6 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 #[tokio::test]
 #[ignore]
 async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error> {
-	setup_logging();
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
 	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;

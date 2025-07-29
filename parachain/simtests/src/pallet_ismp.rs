@@ -39,7 +39,6 @@ use subxt_utils::{
 	},
 	BlakeSubstrateChain, Hyperbridge,
 };
-use crate::setup_logging;
 
 #[derive(Clone, Default)]
 pub struct Keccak256;
@@ -56,7 +55,6 @@ impl ismp::messaging::Keccak256 for Keccak256 {
 #[tokio::test]
 #[ignore]
 async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Error> {
-	setup_logging();
 	let port = env::var("PORT").unwrap_or("9990".into());
 	let url = &format!("ws://127.0.0.1:{}", port);
 	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;

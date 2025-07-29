@@ -2,7 +2,7 @@
 name = "messier-runtime"
 version = "0.1.1"
 authors = ["Polytope Labs <hello@polytope.technology>"]
-description = "Parachain runtime implementation of the hyperbridge protocol (Kusama)"
+description = "Experimental runtime implementation of the hyperbridge protocol"
 edition = "2021"
 publish = false
 
@@ -51,6 +51,7 @@ pallet-token-gateway = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
+pallet-revive-ismp-dispatcher = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -111,7 +112,7 @@ features = [
     "staging-parachain-info",
     "parachains-common",
     "pallet-vesting",
-    "sp-keyring"
+    "sp-keyring",
 ]
 
 [features]
@@ -148,7 +149,8 @@ std = [
     "frame-benchmarking/std",
     "pallet-bridge-airdrop/std",
     "ismp-arbitrum/std",
-    "ismp-optimism/std"
+    "ismp-optimism/std",
+    "pallet-revive-ismp-dispatcher/std",
 ]
 runtime-benchmarks = [
     "hex-literal",

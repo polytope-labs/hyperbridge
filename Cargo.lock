@@ -11841,6 +11841,7 @@ dependencies = [
  "pallet-ismp-runtime-api",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
+ "pallet-revive-ismp-dispatcher",
  "pallet-state-coprocessor",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
@@ -15490,8 +15491,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-revive-ismp-host"
-version = "0.1.1"
+name = "pallet-revive-ismp-dispatcher"
+version = "2506.0.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",

@@ -21,7 +21,7 @@ members = [
     "modules/pallets/demo",
     "modules/pallets/testsuite",
     "modules/pallets/call-decompressor",
-    "modules/pallets/revive-host",
+    "modules/pallets/revive-dispatcher",
     "modules/pallets/xcm-gateway",
     "modules/pallets/token-governor",
     "modules/pallets/token-gateway",
@@ -206,6 +206,7 @@ ismp-parachain = { version = "2506.0.0", path = "./modules/ismp/clients/parachai
 ismp-parachain-inherent = { version = "2506.0.0", path = "./modules/ismp/clients/parachain/inherent" }
 ismp-parachain-runtime-api = { version = "2506.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 pallet-ismp = { version = "2506.0.0", path = "modules/pallets/ismp", default-features = false }
+pallet-revive-ismp-dispatcher = { version = "2506.0.0", path = "modules/pallets/revive-dispatcher", default-features = false }
 pallet-ismp-rpc = { version = "2506.0.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2506.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-hyperbridge = { version = "2506.0.0", path = "modules/pallets/hyperbridge", default-features = false }

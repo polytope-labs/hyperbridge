@@ -12,14 +12,23 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![cfg_attr(not(feature = "std"), no_std)]
 
-//! Implementation of the [`IIsmpHost`] trait as a precompile for PolkaVM contracts.
+//! Implementation of the ISMP dispatcher as a precompile for PolkaVM contracts.
+extern crate alloc;
 
 mod interface;
 pub use interface::*;
 
 use alloy_primitives::{Address, Uint};
 use core::str::FromStr;
+use core::default::Default;
+use core::result::Result::*;
+use core::convert::From;
+use alloc::string::String;
+use alloc::format;
+use alloc::vec::Vec;
+use alloc::string::ToString;
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp::{FundMessageParams, MessageCommitment};
 use polkadot_sdk::*;
@@ -44,15 +53,13 @@ use pallet_revive::precompiles::{
 	AddressMapper, AddressMatcher, Error, Ext, Precompile,
 };
 
-use IIsmpHost::IIsmpHostCalls;
+use IDispatcher::IDispatcherCalls;
 
-/// [`pallet_revive::precompiles::Precompile`] implementation for [`ismp`] protocol implementations
-pub struct ReviveHost<Runtime, Dispatcher, FeeToken>(PhantomData<(Runtime, Dispatcher, FeeToken)>);
+/// [`pallet_revive::precompiles::Precompile`] implementation for [`ismp`] protocol dispatcher
+pub struct ReviveDispatcher<Runtime, Dispatcher, FeeToken>(PhantomData<(Runtime, Dispatcher, FeeToken)>);
 
-// Todos
-// 1. figure out gas costs
-// 2. clarify env.account_id()
-impl<Runtime, Dispatcher, FeeToken> Precompile for ReviveHost<Runtime, Dispatcher, FeeToken>
+// Todo: figure out gas costs
+impl<Runtime, Dispatcher, FeeToken> Precompile for ReviveDispatcher<Runtime, Dispatcher, FeeToken>
 where
 	Runtime: pallet_ismp::Config + pallet_revive::Config + pallet_hyperbridge::Config,
 	Runtime::AccountId: TryFrom<Vec<u8>>,
@@ -62,96 +69,41 @@ where
 	FeeToken: Get<Address>,
 {
 	type T = Runtime;
-	const MATCHER: AddressMatcher = AddressMatcher::Fixed(NonZero::new(999).unwrap());
+	const MATCHER: AddressMatcher = AddressMatcher::Fixed(NonZero::new(3367).unwrap());
 	const HAS_CONTRACT_INFO: bool = false;
-	type Interface = IIsmpHost::IIsmpHostCalls;
+	type Interface = IDispatcher::IDispatcherCalls;
 
 	fn call(
 		address: &[u8; 20],
 		input: &Self::Interface,
-		_env: &mut impl Ext<T = Self::T>,
+		env: &mut impl Ext<T = Self::T>,
 	) -> Result<Vec<u8>, Error> {
+		log::trace!(
+			target: "ismp_revive_dispatcher",
+			"Address: {}, AccountId: {:#?}, MappedId: {:#?}",
+			H160(address.clone()),
+			env.account_id(),
+			Runtime::AddressMapper::to_account_id(&H160(address.clone())),
+		);
 		match input {
-			IIsmpHostCalls::responded(IIsmpHost::respondedCall { commitment }) => {
-				let value = pallet_ismp::Responded::<Runtime>::get(H256(commitment.0.clone()));
-				return Ok(value.abi_encode());
-			},
-			IIsmpHostCalls::requestReceipts(IIsmpHost::requestReceiptsCall { commitment }) => {
-				if let Some(relayer) = pallet_ismp::child_trie::RequestReceipts::<Runtime>::get(
-					H256(commitment.0.clone()),
-				) {
-					let account_id = Runtime::AccountId::try_from(relayer).map_err(|_| {
-						Error::Revert(Revert { reason: "Invalid account ID".into() })
-					})?;
-					let address = Runtime::AddressMapper::to_address(&account_id);
-					return Ok(FixedBytes::<20>::from(address.0).abi_encode());
-				}
-
-				return Ok(FixedBytes::<20>::default().abi_encode());
-			},
-			IIsmpHostCalls::responseReceipts(IIsmpHost::responseReceiptsCall { commitment }) => {
-				if let Some(receipt) = pallet_ismp::child_trie::ResponseReceipts::<Runtime>::get(
-					H256(commitment.0.clone()),
-				) {
-					let account_id =
-						Runtime::AccountId::try_from(receipt.relayer).map_err(|_| {
-							Error::Revert(Revert { reason: "Invalid account ID".into() })
-						})?;
-					let address = Runtime::AddressMapper::to_address(&account_id);
-					let metadata = ResponseReceipt {
-						responseCommitment: receipt.response.0.into(),
-						relayer: address.0.into(),
-					};
-					return Ok(metadata.abi_encode());
-				}
-
-				return Ok(ResponseReceipt::default().abi_encode());
-			},
-			IIsmpHostCalls::responseCommitments(IIsmpHost::responseCommitmentsCall {
-				commitment,
-			}) => {
-				if let Some(metadata) = pallet_ismp::child_trie::ResponseCommitments::<Runtime>::get(
-					H256(commitment.0.clone()),
-				) {
-					let address = Runtime::AddressMapper::to_address(&metadata.fee.payer);
-					let fee = Uint::<256, 4>::from_u128(metadata.fee.fee.into())
-						.expect("u128 will always fit in a u256");
-					return Ok(FeeMetadata { fee, sender: address.0.into() }.abi_encode());
-				}
-
-				return Ok(FeeMetadata::default().abi_encode());
-			},
-			IIsmpHostCalls::requestCommitments(IIsmpHost::requestCommitmentsCall {
-				commitment,
-			}) => {
-				if let Some(metadata) = pallet_ismp::child_trie::RequestCommitments::<Runtime>::get(
-					H256(commitment.0.clone()),
-				) {
-					let address = Runtime::AddressMapper::to_address(&metadata.fee.payer);
-					let fee = Uint::<256, 4>::from_u128(metadata.fee.fee.into())
-						.expect("u128 will always fit in a u256");
-					return Ok(FeeMetadata { fee, sender: address.0.into() }.abi_encode());
-				}
-
-				return Ok(FeeMetadata::default().abi_encode());
-			},
-			IIsmpHostCalls::host(IIsmpHost::hostCall) => {
+			IDispatcherCalls::host(IDispatcher::hostCall) => {
+				// env.cha
 				let host = Runtime::HostStateMachine::get();
 				return Ok(host.to_string().as_bytes().to_vec().abi_encode());
 			},
-			IIsmpHostCalls::hyperbridge(IIsmpHost::hyperbridgeCall) => {
+			IDispatcherCalls::hyperbridge(IDispatcher::hyperbridgeCall) => {
 				let Some(hyperbridge) = Runtime::Coprocessor::get() else {
 					Err(Error::Revert(Revert { reason: "Hyperbridge not defined".into() }))?
 				};
 				return Ok(hyperbridge.to_string().as_bytes().to_vec().abi_encode());
 			},
-			IIsmpHostCalls::nonce(IIsmpHost::nonceCall) => {
+			IDispatcherCalls::nonce(IDispatcher::nonceCall) => {
 				let nonce = pallet_ismp::Nonce::<Runtime>::get();
 				return Ok(Uint::<256, 4>::from(nonce).abi_encode());
 			},
-			IIsmpHostCalls::feeToken(IIsmpHost::feeTokenCall) =>
+			IDispatcherCalls::feeToken(IDispatcher::feeTokenCall) =>
 				return Ok(FeeToken::get().abi_encode()),
-			IIsmpHostCalls::perByteFee(IIsmpHost::perByteFeeCall { dest }) => {
+			IDispatcherCalls::perByteFee(IDispatcher::perByteFeeCall { dest }) => {
 				let utf8 = String::from_utf8(dest.to_vec()).map_err(|_| {
 					Error::Revert(Revert { reason: "Invalid state machine".into() })
 				})?;
@@ -170,8 +122,7 @@ where
 
 				return Ok(fee.abi_encode());
 			},
-			IIsmpHostCalls::dispatch_0(IIsmpHost::dispatch_0Call { request }) => {
-				let contract_address = H160::from(address.clone());
+			IDispatcherCalls::dispatch_0(IDispatcher::dispatch_0Call { request }) => {
 				let destination = String::from_utf8(request.dest.to_vec())
 					.map_err(|_| Error::Revert(Revert { reason: "Invalid destination".into() }))?;
 				let relayer_fee = request
@@ -190,7 +141,7 @@ where
 							})?,
 						}),
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&contract_address),
+							payer: Runtime::AddressMapper::to_account_id(&H160(address.clone())),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -201,8 +152,7 @@ where
 					})?;
 				return Ok(FixedBytes::<32>::from(commitment.0).abi_encode());
 			},
-			IIsmpHostCalls::dispatch_1(IIsmpHost::dispatch_1Call { request }) => {
-				let contract_address = H160::from(address.clone());
+			IDispatcherCalls::dispatch_1(IDispatcher::dispatch_1Call { request }) => {
 				let destination = String::from_utf8(request.dest.to_vec())
 					.map_err(|_| Error::Revert(Revert { reason: "Invalid destination".into() }))?;
 				let relayer_fee = request
@@ -222,7 +172,7 @@ where
 							})?,
 						}),
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&contract_address),
+							payer: Runtime::AddressMapper::to_account_id(&H160(address.clone())),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -233,8 +183,7 @@ where
 					})?;
 				return Ok(FixedBytes::<32>::from(commitment.0).abi_encode());
 			},
-			IIsmpHostCalls::dispatch_2(IIsmpHost::dispatch_2Call { response }) => {
-				let contract_address = H160::from(address.clone());
+			IDispatcherCalls::dispatch_2(IDispatcher::dispatch_2Call { response }) => {
 				let destination = String::from_utf8(response.request.source.to_vec())
 					.map_err(|_| Error::Revert(Revert { reason: "Invalid destination".into() }))?;
 				let source = String::from_utf8(response.request.dest.to_vec())
@@ -263,7 +212,7 @@ where
 							timeout_timestamp: response.timeout,
 						},
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&contract_address),
+							payer: Runtime::AddressMapper::to_account_id(&H160(address.clone())),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -274,7 +223,7 @@ where
 					})?;
 				return Ok(FixedBytes::<32>::from(commitment.0).abi_encode());
 			},
-			IIsmpHostCalls::fundRequest(IIsmpHost::fundRequestCall { commitment, amount }) => {
+			IDispatcherCalls::fundRequest(IDispatcher::fundRequestCall { commitment, amount }) => {
 				let new_fee = amount
 					.to_u128()
 					.ok_or(Error::Revert(Revert { reason: "Invalid fee".into() }))?;
@@ -295,7 +244,7 @@ where
 				.map_err(|_| Error::Revert(Revert { reason: "Failed to fund request".into() }))?;
 				return Ok(Default::default());
 			},
-			IIsmpHostCalls::fundResponse(IIsmpHost::fundResponseCall { commitment, amount }) => {
+			IDispatcherCalls::fundResponse(IDispatcher::fundResponseCall { commitment, amount }) => {
 				let new_fee = amount
 					.to_u128()
 					.ok_or(Error::Revert(Revert { reason: "Invalid fee".into() }))?;

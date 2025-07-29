@@ -1,12 +1,12 @@
 [package]
-name = "pallet-revive-ismp-host"
-version = "0.1.1"
+name = "pallet-revive-ismp-dispatcher"
+version = "2506.0.0"
 edition = "2021"
-description = "Ismp host precompile implementation for pallet-revive"
+description = "IsmpDispatcher precompile implementation for pallet-revive"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
 repository = "https://github.com/polytope-labs/hyperbridge"
-documentation = "https://docs.rs/pallet-revive-ismp-host"
+documentation = "https://docs.rs/pallet-revive-ismp-dispatcher"
 keywords = ["pallet-revive", "pallet-ismp", "ismp", "polkadot-sdk", "pallet-ismp", "Risc-v", "evm"]
 readme = "./README.md"
 

@@ -5,6 +5,8 @@ import { TokenGatewayService } from "@/services/tokenGateway.service"
 import { TeleportStatus } from "@/configs/src/types"
 import { getHostStateMachine, isSubstrateChain } from "@/utils/substrate.helpers"
 import { wrap } from "@/utils/event.utils"
+import { VolumeService } from "@/services/volume.service"
+import PriceHelper from "@/utils/price.helpers"
 
 export const handleAssetTeleportedEvent = wrap(async (event: AssetTeleportedLog): Promise<void> => {
 	logger.info(`Asset Teleported Event: ${stringify(event)}`)
@@ -16,7 +18,14 @@ export const handleAssetTeleportedEvent = wrap(async (event: AssetTeleportedLog)
 	const timestamp = await getBlockTimestamp(blockHash, chain)
 
 	if (isSubstrateChain(dest)) {
-		logger.info(`Skipping teleport to substrate chain: ${dest}`)
+		const tokenContract = await TokenGatewayService.getAssetTokenContract(assetId.toString())
+		const decimals = await tokenContract.decimals()
+		const symbol = await tokenContract.symbol()
+
+		const usdValue = await PriceHelper.getTokenPriceInUSDCoingecko(symbol, amount.toBigInt(), decimals)
+
+		await VolumeService.updateVolume("TokenGateway", usdValue.amountValueInUSD, timestamp)
+
 		return
 	}
 

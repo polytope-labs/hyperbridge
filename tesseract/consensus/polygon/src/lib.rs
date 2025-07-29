@@ -204,7 +204,7 @@ impl IsmpHost for PolygonPosHost {
 			consensus_client_id: POLYGON_CONSENSUS_CLIENT_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 82 * 3600, // 82 checkpoints x 3600 seconds per checkpoint
-			challenge_periods: vec![(self.state_machine, 2 * 60)].into_iter().collect(), /* 25 minutes in seconds */
+			challenge_periods: vec![(self.state_machine, 2 * 60)].into_iter().collect(),
 			state_machine_commitments: vec![(
 				ismp::consensus::StateMachineId {
 					state_id: self.state_machine,

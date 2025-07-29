@@ -69,6 +69,7 @@ features = [
     "pallet-timestamp",
     "pallet-transaction-payment",
     "pallet-transaction-payment-rpc-runtime-api",
+    "pallet-revive",
     "pallet-message-queue",
     "pallet-treasury",
     "pallet-asset-rate",
@@ -109,7 +110,8 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
-    "pallet-vesting"
+    "pallet-vesting",
+    "sp-keyring"
 ]
 
 [features]

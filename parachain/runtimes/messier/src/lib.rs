@@ -63,7 +63,7 @@ use frame_support::{
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
-	traits::{ConstU32, ConstU64, ConstU8, Everything, Get},
+	traits::{ConstBool, ConstU32, ConstU64, ConstU8, Everything, Get},
 	weights::{
 		constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
 		WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -72,9 +72,10 @@ use frame_support::{
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
-	EnsureRoot, EnsureRootWithSuccess,
+	EnsureRoot, EnsureRootWithSuccess, EnsureSigned,
 };
 use pallet_ismp::offchain::{Proof, ProofKeys};
+use pallet_revive::evm::runtime::EthExtra;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -90,7 +91,6 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
 use cumulus_primitives_core::ParaId;
-use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use staging_xcm::latest::prelude::BodyId;
 
@@ -106,6 +106,9 @@ pub type Balance = u128;
 
 /// Index of a transaction in the chain.
 pub type Index = u32;
+
+/// Type alias for Nonce
+pub type Nonce = Index;
 
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
@@ -128,8 +131,8 @@ pub type SignedBlock = generic::SignedBlock<Block>;
 /// BlockId type as expected by this runtime.
 pub type BlockId = generic::BlockId<Block>;
 
-/// The SignedExtension to the basic transaction logic.
-pub type SignedExtra = (
+/// The extension to the basic transaction logic.
+pub type TxExtension = (
 	frame_system::CheckNonZeroSender<Runtime>,
 	frame_system::CheckSpecVersion<Runtime>,
 	frame_system::CheckTxVersion<Runtime>,
@@ -141,12 +144,47 @@ pub type SignedExtra = (
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
 
+/// Default extensions applied to Ethereum transactions.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct EthExtraImpl;
+
+impl EthExtra for EthExtraImpl {
+	type Config = Runtime;
+	type Extension = TxExtension;
+
+	fn get_eth_extension(nonce: u32, tip: Balance) -> Self::Extension {
+		(
+			frame_system::CheckNonZeroSender::<Runtime>::new(),
+			frame_system::CheckSpecVersion::<Runtime>::new(),
+			frame_system::CheckTxVersion::<Runtime>::new(),
+			frame_system::CheckGenesis::<Runtime>::new(),
+			frame_system::CheckEra::from(generic::Era::Immortal),
+			frame_system::CheckNonce::<Runtime>::from(nonce),
+			frame_system::CheckWeight::<Runtime>::new(),
+			pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(tip),
+			frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
+		)
+	}
+}
+
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
+	pallet_revive::evm::runtime::UncheckedExtrinsic<Address, Signature, EthExtraImpl>;
 
 /// Extrinsic type that has already been checked.
-pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, RuntimeCall, SignedExtra>;
+pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, RuntimeCall, TxExtension>;
+
+// This impl is no longer necessary post stable-2506.
+impl TryFrom<RuntimeCall> for pallet_revive::Call<Runtime> {
+	type Error = ();
+
+	fn try_from(value: RuntimeCall) -> Result<Self, Self::Error> {
+		match value {
+			RuntimeCall::Revive(call) => Ok(call),
+			_ => Err(()),
+		}
+	}
+}
 
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
@@ -708,6 +746,36 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
+parameter_types! {
+	pub const DepositPerItem: Balance = EXISTENTIAL_DEPOSIT;
+	pub const DepositPerByte: Balance = EXISTENTIAL_DEPOSIT;
+	pub CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(30);
+}
+
+impl pallet_revive::Config for Runtime {
+	type Time = Timestamp;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type DepositPerItem = DepositPerItem;
+	type DepositPerByte = DepositPerByte;
+	type WeightPrice = pallet_transaction_payment::Pallet<Self>;
+	type WeightInfo = ();
+	type Precompiles = ();
+	type AddressMapper = pallet_revive::AccountId32Mapper<Self>;
+	type RuntimeMemory = ConstU32<{ 128 * 1024 * 1024 }>;
+	type PVFMemory = ConstU32<{ 512 * 1024 * 1024 }>;
+	type UnsafeUnstableInterface = ConstBool<false>;
+	type UploadOrigin = EnsureSigned<Self::AccountId>;
+	type InstantiateOrigin = EnsureSigned<Self::AccountId>;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type CodeHashLockupDepositPercent = CodeHashLockupDepositPercent;
+	type ChainId = ConstU64<420_420_420>;
+	type NativeToEthRatio = ConstU32<1_000_000>; // 10^(18 - 12) Eth is 10^18, Native is 10^12.
+	type EthGasEncoder = ();
+	type FindAuthor = <Runtime as pallet_authorship::Config>::FindAuthor;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -809,6 +877,8 @@ mod runtime {
 	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
 	#[runtime::pallet_index(64)]
 	pub type IsmpBsc = ismp_bsc::pallet;
+	#[runtime::pallet_index(65)]
+	pub type Revive = pallet_revive;
 
 	// Governance
 	#[runtime::pallet_index(80)]
@@ -844,10 +914,14 @@ mod benches {
 		[cumulus_pallet_xcmp_queue, XcmpQueue]
 		[pallet_message_queue, MessageQueue]
 		[pallet_sudo, Sudo]
+		[pallet_revive, Revive]
 	);
 }
 
-impl_runtime_apis! {
+pallet_revive::impl_runtime_apis_plus_revive!(
+	Runtime,
+	Executive,
+	EthExtraImpl,
 	impl sp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
 		fn slot_duration() -> sp_consensus_aura::SlotDuration {
 			sp_consensus_aura::SlotDuration::from_millis(Aura::slot_duration())
@@ -1199,7 +1273,7 @@ impl_runtime_apis! {
 			);
 			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
-			let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(
+			let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, TxExtension>::new_signed(
 				call,
 				address,
 				signature,
@@ -1208,7 +1282,8 @@ impl_runtime_apis! {
 			ext.encode()
 		}
 	}
-}
+
+);
 
 cumulus_pallet_parachain_system::register_validate_block! {
 	Runtime = Runtime,

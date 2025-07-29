@@ -248,7 +248,6 @@ impl pallet_token_governor::Config for Runtime {
 }
 
 impl pallet_consensus_incentives::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
 	type IncentivesOrigin = EitherOfDiverse<

@@ -23578,6 +23578,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
+ "env_logger 0.10.2",
  "futures",
  "gargantua-runtime",
  "hash-db",

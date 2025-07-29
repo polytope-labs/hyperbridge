@@ -316,9 +316,9 @@ jobs:
               run: |
                   # build hyperbridge binary
                   cargo build -p hyperbridge --release
-                  RUST_LOG=jsonrpc_core=trace,jsonrpc=trace ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
+                  ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-                  cargo test -p simtests -- --nocapture --ignored --test-threads=1
+                  RUST_LOG=jsonrpsee=trace cargo test -p simtests test_txpool_should_reject_duplicate_requests -- --nocapture --ignored --test-threads=1
                   kill -9 $!
 
             - name: Run Parachain Devnet

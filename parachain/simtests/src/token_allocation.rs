@@ -19,6 +19,7 @@ use subxt::{
 	OnlineClient,
 };
 use subxt_utils::Hyperbridge;
+use crate::setup_logging;
 
 #[derive(serde::Deserialize, Debug)]
 struct AllocationRecord {
@@ -29,6 +30,7 @@ struct AllocationRecord {
 #[tokio::test]
 #[ignore]
 async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
+	setup_logging();
 	println!("in test");
 	let port = env::var("PORT").unwrap_or_else(|_| "9990".to_string());
 	let ws_url = format!("ws://127.0.0.1:{}", port);

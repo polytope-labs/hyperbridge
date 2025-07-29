@@ -1,16 +1,15 @@
 use anyhow::Result;
 use codec::{Decode, Encode};
 use ismp::{
-	consensus::ConsensusStateId,
+	consensus::{ConsensusStateId, StateCommitment},
 	host::StateMachine,
-	messaging::{CreateConsensusState, Message},
+	messaging::{CreateConsensusState, Message, StateCommitmentHeight},
 };
 use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLIENT_ID};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
-use tendermint_primitives;
+use tendermint_primitives::{self, CodecTrustedState};
 use tendermint_prover::{Client, HeimdallClient};
-use tendermint_verifier::hashing::SpIoSha256;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
@@ -82,40 +81,39 @@ impl PolygonPosHost {
 
 	/// Fetch the current consensus state (for initial state creation)
 	pub async fn get_consensus_state(&self) -> Result<ConsensusState, anyhow::Error> {
-		let trusted_height = self.provider.query_finalized_height().await?.into();
+		let latest_height = self.prover.latest_height().await?;
+		let trusted_height = latest_height;
 
 		let trusted_header = self.prover.signed_header(trusted_height).await?;
 
 		let trusted_validators = self.prover.validators(trusted_height).await?;
 		let trusted_next_validators = self.prover.next_validators(trusted_height).await?;
 
-		let chain_id_str = self.prover.chain_id().await?;
-		let chain_id = chain_id_str.parse::<u32>().unwrap_or(137); // Default to Polygon mainnet
+		let chain_id = match self.state_machine {
+			StateMachine::Evm(chain_id) => chain_id,
+			_ => return Err(anyhow::anyhow!("Unsupported state machine")),
+		};
 
 		let trusted_state = tendermint_primitives::TrustedState::new(
-			chain_id_str,
+			chain_id.to_string(),
 			trusted_height,
 			trusted_header.header.time.unix_timestamp() as u64,
 			trusted_header.header.hash().as_bytes().try_into().unwrap(),
 			trusted_validators,
 			trusted_next_validators,
 			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
-			7200, // 2 hour trusting period
+			82 * 3600,
 			tendermint_primitives::VerificationOptions::default(),
 		);
 
-		let codec_trusted_state =
-			tendermint_primitives::CodecTrustedState::from_trusted_state(&trusted_state);
+		let codec_trusted_state = CodecTrustedState::from(&trusted_state);
 		let tendermint_state = codec_trusted_state.encode();
+		let (_, milestone) = self.prover.get_latest_milestone().await?;
 
 		let consensus_state = ConsensusState {
 			tendermint_state,
-			last_finalized_block: trusted_height,
-			last_finalized_hash: trusted_header
-				.header
-				.hash_with::<SpIoSha256>()
-				.as_bytes()
-				.to_vec(),
+			last_finalized_block: milestone.end_block,
+			last_finalized_hash: milestone.hash,
 			chain_id,
 		};
 
@@ -150,7 +148,7 @@ impl IsmpHost for PolygonPosHost {
 					let consensus_message = ConsensusMessage {
 						consensus_proof: update.encode(),
 						consensus_state_id: client.consensus_state_id,
-						signer: vec![], // Q for reviewer: Who is the signer?
+						signer: counterparty.address(),
 					};
 					log::info!(
 						target: "tesseract",
@@ -186,13 +184,34 @@ impl IsmpHost for PolygonPosHost {
 		let initial_consensus_state = self.get_consensus_state().await.map_err(|e| {
 			anyhow::anyhow!("PolygonPosHost: fetch initial consensus state failed: {e}")
 		})?;
+		let (_, milestone) = self.prover.get_latest_milestone().await?;
+
+		let evm_header = self
+			.prover
+			.fetch_header(milestone.end_block)
+			.await?
+			.ok_or_else(|| anyhow::anyhow!("EVM header not found for milestone end block"))?;
+
 		Ok(Some(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),
 			consensus_client_id: POLYGON_CONSENSUS_CLIENT_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 82 * 3600, // 82 checkpoints x 3600 seconds per checkpoint
 			challenge_periods: vec![(self.state_machine, 25 * 60)].into_iter().collect(), /* 25 minutes in seconds */
-			state_machine_commitments: vec![],
+			state_machine_commitments: vec![(
+				ismp::consensus::StateMachineId {
+					state_id: self.state_machine,
+					consensus_state_id: self.consensus_state_id,
+				},
+				StateCommitmentHeight {
+					commitment: StateCommitment {
+						timestamp: evm_header.timestamp,
+						overlay_root: None,
+						state_root: evm_header.state_root,
+					},
+					height: evm_header.number.low_u64(),
+				},
+			)],
 		}))
 	}
 

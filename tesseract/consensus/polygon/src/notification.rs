@@ -20,9 +20,7 @@ pub async fn consensus_notification(
 		ConsensusState::decode(&mut &consensus_state_serialized[..])?;
 
 	let trusted_state: TrustedState =
-		CodecTrustedState::decode(&mut consensus_state.tendermint_state.as_slice())?
-			.to_trusted_state()
-			.map_err(|e| anyhow::Error::msg(e))?;
+		CodecTrustedState::decode(&mut consensus_state.tendermint_state.as_slice())?.into();
 
 	let untrusted_header = client.prover.signed_header(latest_height).await?;
 

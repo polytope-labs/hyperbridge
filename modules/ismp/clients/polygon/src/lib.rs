@@ -1,5 +1,10 @@
+//! Polygon consensus client implementation for ISMP.
+//!
+//! This module provides a consensus client for Polygon that verifies Tendermint light client
+//! updates and milestone proofs to maintain consensus state across the network.
+
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(unused_variables)]
+#![deny(missing_docs)]
 
 extern crate alloc;
 
@@ -24,10 +29,16 @@ use pallet_ismp_host_executive::Config as HostExecutiveConfig;
 use prost::Message;
 use scale_info::prelude::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
-use tendermint_primitives::{CodecConsensusProof, CodecTrustedState};
+use tendermint_primitives::{CodecConsensusProof, CodecTrustedState, TrustedState};
 use tendermint_verifier::verify_header_update;
 
+/// Consensus client ID for Polygon
 pub const POLYGON_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"PLGN";
+
+/// Polygon mainnet chain ID
+pub const POLYGON_MAINNET_CHAIN_ID: u32 = 137;
+/// Polygon testnet (Amoy) chain ID
+pub const POLYGON_TESTNET_CHAIN_ID: u32 = 80002;
 
 /// The consensus update/proof for Polygon
 #[derive(Debug, Clone, Encode, Decode)]
@@ -38,6 +49,7 @@ pub struct PolygonConsensusUpdate {
 	pub milestone_update: Option<MilestoneUpdate>,
 }
 
+/// Milestone update containing EVM header and proof data
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct MilestoneUpdate {
 	/// EVM block header for the milestone's end block
@@ -46,7 +58,7 @@ pub struct MilestoneUpdate {
 	pub milestone_number: u64,
 	/// ICS23 proof for the milestone inclusion
 	pub ics23_state_proof: Vec<u8>,
-	// Milestone
+	/// Milestone data
 	pub milestone: Milestone,
 }
 
@@ -63,6 +75,7 @@ pub struct ConsensusState {
 	pub chain_id: u32,
 }
 
+/// Milestone data structure containing block range and metadata
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct Milestone {
 	/// Proposer address (hex string)
@@ -89,11 +102,13 @@ pub struct Milestone {
 }
 
 impl Milestone {
+	/// Encode the milestone to protobuf format
 	pub fn proto_encode(&self) -> Vec<u8> {
 		let proto: ProtoMilestone = self.into();
 		proto.encode_to_vec()
 	}
 
+	/// Decode the milestone from protobuf format
 	pub fn proto_decode(bytes: &[u8]) -> Result<Self, prost::DecodeError> {
 		let proto = ProtoMilestone::decode(bytes)?;
 		Ok((&proto).into())
@@ -120,22 +135,31 @@ where
 		.map_err(serde::de::Error::custom)
 }
 
+/// Protobuf representation of a milestone
 #[derive(Clone, PartialEq, Message)]
 pub struct ProtoMilestone {
+	/// Proposer address
 	#[prost(string, tag = "1")]
 	pub proposer: String,
+	/// Start block number
 	#[prost(uint64, tag = "2")]
 	pub start_block: u64,
+	/// End block number
 	#[prost(uint64, tag = "3")]
 	pub end_block: u64,
+	/// Hash of the milestone
 	#[prost(bytes = "vec", tag = "4")]
 	pub hash: Vec<u8>,
+	/// Bor chain ID
 	#[prost(string, tag = "5")]
 	pub bor_chain_id: String,
+	/// Milestone ID
 	#[prost(string, tag = "6")]
 	pub milestone_id: String,
+	/// Timestamp of the milestone
 	#[prost(uint64, tag = "7")]
 	pub timestamp: u64,
+	/// Total difficulty at this milestone
 	#[prost(uint64, tag = "8")]
 	pub total_difficulty: u64,
 }
@@ -170,6 +194,7 @@ impl From<&ProtoMilestone> for Milestone {
 	}
 }
 
+/// Polygon consensus client implementation
 pub struct PolygonClient<H: IsmpHost, T: HostExecutiveConfig>(core::marker::PhantomData<(H, T)>);
 
 impl<H: IsmpHost, T: HostExecutiveConfig> Default for PolygonClient<H, T> {
@@ -199,102 +224,97 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			.to_consensus_proof()
 			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
-		let trusted_state = CodecTrustedState::decode(&mut &consensus_state.tendermint_state[..])
-			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?
-			.to_trusted_state()
-			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+		let trusted_state: TrustedState =
+			CodecTrustedState::decode(&mut &consensus_state.tendermint_state[..])
+				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?
+				.into();
 
 		let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
-		let result = verify_header_update(trusted_state, consensus_proof.clone(), time);
+		let updated_state = verify_header_update(trusted_state, consensus_proof.clone(), time)
+			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
-		match result {
-			Ok(updated_state) => {
-				let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
-					BTreeMap::new();
-				let mut updated_consensus_state = consensus_state.clone();
+		let mut state_machine_map: BTreeMap<StateMachineId, Vec<StateCommitmentHeight>> =
+			BTreeMap::new();
+		let mut updated_consensus_state = consensus_state.clone();
 
-				if let Some(milestone_update_ref) = &polygon_consensus_update.milestone_update {
-					let evm_header = Header::from(&milestone_update_ref.evm_header.clone());
-					let evm_header_hash = evm_header.hash::<KeccakHasher>().as_bytes().to_vec();
-					let milestone_hash =
-						STANDARD.decode(&milestone_update_ref.milestone.hash).unwrap_or_default();
+		if let Some(milestone_update_ref) = &polygon_consensus_update.milestone_update {
+			let evm_header = Header::from(&milestone_update_ref.evm_header.clone());
+			let evm_header_hash = evm_header.hash::<KeccakHasher>().as_bytes().to_vec();
+			let milestone_hash =
+				STANDARD.decode(&milestone_update_ref.milestone.hash).unwrap_or_default();
 
-					if evm_header_hash != milestone_hash {
-						return Err(ismp::error::Error::Custom(
-							"EVM header hash does not match milestone hash".to_string(),
-						));
-					}
+			if evm_header_hash != milestone_hash {
+				return Err(ismp::error::Error::Custom(
+					"EVM header hash does not match milestone hash".to_string(),
+				));
+			}
 
-					if milestone_update_ref.milestone_number !=
-						milestone_update_ref.evm_header.number.low_u64()
-					{
-						return Err(ismp::error::Error::Custom(
-							"Milestone number does not match EVM header number".to_string(),
-						));
-					}
+			if milestone_update_ref.milestone.end_block !=
+				milestone_update_ref.evm_header.number.low_u64()
+			{
+				return Err(ismp::error::Error::Custom(
+					"Milestone end block does not match EVM header number".to_string(),
+				));
+			}
 
-					if milestone_update_ref.evm_header.number.low_u64() <
-						consensus_state.last_finalized_block
-					{
-						return Err(ismp::error::Error::Custom(
-							"EVM header number is less than last finalized block".to_string(),
-						));
-					}
+			if milestone_update_ref.evm_header.number.low_u64() <
+				consensus_state.last_finalized_block
+			{
+				return Err(ismp::error::Error::Custom(
+					"EVM header number is less than last finalized block".to_string(),
+				));
+			}
 
-					let commitment_proof = ics23::CommitmentProof::decode(
-						&mut &milestone_update_ref.ics23_state_proof[..],
-					)
+			let commitment_proof =
+				ics23::CommitmentProof::decode(&mut &milestone_update_ref.ics23_state_proof[..])
 					.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
-					let spec = ics23::tendermint_spec();
-					let mut key = vec![0x81];
-					key.extend_from_slice(&milestone_update_ref.milestone_number.to_be_bytes());
+			let spec = ics23::tendermint_spec();
+			let mut key = vec![0x81];
+			key.extend_from_slice(&milestone_update_ref.milestone_number.to_be_bytes());
 
-					let verification_result = ics23::verify_membership::<HostFunctionsManager>(
-						&commitment_proof,
-						&spec,
-						&consensus_proof.signed_header.header.app_hash.as_bytes().to_vec(),
-						&key,
-						&milestone_update_ref.milestone.proto_encode(),
-					);
+			let verification_result = ics23::verify_membership::<HostFunctionsManager>(
+				&commitment_proof,
+				&spec,
+				&consensus_proof.signed_header.header.app_hash.as_bytes().to_vec(),
+				&key,
+				&milestone_update_ref.milestone.proto_encode(),
+			);
 
-					if !verification_result {
-						return Err(ismp::error::Error::Custom(
-							"ICS23 proof verification failed".to_string(),
-						));
-					}
+			if !verification_result {
+				return Err(ismp::error::Error::Custom(
+					"ICS23 proof verification failed".to_string(),
+				));
+			}
 
-					let evm_header = &milestone_update_ref.evm_header;
-					let state_commitment = StateCommitmentHeight {
-						commitment: StateCommitment {
-							timestamp: evm_header.timestamp,
-							overlay_root: None,
-							state_root: evm_header.state_root,
-						},
-						height: evm_header.number.low_u64(),
-					};
+			let evm_header = &milestone_update_ref.evm_header;
+			let state_commitment = StateCommitmentHeight {
+				commitment: StateCommitment {
+					timestamp: evm_header.timestamp,
+					overlay_root: None,
+					state_root: evm_header.state_root,
+				},
+				height: evm_header.number.low_u64(),
+			};
 
-					state_machine_map.insert(
-						StateMachineId {
-							state_id: StateMachine::Evm(consensus_state.chain_id),
-							consensus_state_id: _consensus_state_id,
-						},
-						vec![state_commitment],
-					);
+			state_machine_map.insert(
+				StateMachineId {
+					state_id: StateMachine::Evm(consensus_state.chain_id),
+					consensus_state_id: _consensus_state_id,
+				},
+				vec![state_commitment],
+			);
 
-					// Update the consensus state in the milestone block
-					updated_consensus_state.last_finalized_block =
-						milestone_update_ref.evm_header.number.low_u64();
-				}
-
-				updated_consensus_state.tendermint_state =
-					CodecTrustedState::from_trusted_state(&updated_state.trusted_state).encode();
-
-				Ok((updated_consensus_state.encode(), state_machine_map))
-			},
-			Err(e) => Err(ismp::error::Error::Custom(e.to_string())),
+			// Update the consensus state in the milestone block
+			updated_consensus_state.last_finalized_block =
+				milestone_update_ref.evm_header.number.low_u64();
 		}
+
+		updated_consensus_state.tendermint_state =
+			CodecTrustedState::from(&updated_state.trusted_state).encode();
+
+		Ok((updated_consensus_state.encode(), state_machine_map))
 	}
 
 	fn verify_fraud_proof(
@@ -322,10 +342,10 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			return Err(Error::Custom("Fraud proofs are identical".to_string()));
 		}
 
-		let trusted_state = CodecTrustedState::decode(&mut &consensus_state.tendermint_state[..])
-			.map_err(|e| Error::Custom(e.to_string()))?
-			.to_trusted_state()
-			.map_err(|e| Error::Custom(e.to_string()))?;
+		let trusted_state: TrustedState =
+			CodecTrustedState::decode(&mut &consensus_state.tendermint_state[..])
+				.map_err(|e| Error::Custom(e.to_string()))?
+				.into();
 
 		let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
@@ -353,8 +373,10 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match id {
-			StateMachine::Evm(_) => Ok(Box::new(EvmStateMachine::<H, T>::default())),
-			_ => Err(Error::Custom("Unsupported state machine".to_string())),
+			StateMachine::Evm(chain_id)
+				if chain_id == POLYGON_MAINNET_CHAIN_ID || chain_id == POLYGON_TESTNET_CHAIN_ID =>
+				Ok(Box::new(EvmStateMachine::<H, T>::default())),
+			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
 		}
 	}
 }

@@ -8,7 +8,23 @@ publish = false
 
 [features]
 default = ["std"]
-std = []
+std = [
+    "log/std",
+    "anyhow/std",
+    "base64/std",
+    "scale-info/std",
+    "primitive-types/std",
+    "pallet-ismp-host-executive/std",
+    "sp-core/std",
+    "ismp/std",
+    "tendermint-verifier/std",
+    "geth-primitives/std",
+    "codec/std",
+    "serde/std",
+    "serde_json/std",
+    "prost/std",
+    "evm-state-machine/std",
+]
 
 [dependencies]
 log = { workspace = true, default-features = false, optional = true }

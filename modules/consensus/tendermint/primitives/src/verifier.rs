@@ -150,30 +150,32 @@ pub struct CodecTrustedState {
 	pub verification_options: VerificationOptions,
 }
 
-impl CodecTrustedState {
-	pub fn to_trusted_state(&self) -> Result<TrustedState, String> {
-		Ok(TrustedState {
-			chain_id: self.chain_id.clone(),
-			height: self.height,
-			timestamp: self.timestamp,
-			finalized_header_hash: self.finalized_header_hash,
-			validators: self
+impl From<CodecTrustedState> for TrustedState {
+	fn from(codec_state: CodecTrustedState) -> Self {
+		Self {
+			chain_id: codec_state.chain_id,
+			height: codec_state.height,
+			timestamp: codec_state.timestamp,
+			finalized_header_hash: codec_state.finalized_header_hash,
+			validators: codec_state
 				.validators
-				.iter()
-				.map(|v| v.to_validator())
-				.collect::<Result<Vec<_>, _>>()?,
-			next_validators: self
+				.into_iter()
+				.map(|v| v.to_validator().expect("Failed to convert CodecValidator to Validator"))
+				.collect(),
+			next_validators: codec_state
 				.next_validators
-				.iter()
-				.map(|v| v.to_validator())
-				.collect::<Result<Vec<_>, _>>()?,
-			next_validators_hash: self.next_validators_hash,
-			trusting_period: self.trusting_period,
-			verification_options: self.verification_options.clone(),
-		})
+				.into_iter()
+				.map(|v| v.to_validator().expect("Failed to convert CodecValidator to Validator"))
+				.collect(),
+			next_validators_hash: codec_state.next_validators_hash,
+			trusting_period: codec_state.trusting_period,
+			verification_options: codec_state.verification_options,
+		}
 	}
+}
 
-	pub fn from_trusted_state(trusted_state: &TrustedState) -> Self {
+impl From<&TrustedState> for CodecTrustedState {
+	fn from(trusted_state: &TrustedState) -> Self {
 		Self {
 			chain_id: trusted_state.chain_id.clone(),
 			height: trusted_state.height,
@@ -183,12 +185,12 @@ impl CodecTrustedState {
 				.validators
 				.iter()
 				.map(|validators| CodecValidator::from(validators))
-				.collect::<Vec<_>>(),
+				.collect(),
 			next_validators: trusted_state
 				.next_validators
 				.iter()
 				.map(|validators| CodecValidator::from(validators))
-				.collect::<Vec<_>>(),
+				.collect(),
 			next_validators_hash: trusted_state.next_validators_hash,
 			trusting_period: trusted_state.trusting_period,
 			verification_options: trusted_state.verification_options.clone(),

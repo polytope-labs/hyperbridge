@@ -1,6 +1,5 @@
 use base64::Engine;
 use cometbft::{account::Id as CometbftAccountId, public_key::PublicKey};
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -229,7 +228,6 @@ pub struct HeimdallValidatorsResponse {
 	/// Total validator count
 	pub total: String,
 }
-use codec::{Decode, Encode};
 
 impl From<HeimdallValidatorsResponse> for ValidatorsResponse {
 	fn from(heimdall_resp: HeimdallValidatorsResponse) -> Self {

@@ -9,14 +9,15 @@ use polkadot_sdk::{
 };
 use sp_core::{keccak_256, sr25519, Pair, H256};
 
+use crate::{types::IncentivizedMessage, *};
 use ismp::{
+	events::Event as IsmpEvent,
 	messaging::{hash_request, Message},
 	router::{Request, RequestResponse, Response},
 };
 use pallet_hyperbridge::VersionedHostParams;
+use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
-
-use crate::{types::IncentivizedMessage, *};
 
 impl<T: Config> Pallet<T>
 where
@@ -24,29 +25,6 @@ where
 	u128: From<<T as pallet_ismp::Config>::Balance>,
 	T::AccountId: AsRef<[u8]>,
 {
-	pub fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo {
-		for message in &messages {
-			let relayer_account = match message {
-				Message::Request(msg) => {
-					let data = keccak_256(&msg.requests.encode());
-					Self::verify_and_get_relayer(&msg.signer, &data)
-				},
-				Message::Response(msg) => {
-					let data = keccak_256(&msg.datagram.encode());
-					Self::verify_and_get_relayer(&msg.signer, &data)
-				},
-				_ => None,
-			};
-
-			if let Some(relayer_account) = relayer_account {
-				let _ = Self::accumulate_protocol_fees(message, &relayer_account);
-				let _ = Self::process_bridge_rewards(message, relayer_account)?;
-			}
-		}
-
-		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
-	}
-
 	fn verify_and_get_relayer(signer: &Vec<u8>, signed_data: &[u8; 32]) -> Option<T::AccountId>
 	where
 		T::AccountId: From<[u8; 32]>,
@@ -85,7 +63,7 @@ where
 						);
 					}
 				}
-			} else {
+			} else if source_chain.is_substrate() {
 				if let Some(fee) = CommitmentFees::<T>::take(&commitment) {
 					let fee_u256: U256 = u128::from(fee).into();
 
@@ -136,7 +114,9 @@ where
 		match message {
 			Message::Request(msg) =>
 				for req in &msg.requests {
-					if IncentivizedRoutes::<T>::get((req.source, req.dest)).is_some() {
+					if IncentivizedRoutes::<T>::get(req.source).is_some() &&
+						IncentivizedRoutes::<T>::get(req.dest).is_some()
+					{
 						let request = Request::Post(req.clone());
 						messages_by_chain
 							.entry(req.dest)
@@ -149,7 +129,9 @@ where
 					for req in requests {
 						let source_chain = req.source_chain();
 						let dest_chain = req.dest_chain();
-						if IncentivizedRoutes::<T>::get((source_chain, dest_chain)).is_some() {
+						if IncentivizedRoutes::<T>::get(source_chain).is_some() &&
+							IncentivizedRoutes::<T>::get(dest_chain).is_some()
+						{
 							messages_by_chain
 								.entry(dest_chain)
 								.or_default()
@@ -160,7 +142,9 @@ where
 					for res in responses {
 						let source_chain = res.source_chain();
 						let dest_chain = res.dest_chain();
-						if IncentivizedRoutes::<T>::get((source_chain, dest_chain)).is_some() {
+						if IncentivizedRoutes::<T>::get(source_chain).is_some() &&
+							IncentivizedRoutes::<T>::get(dest_chain).is_some()
+						{
 							messages_by_chain
 								.entry(dest_chain)
 								.or_default()
@@ -286,6 +270,36 @@ where
 	pub fn note_request_fee(commitment: H256, fee: u128) {
 		let fee_balance: T::Balance = fee.saturated_into();
 		CommitmentFees::<T>::insert(commitment, fee_balance);
+	}
+}
+
+impl<T: Config> FeeHandler for Pallet<T>
+where
+	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
+	u128: From<<T as pallet_ismp::Config>::Balance>,
+	T::AccountId: AsRef<[u8]>,
+{
+	fn on_executed(messages: Vec<Message>, _events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+		for message in &messages {
+			let relayer_account = match message {
+				Message::Request(msg) => {
+					let data = keccak_256(&msg.requests.encode());
+					Self::verify_and_get_relayer(&msg.signer, &data)
+				},
+				Message::Response(msg) => {
+					let data = keccak_256(&msg.datagram.encode());
+					Self::verify_and_get_relayer(&msg.signer, &data)
+				},
+				_ => None,
+			};
+
+			if let Some(relayer_account) = relayer_account {
+				let _ = Self::accumulate_protocol_fees(message, &relayer_account);
+				let _ = Self::process_bridge_rewards(message, relayer_account)?;
+			}
+		}
+
+		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 	}
 }
 

@@ -101,7 +101,7 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn incentivized_routes)]
 	pub type IncentivizedRoutes<T: Config> =
-		StorageMap<_, Twox64Concat, (StateMachine, StateMachine), bool, OptionQuery>;
+		StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
 
 	/// A map of request commitment to fees associated with them
 	#[pallet::storage]
@@ -131,7 +131,7 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub (super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// State machine Routes supported for incentives
-		RouteSupported { source_chain: StateMachine, destination_chain: StateMachine },
+		RouteSupported { state_machine: StateMachine },
 		/// A relayer was rewarded
 		FeeRewarded {
 			/// Relayer account that received the reward
@@ -162,17 +162,13 @@ pub mod pallet {
 		#[pallet::weight(T::WeightInfo::set_supported_route())]
 		pub fn set_supported_route(
 			origin: OriginFor<T>,
-			source: StateMachine,
-			destination: StateMachine,
+			state_machine: StateMachine,
 		) -> DispatchResult {
 			<T as Config>::IncentivesOrigin::ensure_origin(origin)?;
 
-			IncentivizedRoutes::<T>::insert((source, destination), true);
+			IncentivizedRoutes::<T>::insert(&state_machine, true);
 
-			Self::deposit_event(Event::<T>::RouteSupported {
-				source_chain: source,
-				destination_chain: destination,
-			});
+			Self::deposit_event(Event::<T>::RouteSupported { state_machine });
 
 			Ok(())
 		}

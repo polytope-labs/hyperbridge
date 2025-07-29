@@ -22,6 +22,7 @@ use ismp::{
 	messaging::{hash_request, Message, Proof, RequestMessage},
 	router::{PostRequest, Request},
 };
+use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 use pallet_messaging_fees::TotalBytesProcessed;
 
@@ -54,6 +55,7 @@ fn create_request_message(
 	source_chain: StateMachine,
 	dest_chain: StateMachine,
 	relayer_pair: &sr25519::Pair,
+	body: &Vec<u8>,
 ) -> Message {
 	let post_request = PostRequest {
 		source: source_chain,
@@ -62,7 +64,7 @@ fn create_request_message(
 		from: vec![1; 32],
 		to: vec![2; 32],
 		timeout_timestamp: 100,
-		body: vec![0; 100],
+		body: body.clone(),
 	};
 
 	let requests = vec![post_request];
@@ -136,23 +138,29 @@ fn test_incentivize_relayer_for_request_message() {
 		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
 			RuntimeOrigin::root(),
 			source_chain,
+		)
+		.unwrap();
+
+		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
+			RuntimeOrigin::root(),
 			dest_chain,
 		)
 		.unwrap();
 
-		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
+		let body = vec![0; 100];
+		let request_message =
+			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
 
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
 
 		let initial_relayer_balance = Balances::balance(&relayer_account);
-		let initial_bytes_processed = TotalBytesProcessed::<Test>::get();
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
 		dbg!(initial_relayer_balance);
 		dbg!(Balances::balance(&relayer_account));
 
 		assert!(Balances::balance(&relayer_account) > initial_relayer_balance);
-		assert!(initial_bytes_processed < TotalBytesProcessed::<Test>::get());
+		assert_eq!(TotalBytesProcessed::<Test>::get(), body.len() as u32);
 	});
 }
 
@@ -171,6 +179,11 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
 			RuntimeOrigin::root(),
 			source_chain,
+		)
+		.unwrap();
+
+		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
+			RuntimeOrigin::root(),
 			dest_chain,
 		)
 		.unwrap();
@@ -180,9 +193,11 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 		let target_size: u32 = <Test as pallet_messaging_fees::Config>::TargetMessageSize::get();
 		TotalBytesProcessed::<Test>::put(target_size + 1);
 
-		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
+		let body = vec![0; 100];
+		let request_message =
+			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
 		let current_relayer_balance = Balances::balance(&relayer_account);
 		dbg!(initial_relayer_balance);
 		dbg!(current_relayer_balance);
@@ -202,9 +217,11 @@ fn test_skip_incentivizing_for_unsupported_route() {
 		setup_balances(&relayer_account, &treasury_account);
 		setup_host_params(dest_chain);
 
-		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
+		let body = vec![0; 100];
+		let request_message =
+			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
 
 		assert_eq!(Balances::balance(&relayer_account), 1000 * UNIT);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
@@ -227,6 +244,11 @@ fn test_skip_incentivizing_for_invalid_signature() {
 		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
 			RuntimeOrigin::root(),
 			source_chain,
+		)
+		.unwrap();
+
+		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
+			RuntimeOrigin::root(),
 			dest_chain,
 		)
 		.unwrap();
@@ -234,7 +256,7 @@ fn test_skip_incentivizing_for_invalid_signature() {
 		let request_message =
 			create_bad_request_message(source_chain, dest_chain, &relayer_pair, &evil_pair);
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
 
 		assert_eq!(Balances::balance(&relayer_account), 1000 * UNIT);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
@@ -256,6 +278,11 @@ fn test_reward_decreases_as_messages_increase() {
 		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
 			RuntimeOrigin::root(),
 			source_chain,
+		)
+		.unwrap();
+
+		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
+			RuntimeOrigin::root(),
 			dest_chain,
 		)
 		.unwrap();
@@ -265,8 +292,11 @@ fn test_reward_decreases_as_messages_increase() {
 		let number_of_messages = 5;
 
 		for i in 0..number_of_messages {
-			let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
-			let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
+			let body = vec![0; 100];
+			let request_message =
+				create_request_message(source_chain, dest_chain, &relayer_pair, &body);
+			let _ =
+				pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
 
 			let current_balance = Balances::balance(&relayer_account);
 			let reward_received = current_balance.saturating_sub(previous_balance);
@@ -370,7 +400,9 @@ fn test_protocol_fee_accumulation() {
 		let commitment = hash_request::<<Test as pallet_messaging_fees::Config>::IsmpHost>(
 			&Request::Post(request.clone()),
 		);
-		let request_message = create_request_message(source_chain, dest_chain, &relayer_pair);
+		let body = vec![0; 100];
+		let request_message =
+			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
 		let fee = 1_000_000u128;
 
 		setup_host_params(dest_chain);
@@ -378,7 +410,7 @@ fn test_protocol_fee_accumulation() {
 		pallet_messaging_fees::Pallet::<Test>::note_request_fee(commitment, fee);
 		assert!(pallet_messaging_fees::CommitmentFees::<Test>::get(commitment).is_some());
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
 
 		assert!(pallet_messaging_fees::CommitmentFees::<Test>::get(commitment).is_none());
 

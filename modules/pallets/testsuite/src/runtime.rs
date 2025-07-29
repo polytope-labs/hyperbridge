@@ -39,7 +39,7 @@ use ismp::{
 	Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{offchain::Leaf, ModuleId};
+use pallet_ismp::{impl_fee_handler_for_tuple, offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
@@ -51,6 +51,7 @@ use sp_runtime::{
 };
 
 use crate::runtime::sp_runtime::DispatchError;
+use hyperbridge_client_machine::HyperbridgeClientMachine;
 use pallet_messaging_fees::types::PriceOracle;
 use substrate_state_machine::SubstrateStateMachine;
 
@@ -217,22 +218,8 @@ impl pallet_ismp::Config for Test {
 		>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = CombinedFeeHandler;
-}
-
-use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
-use hyperbridge_client_machine::HyperbridgeClientMachine;
-use ismp::{events::Event as IsmpEvent, messaging::Message};
-use pallet_ismp::fee_handler::FeeHandler;
-
-pub struct CombinedFeeHandler;
-impl FeeHandler for CombinedFeeHandler {
-	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
-		pallet_relayer_incentives::Pallet::<Test>::on_executed(messages.clone(), events.clone())?;
-		pallet_messaging_fees::Pallet::<Test>::on_executed(messages)?;
-
-		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
-	}
+	type FeeHandler =
+		(pallet_relayer_incentives::Pallet<Test>, pallet_messaging_fees::Pallet<Test>);
 }
 
 impl pallet_hyperbridge::Config for Test {

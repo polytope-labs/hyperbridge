@@ -13,7 +13,6 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use geth_primitives::Header;
-use ics23::HostFunctionsManager;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -274,7 +273,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			let mut key = vec![0x81];
 			key.extend_from_slice(&milestone_update_ref.milestone_number.to_be_bytes());
 
-			let verification_result = ics23::verify_membership::<HostFunctionsManager>(
+			let verification_result = ics23::verify_membership::<PolygonHostFunctions>(
 				&commitment_proof,
 				&spec,
 				&consensus_proof.signed_header.header.app_hash.as_bytes().to_vec(),
@@ -378,5 +377,57 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 				Ok(Box::new(EvmStateMachine::<H, T>::default())),
 			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
 		}
+	}
+}
+
+/// Host functions provider for Polygon using sp_core and similar crates
+pub struct PolygonHostFunctions;
+
+impl ics23::HostFunctionsProvider for PolygonHostFunctions {
+	fn sha2_256(message: &[u8]) -> [u8; 32] {
+		sp_core::hashing::sha2_256(message)
+	}
+
+	fn sha2_512(message: &[u8]) -> [u8; 64] {
+		use sha2::{Digest, Sha512};
+		let mut hasher = Sha512::new();
+		hasher.update(message);
+		hasher.finalize().into()
+	}
+
+	fn sha2_512_truncated(message: &[u8]) -> [u8; 32] {
+		use sha2::{Digest, Sha512_256};
+		let mut hasher = Sha512_256::new();
+		hasher.update(message);
+		hasher.finalize().into()
+	}
+
+	fn keccak_256(message: &[u8]) -> [u8; 32] {
+		sp_core::hashing::keccak_256(message)
+	}
+
+	fn ripemd160(message: &[u8]) -> [u8; 20] {
+		use ripemd::{Digest, Ripemd160};
+		let mut hasher = Ripemd160::new();
+		hasher.update(message);
+		hasher.finalize().into()
+	}
+
+	fn blake2b_512(message: &[u8]) -> [u8; 64] {
+		use blake2::{Blake2b, Digest};
+		let mut hasher = Blake2b::new();
+		hasher.update(message);
+		hasher.finalize().into()
+	}
+
+	fn blake2s_256(message: &[u8]) -> [u8; 32] {
+		use blake2::{Blake2s, Digest};
+		let mut hasher = Blake2s::new();
+		hasher.update(message);
+		hasher.finalize().into()
+	}
+
+	fn blake3(message: &[u8]) -> [u8; 32] {
+		blake3::hash(message).into()
 	}
 }

@@ -12,14 +12,17 @@ use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256}
 use sp_keyring::sr25519::Keyring;
 use sp_mmr_primitives::{mmr_lib::leaf_index_to_pos, utils::NodesUtils, INDEXING_PREFIX};
 use sp_runtime::traits::Keccak256;
-use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160};
+use subxt::{
+	backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, tx::SubmittableTransaction,
+	utils::H160,
+};
 
 use merkle_mountain_range::util::MemMMR;
 use mmr_primitives::DataOrHash;
 use pallet_ismp::offchain::{FullLeaf, Leaf, ProofKeys};
 use pallet_mmr_tree::mmr::Hasher as MmrHasher;
 use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};
-use subxt_utils::{Extrinsic, Hyperbridge};
+use subxt_utils::{values::evm_params_to_value, Hyperbridge};
 
 const NUMBER_OF_LEAVES_KEY: [u8; 32] =
 	hex!("a8c65209d47ee80f56b0011e8fd91f508156209906244f2341137c136774c91d");
@@ -66,7 +69,7 @@ pub struct RequestEvent {
 	/// Request nonce
 	request_nonce: u64,
 	/// Commitment
-	commitment: primitive_types_old::H256,
+	commitment: subxt::utils::H256,
 }
 
 impl subxt::events::StaticEvent for RequestEvent {
@@ -88,11 +91,10 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 	use indicatif::ProgressBar;
 
 	let port = env::var("PORT").unwrap_or("9990".into());
-	let client = subxt_utils::client::ws_client::<Hyperbridge>(
-		&format!("ws://127.0.0.1:{}", port),
-		u32::MAX,
-	)
-	.await?;
+	let url = &format!("ws://127.0.0.1:{}", port);
+	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
+	let rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
+
 	let pb = ProgressBar::new(100_000);
 	for pos in 44_243..100_000 {
 		// Initialize MMR Pallet by dispatching some leaves and finalizing
@@ -103,29 +105,25 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 			.call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
 		let _account_id = AsRef::<[u8; 32]>::as_ref(&Keyring::Ferdie.to_account_id()).clone();
 
-		let _ = client
-			.rpc()
+		let _ = rpc_client
 			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 			.await?;
 
-		let extrinsic: Bytes = client
-			.rpc()
+		let extrinsic: Bytes = rpc_client
 			.request(
 				"simnode_authorExtrinsic",
 				// author an extrinsic from alice
 				rpc_params![Bytes::from(call), Keyring::Ferdie.to_account_id().to_ss58check()],
 			)
 			.await?;
-		SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0).submit().await?;
+		SubmittableTransaction::from_bytes(client.clone(), extrinsic.0).submit().await?;
 
-		let created_block = client
-			.rpc()
+		let created_block = rpc_client
 			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 			.await?;
 
 		// Finalize a new block so that we are sure mmr gadget gets the notification
-		let _ = client
-			.rpc()
+		let _ = rpc_client
 			.request::<bool>("engine_finalizeBlock", rpc_params![created_block.hash])
 			.await?;
 		pb.set_position(pos);
@@ -138,11 +136,9 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 
 async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	let port = env::var("PORT").unwrap_or("9990".into());
-	let client = subxt_utils::client::ws_client::<Hyperbridge>(
-		&format!("ws://127.0.0.1:{}", port),
-		u32::MAX,
-	)
-	.await?;
+	let url = &format!("ws://127.0.0.1:{}", port);
+	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
+	let rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
 
 	let leaf_count_at_start = client
 		.storage()
@@ -173,41 +169,37 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
 	// Initialize MMR Pallet by dispatching some leaves and finalizing
 	let params = EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
-	let call = Extrinsic::new("IsmpDemo", "dispatch_to_evm", params.encode());
+	let call =
+		subxt::dynamic::tx("IsmpDemo", "dispatch_to_evm", vec![evm_params_to_value(&params)]);
 
 	let call = client.tx().call_data(&call)?;
-	let extrinsic: Bytes = client
-		.rpc()
+	let extrinsic: Bytes = rpc_client
 		.request(
 			"simnode_authorExtrinsic",
 			// author an extrinsic from alice
 			rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
 		)
 		.await?;
-	let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 	submittable.submit().await?;
-	let created_block = client
-		.rpc()
+	let created_block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
 
 	let mut last_finalized = created_block.hash;
-	let _ = client
-		.rpc()
+	let _ = rpc_client
 		.request::<bool>("engine_finalizeBlock", rpc_params![last_finalized])
 		.await?;
 
 	for _ in 0..3 {
-		let created_block = client
-			.rpc()
+		let created_block = rpc_client
 			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 			.await?;
 		last_finalized = created_block.hash;
 	}
 
 	// Finalize a new block so that we are sure mmr gadget gets the notification
-	let _ = client
-		.rpc()
+	let _ = rpc_client
 		.request::<bool>("engine_finalizeBlock", rpc_params![last_finalized])
 		.await?;
 
@@ -219,8 +211,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	for idx in 0..(leaf_count_at_start + 10) {
 		let pos = leaf_index_to_pos(idx as u64);
 		let canon_key = NodesUtils::node_canon_offchain_key(INDEXING_PREFIX, pos);
-		let value = client
-			.rpc()
+		let value = rpc_client
 			.request::<Option<Bytes>>(
 				"offchain_localStorageGet",
 				rpc_params![StorageKind::PERSISTENT, Bytes::from(canon_key)],
@@ -246,21 +237,23 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		for _ in 0..3 {
 			let params =
 				EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
-			let call = Extrinsic::new("IsmpDemo", "dispatch_to_evm", params.encode());
+			let call = subxt::dynamic::tx(
+				"IsmpDemo",
+				"dispatch_to_evm",
+				vec![evm_params_to_value(&params)],
+			);
 
 			let call = client.tx().call_data(&call)?;
-			let extrinsic: Bytes = client
-				.rpc()
+			let extrinsic: Bytes = rpc_client
 				.request(
 					"simnode_authorExtrinsic",
 					// author an extrinsic from alice
 					rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
 				)
 				.await?;
-			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 			submittable.submit().await?;
-			let created_block = client
-				.rpc()
+			let created_block = rpc_client
 				.request::<CreatedBlock<H256>>(
 					"engine_createBlock",
 					rpc_params![true, false, Some(parent_hash)],
@@ -303,20 +296,22 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		for i in 0..accounts.len() {
 			let params =
 				EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
-			let call = Extrinsic::new("IsmpDemo", "dispatch_to_evm", params.encode());
+			let call = subxt::dynamic::tx(
+				"IsmpDemo",
+				"dispatch_to_evm",
+				vec![evm_params_to_value(&params)],
+			);
 
 			let call = client.tx().call_data(&call)?;
-			let extrinsic: Bytes = client
-				.rpc()
+			let extrinsic: Bytes = rpc_client
 				.request(
 					"simnode_authorExtrinsic",
 					rpc_params![Bytes::from(call), accounts[i].clone()],
 				)
 				.await?;
-			let submittable = SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0);
+			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
 			submittable.submit().await?;
-			let created_block = client
-				.rpc()
+			let created_block = rpc_client
 				.request::<CreatedBlock<H256>>(
 					"engine_createBlock",
 					rpc_params![true, false, parent_hash],
@@ -361,8 +356,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		let non_canon_key = NodesUtils::node_temp_offchain_key::<
 			sp_runtime::generic::Header<u32, Keccak256>,
 		>(INDEXING_PREFIX, pos, prefix);
-		let value = client
-			.rpc()
+		let value = rpc_client
 			.request::<Option<Bytes>>(
 				"offchain_localStorageGet",
 				rpc_params![StorageKind::PERSISTENT, Bytes::from(non_canon_key)],
@@ -377,14 +371,12 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	dbg!(positions.len());
 
 	// Finalize fork a
-	let res = client
-		.rpc()
+	let res = rpc_client
 		.request::<bool>("engine_finalizeBlock", rpc_params![chain_a.last().cloned().unwrap()])
 		.await?;
 	assert!(res);
 
-	let finalized_block = client
-		.rpc()
+	let finalized_block = rpc_client
 		.request::<CreatedBlock<H256>>(
 			"engine_createBlock",
 			rpc_params![true, false, chain_a.last().cloned().unwrap()],
@@ -392,8 +384,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		.await?;
 
 	// Finalize again so stale branches can be pruned
-	let _ = client
-		.rpc()
+	let _ = rpc_client
 		.request::<bool>("engine_finalizeBlock", rpc_params![finalized_block.hash])
 		.await?;
 
@@ -406,8 +397,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		let non_canon_key = NodesUtils::node_temp_offchain_key::<
 			sp_runtime::generic::Header<u32, Keccak256>,
 		>(INDEXING_PREFIX, pos, prefix);
-		let value = client
-			.rpc()
+		let value = rpc_client
 			.request::<Option<Bytes>>(
 				"offchain_localStorageGet",
 				rpc_params![StorageKind::PERSISTENT, Bytes::from(non_canon_key)],
@@ -424,8 +414,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 			sp_runtime::generic::Header<u32, Keccak256>,
 		>(INDEXING_PREFIX, pos, prefix);
 		let canon_key = NodesUtils::node_canon_offchain_key(INDEXING_PREFIX, pos);
-		let value = client
-			.rpc()
+		let value = rpc_client
 			.request::<Option<Bytes>>(
 				"offchain_localStorageGet",
 				rpc_params![StorageKind::PERSISTENT, Bytes::from(non_canon_key)],
@@ -433,8 +422,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 			.await?;
 		assert!(value.is_none());
 
-		let value = client
-			.rpc()
+		let value = rpc_client
 			.request::<Option<Bytes>>(
 				"offchain_localStorageGet",
 				rpc_params![StorageKind::PERSISTENT, Bytes::from(canon_key)],
@@ -466,7 +454,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 		mmr.push(leaf).unwrap();
 	}
 
-	let at = client.rpc().header(Some(finalized_hash)).await?.unwrap().number;
+	let at = rpc.chain_get_header(Some(finalized_hash)).await?.unwrap().number;
 
 	// Fetch mmr proof from finalized branch
 	let keys = ProofKeys::Requests(
@@ -476,7 +464,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 			.collect(),
 	);
 	let params = rpc_params![at, keys];
-	let response: pallet_ismp_rpc::Proof = client.rpc().request("mmr_queryProof", params).await?;
+	let response: pallet_ismp_rpc::Proof = rpc_client.request("mmr_queryProof", params).await?;
 	let proof: pallet_ismp::offchain::Proof<H256> = Decode::decode(&mut &*response.proof)?;
 
 	let merkle_proof = MerkleProof::<DataOrHash<Keccak256, Leaf>, MmrHasher<Keccak256, Leaf>>::new(

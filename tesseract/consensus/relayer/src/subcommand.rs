@@ -1,14 +1,17 @@
-use std::{collections::BTreeMap, str::FromStr};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
-use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
 use anyhow::anyhow;
-use codec::{Compact, Encode};
+use codec::Compact;
+use subxt::tx::Payload;
+
 use ismp::host::StateMachine;
-use std::sync::Arc;
-use subxt::tx::TxPayload;
-use subxt_utils::Extrinsic;
+use subxt_utils::values::{
+	compact_u32_to_value, evm_hosts_btreemap_to_value, host_params_btreemap_to_value,
+};
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
+
+use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {
@@ -67,23 +70,31 @@ impl LogMetatdata {
 		let evm_hosts: BTreeMap<_, _> = vec![(state_machine, host_address)].into_iter().collect();
 
 		// Call to set the HostParams
-		let set_host_params =
-			Extrinsic::new("HostExecutive", "set_host_params", host_params.encode())
-				.encode_call_data(&hyperbridge.client().client.metadata())?;
+		let set_host_params = subxt::dynamic::tx(
+			"HostExecutive",
+			"set_host_params",
+			vec![host_params_btreemap_to_value(&host_params)],
+		);
 		// Call to set the Host address
-		let update_evm_hosts =
-			Extrinsic::new("HostExecutive", "update_evm_hosts", evm_hosts.encode())
-				.encode_call_data(&hyperbridge.client().client.metadata())?;
+		let update_evm_hosts = subxt::dynamic::tx(
+			"HostExecutive",
+			"update_evm_hosts",
+			vec![evm_hosts_btreemap_to_value(&evm_hosts)],
+		);
 		// batch them both
-		let batch = Extrinsic::new(
+		let batch = subxt::dynamic::tx(
 			"Utility",
 			"batch_all",
-			vec![Compact(2u32).encode(), set_host_params, update_evm_hosts].concat(),
+			vec![
+				compact_u32_to_value(Compact(2u32)),
+				set_host_params.into_value(),
+				update_evm_hosts.into_value(),
+			],
 		)
 		.encode_call_data(&hyperbridge.client().client.metadata())?;
 
 		let proposal = if self.sudo.unwrap_or_default() {
-			Extrinsic::new("Sudo", "sudo", batch)
+			subxt::dynamic::tx("Sudo", "sudo", batch)
 				.encode_call_data(&hyperbridge.client().client.metadata())?
 		} else {
 			batch

@@ -77,10 +77,6 @@ pub mod pallet {
 		+ pallet_xcm::Config
 		+ pallet_token_governor::Config
 	{
-		/// The overarching event type.
-		type RuntimeEvent: From<Event<Self>>
-			+ IsType<<Self as polkadot_sdk::frame_system::Config>::RuntimeEvent>;
-
 		/// The asset tranfer's pallet id, used for deriving its sovereign account ID.
 		/// All escrowed funds will be custodied by this account
 		#[pallet::constant]

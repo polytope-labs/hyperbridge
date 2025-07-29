@@ -43,9 +43,7 @@ features = ["derive-codec"]
 default-features = false
 
 [dev-dependencies]
-subxt = { workspace = true, features = [
-    "substrate-compat",
-], default-features = true }
+subxt = { workspace = true, default-features = true }
 futures = "0.3.24"
 hex = "0.4.3"
 env_logger = "0.9.0"

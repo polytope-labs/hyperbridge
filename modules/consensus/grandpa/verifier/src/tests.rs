@@ -12,7 +12,12 @@ use grandpa_verifier_primitives::{
 use ismp::host::StateMachine;
 use polkadot_core_primitives::Header;
 use serde::{Deserialize, Serialize};
-use subxt::{rpc_params, OnlineClient};
+use subxt::{
+	backend::legacy::LegacyRpcMethods,
+	ext::subxt_rpcs::{rpc_params, RpcClient},
+	OnlineClient,
+};
+
 pub type Justification = GrandpaJustification<Header>;
 
 /// An encoded justification proving that the given header has been finalized
@@ -23,7 +28,7 @@ pub struct JustificationNotification(sp_core::Bytes);
 pub async fn session_length<T: subxt::Config>(
 	client: &OnlineClient<T>,
 ) -> Result<u32, anyhow::Error> {
-	let metadata = client.rpc().metadata().await?;
+	let metadata = client.metadata();
 	let metadata = metadata
 		.pallet_by_name_err("Babe")?
 		.constant_by_name("EpochDuration")
@@ -48,7 +53,7 @@ async fn follow_grandpa_justifications() {
 
 	log::info!("Connecting to relay chain {ws_url}");
 	let prover = GrandpaProver::<subxt_utils::BlakeSubstrateChain>::new(ProverOptions {
-		ws_url,
+		ws_url: ws_url.clone(),
 		para_ids,
 		state_machine: StateMachine::Polkadot(0),
 		max_rpc_payload_size: u32::MAX,
@@ -56,6 +61,10 @@ async fn follow_grandpa_justifications() {
 	})
 	.await
 	.unwrap();
+
+	let prover_rpc_client = RpcClient::from_url(&ws_url).await.unwrap();
+	let prover_rpc =
+		LegacyRpcMethods::<subxt_utils::BlakeSubstrateChain>::new(prover_rpc_client.clone());
 
 	log::info!("Connected to relay chain");
 	log::info!("Waiting for grandpa proofs to become available");
@@ -72,9 +81,7 @@ async fn follow_grandpa_justifications() {
 		.collect::<Vec<_>>()
 		.await;
 
-	let mut subscription = prover
-		.client
-		.rpc()
+	let mut subscription = prover_rpc_client
 		.subscribe::<JustificationNotification>(
 			"grandpa_subscribeJustifications",
 			rpc_params![],
@@ -85,7 +92,7 @@ async fn follow_grandpa_justifications() {
 
 	// slot duration in milliseconds for parachains
 	let slot_duration = 6000;
-	let hash = prover.client.rpc().finalized_head().await.unwrap();
+	let hash = prover_rpc.chain_get_finalized_head().await.unwrap();
 	let mut consensus_state = prover.initialize_consensus_state(slot_duration, hash).await.unwrap();
 
 	log::info!("Grandpa proofs are now available");

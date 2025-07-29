@@ -380,12 +380,12 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 	}
 }
 
-/// Host functions provider for Polygon using sp_core and similar crates
+/// Host functions provider for Polygon using sp_io and similar crates
 pub struct PolygonHostFunctions;
 
 impl ics23::HostFunctionsProvider for PolygonHostFunctions {
 	fn sha2_256(message: &[u8]) -> [u8; 32] {
-		sp_core::hashing::sha2_256(message)
+		sp_io::hashing::sha2_256(message)
 	}
 
 	fn sha2_512(message: &[u8]) -> [u8; 64] {
@@ -403,7 +403,7 @@ impl ics23::HostFunctionsProvider for PolygonHostFunctions {
 	}
 
 	fn keccak_256(message: &[u8]) -> [u8; 32] {
-		sp_core::hashing::keccak_256(message)
+		sp_io::hashing::keccak_256(message)
 	}
 
 	fn ripemd160(message: &[u8]) -> [u8; 20] {

@@ -15,7 +15,7 @@ std = [
     "scale-info/std",
     "primitive-types/std",
     "pallet-ismp-host-executive/std",
-    "sp-core/std",
+    "sp-io/std",
     "ismp/std",
     "tendermint-verifier/std",
     "geth-primitives/std",
@@ -33,7 +33,7 @@ base64 = { version = "0.21", default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 primitive-types = { workspace = true, default-features = false }
 pallet-ismp-host-executive = { workspace = true, default-features = false }
-sp-core = { workspace = true }
+sp-io = { workspace = true }
 ismp = { workspace = true, default-features = false }
 tendermint-verifier = { workspace = true, default-features = false }
 tendermint-primitives = { workspace = true, default-features = false }

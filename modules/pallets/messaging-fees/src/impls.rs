@@ -7,7 +7,7 @@ use polkadot_sdk::{
 	sp_core::U256,
 	sp_runtime::traits::*,
 };
-use sp_core::{keccak_256, sr25519, Pair, H256};
+use sp_core::{sr25519, H256};
 
 use crate::{types::IncentivizedMessage, *};
 use ismp::{
@@ -32,7 +32,7 @@ where
 		type Sr25519Signature = (sr25519::Public, sr25519::Signature);
 
 		if let Ok((pub_key, sig)) = Sr25519Signature::decode(&mut &signer[..]) {
-			if sr25519::Pair::verify(&sig, signed_data, &pub_key) {
+			if sp_io::crypto::sr25519_verify(&sig, signed_data, &pub_key) {
 				return Some(pub_key.0.into());
 			}
 		}
@@ -86,7 +86,7 @@ where
 					.per_byte_fees
 					.iter()
 					.find(|fee| {
-						let hashed_chain_id = keccak_256(&state_machine.encode());
+						let hashed_chain_id = sp_io::hashing::keccak_256(&state_machine.encode());
 						fee.state_id == H256(hashed_chain_id)
 					})
 					.map(|fee| fee.per_byte_fee)
@@ -283,11 +283,11 @@ where
 		for message in &messages {
 			let relayer_account = match message {
 				Message::Request(msg) => {
-					let data = keccak_256(&msg.requests.encode());
+					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
 					Self::verify_and_get_relayer(&msg.signer, &data)
 				},
 				Message::Response(msg) => {
-					let data = keccak_256(&msg.datagram.encode());
+					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
 					Self::verify_and_get_relayer(&msg.signer, &data)
 				},
 				_ => None,

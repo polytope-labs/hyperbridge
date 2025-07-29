@@ -1,10 +1,10 @@
-# Relayer Incentives Pallet
+# Consensus Incentives Pallet
 
-A FRAME pallet for providing incentives to relayers in the Hyperbridge network.
+A FRAME pallet for providing incentives to consensus relayers in the Hyperbridge network.
 
 ## Overview
 
-The Relayer Incentives pallet provides a mechanism to reward relayers for their services in the Hyperbridge network. It manages the cost per block for each consensus Block Message, and it is also responsible for distibuting rewards to relayers the consensus message processed.
+The Consensus Incentives pallet provides a mechanism to reward relayers for their services in the Hyperbridge network. It manages the cost per block for each consensus Block Message, and it is also responsible for distibuting rewards to relayers the consensus message processed.
 
 ## Features
 
@@ -36,7 +36,7 @@ parameter_types! {
     // Define your parameters here
 }
 
-impl pallet_relayer_incentives::Config for Runtime {
+impl pallet_consensus_incentives::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type IsmpHost = IsmpHost;
     type TreasuryAccount = TreasuryAccount;
@@ -51,7 +51,7 @@ construct_runtime!(
         UncheckedExtrinsic = UncheckedExtrinsic
     {
         // Other pallets
-        RelayerIncentives: pallet_relayer_incentives,
+        ConsensusIncentives: pallet_consensus_incentives,
     }
 );
 ```

@@ -69,7 +69,7 @@ fn test_incentivize_relayer() {
 
 		setup_balances(&relayer_account, &treasury_account);
 
-		pallet_relayer_incentives::Pallet::<Test>::update_cost_per_block(
+		pallet_consensus_incentives::Pallet::<Test>::update_cost_per_block(
 			RuntimeOrigin::root(),
 			state_machine_id,
 			100,

@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The pallet-relayer-incentives allows for incentivizing relayers with rewards.
+//! The pallet-consensus-incentives allows for incentivizing relayers with rewards.
 //!
 //! This pallet implements the FeeHandler trait from pallet-ismp to process messages
 //! and reward relayers who deliver them.

@@ -12332,6 +12332,7 @@ dependencies = [
  "orml-xcm-support",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-consensus-incentives",
  "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -12340,7 +12341,6 @@ dependencies = [
  "pallet-ismp-runtime-api",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
- "pallet-relayer-incentives",
  "pallet-state-coprocessor",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -13908,6 +13908,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-consensus-incentives"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk 2503.0.1",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-contracts"
 version = "40.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14417,6 +14428,7 @@ dependencies = [
  "mmr-primitives",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-consensus-incentives",
  "pallet-fishermen",
  "pallet-hyperbridge",
  "pallet-ismp",
@@ -14425,7 +14437,6 @@ dependencies = [
  "pallet-ismp-rpc",
  "pallet-messaging-fees",
  "pallet-mmr-tree",
- "pallet-relayer-incentives",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -14904,17 +14915,6 @@ dependencies = [
  "sp-arithmetic",
  "sp-io",
  "sp-runtime",
-]
-
-[[package]]
-name = "pallet-relayer-incentives"
-version = "0.1.0"
-dependencies = [
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "polkadot-sdk 2503.0.1",
- "scale-info",
 ]
 
 [[package]]

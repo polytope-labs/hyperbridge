@@ -89,7 +89,7 @@ frame_support::construct_runtime!(
 		TokenGatewayInspector: pallet_token_gateway_inspector,
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
-		RelayerIncentives: pallet_relayer_incentives,
+		RelayerIncentives: pallet_consensus_incentives,
 		MessagingRelayerIncentives: pallet_messaging_fees,
 		IsmpGrandpa: ismp_grandpa::pallet
 	}
@@ -219,7 +219,7 @@ impl pallet_ismp::Config for Test {
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler =
-		(pallet_relayer_incentives::Pallet<Test>, pallet_messaging_fees::Pallet<Test>);
+		(pallet_consensus_incentives::Pallet<Test>, pallet_messaging_fees::Pallet<Test>);
 }
 
 impl pallet_hyperbridge::Config for Test {
@@ -323,7 +323,7 @@ impl pallet_bridge_airdrop::Config for Test {
 	type BridgeDropOrigin = EnsureRoot<AccountId32>;
 }
 
-impl pallet_relayer_incentives::Config for Test {
+impl pallet_consensus_incentives::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryAccount;

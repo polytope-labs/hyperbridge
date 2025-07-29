@@ -2,9 +2,10 @@
 mod tests {
 	use std::time::{SystemTime, UNIX_EPOCH};
 
-	use crate::{prove_header_update, Client, CometBFTClient, HeimdallClient};
+	use crate::{prove_header_update, CometBFTClient};
 	use ismp_polygon::Milestone;
-	use tendermint_primitives::{TrustedState, VerificationError, VerificationOptions};
+	use tendermint_primitives::{Client, TrustedState, VerificationError, VerificationOptions};
+	use tesseract_consensus_clients::HeimdallClient;
 	use tokio::time::{timeout, Duration};
 	use tracing::trace;
 

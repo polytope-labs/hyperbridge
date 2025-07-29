@@ -17,10 +17,8 @@ reqwest = { version = "0.11", features = ["json"] }
 async-trait = "0.1.88"
 base64 = { version = "0.21" }
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
-sha2 = "0.10.7"
 cometbft-proto = { workspace = true }
 prost = { workspace = true, default-features = false }
-sha3 = "0.10"
 tracing = "0.1.40"
 tendermint-primitives = { path = "../primitives" }
 geth-primitives = { path = "../../geth-primitives" }
@@ -28,9 +26,9 @@ tracing-subscriber = "0.3"
 ethers = { workspace = true, features = ["ws", "default"] }
 ismp-polygon = { workspace = true, default-features = false }
 
-
 [dev-dependencies]
 tendermint-verifier = { path = "../verifier" }
+tesseract-consensus-clients = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

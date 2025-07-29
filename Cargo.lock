@@ -26054,6 +26054,7 @@ dependencies = [
 name = "tendermint-primitives"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64 0.21.7",
  "cometbft",
  "cometbft-proto",
@@ -26085,10 +26086,9 @@ dependencies = [
  "reqwest 0.11.27",
  "serde",
  "serde_json",
- "sha2 0.10.9",
- "sha3",
  "tendermint-primitives",
  "tendermint-verifier",
+ "tesseract-consensus-clients",
  "thiserror 2.0.12",
  "tokio",
  "tracing",
@@ -26313,6 +26313,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesseract-consensus-clients"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.21.7",
+ "cometbft",
+ "cometbft-rpc",
+ "ethers",
+ "geth-primitives",
+ "ismp-polygon",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3",
+ "tendermint-primitives",
+]
+
+[[package]]
 name = "tesseract-evm"
 version = "0.1.0"
 dependencies = [
@@ -26483,21 +26502,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.21.7",
- "futures",
- "geth-primitives",
- "hex",
  "ismp",
  "ismp-polygon",
  "log",
  "parity-scale-codec",
- "primitive-types 0.13.1",
- "prost 0.13.5",
  "serde",
  "serde_json",
  "tendermint-primitives",
- "tendermint-prover",
  "tendermint-verifier",
+ "tesseract-consensus-clients",
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",

@@ -1,0 +1,22 @@
+[package]
+name = "tesseract-consensus-clients"
+version = "0.1.0"
+edition = "2021"
+description = "Consensus clients for tesseract"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+async-trait = "0.1.88"
+base64 = "0.21.0"
+cometbft = { workspace = true }
+cometbft-rpc = { workspace = true }
+ethers = { workspace = true, features = ["ws", "default"] }
+geth-primitives = { workspace = true }
+ismp-polygon = { workspace = true }
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10.7"
+sha3 = "0.10"
+tendermint-primitives = { workspace = true }
+

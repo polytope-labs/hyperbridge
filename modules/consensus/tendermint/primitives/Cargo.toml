@@ -16,5 +16,6 @@ sha3 = "0.10"
 codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, features = ["derive"] }
 prost = { workspace = true}
+async-trait = "0.1.88"
 
 

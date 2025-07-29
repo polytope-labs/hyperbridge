@@ -1,5 +1,5 @@
 use anyhow::Result;
-use codec::{Decode, Encode};
+use codec::Encode;
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment},
 	host::StateMachine,
@@ -8,8 +8,8 @@ use ismp::{
 use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLIENT_ID};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
-use tendermint_primitives::{self, CodecTrustedState};
-use tendermint_prover::{Client, HeimdallClient};
+use tendermint_primitives::{self, Client, CodecTrustedState};
+use tesseract_consensus_clients::HeimdallClient;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 

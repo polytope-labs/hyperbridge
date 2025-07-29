@@ -106,7 +106,7 @@ members = [
 
 
     # Airdrop
-    "modules/pallets/bridge-drop",
+    "modules/pallets/bridge-drop", "tesseract/consensus/clients",
 ]
 
 # Config for 'cargo dist'
@@ -300,6 +300,7 @@ tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
+tesseract-consensus-clients = { path = "tesseract/consensus/clients" }
 
 
 [workspace.dependencies.codec]

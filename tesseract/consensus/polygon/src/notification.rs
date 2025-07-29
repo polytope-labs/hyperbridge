@@ -1,8 +1,9 @@
 use crate::{ConsensusState, PolygonConsensusUpdate, PolygonPosHost};
 use codec::Decode;
 use std::{result::Result::Ok, sync::Arc};
-use tendermint_primitives::{CodecConsensusProof, CodecTrustedState, ConsensusProof, TrustedState};
-use tendermint_prover::{Client, ValidatorSet};
+use tendermint_primitives::{
+	Client, CodecConsensusProof, CodecTrustedState, ConsensusProof, TrustedState, ValidatorSet,
+};
 use tendermint_verifier::validate_validator_set_hash;
 use tesseract_primitives::IsmpProvider;
 

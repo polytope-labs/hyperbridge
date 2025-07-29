@@ -13,9 +13,7 @@ use ismp_polygon::Milestone;
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tendermint_primitives::ProverError;
-
-use tendermint_primitives::Client;
+use tendermint_primitives::{Client, ProverError};
 
 use ethers::{
 	prelude::Provider,
@@ -44,11 +42,20 @@ impl HeimdallClient {
 	///
 	/// # Arguments
 	///
-	/// * `url` - The RPC endpoint URL of the Heimdall node
+	/// * `url` - The consensus RPC endpoint URL of the Heimdall node
+	/// * `rest_url` - The REST API endpoint URL of the Heimdall node
+	/// * `execution_rpc` - The execution RPC endpoint URL for Ethereum/Polygon PoS chain
 	///
 	/// # Returns
 	///
 	/// A new Heimdall client instance
+	///
+	/// # Errors
+	///
+	/// Returns `ProverError` if:
+	/// - The consensus RPC URL is invalid
+	/// - The HTTP client cannot be created
+	/// - The execution RPC provider cannot be created
 	pub fn new(url: &str, rest_url: &str, execution_rpc: &str) -> Result<Self, ProverError> {
 		let raw_client = ReqwestClient::new();
 		let consensus_rpc_url = url.to_string();
@@ -149,6 +156,16 @@ impl HeimdallClient {
 	/// * `count` - The count of the milestone to retrieve
 	///
 	/// # Returns
+	///
+	/// - `Ok(Milestone)`: The milestone data
+	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	///
+	/// # Errors
+	///
+	/// Returns `ProverError` if:
+	/// - The HTTP request fails
+	/// - The response cannot be deserialized
+	/// - The milestone field is missing from the response
 	pub async fn get_milestone(&self, count: u64) -> Result<Milestone, ProverError> {
 		let response = self
 			.raw_client
@@ -183,12 +200,26 @@ impl HeimdallClient {
 		Ok((latest_count, milestone))
 	}
 
-	/// Retrieves the ICS23 proof for the latest milestone.
+	/// Retrieves the ICS23 proof for a specific milestone.
+	///
+	/// This method queries the Heimdall node's ABCI store to get the proof
+	/// for a milestone at the specified count and height.
+	///
+	/// # Arguments
+	///
+	/// * `count` - The milestone count to get the proof for
+	/// * `latest_consensus_height` - The latest consensus height for the proof
 	///
 	/// # Returns
 	///
-	/// - `Ok(Vec<u8>)`: The ICS23 proof
+	/// - `Ok(AbciQuery)`: The ABCI query response containing the proof
 	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	///
+	/// # Errors
+	///
+	/// Returns `ProverError` if:
+	/// - The ABCI query fails
+	/// - The height conversion fails
 	pub async fn get_ics23_proof(
 		&self,
 		count: u64,
@@ -214,15 +245,24 @@ impl HeimdallClient {
 	/// Fetches an Ethereum block header from the execution RPC client and converts it to a
 	/// CodecHeader.
 	///
+	/// This method queries the Polygon PoS chain (or Ethereum mainnet) via the execution RPC
+	/// to retrieve block header information.
+	///
 	/// # Arguments
 	///
-	/// * `block` - The block identifier (number or hash) to fetch. Must implement Into<BlockId>.
+	/// * `block` - The block identifier (number or hash) to fetch. Must implement `Into<BlockId>`.
 	///
 	/// # Returns
 	///
 	/// - `Ok(Some(CodecHeader))` if the block exists and conversion succeeds
 	/// - `Ok(None)` if the block does not exist
 	/// - `Err(ProverError)` if the RPC call fails
+	///
+	/// # Errors
+	///
+	/// Returns `ProverError` if:
+	/// - The RPC call to get the block fails
+	/// - The block conversion fails
 	pub async fn fetch_header<T: Into<BlockId> + Send + Sync + Debug + Copy>(
 		&self,
 		block: T,
@@ -243,10 +283,18 @@ impl HeimdallClient {
 	/// Fetches the latest Ethereum block header from the execution RPC client and converts it to a
 	/// CodecHeader.
 	///
+	/// This method first gets the latest block number, then fetches the corresponding header.
+	///
 	/// # Returns
 	///
 	/// - `Ok(CodecHeader)` if the latest block exists and conversion succeeds
 	/// - `Err(ProverError)` if the RPC call fails or the block cannot be fetched
+	///
+	/// # Errors
+	///
+	/// Returns `ProverError` if:
+	/// - The RPC call to get the block number fails
+	/// - The latest block header cannot be fetched
 	pub async fn latest_header(&self) -> Result<CodecHeader, ProverError> {
 		let block_number =
 			self.execution_rpc_client.get_block_number().await.map_err(|e| {

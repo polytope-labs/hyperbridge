@@ -26,9 +26,10 @@ tracing-subscriber = "0.3"
 ethers = { workspace = true, features = ["ws", "default"] }
 ismp-polygon = { workspace = true, default-features = false }
 
+
 [dev-dependencies]
 tendermint-verifier = { path = "../verifier" }
-tesseract-consensus-clients = { workspace = true }
+tesseract-polygon = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

@@ -9,11 +9,13 @@ use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLI
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tendermint_primitives::{self, Client, CodecTrustedState};
-use tesseract_consensus_clients::HeimdallClient;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
+mod client;
 mod notification;
+
+pub use client::HeimdallClient;
 
 /// Host configuration for Polygon POS relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,12 +84,13 @@ impl PolygonPosHost {
 	/// Fetch the current consensus state (for initial state creation)
 	pub async fn get_consensus_state(&self) -> Result<ConsensusState, anyhow::Error> {
 		let latest_height = self.prover.latest_height().await?;
-		let trusted_height = latest_height;
 
-		let trusted_header = self.prover.signed_header(trusted_height).await?;
+		let trusted_header = self.prover.signed_header(latest_height).await?;
 
-		let trusted_validators = self.prover.validators(trusted_height).await?;
-		let trusted_next_validators = self.prover.next_validators(trusted_height).await?;
+		let trusted_validators =
+			self.prover.validators(trusted_header.header.height.into()).await?;
+		let trusted_next_validators =
+			self.prover.next_validators(trusted_header.header.height.into()).await?;
 
 		let chain_id = match self.state_machine {
 			StateMachine::Evm(chain_id) => chain_id,
@@ -96,7 +99,7 @@ impl PolygonPosHost {
 
 		let trusted_state = tendermint_primitives::TrustedState::new(
 			chain_id.to_string(),
-			trusted_height,
+			trusted_header.header.height.into(),
 			trusted_header.header.time.unix_timestamp() as u64,
 			trusted_header.header.hash().as_bytes().try_into().unwrap(),
 			trusted_validators,
@@ -113,7 +116,11 @@ impl PolygonPosHost {
 		let consensus_state = ConsensusState {
 			tendermint_state,
 			last_finalized_block: milestone.end_block,
-			last_finalized_hash: milestone.hash,
+			last_finalized_hash: base64::Engine::decode(
+				&base64::engine::general_purpose::STANDARD,
+				&milestone.hash,
+			)
+			.map_err(|e| anyhow::anyhow!("Failed to decode milestone hash: {e}"))?,
 			chain_id,
 		};
 
@@ -197,7 +204,7 @@ impl IsmpHost for PolygonPosHost {
 			consensus_client_id: POLYGON_CONSENSUS_CLIENT_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 82 * 3600, // 82 checkpoints x 3600 seconds per checkpoint
-			challenge_periods: vec![(self.state_machine, 25 * 60)].into_iter().collect(), /* 25 minutes in seconds */
+			challenge_periods: vec![(self.state_machine, 2 * 60)].into_iter().collect(), /* 25 minutes in seconds */
 			state_machine_commitments: vec![(
 				ismp::consensus::StateMachineId {
 					state_id: self.state_machine,

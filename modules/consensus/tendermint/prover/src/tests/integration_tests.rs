@@ -5,7 +5,7 @@ mod tests {
 	use crate::{prove_header_update, CometBFTClient};
 	use ismp_polygon::Milestone;
 	use tendermint_primitives::{Client, TrustedState, VerificationError, VerificationOptions};
-	use tesseract_consensus_clients::HeimdallClient;
+	use tesseract_polygon::HeimdallClient;
 	use tokio::time::{timeout, Duration};
 	use tracing::trace;
 

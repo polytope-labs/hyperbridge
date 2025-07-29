@@ -21,7 +21,7 @@ use ismp::{
 	},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{Keccak256, StateCommitmentHeight},
+	messaging::StateCommitmentHeight,
 };
 
 use evm_state_machine::EvmStateMachine;
@@ -86,7 +86,7 @@ pub struct Milestone {
 	/// End block number of the milestone
 	#[serde(deserialize_with = "deserialize_u64_from_str")]
 	pub end_block: u64,
-	/// Hash of the milestone
+	/// Hash of the end block
 	#[serde(deserialize_with = "deserialize_hash_from_base64")]
 	pub hash: Vec<u8>,
 	/// Bor chain ID (string)
@@ -147,7 +147,7 @@ pub struct ProtoMilestone {
 	/// End block number
 	#[prost(uint64, tag = "3")]
 	pub end_block: u64,
-	/// Hash of the milestone
+	/// Hash of the end block
 	#[prost(bytes = "vec", tag = "4")]
 	pub hash: Vec<u8>,
 	/// Bor chain ID
@@ -229,7 +229,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?
 				.into();
 
-		let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+		let time = H::default().timestamp().as_secs();
 
 		let updated_state = verify_header_update(trusted_state, consensus_proof.clone(), time)
 			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
@@ -240,7 +240,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 
 		if let Some(milestone_update_ref) = &polygon_consensus_update.milestone_update {
 			let evm_header = Header::from(&milestone_update_ref.evm_header.clone());
-			let evm_header_hash = evm_header.hash::<KeccakHasher>().as_bytes().to_vec();
+			let evm_header_hash = evm_header.hash::<H>().as_bytes().to_vec();
 			let milestone_hash =
 				STANDARD.decode(&milestone_update_ref.milestone.hash).unwrap_or_default();
 
@@ -378,13 +378,5 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 				Ok(Box::new(EvmStateMachine::<H, T>::default())),
 			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
 		}
-	}
-}
-
-/// Keccak hasher for EVM headers
-pub struct KeccakHasher;
-impl Keccak256 for KeccakHasher {
-	fn keccak256(bytes: &[u8]) -> primitive_types::H256 {
-		sp_core::keccak_256(bytes).into()
 	}
 }

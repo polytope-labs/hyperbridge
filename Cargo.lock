@@ -14293,6 +14293,7 @@ dependencies = [
  "anyhow",
  "env_logger 0.10.2",
  "fortuples",
+ "impl-trait-for-tuples",
  "ismp",
  "ismp-testsuite",
  "log",

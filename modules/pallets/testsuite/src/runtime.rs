@@ -39,7 +39,7 @@ use ismp::{
 	Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{impl_fee_handler_for_tuple, offchain::Leaf, ModuleId};
+use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},

@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(non_local_definitions)]
 #![cfg_attr(not(feature = "std"), no_std)]
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit = "256"]
@@ -23,22 +24,23 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 extern crate alloc;
 
+mod genesis_config;
 mod ismp;
 mod weights;
 pub mod xcm;
 
+use alloc::vec::Vec;
+use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
-use frame_support::traits::TransformOrigin;
+use frame_support::traits::{TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
-use codec::{Decode, Encode, MaxEncodedLen};
-use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
-use scale_info::TypeInfo;
+use polkadot_sdk::{sp_runtime::traits::ConvertInto, *};
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
-use sp_core::{crypto::KeyTypeId, Get, OpaqueMetadata, H256};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
 use sp_runtime::{
-	create_runtime_str, generic, impl_opaque_keys,
+	generic, impl_opaque_keys,
 	traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
@@ -49,12 +51,19 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
+use ::ismp::{
+	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
+	host::StateMachine,
+	router::{Request, Response},
+};
+
+use alloc::borrow::Cow;
+
 use frame_support::{
-	construct_runtime,
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
-	traits::{ConstU32, ConstU64, ConstU8, Everything},
+	traits::{ConstU32, ConstU64, ConstU8, Everything, Get},
 	weights::{
 		constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
 		WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -64,10 +73,6 @@ use frame_support::{
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
 	EnsureRoot, EnsureRootWithSuccess,
-};
-use ismp::{
-	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
-	router::{Request, Response},
 };
 use pallet_ismp::offchain::{Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -209,14 +214,14 @@ impl_opaque_keys! {
 
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("messier"),
-	impl_name: create_runtime_str!("messier"),
+	spec_name: Cow::Borrowed("messier"),
+	impl_name: Cow::Borrowed("messier"),
 	authoring_version: 1,
 	spec_version: 100,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
-	state_version: 1,
+	system_version: 1,
 };
 
 /// This determines the average expected block time that we are targeting.
@@ -306,7 +311,7 @@ parameter_types! {
 // Configure FRAME pallets to include in runtime.
 
 use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
-use ismp::host::StateMachine;
+
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
 use pallet_collective::PrimeDefaultVote;
@@ -315,7 +320,6 @@ use pallet_ismp::offchain::Leaf;
 use pallet_treasury::ArgumentsFactory;
 use sp_core::crypto::AccountId32;
 use sp_runtime::traits::IdentityLookup;
-use staging_xcm::latest::Location;
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
@@ -383,15 +387,6 @@ parameter_types! {
 	pub const ExistentialDeposit: Balance = EXISTENTIAL_DEPOSIT;
 }
 
-/// A reason for placing a hold on funds.
-#[derive(
-	Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, MaxEncodedLen, Debug, TypeInfo,
-)]
-pub enum HoldReason {
-	/// The NIS Pallet has reserved it for a non-fungible receipt.
-	Nis,
-}
-
 impl pallet_balances::Config for Runtime {
 	/// The type for recording an account's balance.
 	type Balance = Balance;
@@ -400,15 +395,15 @@ impl pallet_balances::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type ExistentialDeposit = ExistentialDeposit;
 	type AccountStore = System;
-	type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
+	type WeightInfo = weights::pallet_balances::WeightInfo<Runtime>;
 	type MaxLocks = ConstU32<50>;
 	type MaxReserves = ConstU32<50>;
 	type ReserveIdentifier = [u8; 8];
 	type FreezeIdentifier = ();
 	type MaxFreezes = ();
 	type RuntimeHoldReason = RuntimeHoldReason;
-
 	type RuntimeFreezeReason = RuntimeFreezeReason;
+	type DoneSlashHandler = ();
 }
 
 parameter_types! {
@@ -423,6 +418,7 @@ impl pallet_transaction_payment::Config for Runtime {
 	type LengthToFee = ConstantMultiplier<Balance, TransactionByteFee>;
 	type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
 	type OperationalFeeMultiplier = ConstU8<5>;
+	type WeightInfo = ();
 }
 
 parameter_types! {
@@ -435,7 +431,7 @@ parameter_types! {
 impl cumulus_pallet_parachain_system::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type OnSystemEvent = ();
-	type SelfParaId = parachain_info::Pallet<Runtime>;
+	type SelfParaId = staging_parachain_info::Pallet<Runtime>;
 	type OutboundXcmpMessageSource = XcmpQueue;
 	type ReservedDmpWeight = ReservedDmpWeight;
 	type XcmpMessageHandler = XcmpQueue;
@@ -444,6 +440,8 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = ();
 	type ConsensusHook = ConsensusHook;
+	type SelectCore = cumulus_pallet_parachain_system::DefaultCoreSelector<Runtime>;
+	type RelayParentOffset = ConstU32<0>;
 }
 
 type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
@@ -453,7 +451,7 @@ type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
 	UNINCLUDED_SEGMENT_CAPACITY,
 >;
 
-impl parachain_info::Config for Runtime {}
+impl staging_parachain_info::Config for Runtime {}
 
 impl cumulus_pallet_aura_ext::Config for Runtime {}
 
@@ -466,7 +464,7 @@ impl cumulus_pallet_xcmp_queue::Config for Runtime {
 	type PriceForSiblingDelivery = NoPriceForMessageDelivery<ParaId>;
 	type XcmpQueue = TransformOrigin<MessageQueue, AggregateMessageOrigin, ParaId, ParaIdToSibling>;
 	type MaxInboundSuspended = sp_core::ConstU32<1_000>;
-	type WeightInfo = ();
+	type WeightInfo = weights::cumulus_pallet_xcmp_queue::WeightInfo<Runtime>;
 	type MaxActiveOutboundChannels = sp_core::ConstU32<128>;
 	type MaxPageSize = sp_core::ConstU32<{ 103 * 1024 }>;
 }
@@ -514,7 +512,8 @@ impl pallet_session::Config for Runtime {
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_session::WeightInfo<Runtime>;
+	type DisablingStrategy = ();
 }
 
 impl pallet_aura::Config for Runtime {
@@ -556,7 +555,14 @@ impl pallet_collator_selection::Config for Runtime {
 impl pallet_sudo::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_sudo::WeightInfo<Runtime>;
+}
+
+impl pallet_utility::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type PalletsOrigin = OriginCaller;
+	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
 }
 
 impl pallet_mmr_tree::Config for Runtime {
@@ -584,16 +590,21 @@ pub struct TreasuryAssetFactory {}
 #[cfg(feature = "runtime-benchmarks")]
 impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
 where
-	A: From<Location>,
+	A: From<[u8; 32]>,
 	B: sp_core::crypto::FromEntropy,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location {
-			parents: 0,
-			interior: staging_xcm::latest::Junctions::X1(alloc::sync::Arc::new([
-				staging_xcm::latest::Junction::GeneralIndex(seed as u128),
-			])),
-		}
+		use codec::Encode;
+		use staging_xcm::latest::{Junction, Location};
+		sp_io::hashing::keccak_256(
+			&Location {
+				parents: 0,
+				interior: staging_xcm::latest::Junctions::X1(alloc::sync::Arc::new([
+					Junction::GeneralIndex(seed as u128),
+				])),
+			}
+			.encode(),
+		)
 		.into()
 	}
 
@@ -605,15 +616,20 @@ where
 #[cfg(feature = "runtime-benchmarks")]
 impl<A> AssetKindFactory<A> for TreasuryAssetFactory
 where
-	A: From<Location>,
+	A: From<[u8; 32]>,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		Location {
-			parents: 0,
-			interior: staging_xcm::latest::Location::X1(alloc::sync::Arc::new([
-				staging_xcm::latest::Junctions::GeneralIndex(seed as u128),
-			])),
-		}
+		use codec::Encode;
+		use staging_xcm::latest::{Junction, Location};
+		sp_io::hashing::keccak_256(
+			&Location {
+				parents: 0,
+				interior: staging_xcm::latest::Junctions::X1(alloc::sync::Arc::new([
+					Junction::GeneralIndex(seed as u128),
+				])),
+			}
+			.encode(),
+		)
 		.into()
 	}
 }
@@ -627,30 +643,42 @@ impl pallet_treasury::Config for Runtime {
 	type Burn = ();
 	type PalletId = TreasuryPalletId;
 	type BurnDestination = ();
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_treasury::WeightInfo<Runtime>;
 	type SpendFunds = ();
 	type MaxApprovals = ConstU32<1>; // number of technical collectives
 	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
-	type AssetKind = Location;
+	type AssetKind = H256;
 	type Beneficiary = AccountId32;
 	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
 	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
 	type BalanceConverter = AssetRate;
 	type PayoutPeriod = PayoutPeriod;
+	type BlockNumberProvider = System;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = TreasuryAssetFactory;
 }
 
 impl pallet_asset_rate::Config for Runtime {
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_asset_rate::WeightInfo<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
 	type CreateOrigin = EnsureRoot<AccountId32>;
 	type RemoveOrigin = EnsureRoot<AccountId32>;
 	type UpdateOrigin = EnsureRoot<AccountId32>;
 	type Currency = Balances;
-	type AssetKind = Location;
+	type AssetKind = H256;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = TreasuryAssetFactory;
+}
+
+impl pallet_bridge_airdrop::Config for Runtime {
+	type Currency = Balances;
+	type BridgeDropOrigin = EnsureRoot<AccountId>;
+}
+
+parameter_types! {
+	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT;
+	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+		WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
 }
 
 impl pallet_collective::Config for Runtime {
@@ -661,61 +689,142 @@ impl pallet_collective::Config for Runtime {
 	type MaxProposals = TechnicalMaxProposals;
 	type MaxMembers = TechnicalMaxMembers;
 	type DefaultVote = PrimeDefaultVote;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_collective::WeightInfo<Runtime>;
 	type SetMembersOrigin = EnsureRoot<Self::AccountId>;
 	type MaxProposalWeight = MaxCollectivesProposalWeight;
+	type DisapproveOrigin = EnsureRoot<Self::AccountId>;
+	type KillOrigin = EnsureRoot<Self::AccountId>;
+	type Consideration = ();
+}
+
+impl pallet_vesting::Config for Runtime {
+	type BlockNumberToBalance = ConvertInto;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	const MAX_VESTING_SCHEDULES: u32 = 28;
+	type MinVestedTransfer = MinVestedTransfer;
+	type WeightInfo = ();
+	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+	type BlockNumberProvider = System;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
-construct_runtime!(
-	pub enum Runtime
-	{
-		// System support stuff.
-		System: frame_system = 0,
-		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
-		ParachainSystem: cumulus_pallet_parachain_system = 2,
-		ParachainInfo: parachain_info = 3,
+#[frame_support::runtime]
+mod runtime {
+	#[runtime::runtime]
+	#[runtime::derive(
+		RuntimeCall,
+		RuntimeEvent,
+		RuntimeError,
+		RuntimeOrigin,
+		RuntimeFreezeReason,
+		RuntimeHoldReason,
+		RuntimeSlashReason,
+		RuntimeLockId,
+		RuntimeTask,
+		RuntimeViewFunction
+	)]
+	pub struct Runtime;
 
-		// Monetary stuff.
-		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 10,
-		TransactionPayment: pallet_transaction_payment::{Pallet, Storage, Event<T>} = 11,
-		Treasury: pallet_treasury = 12,
-		AssetRate: pallet_asset_rate = 13,
+	// System support stuff.
+	#[runtime::pallet_index(0)]
+	pub type System = frame_system;
+	#[runtime::pallet_index(1)]
+	pub type Timestamp = pallet_timestamp;
+	#[runtime::pallet_index(2)]
+	pub type ParachainSystem = cumulus_pallet_parachain_system;
+	#[runtime::pallet_index(3)]
+	pub type ParachainInfo = staging_parachain_info;
+	#[runtime::pallet_index(4)]
+	pub type Utility = pallet_utility;
 
-		// Collator support. The order of these 4 are important and shall not change.
-		Authorship: pallet_authorship::{Pallet, Storage} = 20,
-		CollatorSelection: pallet_collator_selection::{Pallet, Call, Storage, Event<T>, Config<T>} = 21,
-		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>} = 22,
-		Aura: pallet_aura::{Pallet, Storage, Config<T>} = 23,
-		AuraExt: cumulus_pallet_aura_ext = 24,
-		Sudo: pallet_sudo::{Pallet, Storage, Call, Event<T>, Config<T>} = 25,
+	// Monetary stuff.
+	#[runtime::pallet_index(10)]
+	pub type Balances = pallet_balances;
+	#[runtime::pallet_index(11)]
+	pub type TransactionPayment = pallet_transaction_payment;
+	#[runtime::pallet_index(12)]
+	pub type Treasury = pallet_treasury;
+	#[runtime::pallet_index(13)]
+	pub type AssetRate = pallet_asset_rate;
 
-		// XCM helpers.
-		XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 30,
-		PolkadotXcm: pallet_xcm = 31,
-		CumulusXcm: cumulus_pallet_xcm = 32,
+	// Collator support. The order of these 4 are important and shall not change.
+	#[runtime::pallet_index(20)]
+	pub type Authorship = pallet_authorship;
+	#[runtime::pallet_index(21)]
+	pub type CollatorSelection = pallet_collator_selection;
+	#[runtime::pallet_index(22)]
+	pub type Session = pallet_session;
+	#[runtime::pallet_index(23)]
+	pub type Aura = pallet_aura;
+	#[runtime::pallet_index(24)]
+	pub type AuraExt = cumulus_pallet_aura_ext;
+	#[runtime::pallet_index(25)]
+	pub type Sudo = pallet_sudo;
 
-		// ISMP stuff
-		// Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
-		// setup the mmr
-		Mmr: pallet_mmr = 33,
-		Ismp: pallet_ismp = 34,
-		MessageQueue: pallet_message_queue = 35,
+	// XCM helpers.
+	#[runtime::pallet_index(30)]
+	pub type XcmpQueue = cumulus_pallet_xcmp_queue;
+	#[runtime::pallet_index(31)]
+	pub type PolkadotXcm = pallet_xcm;
+	#[runtime::pallet_index(32)]
+	pub type CumulusXcm = cumulus_pallet_xcm;
 
+	// ISMP stuff
+	// Xcm messages are executed in on_initialize of the message queue,
+	// pallet ismp must come before the queue so it can setup the mmr
+	#[runtime::pallet_index(40)]
+	pub type Mmr = pallet_mmr_tree;
+	#[runtime::pallet_index(41)]
+	pub type Ismp = pallet_ismp;
+	#[runtime::pallet_index(42)]
+	pub type MessageQueue = pallet_message_queue;
 
-		IsmpParachain: ismp_parachain = 40,
-		IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
-		Relayer: pallet_ismp_relayer = 42,
-		HostExecutive: pallet_ismp_host_executive = 43,
-		CallDecompressor: pallet_call_decompressor = 44,
-		Gateway: pallet_xcm_gateway = 45,
-		Assets: pallet_assets = 46,
-		TokenGovernor: pallet_token_governor = 47,
+	// supporting ismp pallets
+	#[runtime::pallet_index(50)]
+	pub type IsmpParachain = ismp_parachain;
+	#[runtime::pallet_index(51)]
+	pub type IsmpSyncCommitteeEth = ismp_sync_committee::pallet<Instance1>;
+	#[runtime::pallet_index(52)]
+	pub type IsmpDemo = pallet_ismp_demo;
+	#[runtime::pallet_index(53)]
+	pub type Relayer = pallet_ismp_relayer;
+	#[runtime::pallet_index(55)]
+	pub type HostExecutive = pallet_ismp_host_executive;
+	#[runtime::pallet_index(56)]
+	pub type CallDecompressor = pallet_call_decompressor;
+	#[runtime::pallet_index(57)]
+	pub type XcmGateway = pallet_xcm_gateway;
+	#[runtime::pallet_index(58)]
+	pub type Assets = pallet_assets;
+	#[runtime::pallet_index(59)]
+	pub type TokenGovernor = pallet_token_governor;
+	#[runtime::pallet_index(60)]
+	pub type StateCoprocessor = pallet_state_coprocessor;
+	#[runtime::pallet_index(61)]
+	pub type Fishermen = pallet_fishermen;
+	#[runtime::pallet_index(62)]
+	pub type TokenGatewayInspector = pallet_token_gateway_inspector;
+	#[runtime::pallet_index(63)]
+	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
+	#[runtime::pallet_index(64)]
+	pub type IsmpBsc = ismp_bsc::pallet;
 
-		// Governance
-		TechnicalCollective: pallet_collective = 60
-	}
-);
+	// Governance
+	#[runtime::pallet_index(80)]
+	pub type TechnicalCollective = pallet_collective;
+	#[runtime::pallet_index(81)]
+	pub type BridgeDrop = pallet_bridge_airdrop;
+	#[runtime::pallet_index(82)]
+	pub type Vesting = pallet_vesting;
+	#[runtime::pallet_index(83)]
+	pub type IsmpArbitrum = ismp_arbitrum::pallet;
+	#[runtime::pallet_index(84)]
+	pub type IsmpOptimism = ismp_optimism::pallet;
+	// consensus clients
+	#[runtime::pallet_index(255)]
+	pub type IsmpGrandpa = ismp_grandpa;
+}
 
 #[cfg(feature = "runtime-benchmarks")]
 #[macro_use]
@@ -726,10 +835,15 @@ mod benches {
 	define_benchmarks!(
 		[frame_system, SystemBench::<Runtime>]
 		[pallet_balances, Balances]
-		[pallet_session, SessionBench::<Runtime>]
+		[pallet_session, cumulus_pallet_session_benchmarking::Pallet::<Runtime>]
 		[pallet_timestamp, Timestamp]
-		[pallet_collator_selection, CollatorSelection]
+		// benchmarks are broken in v1.6.0
+		// [pallet_collator_selection, CollatorSelection]
+		// todo: benchmarking requires painful configuration steps
+		// [pallet_xcm, pallet_xcm::benchmarking::Pallet::<Runtime>]
 		[cumulus_pallet_xcmp_queue, XcmpQueue]
+		[pallet_message_queue, MessageQueue]
+		[pallet_sudo, Sudo]
 	);
 }
 
@@ -887,11 +1001,11 @@ impl_runtime_apis! {
 		}
 
 		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
-			get_preset::<RuntimeGenesisConfig>(id, |_| None)
+			get_preset::<RuntimeGenesisConfig>(id, crate::genesis_config::get_preset)
 		}
 
 		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
-			vec![]
+			crate::genesis_config::preset_names()
 		}
 	}
 
@@ -914,23 +1028,25 @@ impl_runtime_apis! {
 		fn fork_identifier() -> Result<Hash, sp_mmr_primitives::Error> {
 			Ok(Ismp::child_trie_root())
 		}
-	}
-
-	impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
-		fn host_state_machine() -> StateMachine {
-			<Runtime as pallet_ismp::Config>::HostStateMachine::get()
-		}
-
-		fn challenge_period(id: StateMachineId) -> Option<u64> {
-			Ismp::challenge_period(id)
-		}
 
 		/// Generate a proof for the provided leaf indices
 		fn generate_proof(
 			keys: ProofKeys
 		) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
-			Ismp::generate_proof(keys)
+			Mmr::generate_proof(keys)
 		}
+	}
+
+	impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+		fn host_state_machine() -> StateMachine {
+			crate::ismp::HostStateMachine::get()
+		}
+
+		fn challenge_period(state_machine_id: StateMachineId) -> Option<u64> {
+			Ismp::challenge_period(state_machine_id)
+		}
+
+
 
 		/// Fetch all ISMP events
 		fn block_events() -> Vec<::ismp::events::Event> {

@@ -4,6 +4,8 @@ members = [
     # runtime
     "parachain/runtimes/gargantua",
     "parachain/runtimes/nexus",
+    # for testing pallet-revive
+    "parachain/runtimes/messier",
 
     # node
     "parachain/node",

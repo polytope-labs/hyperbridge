@@ -20,15 +20,15 @@ use super::{
 use crate::AllPalletsWithSystem;
 use frame_support::{
 	parameter_types,
-	traits::{ConstU32, Contains, Everything, Nothing},
+	traits::{ConstU32, Contains, ContainsPair, Everything, Nothing},
 	weights::Weight,
 };
 use frame_system::EnsureRoot;
-use orml_traits::location::AbsoluteReserveProvider;
-use orml_xcm_support::MultiNativeAsset;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
+use polkadot_sdk::*;
+use sp_core::H256;
 use sp_runtime::traits::Identity;
 use staging_xcm::latest::{prelude::*, Junctions::X1};
 use staging_xcm_builder::{
@@ -40,11 +40,13 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::XcmExecutor;
 
-use pallet_xcm_gateway::xcm_utilities::HyperbridgeAssetTransactor;
+use pallet_xcm_gateway::xcm_utilities::{
+	ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter,
+};
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();
-	pub const RelayNetwork: Option<NetworkId> = Some(NetworkId::Kusama);
+	pub const RelayNetwork: Option<NetworkId> = None;
 	pub RelayChainOrigin: RuntimeOrigin = cumulus_pallet_xcm::Origin::Relay.into();
 	pub Ancestry: Location = Parachain(ParachainInfo::parachain_id().into()).into();
 	pub UniversalLocation: InteriorLocation = Parachain(ParachainInfo::parachain_id().into()).into();
@@ -66,7 +68,7 @@ pub type LocationToAccountId = (
 /// Means for transacting assets on this chain.
 pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 	Runtime,
-	ConvertedConcreteId<Location, Balance, Identity, Identity>,
+	ConvertedConcreteId<H256, Balance, ConvertAssetId<Runtime>, Identity>,
 	LocationToAccountId,
 	NoChecking,
 	CheckingAccount,
@@ -121,6 +123,34 @@ pub type Barrier = (
 	// ^^^ Parent and its exec plurality get free execution
 );
 
+fn chain_part(location: &Location) -> Option<Location> {
+	match (location.parents, location.first_interior()) {
+		// sibling parachain
+		(1, Some(Parachain(id))) => Some(Location::new(1, [Parachain(*id)])),
+		// parent
+		(1, _) => Some(Location::parent()),
+		// children parachain
+		(0, Some(Parachain(id))) => Some(Location::new(0, [Parachain(*id)])),
+		_ => None,
+	}
+}
+
+/// A `ContainsPair` implementation. Filters multi native assets whose
+/// reserve is same with `origin`.
+pub struct MultiNativeAsset;
+impl ContainsPair<Asset, Location> for MultiNativeAsset {
+	fn contains(asset: &Asset, origin: &Location) -> bool {
+		let AssetId(location) = &asset.id;
+		// Check if the asset location matches the origin location for reserve checking
+		if let Some(location) = chain_part(location) {
+			if location == *origin {
+				return true;
+			}
+		}
+		false
+	}
+}
+
 pub struct XcmConfig;
 impl staging_xcm_executor::Config for XcmConfig {
 	type RuntimeCall = RuntimeCall;
@@ -128,7 +158,7 @@ impl staging_xcm_executor::Config for XcmConfig {
 	// How to withdraw and deposit an asset.
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
-	type IsReserve = MultiNativeAsset<AbsoluteReserveProvider>;
+	type IsReserve = MultiNativeAsset;
 	type IsTeleporter = ();
 	type Aliasers = Nothing;
 	// Teleporting is disabled.
@@ -149,12 +179,13 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type MessageExporter = ();
 	type UniversalAliases = Nothing;
 	type CallDispatcher = RuntimeCall;
-	type SafeCallFilter = Everything;
+	type SafeCallFilter = Nothing;
 	type TransactionalProcessor = ();
 	type HrmpNewChannelOpenRequestHandler = ();
 	type HrmpChannelAcceptedHandler = ();
 	type HrmpChannelClosingHandler = ();
 	type XcmRecorder = ();
+	type XcmEventEmitter = ();
 }
 
 /// No local origins on this chain are allowed to dispatch XCM sends/executions.
@@ -181,12 +212,12 @@ impl pallet_xcm::Config for Runtime {
 	type SendXcmOrigin = EnsureXcmOrigin<RuntimeOrigin, LocalOriginToLocation>;
 	type XcmRouter = XcmRouter;
 	type ExecuteXcmOrigin = EnsureXcmOrigin<RuntimeOrigin, LocalOriginToLocation>;
-	type XcmExecuteFilter = Nothing;
+	type XcmExecuteFilter = Everything;
 	// ^ Disable dispatchable execute on the XCM pallet.
 	// Needs to be `Everything` for local testing.
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmTeleportFilter = Everything;
-	type XcmReserveTransferFilter = Nothing;
+	type XcmReserveTransferFilter = ReserveTransferFilter;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;
 	type RuntimeOrigin = RuntimeOrigin;
@@ -202,6 +233,7 @@ impl pallet_xcm::Config for Runtime {
 	type MaxRemoteLockConsumers = ConstU32<0>;
 	type RemoteLockConsumerIdentifier = ();
 	type WeightInfo = pallet_xcm::TestWeightInfo;
+	type AuthorizedAliasConsideration = ();
 }
 
 impl cumulus_pallet_xcm::Config for Runtime {

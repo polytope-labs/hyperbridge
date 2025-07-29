@@ -11814,6 +11814,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "messier-runtime"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "cumulus-pallet-parachain-system",
+ "frame-benchmarking 41.0.0",
+ "hex-literal 0.4.1",
+ "hyperbridge-client-machine",
+ "ismp",
+ "ismp-arbitrum",
+ "ismp-bsc",
+ "ismp-grandpa",
+ "ismp-optimism",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
+ "ismp-sync-committee",
+ "log",
+ "pallet-bridge-airdrop",
+ "pallet-call-decompressor",
+ "pallet-fishermen",
+ "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
+ "pallet-mmr-runtime-api",
+ "pallet-mmr-tree",
+ "pallet-state-coprocessor",
+ "pallet-token-gateway",
+ "pallet-token-gateway-inspector",
+ "pallet-token-governor",
+ "pallet-xcm-gateway",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+ "serde_json",
+ "simnode-runtime-api",
+ "smallvec",
+ "substrate-wasm-builder",
+]
+
+[[package]]
 name = "metrics"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

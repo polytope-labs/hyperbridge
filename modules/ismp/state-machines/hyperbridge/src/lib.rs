@@ -275,3 +275,9 @@ pub trait OnRequestProcessed {
 	fn note_request_fee(commitment: H256, fee: u128);
 }
 
+impl OnRequestProcessed for () {
+	fn note_request_fee(_commitment: H256, _fee: u128) {
+		// noop
+	}
+}
+

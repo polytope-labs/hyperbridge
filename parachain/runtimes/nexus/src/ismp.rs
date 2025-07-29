@@ -26,7 +26,7 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::EnsureRoot;
-use hyperbridge_client_machine::{HyperbridgeClientMachine, OnRequestProcessed};
+use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::{
 	error::Error,
 	host::StateMachine,
@@ -127,14 +127,6 @@ impl ismp_grandpa::Config for Runtime {
 	>;
 }
 
-pub struct OnRequestProcessor;
-
-impl OnRequestProcessed for OnRequestProcessor {
-	fn note_request_fee(_commitment: H256, _fee: u128) {
-		// do nothing
-	}
-}
-
 impl pallet_ismp::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type AdminOrigin = EitherOfDiverse<
@@ -158,11 +150,11 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp, OnRequestProcessor>,
+			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp, OnRequestProcessor>,
+			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 		>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,

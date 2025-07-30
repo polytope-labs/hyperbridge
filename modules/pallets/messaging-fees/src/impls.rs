@@ -100,7 +100,11 @@ where
 					.cloned()
 					.unwrap_or(substrate_params.default_per_byte_fee);
 				let fee_u128: u128 = fee.into();
-				U256::from(fee_u128)
+				let fee_u256 = U256::from(fee_u128);
+
+				// scale from 10 decimals to 18 decimals by multiplying by 10^8
+				const SCALING_FACTOR: u128 = 100_000_000;
+				fee_u256.saturating_mul(SCALING_FACTOR.into())
 			},
 		};
 

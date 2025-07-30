@@ -48,3 +48,25 @@ export const timestampToDate = (timestamp: number | bigint): Date => {
 	const normalizedTimestamp = normalizeTimestamp(BigInt(timestamp))
 	return new Date(Number(normalizedTimestamp))
 }
+
+/**
+ * Check if a timestamp is within 24 hours of another timestamp
+ * @param createdAt - The date the record was created
+ * @param currentTimestamp - The current timestamp
+ * @returns True if within 24 hours, false otherwise
+ */
+export const isWithin24Hours = (createdAt: Date, currentTimestamp: bigint): boolean => {
+	const timestampDate = timestampToDate(currentTimestamp).toISOString().split("T")[0]
+	const createdDate = createdAt.toISOString().split("T")[0]
+	return timestampDate <= createdDate
+}
+
+/**
+ * Get date YYYY-MM-DD format from bigint timestamp
+ * @param timestamp - The timestamp
+ * @returns YYYY-MM-DD
+ */
+export const getDateFormatFromTimestamp = (timestamp: bigint): string => {
+	const date = timestampToDate(timestamp)
+	return date.toISOString().split("T")[0] // Get YYYY-MM-DD format
+}

@@ -1,7 +1,7 @@
 import Decimal from "decimal.js"
 
 import { CumulativeVolumeUSD, DailyVolumeUSD } from "@/configs/src/types"
-import { timestampToDate } from "@/utils/date.helpers"
+import { getDateFormatFromTimestamp, isWithin24Hours, timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 
 export class VolumeService {
@@ -54,7 +54,7 @@ export class VolumeService {
 			})
 		}
 
-		if (this.isWithin24Hours(dailyVolumeUSD.createdAt, timestamp) && dailyVolumeUSD.lastUpdatedAt !== timestamp) {
+		if (isWithin24Hours(dailyVolumeUSD.createdAt, timestamp) && dailyVolumeUSD.lastUpdatedAt !== timestamp) {
 			dailyVolumeUSD.last24HoursVolumeUSD = new Decimal(dailyVolumeUSD.last24HoursVolumeUSD)
 				.plus(new Decimal(volumeUSD))
 				.toFixed(18)
@@ -93,20 +93,7 @@ export class VolumeService {
 	 * @returns The daily record ID
 	 */
 	private static getDailyRecordId(baseId: string, timestamp: bigint): string {
-		const date = timestampToDate(timestamp)
-		const dateString = date.toISOString().split("T")[0] // Get YYYY-MM-DD format
+		const dateString = getDateFormatFromTimestamp(timestamp)
 		return `${baseId}.${dateString}`
-	}
-
-	/**
-	 * Check if a timestamp is within 24 hours of another timestamp
-	 * @param createdAt - The date the record was created
-	 * @param currentTimestamp - The current timestamp
-	 * @returns True if within 24 hours, false otherwise
-	 */
-	private static isWithin24Hours(createdAt: Date, currentTimestamp: bigint): boolean {
-		const timestampDate = timestampToDate(currentTimestamp).toISOString().split("T")[0]
-		const createdDate = createdAt.toISOString().split("T")[0]
-		return timestampDate <= createdDate
 	}
 }

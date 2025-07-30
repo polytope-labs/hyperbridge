@@ -1550,6 +1550,68 @@ export class IndexerClient {
 			logger: this.logger,
 		})
 	}
+
+	/**
+	 * Aggregate transactions with commitment.
+	 * @param commitment
+	 * @returns an object containing the transaction hash, block hash, block number, timestamp.
+	 */
+	async aggregateTransactionWithCommitment(
+		commitment: HexString,
+	): Promise<Awaited<ReturnType<SubstrateChain["submitUnsigned"]>>> {
+		const logger = this.logger.withTag("aggregateTransactionWithCommitment")
+
+		const { stateMachineId, consensusStateId } = this.config.source
+
+		// check if request receipt exists on source chain
+		const sourceChain = await getChain(this.config.source)
+		const hyperbridge = (await getChain({
+			...this.config.hyperbridge,
+			hasher: "Keccak",
+		})) as SubstrateChain
+
+		logger.trace("Querying post request with commitment hash")
+		const request = await this.queryPostRequest(commitment)
+		if (!request) throw new Error("Request not found")
+
+		logger.trace("Fetch latest stateMachineHeight")
+		const latestStateMachineHeight = await hyperbridge.latestStateMachineHeight({
+			stateId: parseStateMachineId(stateMachineId).stateId,
+			consensusStateId: consensusStateId as HexString,
+		})
+
+		logger.trace("Query Request Proof from sourceChain")
+		const proof = await sourceChain.queryProof(
+			{ Requests: [commitment] },
+			this.config.dest.stateMachineId,
+			latestStateMachineHeight,
+		)
+
+		logger.trace("Construct Extrinsic and Submit Unsigned")
+		const calldata = await hyperbridge.submitUnsigned({
+			kind: "PostRequest",
+			proof: {
+				stateMachine: this.config.source.stateMachineId,
+				consensusStateId: this.config.source.consensusStateId,
+				proof,
+				height: BigInt(latestStateMachineHeight),
+			},
+			requests: [
+				{
+					source: request.source,
+					dest: request.dest,
+					from: request.from,
+					to: request.to,
+					nonce: request.nonce,
+					body: request.body,
+					timeoutTimestamp: request.timeoutTimestamp,
+				},
+			],
+			signer: pad("0x"),
+		})
+
+		return calldata
+	}
 }
 
 interface PartialClientConfig extends Omit<ClientConfig, "pollInterval"> {

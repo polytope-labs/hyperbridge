@@ -1,6 +1,6 @@
 {
 	"name": "hyperbridge-sdk",
-	"version": "1.1.9",
+	"version": "1.1.10",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
 	"types": "./dist/node/index.d.ts",
@@ -59,7 +59,6 @@
 	},
 	"dependencies": {
 		"@async-generator/merge-race": "^1.0.3",
-		"@hyperbridge/filler": "workspace:*",
 		"@polkadot/api": "^15.7.1",
 		"@polkadot/types": "14.0.1",
 		"@polkadot/util": "13.3.1",
@@ -77,6 +76,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
+		"@hyperbridge/filler": "workspace:*",
 		"@polkadot/keyring": "13.4.3",
 		"@polytope-labs/hyperclient": "1.2.0",
 		"@types/node": "^22.13.5",

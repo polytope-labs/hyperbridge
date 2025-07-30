@@ -17,6 +17,7 @@ codec = { workspace = true, features = ["derive"] }
 hex-literal = { workspace = true, optional = true }
 log = { workspace = true }
 json = { workspace = true }
+alloy-primitives = { workspace = true }
 scale-info = { version = "2.3.1", default-features = false, features = [
     "derive",
 ] }
@@ -40,7 +41,6 @@ pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
-pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
@@ -52,6 +52,7 @@ pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 pallet-revive-ismp-dispatcher = { workspace = true }
+pallet-hyperbridge = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -137,7 +138,6 @@ std = [
     "pallet-ismp-host-executive/std",
     "pallet-call-decompressor/std",
     "pallet-state-coprocessor/std",
-    "pallet-xcm-gateway/std",
     "pallet-token-gateway-inspector/std",
     "pallet-token-governor/std",
     "pallet-mmr-tree/std",
@@ -151,6 +151,8 @@ std = [
     "ismp-arbitrum/std",
     "ismp-optimism/std",
     "pallet-revive-ismp-dispatcher/std",
+    "pallet-hyperbridge/std",
+    "alloy-primitives/std",
 ]
 runtime-benchmarks = [
     "hex-literal",

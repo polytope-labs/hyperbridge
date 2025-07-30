@@ -20,15 +20,13 @@ extern crate alloc;
 mod interface;
 pub use interface::*;
 
+use alloc::{
+	format,
+	string::{String, ToString},
+	vec::Vec,
+};
 use alloy_primitives::{Address, Uint};
-use core::str::FromStr;
-use core::default::Default;
-use core::result::Result::*;
-use core::convert::From;
-use alloc::string::String;
-use alloc::format;
-use alloc::vec::Vec;
-use alloc::string::ToString;
+use core::{convert::From, default::Default, result::Result::*, str::FromStr};
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp::{FundMessageParams, MessageCommitment};
 use polkadot_sdk::*;
@@ -56,7 +54,9 @@ use pallet_revive::precompiles::{
 use IDispatcher::IDispatcherCalls;
 
 /// [`pallet_revive::precompiles::Precompile`] implementation for [`ismp`] protocol dispatcher
-pub struct ReviveDispatcher<Runtime, Dispatcher, FeeToken>(PhantomData<(Runtime, Dispatcher, FeeToken)>);
+pub struct ReviveDispatcher<Runtime, Dispatcher, FeeToken>(
+	PhantomData<(Runtime, Dispatcher, FeeToken)>,
+);
 
 // Todo: figure out gas costs
 impl<Runtime, Dispatcher, FeeToken> Precompile for ReviveDispatcher<Runtime, Dispatcher, FeeToken>
@@ -244,7 +244,10 @@ where
 				.map_err(|_| Error::Revert(Revert { reason: "Failed to fund request".into() }))?;
 				return Ok(Default::default());
 			},
-			IDispatcherCalls::fundResponse(IDispatcher::fundResponseCall { commitment, amount }) => {
+			IDispatcherCalls::fundResponse(IDispatcher::fundResponseCall {
+				commitment,
+				amount,
+			}) => {
 				let new_fee = amount
 					.to_u128()
 					.ok_or(Error::Revert(Revert { reason: "Invalid fee".into() }))?;

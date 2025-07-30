@@ -11817,6 +11817,7 @@ dependencies = [
 name = "messier-runtime"
 version = "0.1.1"
 dependencies = [
+ "alloy-primitives 0.7.7",
  "anyhow",
  "cumulus-pallet-parachain-system",
  "frame-benchmarking 41.0.0",
@@ -11834,6 +11835,7 @@ dependencies = [
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
@@ -11846,7 +11848,6 @@ dependencies = [
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
- "pallet-xcm-gateway",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",

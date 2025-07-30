@@ -59,6 +59,7 @@ use ::ismp::{
 
 use alloc::borrow::Cow;
 
+use alloy_primitives::Address as AlloyAddress;
 use frame_support::{
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
@@ -628,22 +629,11 @@ pub struct TreasuryAssetFactory {}
 #[cfg(feature = "runtime-benchmarks")]
 impl<A, B> ArgumentsFactory<A, B> for TreasuryAssetFactory
 where
-	A: From<[u8; 32]>,
+	A: From<u16>,
 	B: sp_core::crypto::FromEntropy,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		use codec::Encode;
-		use staging_xcm::latest::{Junction, Location};
-		sp_io::hashing::keccak_256(
-			&Location {
-				parents: 0,
-				interior: staging_xcm::latest::Junctions::X1(alloc::sync::Arc::new([
-					Junction::GeneralIndex(seed as u128),
-				])),
-			}
-			.encode(),
-		)
-		.into()
+		(seed as u16).into()
 	}
 
 	fn create_beneficiary(seed: [u8; 32]) -> B {
@@ -654,21 +644,10 @@ where
 #[cfg(feature = "runtime-benchmarks")]
 impl<A> AssetKindFactory<A> for TreasuryAssetFactory
 where
-	A: From<[u8; 32]>,
+	A: From<u16>,
 {
 	fn create_asset_kind(seed: u32) -> A {
-		use codec::Encode;
-		use staging_xcm::latest::{Junction, Location};
-		sp_io::hashing::keccak_256(
-			&Location {
-				parents: 0,
-				interior: staging_xcm::latest::Junctions::X1(alloc::sync::Arc::new([
-					Junction::GeneralIndex(seed as u128),
-				])),
-			}
-			.encode(),
-		)
-		.into()
+		(seed as u16).into()
 	}
 }
 
@@ -685,7 +664,7 @@ impl pallet_treasury::Config for Runtime {
 	type SpendFunds = ();
 	type MaxApprovals = ConstU32<1>; // number of technical collectives
 	type SpendOrigin = EnsureRootWithSuccess<AccountId32, MaxBalance>;
-	type AssetKind = H256;
+	type AssetKind = u16;
 	type Beneficiary = AccountId32;
 	type BeneficiaryLookup = IdentityLookup<Self::Beneficiary>;
 	type Paymaster = PayAssetFromAccount<Assets, TreasuryAccount>;
@@ -703,7 +682,7 @@ impl pallet_asset_rate::Config for Runtime {
 	type RemoveOrigin = EnsureRoot<AccountId32>;
 	type UpdateOrigin = EnsureRoot<AccountId32>;
 	type Currency = Balances;
-	type AssetKind = H256;
+	type AssetKind = u16;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = TreasuryAssetFactory;
 }
@@ -750,6 +729,7 @@ parameter_types! {
 	pub const DepositPerItem: Balance = EXISTENTIAL_DEPOSIT;
 	pub const DepositPerByte: Balance = EXISTENTIAL_DEPOSIT;
 	pub CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(30);
+	pub const FeeTokenAddress: AlloyAddress = alloy_primitives::address!("0000000000000000000000000000000002880000");
 }
 
 impl pallet_revive::Config for Runtime {
@@ -855,14 +835,14 @@ mod runtime {
 	pub type IsmpSyncCommitteeEth = ismp_sync_committee::pallet<Instance1>;
 	#[runtime::pallet_index(52)]
 	pub type IsmpDemo = pallet_ismp_demo;
+	#[runtime::pallet_index(54)]
+	pub type Hyperbridge = pallet_hyperbridge;
 	#[runtime::pallet_index(53)]
 	pub type Relayer = pallet_ismp_relayer;
 	#[runtime::pallet_index(55)]
 	pub type HostExecutive = pallet_ismp_host_executive;
 	#[runtime::pallet_index(56)]
 	pub type CallDecompressor = pallet_call_decompressor;
-	#[runtime::pallet_index(57)]
-	pub type XcmGateway = pallet_xcm_gateway;
 	#[runtime::pallet_index(58)]
 	pub type Assets = pallet_assets;
 	#[runtime::pallet_index(59)]

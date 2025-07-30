@@ -5,7 +5,7 @@ use pallet_revive::precompiles::alloy;
 alloy::sol! {
 	#![sol(all_derives)]
 	/// @dev The on-chain address of the dispatcher precompile.
-	address constant DISPATCHER_PRECOMPILE_ADDRESS = address(0xD27);
+	address constant DISPATCHER_PRECOMPILE_ADDRESS = address(0xD270000);
 
 	// Outcome of a successfully verified merkle-patricia proof
 	struct StorageValue {

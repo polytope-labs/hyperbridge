@@ -55,6 +55,7 @@ members = [
     "modules/consensus/tendermint/verifier",
     "modules/consensus/tendermint/prover",
     "modules/consensus/tendermint/primitives",
+    "modules/consensus/tendermint/ics23-primitives",
     "modules/trees/ethereum",
     "modules/pallets/mmr",
     "modules/pallets/mmr/primitives",
@@ -201,6 +202,7 @@ cometbft = { git = "https://github.com/cometbft/cometbft-rs",  rev = "ac3db79c58
 cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-rpc", features = ["http-client", "secp256k1"], rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
 cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
 cometbft-light-client-verifier = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-light-client-verifier", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
+ics23 = { version = "0.12.0", default-features = false }
 
 # published crates
 ismp = { version = "1.2.0", path = "./modules/ismp/core", default-features = false }
@@ -239,6 +241,7 @@ grandpa-prover = { path = "./modules/consensus/grandpa/prover" }
 tendermint-verifier = { path = "./modules/consensus/tendermint/verifier", default-features = false }
 tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", default-features = false }
 tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
+tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }

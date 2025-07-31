@@ -13,12 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
-	XcmGateway, EXISTENTIAL_DEPOSIT,
-};
+use crate::{alloc::{boxed::Box, string::ToString}, weights, AccountId, Assets, AssetsHolder, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT, CurrencyAdapterHoldReason};
 use anyhow::anyhow;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
@@ -45,6 +40,7 @@ use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
+use codec::Encode;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -224,9 +220,13 @@ impl pallet_assets::Config for Runtime {
 	type CallbackHandle = ();
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
-	type Holder = ();
+	type Holder = AssetsHolder;
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = XcmBenchmarkHelper;
+}
+impl pallet_assets_holder::Config for Runtime {
+	type RuntimeHoldReason = CurrencyAdapterHoldReason;
+	type RuntimeEvent = RuntimeEvent;
 }
 
 impl IsmpModule for ProxyModule {

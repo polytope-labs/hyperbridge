@@ -28,7 +28,6 @@ mod genesis_config;
 mod ismp;
 mod weights;
 pub mod xcm;
-mod currency_adapter;
 
 use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::{
@@ -117,6 +116,10 @@ use sp_runtime::traits::IdentityLookup;
 use sp_core::crypto::FromEntropy;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
+use frame_benchmarking::__private::traits::VariantCount;
+use scale_info::TypeInfo;
+
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
 
@@ -519,7 +522,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorSelection;
+	type SessionManager = CollatorManager;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -547,9 +550,58 @@ parameter_types! {
 // We allow root only to execute privileged collator selection operations.
 pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
+
+parameter_types! {
+    pub const ReputationPotId: PalletId = PalletId(*b"rep/pot_");
+}
+
+#[derive(
+	Clone, Eq, PartialEq, codec::Encode, codec::Decode, MaxEncodedLen, TypeInfo, Debug, Default,
+)]
+pub struct ReputationDeal;
+
+#[derive(
+	Decode,
+	DecodeWithMemTracking,
+	Encode,
+	MaxEncodedLen,
+	PartialEq,
+	Eq,
+	Ord,
+	PartialOrd,
+	TypeInfo,
+	Debug,
+	Clone,
+	Copy,
+	Default
+)]
+pub enum CurrencyAdapterHoldReason {
+	#[default]
+	CollatorSelectionBond,
+	Other,
+}
+
+impl VariantCount for CurrencyAdapterHoldReason {
+	const VARIANT_COUNT: u32 = 3;
+}
+
+pub type ReputationCurrency = pallet_collator_manager::currency_adapter::AssetCurrencyAdapter<
+	Assets,
+	AssetsHolder,
+	ReputationAssetId,
+	Balance,
+	AccountId,
+	ReputationPotId,
+	CurrencyAdapterHoldReason,
+>;
+
+parameter_types! {
+    pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
+	type Currency = ReputationCurrency;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -561,6 +613,25 @@ impl pallet_collator_selection::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ValidatorRegistration = Session;
 	type WeightInfo = ();
+}
+
+pub struct CollatorSelectionProvider;
+impl pallet_collator_manager::CandidateProvider<AccountId> for CollatorSelectionProvider {
+	fn candidates() -> Vec<AccountId> {
+		pallet_collator_selection::CandidateList::<Runtime>::get()
+			.into_iter()
+			.map(|info| info.who)
+			.collect()
+	}
+}
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationCurrency = ReputationCurrency;
+	type CandidateProvider = CollatorSelectionProvider;
+	type ReputationAssetId = ReputationAssetId;
+	type ReputationAssets = Assets;
+
+	type DesiredCollators = ConstU32<50>;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -826,6 +897,10 @@ mod runtime {
 	pub type IsmpArbitrum = ismp_arbitrum::pallet;
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
+	#[runtime::pallet_index(85)]
+	pub type AssetsHolder = pallet_assets_holder;
+	#[runtime::pallet_index(86)]
+	pub type CollatorManager = pallet_collator_manager;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;

@@ -1,8 +1,24 @@
-use codec::MaxEncodedLen;
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use codec::{Decode, MaxEncodedLen};
 use core::mem;
 use scale_info::TypeInfo;
 use polkadot_sdk::{
     frame_support::{
+        PalletId,
         traits::{
             fungibles,
             tokens::{
@@ -14,7 +30,7 @@ use polkadot_sdk::{
         },
     },
     sp_runtime::{
-        traits::{MaybeSerializeDeserialize, Saturating, Zero},
+        traits::{MaybeSerializeDeserialize, AccountIdConversion},
         DispatchError, DispatchResult as SpDispatchResult,
     },
     sp_std::{fmt::Debug, marker::PhantomData, result},
@@ -173,18 +189,18 @@ impl<B: Balance> ImbalanceT<B> for NegativeImbalance<B> {
     }
 }
 
-pub struct AssetCurrencyAdapter<Assets, AssetId, B, AccountId, Reason>(
-    PhantomData<(Assets, AssetId, B, AccountId, Reason)>,
+pub struct AssetCurrencyAdapter<Base, Holder, AssetIdParameter, B, AccountId, PotId, Reason>(
+    PhantomData<(Base, Holder, AssetIdParameter, B, AccountId, PotId, Reason)>,
 );
-impl<Assets, AssetId, B, AccountId, Reason> Currency<AccountId>
-for AssetCurrencyAdapter<Assets, AssetId, B, AccountId, Reason>
+impl<Base, Holder, AssetIdParameter, B, AccountId, PotId, Reason> Currency<AccountId>
+for AssetCurrencyAdapter<Base, Holder, AssetIdParameter, B, AccountId, PotId, Reason>
 where
-    Assets: fungibles::Mutate<AccountId, AssetId = AssetId, Balance = B>
-    + fungibles::Balanced<AccountId, AssetId = AssetId, Balance = B>
-    + fungibles::Unbalanced<AccountId, AssetId = AssetId, Balance = B>,
-    AssetId: Get<Assets::AssetId>,
+    Base: fungibles::Mutate<AccountId, Balance = B>
+    + fungibles::Balanced<AccountId, Balance = B>,
+    AssetIdParameter: Get<Base::AssetId>,
     B: Balance + MaybeSerializeDeserialize + Debug + MaxEncodedLen,
-    AccountId: Ord + Clone + Default + MaxEncodedLen + TypeInfo,
+    AccountId: Ord + Clone + MaxEncodedLen + TypeInfo + Decode,
+    PotId: Get<PalletId>,
     Reason: Default,
 {
     type Balance = B;
@@ -192,7 +208,7 @@ where
     type NegativeImbalance = NegativeImbalance<Self::Balance>;
 
     fn total_balance(who: &AccountId) -> Self::Balance {
-        Assets::balance(AssetId::get(), who)
+        Base::balance(AssetIdParameter::get(), who)
     }
 
     fn can_slash(who: &AccountId, value: Self::Balance) -> bool {
@@ -200,32 +216,34 @@ where
     }
 
     fn total_issuance() -> Self::Balance {
-        Assets::total_issuance(AssetId::get())
+        Base::total_issuance(AssetIdParameter::get())
     }
 
     fn minimum_balance() -> Self::Balance {
-        Assets::minimum_balance(AssetId::get())
+        Base::minimum_balance(AssetIdParameter::get())
     }
 
     fn burn(amount: Self::Balance) -> Self::PositiveImbalance {
-        let _ = Assets::burn_from(
-            AssetId::get(),
-            &AccountId::default(),
+        let pot = PotId::get().into_account_truncating();
+        let burned = Base::burn_from(
+            AssetIdParameter::get(),
+            &pot,
             amount,
             Preservation::Expendable,
             Precision::Exact,
             Fortitude::Polite,
-        );
-        PositiveImbalance::new(amount)
+        ).unwrap_or_else(|_| B::zero());
+        PositiveImbalance::new(burned)
     }
 
     fn issue(amount: Self::Balance) -> Self::NegativeImbalance {
-        let _ = Assets::mint_into(AssetId::get(), &AccountId::default(), amount);
-        NegativeImbalance::new(amount)
+        let pot = PotId::get().into_account_truncating();
+        let issued = Base::mint_into(AssetIdParameter::get(), &pot, amount).unwrap_or_else(|_| B::zero());
+        NegativeImbalance::new(issued)
     }
 
     fn free_balance(who: &AccountId) -> Self::Balance {
-        Assets::balance(AssetId::get(), who)
+        Base::balance(AssetIdParameter::get(), who)
     }
 
     fn ensure_can_withdraw(
@@ -234,7 +252,7 @@ where
         _reasons: WithdrawReasons,
         new_balance: Self::Balance,
     ) -> SpDispatchResult {
-        Assets::can_withdraw(AssetId::get(), who, amount).into_result(false)?;
+        Base::can_withdraw(AssetIdParameter::get(), who, amount).into_result(false)?;
         if new_balance < Self::minimum_balance() {
             return Err(DispatchError::Other("Would fall below minimum balance"));
         }
@@ -251,25 +269,27 @@ where
             ExistenceRequirement::KeepAlive => Preservation::Protect,
             ExistenceRequirement::AllowDeath => Preservation::Expendable,
         };
-        Assets::transfer(AssetId::get(), source, dest, value, preservation)?;
+        Base::transfer(AssetIdParameter::get(), source, dest, value, preservation)?;
         Ok(())
     }
 
     fn slash(who: &AccountId, value: Self::Balance) -> (Self::NegativeImbalance, Self::Balance) {
-        let (imbalance, remaining) = Assets::slash(AssetId::get(), who, value);
-        (imbalance, remaining)
+        let available = Base::reducible_balance(AssetIdParameter::get(), who, Preservation::Expendable, Fortitude::Polite);
+        let slash_amount = value.min(available);
+        let burned = Base::burn_from(AssetIdParameter::get(), who, slash_amount, Preservation::Expendable, Precision::BestEffort, Fortitude::Force).unwrap_or_else(|_| B::zero());
+        (NegativeImbalance::new(burned), value.saturating_sub(burned))
     }
 
     fn deposit_into_existing(
         who: &AccountId,
         value: Self::Balance,
     ) -> Result<Self::PositiveImbalance, DispatchError> {
-        Assets::mint_into(AssetId::get(), who, value).map(PositiveImbalance::new)
+        Base::mint_into(AssetIdParameter::get(), who, value).map(PositiveImbalance::new)
     }
 
     fn deposit_creating(who: &AccountId, value: Self::Balance) -> Self::PositiveImbalance {
         PositiveImbalance::new(
-            Assets::mint_into(AssetId::get(), who, value).unwrap_or_else(|_| B::zero()),
+            Base::mint_into(AssetIdParameter::get(), who, value).unwrap_or_else(|_| B::zero()),
         )
     }
 
@@ -283,8 +303,8 @@ where
             ExistenceRequirement::KeepAlive => Preservation::Protect,
             ExistenceRequirement::AllowDeath => Preservation::Expendable,
         };
-        Assets::burn_from(
-            AssetId::get(),
+        Base::burn_from(
+            AssetIdParameter::get(),
             who,
             value,
             preservation,
@@ -321,35 +341,34 @@ where
     }
 }
 
-impl<Assets, AssetId, B, AccountId, Reason> ReservableCurrency<AccountId>
-for AssetCurrencyAdapter<Assets, AssetId, B, AccountId, Reason>
+impl<Base, Holder, AssetIdParameter, B, AccountId, PotId, Reason> ReservableCurrency<AccountId>
+for AssetCurrencyAdapter<Base, Holder, AssetIdParameter, B, AccountId, PotId, Reason>
 where
-    Assets: fungibles::Mutate<AccountId, AssetId = AssetId, Balance = B>
-    + fungibles::Balanced<AccountId, AssetId = AssetId, Balance = B>
-    + fungibles::Unbalanced<AccountId, AssetId = AssetId, Balance = B>
-    + fungibles::hold::Mutate<AccountId, AssetId = AssetId, Balance = B, Reason = Reason>
-    + fungibles::hold::Unbalanced<AccountId, AssetId = AssetId, Balance = B, Reason = Reason>
-    + fungibles::BalancedHold<AccountId, AssetId = AssetId, Balance = B, Reason = Reason>,
-    AssetId: Get<Assets::AssetId>,
+    Base: fungibles::Mutate<AccountId, Balance = B>
+    + fungibles::Balanced<AccountId, Balance = B>,
+    Holder: fungibles::hold::Mutate<AccountId, Reason = Reason, Balance = B>
+    + fungibles::hold::Inspect<AccountId, Reason = Reason, Balance = B>,
+    AssetIdParameter: Get<Base::AssetId> + Get<Holder::AssetId>,
     B: Balance + MaybeSerializeDeserialize + Debug + MaxEncodedLen,
-    AccountId: Ord + Clone + Default + MaxEncodedLen + TypeInfo,
+    AccountId: Ord + Clone + MaxEncodedLen + TypeInfo + Decode,
+    PotId: Get<PalletId>,
     Reason: codec::Codec + Clone + PartialEq + Eq + MaxEncodedLen + TypeInfo + Default,
 {
     fn can_reserve(who: &AccountId, value: Self::Balance) -> bool {
-        Assets::can_hold(AssetId::get(), &Reason::default(), who, value)
+        Holder::can_hold(AssetIdParameter::get(), &Reason::default(), who, value)
     }
 
     fn reserved_balance(who: &AccountId) -> Self::Balance {
-        Assets::balance_on_hold(AssetId::get(), &Reason::default(), who)
+        Holder::balance_on_hold(AssetIdParameter::get(), &Reason::default(), who)
     }
 
     fn reserve(who: &AccountId, value: Self::Balance) -> SpDispatchResult {
-        Assets::hold(AssetId::get(), &Reason::default(), who, value)?;
+        Holder::hold(AssetIdParameter::get(), &Reason::default(), who, value)?;
         Ok(())
     }
 
     fn unreserve(who: &AccountId, value: Self::Balance) -> Self::Balance {
-        Assets::release(AssetId::get(), &Reason::default(), who, value, Precision::Exact)
+        Holder::release(AssetIdParameter::get(), &Reason::default(), who, value, Precision::Exact)
             .unwrap_or_default()
     }
 
@@ -363,8 +382,8 @@ where
             BalanceStatus::Free => Restriction::Free,
             BalanceStatus::Reserved => Restriction::OnHold,
         };
-        Assets::transfer_on_hold(
-            AssetId::get(),
+        Holder::transfer_on_hold(
+            AssetIdParameter::get(),
             &Reason::default(),
             slashed,
             beneficiary,
@@ -379,8 +398,9 @@ where
         who: &AccountId,
         value: Self::Balance,
     ) -> (Self::NegativeImbalance, Self::Balance) {
-        let (imbalance, remaining) =
-            <Assets as fungibles::hold::Unbalanced<AccountId>>::slash_on_hold(AssetId::get(), &Reason::default(), who, value);
-        (imbalance, remaining)
+        let slash_amount = value.min(Self::reserved_balance(who));
+        let released = Holder::release(AssetIdParameter::get(), &Reason::default(), who, slash_amount, Precision::BestEffort).unwrap_or_else(|_| B::zero());
+        let burned = Base::burn_from(AssetIdParameter::get(), who, released, Preservation::Expendable, Precision::BestEffort, Fortitude::Force).unwrap_or_else(|_| B::zero());
+        (NegativeImbalance::new(burned), value.saturating_sub(burned))
     }
 }

@@ -116,11 +116,7 @@ impl PolygonPosHost {
 		let consensus_state = ConsensusState {
 			tendermint_state,
 			last_finalized_block: milestone.end_block,
-			last_finalized_hash: base64::Engine::decode(
-				&base64::engine::general_purpose::STANDARD,
-				&milestone.hash,
-			)
-			.map_err(|e| anyhow::anyhow!("Failed to decode milestone hash: {e}"))?,
+			last_finalized_hash: milestone.hash, // Already decoded from base64 by deserializer
 			chain_id,
 		};
 

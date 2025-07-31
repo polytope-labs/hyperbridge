@@ -3,8 +3,8 @@
 // mod ethereum;
 // mod grandpa;
 // mod bsc;
-// // mod polygon;
 mod ping;
+mod polygon;
 // mod substrate;
 //mod l2s;
 mod util;

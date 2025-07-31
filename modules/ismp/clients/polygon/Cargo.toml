@@ -24,6 +24,7 @@ std = [
     "serde_json/std",
     "prost/std",
     "evm-state-machine/std",
+    "ics23/std",
 ]
 
 [dependencies]
@@ -39,9 +40,9 @@ tendermint-verifier = { workspace = true, default-features = false }
 tendermint-primitives = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
-ics23 = { version = "0.12.0", default-features = true }
+ics23 = { version = "0.12.0", default-features = false }
 serde = { version = "1.0", features = ["derive"], default-features = false }
-serde_json = { version = "1.0", default-features = false, optional = true }
+serde_json = { version = "1.0", default-features = false }
 prost = { workspace = true, default-features = false }
 evm-state-machine = { workspace = true }
 sha2 = { version = "0.10", default-features = false }

@@ -10,7 +10,13 @@ extern crate alloc;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
+use alloc::{
+	boxed::Box,
+	collections::BTreeMap,
+	string::{String, ToString},
+	vec,
+	vec::Vec,
+};
 use codec::{Decode, Encode};
 use geth_primitives::Header;
 use ismp::{

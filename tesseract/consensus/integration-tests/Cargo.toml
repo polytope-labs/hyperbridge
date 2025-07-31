@@ -35,7 +35,7 @@ tesseract-messaging = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 tesseract-evm = { workspace = true  }
 tesseract-sync-committee = { workspace = true, features = ["testing"] }
-#tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
+tesseract-polygon = { workspace = true }
 tesseract-bsc = { workspace = true  }
 ismp-grandpa = { workspace = true  }
 dotenv = "0.15.0"

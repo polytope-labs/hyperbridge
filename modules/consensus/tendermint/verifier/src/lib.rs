@@ -1,4 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+extern crate alloc;
+
 pub use cometbft::{
 	block::{signed_header::SignedHeader, Header, Height},
 	chain::Id as ChainId,

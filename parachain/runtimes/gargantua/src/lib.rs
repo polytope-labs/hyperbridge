@@ -28,6 +28,7 @@ mod genesis_config;
 mod ismp;
 mod weights;
 pub mod xcm;
+mod currency_adapter;
 
 use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::{

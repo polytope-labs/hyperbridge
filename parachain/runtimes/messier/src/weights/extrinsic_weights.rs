@@ -20,6 +20,7 @@ pub mod constants {
 		parameter_types,
 		weights::{constants, Weight},
 	};
+	use polkadot_sdk::*;
 
 	parameter_types! {
 		/// Executing a NO-OP `System::remarks` Extrinsic.
@@ -29,7 +30,7 @@ pub mod constants {
 
 	#[cfg(test)]
 	mod test_weights {
-		use frame_support::weights::constants;
+		use polkadot_sdk::frame_support::weights::constants;
 
 		/// Checks that the weight exists and is sane.
 		// NOTE: If this test fails but you are sure that the generated values are fine,

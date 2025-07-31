@@ -14,6 +14,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![allow(unused_imports)]
 
 //! Expose the auto generated weight files.
 
@@ -22,6 +23,23 @@ pub mod extrinsic_weights;
 pub mod paritydb_weights;
 pub mod rocksdb_weights;
 
+pub mod cumulus_pallet_parachain_system;
+pub mod cumulus_pallet_xcmp_queue;
+pub mod frame_system;
+pub mod ismp_grandpa;
+pub mod ismp_parachain;
+pub mod pallet_asset_rate;
+pub mod pallet_assets;
+pub mod pallet_balances;
+pub mod pallet_collective;
+pub mod pallet_message_queue;
+pub mod pallet_session;
+pub mod pallet_sudo;
+pub mod pallet_timestamp;
+pub mod pallet_treasury;
+pub mod pallet_utility;
+
 pub use block_weights::constants::BlockExecutionWeight;
 pub use extrinsic_weights::constants::ExtrinsicBaseWeight;
+pub use paritydb_weights::constants::ParityDbWeight;
 pub use rocksdb_weights::constants::RocksDbWeight;

@@ -8,7 +8,7 @@
 
 extern crate alloc;
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::prelude::{Engine as _, BASE64_STANDARD_NO_PAD};
 
 use alloc::{
 	boxed::Box,
@@ -32,8 +32,8 @@ use ismp::{
 use evm_state_machine::EvmStateMachine;
 use pallet_ismp_host_executive::Config as HostExecutiveConfig;
 use prost::Message;
-use scale_info::prelude::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
+use tendermint_ics23_primitives::ICS23HostFunctions;
 use tendermint_primitives::{CodecConsensusProof, CodecTrustedState, TrustedState};
 use tendermint_verifier::verify_header_update;
 
@@ -135,9 +135,7 @@ where
 {
 	use serde::Deserialize;
 	let s = String::deserialize(deserializer)?;
-	base64::engine::general_purpose::STANDARD
-		.decode(s)
-		.map_err(serde::de::Error::custom)
+	BASE64_STANDARD_NO_PAD.decode(&s).map_err(serde::de::Error::custom)
 }
 
 /// Protobuf representation of a milestone
@@ -246,8 +244,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 		if let Some(milestone_update_ref) = &polygon_consensus_update.milestone_update {
 			let evm_header = Header::from(&milestone_update_ref.evm_header.clone());
 			let evm_header_hash = evm_header.hash::<H>().as_bytes().to_vec();
-			let milestone_hash =
-				STANDARD.decode(&milestone_update_ref.milestone.hash).unwrap_or_default();
+			let milestone_hash = BASE64_STANDARD_NO_PAD
+				.decode(&milestone_update_ref.milestone.hash)
+				.unwrap_or_default();
 
 			if evm_header_hash != milestone_hash {
 				return Err(ismp::error::Error::Custom(
@@ -279,7 +278,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			let mut key = vec![0x81];
 			key.extend_from_slice(&milestone_update_ref.milestone_number.to_be_bytes());
 
-			let verification_result = ics23::verify_membership::<PolygonHostFunctions>(
+			let verification_result = ics23::verify_membership::<ICS23HostFunctions>(
 				&commitment_proof,
 				&spec,
 				&consensus_proof.signed_header.header.app_hash.as_bytes().to_vec(),
@@ -324,7 +323,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 
 	fn verify_fraud_proof(
 		&self,
-		_host: &dyn IsmpHost,
+		host: &dyn IsmpHost,
 		trusted_consensus_state: Vec<u8>,
 		proof_1: Vec<u8>,
 		proof_2: Vec<u8>,
@@ -352,7 +351,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 				.map_err(|e| Error::Custom(e.to_string()))?
 				.into();
 
-		let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+		let time = host.timestamp().as_secs();
 
 		let consensus_proof_1 = update_1
 			.tendermint_proof
@@ -383,57 +382,5 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 				Ok(Box::new(EvmStateMachine::<H, T>::default())),
 			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
 		}
-	}
-}
-
-/// Host functions provider for Polygon using sp_io and similar crates
-pub struct PolygonHostFunctions;
-
-impl ics23::HostFunctionsProvider for PolygonHostFunctions {
-	fn sha2_256(message: &[u8]) -> [u8; 32] {
-		sp_io::hashing::sha2_256(message)
-	}
-
-	fn sha2_512(message: &[u8]) -> [u8; 64] {
-		use sha2::{Digest, Sha512};
-		let mut hasher = Sha512::new();
-		hasher.update(message);
-		hasher.finalize().into()
-	}
-
-	fn sha2_512_truncated(message: &[u8]) -> [u8; 32] {
-		use sha2::{Digest, Sha512_256};
-		let mut hasher = Sha512_256::new();
-		hasher.update(message);
-		hasher.finalize().into()
-	}
-
-	fn keccak_256(message: &[u8]) -> [u8; 32] {
-		sp_io::hashing::keccak_256(message)
-	}
-
-	fn ripemd160(message: &[u8]) -> [u8; 20] {
-		use ripemd::{Digest, Ripemd160};
-		let mut hasher = Ripemd160::new();
-		hasher.update(message);
-		hasher.finalize().into()
-	}
-
-	fn blake2b_512(message: &[u8]) -> [u8; 64] {
-		use blake2::{Blake2b, Digest};
-		let mut hasher = Blake2b::new();
-		hasher.update(message);
-		hasher.finalize().into()
-	}
-
-	fn blake2s_256(message: &[u8]) -> [u8; 32] {
-		use blake2::{Blake2s, Digest};
-		let mut hasher = Blake2s::new();
-		hasher.update(message);
-		hasher.finalize().into()
-	}
-
-	fn blake3(message: &[u8]) -> [u8; 32] {
-		blake3::hash(message).into()
 	}
 }

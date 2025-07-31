@@ -8,7 +8,7 @@ cometbft = { workspace = true, default-features = false }
 cometbft-proto = { workspace = true, default-features = false }
 serde = { version = "1.0.219", features = ["derive"], default-features = false }
 thiserror = { version = "2.0.12", default-features = false }
-base64 = { version = "0.21", default-features = false }
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 serde_json = { version = "1.0", default-features = false }
 sha2 = { version = "0.10.7", default-features = false }
 sha3 = { version = "0.10", default-features = false }

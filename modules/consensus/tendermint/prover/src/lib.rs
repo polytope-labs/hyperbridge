@@ -23,6 +23,6 @@ pub mod prover;
 mod tests;
 
 /// Client trait and implementations
-pub use client::{Client, CometBFTClient, HeimdallClient};
+pub use client::CometBFTClient;
 /// Functions for generating header update and misbehaviour proofs
 pub use prover::{prove_header_update, prove_misbehaviour_header};

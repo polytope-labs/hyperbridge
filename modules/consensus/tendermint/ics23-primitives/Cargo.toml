@@ -1,0 +1,28 @@
+[package]
+name = "tendermint-ics23-primitives"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ics23 = { workspace = true, default-features = false }
+sha2 = { version = "0.10", default-features = false }
+ripemd = { version = "0.1", default-features = false }
+blake2 = { version = "0.10", default-features = false }
+blake3 = { version = "1.8", default-features = false }
+
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-io"]
+default-features = false
+
+[features]
+default = ["std"]
+std = [
+    "ics23/std",
+    "polkadot-sdk/std",
+    "sha2/std",
+    "ripemd/std",
+    "blake2/std",
+    "blake3/std",
+]

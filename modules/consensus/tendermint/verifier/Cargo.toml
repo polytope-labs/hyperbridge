@@ -8,17 +8,17 @@ publish = false
 
 [dependencies]
 # Core dependencies
-cometbft-light-client-verifier = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-light-client-verifier", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
-cometbft = { git = "https://github.com/cometbft/cometbft-rs",  rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
-cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
-thiserror = { version = "2.0.12", default-features = false, optional = true }
-serde = { version = "1.0.219", features = ["derive"], optional = true, default-features = false }
-prost = { version = "0.13", default-features = false }
-tendermint-primitives = { path = "../primitives" }
+cometbft-light-client-verifier = { workspace = true, default-features = false }
+cometbft = { workspace = true, default-features = false  }
+cometbft-proto = { workspace = true, default-features = false }
+thiserror = { version = "2.0.12", default-features = false }
+serde = { version = "1.0", features = ["derive"], default-features = false }
+prost = { workspace = true, default-features = false }
+tendermint-primitives = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
-features = ["sp-runtime", "sp-core", "sp-io"]
+features = ["sp-io", "sp-core"]
 default-features = false
 
 [features]
@@ -28,6 +28,9 @@ std = [
     "polkadot-sdk/std",
     "thiserror/std",
     "prost/std",
+    "cometbft/std",
+    "cometbft-proto/std",
+    "tendermint-primitives/std",
 ]
 
  

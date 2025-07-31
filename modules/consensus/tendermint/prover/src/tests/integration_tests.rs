@@ -2,8 +2,10 @@
 mod tests {
 	use std::time::{SystemTime, UNIX_EPOCH};
 
-	use crate::{prove_header_update, Client, CometBFTClient, HeimdallClient};
-	use tendermint_primitives::{TrustedState, VerificationError, VerificationOptions};
+	use crate::{prove_header_update, CometBFTClient};
+	use ismp_polygon::Milestone;
+	use tendermint_primitives::{Client, TrustedState, VerificationError, VerificationOptions};
+	use tesseract_polygon::HeimdallClient;
 	use tokio::time::{timeout, Duration};
 	use tracing::trace;
 
@@ -16,6 +18,17 @@ mod tests {
 		std::env::var("POLYGON_HEIMDALL")
 			.expect("POLYGON_HEIMDALL environment variable must be set")
 	}
+
+	fn get_polygon_rest_url() -> String {
+		std::env::var("POLYGON_HEIMDALL_REST")
+			.expect("POLYGON_HEIMDALL_REST environment variable must be set")
+	}
+
+	fn get_polygon_execution_rpc_url() -> String {
+		std::env::var("POLYGON_EXECUTION_RPC")
+			.expect("POLYGON_EXECUTION_RPC environment variable must be set")
+	}
+
 	const VALIDATOR_SET_TRANSITIONS: u32 = 8;
 
 	#[tokio::test]
@@ -85,6 +98,38 @@ mod tests {
 				trace!("Polygon Heimdall full verification test timed out after 10 minutes");
 			},
 		}
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn test_abci_query_for_milestone_proof() {
+		use cometbft_rpc::endpoint::abci_query::AbciQuery;
+
+		let _ = tracing_subscriber::fmt::try_init();
+
+		let client = HeimdallClient::new(
+			&get_polygon_rpc_url(),
+			&get_polygon_rest_url(),
+			&get_polygon_execution_rpc_url(),
+		)
+		.expect("Failed to create client");
+
+		let (milestone_number, milestone) =
+			client.get_latest_milestone().await.expect("Failed to fetch milestone");
+
+		let latest_height = client.latest_height().await.expect("Failed to fetch latest height");
+		let abci_query: AbciQuery = client
+			.get_ics23_proof(milestone_number, latest_height)
+			.await
+			.expect("ABCI query failed");
+
+		let milestone_proto =
+			Milestone::proto_decode(&abci_query.value).expect("Failed to decode milestone");
+		assert_eq!(milestone_proto, milestone);
+
+		assert_eq!(abci_query.code, cometbft::abci::Code::Ok);
+		assert!(abci_query.proof.is_some(), "Proof should be present");
+		assert!(!abci_query.value.is_empty(), "Value should not be empty");
 	}
 
 	/// Full integration test: prover and verifier for standard CometBFT with multiple validator set
@@ -193,7 +238,9 @@ mod tests {
 	async fn run_integration_test_heimdall(
 		rpc_url: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		let client: HeimdallClient = HeimdallClient::new(rpc_url);
+		let client: HeimdallClient =
+			HeimdallClient::new(rpc_url, &get_polygon_rest_url(), &get_polygon_execution_rpc_url())
+				.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		let latest_height = client.latest_height().await?;
@@ -283,7 +330,9 @@ mod tests {
 
 	/// Basic Heimdall RPC test: header and validator retrieval
 	async fn test_polygon_basic_rpc(rpc_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-		let client = HeimdallClient::new(rpc_url);
+		let client =
+			HeimdallClient::new(rpc_url, &get_polygon_rest_url(), &get_polygon_execution_rpc_url())
+				.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		trace!("Chain ID: {}", chain_id);

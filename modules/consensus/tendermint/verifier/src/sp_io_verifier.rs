@@ -9,6 +9,7 @@ use cometbft_light_client_verifier::{
 	PredicateVerifier, Verdict, Verifier,
 };
 use cometbft_proto::types::v1::SimpleValidator;
+use prost::alloc::vec::Vec;
 
 use crate::hashing::{SpIoSha256, SpIoSignatureVerifier};
 

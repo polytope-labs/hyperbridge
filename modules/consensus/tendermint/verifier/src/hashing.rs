@@ -52,10 +52,10 @@ impl signature::Verifier for SpIoSignatureVerifier {
 			},
 			PublicKey::Secp256k1(pk) => {
 				let pub_key = polkadot_sdk::sp_core::ecdsa::Public::from_raw(
-					pk.to_encoded_point(true).as_bytes().try_into().map_err(|e| {
-						println!("[DEBUG] Failed to parse public key: {:?}", e);
-						signature::Error::MalformedPublicKey
-					})?,
+					pk.to_encoded_point(true)
+						.as_bytes()
+						.try_into()
+						.map_err(|e| signature::Error::MalformedPublicKey)?,
 				);
 
 				let raw_sig = signature.as_bytes();

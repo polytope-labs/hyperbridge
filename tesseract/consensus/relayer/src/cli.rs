@@ -228,6 +228,10 @@ pub async fn create_client_map(
 				let client = config.into_gnosis().await?;
 				client
 			},
+			AnyConfig::Polygon(config) => {
+				let client = config.into_client().await?;
+				client
+			},
 
 			AnyConfig::Grandpa(config) => match config.substrate.hashing {
 				Some(HashAlgorithm::Keccak) => {

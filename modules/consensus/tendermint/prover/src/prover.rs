@@ -1,5 +1,4 @@
-use crate::client::Client;
-use tendermint_primitives::{ConsensusProof, ProverError, TrustedState};
+use tendermint_primitives::{Client, ConsensusProof, ProverError, TrustedState};
 
 /// Main function to prove a header update
 /// This constructs a consensus proof that can be verified by the verifier

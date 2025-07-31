@@ -1,3 +1,4 @@
+use alloc::{boxed::Box, string::String, vec::Vec};
 use async_trait::async_trait;
 use cometbft::{block::signed_header::SignedHeader, validator::Info as Validator};
 use thiserror::Error;
@@ -159,16 +160,4 @@ pub enum ProverError {
 	/// Proof construction failure
 	#[error("Proof construction failed: {0}")]
 	ProofConstructionError(String),
-}
-
-impl From<cometbft_rpc::Error> for ProverError {
-	fn from(err: cometbft_rpc::Error) -> Self {
-		ProverError::RpcError(err.to_string())
-	}
-}
-
-impl From<std::time::SystemTimeError> for ProverError {
-	fn from(err: std::time::SystemTimeError) -> Self {
-		ProverError::TimestampError(err.to_string())
-	}
 }

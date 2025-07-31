@@ -4,18 +4,33 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cometbft = { workspace = true }
-cometbft-rpc = { workspace = true }
-cometbft-proto = { workspace = true }
-serde = { version = "1.0.219", features = ["derive"]}
-thiserror = { version = "2.0.12", default-features = false}
-base64 = { version = "0.21"}
-serde_json = { version = "1.0"}
-sha2 = "0.10.7"
-sha3 = "0.10"
+cometbft = { workspace = true, default-features = false }
+cometbft-proto = { workspace = true, default-features = false }
+serde = { version = "1.0.219", features = ["derive"], default-features = false }
+thiserror = { version = "2.0.12", default-features = false }
+base64 = { version = "0.21", default-features = false }
+serde_json = { version = "1.0", default-features = false }
+sha2 = { version = "0.10.7", default-features = false }
+sha3 = { version = "0.10", default-features = false }
 codec = { workspace = true, default-features = false }
-scale-info = { workspace = true, features = ["derive"] }
-prost = { workspace = true}
-async-trait = "0.1.88"
+scale-info = { workspace = true, features = ["derive"], default-features = false }
+prost = { workspace = true, default-features = false }
+async-trait = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "serde/std",
+    "thiserror/std",
+    "prost/std",
+    "codec/std",
+    "scale-info/std",
+    "cometbft/std",
+    "cometbft-proto/std",
+    "serde_json/std",
+    "base64/std",
+    "sha2/std",
+    "sha3/std",
+]
 
 

@@ -102,10 +102,13 @@ where
 				let fee_u128: u128 = fee.into();
 				let fee_u256 = U256::from(fee_u128);
 
-				let decimals =
+				let Some(decimals) =
 					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(state_machine)
-						.unwrap_or(10);
-				let scaling_power = 18 - decimals; // assumption that the decimals will always be less than 18
+				else {
+					return None;
+				};
+
+				let scaling_power = 18u8.saturating_sub(decimals); // assumption that the decimals will always be less than 18
 				let scaling_factor = U256::from(10u128.pow(scaling_power as u32));
 				fee_u256.saturating_mul(scaling_factor)
 			},
@@ -273,10 +276,6 @@ where
 			.ok_or(Error::<T>::CalculationOverflow)?;
 
 		Ok(final_reward_numerator.saturating_div(target_size_sq))
-	}
-	pub fn note_request_fee(commitment: H256, fee: u128) {
-		let fee_balance: T::Balance = fee.saturated_into();
-		CommitmentFees::<T>::insert(commitment, fee_balance);
 	}
 }
 

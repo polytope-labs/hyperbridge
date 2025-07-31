@@ -16,6 +16,7 @@ use polkadot_sdk::{
 use scale_info::TypeInfo;
 use sp_core::{crypto::AccountId32, keccak_256, sr25519, Pair, H256, U256};
 
+use hyperbridge_client_machine::OnRequestProcessed;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,

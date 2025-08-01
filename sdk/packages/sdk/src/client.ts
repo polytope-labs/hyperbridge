@@ -1583,7 +1583,7 @@ export class IndexerClient {
 		logger.trace("Query Request Proof from sourceChain")
 		const proof = await sourceChain.queryProof(
 			{ Requests: [commitment] },
-			this.config.dest.stateMachineId,
+			this.config.hyperbridge.stateMachineId,
 			latestStateMachineHeight,
 		)
 

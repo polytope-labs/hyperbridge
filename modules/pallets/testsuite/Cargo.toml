@@ -46,6 +46,7 @@ pallet-token-gateway-inspector = { workspace = true, default-features = true }
 token-gateway-primitives = { workspace = true, default-features = true }
 pallet-bridge-airdrop = { workspace = true, default-features = true }
 pallet-relayer-incentives = { workspace = true, default-features = true }
+pallet-collator-manager = { workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 rs_merkle = { version = "1.5.0"}
@@ -80,7 +81,11 @@ features = [
     "cumulus-primitives-core",
     "cumulus-pallet-xcmp-queue",
     "cumulus-pallet-parachain-system",
-    "pallet-vesting"
+    "pallet-vesting",
+    "pallet-collator-selection",
+    "pallet-session",
+    "pallet-assets-holder",
+    "cumulus-primitives-parachain-inherent"
 ]
 
 [dev-dependencies]

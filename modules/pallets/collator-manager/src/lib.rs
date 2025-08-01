@@ -77,7 +77,9 @@ pub mod pallet {
 		  T::ValidatorId: From<T::AccountId>
 	{
 		fn new_session(_new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
+			println!("new session");
 			let active_collators = <pallet_session::Pallet<T>>::validators();
+			println!("active collators are {:?}", active_collators.len());
 			let desired_collators = T::DesiredCollators::get() as usize;
 
 			let mut new_set_validators: Vec<T::ValidatorId> = Vec::new();
@@ -85,6 +87,7 @@ pub mod pallet {
 			// select from registered candidates who are not in the current active set
 			// with session keys and highes balances.
 			let mut candidates = T::CandidateProvider::candidates();
+			println!("candidates are {:?}", candidates.len());
 			candidates.retain(|c| {
 				!active_collators.contains(c) &&
 					pallet_session::NextKeys::<T>::get(&c).is_some()
@@ -95,6 +98,7 @@ pub mod pallet {
 			});
 			candidates.reverse();
 			new_set_validators.extend(candidates.into_iter().take(desired_collators));
+			println!("new_set_validators are {:?}", new_set_validators.len());
 
 			// fill remaining slots with the best of the previous set.
 			if new_set_validators.len() < desired_collators {
@@ -113,7 +117,7 @@ pub mod pallet {
 			}
 
 			let new_set: Vec<T::AccountId> = new_set_validators.iter().map(|v| v.clone().into()).collect();
-
+			println!("new_set are {:?}", new_set.len());
 			if new_set.is_empty() {
 				return None;
 			}
@@ -124,8 +128,11 @@ pub mod pallet {
 				.filter(|c| !new_set_validators.contains(c))
 				.collect();
 
+			println!("outgoing collators are {:?}", outgoing_collators.len());
+
 			for old_collator in outgoing_collators {
 				let account_id: T::AccountId = old_collator.clone().into();
+				println!("setting balance to zero for {:?}", &account_id);
 				T::ReputationAssets::set_balance(
 					T::ReputationAssetId::get(),
 					&account_id,

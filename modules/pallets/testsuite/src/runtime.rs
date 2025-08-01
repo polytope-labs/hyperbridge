@@ -18,6 +18,7 @@ extern crate alloc;
 use polkadot_sdk::{frame_support::traits::WithdrawReasons, sp_runtime::traits::ConvertInto, *};
 
 use alloc::collections::BTreeMap;
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::ParachainSetCode;
 use frame_support::{
 	derive_impl, parameter_types,
@@ -25,6 +26,12 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::{EnsureRoot, EnsureSigned, EventRecord};
+use polkadot_sdk::frame_support::traits::VariantCount;
+use polkadot_sdk::pallet_session::disabling::UpToLimitDisablingStrategy;
+use polkadot_sdk::pallet_session::SessionHandler;
+use polkadot_sdk::sp_runtime::app_crypto::AppCrypto;
+use polkadot_sdk::sp_runtime::traits::OpaqueKeys;
+use scale_info::TypeInfo;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
@@ -49,9 +56,13 @@ use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	AccountId32, BuildStorage,
 };
+use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 
 use substrate_state_machine::SubstrateStateMachine;
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
+pub const BOB: AccountId32 = AccountId32::new([2; 32]);
+pub const CHARLIE: AccountId32 = AccountId32::new([3; 32]);
+pub const DAVE: AccountId32 = AccountId32::new([4; 32]);
 
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
@@ -76,6 +87,7 @@ frame_support::construct_runtime!(
 		MessageQueue: pallet_message_queue,
 		PalletXcm: pallet_xcm,
 		Assets: pallet_assets,
+		AssetsHolder: pallet_assets_holder,
 		Gateway: pallet_xcm_gateway,
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
@@ -85,7 +97,10 @@ frame_support::construct_runtime!(
 		TokenGatewayInspector: pallet_token_gateway_inspector,
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
-		RelayerIncentives: pallet_relayer_incentives
+		RelayerIncentives: pallet_relayer_incentives,
+		Session: pallet_session,
+       	CollatorSelection: pallet_collator_selection,
+       	CollatorManager: pallet_collator_manager,
 	}
 );
 
@@ -243,6 +258,127 @@ impl pallet_token_gateway::Config for Test {
 	type AssetAdmin = AssetAdmin;
 	type EvmToSubstrate = ();
 	type WeightInfo = ();
+}
+
+#[derive(
+	Decode,
+	DecodeWithMemTracking,
+	Encode,
+	MaxEncodedLen,
+	PartialEq,
+	Eq,
+	Ord,
+	PartialOrd,
+	TypeInfo,
+	Debug,
+	Clone,
+	Copy,
+	Default
+)]
+pub enum CurrencyAdapterHoldReason {
+	#[default]
+	CollatorSelectionBond,
+}
+
+impl VariantCount for CurrencyAdapterHoldReason {
+	const VARIANT_COUNT: u32 = 1;
+}
+
+parameter_types! {
+    pub const ReputationPotId: PalletId = PalletId(*b"rep/pot_");
+    pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+
+pub type ReputationCurrency = pallet_collator_manager::currency_adapter::AssetCurrencyAdapter<
+	Assets,
+	AssetsHolder,
+	ReputationAssetId,
+	Balance,
+	AccountId32,
+	ReputationPotId,
+	CurrencyAdapterHoldReason,
+>;
+
+impl pallet_assets_holder::Config for Test {
+	type RuntimeHoldReason = CurrencyAdapterHoldReason;
+	type RuntimeEvent = RuntimeEvent;
+}
+
+sp_runtime::impl_opaque_keys! {
+    pub struct SessionKeys {
+        pub aura: AuraId,
+    }
+}
+
+pub struct TestSessionHandler;
+impl SessionHandler<AccountId32> for TestSessionHandler {
+	const KEY_TYPE_IDS: &'static [sp_runtime::KeyTypeId] = &[AuraId::ID];
+
+	fn on_genesis_session<T: OpaqueKeys>(_validators: &[(AccountId32, T)]) {}
+
+	fn on_new_session<T: OpaqueKeys>(
+		_changed: bool,
+		_validators: &[(AccountId32, T)],
+		_queued_validators: &[(AccountId32, T)],
+	) {
+	}
+
+	fn on_disabled(_validator_index: u32) {}
+
+	fn on_before_session_ending() {}
+}
+
+impl pallet_session::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type ValidatorId = AccountId32;
+	type ValidatorIdOf = ConvertInto;
+	type ShouldEndSession = pallet_session::PeriodicSessions<ConstU64<1>, ConstU64<0>>;
+	type NextSessionRotation = pallet_session::PeriodicSessions<ConstU64<1>, ConstU64<0>>;
+	type SessionManager = CollatorManager;
+	type SessionHandler = TestSessionHandler;
+	type Keys = SessionKeys;
+	type DisablingStrategy = UpToLimitDisablingStrategy;
+	type WeightInfo = ();
+}
+
+parameter_types! {
+    pub const PotId: PalletId = PalletId(*b"PotStake");
+    pub const MaxCandidates: u32 = 100;
+    pub const MaxInvulnerables: u32 = 20;
+    pub const DesiredCollators: u32 = 2;
+}
+
+impl pallet_collator_selection::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = ReputationCurrency;
+	type UpdateOrigin = EnsureRoot<AccountId32>;
+	type PotId = PotId;
+	type MaxCandidates = MaxCandidates;
+	type MaxInvulnerables = MaxInvulnerables;
+	type KickThreshold = ConstU64<1>;
+	type ValidatorId = AccountId32;
+	type ValidatorIdOf = ConvertInto;
+	type ValidatorRegistration = Session;
+	type MinEligibleCollators = DesiredCollators;
+	type WeightInfo = ();
+}
+
+pub struct CollatorSelectionProvider;
+impl pallet_collator_manager::CandidateProvider<AccountId32> for CollatorSelectionProvider {
+	fn candidates() -> Vec<AccountId32> {
+		pallet_collator_selection::CandidateList::<Test>::get()
+			.into_iter()
+			.map(|info| info.who)
+			.collect()
+	}
+}
+
+impl pallet_collator_manager::Config for Test {
+	type ReputationCurrency = ReputationCurrency;
+	type CandidateProvider = CollatorSelectionProvider;
+	type ReputationAssetId = ReputationAssetId;
+	type ReputationAssets = Assets;
+	type DesiredCollators = DesiredCollators;
 }
 
 impl pallet_token_gateway_inspector::Config for Test {

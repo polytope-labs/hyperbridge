@@ -7,6 +7,7 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { getDateFormatFromTimestamp, isWithin24Hours, timestampToDate } from "@/utils/date.helpers"
+import { RelayerService } from "./relayer.service"
 // import {
 //  HandlePostRequestsTransaction,
 //  HandlePostResponsesTransaction,
@@ -47,8 +48,13 @@ export class HyperBridgeService {
 	/**
 	 * Perform the necessary actions related to Hyperbridge stats when a PostRequestHandled/PostResponseHandled event is indexed
 	 */
-	static async handlePostRequestOrResponseHandledEvent(_relayer_id: string, chain: string): Promise<void> {
+	static async handlePostRequestOrResponseHandledEvent(
+		relayer_id: string,
+		chain: string,
+		timestamp: bigint,
+	): Promise<void> {
 		await this.incrementNumberOfDeliveredMessages(chain)
+		await RelayerService.updateMessageDelivered(relayer_id, chain, timestamp)
 	}
 
 	//  /**

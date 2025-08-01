@@ -27,7 +27,7 @@ export const handlePostRequestHandledEvent = wrap(async (event: PostRequestHandl
 	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
 	try {
-		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain)
+		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp)
 
 		await RequestService.updateStatus({
 			commitment,

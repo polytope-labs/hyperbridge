@@ -49,7 +49,7 @@ export const handleSubstratePostRequestHandledEvent = wrap(async (event: Substra
 	}
 
 	logger.info(`Updating Hyperbridge chain stats for ${host}`)
-	await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host)
+	await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host, blockTimestamp)
 
 	logger.info(
 		`Handling ISMP PostRequestHandled Event: ${stringify({

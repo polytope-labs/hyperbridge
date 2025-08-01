@@ -12,12 +12,13 @@ export class RelayerService {
 	/**
 	 * Find a relayer by its id or create a new one if it doesn't exist
 	 */
-	static async findOrCreate(relayer_id: string, chain: string): Promise<Relayer> {
+	static async findOrCreate(relayer_id: string, chain: string, timestamp: bigint): Promise<Relayer> {
 		let relayer = await Relayer.get(relayer_id)
 
 		if (typeof relayer === "undefined") {
 			relayer = Relayer.create({
 				id: relayer_id,
+				lastUpdatedAt: timestamp,
 			})
 
 			await relayer.save()
@@ -30,16 +31,31 @@ export class RelayerService {
 	 * Update the total fees earned by a relayer
 	 * Fees earned by a relayer == Sum of all transfers to the relayer from the hyperbridge host address
 	 */
-	static async updateFeesEarned(transfer: Transfer): Promise<void> {
-		let relayer = await Relayer.get(transfer.to)
-		if (relayer) {
-			let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(relayer.id, transfer.chain)
+	static async updateFeesEarned(transfer: Transfer, timestamp: bigint): Promise<void> {
+		const relayer = await this.findOrCreate(transfer.to, transfer.chain, timestamp)
+		const relayer_chain_stats = await RelayerChainStatsService.findOrCreate(relayer.id, transfer.chain)
 
-			relayer_chain_stats.feesEarned += transfer.amount
+		relayer_chain_stats.feesEarned += transfer.amount
+		relayer.lastUpdatedAt = timestamp
 
-			relayer.save()
-			relayer_chain_stats.save()
-		}
+		relayer.save()
+		relayer_chain_stats.save()
+	}
+
+	/**
+	 * Update message delivered by the relayer
+	 * @param relayer_id The relayer address
+	 * @param chain The chain identifier
+	 */
+	static async updateMessageDelivered(relayer_id: string, chain: string, timestamp: bigint): Promise<void> {
+		const relayer = await this.findOrCreate(relayer_id, chain, timestamp)
+		const relayer_chain_stats = await RelayerChainStatsService.findOrCreate(relayer.id, chain)
+
+		relayer_chain_stats.numberOfSuccessfulMessagesDelivered += BigInt(1)
+		relayer.lastUpdatedAt = timestamp
+
+		await relayer.save()
+		await relayer_chain_stats.save()
 	}
 
 	//  /**

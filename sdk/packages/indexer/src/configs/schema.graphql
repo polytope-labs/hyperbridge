@@ -210,6 +210,11 @@ type Relayer @entity {
 	A list of important stats for the Relayer on every network that they support
 	"""
 	perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
+
+	"""
+	Last updated at
+	"""
+	lastUpdatedAt: BigInt
 }
 
 """

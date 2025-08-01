@@ -4,6 +4,7 @@ import { RelayerService } from "@/services/relayer.service"
 import { TransferService } from "@/services/transfer.service"
 import { TransferLog } from "@/configs/src/types/abi-interfaces/ERC6160Ext20Abi"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
 
 /**
  * Handles the Transfer event from the Fee Token contract
@@ -11,7 +12,7 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 export async function handleTransferEvent(event: TransferLog): Promise<void> {
 	if (!event.args) return
 
-	const { args, transactionHash, transaction, blockNumber } = event
+	const { args, transactionHash, transaction, blockNumber, blockHash } = event
 	const { from, to, value } = args
 	const HOST_ADDRESSES = GET_HOST_ADDRESSES()
 
@@ -39,7 +40,9 @@ export async function handleTransferEvent(event: TransferLog): Promise<void> {
 
 	if (HOST_ADDRESSES.includes(from)) {
 		try {
-			await RelayerService.updateFeesEarned(transfer)
+			const timestamp = await getBlockTimestamp(blockHash, chain)
+
+			await RelayerService.updateFeesEarned(transfer, timestamp)
 			await HyperBridgeService.handleTransferOutOfHostAccounts(transfer, chain)
 		} catch (error) {
 			logger.error(

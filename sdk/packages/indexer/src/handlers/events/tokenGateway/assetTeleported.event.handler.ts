@@ -25,7 +25,6 @@ export const handleAssetTeleportedEvent = wrap(async (event: AssetTeleportedLog)
 		const usdValue = await PriceHelper.getTokenPriceInUSDCoingecko(symbol, amount.toBigInt(), decimals)
 
 		await VolumeService.updateVolume("TokenGateway", usdValue.amountValueInUSD, timestamp)
-
 		return
 	}
 

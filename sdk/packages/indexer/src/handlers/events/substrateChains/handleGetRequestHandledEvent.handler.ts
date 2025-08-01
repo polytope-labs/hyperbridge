@@ -49,7 +49,7 @@ export const handleSubstrateGetRequestHandledEvent = wrap(async (event: Substrat
 	}
 
 	logger.info(`Updating Hyperbridge chain stats for ${host}`)
-	await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host)
+	await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host, blockTimestamp)
 
 	await GetRequestService.updateStatus({
 		commitment: eventData.commitment.toString(),

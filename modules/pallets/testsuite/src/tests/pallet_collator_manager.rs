@@ -1,5 +1,5 @@
 use crate::runtime::{
-    new_test_ext, Assets, CollatorManager, CollatorSelection, ReputationAssetId, RuntimeOrigin,
+    new_test_ext, Assets, CollatorSelection, ReputationAssetId, RuntimeOrigin,
     Session, Test, ALICE, BOB, CHARLIE, DAVE, UNIT,
 };
 use frame_system::Pallet as System;

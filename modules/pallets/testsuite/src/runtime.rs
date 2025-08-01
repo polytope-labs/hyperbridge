@@ -104,6 +104,7 @@ frame_support::construct_runtime!(
 		RelayerIncentives: pallet_consensus_incentives,
 		MessagingRelayerIncentives: pallet_messaging_fees,
 		IsmpGrandpa: ismp_grandpa::pallet,
+		Session: pallet_session,
         CollatorSelection: pallet_collator_selection,
        	CollatorManager: pallet_collator_manager,
 	}

@@ -38,7 +38,6 @@ members = [
     "modules/ismp/testsuite",
     "modules/ismp/clients/ismp-arbitrum",
     "modules/ismp/clients/ismp-optimism",
-    "modules/pallets/relayer-incentives",
     "modules/pallets/collator-manager",
 
     # cryptography

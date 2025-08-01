@@ -66,22 +66,26 @@ jobs:
               id: changelog
               run: |
                   if [ -n "${{ steps.get_previous_tag.outputs.PREVIOUS_TAG }}" ]; then
-                    echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-                    echo "## Changes since ${{ steps.get_previous_tag.outputs.PREVIOUS_TAG }}" >> $GITHUB_OUTPUT
-                    git log --pretty=format:"* %s (%h)" ${{ steps.get_previous_tag.outputs.PREVIOUS_TAG }}..${{ steps.get_version.outputs.VERSION }} >> $GITHUB_OUTPUT
-                    echo "EOF" >> $GITHUB_OUTPUT
+                    {
+                      echo "CHANGELOG<<EOF"
+                      echo "## Changes since ${{ steps.get_previous_tag.outputs.PREVIOUS_TAG }}"
+                      git log --pretty=format:"* %s (%h)" ${{ steps.get_previous_tag.outputs.PREVIOUS_TAG }}..${{ steps.get_version.outputs.VERSION }} >> $GITHUB_OUTPUT
+                      echo "EOF"
+                    } >> $GITHUB_OUTPUT
                   else
-                    echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-                    echo "## Initial Release" >> $GITHUB_OUTPUT
-                    git log --pretty=format:"* %s (%h)" >> $GITHUB_OUTPUT
-                    echo "EOF" >> $GITHUB_OUTPUT
+                    {
+                      echo "CHANGELOG<<EOF"
+                      echo "## Initial Release"
+                      git log --pretty=format:"* %s (%h)"
+                      echo "EOF"
+                    } >> $GITHUB_OUTPUT
                   fi
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v1
               with:
-                  tag_name: ${{ steps.get_version.outputs.VERSION }}
-                  name: Release ${{ steps.get_version.outputs.VERSION }}
+                  tag_name: hyperbridge-sdk-${{ steps.get_version.outputs.VERSION }}
+                  name: Hyperbridge SDK ${{ steps.get_version.outputs.VERSION }}
                   body: ${{ steps.changelog.outputs.CHANGELOG }}
                   draft: true
               env:

@@ -21,6 +21,7 @@ scale-info = { workspace = true }
 fortuples = "0.9.1"
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+impl-trait-for-tuples = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

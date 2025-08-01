@@ -26,3 +26,13 @@ pub trait WeightInfo {
 	/// * n: The number of machines being removed
 	fn remove_state_machines(n: u32) -> Weight;
 }
+
+impl WeightInfo for () {
+	fn add_state_machines(_: u32) -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+
+	fn remove_state_machines(_: u32) -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+}

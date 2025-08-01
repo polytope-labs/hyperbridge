@@ -19,6 +19,7 @@ use polkadot_sdk::*;
 
 use alloc::vec::Vec;
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
+use impl_trait_for_tuples::impl_for_tuples;
 use ismp::messaging::Message;
 
 use crate::weights::{get_weight, WeightProvider};
@@ -125,4 +126,15 @@ where
 			pays_fee: Pays::Yes,
 		})
 	}
+}
+
+#[impl_for_tuples(2)]
+impl FeeHandler for TupleIdentifier {
+    fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo {
+        for_tuples!( #(
+            <TupleIdentifier as FeeHandler>::on_executed(messages.clone(), events.clone())?;
+        )* );
+
+        Ok(Default::default())
+    }
 }

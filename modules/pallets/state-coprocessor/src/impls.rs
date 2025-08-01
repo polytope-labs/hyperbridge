@@ -146,7 +146,7 @@ where
 		}
 
 		if total_fee != Default::default() {
-			pallet_ismp_relayer::Pallet::<T>::accumulate_fee(
+			pallet_ismp_relayer::Pallet::<T>::accumulate_fee_and_deposit_event(
 				source.height.id.state_id,
 				address.clone(),
 				total_fee,

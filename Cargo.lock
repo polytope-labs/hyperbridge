@@ -12635,6 +12635,7 @@ dependencies = [
  "log",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-consensus-incentives",
  "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -12643,7 +12644,6 @@ dependencies = [
  "pallet-ismp-runtime-api",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
- "pallet-relayer-incentives",
  "pallet-state-coprocessor",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -14278,6 +14278,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-consensus-incentives"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-contracts"
 version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14703,6 +14714,7 @@ dependencies = [
  "anyhow",
  "env_logger 0.10.2",
  "fortuples",
+ "impl-trait-for-tuples",
  "ismp",
  "ismp-testsuite",
  "log",
@@ -14817,21 +14829,24 @@ dependencies = [
  "futures",
  "hash-db",
  "hex",
+ "hyperbridge-client-machine",
  "ismp",
  "ismp-bsc",
+ "ismp-grandpa",
  "ismp-sync-committee",
  "ismp-testsuite",
  "mmr-primitives",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-consensus-incentives",
  "pallet-fishermen",
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
+ "pallet-messaging-fees",
  "pallet-mmr-tree",
- "pallet-relayer-incentives",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -14921,6 +14936,21 @@ dependencies = [
  "sp-io 41.0.1",
  "sp-runtime 42.0.0",
  "sp-weights 32.0.0",
+]
+
+[[package]]
+name = "pallet-messaging-fees"
+version = "0.1.0"
+dependencies = [
+ "hyperbridge-client-machine",
+ "ismp",
+ "pallet-hyperbridge",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
 ]
 
 [[package]]
@@ -15355,17 +15385,6 @@ dependencies = [
  "sp-arithmetic 27.0.0",
  "sp-io 41.0.1",
  "sp-runtime 42.0.0",
-]
-
-[[package]]
-name = "pallet-relayer-incentives"
-version = "0.1.0"
-dependencies = [
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "polkadot-sdk",
- "scale-info",
 ]
 
 [[package]]

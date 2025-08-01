@@ -75,6 +75,12 @@ pub mod pallet {
 	#[pallet::getter(fn evm_hosts)]
 	pub type EvmHosts<T: Config> = StorageMap<_, Twox64Concat, StateMachine, H160, OptionQuery>;
 
+	/// Stores the fee token decimals for only substrate based chains
+	#[pallet::storage]
+	#[pallet::getter(fn fee_token_decimals)]
+	pub type FeeTokenDecimals<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachine, u8, OptionQuery>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -112,6 +118,13 @@ pub mod pallet {
 			/// The updated address of the IsmpHost
 			new_address: H160,
 		},
+		/// Fee token decimals updated for a particular StateMachine
+		FeeTokenDecimalsUpdated {
+			/// StateMachine updated
+			state_machine: StateMachine,
+			/// Decimals updated to
+			decimals: u8,
+		},
 	}
 
 	#[pallet::error]
@@ -122,6 +135,8 @@ pub mod pallet {
 		UnknownStateMachine,
 		/// Mismatched state machine and HostParams
 		MismatchedHostParams,
+		/// The provided state machine is not a Substrate-based chain
+		UnsupportedStateMachine,
 	}
 
 	#[pallet::call]
@@ -236,6 +251,24 @@ pub mod pallet {
 					Self::deposit_event(Event::<T>::HostAddressSet { state_machine, address });
 				}
 			}
+
+			Ok(())
+		}
+
+		/// Sets the fee token decimals for substrate based chains
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::call_index(3)]
+		pub fn set_fee_token_decimals(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			decimals: u8,
+		) -> DispatchResult {
+			T::HostExecutiveOrigin::ensure_origin(origin)?;
+
+			ensure!(state_machine.is_substrate(), Error::<T>::UnsupportedStateMachine);
+			FeeTokenDecimals::<T>::insert(state_machine, decimals);
+
+			Self::deposit_event(Event::FeeTokenDecimalsUpdated { state_machine, decimals });
 
 			Ok(())
 		}

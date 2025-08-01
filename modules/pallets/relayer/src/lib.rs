@@ -771,10 +771,20 @@ where
 }
 
 impl<T: Config> Pallet<T> {
-	pub fn accumulate_fee(state_machine: StateMachine, address: Vec<u8>, fee: U256) {
+	pub fn accumulate_fee_and_deposit_event(
+		state_machine: StateMachine,
+		address: Vec<u8>,
+		fee: U256,
+	) {
 		let _ = Fees::<T>::try_mutate(state_machine, address.clone(), |inner| {
 			*inner += fee;
 			Ok::<(), ()>(())
+		});
+
+		Self::deposit_event(Event::<T>::AccumulateFees {
+			address: sp_runtime::BoundedVec::truncate_from(address),
+			state_machine,
+			amount: fee,
 		});
 	}
 }

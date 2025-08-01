@@ -981,7 +981,7 @@ mod runtime {
 	#[runtime::pallet_index(90)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
 	#[runtime::pallet_index(91)]
-	pub type RelayerIncentives = pallet_relayer_incentives::pallet;
+	pub type ConsensusIncentives = pallet_consensus_incentives::pallet;
 
 	// consensus clients
 	#[runtime::pallet_index(255)]

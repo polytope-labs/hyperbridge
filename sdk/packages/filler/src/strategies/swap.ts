@@ -1,5 +1,5 @@
 import { ChainConfigService, ChainClientManager, ContractInteractionService } from "@/services"
-import { ADDRESS_ZERO, bytes32ToBytes20, ExecutionResult, FillOptions, HexString, Order } from "hyperbridge-sdk"
+import { ADDRESS_ZERO, bytes32ToBytes20, ExecutionResult, FillOptions, HexString, Order } from "@hyperbridge/sdk"
 import { FillerStrategy } from "./base"
 import { privateKeyToAddress } from "viem/accounts"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"

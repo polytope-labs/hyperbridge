@@ -103,7 +103,7 @@ jobs:
                   sleep 10  # Give it a few more seconds to fully initialize
 
             - name: Run SDK tests
-              run: pnpm --filter="hyperbridge-sdk" test
+              run: pnpm --filter="@hyperbridge/sdk" test
 
             - name: Run Intent Filler tests
               run: pnpm --filter="filler" test

@@ -1,7 +1,7 @@
 import { chainIds } from "@/config/chain"
 import { EventMonitor } from "./event-monitor"
 import { FillerStrategy } from "@/strategies/base"
-import { Order, FillerConfig, ChainConfig, DUMMY_PRIVATE_KEY, ADDRESS_ZERO, bytes20ToBytes32 } from "hyperbridge-sdk"
+import { Order, FillerConfig, ChainConfig, DUMMY_PRIVATE_KEY, ADDRESS_ZERO, bytes20ToBytes32 } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
 import { ChainClientManager, ChainConfigService, ContractInteractionService } from "@/services"
 import { fetchTokenUsdPriceOnchain } from "@/utils"
@@ -76,7 +76,7 @@ export class IntentFiller {
 					orderValue,
 				)
 				console.log(
-					`For order ${order.id}, required confirmations: ${requiredConfirmations}, 
+					`For order ${order.id}, required confirmations: ${requiredConfirmations},
 					current confirmations: ${currentConfirmations}`,
 				)
 

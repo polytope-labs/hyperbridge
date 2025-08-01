@@ -6,7 +6,7 @@ import {
 	DUMMY_PRIVATE_KEY,
 	hexToString,
 	DecodedOrderPlacedLog,
-} from "hyperbridge-sdk"
+} from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { PublicClient } from "viem"
 import { addresses } from "@/config/chain"

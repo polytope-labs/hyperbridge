@@ -23,7 +23,7 @@ export function createQueryClient(config: { url: string }) {
  * Queries a request by CommitmentHash
  *
  * @example
- * import { createQueryClient, queryRequest } from "hyperbridge-sdk"
+ * import { createQueryClient, queryRequest } from "@hyperbridge/sdk"
  *
  * const queryClient = createQueryClient({
  *   url: "http://localhost:3000", // URL of the Hyperbridge indexer API
@@ -39,7 +39,7 @@ export function queryPostRequest(params: { commitmentHash: string; queryClient: 
  * Queries a GET Request by CommitmentHash
  *
  * @example
- * import { createQueryClient, queryRequest } from "hyperbridge-sdk"
+ * import { createQueryClient, queryRequest } from "@hyperbridge/sdk"
  *
  * const queryClient = createQueryClient({
  *   url: "http://localhost:3000", // URL of the Hyperbridge indexer API
@@ -55,7 +55,7 @@ export function queryGetRequest(params: { commitmentHash: string; queryClient: I
  * Queries an order by CommitmentHash
  *
  * @example
- * import { createQueryClient, queryOrder } from "hyperbridge-sdk"
+ * import { createQueryClient, queryOrder } from "@hyperbridge/sdk"
  *
  * const queryClient = createQueryClient({
  *   url: "http://localhost:3000", // URL of the Hyperbridge indexer API

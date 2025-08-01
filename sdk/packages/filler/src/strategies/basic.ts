@@ -7,7 +7,7 @@ import {
 	estimateGasForPost,
 	constructRedeemEscrowRequestBody,
 	IPostRequest,
-} from "hyperbridge-sdk"
+} from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ChainClientManager, ChainConfigService, ContractInteractionService } from "@/services"

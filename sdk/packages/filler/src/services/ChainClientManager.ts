@@ -1,6 +1,6 @@
 import { PublicClient, WalletClient, createPublicClient, createWalletClient, http, type Chain } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { Order, HexString, ChainConfig } from "hyperbridge-sdk"
+import { Order, HexString, ChainConfig } from "@hyperbridge/sdk"
 import { ChainConfigService } from "./ChainConfigService"
 import { viemChains } from "@/config/chain"
 

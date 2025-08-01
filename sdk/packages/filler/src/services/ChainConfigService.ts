@@ -1,5 +1,5 @@
 import { toHex } from "viem"
-import { ChainConfig, HexString } from "hyperbridge-sdk"
+import { ChainConfig, HexString } from "@hyperbridge/sdk"
 import {
 	addresses,
 	assets,

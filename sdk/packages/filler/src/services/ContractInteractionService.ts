@@ -15,13 +15,13 @@ import {
 	bytes20ToBytes32,
 	EvmLanguage,
 	calculateBalanceMappingLocation,
-} from "hyperbridge-sdk"
+} from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
 import { ChainConfigService } from "./ChainConfigService"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { EVM_HOST } from "@/config/abis/EvmHost"
-import { orderCommitment } from "hyperbridge-sdk"
+import { orderCommitment } from "@hyperbridge/sdk"
 import { ApiPromise, WsProvider } from "@polkadot/api"
 import { fetchTokenUsdPriceOnchain } from "@/utils"
 import { keccakAsU8a } from "@polkadot/util-crypto"

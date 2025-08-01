@@ -31,8 +31,8 @@ const copyWasm = () => {
 			// Get path to the consuming project's node_modules
 			const projectNodeModules = path.resolve(process.cwd(), "node_modules")
 
-			// Find the hyperbridge-sdk package in node_modules
-			const source = path.resolve(projectNodeModules, "hyperbridge-sdk/dist/browser/web_bg.wasm")
+			// Find the @hyperbridge/sdk package in node_modules
+			const source = path.resolve(projectNodeModules, "@hyperbridge/sdk/dist/browser/web_bg.wasm")
 
 			// Destination in the Vite cache directory
 			const destDir = path.resolve(projectNodeModules, ".vite/deps")

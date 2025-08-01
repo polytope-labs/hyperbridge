@@ -42,6 +42,7 @@
 		"node": ">=18.0.0"
 	},
 	"dependencies": {
+		"@hyperbridge/sdk": "workspace:*",
 		"@polkadot/api": "^15.9.1",
 		"@polkadot/util-crypto": "^13.4.4",
 		"@safe-global/api-kit": "^3.0.1",
@@ -50,7 +51,6 @@
 		"ckb-mmr-wasm": "link:wasm-b",
 		"dotenv": "^16.4.7",
 		"ethers": "^5.7.2",
-		"hyperbridge-sdk": "workspace:*",
 		"p-queue": "^8.1.0",
 		"scale-ts": "^1.6.1",
 		"viem": "^2.23.5"

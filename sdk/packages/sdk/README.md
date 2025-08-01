@@ -5,11 +5,11 @@ A JavaScript/TypeScript SDK for interacting with the Hyperbridge indexer and mon
 ## Installation
 
 ```bash
-npm install hyperbridge-sdk
+npm install @hyperbridge/sdk
 # or
-yarn add hyperbridge-sdk
+yarn add @hyperbridge/sdk
 # or
-pnpm add hyperbridge-sdk
+pnpm add @hyperbridge/sdk
 ```
 
 ## Usage
@@ -17,7 +17,7 @@ pnpm add hyperbridge-sdk
 ### Initialize Client
 
 ```ts
-import { IndexerClient, createQueryClient } from "hyperbridge-sdk"
+import { IndexerClient, createQueryClient } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({
 	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
@@ -49,7 +49,7 @@ const indexer = new IndexerClient({
 ### Monitor Post Request Status
 
 ```ts
-import { postRequestCommitment } from "hyperbridge-sdk"
+import { postRequestCommitment } from "@hyperbridge/sdk"
 
 // Get status stream for a commitment
 const commitment = postRequestCommitment(request)
@@ -94,7 +94,7 @@ console.log(request?.statuses)
 Alternatively. You can use the `queryPostRequest` utility
 
 ```ts
-import { createQueryClient, queryPostRequest } from "hyperbridge-sdk"
+import { createQueryClient, queryPostRequest } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({
 	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
@@ -110,7 +110,7 @@ console.log(request.statuses) // read transaction statuses
 ### Chain Utilities
 
 ```ts
-import { EvmChain, SubstrateChain } from "hyperbridge-sdk"
+import { EvmChain, SubstrateChain } from "@hyperbridge/sdk"
 
 // Interact with EVM chains
 const evmChain = new EvmChain({
@@ -137,7 +137,7 @@ If you're using Vite in your project, Hyperbridge SDK includes a plugin to handl
 ```ts
 // vite.config.ts
 import { defineConfig } from "vite"
-import hyperbridge from "hyperbridge-sdk/plugins/vite"
+import hyperbridge from "@hyperbridge/sdk/plugins/vite"
 
 export default defineConfig({
 	plugins: [

@@ -1,4 +1,4 @@
-import { Order, FillerConfig, ExecutionResult } from "hyperbridge-sdk"
+import { Order, FillerConfig, ExecutionResult } from "@hyperbridge/sdk"
 export interface FillerStrategy {
 	name: string
 

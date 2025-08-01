@@ -18,7 +18,7 @@ import {
 	ADDRESS_ZERO,
 	bytes32ToBytes20,
 	postRequestCommitment,
-} from "hyperbridge-sdk"
+} from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import { ConfirmationPolicy } from "@/config/confirmation-policy"
 import {

@@ -1,5 +1,5 @@
 {
-	"name": "hyperbridge-sdk",
+	"name": "@hyperbridge/sdk",
 	"version": "1.1.10",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
@@ -44,6 +44,7 @@
 		"build:node": "tsup --config tsup-node.config.ts",
 		"build:browser": "tsup --config tsup-browser.config.ts",
 		"prepublishOnly": "npm run build",
+		"postinstall": "pnpm run build",
 		"test": "npm run test:concurrent && npm run test:sequence",
 		"test:file": "vitest --watch=false --maxConcurrency=1",
 		"test:concurrent": "vitest --watch=false --exclude=./src/tests/sequential",

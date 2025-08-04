@@ -25,6 +25,7 @@ use polkadot_sdk::sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	Pair, H160, U256,
 };
+use polkadot_sdk::sp_io::hashing::keccak_256;
 use subxt::{
 	config::{ExtrinsicParams, HashFor, Header},
 	ext::{
@@ -657,17 +658,31 @@ where
 
 	async fn submit(
 		&self,
-		messages: Vec<Message>,
+		mut messages: Vec<Message>,
 		coprocessor: StateMachine,
 	) -> Result<TxResult, anyhow::Error> {
 		log::trace!(target: "tesseract", "in submission ");
 		let mut futs = vec![];
 		let is_hyperbridge = self.state_machine == coprocessor;
-		for msg in messages.clone() {
+		for msg in &mut messages {
+			if is_hyperbridge {
+				if let Some(bytes) = encode_message(&msg) {
+					let signature = self.sign(&bytes);
+					let encoded_signer = signature.encode();
+
+					match msg {
+						Message::Request(ref mut req) => req.signer = encoded_signer,
+						Message::Response(ref mut res) => res.signer = encoded_signer,
+						Message::Consensus(ref mut con) => con.signer = encoded_signer,
+						Message::FraudProof(ref mut fp) => fp.signer = encoded_signer,
+						_ => {}
+					}
+				}
+			}
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
 			log::trace!(target: "tesseract", "converted to value for message submission");
 			let extrinsic =
-				subxt::dynamic::tx("Ismp", "handle_unsigned", vec![messages_to_value(vec![msg])]);
+				subxt::dynamic::tx("Ismp", "handle_unsigned", vec![messages_to_value(vec![msg.clone()])]);
 			log::trace!(target: "tesseract", "gotten dynamic payload for message submission");
 			// We don't compress consensus messages
 			// We only consider compression for hyperbridge
@@ -902,3 +917,24 @@ pub fn system_events_key() -> StorageKey {
 	storage_key.extend(sp_core::twox_128(b"Events").to_vec());
 	StorageKey(storage_key)
 }
+
+fn encode_message(msg: &Message) -> Option<[u8; 32]> {
+	return match msg {
+		Message::Request(request_message) => {
+			Some(keccak_256(&request_message.requests.encode()))
+		}
+		Message::Response(response_message) => {
+			Some(keccak_256(&response_message.datagram.encode()))
+		}
+		Message::Consensus(consensus_message) => {
+			Some(keccak_256(&consensus_message.consensus_proof))
+		}
+		Message::FraudProof(fraud_proof) => {
+			Some(keccak_256(&(fraud_proof.proof_1.clone(), fraud_proof.proof_2.clone()).encode()))
+		}
+		Message::Timeout(_) => {
+			None
+		},
+	}
+}
+

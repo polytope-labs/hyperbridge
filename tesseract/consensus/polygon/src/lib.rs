@@ -6,6 +6,7 @@ use ismp::{
 	messaging::{CreateConsensusState, Message, StateCommitmentHeight},
 };
 use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLIENT_ID};
+use log::trace;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tendermint_primitives::{self, Client, CodecTrustedState};
@@ -98,7 +99,7 @@ impl PolygonPosHost {
 		};
 
 		let trusted_state = tendermint_primitives::TrustedState::new(
-			chain_id.to_string(),
+			format!("heimdallv2-{}", chain_id),
 			trusted_header.header.height.into(),
 			trusted_header.header.time.unix_timestamp() as u64,
 			trusted_header.header.hash().as_bytes().try_into().unwrap(),
@@ -116,7 +117,7 @@ impl PolygonPosHost {
 		let consensus_state = ConsensusState {
 			tendermint_state,
 			last_finalized_block: milestone.end_block,
-			last_finalized_hash: milestone.hash, // Already decoded from base64 by deserializer
+			last_finalized_hash: milestone.hash,
 			chain_id,
 		};
 

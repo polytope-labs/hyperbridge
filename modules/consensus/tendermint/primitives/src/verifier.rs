@@ -239,8 +239,8 @@ pub struct TendermintCodecHeader {
 	pub chain_id: String,
 	/// Current block height
 	pub height: u64,
-	/// Current timestamp
-	pub time: u64,
+	/// Current timestamp (RFC 3339 format)
+	pub time: String,
 	/// Previous block info
 	pub last_block_id: Option<CodecBlockId>,
 	/// Commit from validators from the last block
@@ -305,8 +305,8 @@ pub enum CodecCommitSig {
 	BlockIdFlagCommit {
 		/// Validator address
 		validator_address: Vec<u8>,
-		/// Timestamp of vote
-		timestamp: u64,
+		/// Timestamp of vote (RFC 3339 format)
+		timestamp: String,
 		/// Signature of vote
 		signature: Option<Vec<u8>>,
 	},
@@ -314,8 +314,8 @@ pub enum CodecCommitSig {
 	BlockIdFlagNil {
 		/// Validator address
 		validator_address: Vec<u8>,
-		/// Timestamp of vote
-		timestamp: u64,
+		/// Timestamp of vote (RFC 3339 format)
+		timestamp: String,
 		/// Signature of vote
 		signature: Option<Vec<u8>>,
 	},
@@ -391,7 +391,7 @@ impl TendermintCodecHeader {
 			.map_err(|e| format!("Invalid chain ID: {}", e))?;
 		let height = cometbft::block::Height::try_from(self.height)
 			.map_err(|e| format!("Invalid height: {}", e))?;
-		let time = cometbft::Time::from_unix_timestamp(self.time as i64, 0)
+		let time = cometbft::Time::parse_from_rfc3339(&self.time)
 			.map_err(|e| format!("Invalid timestamp: {}", e))?;
 
 		let last_block_id = if let Some(ref block_id) = self.last_block_id {
@@ -513,7 +513,7 @@ impl CodecCommitSig {
 			CodecCommitSig::BlockIdFlagCommit { validator_address, timestamp, signature } => {
 				let validator_address = cometbft::account::Id::try_from(validator_address.to_vec())
 					.map_err(|e| format!("Invalid validator address: {}", e))?;
-				let timestamp = cometbft::Time::from_unix_timestamp(*timestamp as i64, 0)
+				let timestamp = cometbft::Time::parse_from_rfc3339(timestamp)
 					.map_err(|e| format!("Invalid timestamp: {}", e))?;
 				let signature = if let Some(sig_bytes) = signature {
 					Some(
@@ -528,7 +528,7 @@ impl CodecCommitSig {
 			CodecCommitSig::BlockIdFlagNil { validator_address, timestamp, signature } => {
 				let validator_address = cometbft::account::Id::try_from(validator_address.to_vec())
 					.map_err(|e| format!("Invalid validator address: {}", e))?;
-				let timestamp = cometbft::Time::from_unix_timestamp(*timestamp as i64, 0)
+				let timestamp = cometbft::Time::parse_from_rfc3339(timestamp)
 					.map_err(|e| format!("Invalid timestamp: {}", e))?;
 				let signature = if let Some(sig_bytes) = signature {
 					Some(
@@ -604,7 +604,7 @@ impl From<&crate::Header> for TendermintCodecHeader {
 			version: CodecVersion { block: header.version.block, app: header.version.app },
 			chain_id: header.chain_id.to_string(),
 			height: header.height.value(),
-			time: header.time.unix_timestamp() as u64,
+			time: header.time.to_rfc3339(),
 			last_block_id: header.last_block_id.as_ref().map(CodecBlockId::from),
 			last_commit_hash: header.last_commit_hash.as_ref().map(|hash| hash.as_bytes().to_vec()),
 			data_hash: header.data_hash.as_ref().map(|hash| hash.as_bytes().to_vec()),
@@ -658,13 +658,13 @@ impl From<&crate::CommitSig> for CodecCommitSig {
 			crate::CommitSig::BlockIdFlagCommit { validator_address, timestamp, signature } =>
 				CodecCommitSig::BlockIdFlagCommit {
 					validator_address: validator_address.as_bytes().to_vec(),
-					timestamp: timestamp.unix_timestamp() as u64,
+					timestamp: timestamp.to_rfc3339(),
 					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
 				},
 			crate::CommitSig::BlockIdFlagNil { validator_address, timestamp, signature } =>
 				CodecCommitSig::BlockIdFlagNil {
 					validator_address: validator_address.as_bytes().to_vec(),
-					timestamp: timestamp.unix_timestamp() as u64,
+					timestamp: timestamp.to_rfc3339(),
 					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
 				},
 		}
@@ -688,8 +688,8 @@ impl From<&cometbft::public_key::PublicKey> for CodecPublicKey {
 			cometbft::public_key::PublicKey::Ed25519(key) =>
 				CodecPublicKey::Ed25519(key.as_bytes().to_vec()),
 			cometbft::public_key::PublicKey::Secp256k1(key) => {
-				let key_bytes = key.to_sec1_bytes();
-				CodecPublicKey::Secp256k1(key_bytes.to_vec())
+				let key_bytes = key.to_encoded_point(false);
+				CodecPublicKey::Secp256k1(key_bytes.as_bytes().to_vec())
 			},
 			_ => CodecPublicKey::Ed25519(pub_key.to_bytes().to_vec()),
 		}
@@ -831,7 +831,7 @@ impl VerificationOptions {
 
 	/// Create default verification options (2/3 trust threshold, 5 second clock drift)
 	pub fn create_default() -> Self {
-		Self { trust_threshold_numerator: 2, trust_threshold_denominator: 3, clock_drift: 5 }
+		Self { trust_threshold_numerator: 2, trust_threshold_denominator: 3, clock_drift: 180 }
 	}
 
 	/// Create verification options with custom trust threshold

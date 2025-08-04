@@ -26,6 +26,7 @@ std = [
     "evm-state-machine/std",
     "ics23/std",
     "tendermint-ics23-primitives/std",
+    "tracing-subscriber/std",
 ]
 
 [dependencies]
@@ -47,3 +48,5 @@ serde_json = { version = "1.0", default-features = false }
 prost = { workspace = true, default-features = false }
 evm-state-machine = { workspace = true }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false }
+ibc = { version = "0.57.0", default-features = false}

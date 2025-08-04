@@ -23,7 +23,7 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 
 	let evm_config = EvmConfig {
 		rpc_urls: vec![polygon_execution_url.clone()],
-		state_machine: StateMachine::Evm(137),
+		state_machine: StateMachine::Evm(80002),
 		consensus_state_id: "POLY".to_string(),
 		ismp_host: Default::default(),
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
@@ -84,4 +84,4 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 	Ok(())
 }
 
-// export POLYGON_EXECUTION_RPC="https://polygon-rpc.com/" && export POLYGON_HEIMDALL="https://polygon-heimdall-rpc.publicnode.com:443" && export POLYGON_HEIMDALL_REST="https://polygon-heimdall-rest.publicnode.com"
+// export POLYGON_EXECUTION_RPC="https://rpc-amoy.polygon.technology/" && export POLYGON_HEIMDALL="https://polygon-amoy-heimdall-rpc.publicnode.com" && export POLYGON_HEIMDALL_REST="https://polygon-amoy-heimdall-rest.publicnode.com/"

@@ -9,7 +9,7 @@ use cometbft_light_client_verifier::{
 };
 use cometbft_proto::google::protobuf::Timestamp;
 
-use crate::SpIoVerifier;
+use crate::{hashing::SpIoSha256, SpIoVerifier};
 
 use tendermint_primitives::{
 	ConsensusProof, TrustedState, UpdatedTrustedState, VerificationError, VerificationOptions,
@@ -239,13 +239,15 @@ fn validate_ancestry_chain(
 		.hash;
 
 	for (i, header) in consensus_proof.ancestry.iter().enumerate().rev() {
-		let header_hash = header.header.hash();
+		let header_hash = header.header.hash_with::<SpIoSha256>();
+
 		if header_hash.as_bytes() != expected_parent_hash.as_bytes() {
 			return Err(VerificationError::Invalid(format!(
-				"Ancestry header {} hash mismatch: expected {:?}, got {:?}",
+				"Ancestry header {} hash mismatch: expected {:?}, got {:?}, ancestry length: {}",
 				i,
-				expected_parent_hash.as_bytes(),
-				header_hash.as_bytes()
+				expected_parent_hash,
+				header_hash,
+				consensus_proof.ancestry.len()
 			)));
 		}
 

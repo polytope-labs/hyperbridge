@@ -5,8 +5,9 @@ mod tests {
 	use crate::{prove_header_update, CometBFTClient};
 	use ismp_polygon::Milestone;
 	use tendermint_primitives::{Client, TrustedState, VerificationError, VerificationOptions};
+	use tendermint_verifier::hashing::SpIoSha256;
 	use tesseract_polygon::HeimdallClient;
-	use tokio::time::{timeout, Duration};
+	use tokio::time::{interval, timeout, Duration};
 	use tracing::trace;
 
 	fn get_standard_rpc_url() -> String {
@@ -85,7 +86,7 @@ mod tests {
 		);
 
 		match timeout(
-			Duration::from_secs(600),
+			Duration::from_secs(60000),
 			run_integration_test_heimdall(&get_polygon_rpc_url()),
 		)
 		.await
@@ -125,6 +126,7 @@ mod tests {
 
 		let milestone_proto =
 			Milestone::proto_decode(&abci_query.value).expect("Failed to decode milestone");
+
 		assert_eq!(milestone_proto, milestone);
 
 		assert_eq!(abci_query.code, cometbft::abci::Code::Ok);
@@ -173,16 +175,23 @@ mod tests {
 		);
 		trace!("Initial trusted height: {}", trusted_state.height);
 
+		let mut interval = interval(Duration::from_secs(300)); // 5 minutes between updates
+
 		// Perform multiple validator set transitions
 		let mut actual_transitions = 0;
 		let mut attempt = 1;
 		while actual_transitions < VALIDATOR_SET_TRANSITIONS {
+			interval.tick().await;
+
+			let latest_height = client.latest_height().await?;
+			let target_height = latest_height;
+
 			let consensus_proof =
-				prove_header_update(&client, &trusted_state, trusted_state.height + 5).await?;
+				prove_header_update(&client, &trusted_state, target_height).await?;
 			consensus_proof.validate()?;
 
 			let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-			trace!("Attempt {}: Verifying consensus proof", attempt);
+			trace!("Attempt {}: Verifying consensus proof for height {}", attempt, target_height);
 
 			match tendermint_verifier::verify_header_update(
 				trusted_state.clone(),
@@ -254,7 +263,7 @@ mod tests {
 			chain_id,
 			trusted_height,
 			trusted_header.header.time.unix_timestamp() as u64,
-			trusted_header.header.hash().as_bytes().try_into().unwrap(),
+			trusted_header.header.hash_with::<SpIoSha256>().as_bytes().try_into().unwrap(),
 			trusted_validators,
 			trusted_next_validators,
 			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
@@ -269,15 +278,24 @@ mod tests {
 		);
 		trace!("Initial trusted height: {}", trusted_state.height);
 
+		let mut interval = interval(Duration::from_secs(300));
+
 		let mut actual_transitions = 0;
 		let mut attempt = 1;
 		while actual_transitions < VALIDATOR_SET_TRANSITIONS {
+			interval.tick().await;
+
+			let latest_height = client.latest_height().await?;
+			let target_height = latest_height;
+
 			let consensus_proof =
-				prove_header_update(&client, &trusted_state, trusted_state.height + 5).await?;
+				prove_header_update(&client, &trusted_state, target_height).await?;
+
+			trace!("Consensus proof ancestry length: {:?}", consensus_proof.ancestry.len());
 			consensus_proof.validate()?;
 
 			let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-			trace!("Attempt {}: Verifying consensus proof", attempt);
+			trace!("Attempt {}: Verifying consensus proof for height {}", attempt, target_height);
 
 			match tendermint_verifier::verify_header_update(
 				trusted_state.clone(),

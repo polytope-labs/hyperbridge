@@ -8,17 +8,26 @@
 
 extern crate alloc;
 
-use base64::prelude::{Engine as _, BASE64_STANDARD_NO_PAD};
-
 use alloc::{
 	boxed::Box,
 	collections::BTreeMap,
+	format,
 	string::{String, ToString},
 	vec,
 	vec::Vec,
 };
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use codec::{Decode, Encode};
 use geth_primitives::Header;
+use ibc::core::{
+	commitment_types::{
+		commitment::CommitmentProofBytes,
+		merkle::{MerklePath, MerkleProof},
+		proto::v1::MerkleRoot,
+		specs::ProofSpecs,
+	},
+	host::types::path::PathBytes,
+};
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -135,7 +144,7 @@ where
 {
 	use serde::Deserialize;
 	let s = String::deserialize(deserializer)?;
-	BASE64_STANDARD_NO_PAD.decode(&s).map_err(serde::de::Error::custom)
+	BASE64_STANDARD.decode(&s).map_err(serde::de::Error::custom)
 }
 
 /// Protobuf representation of a milestone
@@ -211,7 +220,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 {
 	fn verify_consensus(
 		&self,
-		_host: &dyn IsmpHost,
+		host: &dyn IsmpHost,
 		_consensus_state_id: ConsensusStateId,
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
@@ -232,7 +241,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?
 				.into();
 
-		let time = H::default().timestamp().as_secs();
+		let time = host.timestamp().as_secs();
 
 		let updated_state = verify_header_update(trusted_state, consensus_proof.clone(), time)
 			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
@@ -244,14 +253,13 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 		if let Some(milestone_update_ref) = &polygon_consensus_update.milestone_update {
 			let evm_header = Header::from(&milestone_update_ref.evm_header.clone());
 			let evm_header_hash = evm_header.hash::<H>().as_bytes().to_vec();
-			let milestone_hash = BASE64_STANDARD_NO_PAD
-				.decode(&milestone_update_ref.milestone.hash)
-				.unwrap_or_default();
+			let milestone_hash = &milestone_update_ref.milestone.hash;
 
-			if evm_header_hash != milestone_hash {
-				return Err(ismp::error::Error::Custom(
-					"EVM header hash does not match milestone hash".to_string(),
-				));
+			if &evm_header_hash != milestone_hash {
+				return Err(ismp::error::Error::Custom(format!(
+					"EVM header hash does not match milestone hash: {:?} != {:?}",
+					evm_header_hash, milestone_hash
+				)));
 			}
 
 			if milestone_update_ref.milestone.end_block !=
@@ -271,26 +279,41 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			}
 
 			let commitment_proof =
-				ics23::CommitmentProof::decode(&mut &milestone_update_ref.ics23_state_proof[..])
+				CommitmentProofBytes::try_from(milestone_update_ref.ics23_state_proof.clone())
 					.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
-			let spec = ics23::tendermint_spec();
+			let merkle_proof = MerkleProof::try_from(&commitment_proof)
+				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
+
 			let mut key = vec![0x81];
 			key.extend_from_slice(&milestone_update_ref.milestone_number.to_be_bytes());
 
-			let verification_result = ics23::verify_membership::<ICS23HostFunctions>(
-				&commitment_proof,
-				&spec,
-				&consensus_proof.signed_header.header.app_hash.as_bytes().to_vec(),
-				&key,
-				&milestone_update_ref.milestone.proto_encode(),
-			);
+			let specs = ProofSpecs::cosmos();
+			let root = MerkleRoot {
+				hash: consensus_proof.signed_header.header.app_hash.as_bytes().to_vec(),
+			};
 
-			if !verification_result {
-				return Err(ismp::error::Error::Custom(
-					"ICS23 proof verification failed".to_string(),
-				));
-			}
+			// Based on debug logs:
+			// Proof 1 key: [129, 0, 0, 0, 0, 0, 18, 240, 69] (0x81 + milestone number)
+			// Proof 2 key: [109, 105, 108, 101, 115, 116, 111, 110, 101] ("milestone" in ASCII)
+			// So the path should be: ["milestone", 0x81 + milestone number]
+			let merkle_path = MerklePath::new(vec![
+				PathBytes::from_bytes(b"milestone"), // Module name (matches proof 2)
+				PathBytes::from_bytes(&key),         // Full milestone key (matches proof 1)
+			]);
+
+			let value = milestone_update_ref.milestone.proto_encode();
+			let start_index = 0;
+
+			merkle_proof
+				.verify_membership::<ICS23HostFunctions>(
+					&specs,
+					root,
+					merkle_path,
+					value,
+					start_index,
+				)
+				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
 			let evm_header = &milestone_update_ref.evm_header;
 			let state_commitment = StateCommitmentHeight {
@@ -313,6 +336,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			// Update the consensus state in the milestone block
 			updated_consensus_state.last_finalized_block =
 				milestone_update_ref.evm_header.number.low_u64();
+			updated_consensus_state.last_finalized_hash = evm_header_hash;
 		}
 
 		updated_consensus_state.tendermint_state =

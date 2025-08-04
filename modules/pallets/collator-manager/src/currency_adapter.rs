@@ -1,195 +1,41 @@
-// Copyright (C) Polytope Labs Ltd.
-// SPDX-License-Identifier: Apache-2.0
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// 	http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-use codec::MaxEncodedLen;
-use core::mem;
+use codec::{MaxEncodedLen};
+use scale_info::TypeInfo;
 use polkadot_sdk::{
-	frame_support::traits::{
-		Currency, ExistenceRequirement, ReservableCurrency, SameOrOther, TryDrop,
-		WithdrawReasons,
-		tokens::{
-			Balance, BalanceStatus, Fortitude, Precision, Preservation, Restriction, fungible,
-			imbalance::{Imbalance as ImbalanceT, SignedImbalance, TryMerge},
+	frame_support::{
+		traits::{
+			tokens::{
+				fungible,
+				Balance,
+				imbalance::{SignedImbalance},
+				BalanceStatus, Fortitude, Precision, Preservation, Restriction,
+			},
+			Currency, ExistenceRequirement, ReservableCurrency, WithdrawReasons,
 		},
 	},
 	sp_runtime::{
+		traits::{MaybeSerializeDeserialize, Saturating, Zero},
 		DispatchError, DispatchResult as SpDispatchResult,
-		traits::MaybeSerializeDeserialize,
 	},
-	sp_std::{fmt::Debug, marker::PhantomData, result},
+	sp_std::{fmt::Debug, marker::PhantomData},
 };
-use scale_info::TypeInfo;
-
-pub struct PositiveImbalance<B: Balance>(B);
-impl<B: Balance> PositiveImbalance<B> {
-	pub fn new(amount: B) -> Self {
-		Self(amount)
-	}
-}
-
-impl<B: Balance> TryDrop for PositiveImbalance<B> {
-	fn try_drop(self) -> result::Result<(), Self> {
-		if self.0.is_zero() { Ok(()) } else { Err(self) }
-	}
-}
-
-impl<B: Balance> Default for PositiveImbalance<B> {
-	fn default() -> Self {
-		Self::zero()
-	}
-}
-
-impl<B: Balance> TryMerge for PositiveImbalance<B> {
-	fn try_merge(self, other: Self) -> Result<Self, (Self, Self)> {
-		Ok(self.merge(other))
-	}
-}
-
-impl<B: Balance> ImbalanceT<B> for PositiveImbalance<B> {
-	type Opposite = NegativeImbalance<B>;
-
-	fn zero() -> Self {
-		Self(B::zero())
-	}
-	fn peek(&self) -> B {
-		self.0
-	}
-	fn drop_zero(self) -> Result<(), Self> {
-		self.try_drop()
-	}
-	fn split(self, amount: B) -> (Self, Self) {
-		let first = self.0.min(amount);
-		let second = self.0 - first;
-		mem::forget(self);
-		(Self(first), Self(second))
-	}
-	fn extract(&mut self, amount: B) -> Self {
-		let new = self.0.min(amount);
-		self.0 = self.0 - new;
-		Self(new)
-	}
-	fn merge(mut self, other: Self) -> Self {
-		self.0 = self.0.saturating_add(other.0);
-		mem::forget(other);
-		self
-	}
-	fn subsume(&mut self, other: Self) {
-		self.0 = self.0.saturating_add(other.0);
-		mem::forget(other);
-	}
-	fn offset(self, other: Self::Opposite) -> SameOrOther<Self, Self::Opposite> {
-		let me = self.0;
-		let them = other.0;
-		mem::forget(self);
-		mem::forget(other);
-		if me > them {
-			SameOrOther::Same(Self::new(me - them))
-		} else if them > me {
-			SameOrOther::Other(NegativeImbalance::new(them - me))
-		} else {
-			SameOrOther::None
-		}
-	}
-}
-
-pub struct NegativeImbalance<B: Balance>(B);
-impl<B: Balance> NegativeImbalance<B> {
-	pub fn new(amount: B) -> Self {
-		Self(amount)
-	}
-}
-
-impl<B: Balance> TryDrop for NegativeImbalance<B> {
-	fn try_drop(self) -> Result<(), Self> {
-		if self.0.is_zero() { Ok(()) } else { Err(self) }
-	}
-}
-
-impl<B: Balance> Default for NegativeImbalance<B> {
-	fn default() -> Self {
-		Self::zero()
-	}
-}
-
-impl<B: Balance> TryMerge for NegativeImbalance<B> {
-	fn try_merge(self, other: Self) -> Result<Self, (Self, Self)> {
-		Ok(self.merge(other))
-	}
-}
-
-impl<B: Balance> ImbalanceT<B> for NegativeImbalance<B> {
-	type Opposite = PositiveImbalance<B>;
-
-	fn zero() -> Self {
-		Self(B::zero())
-	}
-	fn peek(&self) -> B {
-		self.0
-	}
-	fn drop_zero(self) -> Result<(), Self> {
-		self.try_drop()
-	}
-	fn split(self, amount: B) -> (Self, Self) {
-		let first = self.0.min(amount);
-		let second = self.0 - first;
-		mem::forget(self);
-		(Self(first), Self(second))
-	}
-	fn extract(&mut self, amount: B) -> Self {
-		let new = self.0.min(amount);
-		self.0 = self.0 - new;
-		Self(new)
-	}
-	fn merge(mut self, other: Self) -> Self {
-		self.0 = self.0.saturating_add(other.0);
-		mem::forget(other);
-		self
-	}
-	fn subsume(&mut self, other: Self) {
-		self.0 = self.0.saturating_add(other.0);
-		mem::forget(other);
-	}
-	fn offset(self, other: Self::Opposite) -> SameOrOther<Self, Self::Opposite> {
-		let me = self.0;
-		let them = other.0;
-		mem::forget(self);
-		mem::forget(other);
-		if me > them {
-			SameOrOther::Same(Self::new(me - them))
-		} else if them > me {
-			SameOrOther::Other(PositiveImbalance::new(them - me))
-		} else {
-			SameOrOther::None
-		}
-	}
-}
+use polkadot_sdk::frame_support::traits::fungible::{Credit, Debt};
 
 pub struct FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>(
 	PhantomData<(F, H, B, AccountId, Reason)>,
 );
+
 impl<F, H, B, AccountId, Reason> Currency<AccountId>
-	for FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>
+for FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>
 where
 	F: fungible::Mutate<AccountId, Balance = B> + fungible::Balanced<AccountId, Balance = B>,
+	H: fungible::hold::Mutate<AccountId, Reason = Reason, Balance = B>,
 	B: Balance + MaybeSerializeDeserialize + Debug + MaxEncodedLen,
 	AccountId: Ord + Clone + MaxEncodedLen + TypeInfo,
 	Reason: Default,
 {
 	type Balance = B;
-	type PositiveImbalance = PositiveImbalance<Self::Balance>;
-	type NegativeImbalance = NegativeImbalance<Self::Balance>;
+	type PositiveImbalance = Debt<AccountId, F>;
+	type NegativeImbalance = Credit<AccountId, F>;
 
 	fn total_balance(who: &AccountId) -> Self::Balance {
 		F::total_balance(who)
@@ -208,11 +54,11 @@ where
 	}
 
 	fn burn(amount: Self::Balance) -> Self::PositiveImbalance {
-		PositiveImbalance::new(F::rescind(amount).peek())
+		F::rescind(amount)
 	}
 
 	fn issue(amount: Self::Balance) -> Self::NegativeImbalance {
-		NegativeImbalance::new(F::issue(amount).peek())
+		F::issue(amount)
 	}
 
 	fn free_balance(who: &AccountId) -> Self::Balance {
@@ -249,26 +95,19 @@ where
 	fn slash(who: &AccountId, value: Self::Balance) -> (Self::NegativeImbalance, Self::Balance) {
 		let available = F::reducible_balance(who, Preservation::Expendable, Fortitude::Polite);
 		let slash_amount = value.min(available);
-		let burned = F::burn_from(
-			who,
-			slash_amount,
-			Preservation::Expendable,
-			Precision::BestEffort,
-			Fortitude::Force,
-		)
-		.unwrap_or_else(|_| B::zero());
-		(NegativeImbalance::new(burned), value.saturating_sub(burned))
+		let burned = F::burn_from(who, slash_amount, Preservation::Expendable, Precision::BestEffort, Fortitude::Force).unwrap_or_else(|_| B::zero());
+		(F::issue(burned), value.saturating_sub(burned))
 	}
 
 	fn deposit_into_existing(
 		who: &AccountId,
 		value: Self::Balance,
 	) -> Result<Self::PositiveImbalance, DispatchError> {
-		F::mint_into(who, value).map(PositiveImbalance::new)
+		F::deposit(who, value, Precision::Exact)
 	}
 
 	fn deposit_creating(who: &AccountId, value: Self::Balance) -> Self::PositiveImbalance {
-		PositiveImbalance::new(F::mint_into(who, value).unwrap_or_else(|_| B::zero()))
+		F::deposit(who, value, Precision::Exact).unwrap_or_else(|_| F::rescind(B::zero()))
 	}
 
 	fn withdraw(
@@ -281,8 +120,7 @@ where
 			ExistenceRequirement::KeepAlive => Preservation::Protect,
 			ExistenceRequirement::AllowDeath => Preservation::Expendable,
 		};
-		F::burn_from(who, value, preservation, Precision::Exact, Fortitude::Polite)
-			.map(NegativeImbalance::new)
+		F::withdraw(who, value, Precision::Exact, preservation, Fortitude::Polite)
 	}
 
 	fn make_free_balance_be(
@@ -295,7 +133,7 @@ where
 			if let Ok(imb) = Self::deposit_into_existing(who, diff) {
 				SignedImbalance::Positive(imb)
 			} else {
-				SignedImbalance::Positive(PositiveImbalance::new(B::zero()))
+				SignedImbalance::Positive(F::rescind(B::zero()))
 			}
 		} else if current_balance > balance {
 			let diff = current_balance.saturating_sub(balance);
@@ -304,18 +142,19 @@ where
 			{
 				SignedImbalance::Negative(imb)
 			} else {
-				SignedImbalance::Negative(NegativeImbalance::new(B::zero()))
+				SignedImbalance::Negative(F::issue(B::zero()))
 			}
 		} else {
-			SignedImbalance::Positive(PositiveImbalance::new(B::zero()))
+			SignedImbalance::Positive(F::rescind(B::zero()))
 		}
 	}
 }
 
 impl<F, H, B, AccountId, Reason> ReservableCurrency<AccountId>
-	for FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>
+for FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>
 where
-	F: fungible::Mutate<AccountId, Balance = B> + fungible::Balanced<AccountId, Balance = B>,
+	F: fungible::Mutate<AccountId, Balance = B>
+	+ fungible::Balanced<AccountId, Balance = B>,
 	H: fungible::hold::Mutate<AccountId, Reason = Reason, Balance = B>,
 	B: Balance + MaybeSerializeDeserialize + Debug + MaxEncodedLen,
 	AccountId: Ord + Clone + MaxEncodedLen + TypeInfo,
@@ -335,7 +174,8 @@ where
 	}
 
 	fn unreserve(who: &AccountId, value: Self::Balance) -> Self::Balance {
-		H::release(&Reason::default(), who, value, Precision::Exact).unwrap_or_default()
+		H::release(&Reason::default(), who, value, Precision::Exact)
+			.unwrap_or_default()
 	}
 
 	fn repatriate_reserved(
@@ -364,16 +204,8 @@ where
 		value: Self::Balance,
 	) -> (Self::NegativeImbalance, Self::Balance) {
 		let slash_amount = value.min(Self::reserved_balance(who));
-		let released = H::release(&Reason::default(), who, slash_amount, Precision::BestEffort)
-			.unwrap_or_else(|_| B::zero());
-		let burned = F::burn_from(
-			who,
-			released,
-			Preservation::Expendable,
-			Precision::BestEffort,
-			Fortitude::Force,
-		)
-		.unwrap_or_else(|_| B::zero());
-		(NegativeImbalance::new(burned), value.saturating_sub(burned))
+		let released = H::release(&Reason::default(), who, slash_amount, Precision::BestEffort).unwrap_or_else(|_| B::zero());
+		let burned = F::burn_from(who, released, Preservation::Expendable, Precision::BestEffort, Fortitude::Force).unwrap_or_else(|_| B::zero());
+		(F::issue(burned), value.saturating_sub(burned))
 	}
 }

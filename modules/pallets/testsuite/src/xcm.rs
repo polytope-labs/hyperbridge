@@ -3,9 +3,9 @@
 use crate::{
 	relay_chain,
 	runtime::{
-		register_offchain_ext, Assets, AssetsHolder, Balance, Balances, Ismp, MessageQueue, PalletXcm,
-		ParachainInfo, ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin, System, Test,
-		Timestamp, XcmpQueue, ALICE,
+		register_offchain_ext, Assets, AssetsHolder, Balance, Balances, Ismp, MessageQueue,
+		PalletXcm, ParachainInfo, ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin,
+		System, Test, Timestamp, XcmpQueue, ALICE,
 	},
 };
 use codec::Decode;

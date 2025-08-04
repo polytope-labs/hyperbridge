@@ -112,13 +112,13 @@ use pallet_ismp::offchain::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};
 use sp_runtime::traits::IdentityLookup;
 
+use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
+use frame_benchmarking::__private::traits::VariantCount;
+use scale_info::TypeInfo;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
-use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_benchmarking::__private::traits::VariantCount;
-use scale_info::TypeInfo;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -550,11 +550,6 @@ parameter_types! {
 // We allow root only to execute privileged collator selection operations.
 pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
-
-parameter_types! {
-    pub const ReputationPotId: PalletId = PalletId(*b"rep/pot_");
-}
-
 #[derive(
 	Clone, Eq, PartialEq, codec::Encode, codec::Decode, MaxEncodedLen, TypeInfo, Debug, Default,
 )]
@@ -573,7 +568,7 @@ pub struct ReputationDeal;
 	Debug,
 	Clone,
 	Copy,
-	Default
+	Default,
 )]
 pub enum CurrencyAdapterHoldReason {
 	#[default]
@@ -585,18 +580,22 @@ impl VariantCount for CurrencyAdapterHoldReason {
 	const VARIANT_COUNT: u32 = 3;
 }
 
-pub type ReputationCurrency = pallet_collator_manager::currency_adapter::AssetCurrencyAdapter<
-	Assets,
-	AssetsHolder,
-	ReputationAssetId,
+pub type ReputationAsset =
+	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+pub type ReputationAssetHolder =
+	frame_support::traits::tokens::fungible::ItemOf<AssetsHolder, ReputationAssetId, AccountId32>;
+
+pub type ReputationCurrency = pallet_collator_manager::currency_adapter::FungibleToCurrencyAdapter<
+	ReputationAsset,
+	ReputationAssetHolder,
 	Balance,
-	AccountId,
-	ReputationPotId,
+	AccountId32,
 	CurrencyAdapterHoldReason,
 >;
 
 parameter_types! {
-    pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
 }
 
 impl pallet_collator_selection::Config for Runtime {

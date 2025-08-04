@@ -26,12 +26,6 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::{EnsureRoot, EnsureSigned, EventRecord};
-use polkadot_sdk::frame_support::traits::VariantCount;
-use polkadot_sdk::pallet_session::disabling::UpToLimitDisablingStrategy;
-use polkadot_sdk::pallet_session::SessionHandler;
-use polkadot_sdk::sp_runtime::app_crypto::AppCrypto;
-use polkadot_sdk::sp_runtime::traits::OpaqueKeys;
-use scale_info::TypeInfo;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
@@ -48,6 +42,13 @@ use ismp::{
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
+use polkadot_sdk::{
+	frame_support::traits::VariantCount,
+	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
+	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys},
+};
+use scale_info::TypeInfo;
+use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
 	H160, H256, U256,
@@ -56,7 +57,6 @@ use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	AccountId32, BuildStorage,
 };
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 
 use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
@@ -105,8 +105,8 @@ frame_support::construct_runtime!(
 		MessagingRelayerIncentives: pallet_messaging_fees,
 		IsmpGrandpa: ismp_grandpa::pallet,
 		Session: pallet_session,
-        CollatorSelection: pallet_collator_selection,
-       	CollatorManager: pallet_collator_manager,
+		CollatorSelection: pallet_collator_selection,
+		   CollatorManager: pallet_collator_manager,
 	}
 );
 
@@ -284,7 +284,7 @@ impl pallet_token_gateway::Config for Test {
 	Debug,
 	Clone,
 	Copy,
-	Default
+	Default,
 )]
 pub enum CurrencyAdapterHoldReason {
 	#[default]
@@ -296,17 +296,20 @@ impl VariantCount for CurrencyAdapterHoldReason {
 }
 
 parameter_types! {
-    pub const ReputationPotId: PalletId = PalletId(*b"rep/pot_");
-    pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
 }
 
-pub type ReputationCurrency = pallet_collator_manager::currency_adapter::AssetCurrencyAdapter<
-	Assets,
-	AssetsHolder,
-	ReputationAssetId,
+pub type ReputationAsset =
+	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+pub type ReputationAssetHolder =
+	frame_support::traits::tokens::fungible::ItemOf<AssetsHolder, ReputationAssetId, AccountId32>;
+
+pub type ReputationCurrency = pallet_collator_manager::currency_adapter::FungibleToCurrencyAdapter<
+	ReputationAsset,
+	ReputationAssetHolder,
 	Balance,
 	AccountId32,
-	ReputationPotId,
 	CurrencyAdapterHoldReason,
 >;
 
@@ -316,9 +319,9 @@ impl pallet_assets_holder::Config for Test {
 }
 
 sp_runtime::impl_opaque_keys! {
-    pub struct SessionKeys {
-        pub aura: AuraId,
-    }
+	pub struct SessionKeys {
+		pub aura: AuraId,
+	}
 }
 
 pub struct TestSessionHandler;
@@ -353,10 +356,10 @@ impl pallet_session::Config for Test {
 }
 
 parameter_types! {
-    pub const PotId: PalletId = PalletId(*b"PotStake");
-    pub const MaxCandidates: u32 = 100;
-    pub const MaxInvulnerables: u32 = 20;
-    pub const DesiredCollators: u32 = 2;
+	pub const PotId: PalletId = PalletId(*b"PotStake");
+	pub const MaxCandidates: u32 = 100;
+	pub const MaxInvulnerables: u32 = 20;
+	pub const DesiredCollators: u32 = 2;
 }
 
 impl pallet_collator_selection::Config for Test {
@@ -452,6 +455,7 @@ impl pallet_consensus_incentives::Config for Test {
 	type TreasuryAccount = TreasuryAccount;
 	type WeightInfo = ();
 	type IncentivesOrigin = EnsureRoot<AccountId32>;
+	type ReputationAsset = ReputationAsset;
 }
 
 impl pallet_messaging_fees::Config for Test {
@@ -461,6 +465,7 @@ impl pallet_messaging_fees::Config for Test {
 	type PriceOracle = MockPriceOracle;
 	type TargetMessageSize = ConstU32<1000>;
 	type WeightInfo = ();
+	type ReputationAsset = ReputationAsset;
 }
 
 pub struct MockPriceOracle;

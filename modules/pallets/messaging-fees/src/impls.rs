@@ -223,10 +223,13 @@ where
 						Preservation::Expendable,
 					)
 					.map_err(|_| Error::<T>::RewardTransferFailed)?;
+
 					Self::deposit_event(Event::FeeRewarded {
 						relayer: relayer.clone(),
 						amount: reward_amount.saturated_into(),
 					});
+					T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
+						.map_err(|_| Error::<T>::ReputationMintFailed)?;
 				} else {
 					T::Currency::transfer(
 						&relayer,

@@ -13,7 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{alloc::{boxed::Box, string::ToString}, weights, AccountId, Assets, AssetsHolder, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT, CurrencyAdapterHoldReason};
+use crate::{
+	alloc::{boxed::Box, string::ToString},
+	weights, AccountId, Assets, AssetsHolder, Balance, Balances, CurrencyAdapterHoldReason, Ismp,
+	IsmpParachain, Mmr, ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector,
+	TokenGovernor, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
+};
 use anyhow::anyhow;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
@@ -35,12 +40,12 @@ use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::Permill;
 
+use codec::Encode;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
-use codec::Encode;
 
 #[derive(Default)]
 pub struct ProxyModule;

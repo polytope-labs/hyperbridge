@@ -1,31 +1,27 @@
-use codec::{MaxEncodedLen};
-use scale_info::TypeInfo;
+use codec::MaxEncodedLen;
 use polkadot_sdk::{
-	frame_support::{
-		traits::{
-			tokens::{
-				fungible,
-				Balance,
-				imbalance::{SignedImbalance},
-				BalanceStatus, Fortitude, Precision, Preservation, Restriction,
-			},
-			Currency, ExistenceRequirement, ReservableCurrency, WithdrawReasons,
+	frame_support::traits::{
+		Currency, ExistenceRequirement, ReservableCurrency, WithdrawReasons,
+		fungible::{Credit, Debt},
+		tokens::{
+			Balance, BalanceStatus, Fortitude, Precision, Preservation, Restriction, fungible,
+			imbalance::SignedImbalance,
 		},
 	},
 	sp_runtime::{
-		traits::{MaybeSerializeDeserialize, Saturating, Zero},
 		DispatchError, DispatchResult as SpDispatchResult,
+		traits::{MaybeSerializeDeserialize, Saturating, Zero},
 	},
 	sp_std::{fmt::Debug, marker::PhantomData},
 };
-use polkadot_sdk::frame_support::traits::fungible::{Credit, Debt};
+use scale_info::TypeInfo;
 
 pub struct FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>(
 	PhantomData<(F, H, B, AccountId, Reason)>,
 );
 
 impl<F, H, B, AccountId, Reason> Currency<AccountId>
-for FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>
+	for FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>
 where
 	F: fungible::Mutate<AccountId, Balance = B> + fungible::Balanced<AccountId, Balance = B>,
 	H: fungible::hold::Mutate<AccountId, Reason = Reason, Balance = B>,
@@ -95,7 +91,14 @@ where
 	fn slash(who: &AccountId, value: Self::Balance) -> (Self::NegativeImbalance, Self::Balance) {
 		let available = F::reducible_balance(who, Preservation::Expendable, Fortitude::Polite);
 		let slash_amount = value.min(available);
-		let burned = F::burn_from(who, slash_amount, Preservation::Expendable, Precision::BestEffort, Fortitude::Force).unwrap_or_else(|_| B::zero());
+		let burned = F::burn_from(
+			who,
+			slash_amount,
+			Preservation::Expendable,
+			Precision::BestEffort,
+			Fortitude::Force,
+		)
+		.unwrap_or_else(|_| B::zero());
 		(F::issue(burned), value.saturating_sub(burned))
 	}
 
@@ -151,10 +154,9 @@ where
 }
 
 impl<F, H, B, AccountId, Reason> ReservableCurrency<AccountId>
-for FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>
+	for FungibleToCurrencyAdapter<F, H, B, AccountId, Reason>
 where
-	F: fungible::Mutate<AccountId, Balance = B>
-	+ fungible::Balanced<AccountId, Balance = B>,
+	F: fungible::Mutate<AccountId, Balance = B> + fungible::Balanced<AccountId, Balance = B>,
 	H: fungible::hold::Mutate<AccountId, Reason = Reason, Balance = B>,
 	B: Balance + MaybeSerializeDeserialize + Debug + MaxEncodedLen,
 	AccountId: Ord + Clone + MaxEncodedLen + TypeInfo,
@@ -174,8 +176,7 @@ where
 	}
 
 	fn unreserve(who: &AccountId, value: Self::Balance) -> Self::Balance {
-		H::release(&Reason::default(), who, value, Precision::Exact)
-			.unwrap_or_default()
+		H::release(&Reason::default(), who, value, Precision::Exact).unwrap_or_default()
 	}
 
 	fn repatriate_reserved(
@@ -204,8 +205,16 @@ where
 		value: Self::Balance,
 	) -> (Self::NegativeImbalance, Self::Balance) {
 		let slash_amount = value.min(Self::reserved_balance(who));
-		let released = H::release(&Reason::default(), who, slash_amount, Precision::BestEffort).unwrap_or_else(|_| B::zero());
-		let burned = F::burn_from(who, released, Preservation::Expendable, Precision::BestEffort, Fortitude::Force).unwrap_or_else(|_| B::zero());
+		let released = H::release(&Reason::default(), who, slash_amount, Precision::BestEffort)
+			.unwrap_or_else(|_| B::zero());
+		let burned = F::burn_from(
+			who,
+			released,
+			Preservation::Expendable,
+			Precision::BestEffort,
+			Fortitude::Force,
+		)
+		.unwrap_or_else(|_| B::zero());
 		(F::issue(burned), value.saturating_sub(burned))
 	}
 }

@@ -17,22 +17,18 @@
 //! Implementation of the ISMP dispatcher as a precompile for PolkaVM contracts.
 extern crate alloc;
 
-mod interface;
-pub use interface::*;
-
 #[cfg(test)]
 mod tests;
+use polkadot_sdk::*;
 
 use alloc::{
 	format,
 	string::{String, ToString},
 	vec::Vec,
 };
-use alloy_primitives::{Address, Uint};
 use core::{convert::From, default::Default, result::Result::*, str::FromStr};
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp::{FundMessageParams, MessageCommitment};
-use polkadot_sdk::*;
 
 use frame_system::RawOrigin;
 use sp_core::H256;
@@ -48,12 +44,14 @@ use ismp::{
 use num_traits::{FromPrimitive, ToPrimitive};
 use pallet_revive::precompiles::{
 	alloy::{
-		primitives::FixedBytes,
+		self,
+		primitives::{Address, FixedBytes, Uint},
 		sol_types::{Revert, SolValue},
 	},
 	AddressMapper, AddressMatcher, Error, Ext, Precompile,
 };
 
+alloy::sol!("src/IDispatcher.sol");
 use IDispatcher::IDispatcherCalls;
 
 /// [`pallet_revive::precompiles::Precompile`] implementation for [`ismp`] protocol dispatcher
@@ -62,6 +60,7 @@ pub struct ReviveDispatcher<Runtime, Dispatcher, FeeToken>(
 );
 
 // Todo: figure out gas costs
+// Todo: Expose IsmpModule implementation
 impl<Runtime, Dispatcher, FeeToken> Precompile for ReviveDispatcher<Runtime, Dispatcher, FeeToken>
 where
 	Runtime: pallet_ismp::Config + pallet_revive::Config + pallet_hyperbridge::Config,
@@ -89,7 +88,6 @@ where
 
 		match input {
 			IDispatcherCalls::host(IDispatcher::hostCall) => {
-				// env.cha
 				let host = Runtime::HostStateMachine::get();
 				return Ok(host.to_string().as_bytes().to_vec().abi_encode());
 			},
@@ -103,8 +101,9 @@ where
 				let nonce = pallet_ismp::Nonce::<Runtime>::get();
 				return Ok(Uint::<256, 4>::from(nonce).abi_encode());
 			},
-			IDispatcherCalls::feeToken(IDispatcher::feeTokenCall) =>
-				return Ok(FeeToken::get().abi_encode()),
+			IDispatcherCalls::feeToken(IDispatcher::feeTokenCall) => {
+				return Ok(FeeToken::get().abi_encode())
+			},
 			IDispatcherCalls::perByteFee(IDispatcher::perByteFeeCall { dest }) => {
 				let utf8 = String::from_utf8(dest.to_vec()).map_err(|_| {
 					Error::Revert(Revert { reason: "Invalid state machine".into() })
@@ -186,9 +185,9 @@ where
 				return Ok(FixedBytes::<32>::from(commitment.0).abi_encode());
 			},
 			IDispatcherCalls::dispatch_2(IDispatcher::dispatch_2Call { response }) => {
-				let destination = String::from_utf8(response.request.source.to_vec())
+				let destination = String::from_utf8(response.request.dest.to_vec())
 					.map_err(|_| Error::Revert(Revert { reason: "Invalid destination".into() }))?;
-				let source = String::from_utf8(response.request.dest.to_vec())
+				let source = String::from_utf8(response.request.source.to_vec())
 					.map_err(|_| Error::Revert(Revert { reason: "Invalid source".into() }))?;
 				let relayer_fee = response
 					.fee

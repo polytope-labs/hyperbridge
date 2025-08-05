@@ -10,17 +10,20 @@ documentation = "https://docs.rs/pallet-revive-ismp-dispatcher"
 keywords = ["pallet-revive", "pallet-ismp", "ismp", "polkadot-sdk", "pallet-ismp", "Risc-v", "evm"]
 readme = "./README.md"
 
+[lib]
+doctest = false
+
 [dependencies]
 alloy-rlp = { workspace = true }
 num-traits = { version = "0.2.19", default-features = false }
 ruint = { version = "1.15.0", features = ["num-traits"], default-features = false }
-alloy-primitives = { workspace = true }
 scale-info = { workspace = true }
 codec = { workspace = true }
 log = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 pallet-hyperbridge = { workspace = true }
+hex = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -37,7 +40,6 @@ features = [
 [dev-dependencies]
 anyhow = { workspace = true }
 hex-literal = { workspace = true }
-hex = { workspace = true }
 polkadot-sdk = { workspace = true, features = [
     "std",
     "pallet-balances",
@@ -60,7 +62,6 @@ std = [
     "num-traits/std",
     "ismp/std",
     "pallet-ismp/std",
-    "alloy-primitives/std",
     "alloy-rlp/std",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

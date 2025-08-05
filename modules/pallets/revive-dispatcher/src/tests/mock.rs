@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy_primitives::Address;
 use codec::Encode;
 use frame_support::{
 	derive_impl, parameter_types,
@@ -22,7 +21,8 @@ use frame_support::{
 use frame_system::EnsureRoot;
 use hex_literal::hex;
 use ismp::{host::StateMachine, module::IsmpModule, router::PostRequest};
-use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams, PALLET_HYPERBRIDGE_ID};
+use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
+use pallet_revive::precompiles::alloy::primitives::Address;
 use polkadot_sdk::*;
 use sp_core::H256;
 use sp_runtime::{
@@ -224,7 +224,8 @@ impl ismp::router::IsmpRouter for MockRouter {
 		id: Vec<u8>,
 	) -> Result<Box<dyn ismp::module::IsmpModule>, anyhow::Error> {
 		return match id.as_slice() {
-			PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
+			pallet_hyperbridge::PALLET_HYPERBRIDGE_ID =>
+				Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
 			_ => Err(ismp::Error::ModuleNotFound(id))?,
 		};
 	}

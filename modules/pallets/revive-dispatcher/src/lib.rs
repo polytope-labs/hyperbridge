@@ -20,6 +20,9 @@ extern crate alloc;
 mod interface;
 pub use interface::*;
 
+#[cfg(test)]
+mod tests;
+
 use alloc::{
 	format,
 	string::{String, ToString},

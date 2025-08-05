@@ -15497,6 +15497,7 @@ version = "2506.0.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
+ "anyhow",
  "ismp",
  "log",
  "num-traits",

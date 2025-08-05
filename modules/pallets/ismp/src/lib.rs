@@ -56,7 +56,6 @@ pub mod pallet {
 		PalletId,
 	};
 	use frame_system::pallet_prelude::{BlockNumberFor, *};
-	#[cfg(feature = "unsigned")]
 	use ismp::messaging::Message;
 	use ismp::{
 		consensus::{
@@ -70,7 +69,6 @@ pub mod pallet {
 		router::IsmpRouter,
 	};
 	use sp_core::{storage::ChildInfo, H256};
-	#[cfg(feature = "unsigned")]
 	use sp_runtime::transaction_validity::{
 		InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
 		ValidTransaction,
@@ -301,7 +299,6 @@ pub mod pallet {
 		/// - `messages`: the messages to handle or process.
 		///
 		/// Emits different message events based on the Message received if successful.
-		#[cfg(feature = "unsigned")]
 		#[pallet::weight(weight())]
 		#[pallet::call_index(0)]
 		#[frame_support::transactional]
@@ -502,7 +499,6 @@ pub mod pallet {
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.
-	#[cfg(feature = "unsigned")]
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;

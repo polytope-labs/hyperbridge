@@ -34,6 +34,17 @@ features = [
     "pallet-revive",
 ]
 
+[dev-dependencies]
+anyhow = { workspace = true }
+polkadot-sdk = { workspace = true, features = [
+    "std",
+    "pallet-balances",
+    "pallet-assets",
+    "pallet-timestamp",
+    "pallet-transaction-payment",
+    "sp-io",
+] }
+
 [features]
 default = ["std"]
 std = [

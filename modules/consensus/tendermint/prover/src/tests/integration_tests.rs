@@ -120,7 +120,7 @@ mod tests {
 
 		let latest_height = client.latest_height().await.expect("Failed to fetch latest height");
 		let abci_query: AbciQuery = client
-			.get_ics23_proof(milestone_number, latest_height)
+			.get_milestone_proof(milestone_number, latest_height)
 			.await
 			.expect("ABCI query failed");
 

@@ -28,7 +28,6 @@ use ibc::core::{
 	},
 	host::types::path::PathBytes,
 };
-use ics23::{calculate_existence_root, commitment_proof::Proof, verify_membership};
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -302,81 +301,15 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			let start_index = 0;
 			let value = milestone_update_ref.milestone.proto_encode();
 
-			// Manual implementation of verify_membership
-
-			if merkle_proof.proofs.is_empty() {
-				return Err(ismp::error::Error::Custom("Merkle proof is empty".to_string()));
-			}
-
-			if root.hash.is_empty() {
-				return Err(ismp::error::Error::Custom("Root hash is empty".to_string()));
-			}
-
-			let num_proofs = merkle_proof.proofs.len();
-			let ics23_specs = Vec::<ics23::ProofSpec>::from(specs.clone());
-
-			if ics23_specs.len() != num_proofs {
-				return Err(ismp::error::Error::Custom(format!(
-					"Number of proofs ({}) does not match number of specs ({})",
-					num_proofs,
-					ics23_specs.len()
-				)));
-			}
-
-			if merkle_path.key_path.len() != num_proofs {
-				return Err(ismp::error::Error::Custom(format!(
-					"Number of key path elements ({}) does not match number of proofs ({})",
-					merkle_path.key_path.len(),
-					num_proofs
-				)));
-			}
-
-			if value.is_empty() {
-				return Err(ismp::error::Error::Custom("Value is empty".to_string()));
-			}
-
-			let mut subroot = value.clone();
-			let mut value = value;
-
-			for ((proof, spec), key) in merkle_proof
-				.proofs
-				.iter()
-				.zip(ics23_specs.iter())
-				.zip(merkle_path.key_path.iter().rev())
-				.skip(
-					start_index
-						.try_into()
-						.expect("safe because if u64 is more than usize it will skip all anyway"),
-				) {
-				match &proof.proof {
-					Some(Proof::Exist(existence_proof)) => {
-						subroot = calculate_existence_root::<ICS23HostFunctions>(existence_proof)
-							.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
-
-						if !verify_membership::<ICS23HostFunctions>(
-							proof,
-							spec,
-							&subroot,
-							key.as_ref(),
-							&value,
-						) {
-							return Err(ismp::error::Error::Custom(
-								"Membership verification failed".to_string(),
-							));
-						}
-						value.clone_from(&subroot);
-					},
-					_ =>
-						return Err(ismp::error::Error::Custom("Unsupported proof type".to_string())),
-				}
-			}
-
-			if root.hash != subroot {
-				return Err(ismp::error::Error::Custom(format!(
-					"Root hash does not match subroot: {:?} != {:?}",
-					root.hash, subroot,
-				)));
-			}
+			merkle_proof
+				.verify_membership::<ICS23HostFunctions>(
+					&specs,
+					root,
+					merkle_path,
+					value,
+					start_index,
+				)
+				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
 			let evm_header = &milestone_update_ref.evm_header;
 			let state_commitment = StateCommitmentHeight {

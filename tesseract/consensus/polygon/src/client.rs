@@ -201,18 +201,6 @@ impl HeimdallClient {
 		Ok((latest_count, milestone))
 	}
 
-	/// Retrieves the second latest milestone.
-	///
-	/// # Returns
-	///
-	/// - `Ok(Milestone)`: The second latest milestone
-	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
-	pub async fn get_second_latest_milestone(&self) -> Result<(u64, Milestone), ProverError> {
-		let latest_count = self.get_milestone_count().await?;
-		let milestone = self.get_milestone(latest_count - 1).await?;
-		Ok((latest_count - 1, milestone))
-	}
-
 	/// Retrieves the ICS23 proof for a specific milestone.
 	///
 	/// This method queries the Heimdall node's ABCI store to get the proof

@@ -829,9 +829,9 @@ impl VerificationOptions {
 		Ok(())
 	}
 
-	/// Create default verification options (2/3 trust threshold, 5 second clock drift)
+	/// Create default verification options (2/3 trust threshold, 5 seconds clock drift)
 	pub fn create_default() -> Self {
-		Self { trust_threshold_numerator: 2, trust_threshold_denominator: 3, clock_drift: 180 }
+		Self { trust_threshold_numerator: 2, trust_threshold_denominator: 3, clock_drift: 5 }
 	}
 
 	/// Create verification options with custom trust threshold

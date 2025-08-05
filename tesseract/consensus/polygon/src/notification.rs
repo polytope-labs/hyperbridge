@@ -44,20 +44,43 @@ pub async fn consensus_notification(
 		true,
 	);
 
-	let (milestone_number, milestone) = client.prover.get_second_latest_milestone().await?;
+	let (mut milestone_number, mut milestone) = client.prover.get_latest_milestone().await?;
+	let query_height = untrusted_header.header.height.value() - 1;
+	let mut milestone_proof =
+		client.prover.get_milestone_proof(milestone_number, query_height).await?;
+
+	if milestone_proof.value.is_empty() {
+		milestone_number -= 1;
+		milestone_proof = client.prover.get_milestone_proof(milestone_number, query_height).await?;
+
+		milestone = ismp_polygon::Milestone::proto_decode(&milestone_proof.value)
+			.map_err(|e| anyhow::anyhow!("failed to decode milestone: {}", e))?;
+	}
 
 	let maybe_milestone_update = if milestone.end_block > consensus_state.last_finalized_block {
-		Some(
-			build_milestone_update(
-				client,
-				milestone_number,
-				milestone.clone(),
-				milestone.end_block,
-				untrusted_header.header.height.value() - 1, /* Query at height h-1 where
-				                                             * milestone data exists */
-			)
-			.await?,
-		)
+		let evm_header = client
+			.prover
+			.fetch_header(milestone.end_block)
+			.await?
+			.ok_or_else(|| anyhow::anyhow!("EVM header not found"))?;
+
+		let merkle_proof = milestone_proof
+			.clone()
+			.proof
+			.map(|p| convert_tm_to_ics_merkle_proof::<ICS23HostFunctions>(&p))
+			.transpose()
+			.map_err(|_| anyhow::anyhow!("bad client state proof"))?
+			.ok_or_else(|| anyhow::anyhow!("proof not found"))?;
+
+		let proof = CommitmentProofBytes::try_from(merkle_proof)
+			.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?;
+
+		Some(ismp_polygon::MilestoneUpdate {
+			evm_header,
+			milestone_number,
+			ics23_state_proof: proof.into(),
+			milestone,
+		})
 	} else {
 		None
 	};
@@ -109,9 +132,6 @@ pub async fn consensus_notification(
 					header.header.next_validators_hash,
 					true,
 				);
-
-				trace!("3. Validator set hash match: {:?}", validator_set_hash_match);
-				trace!("4. Next validator set hash match: {:?}", next_validator_set_hash_match);
 				if validator_set_hash_match.is_ok() || next_validator_set_hash_match.is_ok() {
 					found = true;
 					matched_header = Some(header);
@@ -143,42 +163,6 @@ pub async fn consensus_notification(
 		},
 	}
 	Ok(None)
-}
-
-async fn build_milestone_update(
-	client: &PolygonPosHost,
-	milestone_number: u64,
-	milestone: ismp_polygon::Milestone,
-	milestone_end_block: u64,
-	untrusted_header_height: u64,
-) -> anyhow::Result<ismp_polygon::MilestoneUpdate> {
-	let evm_header = client
-		.prover
-		.fetch_header(milestone_end_block)
-		.await?
-		.ok_or_else(|| anyhow::anyhow!("EVM header not found"))?;
-	let response = client
-		.prover
-		.get_milestone_proof(milestone_number, untrusted_header_height)
-		.await?;
-
-	let merkle_proof = response
-		.clone()
-		.proof
-		.map(|p| convert_tm_to_ics_merkle_proof::<ICS23HostFunctions>(&p))
-		.transpose()
-		.map_err(|_| anyhow::anyhow!("bad client state proof"))?
-		.ok_or_else(|| anyhow::anyhow!("proof not found"))?;
-
-	let proof = CommitmentProofBytes::try_from(merkle_proof)
-		.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?;
-
-	return Ok(ismp_polygon::MilestoneUpdate {
-		evm_header,
-		milestone_number,
-		ics23_state_proof: proof.into(),
-		milestone,
-	});
 }
 
 pub fn convert_tm_to_ics_merkle_proof<H>(

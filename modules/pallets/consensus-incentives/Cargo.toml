@@ -14,6 +14,7 @@ codec = { workspace = true }
 scale-info = { workspace = true }
 pallet-ismp = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
+pallet-ismp-relayer = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -27,6 +28,7 @@ std = [
     "polkadot-sdk/std",
     "pallet-ismp/std",
     "ismp/std",
+    "pallet-ismp-relayer/std",
 ]
 runtime-benchmarks = ["polkadot-sdk/runtime-benchmarks"]
 try-runtime = ["polkadot-sdk/try-runtime"]

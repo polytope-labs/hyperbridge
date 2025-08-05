@@ -15,12 +15,21 @@
 
 use core::marker::PhantomData;
 
-use polkadot_sdk::*;
+use alloc::vec;
 
 use alloc::vec::Vec;
-use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
+use codec::{Decode, Encode};
+use frame_support::{
+	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
+	traits::{Currency, ExistenceRequirement, Get},
+};
 use impl_trait_for_tuples::impl_for_tuples;
 use ismp::messaging::Message;
+use polkadot_sdk::{frame_support::PalletId, sp_runtime::traits::AccountIdConversion, *};
+use sp_runtime::{
+	traits::{MaybeDisplay, Member, Zero},
+	DispatchError, Weight,
+};
 
 use crate::weights::{get_weight, WeightProvider};
 use ismp::events::Event;
@@ -95,46 +104,145 @@ pub trait FeeHandler {
 	fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo;
 }
 
-/// A weight-based fee handler implementation that calculates fees based on message processing
-/// weight.
+/// A weight-based fee handler implementation that calculates and charges fees based on message
+/// processing weight.
 ///
-/// This implementation computes the actual weight consumed by a batch of messages using the
-/// provided `WeightProvider`.
+/// This implementation computes the weight consumed by a batch of messages, converts this weight
+/// into a fee, and charges the fee to the message originator's account. The behavior is
+/// configurable through a `ChargePolicy`.
 ///
 /// ## Type Parameters
 ///
 /// * `AccountId` - The account identifier type used to identify fee payers.
-/// * `Provider` - A type implementing the `WeightProvider` trait that can calculate weights for
-///   different module callbacks based on message types.
+/// * `C` - The `Currency` trait implementation for handling balances.
+/// * `W` - A type implementing `WeightToFee` to convert computational `Weight` into a `Balance`.
+/// * `Provider` - A type implementing `WeightProvider` to calculate the weight of ISMP messages.
+/// * `Policy` - A type implementing `ChargePolicy` to determine if fees should be charged.
+/// * `T` - A `Get<AccountId>` implementation that returns the Treasury's account ID.
 ///
 /// ## Examples
 ///
-/// This handler is typically configured in a runtime to establish a weight-based fee model:
+/// This handler is typically configured in a runtime to establish a weight-based fee model.
 ///
 /// ```ignore
-/// type FeeHandler = WeightFeeHandler<AccountId, WeightInfo>;
+/// // In the runtime configuration
+/// use pallet_ismp::fee_handler::{self, WeightToFee};
+/// use frame_support::weights::WeightToFee as SubstrateWeightToFee;
+///
+/// // An adapter to use the runtime's default WeightToFee implementation
+/// pub struct IsmpWeightToFee;
+/// impl WeightToFee for IsmpWeightToFee {
+///     type Balance = Balance;
+///     fn convert(weight: Weight) -> Self::Balance {
+///         <Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
+///     }
+/// }
+///
+/// // Define the fee handler type
+/// type FeeHandler = fee_handler::WeightFeeHandler<
+///     AccountId,
+///     Balances,
+///     IsmpWeightToFee,
+///     weights::pallet_ismp::WeightInfo<Runtime>,
+///     fee_handler::Charge, // or fee_handler::NoCharge
+/// 		TreasuryPalletId
+/// >;
 /// ```
-pub struct WeightFeeHandler<Provider>(PhantomData<Provider>);
+pub struct WeightFeeHandler<AccountId, C, W, P, Policy, T>(
+	PhantomData<(AccountId, C, W, P, Policy, T)>,
+);
 
-impl<Provider> FeeHandler for WeightFeeHandler<Provider>
+type BalanceOf<C, AccountId> = <C as Currency<AccountId>>::Balance;
+
+/// Defines an interface for converting computational `Weight` into a `Balance`.
+///
+/// This trait allows runtimes to implement their own custom logic for fee calculation,
+/// decoupling the fee conversion mechanism from the fee handler itself.
+pub trait WeightToFee {
+	/// The balance type.
+	type Balance: Zero;
+	/// Converts a given `Weight` into a `Balance`.
+	fn convert(weight: Weight) -> Self::Balance;
+}
+
+/// Defines a policy to determine whether fees should be charged.
+///
+/// This trait acts as a feature flag at the type level, allowing a runtime
+/// to easily enable or disable fee collection for ISMP messages.
+pub trait ChargePolicy {
+	/// Returns `true` if fees should be charged, `false` otherwise.
+	fn should_charge() -> bool;
+}
+
+/// An implementation of `ChargePolicy` that disables fee collection.
+///
+/// When used, `should_charge` will always return `false`.
+pub struct NoCharge;
+impl ChargePolicy for NoCharge {
+	fn should_charge() -> bool {
+		false
+	}
+}
+
+/// An implementation of `ChargePolicy` that enables fee collection.
+///
+/// When used, `should_charge` will always return `true`.
+pub struct Charge;
+impl ChargePolicy for Charge {
+	fn should_charge() -> bool {
+		true
+	}
+}
+
+impl<AccountId, C, W, Provider, Policy, T> FeeHandler
+	for WeightFeeHandler<AccountId, C, W, Provider, Policy, T>
 where
+	AccountId: Member + MaybeDisplay + Decode + Encode,
+	C: Currency<AccountId>,
+	W: WeightToFee<Balance = BalanceOf<C, AccountId>>,
 	Provider: WeightProvider,
+	Policy: ChargePolicy,
+	T: Get<PalletId>,
 {
 	fn on_executed(messages: Vec<Message>, _events: Vec<Event>) -> DispatchResultWithPostInfo {
-		Ok(PostDispatchInfo {
-			actual_weight: Some(get_weight::<Provider>(&messages)),
-			pays_fee: Pays::Yes,
-		})
+		let total_weight = get_weight::<Provider>(&messages);
+
+		if !Policy::should_charge() {
+			return Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::No })
+		}
+
+		let treasury_account: AccountId = T::get().into_account_truncating();
+
+		for message in &messages {
+			let weight = get_weight::<Provider>(&[message.clone()]);
+			let fee = W::convert(weight);
+
+			if fee.is_zero() {
+				continue
+			}
+
+			// todo: should get originator from the signer of the message
+			let originator = Some(vec![]);
+
+			if let Some(originator_bytes) = originator {
+				if let Ok(account) = AccountId::decode(&mut &originator_bytes[..]) {
+					C::transfer(&account, &treasury_account, fee, ExistenceRequirement::KeepAlive)
+						.map_err(|_| DispatchError::Other("Failed to transfer fee to treasury"))?;
+				}
+			}
+		}
+
+		Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::Yes })
 	}
 }
 
 #[impl_for_tuples(2)]
 impl FeeHandler for TupleIdentifier {
-    fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo {
-        for_tuples!( #(
+	fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo {
+		for_tuples!( #(
             <TupleIdentifier as FeeHandler>::on_executed(messages.clone(), events.clone())?;
         )* );
 
-        Ok(Default::default())
-    }
+		Ok(Default::default())
+	}
 }

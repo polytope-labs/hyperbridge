@@ -6,7 +6,6 @@ use ismp::{
 	messaging::{CreateConsensusState, Message, StateCommitmentHeight},
 };
 use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLIENT_ID};
-use log::trace;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tendermint_primitives::{self, Client, CodecTrustedState};

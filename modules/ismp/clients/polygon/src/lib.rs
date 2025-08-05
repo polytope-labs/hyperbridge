@@ -294,13 +294,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 				hash: consensus_proof.signed_header.header.app_hash.as_bytes().to_vec(),
 			};
 
-			// Based on debug logs:
-			// Proof 1 key: [129, 0, 0, 0, 0, 0, 18, 240, 69] (0x81 + milestone number)
-			// Proof 2 key: [109, 105, 108, 101, 115, 116, 111, 110, 101] ("milestone" in ASCII)
-			// So the path should be: ["milestone", 0x81 + milestone number]
 			let merkle_path = MerklePath::new(vec![
-				PathBytes::from_bytes(b"milestone"), // Module name (matches proof 2)
-				PathBytes::from_bytes(&key),         // Full milestone key (matches proof 1)
+				PathBytes::from_bytes(b"milestone"),
+				PathBytes::from_bytes(&key),
 			]);
 
 			let start_index = 0;
@@ -376,9 +372,10 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			}
 
 			if root.hash != subroot {
-				return Err(ismp::error::Error::Custom(
-					"Root hash does not match subroot".to_string(),
-				));
+				return Err(ismp::error::Error::Custom(format!(
+					"Root hash does not match subroot: {:?} != {:?}",
+					root.hash, subroot,
+				)));
 			}
 
 			let evm_header = &milestone_update_ref.evm_header;

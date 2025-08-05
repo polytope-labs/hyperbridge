@@ -83,5 +83,3 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 
 	Ok(())
 }
-
-// export POLYGON_EXECUTION_RPC="https://rpc-amoy.polygon.technology/" && export POLYGON_HEIMDALL="https://polygon-amoy-heimdall-rpc.publicnode.com" && export POLYGON_HEIMDALL_REST="https://polygon-amoy-heimdall-rest.publicnode.com/"

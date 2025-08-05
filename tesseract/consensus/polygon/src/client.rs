@@ -201,6 +201,18 @@ impl HeimdallClient {
 		Ok((latest_count, milestone))
 	}
 
+	/// Retrieves the second latest milestone.
+	///
+	/// # Returns
+	///
+	/// - `Ok(Milestone)`: The second latest milestone
+	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	pub async fn get_second_latest_milestone(&self) -> Result<(u64, Milestone), ProverError> {
+		let latest_count = self.get_milestone_count().await?;
+		let milestone = self.get_milestone(latest_count - 1).await?;
+		Ok((latest_count - 1, milestone))
+	}
+
 	/// Retrieves the ICS23 proof for a specific milestone.
 	///
 	/// This method queries the Heimdall node's ABCI store to get the proof
@@ -221,7 +233,7 @@ impl HeimdallClient {
 	/// Returns `ProverError` if:
 	/// - The ABCI query fails
 	/// - The height conversion fails
-	pub async fn get_ics23_proof(
+	pub async fn get_milestone_proof(
 		&self,
 		count: u64,
 		latest_consensus_height: u64,
@@ -371,8 +383,6 @@ impl Client for HeimdallClient {
 				})?
 				.hash;
 
-			println!("parent_hash: {:?}", parent_hash);
-
 			// If we have an expected parent hash, validate that the current header's parent
 			// matches the hash of the previous header
 			if let Some(expected_hash) = expected_parent_hash {
@@ -389,8 +399,6 @@ impl Client for HeimdallClient {
 			// Hash the current header for the next iteration
 			let header_hash = header.header.hash_with::<SpIoSha256>();
 			expected_parent_hash = Some(header_hash);
-
-			println!("expected_parent_hash: {:?}", expected_parent_hash);
 
 			headers.push(header);
 		}

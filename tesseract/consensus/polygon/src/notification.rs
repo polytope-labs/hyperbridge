@@ -21,8 +21,6 @@ pub async fn consensus_notification(
 ) -> anyhow::Result<Option<PolygonConsensusUpdate>> {
 	let latest_height = client.prover.latest_height().await?;
 
-	trace!("latest_height: {:?}", latest_height);
-
 	let consensus_state_serialized: Vec<u8> =
 		_counterparty.query_consensus_state(None, client.consensus_state_id).await?;
 
@@ -31,8 +29,6 @@ pub async fn consensus_notification(
 
 	let trusted_state: TrustedState =
 		CodecTrustedState::decode(&mut consensus_state.tendermint_state.as_slice())?.into();
-
-	trace!("trusted_state height: {:?}", trusted_state.height);
 
 	let untrusted_header = client.prover.signed_header(latest_height).await?;
 
@@ -48,7 +44,7 @@ pub async fn consensus_notification(
 		true,
 	);
 
-	let (milestone_number, milestone) = client.prover.get_latest_milestone().await?;
+	let (milestone_number, milestone) = client.prover.get_second_latest_milestone().await?;
 
 	let maybe_milestone_update = if milestone.end_block > consensus_state.last_finalized_block {
 		Some(
@@ -57,7 +53,8 @@ pub async fn consensus_notification(
 				milestone_number,
 				milestone.clone(),
 				milestone.end_block,
-				untrusted_header.header.height.into(),
+				untrusted_header.header.height.value() - 1, /* Query at height h-1 where
+				                                             * milestone data exists */
 			)
 			.await?,
 		)
@@ -65,7 +62,7 @@ pub async fn consensus_notification(
 		None
 	};
 
-	match validator_set_hash_match.is_ok() || next_validator_set_hash_match.is_ok() {
+	match validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
 		true => {
 			let ancestry = if latest_height > trusted_state.height + 1 {
 				client
@@ -160,7 +157,11 @@ async fn build_milestone_update(
 		.fetch_header(milestone_end_block)
 		.await?
 		.ok_or_else(|| anyhow::anyhow!("EVM header not found"))?;
-	let response = client.prover.get_ics23_proof(milestone_number, untrusted_header_height).await?;
+	let response = client
+		.prover
+		.get_milestone_proof(milestone_number, untrusted_header_height)
+		.await?;
+
 	let merkle_proof = response
 		.clone()
 		.proof

@@ -97,7 +97,6 @@ impl Get<Option<StateMachine>> for Coprocessor {
 		Some(HostStateMachine::get())
 	}
 }
-
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
@@ -113,11 +112,11 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp>,
+			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp>,
+			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 		>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,

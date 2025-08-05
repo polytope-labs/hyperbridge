@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Implementation blocks for pallet-relayer-incentives.
+//! Implementation blocks for pallet-consensus-incentives.
 
 use crate::*;
 use alloc::collections::BTreeMap;

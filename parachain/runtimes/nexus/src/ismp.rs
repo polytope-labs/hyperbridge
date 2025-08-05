@@ -148,11 +148,11 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp>,
+			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp>,
+			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 		>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
@@ -247,7 +247,7 @@ impl pallet_token_governor::Config for Runtime {
 	>;
 }
 
-impl pallet_relayer_incentives::Config for Runtime {
+impl pallet_consensus_incentives::Config for Runtime {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
 	type IncentivesOrigin = EitherOfDiverse<

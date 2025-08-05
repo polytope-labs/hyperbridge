@@ -43,14 +43,18 @@ use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H160, H256,
+	H160, H256, U256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
 	AccountId32, BuildStorage,
 };
 
+use crate::runtime::sp_runtime::DispatchError;
+use hyperbridge_client_machine::HyperbridgeClientMachine;
+use pallet_messaging_fees::types::PriceOracle;
 use substrate_state_machine::SubstrateStateMachine;
+
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
@@ -85,7 +89,9 @@ frame_support::construct_runtime!(
 		TokenGatewayInspector: pallet_token_gateway_inspector,
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
-		RelayerIncentives: pallet_relayer_incentives
+		RelayerIncentives: pallet_consensus_incentives,
+		MessagingRelayerIncentives: pallet_messaging_fees,
+		IsmpGrandpa: ismp_grandpa::pallet
 	}
 );
 
@@ -204,9 +210,14 @@ impl pallet_ismp::Config for Test {
 		MockConsensusClient,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test, ()>,
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<
+			Test,
+			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
+		>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = pallet_relayer_incentives::Pallet<Test>;
+	type FeeHandler =
+		(pallet_consensus_incentives::Pallet<Test>, pallet_messaging_fees::Pallet<Test>);
 }
 
 impl pallet_hyperbridge::Config for Test {
@@ -259,6 +270,12 @@ impl ismp_bsc::pallet::Config for Test {
 	type IsmpHost = Ismp;
 }
 
+impl ismp_grandpa::Config for Test {
+	type IsmpHost = Ismp;
+	type WeightInfo = ();
+	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
 parameter_types! {
 	pub const TreasuryAccount: PalletId = PalletId(*b"treasury");
 }
@@ -294,11 +311,29 @@ impl pallet_bridge_airdrop::Config for Test {
 	type BridgeDropOrigin = EnsureRoot<AccountId32>;
 }
 
-impl pallet_relayer_incentives::Config for Test {
+impl pallet_consensus_incentives::Config for Test {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryAccount;
 	type WeightInfo = ();
 	type IncentivesOrigin = EnsureRoot<AccountId32>;
+}
+
+impl pallet_messaging_fees::Config for Test {
+	type IsmpHost = Ismp;
+	type TreasuryAccount = TreasuryAccount;
+	type IncentivesOrigin = EnsureRoot<AccountId32>;
+	type PriceOracle = MockPriceOracle;
+	type TargetMessageSize = ConstU32<1000>;
+	type WeightInfo = ();
+}
+
+pub struct MockPriceOracle;
+
+impl PriceOracle for MockPriceOracle {
+	fn get_bridge_price() -> Result<U256, DispatchError> {
+		// return 0.05 with 18 decimals: 0.05 * 10^18
+		Ok(U256::from(50_000_000_000_000_000u128))
+	}
 }
 
 parameter_types! {

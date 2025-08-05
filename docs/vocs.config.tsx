@@ -335,6 +335,20 @@ export default defineConfig({
               },
             ],
           },
+          {
+            text: "Configurations",
+            collapsed: false,
+            items: [
+              {
+                text: "Mainnet",
+                link: "/developers/explore/configurations/mainnet",
+              },
+              {
+                text: "Testnet",
+                link: "/developers/explore/configurations/testnet",
+              },
+            ],
+          },
         ],
       },
       {
@@ -356,20 +370,6 @@ export default defineConfig({
           {
             text: "Receiving Messages",
             link: "/developers/evm/receiving",
-          },
-          {
-            text: "Contract Addresses",
-            collapsed: false,
-            items: [
-              {
-                text: "Mainnet",
-                link: "/developers/evm/contracts/mainnet",
-              },
-              {
-                text: "Testnet",
-                link: "/developers/evm/contracts/testnet",
-              },
-            ],
           },
         ],
       },

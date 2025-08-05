@@ -79,7 +79,7 @@ where
 				fee.fee,
 				Preservation::Expendable,
 			)
-			.map_err(|err| IsmpError::Custom(format!("Error withdrawing request fees: {err:?}")))?;
+			.map_err(|err| IsmpError::Custom(format!("Error withdrawing relayer fees: {err:?}")))?;
 		}
 
 		let request = match request {
@@ -140,7 +140,7 @@ where
 				fee.fee,
 				Preservation::Expendable,
 			)
-			.map_err(|err| IsmpError::Custom(format!("Error withdrawing request fees: {err:?}")))?;
+			.map_err(|err| IsmpError::Custom(format!("Error withdrawing relayer fees: {err:?}")))?;
 		}
 
 		let req_commitment = hash_request::<Pallet<T>>(&response.request());
@@ -235,7 +235,7 @@ impl<T: Config> IsmpModule for RefundingModule<T> {
 						Preservation::Expendable,
 					)
 					.map_err(|err| {
-						IsmpError::Custom(format!("Error withdrawing request fees: {err:?}"))
+						IsmpError::Custom(format!("Error withdrawing relayer fees: {err:?}"))
 					})?;
 				}
 			}

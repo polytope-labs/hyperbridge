@@ -35,7 +35,7 @@ use pallet_ismp::{FundMessageParams, MessageCommitment};
 use polkadot_sdk::*;
 
 use frame_system::RawOrigin;
-use sp_core::{H160, H256};
+use sp_core::H256;
 use sp_runtime::traits::Dispatchable;
 
 use core::{marker::PhantomData, num::NonZero};
@@ -65,7 +65,7 @@ pub struct ReviveDispatcher<Runtime, Dispatcher, FeeToken>(
 impl<Runtime, Dispatcher, FeeToken> Precompile for ReviveDispatcher<Runtime, Dispatcher, FeeToken>
 where
 	Runtime: pallet_ismp::Config + pallet_revive::Config + pallet_hyperbridge::Config,
-	Runtime::AccountId: TryFrom<Vec<u8>>,
+	Runtime::AccountId: for<'a> TryFrom<&'a [u8]>,
 	Runtime::Balance: Into<u128> + From<u128>,
 	<Runtime as frame_system::Config>::RuntimeCall: From<pallet_ismp::Call<Runtime>>,
 	Dispatcher: IsmpDispatcher<Account = Runtime::AccountId, Balance = Runtime::Balance>,
@@ -77,17 +77,16 @@ where
 	type Interface = IDispatcher::IDispatcherCalls;
 
 	fn call(
-		address: &[u8; 20],
+		_address: &[u8; 20],
 		input: &Self::Interface,
 		env: &mut impl Ext<T = Self::T>,
 	) -> Result<Vec<u8>, Error> {
-		log::trace!(
-			target: "ismp_revive_dispatcher",
-			"Address: {}, AccountId: {:#?}, MappedId: {:#?}",
-			H160(address.clone()),
-			env.account_id(),
-			Runtime::AddressMapper::to_account_id(&H160(address.clone())),
-		);
+		let caller = env.caller();
+		let caller_account_id = caller
+			.account_id()
+			.map_err(|_| Error::Revert(Revert { reason: "Caller must be signed".into() }))?;
+		let address = Runtime::AddressMapper::to_address(&caller_account_id);
+
 		match input {
 			IDispatcherCalls::host(IDispatcher::hostCall) => {
 				// env.cha
@@ -136,7 +135,7 @@ where
 					.dispatch_request(
 						DispatchRequest::Post(dispatcher::DispatchPost {
 							body: request.body.to_vec(),
-							from: address.to_vec(),
+							from: address.0.to_vec(),
 							to: request.to.to_vec(),
 							timeout: request.timeout,
 							dest: StateMachine::from_str(&destination).map_err(|_| {
@@ -144,7 +143,7 @@ where
 							})?,
 						}),
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&H160(address.clone())),
+							payer: Runtime::AddressMapper::to_account_id(&address),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -167,7 +166,7 @@ where
 						DispatchRequest::Get(dispatcher::DispatchGet {
 							context: request.context.to_vec(),
 							height: request.height,
-							from: address.to_vec(),
+							from: address.0.to_vec(),
 							keys: request.keys.iter().map(|key| key.to_vec()).collect(),
 							timeout: request.timeout,
 							dest: StateMachine::from_str(&destination).map_err(|_| {
@@ -175,7 +174,7 @@ where
 							})?,
 						}),
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&H160(address.clone())),
+							payer: Runtime::AddressMapper::to_account_id(&address),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -200,7 +199,7 @@ where
 						router::PostResponse {
 							post: router::PostRequest {
 								body: response.request.body.to_vec(),
-								from: address.to_vec(),
+								from: address.0.to_vec(),
 								to: response.request.to.to_vec(),
 								timeout_timestamp: response.request.timeoutTimestamp,
 								dest: StateMachine::from_str(&destination).map_err(|_| {
@@ -215,7 +214,7 @@ where
 							timeout_timestamp: response.timeout,
 						},
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&H160(address.clone())),
+							payer: Runtime::AddressMapper::to_account_id(&address),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -239,10 +238,7 @@ where
 					}
 					.into();
 				call.dispatch(
-					RawOrigin::Signed(Runtime::AddressMapper::to_account_id(&H160(
-						address.clone(),
-					)))
-					.into(),
+					RawOrigin::Signed(Runtime::AddressMapper::to_account_id(&address)).into(),
 				)
 				.map_err(|_| Error::Revert(Revert { reason: "Failed to fund request".into() }))?;
 				return Ok(Default::default());
@@ -263,10 +259,7 @@ where
 					}
 					.into();
 				call.dispatch(
-					RawOrigin::Signed(Runtime::AddressMapper::to_account_id(&H160(
-						address.clone(),
-					)))
-					.into(),
+					RawOrigin::Signed(Runtime::AddressMapper::to_account_id(&address)).into(),
 				)
 				.map_err(|_| Error::Revert(Revert { reason: "Failed to fund request".into() }))?;
 				return Ok(Default::default());

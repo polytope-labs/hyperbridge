@@ -36,6 +36,8 @@ features = [
 
 [dev-dependencies]
 anyhow = { workspace = true }
+hex-literal = { workspace = true }
+hex = { workspace = true }
 polkadot-sdk = { workspace = true, features = [
     "std",
     "pallet-balances",
@@ -44,6 +46,7 @@ polkadot-sdk = { workspace = true, features = [
     "pallet-transaction-payment",
     "sp-io",
 ] }
+pallet-hyperbridge = { workspace = true, default-features = true }
 
 [features]
 default = ["std"]

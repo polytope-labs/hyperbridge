@@ -15498,6 +15498,8 @@ dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
  "anyhow",
+ "hex",
+ "hex-literal 0.4.1",
  "ismp",
  "log",
  "num-traits",

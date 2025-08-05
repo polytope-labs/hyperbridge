@@ -56,7 +56,6 @@ pub mod pallet {
 		PalletId,
 	};
 	use frame_system::pallet_prelude::{BlockNumberFor, *};
-	use ismp::messaging::Message;
 	use ismp::{
 		consensus::{
 			ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
@@ -65,16 +64,16 @@ pub mod pallet {
 		events::{RequestResponseHandled, TimeoutHandled},
 		handlers,
 		host::{IsmpHost, StateMachine},
-		messaging::CreateConsensusState,
+		messaging::{CreateConsensusState, Message},
 		router::IsmpRouter,
 	};
 	use sp_core::{storage::ChildInfo, H256};
-	use sp_runtime::transaction_validity::{
-		InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
-		ValidTransaction,
-	};
 	use sp_runtime::{
 		traits::{AccountIdConversion, AtLeast32BitUnsigned},
+		transaction_validity::{
+			InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
+			ValidTransaction,
+		},
 		FixedPointOperand,
 	};
 	use sp_std::prelude::*;

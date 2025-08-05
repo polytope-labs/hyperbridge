@@ -218,7 +218,7 @@ where
 						Preservation::Expendable,
 					)
 					.map_err(|err| {
-						ismp::Error::Custom(format!("Error withdrawing request fees: {err:?}"))
+						ismp::Error::Custom(format!("Error withdrawing protocol fees: {err:?}"))
 					})?;
 				}
 
@@ -263,7 +263,7 @@ where
 				Preservation::Expendable,
 			)
 			.map_err(|err| {
-				ismp::Error::Custom(format!("Error withdrawing request fees: {err:?}"))
+				ismp::Error::Custom(format!("Error withdrawing protocol fees: {err:?}"))
 			})?;
 		}
 

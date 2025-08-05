@@ -13,21 +13,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use polkadot_sdk::*;
+use alloy_primitives::Address;
+use codec::Encode;
 use frame_support::{
 	derive_impl, parameter_types,
-	traits::{ConstU128, ConstU32},
+	traits::{fungible, ConstU128, ConstU32, Get},
 };
 use frame_system::EnsureRoot;
+use hex_literal::hex;
+use ismp::{host::StateMachine, module::IsmpModule, router::PostRequest};
+use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams, PALLET_HYPERBRIDGE_ID};
+use polkadot_sdk::*;
 use sp_core::H256;
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	AccountId32, BuildStorage,
 };
-use alloy_primitives::Address;
 
-pub type Balance = u128;
 type Block = frame_system::mocking::MockBlock<Runtime>;
+pub type Balance = u128;
 pub type Test = Runtime;
 
 // Configure a mock runtime to test the pallet.
@@ -70,6 +74,9 @@ mod runtime {
 }
 
 // The runtime macro generates all these types automatically
+
+// TrustBackedAssets instance for ERC20 precompile
+pub type TrustBackedAssetsInstance = pallet_assets::Instance1;
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
@@ -129,7 +136,8 @@ impl pallet_assets::Config<TrustBackedAssetsInstance> for Test {
 	type AssetId = u32;
 	type AssetIdParameter = u32;
 	type Currency = Balances;
-	type CreateOrigin = frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
+	type CreateOrigin =
+		frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;
 	type AssetDeposit = AssetDeposit;
 	type AssetAccountDeposit = ConstU128<10>;
@@ -169,25 +177,34 @@ impl pallet_revive::Config for Test {
 	type UploadOrigin = frame_system::EnsureSigned<AccountId32>;
 	type InstantiateOrigin = frame_system::EnsureSigned<AccountId32>;
 	type Precompiles = (
-		pallet_assets::precompiles::ERC20<Self, pallet_assets::precompiles::InlineIdConfig<0x120>, TrustBackedAssetsInstance>,
-		crate::ReviveDispatcher<Self, pallet_ismp::Pallet<Self>, FeeToken>,
+		pallet_assets::precompiles::ERC20<
+			Self,
+			pallet_assets::precompiles::InlineIdConfig<0x120>,
+			pallet_assets::Instance1,
+		>,
+		crate::ReviveDispatcher<Self, pallet_hyperbridge::Pallet<Self>, FeeTokenAddress>,
 	);
 }
 
-// TrustBackedAssets instance for ERC20 precompile
-pub type TrustBackedAssetsInstance = pallet_assets::Instance1;
-
 parameter_types! {
 	pub const HostStateMachine: ismp::host::StateMachine = ismp::host::StateMachine::Kusama(2000);
+	pub const FeeTokenId: u32 = 0x127;
+}
+pub struct Coprocessor;
+
+impl Get<Option<StateMachine>> for Coprocessor {
+	fn get() -> Option<StateMachine> {
+		Some(HostStateMachine::get())
+	}
 }
 
 impl pallet_ismp::Config for Test {
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type HostStateMachine = HostStateMachine;
-	type Coprocessor = ();
+	type Coprocessor = Coprocessor;
 	type TimestampProvider = Timestamp;
 	type Balance = Balance;
-	type Currency = Balances;
+	type Currency = fungible::ItemOf<Assets, FeeTokenId, AccountId32>;
 	type Router = MockRouter;
 	type ConsensusClients = ();
 	type OffchainDB = ();
@@ -198,27 +215,25 @@ impl pallet_hyperbridge::Config for Test {
 	type IsmpHost = pallet_ismp::Pallet<Test>;
 }
 
-
 // Mock ISMP Router
 #[derive(Default)]
 pub struct MockRouter;
 impl ismp::router::IsmpRouter for MockRouter {
-	fn module_for_id(&self, _id: Vec<u8>) -> Result<Box<dyn ismp::module::IsmpModule>, anyhow::Error> {
-		Err(anyhow::anyhow!("Module not found"))
+	fn module_for_id(
+		&self,
+		id: Vec<u8>,
+	) -> Result<Box<dyn ismp::module::IsmpModule>, anyhow::Error> {
+		return match id.as_slice() {
+			PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
+			_ => Err(ismp::Error::ModuleNotFound(id))?,
+		};
 	}
 }
 
 // Build genesis storage
 // Helper type for fee token address parameter
 parameter_types! {
-	pub FeeTokenAddress: Address = Address::from([0x42u8; 20]);
-}
-
-pub struct FeeToken;
-impl frame_support::traits::Get<Address> for FeeToken {
-	fn get() -> Address {
-		FeeTokenAddress::get()
-	}
+	pub FeeTokenAddress: Address = Address::from(hex!("0000000000000000000000000000000001270000"));
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -239,6 +254,26 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	ext.execute_with(|| {
 		System::set_block_number(1);
 		Timestamp::set_timestamp(1);
+
+		let module = pallet_hyperbridge::Pallet::<Runtime>::default();
+
+		module
+			.on_accept(PostRequest {
+				source: Coprocessor::get().unwrap(),
+				dest: <Runtime as pallet_ismp::Config>::HostStateMachine::get(),
+				body: pallet_hyperbridge::Message::<AccountId32, Balance>::UpdateHostParams(
+					VersionedHostParams::V1(SubstrateHostParams {
+						default_per_byte_fee: 100,
+						..Default::default()
+					}),
+				)
+				.encode(),
+				from: vec![],
+				to: vec![],
+				nonce: 0,
+				timeout_timestamp: 0,
+			})
+			.unwrap();
 	});
 	ext
 }

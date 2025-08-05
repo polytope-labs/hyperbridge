@@ -622,6 +622,10 @@ impl pallet_collator_manager::CandidateProvider<AccountId> for CollatorSelection
 			.map(|info| info.who)
 			.collect()
 	}
+
+	fn invulnerables() -> Vec<AccountId> {
+		pallet_collator_selection::Invulnerables::<Runtime>::get().to_vec()
+	}
 }
 
 impl pallet_collator_manager::Config for Runtime {

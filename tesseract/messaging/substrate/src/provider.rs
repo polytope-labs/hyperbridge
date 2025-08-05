@@ -21,11 +21,13 @@ use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use futures::{stream::FuturesOrdered, FutureExt};
 use hex_literal::hex;
-use polkadot_sdk::sp_core::{
-	storage::{ChildInfo, StorageData, StorageKey},
-	Pair, H160, U256,
+use polkadot_sdk::{
+	sp_core::{
+		storage::{ChildInfo, StorageData, StorageKey},
+		Pair, H160, U256,
+	},
+	sp_io::hashing::keccak_256,
 };
-use polkadot_sdk::sp_io::hashing::keccak_256;
 use subxt::{
 	config::{ExtrinsicParams, HashFor, Header},
 	ext::{
@@ -674,8 +676,7 @@ where
 						Message::Request(ref mut req) => req.signer = encoded_signer,
 						Message::Response(ref mut res) => res.signer = encoded_signer,
 						Message::Consensus(ref mut con) => con.signer = encoded_signer,
-						Message::FraudProof(ref mut fp) => fp.signer = encoded_signer,
-						_ => {}
+						_ => {},
 					}
 				}
 			}
@@ -920,21 +921,11 @@ pub fn system_events_key() -> StorageKey {
 
 fn encode_message(msg: &Message) -> Option<[u8; 32]> {
 	return match msg {
-		Message::Request(request_message) => {
-			Some(keccak_256(&request_message.requests.encode()))
-		}
-		Message::Response(response_message) => {
-			Some(keccak_256(&response_message.datagram.encode()))
-		}
-		Message::Consensus(consensus_message) => {
-			Some(keccak_256(&consensus_message.consensus_proof))
-		}
-		Message::FraudProof(fraud_proof) => {
-			Some(keccak_256(&(fraud_proof.proof_1.clone(), fraud_proof.proof_2.clone()).encode()))
-		}
-		Message::Timeout(_) => {
-			None
-		},
+		Message::Request(request_message) => Some(keccak_256(&request_message.requests.encode())),
+		Message::Response(response_message) =>
+			Some(keccak_256(&response_message.datagram.encode())),
+		Message::Consensus(consensus_message) =>
+			Some(keccak_256(&consensus_message.consensus_proof)),
+		Message::FraudProof(_) | Message::Timeout(_) => None,
 	}
 }
-

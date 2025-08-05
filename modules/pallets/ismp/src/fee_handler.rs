@@ -26,9 +26,10 @@ use frame_support::{
 use impl_trait_for_tuples::impl_for_tuples;
 use ismp::messaging::Message;
 use polkadot_sdk::{frame_support::PalletId, sp_runtime::traits::AccountIdConversion, *};
+use polkadot_sdk::frame_support::weights::WeightToFee;
 use sp_runtime::{
 	traits::{MaybeDisplay, Member, Zero},
-	DispatchError, Weight,
+	DispatchError,
 };
 
 use crate::weights::{get_weight, WeightProvider};
@@ -117,8 +118,8 @@ pub trait FeeHandler {
 /// * `C` - The `Currency` trait implementation for handling balances.
 /// * `W` - A type implementing `WeightToFee` to convert computational `Weight` into a `Balance`.
 /// * `Provider` - A type implementing `WeightProvider` to calculate the weight of ISMP messages.
-/// * `Policy` - A type implementing `ChargePolicy` to determine if fees should be charged.
 /// * `T` - A `Get<AccountId>` implementation that returns the Treasury's account ID.
+/// * `Policy` - A type implementing `ChargePolicy` to determine if fees should be charged.
 ///
 /// ## Examples
 ///
@@ -144,70 +145,29 @@ pub trait FeeHandler {
 ///     Balances,
 ///     IsmpWeightToFee,
 ///     weights::pallet_ismp::WeightInfo<Runtime>,
-///     fee_handler::Charge, // or fee_handler::NoCharge
-/// 		TreasuryPalletId
+/// 	TreasuryPalletId.
+/// 	true
 /// >;
 /// ```
-pub struct WeightFeeHandler<AccountId, C, W, P, Policy, T>(
-	PhantomData<(AccountId, C, W, P, Policy, T)>,
+pub struct WeightFeeHandler<AccountId, C, W, Provider, T,  const POLICY: bool, >(
+	PhantomData<(AccountId, C, W, Provider, T)>,
 );
 
 type BalanceOf<C, AccountId> = <C as Currency<AccountId>>::Balance;
 
-/// Defines an interface for converting computational `Weight` into a `Balance`.
-///
-/// This trait allows runtimes to implement their own custom logic for fee calculation,
-/// decoupling the fee conversion mechanism from the fee handler itself.
-pub trait WeightToFee {
-	/// The balance type.
-	type Balance: Zero;
-	/// Converts a given `Weight` into a `Balance`.
-	fn convert(weight: Weight) -> Self::Balance;
-}
-
-/// Defines a policy to determine whether fees should be charged.
-///
-/// This trait acts as a feature flag at the type level, allowing a runtime
-/// to easily enable or disable fee collection for ISMP messages.
-pub trait ChargePolicy {
-	/// Returns `true` if fees should be charged, `false` otherwise.
-	fn should_charge() -> bool;
-}
-
-/// An implementation of `ChargePolicy` that disables fee collection.
-///
-/// When used, `should_charge` will always return `false`.
-pub struct NoCharge;
-impl ChargePolicy for NoCharge {
-	fn should_charge() -> bool {
-		false
-	}
-}
-
-/// An implementation of `ChargePolicy` that enables fee collection.
-///
-/// When used, `should_charge` will always return `true`.
-pub struct Charge;
-impl ChargePolicy for Charge {
-	fn should_charge() -> bool {
-		true
-	}
-}
-
-impl<AccountId, C, W, Provider, Policy, T> FeeHandler
-	for WeightFeeHandler<AccountId, C, W, Provider, Policy, T>
+impl<AccountId, C, W, Provider, T, const POLICY: bool, > FeeHandler
+	for WeightFeeHandler<AccountId, C, W, Provider, T, POLICY>
 where
 	AccountId: Member + MaybeDisplay + Decode + Encode,
 	C: Currency<AccountId>,
 	W: WeightToFee<Balance = BalanceOf<C, AccountId>>,
 	Provider: WeightProvider,
-	Policy: ChargePolicy,
 	T: Get<PalletId>,
 {
 	fn on_executed(messages: Vec<Message>, _events: Vec<Event>) -> DispatchResultWithPostInfo {
 		let total_weight = get_weight::<Provider>(&messages);
 
-		if !Policy::should_charge() {
+		if !POLICY {
 			return Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::No })
 		}
 
@@ -215,7 +175,7 @@ where
 
 		for message in &messages {
 			let weight = get_weight::<Provider>(&[message.clone()]);
-			let fee = W::convert(weight);
+			let fee = W::weight_to_fee(&weight);
 
 			if fee.is_zero() {
 				continue

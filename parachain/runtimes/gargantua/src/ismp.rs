@@ -100,14 +100,14 @@ impl Get<Option<StateMachine>> for Coprocessor {
 }
 
 pub struct IsmpWeightToFee;
-impl pallet_ismp::fee_handler::WeightToFee for IsmpWeightToFee {
+impl WeightToFee for IsmpWeightToFee {
 	type Balance = Balance;
-	fn convert(weight: Weight) -> Self::Balance {
+
+	fn weight_to_fee(weight: &Weight) -> Self::Balance {
 		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
 	}
 }
 
-pub type IsmpChargePolicy = pallet_ismp::fee_handler::Charge;
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
@@ -138,8 +138,8 @@ impl pallet_ismp::Config for Runtime {
 		Balances,
 		IsmpWeightToFee,
 		(),
-		IsmpChargePolicy,
 		TreasuryPalletId,
+		true
 	>;
 }
 

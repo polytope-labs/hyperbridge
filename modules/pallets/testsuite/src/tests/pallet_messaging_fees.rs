@@ -14,7 +14,7 @@ use polkadot_sdk::{
 };
 
 use scale_info::TypeInfo;
-use sp_core::{crypto::AccountId32, keccak_256, sr25519, Pair, H256, U256};
+use sp_core::{crypto::AccountId32, keccak_256, sr25519, ByteArray, Pair, H256, U256};
 
 use hyperbridge_client_machine::OnRequestProcessed;
 use ismp::{
@@ -25,6 +25,7 @@ use ismp::{
 };
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
+use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_messaging_fees::TotalBytesProcessed;
 
 use crate::{
@@ -79,7 +80,10 @@ fn create_request_message(
 	let requests = vec![post_request];
 	let signed_data = keccak_256(&requests.encode());
 	let signature = relayer_pair.sign(&signed_data);
-	let signer_tuple = (relayer_pair.public(), signature);
+	let signature = Signature::Sr25519 {
+		public_key: relayer_pair.public().to_raw_vec(),
+		signature: signature.to_raw_vec(),
+	};
 
 	let request_message = RequestMessage {
 		requests,
@@ -90,7 +94,7 @@ fn create_request_message(
 			},
 			proof: vec![],
 		},
-		signer: signer_tuple.encode(),
+		signer: signature.encode(),
 	};
 
 	Message::Request(request_message)

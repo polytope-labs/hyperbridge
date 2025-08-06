@@ -25,12 +25,33 @@ use ismp::{
 	messaging::Message,
 };
 use pallet_ismp::fee_handler::FeeHandler;
-use polkadot_sdk::{frame_support::traits::fungible::Mutate, sp_runtime::traits::*};
+use pallet_ismp_relayer::withdrawal::Signature;
+use polkadot_sdk::{
+	frame_support::traits::fungible::Mutate, sp_core::sr25519, sp_runtime::traits::*,
+};
 
 impl<T: Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
+	fn verify_and_get_relayer(signer: &Vec<u8>, signed_data: &[u8; 32]) -> Option<Vec<u8>> {
+		if let Ok(signature_enum) = Signature::decode(&mut &signer[..]) {
+			match signature_enum {
+				Signature::Sr25519 { public_key, signature } => {
+					if let (Ok(pub_key), Ok(sig)) = (
+						sr25519::Public::decode(&mut &public_key[..]),
+						sr25519::Signature::decode(&mut &signature[..]),
+					) {
+						if sp_io::crypto::sr25519_verify(&sig, signed_data, &pub_key) {
+							return Some(pub_key.0.into());
+						}
+					}
+				},
+				_ => return None,
+			}
+		}
+		None
+	}
 	/// Process a message and reward the relayer
 	///
 	/// This is an internal function used to handle relayer rewards for each
@@ -115,19 +136,25 @@ where
 
 		for message in messages {
 			if let Message::Consensus(consensus_msg) = message {
-				let maybe_match = state_machine_map.iter().find(|(_, (consensus_state_id, _))| {
-					*consensus_state_id == consensus_msg.consensus_state_id
-				});
+				let data = sp_io::hashing::keccak_256(&consensus_msg.consensus_proof.encode());
+				if let Some(relayer_account) =
+					Self::verify_and_get_relayer(&consensus_msg.signer, &data)
+				{
+					let maybe_match =
+						state_machine_map.iter().find(|(_, (consensus_state_id, _))| {
+							*consensus_state_id == consensus_msg.consensus_state_id
+						});
 
-				if let Some((state_machine_id, (_, height))) = maybe_match {
-					let state_machine_height =
-						StateMachineHeight { id: state_machine_id.clone(), height: height.clone() };
+					if let Some((state_machine_id, (_, height))) = maybe_match {
+						let state_machine_height =
+							StateMachineHeight { id: state_machine_id.clone(), height: *height };
 
-					Self::process_message(
-						state_machine_height,
-						state_machine_id.clone(),
-						consensus_msg.signer.clone(),
-					)?;
+						let _ = Self::process_message(
+							state_machine_height,
+							state_machine_id.clone(),
+							relayer_account,
+						);
+					}
 				}
 			}
 		}

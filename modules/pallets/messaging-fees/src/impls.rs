@@ -18,6 +18,7 @@ use ismp::{
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
+use pallet_ismp_relayer::withdrawal::Signature;
 
 impl<T: Config> Pallet<T>
 where
@@ -29,11 +30,19 @@ where
 	where
 		T::AccountId: From<[u8; 32]>,
 	{
-		type Sr25519Signature = (sr25519::Public, sr25519::Signature);
-
-		if let Ok((pub_key, sig)) = Sr25519Signature::decode(&mut &signer[..]) {
-			if sp_io::crypto::sr25519_verify(&sig, signed_data, &pub_key) {
-				return Some(pub_key.0.into());
+		if let Ok(signature_enum) = Signature::decode(&mut &signer[..]) {
+			match signature_enum {
+				Signature::Sr25519 { public_key, signature } => {
+					if let (Ok(pub_key), Ok(sig)) = (
+						sr25519::Public::decode(&mut &public_key[..]),
+						sr25519::Signature::decode(&mut &signature[..]),
+					) {
+						if sp_io::crypto::sr25519_verify(&sig, signed_data, &pub_key) {
+							return Some(pub_key.0.into());
+						}
+					}
+				},
+				_ => return None,
 			}
 		}
 		None

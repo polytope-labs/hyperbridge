@@ -14295,6 +14295,7 @@ version = "0.1.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
+ "pallet-ismp-relayer",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",

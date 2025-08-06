@@ -120,6 +120,7 @@ impl pallet_ismp::Config for Runtime {
 		>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
+		ismp_polygon::PolygonClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<()>;

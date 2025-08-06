@@ -38,6 +38,7 @@ members = [
     "modules/ismp/testsuite",
     "modules/ismp/clients/ismp-arbitrum",
     "modules/ismp/clients/ismp-optimism",
+    "modules/ismp/clients/polygon",
 
     # cryptography
     "modules/consensus/sync-committee/prover",
@@ -54,6 +55,7 @@ members = [
     "modules/consensus/tendermint/verifier",
     "modules/consensus/tendermint/prover",
     "modules/consensus/tendermint/primitives",
+    "modules/consensus/tendermint/ics23-primitives",
     "modules/trees/ethereum",
     "modules/pallets/mmr",
     "modules/pallets/mmr/primitives",
@@ -102,6 +104,7 @@ members = [
     "tesseract/consensus/beefy",
     "tesseract/consensus/beefy/zk",
     "tesseract/consensus/relayer",
+    "tesseract/consensus/polygon",
 
 
     # Airdrop
@@ -189,11 +192,19 @@ async-trait = "0.1.53"
 reqwest-chain = "0.1.0"
 reqwest-middleware = "0.2.4"
 reqwest = { version="0.11.14", features=["json"]}
+prost = { version = "0.13.0", default-features = false }
 impl-trait-for-tuples = "0.2.3"
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }
 bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
+
+# tendermint/cometbft
+cometbft = { git = "https://github.com/cometbft/cometbft-rs",  rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false, features = ["secp256k1"]}
+cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-rpc", features = ["http-client", "secp256k1"], rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
+cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
+cometbft-light-client-verifier = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-light-client-verifier", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
+ics23 = { version = "0.12.0", default-features = false }
 
 # published crates
 ismp = { version = "1.2.0", path = "./modules/ismp/core", default-features = false }
@@ -229,6 +240,10 @@ sync-committee-primitives = { path = "./modules/consensus/sync-committee/primiti
 sync-committee-prover = { path = "./modules/consensus/sync-committee/prover" }
 sync-committee-verifier = { path = "./modules/consensus/sync-committee/verifier", default-features = false }
 grandpa-prover = { path = "./modules/consensus/grandpa/prover" }
+tendermint-verifier = { path = "./modules/consensus/tendermint/verifier", default-features = false }
+tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", default-features = false }
+tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
+tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
@@ -237,6 +252,7 @@ arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features = false }
 ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
+ismp-polygon = { path = "modules/ismp/clients/polygon", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
@@ -288,6 +304,8 @@ tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
+tesseract-polygon = { path = "tesseract/consensus/polygon" }
+
 
 
 [workspace.dependencies.codec]

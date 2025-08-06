@@ -40,7 +40,6 @@ use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::Permill;
 
-use codec::Encode;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};

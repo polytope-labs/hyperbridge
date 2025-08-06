@@ -15,7 +15,7 @@ scale-info = { workspace = true }
 pallet-ismp = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 pallet-ismp-relayer = { workspace = true, default-features = false }
-pallet-commons = { workspace = true,  default-features = false}
+pallet-commons = { workspace = true,  default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true

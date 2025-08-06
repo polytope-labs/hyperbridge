@@ -16,6 +16,7 @@ features = ["sp-core", "sp-io"]
 [features]
 default = ["std"]
 std = [
+    "anyhow/std",
     "codec/std",
     "scale-info/std",
     "polkadot-sdk/std",

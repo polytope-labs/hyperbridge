@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use alloc::vec::Vec;
 use anyhow::anyhow;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use polkadot_sdk::sp_io;

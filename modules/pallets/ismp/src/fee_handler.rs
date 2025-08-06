@@ -167,7 +167,6 @@ where
 	T: Get<PalletId>,
 {
 	fn on_executed(messages: Vec<Message>, _events: Vec<Event>) -> DispatchResultWithPostInfo {
-		println!("trying to execute weight fee handler");
 		let total_weight = get_weight::<Provider>(&messages);
 
 		if !POLICY {
@@ -178,8 +177,6 @@ where
 		for message in &messages {
 			let weight = get_weight::<Provider>(&[message.clone()]);
 			let fee = W::weight_to_fee(&weight);
-
-			println!("weight is {:?} fee is {:?}", &weight, &fee);
 
 			if fee.is_zero() {
 				continue

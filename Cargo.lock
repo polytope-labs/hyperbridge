@@ -14779,10 +14779,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-commons"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-consensus-incentives"
 version = "0.1.0"
 dependencies = [
  "ismp",
+ "pallet-commons",
  "pallet-ismp",
  "pallet-ismp-relayer",
  "parity-scale-codec",
@@ -15220,6 +15231,7 @@ dependencies = [
  "ismp",
  "ismp-testsuite",
  "log",
+ "pallet-commons",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",
@@ -15274,6 +15286,7 @@ dependencies = [
  "ismp-bsc",
  "ismp-sync-committee",
  "log",
+ "pallet-commons",
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
@@ -15446,6 +15459,7 @@ version = "0.1.0"
 dependencies = [
  "hyperbridge-client-machine",
  "ismp",
+ "pallet-commons",
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",

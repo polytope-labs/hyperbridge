@@ -41,6 +41,8 @@ use sp_core::{crypto::AccountId32, H256};
 
 use crate::{TechnicalCollectiveInstance, MIN_TECH_COLLECTIVE_APPROVAL};
 use anyhow::anyhow;
+use polkadot_sdk::frame_support::weights::WeightToFee;
+use polkadot_sdk::sp_runtime::Weight;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
@@ -126,6 +128,15 @@ impl ismp_grandpa::Config for Runtime {
 	>;
 }
 
+pub struct IsmpWeightToFee;
+impl WeightToFee for IsmpWeightToFee {
+	type Balance = Balance;
+
+	fn weight_to_fee(weight: &Weight) -> Self::Balance {
+		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EitherOfDiverse<
 		EnsureRoot<AccountId>,
@@ -158,7 +169,14 @@ impl pallet_ismp::Config for Runtime {
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<()>;
+	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<
+		AccountId,
+		Balances,
+		IsmpWeightToFee,
+		(),
+		TreasuryPalletId,
+		true
+	>;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {

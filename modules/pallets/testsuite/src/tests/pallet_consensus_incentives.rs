@@ -20,7 +20,7 @@ use frame_support::{
 	traits::fungible::{Inspect, Mutate},
 	PalletId,
 };
-use polkadot_sdk::{sp_runtime::RuntimeAppPublic, *};
+use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, keccak_256, sr25519, ByteArray, Pair, H256};
 use sp_runtime::traits::AccountIdConversion;
 

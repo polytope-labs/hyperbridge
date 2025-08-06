@@ -21,7 +21,7 @@
 extern crate alloc;
 
 pub mod withdrawal;
-use crate::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
+use crate::withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
@@ -41,6 +41,7 @@ use ismp::{
 	messaging::Proof,
 };
 pub use pallet::*;
+use pallet_commons::verification::Signature;
 use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};

@@ -113,7 +113,7 @@ use sp_core::{crypto::AccountId32, Get};
 use sp_runtime::traits::IdentityLookup;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_benchmarking::__private::traits::VariantCount;
+use polkadot_sdk::frame_support::traits::VariantCount;
 use scale_info::TypeInfo;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;

@@ -1,4 +1,5 @@
 use core::time::Duration;
+use prost::alloc::{format, string::ToString};
 
 use cometbft::{block::Height, chain::Id, trust_threshold::TrustThresholdFraction, Hash, Time};
 use cometbft_light_client_verifier::{
@@ -8,11 +9,13 @@ use cometbft_light_client_verifier::{
 };
 use cometbft_proto::google::protobuf::Timestamp;
 
-use crate::SpIoVerifier;
+use crate::{hashing::SpIoSha256, SpIoVerifier};
 
 use tendermint_primitives::{
 	ConsensusProof, TrustedState, UpdatedTrustedState, VerificationError, VerificationOptions,
 };
+
+use crate::sp_io_verifier::validate_validator_set_hash;
 
 /// Main verification function for header updates
 pub fn verify_header_update(
@@ -150,8 +153,6 @@ fn extract_validators<'a>(
 	trusted_state: &'a TrustedState,
 	consensus_proof: &'a ConsensusProof,
 ) -> Result<ValidatorSet, VerificationError> {
-	use crate::sp_io_verifier::validate_validator_set_hash;
-
 	let header = &consensus_proof.signed_header.header;
 	let current_set = ValidatorSet::new(trusted_state.validators.clone(), None);
 	let next_set = ValidatorSet::new(trusted_state.next_validators.clone(), None);
@@ -238,13 +239,15 @@ fn validate_ancestry_chain(
 		.hash;
 
 	for (i, header) in consensus_proof.ancestry.iter().enumerate().rev() {
-		let header_hash = header.header.hash();
+		let header_hash = header.header.hash_with::<SpIoSha256>();
+
 		if header_hash.as_bytes() != expected_parent_hash.as_bytes() {
 			return Err(VerificationError::Invalid(format!(
-				"Ancestry header {} hash mismatch: expected {:?}, got {:?}",
+				"Ancestry header {} hash mismatch: expected {:?}, got {:?}, ancestry length: {}",
 				i,
-				expected_parent_hash.as_bytes(),
-				header_hash.as_bytes()
+				expected_parent_hash,
+				header_hash,
+				consensus_proof.ancestry.len()
 			)));
 		}
 

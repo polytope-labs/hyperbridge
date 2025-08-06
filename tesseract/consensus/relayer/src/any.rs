@@ -18,6 +18,7 @@ use tesseract_beefy::{
 };
 use tesseract_bsc::BscPosConfig;
 use tesseract_grandpa::{GrandpaConfig, GrandpaHost};
+use tesseract_polygon::PolygonPosConfig;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 use tesseract_sync_committee::SyncCommitteeConfig;
@@ -44,6 +45,8 @@ pub enum AnyConfig {
 	Gnosis(SyncCommitteeConfig),
 	/// Grandpa committee config
 	Grandpa(GrandpaConfig),
+	/// Polygon POS chain config
+	Polygon(PolygonPosConfig),
 }
 
 pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
@@ -182,6 +185,7 @@ impl AnyConfig {
 			AnyConfig::Chiado(config) => config.evm_config.state_machine,
 			AnyConfig::Gnosis(config) => config.evm_config.state_machine,
 			AnyConfig::Grandpa(config) => config.substrate.state_machine,
+			AnyConfig::Polygon(config) => config.evm_config.state_machine,
 		}
 	}
 
@@ -197,6 +201,7 @@ impl AnyConfig {
 			AnyConfig::Chiado(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Gnosis(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Grandpa(_) => None,
+			AnyConfig::Polygon(c) => Some(c.evm_config.ismp_host.clone()),
 		}
 	}
 }

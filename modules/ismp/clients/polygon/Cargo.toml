@@ -1,0 +1,50 @@
+[package]
+name = "ismp-polygon"
+version = "0.1.0"
+edition = "2021"
+description = "ISMP Consensus Client for the Polygon Heimdall+EVM Consensus Protocol"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[features]
+default = ["std"]
+std = [
+    "log/std",
+    "anyhow/std",
+    "base64/std",
+    "scale-info/std",
+    "primitive-types/std",
+    "pallet-ismp-host-executive/std",
+    "sp-io/std",
+    "ismp/std",
+    "tendermint-verifier/std",
+    "geth-primitives/std",
+    "codec/std",
+    "serde/std",
+    "serde_json/std",
+    "prost/std",
+    "evm-state-machine/std",
+    "tendermint-ics23-primitives/std",
+    "tracing-subscriber/std",
+]
+
+[dependencies]
+log = { workspace = true, default-features = false, optional = true }
+anyhow = { workspace = true, default-features = false, optional = true }
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+primitive-types = { workspace = true, default-features = false }
+pallet-ismp-host-executive = { workspace = true, default-features = false }
+sp-io = { workspace = true }
+ismp = { workspace = true, default-features = false }
+tendermint-verifier = { workspace = true, default-features = false }
+tendermint-primitives = { workspace = true, default-features = false }
+geth-primitives = { workspace = true, default-features = false }
+codec = { workspace = true, default-features = false }
+serde = { version = "1.0", features = ["derive"], default-features = false }
+serde_json = { version = "1.0", default-features = false }
+prost = { workspace = true, default-features = false }
+evm-state-machine = { workspace = true }
+tendermint-ics23-primitives = { workspace = true, default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false }
+ibc = { version = "0.57.0", default-features = false}

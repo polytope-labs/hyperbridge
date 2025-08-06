@@ -33,7 +33,10 @@ pub trait CandidateProvider<ValidatorId> {
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::traits::{Currency, Get, fungibles};
+	use frame_support::traits::{
+		Currency, Get, fungibles,
+		tokens::{Fortitude, Precision, Preservation},
+	};
 	use pallet_session::SessionManager;
 	use polkadot_sdk::frame_support::traits::fungibles::Mutate;
 	use sp_runtime::traits::Zero;
@@ -130,12 +133,21 @@ pub mod pallet {
 
 			for old_collator in outgoing_collators {
 				let account_id: T::AccountId = old_collator.clone().into();
-				T::ReputationAssets::set_balance(
-					T::ReputationAssetId::get(),
-					&account_id,
-					Zero::zero(),
-				);
-				Self::deposit_event(Event::ReputationReset(account_id));
+				let balance = T::ReputationCurrency::total_balance(&account_id);
+				if !balance.is_zero() {
+					let result = T::ReputationAssets::burn_from(
+						T::ReputationAssetId::get(),
+						&account_id,
+						balance,
+						Preservation::Expendable,
+						Precision::Exact,
+						Fortitude::Polite,
+					);
+
+					if result.is_ok() {
+						Self::deposit_event(Event::ReputationReset(account_id));
+					}
+				}
 			}
 
 			Self::deposit_event(Event::NewCollatorSet(new_set.clone()));

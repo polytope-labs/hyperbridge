@@ -22,6 +22,7 @@ fortuples = "0.9.1"
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 impl-trait-for-tuples = { workspace = true }
+pallet-commons = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -53,6 +54,7 @@ std = [
     "ismp/std",
     "serde/default",
     "anyhow/std",
+    "pallet-commons/std"
 ]
 disable-panic-handler = [
     "sp-io/disable_panic_handler",

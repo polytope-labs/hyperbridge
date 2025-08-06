@@ -41,6 +41,7 @@ use ismp::{
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
+use polkadot_sdk::{frame_support::weights::WeightToFee, sp_runtime::Weight};
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
 	H160, H256, U256,
@@ -52,6 +53,8 @@ use sp_runtime::{
 
 use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
+use ismp::consensus::IntermediateState;
+use pallet_ismp::weights::IsmpModuleWeight;
 use pallet_messaging_fees::types::PriceOracle;
 use substrate_state_machine::SubstrateStateMachine;
 
@@ -198,6 +201,14 @@ parameter_types! {
 	pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
 }
 
+pub struct TestWeightToFee;
+impl WeightToFee for TestWeightToFee {
+	type Balance = Balance;
+	fn weight_to_fee(_weight: &Weight) -> Self::Balance {
+		50 * UNIT
+	}
+}
+
 impl pallet_ismp::Config for Test {
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type HostStateMachine = StateMachineProvider;
@@ -216,8 +227,18 @@ impl pallet_ismp::Config for Test {
 		>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler =
-		(pallet_consensus_incentives::Pallet<Test>, pallet_messaging_fees::Pallet<Test>);
+	type FeeHandler = (
+		pallet_consensus_incentives::Pallet<Test>,
+		pallet_messaging_fees::Pallet<Test>,
+		pallet_ismp::fee_handler::WeightFeeHandler<
+			AccountId32,
+			Balances,
+			TestWeightToFee,
+			(),
+			TreasuryAccount,
+			true,
+		>,
+	);
 }
 
 impl pallet_hyperbridge::Config for Test {
@@ -498,6 +519,20 @@ where
 	frame_system::Pallet::<T>::initialize(&number, &Default::default(), &Default::default());
 	frame_system::Pallet::<T>::finalize();
 	set_timestamp::<T>(1000_000);
+	let intermediate_state = IntermediateState {
+		height: StateMachineHeight {
+			id: StateMachineId {
+				state_id: StateMachine::Evm(1),
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			height: 3,
+		},
+		commitment: StateCommitment {
+			timestamp: 1000,
+			overlay_root: None,
+			state_root: Default::default(),
+		},
+	};
 	handlers::create_client(
 		host,
 		CreateConsensusState {
@@ -507,34 +542,28 @@ where
 			unbonding_period: 1_000_000,
 			challenge_periods: vec![(StateMachine::Evm(1), 0)].into_iter().collect(),
 			state_machine_commitments: vec![(
-				StateMachineId {
-					state_id: StateMachine::Evm(1),
-					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
-				},
-				StateCommitmentHeight {
-					commitment: StateCommitment {
-						timestamp: 1000,
-						overlay_root: None,
-						state_root: Default::default(),
-					},
-					height: 3,
-				},
+				intermediate_state.height.id,
+				StateCommitmentHeight { commitment: intermediate_state.commitment, height: 3 },
 			)],
 		},
 	)
 	.unwrap();
-	let height = StateMachineHeight {
-		id: StateMachineId {
-			state_id: StateMachine::Evm(1),
-			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
-		},
-		height: 3,
-	};
-	host.store_state_machine_update_time(height, core::time::Duration::from_millis(1000_000))
+	host.store_state_machine_update_time(
+		intermediate_state.height,
+		core::time::Duration::from_millis(1000_000),
+	)
+	.unwrap();
+	host.store_consensus_state(MOCK_CONSENSUS_STATE_ID, vec![]).unwrap();
+	host.store_consensus_state_id(
+		MOCK_CONSENSUS_STATE_ID,
+		ismp_testsuite::mocks::MOCK_CONSENSUS_CLIENT_ID,
+	)
+	.unwrap();
+	host.store_state_machine_commitment(intermediate_state.height, intermediate_state.commitment)
 		.unwrap();
 
 	set_timestamp::<T>(1000_000_000);
-	height
+	intermediate_state.height
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

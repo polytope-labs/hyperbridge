@@ -15,8 +15,6 @@
 
 use core::marker::PhantomData;
 
-use alloc::vec;
-
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use frame_support::{
@@ -25,8 +23,11 @@ use frame_support::{
 };
 use impl_trait_for_tuples::impl_for_tuples;
 use ismp::messaging::Message;
-use polkadot_sdk::{frame_support::PalletId, sp_runtime::traits::AccountIdConversion, *};
-use polkadot_sdk::frame_support::weights::WeightToFee;
+use polkadot_sdk::{
+	frame_support::{weights::WeightToFee, PalletId},
+	sp_runtime::traits::AccountIdConversion,
+	*,
+};
 use sp_runtime::{
 	traits::{MaybeDisplay, Member, Zero},
 	DispatchError,
@@ -34,6 +35,7 @@ use sp_runtime::{
 
 use crate::weights::{get_weight, WeightProvider};
 use ismp::events::Event;
+use pallet_commons::verification::Signature;
 
 /// Trait for handling fee calculations and settlements in the ISMP protocol.
 ///
@@ -149,13 +151,13 @@ pub trait FeeHandler {
 /// 	true
 /// >;
 /// ```
-pub struct WeightFeeHandler<AccountId, C, W, Provider, T,  const POLICY: bool, >(
+pub struct WeightFeeHandler<AccountId, C, W, Provider, T, const POLICY: bool>(
 	PhantomData<(AccountId, C, W, Provider, T)>,
 );
 
 type BalanceOf<C, AccountId> = <C as Currency<AccountId>>::Balance;
 
-impl<AccountId, C, W, Provider, T, const POLICY: bool, > FeeHandler
+impl<AccountId, C, W, Provider, T, const POLICY: bool> FeeHandler
 	for WeightFeeHandler<AccountId, C, W, Provider, T, POLICY>
 where
 	AccountId: Member + MaybeDisplay + Decode + Encode,
@@ -165,24 +167,39 @@ where
 	T: Get<PalletId>,
 {
 	fn on_executed(messages: Vec<Message>, _events: Vec<Event>) -> DispatchResultWithPostInfo {
+		println!("trying to execute weight fee handler");
 		let total_weight = get_weight::<Provider>(&messages);
 
 		if !POLICY {
 			return Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::No })
 		}
-
 		let treasury_account: AccountId = T::get().into_account_truncating();
 
 		for message in &messages {
 			let weight = get_weight::<Provider>(&[message.clone()]);
 			let fee = W::weight_to_fee(&weight);
 
+			println!("weight is {:?} fee is {:?}", &weight, &fee);
+
 			if fee.is_zero() {
 				continue
 			}
 
-			// todo: should get originator from the signer of the message
-			let originator = Some(vec![]);
+			let originator = match message {
+				Message::Request(msg) => {
+					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
+					Signature::decode(&mut &msg.signer[..])
+						.ok()
+						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+				},
+				Message::Response(msg) => {
+					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
+					Signature::decode(&mut &msg.signer[..])
+						.ok()
+						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+				},
+				_ => None,
+			};
 
 			if let Some(originator_bytes) = originator {
 				if let Ok(account) = AccountId::decode(&mut &originator_bytes[..]) {
@@ -196,7 +213,7 @@ where
 	}
 }
 
-#[impl_for_tuples(2)]
+#[impl_for_tuples(5)]
 impl FeeHandler for TupleIdentifier {
 	fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo {
 		for_tuples!( #(

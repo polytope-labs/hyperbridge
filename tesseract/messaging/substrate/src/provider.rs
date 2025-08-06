@@ -667,7 +667,7 @@ where
 		let mut futs = vec![];
 		let is_hyperbridge = self.state_machine == coprocessor;
 		for msg in &mut messages {
-			if is_hyperbridge {
+			if is_hyperbridge || coprocessor.is_substrate() {
 				if let Some(bytes) = encode_message(&msg) {
 					let signature = self.sign(&bytes);
 					let encoded_signer = signature.encode();
@@ -682,8 +682,11 @@ where
 			}
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
 			log::trace!(target: "tesseract", "converted to value for message submission");
-			let extrinsic =
-				subxt::dynamic::tx("Ismp", "handle_unsigned", vec![messages_to_value(vec![msg.clone()])]);
+			let extrinsic = subxt::dynamic::tx(
+				"Ismp",
+				"handle_unsigned",
+				vec![messages_to_value(vec![msg.clone()])],
+			);
 			log::trace!(target: "tesseract", "gotten dynamic payload for message submission");
 			// We don't compress consensus messages
 			// We only consider compression for hyperbridge

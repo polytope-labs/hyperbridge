@@ -1,0 +1,22 @@
+[package]
+name = "pallet-commons"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+codec = { workspace = true }
+anyhow = { workspace = true }
+scale-info = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-core", "sp-io"]
+
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "scale-info/std",
+    "polkadot-sdk/std",
+]

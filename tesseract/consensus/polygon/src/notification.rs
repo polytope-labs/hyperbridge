@@ -5,11 +5,10 @@ use ibc::core::commitment_types::{
 	commitment::CommitmentProofBytes, merkle::MerkleProof, proto::v1::MerkleProof as RawMerkleProof,
 };
 use ics23::CommitmentProof;
-use log::trace;
 use std::{result::Result::Ok, sync::Arc, vec::Vec};
 use tendermint_ics23_primitives::ICS23HostFunctions;
 use tendermint_primitives::{
-	Client, CodecConsensusProof, CodecTrustedState, ConsensusProof, TrustedState, ValidatorSet,
+	Client, CodecConsensusProof, ConsensusProof, TrustedState, ValidatorSet,
 };
 use tendermint_verifier::validate_validator_set_hash;
 use tesseract_primitives::IsmpProvider;
@@ -27,8 +26,7 @@ pub async fn consensus_notification(
 	let consensus_state: ConsensusState =
 		ConsensusState::decode(&mut &consensus_state_serialized[..])?;
 
-	let trusted_state: TrustedState =
-		CodecTrustedState::decode(&mut consensus_state.tendermint_state.as_slice())?.into();
+	let trusted_state: TrustedState = consensus_state.tendermint_state.into();
 
 	let untrusted_header = client.prover.signed_header(latest_height).await?;
 

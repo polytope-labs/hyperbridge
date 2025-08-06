@@ -79,8 +79,8 @@ pub struct MilestoneUpdate {
 /// The trusted consensus state for Polygon
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct ConsensusState {
-	///  Codec Trusted Tendermint state
-	pub tendermint_state: Vec<u8>,
+	/// Codec Trusted Tendermint state
+	pub tendermint_state: CodecTrustedState,
 	/// Last finalized Polygon block number
 	pub last_finalized_block: u64,
 	/// Last finalized Polygon block hash
@@ -236,10 +236,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			.to_consensus_proof()
 			.map_err(|e| ismp::error::Error::Custom(e.to_string()))?;
 
-		let trusted_state: TrustedState =
-			CodecTrustedState::decode(&mut &consensus_state.tendermint_state[..])
-				.map_err(|e| ismp::error::Error::Custom(e.to_string()))?
-				.into();
+		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
 
 		let time = host.timestamp().as_secs();
 
@@ -329,14 +326,14 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 				vec![state_commitment],
 			);
 
-			// Update the consensus state in the milestone block
+			// Update the evm related fields in the consensus state inside the milestone block
 			updated_consensus_state.last_finalized_block =
 				milestone_update_ref.evm_header.number.low_u64();
 			updated_consensus_state.last_finalized_hash = evm_header_hash;
 		}
 
 		updated_consensus_state.tendermint_state =
-			CodecTrustedState::from(&updated_state.trusted_state).encode();
+			CodecTrustedState::from(&updated_state.trusted_state);
 
 		Ok((updated_consensus_state.encode(), state_machine_map))
 	}
@@ -366,10 +363,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			return Err(Error::Custom("Fraud proofs are identical".to_string()));
 		}
 
-		let trusted_state: TrustedState =
-			CodecTrustedState::decode(&mut &consensus_state.tendermint_state[..])
-				.map_err(|e| Error::Custom(e.to_string()))?
-				.into();
+		let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
 
 		let time = host.timestamp().as_secs();
 

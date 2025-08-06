@@ -133,7 +133,7 @@ impl Default for TrustedState {
 	}
 }
 
-#[derive(Encode, Decode, Debug, Clone, TypeInfo)]
+#[derive(Encode, Decode, Debug, Clone, TypeInfo, PartialEq, Eq)]
 pub struct CodecTrustedState {
 	/// Chain ID
 	pub chain_id: String,
@@ -321,7 +321,7 @@ pub enum CodecCommitSig {
 	},
 }
 
-#[derive(Encode, Decode, Debug, Clone, TypeInfo)]
+#[derive(Encode, Decode, Debug, Clone, TypeInfo, PartialEq, Eq)]
 pub struct CodecValidator {
 	/// Validator account address
 	pub address: Vec<u8>,
@@ -333,7 +333,7 @@ pub struct CodecValidator {
 	pub name: Option<String>,
 }
 
-#[derive(Encode, Decode, Debug, Clone, TypeInfo)]
+#[derive(Encode, Decode, Debug, Clone, TypeInfo, PartialEq, Eq)]
 pub enum CodecPublicKey {
 	/// Ed25519 keys
 	Ed25519(Vec<u8>),
@@ -829,9 +829,9 @@ impl VerificationOptions {
 		Ok(())
 	}
 
-	/// Create default verification options (2/3 trust threshold, 5 seconds clock drift)
+	/// Create default verification options (2/3 trust threshold, 180 seconds clock drift)
 	pub fn create_default() -> Self {
-		Self { trust_threshold_numerator: 2, trust_threshold_denominator: 3, clock_drift: 5 }
+		Self { trust_threshold_numerator: 2, trust_threshold_denominator: 3, clock_drift: 180 }
 	}
 
 	/// Create verification options with custom trust threshold

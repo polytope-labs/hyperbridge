@@ -110,11 +110,10 @@ impl PolygonPosHost {
 		);
 
 		let codec_trusted_state = CodecTrustedState::from(&trusted_state);
-		let tendermint_state = codec_trusted_state.encode();
 		let (_, milestone) = self.prover.get_latest_milestone().await?;
 
 		let consensus_state = ConsensusState {
-			tendermint_state,
+			tendermint_state: codec_trusted_state,
 			last_finalized_block: milestone.end_block,
 			last_finalized_hash: milestone.hash,
 			chain_id,

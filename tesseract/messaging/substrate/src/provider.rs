@@ -667,17 +667,15 @@ where
 		let mut futs = vec![];
 		let is_hyperbridge = self.state_machine == coprocessor;
 		for msg in &mut messages {
-			if is_hyperbridge || coprocessor.is_substrate() {
-				if let Some(bytes) = encode_message(&msg) {
-					let signature = self.sign(&bytes);
-					let encoded_signer = signature.encode();
+			if let Some(bytes) = encode_message(&msg) {
+				let signature = self.sign(&bytes);
+				let encoded_signer = signature.encode();
 
-					match msg {
-						Message::Request(ref mut req) => req.signer = encoded_signer,
-						Message::Response(ref mut res) => res.signer = encoded_signer,
-						Message::Consensus(ref mut con) => con.signer = encoded_signer,
-						_ => {},
-					}
+				match msg {
+					Message::Request(ref mut req) => req.signer = encoded_signer,
+					Message::Response(ref mut res) => res.signer = encoded_signer,
+					Message::Consensus(ref mut con) => con.signer = encoded_signer,
+					_ => {},
 				}
 			}
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));

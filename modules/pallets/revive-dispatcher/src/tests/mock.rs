@@ -17,6 +17,7 @@ use codec::Encode;
 use frame_support::{
 	derive_impl, parameter_types,
 	traits::{fungible, ConstU128, ConstU32, Get},
+	weights::Weight,
 };
 use frame_system::EnsureRoot;
 use hex_literal::hex;
@@ -182,8 +183,58 @@ impl pallet_revive::Config for Test {
 			pallet_assets::precompiles::InlineIdConfig<0x120>,
 			pallet_assets::Instance1,
 		>,
-		crate::ReviveDispatcher<Self, pallet_hyperbridge::Pallet<Self>, FeeTokenAddress>,
+		crate::ReviveDispatcher<
+			Self,
+			pallet_hyperbridge::Pallet<Self>,
+			FeeTokenAddress,
+			MockWeightProvider,
+		>,
 	);
+}
+
+/// Mock implementation of IDispatcherWeightProvider for testing
+pub struct MockWeightProvider;
+
+impl crate::DispatcherWeightSchedule for MockWeightProvider {
+	fn host() -> Weight {
+		Weight::from_parts(10_000, 0)
+	}
+
+	fn hyperbridge() -> Weight {
+		Weight::from_parts(10_000, 0)
+	}
+
+	fn nonce() -> Weight {
+		Weight::from_parts(10_000, 0)
+	}
+
+	fn fee_token() -> Weight {
+		Weight::from_parts(10_000, 0)
+	}
+
+	fn per_byte_fee() -> Weight {
+		Weight::from_parts(20_000, 0)
+	}
+
+	fn dispatch_post() -> Weight {
+		Weight::from_parts(100_000, 0)
+	}
+
+	fn dispatch_get() -> Weight {
+		Weight::from_parts(100_000, 0)
+	}
+
+	fn dispatch_response() -> Weight {
+		Weight::from_parts(100_000, 0)
+	}
+
+	fn fund_request() -> Weight {
+		Weight::from_parts(50_000, 0)
+	}
+
+	fn fund_response() -> Weight {
+		Weight::from_parts(50_000, 0)
+	}
 }
 
 parameter_types! {

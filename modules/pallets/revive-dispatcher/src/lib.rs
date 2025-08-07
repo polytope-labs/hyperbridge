@@ -35,7 +35,7 @@ use sp_core::H256;
 use sp_runtime::traits::Dispatchable;
 
 use core::{marker::PhantomData, num::NonZero};
-use frame_support::traits::Get;
+use frame_support::{traits::Get, weights::Weight};
 use ismp::{
 	dispatcher::{self, DispatchRequest, IsmpDispatcher},
 	host::StateMachine,
@@ -54,14 +54,38 @@ use pallet_revive::precompiles::{
 alloy::sol!("src/IDispatcher.sol");
 use IDispatcher::IDispatcherCalls;
 
+/// Trait that provides weights for ISMP dispatcher operations
+pub trait DispatcherWeightSchedule {
+	/// Weight for getting the host state machine
+	fn host() -> Weight;
+	/// Weight for getting the hyperbridge address
+	fn hyperbridge() -> Weight;
+	/// Weight for getting the current nonce
+	fn nonce() -> Weight;
+	/// Weight for getting the fee token address
+	fn fee_token() -> Weight;
+	/// Weight for getting the per-byte fee for a destination
+	fn per_byte_fee() -> Weight;
+	/// Weight for dispatching a POST request
+	fn dispatch_post() -> Weight;
+	/// Weight for dispatching a GET request
+	fn dispatch_get() -> Weight;
+	/// Weight for dispatching a response
+	fn dispatch_response() -> Weight;
+	/// Weight for funding a request
+	fn fund_request() -> Weight;
+	/// Weight for funding a response
+	fn fund_response() -> Weight;
+}
+
 /// [`pallet_revive::precompiles::Precompile`] implementation for [`ismp`] protocol dispatcher
-pub struct ReviveDispatcher<Runtime, Dispatcher, FeeToken>(
-	PhantomData<(Runtime, Dispatcher, FeeToken)>,
+pub struct ReviveDispatcher<Runtime, Dispatcher, FeeToken, WeightSchedule>(
+	PhantomData<(Runtime, Dispatcher, FeeToken, WeightSchedule)>,
 );
 
-// Todo: figure out gas costs
 // Todo: Expose IsmpModule implementation
-impl<Runtime, Dispatcher, FeeToken> Precompile for ReviveDispatcher<Runtime, Dispatcher, FeeToken>
+impl<Runtime, Dispatcher, FeeToken, WeightSchedule> Precompile
+	for ReviveDispatcher<Runtime, Dispatcher, FeeToken, WeightSchedule>
 where
 	Runtime: pallet_ismp::Config + pallet_revive::Config + pallet_hyperbridge::Config,
 	Runtime::AccountId: for<'a> TryFrom<&'a [u8]>,
@@ -69,6 +93,7 @@ where
 	<Runtime as frame_system::Config>::RuntimeCall: From<pallet_ismp::Call<Runtime>>,
 	Dispatcher: IsmpDispatcher<Account = Runtime::AccountId, Balance = Runtime::Balance>,
 	FeeToken: Get<Address>,
+	WeightSchedule: DispatcherWeightSchedule,
 {
 	type T = Runtime;
 	const MATCHER: AddressMatcher = AddressMatcher::Fixed(NonZero::new(3367).unwrap());
@@ -88,23 +113,28 @@ where
 
 		match input {
 			IDispatcherCalls::host(IDispatcher::hostCall) => {
+				env.charge(WeightSchedule::host())?;
 				let host = Runtime::HostStateMachine::get();
 				return Ok(host.to_string().as_bytes().to_vec().abi_encode());
 			},
 			IDispatcherCalls::hyperbridge(IDispatcher::hyperbridgeCall) => {
+				env.charge(WeightSchedule::hyperbridge())?;
 				let Some(hyperbridge) = Runtime::Coprocessor::get() else {
 					Err(Error::Revert(Revert { reason: "Hyperbridge not defined".into() }))?
 				};
 				return Ok(hyperbridge.to_string().as_bytes().to_vec().abi_encode());
 			},
 			IDispatcherCalls::nonce(IDispatcher::nonceCall) => {
+				env.charge(WeightSchedule::nonce())?;
 				let nonce = pallet_ismp::Nonce::<Runtime>::get();
 				return Ok(Uint::<256, 4>::from(nonce).abi_encode());
 			},
 			IDispatcherCalls::feeToken(IDispatcher::feeTokenCall) => {
-				return Ok(FeeToken::get().abi_encode())
+				env.charge(WeightSchedule::fee_token())?;
+				return Ok(FeeToken::get().abi_encode());
 			},
 			IDispatcherCalls::perByteFee(IDispatcher::perByteFeeCall { dest }) => {
+				env.charge(WeightSchedule::per_byte_fee())?;
 				let utf8 = String::from_utf8(dest.to_vec()).map_err(|_| {
 					Error::Revert(Revert { reason: "Invalid state machine".into() })
 				})?;
@@ -124,6 +154,7 @@ where
 				return Ok(fee.abi_encode());
 			},
 			IDispatcherCalls::dispatch_0(IDispatcher::dispatch_0Call { request }) => {
+				env.charge(WeightSchedule::dispatch_post())?;
 				let destination = String::from_utf8(request.dest.to_vec())
 					.map_err(|_| Error::Revert(Revert { reason: "Invalid destination".into() }))?;
 				let relayer_fee = request
@@ -142,7 +173,7 @@ where
 							})?,
 						}),
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&address),
+							payer: caller_account_id.clone(),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -154,6 +185,7 @@ where
 				return Ok(FixedBytes::<32>::from(commitment.0).abi_encode());
 			},
 			IDispatcherCalls::dispatch_1(IDispatcher::dispatch_1Call { request }) => {
+				env.charge(WeightSchedule::dispatch_get())?;
 				let destination = String::from_utf8(request.dest.to_vec())
 					.map_err(|_| Error::Revert(Revert { reason: "Invalid destination".into() }))?;
 				let relayer_fee = request
@@ -173,7 +205,7 @@ where
 							})?,
 						}),
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&address),
+							payer: caller_account_id.clone(),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -185,6 +217,7 @@ where
 				return Ok(FixedBytes::<32>::from(commitment.0).abi_encode());
 			},
 			IDispatcherCalls::dispatch_2(IDispatcher::dispatch_2Call { response }) => {
+				env.charge(WeightSchedule::dispatch_response())?;
 				let destination = String::from_utf8(response.request.dest.to_vec())
 					.map_err(|_| Error::Revert(Revert { reason: "Invalid destination".into() }))?;
 				let source = String::from_utf8(response.request.source.to_vec())
@@ -213,7 +246,7 @@ where
 							timeout_timestamp: response.timeout,
 						},
 						dispatcher::FeeMetadata {
-							payer: Runtime::AddressMapper::to_account_id(&address),
+							payer: caller_account_id.clone(),
 							fee: From::from(relayer_fee),
 						},
 					)
@@ -225,6 +258,7 @@ where
 				return Ok(FixedBytes::<32>::from(commitment.0).abi_encode());
 			},
 			IDispatcherCalls::fundRequest(IDispatcher::fundRequestCall { commitment, amount }) => {
+				env.charge(WeightSchedule::fund_request())?;
 				let new_fee = amount
 					.to_u128()
 					.ok_or(Error::Revert(Revert { reason: "Invalid fee".into() }))?;
@@ -236,16 +270,16 @@ where
 						},
 					}
 					.into();
-				call.dispatch(
-					RawOrigin::Signed(Runtime::AddressMapper::to_account_id(&address)).into(),
-				)
-				.map_err(|_| Error::Revert(Revert { reason: "Failed to fund request".into() }))?;
+				call.dispatch(RawOrigin::Signed(caller_account_id.clone()).into()).map_err(
+					|_| Error::Revert(Revert { reason: "Failed to fund request".into() }),
+				)?;
 				return Ok(Default::default());
 			},
 			IDispatcherCalls::fundResponse(IDispatcher::fundResponseCall {
 				commitment,
 				amount,
 			}) => {
+				env.charge(WeightSchedule::fund_response())?;
 				let new_fee = amount
 					.to_u128()
 					.ok_or(Error::Revert(Revert { reason: "Invalid fee".into() }))?;
@@ -257,10 +291,9 @@ where
 						},
 					}
 					.into();
-				call.dispatch(
-					RawOrigin::Signed(Runtime::AddressMapper::to_account_id(&address)).into(),
-				)
-				.map_err(|_| Error::Revert(Revert { reason: "Failed to fund request".into() }))?;
+				call.dispatch(RawOrigin::Signed(caller_account_id.clone()).into()).map_err(
+					|_| Error::Revert(Revert { reason: "Failed to fund request".into() }),
+				)?;
 				return Ok(Default::default());
 			},
 		}

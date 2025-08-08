@@ -8192,6 +8192,7 @@ dependencies = [
  "log",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-collator-manager",
  "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -14726,6 +14727,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-collator-manager"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-collator-selection"
 version = "22.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15340,6 +15352,7 @@ dependencies = [
  "mmr-primitives",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-collator-manager",
  "pallet-consensus-incentives",
  "pallet-fishermen",
  "pallet-hyperbridge",

@@ -667,6 +667,13 @@ where
 	}
 }
 
+pub type ReputationAsset =
+frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+parameter_types! {
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+
 /// A way to pay from treasury
 impl pallet_treasury::Config for Runtime {
 	type Currency = Balances;

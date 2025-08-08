@@ -1088,3 +1088,16 @@ export interface OrderResponse {
 		}>
 	}
 }
+
+export class AbortSignalInternal extends Error {
+	constructor(message: string) {
+		super()
+
+		this.name = "AbortSignalInternal"
+		this.message = message
+	}
+
+	static isError(error: unknown): error is AbortSignalInternal {
+		return error instanceof AbortSignalInternal
+	}
+}

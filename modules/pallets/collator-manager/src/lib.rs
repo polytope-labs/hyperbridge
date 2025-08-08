@@ -22,12 +22,10 @@ use polkadot_sdk::*;
 use alloc::vec::Vec;
 pub use pallet::*;
 
-/// A trait for providing a list of collator candidates and invulnerables.
+/// A trait for providing a list of collator candidates.
 pub trait CandidateProvider<ValidatorId> {
 	/// Returns the current list of collator candidates.
 	fn candidates() -> Vec<ValidatorId>;
-	/// Returns the current list of invulnerable collators.
-	fn invulnerables() -> Vec<ValidatorId>;
 }
 
 #[frame_support::pallet]
@@ -82,26 +80,20 @@ pub mod pallet {
 			let active_collators = <pallet_session::Pallet<T>>::validators();
 			let desired_collators = T::DesiredCollators::get() as usize;
 
-			// invulnearables always get a spot.
-			let mut new_set_validators: Vec<T::ValidatorId> = T::CandidateProvider::invulnerables();
+			let mut new_set_validators: Vec<T::ValidatorId> = Vec::new();
 
 			// select from registered candidates who are not in the current active set
 			// with session keys and highes balances.
-			if new_set_validators.len() < desired_collators {
-				let mut candidates = T::CandidateProvider::candidates();
-				candidates.retain(|c| {
-					!active_collators.contains(c) &&
-						!new_set_validators.contains(c) && // invulnerables are not added again
-						pallet_session::NextKeys::<T>::get(&c).is_some()
-				});
-				candidates.sort_by_key(|a| {
-					let account_id: T::AccountId = a.clone().into();
-					T::ReputationCurrency::total_balance(&account_id)
-				});
-				candidates.reverse();
-				let needed = desired_collators - new_set_validators.len();
-				new_set_validators.extend(candidates.into_iter().take(needed));
-			}
+			let mut candidates = T::CandidateProvider::candidates();
+			candidates.retain(|c| {
+				!active_collators.contains(c) && pallet_session::NextKeys::<T>::get(&c).is_some()
+			});
+			candidates.sort_by_key(|a| {
+				let account_id: T::AccountId = a.clone().into();
+				T::ReputationCurrency::total_balance(&account_id)
+			});
+			candidates.reverse();
+			new_set_validators.extend(candidates.into_iter().take(desired_collators));
 
 			// fill remaining slots with the best of the previous set.
 			if new_set_validators.len() < desired_collators {
@@ -121,7 +113,6 @@ pub mod pallet {
 
 			let new_set: Vec<T::AccountId> =
 				new_set_validators.iter().map(|v| v.clone().into()).collect();
-
 			if new_set.is_empty() {
 				return None;
 			}

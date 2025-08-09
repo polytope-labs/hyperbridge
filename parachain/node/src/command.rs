@@ -24,7 +24,7 @@ use log::info;
 use polkadot_cli::service;
 use sc_cli::{
 	ChainSpec, CliConfiguration, DefaultConfigurationValues, ImportParams, KeystoreParams,
-	NetworkParams, Result, SharedParams, SubstrateCli,
+	NetworkParams, Result, RpcMethods, SharedParams, SubstrateCli,
 };
 use sc_service::config::{BasePath, PrometheusConfig};
 use sp_runtime::traits::AccountIdConversion;
@@ -165,12 +165,13 @@ macro_rules! construct_async_run {
 pub fn run() -> Result<()> {
 	let mut cli = Cli::from_args();
 
-	// all full nodes should store request/responses, otherwise they'd basically be useless without
-	// it.
+	// all full nodes should store request/responses, otherwise they'd be useless without it.
 	cli.run.base.offchain_worker_params.indexing_enabled = true;
 	// Set max rpc request and response size to 150mb
 	cli.run.base.rpc_params.rpc_max_request_size = 150;
 	cli.run.base.rpc_params.rpc_max_response_size = 150;
+	// enable ismp_*/state_* rpc methods by default
+	cli.run.base.rpc_params.rpc_methods = RpcMethods::Unsafe;
 
 	match &cli.subcommand {
 		Some(Subcommand::BuildSpec(cmd)) => {

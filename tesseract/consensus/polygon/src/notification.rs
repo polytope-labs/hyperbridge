@@ -85,21 +85,11 @@ pub async fn consensus_notification(
 
 	match validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
 		true => {
-			let ancestry = if latest_height > trusted_state.height + 1 {
-				client
-					.prover
-					.signed_headers_range(trusted_state.height + 1, latest_height - 1)
-					.await?
-			} else {
-				Vec::new()
-			};
-
 			let next_validators = client.prover.next_validators(latest_height).await?;
 
 			return Ok(Some(PolygonConsensusUpdate {
 				tendermint_proof: CodecConsensusProof::from(&ConsensusProof::new(
 					untrusted_header,
-					ancestry,
 					Some(next_validators),
 				)),
 				milestone_update: maybe_milestone_update,
@@ -140,19 +130,10 @@ pub async fn consensus_notification(
 			if found {
 				let matched_height = height;
 				let matched_header = matched_header.expect("Header must be present if found");
-				let ancestry = if matched_height > trusted_state.height + 1 {
-					client
-						.prover
-						.signed_headers_range(trusted_state.height + 1, matched_height - 1)
-						.await?
-				} else {
-					Vec::new()
-				};
 				let next_validators = client.prover.next_validators(matched_height).await?;
 				return Ok(Some(PolygonConsensusUpdate {
 					tendermint_proof: CodecConsensusProof::from(&ConsensusProof::new(
 						matched_header,
-						ancestry,
 						Some(next_validators),
 					)),
 					milestone_update: None,

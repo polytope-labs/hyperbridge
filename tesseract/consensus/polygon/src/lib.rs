@@ -106,7 +106,11 @@ impl PolygonPosHost {
 			trusted_next_validators,
 			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
 			82 * 3600,
-			tendermint_primitives::VerificationOptions::default(),
+			{
+				let mut options = tendermint_primitives::VerificationOptions::default();
+				options.clock_drift = 3600;
+				options
+			},
 		);
 
 		let codec_trusted_state = CodecTrustedState::from(&trusted_state);

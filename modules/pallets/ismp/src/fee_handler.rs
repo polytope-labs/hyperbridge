@@ -130,11 +130,11 @@ where
 
 #[impl_for_tuples(2)]
 impl FeeHandler for TupleIdentifier {
-    fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo {
-        for_tuples!( #(
+	fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo {
+		for_tuples!( #(
             <TupleIdentifier as FeeHandler>::on_executed(messages.clone(), events.clone())?;
         )* );
 
-        Ok(Default::default())
-    }
+		Ok(Default::default())
+	}
 }

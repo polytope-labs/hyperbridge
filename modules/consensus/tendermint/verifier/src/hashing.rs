@@ -55,7 +55,7 @@ impl signature::Verifier for SpIoSignatureVerifier {
 					pk.to_encoded_point(true)
 						.as_bytes()
 						.try_into()
-						.map_err(|e| signature::Error::MalformedPublicKey)?,
+						.map_err(|_| signature::Error::MalformedPublicKey)?,
 				);
 
 				let raw_sig = signature.as_bytes();

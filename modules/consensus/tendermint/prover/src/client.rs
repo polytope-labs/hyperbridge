@@ -72,26 +72,6 @@ impl Client for CometBFTClient {
 		self.validators(height + 1).await
 	}
 
-	async fn signed_headers_range(
-		&self,
-		start_height: u64,
-		end_height: u64,
-	) -> Result<Vec<SignedHeader>, ProverError> {
-		if start_height >= end_height {
-			return Err(ProverError::InvalidHeight(
-				"Start height must be less than end height".to_string(),
-			));
-		}
-
-		let mut headers = Vec::new();
-		for height in start_height..=end_height {
-			let header = self.signed_header(height).await?;
-			headers.push(header);
-		}
-
-		Ok(headers)
-	}
-
 	async fn chain_id(&self) -> Result<String, ProverError> {
 		let status = self
 			.client

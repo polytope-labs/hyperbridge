@@ -207,8 +207,6 @@ impl From<&TrustedState> for CodecTrustedState {
 pub struct ConsensusProof {
 	/// Signed header containing the block header and commit
 	pub signed_header: SignedHeader,
-	/// Ancestry of signed headers from trusted block height to the latest signed header
-	pub ancestry: Vec<SignedHeader>,
 	/// Next validator set  (optional) - target height + 1
 	pub next_validators: Option<Vec<Validator>>,
 }
@@ -217,8 +215,6 @@ pub struct ConsensusProof {
 pub struct CodecConsensusProof {
 	/// Signed header containing the block header and commit
 	pub signed_header: CodecSignedHeader,
-	/// Ancestry of signed headers from trusted block height to the latest signed header
-	pub ancestry: Vec<CodecSignedHeader>,
 	/// Next validator set  (optional) - target height + 1
 	pub next_validators: Option<Vec<CodecValidator>>,
 }
@@ -351,11 +347,6 @@ impl CodecConsensusProof {
 	/// Convert back to ConsensusProof
 	pub fn to_consensus_proof(&self) -> Result<ConsensusProof, String> {
 		let signed_header = self.signed_header.to_signed_header()?;
-		let ancestry = self
-			.ancestry
-			.iter()
-			.map(|codec_header| codec_header.to_signed_header())
-			.collect::<Result<Vec<_>, _>>()?;
 		let next_validators = if let Some(ref validators) = self.next_validators {
 			Some(
 				validators
@@ -367,7 +358,7 @@ impl CodecConsensusProof {
 			None
 		};
 
-		Ok(ConsensusProof { signed_header, ancestry, next_validators })
+		Ok(ConsensusProof { signed_header, next_validators })
 	}
 }
 
@@ -580,7 +571,6 @@ impl From<&ConsensusProof> for CodecConsensusProof {
 	fn from(proof: &ConsensusProof) -> Self {
 		CodecConsensusProof {
 			signed_header: CodecSignedHeader::from(&proof.signed_header),
-			ancestry: proof.ancestry.iter().map(CodecSignedHeader::from).collect(),
 			next_validators: proof
 				.next_validators
 				.as_ref()
@@ -697,12 +687,8 @@ impl From<&cometbft::public_key::PublicKey> for CodecPublicKey {
 }
 
 impl ConsensusProof {
-	pub fn new(
-		signed_header: SignedHeader,
-		ancestry: Vec<SignedHeader>,
-		next_validators: Option<Vec<Validator>>,
-	) -> Self {
-		Self { signed_header, ancestry, next_validators }
+	pub fn new(signed_header: SignedHeader, next_validators: Option<Vec<Validator>>) -> Self {
+		Self { signed_header, next_validators }
 	}
 
 	pub fn height(&self) -> u64 {
@@ -715,22 +701,6 @@ impl ConsensusProof {
 
 	pub fn chain_id(&self) -> &str {
 		self.signed_header.header.chain_id.as_str()
-	}
-
-	/// Get the lowest height in the ancestry (trusted block height)
-	pub fn trusted_height(&self) -> u64 {
-		self.ancestry
-			.first()
-			.map(|header| header.header.height.value())
-			.unwrap_or_else(|| self.signed_header.header.height.value())
-	}
-
-	/// Get the highest height in the ancestry (before the latest signed header)
-	pub fn ancestry_highest_height(&self) -> u64 {
-		self.ancestry
-			.last()
-			.map(|header| header.header.height.value())
-			.unwrap_or_else(|| self.trusted_height())
 	}
 
 	/// Validate the consensus proof
@@ -767,18 +737,6 @@ impl ConsensusProof {
 	/// Get the next validators if available
 	pub fn get_next_validators(&self) -> Option<&Vec<Validator>> {
 		self.next_validators.as_ref()
-	}
-
-	/// Get the total number of blocks in the proof (ancestry + latest)
-	pub fn total_blocks(&self) -> usize {
-		self.ancestry.len() + 1
-	}
-
-	/// Get all signed headers in order (ancestry + latest)
-	pub fn all_signed_headers(&self) -> Vec<&SignedHeader> {
-		let mut headers: Vec<&SignedHeader> = self.ancestry.iter().collect();
-		headers.push(&self.signed_header);
-		headers
 	}
 }
 

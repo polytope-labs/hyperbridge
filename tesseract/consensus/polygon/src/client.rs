@@ -22,7 +22,6 @@ use ethers::{
 };
 
 use base64::Engine;
-use tendermint_verifier::hashing::SpIoSha256;
 
 #[derive(Debug, Clone)]
 /// A client implementation for interacting with Heimdall nodes.
@@ -335,63 +334,6 @@ impl Client for HeimdallClient {
 
 	async fn next_validators(&self, height: u64) -> Result<Vec<Validator>, ProverError> {
 		self.validators(height + 1).await
-	}
-
-	async fn signed_headers_range(
-		&self,
-		start_height: u64,
-		end_height: u64,
-	) -> Result<Vec<SignedHeader>, ProverError> {
-		if start_height == end_height {
-			let header = self.signed_header(start_height).await?;
-			return Ok(vec![header]);
-		}
-
-		if start_height > end_height {
-			return Err(ProverError::InvalidHeight(
-				"Start height must be less than end height".to_string(),
-			));
-		}
-
-		let mut headers = Vec::new();
-		let mut expected_parent_hash: Option<cometbft::Hash> = None;
-
-		for height in start_height..=end_height {
-			let header = self.signed_header(height).await?;
-
-			let parent_hash = header
-				.header
-				.last_block_id
-				.as_ref()
-				.ok_or_else(|| {
-					ProverError::InvalidAncestry(format!(
-						"Target header has no last_block_id at height {}",
-						height
-					))
-				})?
-				.hash;
-
-			// If we have an expected parent hash, validate that the current header's parent
-			// matches the hash of the previous header
-			if let Some(expected_hash) = expected_parent_hash {
-				if parent_hash.as_bytes() != expected_hash.as_bytes() {
-					return Err(ProverError::InvalidAncestry(format!(
-						"Header at height {} parent hash mismatch: expected {:?}, got {:?}",
-						height,
-						expected_hash.as_bytes(),
-						parent_hash.as_bytes()
-					)));
-				}
-			}
-
-			// Hash the current header for the next iteration
-			let header_hash = header.header.hash_with::<SpIoSha256>();
-			expected_parent_hash = Some(header_hash);
-
-			headers.push(header);
-		}
-
-		Ok(headers)
 	}
 
 	async fn chain_id(&self) -> Result<String, ProverError> {

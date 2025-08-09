@@ -21,8 +21,7 @@ extern crate alloc;
 use alloc::{collections::BTreeMap, format, vec::Vec};
 use codec::Decode;
 use core::marker::PhantomData;
-use polkadot_sdk::*;
-use polkadot_sdk::sp_core::H256;
+use polkadot_sdk::{sp_core::H256, *};
 use sp_runtime::{
 	traits::{BlakeTwo256, Keccak256, Zero},
 	Either,
@@ -54,7 +53,7 @@ pub struct HyperbridgeClientMachine<T, H, F: OnRequestProcessed> {
 	/// The inner substrate state machine
 	client: SubstrateStateMachine<T>,
 	/// phantom type for pinning generics
-	_phantom: PhantomData<(H, F)>
+	_phantom: PhantomData<(H, F)>,
 }
 
 impl<T, H, F: OnRequestProcessed> From<StateMachine> for HyperbridgeClientMachine<T, H, F> {
@@ -68,7 +67,7 @@ where
 	T: pallet_ismp_host_executive::Config,
 	T::Balance: Into<u128>,
 	H: IsmpHost,
-	F: OnRequestProcessed
+	F: OnRequestProcessed,
 {
 	fn verify_membership(
 		&self,
@@ -106,7 +105,8 @@ where
 				.into_iter()
 				.map(|response| {
 					let commitment = hash_response::<H>(&response);
-					(   commitment,
+					(
+						commitment,
 						ResponseCommitments::<T>::storage_key(commitment),
 						ResponsePayments::storage_key(commitment),
 						response.encode().len() as u128,
@@ -266,7 +266,8 @@ where
 	}
 }
 
-/// A hook that is called by the hyperbridge state machine client after successful state proof verification.
+/// A hook that is called by the hyperbridge state machine client after successful state proof
+/// verification.
 pub trait OnRequestProcessed {
 	/// Called by the state machine client to note the fee for a request.
 	///
@@ -280,4 +281,3 @@ impl OnRequestProcessed for () {
 		// noop
 	}
 }
-

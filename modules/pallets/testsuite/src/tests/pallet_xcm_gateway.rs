@@ -3,14 +3,11 @@
 use polkadot_sdk::*;
 use std::sync::Arc;
 
-use crate::{
-	relay_chain::{self, RuntimeOrigin},
-	runtime::{Test, ALICE},
-	xcm::{MockNet, ParaA, Relay},
-};
+use crate::{init_tracing, relay_chain::{self, RuntimeOrigin}, runtime::{Test, ALICE}, runtime, xcm::{MockNet, ParaA, Relay}};
 use alloy_sol_types::SolValue;
 use codec::Encode;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
+use polkadot_sdk::xcm_simulator::{Asset, AssetId, Fungibility, GeneralIndex, PalletInstance, Parachain, Parent};
 use ismp::{
 	host::StateMachine,
 	module::IsmpModule,
@@ -21,10 +18,96 @@ use pallet_xcm_gateway::Module;
 use sp_core::{ByteArray, H160, H256};
 use staging_xcm::v5::{Junction, Junctions, Location, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
+use crate::xcm::ParaB;
+use polkadot_sdk::frame_support::traits::fungibles::Mutate;
+use crate::runtime::BOB;
+
 
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
 const PARA_ID: u32 = 100;
 pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
+
+#[test]
+fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
+	init_tracing();
+	MockNet::reset();
+			let asset_location_on_assethub = Location::new(0, [
+				PalletInstance(50),
+				GeneralIndex(123),
+			]);
+
+		//let asset_location_on_assethub_h256: H256 = sp_io::hashing::keccak_256(&asset_location_on_assethub.encode()).into();
+
+		let asset_id_on_paraa: H256 =
+				sp_io::hashing::keccak_256(&Location::new(1, [Parachain(1000), PalletInstance(50), GeneralIndex(123)]).encode())
+					.into();
+
+
+			ParaA::execute_with(|| {
+				assert_ok!(runtime::Assets::force_create(
+                    runtime::RuntimeOrigin::root(),
+                    asset_id_on_paraa.into(),
+                    ALICE.into(),
+                    true,
+                    1
+                ));
+			});
+
+
+			ParaB::execute_with(|| {
+				let dest = Location::new(1, [Parachain(100)]);
+				let beneficiary = Location::new(1, Junctions::X3(Arc::new([
+					Junction::AccountId32 { network: None, id: BOB.into() },
+					Junction::AccountKey20 {
+						network: Some(NetworkId::Ethereum { chain_id: 97 }),
+						key: [1u8; 20],
+					},
+					Junction::GeneralIndex(60 * 60),
+				])));
+
+
+				let assets = Asset {
+					id: AssetId(asset_location_on_assethub),
+					fun: Fungibility::Fungible(100000),
+				};
+
+				assert_ok!(runtime::PalletXcm::limited_reserve_transfer_assets(
+                    runtime::RuntimeOrigin::signed(ALICE.into()),
+                    Box::new(dest.into()),
+                    Box::new(beneficiary.into()),
+                    Box::new(vec![assets].into()),
+                    0,
+                    WeightLimit::Unlimited,
+                ));
+			});
+
+
+			ParaA::execute_with(|| {
+
+				let bobs_balance = <runtime::Assets as Inspect<
+					<Test as frame_system::Config>::AccountId,
+				>>::balance(
+					asset_id_on_paraa,
+					&BOB,
+				);
+				dbg!(bobs_balance);
+
+				let nonce = pallet_ismp::Nonce::<Test>::get();
+				assert_eq!(nonce, 1);
+
+				let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
+				let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
+
+				let pallet_account_balance = <runtime::Assets as Inspect<
+					<Test as frame_system::Config>::AccountId,
+				>>::balance(
+					asset_id_on_paraa.into(),
+					&pallet_xcm_gateway::Pallet::<Test>::account_id(),
+				);
+				assert_eq!(custodied_amount, pallet_account_balance);
+			});
+
+}
 #[test]
 fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 	MockNet::reset();

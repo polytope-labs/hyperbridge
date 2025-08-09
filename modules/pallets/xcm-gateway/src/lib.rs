@@ -96,6 +96,8 @@ pub mod pallet {
 		type GatewayOrigin: EnsureOrigin<
 			<Self as polkadot_sdk::frame_system::Config>::RuntimeOrigin,
 		>;
+
+		type DotLocation: Get<Location>;
 	}
 
 	#[pallet::storage]
@@ -386,12 +388,12 @@ where
 					},
 				})?;
 
-		let asset_id = Location::parent();
+		let asset_id = T::DotLocation::get();
 
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
 		let xcm_beneficiary: Location =
 			Junction::AccountId32 { network: None, id: body.to.0 }.into();
-		let xcm_dest = VersionedLocation::V5(Location::parent());
+		let xcm_dest = VersionedLocation::V5(asset_id.clone());
 		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
 		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
@@ -473,11 +475,12 @@ where
 				// on the relaychain;
 				let xcm_beneficiary: Location =
 					Junction::AccountId32 { network: None, id: body.from.0 }.into();
-				let xcm_dest = VersionedLocation::V5(Location::parent());
+				let asset_id = T::DotLocation::get();
+				let xcm_dest = VersionedLocation::V5(asset_id.clone());
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
 				let asset =
-					Asset { id: AssetId(Location::parent()), fun: Fungibility::Fungible(amount) };
+					Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 
 				let mut assets = Assets::new();
 				assets.push(asset);

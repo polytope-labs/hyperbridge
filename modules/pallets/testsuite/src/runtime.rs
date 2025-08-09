@@ -25,6 +25,8 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::{EnsureRoot, EnsureSigned, EventRecord};
+use polkadot_sdk::xcm_simulator::{GeneralIndex, Location, PalletInstance, Parachain};
+use polkadot_sdk::xcm_simulator::Junctions::X3;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
@@ -53,9 +55,11 @@ use sp_runtime::{
 use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use pallet_messaging_fees::types::PriceOracle;
+use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID, NATIVE_ASSET_ID_ON_ASSET_HUB};
 use substrate_state_machine::SubstrateStateMachine;
 
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
+pub const BOB: AccountId32 = AccountId32::new([2; 32]);
 
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 

@@ -1,5 +1,5 @@
 // Xcm config
-
+use std::sync::Arc;
 use crate::{
 	relay_chain,
 	runtime::{
@@ -84,10 +84,14 @@ parameter_types! {
 	pub UniversalLocation: Junctions = Parachain(ParachainInfo::parachain_id().into()).into();
 }
 
+parameter_types! {
+	pub ExternalConsensus: InteriorLocation = [Parachain(100), Parachain(1000)].into();
+}
+
 pub type LocationToAccountId = (
-	ParentIsPreset<AccountId32>,
+	IsmpBeneficiaryConverter,
 	SiblingParachainConvertsVia<Sibling, AccountId32>,
-	AccountId32Aliases<RelayNetwork, AccountId32>,
+	//ExternalConsensusLocationsConverterFor<ExternalConsensus, AccountId32>,
 );
 
 pub type XcmOriginToCallOrigin = (
@@ -111,6 +115,25 @@ impl Get<AccountId32> for CheckingAccount {
 	}
 }
 
+pub struct IsmpBeneficiaryConverter;
+impl ConvertLocation<AccountId32> for IsmpBeneficiaryConverter {
+	fn convert_location(location: &Location) -> Option<AccountId32> {
+		println!("trying to convert {:?}", location);
+		if let Location { interior: X1(junctions), .. } = location {
+			if let Junction::AccountId32 { id, .. } = &junctions[0] {
+				//if let Junction::AccountKey20 { .. } = &junctions[1] {
+				//	if let Junction::GeneralIndex(..) = &junctions[2] {
+						println!("location converted {:?}", &id);
+						return Some(AccountId32::from(id.clone()));
+				//	}
+				//}
+			}
+		}
+		println!("couldn't convert");
+		None
+	}
+}
+
 pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 	Test,
 	ConvertedConcreteId<H256, Balance, ConvertAssetId<Test>, Identity>,
@@ -120,19 +143,7 @@ pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 >;
 pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::parent().encode()).into();
-	let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
-		assets: vec![
-			// id, owner, is_sufficient, min_balance
-			(asset_id.clone(), ALICE, true, 1),
-		],
-		metadata: vec![
-			// id, name, symbol, decimals
-			(asset_id, "Token Name".into(), "TOKEN".into(), 10),
-		],
-		accounts: vec![],
-		next_asset_id: None,
-	};
+
 
 	let para_config: staging_parachain_info::GenesisConfig<Test> =
 		staging_parachain_info::GenesisConfig {
@@ -140,8 +151,35 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 			parachain_id: para_id.into(),
 		};
 
-	config.assimilate_storage(&mut t).unwrap();
 	para_config.assimilate_storage(&mut t).unwrap();
+
+	if para_id == 1000 {
+
+		let asset_location = Location::new(0, [
+			PalletInstance(50),
+			GeneralIndex(123),
+		]);
+		let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
+		let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
+			assets: vec![
+				// id, owner, is_sufficient, min_balance
+				(asset_id.clone(), ALICE, true, 1),
+			],
+			accounts: vec![(
+				asset_id,
+				ALICE.into(),
+				1000_000_000_0000 * 10,
+			)],
+			metadata: vec![
+				// id, name, symbol, decimals
+				(asset_id, "Token Name".into(), "TOKEN".into(), 10),
+			],
+			next_asset_id: None,
+		};
+
+
+		config.assimilate_storage(&mut t).unwrap();
+	}
 
 	let mut ext = sp_io::TestExternalities::new(t);
 
@@ -198,6 +236,15 @@ decl_test_parachain! {
 	}
 }
 
+decl_test_parachain! {
+	pub struct ParaB {
+       Runtime = Test,
+       XcmpMessageHandler = XcmpQueue,
+       DmpMessageHandler = DmpMessageExecutor,
+       new_ext = para_ext(1000),
+    }
+}
+
 decl_test_relay_chain! {
 	pub struct Relay {
 		Runtime = relay_chain::Runtime,
@@ -215,12 +262,37 @@ decl_test_network! {
 		relay_chain = Relay,
 		parachains = vec![
 			(100, ParaA),
+			(1000, ParaB),
 		],
 	}
 }
 
+
 pub type XcmRouter = ParachainXcmRouter<ParachainInfo>;
 pub type Barrier = AllowUnpaidExecutionFrom<Everything>;
+
+parameter_types! {
+	pub DotOnAssetHub: Location = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
+}
+
+parameter_types! {
+    pub NativeAssetOnAssetHub: Location = Location {
+        parents: 1,
+        interior: X3(Arc::new([
+            Parachain(ASSET_HUB_PARA_ID),
+            PalletInstance(50),
+            GeneralIndex(NATIVE_ASSET_ID_ON_ASSET_HUB),
+        ])),
+    };
+}
+
+pub struct TestReserve;
+impl ContainsPair<Asset, Location> for TestReserve {
+	fn contains(asset: &Asset, origin: &Location) -> bool {
+		let assethub_location = Location::new(1, [Parachain(1000)]);
+		&assethub_location == origin
+	}
+}
 
 pub struct XcmConfig;
 impl staging_xcm_executor::Config for XcmConfig {
@@ -228,7 +300,7 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type XcmSender = XcmRouter;
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToCallOrigin;
-	type IsReserve = NativeAsset;
+	type IsReserve = TestReserve;
 	type IsTeleporter = ();
 	type UniversalLocation = UniversalLocation;
 	type Barrier = Barrier;
@@ -286,6 +358,10 @@ impl cumulus_pallet_parachain_system::Config for Test {
 use frame_support::traits::TransformOrigin;
 use parachains_common::message_queue::ParaIdToSibling;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
+use polkadot_sdk::frame_support::traits::ContainsPair;
+use polkadot_sdk::staging_xcm_builder::ExternalConsensusLocationsConverterFor;
+use polkadot_sdk::xcm_simulator::Junctions::{X1, X3};
+use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID, NATIVE_ASSET_ID_ON_ASSET_HUB};
 
 impl cumulus_pallet_xcmp_queue::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
@@ -338,7 +414,7 @@ impl pallet_xcm::Config for Test {
 	type XcmExecuteFilter = Everything;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmTeleportFilter = Nothing;
-	type XcmReserveTransferFilter = ReserveTransferFilter;
+	type XcmReserveTransferFilter = Everything;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;
 	type RuntimeOrigin = RuntimeOrigin;
@@ -369,6 +445,7 @@ impl pallet_xcm_gateway::Config for Test {
 	type Assets = Assets;
 	type IsmpHost = Ismp;
 	type GatewayOrigin = EnsureRoot<AccountId32>;
+	type DotLocation = DotOnAssetHub;
 }
 
 impl pallet_assets::Config for Test {

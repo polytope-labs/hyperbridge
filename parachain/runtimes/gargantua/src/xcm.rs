@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use alloc::sync::Arc;
 use super::{
 	AccountId, Balance, Balances, ParachainInfo, ParachainSystem, PolkadotXcm, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeOrigin, WeightToFee, XcmpQueue,
@@ -30,7 +31,7 @@ use polkadot_runtime_common::impls::ToAuthor;
 use polkadot_sdk::*;
 use sp_core::H256;
 use sp_runtime::traits::Identity;
-use staging_xcm::latest::{prelude::*, Junctions::X1};
+use staging_xcm::latest::{prelude::*, Junctions::{X1, X3}};
 use staging_xcm_builder::{
 	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom,
 	ConvertedConcreteId, EnsureXcmOrigin, FixedWeightBounds, NoChecking, ParentIsPreset,
@@ -40,9 +41,7 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::XcmExecutor;
 
-use pallet_xcm_gateway::xcm_utilities::{
-	ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter,
-};
+use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID, ConvertAssetId, HyperbridgeAssetTransactor, NATIVE_ASSET_ID_ON_ASSET_HUB, ReserveTransferFilter};
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();
@@ -151,6 +150,37 @@ impl ContainsPair<Asset, Location> for MultiNativeAsset {
 	}
 }
 
+parameter_types! {
+	pub NativeAssetOnAssetHub: Location = Location {
+    parents: 1,
+    interior: X3(Arc::new([
+            Parachain(ASSET_HUB_PARA_ID),
+            PalletInstance(50),
+            GeneralIndex(NATIVE_ASSET_ID_ON_ASSET_HUB),
+        ])),
+	};
+
+	pub DotOnAssetHub: Location = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
+}
+
+pub struct AssetsFromAssetHub;
+impl ContainsPair<Asset, Location> for AssetsFromAssetHub {
+	fn contains(asset: &Asset, origin: &Location) -> bool {
+		let self_para = Location::new(1, [Parachain(ParachainInfo::parachain_id().into())]);
+		if origin == &self_para {
+			return false;
+		}
+
+		let asset_hub = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
+		if origin == &asset_hub {
+			let AssetId(asset_id) = &asset.id;
+			return NativeAssetOnAssetHub::get() == *asset_id;
+		}
+
+		false
+	}
+}
+
 pub struct XcmConfig;
 impl staging_xcm_executor::Config for XcmConfig {
 	type RuntimeCall = RuntimeCall;
@@ -158,7 +188,7 @@ impl staging_xcm_executor::Config for XcmConfig {
 	// How to withdraw and deposit an asset.
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
-	type IsReserve = MultiNativeAsset;
+	type IsReserve = AssetsFromAssetHub;
 	type IsTeleporter = ();
 	type Aliasers = Nothing;
 	// Teleporting is disabled.

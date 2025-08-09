@@ -83,8 +83,11 @@ features = [
     "cumulus-primitives-core",
     "cumulus-pallet-xcmp-queue",
     "cumulus-pallet-parachain-system",
-    "pallet-vesting"
+    "pallet-vesting",
+    "xcm-emulator"
 ]
+
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 hex = "0.4.3"

@@ -38,7 +38,7 @@ pub async fn consensus_notification(
 
 	let next_validator_set_hash_match = validate_validator_set_hash(
 		&ValidatorSet::new(trusted_state.next_validators.clone(), None),
-		untrusted_header.header.next_validators_hash,
+		untrusted_header.header.validators_hash,
 		true,
 	);
 
@@ -119,7 +119,7 @@ pub async fn consensus_notification(
 				);
 				let next_validator_set_hash_match = validate_validator_set_hash(
 					&ValidatorSet::new(trusted_state.next_validators.clone(), None),
-					header.header.next_validators_hash,
+					header.header.validators_hash,
 					true,
 				);
 				if validator_set_hash_match.is_ok() || next_validator_set_hash_match.is_ok() {

@@ -7,7 +7,7 @@ use crate::{init_tracing, relay_chain::{self, RuntimeOrigin}, runtime::{Test, AL
 use alloy_sol_types::SolValue;
 use codec::Encode;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
-use polkadot_sdk::xcm_simulator::{Asset, AssetId, Fungibility, GeneralIndex, PalletInstance, Parachain, Parent};
+use polkadot_sdk::xcm_simulator::{AllCounted, Asset, AssetId, BuyExecution, DepositAsset, Fungibility, GeneralIndex, PalletInstance, Parachain, Parent, Reanchorable, SetFeesMode, TransferReserveAsset, VersionedXcm, Weight, Wild, Xcm};
 use ismp::{
 	host::StateMachine,
 	module::IsmpModule,
@@ -65,19 +65,41 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 					Junction::GeneralIndex(60 * 60),
 				])));
 
+				let context = cumulus_primitives_core::Junctions::X2(Arc::new([
+					cumulus_primitives_core::Junction::GlobalConsensus(cumulus_primitives_core::NetworkId::Polkadot),
+					cumulus_primitives_core::Junction::Parachain(1000),
+				]));
 
 				let assets = Asset {
 					id: AssetId(asset_location_on_assethub),
 					fun: Fungibility::Fungible(100000),
 				};
 
-				assert_ok!(runtime::PalletXcm::limited_reserve_transfer_assets(
+				let fee_asset = assets.clone().reanchored(&dest, &context).expect("should reanchor");
+				let fees = fee_asset.clone();
+
+
+				let xcm = Xcm(vec![
+					BuyExecution { fees, weight_limit:  WeightLimit::Unlimited },
+					DepositAsset {
+						assets: Wild(AllCounted(2)),
+						beneficiary,
+					},
+				]);
+
+				let message = Xcm(vec![
+					SetFeesMode { jit_withdraw: true },
+					TransferReserveAsset {
+						assets: assets.into(),
+						dest,
+						xcm,
+					},
+				]);
+
+				assert_ok!(runtime::PalletXcm::execute(
                     runtime::RuntimeOrigin::signed(ALICE.into()),
-                    Box::new(dest.into()),
-                    Box::new(beneficiary.into()),
-                    Box::new(vec![assets].into()),
-                    0,
-                    WeightLimit::Unlimited,
+                    Box::new(VersionedXcm::from(message)),
+                   Weight::from_parts(999_600_000_000_000_000, 10000),
                 ));
 			});
 

@@ -64,7 +64,6 @@ pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: Payload>(
 where
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
-	log::trace!(target: "tesseract", "creating unsigned extrinsic");
 	let ext = client.tx().create_unsigned(&payload)?;
 	let progress = match ext.submit_and_watch().await {
 		Ok(p) => {
@@ -77,7 +76,6 @@ where
 		},
 		Err(err) => Err(refine_subxt_error(err)).context("Failed to submit unsigned extrinsic")?,
 	};
-	log::trace!(target: "tesseract", "trying to get progress for unsigned extrinsic");
 	let ext_hash = progress.extrinsic_hash();
 
 	let tx_in_block = progress.wait_for_finalized().await;

@@ -663,7 +663,6 @@ where
 		mut messages: Vec<Message>,
 		coprocessor: StateMachine,
 	) -> Result<TxResult, anyhow::Error> {
-		log::trace!(target: "tesseract", "in submission ");
 		let mut futs = vec![];
 		let is_hyperbridge = self.state_machine == coprocessor;
 		for msg in &mut messages {
@@ -679,17 +678,14 @@ where
 				}
 			}
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
-			log::trace!(target: "tesseract", "converted to value for message submission");
 			let extrinsic = subxt::dynamic::tx(
 				"Ismp",
 				"handle_unsigned",
 				vec![messages_to_value(vec![msg.clone()])],
 			);
-			log::trace!(target: "tesseract", "gotten dynamic payload for message submission");
 			// We don't compress consensus messages
 			// We only consider compression for hyperbridge
 			if is_consensus_message || !is_hyperbridge {
-				log::trace!(target: "tesseract", "sending unsigned extrinsic");
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false));
 				continue;
 			}
@@ -700,8 +696,8 @@ where
 			let compressed_call_len = zstd_safe::compress(&mut buffer[..], &encoded_call, 3)
 				.map_err(|_| anyhow!("Call compression failed"))?;
 			// If compression saving is less than 15% submit the uncompressed call
-			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) <
-				20usize
+			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len)
+				< 20usize
 			{
 				log::trace!(target: "tesseract", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
@@ -734,7 +730,7 @@ where
 		};
 		for msg in messages {
 			match msg {
-				Message::Request(req_msg) =>
+				Message::Request(req_msg) => {
 					for post in req_msg.requests {
 						let req = Request::Post(post);
 						let commitment = hash_request::<Hasher>(&req);
@@ -751,11 +747,12 @@ where
 
 							results.push(tx_receipt);
 						}
-					},
+					}
+				},
 				Message::Response(ResponseMessage {
 					datagram: RequestResponse::Response(resp),
 					..
-				}) =>
+				}) => {
 					for res in resp {
 						let commitment = hash_response::<Hasher>(&res);
 						let request_commitment = hash_request::<Hasher>(&res.request());
@@ -773,7 +770,8 @@ where
 
 							results.push(tx_receipt);
 						}
-					},
+					}
+				},
 				_ => {},
 			}
 		}
@@ -923,10 +921,12 @@ pub fn system_events_key() -> StorageKey {
 fn encode_message(msg: &Message) -> Option<[u8; 32]> {
 	return match msg {
 		Message::Request(request_message) => Some(keccak_256(&request_message.requests.encode())),
-		Message::Response(response_message) =>
-			Some(keccak_256(&response_message.datagram.encode())),
-		Message::Consensus(consensus_message) =>
-			Some(keccak_256(&consensus_message.consensus_proof)),
+		Message::Response(response_message) => {
+			Some(keccak_256(&response_message.datagram.encode()))
+		},
+		Message::Consensus(consensus_message) => {
+			Some(keccak_256(&consensus_message.consensus_proof))
+		},
 		Message::FraudProof(_) | Message::Timeout(_) => None,
-	}
+	};
 }

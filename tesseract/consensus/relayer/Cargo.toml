@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-consensus"
-version = "1.0.1"
+version = "1.2.0"
 edition = "2021"
 
 [lib]
@@ -40,6 +40,7 @@ subxt-utils = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
 tesseract-bsc = { workspace = true }
 tesseract-sync-committee = { workspace = true }
+tesseract-polygon = { path = "../polygon" }
 arb-host = { workspace = true }
 op-host = { workspace = true }
 ismp = { workspace = true  }

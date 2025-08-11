@@ -45,9 +45,37 @@ contract DeployScript is BaseScript {
     function run() external {
         vm.startBroadcast(uint256(privateKey));
 
-        // consensus client
-        SP1Verifier verifier = new SP1Verifier{salt: salt}();
-        SP1Beefy consensusClient = new SP1Beefy{salt: salt}(verifier);
+        uint256 decimals;
+        address uniswapV2;
+        address consensusClient;
+        address feeToken;
+        bytes memory hyperbridge;
+        TokenFaucet faucet;
+        bool isMainnet = vm.envBool("MAINNET");
+
+        if (isMainnet) {
+            // deploy zk connsensus client
+            SP1Verifier verifier = new SP1Verifier{salt: salt}();
+            SP1Beefy consensusClientInstance = new SP1Beefy{salt: salt}(verifier);
+            consensusClient = address(consensusClientInstance);
+            // use feeToken configured in environment variables
+            uniswapV2 = vm.envAddress(string.concat(host, "_UNISWAP_V2"));
+            feeToken = vm.envAddress(string.concat(host, "_FEE_TOKEN"));
+            decimals = IERC20Metadata(feeToken).decimals();
+            hyperbridge = StateMachine.polkadot(paraId);
+        } else {
+            // deploy naive connsensus client
+            BeefyV1 consensusClientInstance = new BeefyV1{salt: salt}();
+            consensusClient = address(consensusClientInstance);
+
+            // Deploy our own feetoken contract & faucet
+            ERC6160Ext20 feeTokenInstance = new ERC6160Ext20{salt: salt}(admin, "Hyper USD", "USD.h");
+            faucet = new TokenFaucet{salt: salt}();
+            feeTokenInstance.grantRole(feeTokenInstance.getMinterRole(), address(faucet));
+            feeToken = address(feeTokenInstance);
+            hyperbridge = StateMachine.kusama(paraId);
+            decimals = 18;
+        }
 
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
@@ -56,10 +84,6 @@ contract DeployScript is BaseScript {
         HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
-
-        address uniswapV2 = vm.envAddress(string.concat(host, "_UNISWAP_V2"));
-        address feeToken = vm.envAddress(string.concat(host, "_FEE_TOKEN"));
-        uint256 decimals = IERC20Metadata(feeToken).decimals();
 
         // EvmHost
         PerByteFee[] memory perByteFees = new PerByteFee[](0);
@@ -75,7 +99,7 @@ contract DeployScript is BaseScript {
             consensusClient: address(consensusClient),
             defaultPerByteFee: 3 * (10 ** (decimals - 2)), // $0.003/byte
             stateCommitmentFee: 10 * (10 ** decimals), // $10
-            hyperbridge: StateMachine.polkadot(paraId),
+            hyperbridge: hyperbridge,
             feeToken: feeToken,
             stateMachines: stateMachines
         });
@@ -86,17 +110,25 @@ contract DeployScript is BaseScript {
 
         // Set the consensus state
         EvmHost(payable(hostAddress)).setConsensusState(
-            hex"",
-            StateMachineHeight({
-                stateMachineId: paraId,
-                height: 1
-            }),
-            StateCommitment({
-                timestamp: block.timestamp,
-                overlayRoot: bytes32(0),
-                stateRoot: bytes32(0)
-            })
+            consensusState,
+            StateMachineHeight({stateMachineId: paraId, height: 1}),
+            StateCommitment({timestamp: block.timestamp, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
+
+        if (!isMainnet) {
+            // deploy token gateway
+            TokenGateway gateway = new TokenGateway{salt: salt}(admin);
+            AssetMetadata[] memory assets = new AssetMetadata[](0);
+            gateway.init(
+                TokenGatewayParamsExt({
+                    params: TokenGatewayParams({host: hostAddress, dispatcher: address(0)}),
+                    assets: assets
+                })
+            );
+
+            PingModule ping = new PingModule{salt: salt}(admin);
+            ping.setIsmpHost(hostAddress, address(faucet));
+        }
 
         vm.stopBroadcast();
     }
@@ -131,3 +163,5 @@ contract DeployScript is BaseScript {
         revert("Unknown host");
     }
 }
+
+// 0x63fef1a54c11f857d51c46eeee5110030085c5ee8421ad5e3c79255f3054002a

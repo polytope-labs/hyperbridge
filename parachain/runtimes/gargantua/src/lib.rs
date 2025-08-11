@@ -568,8 +568,7 @@ impl pallet_collator_selection::Config for Runtime {
 	type WeightInfo = ();
 }
 impl pallet_collator_manager::Config for Runtime {
-	type ReputationAssetId = ReputationAssetId;
-	type ReputationAssets = Assets;
+	type ReputationAsset = ReputationAsset;
 	type DesiredCollators = ConstU32<50>;
 }
 

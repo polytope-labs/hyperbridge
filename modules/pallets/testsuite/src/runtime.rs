@@ -45,7 +45,6 @@ use polkadot_sdk::{
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys},
 };
-use scale_info::TypeInfo;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
@@ -333,8 +332,7 @@ impl pallet_collator_selection::Config for Test {
 	type WeightInfo = ();
 }
 impl pallet_collator_manager::Config for Test {
-	type ReputationAssetId = ReputationAssetId;
-	type ReputationAssets = Assets;
+	type ReputationAsset = ReputationAsset;
 	type DesiredCollators = DesiredCollators;
 }
 

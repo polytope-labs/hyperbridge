@@ -14,7 +14,8 @@
 // limitations under the License.
 
 //! The pallet-collator-manager is a session manager for selecting collators based on reputation.
-//! It uses a reputation score held in `pallet-assets` to rank and select collators for each new session.
+//! It uses a reputation score held in `pallet-assets` to rank and select collators for each new
+//! session.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
@@ -29,11 +30,10 @@ pub mod pallet {
 	use super::*;
 	use frame_support::traits::{
 		Get,
-		fungibles::{self, Inspect, Mutate},
+		fungible::{self, Inspect, Mutate},
 		tokens::{Fortitude, Precision, Preservation},
 	};
 	use pallet_session::SessionManager;
-	use sp_runtime::traits::Zero;
 	use sp_staking::SessionIndex;
 	use sp_std::vec::Vec;
 
@@ -49,13 +49,8 @@ pub mod pallet {
 			ValidatorId = <Self as pallet_session::Config>::ValidatorId,
 		> + pallet_ismp::Config
 	{
-		/// A constant that provides the ID of the asset used for reputation.
-		#[pallet::constant]
-		type ReputationAssetId: Get<
-			<Self::ReputationAssets as fungibles::Inspect<Self::AccountId>>::AssetId,
-		>;
 		/// The pallet-assets instance that manages the reputation token.
-		type ReputationAssets: fungibles::Mutate<Self::AccountId, Balance = <Self as pallet_ismp::Config>::Balance>;
+		type ReputationAsset: fungible::Mutate<Self::AccountId, Balance = <Self as pallet_ismp::Config>::Balance>;
 		/// A constant that defines the target number of collators for the active set.
 		#[pallet::constant]
 		type DesiredCollators: Get<u32>;
@@ -95,7 +90,7 @@ pub mod pallet {
 			});
 			candidates.sort_by_key(|a| {
 				let account_id: T::AccountId = a.clone().into();
-				T::ReputationAssets::balance(T::ReputationAssetId::get(), &account_id)
+				T::ReputationAsset::balance(&account_id)
 			});
 			candidates.reverse();
 			new_set_validators.extend(candidates.into_iter().take(desired_collators));
@@ -107,7 +102,7 @@ pub mod pallet {
 
 				reused_collators.sort_by_key(|a| {
 					let account_id: T::AccountId = a.clone().into();
-					T::ReputationAssets::balance(T::ReputationAssetId::get(), &account_id)
+					T::ReputationAsset::balance(&account_id)
 				});
 				reused_collators.reverse();
 
@@ -120,30 +115,18 @@ pub mod pallet {
 				return None;
 			}
 
-			let newly_joined_collators: Vec<<T as pallet_session::Config>::ValidatorId> =
-				new_set_validators
-					.iter()
-					.filter(|c| !active_collators.contains(c))
-					.cloned()
-					.collect();
+			for account_id in &new_set {
+				let balance = T::ReputationAsset::balance(&account_id);
+				let result = T::ReputationAsset::burn_from(
+					&account_id,
+					balance,
+					Preservation::Expendable,
+					Precision::Exact,
+					Fortitude::Polite,
+				);
 
-			for new_collator in newly_joined_collators {
-				let account_id: T::AccountId = new_collator.into();
-				let balance =
-					T::ReputationAssets::balance(T::ReputationAssetId::get(), &account_id);
-				if !balance.is_zero() {
-					let result = T::ReputationAssets::burn_from(
-						T::ReputationAssetId::get(),
-						&account_id,
-						balance,
-						Preservation::Expendable,
-						Precision::Exact,
-						Fortitude::Polite,
-					);
-
-					if result.is_ok() {
-						Self::deposit_event(Event::ReputationReset(account_id));
-					}
+				if result.is_ok() {
+					Self::deposit_event(Event::ReputationReset(account_id.clone()));
 				}
 			}
 

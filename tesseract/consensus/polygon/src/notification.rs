@@ -90,8 +90,12 @@ pub async fn consensus_notification(
 
 			return Ok(Some(PolygonConsensusUpdate {
 				tendermint_proof: CodecConsensusProof::from(&ConsensusProof::new(
-					untrusted_header,
-					Some(next_validators),
+					untrusted_header.clone(),
+					if untrusted_header.header.next_validators_hash.is_empty() {
+						None
+					} else {
+						Some(next_validators)
+					},
 				)),
 				milestone_update: maybe_milestone_update,
 			}));
@@ -136,8 +140,12 @@ pub async fn consensus_notification(
 				let next_validators = client.prover.next_validators(matched_height).await?;
 				return Ok(Some(PolygonConsensusUpdate {
 					tendermint_proof: CodecConsensusProof::from(&ConsensusProof::new(
-						matched_header,
-						Some(next_validators),
+						matched_header.clone(),
+						if matched_header.header.next_validators_hash.is_empty() {
+							None
+						} else {
+							Some(next_validators)
+						},
 					)),
 					milestone_update: None,
 				}));

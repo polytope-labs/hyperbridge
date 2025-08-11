@@ -378,15 +378,15 @@ impl pallet_vesting::Config for Test {
 pub struct ErrorModule;
 
 impl IsmpModule for ErrorModule {
-	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
+	fn on_accept(&self, _request: PostRequest) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 }
@@ -424,17 +424,21 @@ where
 #[derive(Default)]
 pub struct MockModule;
 
+fn weight() -> Weight {
+	Weight::from_parts(0, 0)
+}
+
 impl IsmpModule for MockModule {
-	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
-		Ok(())
+	fn on_accept(&self, _request: PostRequest) -> Result<Weight, anyhow::Error> {
+		Ok(weight())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
-		Ok(())
+	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+		Ok(weight())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
-		Ok(())
+	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+		Ok(weight())
 	}
 }
 

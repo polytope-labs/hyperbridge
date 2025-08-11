@@ -32,6 +32,10 @@ anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 serde-hex-utils = { workspace = true, default-features = false }
 
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support"]
+
 [features]
 default = ["std"]
 std = [
@@ -46,4 +50,5 @@ std = [
     "thiserror/std",
     "displaydoc/std",
     "anyhow/std",
+    "polkadot-sdk/std"
 ]

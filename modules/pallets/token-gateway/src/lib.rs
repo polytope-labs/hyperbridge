@@ -51,6 +51,7 @@ use types::{AssetId, Body, BodyWithCall, EvmToSubstrate, RequestBody, SubstrateC
 
 use alloc::{string::ToString, vec, vec::Vec};
 use frame_system::RawOrigin;
+use polkadot_sdk::sp_runtime::Weight;
 use ismp::module::IsmpModule;
 use primitive_types::H256;
 
@@ -523,7 +524,7 @@ where
 	fn on_accept(
 		&self,
 		PostRequest { body, from, source, dest, nonce, .. }: PostRequest,
-	) -> Result<(), anyhow::Error> {
+	) -> Result<Weight, anyhow::Error> {
 		let expected = TokenGatewayAddresses::<T>::get(source)
 			.ok_or_else(|| anyhow!("Not configured to receive assets from {source:?}"))?;
 		ensure!(
@@ -700,14 +701,14 @@ where
 			amount: amount.into(),
 			source,
 		});
-		Ok(())
+		Ok(T::DbWeight::get().reads_writes(0, 0))
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
 		Err(anyhow!("Module does not accept responses".to_string()))
 	}
 
-	fn on_timeout(&self, request: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
 		match request {
 			Timeout::Request(Request::Post(PostRequest { body, source, dest, nonce, .. })) => {
 				let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
@@ -792,6 +793,7 @@ where
 					amount: amount.into(),
 					source: dest,
 				});
+				Ok(T::DbWeight::get().reads_writes(0, 0))
 			},
 			Timeout::Request(Request::Get(get)) => Err(ismp::error::Error::ModuleDispatchError {
 				msg: "Tried to timeout unsupported request type".to_string(),
@@ -807,6 +809,5 @@ where
 				},
 			})?,
 		}
-		Ok(())
 	}
 }

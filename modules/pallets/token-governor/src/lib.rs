@@ -479,7 +479,7 @@ where
 	fn on_accept(
 		&self,
 		PostRequest { body: data, from, source, .. }: PostRequest,
-	) -> Result<(), anyhow::Error> {
+	) -> Result<Weight, anyhow::Error> {
 		// Only substrate chains are allowed to fully register assets remotely
 		if source.is_substrate() && &from == &PALLET_TOKEN_GATEWAY_ID[..] {
 			let remote_reg: RemoteERC6160AssetRegistration = codec::Decode::decode(&mut &*data)
@@ -503,7 +503,7 @@ where
 				},
 			}
 
-			return Ok(());
+			return Ok(weight());
 		}
 		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
 			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
@@ -524,14 +524,14 @@ where
 
 		Self::deposit_event(Event::<T>::NewPendingAsset { asset_id, owner });
 
-		Ok(())
+		Ok(weight())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
 		Err(anyhow!("Module does not expect responses"))
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
 		// The request lives forever, it's not exactly time-sensitive.
 		// There are no refunds for asset registration fees
 		Err(anyhow!("Module does not expect timeouts"))

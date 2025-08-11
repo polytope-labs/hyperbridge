@@ -9995,6 +9995,7 @@ dependencies = [
  "displaydoc",
  "hex",
  "parity-scale-codec",
+ "polkadot-sdk",
  "primitive-types 0.13.1",
  "scale-info",
  "serde",

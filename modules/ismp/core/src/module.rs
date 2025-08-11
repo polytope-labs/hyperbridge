@@ -19,7 +19,7 @@ use crate::{
 	events::Event,
 	router::{PostRequest, Response, Timeout},
 };
-
+use polkadot_sdk::frame_support::weights::Weight;
 /// A type alias for dispatch results
 pub type DispatchResult = Result<Event, anyhow::Error>;
 
@@ -28,13 +28,13 @@ pub type DispatchResult = Result<Event, anyhow::Error>;
 pub trait IsmpModule {
 	/// Called by the message handler on a module, to notify module of a new POST request
 	/// the module may choose to respond immediately, or in a later block
-	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error>;
+	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error>;
 
 	/// Called by the message handler on a module, to notify module of a response to a previously
 	/// sent out request
-	fn on_response(&self, response: Response) -> Result<(), anyhow::Error>;
+	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error>;
 
 	/// Called by the message handler on a module, to notify module of requests that were previously
 	/// sent but have now timed-out
-	fn on_timeout(&self, request: Timeout) -> Result<(), anyhow::Error>;
+	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error>;
 }

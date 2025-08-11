@@ -247,7 +247,7 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl IsmpModule for ProxyModule {
-	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
 
@@ -255,7 +255,7 @@ impl IsmpModule for ProxyModule {
 				Request::Post(request),
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
 			)?;
-			return Ok(());
+			return Ok(Weight::from_parts(0, 0));
 		}
 
 		let pallet_id =
@@ -274,13 +274,13 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
 		if response.dest_chain() != HostStateMachine::get() {
 			Ismp::dispatch_response(
 				response,
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
 			)?;
-			return Ok(());
+			return Ok(Weight::from_parts(0, 0));
 		}
 
 		let dest = match &response {
@@ -297,7 +297,7 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
 		let (from, source, dest) = match &timeout {
 			Timeout::Request(Request::Post(post)) => {
 				if post.source != HostStateMachine::get() {
@@ -311,7 +311,7 @@ impl IsmpModule for ProxyModule {
 		};
 
 		if source != HostStateMachine::get() {
-			return Ok(());
+			return Ok(Weight::from_parts(0, 0));
 		}
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
@@ -322,7 +322,7 @@ impl IsmpModule for ProxyModule {
 			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
-			_ => Ok(()),
+			_ => Ok(Weight::from_parts(0, 0)),
 		}
 	}
 }

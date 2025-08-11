@@ -55,7 +55,10 @@ mod benches {
 		};
 
 		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, total_balance.into());
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
+			&account,
+			total_balance.into(),
+		);
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(account), asset);
@@ -116,7 +119,10 @@ mod benches {
 		let account: T::AccountId = whitelisted_caller();
 
 		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, total_balance.into());
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
+			&account,
+			total_balance.into(),
+		);
 
 		let mut addresses = BTreeMap::new();
 		for i in 0..x {

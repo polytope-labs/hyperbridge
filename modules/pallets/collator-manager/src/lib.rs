@@ -63,7 +63,12 @@ pub mod pallet {
 		/// A new set of collators has been selected for the upcoming session.
 		NewCollatorSet(Vec<T::AccountId>),
 		/// The reputation score/balance of a collator has been reset.
-		ReputationReset(T::AccountId, T::Balance),
+		ReputationReset {
+			/// The account of the collator whose reputation was reset.
+			who: T::AccountId,
+			/// The amount of reputation that was reset.
+			amount: T::Balance,
+		},
 	}
 
 	impl<T: Config> SessionManager<T::AccountId> for Pallet<T>
@@ -128,7 +133,10 @@ pub mod pallet {
 				);
 
 				if result.is_ok() {
-					Self::deposit_event(Event::ReputationReset(account_id.clone(), balance));
+					Self::deposit_event(Event::ReputationReset {
+						who: account_id.clone(),
+						amount: balance,
+					});
 				}
 			}
 

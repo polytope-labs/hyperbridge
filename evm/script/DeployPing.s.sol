@@ -29,6 +29,8 @@ contract DeployScript is BaseScript {
             ping.setIsmpHost(BASE_HOST, tokenFaucet);
         } else if (host.toSlice().startsWith("bsc".toSlice())) {
             ping.setIsmpHost(BNB_HOST, tokenFaucet);
+        } else if (host.toSlice().startsWith("polygon".toSlice())) {
+            ping.setIsmpHost(POLYGON_HOST, tokenFaucet);
         }
         vm.stopBroadcast();
     }

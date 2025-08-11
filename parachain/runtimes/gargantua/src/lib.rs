@@ -567,19 +567,7 @@ impl pallet_collator_selection::Config for Runtime {
 	type ValidatorRegistration = Session;
 	type WeightInfo = ();
 }
-
-pub struct CollatorSelectionProvider;
-impl pallet_collator_manager::CandidateProvider<AccountId> for CollatorSelectionProvider {
-	fn candidates() -> Vec<AccountId> {
-		pallet_collator_selection::CandidateList::<Runtime>::get()
-			.into_iter()
-			.map(|info| info.who)
-			.collect()
-	}
-}
-
 impl pallet_collator_manager::Config for Runtime {
-	type CandidateProvider = CollatorSelectionProvider;
 	type ReputationAssetId = ReputationAssetId;
 	type ReputationAssets = Assets;
 	type DesiredCollators = ConstU32<50>;

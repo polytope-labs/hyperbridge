@@ -75,9 +75,8 @@ fn test_new_collators_are_selected_based_on_reputation() {
 		new_collators.sort();
 		assert_eq!(new_collators, vec![CHARLIE, DAVE]);
 
-		assert_eq!(Assets::balance(ReputationAssetId::get(), &ALICE), 0); // Alice balance is now zero
-		assert_ne!(Assets::balance(ReputationAssetId::get(), &DAVE), 0); // Dave still has balances left
-		                                                           // until after the next session
+		// Dave is now an incoming collator, and balance is now zero
+		assert_eq!(Assets::balance(ReputationAssetId::get(), &DAVE), 0);
 	});
 }
 

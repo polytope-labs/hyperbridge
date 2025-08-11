@@ -109,14 +109,10 @@ use pallet_collective::PrimeDefaultVote;
 use pallet_treasury::ArgumentsFactory;
 
 use pallet_ismp::offchain::{Leaf, ProofKeys};
-use sp_core::{crypto::AccountId32, Get};
-use sp_runtime::traits::IdentityLookup;
-
-use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use polkadot_sdk::frame_support::traits::VariantCount;
-use scale_info::TypeInfo;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
+use sp_core::{crypto::AccountId32, Get};
+use sp_runtime::traits::IdentityLookup;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
 
@@ -549,50 +545,8 @@ parameter_types! {
 
 // We allow root only to execute privileged collator selection operations.
 pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
-
-#[derive(
-	Clone, Eq, PartialEq, codec::Encode, codec::Decode, MaxEncodedLen, TypeInfo, Debug, Default,
-)]
-pub struct ReputationDeal;
-
-#[derive(
-	Decode,
-	DecodeWithMemTracking,
-	Encode,
-	MaxEncodedLen,
-	PartialEq,
-	Eq,
-	Ord,
-	PartialOrd,
-	TypeInfo,
-	Debug,
-	Clone,
-	Copy,
-	Default,
-)]
-pub enum CurrencyAdapterHoldReason {
-	#[default]
-	CollatorSelectionBond,
-	Other,
-}
-
-impl VariantCount for CurrencyAdapterHoldReason {
-	const VARIANT_COUNT: u32 = 3;
-}
-
 pub type ReputationAsset =
 	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
-
-pub type ReputationAssetHolder =
-	frame_support::traits::tokens::fungible::ItemOf<AssetsHolder, ReputationAssetId, AccountId32>;
-
-pub type ReputationCurrency = pallet_collator_manager::currency_adapter::FungibleToCurrencyAdapter<
-	ReputationAsset,
-	ReputationAssetHolder,
-	Balance,
-	AccountId32,
-	CurrencyAdapterHoldReason,
->;
 
 parameter_types! {
 	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
@@ -600,7 +554,7 @@ parameter_types! {
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = ReputationCurrency;
+	type Currency = Balances;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -625,11 +579,9 @@ impl pallet_collator_manager::CandidateProvider<AccountId> for CollatorSelection
 }
 
 impl pallet_collator_manager::Config for Runtime {
-	type ReputationCurrency = ReputationCurrency;
 	type CandidateProvider = CollatorSelectionProvider;
 	type ReputationAssetId = ReputationAssetId;
 	type ReputationAssets = Assets;
-
 	type DesiredCollators = ConstU32<50>;
 }
 
@@ -897,8 +849,6 @@ mod runtime {
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
 	#[runtime::pallet_index(85)]
-	pub type AssetsHolder = pallet_assets_holder;
-	#[runtime::pallet_index(86)]
 	pub type CollatorManager = pallet_collator_manager;
 	// consensus clients
 	#[runtime::pallet_index(255)]

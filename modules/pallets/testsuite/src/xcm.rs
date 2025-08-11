@@ -3,9 +3,9 @@
 use crate::{
 	relay_chain,
 	runtime::{
-		register_offchain_ext, Assets, AssetsHolder, Balance, Balances, Ismp, MessageQueue,
-		PalletXcm, ParachainInfo, ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin,
-		System, Test, Timestamp, XcmpQueue, ALICE,
+		register_offchain_ext, Assets, Balance, Balances, Ismp, MessageQueue, PalletXcm,
+		ParachainInfo, ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin, System, Test,
+		Timestamp, XcmpQueue, ALICE,
 	},
 };
 use codec::Decode;
@@ -390,7 +390,7 @@ impl pallet_assets::Config for Test {
 	type CallbackHandle = ();
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
-	type Holder = AssetsHolder;
+	type Holder = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = IdentityBenchmarkHelper;
 }

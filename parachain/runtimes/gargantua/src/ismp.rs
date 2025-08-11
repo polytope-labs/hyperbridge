@@ -15,9 +15,9 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Assets, AssetsHolder, Balance, Balances, CurrencyAdapterHoldReason, Ismp,
-	IsmpParachain, Mmr, ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector,
-	TokenGovernor, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
+	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
+	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
+	XcmGateway, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use frame_support::{
@@ -224,13 +224,9 @@ impl pallet_assets::Config for Runtime {
 	type CallbackHandle = ();
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
-	type Holder = AssetsHolder;
+	type Holder = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = XcmBenchmarkHelper;
-}
-impl pallet_assets_holder::Config for Runtime {
-	type RuntimeHoldReason = CurrencyAdapterHoldReason;
-	type RuntimeEvent = RuntimeEvent;
 }
 
 impl IsmpModule for ProxyModule {

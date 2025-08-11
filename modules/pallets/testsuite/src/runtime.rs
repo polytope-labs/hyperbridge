@@ -18,7 +18,6 @@ extern crate alloc;
 use polkadot_sdk::{frame_support::traits::WithdrawReasons, sp_runtime::traits::ConvertInto, *};
 
 use alloc::collections::BTreeMap;
-use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::ParachainSetCode;
 use frame_support::{
 	derive_impl, parameter_types,
@@ -43,7 +42,6 @@ use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use polkadot_sdk::{
-	frame_support::traits::VariantCount,
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys},
 };
@@ -91,7 +89,6 @@ frame_support::construct_runtime!(
 		MessageQueue: pallet_message_queue,
 		PalletXcm: pallet_xcm,
 		Assets: pallet_assets,
-		AssetsHolder: pallet_assets_holder,
 		Gateway: pallet_xcm_gateway,
 		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
@@ -106,7 +103,7 @@ frame_support::construct_runtime!(
 		IsmpGrandpa: ismp_grandpa::pallet,
 		Session: pallet_session,
 		CollatorSelection: pallet_collator_selection,
-		   CollatorManager: pallet_collator_manager,
+		CollatorManager: pallet_collator_manager,
 	}
 );
 
@@ -271,52 +268,11 @@ impl pallet_token_gateway::Config for Test {
 	type WeightInfo = ();
 }
 
-#[derive(
-	Decode,
-	DecodeWithMemTracking,
-	Encode,
-	MaxEncodedLen,
-	PartialEq,
-	Eq,
-	Ord,
-	PartialOrd,
-	TypeInfo,
-	Debug,
-	Clone,
-	Copy,
-	Default,
-)]
-pub enum CurrencyAdapterHoldReason {
-	#[default]
-	CollatorSelectionBond,
-}
-
-impl VariantCount for CurrencyAdapterHoldReason {
-	const VARIANT_COUNT: u32 = 1;
-}
-
 parameter_types! {
 	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
 }
-
 pub type ReputationAsset =
 	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
-
-pub type ReputationAssetHolder =
-	frame_support::traits::tokens::fungible::ItemOf<AssetsHolder, ReputationAssetId, AccountId32>;
-
-pub type ReputationCurrency = pallet_collator_manager::currency_adapter::FungibleToCurrencyAdapter<
-	ReputationAsset,
-	ReputationAssetHolder,
-	Balance,
-	AccountId32,
-	CurrencyAdapterHoldReason,
->;
-
-impl pallet_assets_holder::Config for Test {
-	type RuntimeHoldReason = CurrencyAdapterHoldReason;
-	type RuntimeEvent = RuntimeEvent;
-}
 
 sp_runtime::impl_opaque_keys! {
 	pub struct SessionKeys {
@@ -364,7 +320,7 @@ parameter_types! {
 
 impl pallet_collator_selection::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = ReputationCurrency;
+	type Currency = Balances;
 	type UpdateOrigin = EnsureRoot<AccountId32>;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -376,20 +332,7 @@ impl pallet_collator_selection::Config for Test {
 	type MinEligibleCollators = DesiredCollators;
 	type WeightInfo = ();
 }
-
-pub struct CollatorSelectionProvider;
-impl pallet_collator_manager::CandidateProvider<AccountId32> for CollatorSelectionProvider {
-	fn candidates() -> Vec<AccountId32> {
-		pallet_collator_selection::CandidateList::<Test>::get()
-			.into_iter()
-			.map(|info| info.who)
-			.collect()
-	}
-}
-
 impl pallet_collator_manager::Config for Test {
-	type ReputationCurrency = ReputationCurrency;
-	type CandidateProvider = CollatorSelectionProvider;
 	type ReputationAssetId = ReputationAssetId;
 	type ReputationAssets = Assets;
 	type DesiredCollators = DesiredCollators;

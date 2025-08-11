@@ -252,6 +252,8 @@ where
 						relayer: relayer.clone(),
 						amount: base_reward_as_balance,
 					});
+					T::ReputationAsset::mint_into(&relayer, base_reward_as_balance)
+						.map_err(|_| Error::<T>::ReputationMintFailed)?;
 				}
 			}
 		}

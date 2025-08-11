@@ -19,7 +19,7 @@ use crate::{
 	events::Event,
 	router::{PostRequest, Response, Timeout},
 };
-use polkadot_sdk::frame_support::weights::Weight;
+use polkadot_sdk::sp_weights::Weight;
 /// A type alias for dispatch results
 pub type DispatchResult = Result<Event, anyhow::Error>;
 

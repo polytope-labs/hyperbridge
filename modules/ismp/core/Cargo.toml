@@ -34,7 +34,7 @@ serde-hex-utils = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
-features = ["frame-support"]
+features = ["sp-weights"]
 
 [features]
 default = ["std"]

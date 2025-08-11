@@ -34,6 +34,7 @@ pub mod pallet {
 		tokens::{Fortitude, Precision, Preservation},
 	};
 	use pallet_session::SessionManager;
+	use polkadot_sdk::frame_support::pallet_prelude::Zero;
 	use sp_staking::SessionIndex;
 	use sp_std::vec::Vec;
 
@@ -62,7 +63,7 @@ pub mod pallet {
 		/// A new set of collators has been selected for the upcoming session.
 		NewCollatorSet(Vec<T::AccountId>),
 		/// The reputation score/balance of a collator has been reset.
-		ReputationReset(T::AccountId),
+		ReputationReset(T::AccountId, T::Balance),
 	}
 
 	impl<T: Config> SessionManager<T::AccountId> for Pallet<T>
@@ -86,14 +87,17 @@ pub mod pallet {
 				.map(|info| info.who.into())
 				.collect::<Vec<_>>();
 			candidates.retain(|c| {
+				let account_id: T::AccountId = c.clone().into();
+				!T::ReputationAsset::balance(&account_id).is_zero()
+			});
+			candidates.retain(|c| {
 				!active_collators.contains(c) && pallet_session::NextKeys::<T>::get(&c).is_some()
 			});
 			candidates.sort_by_key(|a| {
 				let account_id: T::AccountId = a.clone().into();
 				T::ReputationAsset::balance(&account_id)
 			});
-			candidates.reverse();
-			new_set_validators.extend(candidates.into_iter().take(desired_collators));
+			new_set_validators.extend(candidates.into_iter().rev().take(desired_collators));
 
 			// fill remaining slots with the best of the previous set.
 			if new_set_validators.len() < desired_collators {
@@ -104,9 +108,7 @@ pub mod pallet {
 					let account_id: T::AccountId = a.clone().into();
 					T::ReputationAsset::balance(&account_id)
 				});
-				reused_collators.reverse();
-
-				new_set_validators.extend(reused_collators.into_iter().take(needed));
+				new_set_validators.extend(reused_collators.into_iter().rev().take(needed));
 			}
 
 			let new_set: Vec<T::AccountId> =
@@ -126,7 +128,7 @@ pub mod pallet {
 				);
 
 				if result.is_ok() {
-					Self::deposit_event(Event::ReputationReset(account_id.clone()));
+					Self::deposit_event(Event::ReputationReset(account_id.clone(), balance));
 				}
 			}
 

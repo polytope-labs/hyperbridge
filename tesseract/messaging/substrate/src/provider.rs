@@ -682,8 +682,11 @@ where
 			}
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
 			log::trace!(target: "tesseract", "converted to value for message submission");
-			let extrinsic =
-				subxt::dynamic::tx("Ismp", "handle_unsigned", vec![messages_to_value(vec![msg.clone()])]);
+			let extrinsic = subxt::dynamic::tx(
+				"Ismp",
+				"handle_unsigned",
+				vec![messages_to_value(vec![msg.clone()])],
+			);
 			log::trace!(target: "tesseract", "gotten dynamic payload for message submission");
 			// We don't compress consensus messages
 			// We only consider compression for hyperbridge

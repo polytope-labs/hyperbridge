@@ -70,10 +70,14 @@ mod benches {
 		let asset_id = T::NativeAssetId::get();
 
 		let ed = T::NativeCurrency::minimum_balance();
-		let teleport_amount: <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance = 10_000_000_000_000u128.into();
+		let teleport_amount: <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance =
+			10_000_000_000_000u128.into();
 		let initial_balance = ed + teleport_amount + 1000u128.into();
 
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, initial_balance.into());
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
+			&account,
+			initial_balance.into(),
+		);
 
 		Pallet::<T>::create_erc6160_asset(
 			RawOrigin::Signed(account.clone()).into(),
@@ -130,7 +134,10 @@ mod benches {
 		let account: T::AccountId = whitelisted_caller();
 
 		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, total_balance.into());
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
+			&account,
+			total_balance.into(),
+		);
 
 		let local_id = T::NativeAssetId::get();
 
@@ -166,7 +173,10 @@ mod benches {
 		let account: T::AccountId = whitelisted_caller();
 
 		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(&account, total_balance.into());
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
+			&account,
+			total_balance.into(),
+		);
 
 		let mut precisions = BTreeMap::new();
 		for i in 0..x {

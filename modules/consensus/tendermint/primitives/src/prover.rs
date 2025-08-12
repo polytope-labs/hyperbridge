@@ -57,23 +57,6 @@ pub trait Client {
 	/// - `Err(ProverError)`: If the height is invalid or the request fails
 	async fn next_validators(&self, height: u64) -> Result<Vec<Validator>, ProverError>;
 
-	/// Retrieves a range of signed headers between two block heights.
-	///
-	/// # Arguments
-	///
-	/// * `start_height` - The starting block height (inclusive)
-	/// * `end_height` - The ending block height (inclusive)
-	///
-	/// # Returns
-	///
-	/// - `Ok(Vec<SignedHeader>)`: The list of signed headers in the specified range
-	/// - `Err(ProverError)`: If the height range is invalid or any request fails
-	async fn signed_headers_range(
-		&self,
-		start_height: u64,
-		end_height: u64,
-	) -> Result<Vec<SignedHeader>, ProverError>;
-
 	/// Retrieves the chain ID of the blockchain.
 	///
 	/// # Returns

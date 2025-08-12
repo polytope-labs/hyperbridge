@@ -91,7 +91,7 @@ parameter_types! {
 pub type LocationToAccountId = (
 	IsmpBeneficiaryConverter,
 	SiblingParachainConvertsVia<Sibling, AccountId32>,
-	//ExternalConsensusLocationsConverterFor<ExternalConsensus, AccountId32>,
+	AccountId32Aliases<RelayNetwork, AccountId32>,
 );
 
 pub type XcmOriginToCallOrigin = (

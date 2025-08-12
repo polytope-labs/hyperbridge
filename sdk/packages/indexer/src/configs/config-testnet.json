@@ -92,5 +92,18 @@
 			"intentGateway": "0xb6C27F4beF379d0b5e2fe3Bb36c248D6B71f91A6",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
 		}
+	},
+	"polygon-amoy": {
+		"type": "evm",
+		"chainId": "80002",
+		"startBlock": 24949552,
+		"stateMachineId": "EVM-80002",
+		"contracts": {
+			"ethereumHost": "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE",
+			"handlerV1": "0xf0b4024F15d07912953184840682690C31aD9bcC",
+			"erc6160ext20": "0x693B854D6965ffEAaE21C74049deA644b56FCaCB",
+			"intentGateway": "0x0",
+			"tokenGateway": "0x2Efdc11B11CaC34697b992A56E1D245c137a05B2"
+		}
 	}
 }

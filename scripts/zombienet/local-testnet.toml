@@ -6,18 +6,28 @@ chain = "rococo-local"
 [[relaychain.nodes]]
 name = "alice"
 validator = true
+rpc_port = 9922
+args = [
+	"--enable-offchain-indexing=true", "--pruning=archive",
+]
 
 [[relaychain.nodes]]
 name = "bob"
 validator = true
+rpc_port = 9923
+args = []
 
 [[relaychain.nodes]]
 name = "charlie"
 validator = true
+rpc_port = 9924
+args = []
 
 [[relaychain.nodes]]
 name = "dave"
 validator = true
+rpc_port = 9925
+args = []
 
 [[parachains]]
 id = 2000
@@ -30,25 +40,25 @@ name = "alice"
 command = "./target/release/hyperbridge"
 rpc_port = 9990
 suri = "//Alice"
-args = ["-lparachain=debug,aura=debug"]
+args = ["-lbasic-authorship=trace,ismp=trace,xcm=trace", "--enable-offchain-indexing=true", "--pruning=archive"]
 
 [[parachains.collators]]
 name = "bob"
 command = "./target/release/hyperbridge"
 rpc_port = 9991
 suri = "//Bob"
-args = ["-lparachain=debug,aura=debug"]
+args = ["-lparachain=debug,aura=debug","--enable-offchain-indexing=true", "--pruning=archive"]
 
 [[parachains.collators]]
 name = "charlie"
 command = "./target/release/hyperbridge"
 rpc_port = 9992
 suri = "//Charlie"
-args = ["-lparachain=debug,aura=debug"]
+args = ["-lparachain=debug,aura=debug","--enable-offchain-indexing=true", "--pruning=archive"]
 
 [[parachains.collators]]
 name = "dave"
 command = "./target/release/hyperbridge"
 rpc_port = 9993
 suri = "//Dave"
-args = ["-lparachain=debug,aura=debug"]
+args = ["-lparachain=debug,aura=debug","--enable-offchain-indexing=true", "--pruning=archive"]

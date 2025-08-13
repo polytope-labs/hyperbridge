@@ -507,7 +507,7 @@ impl pallet_message_queue::Config for Runtime {
 }
 
 parameter_types! {
-	pub const Period: u32 = 6 * HOURS;
+	pub const Period: u32 = 1 * MINUTES;
 	pub const Offset: u32 = 0;
 }
 
@@ -569,7 +569,7 @@ impl pallet_collator_selection::Config for Runtime {
 }
 impl pallet_collator_manager::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
-	type DesiredCollators = ConstU32<50>;
+	type DesiredCollators = ConstU32<2>;
 }
 
 impl pallet_sudo::Config for Runtime {

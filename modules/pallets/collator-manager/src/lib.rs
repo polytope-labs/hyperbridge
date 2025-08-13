@@ -89,20 +89,29 @@ pub mod pallet {
 			// with session keys and highes balances.
 			let mut candidates = pallet_collator_selection::CandidateList::<T>::get()
 				.into_iter()
-				.map(|info| info.who.into())
+				.map(|info| info.who)
+				.filter(|c| {
+					!active_collators.contains(&c.clone().into()) &&
+						!new_set_validators.contains(&c.clone().into()) &&
+						pallet_session::NextKeys::<T>::get(c.clone().into()).is_some()
+				})
+				.map(|c| {
+					let account_id: T::AccountId = c.clone();
+					let balance = T::ReputationAsset::balance(&account_id);
+					(balance, c)
+				})
+				.filter(|(balance, _)| !balance.is_zero())
 				.collect::<Vec<_>>();
-			candidates.retain(|c| {
-				let account_id: T::AccountId = c.clone().into();
-				!T::ReputationAsset::balance(&account_id).is_zero()
-			});
-			candidates.retain(|c| {
-				!active_collators.contains(c) && pallet_session::NextKeys::<T>::get(&c).is_some()
-			});
-			candidates.sort_by_key(|a| {
-				let account_id: T::AccountId = a.clone().into();
-				T::ReputationAsset::balance(&account_id)
-			});
-			new_set_validators.extend(candidates.into_iter().rev().take(desired_collators));
+
+			candidates.sort_by_key(|(balance, _)| *balance);
+
+			new_set_validators.extend(
+				candidates
+					.into_iter()
+					.rev()
+					.take(desired_collators)
+					.map(|(_, c)| c.clone().into()),
+			);
 
 			// fill remaining slots with the best of the previous set.
 			if new_set_validators.len() < desired_collators {

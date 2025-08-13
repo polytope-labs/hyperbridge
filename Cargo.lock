@@ -10367,6 +10367,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dotenv",
+ "gargantua-runtime",
+ "hex",
+ "parity-scale-codec",
+ "sp-core 37.0.0",
+ "subxt 0.42.1",
+ "subxt-utils",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "introspection-connector"
 version = "0.1.0"
 source = "git+https://github.com/Brendonovich/prisma-engines?tag=pcr-0.6.10#c4aeef82dbae310e974d6122160c7e3b5fb6df53"

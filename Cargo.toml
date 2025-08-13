@@ -79,6 +79,9 @@ members = [
     # simnode
     "parachain/simtests",
 
+    # integration tests
+    "parachain/integration-tests",
+
     # Utilities
     "modules/utils/subxt",
     "modules/utils/serde",
@@ -228,6 +231,7 @@ substrate-state-machine = { version = "2506.0.0", path = "modules/ismp/state-mac
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
 ismp-solidity-abi = { path = "./evm/abi", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
+integration-tests = { path = "parachain/integration-tests" }
 hyperclient = { path = "modules/hyperclient", default-features = false }
 subxt-utils = { path = "modules/utils/subxt", default-features = false }
 

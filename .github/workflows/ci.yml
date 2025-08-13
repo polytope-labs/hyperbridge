@@ -313,7 +313,7 @@ jobs:
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
-            #- uses: Swatinem/rust-cache@v2
+            - uses: Swatinem/rust-cache@v2
 
             - name: Run Simnet Tests
               run: |

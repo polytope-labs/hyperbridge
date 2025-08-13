@@ -212,9 +212,29 @@ type Relayer @entity {
 	perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
 
 	"""
+	Latest activity for this relayer
+	"""
+	latestActivity: RelayerActivity @derivedFrom(field: "relayer")
+}
+
+"""
+Hyperbridge Relayer Activity
+"""
+type RelayerActivity @entity {
+    """
+    Unique Identifier for the activity
+    """
+    id: ID!
+
+    """
+    Relayer the activities are for
+    """
+    relayer: Relayer!
+
+    """
 	Last updated at
 	"""
-	lastUpdatedAt: BigInt
+	lastUpdatedAt: BigInt!
 }
 
 """

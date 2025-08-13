@@ -1,5 +1,5 @@
 import { ProtocolParticipant } from "@/configs/src/types/enums"
-import { Relayer, Transfer } from "@/configs/src/types/models"
+import { Relayer, RelayerActivity, Transfer } from "@/configs/src/types/models"
 import { RelayerChainStatsService } from "@/services/relayerChainStats.service"
 // import {
 //  HandlePostRequestsTransaction,
@@ -16,11 +16,7 @@ export class RelayerService {
 		let relayer = await Relayer.get(relayer_id)
 
 		if (typeof relayer === "undefined") {
-			relayer = Relayer.create({
-				id: relayer_id,
-				lastUpdatedAt: timestamp,
-			})
-
+			relayer = Relayer.create({ id: relayer_id })
 			await relayer.save()
 		}
 
@@ -36,7 +32,7 @@ export class RelayerService {
 		const relayer_chain_stats = await RelayerChainStatsService.findOrCreate(relayer.id, transfer.chain)
 
 		relayer_chain_stats.feesEarned += transfer.amount
-		relayer.lastUpdatedAt = timestamp
+		await this.updateRelayerActivity(relayer.id, timestamp)
 
 		relayer.save()
 		relayer_chain_stats.save()
@@ -52,10 +48,25 @@ export class RelayerService {
 		const relayer_chain_stats = await RelayerChainStatsService.findOrCreate(relayer.id, chain)
 
 		relayer_chain_stats.numberOfSuccessfulMessagesDelivered += BigInt(1)
-		relayer.lastUpdatedAt = timestamp
+		await this.updateRelayerActivity(relayer.id, timestamp)
 
 		await relayer.save()
 		await relayer_chain_stats.save()
+	}
+
+	/**
+	 * Update relayer activity
+	 * @param relayerId The relayer address
+	 * @param timestamp The timestamp of the activit
+	 */
+	static async updateRelayerActivity(relayerId: string, timestamp: bigint) {
+		let activity = await RelayerActivity.get(relayerId)
+		if (!activity) {
+			activity = RelayerActivity.create({ id: relayerId, relayerId, lastUpdatedAt: timestamp })
+		}
+
+		activity.lastUpdatedAt = timestamp
+		await activity.save()
 	}
 
 	//  /**

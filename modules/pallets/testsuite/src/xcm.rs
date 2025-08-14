@@ -153,12 +153,9 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 
 	para_config.assimilate_storage(&mut t).unwrap();
 
-	if para_id == 1000 {
+	//if para_id == 1000 {
 
-		let asset_location = Location::new(0, [
-			PalletInstance(50),
-			GeneralIndex(123),
-		]);
+		let asset_location = Location::new(1, Here);
 		let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
 		let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
 			assets: vec![
@@ -169,6 +166,10 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 				asset_id,
 				ALICE.into(),
 				1000_000_000_0000 * 10,
+			), (
+				asset_id,
+				BOB.into(),
+				0,
 			)],
 			metadata: vec![
 				// id, name, symbol, decimals
@@ -179,7 +180,7 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 
 
 		config.assimilate_storage(&mut t).unwrap();
-	}
+	//}
 
 	let mut ext = sp_io::TestExternalities::new(t);
 
@@ -281,7 +282,7 @@ parameter_types! {
         interior: X3(Arc::new([
             Parachain(ASSET_HUB_PARA_ID),
             PalletInstance(50),
-            GeneralIndex(NATIVE_ASSET_ID_ON_ASSET_HUB),
+            GeneralIndex(123),
         ])),
     };
 }
@@ -289,7 +290,7 @@ parameter_types! {
 pub struct TestReserve;
 impl ContainsPair<Asset, Location> for TestReserve {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
-		let assethub_location = Location::new(1, [Parachain(1000)]);
+		let assethub_location = Location::new(1, Here);
 		&assethub_location == origin
 	}
 }
@@ -307,10 +308,10 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type Trader = ();
 	type ResponseHandler = ();
-	type AssetTrap = ();
+	type AssetTrap = PalletXcm;
 	type AssetLocker = ();
 	type AssetExchanger = ();
-	type AssetClaims = ();
+	type AssetClaims = PalletXcm;
 	type SubscriptionService = ();
 	type PalletInstancesInfo = ();
 	type FeeManager = ();
@@ -361,7 +362,8 @@ use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use polkadot_sdk::frame_support::traits::ContainsPair;
 use polkadot_sdk::staging_xcm_builder::ExternalConsensusLocationsConverterFor;
 use polkadot_sdk::xcm_simulator::Junctions::{X1, X3};
-use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID, NATIVE_ASSET_ID_ON_ASSET_HUB};
+use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID};
+use crate::runtime::BOB;
 
 impl cumulus_pallet_xcmp_queue::Config for Test {
 	type RuntimeEvent = RuntimeEvent;

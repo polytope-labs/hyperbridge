@@ -55,7 +55,7 @@ use sp_runtime::{
 use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use pallet_messaging_fees::types::PriceOracle;
-use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID, NATIVE_ASSET_ID_ON_ASSET_HUB};
+use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID};
 use substrate_state_machine::SubstrateStateMachine;
 
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);

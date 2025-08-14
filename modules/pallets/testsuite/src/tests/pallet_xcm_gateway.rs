@@ -7,7 +7,7 @@ use crate::{init_tracing, relay_chain::{self, RuntimeOrigin}, runtime::{Test, AL
 use alloy_sol_types::SolValue;
 use codec::Encode;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
-use polkadot_sdk::xcm_simulator::{AllCounted, Asset, AssetId, BuyExecution, DepositAsset, Fungibility, GeneralIndex, PalletInstance, Parachain, Parent, Reanchorable, SetFeesMode, TransferReserveAsset, VersionedXcm, Weight, Wild, Xcm};
+use polkadot_sdk::xcm_simulator::{All, AllCounted, Asset, AssetId, BuyExecution, DepositAsset, Fungibility, GeneralIndex, Here, PalletInstance, Parachain, ParaId, Parent, Reanchorable, SetFeesMode, TransferAsset, TransferReserveAsset, VersionedXcm, Weight, Wild, Xcm};
 use ismp::{
 	host::StateMachine,
 	module::IsmpModule,
@@ -20,6 +20,8 @@ use staging_xcm::v5::{Junction, Junctions, Location, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
 use crate::xcm::ParaB;
 use polkadot_sdk::frame_support::traits::fungibles::Mutate;
+use polkadot_sdk::sp_runtime::traits::AccountIdConversion;
+use sp_core::crypto::AccountId32;
 use crate::runtime::BOB;
 
 
@@ -31,43 +33,38 @@ pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 	init_tracing();
 	MockNet::reset();
-			let asset_location_on_assethub = Location::new(0, [
-				PalletInstance(50),
-				GeneralIndex(123),
-			]);
+			let asset_location_on_assethub = Location::new(1, Here);
 
 		//let asset_location_on_assethub_h256: H256 = sp_io::hashing::keccak_256(&asset_location_on_assethub.encode()).into();
 
 		let asset_id_on_paraa: H256 =
-				sp_io::hashing::keccak_256(&Location::new(1, [Parachain(1000), PalletInstance(50), GeneralIndex(123)]).encode())
+				sp_io::hashing::keccak_256(&Location::new(1, Here).encode())
 					.into();
 
 
 			ParaA::execute_with(|| {
-				assert_ok!(runtime::Assets::force_create(
+				/*assert_ok!(runtime::Assets::force_create(
                     runtime::RuntimeOrigin::root(),
                     asset_id_on_paraa.into(),
                     ALICE.into(),
                     true,
                     1
-                ));
+                ));*/
 			});
 
 
 			ParaB::execute_with(|| {
 				let dest = Location::new(1, [Parachain(100)]);
-				let beneficiary = Location::new(0, Junctions::X1(Arc::new([Junction::AccountId32 {
-					id: BOB.into(),
-					network: None,
-				}])));
+				let beneficiary = Location::new(0, [Junction::AccountId32 { network: None, id: BOB.into() }]);
 
-				let context = cumulus_primitives_core::Junctions::X2(Arc::new([
-					cumulus_primitives_core::Junction::GlobalConsensus(cumulus_primitives_core::NetworkId::Polkadot),
-					cumulus_primitives_core::Junction::Parachain(1000),
+
+				let context = Junctions::X2(Arc::new([
+					Junction::GlobalConsensus(NetworkId::Polkadot),
+					Parachain(1000),
 				]));
 
 				let assets = Asset {
-					id: AssetId(asset_location_on_assethub),
+					id: AssetId(asset_location_on_assethub.clone()),
 					fun: Fungibility::Fungible(100000),
 				};
 
@@ -78,7 +75,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 				let xcm = Xcm(vec![
 					BuyExecution { fees, weight_limit:  WeightLimit::Unlimited },
 					DepositAsset {
-						assets: Wild(AllCounted(2)),
+						assets: Wild(All),
 						beneficiary,
 					},
 				]);
@@ -95,8 +92,17 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 				assert_ok!(runtime::PalletXcm::execute(
                     runtime::RuntimeOrigin::signed(ALICE.into()),
                     Box::new(VersionedXcm::from(message)),
-                   Weight::from_parts(999_600_000_000_000_000, 10000),
+                   Weight::MAX
                 ));
+
+				/*assert_ok!(runtime::PalletXcm::limited_reserve_transfer_assets(
+                    runtime::RuntimeOrigin::signed(ALICE.into()),
+                    Box::new(dest.into()),
+                    Box::new(beneficiary.into()),
+                    Box::new(vec![(asset_location_on_assethub, 10000).into()].into()),
+                    0,
+                    WeightLimit::Unlimited,
+                ));*/
 			});
 
 
@@ -110,6 +116,16 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 				);
 				dbg!(bobs_balance);
 
+				let parachain_account: ParaId =   100u32.into();
+				let parachain_account = parachain_account.into_account_truncating();
+
+				let alice_balance = <runtime::Assets as Inspect<
+					<Test as frame_system::Config>::AccountId,
+				>>::balance(
+					asset_id_on_paraa,
+					&parachain_account,
+				);
+				dbg!(alice_balance);
 				let nonce = pallet_ismp::Nonce::<Test>::get();
 				assert_eq!(nonce, 1);
 

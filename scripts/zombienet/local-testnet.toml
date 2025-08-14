@@ -34,31 +34,54 @@ id = 2000
 chain = "gargantua-2000"
 cumulus_based = true
 
-# Run four collators for our single parachain
+# run alice as parachain collator
 [[parachains.collators]]
 name = "alice"
-command = "./target/release/hyperbridge"
+validator = true
 rpc_port = 9990
-suri = "//Alice"
-args = ["-lbasic-authorship=trace,ismp=trace,xcm=trace", "--enable-offchain-indexing=true", "--pruning=archive"]
-
-[[parachains.collators]]
-name = "bob"
+port = 40337
 command = "./target/release/hyperbridge"
+args = [
+	"-lbasic-authorship=trace,ismp=trace,xcm=trace", "--enable-offchain-indexing=true", "--pruning=archive"
+]
+
+[[parachains]]
+id = 2001
+chain = "gargantua-2001"
+cumulus_based = true
+
+# run alice as parachain collator
+[[parachains.collators]]
+name = "alice"
+validator = true
 rpc_port = 9991
-suri = "//Bob"
-args = ["-lparachain=debug,aura=debug","--enable-offchain-indexing=true", "--pruning=archive"]
-
-[[parachains.collators]]
-name = "charlie"
+port = 40338
 command = "./target/release/hyperbridge"
-rpc_port = 9992
-suri = "//Charlie"
-args = ["-lparachain=debug,aura=debug","--enable-offchain-indexing=true", "--pruning=archive"]
+args = [
+	"-lbasic-authorship=trace,ismp=trace,xcm=trace", "--enable-offchain-indexing=true", "--pruning=archive"
+]
 
-[[parachains.collators]]
-name = "dave"
-command = "./target/release/hyperbridge"
-rpc_port = 9993
-suri = "//Dave"
-args = ["-lparachain=debug,aura=debug","--enable-offchain-indexing=true", "--pruning=archive"]
+## run bob as parachain collator
+#[[parachains.collators]]
+#name = "bob"
+#validator = true
+#rpc_port = 9956
+#ws_port = 9989
+#command = "../../target/release/hyperbridge"
+#args = [
+#	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
+#]
+#
+## run charlie as parachain collator
+#[[parachains.collators]]
+#name = "charlie"
+#validator = true
+#rpc_port = 9957
+#ws_port = 9889
+#command = "../../target/release/hyperbridge"
+#args = [
+#	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
+#]
+
+
+

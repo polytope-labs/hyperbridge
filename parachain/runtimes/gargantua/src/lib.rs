@@ -109,13 +109,13 @@ use pallet_collective::PrimeDefaultVote;
 use pallet_treasury::ArgumentsFactory;
 
 use pallet_ismp::offchain::{Leaf, ProofKeys};
-#[cfg(feature = "runtime-benchmarks")]
-use sp_core::crypto::FromEntropy;
 use sp_core::{crypto::AccountId32, Get};
 use sp_runtime::traits::IdentityLookup;
+
+#[cfg(feature = "runtime-benchmarks")]
+use sp_core::crypto::FromEntropy;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
-
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
 
@@ -507,7 +507,7 @@ impl pallet_message_queue::Config for Runtime {
 }
 
 parameter_types! {
-	pub const Period: u32 = 1 * MINUTES;
+	pub const Period: u32 = 6 * HOURS;
 	pub const Offset: u32 = 0;
 }
 
@@ -518,7 +518,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorManager;
+	type SessionManager = CollatorSelection;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -545,12 +545,6 @@ parameter_types! {
 
 // We allow root only to execute privileged collator selection operations.
 pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
-pub type ReputationAsset =
-	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
-
-parameter_types! {
-	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
-}
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
@@ -566,10 +560,6 @@ impl pallet_collator_selection::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ValidatorRegistration = Session;
 	type WeightInfo = ();
-}
-impl pallet_collator_manager::Config for Runtime {
-	type ReputationAsset = ReputationAsset;
-	type DesiredCollators = ConstU32<2>;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -835,8 +825,6 @@ mod runtime {
 	pub type IsmpArbitrum = ismp_arbitrum::pallet;
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
-	#[runtime::pallet_index(85)]
-	pub type CollatorManager = pallet_collator_manager;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;

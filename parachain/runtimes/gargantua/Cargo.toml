@@ -49,7 +49,6 @@ pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
-pallet-collator-manager = { workspace =  true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -62,7 +61,6 @@ features = [
     "pallet-authorship",
     "pallet-balances",
     "pallet-assets",
-    "pallet-assets-holder",
     "pallet-session",
     "pallet-sudo",
     "pallet-utility",
@@ -109,7 +107,7 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
-    "pallet-vesting",
+    "pallet-vesting"
 ]
 
 [features]
@@ -137,7 +135,6 @@ std = [
     "pallet-xcm-gateway/std",
     "pallet-token-gateway-inspector/std",
     "pallet-token-governor/std",
-    "pallet-collator-manager/std",
     "pallet-mmr-tree/std",
     "pallet-mmr-runtime-api/std",
     "simnode-runtime-api/std",

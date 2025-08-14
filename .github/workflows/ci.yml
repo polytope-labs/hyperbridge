@@ -1,16 +1,12 @@
 name: CI
 
 on:
-#    push:
-#        branches:
-#            - main
+    push:
+        branches:
+            - main
 
-    pull_request:
-      branches:
-        - main
-
-#    pull_request_target:
-#        types: [opened, synchronize]
+    pull_request_target:
+        types: [opened, synchronize]
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -319,10 +315,10 @@ jobs:
               run: |
                   # build hyperbridge binary
                   cargo build -p hyperbridge --release
-#                  ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
-#                  ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-#                  cargo test -p simtests -- --nocapture --ignored --test-threads=1
-#                  kill -9 $!
+                  ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+                  cargo test -p simtests -- --nocapture --ignored --test-threads=1
+                  kill -9 $!
 
             - name: Run Parachain Devnet
               run: |
@@ -357,13 +353,9 @@ jobs:
             #   run: |
             #     cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
 
-            - name: Collator manager integration tests
+            - name: Xcm integration tests
               run: |
-                cargo test -p integration-tests collator_manager_integration_test -- --nocapture --ignored
-
-#            - name: Xcm integration tests
-#              run: |
-#                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
+                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
 
             - name: Run Eth POS Devnet Electra
               run: |

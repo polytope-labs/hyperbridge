@@ -28,13 +28,17 @@ export const handleAssetReceivedEvent = wrap(async (event: AssetReceivedLog): Pr
 		})}`,
 	)
 
-	const tokenContract = await TokenGatewayService.getAssetTokenContract(assetId.toString())
-	const decimals = await tokenContract.decimals()
-	const symbol = await tokenContract.symbol()
+	// NOTE: ERC20 token transfer already indexed via Token Transfer
+	const asset = await TokenGatewayService.getAssetDetails(assetId.toString())
+	if (!asset.is_erc20) {
+		const tokenContract = await TokenGatewayService.getAssetTokenContract(assetId.toString())
+		const decimals = await tokenContract.decimals()
+		const symbol = await tokenContract.symbol()
 
-	const usdValue = await PriceHelper.getTokenPriceInUSDCoingecko(symbol, amount.toBigInt(), decimals)
+		const usdValue = await PriceHelper.getTokenPriceInUSDCoingecko(symbol, amount.toBigInt(), decimals)
 
-	await VolumeService.updateVolume("TokenGateway", usdValue.amountValueInUSD, timestamp)
+		await VolumeService.updateVolume("TokenGateway", usdValue.amountValueInUSD, timestamp)
+	}
 
 	await TokenGatewayService.updateTeleportStatus(commitment, TeleportStatus.RECEIVED, {
 		transactionHash,

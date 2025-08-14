@@ -33,7 +33,7 @@ export async function handleTransferEvent(event: TransferLog): Promise<void> {
 	const transfer = await TransferService.storeTransfer({
 		from,
 		to,
-		value,
+		value: BigInt(value.toString()),
 		transactionHash,
 		chain,
 	})

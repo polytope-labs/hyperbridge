@@ -1,11 +1,10 @@
-import { BigNumber } from "ethers"
 import { Transfer } from "@/configs/src/types/models"
 
 // Argument for storing transfer events
 export interface IStoreTranferArgs {
 	from: string
 	to: string
-	value: BigNumber
+	value: BigInt
 	transactionHash: string
 	chain: string
 }

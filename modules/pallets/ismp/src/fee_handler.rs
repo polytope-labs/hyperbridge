@@ -18,24 +18,24 @@ use core::marker::PhantomData;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use frame_support::{
-	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
+	dispatch::DispatchResultWithPostInfo,
 	traits::{Currency, ExistenceRequirement, Get},
 };
 use impl_trait_for_tuples::impl_for_tuples;
-use ismp::messaging::Message;
+use ismp::{events::Event, messaging::Message};
+use pallet_commons::verification::Signature;
 use polkadot_sdk::{
-	frame_support::{weights::WeightToFee, PalletId},
-	sp_runtime::traits::AccountIdConversion,
+	frame_support::{
+		weights::{WeightToFee, WeightToFeePolynomial},
+		PalletId,
+	},
+	sp_runtime::{traits::AccountIdConversion, Weight},
 	*,
 };
 use sp_runtime::{
 	traits::{MaybeDisplay, Member, Zero},
 	DispatchError,
 };
-
-use crate::weights::{get_weight, WeightProvider};
-use ismp::events::Event;
-use pallet_commons::verification::Signature;
 
 /// Trait for handling fee calculations and settlements in the ISMP protocol.
 ///
@@ -104,7 +104,13 @@ pub trait FeeHandler {
 	/// * Economic incentives for relayers and validators
 	/// * Prevention of spam and denial-of-service attacks
 	/// * Fairness across different types of network participants
-	fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo;
+	fn on_executed(_messages: Vec<Message>, _events: Vec<Event>) -> DispatchResultWithPostInfo {
+		Ok(Default::default())
+	}
+
+	fn charge_fee(_message: &Message, _weight: Weight) -> Result<(), DispatchError> {
+		Ok(())
+	}
 }
 
 /// A weight-based fee handler implementation that calculates and charges fees based on message
@@ -151,62 +157,57 @@ pub trait FeeHandler {
 /// 	true
 /// >;
 /// ```
-pub struct WeightFeeHandler<AccountId, C, W, Provider, T, const POLICY: bool>(
-	PhantomData<(AccountId, C, W, Provider, T)>,
+pub struct WeightFeeHandler<AccountId, C, W, T, const POLICY: bool>(
+	PhantomData<(AccountId, C, W, T)>,
 );
 
 type BalanceOf<C, AccountId> = <C as Currency<AccountId>>::Balance;
 
-impl<AccountId, C, W, Provider, T, const POLICY: bool> FeeHandler
-	for WeightFeeHandler<AccountId, C, W, Provider, T, POLICY>
+impl<AccountId, C, W, T, const POLICY: bool> FeeHandler
+	for WeightFeeHandler<AccountId, C, W, T, POLICY>
 where
 	AccountId: Member + MaybeDisplay + Decode + Encode,
 	C: Currency<AccountId>,
-	W: WeightToFee<Balance = BalanceOf<C, AccountId>>,
-	Provider: WeightProvider,
+	W: WeightToFeePolynomial<Balance = BalanceOf<C, AccountId>>,
 	T: Get<PalletId>,
 {
-	fn on_executed(messages: Vec<Message>, _events: Vec<Event>) -> DispatchResultWithPostInfo {
-		let total_weight = get_weight::<Provider>(&messages);
-
+	fn charge_fee(message: &Message, weight: Weight) -> Result<(), DispatchError> {
 		if !POLICY {
-			return Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::No })
+			return Ok(());
 		}
+
+		let fee = W::weight_to_fee(&weight);
+
+		if fee.is_zero() {
+			return Ok(());
+		}
+
 		let treasury_account: AccountId = T::get().into_account_truncating();
 
-		for message in &messages {
-			let weight = get_weight::<Provider>(&[message.clone()]);
-			let fee = W::weight_to_fee(&weight);
+		let originator = match message {
+			Message::Request(msg) => {
+				let data = sp_io::hashing::keccak_256(&msg.requests.encode());
+				Signature::decode(&mut &msg.signer[..])
+					.ok()
+					.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+			},
+			Message::Response(msg) => {
+				let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
+				Signature::decode(&mut &msg.signer[..])
+					.ok()
+					.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+			},
+			_ => None,
+		};
 
-			if fee.is_zero() {
-				continue
-			}
-
-			let originator = match message {
-				Message::Request(msg) => {
-					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
-					Signature::decode(&mut &msg.signer[..])
-						.ok()
-						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-				},
-				Message::Response(msg) => {
-					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
-					Signature::decode(&mut &msg.signer[..])
-						.ok()
-						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-				},
-				_ => None,
-			};
-
-			if let Some(originator_bytes) = originator {
-				if let Ok(account) = AccountId::decode(&mut &originator_bytes[..]) {
-					C::transfer(&account, &treasury_account, fee, ExistenceRequirement::KeepAlive)
-						.map_err(|_| DispatchError::Other("Failed to transfer fee to treasury"))?;
-				}
+		if let Some(pub_key) = originator {
+			if let Ok(account) = AccountId::decode(&mut &pub_key[..]) {
+				C::transfer(&account, &treasury_account, fee, ExistenceRequirement::KeepAlive)
+					.map_err(|_| DispatchError::Other("Failed to transfer fee to treasury"))?;
 			}
 		}
 
-		Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::Yes })
+		Ok(())
 	}
 }
 
@@ -218,5 +219,12 @@ impl FeeHandler for TupleIdentifier {
         )* );
 
 		Ok(Default::default())
+	}
+
+	fn charge_fee(message: &Message, weight: Weight) -> Result<(), DispatchError> {
+		for_tuples!( #(
+			<TupleIdentifier as FeeHandler>::charge_fee(message, weight)?;
+		)* );
+		Ok(())
 	}
 }

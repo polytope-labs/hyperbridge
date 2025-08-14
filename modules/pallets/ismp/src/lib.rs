@@ -499,6 +499,8 @@ pub mod pallet {
 		UnbondingPeriodUpdateFailed,
 		/// Couldn't update challenge period
 		ChallengePeriodUpdateFailed,
+		/// Error charging fee
+		ErrorChargingFee,
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.

@@ -23,7 +23,10 @@ use crate::{
 };
 use alloc::{boxed::Box, format, vec::Vec};
 use core::marker::PhantomData;
-use frame_support::{weights::Weight,traits::{fungible::Mutate, tokens::Preservation, UnixTime}};
+use frame_support::{
+	traits::{fungible::Mutate, tokens::Preservation, UnixTime},
+	weights::Weight,
+};
 use ismp::{
 	dispatcher,
 	dispatcher::{DispatchRequest, IsmpDispatcher},

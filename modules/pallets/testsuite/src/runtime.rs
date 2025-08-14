@@ -234,7 +234,6 @@ impl pallet_ismp::Config for Test {
 			AccountId32,
 			Balances,
 			TestWeightToFee,
-			(),
 			TreasuryAccount,
 			true,
 		>,

@@ -19,6 +19,7 @@ use polkadot_sdk::*;
 use crate::{
 	child_trie::{RequestCommitments, ResponseCommitments},
 	dispatcher::{FeeMetadata, RequestMetadata},
+	fee_handler::FeeHandler,
 	offchain::{self, ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider},
 	Config, Error, Event, Pallet, Responded,
 };
@@ -31,40 +32,44 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message},
 	router::{Request, Response},
 };
+use polkadot_sdk::sp_runtime::Weight;
 use sp_core::{offchain::StorageKind, H256};
 
 impl<T: Config> Pallet<T> {
 	/// Execute the provided ISMP datagrams, this will short circuit if any messages are invalid.
+	/// This also charges fee on valid message delivery
 	pub fn execute(messages: Vec<Message>) -> Result<Vec<events::Event>, Error<T>> {
 		// Define a host
 		let host = Pallet::<T>::default();
-		let events = messages
+		let mut events = Vec::new();
+
+		let results = messages
 			.iter()
 			.map(|msg| handle_incoming_message(&host, msg.clone()))
 			.collect::<Result<Vec<_>, _>>()
-			.and_then(|result| {
-				result
-					.into_iter()
-					// check that requests will be successfully dispatched
-					// so we can not be spammed with failing txs
-					.map(|result| match result {
-						MessageResult::Request(results) |
-						MessageResult::Response(results) |
-						MessageResult::Timeout(results) => results,
-						MessageResult::ConsensusMessage(events) =>
-							events.into_iter().map(Ok).collect(),
-						MessageResult::FrozenClient(_) => {
-							vec![]
-						},
-					})
-					.flatten()
-					.collect::<Result<Vec<_>, _>>()
-			})
 			.map_err(|err| {
 				log::debug!(target: "ismp", "Handling Error {:#?}", err);
 				Pallet::<T>::deposit_event(Event::<T>::Errors { errors: vec![err.into()] });
 				Error::<T>::InvalidMessage
 			})?;
+
+		for (message, result) in messages.iter().zip(results) {
+			let (events_from_result, module_weight) = match result {
+				MessageResult::Request { events, weight } => (events, weight),
+				MessageResult::Response { events, weight } => (events, weight),
+				MessageResult::Timeout(events) => (events, Weight::zero()),
+				MessageResult::ConsensusMessage(events) =>
+					(events.into_iter().map(Ok).collect(), Weight::zero()),
+				MessageResult::FrozenClient(_) => (vec![], Weight::zero()),
+			};
+
+			for event_res in events_from_result {
+				events.push(event_res.map_err(|_| Error::<T>::InvalidMessage)?);
+			}
+
+			T::FeeHandler::charge_fee(message, module_weight)
+				.map_err(|_| Error::<T>::ErrorChargingFee)?;
+		}
 
 		for event in events.clone() {
 			// deposit any relevant events

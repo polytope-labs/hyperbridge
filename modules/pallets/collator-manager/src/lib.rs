@@ -92,15 +92,12 @@ pub mod pallet {
 				.map(|info| info.who)
 				.filter(|c| {
 					!active_collators.contains(&c.clone().into()) &&
-						!new_set_validators.contains(&c.clone().into()) &&
 						pallet_session::NextKeys::<T>::get(c.clone().into()).is_some()
 				})
-				.map(|c| {
-					let account_id: T::AccountId = c.clone();
+				.filter_map(|account_id| {
 					let balance = T::ReputationAsset::balance(&account_id);
-					(balance, c)
+					if balance.is_zero() { None } else { Some((balance, account_id)) }
 				})
-				.filter(|(balance, _)| !balance.is_zero())
 				.collect::<Vec<_>>();
 
 			candidates.sort_by_key(|(balance, _)| *balance);

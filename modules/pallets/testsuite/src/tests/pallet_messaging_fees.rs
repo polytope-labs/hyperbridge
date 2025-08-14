@@ -28,9 +28,17 @@ use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_messaging_fees::TotalBytesProcessed;
 
-use crate::runtime::{new_test_ext, Balances, RuntimeOrigin, Test, TreasuryAccount, UNIT};
+use crate::{
+	runtime::{
+		new_test_ext, Assets, Balances, ReputationAssetId, RuntimeOrigin, Test, TreasuryAccount,
+		UNIT,
+	},
+	tests::common::setup_relayer_and_asset,
+};
 
 fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32) {
+	setup_relayer_and_asset(&relayer_account);
+
 	assert_eq!(Balances::balance(relayer_account), 0);
 	Balances::mint_into(relayer_account, 1000 * UNIT).unwrap();
 	assert_eq!(Balances::balance(relayer_account), 1000 * UNIT);
@@ -159,13 +167,20 @@ fn test_incentivize_relayer_for_request_message() {
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
 
 		let initial_relayer_balance = Balances::balance(&relayer_account);
+		let initial_relayer_reputation_asset_balance =
+			Assets::balance(ReputationAssetId::get(), &relayer_account);
 
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
+		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![])
+			.unwrap();
 		dbg!(initial_relayer_balance);
 		dbg!(Balances::balance(&relayer_account));
 
 		assert!(Balances::balance(&relayer_account) > initial_relayer_balance);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), body.len() as u32);
+		assert!(
+			Assets::balance(ReputationAssetId::get(), &relayer_account) >
+				initial_relayer_reputation_asset_balance
+		);
 	});
 }
 

@@ -121,7 +121,6 @@ pub trait FeeHandler {
 /// * `AccountId` - The account identifier type used to identify fee payers.
 /// * `C` - The `Currency` trait implementation for handling balances.
 /// * `W` - A type implementing `WeightToFee` to convert computational `Weight` into a `Balance`.
-/// * `Provider` - A type implementing `WeightProvider` to calculate the weight of ISMP messages.
 /// * `T` - A `Get<AccountId>` implementation that returns the Treasury's account ID.
 /// * `Policy` - A type implementing `ChargePolicy` to determine if fees should be charged.
 ///
@@ -148,7 +147,6 @@ pub trait FeeHandler {
 ///     AccountId,
 ///     Balances,
 ///     IsmpWeightToFee,
-///     weights::pallet_ismp::WeightInfo<Runtime>,
 /// 	TreasuryPalletId.
 /// 	true
 /// >;

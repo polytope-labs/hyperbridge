@@ -64,7 +64,16 @@ impl<T: Config> Pallet<T> {
 			};
 
 			for event_res in events_from_result {
-				events.push(event_res.map_err(|_| Error::<T>::InvalidMessage)?);
+				// check that requests will be successfully dispatched
+				// so we can not be spammed with failing txs
+				match event_res {
+					Ok(event) => events.push(event),
+					Err(err) => {
+						log::debug!(target: "ismp", "Handling Error {:#?}", err);
+						Pallet::<T>::deposit_event(Event::<T>::Errors { errors: vec![err.into()] });
+						return Err(Error::<T>::InvalidMessage.into());
+					},
+				}
 			}
 
 			messages_with_weights

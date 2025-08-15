@@ -47,6 +47,7 @@ token-gateway-primitives = { workspace = true, default-features = true }
 pallet-bridge-airdrop = { workspace = true, default-features = true }
 pallet-consensus-incentives = { workspace = true, default-features = true }
 pallet-messaging-fees = { workspace = true, default-features = true }
+pallet-collator-manager = { workspace = true, default-features = true }
 hyperbridge-client-machine =  {workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
@@ -83,7 +84,11 @@ features = [
     "cumulus-primitives-core",
     "cumulus-pallet-xcmp-queue",
     "cumulus-pallet-parachain-system",
-    "pallet-vesting"
+    "pallet-vesting",
+    "pallet-collator-selection",
+    "pallet-session",
+    "pallet-assets-holder",
+    "cumulus-primitives-parachain-inherent"
 ]
 
 [dev-dependencies]

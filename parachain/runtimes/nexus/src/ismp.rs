@@ -16,8 +16,8 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
-	XcmGateway, EXISTENTIAL_DEPOSIT,
+	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor,
+	TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
@@ -275,6 +275,7 @@ impl pallet_consensus_incentives::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
+	type ReputationAsset = ReputationAsset;
 	type WeightInfo = ();
 }
 

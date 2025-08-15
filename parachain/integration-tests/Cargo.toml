@@ -1,0 +1,19 @@
+[package]
+name = "integration-tests"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+subxt = { workspace = true, default-features = true }
+anyhow.workspace = true
+tokio = { workspace = true, features = ["macros"] }
+dotenv = "0.15.0"
+codec = { workspace = true, features = ["derive"], default-features = true }
+sp-core = { workspace = true, features = [
+    "full_crypto",
+    "serde",
+], default-features = true }
+subxt-utils = { workspace = true, default-features = true }
+hex = { workspace = true }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+gargantua-runtime = { workspace = true, default-features = true }

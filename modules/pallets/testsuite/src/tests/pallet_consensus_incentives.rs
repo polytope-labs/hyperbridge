@@ -31,13 +31,18 @@ use ismp::{
 };
 use pallet_ismp_relayer::withdrawal::Signature;
 
-use crate::runtime::{new_test_ext, Ismp, RuntimeOrigin, Test, *};
+use crate::{
+	runtime::{new_test_ext, Assets, Ismp, RuntimeOrigin, Test, *},
+	tests::common::setup_relayer_and_asset,
+};
 
 fn setup_state_machine() -> StateMachineId {
 	StateMachineId { state_id: StateMachine::Polkadot(1000), consensus_state_id: *b"mock" }
 }
 
 fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32) {
+	setup_relayer_and_asset(&relayer_account);
+
 	assert_eq!(Balances::balance(relayer_account), 0);
 	Balances::mint_into(relayer_account, UNIT).unwrap();
 	assert_eq!(Balances::balance(relayer_account), UNIT);
@@ -98,6 +103,7 @@ fn test_incentivize_relayer() {
 		.unwrap();
 
 		assert_eq!(Balances::balance(&relayer_account), UNIT + 4200);
+		assert_eq!(Assets::balance(ReputationAssetId::get(), &relayer_account), 4200);
 	})
 }
 

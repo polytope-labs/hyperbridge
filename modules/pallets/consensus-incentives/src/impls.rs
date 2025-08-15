@@ -55,10 +55,13 @@ where
 			.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
 			Self::deposit_event(Event::<T>::RelayerRewarded {
-				relayer: relayer_account,
+				relayer: relayer_account.clone(),
 				amount: reward,
 				state_machine_height,
 			});
+
+			T::ReputationAsset::mint_into(&relayer_account, reward.saturated_into())
+				.map_err(|_| Error::<T>::ReputationMintFailed)?;
 		}
 		Ok(())
 	}

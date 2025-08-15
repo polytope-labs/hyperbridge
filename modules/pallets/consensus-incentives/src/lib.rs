@@ -38,7 +38,7 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use frame_support::PalletId;
+	use frame_support::{traits::fungible, PalletId};
 	use ismp::consensus::{StateMachineHeight, StateMachineId};
 
 	#[pallet::pallet]
@@ -59,6 +59,12 @@ pub mod pallet {
 
 		/// Origin for privileged actions
 		type IncentivesOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+		/// The pallet-assets instance used for managing the reputation token.
+		type ReputationAsset: fungible::Mutate<
+			Self::AccountId,
+			Balance = <Self as pallet_ismp::Config>::Balance,
+		>;
 	}
 
 	// Mapping from state machineId to respective cost per block
@@ -82,6 +88,8 @@ pub mod pallet {
 		MessageAlreadyProcessed,
 		/// Could not get State machine height
 		CouldNotGetStateMachineHeight,
+		/// Reputation mint failed
+		ReputationMintFailed,
 	}
 
 	#[pallet::event]

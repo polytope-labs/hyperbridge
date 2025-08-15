@@ -25,12 +25,11 @@ use impl_trait_for_tuples::impl_for_tuples;
 use ismp::messaging::{Message, MessageWithWeight};
 use polkadot_sdk::{
 	frame_support::{weights::WeightToFee, PalletId},
-	sp_runtime::{traits::AccountIdConversion, transaction_validity::InvalidTransaction, Weight},
+	sp_runtime::{traits::AccountIdConversion, Weight},
 	*,
 };
 use sp_runtime::{
 	traits::{MaybeDisplay, Member, Zero},
-	transaction_validity::TransactionValidityError,
 	DispatchError,
 };
 
@@ -108,12 +107,6 @@ pub trait FeeHandler {
 		messages: Vec<MessageWithWeight>,
 		events: Vec<Event>,
 	) -> DispatchResultWithPostInfo;
-
-	fn validate_fee(
-		_messages_with_weights: Vec<MessageWithWeight>,
-	) -> Result<(), TransactionValidityError> {
-		Ok(())
-	}
 }
 
 /// A weight-based fee handler implementation that calculates and charges fees based on message
@@ -219,48 +212,6 @@ where
 
 		Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::Yes })
 	}
-
-	fn validate_fee(
-		messages_with_weights: Vec<MessageWithWeight>,
-	) -> Result<(), TransactionValidityError> {
-		if !POLICY {
-			return Ok(());
-		}
-
-		for message_with_weight in &messages_with_weights {
-			let fee = W::weight_to_fee(&message_with_weight.weight);
-
-			if fee.is_zero() {
-				continue;
-			}
-
-			let originator = match &message_with_weight.message {
-				Message::Request(msg) => {
-					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
-					Signature::decode(&mut &msg.signer[..])
-						.ok()
-						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-				},
-				Message::Response(msg) => {
-					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
-					Signature::decode(&mut &msg.signer[..])
-						.ok()
-						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-				},
-				_ => None,
-			};
-
-			if let Some(originator_bytes) = originator {
-				if let Ok(account) = AccountId::decode(&mut &originator_bytes[..]) {
-					if !C::can_slash(&account, fee) {
-						return Err(InvalidTransaction::Payment.into());
-					}
-				}
-			}
-		}
-
-		Ok(())
-	}
 }
 
 #[impl_for_tuples(5)]
@@ -274,14 +225,5 @@ impl FeeHandler for TupleIdentifier {
         )* );
 
 		Ok(Default::default())
-	}
-
-	fn validate_fee(
-		messages_with_weights: Vec<MessageWithWeight>,
-	) -> Result<(), TransactionValidityError> {
-		for_tuples!( #(
-			<TupleIdentifier as FeeHandler>::validate_fee(messages_with_weights.clone())?;
-		)* );
-		Ok(())
 	}
 }

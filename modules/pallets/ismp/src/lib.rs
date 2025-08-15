@@ -516,11 +516,7 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			use ismp::{
-				handlers::MessageResult,
-				messaging::{
-					hash_request, ConsensusMessage, FraudProofMessage, MessageWithWeight,
-					RequestMessage,
-				},
+				messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
 				router::Request,
 			};
 			let messages = match call {
@@ -528,47 +524,7 @@ pub mod pallet {
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
 
-			let host = Pallet::<T>::default();
-			let results = messages
-				.iter()
-				.map(|msg| handlers::handle_incoming_message(&host, msg.clone()))
-				.collect::<Result<Vec<_>, _>>()
-				.map_err(|_err| {
-					log::info!(target: "ismp", "Validation Errors: {:#?}", _err);
-					InvalidTransaction::BadProof
-				})?;
-
-			let mut messages_with_weights = Vec::new();
-
-			for (result, message) in results.into_iter().zip(messages.iter()) {
-				let mut module_weight = Weight::zero();
-
-				let events_from_result = match result {
-					MessageResult::Request { events, weight } => {
-						module_weight = weight;
-						events
-					},
-					MessageResult::Response { events, weight } => {
-						module_weight = weight;
-						events
-					},
-					MessageResult::Timeout { events, weight } => {
-						module_weight = weight;
-						events
-					},
-					MessageResult::ConsensusMessage(events) => events.into_iter().map(Ok).collect(),
-					MessageResult::FrozenClient(_) => vec![],
-				};
-
-				for event_res in events_from_result {
-					event_res.map_err(|_| InvalidTransaction::BadProof)?;
-				}
-
-				messages_with_weights
-					.push(MessageWithWeight { message: message.clone(), weight: module_weight });
-			}
-
-			T::FeeHandler::validate_fee(messages_with_weights)?;
+			Self::execute(messages.clone()).map_err(|_| InvalidTransaction::BadProof)?;
 
 			let mut requests = messages
 				.into_iter()

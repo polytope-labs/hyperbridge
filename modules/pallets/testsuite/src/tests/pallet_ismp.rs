@@ -14,22 +14,24 @@
 // limitations under the License.
 
 #![cfg(test)]
-use polkadot_sdk::*;
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use codec::Encode;
 use frame_support::traits::{
 	fungible::{Inspect, Mutate},
 	Time,
 };
 use frame_system::Origin;
-use sp_core::{crypto::AccountId32, H256};
+use polkadot_sdk::{sp_crypto_hashing::keccak_256, *};
+use sp_core::{crypto::AccountId32, ByteArray, Pair, H256};
 use sp_runtime::traits::AccountIdConversion;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, Message, Proof, ResponseMessage, TimeoutMessage},
+	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
 	router::{GetResponse, PostRequest, Request, RequestResponse, Response, Timeout},
 };
 use ismp_testsuite::{
@@ -41,6 +43,7 @@ use pallet_ismp::{
 	offchain::Leaf,
 	FundMessageParams, MessageCommitment, RELAYER_FEE_ACCOUNT,
 };
+use pallet_ismp_relayer::withdrawal::Signature;
 
 use crate::runtime::*;
 
@@ -401,5 +404,68 @@ fn test_fund_message() {
 
 		let metadata = RequestCommitments::<Test>::get(commitment).unwrap();
 		assert_eq!(metadata.fee.fee, 20 * UNIT);
+	});
+}
+
+#[test]
+fn should_charge_fee_for_request() {
+	new_test_ext().execute_with(|| {
+		let host = Ismp::default();
+		setup_mock_client::<_, Test>(&host);
+		let id = StateMachineId {
+			state_id: StateMachine::Evm(1),
+			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+		};
+
+		let signer_pair = sp_core::sr25519::Pair::from_string("//Alice", None).unwrap();
+		let signer_account: AccountId32 = signer_pair.public().into();
+		let initial_balance = 1000 * UNIT;
+		Balances::mint_into(&signer_account, initial_balance).unwrap();
+
+		let treasury_pallet_id = TreasuryAccount::get();
+		let treasury_account = treasury_pallet_id.into_account_truncating();
+		let initial_treasury_balance = Balances::balance(&treasury_account);
+
+		let post_request = PostRequest {
+			source: id.state_id,
+			dest: host.host_state_machine(),
+			nonce: 0,
+			from: vec![1; 32],
+			to: vec![2; 32],
+			timeout_timestamp: 0,
+			body: b"body".to_vec(),
+		};
+
+		let requests = vec![post_request];
+		let signed_data = keccak_256(&requests.encode());
+		let signature = signer_pair.sign(&signed_data);
+		let signature = Signature::Sr25519 {
+			public_key: signer_pair.public().to_raw_vec(),
+			signature: signature.to_raw_vec(),
+		};
+
+		let request_message = RequestMessage {
+			requests,
+			proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId { state_id: id.state_id, consensus_state_id: *b"mock" },
+					height: 3,
+				},
+				proof: vec![],
+			},
+			signer: signature.encode(),
+		};
+
+		let message = Message::Request(request_message);
+
+		let expected_fee = 50 * UNIT;
+
+		pallet_ismp::Pallet::<Test>::handle_unsigned(RuntimeOrigin::none(), vec![message]).unwrap();
+
+		let final_signer_balance = Balances::balance(&signer_account);
+		let final_treasury_balance = Balances::balance(&treasury_account);
+
+		assert_eq!(final_signer_balance, initial_balance - expected_fee);
+		assert_eq!(final_treasury_balance, initial_treasury_balance + expected_fee);
 	});
 }

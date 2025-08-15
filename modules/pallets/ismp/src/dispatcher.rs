@@ -23,7 +23,10 @@ use crate::{
 };
 use alloc::{boxed::Box, format, vec::Vec};
 use core::marker::PhantomData;
-use frame_support::traits::{fungible::Mutate, tokens::Preservation, UnixTime};
+use frame_support::{
+	traits::{fungible::Mutate, tokens::Preservation, UnixTime},
+	weights::Weight,
+};
 use ismp::{
 	dispatcher,
 	dispatcher::{DispatchRequest, IsmpDispatcher},
@@ -202,15 +205,15 @@ impl<T: Config> RefundingModule<T> {
 }
 
 impl<T: Config> IsmpModule for RefundingModule<T> {
-	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
 		self.inner.on_accept(request)
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
 		self.inner.on_response(response)
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
 		let result = self.inner.on_timeout(timeout.clone());
 
 		// only refund if module returns Ok(())

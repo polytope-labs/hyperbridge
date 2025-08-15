@@ -17,41 +17,21 @@
 
 use crate::*;
 use alloc::collections::BTreeMap;
+use crypto_utils::verification::Signature;
 use frame_support::traits::tokens::Preservation;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	events::Event as IsmpEvent,
 	host::IsmpHost,
-	messaging::Message,
+	messaging::{Message, MessageWithWeight},
 };
 use pallet_ismp::fee_handler::FeeHandler;
-use pallet_ismp_relayer::withdrawal::Signature;
-use polkadot_sdk::{
-	frame_support::traits::fungible::Mutate, sp_core::sr25519, sp_runtime::traits::*,
-};
+use polkadot_sdk::{frame_support::traits::fungible::Mutate, sp_runtime::traits::*};
 
 impl<T: Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
-	fn verify_and_get_relayer(signer: &Vec<u8>, signed_data: &[u8; 32]) -> Option<Vec<u8>> {
-		if let Ok(signature_enum) = Signature::decode(&mut &signer[..]) {
-			match signature_enum {
-				Signature::Sr25519 { public_key, signature } => {
-					if let (Ok(pub_key), Ok(sig)) = (
-						sr25519::Public::decode(&mut &public_key[..]),
-						sr25519::Signature::decode(&mut &signature[..]),
-					) {
-						if sp_io::crypto::sr25519_verify(&sig, signed_data, &pub_key) {
-							return Some(pub_key.0.into());
-						}
-					}
-				},
-				_ => return None,
-			}
-		}
-		None
-	}
 	/// Process a message and reward the relayer
 	///
 	/// This is an internal function used to handle relayer rewards for each
@@ -61,18 +41,8 @@ where
 	fn process_message(
 		state_machine_height: StateMachineHeight,
 		state_machine_id: StateMachineId,
-		relayer_address: Vec<u8>,
+		relayer_account: T::AccountId,
 	) -> Result<(), Error<T>> {
-		if relayer_address.len() != 32 {
-			return Err(Error::<T>::InvalidAddress);
-		}
-
-		let mut raw_address = [0u8; 32];
-		raw_address.copy_from_slice(&relayer_address[..]);
-
-		let relayer_account =
-			T::AccountId::try_from(raw_address).map_err(|_| Error::<T>::InvalidAddress)?;
-
 		if let Some(block_cost) = StateMachinesCostPerBlock::<T>::get(state_machine_id) {
 			let reward = Self::calculate_reward(&state_machine_id, block_cost)?;
 
@@ -122,7 +92,10 @@ impl<T: Config> FeeHandler for Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
-	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+	fn on_executed(
+		messages: Vec<MessageWithWeight>,
+		events: Vec<IsmpEvent>,
+	) -> DispatchResultWithPostInfo {
 		let mut state_machine_map = BTreeMap::new();
 
 		for event in events {
@@ -135,11 +108,12 @@ where
 		}
 
 		for message in messages {
-			if let Message::Consensus(consensus_msg) = message {
+			if let Message::Consensus(consensus_msg) = message.message {
 				let data = sp_io::hashing::keccak_256(&consensus_msg.consensus_proof.encode());
-				if let Some(relayer_account) =
-					Self::verify_and_get_relayer(&consensus_msg.signer, &data)
-				{
+				let verification_result = Signature::decode(&mut &consensus_msg.signer[..])
+					.ok()
+					.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok());
+				if let Some(relayer_account) = verification_result {
 					let maybe_match =
 						state_machine_map.iter().find(|(_, (consensus_state_id, _))| {
 							*consensus_state_id == consensus_msg.consensus_state_id
@@ -152,7 +126,7 @@ where
 						let _ = Self::process_message(
 							state_machine_height,
 							state_machine_id.clone(),
-							relayer_account,
+							relayer_account.into(),
 						);
 					}
 				}

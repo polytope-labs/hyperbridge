@@ -311,9 +311,9 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			let events = Self::execute(messages.clone())?;
+			Self::execute(messages.clone())?;
 
-			T::FeeHandler::on_executed(messages.clone(), events)
+			Ok(().into())
 		}
 
 		/// Create a consensus client, using a subjectively chosen consensus state. This can also
@@ -499,6 +499,8 @@ pub mod pallet {
 		UnbondingPeriodUpdateFailed,
 		/// Couldn't update challenge period
 		ChallengePeriodUpdateFailed,
+		/// Error charging fee
+		ErrorChargingFee,
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.
@@ -514,7 +516,6 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			use ismp::{
-				handlers::MessageResult,
 				messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
 				router::Request,
 			};
@@ -523,33 +524,7 @@ pub mod pallet {
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
 
-			let host = Pallet::<T>::default();
-			let _ = messages
-				.iter()
-				.map(|msg| handlers::handle_incoming_message(&host, msg.clone()))
-				.collect::<Result<Vec<_>, _>>()
-				.map_err(|_err| {
-					log::info!(target: "ismp", "Validation Errors: {:#?}", _err);
-					TransactionValidityError::Invalid(InvalidTransaction::BadProof)
-				})?
-				.into_iter()
-				// check that requests will be successfully dispatched
-				// so we can not be spammed with failing txs
-				.map(|result| match result {
-					MessageResult::Request(results) |
-					MessageResult::Response(results) |
-					MessageResult::Timeout(results) =>
-						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>(),
-					MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => {
-						vec![Ok(())]
-					},
-				})
-				.flatten()
-				.collect::<Result<Vec<_>, _>>()
-				.map_err(|_err| {
-					log::info!(target: "ismp", "Validation Errors: {:#?}", _err);
-					TransactionValidityError::Invalid(InvalidTransaction::BadProof)
-				})?;
+			Self::execute(messages.clone()).map_err(|_| InvalidTransaction::BadProof)?;
 
 			let mut requests = messages
 				.into_iter()

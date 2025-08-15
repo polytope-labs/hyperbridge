@@ -7,18 +7,18 @@ use polkadot_sdk::{
 	sp_core::U256,
 	sp_runtime::traits::*,
 };
-use sp_core::{sr25519, H256};
+use sp_core::H256;
 
 use crate::{types::IncentivizedMessage, *};
+use crypto_utils::verification::Signature;
 use ismp::{
 	events::Event as IsmpEvent,
-	messaging::{hash_request, Message},
+	messaging::{hash_request, Message, MessageWithWeight},
 	router::{Request, RequestResponse, Response},
 };
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
-use pallet_ismp_relayer::withdrawal::Signature;
 
 impl<T: Config> Pallet<T>
 where
@@ -26,28 +26,6 @@ where
 	u128: From<<T as pallet_ismp::Config>::Balance>,
 	T::AccountId: AsRef<[u8]>,
 {
-	fn verify_and_get_relayer(signer: &Vec<u8>, signed_data: &[u8; 32]) -> Option<T::AccountId>
-	where
-		T::AccountId: From<[u8; 32]>,
-	{
-		if let Ok(signature_enum) = Signature::decode(&mut &signer[..]) {
-			match signature_enum {
-				Signature::Sr25519 { public_key, signature } => {
-					if let (Ok(pub_key), Ok(sig)) = (
-						sr25519::Public::decode(&mut &public_key[..]),
-						sr25519::Signature::decode(&mut &signature[..]),
-					) {
-						if sp_io::crypto::sr25519_verify(&sig, signed_data, &pub_key) {
-							return Some(pub_key.0.into());
-						}
-					}
-				},
-				_ => return None,
-			}
-		}
-		None
-	}
-
 	fn accumulate_protocol_fees(message: &Message, relayer_account: &T::AccountId) {
 		let requests = match message {
 			Message::Request(req) => req.requests.clone(),
@@ -299,23 +277,31 @@ where
 	u128: From<<T as pallet_ismp::Config>::Balance>,
 	T::AccountId: AsRef<[u8]>,
 {
-	fn on_executed(messages: Vec<Message>, _events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+	fn on_executed(
+		messages: Vec<MessageWithWeight>,
+		_events: Vec<IsmpEvent>,
+	) -> DispatchResultWithPostInfo {
 		for message in &messages {
-			let relayer_account = match message {
+			let message = message.message.clone();
+			let relayer_account = match &message {
 				Message::Request(msg) => {
 					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
-					Self::verify_and_get_relayer(&msg.signer, &data)
+					Signature::decode(&mut &msg.signer[..])
+						.ok()
+						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
 				},
 				Message::Response(msg) => {
 					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
-					Self::verify_and_get_relayer(&msg.signer, &data)
+					Signature::decode(&mut &msg.signer[..])
+						.ok()
+						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
 				},
 				_ => None,
 			};
 
 			if let Some(relayer_account) = relayer_account {
-				let _ = Self::accumulate_protocol_fees(message, &relayer_account);
-				let _ = Self::process_bridge_rewards(message, relayer_account)?;
+				let _ = Self::accumulate_protocol_fees(&message, &relayer_account.into());
+				let _ = Self::process_bridge_rewards(&message, relayer_account.into())?;
 			}
 		}
 

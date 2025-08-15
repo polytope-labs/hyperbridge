@@ -10,12 +10,12 @@ use polkadot_sdk::{
 use sp_core::H256;
 
 use crate::{types::IncentivizedMessage, *};
+use crypto_utils::verification::Signature;
 use ismp::{
 	events::Event as IsmpEvent,
-	messaging::{hash_request, Message},
+	messaging::{hash_request, Message, MessageWithWeight},
 	router::{Request, RequestResponse, Response},
 };
-use pallet_commons::verification::Signature;
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
@@ -272,9 +272,13 @@ where
 	u128: From<<T as pallet_ismp::Config>::Balance>,
 	T::AccountId: AsRef<[u8]>,
 {
-	fn on_executed(messages: Vec<Message>, _events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+	fn on_executed(
+		messages: Vec<MessageWithWeight>,
+		_events: Vec<IsmpEvent>,
+	) -> DispatchResultWithPostInfo {
 		for message in &messages {
-			let relayer_account = match message {
+			let message = message.message.clone();
+			let relayer_account = match &message {
 				Message::Request(msg) => {
 					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
 					Signature::decode(&mut &msg.signer[..])
@@ -291,8 +295,8 @@ where
 			};
 
 			if let Some(relayer_account) = relayer_account {
-				let _ = Self::accumulate_protocol_fees(message, &relayer_account.into());
-				let _ = Self::process_bridge_rewards(message, relayer_account.into())?;
+				let _ = Self::accumulate_protocol_fees(&message, &relayer_account.into());
+				let _ = Self::process_bridge_rewards(&message, relayer_account.into())?;
 			}
 		}
 

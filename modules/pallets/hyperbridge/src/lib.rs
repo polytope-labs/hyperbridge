@@ -335,7 +335,7 @@ where
 				})?;
 
 				Self::deposit_event(Event::<T>::ProtocolRevenueWithdrawn { account, amount });
-				T::DbWeight::get().reads_writes(2, 2)
+				T::DbWeight::get().reads_writes(0, 0)
 			},
 			Message::WithdrawRelayerFees(WithdrawalRequest { account, amount }) => {
 				T::Currency::transfer(

@@ -30,6 +30,7 @@ use crate::{
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
+use polkadot_sdk::sp_weights::Weight;
 use primitive_types::H256;
 
 /// A consensus message is used to update the state of a consensus client and its children state
@@ -232,6 +233,17 @@ pub enum Message {
 	/// A request timeout message
 	#[codec(index = 4)]
 	Timeout(TimeoutMessage),
+}
+
+/// The ISMP Message with Weight consumed by the message
+#[derive(
+	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
+)]
+pub struct MessageWithWeight {
+	/// The message itself
+	pub message: Message,
+	/// The weight consumed by the message
+	pub weight: Weight,
 }
 
 /// A trait that returns a 256 bit keccak has of some bytes

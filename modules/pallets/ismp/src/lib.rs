@@ -311,9 +311,9 @@ pub mod pallet {
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
 
-			let events = Self::execute(messages.clone())?;
+			Self::execute(messages.clone())?;
 
-			T::FeeHandler::on_executed(messages.clone(), events)
+			Ok(().into())
 		}
 
 		/// Create a consensus client, using a subjectively chosen consensus state. This can also
@@ -517,7 +517,10 @@ pub mod pallet {
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			use ismp::{
 				handlers::MessageResult,
-				messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
+				messaging::{
+					hash_request, ConsensusMessage, FraudProofMessage, MessageWithWeight,
+					RequestMessage,
+				},
 				router::Request,
 			};
 			let messages = match call {
@@ -526,32 +529,46 @@ pub mod pallet {
 			};
 
 			let host = Pallet::<T>::default();
-			let _ = messages
+			let results = messages
 				.iter()
 				.map(|msg| handlers::handle_incoming_message(&host, msg.clone()))
 				.collect::<Result<Vec<_>, _>>()
 				.map_err(|_err| {
 					log::info!(target: "ismp", "Validation Errors: {:#?}", _err);
-					TransactionValidityError::Invalid(InvalidTransaction::BadProof)
-				})?
-				.into_iter()
-				// check that requests will be successfully dispatched
-				// so we can not be spammed with failing txs
-				.map(|result| match result {
-					MessageResult::Request(results) |
-					MessageResult::Response(results) |
-					MessageResult::Timeout(results) =>
-						results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>(),
-					MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => {
-						vec![Ok(())]
-					},
-				})
-				.flatten()
-				.collect::<Result<Vec<_>, _>>()
-				.map_err(|_err| {
-					log::info!(target: "ismp", "Validation Errors: {:#?}", _err);
-					TransactionValidityError::Invalid(InvalidTransaction::BadProof)
+					InvalidTransaction::BadProof
 				})?;
+
+			let mut messages_with_weights = Vec::new();
+
+			for (result, message) in results.into_iter().zip(messages.iter()) {
+				let mut module_weight = Weight::zero();
+
+				let events_from_result = match result {
+					MessageResult::Request { events, weight } => {
+						module_weight = weight;
+						events
+					},
+					MessageResult::Response { events, weight } => {
+						module_weight = weight;
+						events
+					},
+					MessageResult::Timeout { events, weight } => {
+						module_weight = weight;
+						events
+					},
+					MessageResult::ConsensusMessage(events) => events.into_iter().map(Ok).collect(),
+					MessageResult::FrozenClient(_) => vec![],
+				};
+
+				for event_res in events_from_result {
+					event_res.map_err(|_| InvalidTransaction::BadProof)?;
+				}
+
+				messages_with_weights
+					.push(MessageWithWeight { message: message.clone(), weight: module_weight });
+			}
+
+			T::FeeHandler::validate_fee(messages_with_weights)?;
 
 			let mut requests = messages
 				.into_iter()

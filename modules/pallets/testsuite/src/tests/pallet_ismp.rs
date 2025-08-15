@@ -24,7 +24,7 @@ use frame_support::traits::{
 };
 use frame_system::Origin;
 use polkadot_sdk::{sp_crypto_hashing::keccak_256, *};
-use sp_core::{crypto::AccountId32, sr25519, ByteArray, Pair, H256};
+use sp_core::{crypto::AccountId32, ByteArray, Pair, H256};
 use sp_runtime::traits::AccountIdConversion;
 
 use ismp::{

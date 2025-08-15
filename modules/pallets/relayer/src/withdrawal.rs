@@ -17,8 +17,8 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, DecodeWithMemTracking, Encode};
+pub use crypto_utils::verification::Signature;
 use ismp::{host::StateMachine, messaging::Proof};
-pub use pallet_commons::verification::Signature;
 use polkadot_sdk::*;
 use sp_core::{H256, U256};
 

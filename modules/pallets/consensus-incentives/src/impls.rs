@@ -17,14 +17,14 @@
 
 use crate::*;
 use alloc::collections::BTreeMap;
+use crypto_utils::verification::Signature;
 use frame_support::traits::tokens::Preservation;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	events::Event as IsmpEvent,
 	host::IsmpHost,
-	messaging::Message,
+	messaging::{Message, MessageWithWeight},
 };
-use pallet_commons::verification::Signature;
 use pallet_ismp::fee_handler::FeeHandler;
 use polkadot_sdk::{frame_support::traits::fungible::Mutate, sp_runtime::traits::*};
 
@@ -89,7 +89,10 @@ impl<T: Config> FeeHandler for Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 {
-	fn on_executed(messages: Vec<Message>, events: Vec<IsmpEvent>) -> DispatchResultWithPostInfo {
+	fn on_executed(
+		messages: Vec<MessageWithWeight>,
+		events: Vec<IsmpEvent>,
+	) -> DispatchResultWithPostInfo {
 		let mut state_machine_map = BTreeMap::new();
 
 		for event in events {
@@ -102,7 +105,7 @@ where
 		}
 
 		for message in messages {
-			if let Message::Consensus(consensus_msg) = message {
+			if let Message::Consensus(consensus_msg) = message.message {
 				let data = sp_io::hashing::keccak_256(&consensus_msg.consensus_proof.encode());
 				let verification_result = Signature::decode(&mut &consensus_msg.signer[..])
 					.ok()

@@ -61,8 +61,13 @@ pub enum MessageResult {
 		/// The total weight consumed by all module `on_accept` calls for this batch.
 		weight: Weight,
 	},
-	/// The [`DispatchResult`] for timeouts
-	Timeout(Vec<DispatchResult>),
+	/// The result of processing a timeouts.
+	Timeout {
+		/// A Vec containing the results of each individual response dispatch.
+		events: Vec<DispatchResult>,
+		/// The total weight consumed by all module `on_accept` calls for this batch.
+		weight: Weight,
+	},
 }
 
 /// This function serves as an entry point to handle the message types provided by the ISMP protocol

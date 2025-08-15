@@ -18,24 +18,24 @@ use core::marker::PhantomData;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use frame_support::{
-	dispatch::DispatchResultWithPostInfo,
+	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
 	traits::{Currency, ExistenceRequirement, Get},
 };
 use impl_trait_for_tuples::impl_for_tuples;
-use ismp::{events::Event, messaging::Message};
-use pallet_commons::verification::Signature;
+use ismp::messaging::{Message, MessageWithWeight};
 use polkadot_sdk::{
-	frame_support::{
-		weights::{WeightToFee, WeightToFeePolynomial},
-		PalletId,
-	},
-	sp_runtime::{traits::AccountIdConversion, Weight},
+	frame_support::{weights::WeightToFee, PalletId},
+	sp_runtime::{traits::AccountIdConversion, transaction_validity::InvalidTransaction, Weight},
 	*,
 };
 use sp_runtime::{
 	traits::{MaybeDisplay, Member, Zero},
+	transaction_validity::TransactionValidityError,
 	DispatchError,
 };
+
+use crypto_utils::verification::Signature;
+use ismp::events::Event;
 
 /// Trait for handling fee calculations and settlements in the ISMP protocol.
 ///
@@ -104,11 +104,14 @@ pub trait FeeHandler {
 	/// * Economic incentives for relayers and validators
 	/// * Prevention of spam and denial-of-service attacks
 	/// * Fairness across different types of network participants
-	fn on_executed(_messages: Vec<Message>, _events: Vec<Event>) -> DispatchResultWithPostInfo {
-		Ok(Default::default())
-	}
+	fn on_executed(
+		messages: Vec<MessageWithWeight>,
+		events: Vec<Event>,
+	) -> DispatchResultWithPostInfo;
 
-	fn charge_fee(_message: &Message, _weight: Weight) -> Result<(), DispatchError> {
+	fn validate_fee(
+		_messages_with_weights: Vec<MessageWithWeight>,
+	) -> Result<(), TransactionValidityError> {
 		Ok(())
 	}
 }
@@ -168,42 +171,91 @@ impl<AccountId, C, W, T, const POLICY: bool> FeeHandler
 where
 	AccountId: Member + MaybeDisplay + Decode + Encode,
 	C: Currency<AccountId>,
-	W: WeightToFeePolynomial<Balance = BalanceOf<C, AccountId>>,
+	W: WeightToFee<Balance = BalanceOf<C, AccountId>>,
 	T: Get<PalletId>,
 {
-	fn charge_fee(message: &Message, weight: Weight) -> Result<(), DispatchError> {
+	fn on_executed(
+		messages: Vec<MessageWithWeight>,
+		_events: Vec<Event>,
+	) -> DispatchResultWithPostInfo {
+		if !POLICY {
+			return Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
+		}
+		let mut total_weight = Weight::zero();
+		let treasury_account: AccountId = T::get().into_account_truncating();
+
+		for message in &messages {
+			let weight = message.weight;
+			total_weight.saturating_accrue(weight);
+			let fee = W::weight_to_fee(&weight);
+
+			if fee.is_zero() {
+				continue
+			}
+
+			let originator = match message.message.clone() {
+				Message::Request(msg) => {
+					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
+					Signature::decode(&mut &msg.signer[..])
+						.ok()
+						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+				},
+				Message::Response(msg) => {
+					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
+					Signature::decode(&mut &msg.signer[..])
+						.ok()
+						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+				},
+				_ => None,
+			};
+
+			if let Some(originator_bytes) = originator {
+				if let Ok(account) = AccountId::decode(&mut &originator_bytes[..]) {
+					C::transfer(&account, &treasury_account, fee, ExistenceRequirement::KeepAlive)
+						.map_err(|_| DispatchError::Other("Failed to transfer fee to treasury"))?;
+				}
+			}
+		}
+
+		Ok(PostDispatchInfo { actual_weight: Some(total_weight), pays_fee: Pays::Yes })
+	}
+
+	fn validate_fee(
+		messages_with_weights: Vec<MessageWithWeight>,
+	) -> Result<(), TransactionValidityError> {
 		if !POLICY {
 			return Ok(());
 		}
 
-		let fee = W::weight_to_fee(&weight);
+		for message_with_weight in &messages_with_weights {
+			let fee = W::weight_to_fee(&message_with_weight.weight);
 
-		if fee.is_zero() {
-			return Ok(());
-		}
+			if fee.is_zero() {
+				continue;
+			}
 
-		let treasury_account: AccountId = T::get().into_account_truncating();
+			let originator = match &message_with_weight.message {
+				Message::Request(msg) => {
+					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
+					Signature::decode(&mut &msg.signer[..])
+						.ok()
+						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+				},
+				Message::Response(msg) => {
+					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
+					Signature::decode(&mut &msg.signer[..])
+						.ok()
+						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+				},
+				_ => None,
+			};
 
-		let originator = match message {
-			Message::Request(msg) => {
-				let data = sp_io::hashing::keccak_256(&msg.requests.encode());
-				Signature::decode(&mut &msg.signer[..])
-					.ok()
-					.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-			},
-			Message::Response(msg) => {
-				let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
-				Signature::decode(&mut &msg.signer[..])
-					.ok()
-					.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-			},
-			_ => None,
-		};
-
-		if let Some(pub_key) = originator {
-			if let Ok(account) = AccountId::decode(&mut &pub_key[..]) {
-				C::transfer(&account, &treasury_account, fee, ExistenceRequirement::KeepAlive)
-					.map_err(|_| DispatchError::Other("Failed to transfer fee to treasury"))?;
+			if let Some(originator_bytes) = originator {
+				if let Ok(account) = AccountId::decode(&mut &originator_bytes[..]) {
+					if !C::can_slash(&account, fee) {
+						return Err(InvalidTransaction::Payment.into());
+					}
+				}
 			}
 		}
 
@@ -213,7 +265,10 @@ where
 
 #[impl_for_tuples(5)]
 impl FeeHandler for TupleIdentifier {
-	fn on_executed(messages: Vec<Message>, events: Vec<Event>) -> DispatchResultWithPostInfo {
+	fn on_executed(
+		messages: Vec<MessageWithWeight>,
+		events: Vec<Event>,
+	) -> DispatchResultWithPostInfo {
 		for_tuples!( #(
             <TupleIdentifier as FeeHandler>::on_executed(messages.clone(), events.clone())?;
         )* );
@@ -221,9 +276,11 @@ impl FeeHandler for TupleIdentifier {
 		Ok(Default::default())
 	}
 
-	fn charge_fee(message: &Message, weight: Weight) -> Result<(), DispatchError> {
+	fn validate_fee(
+		messages_with_weights: Vec<MessageWithWeight>,
+	) -> Result<(), TransactionValidityError> {
 		for_tuples!( #(
-			<TupleIdentifier as FeeHandler>::charge_fee(message, weight)?;
+			<TupleIdentifier as FeeHandler>::validate_fee(messages_with_weights.clone())?;
 		)* );
 		Ok(())
 	}

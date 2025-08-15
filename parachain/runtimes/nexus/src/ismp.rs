@@ -173,7 +173,6 @@ impl pallet_ismp::Config for Runtime {
 		AccountId,
 		Balances,
 		IsmpWeightToFee,
-		(),
 		TreasuryPalletId,
 		true
 	>;

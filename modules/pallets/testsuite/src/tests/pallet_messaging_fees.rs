@@ -9,7 +9,7 @@ use polkadot_sdk::{
 	pallet_session::SessionHandler,
 	sp_runtime::{
 		traits::{AccountIdConversion, OpaqueKeys},
-		KeyTypeId,
+		KeyTypeId, Weight,
 	},
 };
 
@@ -20,7 +20,7 @@ use hyperbridge_client_machine::OnRequestProcessed;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	messaging::{hash_request, Message, Proof, RequestMessage},
+	messaging::{hash_request, Message, MessageWithWeight, Proof, RequestMessage},
 	router::{PostRequest, Request},
 };
 use pallet_ismp::fee_handler::FeeHandler;
@@ -58,7 +58,7 @@ fn create_request_message(
 	dest_chain: StateMachine,
 	relayer_pair: &sr25519::Pair,
 	body: &Vec<u8>,
-) -> Message {
+) -> MessageWithWeight {
 	let post_request = PostRequest {
 		source: source_chain,
 		dest: dest_chain,
@@ -89,7 +89,10 @@ fn create_request_message(
 		signer: signature.encode(),
 	};
 
-	Message::Request(request_message)
+	let request_message =
+		MessageWithWeight { message: Message::Request(request_message), weight: Weight::zero() };
+
+	request_message
 }
 
 fn create_bad_request_message(
@@ -97,7 +100,7 @@ fn create_bad_request_message(
 	dest_chain: StateMachine,
 	relayer_pair: &sr25519::Pair,
 	evil_pair: &sr25519::Pair,
-) -> Message {
+) -> MessageWithWeight {
 	let post_request = PostRequest {
 		source: source_chain,
 		dest: dest_chain,
@@ -125,7 +128,10 @@ fn create_bad_request_message(
 		signer: signer_tuple.encode(),
 	};
 
-	Message::Request(request_message)
+	let request_message =
+		MessageWithWeight { message: Message::Request(request_message), weight: Weight::zero() };
+
+	request_message
 }
 
 #[test]

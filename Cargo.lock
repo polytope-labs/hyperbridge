@@ -4284,6 +4284,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+]
+
+[[package]]
 name = "crypto_secretbox"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14780,21 +14790,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-commons"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "parity-scale-codec",
- "polkadot-sdk",
- "scale-info",
-]
-
-[[package]]
 name = "pallet-consensus-incentives"
 version = "0.1.0"
 dependencies = [
+ "crypto-utils",
  "ismp",
- "pallet-commons",
  "pallet-ismp",
  "pallet-ismp-relayer",
  "parity-scale-codec",
@@ -15226,13 +15226,13 @@ name = "pallet-ismp"
 version = "2506.0.0"
 dependencies = [
  "anyhow",
+ "crypto-utils",
  "env_logger 0.10.2",
  "fortuples",
  "impl-trait-for-tuples",
  "ismp",
  "ismp-testsuite",
  "log",
- "pallet-commons",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",
@@ -15277,6 +15277,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
+ "crypto-utils",
  "ethabi",
  "ethereum-triedb",
  "evm-state-machine",
@@ -15287,7 +15288,6 @@ dependencies = [
  "ismp-bsc",
  "ismp-sync-committee",
  "log",
- "pallet-commons",
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
@@ -15458,9 +15458,9 @@ dependencies = [
 name = "pallet-messaging-fees"
 version = "0.1.0"
 dependencies = [
+ "crypto-utils",
  "hyperbridge-client-machine",
  "ismp",
- "pallet-commons",
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",

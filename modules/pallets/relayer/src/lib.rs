@@ -25,6 +25,7 @@ use crate::withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalPr
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
+use crypto_utils::verification::Signature;
 use evm_state_machine::{
 	presets::{
 		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
@@ -41,7 +42,6 @@ use ismp::{
 	messaging::Proof,
 };
 pub use pallet::*;
-use pallet_commons::verification::Signature;
 use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};

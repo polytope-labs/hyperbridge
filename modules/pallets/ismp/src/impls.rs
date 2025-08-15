@@ -29,7 +29,7 @@ use frame_system::Phase;
 use ismp::{
 	events,
 	handlers::{handle_incoming_message, MessageResult},
-	messaging::{hash_request, hash_response, Message},
+	messaging::{hash_request, hash_response, Message, MessageWithWeight},
 	router::{Request, Response},
 };
 use polkadot_sdk::sp_runtime::Weight;
@@ -42,6 +42,7 @@ impl<T: Config> Pallet<T> {
 		// Define a host
 		let host = Pallet::<T>::default();
 		let mut events = Vec::new();
+		let mut messages_with_weights = Vec::new();
 
 		let results = messages
 			.iter()
@@ -57,7 +58,7 @@ impl<T: Config> Pallet<T> {
 			let (events_from_result, module_weight) = match result {
 				MessageResult::Request { events, weight } => (events, weight),
 				MessageResult::Response { events, weight } => (events, weight),
-				MessageResult::Timeout(events) => (events, Weight::zero()),
+				MessageResult::Timeout { events, weight } => (events, weight),
 				MessageResult::ConsensusMessage(events) =>
 					(events.into_iter().map(Ok).collect(), Weight::zero()),
 				MessageResult::FrozenClient(_) => (vec![], Weight::zero()),
@@ -67,14 +68,17 @@ impl<T: Config> Pallet<T> {
 				events.push(event_res.map_err(|_| Error::<T>::InvalidMessage)?);
 			}
 
-			T::FeeHandler::charge_fee(message, module_weight)
-				.map_err(|_| Error::<T>::ErrorChargingFee)?;
+			messages_with_weights
+				.push(MessageWithWeight { message: message.clone(), weight: module_weight });
 		}
 
 		for event in events.clone() {
 			// deposit any relevant events
 			Pallet::<T>::deposit_event(event.into())
 		}
+
+		T::FeeHandler::on_executed(messages_with_weights, events.clone())
+			.map_err(|_| Error::<T>::ErrorChargingFee)?;
 
 		Ok(events)
 	}

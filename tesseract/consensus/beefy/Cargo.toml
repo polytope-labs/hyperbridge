@@ -44,7 +44,7 @@ sp-consensus-beefy = { workspace = true }
 # tesseract
 tesseract-substrate = { workspace = true  }
 tesseract-primitives = { workspace = true  }
-zk-beefy = { path = "zk" }
+# zk-beefy = { path = "zk" }
 rsmq_async = { workspace = true }
 redis-async = { version = "0.17.1", features = ["with-rustls"] }
 

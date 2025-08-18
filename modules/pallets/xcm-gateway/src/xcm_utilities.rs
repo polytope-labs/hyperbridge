@@ -80,80 +80,26 @@ where
 				// Dereference the Arc to access the underlying array
 				match arc_junctions.as_ref() {
 					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout)] =>
-						{
-							// Ensure that the network Id is one of the supported ethereum networks
-							// If it transforms correctly we return the ethereum account
-							let dest_state_machine =
-								StateMachine::try_from(WrappedNetworkId(network.clone())).ok()?;
-							Some(MultiAccount {
-								substrate_account: A::from(*id),
-								evm_account: H160::from(*key),
-								dest_state_machine,
-								timeout: *timeout as u64,
-							})
-						},
+					{
+						// Ensure that the network Id is one of the supported ethereum networks
+						// If it transforms correctly we return the ethereum account
+						let dest_state_machine =
+							StateMachine::try_from(WrappedNetworkId(network.clone())).ok()?;
+						Some(MultiAccount {
+							substrate_account: A::from(*id),
+							evm_account: H160::from(*key),
+							dest_state_machine,
+							timeout: *timeout as u64,
+						})
+					},
 					_ => None,
 				}
 			},
-			Location { interior: Junctions::X3(arc_junctions), .. } => {
-				// Dereference the Arc to access the underlying array
-				match arc_junctions.as_ref() {
-					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout)] =>
-						{
-							// Ensure that the network Id is one of the supported ethereum networks
-							// If it transforms correctly we return the ethereum account
-							let dest_state_machine =
-								StateMachine::try_from(WrappedNetworkId(network.clone())).ok()?;
-							Some(MultiAccount {
-								substrate_account: A::from(*id),
-								evm_account: H160::from(*key),
-								dest_state_machine,
-								timeout: *timeout as u64,
-							})
-						},
-					_ => None,
-				}
-			},
-			/*Location { parents: 1, interior: Junctions::X1(arc_junctions), .. } => {
-
-				if let [Junction::Parachain(id)] = arc_junctions.as_ref() {
-					println!("id is {:?}", id);
-					let sovereign_account = sibling_sovereign_account::<A>(*id);
-					Some(MultiAccount {
-						substrate_account: sovereign_account,
-						evm_account: H160::from([1u8; 20]),
-						dest_state_machine: StateMachine::Evm(97),
-						timeout: 60 * 60,
-					})
-				} else {
-					None
-				}
-			},*/
 			// Any other multilocation format is unsupported
-			_ => {
-				//println!("unsupported format");
-				None
-			}
+			_ => None,
 		}
 	}
 }
-
-pub fn sibling_sovereign_account<A>(para_id: u32) -> A
-where
-	A: From<[u8; 32]>,
-{
-	//println!("converting sibling sovereign account");
-	let location = Location::new(1, [Parachain(para_id)]);
-	let mut sovereign_account_raw = [0u8; 32];
-	sovereign_account_raw[..4].copy_from_slice(b"para");
-	sovereign_account_raw[4..8].copy_from_slice(&para_id.to_le_bytes());
-
-	let hash = sp_io::hashing::blake2_256(&location.encode());
-	sovereign_account_raw[8..].copy_from_slice(&hash[8..]);
-
-	A::from(sovereign_account_raw)
-}
-
 
 pub struct ConvertAssetId<T>(core::marker::PhantomData<T>);
 
@@ -164,7 +110,6 @@ where
 {
 	fn convert(a: &Location) -> Option<AssetId> {
 		let asset_id: AssetId = sp_io::hashing::keccak_256(&a.encode()).into();
-		//println!("asset_id is {:?}", a);
 		let converted: <T::Assets as fungibles::Inspect<T::AccountId>>::AssetId =
 			asset_id.clone().into();
 		if !AssetIds::<T>::contains_key(converted.clone()) {
@@ -199,23 +144,22 @@ pub struct HyperbridgeAssetTransactor<T, Matcher, AccountIdConverter, CheckAsset
 );
 
 impl<
-	T: Config,
-	Matcher: MatchesFungibles<
-		<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId,
-		<T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
-	>,
-	AccountIdConverter: ConvertLocation<T::AccountId>,
-	CheckAsset: AssetChecking<<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId>,
-	CheckingAccount: Get<T::AccountId>,
-> TransactAsset
-for HyperbridgeAssetTransactor<T, Matcher, AccountIdConverter, CheckAsset, CheckingAccount>
+		T: Config,
+		Matcher: MatchesFungibles<
+			<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId,
+			<T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
+		>,
+		AccountIdConverter: ConvertLocation<T::AccountId>,
+		CheckAsset: AssetChecking<<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId>,
+		CheckingAccount: Get<T::AccountId>,
+	> TransactAsset
+	for HyperbridgeAssetTransactor<T, Matcher, AccountIdConverter, CheckAsset, CheckingAccount>
 where
 	<T::Assets as fungibles::Inspect<T::AccountId>>::Balance: Into<u128> + From<u128>,
 	u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
 	T::AccountId: Eq + Clone + From<[u8; 32]> + Into<[u8; 32]>,
 {
 	fn can_check_in(origin: &Location, what: &Asset, context: &XcmContext) -> XcmResult {
-		//println!("can check in {:?}", origin);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -227,7 +171,6 @@ where
 	}
 
 	fn check_in(origin: &Location, what: &Asset, context: &XcmContext) {
-		//println!("check in {:?}", origin);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -239,7 +182,6 @@ where
 	}
 
 	fn can_check_out(dest: &Location, what: &Asset, context: &XcmContext) -> XcmResult {
-		//println!("can check out {:?}", dest);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -251,7 +193,6 @@ where
 	}
 
 	fn check_out(dest: &Location, what: &Asset, context: &XcmContext) {
-		//println!("checking out {:?}", dest);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -268,8 +209,7 @@ where
 		let (asset_id, amount) = Matcher::matches_fungibles(what)?;
 
 		// Ismp xcm transaction
-		/*if let Some(who) = MultilocationToMultiAccount::<T::AccountId>::convert_location(who) {
-			println!("who converted");
+		if let Some(who) = MultilocationToMultiAccount::<T::AccountId>::convert_location(who) {
 			// We would remove the protocol fee at this point
 
 			let protocol_account = Pallet::<T>::protocol_account_id();
@@ -294,22 +234,23 @@ where
 			T::Assets::mint_into(asset_id, &pallet_account, remainder)
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
 			// We dispatch an ismp request to the destination chain
-			println!("trying to dispatch request");
 			Pallet::<T>::dispatch_request(who, remainder)
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
-		} else {*/
+		} else {
 
-		FungiblesMutateAdapter::<
-			T::Assets,
-			Matcher,
-			AccountIdConverter,
-			T::AccountId,
-			CheckAsset,
-			CheckingAccount,
-		>::deposit_asset(what, who, context)?;
+			#[cfg(feature = "std")]
+			FungiblesMutateAdapter::<
+				T::Assets,
+				Matcher,
+				AccountIdConverter,
+				T::AccountId,
+				CheckAsset,
+				CheckingAccount,
+			>::deposit_asset(what, who, context)?;
 
-		//Err(MatchError::AccountIdConversionFailed)?
-		//}
+			#[cfg(not(feature = "std"))]
+			Err(MatchError::AccountIdConversionFailed)?
+		}
 
 		Ok(())
 	}
@@ -319,7 +260,6 @@ where
 		who: &Location,
 		maybe_context: Option<&XcmContext>,
 	) -> Result<AssetsInHolding, XcmError> {
-		//println!("withdrawing asset {:?}", &who);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -336,7 +276,6 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("internal transfer asset from {:?}, to {:?}, asset: {asset:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -353,7 +292,6 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("transfer asset from: {:?}, to:{:?}, asset: {asset:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -364,4 +302,3 @@ where
 		>::transfer_asset(asset, from, to, context)
 	}
 }
-

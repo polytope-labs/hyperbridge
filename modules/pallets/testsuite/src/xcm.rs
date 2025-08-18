@@ -90,7 +90,6 @@ parameter_types! {
 }
 
 pub type LocationToAccountId = (
-	IsmpBeneficiaryConverter,
 	SiblingParachainConvertsVia<Sibling, AccountId32>,
 	AccountId32Aliases<RelayNetwork, AccountId32>,
 );
@@ -113,25 +112,6 @@ pub struct CheckingAccount;
 impl Get<AccountId32> for CheckingAccount {
 	fn get() -> AccountId32 {
 		AccountId32::new([0u8; 32])
-	}
-}
-
-pub struct IsmpBeneficiaryConverter;
-impl ConvertLocation<AccountId32> for IsmpBeneficiaryConverter {
-	fn convert_location(location: &Location) -> Option<AccountId32> {
-		println!("trying to convert location: {:?}", location);
-		if let Location { interior: X1(junctions), .. } = location {
-			if let Junction::AccountId32 { id, .. } = &junctions[0] {
-				//if let Junction::AccountKey20 { .. } = &junctions[1] {
-				//	if let Junction::GeneralIndex(..) = &junctions[2] {
-						println!("location converted {:?}", &id);
-						return Some(AccountId32::from(id.clone()));
-				//	}
-				//}
-			}
-		}
-		println!("couldn't convert");
-		None
 	}
 }
 
@@ -293,7 +273,7 @@ pub struct TestReserve;
 impl ContainsPair<Asset, Location> for TestReserve {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
 		println!("TestReserve::contains asset: {asset:?}, origin:{origin:?}");
-		let assethub_location = Location::new(1, Parachain(1000));
+		let assethub_location = Location::new(1, Parachain(ASSET_HUB_PARA_ID));
 		&assethub_location == origin
 	}
 }

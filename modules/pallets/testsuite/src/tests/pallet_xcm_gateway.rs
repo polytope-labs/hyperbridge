@@ -56,8 +56,15 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 
 			ParaB::execute_with(|| {
 				let dest = Location::new(1, [Parachain(100)]);
-				let beneficiary = Location::new(0, [Junction::AccountId32 { network: None, id: BOB.into() }]);
-
+				let beneficiary: Location = Junctions::X3(Arc::new([
+					Junction::AccountId32 { network: None, id: ALICE.into() },
+					Junction::AccountKey20 {
+						network: Some(NetworkId::Ethereum { chain_id: 97 }),
+						key: [1u8; 20],
+					},
+					Junction::GeneralIndex(60 * 60),
+				]))
+					.into_location();
 
 				let context = Junctions::X2(Arc::new([
 					Junction::GlobalConsensus(NetworkId::Polkadot),
@@ -66,7 +73,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 
 				let assets = Asset {
 					id: AssetId(asset_location_on_assethub.clone()),
-					fun: Fungibility::Fungible(100000),
+					fun: Fungibility::Fungible(SEND_AMOUNT),
 				};
 
 				let fee_asset = assets.clone().reanchored(&dest, &context).expect("should reanchor");
@@ -100,7 +107,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
                     runtime::RuntimeOrigin::signed(ALICE.into()),
                     Box::new(dest.into()),
                     Box::new(beneficiary.into()),
-                    Box::new(vec![(asset_location_on_assethub, 10000).into()].into()),
+                    Box::new(vec![(asset_location_on_assethub, SEND_AMOUNT).into()].into()),
                     0,
                     WeightLimit::Unlimited,
                 ));*/

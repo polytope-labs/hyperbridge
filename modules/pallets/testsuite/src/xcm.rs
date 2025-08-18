@@ -29,6 +29,7 @@ use pallet_xcm_gateway::{
 	xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter},
 	AssetGatewayParams,
 };
+use xcm_simulator::mock_message_queue;
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
 use polkadot_sdk::{cumulus_pallet_parachain_system::DefaultCoreSelector, *};
 use sp_core::H256;
@@ -188,6 +189,7 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	ext.execute_with(|| {
 		System::set_block_number(1);
 		Timestamp::set_timestamp(1_000_000);
+		crate::runtime::MsgQueue::set_para_id(para_id.into());
 	});
 	ext
 }
@@ -231,7 +233,7 @@ impl DmpMessageHandler for DmpMessageExecutor {
 decl_test_parachain! {
 	pub struct ParaA {
 		Runtime = Test,
-		XcmpMessageHandler = XcmpQueue,
+		XcmpMessageHandler = crate::runtime::MsgQueue,
 		DmpMessageHandler = DmpMessageExecutor,
 		new_ext = para_ext(100),
 	}
@@ -240,7 +242,7 @@ decl_test_parachain! {
 decl_test_parachain! {
 	pub struct ParaB {
        Runtime = Test,
-       XcmpMessageHandler = XcmpQueue,
+       XcmpMessageHandler = crate::runtime::MsgQueue,
        DmpMessageHandler = DmpMessageExecutor,
        new_ext = para_ext(1000),
     }
@@ -269,7 +271,7 @@ decl_test_network! {
 }
 
 
-pub type XcmRouter = ParachainXcmRouter<ParachainInfo>;
+pub type XcmRouter = ParachainXcmRouter<crate::runtime::MsgQueue>;
 pub type Barrier = AllowUnpaidExecutionFrom<Everything>;
 
 parameter_types! {
@@ -377,6 +379,11 @@ impl cumulus_pallet_xcmp_queue::Config for Test {
 	type WeightInfo = ();
 	type MaxActiveOutboundChannels = sp_core::ConstU32<128>;
 	type MaxPageSize = sp_core::ConstU32<{ 103 * 1024 }>;
+}
+
+impl mock_message_queue::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type XcmExecutor = XcmExecutor<XcmConfig>;
 }
 
 parameter_types! {

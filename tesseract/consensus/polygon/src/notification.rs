@@ -42,7 +42,19 @@ pub async fn consensus_notification(
 		true,
 	);
 
-	let (mut milestone_number, mut milestone) = client.prover.get_latest_milestone().await?;
+	let latest_milestone_at_height = client
+		.prover
+		.get_latest_milestone_at_height(untrusted_header.header.height.value())
+		.await?;
+
+	let (mut milestone_number, mut milestone) = match latest_milestone_at_height {
+		Some((number, milestone)) => (number, milestone),
+		None => {
+			log::warn!(target: "tesseract", "No milestone found at height {}, falling back to current latest", untrusted_header.header.height.value());
+			client.prover.get_latest_milestone().await?
+		},
+	};
+
 	let query_height = untrusted_header.header.height.value() - 1;
 	let mut milestone_proof =
 		client.prover.get_milestone_proof(milestone_number, query_height).await?;

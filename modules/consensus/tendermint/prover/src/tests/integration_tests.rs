@@ -143,6 +143,19 @@ mod tests {
 			return Err("Proof should be present".into());
 		}
 
+		let milestone_count_at_height = client.get_milestone_count_at_height(latest_height).await?;
+		trace!("Milestone count at height {}: {}", latest_height, milestone_count_at_height);
+
+		let latest_milestone_at_height =
+			client.get_latest_milestone_at_height(latest_height).await?;
+
+		match latest_milestone_at_height {
+			Some((number, _)) => {
+				trace!("Latest milestone at height {}: number {}", latest_height, number)
+			},
+			None => trace!("No milestone found at height {}", latest_height),
+		}
+
 		Ok(())
 	}
 
@@ -211,8 +224,8 @@ mod tests {
 				current_time,
 			) {
 				Ok(updated_state) => {
-					let is_validator_set_change = trusted_state.next_validators_hash ==
-						consensus_proof.signed_header.header.validators_hash.as_bytes();
+					let is_validator_set_change = trusted_state.next_validators_hash
+						== consensus_proof.signed_header.header.validators_hash.as_bytes();
 					if is_validator_set_change {
 						actual_transitions += 1;
 					}
@@ -314,8 +327,8 @@ mod tests {
 				current_time,
 			) {
 				Ok(updated_state) => {
-					let is_validator_set_change = trusted_state.next_validators_hash ==
-						consensus_proof.signed_header.header.validators_hash.as_bytes();
+					let is_validator_set_change = trusted_state.next_validators_hash
+						== consensus_proof.signed_header.header.validators_hash.as_bytes();
 					if is_validator_set_change {
 						actual_transitions += 1;
 					}

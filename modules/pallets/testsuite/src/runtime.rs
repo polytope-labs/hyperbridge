@@ -106,7 +106,6 @@ frame_support::construct_runtime!(
 		Session: pallet_session,
 		CollatorSelection: pallet_collator_selection,
 		CollatorManager: pallet_collator_manager,
-		IsmpGrandpa: ismp_grandpa::pallet,
 		MsgQueue: mock_message_queue
 	}
 );

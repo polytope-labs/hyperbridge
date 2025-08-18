@@ -26,7 +26,7 @@ pub async fn consensus_notification(
 	let consensus_state: ConsensusState =
 		ConsensusState::decode(&mut &consensus_state_serialized[..])?;
 
-	let trusted_state: TrustedState = consensus_state.tendermint_state.into();
+	let trusted_state: TrustedState = consensus_state.clone().tendermint_state.into();
 
 	let untrusted_header = client.prover.signed_header(latest_height).await?;
 
@@ -42,58 +42,9 @@ pub async fn consensus_notification(
 		true,
 	);
 
-	let latest_milestone_at_height = client
-		.prover
-		.get_latest_milestone_at_height(untrusted_header.header.height.value())
-		.await?;
-
-	let (mut milestone_number, mut milestone) = match latest_milestone_at_height {
-		Some((number, milestone)) => (number, milestone),
-		None => {
-			log::warn!(target: "tesseract", "No milestone found at height {}, falling back to current latest", untrusted_header.header.height.value());
-			client.prover.get_latest_milestone().await?
-		},
-	};
-
-	let query_height = untrusted_header.header.height.value() - 1;
-	let mut milestone_proof =
-		client.prover.get_milestone_proof(milestone_number, query_height).await?;
-
-	if milestone_proof.value.is_empty() {
-		milestone_number -= 1;
-		milestone_proof = client.prover.get_milestone_proof(milestone_number, query_height).await?;
-
-		milestone = ismp_polygon::Milestone::proto_decode(&milestone_proof.value)
-			.map_err(|e| anyhow::anyhow!("failed to decode milestone: {}", e))?;
-	}
-
-	let maybe_milestone_update = if milestone.end_block > consensus_state.last_finalized_block {
-		let evm_header = client
-			.prover
-			.fetch_header(milestone.end_block)
-			.await?
-			.ok_or_else(|| anyhow::anyhow!("EVM header not found"))?;
-
-		let merkle_proof = milestone_proof
-			.clone()
-			.proof
-			.map(|p| convert_tm_to_ics_merkle_proof::<ICS23HostFunctions>(&p))
-			.transpose()
-			.map_err(|_| anyhow::anyhow!("bad client state proof"))?
-			.ok_or_else(|| anyhow::anyhow!("proof not found"))?;
-
-		let proof = CommitmentProofBytes::try_from(merkle_proof)
-			.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?;
-
-		Some(ismp_polygon::MilestoneUpdate {
-			evm_header,
-			milestone_number,
-			ics23_state_proof: proof.into(),
-			milestone,
-		})
-	} else {
-		None
-	};
+	let maybe_milestone_update =
+		build_milestone_update(client, untrusted_header.header.height.value(), &consensus_state)
+			.await?;
 
 	match validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
 		true => {
@@ -150,6 +101,15 @@ pub async fn consensus_notification(
 				let matched_height = height;
 				let matched_header = matched_header.expect("Header must be present if found");
 				let next_validators = client.prover.next_validators(matched_height).await?;
+
+				// Also attempt to construct a milestone update corresponding to the matched header height
+				let maybe_milestone_update = build_milestone_update(
+					client,
+					matched_header.header.height.value(),
+					&consensus_state,
+				)
+				.await?;
+
 				return Ok(Some(PolygonConsensusUpdate {
 					tendermint_proof: CodecConsensusProof::from(&ConsensusProof::new(
 						matched_header.clone(),
@@ -159,7 +119,7 @@ pub async fn consensus_notification(
 							Some(next_validators)
 						},
 					)),
-					milestone_update: None,
+					milestone_update: maybe_milestone_update,
 				}));
 			} else {
 				log::error!(target: "tesseract", "Fatal error, failed to find any header that matches onchain validator set");
@@ -168,6 +128,67 @@ pub async fn consensus_notification(
 	}
 	log::trace!(target: "tesseract", "No new update found for polygon");
 	Ok(None)
+}
+
+async fn build_milestone_update(
+	client: &PolygonPosHost,
+	reference_height: u64,
+	consensus_state: &ConsensusState,
+) -> anyhow::Result<Option<ismp_polygon::MilestoneUpdate>> {
+	let latest_milestone_at_height =
+		client.prover.get_latest_milestone_at_height(reference_height).await?;
+
+	let (mut milestone_number, mut milestone) = match latest_milestone_at_height {
+		Some((number, milestone)) => (number, milestone),
+		None => {
+			log::warn!(
+				target: "tesseract",
+				"No milestone found at height {}, falling back to current latest",
+				reference_height
+			);
+			client.prover.get_latest_milestone().await?
+		},
+	};
+
+	let query_height = reference_height.saturating_sub(1);
+	let mut milestone_proof =
+		client.prover.get_milestone_proof(milestone_number, query_height).await?;
+
+	if milestone_proof.value.is_empty() {
+		milestone_number = milestone_number.saturating_sub(1);
+		milestone_proof = client.prover.get_milestone_proof(milestone_number, query_height).await?;
+
+		milestone = ismp_polygon::Milestone::proto_decode(&milestone_proof.value)
+			.map_err(|e| anyhow::anyhow!("failed to decode milestone: {}", e))?;
+	}
+
+	if milestone.end_block > consensus_state.last_finalized_block {
+		let evm_header = client
+			.prover
+			.fetch_header(milestone.end_block)
+			.await?
+			.ok_or_else(|| anyhow::anyhow!("EVM header not found"))?;
+
+		let merkle_proof = milestone_proof
+			.clone()
+			.proof
+			.map(|p| convert_tm_to_ics_merkle_proof::<ICS23HostFunctions>(&p))
+			.transpose()
+			.map_err(|_| anyhow::anyhow!("bad client state proof"))?
+			.ok_or_else(|| anyhow::anyhow!("proof not found"))?;
+
+		let proof = CommitmentProofBytes::try_from(merkle_proof)
+			.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?;
+
+		Ok(Some(ismp_polygon::MilestoneUpdate {
+			evm_header,
+			milestone_number,
+			ics23_state_proof: proof.into(),
+			milestone,
+		}))
+	} else {
+		Ok(None)
+	}
 }
 
 pub fn convert_tm_to_ics_merkle_proof<H>(

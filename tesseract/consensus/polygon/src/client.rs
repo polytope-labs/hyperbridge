@@ -262,7 +262,10 @@ impl HeimdallClient {
 	/// - The ABCI query fails
 	/// - The height conversion fails
 	/// - The response cannot be deserialized
-	pub async fn get_milestone_count_at_height(&self, height: u64) -> Result<u64, ProverError> {
+	pub async fn get_milestone_count_at_height(
+		&self,
+		height: u64,
+	) -> Result<Option<u64>, ProverError> {
 		let key = vec![0x83];
 
 		let abci_query: AbciQuery = self
@@ -278,7 +281,7 @@ impl HeimdallClient {
 
 		let count_bytes = abci_query.value;
 		if count_bytes.is_empty() {
-			return Ok(0); // No milestones yet
+			return Ok(None); // No milestones yet
 		}
 
 		// The count is stored as a u64 in big-endian format
@@ -288,18 +291,11 @@ impl HeimdallClient {
 			));
 		}
 
-		let count = u64::from_be_bytes([
-			count_bytes[0],
-			count_bytes[1],
-			count_bytes[2],
-			count_bytes[3],
-			count_bytes[4],
-			count_bytes[5],
-			count_bytes[6],
-			count_bytes[7],
-		]);
+		let mut bytes = [0u8; 8];
+		bytes.copy_from_slice(&count_bytes[..=7]);
+		let count = u64::from_be_bytes(bytes);
 
-		Ok(count)
+		Ok(Some(count))
 	}
 
 	/// Retrieves the latest milestone at a specific height using ABCI query.
@@ -328,12 +324,13 @@ impl HeimdallClient {
 	) -> Result<Option<(u64, Milestone)>, ProverError> {
 		let count = self.get_milestone_count_at_height(height).await?;
 
-		if count == 0 {
-			return Ok(None); // No milestones available at this height
+		match count {
+			Some(count) => {
+				let milestone = self.get_milestone_at_height(count, height).await?;
+				Ok(Some((count, milestone)))
+			},
+			None => Ok(None),
 		}
-
-		let milestone = self.get_milestone_at_height(count, height).await?;
-		Ok(Some((count, milestone)))
 	}
 
 	/// Retrieves a specific milestone at a specific height using ABCI query.

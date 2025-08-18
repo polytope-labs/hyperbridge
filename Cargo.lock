@@ -18792,6 +18792,7 @@ dependencies = [
  "sc-consensus",
  "sc-consensus-aura",
  "sc-consensus-babe",
+ "sc-consensus-grandpa",
  "sc-consensus-grandpa-rpc",
  "sc-consensus-manual-seal",
  "sc-consensus-slots",
@@ -31622,6 +31623,15 @@ dependencies = [
  "sp-weights 32.0.0",
  "staging-xcm 17.0.0",
  "staging-xcm-executor 20.0.0",
+]
+
+[[package]]
+name = "xcm-runtime-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "gargantua-runtime",
+ "polkadot-sdk",
+ "rococo-runtime",
 ]
 
 [[package]]

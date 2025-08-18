@@ -112,7 +112,7 @@ members = [
 
 
     # Airdrop
-    "modules/pallets/bridge-drop",
+    "modules/pallets/bridge-drop", "parachain/xcm-runtime-integration-tests",
 ]
 
 # Config for 'cargo dist'

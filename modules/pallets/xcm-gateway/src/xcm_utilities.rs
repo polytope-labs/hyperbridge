@@ -23,7 +23,7 @@ use frame_support::traits::{
 };
 use ismp::host::StateMachine;
 use polkadot_sdk::*;
-use polkadot_sdk::xcm_simulator::{Instruction, Parachain};
+use polkadot_sdk::cumulus_primitives_core::Parachain;
 use sp_core::{Get, H160};
 use sp_runtime::traits::MaybeEquivalence;
 use staging_xcm::v5::{
@@ -80,18 +80,18 @@ where
 				// Dereference the Arc to access the underlying array
 				match arc_junctions.as_ref() {
 					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout)] =>
-					{
-						// Ensure that the network Id is one of the supported ethereum networks
-						// If it transforms correctly we return the ethereum account
-						let dest_state_machine =
-							StateMachine::try_from(WrappedNetworkId(network.clone())).ok()?;
-						Some(MultiAccount {
-							substrate_account: A::from(*id),
-							evm_account: H160::from(*key),
-							dest_state_machine,
-							timeout: *timeout as u64,
-						})
-					},
+						{
+							// Ensure that the network Id is one of the supported ethereum networks
+							// If it transforms correctly we return the ethereum account
+							let dest_state_machine =
+								StateMachine::try_from(WrappedNetworkId(network.clone())).ok()?;
+							Some(MultiAccount {
+								substrate_account: A::from(*id),
+								evm_account: H160::from(*key),
+								dest_state_machine,
+								timeout: *timeout as u64,
+							})
+						},
 					_ => None,
 				}
 			},
@@ -131,7 +131,7 @@ where
 			},*/
 			// Any other multilocation format is unsupported
 			_ => {
-				println!("unsupported format");
+				//println!("unsupported format");
 				None
 			}
 		}
@@ -142,7 +142,7 @@ pub fn sibling_sovereign_account<A>(para_id: u32) -> A
 where
 	A: From<[u8; 32]>,
 {
-	println!("converting sibling sovereign account");
+	//println!("converting sibling sovereign account");
 	let location = Location::new(1, [Parachain(para_id)]);
 	let mut sovereign_account_raw = [0u8; 32];
 	sovereign_account_raw[..4].copy_from_slice(b"para");
@@ -164,7 +164,7 @@ where
 {
 	fn convert(a: &Location) -> Option<AssetId> {
 		let asset_id: AssetId = sp_io::hashing::keccak_256(&a.encode()).into();
-		println!("asset_id is {:?}", a);
+		//println!("asset_id is {:?}", a);
 		let converted: <T::Assets as fungibles::Inspect<T::AccountId>>::AssetId =
 			asset_id.clone().into();
 		if !AssetIds::<T>::contains_key(converted.clone()) {
@@ -199,23 +199,23 @@ pub struct HyperbridgeAssetTransactor<T, Matcher, AccountIdConverter, CheckAsset
 );
 
 impl<
-		T: Config,
-		Matcher: MatchesFungibles<
-			<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId,
-			<T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
-		>,
-		AccountIdConverter: ConvertLocation<T::AccountId>,
-		CheckAsset: AssetChecking<<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId>,
-		CheckingAccount: Get<T::AccountId>,
-	> TransactAsset
-	for HyperbridgeAssetTransactor<T, Matcher, AccountIdConverter, CheckAsset, CheckingAccount>
+	T: Config,
+	Matcher: MatchesFungibles<
+		<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId,
+		<T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
+	>,
+	AccountIdConverter: ConvertLocation<T::AccountId>,
+	CheckAsset: AssetChecking<<T::Assets as fungibles::Inspect<T::AccountId>>::AssetId>,
+	CheckingAccount: Get<T::AccountId>,
+> TransactAsset
+for HyperbridgeAssetTransactor<T, Matcher, AccountIdConverter, CheckAsset, CheckingAccount>
 where
 	<T::Assets as fungibles::Inspect<T::AccountId>>::Balance: Into<u128> + From<u128>,
 	u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
 	T::AccountId: Eq + Clone + From<[u8; 32]> + Into<[u8; 32]>,
 {
 	fn can_check_in(origin: &Location, what: &Asset, context: &XcmContext) -> XcmResult {
-		println!("can check in {:?}", origin);
+		//println!("can check in {:?}", origin);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -227,7 +227,7 @@ where
 	}
 
 	fn check_in(origin: &Location, what: &Asset, context: &XcmContext) {
-		println!("check in {:?}", origin);
+		//println!("check in {:?}", origin);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -239,7 +239,7 @@ where
 	}
 
 	fn can_check_out(dest: &Location, what: &Asset, context: &XcmContext) -> XcmResult {
-		println!("can check out {:?}", dest);
+		//println!("can check out {:?}", dest);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -251,7 +251,7 @@ where
 	}
 
 	fn check_out(dest: &Location, what: &Asset, context: &XcmContext) {
-		println!("checking out {:?}", dest);
+		//println!("checking out {:?}", dest);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -263,7 +263,7 @@ where
 	}
 
 	fn deposit_asset(what: &Asset, who: &Location, context: Option<&XcmContext>) -> XcmResult {
-		println!("depositing asset {:?}, {:?}", who, context.unwrap().origin);
+		//println!("depositing asset {:?}, {:?}", who, context.unwrap().origin);
 		// Check we handle this asset.
 		let (asset_id, amount) = Matcher::matches_fungibles(what)?;
 
@@ -299,16 +299,16 @@ where
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
 		} else {*/
 
-				FungiblesMutateAdapter::<
-					T::Assets,
-					Matcher,
-					AccountIdConverter,
-					T::AccountId,
-					CheckAsset,
-					CheckingAccount,
-				>::deposit_asset(what, who, context)?;
+		FungiblesMutateAdapter::<
+			T::Assets,
+			Matcher,
+			AccountIdConverter,
+			T::AccountId,
+			CheckAsset,
+			CheckingAccount,
+		>::deposit_asset(what, who, context)?;
 
-			//Err(MatchError::AccountIdConversionFailed)?
+		//Err(MatchError::AccountIdConversionFailed)?
 		//}
 
 		Ok(())
@@ -319,7 +319,7 @@ where
 		who: &Location,
 		maybe_context: Option<&XcmContext>,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("withdrawing asset {:?}", &who);
+		//println!("withdrawing asset {:?}", &who);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -336,7 +336,7 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("internal transfer asset from {:?}, to {:?}", &from, &to);
+		//println!("internal transfer asset from {:?}, to {:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -353,7 +353,7 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("transfer asset {:?}, {:?}", &from, &to);
+		//println!("transfer asset {:?}, {:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -364,3 +364,4 @@ where
 		>::transfer_asset(asset, from, to, context)
 	}
 }
+

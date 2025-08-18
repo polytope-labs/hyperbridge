@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloc::sync::Arc;
 use super::{
 	AccountId, Balance, Balances, ParachainInfo, ParachainSystem, PolkadotXcm, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeOrigin, WeightToFee, XcmpQueue,
@@ -151,14 +150,7 @@ impl ContainsPair<Asset, Location> for MultiNativeAsset {
 }
 
 parameter_types! {
-	pub NativeAssetOnAssetHub: Location = Location {
-    parents: 1,
-    interior: X3(Arc::new([
-            Parachain(ASSET_HUB_PARA_ID),
-            PalletInstance(50),
-            GeneralIndex(NATIVE_ASSET_ID_ON_ASSET_HUB),
-        ])),
-	};
+	pub NativeAssetOnAssetHub: Location = Location::new(1, Here);
 
 	pub DotOnAssetHub: Location = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
 }

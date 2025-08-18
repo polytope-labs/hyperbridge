@@ -7,7 +7,7 @@ use crate::{init_tracing, relay_chain::{self, RuntimeOrigin}, runtime::{Test, AL
 use alloy_sol_types::SolValue;
 use codec::Encode;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
-use polkadot_sdk::xcm_simulator::{All, AllCounted, Asset, AssetId, BuyExecution, DepositAsset, Fungibility, GeneralIndex, Here, PalletInstance, Parachain, ParaId, Parent, Reanchorable, SetFeesMode, TransferAsset, TransferReserveAsset, VersionedXcm, Weight, Wild, Xcm};
+use polkadot_sdk::xcm_simulator::{All, AllCounted, Asset, AssetFilter, AssetId, BuyExecution, DepositAsset, Fungibility, GeneralIndex, Here, InitiateTransfer, PalletInstance, Parachain, ParaId, Parent, Reanchorable, SetFeesMode, TransferAsset, TransferReserveAsset, VersionedXcm, Weight, Wild, Xcm};
 use ismp::{
 	host::StateMachine,
 	module::IsmpModule,
@@ -21,6 +21,7 @@ use xcm_simulator::TestExt;
 use crate::xcm::ParaB;
 use polkadot_sdk::frame_support::traits::fungibles::Mutate;
 use polkadot_sdk::sp_runtime::traits::AccountIdConversion;
+use polkadot_sdk::staging_xcm::latest::AssetTransferFilter;
 use sp_core::crypto::AccountId32;
 use crate::runtime::BOB;
 

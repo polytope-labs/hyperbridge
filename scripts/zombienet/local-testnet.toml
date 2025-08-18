@@ -11,6 +11,23 @@ args = [
 	"--enable-offchain-indexing=true", "--pruning=archive",
 ]
 
+[[parachains]]
+id = 1000
+chain = "asset-hub-polkadot-local"
+default_command = "../polkadot-sdk/target/release/polkadot"
+cumulus_based = true
+
+[[parachains.collators]]
+name = "asset-hub-polkadot-collator-1"
+rpc_port = 9910
+command = "{{POLKADOT_PARACHAIN_BINARY}}"
+args = ["-lparachain=debug,xcm=trace,runtime::bridge-transfer=trace"]
+
+[[parachains.collators]]
+name = "asset-hub-polkadot-collator-2"
+command = "{{POLKADOT_PARACHAIN_BINARY}}"
+args = ["-lparachain=debug,xcm=trace,runtime::bridge-transfer=trace"]
+
 [[relaychain.nodes]]
 name = "bob"
 validator = true

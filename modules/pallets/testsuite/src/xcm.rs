@@ -290,6 +290,7 @@ parameter_types! {
 pub struct TestReserve;
 impl ContainsPair<Asset, Location> for TestReserve {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
+		println!("origin is {:?}", origin);
 		let assethub_location = Location::new(1, Here);
 		&assethub_location == origin
 	}

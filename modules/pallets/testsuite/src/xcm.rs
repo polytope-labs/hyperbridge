@@ -293,7 +293,7 @@ pub struct TestReserve;
 impl ContainsPair<Asset, Location> for TestReserve {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
 		println!("TestReserve::contains asset: {asset:?}, origin:{origin:?}");
-		let assethub_location = Location::new(1, Here);
+		let assethub_location = Location::new(1, Parachain(1000));
 		&assethub_location == origin
 	}
 }

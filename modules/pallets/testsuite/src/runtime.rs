@@ -62,7 +62,7 @@ use hyperbridge_client_machine::HyperbridgeClientMachine;
 use pallet_messaging_fees::types::PriceOracle;
 use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID};
 use substrate_state_machine::SubstrateStateMachine;
-
+use xcm_simulator::mock_message_queue;
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 pub const BOB: AccountId32 = AccountId32::new([2; 32]);
 pub const CHARLIE: AccountId32 = AccountId32::new([3; 32]);
@@ -106,6 +106,8 @@ frame_support::construct_runtime!(
 		Session: pallet_session,
 		CollatorSelection: pallet_collator_selection,
 		CollatorManager: pallet_collator_manager,
+		IsmpGrandpa: ismp_grandpa::pallet,
+		MsgQueue: mock_message_queue
 	}
 );
 

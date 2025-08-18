@@ -263,7 +263,7 @@ where
 	}
 
 	fn deposit_asset(what: &Asset, who: &Location, context: Option<&XcmContext>) -> XcmResult {
-		println!("depositing asset {:?}, {:?}", who, context.unwrap().origin);
+		println!("depositing asset: what: {what:?}, who: {who:?}, context: {:?}", context.unwrap().origin);
 		// Check we handle this asset.
 		let (asset_id, amount) = Matcher::matches_fungibles(what)?;
 
@@ -336,7 +336,7 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("internal transfer asset from {:?}, to {:?}", &from, &to);
+		println!("internal transfer asset from {:?}, to {:?}, asset: {asset:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -353,7 +353,7 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("transfer asset {:?}, {:?}", &from, &to);
+		println!("transfer asset from: {:?}, to:{:?}, asset: {asset:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,

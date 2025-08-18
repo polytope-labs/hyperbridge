@@ -51,8 +51,8 @@ use types::{AssetId, Body, BodyWithCall, EvmToSubstrate, RequestBody, SubstrateC
 
 use alloc::{string::ToString, vec, vec::Vec};
 use frame_system::RawOrigin;
-use polkadot_sdk::sp_runtime::Weight;
 use ismp::module::IsmpModule;
+use polkadot_sdk::sp_runtime::Weight;
 use primitive_types::H256;
 
 // Re-export pallet items so that they can be accessed from the crate namespace.

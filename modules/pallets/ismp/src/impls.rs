@@ -31,17 +31,15 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message, MessageWithWeight},
 	router::{Request, Response},
 };
-use polkadot_sdk::sp_runtime::Weight;
 use sp_core::{offchain::StorageKind, H256};
 
 impl<T: Config> Pallet<T> {
 	/// Execute the provided ISMP datagrams, this will short circuit if any messages are invalid.
 	/// This also charges fee on valid message delivery
 	pub fn execute(messages: Vec<Message>) -> Result<(), Error<T>> {
-		// Define a host
 		let host = Pallet::<T>::default();
 
-		messages
+		let message_results = messages
 			.iter()
 			.map(|msg| handle_incoming_message(&host, msg.clone()))
 			.collect::<Result<Vec<_>, _>>()
@@ -49,55 +47,42 @@ impl<T: Config> Pallet<T> {
 				log::debug!(target: "ismp", "Handling Error {:#?}", err);
 				Pallet::<T>::deposit_event(Event::<T>::Errors { errors: vec![err.into()] });
 				Error::<T>::InvalidMessage
-			})
-			.and_then(|results| {
-				results
-					.into_iter()
-					.zip(messages.iter())
-					// check that requests will be successfully dispatched
-					// so we can not be spammed with failing txs
-					.map(|(result, message)| match result {
-						MessageResult::Request { events, weight }
-						| MessageResult::Response { events, weight }
-						| MessageResult::Timeout { events, weight } => {
-							let events = events.into_iter()
-								.collect::<Result<Vec<_>, _>>()
-								.map_err(|err| {
-									log::debug!(target: "ismp", "Handling Error {:#?}", err);
-									Error::<T>::InvalidMessage
-								})?;
-							Ok((events, Some(MessageWithWeight { message: message.clone(), weight })))
-						}
-						MessageResult::ConsensusMessage(events) => {
-							Ok((events, Some(MessageWithWeight {
-								message: message.clone(),
-								weight: Weight::zero()
-							})))
-						}
-						MessageResult::FrozenClient(_) => Ok((vec![], None)),
-					})
-					.collect::<Result<Vec<_>, Error<T>>>()
-					.map(|pairs| {
-						pairs.into_iter().fold((Vec::new(), Vec::new()), |mut acc, (evs, maybe_msg)| {
-							acc.0.extend(evs);
-							if let Some(m) = maybe_msg {
-								acc.1.push(m);
-							}
-							acc
-						})
-					})
-			})
-			.and_then(|(events, messages_with_weights)| {
-				for event in events.clone() {
-					// deposit any relevant events
-					Pallet::<T>::deposit_event(event.into());
-				}
+			})?;
 
-				T::FeeHandler::on_executed(messages_with_weights, events.clone())
-					.map_err(|_| Error::<T>::ErrorChargingFee)?;
+		let messages_with_weights = message_results
+			.iter()
+			.zip(messages)
+			.map(|(result, message)| MessageWithWeight { message, weight: result.weight() })
+			.collect::<Vec<_>>();
 
-				Ok(())
+		let events = message_results
+			.into_iter()
+			// check that requests will be successfully dispatched
+			// so we can not be spammed with failing txs
+			.map(|result| match result {
+				MessageResult::Request { events, .. } |
+				MessageResult::Response { events, .. } |
+				MessageResult::Timeout { events, .. } => events,
+				MessageResult::ConsensusMessage(events) => events.into_iter().map(Ok).collect(),
+				MessageResult::FrozenClient(_) => vec![],
 			})
+			.flatten()
+			.collect::<Result<Vec<_>, _>>()
+			.map_err(|err| {
+				log::debug!(target: "ismp", "Handling Error {:#?}", err);
+				Pallet::<T>::deposit_event(Event::<T>::Errors { errors: vec![err.into()] });
+				Error::<T>::InvalidMessage
+			})?;
+
+		T::FeeHandler::on_executed(messages_with_weights, events.clone())
+			.map_err(|_| Error::<T>::ErrorChargingFee)?;
+
+		for event in events.clone() {
+			// deposit any relevant events
+			Pallet::<T>::deposit_event(event.into());
+		}
+
+		Ok(())
 	}
 
 	/// Dispatch an outgoing request, returns the request commitment

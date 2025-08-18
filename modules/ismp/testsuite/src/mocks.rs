@@ -1,5 +1,5 @@
 use codec::Encode;
-use polkadot_sdk::*;
+use polkadot_sdk::{sp_runtime::Weight, *};
 use primitive_types::H256;
 use std::{
 	cell::RefCell,
@@ -8,7 +8,6 @@ use std::{
 	sync::Arc,
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use polkadot_sdk::sp_runtime::Weight;
 
 use ismp::{
 	consensus::{

@@ -49,6 +49,7 @@ pub mod types;
 
 #[frame_support::pallet]
 pub mod pallet {
+	use crate::frame_support::traits::fungible;
 	use frame_support::PalletId;
 	use polkadot_sdk::sp_core::H256;
 
@@ -83,6 +84,12 @@ pub mod pallet {
 		/// The target message size
 		#[pallet::constant]
 		type TargetMessageSize: Get<u32>;
+
+		/// The pallet-assets instance used for managing the reputation token.
+		type ReputationAsset: fungible::Mutate<
+			Self::AccountId,
+			Balance = <Self as pallet_ismp::Config>::Balance,
+		>;
 
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
@@ -121,6 +128,8 @@ pub mod pallet {
 		DispatchFailed,
 		/// Error
 		ErrorCompletingCall,
+		/// Reputation mint failed
+		ReputationMintFailed,
 	}
 
 	#[pallet::event]

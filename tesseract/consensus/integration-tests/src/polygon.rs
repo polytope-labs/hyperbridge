@@ -72,7 +72,7 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 			consensus_client_id: *b"PLGN",
 			consensus_state_id: *b"POLY",
 			unbonding_period: 82 * 3600,
-			challenge_periods: vec![(StateMachine::Evm(137), 2 * 60)].into_iter().collect(),
+			challenge_periods: vec![(StateMachine::Evm(80002), 2 * 60)].into_iter().collect(),
 			state_machine_commitments: vec![],
 		})
 		.await?;

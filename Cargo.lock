@@ -10366,6 +10366,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dotenv",
+ "gargantua-runtime",
+ "hex",
+ "parity-scale-codec",
+ "sp-core 37.0.0",
+ "subxt 0.42.1",
+ "subxt-utils",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "introspection-connector"
 version = "0.1.0"
 source = "git+https://github.com/Brendonovich/prisma-engines?tag=pcr-0.6.10#c4aeef82dbae310e974d6122160c7e3b5fb6df53"
@@ -14726,6 +14742,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-collator-manager"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-collator-selection"
 version = "22.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15340,6 +15367,7 @@ dependencies = [
  "mmr-primitives",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-collator-manager",
  "pallet-consensus-incentives",
  "pallet-fishermen",
  "pallet-hyperbridge",
@@ -28089,7 +28117,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28220,7 +28248,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.0.1"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "arb-host",

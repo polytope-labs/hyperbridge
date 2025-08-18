@@ -9,7 +9,7 @@ use cometbft_light_client_verifier::{
 };
 use cometbft_proto::google::protobuf::Timestamp;
 
-use crate::{hashing::SpIoSha256, SpIoVerifier};
+use crate::SpIoVerifier;
 
 use tendermint_primitives::{
 	ConsensusProof, TrustedState, UpdatedTrustedState, VerificationError, VerificationOptions,
@@ -59,8 +59,6 @@ pub fn verify_header_update(
 		trusted_state.trusting_period_duration(),
 	)?;
 	let now = convert_timestamp(current_time)?;
-
-	validate_ancestry_chain(&consensus_proof, &trusted_state)?;
 
 	let verifier = SpIoVerifier::default();
 	let result = verifier.verify_update_header(
@@ -126,8 +124,6 @@ pub fn verify_misbehaviour_header(
 
 	let verifier = SpIoVerifier::default();
 
-	validate_ancestry_chain(&consensus_proof, &trusted_state)?;
-
 	let result = verifier.verify_misbehaviour_header(
 		untrusted_block_state,
 		tendermint_trusted_state,
@@ -170,7 +166,7 @@ fn extract_validators<'a>(
 		return Err(VerificationError::Invalid(format!(
 			"Unknown validator set hash: {:?}",
 			header.validators_hash
-		)))
+		)));
 	};
 
 	let next_header_hash = &header.next_validators_hash;
@@ -196,83 +192,6 @@ fn extract_validators<'a>(
 	}
 
 	Ok(validators)
-}
-
-/// Validate ancestry chain by following parent hashes back to trusted finalized hash
-fn validate_ancestry_chain(
-	consensus_proof: &ConsensusProof,
-	trusted_state: &TrustedState,
-) -> Result<(), VerificationError> {
-	// If there's no ancestry, the target header should directly connect to trusted state
-	if consensus_proof.ancestry.is_empty() {
-		let target_parent_hash = consensus_proof
-			.signed_header
-			.header
-			.last_block_id
-			.as_ref()
-			.ok_or_else(|| {
-				VerificationError::Invalid(
-					"Target header has no last_block_id (possibly genesis block)".to_string(),
-				)
-			})?
-			.hash;
-
-		if target_parent_hash.as_bytes() != trusted_state.finalized_header_hash {
-			return Err(VerificationError::Invalid(format!(
-				"Target header parent hash {:?} does not match trusted finalized hash {:?}",
-				target_parent_hash.as_bytes(),
-				trusted_state.finalized_header_hash
-			)));
-		}
-		return Ok(());
-	}
-
-	// Start from the target header and work backwards through ancestry
-	let mut expected_parent_hash = consensus_proof
-		.signed_header
-		.header
-		.last_block_id
-		.as_ref()
-		.ok_or_else(|| {
-			VerificationError::Invalid("Target header has no last_block_id".to_string())
-		})?
-		.hash;
-
-	for (i, header) in consensus_proof.ancestry.iter().enumerate().rev() {
-		let header_hash = header.header.hash_with::<SpIoSha256>();
-
-		if header_hash.as_bytes() != expected_parent_hash.as_bytes() {
-			return Err(VerificationError::Invalid(format!(
-				"Ancestry header {} hash mismatch: expected {:?}, got {:?}, ancestry length: {}",
-				i,
-				expected_parent_hash,
-				header_hash,
-				consensus_proof.ancestry.len()
-			)));
-		}
-
-		expected_parent_hash = header
-			.header
-			.last_block_id
-			.as_ref()
-			.ok_or_else(|| {
-				VerificationError::Invalid(format!(
-					"Ancestry header {} has no last_block_id (possibly genesis block)",
-					i
-				))
-			})?
-			.hash;
-	}
-
-	if expected_parent_hash.as_bytes() != trusted_state.finalized_header_hash {
-		return Err(VerificationError::Invalid(format!(
-			"Ancestry chain does not connect to trusted finalized hash: expected {:?}, got {:?}",
-			trusted_state.finalized_header_hash,
-			expected_parent_hash.as_bytes()
-		)));
-	}
-
-	Ok(())
 }
 
 // Helper functions for type conversion

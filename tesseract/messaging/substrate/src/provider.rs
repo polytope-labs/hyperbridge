@@ -663,7 +663,6 @@ where
 		mut messages: Vec<Message>,
 		coprocessor: StateMachine,
 	) -> Result<TxResult, anyhow::Error> {
-		log::trace!(target: "tesseract", "in submission ");
 		let mut futs = vec![];
 		let is_hyperbridge = self.state_machine == coprocessor;
 		for msg in &mut messages {
@@ -681,14 +680,14 @@ where
 				}
 			}
 			let is_consensus_message = matches!(&msg, Message::Consensus(_));
-			log::trace!(target: "tesseract", "converted to value for message submission");
-			let extrinsic =
-				subxt::dynamic::tx("Ismp", "handle_unsigned", vec![messages_to_value(vec![msg.clone()])]);
-			log::trace!(target: "tesseract", "gotten dynamic payload for message submission");
+			let extrinsic = subxt::dynamic::tx(
+				"Ismp",
+				"handle_unsigned",
+				vec![messages_to_value(vec![msg.clone()])],
+			);
 			// We don't compress consensus messages
 			// We only consider compression for hyperbridge
 			if is_consensus_message || !is_hyperbridge {
-				log::trace!(target: "tesseract", "sending unsigned extrinsic");
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false));
 				continue;
 			}
@@ -927,5 +926,5 @@ fn encode_message(msg: &Message) -> Option<[u8; 32]> {
 		Message::Consensus(consensus_message) =>
 			Some(keccak_256(&consensus_message.consensus_proof)),
 		Message::FraudProof(_) | Message::Timeout(_) => None,
-	}
+	};
 }

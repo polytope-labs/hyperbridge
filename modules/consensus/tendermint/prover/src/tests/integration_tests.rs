@@ -303,7 +303,6 @@ mod tests {
 			let consensus_proof =
 				prove_header_update(&client, &trusted_state, target_height).await?;
 
-			trace!("Consensus proof ancestry length: {:?}", consensus_proof.ancestry.len());
 			consensus_proof.validate()?;
 
 			let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();

@@ -119,7 +119,7 @@ impl Get<AccountId32> for CheckingAccount {
 pub struct IsmpBeneficiaryConverter;
 impl ConvertLocation<AccountId32> for IsmpBeneficiaryConverter {
 	fn convert_location(location: &Location) -> Option<AccountId32> {
-		println!("trying to convert {:?}", location);
+		println!("trying to convert location: {:?}", location);
 		if let Location { interior: X1(junctions), .. } = location {
 			if let Junction::AccountId32 { id, .. } = &junctions[0] {
 				//if let Junction::AccountKey20 { .. } = &junctions[1] {
@@ -292,6 +292,7 @@ parameter_types! {
 pub struct TestReserve;
 impl ContainsPair<Asset, Location> for TestReserve {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
+		println!("TestReserve::contains asset: {asset:?}, origin:{origin:?}");
 		let assethub_location = Location::new(1, Here);
 		&assethub_location == origin
 	}

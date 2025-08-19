@@ -33,8 +33,7 @@ use ismp::{
 };
 pub use pallet::*;
 use pallet_ismp::ModuleId;
-use polkadot_sdk::*;
-use polkadot_sdk::cumulus_primitives_core::Weight;
+use polkadot_sdk::{cumulus_primitives_core::Weight, *};
 use sp_core::H160;
 
 /// Constant Pallet ID

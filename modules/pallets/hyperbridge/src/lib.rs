@@ -70,8 +70,7 @@ use ismp::{
 };
 pub use pallet::*;
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
-use polkadot_sdk::*;
-use polkadot_sdk::sp_runtime::Weight;
+use polkadot_sdk::{sp_runtime::Weight, *};
 use primitive_types::H256;
 
 pub mod child_trie;

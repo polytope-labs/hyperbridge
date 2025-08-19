@@ -70,6 +70,18 @@ pub enum MessageResult {
 	},
 }
 
+impl MessageResult {
+	/// Returns the total weight consumed by this message
+	pub fn weight(&self) -> Weight {
+		match self {
+			MessageResult::Request { weight, .. } => *weight,
+			MessageResult::Response { weight, .. } => *weight,
+			MessageResult::Timeout { weight, .. } => *weight,
+			MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => Weight::zero(),
+		}
+	}
+}
+
 /// This function serves as an entry point to handle the message types provided by the ISMP protocol
 pub fn handle_incoming_message<H>(
 	host: &H,

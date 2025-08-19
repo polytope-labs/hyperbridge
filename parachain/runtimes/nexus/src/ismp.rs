@@ -41,11 +41,10 @@ use sp_core::{crypto::AccountId32, H256};
 
 use crate::{TechnicalCollectiveInstance, MIN_TECH_COLLECTIVE_APPROVAL};
 use anyhow::anyhow;
-use polkadot_sdk::frame_support::weights::WeightToFee;
-use polkadot_sdk::sp_runtime::Weight;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
+use polkadot_sdk::{frame_support::weights::WeightToFee, sp_runtime::Weight};
 use sp_runtime::Permill;
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
@@ -174,7 +173,7 @@ impl pallet_ismp::Config for Runtime {
 		Balances,
 		IsmpWeightToFee,
 		TreasuryPalletId,
-		false
+		false,
 	>;
 }
 

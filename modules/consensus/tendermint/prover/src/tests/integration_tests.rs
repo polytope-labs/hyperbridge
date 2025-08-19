@@ -128,6 +128,7 @@ mod tests {
 		)?;
 
 		let (milestone_number, milestone) = client.get_latest_milestone().await?;
+		trace!("Latest milestone: number {}", milestone_number);
 
 		let latest_height = client.latest_height().await?;
 		let abci_query: AbciQuery =
@@ -141,6 +142,16 @@ mod tests {
 
 		if abci_query.proof.is_none() {
 			return Err("Proof should be present".into());
+		}
+
+		let latest_milestone_at_height =
+			client.get_latest_milestone_at_height(latest_height).await?;
+
+		match latest_milestone_at_height {
+			Some((number, _)) => {
+				trace!("Latest milestone at latest height {}: number {}", latest_height, number)
+			},
+			None => trace!("No milestone found at height {}", latest_height),
 		}
 
 		Ok(())

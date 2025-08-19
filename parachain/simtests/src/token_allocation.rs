@@ -24,6 +24,8 @@ use subxt_utils::Hyperbridge;
 struct AllocationRecord {
 	beneficiary: String,
 	amount: u128,
+	#[serde(default)]
+	bonus_amount: Option<u128>,
 }
 
 #[tokio::test]
@@ -79,6 +81,7 @@ async fn should_perform_batch_allocations() -> Result<(), anyhow::Error> {
 			let call = RuntimeCall::BridgeDrop(BridgeDropCall::allocate_iro_tokens {
 				beneficiary: dest.into(),
 				amount: record.amount,
+				bonus_amount: record.bonus_amount.unwrap()
 			});
 			calls.push(call);
 			records_to_check.push(record);

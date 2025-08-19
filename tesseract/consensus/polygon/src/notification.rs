@@ -102,7 +102,8 @@ pub async fn consensus_notification(
 				let matched_header = matched_header.expect("Header must be present if found");
 				let next_validators = client.prover.next_validators(matched_height).await?;
 
-				// Also attempt to construct a milestone update corresponding to the matched header height
+				// Also attempt to construct a milestone update corresponding to the matched header
+				// height
 				let maybe_milestone_update = build_milestone_update(
 					client,
 					matched_header.header.height.value(),
@@ -135,8 +136,9 @@ async fn build_milestone_update(
 	reference_height: u64,
 	consensus_state: &ConsensusState,
 ) -> anyhow::Result<Option<ismp_polygon::MilestoneUpdate>> {
-	 let query_height = reference_height.saturating_sub(1);
-		let latest_milestone_at_height = client.prover.get_latest_milestone_at_height(query_height).await?;
+	let query_height = reference_height.saturating_sub(1);
+	let latest_milestone_at_height =
+		client.prover.get_latest_milestone_at_height(query_height).await?;
 
 	let (milestone_number, milestone) = match latest_milestone_at_height {
 		Some((number, milestone)) => (number, milestone),

@@ -1,5 +1,5 @@
 use codec::Encode;
-use polkadot_sdk::*;
+use polkadot_sdk::{sp_runtime::Weight, *};
 use primitive_types::H256;
 use std::{
 	cell::RefCell,
@@ -415,17 +415,21 @@ impl Keccak256 for Host {
 pub struct MockModule;
 
 impl IsmpModule for MockModule {
-	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
-		Ok(())
+	fn on_accept(&self, _request: PostRequest) -> Result<Weight, anyhow::Error> {
+		Ok(weight())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
-		Ok(())
+	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+		Ok(weight())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
-		Ok(())
+	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+		Ok(weight())
 	}
+}
+
+fn weight() -> Weight {
+	Weight::from_parts(0, 0)
 }
 
 pub struct MockRouter(pub Host);

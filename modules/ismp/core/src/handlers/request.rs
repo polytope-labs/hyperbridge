@@ -24,6 +24,7 @@ use crate::{
 	router::{Request, RequestResponse},
 };
 use alloc::vec::Vec;
+use sp_weights::Weight;
 
 /// Validate the state machine, verify the request message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, anyhow::Error>
@@ -81,16 +82,19 @@ where
 		&msg.proof,
 	)?;
 
+	let mut total_weights = Weight::zero();
 	let result = msg
 		.requests
 		.into_iter()
 		.map(|request| {
 			let wrapped_req = Request::Post(request.clone());
-			let lambda = || {
+			let mut lambda = || {
 				let cb = router.module_for_id(request.to.clone())?;
 				// Store request receipt to prevent reentrancy attack
 				host.store_request_receipt(&wrapped_req, &msg.signer)?;
-				let res = cb.on_accept(request.clone()).map(|_| {
+				let res = cb.on_accept(request.clone()).map(|weight| {
+					total_weights.saturating_accrue(weight);
+
 					let commitment = hash_request::<H>(&wrapped_req);
 					Event::PostRequestHandled(RequestResponseHandled {
 						commitment,
@@ -109,5 +113,5 @@ where
 		})
 		.collect::<Vec<_>>();
 
-	Ok(MessageResult::Request(result))
+	Ok(MessageResult::Request { events: result, weight: total_weights })
 }

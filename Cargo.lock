@@ -4284,6 +4284,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto-utils"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+]
+
+[[package]]
 name = "crypto_secretbox"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10491,6 +10501,7 @@ dependencies = [
  "scale-info",
  "serde",
  "serde-hex-utils",
+ "sp-weights 32.0.0",
  "thiserror 2.0.12",
 ]
 
@@ -14809,6 +14820,7 @@ dependencies = [
 name = "pallet-consensus-incentives"
 version = "0.1.0"
 dependencies = [
+ "crypto-utils",
  "ismp",
  "pallet-ismp",
  "pallet-ismp-relayer",
@@ -15241,6 +15253,7 @@ name = "pallet-ismp"
 version = "2506.0.0"
 dependencies = [
  "anyhow",
+ "crypto-utils",
  "env_logger 0.10.2",
  "fortuples",
  "impl-trait-for-tuples",
@@ -15291,6 +15304,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
+ "crypto-utils",
  "ethabi",
  "ethereum-triedb",
  "evm-state-machine",
@@ -15472,6 +15486,7 @@ dependencies = [
 name = "pallet-messaging-fees"
 version = "0.1.0"
 dependencies = [
+ "crypto-utils",
  "hyperbridge-client-machine",
  "ismp",
  "pallet-hyperbridge",

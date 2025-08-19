@@ -18,6 +18,7 @@ pallet-ismp-host-executive = { workspace = true, default-features = false }
 pallet-hyperbridge = { workspace = true, default-features = false }
 hyperbridge-client-machine =  { workspace = true, default-features = false }
 pallet-ismp-relayer = { workspace = true, default-features = false }
+crypto-utils = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -35,7 +36,8 @@ std = [
     "hyperbridge-client-machine/std",
     "pallet-ismp-host-executive/std",
     "pallet-hyperbridge/std",
-    "polkadot-sdk/sp-application-crypto"
+    "polkadot-sdk/sp-application-crypto",
+    "crypto-utils/std"
 ]
 runtime-benchmarks = ["polkadot-sdk/runtime-benchmarks"]
 try-runtime = ["polkadot-sdk/try-runtime"]

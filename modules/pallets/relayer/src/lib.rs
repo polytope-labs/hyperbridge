@@ -21,10 +21,11 @@
 extern crate alloc;
 
 pub mod withdrawal;
-use crate::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
+use crate::withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
+use crypto_utils::verification::Signature;
 use evm_state_machine::{
 	presets::{
 		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,

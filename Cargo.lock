@@ -4285,7 +4285,7 @@ dependencies = [
 
 [[package]]
 name = "crypto-utils"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "parity-scale-codec",
@@ -10497,11 +10497,11 @@ dependencies = [
  "displaydoc",
  "hex",
  "parity-scale-codec",
- "polkadot-sdk",
  "primitive-types 0.13.1",
  "scale-info",
  "serde",
  "serde-hex-utils",
+ "sp-weights 32.0.0",
  "thiserror 2.0.12",
 ]
 

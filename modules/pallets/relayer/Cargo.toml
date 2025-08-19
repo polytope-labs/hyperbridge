@@ -13,7 +13,7 @@ evm-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
 ismp = { workspace = true }
-crypto-utils = { workspace = true, default-features = false }
+crypto-utils = { workspace = true }
 
 # crates.io
 log = { workspace = true, default-features = false }
@@ -24,7 +24,7 @@ alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
 ethabi = { workspace = true }
-anyhow = { workspace = true, default-features = false }
+anyhow = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

@@ -24,7 +24,7 @@ use crate::{
 	router::Response,
 };
 use alloc::vec::Vec;
-use polkadot_sdk::sp_weights::Weight;
+use sp_weights::Weight;
 
 /// This function handles timeouts
 pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, anyhow::Error>

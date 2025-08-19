@@ -30,7 +30,7 @@ use crate::{
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use polkadot_sdk::sp_weights::Weight;
+use sp_weights::Weight;
 use primitive_types::H256;
 
 /// A consensus message is used to update the state of a consensus client and its children state

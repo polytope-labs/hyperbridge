@@ -24,7 +24,7 @@ use crate::{
 	router::{GetResponse, Request, RequestResponse, Response, StorageValue},
 };
 use alloc::{vec, vec::Vec};
-use polkadot_sdk::sp_weights::Weight;
+use sp_weights::Weight;
 
 /// Validate the state machine, verify the response message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, anyhow::Error>

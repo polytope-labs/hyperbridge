@@ -25,7 +25,7 @@ use crate::{
 use crate::{consensus::ConsensusStateId, module::DispatchResult};
 use alloc::{boxed::Box, vec::Vec};
 pub use consensus::create_client;
-use polkadot_sdk::sp_weights::Weight;
+use sp_weights::Weight;
 
 mod consensus;
 mod request;

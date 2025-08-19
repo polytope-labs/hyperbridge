@@ -27,7 +27,7 @@ use crate::runtime::BOB;
 
 
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
-const PARA_ID: u32 = 100;
+const PARA_ID: u32 = crate::xcm::SIBLING_PARA_ID;
 pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 
 #[test]
@@ -55,7 +55,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 
 
 			ParaB::execute_with(|| {
-				let dest = Location::new(1, [Parachain(100)]);
+				let dest = Location::new(1, [Parachain(PARA_ID)]);
 				let beneficiary: Location = Junctions::X3(Arc::new([
 					Junction::AccountId32 { network: None, id: ALICE.into() },
 					Junction::AccountKey20 {
@@ -79,38 +79,37 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 				let fee_asset = assets.clone().reanchored(&dest, &context).expect("should reanchor");
 				let fees = fee_asset.clone();
 
+				// let xcm = Xcm(vec![
+				// 	BuyExecution { fees, weight_limit:  WeightLimit::Unlimited },
+				// 	DepositAsset {
+				// 		assets: Wild(All),
+				// 		beneficiary,
+				// 	},
+				// ]);
 
-				let xcm = Xcm(vec![
-					BuyExecution { fees, weight_limit:  WeightLimit::Unlimited },
-					DepositAsset {
-						assets: Wild(All),
-						beneficiary,
-					},
-				]);
+				// let message = Xcm(vec![
+				// 	SetFeesMode { jit_withdraw: true },
+				// 	TransferReserveAsset {
+				// 		assets: assets.into(),
+				// 		dest,
+				// 		xcm,
+				// 	},
+				// ]);
 
-				let message = Xcm(vec![
-					SetFeesMode { jit_withdraw: true },
-					TransferReserveAsset {
-						assets: assets.into(),
-						dest,
-						xcm,
-					},
-				]);
+				// assert_ok!(runtime::PalletXcm::execute(
+                //     runtime::RuntimeOrigin::signed(ALICE.into()),
+                //     Box::new(VersionedXcm::from(message)),
+                //    Weight::MAX
+                // ));
 
-				assert_ok!(runtime::PalletXcm::execute(
-                    runtime::RuntimeOrigin::signed(ALICE.into()),
-                    Box::new(VersionedXcm::from(message)),
-                   Weight::MAX
-                ));
-
-				/*assert_ok!(runtime::PalletXcm::limited_reserve_transfer_assets(
+				assert_ok!(runtime::PalletXcm::limited_reserve_transfer_assets(
                     runtime::RuntimeOrigin::signed(ALICE.into()),
                     Box::new(dest.into()),
                     Box::new(beneficiary.into()),
                     Box::new(vec![(asset_location_on_assethub, SEND_AMOUNT).into()].into()),
                     0,
                     WeightLimit::Unlimited,
-                ));*/
+                ));
 			});
 
 
@@ -124,7 +123,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 				);
 				dbg!(bobs_balance);
 
-				let parachain_account: ParaId =   100u32.into();
+				let parachain_account: ParaId =   PARA_ID.into();
 				let parachain_account = parachain_account.into_account_truncating();
 
 				let alice_balance = <runtime::Assets as Inspect<

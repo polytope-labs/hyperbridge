@@ -267,6 +267,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			beneficiary: T::AccountId,
 			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
+			bonus_amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
 		) -> DispatchResult {
 			T::BridgeDropOrigin::ensure_origin(origin)?;
 
@@ -278,12 +279,13 @@ pub mod pallet {
 			let percent = Permill::from_parts(250_000);
 			let unlocked_balance = percent * u128::from(amount);
 
-			let locked = u128::from(amount).saturating_sub(unlocked_balance);
+			let total_amount = u128::from(amount).saturating_add(u128::from(bonus_amount));
+			let locked = total_amount.saturating_sub(unlocked_balance);
 
 			<<T as Config>::Currency as Currency<T::AccountId>>::transfer(
 				&Self::account_id(),
 				&beneficiary,
-				amount.into(),
+				total_amount.into(),
 				ExistenceRequirement::AllowDeath,
 			)?;
 
@@ -299,9 +301,9 @@ pub mod pallet {
 				starting_block,
 			)?;
 
-			IroAllocations::<T>::insert(&beneficiary, u128::from(amount));
+			IroAllocations::<T>::insert(&beneficiary, total_amount);
 
-			Self::deposit_event(Event::<T>::Allocated { beneficiary, amount });
+			Self::deposit_event(Event::<T>::Allocated { beneficiary, amount: total_amount.into() });
 
 			Ok(())
 		}

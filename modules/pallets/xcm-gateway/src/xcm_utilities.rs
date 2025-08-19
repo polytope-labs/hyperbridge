@@ -160,6 +160,7 @@ where
 	T::AccountId: Eq + Clone + From<[u8; 32]> + Into<[u8; 32]>,
 {
 	fn can_check_in(origin: &Location, what: &Asset, context: &XcmContext) -> XcmResult {
+		println!("can check in {:?}", origin);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -171,6 +172,7 @@ where
 	}
 
 	fn check_in(origin: &Location, what: &Asset, context: &XcmContext) {
+		println!("check in {:?}", origin);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -260,6 +262,7 @@ where
 		who: &Location,
 		maybe_context: Option<&XcmContext>,
 	) -> Result<AssetsInHolding, XcmError> {
+		println!("withdrawing asset {:?}, {:?}", &what, &who);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -276,6 +279,7 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
+		println!("internal transfer asset from {:?}, to {:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -292,6 +296,7 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
+		println!("transfer asset {:?}, {:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,

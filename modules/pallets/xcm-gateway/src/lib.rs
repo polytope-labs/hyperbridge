@@ -33,6 +33,7 @@ use frame_support::{
 		Get,
 	},
 };
+use polkadot_sdk::cumulus_primitives_core::{All, BuyExecution, DepositAsset, SetFeesMode, TransferReserveAsset, Weight, Wild, Xcm};
 
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
@@ -47,7 +48,7 @@ use sp_runtime::{traits::AccountIdConversion, Permill};
 use staging_xcm::{
 	prelude::Assets,
 	v5::{Asset, AssetId, Fungibility, Junction, Location, WeightLimit},
-	VersionedAssets, VersionedLocation,
+	VersionedAssets, VersionedLocation, VersionedXcm
 };
 use xcm_utilities::MultiAccount;
 
@@ -323,6 +324,7 @@ where
 	T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
 {
 	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), anyhow::Error> {
+		println!("accepting module");
 		let request = Request::Post(post.clone());
 		// Check that source module is equal to the known token gateway deployment address
 		ensure!(
@@ -336,7 +338,7 @@ where
 				},
 			}
 		);
-
+		println!("ensuring module");
 		// parachains/solochains shouldn't be sending us a request.
 		ensure!(
 			!matches!(
@@ -353,6 +355,7 @@ where
 			}
 		);
 
+		println!("decoding post request");
 		let body = Body::abi_decode(&mut &post.body[1..], true).map_err(|_| {
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Failed to decode request body".to_string(),
@@ -364,6 +367,7 @@ where
 			}
 		})?;
 
+		println!("unknown asset id");
 		// Check that the asset id is equal to the known asset id
 		ensure!(
 			body.asset_id.0 == Pallet::<T>::dot_asset_id().0,
@@ -396,19 +400,32 @@ where
 		let xcm_dest = VersionedLocation::V5(asset_id.clone());
 		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
-		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
+		//let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
+
+		let assets = Asset {
+			id: AssetId(asset_id.clone()),
+			fun: Fungibility::Fungible(amount),
+		};
+
+		let remote_xcm = Xcm(vec![
+			BuyExecution { fees: assets.clone(), weight_limit: WeightLimit::Unlimited },
+			DepositAsset { assets: Wild(All), beneficiary: xcm_beneficiary },
+		]);
+
+		let message = Xcm(vec![
+			SetFeesMode { jit_withdraw: true },
+			TransferReserveAsset { assets: assets.into(), dest: asset_id, xcm: remote_xcm },
+		]);
 
 		let mut assets = Assets::new();
-		assets.push(asset);
+		//assets.push(asset);
 
-		// Send xcm back to relaychain
-		pallet_xcm::Pallet::<T>::limited_reserve_transfer_assets(
+		println!("trying to send xcm back to relay chain");
+		// Send xcm back to asset hub
+		pallet_xcm::Pallet::<T>::execute(
 			frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
-			Box::new(xcm_dest),
-			Box::new(xcm_beneficiary.into()),
-			Box::new(VersionedAssets::V5(assets)),
-			fee_asset_item,
-			weight_limit,
+			Box::new(VersionedXcm::from(message)),
+			Weight::MAX,
 		)
 		.map_err(|_| ismp::error::Error::ModuleDispatchError {
 			msg: "Token Gateway: Failed execute xcm to relay chain".to_string(),
@@ -419,11 +436,15 @@ where
 			},
 		})?;
 
+		println!("done sending xcm");
+
 		Pallet::<T>::deposit_event(Event::<T>::AssetReceived {
 			beneficiary: body.to.0.into(),
 			amount: amount.into(),
 			source: request.source_chain(),
 		});
+
+
 
 		Ok(())
 	}

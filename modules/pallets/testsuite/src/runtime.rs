@@ -25,8 +25,6 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::{EnsureRoot, EnsureSigned, EventRecord};
-use polkadot_sdk::xcm_simulator::{GeneralIndex, Location, PalletInstance, Parachain};
-use polkadot_sdk::xcm_simulator::Junctions::X3;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
@@ -46,6 +44,7 @@ use pallet_token_governor::GatewayParams;
 use polkadot_sdk::{
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys},
+	xcm_simulator::{GeneralIndex, Junctions::X3, Location, PalletInstance, Parachain},
 };
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
@@ -60,7 +59,7 @@ use sp_runtime::{
 use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use pallet_messaging_fees::types::PriceOracle;
-use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID};
+use pallet_xcm_gateway::xcm_utilities::ASSET_HUB_PARA_ID;
 use substrate_state_machine::SubstrateStateMachine;
 use xcm_simulator::mock_message_queue;
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);

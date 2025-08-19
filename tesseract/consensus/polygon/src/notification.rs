@@ -138,7 +138,7 @@ async fn build_milestone_update(
 	let latest_milestone_at_height =
 		client.prover.get_latest_milestone_at_height(reference_height).await?;
 
-	let (mut milestone_number, mut milestone) = match latest_milestone_at_height {
+	let (milestone_number, milestone) = match latest_milestone_at_height {
 		Some((number, milestone)) => (number, milestone),
 		None => {
 			log::warn!(
@@ -146,20 +146,15 @@ async fn build_milestone_update(
 				"No milestone found at height {}, falling back to current latest",
 				reference_height
 			);
-			client.prover.get_latest_milestone().await?
+			return Ok(None);
 		},
 	};
 
 	let query_height = reference_height.saturating_sub(1);
-	let mut milestone_proof =
-		client.prover.get_milestone_proof(milestone_number, query_height).await?;
+	let milestone_proof = client.prover.get_milestone_proof(milestone_number, query_height).await?;
 
 	if milestone_proof.value.is_empty() {
-		milestone_number = milestone_number.saturating_sub(1);
-		milestone_proof = client.prover.get_milestone_proof(milestone_number, query_height).await?;
-
-		milestone = ismp_polygon::Milestone::proto_decode(&milestone_proof.value)
-			.map_err(|e| anyhow::anyhow!("failed to decode milestone: {}", e))?;
+		return Ok(None);
 	}
 
 	if milestone.end_block > consensus_state.last_finalized_block {

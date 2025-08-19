@@ -136,7 +136,8 @@ async fn build_milestone_update(
 	consensus_state: &ConsensusState,
 ) -> anyhow::Result<Option<ismp_polygon::MilestoneUpdate>> {
 	let latest_milestone_at_height =
-		client.prover.get_latest_milestone_at_height(reference_height).await?;
+        let query_height = reference_height.saturating_sub(1);
+		client.prover.get_latest_milestone_at_height(query_height).await?;
 
 	let (milestone_number, milestone) = match latest_milestone_at_height {
 		Some((number, milestone)) => (number, milestone),

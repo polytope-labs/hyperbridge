@@ -39,6 +39,7 @@ members = [
     "modules/ismp/clients/ismp-arbitrum",
     "modules/ismp/clients/ismp-optimism",
     "modules/ismp/clients/polygon",
+    "modules/ismp/clients/tendermint",
     "modules/pallets/collator-manager",
 
     # cryptography
@@ -110,6 +111,7 @@ members = [
     "tesseract/consensus/beefy/zk",
     "tesseract/consensus/relayer",
     "tesseract/consensus/polygon",
+    "tesseract/consensus/tendermint",
 
 
     # Airdrop
@@ -261,6 +263,7 @@ op-verifier = { path = "./modules/ismp/clients/optimism", default-features = fal
 ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features = false }
 ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
 ismp-polygon = { path = "modules/ismp/clients/polygon", default-features = false }
+ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
@@ -314,7 +317,7 @@ tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
-
+tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 
 
 [workspace.dependencies.codec]

@@ -150,7 +150,6 @@ async fn build_milestone_update(
 		},
 	};
 
-	let query_height = reference_height.saturating_sub(1);
 	let milestone_proof = client.prover.get_milestone_proof(milestone_number, query_height).await?;
 
 	if milestone_proof.value.is_empty() {

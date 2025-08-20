@@ -80,13 +80,13 @@ parameter_types! {
 }
 
 parameter_types! {
-	pub const KsmLocation: Location = Location::parent();
+	pub const RelayLocation: Location = Location::parent();
 	pub const RelayNetwork: Option<NetworkId> = None;
 	pub UniversalLocation: Junctions = Parachain(ParachainInfo::parachain_id().into()).into();
 }
 
 parameter_types! {
-	pub ExternalConsensus: InteriorLocation = [Parachain(100), Parachain(1000)].into();
+	pub ExternalConsensus: InteriorLocation = [Parachain(SIBLING_PARA_ID), Parachain(1000)].into();
 }
 
 pub type LocationToAccountId = (
@@ -210,12 +210,15 @@ impl DmpMessageHandler for DmpMessageExecutor {
 	}
 }
 
+/// 1000-2000 are considered system parachains, so let's use higher para_id
+pub const SIBLING_PARA_ID: u32 = 2222;
+
 decl_test_parachain! {
 	pub struct ParaA {
 		Runtime = Test,
 		XcmpMessageHandler = crate::runtime::MsgQueue,
 		DmpMessageHandler = DmpMessageExecutor,
-		new_ext = para_ext(100),
+		new_ext = para_ext(SIBLING_PARA_ID),
 	}
 }
 
@@ -244,7 +247,7 @@ decl_test_network! {
 	pub struct MockNet {
 		relay_chain = Relay,
 		parachains = vec![
-			(100, ParaA),
+			(SIBLING_PARA_ID, ParaA),
 			(1000, ParaB),
 		],
 	}
@@ -272,7 +275,7 @@ parameter_types! {
 pub struct TestReserve;
 impl ContainsPair<Asset, Location> for TestReserve {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
-		println!("TestReserve::contains asset: {asset:?}, origin:{origin:?}");
+		log::trace!(target: "xcm", "TestReserve::contains asset: {asset:?}, origin:{origin:?}");
 		let assethub_location = Location::new(1, Parachain(ASSET_HUB_PARA_ID));
 		&assethub_location == origin
 	}
@@ -285,7 +288,10 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToCallOrigin;
 	type IsReserve = TestReserve;
-	type IsTeleporter = ();
+	type IsTeleporter = (
+		// Important setting reflecting AssetHub
+		parachains_common::xcm_config::ConcreteAssetFromSystem<RelayLocation>,
+	);
 	type UniversalLocation = UniversalLocation;
 	type Barrier = Barrier;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;

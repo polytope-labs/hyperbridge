@@ -81,6 +81,7 @@ parameter_types! {
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();
+	pub ParaALocation: Location = Location::new(1, Parachain(SIBLING_PARA_ID));
 	pub const RelayNetwork: Option<NetworkId> = None;
 	pub UniversalLocation: Junctions = Parachain(ParachainInfo::parachain_id().into()).into();
 }
@@ -138,21 +139,16 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	let asset_location = Location::new(1, Here);
 	let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
 
-	let dot_asset_location = Location::new(1, Parachain(1000));
-	let dot_asset_id: H256 = sp_io::hashing::keccak_256(&dot_asset_location.encode()).into();
 
 	let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
 		assets: vec![
 			// id, owner, is_sufficient, min_balance
 			(asset_id.clone(), ALICE, true, 1),
-			(dot_asset_id.clone(), ALICE, true, 1),
 		],
-		accounts: vec![(asset_id, ALICE.into(), 1000_000_000_0000 * 10), (asset_id, BOB.into(), 0),
-					   (dot_asset_id, ALICE.into(), 1000_000_000_0000 * 10), (dot_asset_id, BOB.into(), 0)],
+		accounts: vec![(asset_id, ALICE.into(), 10000_000_000_00000 * 10), (asset_id, BOB.into(), 0),],
 		metadata: vec![
 			// id, name, symbol, decimals
 			(asset_id, "Token Name".into(), "TOKEN".into(), 10),
-			(dot_asset_id, "Token Name 2".into(), "TOKEN2".into(), 10),
 		],
 		next_asset_id: None,
 	};
@@ -221,7 +217,7 @@ decl_test_parachain! {
 
 decl_test_parachain! {
 	pub struct ParaB {
-	   Runtime = Test,
+	   Runtime = crate::asset_hub_runtime::AssetHubTest,
 	   XcmpMessageHandler = crate::runtime::MsgQueue,
 	   DmpMessageHandler = DmpMessageExecutor,
 	   new_ext = para_ext(1000),
@@ -254,24 +250,21 @@ pub type XcmRouter = ParachainXcmRouter<crate::runtime::MsgQueue>;
 pub type Barrier = AllowUnpaidExecutionFrom<Everything>;
 
 parameter_types! {
-	pub DotOnAssetHub: Location = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
+	pub DotOnAssetHub: Location = Location::new(1, Here);
 }
 
-parameter_types! {
-	pub NativeAssetOnAssetHub: Location = Location {
-		parents: 1,
-		interior: X3(Arc::new([
-			Parachain(ASSET_HUB_PARA_ID),
-			PalletInstance(50),
-			GeneralIndex(123),
-		])),
-	};
-}
+
+
+
+
+
+
+
 
 pub struct TestReserve;
 impl ContainsPair<Asset, Location> for TestReserve {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
-		log::trace!(target: "xcm", "TestReserve::contains asset: {asset:?}, origin:{origin:?}");
+		println!("TestReserve::contains asset: {asset:?}, origin:{origin:?}");
 		let assethub_location = Location::new(1, Parachain(ASSET_HUB_PARA_ID));
 		&assethub_location == origin
 	}
@@ -351,6 +344,7 @@ use polkadot_sdk::{
 	staging_xcm_builder::ExternalConsensusLocationsConverterFor,
 	xcm_simulator::Junctions::{X1, X3},
 };
+use polkadot_sdk::sp_runtime::traits::AccountIdConversion;
 
 impl cumulus_pallet_xcmp_queue::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
@@ -407,7 +401,7 @@ impl pallet_xcm::Config for Test {
 	type ExecuteXcmOrigin = EnsureXcmOrigin<RuntimeOrigin, LocalOriginToLocation>;
 	type XcmExecuteFilter = Everything;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
-	type XcmTeleportFilter = Nothing;
+	type XcmTeleportFilter = Everything;
 	type XcmReserveTransferFilter = Everything;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;

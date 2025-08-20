@@ -33,7 +33,9 @@ use frame_support::{
 		Get,
 	},
 };
-use polkadot_sdk::cumulus_primitives_core::{All, BuyExecution, DepositAsset, SetFeesMode, TransferReserveAsset, Weight, Wild, Xcm};
+use polkadot_sdk::cumulus_primitives_core::{All, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset, Weight, Wild, Xcm};
+use polkadot_sdk::staging_xcm_executor::traits::TransferType;
+use polkadot_sdk::xcm_simulator::AllCounted;
 
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
@@ -51,6 +53,7 @@ use staging_xcm::{
 	VersionedAssets, VersionedLocation, VersionedXcm
 };
 use xcm_utilities::MultiAccount;
+use crate::xcm_utilities::ASSET_HUB_PARA_ID;
 
 pub mod xcm_utilities;
 
@@ -367,7 +370,7 @@ where
 			}
 		})?;
 
-		println!("unknown asset id");
+		println!(" asset id {:?} {:?}", body.asset_id.0, Pallet::<T>::dot_asset_id().0);
 		// Check that the asset id is equal to the known asset id
 		ensure!(
 			body.asset_id.0 == Pallet::<T>::dot_asset_id().0,
@@ -394,40 +397,36 @@ where
 
 		let asset_id = T::DotLocation::get();
 
-		// We don't custody user funds, we send the dot back to the relaychain using xcm
+		// We don't custody user funds, we send the dot back to assethub using xcm
 		let xcm_beneficiary: Location =
 			Junction::AccountId32 { network: None, id: body.to.0 }.into();
-		let xcm_dest = VersionedLocation::V5(asset_id.clone());
+
+		let xcm_dest = VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
 		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
-		//let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
-
-		let assets = Asset {
-			id: AssetId(asset_id.clone()),
-			fun: Fungibility::Fungible(amount),
-		};
-
-		let remote_xcm = Xcm(vec![
-			BuyExecution { fees: assets.clone(), weight_limit: WeightLimit::Unlimited },
-			DepositAsset { assets: Wild(All), beneficiary: xcm_beneficiary },
-		]);
-
-		let message = Xcm(vec![
-			SetFeesMode { jit_withdraw: true },
-			TransferReserveAsset { assets: assets.into(), dest: asset_id, xcm: remote_xcm },
-		]);
+		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 
 		let mut assets = Assets::new();
-		//assets.push(asset);
+		assets.push(asset.clone());
 
-		println!("trying to send xcm back to relay chain");
-		// Send xcm back to asset hub
-		pallet_xcm::Pallet::<T>::execute(
+		let custom_xcm_on_dest = Xcm::<()>(vec![DepositAsset {
+			assets: Wild(AllCounted(assets.len() as u32)),
+			beneficiary: xcm_beneficiary.clone(),
+		}]);
+
+		println!("sending xcm {:?}, xcm_beneficiary {:?}", xcm_dest, xcm_beneficiary);
+
+		// Send xcm back to assethub
+		pallet_xcm::Pallet::<T>::transfer_assets_using_type_and_then(
 			frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
-			Box::new(VersionedXcm::from(message)),
-			Weight::MAX,
-		)
-		.map_err(|_| ismp::error::Error::ModuleDispatchError {
+			Box::new(xcm_dest),
+			Box::new(VersionedAssets::V5(assets.clone())),
+			Box::new(TransferType::DestinationReserve),
+			Box::new(asset.id.into()),
+			Box::new(TransferType::DestinationReserve),
+			Box::new(VersionedXcm::from(custom_xcm_on_dest)),
+			weight_limit,
+		).map_err(|_| ismp::error::Error::ModuleDispatchError {
 			msg: "Token Gateway: Failed execute xcm to relay chain".to_string(),
 			meta: Meta {
 				source: request.source_chain(),
@@ -493,34 +492,42 @@ where
 					},
 				})?;
 				// We do an xcm limited reserve transfer from the pallet custody account to the user
-				// on the relaychain;
+				// on assethub;
 				let xcm_beneficiary: Location =
 					Junction::AccountId32 { network: None, id: body.from.0 }.into();
 				let asset_id = T::DotLocation::get();
-				let xcm_dest = VersionedLocation::V5(asset_id.clone());
+				let xcm_dest = VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
 				let asset =
 					Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 
 				let mut assets = Assets::new();
-				assets.push(asset);
-				pallet_xcm::Pallet::<T>::limited_reserve_transfer_assets(
+				assets.push(asset.clone());
+
+				let custom_xcm_on_dest = Xcm::<()>(vec![DepositAsset {
+					assets: Wild(AllCounted(assets.len() as u32)),
+					beneficiary: xcm_beneficiary.clone(),
+				}]);
+
+				pallet_xcm::Pallet::<T>::transfer_assets_using_type_and_then(
 					frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 					Box::new(xcm_dest),
-					Box::new(xcm_beneficiary.into()),
-					Box::new(VersionedAssets::V5(assets)),
-					fee_asset_item,
+					Box::new(VersionedAssets::V5(assets.clone())),
+					Box::new(TransferType::DestinationReserve),
+					Box::new(asset.id.into()),
+					Box::new(TransferType::DestinationReserve),
+					Box::new(VersionedXcm::from(custom_xcm_on_dest)),
 					weight_limit,
 				)
-				.map_err(|_| ismp::error::Error::ModuleDispatchError {
+				.unwrap();/*map_err(|_| ismp::error::Error::ModuleDispatchError {
 					msg: "Token Gateway: Failed to execute xcm to relay chain".to_string(),
 					meta: Meta {
 						source: request.source_chain(),
 						dest: request.dest_chain(),
 						nonce: request.nonce(),
 					},
-				})?;
+				})?;*/
 
 				Pallet::<T>::deposit_event(Event::<T>::AssetRefunded {
 					beneficiary,

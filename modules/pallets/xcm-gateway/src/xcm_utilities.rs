@@ -24,6 +24,7 @@ use frame_support::traits::{
 use ismp::host::StateMachine;
 use polkadot_sdk::*;
 use polkadot_sdk::cumulus_primitives_core::Parachain;
+use polkadot_sdk::xcm_emulator::Here;
 use sp_core::{Get, H160};
 use sp_runtime::traits::MaybeEquivalence;
 use staging_xcm::v5::{
@@ -76,7 +77,7 @@ where
 {
 	fn convert_location(location: &Location) -> Option<MultiAccount<A>> {
 		match location {
-			Location { parents: 0, interior: Junctions::X3(arc_junctions) } => {
+			Location { interior: Junctions::X3(arc_junctions), .. } => {
 				// Dereference the Arc to access the underlying array
 				match arc_junctions.as_ref() {
 					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout)] =>
@@ -128,7 +129,8 @@ pub struct ReserveTransferFilter;
 
 impl Contains<(Location, Vec<Asset>)> for ReserveTransferFilter {
 	fn contains(t: &(Location, Vec<Asset>)) -> bool {
-		let native = Location::parent();
+		println!("filter for {:?}", t);
+		let native = Location::new(1, Here);
 		t.1.iter().all(|asset| {
 			if let Asset { id: asset_id, fun: Fungible(_) } = asset {
 				asset_id.0 == native
@@ -212,6 +214,7 @@ where
 
 		// Ismp xcm transaction
 		if let Some(who) = MultilocationToMultiAccount::<T::AccountId>::convert_location(who) {
+			println!("some account gotten {:?}", what);
 			// We would remove the protocol fee at this point
 
 			let protocol_account = Pallet::<T>::protocol_account_id();
@@ -238,6 +241,7 @@ where
 			// We dispatch an ismp request to the destination chain
 			Pallet::<T>::dispatch_request(who, remainder)
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
+			println!("done minting");
 		} else {
 
 			#[cfg(feature = "std")]

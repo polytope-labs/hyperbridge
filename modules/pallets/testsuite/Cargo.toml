@@ -53,6 +53,7 @@ evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 ismp-grandpa = { workspace = true, default-features = true }
 rs_merkle = { version = "1.5.0"}
+log = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

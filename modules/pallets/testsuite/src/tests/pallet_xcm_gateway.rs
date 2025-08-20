@@ -37,38 +37,125 @@ use xcm_simulator::TestExt;
 use crate::runtime::ReputationAssetId;
 
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
-const PARA_ID: u32 = 100;
+const PARA_ID: u32 = crate::xcm::SIBLING_PARA_ID;
 pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 
 fn reserve_transfer_on_AH(amount: u128, beneficiary: Location) {
 	let asset_location_on_assethub = Location::new(1, Here);
 
-	let dest = Location::new(1, [Parachain(100)]);
+		//let asset_location_on_assethub_h256: H256 = sp_io::hashing::keccak_256(&asset_location_on_assethub.encode()).into();
+
+		let asset_id_on_paraa: H256 =
+				sp_io::hashing::keccak_256(&Location::new(1, Here).encode())
+					.into();
+
+
+			ParaA::execute_with(|| {
+				/*assert_ok!(runtime::Assets::force_create(
+                    runtime::RuntimeOrigin::root(),
+                    asset_id_on_paraa.into(),
+                    ALICE.into(),
+                    true,
+                    1
+                ));*/
+			});
+
+
+			ParaB::execute_with(|| {
+				let dest = Location::new(1, [Parachain(PARA_ID)]);
+				let beneficiary: Location = Junctions::X3(Arc::new([
+					Junction::AccountId32 { network: None, id: ALICE.into() },
+					Junction::AccountKey20 {
+						network: Some(NetworkId::Ethereum { chain_id: 97 }),
+						key: [1u8; 20],
+					},
+					Junction::GeneralIndex(60 * 60),
+				]))
+					.into_location();
+
+				let context = Junctions::X2(Arc::new([
+					Junction::GlobalConsensus(NetworkId::Polkadot),
+					Parachain(1000),
+				]));
 
 	let assets = Asset {
 		id: AssetId(asset_location_on_assethub.clone()),
 		fun: Fungibility::Fungible(amount),
 	};
 
-	let remote_xcm = Xcm(vec![
-		BuyExecution { fees: assets.clone(), weight_limit: WeightLimit::Unlimited },
-		DepositAsset { assets: Wild(All), beneficiary },
-	]);
+				let fee_asset = assets.clone().reanchored(&dest, &context).expect("should reanchor");
+				let fees = fee_asset.clone();
 
-	let message = Xcm(vec![
-		SetFeesMode { jit_withdraw: true },
-		TransferReserveAsset { assets: assets.into(), dest, xcm: remote_xcm },
-	]);
+				// let xcm = Xcm(vec![
+				// 	BuyExecution { fees, weight_limit:  WeightLimit::Unlimited },
+				// 	DepositAsset {
+				// 		assets: Wild(All),
+				// 		beneficiary,
+				// 	},
+				// ]);
 
-	ParaB::execute_with(|| {
-		assert_ok!(runtime::PalletXcm::execute(
-			runtime::RuntimeOrigin::signed(ALICE.into()),
-			Box::new(VersionedXcm::from(message)),
-			Weight::MAX
-		));
-	});
+				// let message = Xcm(vec![
+				// 	SetFeesMode { jit_withdraw: true },
+				// 	TransferReserveAsset {
+				// 		assets: assets.into(),
+				// 		dest,
+				// 		xcm,
+				// 	},
+				// ]);
+
+				// assert_ok!(runtime::PalletXcm::execute(
+                //     runtime::RuntimeOrigin::signed(ALICE.into()),
+                //     Box::new(VersionedXcm::from(message)),
+                //    Weight::MAX
+                // ));
+
+				assert_ok!(runtime::PalletXcm::limited_reserve_transfer_assets(
+                    runtime::RuntimeOrigin::signed(ALICE.into()),
+                    Box::new(dest.into()),
+                    Box::new(beneficiary.into()),
+                    Box::new(vec![(asset_location_on_assethub, SEND_AMOUNT).into()].into()),
+                    0,
+                    WeightLimit::Unlimited,
+                ));
+			});
+
+
+			ParaA::execute_with(|| {
+
+				let bobs_balance = <runtime::Assets as Inspect<
+					<Test as frame_system::Config>::AccountId,
+				>>::balance(
+					asset_id_on_paraa,
+					&BOB,
+				);
+				dbg!(bobs_balance);
+
+				let parachain_account: ParaId =   PARA_ID.into();
+				let parachain_account = parachain_account.into_account_truncating();
+
+				let alice_balance = <runtime::Assets as Inspect<
+					<Test as frame_system::Config>::AccountId,
+				>>::balance(
+					asset_id_on_paraa,
+					&parachain_account,
+				);
+				dbg!(alice_balance);
+				let nonce = pallet_ismp::Nonce::<Test>::get();
+				assert_eq!(nonce, 1);
+
+				let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
+				let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
+
+				let pallet_account_balance = <runtime::Assets as Inspect<
+					<Test as frame_system::Config>::AccountId,
+				>>::balance(
+					asset_id_on_paraa.into(),
+					&pallet_xcm_gateway::Pallet::<Test>::account_id(),
+				);
+				assert_eq!(custodied_amount, pallet_account_balance);
+			});
+
 }
-
 #[test]
 fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 	init_tracing();

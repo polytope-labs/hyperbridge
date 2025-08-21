@@ -32,7 +32,6 @@ use frame_support::{
 		fungibles::{self},
 		Get,
 	},
-	weights::Weight,
 };
 use polkadot_sdk::cumulus_primitives_core::{All, AllCounted, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset, Weight, Wild, Xcm};
 use polkadot_sdk::staging_xcm_executor::traits::TransferType;

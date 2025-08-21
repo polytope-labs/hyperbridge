@@ -4,11 +4,10 @@ use polkadot_sdk::*;
 use std::sync::Arc;
 
 use crate::{
-	init_tracing,
 	relay_chain::{self, RuntimeOrigin},
 	runtime,
 	runtime::{Test, ALICE, BOB, Assets, PalletXcm},
-	xcm::{MockNet, ParaA, ParaB, Relay},
+	xcm::{MockNet, ParaA, ParaB},
 };
 use alloy_sol_types::SolValue;
 use codec::Encode;
@@ -21,21 +20,12 @@ use ismp::{
 use pallet_token_gateway::{impls::convert_to_erc20, types::Body};
 use pallet_xcm_gateway::Module;
 use polkadot_sdk::{
-	frame_support::traits::fungibles::Mutate,
 	sp_runtime::traits::AccountIdConversion,
-	staging_xcm::latest::AssetTransferFilter,
-	xcm_simulator::{
-		All, AllCounted, Asset, AssetFilter, AssetId, BuyExecution, DepositAsset, Fungibility,
-		GeneralIndex, Here, InitiateTransfer, PalletInstance, ParaId, Parachain, Parent,
-		Reanchorable, SetFeesMode, TransferAsset, TransferReserveAsset, VersionedXcm, Weight, Wild,
-		Xcm,
-	},
+	xcm_simulator::{Here, ParaId, Parachain},
 };
-use sp_core::{crypto::AccountId32, ByteArray, H160, H256};
+use sp_core::{ByteArray, H160, H256};
 use staging_xcm::v5::{Junction, Junctions, Location, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
-use pallet_xcm_gateway::xcm_utilities::ASSET_HUB_PARA_ID;
-use crate::runtime::ReputationAssetId;
 
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
 const PARA_ID: u32 = crate::xcm::SIBLING_PARA_ID;
@@ -43,26 +33,11 @@ pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 
 #[test]
 fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
-	init_tracing();
 	MockNet::reset();
 			let asset_location_on_assethub = Location::new(1, Here);
-
-		//let asset_location_on_assethub_h256: H256 = sp_io::hashing::keccak_256(&asset_location_on_assethub.encode()).into();
-
 		let asset_id_on_paraa: H256 =
 				sp_io::hashing::keccak_256(&Location::new(1, Here).encode())
 					.into();
-
-
-			ParaA::execute_with(|| {
-				/*assert_ok!(runtime::Assets::force_create(
-                    runtime::RuntimeOrigin::root(),
-                    asset_id_on_paraa.into(),
-                    ALICE.into(),
-                    true,
-                    1
-                ));*/
-			});
 
 
 			ParaB::execute_with(|| {
@@ -77,41 +52,6 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 				]))
 					.into_location();
 
-				let context = Junctions::X2(Arc::new([
-					Junction::GlobalConsensus(NetworkId::Polkadot),
-					Parachain(1000),
-				]));
-
-				let assets = Asset {
-					id: AssetId(asset_location_on_assethub.clone()),
-					fun: Fungibility::Fungible(SEND_AMOUNT),
-				};
-
-				let fee_asset = assets.clone().reanchored(&dest, &context).expect("should reanchor");
-				let fees = fee_asset.clone();
-
-				// let xcm = Xcm(vec![
-				// 	BuyExecution { fees, weight_limit:  WeightLimit::Unlimited },
-				// 	DepositAsset {
-				// 		assets: Wild(All),
-				// 		beneficiary,
-				// 	},
-				// ]);
-
-				// let message = Xcm(vec![
-				// 	SetFeesMode { jit_withdraw: true },
-				// 	TransferReserveAsset {
-				// 		assets: assets.into(),
-				// 		dest,
-				// 		xcm,
-				// 	},
-				// ]);
-
-				// assert_ok!(runtime::PalletXcm::execute(
-                //     runtime::RuntimeOrigin::signed(ALICE.into()),
-                //     Box::new(VersionedXcm::from(message)),
-                //    Weight::MAX
-                // ));
 
 				assert_ok!(runtime::PalletXcm::limited_reserve_transfer_assets(
                     runtime::RuntimeOrigin::signed(ALICE.into()),
@@ -163,7 +103,6 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 
 #[test]
 fn should_process_on_accept_module_callback_correctly() {
-	init_tracing();
 	MockNet::reset();
 
 	let beneficiary: Location = Junctions::X3(Arc::new([
@@ -277,7 +216,6 @@ fn should_process_on_accept_module_callback_correctly() {
 
 #[test]
 fn should_process_on_timeout_module_callback_correctly() {
-	init_tracing();
 	MockNet::reset();
 
 	let beneficiary: Location = Junctions::X3(Arc::new([

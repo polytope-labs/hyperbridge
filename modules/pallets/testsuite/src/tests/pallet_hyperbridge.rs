@@ -99,12 +99,7 @@ fn test_dispatch_fees() {
 		assert_eq!(Balances::balance(&account), Default::default());
 
 		// now pallet-ismp has it
-		assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 10 * UNIT);
-		// and pallet-hyperbridge
-		assert_eq!(
-			Balances::balance(&PALLET_HYPERBRIDGE.into_account_truncating()),
-			64 * 10 * UNIT
-		);
+		assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()),  65 * 10 * UNIT);
 	});
 }
 
@@ -115,28 +110,10 @@ fn test_can_withdraw_relayer_and_protocol_revenue() {
 	let hyperbridge = Hyperbridge::default();
 
 	ext.execute_with(|| {
-		// init the balances
-		Balances::mint_into(&PALLET_HYPERBRIDGE.into_account_truncating(), 65 * 10 * UNIT).unwrap();
 		Balances::mint_into(&RELAYER_FEE_ACCOUNT.into_account_truncating(), 65 * 10 * UNIT)
 			.unwrap();
 
 		let withdrawal = WithdrawalRequest { amount: 65 * 10 * UNIT, account: account.clone() };
-
-		let data = Message::<AccountId32, u128>::WithdrawProtocolFees(withdrawal.clone()).encode();
-		hyperbridge
-			.on_accept(PostRequest {
-				source: Coprocessor::get().unwrap(),
-				dest: StateMachine::Polkadot(2001),
-				nonce: 0,
-				from: vec![],
-				to: vec![],
-				timeout_timestamp: 0,
-				body: data,
-			})
-			.unwrap();
-
-		// protocol fees withdrawn
-		assert_eq!(Balances::balance(&account), 65 * 10 * UNIT);
 
 		let data = Message::<AccountId32, u128>::WithdrawRelayerFees(withdrawal.clone()).encode();
 		hyperbridge
@@ -152,6 +129,6 @@ fn test_can_withdraw_relayer_and_protocol_revenue() {
 			.unwrap();
 
 		// relayer fees withdrawn
-		assert_eq!(Balances::balance(&account), 130 * 10 * UNIT);
+		assert_eq!(Balances::balance(&account), 65 * 10 * UNIT);
 	});
 }

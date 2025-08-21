@@ -23,8 +23,7 @@ use frame_support::traits::{
 };
 use ismp::host::StateMachine;
 use polkadot_sdk::*;
-use polkadot_sdk::cumulus_primitives_core::Parachain;
-use polkadot_sdk::xcm_emulator::Here;
+use polkadot_sdk::cumulus_primitives_core::Here;
 use sp_core::{Get, H160};
 use sp_runtime::traits::MaybeEquivalence;
 use staging_xcm::v5::{
@@ -77,7 +76,7 @@ where
 {
 	fn convert_location(location: &Location) -> Option<MultiAccount<A>> {
 		match location {
-			Location { interior: Junctions::X3(arc_junctions), .. } => {
+			Location { parents: 0, interior: Junctions::X3(arc_junctions) } => {
 				// Dereference the Arc to access the underlying array
 				match arc_junctions.as_ref() {
 					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout)] =>
@@ -129,7 +128,6 @@ pub struct ReserveTransferFilter;
 
 impl Contains<(Location, Vec<Asset>)> for ReserveTransferFilter {
 	fn contains(t: &(Location, Vec<Asset>)) -> bool {
-		println!("filter for {:?}", t);
 		let native = Location::new(1, Here);
 		t.1.iter().all(|asset| {
 			if let Asset { id: asset_id, fun: Fungible(_) } = asset {
@@ -162,7 +160,6 @@ where
 	T::AccountId: Eq + Clone + From<[u8; 32]> + Into<[u8; 32]>,
 {
 	fn can_check_in(origin: &Location, what: &Asset, context: &XcmContext) -> XcmResult {
-		println!("can check in {:?}", origin);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -174,7 +171,6 @@ where
 	}
 
 	fn check_in(origin: &Location, what: &Asset, context: &XcmContext) {
-		println!("check in {:?}", origin);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -208,13 +204,11 @@ where
 	}
 
 	fn deposit_asset(what: &Asset, who: &Location, context: Option<&XcmContext>) -> XcmResult {
-		println!("depositing asset: what: {what:?}, who: {who:?}, context: {:?}", context.unwrap().origin);
 		// Check we handle this asset.
 		let (asset_id, amount) = Matcher::matches_fungibles(what)?;
 
 		// Ismp xcm transaction
 		if let Some(who) = MultilocationToMultiAccount::<T::AccountId>::convert_location(who) {
-			println!("some account gotten {:?}", what);
 			// We would remove the protocol fee at this point
 
 			let protocol_account = Pallet::<T>::protocol_account_id();
@@ -241,9 +235,7 @@ where
 			// We dispatch an ismp request to the destination chain
 			Pallet::<T>::dispatch_request(who, remainder)
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
-			println!("done minting");
 		} else {
-
 			#[cfg(feature = "std")]
 			FungiblesMutateAdapter::<
 				T::Assets,
@@ -266,7 +258,6 @@ where
 		who: &Location,
 		maybe_context: Option<&XcmContext>,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("withdrawing asset {:?}, {:?}", &what, &who);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -283,7 +274,6 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("internal transfer asset from {:?}, to {:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,
@@ -300,7 +290,6 @@ where
 		to: &Location,
 		context: &XcmContext,
 	) -> Result<AssetsInHolding, XcmError> {
-		println!("transfer asset {:?}, {:?}", &from, &to);
 		FungiblesMutateAdapter::<
 			T::Assets,
 			Matcher,

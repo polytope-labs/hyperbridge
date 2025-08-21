@@ -205,6 +205,10 @@ parameter_types! {
 	pub ReachableDest: Option<Location> = Some(Parent.into());
 }
 
+parameter_types! {
+	pub DotOnAssetHub: Location = Location::new(1, Here);
+}
+
 impl pallet_xcm::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;

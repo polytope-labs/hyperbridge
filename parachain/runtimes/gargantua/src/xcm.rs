@@ -150,9 +150,7 @@ impl ContainsPair<Asset, Location> for MultiNativeAsset {
 }
 
 parameter_types! {
-	pub NativeAssetOnAssetHub: Location = Location::new(1, Here);
-
-	pub DotOnAssetHub: Location = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
+	pub DotOnAssetHub: Location = Location::new(1, Here);
 }
 
 pub struct AssetsFromAssetHub;
@@ -166,7 +164,7 @@ impl ContainsPair<Asset, Location> for AssetsFromAssetHub {
 		let asset_hub = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
 		if origin == &asset_hub {
 			let AssetId(asset_id) = &asset.id;
-			return NativeAssetOnAssetHub::get() == *asset_id;
+			return DotOnAssetHub::get() == *asset_id;
 		}
 
 		false
@@ -181,7 +179,10 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
 	type IsReserve = AssetsFromAssetHub;
-	type IsTeleporter = ();
+	type IsTeleporter =  (
+		// Important setting reflecting AssetHub
+		parachains_common::xcm_config::ConcreteAssetFromSystem<RelayLocation>,
+	);
 	type Aliasers = Nothing;
 	// Teleporting is disabled.
 	type UniversalLocation = UniversalLocation;

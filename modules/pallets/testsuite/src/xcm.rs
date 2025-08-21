@@ -81,7 +81,6 @@ parameter_types! {
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();
-	pub ParaALocation: Location = Location::new(1, Parachain(SIBLING_PARA_ID));
 	pub const RelayNetwork: Option<NetworkId> = None;
 	pub UniversalLocation: Junctions = Parachain(ParachainInfo::parachain_id().into()).into();
 }
@@ -254,19 +253,22 @@ parameter_types! {
 }
 
 
-
-
-
-
-
-
-
 pub struct TestReserve;
 impl ContainsPair<Asset, Location> for TestReserve {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
 		println!("TestReserve::contains asset: {asset:?}, origin:{origin:?}");
-		let assethub_location = Location::new(1, Parachain(ASSET_HUB_PARA_ID));
-		&assethub_location == origin
+		let self_para = Location::new(1, [Parachain(ParachainInfo::parachain_id().into())]);
+		if origin == &self_para {
+			return false;
+		}
+
+		let asset_hub = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
+		if origin == &asset_hub {
+			let AssetId(asset_id) = &asset.id;
+			return DotOnAssetHub::get() == *asset_id;
+		}
+
+		false
 	}
 }
 
@@ -402,7 +404,7 @@ impl pallet_xcm::Config for Test {
 	type XcmExecuteFilter = Everything;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmTeleportFilter = Everything;
-	type XcmReserveTransferFilter = Everything;
+	type XcmReserveTransferFilter = ReserveTransferFilter;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;
 	type RuntimeOrigin = RuntimeOrigin;

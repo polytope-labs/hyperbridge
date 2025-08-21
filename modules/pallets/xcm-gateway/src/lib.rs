@@ -33,9 +33,8 @@ use frame_support::{
 		Get,
 	},
 };
-use polkadot_sdk::cumulus_primitives_core::{All, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset, Weight, Wild, Xcm};
+use polkadot_sdk::cumulus_primitives_core::{All, AllCounted, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset, Weight, Wild, Xcm};
 use polkadot_sdk::staging_xcm_executor::traits::TransferType;
-use polkadot_sdk::xcm_simulator::AllCounted;
 
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
@@ -327,7 +326,6 @@ where
 	T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
 {
 	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), anyhow::Error> {
-		println!("accepting module");
 		let request = Request::Post(post.clone());
 		// Check that source module is equal to the known token gateway deployment address
 		ensure!(
@@ -341,7 +339,6 @@ where
 				},
 			}
 		);
-		println!("ensuring module");
 		// parachains/solochains shouldn't be sending us a request.
 		ensure!(
 			!matches!(
@@ -358,7 +355,6 @@ where
 			}
 		);
 
-		println!("decoding post request");
 		let body = Body::abi_decode(&mut &post.body[1..], true).map_err(|_| {
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Failed to decode request body".to_string(),
@@ -370,7 +366,6 @@ where
 			}
 		})?;
 
-		println!(" asset id {:?} {:?}", body.asset_id.0, Pallet::<T>::dot_asset_id().0);
 		// Check that the asset id is equal to the known asset id
 		ensure!(
 			body.asset_id.0 == Pallet::<T>::dot_asset_id().0,
@@ -414,7 +409,6 @@ where
 			beneficiary: xcm_beneficiary.clone(),
 		}]);
 
-		println!("sending xcm {:?}, xcm_beneficiary {:?}", xcm_dest, xcm_beneficiary);
 
 		// Send xcm back to assethub
 		pallet_xcm::Pallet::<T>::transfer_assets_using_type_and_then(
@@ -434,8 +428,6 @@ where
 				nonce: request.nonce(),
 			},
 		})?;
-
-		println!("done sending xcm");
 
 		Pallet::<T>::deposit_event(Event::<T>::AssetReceived {
 			beneficiary: body.to.0.into(),
@@ -519,15 +511,14 @@ where
 					Box::new(TransferType::DestinationReserve),
 					Box::new(VersionedXcm::from(custom_xcm_on_dest)),
 					weight_limit,
-				)
-				.unwrap();/*map_err(|_| ismp::error::Error::ModuleDispatchError {
+				).map_err(|_| ismp::error::Error::ModuleDispatchError {
 					msg: "Token Gateway: Failed to execute xcm to relay chain".to_string(),
 					meta: Meta {
 						source: request.source_chain(),
 						dest: request.dest_chain(),
 						nonce: request.nonce(),
 					},
-				})?;*/
+				})?;
 
 				Pallet::<T>::deposit_event(Event::<T>::AssetRefunded {
 					beneficiary,

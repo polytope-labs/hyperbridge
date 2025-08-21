@@ -14437,6 +14437,7 @@ dependencies = [
  "ismp-grandpa",
  "ismp-sync-committee",
  "ismp-testsuite",
+ "log",
  "mmr-primitives",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",

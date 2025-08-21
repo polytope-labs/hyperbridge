@@ -242,6 +242,144 @@ impl HeimdallClient {
 		Ok(abci_query)
 	}
 
+	/// Retrieves the milestone count at a specific height using ABCI query.
+	///
+	/// This method queries the Heimdall node's ABCI store to get the milestone count
+	/// at the specified height, allowing milestone updates even when syncing.
+	///
+	/// # Arguments
+	///
+	/// * `height` - The height at which to query the milestone count
+	///
+	/// # Returns
+	///
+	/// - `Ok(u64)`: The milestone count at the specified height
+	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	///
+	/// # Errors
+	///
+	/// Returns `ProverError` if:
+	/// - The ABCI query fails
+	/// - The height conversion fails
+	/// - The response cannot be deserialized
+	pub async fn get_milestone_count_at_height(
+		&self,
+		height: u64,
+	) -> Result<Option<u64>, ProverError> {
+		let key = vec![0x83];
+
+		let abci_query: AbciQuery = self
+			.http_client
+			.abci_query(
+				Some("/store/milestone/key".to_string()),
+				key,
+				Some(Height::try_from(height).unwrap()),
+				true,
+			)
+			.await
+			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
+
+		let count_bytes = abci_query.value;
+		if count_bytes.is_empty() {
+			return Ok(None); // No milestones yet
+		}
+
+		// The count is stored as a u64 in big-endian format
+		if count_bytes.len() != 8 {
+			return Err(ProverError::ConversionError(
+				"Invalid milestone count bytes length".to_string(),
+			));
+		}
+
+		let mut bytes = [0u8; 8];
+		bytes.copy_from_slice(&count_bytes[..=7]);
+		let count = u64::from_be_bytes(bytes);
+
+		Ok(Some(count))
+	}
+
+	/// Retrieves the latest milestone at a specific height using ABCI query.
+	///
+	/// This method queries the Heimdall node's ABCI store to get the latest milestone
+	/// at the specified height, allowing milestone updates even when syncing.
+	///
+	/// # Arguments
+	///
+	/// * `height` - The height at which to query the latest milestone
+	///
+	/// # Returns
+	///
+	/// - `Ok(Option<(u64, Milestone)>)`: The milestone number and data if available
+	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	///
+	/// # Errors
+	///
+	/// Returns `ProverError` if:
+	/// - The ABCI query fails
+	/// - The height conversion fails
+	/// - The response cannot be deserialized
+	pub async fn get_latest_milestone_at_height(
+		&self,
+		height: u64,
+	) -> Result<Option<(u64, Milestone)>, ProverError> {
+		let count = self.get_milestone_count_at_height(height).await?;
+
+		match count {
+			Some(count) => {
+				let milestone = self.get_milestone_at_height(count, height).await?;
+				Ok(Some((count, milestone)))
+			},
+			None => Ok(None),
+		}
+	}
+
+	/// Retrieves a specific milestone at a specific height using ABCI query.
+	///
+	/// This method queries the Heimdall node's ABCI store to get a specific milestone
+	/// at the specified height.
+	///
+	/// # Arguments
+	///
+	/// * `milestone_number` - The milestone number to retrieve
+	/// * `height` - The height at which to query the milestone
+	///
+	/// # Returns
+	///
+	/// - `Ok(Milestone)`: The milestone data
+	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
+	///
+	/// # Errors
+	///
+	/// Returns `ProverError` if:
+	/// - The ABCI query fails
+	/// - The height conversion fails
+	/// - The response cannot be deserialized
+	pub async fn get_milestone_at_height(
+		&self,
+		milestone_number: u64,
+		height: u64,
+	) -> Result<Milestone, ProverError> {
+		let mut key = vec![0x81];
+		key.extend_from_slice(&milestone_number.to_be_bytes());
+
+		let abci_query: AbciQuery = self
+			.http_client
+			.abci_query(
+				Some("/store/milestone/key".to_string()),
+				key,
+				Some(Height::try_from(height).unwrap()),
+				true,
+			)
+			.await
+			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
+
+		let milestone = ismp_polygon::Milestone::proto_decode(&abci_query.value).map_err(|e| {
+			ProverError::ConversionError(format!("Failed to decode milestone: {}", e))
+		})?;
+
+		Ok(milestone)
+	}
+
 	/// Fetches an Ethereum block header from the execution RPC client and converts it to a
 	/// CodecHeader.
 	///

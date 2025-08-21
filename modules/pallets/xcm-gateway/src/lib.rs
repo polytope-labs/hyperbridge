@@ -32,6 +32,7 @@ use frame_support::{
 		fungibles::{self},
 		Get,
 	},
+	weights::Weight,
 };
 use polkadot_sdk::cumulus_primitives_core::{All, AllCounted, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset, Weight, Wild, Xcm};
 use polkadot_sdk::staging_xcm_executor::traits::TransferType;
@@ -325,7 +326,7 @@ where
 	u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
 	T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
 {
-	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<(), anyhow::Error> {
+	fn on_accept(&self, post: ismp::router::PostRequest) -> Result<Weight, anyhow::Error> {
 		let request = Request::Post(post.clone());
 		// Check that source module is equal to the known token gateway deployment address
 		ensure!(
@@ -435,12 +436,10 @@ where
 			source: request.source_chain(),
 		});
 
-
-
-		Ok(())
+		Ok(T::DbWeight::get().reads_writes(0, 0))
 	}
 
-	fn on_response(&self, response: ismp::router::Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, response: ismp::router::Response) -> Result<Weight, anyhow::Error> {
 		Err(ismp::error::Error::ModuleDispatchError {
 			msg: "Token Gateway does not accept responses".to_string(),
 			meta: Meta {
@@ -452,7 +451,7 @@ where
 		.into())
 	}
 
-	fn on_timeout(&self, request: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
 		// We don't custody user funds, we send the dot back to the relaychain using xcm
 		match request {
 			Timeout::Request(Request::Post(post)) => {
@@ -526,7 +525,7 @@ where
 					source: request.dest_chain(),
 				});
 
-				Ok(())
+				Ok(T::DbWeight::get().reads_writes(0, 0))
 			},
 			Timeout::Request(Request::Get(get)) => Err(ismp::error::Error::ModuleDispatchError {
 				msg: "Tried to timeout unsupported request type".to_string(),

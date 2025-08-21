@@ -70,7 +70,7 @@ use ismp::{
 };
 pub use pallet::*;
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
-use polkadot_sdk::*;
+use polkadot_sdk::{sp_runtime::Weight, *};
 use primitive_types::H256;
 
 pub mod child_trie;
@@ -303,7 +303,7 @@ where
 	T: Config,
 	T::Balance: Into<u128> + From<u128>,
 {
-	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
 		// this of course assumes that hyperbridge is configured as the coprocessor.
 		let source = request.source;
 		if Some(source) != T::Coprocessor::get() {
@@ -315,11 +315,12 @@ where
 				ismp::Error::Custom(format!("Failed to decode per-byte fee: {err:?}"))
 			})?;
 
-		match message {
+		let weight = match message {
 			Message::UpdateHostParams(new) => {
 				let old = HostParams::<T>::get();
 				HostParams::<T>::put(new.clone());
 				Self::deposit_event(Event::<T>::HostParamsUpdated { old, new });
+				T::DbWeight::get().reads_writes(0, 0)
 			},
 			Message::WithdrawProtocolFees(WithdrawalRequest { account, amount }) => {
 				T::Currency::transfer(
@@ -332,7 +333,8 @@ where
 					ismp::Error::Custom(format!("Error withdrawing protocol fees: {err:?}"))
 				})?;
 
-				Self::deposit_event(Event::<T>::ProtocolRevenueWithdrawn { account, amount })
+				Self::deposit_event(Event::<T>::ProtocolRevenueWithdrawn { account, amount });
+				T::DbWeight::get().reads_writes(0, 0)
 			},
 			Message::WithdrawRelayerFees(WithdrawalRequest { account, amount }) => {
 				T::Currency::transfer(
@@ -345,19 +347,20 @@ where
 					ismp::Error::Custom(format!("Error withdrawing protocol fees: {err:?}"))
 				})?;
 
-				Self::deposit_event(Event::<T>::RelayerFeeWithdrawn { account, amount })
+				Self::deposit_event(Event::<T>::RelayerFeeWithdrawn { account, amount });
+				T::DbWeight::get().reads_writes(0, 0)
 			},
 		};
 
-		Ok(())
+		Ok(weight)
 	}
 
-	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
 		// this module does not expect responses
 		Err(ismp::Error::CannotHandleMessage.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
 		// this module does not dispatch requests
 		Err(ismp::Error::CannotHandleMessage.into())
 	}

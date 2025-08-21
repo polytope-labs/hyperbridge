@@ -24,6 +24,7 @@ use crate::{
 	router::Response,
 };
 use alloc::vec::Vec;
+use sp_weights::Weight;
 
 /// This function handles timeouts
 pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, anyhow::Error>
@@ -38,6 +39,7 @@ where
 			.find_map(|client| client.state_machine(state_machine).ok())
 			.is_none()
 	};
+	let mut total_module_weight = Weight::zero();
 
 	let results = match msg {
 		TimeoutMessage::Post { requests, timeout_proof } => {
@@ -90,7 +92,8 @@ where
 					if host.host_state_machine() != request.source_chain() {
 						signer = host.delete_request_receipt(&request).ok();
 					}
-					let res = cb.on_timeout(request.clone().into()).map(|_| {
+					let res = cb.on_timeout(request.clone().into()).map(|weight| {
+						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_request::<H>(&request);
 						Event::PostRequestTimeoutHandled(TimeoutHandled {
 							commitment,
@@ -163,7 +166,8 @@ where
 						signer =
 							host.delete_response_receipt(&Response::Post(response.clone())).ok();
 					}
-					let res = cb.on_timeout(response.clone().into()).map(|_| {
+					let res = cb.on_timeout(response.clone().into()).map(|weight| {
+						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_post_response::<H>(&response);
 						Event::PostResponseTimeoutHandled(TimeoutHandled {
 							commitment,
@@ -211,7 +215,8 @@ where
 					let cb = router.module_for_id(request.source_module())?;
 					// Delete commitment to prevent reentrancy
 					let meta = host.delete_request_commitment(&request)?;
-					let res = cb.on_timeout(request.clone().into()).map(|_| {
+					let res = cb.on_timeout(request.clone().into()).map(|weight| {
+						total_module_weight.saturating_accrue(weight);
 						let commitment = hash_request::<H>(&request);
 						Event::GetRequestTimeoutHandled(TimeoutHandled {
 							commitment,
@@ -229,5 +234,5 @@ where
 		},
 	};
 
-	Ok(MessageResult::Timeout(results))
+	Ok(MessageResult::Timeout { events: results, weight: total_module_weight })
 }

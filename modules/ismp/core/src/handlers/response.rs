@@ -24,6 +24,7 @@ use crate::{
 	router::{GetResponse, Request, RequestResponse, Response, StorageValue},
 };
 use alloc::{vec, vec::Vec};
+use sp_weights::Weight;
 
 /// Validate the state machine, verify the response message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, anyhow::Error>
@@ -44,6 +45,7 @@ where
 			.is_none()
 	};
 
+	let mut total_weights = Weight::zero();
 	let result = match &msg.datagram {
 		RequestResponse::Response(responses) => {
 			for response in responses.iter() {
@@ -91,7 +93,8 @@ where
 					let cb = router.module_for_id(response.destination_module())?;
 					// Store response receipt to prevent reentrancy attack
 					host.store_response_receipt(&response, &msg.signer)?;
-					let res = cb.on_response(response.clone()).map(|_| {
+					let res = cb.on_response(response.clone()).map(|weight| {
+						total_weights.saturating_accrue(weight);
 						let commitment = hash_response::<H>(&response);
 						Event::PostResponseHandled(RequestResponseHandled {
 							commitment,
@@ -164,7 +167,8 @@ where
 					host.store_response_receipt(&response, &msg.signer)?;
 					let res = cb
 						.on_response(Response::Get(GetResponse { get: request.clone(), values }))
-						.map(|_| {
+						.map(|weight| {
+							total_weights.saturating_accrue(weight);
 							let commitment = hash_request::<H>(&wrapped_req);
 							Event::GetRequestHandled(RequestResponseHandled {
 								commitment,
@@ -181,5 +185,5 @@ where
 		},
 	};
 
-	Ok(MessageResult::Response(result))
+	Ok(MessageResult::Response { events: result, weight: total_weights })
 }

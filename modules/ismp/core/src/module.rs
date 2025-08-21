@@ -20,7 +20,7 @@ use crate::{
 	router::{PostRequest, Response, Timeout},
 	Error,
 };
-
+use sp_weights::Weight;
 /// A type alias for dispatch results
 pub type DispatchResult = Result<Event, anyhow::Error>;
 
@@ -29,19 +29,19 @@ pub type DispatchResult = Result<Event, anyhow::Error>;
 pub trait IsmpModule {
 	/// Called by the message handler on a module, to notify module of a new POST request
 	/// the module may choose to respond immediately, or in a later block
-	fn on_accept(&self, _request: PostRequest) -> Result<(), anyhow::Error> {
+	fn on_accept(&self, _request: PostRequest) -> Result<Weight, anyhow::Error> {
 		Err(Error::CannotHandleMessage)?
 	}
 
 	/// Called by the message handler on a module, to notify module of a response to a previously
 	/// sent out request
-	fn on_response(&self, _response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
 		Err(Error::CannotHandleMessage)?
 	}
 
 	/// Called by the message handler on a module, to notify module of requests that were previously
 	/// sent but have now timed-out
-	fn on_timeout(&self, _request: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
 		Err(Error::CannotHandleMessage)?
 	}
 }

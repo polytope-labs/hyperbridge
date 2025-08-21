@@ -1,14 +1,17 @@
 [
   {
     "beneficiary": "16kZJGPJ37uYxjs7adswyEHbPYeHS9jQHSaSUJhkfvWPcoeF",
-    "amount": 3076000000000000
+    "amount": 3076000000000000,
+    "bonus_amount": 30760000000000
   },
   {
     "beneficiary": "1egYCubF1U5CGWiXjQnsXduiJYP49KTs8eX1jn1JrTqCYyQ",
-    "amount": 1661040000000000
+    "amount": 1661040000000000,
+    "bonus_amount": 1661040000000
   },
   {
     "beneficiary": "126TwBzBM4jUEK2gTphmW4oLoBWWnYvPp8hygmduTr4uds57",
-    "amount": 67130863680000000
+    "amount": 67130863680000000,
+    "bonus_amount": 1661040000
   }
 ]

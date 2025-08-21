@@ -33,7 +33,7 @@ use ismp::{
 };
 pub use pallet::*;
 use pallet_ismp::ModuleId;
-use polkadot_sdk::*;
+use polkadot_sdk::{cumulus_primitives_core::Weight, *};
 use sp_core::H160;
 
 /// Constant Pallet ID
@@ -363,8 +363,12 @@ impl<T: Config> Default for IsmpModuleCallback<T> {
 	}
 }
 
+fn weight() -> Weight {
+	Weight::from_parts(0, 0)
+}
+
 impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
-	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
 		let source_chain = request.source;
 
 		match source_chain {
@@ -393,10 +397,10 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 			source => Err(IsmpError::Custom(format!("Unsupported source {source:?}")))?,
 		}
 
-		Ok(())
+		Ok(weight())
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
 		match response {
 			Response::Post(_) => Err(IsmpError::Custom(
 				"Balance transfer protocol does not accept post responses".to_string(),
@@ -406,10 +410,10 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 			)),
 		};
 
-		Ok(())
+		Ok(weight())
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
 		let request = match timeout {
 			Timeout::Request(Request::Post(post)) => Request::Post(post),
 			_ => Err(IsmpError::Custom("Only Post requests allowed, found Get".to_string()))?,
@@ -431,6 +435,6 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 			amount: payload.amount,
 			source_chain,
 		});
-		Ok(())
+		Ok(weight())
 	}
 }

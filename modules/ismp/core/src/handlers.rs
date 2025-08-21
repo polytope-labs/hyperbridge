@@ -25,6 +25,7 @@ use crate::{
 use crate::{consensus::ConsensusStateId, module::DispatchResult};
 use alloc::{boxed::Box, vec::Vec};
 pub use consensus::create_client;
+use sp_weights::Weight;
 
 mod consensus;
 mod request;
@@ -46,12 +47,39 @@ pub enum MessageResult {
 	ConsensusMessage(Vec<Event>),
 	/// Result of freezing a consensus state.
 	FrozenClient(ConsensusStateId),
-	/// The [`DispatchResult`] for requests
-	Request(Vec<DispatchResult>),
-	/// The [`DispatchResult`] for responses
-	Response(Vec<DispatchResult>),
-	/// The [`DispatchResult`] for timeouts
-	Timeout(Vec<DispatchResult>),
+	/// The result of processing a batch of requests.
+	Request {
+		/// A Vec containing the results of each individual request dispatch.
+		events: Vec<DispatchResult>,
+		/// The total weight consumed by all module `on_accept` calls for this batch.
+		weight: Weight,
+	},
+	/// The result of processing a batch of responses.
+	Response {
+		/// A Vec containing the results of each individual response dispatch.
+		events: Vec<DispatchResult>,
+		/// The total weight consumed by all module `on_accept` calls for this batch.
+		weight: Weight,
+	},
+	/// The result of processing a timeouts.
+	Timeout {
+		/// A Vec containing the results of each individual response dispatch.
+		events: Vec<DispatchResult>,
+		/// The total weight consumed by all module `on_accept` calls for this batch.
+		weight: Weight,
+	},
+}
+
+impl MessageResult {
+	/// Returns the total weight consumed by this message
+	pub fn weight(&self) -> Weight {
+		match self {
+			MessageResult::Request { weight, .. } => *weight,
+			MessageResult::Response { weight, .. } => *weight,
+			MessageResult::Timeout { weight, .. } => *weight,
+			MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => Weight::zero(),
+		}
+	}
 }
 
 /// This function serves as an entry point to handle the message types provided by the ISMP protocol

@@ -1,0 +1,22 @@
+[package]
+name = "crypto-utils"
+edition = "2024"
+
+[dependencies]
+codec = { workspace = true }
+anyhow = { workspace = true }
+scale-info = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-core", "sp-io"]
+
+
+[features]
+default = ["std"]
+std = [
+    "anyhow/std",
+    "codec/std",
+    "scale-info/std",
+    "polkadot-sdk/std",
+]

@@ -45,6 +45,7 @@ use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
+use polkadot_sdk::{frame_support::weights::WeightToFee, sp_runtime::Weight};
 use sp_std::prelude::*;
 
 #[derive(Default)]
@@ -98,6 +99,16 @@ impl Get<Option<StateMachine>> for Coprocessor {
 		Some(HostStateMachine::get())
 	}
 }
+
+pub struct IsmpWeightToFee;
+impl WeightToFee for IsmpWeightToFee {
+	type Balance = Balance;
+
+	fn weight_to_fee(weight: &Weight) -> Self::Balance {
+		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
@@ -124,7 +135,13 @@ impl pallet_ismp::Config for Runtime {
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<()>;
+	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<
+		AccountId,
+		Balances,
+		IsmpWeightToFee,
+		TreasuryPalletId,
+		false,
+	>;
 }
 
 impl ismp_grandpa::Config for Runtime {
@@ -232,7 +249,7 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl IsmpModule for ProxyModule {
-	fn on_accept(&self, request: PostRequest) -> Result<(), anyhow::Error> {
+	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
 
@@ -240,7 +257,7 @@ impl IsmpModule for ProxyModule {
 				Request::Post(request),
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
 			)?;
-			return Ok(());
+			return Ok(Weight::from_parts(0, 0));
 		}
 
 		let pallet_id =
@@ -259,13 +276,13 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<(), anyhow::Error> {
+	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
 		if response.dest_chain() != HostStateMachine::get() {
 			Ismp::dispatch_response(
 				response,
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
 			)?;
-			return Ok(());
+			return Ok(Weight::from_parts(0, 0));
 		}
 
 		let dest = match &response {
@@ -282,7 +299,7 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<(), anyhow::Error> {
+	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
 		let (from, source, dest) = match &timeout {
 			Timeout::Request(Request::Post(post)) => {
 				if post.source != HostStateMachine::get() {
@@ -296,7 +313,7 @@ impl IsmpModule for ProxyModule {
 		};
 
 		if source != HostStateMachine::get() {
-			return Ok(());
+			return Ok(Weight::from_parts(0, 0));
 		}
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
@@ -307,7 +324,7 @@ impl IsmpModule for ProxyModule {
 			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
-			_ => Ok(()),
+			_ => Ok(Weight::from_parts(0, 0)),
 		}
 	}
 }

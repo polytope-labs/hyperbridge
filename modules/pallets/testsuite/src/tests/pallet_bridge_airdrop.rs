@@ -138,20 +138,24 @@ fn should_allocate_iro_correctly() {
 
 		let beneficiary = AccountId32::new(H256::random().0);
 		let amount = 3500_000_000_000_000u128;
+		let bonus_amount = 3500_000_000_000u128;
 
 		pallet_bridge_airdrop::Pallet::<Test>::allocate_iro_tokens(
 			RuntimeOrigin::root(),
 			beneficiary.clone(),
 			amount,
+			bonus_amount
 		)
 		.unwrap();
 
 		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
 		let initial_unlocked = Permill::from_parts(250_000) * amount;
-		let locked = amount.saturating_sub(initial_unlocked);
+		let locked = amount
+			.saturating_sub(initial_unlocked)
+			.saturating_add(bonus_amount);
 
-		assert_eq!(account_data.data.free, amount);
+		assert_eq!(account_data.data.free, amount.saturating_add(bonus_amount));
 
 		// transfer above unlocked balance should fail
 		let res = Balances::transfer_keep_alive(
@@ -189,6 +193,7 @@ fn should_allocate_iro_correctly() {
 			RuntimeOrigin::root(),
 			beneficiary.clone(),
 			amount.clone(),
+			bonus_amount
 		);
 
 		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyAllocated);

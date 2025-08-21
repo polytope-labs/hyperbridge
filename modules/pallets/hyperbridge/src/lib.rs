@@ -155,13 +155,6 @@ pub mod pallet {
 			/// The withdrawal beneficiary
 			account: T::AccountId,
 		},
-		/// Hyperbridge has withdrawn it's protocol revenue
-		ProtocolRevenueWithdrawn {
-			/// The amount that was withdrawn
-			amount: <T as pallet_ismp::Config>::Balance,
-			/// The withdrawal beneficiary
-			account: T::AccountId,
-		},
 	}
 
 	// Errors encountered by pallet-hyperbridge
@@ -213,7 +206,7 @@ where
 				if fees != 0 {
 					T::Currency::transfer(
 						&fee.payer,
-						&PALLET_HYPERBRIDGE.into_account_truncating(),
+						&RELAYER_FEE_ACCOUNT.into_account_truncating(),
 						fees.into(),
 						Preservation::Expendable,
 					)
@@ -258,7 +251,7 @@ where
 		if fees != 0 {
 			T::Currency::transfer(
 				&fee.payer,
-				&PALLET_HYPERBRIDGE.into_account_truncating(),
+				&RELAYER_FEE_ACCOUNT.into_account_truncating(),
 				fees.into(),
 				Preservation::Expendable,
 			)
@@ -292,8 +285,6 @@ pub struct WithdrawalRequest<Account, Amount> {
 pub enum Message<Account, Balance> {
 	/// Set some new host params
 	UpdateHostParams(VersionedHostParams<Balance>),
-	/// Withdraw the hyperbridge protocol reveneue
-	WithdrawProtocolFees(WithdrawalRequest<Account, Balance>),
 	/// Withdraw the fees owed to a relayer
 	WithdrawRelayerFees(WithdrawalRequest<Account, Balance>),
 }
@@ -320,20 +311,6 @@ where
 				let old = HostParams::<T>::get();
 				HostParams::<T>::put(new.clone());
 				Self::deposit_event(Event::<T>::HostParamsUpdated { old, new });
-				T::DbWeight::get().reads_writes(0, 0)
-			},
-			Message::WithdrawProtocolFees(WithdrawalRequest { account, amount }) => {
-				T::Currency::transfer(
-					&PALLET_HYPERBRIDGE.into_account_truncating(),
-					&account,
-					amount,
-					Preservation::Expendable,
-				)
-				.map_err(|err| {
-					ismp::Error::Custom(format!("Error withdrawing protocol fees: {err:?}"))
-				})?;
-
-				Self::deposit_event(Event::<T>::ProtocolRevenueWithdrawn { account, amount });
 				T::DbWeight::get().reads_writes(0, 0)
 			},
 			Message::WithdrawRelayerFees(WithdrawalRequest { account, amount }) => {

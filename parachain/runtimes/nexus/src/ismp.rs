@@ -19,7 +19,6 @@ use crate::{
 	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor,
 	TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
 };
-use crate::xcm::DotOnAssetHub;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -249,7 +248,6 @@ impl pallet_xcm_gateway::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
-	type DotLocation = DotOnAssetHub;
 }
 
 impl pallet_token_governor::Config for Runtime {

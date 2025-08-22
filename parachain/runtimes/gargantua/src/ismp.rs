@@ -19,7 +19,6 @@ use crate::{
 	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
 	XcmGateway, EXISTENTIAL_DEPOSIT,
 };
-use crate::xcm::DotOnAssetHub;
 use anyhow::anyhow;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
@@ -198,7 +197,6 @@ impl pallet_xcm_gateway::Config for Runtime {
 	type Assets = Assets;
 	type IsmpHost = Ismp;
 	type GatewayOrigin = EnsureRoot<AccountId>;
-	type DotLocation = DotOnAssetHub;
 }
 
 impl pallet_token_gateway_inspector::Config for Runtime {

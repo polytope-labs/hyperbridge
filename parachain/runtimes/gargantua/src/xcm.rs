@@ -40,7 +40,7 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::XcmExecutor;
 
-use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID, ConvertAssetId, HyperbridgeAssetTransactor, NATIVE_ASSET_ID_ON_ASSET_HUB, ReserveTransferFilter};
+use pallet_xcm_gateway::xcm_utilities::{ASSET_HUB_PARA_ID, ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter};
 
 parameter_types! {
 	pub const RelayLocation: Location = Location::parent();
@@ -149,10 +149,6 @@ impl ContainsPair<Asset, Location> for MultiNativeAsset {
 	}
 }
 
-parameter_types! {
-	pub DotOnAssetHub: Location = Location::new(1, Here);
-}
-
 pub struct AssetsFromAssetHub;
 impl ContainsPair<Asset, Location> for AssetsFromAssetHub {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
@@ -164,7 +160,7 @@ impl ContainsPair<Asset, Location> for AssetsFromAssetHub {
 		let asset_hub = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
 		if origin == &asset_hub {
 			let AssetId(asset_id) = &asset.id;
-			return DotOnAssetHub::get() == *asset_id;
+			return Parent == *asset_id;
 		}
 
 		false

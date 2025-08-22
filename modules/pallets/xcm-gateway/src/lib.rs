@@ -99,8 +99,6 @@ pub mod pallet {
 		type GatewayOrigin: EnsureOrigin<
 			<Self as polkadot_sdk::frame_system::Config>::RuntimeOrigin,
 		>;
-
-		type DotLocation: Get<Location>;
 	}
 
 	#[pallet::storage]
@@ -339,6 +337,7 @@ where
 				},
 			}
 		);
+
 		// parachains/solochains shouldn't be sending us a request.
 		ensure!(
 			!matches!(
@@ -390,7 +389,7 @@ where
 					},
 				})?;
 
-		let asset_id = T::DotLocation::get();
+		let asset_id = Location::parent();
 
 		// We don't custody user funds, we send the dot back to assethub using xcm
 		let xcm_beneficiary: Location =
@@ -485,7 +484,7 @@ where
 				// on assethub;
 				let xcm_beneficiary: Location =
 					Junction::AccountId32 { network: None, id: body.from.0 }.into();
-				let asset_id = T::DotLocation::get();
+				let asset_id = Location::parent();
 				let xcm_dest = VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;

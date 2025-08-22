@@ -16,4 +16,4 @@ anyhow = { workspace = true }
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true
-features = ["sp-core"]
+features = ["sp-core", "sp-runtime"]

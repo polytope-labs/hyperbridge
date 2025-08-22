@@ -23,7 +23,6 @@ use frame_support::traits::{
 };
 use ismp::host::StateMachine;
 use polkadot_sdk::*;
-use polkadot_sdk::cumulus_primitives_core::Here;
 use sp_core::{Get, H160};
 use sp_runtime::traits::MaybeEquivalence;
 use staging_xcm::v5::{
@@ -36,7 +35,6 @@ use staging_xcm_executor::{
 	AssetsInHolding,
 };
 pub const ASSET_HUB_PARA_ID: u32 = 1000;
-pub const NATIVE_ASSET_ID_ON_ASSET_HUB: u128 = 0;
 pub struct WrappedNetworkId(pub NetworkId);
 
 impl TryFrom<WrappedNetworkId> for StateMachine {
@@ -128,7 +126,7 @@ pub struct ReserveTransferFilter;
 
 impl Contains<(Location, Vec<Asset>)> for ReserveTransferFilter {
 	fn contains(t: &(Location, Vec<Asset>)) -> bool {
-		let native = Location::new(1, Here);
+		let native = Location::parent();
 		t.1.iter().all(|asset| {
 			if let Asset { id: asset_id, fun: Fungible(_) } = asset {
 				asset_id.0 == native

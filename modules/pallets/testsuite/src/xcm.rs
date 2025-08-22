@@ -432,7 +432,6 @@ impl pallet_xcm_gateway::Config for Test {
 	type Assets = Assets;
 	type IsmpHost = Ismp;
 	type GatewayOrigin = EnsureRoot<AccountId32>;
-	type DotLocation = DotOnAssetHub;
 }
 
 impl pallet_assets::Config for Test {

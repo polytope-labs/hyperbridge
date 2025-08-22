@@ -133,8 +133,6 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 
 	para_config.assimilate_storage(&mut t).unwrap();
 
-	//if para_id == 1000 {
-
 	let asset_location = Location::new(1, Here);
 	let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
 
@@ -153,7 +151,6 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	};
 
 	config.assimilate_storage(&mut t).unwrap();
-	//}
 
 	let mut ext = sp_io::TestExternalities::new(t);
 

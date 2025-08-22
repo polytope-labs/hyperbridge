@@ -315,8 +315,6 @@ tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 
-
-
 [workspace.dependencies.codec]
 package = "parity-scale-codec"
 version = "3.7"

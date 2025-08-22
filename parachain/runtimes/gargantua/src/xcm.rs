@@ -160,7 +160,7 @@ impl ContainsPair<Asset, Location> for AssetsFromAssetHub {
 		let asset_hub = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
 		if origin == &asset_hub {
 			let AssetId(asset_id) = &asset.id;
-			return Parent == *asset_id;
+			return Location::parent() == *asset_id;
 		}
 
 		false

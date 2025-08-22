@@ -28213,6 +28213,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zk-beefy",
 ]
 
 [[package]]

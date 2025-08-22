@@ -70,10 +70,10 @@ contract IntentGatewayTest is MainnetForkBaseTest {
         Order memory order = createTestOrder(bytes(""));
 
         // Place the order
-        intentGateway.placeOrder{value: 1 ether}(order);
+        intentGateway.placeOrder{value: 1 ether}(order, bytes32(""));
 
         vm.expectRevert(IntentGateway.InsufficientNativeToken.selector);
-        intentGateway.placeOrder{value: 0.9 ether}(order);
+        intentGateway.placeOrder{value: 0.9 ether}(order, bytes32(""));
 
         // Check the balances
         assertEq(address(this).balance, 99 ether);
@@ -85,7 +85,7 @@ contract IntentGatewayTest is MainnetForkBaseTest {
         Order memory order = createTestOrder(bytes(""));
 
         // Place the order
-        intentGateway.placeOrder{value: 1 ether}(order);
+        intentGateway.placeOrder{value: 1 ether}(order, bytes32(""));
 
         assertEq(filler.balance, 100 ether);
         assertEq(address(intentGateway).balance, 1 ether);
@@ -153,7 +153,7 @@ contract IntentGatewayTest is MainnetForkBaseTest {
         Order memory order = createTestOrder(bytes(""));
 
         // Place the order
-        intentGateway.placeOrder{value: 1 ether}(order);
+        intentGateway.placeOrder{value: 1 ether}(order, bytes32(""));
 
         assertEq(filler.balance, 100 ether);
         assertEq(address(intentGateway).balance, 1 ether);
@@ -207,7 +207,7 @@ contract IntentGatewayTest is MainnetForkBaseTest {
         // Place the order
         Order memory order = createTestOrder(bytes(""));
         order.deadline = block.number - 100;
-        intentGateway.placeOrder{value: 1 ether}(order);
+        intentGateway.placeOrder{value: 1 ether}(order, bytes32(""));
 
         assertEq(address(this).balance, 99 ether);
         assertEq(address(intentGateway).balance, 1 ether);
@@ -284,7 +284,7 @@ contract IntentGatewayTest is MainnetForkBaseTest {
 
         // ensure that intent gateway rejects the settlement request
         Order memory order = createTestOrder(bytes(""));
-        intentGateway.placeOrder{value: 1 ether}(order);
+        intentGateway.placeOrder{value: 1 ether}(order, bytes32(""));
         PostRequest memory redeemEscrowRequest = PostRequest({
             source: deployment.stateMachineId,
             dest: hostId,

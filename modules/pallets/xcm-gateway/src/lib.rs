@@ -419,14 +419,7 @@ where
 			Box::new(TransferType::DestinationReserve),
 			Box::new(VersionedXcm::from(custom_xcm_on_dest)),
 			weight_limit,
-		).map_err(|_| ismp::error::Error::ModuleDispatchError {
-			msg: "Token Gateway: Failed execute xcm to relay chain".to_string(),
-			meta: Meta {
-				source: request.source_chain(),
-				dest: request.dest_chain(),
-				nonce: request.nonce(),
-			},
-		})?;
+		).unwrap();
 
 		Pallet::<T>::deposit_event(Event::<T>::AssetReceived {
 			beneficiary: body.to.0.into(),

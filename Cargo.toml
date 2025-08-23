@@ -367,3 +367,7 @@ features = ["derive"]
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
 default-features = false
+
+
+[patch.crates-io]
+staging-xcm-builder = { path = "vendor/staging-xcm-builder" }

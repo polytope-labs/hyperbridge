@@ -8,7 +8,9 @@ use crate::{
 	runtime,
 	runtime::{Test, ALICE, BOB, Assets, PalletXcm},
 	xcm::{MockNet, ParaA, ParaB},
+	init_tracing
 };
+use crate::asset_hub_runtime::AssetHubTest;
 use alloy_sol_types::SolValue;
 use codec::Encode;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
@@ -33,14 +35,16 @@ pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 
 #[test]
 fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
+	init_tracing();
 	MockNet::reset();
-			let asset_location_on_assethub = Location::new(1, Here);
-		let asset_id_on_paraa: H256 =
-				sp_io::hashing::keccak_256(&Location::new(1, Here).encode())
-					.into();
 
+	let asset_id_on_paraa: H256 =
+		sp_io::hashing::keccak_256(&Location::new(1, Here).encode())
+			.into();
 
 			ParaB::execute_with(|| {
+				let asset_location_on_assethub = Location::new(1, Here);
+
 				let dest = Location::new(1, [Parachain(PARA_ID)]);
 				let beneficiary: Location = Junctions::X3(Arc::new([
 					Junction::AccountId32 { network: None, id: ALICE.into() },
@@ -53,8 +57,8 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 					.into_location();
 
 
-				assert_ok!(runtime::PalletXcm::limited_reserve_transfer_assets(
-                    runtime::RuntimeOrigin::signed(ALICE.into()),
+				assert_ok!(crate::asset_hub_runtime::PalletXcm::limited_reserve_transfer_assets(
+                    crate::asset_hub_runtime::RuntimeOrigin::signed( crate::asset_hub_runtime::ALICE.into()),
                     Box::new(dest.into()),
                     Box::new(beneficiary.into()),
                     Box::new(vec![(asset_location_on_assethub, SEND_AMOUNT).into()].into()),
@@ -103,17 +107,11 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 
 #[test]
 fn should_process_on_accept_module_callback_correctly() {
+	init_tracing();
 	MockNet::reset();
 
-	let beneficiary: Location = Junctions::X3(Arc::new([
-		Junction::AccountId32 { network: None, id: ALICE.into() },
-		Junction::AccountKey20 {
-			network: Some(NetworkId::Ethereum { chain_id: 97 }),
-			key: [1u8; 20],
-		},
-		Junction::GeneralIndex(60 * 60),
-	]))
-	.into_location();
+
+
 	let weight_limit = WeightLimit::Unlimited;
 
 	let asset_location = Location::new(1, Here);
@@ -123,8 +121,18 @@ fn should_process_on_accept_module_callback_correctly() {
 
 
 	let alice_balance = ParaB::execute_with(|| {
-		let result = PalletXcm::limited_reserve_transfer_assets(
-			runtime::RuntimeOrigin::signed(ALICE),
+		let beneficiary: Location = Junctions::X3(Arc::new([
+			Junction::AccountId32 { network: None, id: ALICE.into() },
+			Junction::AccountKey20 {
+				network: Some(NetworkId::Ethereum { chain_id: 97 }),
+				key: [1u8; 20],
+			},
+			Junction::GeneralIndex(60 * 60),
+		]))
+			.into_location();
+
+		let result = crate::asset_hub_runtime::PalletXcm::limited_reserve_transfer_assets(
+			crate::asset_hub_runtime::RuntimeOrigin::signed(crate::asset_hub_runtime::ALICE),
 			Box::new(dest.clone().into()),
 			Box::new(beneficiary.clone().into()),
 			Box::new((asset_location, SEND_AMOUNT).into()),
@@ -132,8 +140,8 @@ fn should_process_on_accept_module_callback_correctly() {
 			weight_limit,
 		);
 		assert_ok!(result);
-		let alice_balance = <runtime::Assets as Inspect<
-			<Test as frame_system::Config>::AccountId,
+		let alice_balance = < crate::asset_hub_runtime::Assets as Inspect<
+			<AssetHubTest as frame_system::Config>::AccountId,
 		>>::balance(asset_id, &ALICE);
 		dbg!(alice_balance);
 		alice_balance
@@ -204,12 +212,13 @@ fn should_process_on_accept_module_callback_correctly() {
 		>>::total_issuance(asset_id);
 		// Total issuance should have dropped
 		assert_eq!(initial_total_issuance - amount, total_issuance_after);
+		dbg!(amount);
 		amount
 	});
 
 	ParaB::execute_with(|| {
 		// Alice's balance on asset hub should have increased by the amount transferred
-		let current_balance = Assets::balance(asset_id, &ALICE);
+		let current_balance = crate::asset_hub_runtime::Assets::balance(asset_id, &ALICE);
 		assert_eq!(current_balance, alice_balance + transferred);
 	})
 }
@@ -217,17 +226,7 @@ fn should_process_on_accept_module_callback_correctly() {
 #[test]
 fn should_process_on_timeout_module_callback_correctly() {
 	MockNet::reset();
-
-	let beneficiary: Location = Junctions::X3(Arc::new([
-		Junction::AccountId32 { network: None, id: ALICE.into() },
-		Junction::AccountKey20 {
-			network: Some(NetworkId::Ethereum { chain_id: 97 }),
-			key: [0u8; 20],
-		},
-		Junction::GeneralIndex(60 * 60),
-	]))
-	.into_location();
-	let weight_limit = WeightLimit::Unlimited;
+	init_tracing();
 
 	let asset_location = Location::new(1, Here);
 
@@ -235,8 +234,21 @@ fn should_process_on_timeout_module_callback_correctly() {
 	let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
 
 	let alice_balance = ParaB::execute_with(|| {
-		let result = PalletXcm::limited_reserve_transfer_assets(
-			runtime::RuntimeOrigin::signed(ALICE),
+
+		let beneficiary: Location = Junctions::X3(Arc::new([
+			Junction::AccountId32 { network: None, id: ALICE.into() },
+			Junction::AccountKey20 {
+				network: Some(NetworkId::Ethereum { chain_id: 97 }),
+				key: [0u8; 20],
+			},
+			Junction::GeneralIndex(60 * 60),
+		]))
+			.into_location();
+		let weight_limit = WeightLimit::Unlimited;
+
+
+		let result = crate::asset_hub_runtime::PalletXcm::limited_reserve_transfer_assets(
+			crate::asset_hub_runtime::RuntimeOrigin::signed(crate::asset_hub_runtime::ALICE),
 			Box::new(dest.clone().into()),
 			Box::new(beneficiary.clone().into()),
 			Box::new((asset_location, SEND_AMOUNT).into()),
@@ -244,7 +256,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 			weight_limit,
 		);
 		assert_ok!(result);
-		let alice_balance = <runtime::Assets as Inspect<
+		let alice_balance = <crate::asset_hub_runtime::Assets as Inspect<
 			<Test as frame_system::Config>::AccountId,
 		>>::balance(asset_id, &ALICE);
 		dbg!(alice_balance);
@@ -322,7 +334,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 
 	ParaB::execute_with(|| {
 		// Alice's balance on relay chain should have increased by the amount transferred
-		let current_balance = Assets::balance(asset_id, &ALICE);
+		let current_balance = crate::asset_hub_runtime::Assets::balance(asset_id, &ALICE);
 		assert_eq!(current_balance, alice_balance + transferred);
 	})
 }

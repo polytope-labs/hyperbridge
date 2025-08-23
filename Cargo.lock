@@ -15407,6 +15407,7 @@ dependencies = [
  "subxt-utils",
  "token-gateway-primitives",
  "tokio",
+ "tracing-subscriber",
  "trie-db",
  "xcm-simulator-example",
  "zstd-safe 7.2.4",
@@ -26840,8 +26841,6 @@ dependencies = [
 [[package]]
 name = "staging-xcm-builder"
 version = "21.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "725ee290235919c5a8a91e0972acdab61045e1c2d4db665064d0d7a05494bfec"
 dependencies = [
  "environmental",
  "frame-support 41.0.0",

@@ -234,17 +234,6 @@ where
 			Pallet::<T>::dispatch_request(who, remainder)
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
 		} else {
-			#[cfg(feature = "std")]
-			FungiblesMutateAdapter::<
-				T::Assets,
-				Matcher,
-				AccountIdConverter,
-				T::AccountId,
-				CheckAsset,
-				CheckingAccount,
-			>::deposit_asset(what, who, context)?;
-
-			#[cfg(not(feature = "std"))]
 			Err(MatchError::AccountIdConversionFailed)?
 		}
 

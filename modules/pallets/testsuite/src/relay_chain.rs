@@ -26,6 +26,8 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::{Config, XcmExecutor};
 use xcm_emulator::TestExt;
+use polkadot_sdk::sp_runtime::traits::AccountIdConversion;
+
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 
 pub type AccountId = AccountId32;

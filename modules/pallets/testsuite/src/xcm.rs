@@ -133,16 +133,21 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 
 	para_config.assimilate_storage(&mut t).unwrap();
 
+	let assethub_sovereign_account: AccountId32 = ParaId::from(ASSET_HUB_PARA_ID).into_account_truncating();
+	println!("assethub account {:?}", assethub_sovereign_account);
+	println!("alice account {:?}", ALICE);
+
+
+
 	let asset_location = Location::new(1, Here);
 	let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
-
 
 	let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
 		assets: vec![
 			// id, owner, is_sufficient, min_balance
 			(asset_id.clone(), ALICE, true, 1),
 		],
-		accounts: vec![(asset_id, ALICE.into(), 10000_000_000_00000 * 10), (asset_id, BOB.into(), 0),],
+		accounts: vec![(asset_id, ALICE.into(), 10000_000_000_00000 * 10), (asset_id, assethub_sovereign_account, 1000_000_000_0000 * 10), (asset_id, BOB.into(), 0),],
 		metadata: vec![
 			// id, name, symbol, decimals
 			(asset_id, "Token Name".into(), "TOKEN".into(), 10),
@@ -214,9 +219,9 @@ decl_test_parachain! {
 decl_test_parachain! {
 	pub struct ParaB {
 	   Runtime = crate::asset_hub_runtime::AssetHubTest,
-	   XcmpMessageHandler = crate::runtime::MsgQueue,
-	   DmpMessageHandler = DmpMessageExecutor,
-	   new_ext = para_ext(1000),
+	   XcmpMessageHandler = crate::asset_hub_runtime::MsgQueue,
+	   DmpMessageHandler = crate::asset_hub_xcm::DmpMessageExecutor,
+	   new_ext = crate::asset_hub_xcm::para_ext(1000),
 	}
 }
 
@@ -400,7 +405,7 @@ impl pallet_xcm::Config for Test {
 	type ExecuteXcmOrigin = EnsureXcmOrigin<RuntimeOrigin, LocalOriginToLocation>;
 	type XcmExecuteFilter = Everything;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
-	type XcmTeleportFilter = Everything;
+	type XcmTeleportFilter = Nothing;
 	type XcmReserveTransferFilter = ReserveTransferFilter;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;

@@ -25,6 +25,9 @@ base = "${BASE_RPC_URL}"
 bsc = "${BSC_RPC_URL}"
 gnosis = "${GNOSIS_RPC_URL}"
 soneium = "${SONEIUM_RPC_URL}"
+polygon = "${POLYGON_RPC_URL}"
+unichain = "${UNICHAIN_RPC_URL}"
+inkchain = "${INKCHAIN_RPC_URL}"
 
 [etherscan]
 # testnet
@@ -44,3 +47,6 @@ base = { chain = 8453, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.e
 bsc = { chain = 56, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 gnosis = { chain = 100, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 soneium = { chain = 1868, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+polygon = { chain = 137, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+unichain = { chain = 130, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+inkchain = { chain = 57073, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }

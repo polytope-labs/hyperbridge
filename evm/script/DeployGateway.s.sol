@@ -50,6 +50,14 @@ contract DeployScript is BaseScript {
             vm.startBroadcast(uint256(privateKey));
             deployInscription(SONEIUM_HOST, admin);
             deployGateway(SONEIUM_HOST, admin, callDispatcher);
+        } else if (host.toSlice().startsWith("polygon".toSlice())) {
+            vm.startBroadcast(uint256(privateKey));
+            deployInscription(POLYGON_HOST, admin);
+            deployGateway(POLYGON_HOST, admin, callDispatcher);
+        } else if (host.toSlice().startsWith("unichain".toSlice())) {
+            vm.startBroadcast(uint256(privateKey));
+            deployInscription(UNICHAIN_HOST, admin);
+            deployGateway(UNICHAIN_HOST, admin, callDispatcher);
         }
     }
 

@@ -4,13 +4,11 @@ use polkadot_sdk::*;
 use std::sync::Arc;
 
 use crate::{
-	relay_chain::{self, RuntimeOrigin},
-	runtime,
-	runtime::{Test, ALICE, BOB, Assets, PalletXcm},
+	asset_hub_runtime::AssetHubTest,
+	relay_chain, runtime,
+	runtime::{Test, ALICE, BOB},
 	xcm::{MockNet, ParaA, ParaB},
-	init_tracing
 };
-use crate::asset_hub_runtime::AssetHubTest;
 use alloy_sol_types::SolValue;
 use codec::Encode;
 use frame_support::{assert_ok, traits::fungibles::Inspect};
@@ -23,7 +21,12 @@ use pallet_token_gateway::{impls::convert_to_erc20, types::Body};
 use pallet_xcm_gateway::Module;
 use polkadot_sdk::{
 	sp_runtime::traits::AccountIdConversion,
-	xcm_simulator::{Here, ParaId, Parachain},
+	xcm_simulator::{
+		All, AllCounted, Asset, AssetFilter, AssetId, BuyExecution, DepositAsset, Fungibility,
+		GeneralIndex, Here, InitiateTransfer, PalletInstance, ParaId, Parachain, Parent,
+		Reanchorable, SetFeesMode, TransferAsset, TransferReserveAsset, VersionedXcm, Weight, Wild,
+		Xcm,
+	},
 };
 use sp_core::{ByteArray, H160, H256};
 use staging_xcm::v5::{Junction, Junctions, Location, NetworkId, WeightLimit};
@@ -31,117 +34,108 @@ use xcm_simulator::TestExt;
 
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
 const PARA_ID: u32 = crate::xcm::SIBLING_PARA_ID;
-pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
+
+fn reserve_transfer_on_ah() {
+	let beneficiary: Location = Junctions::X3(Arc::new([
+		Junction::AccountId32 { network: None, id: ALICE.into() },
+		Junction::AccountKey20 {
+			network: Some(NetworkId::Ethereum { chain_id: 97 }),
+			key: [1u8; 20],
+		},
+		Junction::GeneralIndex(60 * 60),
+	]))
+	.into_location();
+	let weight_limit = WeightLimit::Unlimited;
+
+	let asset_location_on_assethub = Location::new(1, Here);
+
+	let dest = Location::new(1, [Parachain(2222)]);
+
+	let assets = Asset {
+		id: AssetId(asset_location_on_assethub.clone()),
+		fun: Fungibility::Fungible(SEND_AMOUNT),
+	};
+
+	let remote_xcm = Xcm(vec![
+		BuyExecution { fees: assets.clone(), weight_limit: WeightLimit::Unlimited },
+		DepositAsset { assets: Wild(All), beneficiary },
+	]);
+
+	let message = Xcm(vec![
+		SetFeesMode { jit_withdraw: true },
+		TransferReserveAsset { assets: assets.into(), dest, xcm: remote_xcm },
+	]);
+
+	ParaB::execute_with(|| {
+		assert_ok!(crate::asset_hub_runtime::PalletXcm::execute(
+			crate::asset_hub_runtime::RuntimeOrigin::signed(ALICE.into()),
+			Box::new(VersionedXcm::from(message)),
+			Weight::MAX
+		));
+	});
+}
 
 #[test]
 fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
-	init_tracing();
 	MockNet::reset();
 
 	let asset_id_on_paraa: H256 =
-		sp_io::hashing::keccak_256(&Location::new(1, Here).encode())
-			.into();
+		sp_io::hashing::keccak_256(&Location::new(1, Here).encode()).into();
 
-			ParaB::execute_with(|| {
-				let asset_location_on_assethub = Location::new(1, Here);
+	let asset_location_on_assethub = Location::new(1, Here);
 
-				let dest = Location::new(1, [Parachain(PARA_ID)]);
-				let beneficiary: Location = Junctions::X3(Arc::new([
-					Junction::AccountId32 { network: None, id: ALICE.into() },
-					Junction::AccountKey20 {
-						network: Some(NetworkId::Ethereum { chain_id: 97 }),
-						key: [1u8; 20],
-					},
-					Junction::GeneralIndex(60 * 60),
-				]))
-					.into_location();
+	reserve_transfer_on_ah();
 
+	ParaA::execute_with(|| {
+		let bobs_balance = <runtime::Assets as Inspect<
+			<Test as frame_system::Config>::AccountId,
+		>>::balance(asset_id_on_paraa, &BOB);
+		dbg!(bobs_balance);
 
-				assert_ok!(crate::asset_hub_runtime::PalletXcm::limited_reserve_transfer_assets(
-                    crate::asset_hub_runtime::RuntimeOrigin::signed( crate::asset_hub_runtime::ALICE.into()),
-                    Box::new(dest.into()),
-                    Box::new(beneficiary.into()),
-                    Box::new(vec![(asset_location_on_assethub, SEND_AMOUNT).into()].into()),
-                    0,
-                    WeightLimit::Unlimited,
-                ));
-			});
+		let parachain_account: ParaId = PARA_ID.into();
+		let parachain_account = parachain_account.into_account_truncating();
 
+		let alice_balance = <runtime::Assets as Inspect<
+			<Test as frame_system::Config>::AccountId,
+		>>::balance(asset_id_on_paraa, &parachain_account);
+		dbg!(alice_balance);
+		let nonce = pallet_ismp::Nonce::<Test>::get();
+		assert_eq!(nonce, 1);
 
-			ParaA::execute_with(|| {
+		let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
-				let bobs_balance = <runtime::Assets as Inspect<
-					<Test as frame_system::Config>::AccountId,
-				>>::balance(
-					asset_id_on_paraa,
-					&BOB,
-				);
-				dbg!(bobs_balance);
-
-				let parachain_account: ParaId =   PARA_ID.into();
-				let parachain_account = parachain_account.into_account_truncating();
-
-				let alice_balance = <runtime::Assets as Inspect<
-					<Test as frame_system::Config>::AccountId,
-				>>::balance(
-					asset_id_on_paraa,
-					&parachain_account,
-				);
-				dbg!(alice_balance);
-				let nonce = pallet_ismp::Nonce::<Test>::get();
-				assert_eq!(nonce, 1);
-
-				let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
-				let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
-
-				let pallet_account_balance = <runtime::Assets as Inspect<
-					<Test as frame_system::Config>::AccountId,
-				>>::balance(
-					asset_id_on_paraa.into(),
-					&pallet_xcm_gateway::Pallet::<Test>::account_id(),
-				);
-				assert_eq!(custodied_amount, pallet_account_balance);
-			});
-
+		let pallet_account_balance =
+			<runtime::Assets as Inspect<<Test as frame_system::Config>::AccountId>>::balance(
+				asset_id_on_paraa.into(),
+				&pallet_xcm_gateway::Pallet::<Test>::account_id(),
+			);
+		assert_eq!(custodied_amount, pallet_account_balance);
+	});
 }
 
 #[test]
 fn should_process_on_accept_module_callback_correctly() {
-	init_tracing();
 	MockNet::reset();
 
-
-
+	let beneficiary: Location = Junctions::X3(Arc::new([
+		Junction::AccountId32 { network: None, id: ALICE.into() },
+		Junction::AccountKey20 {
+			network: Some(NetworkId::Ethereum { chain_id: 97 }),
+			key: [1u8; 20],
+		},
+		Junction::GeneralIndex(60 * 60),
+	]))
+	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
-	let asset_location = Location::new(1, Here);
+	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::new(1, Here).encode()).into();
 
-	let dest = Location::new(1, [Parachain(PARA_ID)]);
-	let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
-
+	reserve_transfer_on_ah();
 
 	let alice_balance = ParaB::execute_with(|| {
-		let beneficiary: Location = Junctions::X3(Arc::new([
-			Junction::AccountId32 { network: None, id: ALICE.into() },
-			Junction::AccountKey20 {
-				network: Some(NetworkId::Ethereum { chain_id: 97 }),
-				key: [1u8; 20],
-			},
-			Junction::GeneralIndex(60 * 60),
-		]))
-			.into_location();
-
-		let result = crate::asset_hub_runtime::PalletXcm::limited_reserve_transfer_assets(
-			crate::asset_hub_runtime::RuntimeOrigin::signed(crate::asset_hub_runtime::ALICE),
-			Box::new(dest.clone().into()),
-			Box::new(beneficiary.clone().into()),
-			Box::new((asset_location, SEND_AMOUNT).into()),
-			0,
-			weight_limit,
-		);
-		assert_ok!(result);
-		let alice_balance = < crate::asset_hub_runtime::Assets as Inspect<
-			<AssetHubTest as frame_system::Config>::AccountId,
+		let alice_balance = <crate::asset_hub_runtime::Assets as Inspect<
+			<Test as frame_system::Config>::AccountId,
 		>>::balance(asset_id, &ALICE);
 		dbg!(alice_balance);
 		alice_balance
@@ -172,7 +166,6 @@ fn should_process_on_accept_module_callback_correctly() {
 
 	// Process on accept call back
 	let transferred = ParaA::execute_with(|| {
-
 		let protocol_fees = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
 		let amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 		let body = Body {
@@ -226,36 +219,26 @@ fn should_process_on_accept_module_callback_correctly() {
 #[test]
 fn should_process_on_timeout_module_callback_correctly() {
 	MockNet::reset();
-	init_tracing();
 
 	let asset_location = Location::new(1, Here);
 
 	let dest = Location::new(1, [Parachain(PARA_ID)]);
 	let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
 
+	let beneficiary: Location = Junctions::X3(Arc::new([
+		Junction::AccountId32 { network: None, id: ALICE.into() },
+		Junction::AccountKey20 {
+			network: Some(NetworkId::Ethereum { chain_id: 97 }),
+			key: [0u8; 20],
+		},
+		Junction::GeneralIndex(60 * 60),
+	]))
+	.into_location();
+	let weight_limit = WeightLimit::Unlimited;
+
+	reserve_transfer_on_ah();
+
 	let alice_balance = ParaB::execute_with(|| {
-
-		let beneficiary: Location = Junctions::X3(Arc::new([
-			Junction::AccountId32 { network: None, id: ALICE.into() },
-			Junction::AccountKey20 {
-				network: Some(NetworkId::Ethereum { chain_id: 97 }),
-				key: [0u8; 20],
-			},
-			Junction::GeneralIndex(60 * 60),
-		]))
-			.into_location();
-		let weight_limit = WeightLimit::Unlimited;
-
-
-		let result = crate::asset_hub_runtime::PalletXcm::limited_reserve_transfer_assets(
-			crate::asset_hub_runtime::RuntimeOrigin::signed(crate::asset_hub_runtime::ALICE),
-			Box::new(dest.clone().into()),
-			Box::new(beneficiary.clone().into()),
-			Box::new((asset_location, SEND_AMOUNT).into()),
-			0,
-			weight_limit,
-		);
-		assert_ok!(result);
 		let alice_balance = <crate::asset_hub_runtime::Assets as Inspect<
 			<Test as frame_system::Config>::AccountId,
 		>>::balance(asset_id, &ALICE);

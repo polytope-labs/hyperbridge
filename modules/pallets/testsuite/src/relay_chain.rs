@@ -18,6 +18,7 @@ use polkadot_runtime_parachains::{
 	inclusion::{AggregateMessageOrigin, UmpQueueId},
 	origin, shared,
 };
+use polkadot_sdk::sp_runtime::traits::AccountIdConversion;
 use staging_xcm::latest::prelude::*;
 use staging_xcm_builder::{
 	Account32Hash, AccountId32Aliases, AllowUnpaidExecutionFrom, ChildParachainAsNative,
@@ -26,7 +27,6 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::{Config, XcmExecutor};
 use xcm_emulator::TestExt;
-use polkadot_sdk::sp_runtime::traits::AccountIdConversion;
 
 pub const INITIAL_BALANCE: u128 = 1_000_000_000_000_000_000;
 

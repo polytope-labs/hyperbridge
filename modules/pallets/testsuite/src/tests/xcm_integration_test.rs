@@ -8,10 +8,9 @@ use futures::StreamExt;
 use polkadot_sdk::{
 	sp_core::{bytes::from_hex, sr25519, Pair, H256},
 	sp_runtime::Weight,
-	staging_xcm::v5::{Asset, AssetId, Fungibility},
+	staging_xcm::v5::{Asset, AssetId, Fungibility, Parent},
 	*,
 };
-use polkadot_sdk::staging_xcm::v5::Parent;
 use staging_xcm::{
 	v5::{Junction, Junctions, Location, NetworkId, WeightLimit},
 	VersionedLocation,
@@ -87,14 +86,13 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
-	let dest: VersionedLocation = VersionedLocation::V5( Location::new(1, [Junction::Parachain(2000)]));
+	let dest: VersionedLocation =
+		VersionedLocation::V5(Location::new(1, [Junction::Parachain(2000)]));
 
 	let beneficiary_as_versioned = VersionedLocation::V5(beneficiary);
 	let dot_location: Location = Parent.into();
-	let assets_vec = vec![Asset {
-		id: dot_location.into(),
-		fun: Fungibility::Fungible(SEND_AMOUNT),
-	}];
+	let assets_vec =
+		vec![Asset { id: dot_location.into(), fun: Fungibility::Fungible(SEND_AMOUNT) }];
 
 	let dest_value = versioned_location_to_value(&dest);
 	let beneficiary_value = versioned_location_to_value(&beneficiary_as_versioned);
@@ -121,7 +119,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.number();
 
 	send_extrinsic(&assethub_client, &signer, &ext, None).await?;
-
 
 	println!("done performing limited reserve asset transfer");
 	let mut sub = para_rpc.chain_subscribe_finalized_heads().await?;
@@ -179,12 +176,7 @@ async fn force_open_hrmp_channel(
 	let force_call = subxt::dynamic::tx(
 		"Hrmp",
 		"force_open_hrmp_channel",
-		vec![
-			Value::u128(sender),
-			Value::u128(recipient),
-			Value::u128(8),
-			Value::u128(1024 * 1024),
-		],
+		vec![Value::u128(sender), Value::u128(recipient), Value::u128(8), Value::u128(1024 * 1024)],
 	);
 	let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![force_call.into_value()]);
 	send_extrinsic(relay_client, signer, &sudo_call, None).await?;

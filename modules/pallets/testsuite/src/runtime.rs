@@ -62,7 +62,6 @@ use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
 use pallet_ismp::weights::IsmpModuleWeight;
 use pallet_messaging_fees::types::PriceOracle;
-use pallet_xcm_gateway::xcm_utilities::ASSET_HUB_PARA_ID;
 use substrate_state_machine::SubstrateStateMachine;
 use xcm_simulator::mock_message_queue;
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);

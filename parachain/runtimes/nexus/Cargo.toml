@@ -50,6 +50,7 @@ hyperbridge-client-machine = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
+ismp-polygon = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
@@ -155,6 +156,7 @@ std = [
     "ismp-optimism/std",
     "pallet-consensus-incentives/std",
     "polkadot-sdk/std",
+    "ismp-polygon/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

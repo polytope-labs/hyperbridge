@@ -13159,6 +13159,7 @@ dependencies = [
  "ismp-optimism",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
+ "ismp-polygon",
  "ismp-sync-committee",
  "log",
  "pallet-bridge-airdrop",

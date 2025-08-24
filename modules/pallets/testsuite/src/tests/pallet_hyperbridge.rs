@@ -99,7 +99,10 @@ fn test_dispatch_fees() {
 		assert_eq!(Balances::balance(&account), Default::default());
 
 		// now pallet-ismp has it
-		assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()),  65 * 10 * UNIT);
+		assert_eq!(
+			Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()),
+			65 * 10 * UNIT
+		);
 	});
 }
 

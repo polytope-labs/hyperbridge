@@ -15,6 +15,7 @@ import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
 import "../src/hosts/Gnosis.sol";
 import "../src/hosts/Soneium.sol";
+import "../src/hosts/Unichain.sol";
 
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
@@ -64,7 +65,7 @@ contract DeployScript is BaseScript {
             decimals = IERC20Metadata(feeToken).decimals();
             hyperbridge = StateMachine.polkadot(paraId);
         } else {
-            // deploy naive connsensus client
+            // deploy naive consensus client
             BeefyV1 consensusClientInstance = new BeefyV1{salt: salt}();
             consensusClient = address(consensusClientInstance);
 
@@ -158,10 +159,11 @@ contract DeployScript is BaseScript {
         } else if (host.toSlice().startsWith("soneium".toSlice())) {
             SoneiumHost h = new SoneiumHost{salt: salt}(params);
             return address(h);
+        } else if (host.toSlice().startsWith("unichain".toSlice())) {
+            UnichainHost h = new UnichainHost{salt: salt}(params);
+            return address(h);
         }
 
         revert("Unknown host");
     }
 }
-
-// 0x63fef1a54c11f857d51c46eeee5110030085c5ee8421ad5e3c79255f3054002a

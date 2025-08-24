@@ -144,16 +144,14 @@ fn should_allocate_iro_correctly() {
 			RuntimeOrigin::root(),
 			beneficiary.clone(),
 			amount,
-			bonus_amount
+			bonus_amount,
 		)
 		.unwrap();
 
 		let account_data = frame_system::Account::<Test>::get(beneficiary.clone());
 
 		let initial_unlocked = Permill::from_parts(250_000) * amount;
-		let locked = amount
-			.saturating_sub(initial_unlocked)
-			.saturating_add(bonus_amount);
+		let locked = amount.saturating_sub(initial_unlocked).saturating_add(bonus_amount);
 
 		assert_eq!(account_data.data.free, amount.saturating_add(bonus_amount));
 
@@ -193,7 +191,7 @@ fn should_allocate_iro_correctly() {
 			RuntimeOrigin::root(),
 			beneficiary.clone(),
 			amount.clone(),
-			bonus_amount
+			bonus_amount,
 		);
 
 		assert_err!(res, pallet_bridge_airdrop::pallet::Error::<Test>::AlreadyAllocated);

@@ -347,11 +347,12 @@ pub mod pallet {
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
 		pub fn set_start_block(
 			origin: OriginFor<T>,
-			block_number: BlockNumberFor<T>,
+			start_block: BlockNumberFor<T>,
 		) -> DispatchResult {
 			T::BridgeDropOrigin::ensure_origin(origin)?;
 
-			StartingBlock::<T>::put(block_number);
+			StartingBlock::<T>::put(start_block);
+			Self::deposit_event(Event::<T>::StartBlockSet { start_block });
 			Ok(())
 		}
 	}

@@ -86,7 +86,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	for key in keys {
 		// For keys that are 52 bytes we expect the first 20 bytes to be the contract address and
 		// the last 32 bytes the slot hash.
-		// For keys that are 20 bytes we expect that to the the
+		// For keys that are 20 bytes we expect that to the
 		// contract or account address.
 		// For keys that are 32 bytes we expect that to be a slothash in
 		// the Ismp EVM host

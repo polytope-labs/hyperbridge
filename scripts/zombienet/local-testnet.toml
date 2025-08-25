@@ -30,6 +30,23 @@ rpc_port = 9925
 args = []
 
 [[parachains]]
+id = 1000
+chain = "asset-hub-rococo-local"
+cumulus_based = true
+
+[[parachains.collators]]
+name = "asset-hub-rococo-collator-1"
+command = "../polkadot-sdk/target/release/polkadot-parachain"
+rpc_port = 9910
+args = ["-lparachain=debug,xcm=trace,runtime::bridge-transfer=trace"]
+
+[[parachains.collators]]
+name = "asset-hub-rococo-collator-2"
+command = "../polkadot-sdk/target/release/polkadot-parachain"
+rpc_port = 9920
+args = ["-lparachain=debug,xcm=trace,runtime::bridge-transfer=trace"]
+
+[[parachains]]
 id = 2000
 chain = "gargantua-2000"
 cumulus_based = true

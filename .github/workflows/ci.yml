@@ -328,9 +328,11 @@ jobs:
                   mkdir -p polkadot-sdk/target/release
                   cd polkadot-sdk/target/release
                   wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot'
+                  wget -O ./polkadot-parachain -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-parachain'
                   wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-execute-worker'
                   wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-prepare-worker'
                   sudo chmod +x ./polkadot
+                  sudo chmod +x ./polkadot-parachain
                   sudo chmod +x ./polkadot-execute-worker
                   sudo chmod +x ./polkadot-prepare-worker
 
@@ -345,6 +347,7 @@ jobs:
                   nohup ./zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml & disown
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9922
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 9910
 
             #      - name: Beefy integration tests
             #        run: |

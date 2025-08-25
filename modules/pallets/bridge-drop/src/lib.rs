@@ -116,10 +116,13 @@ pub mod pallet {
 			beneficiary: T::AccountId,
 			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
 		},
+		/// Funds have been allocated
 		Allocated {
 			beneficiary: T::AccountId,
 			amount: <<T as Config>::Currency as Currency<T::AccountId>>::Balance,
 		},
+		/// Start block for vesting has been set
+		StartBlockSet { start_block: BlockNumberFor<T> },
 	}
 
 	#[derive(
@@ -177,18 +180,6 @@ pub mod pallet {
 
 		fn hash(data: &[u8]) -> Self::Hash {
 			sp_io::hashing::keccak_256(data)
-		}
-	}
-
-	#[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-		fn on_initialize(n: BlockNumberFor<T>) -> Weight {
-			if StartingBlock::<T>::get().is_none() {
-				StartingBlock::<T>::put(n);
-				return <T as frame_system::Config>::DbWeight::get().reads_writes(1, 1);
-			}
-
-			<T as frame_system::Config>::DbWeight::get().reads(1)
 		}
 	}
 
@@ -348,6 +339,20 @@ pub mod pallet {
 
 			Self::deposit_event(Event::<T>::Allocated { beneficiary, amount: amount.into() });
 
+			Ok(())
+		}
+
+		/// Set the start block for vesting
+		#[pallet::call_index(4)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 2))]
+		pub fn set_start_block(
+			origin: OriginFor<T>,
+			start_block: BlockNumberFor<T>,
+		) -> DispatchResult {
+			T::BridgeDropOrigin::ensure_origin(origin)?;
+
+			StartingBlock::<T>::put(start_block);
+			Self::deposit_event(Event::<T>::StartBlockSet { start_block });
 			Ok(())
 		}
 	}

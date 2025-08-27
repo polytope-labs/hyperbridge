@@ -488,7 +488,6 @@ where
 				let asset_id = Location::parent();
 				let xcm_dest =
 					VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
-				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
 				let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 

@@ -1,10 +1,11 @@
-import { chainIds } from "@/config/chain"
+import { chainIds } from "@hyperbridge/sdk"
 import { EventMonitor } from "./event-monitor"
 import { FillerStrategy } from "@/strategies/base"
 import { Order, FillerConfig, ChainConfig, DUMMY_PRIVATE_KEY, ADDRESS_ZERO, bytes20ToBytes32 } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
-import { ChainClientManager, ChainConfigService, ContractInteractionService } from "@/services"
-import { fetchTokenUsdPriceOnchain } from "@/utils"
+import { ChainClientManager, ContractInteractionService } from "@/services"
+import { ChainConfigService } from "@hyperbridge/sdk"
+
 import { PublicClient } from "viem"
 
 export class IntentFiller {
@@ -67,13 +68,13 @@ export class IntentFiller {
 		this.globalQueue.add(async () => {
 			try {
 				const sourceClient = this.chainClientManager.getPublicClient(order.sourceChain)
-				const orderValue = await this.calculateOrderValue(order, sourceClient)
+				const orderValue = await this.contractService.getTokenUsdValue(order)
 				let currentConfirmations = await sourceClient.getTransactionConfirmations({
 					hash: order.transactionHash!,
 				})
 				const requiredConfirmations = this.config.confirmationPolicy.getConfirmationBlocks(
 					chainIds[order.sourceChain as keyof typeof chainIds],
-					orderValue,
+					orderValue.inputUsdValue,
 				)
 				console.log(
 					`For order ${order.id}, required confirmations: ${requiredConfirmations},
@@ -97,22 +98,6 @@ export class IntentFiller {
 		})
 	}
 
-	private async calculateOrderValue(order: Order, client: PublicClient): Promise<bigint> {
-		let totalUSDValue = BigInt(0)
-
-		for (const input of order.inputs) {
-			const tokenUsdPrice = await fetchTokenUsdPriceOnchain(
-				input.token == bytes20ToBytes32(ADDRESS_ZERO)
-					? this.configService.getWrappedNativeAssetWithDecimals(order.sourceChain).asset
-					: input.token,
-			)
-
-			totalUSDValue = totalUSDValue + BigInt(input.amount * BigInt(tokenUsdPrice))
-		}
-
-		return totalUSDValue
-	}
-
 	private evaluateAndExecuteOrder(order: Order): void {
 		this.globalQueue.add(async () => {
 			try {
@@ -127,11 +112,11 @@ export class IntentFiller {
 				)
 
 				const validStrategies = eligibleStrategies
-					.filter((s) => s !== null)
+					.filter((s): s is NonNullable<typeof s> => s !== null && s.profitability > 0n)
 					.sort((a, b) => Number(b.profitability) - Number(a.profitability))
 
 				if (validStrategies.length === 0) {
-					console.log(`No viable strategy found for order ${order.id}`)
+					console.log(`No profitable strategy found for order ${order.id}`)
 					return
 				}
 

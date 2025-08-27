@@ -9,7 +9,7 @@ import {
 } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { PublicClient } from "viem"
-import { addresses } from "@/config/chain"
+import { addresses } from "@hyperbridge/sdk"
 import { ChainClientManager } from "@/services"
 
 export class EventMonitor extends EventEmitter {

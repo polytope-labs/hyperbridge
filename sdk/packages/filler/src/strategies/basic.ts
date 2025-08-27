@@ -1,16 +1,9 @@
 import { FillerStrategy } from "@/strategies/base"
-import {
-	Order,
-	ExecutionResult,
-	HexString,
-	FillOptions,
-	estimateGasForPost,
-	constructRedeemEscrowRequestBody,
-	IPostRequest,
-} from "@hyperbridge/sdk"
+import { Order, ExecutionResult, HexString, FillOptions } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
-import { ChainClientManager, ChainConfigService, ContractInteractionService } from "@/services"
+import { ChainClientManager, ContractInteractionService } from "@/services"
+import { ChainConfigService, fetchTokenUsdPrice } from "@hyperbridge/sdk"
 
 export class BasicFiller implements FillerStrategy {
 	name = "BasicFiller"
@@ -63,35 +56,42 @@ export class BasicFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Calculates the expected profit of filling this order
-	 * @param order The order to calculate profit for
-	 * @returns The expected profit in DAI (BigInt) which is the order fees minus the total cost
+	 * Calculates the USD value of the order's inputs, outputs, fees and compares
+	 * what will the filler receive and what will the filler pay
+	 * @param order The order to calculate the USD value for
+	 * @returns The profit in USD (BigInt)
 	 */
 	async calculateProfitability(order: Order): Promise<bigint> {
 		try {
-			const { fillGas, postGas } = await this.contractService.estimateGasFillPost(order)
-			const nativeTokenPriceUsd = await this.contractService.getNativeTokenPriceUsd(order)
+			const { fillGas, relayerFeeInFeeToken } = await this.contractService.estimateGasFillPost(order)
 
-			// 2% on top of postGas
-			const relayerFeeEth = postGas + (postGas * BigInt(200)) / BigInt(10000)
+			const protocolFeeInFeeToken = await this.contractService.quote(order)
 
-			const protocolFeeUSD = await this.contractService.getProtocolFeeUSD(order, relayerFeeEth)
+			const { decimals } = await this.contractService.getFeeTokenWithDecimals(order.destChain)
 
-			// fillGas and relayerFeeEth are in wei (10^18)
-			// nativeTokenPriceUsd has 18 decimals
-			const totalGasWei = fillGas + relayerFeeEth
+			const totalGasEstimateInFeeToken =
+				(await this.contractService.convertGasToFeeToken(fillGas, order.destChain, decimals)) +
+				protocolFeeInFeeToken +
+				relayerFeeInFeeToken
 
-			// Converting gas cost from wei to USD using the formula:
-			// gasCostUsd = (gasWei * priceUsd) / 10^18
-			// Result has 18 decimals (matching nativeTokenPriceUsd)
-			const gasCostUsd = (totalGasWei * nativeTokenPriceUsd) / BigInt(10 ** 18)
+			const { outputUsdValue, inputUsdValue } = await this.contractService.getTokenUsdValue(order)
 
-			// Both gasCostUsd and protocolFeeUSD have 18 decimals
-			const totalCostUsd = gasCostUsd + protocolFeeUSD
+			const orderFeeInUsd = (order.fees * BigInt(10 ** decimals)) / BigInt(10 ** 18)
+			const totalGasEstimateInUsd = (totalGasEstimateInFeeToken * BigInt(10 ** decimals)) / BigInt(10 ** 18)
 
-			// Return profitability if positive, otherwise negative
-			// order.fees also has 18 decimals
-			return order.fees > totalCostUsd ? order.fees - totalCostUsd : BigInt(-1)
+			const toReceive = inputUsdValue + orderFeeInUsd
+			const toPay = outputUsdValue + totalGasEstimateInUsd
+
+			const profit = toReceive > toPay ? toReceive - toPay : BigInt(0)
+
+			// Log for debugging
+			console.log({
+				orderFees: order.fees.toString(),
+				totalGasEstimateInFeeToken: totalGasEstimateInFeeToken.toString(),
+				profitable: profit > 0,
+				profitUsd: profit.toString(),
+			})
+			return profit
 		} catch (error) {
 			console.error(`Error calculating profitability:`, error)
 			return BigInt(0)
@@ -109,9 +109,9 @@ export class BasicFiller implements FillerStrategy {
 		try {
 			const { destClient, walletClient } = this.clientManager.getClientsForOrder(order)
 
-			const { postGas: postGasEstimate } = await this.contractService.estimateGasFillPost(order)
+			const { relayerFeeInFeeToken } = await this.contractService.estimateGasFillPost(order)
 			const fillOptions: FillOptions = {
-				relayerFee: postGasEstimate + (postGasEstimate * BigInt(200)) / BigInt(10000),
+				relayerFee: relayerFeeInFeeToken,
 			}
 
 			const ethValue = this.contractService.calculateRequiredEthValue(order.outputs)

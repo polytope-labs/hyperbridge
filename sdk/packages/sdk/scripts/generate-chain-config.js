@@ -1,13 +1,13 @@
-import fs from "fs"
-import path from "path"
-import { fileURLToPath } from "url"
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import toml from "@iarna/toml"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const root = path.resolve(__dirname, "..")
-const configPath = path.resolve(root, "src/config/chains.toml")
-const outputPath = path.resolve(root, "src/config/chain.ts")
+const configPath = path.resolve(root, "src/configs/chains.toml")
+const outputPath = path.resolve(root, "src/configs/chain.ts")
 
 const config = toml.parse(fs.readFileSync(configPath, "utf-8"))
 
@@ -17,7 +17,7 @@ const chainsEnum = Object.keys(config.chains)
 
 const chainIds = Object.entries(config.chains)
 	.map(([chain, data]) => {
-		const chainId = parseInt(data.stateMachineId.split("-")[1])
+		const chainId = Number.parseInt(data.stateMachineId.split("-")[1])
 		return `\t[Chains.${chain.toUpperCase().replace(/-/g, "_")}]: ${chainId}`
 	})
 	.join(",\n")
@@ -32,7 +32,7 @@ const viemChains = Object.entries(config.chains)
 	.filter(([_, data]) => data.type === "evm")
 	.map(([chain, data]) => {
 		const chainType = chain.split("-")[0]
-		const chainId = parseInt(data.stateMachineId.split("-")[1])
+		const chainId = Number.parseInt(data.stateMachineId.split("-")[1])
 		return `\t"${chainId}": ${chainNameMap[chainType]}`
 	})
 	.join(",\n")
@@ -91,9 +91,6 @@ const consensusStateIds = Object.entries(config.chains)
 const tsContent = `
 import { Chain, bscTestnet, gnosisChiado, sepolia } from "viem/chains"
 
-/**
- * Enum representing different chains.
- */
 export enum Chains {
 ${chainsEnum}
 }
@@ -104,22 +101,14 @@ type AddressMap = {
 	}
 }
 
-type RpcMap = {
-	[K in Chains]?: string
-}
+type RpcMap = Record<Chains, string>
 
-/**
- * Mapping of chain IDs for different chains.
- */
 export const chainIds = {
 ${chainIds}
 } as const
 
 export type ChainId = typeof chainIds
 
-/**
- * Mapping of Viem Chain objects for different chains.
- */
 export const viemChains: Record<string, Chain> = {
 ${viemChains}
 }
@@ -128,24 +117,15 @@ export const WrappedNativeDecimals = {
 ${wrappedNativeDecimals}
 }
 
-/**
- * Mapping of assets for different chains.
- */
 export const assets = {
 ${assets}
 }
 
-/**
- * Mapping of addresses for different contracts.
- */
 export const addresses: AddressMap = {
 ${addresses}
 }
 
-/**
- * Creates an RPC URLs map from environment variables
- */
-export const createRpcUrls = (env: NodeJS.ProcessEnv) => ({
+export const createRpcUrls = (env: NodeJS.ProcessEnv): RpcMap => ({
 ${rpcUrls}
 })
 

@@ -6,7 +6,6 @@ import {
 	TimeoutStatus,
 	type StateMachineHeight,
 	RequestKind,
-	EvmLanguage,
 } from "@/types"
 import type { RequestStatusKey, TimeoutStatusKey, RetryConfig, Order } from "@/types"
 import {
@@ -18,6 +17,7 @@ import {
 	bytesToHex,
 	type PublicClient,
 	concatHex,
+	CallParameters,
 } from "viem"
 import { createConsola, LogLevels } from "consola"
 import { _queryRequestInternal } from "./query-client"
@@ -31,6 +31,7 @@ export * from "./utils/substrate"
 
 export const DEFAULT_POLL_INTERVAL = 5_000
 export const ADDRESS_ZERO = "0x0000000000000000000000000000000000000000" as HexString
+export const MOCK_ADDRESS = "0x1234567890123456789012345678901234567890" as HexString
 export const DUMMY_PRIVATE_KEY = "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString
 
 /**
@@ -227,8 +228,12 @@ export function orderCommitment(order: Order): HexString {
 		[
 			{
 				user: order.user,
-				sourceChain: toHex(order.sourceChain),
-				destChain: toHex(order.destChain),
+				sourceChain: order.sourceChain.startsWith("0x")
+					? (order.sourceChain as `0x${string}`)
+					: toHex(order.sourceChain),
+				destChain: order.destChain.startsWith("0x")
+					? (order.destChain as `0x${string}`)
+					: toHex(order.destChain),
 				deadline: order.deadline,
 				nonce: order.nonce,
 				fees: order.fees,
@@ -500,26 +505,200 @@ export const dateStringtoTimestamp = (date: string): number => {
 }
 
 /**
- * Calculates the balance mapping location for a given slot and holder address.
- * This function handles the different encoding formats used by Solidity and Vyper.
- *
- * @param slot - The slot number to calculate the mapping location for.
- * @param holder - The address of the holder to calculate the mapping location for.
- * @param language - The language of the contract.
- * @returns The balance mapping location as a HexString.
+ * Maps testnet identifiers to mainnet identifiers for price lookup
+ * @param identifier - The original token identifier (symbol or contract address)
+ * @returns The mapped mainnet identifier
  */
-export function calculateBalanceMappingLocation(slot: bigint, holder: string, language: EvmLanguage): HexString {
-	const holderBytes = bytes20ToBytes32(holder)
-	const slotBytes = `0x${slot.toString(16).padStart(64, "0")}` as HexString
+export function mapTestnetToMainnet(identifier: string): string {
+	identifier = identifier.toLowerCase()
 
-	if (language === EvmLanguage.Solidity) {
-		return keccak256(
-			encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [holderBytes, slotBytes]) as HexString,
-		)
-	} else {
-		// Vyper uses reverse order
-		return keccak256(
-			encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }], [slotBytes, holderBytes]) as HexString,
-		)
+	switch (identifier) {
+		case "tbnb":
+			return "wbnb"
+		case "0xc043f483373072f7f27420d6e7d7ad269c018e18".toLowerCase():
+			return "dai"
+		case "0xae13d989dac2f0debff460ac112a837c89baa7cd".toLowerCase():
+			return "wbnb"
+		case "0x1938165569A5463327fb206bE06d8D9253aa06b7".toLowerCase():
+			return "dai"
+		case "0xC625ec7D30A4b1AAEfb1304610CdAcD0d606aC92".toLowerCase():
+			return "dai"
+		case "0x50B1d3c7c073c9caa1Ef207365A2c9C976bD70b9".toLowerCase():
+			return "dai"
+		case "0xa801da100bf16d07f668f4a49e1f71fc54d05177".toLowerCase():
+			return "dai"
+		default:
+			return identifier
 	}
+}
+
+/**
+ * Fetches the USD price of a token from CoinGecko with Defillama fallback
+ * @param identifier - The ticker symbol of the token (e.g., "BTC", "ETH", "USDC") or contract address
+ * @note This function will be replaced by internal price indexer
+ * @returns The USD price of the token as a number (preserves decimals)
+ */
+export async function fetchTokenUsdPrice(identifier: string): Promise<number> {
+	// First try CoinGecko
+	try {
+		const coinGeckoPrice = await fetchFromCoinGecko(identifier)
+		return coinGeckoPrice
+	} catch (error) {
+		// Fallback to Defillama
+		try {
+			const defillamaPrice = await fetchFromDefillama(identifier)
+			return defillamaPrice
+		} catch (fallbackError) {
+			console.log(
+				`Both APIs failed for ${identifier}. CoinGecko: ${error}, Defillama: ${fallbackError}. Returning 1`,
+			)
+			return 1
+		}
+	}
+}
+
+/**
+ * Fetches price from CoinGecko API
+ */
+async function fetchFromCoinGecko(identifier: string): Promise<number> {
+	const mappedIdentifier = mapTestnetToMainnet(identifier)
+
+	const url = mappedIdentifier.startsWith("0x")
+		? `https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses=${mappedIdentifier}&vs_currencies=usd`
+		: `https://api.coingecko.com/api/v3/simple/price?ids=${mappedIdentifier}&vs_currencies=usd`
+
+	const response = await fetch(url)
+
+	if (!response.ok) {
+		throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`)
+	}
+
+	const data = await response.json()
+
+	// For contract addresses, the key is the contract address
+	// For symbols, the key is the symbol
+	const key = mappedIdentifier.toLowerCase()
+
+	if (!data[key]?.usd) {
+		throw new Error(`Price not found for token: ${mappedIdentifier}`)
+	}
+
+	return data[key].usd
+}
+
+/**
+ * Fetches price from Defillama API
+ */
+async function fetchFromDefillama(identifier: string): Promise<number> {
+	const mappedIdentifier = mapTestnetToMainnet(identifier)
+
+	// Format the coin ID for Defillama
+	const coinId = mappedIdentifier.startsWith("0x")
+		? `ethereum:${mappedIdentifier}` // Contract address format
+		: `coingecko:${mappedIdentifier}` // Symbol format (uses CoinGecko IDs)
+
+	const url = `https://coins.llama.fi/prices/current/${coinId}`
+
+	const response = await fetch(url)
+
+	if (!response.ok) {
+		throw new Error(`Defillama API error: ${response.status} ${response.statusText}`)
+	}
+
+	const data = await response.json()
+	const price = data.coins?.[coinId]?.price
+
+	if (!price && price !== 0) {
+		throw new Error(`Price not found for token: ${mappedIdentifier}`)
+	}
+
+	return price
+}
+
+/**
+ * ERC20 method signatures used for storage slot detection
+ */
+export enum ERC20Method {
+	/** ERC20 balanceOf(address) method signature */
+	BALANCE_OF = "0x70a08231",
+	/** ERC20 allowance(address,address) method signature */
+	ALLOWANCE = "0xdd62ed3e",
+}
+
+/**
+ * Retrieves the storage slot for a contract call using debug_traceCall
+ *
+ * This function uses the Ethereum debug API to trace contract execution and identify
+ * the storage slot accessed during the call. It's commonly used for ERC20 token state
+ * mappings like balanceOf and allowance, but can work with any contract call that
+ * performs SLOAD operations.
+ *
+ * @param client - The viem PublicClient instance connected to an RPC node with debug API enabled
+ * @param tokenAddress - The address of the contract to trace
+ * @param data - The full encoded function call data (method signature + encoded parameters)
+ * @returns The storage slot as a hex string
+ * @throws Error if the storage slot cannot be found or if debug API is not available
+ *
+ * @example
+ * ```ts
+ * import { ERC20Method, bytes20ToBytes32 } from '@hyperbridge/sdk'
+ *
+ * // Get balance storage slot for ERC20
+ * const balanceData = ERC20Method.BALANCE_OF + bytes20ToBytes32(userAddress).slice(2)
+ * const balanceSlot = await getStorageSlot(
+ *   client,
+ *   tokenAddress,
+ *   balanceData as HexString
+ * )
+ *
+ * // Get allowance storage slot for ERC20
+ * const allowanceData = ERC20Method.ALLOWANCE +
+ *   bytes20ToBytes32(ownerAddress).slice(2) +
+ *   bytes20ToBytes32(spenderAddress).slice(2)
+ * const allowanceSlot = await getStorageSlot(
+ *   client,
+ *   tokenAddress,
+ *   allowanceData as HexString
+ * )
+ * ```
+ */
+export async function getStorageSlot(
+	client: PublicClient,
+	contractAddress: HexString,
+	data: HexString,
+): Promise<string> {
+	const traceCallClient = client.extend((client) => ({
+		async traceCall(args: CallParameters) {
+			return client.request({
+				// @ts-ignore
+				method: "debug_traceCall",
+				// @ts-ignore
+				params: [args, "latest", {}],
+			})
+		},
+	}))
+
+	// Make trace call
+	const response = await traceCallClient.traceCall({
+		to: contractAddress,
+		data: data,
+	})
+	const methodSignature = data.slice(0, 10) as HexString
+
+	// @ts-ignore
+	const logs = response.structLogs
+	for (let i = logs.length - 1; i >= 0; i--) {
+		const log = logs[i]
+		if (log.op === "SLOAD" && log.stack?.length >= 3) {
+			const sigHash = log.stack[0]
+			const slotHex = log.stack[log.stack.length - 1]
+
+			// Extract method signature from data (first 4 bytes)
+			if (sigHash === methodSignature && slotHex.length === 66) {
+				return slotHex
+			}
+		}
+	}
+
+	throw new Error(`Storage slot not found for data: ${methodSignature}`)
 }

@@ -51,11 +51,6 @@ const ABI = [
 	},
 	{
 		inputs: [],
-		name: "MaxFishermanCountExceeded",
-		type: "error",
-	},
-	{
-		inputs: [],
 		name: "UnauthorizedAccount",
 		type: "error",
 	},
@@ -208,7 +203,7 @@ const ABI = [
 					},
 					{
 						internalType: "uint256",
-						name: "perByteFee",
+						name: "defaultPerByteFee",
 						type: "uint256",
 					},
 					{
@@ -262,9 +257,21 @@ const ABI = [
 						type: "uint256[]",
 					},
 					{
-						internalType: "address[]",
-						name: "fishermen",
-						type: "address[]",
+						components: [
+							{
+								internalType: "bytes32",
+								name: "stateIdHash",
+								type: "bytes32",
+							},
+							{
+								internalType: "uint256",
+								name: "perByteFee",
+								type: "uint256",
+							},
+						],
+						internalType: "struct PerByteFee[]",
+						name: "perByteFees",
+						type: "tuple[]",
 					},
 					{
 						internalType: "bytes",
@@ -286,7 +293,7 @@ const ABI = [
 					},
 					{
 						internalType: "uint256",
-						name: "perByteFee",
+						name: "defaultPerByteFee",
 						type: "uint256",
 					},
 					{
@@ -340,9 +347,21 @@ const ABI = [
 						type: "uint256[]",
 					},
 					{
-						internalType: "address[]",
-						name: "fishermen",
-						type: "address[]",
+						components: [
+							{
+								internalType: "bytes32",
+								name: "stateIdHash",
+								type: "bytes32",
+							},
+							{
+								internalType: "uint256",
+								name: "perByteFee",
+								type: "uint256",
+							},
+						],
+						internalType: "struct PerByteFee[]",
+						name: "perByteFees",
+						type: "tuple[]",
 					},
 					{
 						internalType: "bytes",
@@ -1536,7 +1555,7 @@ const ABI = [
 					},
 					{
 						internalType: "uint256",
-						name: "perByteFee",
+						name: "defaultPerByteFee",
 						type: "uint256",
 					},
 					{
@@ -1590,9 +1609,21 @@ const ABI = [
 						type: "uint256[]",
 					},
 					{
-						internalType: "address[]",
-						name: "fishermen",
-						type: "address[]",
+						components: [
+							{
+								internalType: "bytes32",
+								name: "stateIdHash",
+								type: "bytes32",
+							},
+							{
+								internalType: "uint256",
+								name: "perByteFee",
+								type: "uint256",
+							},
+						],
+						internalType: "struct PerByteFee[]",
+						name: "perByteFees",
+						type: "tuple[]",
 					},
 					{
 						internalType: "bytes",
@@ -1654,7 +1685,13 @@ const ABI = [
 		type: "function",
 	},
 	{
-		inputs: [],
+		inputs: [
+			{
+				internalType: "bytes",
+				name: "stateId",
+				type: "bytes",
+			},
+		],
 		name: "perByteFee",
 		outputs: [
 			{
@@ -2088,7 +2125,7 @@ const ABI = [
 					},
 					{
 						internalType: "uint256",
-						name: "perByteFee",
+						name: "defaultPerByteFee",
 						type: "uint256",
 					},
 					{
@@ -2142,9 +2179,21 @@ const ABI = [
 						type: "uint256[]",
 					},
 					{
-						internalType: "address[]",
-						name: "fishermen",
-						type: "address[]",
+						components: [
+							{
+								internalType: "bytes32",
+								name: "stateIdHash",
+								type: "bytes32",
+							},
+							{
+								internalType: "uint256",
+								name: "perByteFee",
+								type: "uint256",
+							},
+						],
+						internalType: "struct PerByteFee[]",
+						name: "perByteFees",
+						type: "tuple[]",
 					},
 					{
 						internalType: "bytes",
@@ -2158,31 +2207,6 @@ const ABI = [
 			},
 		],
 		name: "updateHostParams",
-		outputs: [],
-		stateMutability: "nonpayable",
-		type: "function",
-	},
-	{
-		inputs: [
-			{
-				components: [
-					{
-						internalType: "uint256",
-						name: "stateMachineId",
-						type: "uint256",
-					},
-					{
-						internalType: "uint256",
-						name: "height",
-						type: "uint256",
-					},
-				],
-				internalType: "struct StateMachineHeight",
-				name: "height",
-				type: "tuple",
-			},
-		],
-		name: "vetoStateCommitment",
 		outputs: [],
 		stateMutability: "nonpayable",
 		type: "function",

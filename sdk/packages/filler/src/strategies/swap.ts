@@ -1,5 +1,14 @@
-import { ChainConfigService, ChainClientManager, ContractInteractionService } from "@/services"
-import { ADDRESS_ZERO, bytes32ToBytes20, ExecutionResult, FillOptions, HexString, Order } from "@hyperbridge/sdk"
+import { ChainClientManager, ContractInteractionService } from "@/services"
+import {
+	ADDRESS_ZERO,
+	bytes32ToBytes20,
+	ChainConfigService,
+	ExecutionResult,
+	FillOptions,
+	HexString,
+	Order,
+	fetchTokenUsdPrice,
+} from "@hyperbridge/sdk"
 import { FillerStrategy } from "./base"
 import { privateKeyToAddress } from "viem/accounts"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
@@ -49,7 +58,7 @@ export class StableSwapFiller implements FillerStrategy {
 				return false
 			}
 
-			const fillerBalanceUsd = await this.contractService.getFillerBalanceUSD(order, order.destChain)
+			const fillerBalanceUsd = await this.contractService.getFillerBalanceUSD(order.destChain)
 
 			// Check if the filler has enough USD value to fill the order
 			const { outputUsdValue } = await this.contractService.getTokenUsdValue(order)
@@ -74,27 +83,40 @@ export class StableSwapFiller implements FillerStrategy {
 	 */
 	async calculateProfitability(order: Order): Promise<bigint> {
 		try {
-			const { fillGas, postGas } = await this.contractService.estimateGasFillPost(order)
-			const { totalGasEstimate } = await this.calculateSwapOperations(order, order.destChain)
-			const nativeTokenPriceUsd = await this.contractService.getNativeTokenPriceUsd(order)
+			const { fillGas, relayerFeeInFeeToken } = await this.contractService.estimateGasFillPost(order)
+			const { totalGasEstimate: swapGasEstimate } = await this.calculateSwapOperations(order, order.destChain)
+			const protocolFeeInFeeToken = await this.contractService.getProtocolFee(order, relayerFeeInFeeToken)
+			const { decimals: destFeeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(
+				order.destChain,
+			)
 
-			const relayerFeeEth = postGas + (postGas * BigInt(200)) / BigInt(10000)
-
-			const protocolFeeUSD = await this.contractService.getProtocolFeeUSD(order, relayerFeeEth)
-
-			const totalGasWei = fillGas + relayerFeeEth + totalGasEstimate
-
-			const gasCostUsd = (totalGasWei * nativeTokenPriceUsd) / BigInt(10 ** 18)
-
-			const totalGasCostUsd = gasCostUsd + protocolFeeUSD
+			const gasEstimateExcludingRelayerFee = fillGas + swapGasEstimate
+			const totalGasEstimateInFeeToken =
+				(await this.contractService.convertGasToFeeToken(
+					gasEstimateExcludingRelayerFee,
+					order.destChain,
+					destFeeTokenDecimals,
+				)) +
+				protocolFeeInFeeToken +
+				relayerFeeInFeeToken
 
 			const { outputUsdValue, inputUsdValue } = await this.contractService.getTokenUsdValue(order)
+			const orderFeeInUsd = (order.fees * BigInt(10 ** destFeeTokenDecimals)) / BigInt(10 ** 18)
+			const totalGasEstimateInUsd =
+				(totalGasEstimateInFeeToken * BigInt(10 ** destFeeTokenDecimals)) / BigInt(10 ** 18)
 
-			const toReceive = outputUsdValue + order.fees
-			const toPay = inputUsdValue + totalGasCostUsd
+			const toReceive = inputUsdValue + orderFeeInUsd
+			const toPay = outputUsdValue + totalGasEstimateInUsd
 
-			const profit = toReceive - toPay
+			const profit = toReceive > toPay ? toReceive - toPay : BigInt(0)
 
+			// Log for debugging
+			console.log({
+				orderFees: order.fees.toString(),
+				totalGasEstimateInFeeToken: totalGasEstimateInFeeToken.toString(),
+				profitable: profit > 0,
+				profitUsd: profit.toString(),
+			})
 			return profit
 		} catch (error) {
 			console.error(`Error calculating profitability:`, error)
@@ -110,9 +132,9 @@ export class StableSwapFiller implements FillerStrategy {
 
 			const { calls } = await this.calculateSwapOperations(order, order.destChain)
 
-			const { postGas: postGasEstimate } = await this.contractService.estimateGasFillPost(order)
+			const { relayerFeeInFeeToken } = await this.contractService.estimateGasFillPost(order)
 			const fillOptions: FillOptions = {
-				relayerFee: postGasEstimate + (postGasEstimate * BigInt(200)) / BigInt(10000),
+				relayerFee: relayerFeeInFeeToken,
 			}
 
 			await this.contractService.approveTokensIfNeeded(order)
@@ -209,7 +231,7 @@ export class StableSwapFiller implements FillerStrategy {
 		for (const token of order.outputs) {
 			const tokenAddress = bytes32ToBytes20(token.token)
 			const { nativeTokenBalance, daiBalance, usdcBalance, usdtBalance } =
-				await contractService.getFillerBalanceUSD(order, destChain)
+				await contractService.getFillerBalanceUSD(destChain)
 
 			const currentBalance =
 				tokenAddress == daiAsset
@@ -498,7 +520,7 @@ export class StableSwapFiller implements FillerStrategy {
 					}
 				}
 			} catch (error) {
-				console.warn(`V3 quote failed for fee ${fee}:`, error)
+				console.warn(`V3 quote failed for fee ${fee}, continuing to next fee tier`)
 				// Continue to next fee tier
 			}
 		}

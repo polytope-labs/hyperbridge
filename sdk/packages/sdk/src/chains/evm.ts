@@ -10,6 +10,11 @@ import {
 	keccak256,
 	toBytes,
 	pad,
+	erc20Abi,
+	encodePacked,
+	encodeAbiParameters,
+	maxUint256,
+	hexToString,
 } from "viem"
 import {
 	mainnet,
@@ -33,8 +38,41 @@ import { match } from "ts-pattern"
 import EvmHost from "@/abis/evmHost"
 import type { IChain, IIsmpMessage } from "@/chain"
 import HandlerV1 from "@/abis/handler"
-import { calculateMMRSize, EvmStateProof, mmrPositionToKIndex, MmrProof, SubstrateStateProof } from "@/utils"
-import type { HexString, IMessage, StateMachineHeight, StateMachineIdParams } from "@/types"
+import UniversalRouter from "@/abis/universalRouter"
+import UniswapV2Factory from "@/abis/uniswapV2Factory"
+import UniswapRouterV2 from "@/abis/uniswapRouterV2"
+import UniswapV3Factory from "@/abis/uniswapV3Factory"
+import UniswapV3Pool from "@/abis/uniswapV3Pool"
+import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
+import IntentGatewayABI from "@/abis/IntentGateway"
+import {
+	ADDRESS_ZERO,
+	bytes32ToBytes20,
+	calculateMMRSize,
+	constructRedeemEscrowRequestBody,
+	EvmStateProof,
+	fetchTokenUsdPrice,
+	generateRootWithProof,
+	getStorageSlot,
+	mmrPositionToKIndex,
+	MmrProof,
+	MOCK_ADDRESS,
+	orderCommitment,
+	SubstrateStateProof,
+} from "@/utils"
+import {
+	DispatchPost,
+	HostParams,
+	type FillOptions,
+	type HexString,
+	type IMessage,
+	type IPostRequest,
+	type Order,
+	type StateMachineHeight,
+	type StateMachineIdParams,
+} from "@/types"
+import evmHost from "@/abis/evmHost"
+import { ChainConfigService } from "@/configs/ChainConfigService"
 
 const chains = {
 	[mainnet.id]: mainnet,
@@ -80,6 +118,7 @@ export interface EvmChainParams {
  */
 export class EvmChain implements IChain {
 	private publicClient: PublicClient
+	private chainConfigService: ChainConfigService
 
 	constructor(private readonly params: EvmChainParams) {
 		// @ts-ignore
@@ -88,6 +127,20 @@ export class EvmChain implements IChain {
 			chain: chains[params.chainId],
 			transport: http(params.url),
 		})
+		this.chainConfigService = new ChainConfigService()
+	}
+
+	// Expose minimal getters for external helpers/classes
+	get client(): PublicClient {
+		return this.publicClient
+	}
+
+	get host(): HexString {
+		return this.params.host
+	}
+
+	get config(): ChainConfigService {
+		return this.chainConfigService
 	}
 
 	/**
@@ -216,7 +269,7 @@ export class EvmChain implements IChain {
 
 	/**
 	 * Get the state machine update time for a given state machine height.
-	 * @param {StateMachineHeight} stateMachineheight - The state machine height.
+	 * @param {StateMachineHeight} stateMachineHeight - The state machine height.
 	 * @returns {Promise<bigint>} The statemachine update time in seconds.
 	 */
 	async stateMachineUpdateTime(stateMachineHeight: StateMachineHeight): Promise<bigint> {
@@ -391,6 +444,135 @@ export class EvmChain implements IChain {
 			.exhaustive()
 
 		return encoded
+	}
+
+	/**
+	 * Calculates the fee required to send a post request to the destination chain.
+	 * The fee is calculated based on the per-byte fee for the destination chain
+	 * multiplied by the size of the request body.
+	 *
+	 * @param request - The post request to calculate the fee for
+	 * @returns The total fee in wei required to send the post request
+	 */
+	async quote(request: IPostRequest): Promise<bigint> {
+		const perByteFee = await this.publicClient.readContract({
+			address: this.params.host,
+			abi: EvmHost.ABI,
+			functionName: "perByteFee",
+			args: [toHex(request.dest)],
+		})
+
+		const length = request.body.length > 32 ? 32 : request.body.length
+
+		return perByteFee * BigInt(length)
+	}
+
+	/**
+	 * Estimates the gas required for a post request execution on this chain.
+	 * This function generates mock proofs for the post request, creates a state override
+	 * with the necessary overlay root, and estimates the gas cost for executing the
+	 * handlePostRequests transaction on the handler contract.
+	 *
+	 * @param request - The post request to estimate gas for
+	 * @param paraId - The ID of the parachain (Hyperbridge) that will process the request
+	 * @returns The estimated gas amount in gas units
+	 */
+	async estimateGas(request: IPostRequest): Promise<bigint> {
+		const hostParams = await this.publicClient.readContract({
+			address: this.params.host,
+			abi: EvmHost.ABI,
+			functionName: "hostParams",
+		})
+
+		const { root, proof, index, kIndex, treeSize } = await generateRootWithProof(request, 2n ** 10n)
+		const latestStateMachineHeight = 6291991n
+		const paraId = 4009n
+		const overlayRootSlot = getStateCommitmentFieldSlot(
+			paraId, // Hyperbridge chain id
+			latestStateMachineHeight, // Hyperbridge chain height
+			1, // For overlayRoot
+		)
+		const postParams = {
+			height: {
+				stateMachineId: BigInt(paraId),
+				height: latestStateMachineHeight,
+			},
+			multiproof: proof,
+			leafCount: treeSize,
+		}
+
+		const gas = await this.publicClient.estimateContractGas({
+			address: hostParams.handler,
+			abi: HandlerV1.ABI,
+			functionName: "handlePostRequests",
+			args: [
+				this.params.host,
+				{
+					proof: postParams,
+					requests: [
+						{
+							request: {
+								...request,
+								source: toHex(request.source),
+								dest: toHex(request.dest),
+							},
+							index,
+							kIndex,
+						},
+					],
+				},
+			],
+			stateOverride: [
+				{
+					address: this.params.host,
+					stateDiff: [
+						{
+							slot: overlayRootSlot,
+							value: root,
+						},
+					],
+				},
+			],
+		})
+
+		return gas
+	}
+
+	/**
+	 * Gets the fee token address and decimals for the chain.
+	 * This function gets the fee token address and decimals for the chain.
+	 *
+	 * @returns The fee token address and decimals
+	 */
+	async getFeeTokenWithDecimals(): Promise<{ address: HexString; decimals: number }> {
+		const hostParams = await this.publicClient.readContract({
+			abi: EvmHost.ABI,
+			address: this.params.host,
+			functionName: "hostParams",
+		})
+		const feeTokenAddress = hostParams.feeToken
+		const feeTokenDecimals = await this.publicClient.readContract({
+			address: feeTokenAddress,
+			abi: erc20Abi,
+			functionName: "decimals",
+		})
+		return { address: feeTokenAddress, decimals: feeTokenDecimals }
+	}
+
+	/**
+	 * Gets the nonce of the host.
+	 * This function gets the nonce of the host.
+	 *
+	 * @returns The nonce of the host
+	 */
+	async getHostNonce(): Promise<bigint> {
+		const nonce = await this.publicClient.readContract({
+			abi: evmHost.ABI,
+			address: this.params.host,
+			functionName: "nonce",
+		})
+
+		return nonce
 	}
 }
 

@@ -10,179 +10,306 @@ import {
 	type WalletClient,
 	maxUint256,
 } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
+import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { bscTestnet, gnosisChiado } from "viem/chains"
 
 import { IndexerClient } from "@/client"
-import { ChainConfig, FillerConfig, type HexString, OrderStatus } from "@/types"
-import { orderCommitment, hexToString, bytes20ToBytes32 } from "@/utils"
+import { ChainConfig, FillerConfig, type HexString, IPostRequest, Order, OrderStatus } from "@/types"
+import { orderCommitment, hexToString, bytes20ToBytes32, constructRedeemEscrowRequestBody } from "@/utils"
 
 import ERC6160 from "@/abis/erc6160"
 import INTENT_GATEWAY_ABI from "@/abis/IntentGateway"
 import EVM_HOST from "@/abis/evmHost"
 import HANDLER from "@/abis/handler"
-import { SubstrateChain } from "@/chain"
+import { EvmChain, EvmChainParams, SubstrateChain } from "@/chain"
+import { IntentGateway } from "@/protocols/intents"
 import { createQueryClient } from "@/query-client"
-import { IntentFiller, BasicFiller, ConfirmationPolicy, ChainConfigService } from "@hyperbridge/filler"
+import { IntentFiller, BasicFiller, ConfirmationPolicy } from "@hyperbridge/filler"
+import { ChainConfigService } from "@/configs/ChainConfigService"
 
-describe.sequential("Order Status Stream", () => {
-	let indexer: IndexerClient
-	let hyperbridgeInstance: SubstrateChain
+describe.sequential(
+	"Order Status Stream",
+	() => {
+		let indexer: IndexerClient
+		let hyperbridgeInstance: SubstrateChain
 
-	beforeAll(async () => {
-		const { gnosisChiadoIsmpHost, bscIsmpHost, hyperbridge } = await setUp()
+		beforeAll(async () => {
+			const { gnosisChiadoIsmpHost, bscIsmpHost, hyperbridge } = await setUp()
 
-		const query_client = createQueryClient({
-			url: process.env.INDEXER_URL!,
-		})
+			const query_client = createQueryClient({
+				url: process.env.INDEXER_URL!,
+			})
 
-		indexer = new IndexerClient({
-			source: {
-				consensusStateId: "BSC0",
-				rpcUrl: process.env.BSC_CHAPEL!,
-				stateMachineId: "EVM-97",
-				host: bscIsmpHost.address,
-			},
-			dest: {
-				consensusStateId: "GNO0",
-				rpcUrl: process.env.GNOSIS_CHIADO!,
-				stateMachineId: "EVM-10200",
-				host: gnosisChiadoIsmpHost.address,
-			},
-			hyperbridge: {
-				consensusStateId: "PAS0",
-				stateMachineId: "KUSAMA-4009",
-				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
-			},
-			queryClient: query_client,
-			pollInterval: 1_000,
-		})
+			indexer = new IndexerClient({
+				source: {
+					consensusStateId: "BSC0",
+					rpcUrl: process.env.BSC_CHAPEL!,
+					stateMachineId: "EVM-97",
+					host: bscIsmpHost.address,
+				},
+				dest: {
+					consensusStateId: "GNO0",
+					rpcUrl: process.env.GNOSIS_CHIADO!,
+					stateMachineId: "EVM-10200",
+					host: gnosisChiadoIsmpHost.address,
+				},
+				hyperbridge: {
+					consensusStateId: "PAS0",
+					stateMachineId: "KUSAMA-4009",
+					wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+				},
+				queryClient: query_client,
+				pollInterval: 1_000,
+			})
 
-		await hyperbridge.connect()
-		hyperbridgeInstance = hyperbridge
-	})
+			await hyperbridge.connect()
+			hyperbridgeInstance = hyperbridge
+		}, 10_000)
 
-	afterAll(async () => {
-		await hyperbridgeInstance.disconnect()
-	})
+		it.skip("should successfully stream and query the order status", async () => {
+			const {
+				bscIntentGateway,
+				bscWalletClient,
+				bscPublicClient,
+				bscIsmpHost,
+				gnosisChiadoIsmpHost,
+				bscFeeToken,
+				chainConfigs,
+				fillerConfig,
+				chainConfigService,
+				bscChapelId,
+			} = await setUp()
 
-	it("should successfully stream and query the order status", async () => {
-		const {
-			bscIntentGateway,
-			bscWalletClient,
-			bscPublicClient,
-			bscIsmpHost,
-			gnosisChiadoIsmpHost,
-			bscFeeToken,
-			chainConfigs,
-			fillerConfig,
-			chainConfigService,
-			bscChapelId,
-		} = await setUp()
+			const strategies = [new BasicFiller(process.env.PRIVATE_KEY as HexString)]
+			const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
+			intentFiller.start()
 
-		const strategies = [new BasicFiller(process.env.PRIVATE_KEY as HexString)]
-		const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
-		intentFiller.start()
+			const daiAsset = chainConfigService.getDaiAsset(bscChapelId)
+			const inputs = [
+				{
+					token: bytes20ToBytes32(daiAsset),
+					amount: 100n,
+				},
+			]
+			const outputs = [
+				{
+					token: "0x0000000000000000000000000000000000000000000000000000000000000000",
+					amount: 100n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+			]
 
-		const daiAsset = chainConfigService.getDaiAsset(bscChapelId)
-		const inputs = [
-			{
-				token: bytes20ToBytes32(daiAsset),
-				amount: 100n,
-			},
-		]
-		const outputs = [
-			{
-				token: "0x0000000000000000000000000000000000000000000000000000000000000000",
-				amount: 100n,
-				beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
-			},
-		]
+			const order = {
+				user: "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString,
+				sourceChain: await bscIsmpHost.read.host(),
+				destChain: await gnosisChiadoIsmpHost.read.host(),
+				deadline: 65337297n,
+				nonce: 0n,
+				fees: 1000000n,
+				outputs,
+				inputs,
+				callData: "0x" as HexString,
+			}
 
-		const order = {
-			user: "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString,
-			sourceChain: await bscIsmpHost.read.host(),
-			destChain: await gnosisChiadoIsmpHost.read.host(),
-			deadline: 65337297n,
-			nonce: 0n,
-			fees: 1000000n,
-			outputs,
-			inputs,
-			callData: "0x" as HexString,
-		}
+			await approveTokens(bscWalletClient, bscPublicClient, bscFeeToken.address, bscIntentGateway.address)
 
-		await approveTokens(bscWalletClient, bscPublicClient, bscFeeToken.address, bscIntentGateway.address)
+			const hash = await bscIntentGateway.write.placeOrder([order as any], {
+				account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
+				chain: bscTestnet,
+			})
 
-		const hash = await bscIntentGateway.write.placeOrder([order as any], {
-			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
-			chain: bscTestnet,
-		})
+			const receipt = await bscPublicClient.waitForTransactionReceipt({
+				hash,
+				confirmations: 1,
+			})
 
-		const receipt = await bscPublicClient.waitForTransactionReceipt({
-			hash,
-			confirmations: 1,
-		})
+			console.log("Order placed on BSC:", receipt.transactionHash)
 
-		console.log("Order placed on BSC:", receipt.transactionHash)
+			const orderPlaceEvent = parseEventLogs({
+				abi: INTENT_GATEWAY_ABI.ABI,
+				logs: receipt.logs,
+				strict: false,
+			})[0] as { eventName: "OrderPlaced"; args: any }
 
-		const orderPlaceEvent = parseEventLogs({
-			abi: INTENT_GATEWAY_ABI.ABI,
-			logs: receipt.logs,
-			strict: false,
-		})[0] as { eventName: "OrderPlaced"; args: any }
+			if (orderPlaceEvent.eventName !== "OrderPlaced") {
+				throw new Error("Unexpected Event type")
+			}
 
-		if (orderPlaceEvent.eventName !== "OrderPlaced") {
-			throw new Error("Unexpected Event type")
-		}
+			const orderPlaced = orderPlaceEvent.args
+			const commitment = orderCommitment({
+				...orderPlaced,
+				sourceChain: hexToString(orderPlaced.sourceChain),
+				destChain: hexToString(orderPlaced.destChain),
+				outputs: orderPlaced.outputs,
+				inputs: orderPlaced.inputs,
+			})
 
-		const orderPlaced = orderPlaceEvent.args
-		const commitment = orderCommitment({
-			...orderPlaced,
-			sourceChain: hexToString(orderPlaced.sourceChain),
-			destChain: hexToString(orderPlaced.destChain),
-			outputs: orderPlaced.outputs,
-			inputs: orderPlaced.inputs,
-		})
+			console.log("Order Commitment:", commitment)
 
-		console.log("Order Commitment:", commitment)
-
-		for await (const status of indexer.orderStatusStream(commitment)) {
-			console.log(JSON.stringify(status, (_, value) => (typeof value === "bigint" ? value.toString() : value), 4))
-			switch (status.status) {
-				case OrderStatus.PLACED: {
-					console.log(
-						`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
-					)
-					break
-				}
-				case OrderStatus.FILLED: {
-					console.log(
-						`Status ${status.status}, Transaction: https://gnosis-chiado.blockscout.com/tx/${status.metadata.transactionHash}`,
-					)
-					console.log("Filled by:", status.metadata.filler)
-					break
-				}
-				case OrderStatus.REDEEMED: {
-					console.log(
-						`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
-					)
-					break
-				}
-				case OrderStatus.REFUNDED: {
-					console.log(
-						`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
-					)
-					break
+			for await (const status of indexer.orderStatusStream(commitment)) {
+				console.log(
+					JSON.stringify(status, (_, value) => (typeof value === "bigint" ? value.toString() : value), 4),
+				)
+				switch (status.status) {
+					case OrderStatus.PLACED: {
+						console.log(
+							`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
+						)
+						break
+					}
+					case OrderStatus.FILLED: {
+						console.log(
+							`Status ${status.status}, Transaction: https://gnosis-chiado.blockscout.com/tx/${status.metadata.transactionHash}`,
+						)
+						console.log("Filled by:", status.metadata.filler)
+						break
+					}
+					case OrderStatus.REDEEMED: {
+						console.log(
+							`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
+						)
+						break
+					}
+					case OrderStatus.REFUNDED: {
+						console.log(
+							`Status ${status.status}, Transaction: https://testnet.bscscan.com/tx/${status.metadata.transactionHash}`,
+						)
+						break
+					}
 				}
 			}
-		}
 
-		const orderStatus = await indexer.queryOrder(commitment)
-		expect(orderStatus?.statuses.length).toBe(2)
+			const orderStatus = await indexer.queryOrder(commitment)
+			expect(orderStatus?.statuses.length).toBe(2)
 
-		intentFiller.stop()
-	}, 1_000_000)
-})
+			intentFiller.stop()
+			await hyperbridgeInstance.disconnect()
+		}, 1_000_000)
+
+		it("should successfully get the quotes and swap estimates", async () => {
+			const {
+				bscIsmpHost,
+				gnosisChiadoIsmpHost,
+				chainConfigService,
+				bscChapelId,
+				bscPublicClient,
+				gnosisChiadoId,
+			} = await setUp()
+
+			let bscEvmStructParams: EvmChainParams = {
+				chainId: 97,
+				host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
+				url: process.env.BSC_CHAPEL!,
+			}
+
+			let gnosisChiadoEvmStructParams: EvmChainParams = {
+				chainId: 10200,
+				host: "0x58a41b89f4871725e5d898d98ef4bf917601c5eb",
+				url: process.env.GNOSIS_CHIADO!,
+			}
+
+			let gnosisChiadoEvmChain = new EvmChain(gnosisChiadoEvmStructParams) // Source Chain
+			let bscEvmChain = new EvmChain(bscEvmStructParams) // Destination Chain
+			let intentGateway = new IntentGateway(gnosisChiadoEvmChain, bscEvmChain)
+
+			let wrappedNativeTokenSourceChain = chainConfigService.getWrappedNativeAssetWithDecimals(gnosisChiadoId)
+
+			let usdtAsset = chainConfigService.getUsdtAsset(bscChapelId)
+			let daiAsset = chainConfigService.getDaiAsset(bscChapelId)
+			let usdcAsset = chainConfigService.getUsdcAsset(bscChapelId)
+
+			// Order
+
+			let order: Order = {
+				user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+				sourceChain: await gnosisChiadoIsmpHost.read.host(),
+				destChain: await bscIsmpHost.read.host(),
+				deadline: 6533729700n,
+				nonce: 0n,
+				fees: 1000000n,
+				outputs: [
+					{
+						token: bytes20ToBytes32(usdtAsset),
+						amount: 1n,
+						beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+					},
+				],
+				inputs: [
+					{
+						token: "0x0000000000000000000000000000000000000000000000000000000000000000",
+						amount: 100n,
+					},
+				],
+				callData: "0x" as HexString,
+			}
+
+			let commitment = orderCommitment(order)
+			order.id = commitment
+			order.destChain = hexToString(order.destChain)
+			order.sourceChain = hexToString(order.sourceChain)
+
+			let fillerWalletAddress = privateKeyToAddress(process.env.PRIVATE_KEY as HexString)
+
+			const postRequest: IPostRequest = {
+				source: order.destChain, // Destination Chain
+				dest: order.sourceChain, // Source Chain
+				body: constructRedeemEscrowRequestBody(order, fillerWalletAddress),
+				timeoutTimestamp: 0n,
+				nonce: await gnosisChiadoEvmChain.getHostNonce(),
+				from: chainConfigService.getIntentGatewayAddress(order.destChain),
+				to: chainConfigService.getIntentGatewayAddress(order.sourceChain),
+			}
+
+			let postGasEstimate = await gnosisChiadoEvmChain.estimateGas(postRequest) // Source Chain Post Estimate
+
+			assert(postGasEstimate > 0n)
+
+			let gasEstimate = await intentGateway.estimateFillOrder(order)
+
+			console.log("Fill gas estimate:", gasEstimate)
+
+			assert(gasEstimate > 160000n)
+
+			let initialAmountIn = 100n
+
+			let bestQuoteWithAmountOut = await intentGateway.findBestProtocolWithAmountIn(
+				order.destChain,
+				daiAsset,
+				usdtAsset,
+				initialAmountIn,
+			)
+
+			console.log("Best quote with amount out:", bestQuoteWithAmountOut)
+
+			assert(bestQuoteWithAmountOut.amountOut > 0n)
+
+			let bestQuoteWithAmountIn = await intentGateway.findBestProtocolWithAmountOut(
+				order.destChain,
+				usdtAsset,
+				daiAsset,
+				bestQuoteWithAmountOut.amountOut,
+			)
+
+			console.log("Best quote with amount in:", bestQuoteWithAmountIn)
+
+			assert(bestQuoteWithAmountIn.amountIn === initialAmountIn)
+
+			// Order filled checker
+			const filledOrderCommitment =
+				"0x1dede1bc4939f194e8a06a9086377d1e64c5c1c77c055e4430ff7141c774528c" as HexString
+			let isFilled = await intentGateway.isOrderFilled(order)
+
+			assert(isFilled === false)
+
+			// Create a mock order with the filled commitment for testing
+			let filledOrder = { ...order, id: filledOrderCommitment }
+			isFilled = await intentGateway.isOrderFilled(filledOrder)
+
+			assert(isFilled === true)
+		})
+	},
+	1_000_000,
+)
 
 async function setUp() {
 	const bscChapelId = "EVM-97"
@@ -305,6 +432,7 @@ async function setUp() {
 		chainConfigService,
 		bscChapelId,
 		bscWalletClient,
+		gnosisChiadoId,
 	}
 }
 

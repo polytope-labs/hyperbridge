@@ -1002,11 +1002,6 @@ export interface HostParams {
 	hyperbridge: HexString
 }
 
-export enum EvmLanguage {
-	Solidity,
-	Vyper,
-}
-
 export interface OrderStatusMetadata {
 	status: OrderStatus
 	chain: string

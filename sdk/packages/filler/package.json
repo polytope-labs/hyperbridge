@@ -15,18 +15,17 @@
 		"dist"
 	],
 	"scripts": {
-		"build": "pnpm generate-config && tsup",
+		"build": "tsup",
 		"prepublishOnly": "npm run build",
 		"test": "vitest --watch=false --maxConcurrency=1",
+		"test:services": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/services.test.ts",
 		"test:watch": "vitest",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",
-		"format": "prettier --write \"src/**/*.ts\"",
-		"generate-config": "node scripts/generate-chain-config.js"
+		"format": "prettier --write \"src/**/*.ts\""
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
-		"@iarna/toml": "^3.0.0",
 		"@types/node": "^22.13.5",
 		"@vitest/coverage-v8": "^3.0.7",
 		"tsup": "^8.4.0",
@@ -53,6 +52,6 @@
 		"ethers": "^5.7.2",
 		"p-queue": "^8.1.0",
 		"scale-ts": "^1.6.1",
-		"viem": "^2.23.5"
+		"viem": "^2.34.0"
 	}
 }

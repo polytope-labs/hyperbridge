@@ -33,8 +33,7 @@ pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, anyhow
 where
 	H: IsmpHost,
 {
-	let signer = msg.signer.clone();
-	let signer_address: Vec<u8> = Signature::decode(&mut msg.signer.as_slice())
+	let signer: Vec<u8> = Signature::decode(&mut msg.signer.as_slice())
 		.map_err(|_| Error::SignatureDecodingFailed)?
 		.signer();
 
@@ -97,13 +96,13 @@ where
 				.map(|response| {
 					let cb = router.module_for_id(response.destination_module())?;
 					// Store response receipt to prevent reentrancy attack
-					host.store_response_receipt(&response, &msg.signer)?;
+					host.store_response_receipt(&response, &signer)?;
 					let res = cb.on_response(response.clone()).map(|weight| {
 						total_weights.saturating_accrue(weight);
 						let commitment = hash_response::<H>(&response);
 						Event::PostResponseHandled(RequestResponseHandled {
 							commitment,
-							relayer: signer_address.clone(),
+							relayer: signer.clone(),
 						})
 					});
 					// Delete receipt if module callback failed so it can be timed out
@@ -169,7 +168,7 @@ where
 						get: request.clone(),
 						values: Default::default(),
 					});
-					host.store_response_receipt(&response, &msg.signer)?;
+					host.store_response_receipt(&response, &signer)?;
 					let res = cb
 						.on_response(Response::Get(GetResponse { get: request.clone(), values }))
 						.map(|weight| {

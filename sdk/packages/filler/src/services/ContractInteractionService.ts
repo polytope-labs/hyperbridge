@@ -470,7 +470,9 @@ export class ContractInteractionService {
 			args: [toHex(order.sourceChain)],
 		})
 
-		const length = postRequest.body.length > 32 ? 32 : postRequest.body.length
+		// Exclude 0x prefix from the body length, and get the byte length
+		const bodyByteLength = Math.floor((postRequest.body.length - 2) / 2)
+		const length = bodyByteLength < 32 ? 32 : bodyByteLength
 
 		return perByteFee * BigInt(length)
 	}

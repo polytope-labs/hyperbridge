@@ -85,7 +85,7 @@ export class StableSwapFiller implements FillerStrategy {
 		try {
 			const { fillGas, relayerFeeInFeeToken } = await this.contractService.estimateGasFillPost(order)
 			const { totalGasEstimate: swapGasEstimate } = await this.calculateSwapOperations(order, order.destChain)
-			const protocolFeeInFeeToken = await this.contractService.getProtocolFee(order, relayerFeeInFeeToken)
+			const protocolFeeInFeeToken = (await this.contractService.quote(order)) + relayerFeeInFeeToken
 			const { decimals: destFeeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(
 				order.destChain,
 			)
@@ -367,10 +367,12 @@ export class StableSwapFiller implements FillerStrategy {
 							]
 						}
 
+						const deadline = (await destClient.getBlock()).timestamp + 120n // 2 minutes
+
 						const swapData = encodeFunctionData({
 							abi: UNIVERSAL_ROUTER_ABI,
 							functionName: "execute",
-							args: [commands, inputs, order.deadline],
+							args: [commands, inputs, deadline],
 						})
 
 						const call = {
@@ -438,13 +440,11 @@ export class StableSwapFiller implements FillerStrategy {
 		protocol: "v2" | "v3" | null
 		amountIn: bigint
 		fee?: number // For V3
-		gasEstimate?: bigint // For V3
 	}> {
 		const destClient = this.clientManager.getPublicClient(destChain)
 		let amountInV2 = maxUint256
 		let amountInV3 = maxUint256
 		let bestV3Fee = 0
-		let v3GasEstimate = BigInt(0)
 
 		const v2Router = this.configService.getUniswapRouterV2Address(destChain)
 		const v2Factory = this.configService.getUniswapV2FactoryAddress(destChain)
@@ -494,34 +494,34 @@ export class StableSwapFiller implements FillerStrategy {
 					})
 
 					if (liquidity > BigInt(0)) {
-						// Get quote from quoter
-						const quoteResult = (await destClient.readContract({
-							address: v3Quoter,
-							abi: UNISWAP_V3_QUOTER_V2_ABI,
-							functionName: "quoteExactOutputSingle",
-							args: [
-								{
-									tokenIn: tokenIn,
-									tokenOut: tokenOut,
-									fee: fee,
-									amount: amountOut,
-									sqrtPriceLimitX96: BigInt(0),
-								},
-							],
-						})) as [bigint, bigint, number, bigint] // [amountIn, sqrtPriceX96After, initializedTicksCrossed, gasEstimate]
+						// Use simulateContract for V3 quoter (handles revert-based returns)
+						const quoteResult = (
+							await destClient.simulateContract({
+								address: v3Quoter,
+								abi: UNISWAP_V3_QUOTER_V2_ABI,
+								functionName: "quoteExactOutputSingle",
+								args: [
+									{
+										tokenIn: tokenIn,
+										tokenOut: tokenOut,
+										fee: fee,
+										amount: amountOut,
+										sqrtPriceLimitX96: BigInt(0),
+									},
+								],
+							})
+						).result as [bigint, bigint, number, bigint] // [amountIn, sqrtPriceX96After, initializedTicksCrossed, gasEstimate]
 
-						const [amountIn, , , gasEstimate] = quoteResult
+						const amountIn = quoteResult[0]
 
 						if (amountIn < bestV3AmountIn) {
 							bestV3AmountIn = amountIn
 							bestV3Fee = fee
-							v3GasEstimate = gasEstimate
 						}
 					}
 				}
 			} catch (error) {
 				console.warn(`V3 quote failed for fee ${fee}, continuing to next fee tier`)
-				// Continue to next fee tier
 			}
 		}
 
@@ -545,7 +545,6 @@ export class StableSwapFiller implements FillerStrategy {
 				protocol: "v3",
 				amountIn: amountInV3,
 				fee: bestV3Fee,
-				gasEstimate: v3GasEstimate,
 			}
 		}
 	}

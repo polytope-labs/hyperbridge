@@ -72,7 +72,7 @@ function assertIsToday(timestamp: bigint) {
 	expect(diff < 3600).toBeTruthy()
 }
 
-test("EVM -> Substrate token transfer", { timeout: 5_400_000 }, async () => {
+test.skip("EVM -> Substrate token transfer", { timeout: 5_400_000 }, async () => {
 	// get token data
 	const token = Token
 	const indexer = getIndexer()

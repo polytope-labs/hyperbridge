@@ -15,6 +15,7 @@ export {
 	estimateGasForPost,
 	getStorageSlot,
 	fetchTokenUsdPrice,
+	ERC20Method,
 } from "@/utils"
 export * from "@/protocols/intents"
 export * from "@/utils/tokenGateway"

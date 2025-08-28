@@ -221,16 +221,16 @@ describe.sequential(
 			// Order
 
 			let order: Order = {
-				user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+				user: "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString,
 				sourceChain: await gnosisChiadoIsmpHost.read.host(),
 				destChain: await bscIsmpHost.read.host(),
-				deadline: 6533729700n,
+				deadline: 65337297000n,
 				nonce: 0n,
-				fees: 1000000n,
+				fees: 0n,
 				outputs: [
 					{
-						token: bytes20ToBytes32(usdtAsset),
-						amount: 1n,
+						token: bytes20ToBytes32(daiAsset),
+						amount: 100n,
 						beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
 					},
 				],
@@ -242,6 +242,8 @@ describe.sequential(
 				],
 				callData: "0x" as HexString,
 			}
+
+			console.log("order", order)
 
 			let commitment = orderCommitment(order)
 			order.id = commitment
@@ -262,11 +264,13 @@ describe.sequential(
 
 			let postGasEstimate = await gnosisChiadoEvmChain.estimateGas(postRequest) // Source Chain Post Estimate
 
+			console.log("Post gas estimate:", postGasEstimate)
+
 			assert(postGasEstimate > 0n)
 
 			let gasEstimate = await intentGateway.estimateFillOrder(order)
 
-			console.log("Fill gas estimate:", gasEstimate)
+			console.log("Gas estimate for fill order:", gasEstimate)
 
 			assert(gasEstimate > 160000n)
 

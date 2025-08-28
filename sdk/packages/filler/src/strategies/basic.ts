@@ -65,7 +65,7 @@ export class BasicFiller implements FillerStrategy {
 		try {
 			const { fillGas, relayerFeeInFeeToken } = await this.contractService.estimateGasFillPost(order)
 
-			const protocolFeeInFeeToken = await this.contractService.quote(order)
+			const protocolFeeInFeeToken = (await this.contractService.quote(order)) + relayerFeeInFeeToken
 
 			const { decimals } = await this.contractService.getFeeTokenWithDecimals(order.destChain)
 

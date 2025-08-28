@@ -462,7 +462,9 @@ export class EvmChain implements IChain {
 			args: [toHex(request.dest)],
 		})
 
-		const length = request.body.length > 32 ? 32 : request.body.length
+		// Exclude 0x prefix from the body length, and get the byte length
+		const bodyByteLength = Math.floor((request.body.length - 2) / 2)
+		const length = bodyByteLength < 32 ? 32 : bodyByteLength
 
 		return perByteFee * BigInt(length)
 	}

@@ -611,9 +611,12 @@ describe.sequential("Basic", () => {
 			bscWalletClient,
 			gnosisChiadoHandler,
 			bscChapelId,
+			gnosisChiadoEvmHelper,
+			bscEvmHelper,
 		} = await setUp()
 
 		// Create a new intent filler with StableSwapFiller strategy
+		const intentGatewayHelper = new IntentGateway(gnosisChiadoEvmHelper, bscEvmHelper)
 		const strategies = [new StableSwapFiller(process.env.PRIVATE_KEY as HexString)]
 		const newIntentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
 
@@ -638,7 +641,7 @@ describe.sequential("Basic", () => {
 			},
 		]
 
-		const order = {
+		let order = {
 			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
 			sourceChain: await gnosisChiadoIsmpHost.read.host(),
 			destChain: await bscIsmpHost.read.host(),
@@ -649,6 +652,17 @@ describe.sequential("Basic", () => {
 			inputs,
 			callData: "0x" as HexString,
 		}
+
+		const estimatedFees = await intentGatewayHelper.estimateFillOrder({
+			...order,
+			id: orderCommitment(order),
+			destChain: hexToString(order.destChain),
+			sourceChain: hexToString(order.sourceChain),
+		})
+
+		console.log("Estimated fees: ", estimatedFees)
+
+		order.fees = estimatedFees
 
 		// Approve tokens for the order
 		await approveTokens(
@@ -708,7 +722,7 @@ describe.sequential("Basic", () => {
 			confirmations: 1,
 		})
 
-		console.log("Order placed on BSC:", receipt.transactionHash)
+		console.log("Order placed on Gnosis Chiado:", receipt.transactionHash)
 
 		// Wait for order detection
 		console.log("Waiting for event monitor to detect the order...")

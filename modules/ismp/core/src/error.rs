@@ -211,4 +211,6 @@ pub enum Error {
 		/// The request metadata
 		meta: Meta,
 	},
+	/// Signature verification failed
+	SignatureVerificationFailed,
 }

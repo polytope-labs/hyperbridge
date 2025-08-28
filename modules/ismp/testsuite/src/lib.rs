@@ -15,6 +15,12 @@
 
 //! ISMP Testsuite
 
+use codec::Encode;
+use crypto_utils::verification::Signature;
+use polkadot_sdk::{
+	sp_core::{sr25519, Pair},
+	sp_io,
+};
 use std::vec;
 
 use ismp::{
@@ -122,26 +128,33 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 		body: vec![0u8; 64],
 	};
 	let request = Request::Post(post.clone());
+
+	let (signature, ..) = create_relayer_signer(vec![post.clone()].encode(), &[1u8; 32]);
+
 	// Request message handling check
 	let request_message = Message::Request(RequestMessage {
 		requests: vec![post.clone()],
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	let res = handle_incoming_message(host, request_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
+	let response_message = RequestResponse::Response(vec![Response::Post(PostResponse {
+		post,
+		response: vec![],
+		timeout_timestamp: 0,
+	})]);
+
+	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
+
 	// Response message handling check
 	let response_message = Message::Response(ResponseMessage {
-		datagram: RequestResponse::Response(vec![Response::Post(PostResponse {
-			post,
-			response: vec![],
-			timeout_timestamp: 0,
-		})]),
+		datagram: response_message,
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	let res = handle_incoming_message(host, response_message).map_err(|e| e.downcast().unwrap());
@@ -234,26 +247,32 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 		body: vec![0u8; 64],
 	};
 	let request = Request::Post(post.clone());
+
+	let (signature, ..) = create_relayer_signer(vec![post.clone()].encode(), &[1u8; 32]);
+
 	// Request message handling check
 	let request_message = Message::Request(RequestMessage {
 		requests: vec![post.clone()],
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	let res = handle_incoming_message(host, request_message).map_err(|e| e.downcast().unwrap());
 
 	assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
+	let response_message = RequestResponse::Response(vec![Response::Post(PostResponse {
+		post,
+		response: vec![],
+		timeout_timestamp: 0,
+	})]);
+	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
+
 	// Response message handling check
 	let response_message = Message::Response(ResponseMessage {
-		datagram: RequestResponse::Response(vec![Response::Post(PostResponse {
-			post,
-			response: vec![],
-			timeout_timestamp: 0,
-		})]),
+		datagram: response_message,
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	let res = handle_incoming_message(host, response_message).map_err(|e| e.downcast().unwrap());
@@ -371,10 +390,12 @@ where
 		body: vec![0u8; 64],
 	};
 
+	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
+
 	let request_message = Message::Request(RequestMessage {
 		requests: vec![request.clone()],
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	handle_incoming_message(host, request_message).unwrap();
@@ -799,4 +820,15 @@ pub fn check_response_source() -> Result<(), &'static str> {
 	assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));
 
 	Ok(())
+}
+
+pub fn create_relayer_signer(data: Vec<u8>, seed: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
+	let signer_keypair = sr25519::Pair::from_seed(seed);
+	let data = sp_io::hashing::keccak_256(&data);
+	let signature = signer_keypair.sign(&data);
+	let signer = Signature::Sr25519 {
+		public_key: signer_keypair.public().to_vec(),
+		signature: signature.0.to_vec(),
+	};
+	(signer.encode(), signer_keypair.public().to_vec())
 }

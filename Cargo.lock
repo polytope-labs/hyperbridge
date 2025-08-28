@@ -10493,6 +10493,7 @@ name = "ismp"
 version = "1.2.0"
 dependencies = [
  "anyhow",
+ "crypto-utils",
  "derive_more 1.0.0",
  "displaydoc",
  "hex",
@@ -10501,6 +10502,7 @@ dependencies = [
  "scale-info",
  "serde",
  "serde-hex-utils",
+ "sp-io 41.0.1",
  "sp-weights 32.0.0",
  "thiserror 2.0.12",
 ]
@@ -10730,6 +10732,7 @@ name = "ismp-testsuite"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "crypto-utils",
  "ismp",
  "once_cell",
  "parity-scale-codec",

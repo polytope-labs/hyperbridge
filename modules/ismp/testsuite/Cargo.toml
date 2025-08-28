@@ -12,6 +12,7 @@ primitive-types = { workspace = true, default-features = true }
 codec = { package = "parity-scale-codec", version = "3.1.3" }
 once_cell = "1.19.0"
 anyhow = { workspace = true }
+crypto-utils = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

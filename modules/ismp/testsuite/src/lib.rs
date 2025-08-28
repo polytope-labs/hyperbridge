@@ -212,11 +212,13 @@ pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
 		timeout_timestamp: 0,
 		body: vec![0u8; 64],
 	};
+	let (signature, ..) = create_relayer_signer(vec![post.clone()].encode(), &[1u8; 32]);
+
 	// Request message handling check
 	let request_message = Message::Request(RequestMessage {
 		requests: vec![post.clone()],
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	let res = handle_incoming_message(host, request_message).map_err(|e| e.downcast().unwrap());
@@ -634,10 +636,12 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
 		body: vec![0u8; 64],
 	};
 
+	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
+
 	let request_message = Message::Request(RequestMessage {
 		requests: vec![request.clone()],
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	handle_incoming_message(&host, request_message).unwrap();
@@ -715,10 +719,11 @@ pub fn prevent_request_processing_on_proxy_with_known_state_machine(
 		body: vec![0u8; 64],
 	};
 
+	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
 	let request_message = Message::Request(RequestMessage {
 		requests: vec![request.clone()],
 		proof: Proof { height: proxy.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	let res = handle_incoming_message(&host, request_message).map_err(|e| e.downcast().unwrap());
@@ -753,10 +758,12 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
 		body: vec![0u8; 64],
 	};
 
+	let (signature, ..) = create_relayer_signer(vec![request.clone()].encode(), &[1u8; 32]);
+
 	let request_message = Message::Request(RequestMessage {
 		requests: vec![request.clone()],
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	let res = handle_incoming_message(&host, request_message).map_err(|e| e.downcast().unwrap());
@@ -808,10 +815,14 @@ pub fn check_response_source() -> Result<(), &'static str> {
 
 	let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
 
+	let response_message = RequestResponse::Response(vec![Response::Post(response)]);
+
+	let (signature, ..) = create_relayer_signer(response_message.encode(), &[1u8; 32]);
+
 	let timeout_message = Message::Response(ResponseMessage {
-		datagram: RequestResponse::Response(vec![Response::Post(response)]),
+		datagram: response_message,
 		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
+		signer: signature,
 	});
 
 	let res = handle_incoming_message(&host, timeout_message).map_err(|e| e.downcast().unwrap());

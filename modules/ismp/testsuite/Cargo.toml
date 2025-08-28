@@ -17,4 +17,4 @@ crypto-utils = { workspace = true }
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true
-features = ["sp-core", "sp-runtime"]
+features = ["sp-core", "sp-runtime", "sp-io"]

@@ -45,6 +45,7 @@ subxt-signer = "0.41.0"
 nexus-runtime = { workspace = true, default-features = true}
 gargantua-runtime = { workspace = true, default-features = true}
 pallet-bridge-airdrop = { workspace = true, default-features = true}
+crypto-utils = { workspace = true, default-features = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

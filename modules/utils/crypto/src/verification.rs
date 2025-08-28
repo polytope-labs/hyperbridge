@@ -16,7 +16,6 @@
 use alloc::vec::Vec;
 use anyhow::anyhow;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use polkadot_sdk::sp_io;
 
 #[derive(
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,

@@ -24,7 +24,7 @@ use crate::{
 	router::{Request, RequestResponse},
 };
 use alloc::vec::Vec;
-use codec::{Decode, Encode};
+use codec::Decode;
 use crypto_utils::verification::Signature;
 use sp_weights::Weight;
 
@@ -34,11 +34,14 @@ where
 	H: IsmpHost,
 {
 	let signer = msg.signer.clone();
-	let data = sp_io::hashing::keccak_256(&msg.requests.encode());
-	let relayer_public_key = Signature::decode(&mut signer.as_slice())
-		.ok()
-		.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-		.ok_or_else(|| Error::SignatureVerificationFailed)?;
+	let signature =
+		Signature::decode(&mut signer.as_slice()).map_err(|_| Error::SignatureDecodingFailed)?;
+
+	let signer_address: Vec<u8> = match signature {
+		Signature::Evm { address, .. } => address,
+		Signature::Sr25519 { public_key, .. } => public_key,
+		Signature::Ed25519 { public_key, .. } => public_key,
+	};
 
 	let state_machine = validate_state_machine(host, msg.proof.height)?;
 	let consensus_clients = host.consensus_clients();
@@ -106,7 +109,7 @@ where
 					let commitment = hash_request::<H>(&wrapped_req);
 					Event::PostRequestHandled(RequestResponseHandled {
 						commitment,
-						relayer: relayer_public_key.to_vec(),
+						relayer: signer_address.clone(),
 					})
 				});
 				// Delete receipt if module callback failed so it can be timed out

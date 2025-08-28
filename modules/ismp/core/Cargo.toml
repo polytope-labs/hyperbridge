@@ -32,7 +32,6 @@ anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 serde-hex-utils = { workspace = true, default-features = false }
 sp-weights = { workspace = true, default-features = false }
-sp-io = { workspace = true, default-features = false}
 crypto-utils = { workspace = true, default-features = false }
 
 [features]
@@ -50,6 +49,5 @@ std = [
     "displaydoc/std",
     "anyhow/std",
     "sp-weights/std",
-    "sp-io/std",
     "crypto-utils/std"
 ]

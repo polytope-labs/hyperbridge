@@ -4289,8 +4289,9 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "parity-scale-codec",
- "polkadot-sdk",
  "scale-info",
+ "sp-core 37.0.0",
+ "sp-io 41.0.1",
 ]
 
 [[package]]
@@ -10502,7 +10503,6 @@ dependencies = [
  "scale-info",
  "serde",
  "serde-hex-utils",
- "sp-io 41.0.1",
  "sp-weights 32.0.0",
  "thiserror 2.0.12",
 ]

@@ -6,10 +6,9 @@ edition = "2024"
 codec = { workspace = true }
 anyhow = { workspace = true }
 scale-info = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
 
-[dependencies.polkadot-sdk]
-workspace = true
-features = ["sp-core", "sp-io"]
 
 
 [features]
@@ -18,5 +17,6 @@ std = [
     "anyhow/std",
     "codec/std",
     "scale-info/std",
-    "polkadot-sdk/std",
+    "sp-core/std",
+    "sp-io/std",
 ]

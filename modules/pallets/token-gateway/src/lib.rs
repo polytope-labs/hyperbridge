@@ -512,7 +512,8 @@ pub mod pallet {
 		}
 
 		/// Registers a multi-chain ERC6160 asset without sending any dispatch request.
-		/// The asset should not already exist.
+		/// You should use register_asset_locally when you want to enable token gateway transfers
+		/// for an asset that already exists on an external chain.
 		#[pallet::call_index(5)]
 		#[pallet::weight(T::WeightInfo::register_asset_locally(asset.precision.len() as u32))]
 		pub fn register_asset_locally(

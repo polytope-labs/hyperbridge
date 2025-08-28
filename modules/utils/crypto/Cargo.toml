@@ -6,10 +6,8 @@ edition = "2024"
 codec = { workspace = true }
 anyhow = { workspace = true }
 scale-info = { workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
-
-
+sp-core = { workspace = true, default-features = false }
+sp-io = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]

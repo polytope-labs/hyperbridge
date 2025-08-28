@@ -18,7 +18,7 @@ codec = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 primitive-types = { workspace = true, features = ["serde"] }
 ethers = { workspace = true }
-ismp = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true, features = ["disable-panic-handler"] }
 evm-state-machine = { workspace = true }
 substrate-state-machine = { workspace = true }

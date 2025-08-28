@@ -31,7 +31,8 @@ hex = { workspace = true, features = ["alloc"] }
 anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 serde-hex-utils = { workspace = true, default-features = false }
-sp-weights = {workspace = true, default-features = false}
+sp-weights = { workspace = true, default-features = false }
+crypto-utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -47,5 +48,6 @@ std = [
     "thiserror/std",
     "displaydoc/std",
     "anyhow/std",
-    "sp-weights/std"
+    "sp-weights/std",
+    "crypto-utils/std"
 ]

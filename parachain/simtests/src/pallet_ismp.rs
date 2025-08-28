@@ -30,6 +30,7 @@ use ismp::{
 };
 use pallet_ismp::child_trie::{self};
 use primitive_types::H256;
+use crypto_utils::verification::Signature;
 use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt_utils::{
 	state_machine_commitment_storage_key, state_machine_update_time_storage_key,
@@ -242,6 +243,11 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	.encode();
 	let proof = Proof { height, proof };
 
+	let signature = Signature::Sr25519 {
+		public_key: H256::random().as_bytes().to_vec(),
+		signature: H256::random().as_bytes().to_vec(),
+	};
+
 	// 3. next send the requests
 	let tx = subxt::dynamic::tx(
 		"Ismp",
@@ -249,7 +255,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		vec![messages_to_value(vec![Message::Request(RequestMessage {
 			requests: vec![post.clone().into()],
 			proof: proof.clone(),
-			signer: H256::random().as_bytes().to_vec(),
+			signer: signature.encode(),
 		})])],
 	);
 
@@ -263,7 +269,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 			vec![messages_to_value(vec![Message::Request(RequestMessage {
 				requests: vec![post.clone().into()],
 				proof: proof.clone(),
-				signer: H256::random().as_bytes().to_vec(),
+				signer: signature.encode(),
 			})])],
 		);
 		let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
@@ -290,7 +296,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 			vec![messages_to_value(vec![Message::Request(RequestMessage {
 				requests: vec![post.clone().into()],
 				proof: proof.clone(),
-				signer: H256::random().as_bytes().to_vec(),
+				signer: signature.encode(),
 			})])],
 		);
 		let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();

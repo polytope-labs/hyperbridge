@@ -201,6 +201,13 @@ pub mod pallet {
 			/// Request commitment
 			commitment: H256,
 		},
+		/// An asset has been registered locally
+		AssetRegisteredLocally {
+			/// The local asset id
+			local_id: AssetId<T>,
+			/// The token gateway asset id
+			asset_id: H256,
+		},
 	}
 
 	/// Errors that can be returned by this pallet.
@@ -501,6 +508,34 @@ pub mod pallet {
 			for (chain, precision) in update.precisions {
 				Precisions::<T>::insert(update.asset_id.clone(), chain, precision);
 			}
+			Ok(())
+		}
+
+		/// Registers a multi-chain ERC6160 asset without sending any dispatch request.
+		/// You should use register_asset_locally when you want to enable token gateway transfers
+		/// for an asset that already exists on an external chain.
+		#[pallet::call_index(5)]
+		#[pallet::weight(T::WeightInfo::register_asset_locally(asset.precision.len() as u32))]
+		pub fn register_asset_locally(
+			origin: OriginFor<T>,
+			asset: AssetRegistration<AssetId<T>>,
+		) -> DispatchResult {
+			T::CreateOrigin::ensure_origin(origin)?;
+
+			let asset_id: H256 = sp_io::hashing::keccak_256(asset.reg.symbol.as_ref()).into();
+
+			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
+			NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
+			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
+			for (state_machine, precision) in asset.precision {
+				Precisions::<T>::insert(asset.local_id.clone(), state_machine, precision);
+			}
+
+			Self::deposit_event(Event::<T>::AssetRegisteredLocally {
+				local_id: asset.local_id,
+				asset_id,
+			});
+
 			Ok(())
 		}
 	}

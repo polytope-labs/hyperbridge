@@ -3,6 +3,7 @@
 use crate::pallet_ismp::Keccak256;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
+use crypto_utils::verification::Signature;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::StateMachine,
@@ -237,6 +238,11 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 	.encode();
 	let proof = Proof { height, proof };
 
+	let signature = Signature::Sr25519 {
+		public_key: H256::random().as_bytes().to_vec(),
+		signature: H256::random().as_bytes().to_vec(),
+	};
+
 	// 3. next send the requests
 	let tx = subxt::dynamic::tx(
 		"Ismp",
@@ -244,7 +250,7 @@ async fn test_will_accept_paid_requests() -> Result<(), anyhow::Error> {
 		vec![messages_to_value(vec![Message::Request(RequestMessage {
 			requests: vec![post.clone().into()],
 			proof: proof.clone(),
-			signer: H256::random().as_bytes().to_vec(),
+			signer: signature.encode(),
 		})])],
 	);
 
@@ -455,6 +461,11 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 	.encode();
 	let proof = Proof { height, proof };
 
+	let signature = Signature::Sr25519 {
+		public_key: H256::random().as_bytes().to_vec(),
+		signature: H256::random().as_bytes().to_vec(),
+	};
+
 	// 3. next send the requests
 	let tx = subxt::dynamic::tx(
 		"Ismp",
@@ -462,7 +473,7 @@ async fn test_will_reject_unpaid_requests() -> Result<(), anyhow::Error> {
 		vec![messages_to_value(vec![Message::Request(RequestMessage {
 			requests: vec![post.clone().into()],
 			proof: proof.clone(),
-			signer: H256::random().as_bytes().to_vec(),
+			signer: signature.encode(),
 		})])],
 	);
 
@@ -670,6 +681,11 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 	.encode();
 	let proof = Proof { height, proof };
 
+	let signature = Signature::Sr25519 {
+		public_key: H256::random().as_bytes().to_vec(),
+		signature: H256::random().as_bytes().to_vec(),
+	};
+
 	// 3. next send the requests
 	let tx = subxt::dynamic::tx(
 		"Ismp",
@@ -677,7 +693,7 @@ async fn test_will_reject_partially_paid_requests() -> Result<(), anyhow::Error>
 		vec![messages_to_value(vec![Message::Request(RequestMessage {
 			requests: vec![post.clone().into()],
 			proof: proof.clone(),
-			signer: H256::random().as_bytes().to_vec(),
+			signer: signature.encode(),
 		})])],
 	);
 

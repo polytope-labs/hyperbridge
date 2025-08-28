@@ -211,4 +211,6 @@ pub enum Error {
 		/// The request metadata
 		meta: Meta,
 	},
+	/// Error decoding signature
+	SignatureDecodingFailed,
 }

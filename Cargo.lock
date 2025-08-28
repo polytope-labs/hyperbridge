@@ -4289,8 +4289,9 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "parity-scale-codec",
- "polkadot-sdk",
  "scale-info",
+ "sp-core 37.0.0",
+ "sp-io 41.0.1",
 ]
 
 [[package]]
@@ -10493,6 +10494,7 @@ name = "ismp"
 version = "1.2.0"
 dependencies = [
  "anyhow",
+ "crypto-utils",
  "derive_more 1.0.0",
  "displaydoc",
  "hex",
@@ -10730,6 +10732,7 @@ name = "ismp-testsuite"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "crypto-utils",
  "ismp",
  "once_cell",
  "parity-scale-codec",
@@ -24146,6 +24149,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
+ "crypto-utils",
  "futures",
  "gargantua-runtime",
  "hash-db",

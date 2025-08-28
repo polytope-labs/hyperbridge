@@ -35,8 +35,9 @@ use ismp::{
 	router::{GetResponse, PostRequest, Request, RequestResponse, Response, Timeout},
 };
 use ismp_testsuite::{
-	check_challenge_period, check_client_expiry, missing_state_commitment_check,
-	post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
+	check_challenge_period, check_client_expiry, create_relayer_signer,
+	missing_state_commitment_check, post_request_timeout_check, post_response_timeout_check,
+	write_outgoing_commitments,
 };
 use pallet_ismp::{
 	child_trie::{RequestCommitments, RequestReceipts},
@@ -260,6 +261,13 @@ fn should_handle_get_request_responses_correctly() {
 
 		set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
 
+		let (signature, public_key) =
+			create_relayer_signer(RequestResponse::Request(requests.clone()).encode(), &[1u8; 32]);
+		let initial_balance = 1000 * UNIT;
+		let public_key_array: [u8; 32] =
+			public_key.try_into().expect("Public key should be 32 bytes");
+		Balances::mint_into(&public_key_array.into(), initial_balance).unwrap();
+
 		let response = ResponseMessage {
 			datagram: RequestResponse::Request(requests.clone()),
 			proof: Proof {
@@ -272,7 +280,7 @@ fn should_handle_get_request_responses_correctly() {
 				},
 				proof: vec![],
 			},
-			signer: vec![],
+			signer: signature,
 		};
 
 		pallet_ismp::Pallet::<Test>::execute(vec![Message::Response(response)]).unwrap();

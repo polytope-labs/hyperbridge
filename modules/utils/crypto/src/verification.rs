@@ -105,4 +105,12 @@ impl Signature {
 			_ => Err(anyhow!("Signature is not of type Sr25519")),
 		}
 	}
+
+	pub fn signer(&self) -> Vec<u8> {
+		match self {
+			Signature::Evm { address, .. } => address.clone(),
+			Signature::Sr25519 { public_key, .. } => public_key.clone(),
+			Signature::Ed25519 { public_key, .. } => public_key.clone(),
+		}
+	}
 }

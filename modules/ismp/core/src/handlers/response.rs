@@ -34,15 +34,9 @@ where
 	H: IsmpHost,
 {
 	let signer = msg.signer.clone();
-
-	let signature =
-		Signature::decode(&mut signer.as_slice()).map_err(|_| Error::SignatureDecodingFailed)?;
-
-	let signer_address: Vec<u8> = match signature {
-		Signature::Evm { address, .. } => address,
-		Signature::Sr25519 { public_key, .. } => public_key,
-		Signature::Ed25519 { public_key, .. } => public_key,
-	};
+	let signer_address: Vec<u8> = Signature::decode(&mut msg.signer.as_slice())
+		.map_err(|_| Error::SignatureDecodingFailed)?
+		.signer();
 
 	let proof = msg.proof();
 	let state_machine = validate_state_machine(host, proof.height)?;

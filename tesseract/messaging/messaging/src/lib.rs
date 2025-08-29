@@ -444,6 +444,7 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 	while let Some(receipts) = receiver.recv().await {
 		let stream = futures::stream::iter(receipts.into_iter()).filter_map(|receipt| {
 			let client_map = Arc::clone(&client_map);
+			let tx_payment = Arc::clone(&tx_payment);
 			async move {
 				let source_chain = match client_map.get(&receipt.source()) {
 					Some(client) => client.clone(),
@@ -461,7 +462,19 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 
 				match fee {
 					Ok(fee_amount) if fee_amount > U256::zero() => Some(receipt),
-					_ => None,
+					Ok(_) => None,
+					Err(err) => {
+						tracing::warn!(
+							"Failed to query fee for receipt {:?}: {err:?}. Storing...",
+							receipt
+						);
+						if let Err(db_err) = tx_payment.store_messages(vec![receipt]).await {
+							tracing::error!(
+								"Failed to store receipt in DB after fee query error: {db_err:?}"
+							);
+						}
+						None
+					},
 				}
 			}
 		});

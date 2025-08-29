@@ -5,9 +5,10 @@ use codec::Encode;
 use polkadot_sdk::*;
 use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
 use subxt::{
+	backend::legacy::LegacyRpcMethods,
 	config::{
 		substrate::{BlakeTwo256, SubstrateExtrinsicParams, SubstrateHeader},
-		Hasher,
+		HashFor, Hasher,
 	},
 	tx::Payload,
 	utils::{AccountId32, MultiAddress, H256},
@@ -214,4 +215,12 @@ pub fn fisherman_storage_key(address: Vec<u8>) -> Vec<u8> {
 	let key_1 = twox_64(&address.encode()).to_vec();
 
 	[pallet_prefix, storage_prefix, key_1, address.encode()].concat()
+}
+
+pub async fn get_latest_block_hash<C: subxt::Config>(
+	rpc: &LegacyRpcMethods<C>,
+) -> Result<HashFor<C>, anyhow::Error> {
+	rpc.chain_get_block_hash(None)
+		.await?
+		.ok_or_else(|| anyhow!("Failed to query latest block hash"))
 }

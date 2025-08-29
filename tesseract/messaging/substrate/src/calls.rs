@@ -26,6 +26,7 @@ use sp_core::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 use subxt::{
+	backend::legacy::LegacyRpcMethods,
 	config::{ExtrinsicParams, HashFor, Header},
 	ext::{
 		scale_value::value,
@@ -35,13 +36,10 @@ use subxt::{
 	utils::{AccountId32, MultiSignature, H256},
 	OnlineClient,
 };
-use subxt_utils::{
-	relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic,
-	values::{
-		create_consensus_state_to_value, get_requests_with_proof_to_value,
-		host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
-	},
-};
+use subxt_utils::{get_latest_block_hash, relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic, values::{
+	create_consensus_state_to_value, get_requests_with_proof_to_value,
+	host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
+}};
 use tesseract_primitives::{
 	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
 };
@@ -124,7 +122,7 @@ where
 		client: Arc<dyn IsmpProvider>,
 		chain: &StateMachine,
 	) -> anyhow::Result<U256> {
-		Ok(relayer_account_balance(&self.client, chain.clone(), client.address()).await?)
+		Ok(relayer_account_balance(&self.client, &self.rpc, chain.clone(), client.address()).await?)
 	}
 
 	/// Accumulate accrued fees on hyperbridge by submitting a claim proof
@@ -161,7 +159,8 @@ where
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
 		let key = relayer_nonce_storage_key(counterparty.address(), chain);
-		let raw_value = self.client.storage().at_latest().await?.fetch_raw(key.clone()).await?;
+		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 		let nonce =
 			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
 
@@ -297,12 +296,13 @@ where
 
 async fn relayer_account_balance<C: subxt::Config>(
 	client: &OnlineClient<C>,
+	rpc: &LegacyRpcMethods<C>,
 	chain: StateMachine,
 	address: Vec<u8>,
 ) -> anyhow::Result<U256> {
 	let key = relayer_account_balance_storage_key(chain, address);
-
-	let raw_value = client.storage().at_latest().await?.fetch_raw(key.clone()).await?;
+	let block_hash = get_latest_block_hash(&rpc).await?;
+	let raw_value = client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 	let balance = if let Some(raw_value) = raw_value {
 		Decode::decode(&mut &*raw_value)?
 	} else {

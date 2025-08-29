@@ -25,6 +25,7 @@ use subxt::{
 
 use grandpa_prover::{GrandpaProver, ProverOptions, GRANDPA_CURRENT_SET_ID};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use subxt_utils::get_latest_block_hash;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
@@ -146,12 +147,12 @@ where
 
 	pub async fn should_sync(&self, consensus_state_set_id: u64) -> Result<bool, anyhow::Error> {
 		let current_set_id: u64 = {
+			let block_hash = get_latest_block_hash(&self.prover.rpc).await?;
 			let raw_id = self
 				.prover
 				.client
 				.storage()
-				.at_latest()
-				.await?
+				.at(block_hash)
 				.fetch_raw(&GRANDPA_CURRENT_SET_ID[..])
 				.await
 				.ok()

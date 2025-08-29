@@ -57,7 +57,8 @@ use pallet_ismp::{
 };
 use substrate_state_machine::StateMachineProof;
 use subxt_utils::{
-	refine_subxt_error, state_machine_update_time_storage_key, values::messages_to_value,
+	get_latest_block_hash, refine_subxt_error, state_machine_update_time_storage_key,
+	values::messages_to_value,
 };
 
 use crate::{
@@ -152,7 +153,8 @@ where
 
 impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 	async fn query_latest_block_height(&self) -> Result<u64, Error> {
-		Ok(self.client.blocks().at_latest().await?.number().into())
+		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		Ok(self.client.blocks().at(block_hash).await?.number().into())
 	}
 
 	fn state_machine_id(&self) -> StateMachineId {
@@ -425,7 +427,8 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<WithMetadata<StateMachineUpdated>>, Error> {
-		let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
+		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let initial_height: u64 = self.client.blocks().at(block_hash).await?.number().into();
 		let stream = stream::unfold(
 			(initial_height, self.clone()),
 			move |(latest_height, client)| async move {
@@ -568,7 +571,8 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		height: StateMachineHeight,
 	) -> Result<Duration, Error> {
 		let key = state_machine_update_time_storage_key(height);
-		let block = self.client.blocks().at_latest().await?;
+		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let block = self.client.blocks().at(block_hash).await?;
 		let raw_value =
 			self.client.storage().at(block.hash()).fetch_raw(key).await?.ok_or_else(|| {
 				anyhow!(

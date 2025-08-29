@@ -5,10 +5,9 @@ use codec::Encode;
 use polkadot_sdk::*;
 use sp_crypto_hashing::{blake2_128, keccak_256, twox_128, twox_64};
 use subxt::{
-	backend::legacy::LegacyRpcMethods,
 	config::{
 		substrate::{BlakeTwo256, SubstrateExtrinsicParams, SubstrateHeader},
-		HashFor, Hasher,
+		Hasher,
 	},
 	tx::Payload,
 	utils::{AccountId32, MultiAddress, H256},

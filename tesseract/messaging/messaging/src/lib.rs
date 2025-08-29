@@ -32,6 +32,7 @@ use crate::{
 };
 use futures::{FutureExt, StreamExt};
 use ismp::{consensus::StateMachineHeight, events::Event, host::StateMachine, router::GetRequest};
+use primitive_types::U256;
 
 use tesseract_primitives::{
 	config::RelayerConfig, observe_challenge_period, wait_for_state_machine_update,
@@ -439,7 +440,33 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	tx_payment: Arc<TransactionPayment>,
 ) -> Result<(), anyhow::Error> {
+	let client_map = Arc::new(client_map);
 	while let Some(receipts) = receiver.recv().await {
+		let stream = futures::stream::iter(receipts.into_iter()).filter_map(|receipt| {
+			let client_map = Arc::clone(&client_map);
+			async move {
+				let source_chain = match client_map.get(&receipt.source()) {
+					Some(client) => client.clone(),
+					None => {
+						return None;
+					},
+				};
+
+				let fee = match receipt {
+					TxReceipt::Request { query, .. } =>
+						source_chain.query_request_fee_metadata(query.commitment).await,
+					TxReceipt::Response { query, .. } =>
+						source_chain.query_response_fee_metadata(query.commitment).await,
+				};
+
+				match fee {
+					Ok(fee_amount) if fee_amount > U256::zero() => Some(receipt),
+					_ => None,
+				}
+			}
+		});
+		let receipts = stream.collect::<Vec<_>>().await;
+
 		if receipts.is_empty() {
 			continue;
 		}

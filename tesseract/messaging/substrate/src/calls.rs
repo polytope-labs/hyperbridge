@@ -37,8 +37,7 @@ use subxt::{
 	OnlineClient,
 };
 use subxt_utils::{
-	get_latest_block_hash, relayer_account_balance_storage_key, relayer_nonce_storage_key,
-	send_extrinsic,
+	relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic,
 	values::{
 		create_consensus_state_to_value, get_requests_with_proof_to_value,
 		host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
@@ -164,7 +163,11 @@ where
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
 		let key = relayer_nonce_storage_key(counterparty.address(), chain);
-		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
 		let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 		let nonce =
 			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
@@ -306,7 +309,10 @@ async fn relayer_account_balance<C: subxt::Config>(
 	address: Vec<u8>,
 ) -> anyhow::Result<U256> {
 	let key = relayer_account_balance_storage_key(chain, address);
-	let block_hash = get_latest_block_hash(&rpc).await?;
+	let block_hash = rpc
+		.chain_get_block_hash(None)
+		.await?
+		.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
 	let raw_value = client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 	let balance = if let Some(raw_value) = raw_value {
 		Decode::decode(&mut &*raw_value)?

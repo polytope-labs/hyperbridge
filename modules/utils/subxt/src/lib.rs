@@ -216,11 +216,3 @@ pub fn fisherman_storage_key(address: Vec<u8>) -> Vec<u8> {
 
 	[pallet_prefix, storage_prefix, key_1, address.encode()].concat()
 }
-
-pub async fn get_latest_block_hash<C: subxt::Config>(
-	rpc: &LegacyRpcMethods<C>,
-) -> Result<HashFor<C>, anyhow::Error> {
-	rpc.chain_get_block_hash(None)
-		.await?
-		.ok_or_else(|| anyhow!("Failed to query latest block hash"))
-}

@@ -16,6 +16,7 @@
 use std::sync::Arc;
 
 use ::polkadot_sdk::sp_runtime::traits::{One, Zero};
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use subxt::{
 	config::{ExtrinsicParams, HashFor, Header},
@@ -25,7 +26,6 @@ use subxt::{
 
 use grandpa_prover::{GrandpaProver, ProverOptions, GRANDPA_CURRENT_SET_ID};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
-use subxt_utils::get_latest_block_hash;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
@@ -147,7 +147,12 @@ where
 
 	pub async fn should_sync(&self, consensus_state_set_id: u64) -> Result<bool, anyhow::Error> {
 		let current_set_id: u64 = {
-			let block_hash = get_latest_block_hash(&self.prover.rpc).await?;
+			let block_hash = self
+				.prover
+				.rpc
+				.chain_get_block_hash(None)
+				.await?
+				.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
 			let raw_id = self
 				.prover
 				.client

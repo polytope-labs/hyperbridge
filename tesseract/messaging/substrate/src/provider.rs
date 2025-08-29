@@ -56,7 +56,7 @@ use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
 use subxt_utils::{
-	fisherman_storage_key, get_latest_block_hash, host_params_storage_key, send_extrinsic,
+	fisherman_storage_key, host_params_storage_key, send_extrinsic,
 	state_machine_update_time_storage_key,
 	values::{messages_to_value, state_machine_height_to_value},
 };
@@ -115,7 +115,11 @@ where
 		height: StateMachineHeight,
 	) -> Result<Duration, anyhow::Error> {
 		let key = state_machine_update_time_storage_key(height);
-		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
 		let block = self.client.blocks().at(block_hash).await?;
 		let raw_value = self
 			.client
@@ -857,7 +861,11 @@ where
 
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
 		let key = fisherman_storage_key(self.address());
-		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
 		let raw_params = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 		if raw_params.is_none() {
 			return Ok(());
@@ -888,7 +896,11 @@ where
 		state_machine: StateMachine,
 	) -> Result<HostParam<u128>, anyhow::Error> {
 		let key = host_params_storage_key(state_machine);
-		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
 		let raw_params = self
 			.client
 			.storage()

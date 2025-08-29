@@ -1177,3 +1177,118 @@ type DailyProtocolFeesStats @entity {
 	"""
 	last24HoursProtocolFeesEarned: BigInt! @index
 }
+
+"""
+Current price data for tokens across supported chains
+"""
+type TokenPrice @entity @compositeIndexes(fields: [["symbol", "lastUpdatedAt"]]) {
+	"""
+	Unique identifier: symbol + currency (e.g., ETH-USD)
+	"""
+	id: ID!
+
+	"""
+	Token symbol (e.g., ETH, USDC, USDT, DOT)
+	"""
+	symbol: String! @index
+
+	"""
+	Token contract address (zero address for native tokens)
+	"""
+	address: String
+
+	"""
+	Token price currency (e.g USD)
+	"""
+	currency: String!
+
+	"""
+	Current price at the specified currency value
+	"""
+	price: String!
+
+	"""
+	Timestamp when price was last updated
+	"""
+	lastUpdatedAt: BigInt! @index
+}
+
+"""
+Historical price feed logs for tokens
+"""
+type TokenPriceLog @entity @compositeIndexes(fields: [["symbol", "timestamp"], ["provider", "timestamp"]]) {
+	"""
+	Unique identifier: symbol + currency + provider + timestamp
+	"""
+	id: ID!
+
+	"""
+	Token symbol (e.g., ETH, USDC, DOT)
+	"""
+	symbol: String! @index
+
+	"""
+	Token price currency (e.g USD)
+	"""
+	currency: String!
+
+	"""
+	Current price at the specified currency value
+	"""
+	price: String!
+
+	"""
+	Price data provider (e.g., COINGECKO, CHAINLINK)
+	"""
+	provider: String! @index
+
+	"""
+	Timestamp when price was recorded
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	Record creation timestamp
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Token Registry - Configuration and metadata for supported tokens
+"""
+type TokenRegistry @entity @compositeIndexes(fields: [["symbol", "lastUpdatedAt"], ["symbol", "createdAt"]]) {
+	"""
+	Unique identifier: symbol (e.g., ETH, DOT)
+	"""
+	id: ID!
+
+	"""
+	Token name (e.g., Ethereum, Polkadot, USD Coin)
+	"""
+	name: String!
+
+	"""
+	Token symbol (e.g., ETH, DOT, USDC)
+	"""
+	symbol: String! @index
+
+	"""
+	Token contract address (zero address for native tokens)
+	"""
+	address: String
+
+	"""
+	Update frequency in seconds for price feeds
+	"""
+	updateFrequencySeconds: Int!
+
+	"""
+	Timestamp when this token configuration was last updated
+	"""
+	lastUpdatedAt: BigInt! @index
+
+	"""
+	Record creation timestamp
+	"""
+	createdAt: Date! @index
+}

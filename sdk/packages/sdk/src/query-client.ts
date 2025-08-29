@@ -11,9 +11,20 @@ import type {
 	OrderWithStatus,
 	TokenGatewayAssetTeleportedResponse,
 	TokenGatewayAssetTeleportedWithStatus,
+	TokenPrice,
+	TokenPricesResponse,
+	TokenRegistry,
+	TokenRegistryResponse,
 } from "./types"
 import type { ConsolaInstance } from "consola"
-import { GET_REQUEST_STATUS, POST_REQUEST_STATUS, ORDER_STATUS, TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS } from "./queries"
+import {
+	GET_REQUEST_STATUS,
+	POST_REQUEST_STATUS,
+	ORDER_STATUS,
+	TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS,
+	TOKEN_PRICE,
+	TOKEN_REGISTRY,
+} from "./queries"
 
 export function createQueryClient(config: { url: string }) {
 	return new GraphQLClient(config.url)
@@ -302,4 +313,71 @@ export async function _queryOrderInternal(params: InternalQueryParams): Promise<
 	}
 
 	return order
+}
+
+type TokenPriceQueryParams = {
+	symbol: string
+	queryClient: IndexerQueryClient
+	logger?: ConsolaInstance
+}
+
+export async function _queryTokenPriceInternal(params: TokenPriceQueryParams): Promise<TokenPrice | undefined> {
+	const { symbol, queryClient: client, logger = DEFAULT_LOGGER } = params
+
+	const response = await retryPromise(
+		() => {
+			return client.request<TokenPricesResponse>(TOKEN_PRICE, { symbol })
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `querying 'TokenPrice' by Symbol(${symbol})`,
+		},
+	)
+
+	const item = response.tokenPrices.nodes?.[0]
+	if (!item) return
+
+	logger.trace("`TokenPrice` found")
+	return item
+}
+
+type TokenRegistryQueryParams = {
+	symbol: string
+	queryClient: IndexerQueryClient
+	logger?: ConsolaInstance
+}
+
+export async function _queryTokenRegistryInternal(
+	params: TokenRegistryQueryParams,
+): Promise<TokenRegistry | undefined> {
+	const { symbol, queryClient: client, logger = DEFAULT_LOGGER } = params
+
+	const response = await retryPromise(
+		() => {
+			return client.request<TokenRegistryResponse>(TOKEN_REGISTRY, { symbol })
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `querying 'TokenRegistry' by Symbol(${symbol})`,
+		},
+	)
+
+	const item = response.tokenRegistries.nodes?.[0]
+	if (!item) return
+
+	logger.trace("`TokenRegistry` found")
+
+	return {
+		id: item.id,
+		name: item.name,
+		symbol: item.symbol,
+		address: item.address,
+		updateFrequencySeconds: item.updateFrequencySeconds,
+		lastUpdatedAt: item.lastUpdatedAt,
+		createdAt: new Date(item.createdAt),
+	}
 }

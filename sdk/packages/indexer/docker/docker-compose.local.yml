@@ -25,7 +25,7 @@ services:
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
             - --unsafe
-            - --log-level=info
+            - --log-level=${LOG_LEVEL:-info}
             - --block-confirmations=0
             - --store-cache-async=false
             - --store-cache-threshold=1
@@ -61,7 +61,7 @@ services:
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
             - --unsafe
-            - --log-level=info
+            - --log-level=${LOG_LEVEL:-info}
             - --block-confirmations=0
             - --store-cache-async=false
             - --store-cache-threshold=1
@@ -96,7 +96,7 @@ services:
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
             - --unsafe
-            - --log-level=info
+            - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp
             - --unfinalized-blocks
             - --block-confirmations=0
@@ -133,7 +133,7 @@ services:
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
             - --unsafe
-            - --log-level=info
+            - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp
             - --unfinalized-blocks
             - --block-confirmations=0

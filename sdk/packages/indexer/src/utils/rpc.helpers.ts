@@ -1,9 +1,11 @@
 import fetch from "node-fetch"
-import { Struct, u64 } from "scale-ts"
-import { hexToBytes } from "viem"
+import { u64 } from "scale-ts"
+import { Hex, hexToBytes, keccak256, stringToBytes } from "viem"
 import { Option as PolkadotOption } from "@polkadot/types"
 import { Codec } from "@polkadot/types/types"
+import { StorageData } from "@polkadot/types/interfaces"
 
+import { safeArray } from "./data.helper"
 import { ENV_CONFIG } from "@/constants"
 
 /**

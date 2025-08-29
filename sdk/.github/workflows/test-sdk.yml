@@ -78,6 +78,7 @@ jobs:
                   DB_HOST: "postgres"
                   DB_PORT: 5432
                   DB_PATH: "./.indexer"
+                  LOG_LEVEL: ${{ secrets.ACTIONS_RUNNER_DEBUG == 'true' && 'debug' || 'info' }}
               run: |
                   cd packages/indexer
                   nohup pnpm start:local > indexer_output.log 2>&1 &

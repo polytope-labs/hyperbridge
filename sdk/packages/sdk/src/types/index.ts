@@ -1084,6 +1084,51 @@ export interface OrderResponse {
 	}
 }
 
+export interface TokenPrice {
+	symbol: string
+	address?: string
+	currency: string
+	price: string
+	lastUpdatedAt: bigint
+}
+
+export interface TokenPricesResponse {
+	tokenPrices: {
+		nodes: Array<{
+			id: string
+			symbol: string
+			address: string
+			currency: string
+			price: string
+			lastUpdatedAt: bigint
+		}>
+	}
+}
+
+export interface TokenRegistry {
+	id: string
+	name: string
+	symbol: string
+	address?: string
+	updateFrequencySeconds: number
+	lastUpdatedAt: bigint
+	createdAt: Date
+}
+
+export interface TokenRegistryResponse {
+	tokenRegistries: {
+		nodes: Array<{
+			id: string
+			name: string
+			symbol: string
+			address: string
+			updateFrequencySeconds: number
+			lastUpdatedAt: bigint
+			createdAt: string
+		}>
+	}
+}
+
 export class AbortSignalInternal extends Error {
 	constructor(message: string) {
 		super()

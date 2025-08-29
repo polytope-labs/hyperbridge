@@ -1,7 +1,6 @@
 import Decimal from "decimal.js"
 
 import { ERC6160Ext20Abi__factory, TokenGatewayAbi__factory } from "@/configs/src/types/contracts"
-import PriceHelper from "@/utils/price.helpers"
 import {
 	TeleportStatus,
 	TeleportStatusMetadata,
@@ -12,6 +11,8 @@ import {
 import { timestampToDate } from "@/utils/date.helpers"
 import { TOKEN_GATEWAY_CONTRACT_ADDRESSES } from "@/addresses/tokenGateway.addresses"
 import { PointsService } from "./points.service"
+import { TokenPriceService } from "./token-price.service"
+import PriceHelper from "@/utils/price.helpers"
 
 export interface IAssetDetails {
 	erc20_address: string
@@ -71,10 +72,11 @@ export class TokenGatewayService {
 		const decimals = await tokenContract.decimals()
 		const symbol = await tokenContract.symbol()
 
-		const usdValue = await PriceHelper.getTokenPriceInUSDCoingecko(symbol, teleportParams.amount, decimals)
+		const price = await TokenPriceService.getPrice(symbol, timestamp)
+		const { amountValueInUSD } = PriceHelper.getAmountValueInUSD(teleportParams.amount, decimals, price)
 
 		if (!teleport) {
-			teleport = await TokenGatewayAssetTeleported.create({
+			teleport = TokenGatewayAssetTeleported.create({
 				id: teleportParams.commitment,
 				from: teleportParams.from,
 				sourceChain: chainId,
@@ -85,7 +87,7 @@ export class TokenGatewayService {
 				to: teleportParams.to,
 				redeem: teleportParams.redeem,
 				status: TeleportStatus.TELEPORTED,
-				usdValue: usdValue.amountValueInUSD,
+				usdValue: amountValueInUSD,
 				createdAt: timestampToDate(timestamp),
 				blockNumber: BigInt(blockNumber),
 				blockTimestamp: timestamp,
@@ -94,7 +96,7 @@ export class TokenGatewayService {
 			await teleport.save()
 
 			// Award points for token teleport - using USD value directly
-			const teleportValue = new Decimal(usdValue.amountValueInUSD)
+			const teleportValue = new Decimal(amountValueInUSD)
 			const pointsToAward = teleportValue.floor().toNumber()
 
 			await PointsService.awardPoints(
@@ -104,7 +106,7 @@ export class TokenGatewayService {
 				ProtocolParticipant.USER,
 				RewardPointsActivityType.TOKEN_TELEPORTED_POINTS,
 				transactionHash,
-				`Points awarded for teleporting token ${teleportParams.assetId} with value ${usdValue.amountValueInUSD} USD`,
+				`Points awarded for teleporting token ${teleportParams.assetId} with value ${amountValueInUSD} USD`,
 				timestamp,
 			)
 		}

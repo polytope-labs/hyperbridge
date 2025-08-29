@@ -40,3 +40,6 @@ export { handleSubstratePostResponseHandledEvent } from "@/handlers/events/subst
 export { handleSubstrateAssetTeleportedEvent } from "@/handlers/events/substrateChains/handleAssetTeleportedEvent.handler"
 export { handleSubstrateGetRequestHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestHandledEvent.handler"
 export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestTimeoutHandledEvent.handler"
+
+// Price Handlers
+export { handlePriceIndexing } from "@/handlers/events/price/handlePriceIndexing.event.handler"

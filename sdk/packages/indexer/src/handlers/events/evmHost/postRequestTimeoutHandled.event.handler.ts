@@ -48,6 +48,7 @@ export const handlePostRequestTimeoutHandledEvent = wrap(async (event: PostReque
 				continue
 			}
 
+			const value = BigInt(log.data)
 			const transfer = await Transfer.get(log.transactionHash)
 
 			if (!transfer) {
@@ -55,12 +56,16 @@ export const handlePostRequestTimeoutHandledEvent = wrap(async (event: PostReque
 				await TransferService.storeTransfer({
 					transactionHash: log.transactionHash,
 					chain,
-					value: BigInt(log.data),
+					value,
 					from,
 					to,
 				})
 
-				const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(log.address, BigInt(log.data))
+				const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(
+					log.address,
+					value,
+					blockTimestamp,
+				)
 				await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
 			}
 		}

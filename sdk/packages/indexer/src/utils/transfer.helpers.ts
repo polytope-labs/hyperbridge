@@ -1,6 +1,8 @@
 import { EthereumResult, EthereumLog } from "@subql/types-ethereum"
 
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
+import type { PriceResponse } from "./price.helpers"
+import { TokenPriceService } from "@/services/token-price.service"
 import PriceHelper from "./price.helpers"
 
 // ERC20 Transfer event signature: Transfer(address indexed from, address indexed to, uint256 value)
@@ -17,25 +19,25 @@ export const isERC20TransferEvent = (log: EthereumLog<EthereumResult>): boolean 
 	)
 }
 
-type GetPriceFromEthereumLogResponse = Promise<
-	Awaited<ReturnType<typeof PriceHelper.getTokenPriceInUSDCoingecko>> & {
-		symbol: string
-		decimals: number
-	}
->
+type GetPriceFromEthereumLogResponse = Promise<PriceResponse & { symbol: string; decimals: number }>
 
 /**
  * getPriceDataFromEthereumLog retrieves price data from an Ethereum log.
  * @param log EthereumLog<EthereumResult>
  * @returns Promise<GetPriceDataFromEthereumLogResponse>
  */
-export const getPriceDataFromEthereumLog = async (address: string, amount: bigint): GetPriceFromEthereumLogResponse => {
+export const getPriceDataFromEthereumLog = async (
+	address: string,
+	amount: bigint,
+	currentTimestamp?: bigint,
+): GetPriceFromEthereumLogResponse => {
 	const contract = ERC6160Ext20Abi__factory.connect(address.toLowerCase(), api)
 
 	const symbol = await contract.symbol()
 	const decimals = await contract.decimals()
 
-	const { amountValueInUSD, priceInUSD } = await PriceHelper.getTokenPriceInUSDCoingecko(symbol, amount, decimals)
+	const price = await TokenPriceService.getPrice(symbol, currentTimestamp)
+	const { amountValueInUSD, priceInUSD } = PriceHelper.getAmountValueInUSD(amount, decimals, price)
 
 	return {
 		amountValueInUSD,

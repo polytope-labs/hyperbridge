@@ -36,10 +36,14 @@ use subxt::{
 	utils::{AccountId32, MultiSignature, H256},
 	OnlineClient,
 };
-use subxt_utils::{get_latest_block_hash, relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic, values::{
-	create_consensus_state_to_value, get_requests_with_proof_to_value,
-	host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
-}};
+use subxt_utils::{
+	get_latest_block_hash, relayer_account_balance_storage_key, relayer_nonce_storage_key,
+	send_extrinsic,
+	values::{
+		create_consensus_state_to_value, get_requests_with_proof_to_value,
+		host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
+	},
+};
 use tesseract_primitives::{
 	HandleGetResponse, HyperbridgeClaim, IsmpProvider, WithdrawFundsResult,
 };
@@ -122,7 +126,8 @@ where
 		client: Arc<dyn IsmpProvider>,
 		chain: &StateMachine,
 	) -> anyhow::Result<U256> {
-		Ok(relayer_account_balance(&self.client, &self.rpc, chain.clone(), client.address()).await?)
+		Ok(relayer_account_balance(&self.client, &self.rpc, chain.clone(), client.address())
+			.await?)
 	}
 
 	/// Accumulate accrued fees on hyperbridge by submitting a claim proof

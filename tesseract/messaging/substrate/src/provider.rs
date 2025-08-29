@@ -56,7 +56,7 @@ use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
 use subxt_utils::{
-	fisherman_storage_key, host_params_storage_key, send_extrinsic,
+	fisherman_storage_key, get_latest_block_hash, host_params_storage_key, send_extrinsic,
 	state_machine_update_time_storage_key,
 	values::{messages_to_value, state_machine_height_to_value},
 };
@@ -115,7 +115,8 @@ where
 		height: StateMachineHeight,
 	) -> Result<Duration, anyhow::Error> {
 		let key = state_machine_update_time_storage_key(height);
-		let block = self.client.blocks().at_latest().await?;
+		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let block = self.client.blocks().at(block_hash).await?;
 		let raw_value = self
 			.client
 			.storage()
@@ -856,7 +857,8 @@ where
 
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
 		let key = fisherman_storage_key(self.address());
-		let raw_params = self.client.storage().at_latest().await?.fetch_raw(key.clone()).await?;
+		let block_hash = get_latest_block_hash(&self.rpc).await?;
+		let raw_params = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 		if raw_params.is_none() {
 			return Ok(());
 		}
@@ -886,11 +888,11 @@ where
 		state_machine: StateMachine,
 	) -> Result<HostParam<u128>, anyhow::Error> {
 		let key = host_params_storage_key(state_machine);
+		let block_hash = get_latest_block_hash(&self.rpc).await?;
 		let raw_params = self
 			.client
 			.storage()
-			.at_latest()
-			.await?
+			.at(block_hash)
 			.fetch_raw(key.clone())
 			.await?
 			.ok_or_else(|| anyhow!("Missing host params for {state_machine:?}"))?;

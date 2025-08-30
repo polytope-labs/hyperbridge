@@ -479,7 +479,7 @@ impl TransactionPayment {
 		for key in requests.chain(responses) {
 			let fee = match &key.0 {
 				Key::Request(hash) => source.query_request_fee_metadata(*hash).await?,
-				Key::Response { request_commitment, .. } => source.query_response_fee_metadata(*request_commitment).await?
+				Key::Response { response_commitment, .. } => source.query_response_fee_metadata(*response_commitment).await?
 			};
 
 			if fee.is_zero() {

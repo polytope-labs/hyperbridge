@@ -26,6 +26,7 @@ use sp_core::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 use subxt::{
+	backend::legacy::LegacyRpcMethods,
 	config::{ExtrinsicParams, HashFor, Header},
 	ext::{
 		scale_value::value,
@@ -124,7 +125,8 @@ where
 		client: Arc<dyn IsmpProvider>,
 		chain: &StateMachine,
 	) -> anyhow::Result<U256> {
-		Ok(relayer_account_balance(&self.client, chain.clone(), client.address()).await?)
+		Ok(relayer_account_balance(&self.client, &self.rpc, chain.clone(), client.address())
+			.await?)
 	}
 
 	/// Accumulate accrued fees on hyperbridge by submitting a claim proof
@@ -161,7 +163,12 @@ where
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
 		let key = relayer_nonce_storage_key(counterparty.address(), chain);
-		let raw_value = self.client.storage().at_latest().await?.fetch_raw(key.clone()).await?;
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+		let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 		let nonce =
 			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
 
@@ -297,12 +304,16 @@ where
 
 async fn relayer_account_balance<C: subxt::Config>(
 	client: &OnlineClient<C>,
+	rpc: &LegacyRpcMethods<C>,
 	chain: StateMachine,
 	address: Vec<u8>,
 ) -> anyhow::Result<U256> {
 	let key = relayer_account_balance_storage_key(chain, address);
-
-	let raw_value = client.storage().at_latest().await?.fetch_raw(key.clone()).await?;
+	let block_hash = rpc
+		.chain_get_block_hash(None)
+		.await?
+		.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+	let raw_value = client.storage().at(block_hash).fetch_raw(key.clone()).await?;
 	let balance = if let Some(raw_value) = raw_value {
 		Decode::decode(&mut &*raw_value)?
 	} else {

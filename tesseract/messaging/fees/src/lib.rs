@@ -10,6 +10,7 @@ use crate::db::{
 };
 use anyhow::anyhow;
 use codec::{Decode, Encode};
+use futures::{stream, StreamExt};
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
@@ -18,7 +19,7 @@ use ismp::{
 };
 use itertools::Itertools;
 use pallet_ismp_relayer::withdrawal::{Key, Signature, WithdrawalProof};
-use primitive_types::H256;
+use primitive_types::{H256, U256};
 use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
@@ -475,11 +476,22 @@ impl TransactionPayment {
 		let mut keys_to_prove = vec![];
 
 		for key in requests.chain(responses) {
-			if hyperbridge.check_claimed(key.0.clone()).await? {
-				keys_to_delete.push(key.0.clone());
-			} else {
-				keys_to_prove.push(key)
+			let fee = match &key.0 {
+				Key::Request(hash) => source.query_request_fee_metadata(*hash).await?,
+				Key::Response { response_commitment, .. } =>
+					source.query_response_fee_metadata(*response_commitment).await?,
+			};
+
+			if fee.is_zero() {
+				keys_to_delete.push(key.0);
+				continue;
 			}
+
+			if hyperbridge.check_claimed(key.0.clone()).await? {
+				keys_to_delete.push(key.0);
+				continue;
+			}
+			keys_to_prove.push(key);
 		}
 
 		let tx = self.clone();
@@ -487,7 +499,7 @@ impl TransactionPayment {
 		tokio::spawn(async move {
 			match tx.delete_claimed_entries(keys_to_delete).await {
 				Err(_) => {
-					tracing::error!("An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+					tracing::error!("An Error occurred while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
 				},
 				_ => {},
 			}

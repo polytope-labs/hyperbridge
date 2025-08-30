@@ -152,7 +152,12 @@ where
 
 impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 	async fn query_latest_block_height(&self) -> Result<u64, Error> {
-		Ok(self.client.blocks().at_latest().await?.number().into())
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+		Ok(self.client.blocks().at(block_hash).await?.number().into())
 	}
 
 	fn state_machine_id(&self) -> StateMachineId {
@@ -425,7 +430,12 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		&self,
 		counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<WithMetadata<StateMachineUpdated>>, Error> {
-		let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+		let initial_height: u64 = self.client.blocks().at(block_hash).await?.number().into();
 		let stream = stream::unfold(
 			(initial_height, self.clone()),
 			move |(latest_height, client)| async move {
@@ -568,14 +578,15 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		height: StateMachineHeight,
 	) -> Result<Duration, Error> {
 		let key = state_machine_update_time_storage_key(height);
-		let block = self.client.blocks().at_latest().await?;
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+
 		let raw_value =
-			self.client.storage().at(block.hash()).fetch_raw(key).await?.ok_or_else(|| {
-				anyhow!(
-					"State machine update for {:?} not found at block {:?}",
-					height,
-					block.hash()
-				)
+			self.client.storage().at(block_hash).fetch_raw(key).await?.ok_or_else(|| {
+				anyhow!("State machine update for {:?} not found at block {:?}", height, block_hash)
 			})?;
 
 		let value = Decode::decode(&mut &*raw_value)?;

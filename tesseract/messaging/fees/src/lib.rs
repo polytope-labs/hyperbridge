@@ -453,127 +453,63 @@ impl TransactionPayment {
 			return Ok(Default::default());
 		}
 
-		let req_results: Vec<_> = stream::iter(request_entries)
-			.then(|data| {
-				let source = source.clone();
-				let dest = dest.clone();
-				async move {
-					// Get request commitment keys on source chain
-					let hash = match hex::decode(data.hash.clone()) {
-						Ok(bytes) => H256::from_slice(&bytes),
-						Err(_) => return None,
-					};
+		let requests = request_entries.iter().filter_map(|data| {
+			// Get request commitment keys on source chain
+			let hash = H256::from_slice(&hex::decode(data.hash.clone()).ok()?);
+			let source_key = source.request_commitment_full_key(hash);
+			//Get request receipt keys on dest chain
+			let dest_key = dest.request_receipt_full_key(hash);
+			Some((Key::Request(hash), source_key, dest_key))
+		});
 
-					match source.query_request_fee_metadata(hash).await {
-						Ok(fee) if fee.is_zero() => Some(Err(Key::Request(hash))),
-						Ok(_) => {
-							let source_key = source.request_commitment_full_key(hash);
-							//Get request receipt keys on dest chain
-							let dest_key = dest.request_receipt_full_key(hash);
-							Some(Ok((Key::Request(hash), source_key, dest_key)))
-						}
-						Err(err) => {
-							tracing::warn!(
-                            "Failed to query request fee metadata for {:?}: {:?}",
-                            hash,
-                            err
-                        );
-							let source_key = source.request_commitment_full_key(hash);
-							let dest_key = dest.request_receipt_full_key(hash);
-							Some(Ok((Key::Request(hash), source_key, dest_key)))
-						}
-					}
-				}
-			})
-			.collect()
-			.await;
-
-		let (req_errors, requests): (Vec<_>, Vec<_>) = req_results
-			.into_iter()
-			.filter_map(|x| x)
-			.partition(|res| res.is_err());
-
-		let zero_fee_keys: Vec<_> = req_errors.into_iter().filter_map(|e| e.err()).collect();
-		let requests: Vec<_> = requests.into_iter().filter_map(|e| e.ok()).collect();
-
-		let resp_results: Vec<_> = stream::iter(response_entries)
-			.then(|data| {
-				let source = source.clone();
-				let dest = dest.clone();
-				async move {
-					// Get response commitment keys on source chain
-					let concat_hash = match hex::decode(data.hash.clone()) {
-						Ok(bytes) => bytes,
-						Err(_) => return None,
-					};
-
-					let response_commitment = H256::from_slice(&concat_hash[..32]);
-					//Get response receipt keys on dest chain
-					let request_commitment = H256::from_slice(&concat_hash[32..]);
-
-					match source.query_response_fee_metadata(request_commitment).await {
-						Ok(fee) if fee.is_zero() => {
-							Some(Err(Key::Response { request_commitment, response_commitment }))
-						}
-						Ok(_) => {
-							let source_key = source.response_commitment_full_key(response_commitment);
-							let dest_key = dest.response_receipt_full_key(request_commitment);
-							Some(Ok((
-								Key::Response { request_commitment, response_commitment },
-								source_key,
-								dest_key,
-							)))
-						}
-						Err(err) => {
-							tracing::warn!(
-                            "Failed to query response fee metadata for request {:?}: {:?}",
-                            request_commitment,
-                            err
-                        );
-							let source_key = source.response_commitment_full_key(response_commitment);
-							let dest_key = dest.response_receipt_full_key(request_commitment);
-							Some(Ok((
-								Key::Response { request_commitment, response_commitment },
-								source_key,
-								dest_key,
-							)))
-						}
-					}
-				}
-			})
-			.collect()
-			.await;
-
-		let (resp_errors, responses): (Vec<_>, Vec<_>) = resp_results
-			.into_iter()
-			.filter_map(|x| x)
-			.partition(|res| res.is_err());
-
-		let zero_fee_keys: Vec<_> = zero_fee_keys
-			.into_iter()
-			.chain(resp_errors.into_iter().filter_map(|e| e.err()))
-			.collect();
-		let responses: Vec<_> = responses.into_iter().filter_map(|e| e.ok()).collect();
+		let responses = response_entries.iter().filter_map(|data| {
+			// Get response commitment keys on source chain
+			let concat_hash = hex::decode(data.hash.clone()).ok()?;
+			let response_commitment = H256::from_slice(&concat_hash[..32]);
+			let source_key = source.response_commitment_full_key(response_commitment);
+			//Get response receipt keys on dest chain
+			let request_commitment = H256::from_slice(&concat_hash[32..]);
+			let dest_key = dest.response_receipt_full_key(request_commitment);
+			Some((Key::Response { request_commitment, response_commitment }, source_key, dest_key))
+		});
 
 		let mut keys_to_delete = vec![];
 		let mut keys_to_prove = vec![];
 
-		for key in requests.into_iter().chain(responses) {
-			if hyperbridge.check_claimed(key.0.clone()).await? {
-				keys_to_delete.push(key.0.clone());
-			} else {
-				keys_to_prove.push(key);
+		for key in requests.chain(responses) {
+			let has_fee = match &key.0 {
+				Key::Request(hash) => match source.query_request_fee_metadata(*hash).await {
+					Ok(fee) => !fee.is_zero(),
+					Err(_) => true,
+				},
+				Key::Response { request_commitment, .. } => {
+					match source.query_response_fee_metadata(*request_commitment).await {
+						Ok(fee) => !fee.is_zero(),
+						Err(_) => true,
+					}
+				},
+			};
+
+			if !has_fee {
+				keys_to_delete.push(key.0);
+				continue;
 			}
+
+			if hyperbridge.check_claimed(key.0.clone()).await? {
+				keys_to_delete.push(key.0);
+				continue;
+			}
+			keys_to_prove.push(key);
 		}
 
 		let tx = self.clone();
-		let mut all_keys_to_delete = keys_to_delete;
-		all_keys_to_delete.extend(zero_fee_keys);
 		// Delete claimed keys in the background
 		tokio::spawn(async move {
-			if let Err(_) = tx.delete_claimed_entries(all_keys_to_delete).await {
-				tracing::error!("An Error occurred while deleting claimed fees from the db, \
-                             the claimed keys will be deleted in the next fee accumulation attempt");
+			match tx.delete_claimed_entries(keys_to_delete).await {
+				Err(_) => {
+					tracing::error!("An Error occurred while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+				},
+				_ => {},
 			}
 		});
 

@@ -120,19 +120,14 @@ where
 			.chain_get_block_hash(None)
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
-		let block = self.client.blocks().at(block_hash).await?;
 		let raw_value = self
 			.client
 			.storage()
-			.at(block.hash())
+			.at(block_hash)
 			.fetch_raw(key.clone())
 			.await?
 			.ok_or_else(|| {
-				anyhow!(
-					"State machine update for {:?} not found at block {:?}",
-					height,
-					block.hash()
-				)
+				anyhow!("State machine update for {:?} not found at block {:?}", height, block_hash)
 			})?;
 
 		let value = Decode::decode(&mut &*raw_value)?;

@@ -583,14 +583,10 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 			.chain_get_block_hash(None)
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
-		let block = self.client.blocks().at(block_hash).await?;
+
 		let raw_value =
-			self.client.storage().at(block.hash()).fetch_raw(key).await?.ok_or_else(|| {
-				anyhow!(
-					"State machine update for {:?} not found at block {:?}",
-					height,
-					block.hash()
-				)
+			self.client.storage().at(block_hash).fetch_raw(key).await?.ok_or_else(|| {
+				anyhow!("State machine update for {:?} not found at block {:?}", height, block_hash)
 			})?;
 
 		let value = Decode::decode(&mut &*raw_value)?;

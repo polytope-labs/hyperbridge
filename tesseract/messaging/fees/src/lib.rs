@@ -10,6 +10,7 @@ use crate::db::{
 };
 use anyhow::anyhow;
 use codec::{Decode, Encode};
+use futures::{stream, StreamExt};
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
@@ -18,16 +19,14 @@ use ismp::{
 };
 use itertools::Itertools;
 use pallet_ismp_relayer::withdrawal::{Key, Signature, WithdrawalProof};
-use primitive_types::H256;
+use primitive_types::{H256, U256};
 use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::{collections::BTreeSet, mem::discriminant, sync::Arc};
-use futures::{stream, StreamExt};
 use tesseract_primitives::{
 	HyperbridgeClaim, IsmpProvider, StateProofQueryType, TxReceipt, WithdrawFundsResult,
 };
-use primitive_types::U256;
 
 mod db;
 #[cfg(test)]
@@ -479,7 +478,8 @@ impl TransactionPayment {
 		for key in requests.chain(responses) {
 			let fee = match &key.0 {
 				Key::Request(hash) => source.query_request_fee_metadata(*hash).await?,
-				Key::Response { response_commitment, .. } => source.query_response_fee_metadata(*response_commitment).await?
+				Key::Response { response_commitment, .. } =>
+					source.query_response_fee_metadata(*response_commitment).await?,
 			};
 
 			if fee.is_zero() {

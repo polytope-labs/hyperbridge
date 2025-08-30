@@ -477,20 +477,12 @@ impl TransactionPayment {
 		let mut keys_to_prove = vec![];
 
 		for key in requests.chain(responses) {
-			let has_fee = match &key.0 {
-				Key::Request(hash) => match source.query_request_fee_metadata(*hash).await {
-					Ok(fee) => !fee.is_zero(),
-					Err(_) => true,
-				},
-				Key::Response { request_commitment, .. } => {
-					match source.query_response_fee_metadata(*request_commitment).await {
-						Ok(fee) => !fee.is_zero(),
-						Err(_) => true,
-					}
-				},
+			let fee = match &key.0 {
+				Key::Request(hash) => source.query_request_fee_metadata(*hash).await?,
+				Key::Response { request_commitment, .. } => source.query_response_fee_metadata(*request_commitment).await?
 			};
 
-			if !has_fee {
+			if fee.is_zero() {
 				keys_to_delete.push(key.0);
 				continue;
 			}

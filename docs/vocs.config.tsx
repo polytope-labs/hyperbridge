@@ -46,8 +46,7 @@ export default defineConfig({
   title: "Hyperbridge Documentation",
   description:
     "Hyperbridge is a coprocessor for cryptographically secure interoperability",
-  ogImageUrl:
-    "https://docs.hyperbridge.network/og.png",
+  ogImageUrl: "https://docs.hyperbridge.network/og.png",
   logoUrl: {
     light: "/logo_black.svg",
     dark: "/logo_white.svg",
@@ -304,14 +303,14 @@ export default defineConfig({
             link: "/developers/explore/relayer",
             items: [
               {
-                text: "Permissionless Messaging Relayers",
+                text: "Messaging Relayers",
                 link: "/developers/explore/relayers/messaging-relayers",
               },
               {
-                text: "Permissionless Consensus Relayers",
+                text: "Consensus Relayers",
                 link: "/developers/explore/relayers/consensus-relayers",
               },
-            ]
+            ],
           },
           {
             text: "Fishermen",
@@ -394,9 +393,8 @@ export default defineConfig({
                 text: "RPC Interface",
                 link: "/developers/polkadot/pallet-ismp-rpc",
               },
-            ]
+            ],
           },
-
 
           {
             text: "Parachains",
@@ -410,9 +408,8 @@ export default defineConfig({
                 text: "Inherent Provider",
                 link: "/developers/polkadot/ismp-parachain-inherent",
               },
-            ]
+            ],
           },
-
 
           {
             text: "Solochains (GRANDPA)",
@@ -467,7 +464,7 @@ export default defineConfig({
                 text: "Common Errors",
                 link: "/developers/network/relayer/messaging/errors",
               },
-            ]
+            ],
           },
 
           {

@@ -7,7 +7,7 @@ import "stringutils/strings.sol";
 import {IntentGateway, Params} from "../src/modules/IntentGateway.sol";
 import {BaseScript} from "./BaseScript.sol";
 
-contract DeployIntentGatewayScript is BaseScript {
+contract DeployScript is BaseScript {
     using strings for *;
 
     function run() external {
@@ -35,6 +35,8 @@ contract DeployIntentGatewayScript is BaseScript {
             params.host = GNOSIS_HOST;
         } else if (host.toSlice().startsWith("soneium".toSlice())) {
             params.host = SONEIUM_HOST;
+        } else if (host.toSlice().startsWith("polygon".toSlice())) {
+            params.host = POLYGON_HOST;
         }
 
         gateway.setParams(params);

@@ -690,11 +690,7 @@ where
 							if relayer_bytes.len() > 32 {
 								let signature = Signature::decode(&mut &*relayer_bytes)
 									.map_err(|_| Error::<T>::SignatureDecodingError)?;
-								match signature {
-									Signature::Evm { address, .. } => address,
-									Signature::Sr25519 { public_key, .. } => public_key,
-									Signature::Ed25519 { public_key, .. } => public_key,
-								}
+								signature.signer()
 							} else {
 								relayer_bytes
 							}
@@ -766,11 +762,7 @@ where
 								let relayer = if receipt.relayer.len() > 32 {
 									let signature = Signature::decode(&mut &*receipt.relayer)
 										.map_err(|_| Error::<T>::SignatureDecodingError)?;
-									match signature {
-										Signature::Evm { address, .. } => address,
-										Signature::Sr25519 { public_key, .. } => public_key,
-										Signature::Ed25519 { public_key, .. } => public_key,
-									}
+									signature.signer()
 								} else {
 									receipt.relayer
 								};

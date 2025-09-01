@@ -149,7 +149,7 @@ where
 		} else {
 			let compressed_call = buffer[0..compressed_call_len].to_vec();
 			let call = vec![value!(compressed_call), value!(uncompressed_len as u32)];
-			let extrinsic = subxt::dynamic::tx("CallDecompressor", "decompress_call", vec![call]);
+			let extrinsic = subxt::dynamic::tx("CallDecompressor", "decompress_call", call);
 			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		}
 

@@ -284,18 +284,24 @@ where
 		for message in &messages {
 			let message = message.message.clone();
 			let relayer_account = match &message {
-				Message::Request(msg) => {
-					let data = sp_io::hashing::keccak_256(&msg.requests.encode());
-					Signature::decode(&mut &msg.signer[..])
-						.ok()
-						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-				},
-				Message::Response(msg) => {
-					let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
-					Signature::decode(&mut &msg.signer[..])
-						.ok()
-						.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-				},
+				Message::Request(msg) =>
+					if msg.signer.len() > 32 {
+						let data = sp_io::hashing::keccak_256(&msg.requests.encode());
+						Signature::decode(&mut &msg.signer[..])
+							.ok()
+							.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+					} else {
+						msg.signer.clone().try_into().ok()
+					},
+				Message::Response(msg) =>
+					if msg.signer.len() > 32 {
+						let data = sp_io::hashing::keccak_256(&msg.datagram.encode());
+						Signature::decode(&mut &msg.signer[..])
+							.ok()
+							.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+					} else {
+						msg.signer.clone().try_into().ok()
+					},
 				_ => None,
 			};
 

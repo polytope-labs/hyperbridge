@@ -9,6 +9,7 @@ pub trait WeightInfo {
 	fn set_token_gateway_addresses(x: u32) -> Weight;
 	fn update_erc6160_asset() -> Weight;
 	fn update_asset_precision(x: u32) -> Weight;
+	fn register_asset_locally(p: u32) -> Weight;
 }
 
 impl WeightInfo for () {
@@ -29,6 +30,10 @@ impl WeightInfo for () {
 	}
 
 	fn update_asset_precision(_x: u32) -> Weight {
+		Weight::zero()
+	}
+
+	fn register_asset_locally(_x: u32) -> Weight {
 		Weight::zero()
 	}
 }

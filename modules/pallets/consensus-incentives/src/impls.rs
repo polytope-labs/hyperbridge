@@ -37,7 +37,7 @@ where
 	/// This is an internal function used to handle relayer rewards for each
 	/// processed message, this targets just ConsensusMessage for now.
 	///  It extracts relayer information, calculates the
-	/// appropriate reward, and and transfer the reward to the relayer.
+	/// appropriate reward, and transfer the reward to the relayer.
 	fn process_message(
 		state_machine_height: StateMachineHeight,
 		state_machine_id: StateMachineId,

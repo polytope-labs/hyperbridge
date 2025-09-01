@@ -12,7 +12,10 @@
             "type": "L2",
             "chain": "mainnet"
         },
-        "gasPayingToken": "0xA2120b9e674d3fC3875f415A7DF52e382F141225"
+        "gasPayingToken": "0xA2120b9e674d3fC3875f415A7DF52e382F141225",
+        "faultProofs": {
+            "status": "none"
+        }
     },
     {
         "name": "BOB",
@@ -26,6 +29,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -40,6 +46,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -55,7 +64,10 @@
             "type": "L2",
             "chain": "mainnet"
         },
-        "gasPayingToken": "0x04E9D7e336f79Cdab911b06133D3Ca2Cd0721ce3"
+        "gasPayingToken": "0x04E9D7e336f79Cdab911b06133D3Ca2Cd0721ce3",
+        "faultProofs": {
+            "status": "none"
+        }
     },
     {
         "name": "Cyber Mainnet",
@@ -69,6 +81,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -83,6 +98,26 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "none"
+        }
+    },
+    {
+        "name": "Fraxtal",
+        "identifier": "mainnet/fraxtal",
+        "chainId": 252,
+        "rpc": ["https://rpc.frax.com"],
+        "explorers": ["https://fraxscan.com"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "alt-da",
+        "parent": {
+            "type": "L2",
+            "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -97,6 +132,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -112,7 +150,10 @@
             "type": "L2",
             "chain": "mainnet"
         },
-        "gasPayingToken": "0xE7C6BF469e97eEB0bFB74C8dbFF5BD47D4C1C98a"
+        "gasPayingToken": "0xE7C6BF469e97eEB0bFB74C8dbFF5BD47D4C1C98a",
+        "faultProofs": {
+            "status": "permissioned"
+        }
     },
     {
         "name": "Ink",
@@ -126,6 +167,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -140,6 +184,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -154,6 +201,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -168,6 +218,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -182,6 +235,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -196,6 +252,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -210,6 +269,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -224,6 +286,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -238,6 +303,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -252,6 +320,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -266,6 +337,26 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "none"
+        }
+    },
+    {
+        "name": "Settlus Mainnet",
+        "identifier": "mainnet/settlus-mainnet",
+        "chainId": 5371,
+        "rpc": ["https://settlus-mainnet.g.alchemy.com/public"],
+        "explorers": ["mainnet.settlus.network"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -280,6 +371,26 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
+        }
+    },
+    {
+        "name": "SnaxChain",
+        "identifier": "mainnet/snax",
+        "chainId": 2192,
+        "rpc": ["https://mainnet.snaxchain.io"],
+        "explorers": ["https://explorer.snaxchain.io"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -294,6 +405,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -308,6 +422,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -322,6 +439,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -336,6 +456,26 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
+        }
+    },
+    {
+        "name": "Unichain",
+        "identifier": "mainnet/unichain",
+        "chainId": 130,
+        "rpc": ["https://mainnet.unichain.org"],
+        "explorers": ["https://explorer.unichain.org"],
+        "superchainLevel": 1,
+        "governedByOptimism": true,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -350,6 +490,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -364,6 +507,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -378,6 +524,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -392,6 +541,9 @@
         "parent": {
             "type": "L2",
             "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -406,6 +558,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -421,7 +576,27 @@
             "type": "L2",
             "chain": "sepolia"
         },
-        "gasPayingToken": "0x46d878bf7BF62Ec542953CB89Ac0bF58d991181e"
+        "gasPayingToken": "0x46d878bf7BF62Ec542953CB89Ac0bF58d991181e",
+        "faultProofs": {
+            "status": "none"
+        }
+    },
+    {
+        "name": "Boba Sepolia Testnet",
+        "identifier": "sepolia/boba",
+        "chainId": 28882,
+        "rpc": ["https://sepolia.boba.network"],
+        "explorers": ["https://testnet.bobascan.com"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
+        }
     },
     {
         "name": "Creator Chain Testnet",
@@ -435,6 +610,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -449,6 +627,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -463,6 +644,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -477,6 +661,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -491,6 +678,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -505,6 +695,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -519,6 +712,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -533,6 +729,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -540,13 +739,34 @@
         "identifier": "sepolia/op",
         "chainId": 11155420,
         "rpc": ["https://sepolia.optimism.io"],
-        "explorers": ["https://sepolia-optimistic.etherscan.io"],
+        "explorers": ["https://testnet-explorer.optimism.io"],
         "superchainLevel": 1,
         "governedByOptimism": true,
         "dataAvailabilityType": "eth-da",
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissionless"
+        }
+    },
+    {
+        "name": "Ozean Poseidon Testnet",
+        "identifier": "sepolia/ozean",
+        "chainId": 7849306,
+        "rpc": ["https://ozean-testnet.rpc.caldera.xyz/http"],
+        "explorers": ["https://ozean-testnet.explorer.caldera.xyz"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "sepolia"
+        },
+        "gasPayingToken": "0x43bd82D1e29a1bEC03AfD11D5a3252779b8c760c",
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -561,6 +781,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "none"
         }
     },
     {
@@ -575,6 +798,26 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
+        }
+    },
+    {
+        "name": "Settlus Sepolia",
+        "identifier": "sepolia/settlus-sepolia",
+        "chainId": 5373,
+        "rpc": ["https://settlus-septestnet.g.alchemy.com/public"],
+        "explorers": ["sepolia.settlus.network"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -589,6 +832,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -598,11 +844,14 @@
         "rpc": ["https://rpc.minato.soneium.org"],
         "explorers": ["https://soneium-minato.blockscout.com/"],
         "superchainLevel": 1,
-        "governedByOptimism": false,
+        "governedByOptimism": true,
         "dataAvailabilityType": "eth-da",
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -612,11 +861,14 @@
         "rpc": ["https://sepolia.unichain.org"],
         "explorers": ["https://sepolia.uniscan.xyz"],
         "superchainLevel": 1,
-        "governedByOptimism": false,
+        "governedByOptimism": true,
         "dataAvailabilityType": "eth-da",
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -631,6 +883,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -645,20 +900,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia"
-        }
-    },
-    {
-        "name": "arena-z-testnet",
-        "identifier": "sepolia/arena-z-testnet",
-        "chainId": 9897,
-        "rpc": ["https://rpc.arena-z.t.raas.gelato.cloud"],
-        "explorers": ["https://arena-z.blockscout.com"],
-        "superchainLevel": 1,
-        "governedByOptimism": false,
-        "dataAvailabilityType": "eth-da",
-        "parent": {
-            "type": "L2",
-            "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
         }
     },
     {
@@ -673,6 +917,9 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia-dev-0"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     },
     {
@@ -687,6 +934,112 @@
         "parent": {
             "type": "L2",
             "chain": "sepolia-dev-0"
+        },
+        "faultProofs": {
+            "status": "permissionless"
+        }
+    },
+    {
+        "name": "Boba Mainnet",
+        "identifier": "mainnet/boba",
+        "chainId": 288,
+        "rpc": ["https://mainnet.boba.network"],
+        "explorers": ["https://bobascan.com"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "mainnet"
+        },
+        "faultProofs": {
+            "status": "permissioned"
+        }
+    },
+    {
+        "name": "Radius testnet",
+        "identifier": "sepolia/radius_testnet",
+        "chainId": 863,
+        "rpc": ["testnet-rpc.theradius.xyz"],
+        "explorers": ["https://testnet-rpc.theradius.xyz/"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "permissioned"
+        }
+    },
+    {
+        "name": "Camp Network Testnet V2",
+        "identifier": "sepolia/camp",
+        "chainId": 325000,
+        "rpc": ["https://rpc.camp-network-testnet.gelato.digital"],
+        "explorers": ["https://camp-network-testnet.blockscout.com"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "sepolia"
+        },
+        "faultProofs": {
+            "status": "none"
+        }
+    },
+    {
+        "name": "Celo",
+        "identifier": "mainnet/celo",
+        "chainId": 42220,
+        "rpc": ["https://forno.celo.org"],
+        "explorers": ["https://celoscan.io/"],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "alt-da",
+        "parent": {
+            "type": "L2",
+            "chain": "mainnet"
+        },
+        "gasPayingToken": "0x057898f3C43F129a17517B9056D23851F124b19f",
+        "faultProofs": {
+            "status": "permissioned"
+        }
+    },
+    {
+        "name": "rehearsal-0-bn-0",
+        "identifier": "rehearsal-0-bn/rehearsal-0-bn-0",
+        "chainId": 420120009,
+        "rpc": [""],
+        "explorers": [""],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "rehearsal-0-bn"
+        },
+        "faultProofs": {
+            "status": "permissionless"
+        }
+    },
+    {
+        "name": "rehearsal-0-bn-1",
+        "identifier": "rehearsal-0-bn/rehearsal-0-bn-1",
+        "chainId": 420120010,
+        "rpc": [""],
+        "explorers": [""],
+        "superchainLevel": 0,
+        "governedByOptimism": false,
+        "dataAvailabilityType": "eth-da",
+        "parent": {
+            "type": "L2",
+            "chain": "rehearsal-0-bn"
+        },
+        "faultProofs": {
+            "status": "permissionless"
         }
     }
 ]

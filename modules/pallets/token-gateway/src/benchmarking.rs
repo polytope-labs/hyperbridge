@@ -195,4 +195,39 @@ mod benches {
 		_(RawOrigin::Signed(account), update);
 		Ok(())
 	}
+
+	#[benchmark]
+	fn register_asset_locally(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let account: T::AccountId = whitelisted_caller();
+
+		let asset_details = GatewayAssetRegistration {
+			name: BoundedVec::try_from(b"Local".to_vec()).unwrap(),
+			symbol: BoundedVec::try_from(b"Local".to_vec()).unwrap(),
+			chains: vec![StateMachine::Evm(100)],
+			minimum_balance: Some(10),
+		};
+
+		let mut precision = BTreeMap::new();
+		for i in 0..x {
+			precision.insert(StateMachine::Evm(i as u32), 18);
+		}
+
+		let asset = AssetRegistration {
+			local_id: T::NativeAssetId::get(),
+			reg: asset_details,
+			native: true,
+			precision,
+		};
+
+		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
+		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
+			&account,
+			total_balance.into(),
+		);
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(account), asset);
+
+		Ok(())
+	}
 }

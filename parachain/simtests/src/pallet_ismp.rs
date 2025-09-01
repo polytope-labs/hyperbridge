@@ -22,6 +22,7 @@ use subxt::{
 };
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
+use crypto_utils::verification::Signature;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::StateMachine,
@@ -242,6 +243,11 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	.encode();
 	let proof = Proof { height, proof };
 
+	let signature = Signature::Sr25519 {
+		public_key: H256::random().as_bytes().to_vec(),
+		signature: H256::random().as_bytes().to_vec(),
+	};
+
 	// 3. next send the requests
 	let tx = subxt::dynamic::tx(
 		"Ismp",
@@ -249,7 +255,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		vec![messages_to_value(vec![Message::Request(RequestMessage {
 			requests: vec![post.clone().into()],
 			proof: proof.clone(),
-			signer: H256::random().as_bytes().to_vec(),
+			signer: signature.encode(),
 		})])],
 	);
 
@@ -263,7 +269,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 			vec![messages_to_value(vec![Message::Request(RequestMessage {
 				requests: vec![post.clone().into()],
 				proof: proof.clone(),
-				signer: H256::random().as_bytes().to_vec(),
+				signer: signature.encode(),
 			})])],
 		);
 		let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
@@ -290,7 +296,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 			vec![messages_to_value(vec![Message::Request(RequestMessage {
 				requests: vec![post.clone().into()],
 				proof: proof.clone(),
-				signer: H256::random().as_bytes().to_vec(),
+				signer: signature.encode(),
 			})])],
 		);
 		let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();

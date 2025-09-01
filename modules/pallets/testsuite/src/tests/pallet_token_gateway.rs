@@ -400,3 +400,41 @@ fn should_receive_asset_with_call_correctly() {
 		assert!(res.is_err());
 	});
 }
+
+#[test]
+fn should_register_asset_locally() {
+	new_test_ext().execute_with(|| {
+		let symbol = "LOCAL".as_bytes();
+		let local_asset_id: H256 = sp_io::hashing::keccak_256(symbol).into();
+		let asset_id: H256 = sp_io::hashing::keccak_256(symbol).into();
+
+		let reg = AssetRegistration::<H256> {
+			local_id: local_asset_id,
+			reg: GatewayAssetRegistration {
+				name: "LOCAL_ASSET".as_bytes().to_vec().try_into().unwrap(),
+				symbol: symbol.to_vec().try_into().unwrap(),
+				chains: vec![StateMachine::Evm(1)],
+				minimum_balance: None,
+			},
+			native: true,
+			precision: vec![(StateMachine::Evm(1), 18)].into_iter().collect(),
+		};
+
+		TokenGateway::register_asset_locally(RuntimeOrigin::signed(ALICE), reg).unwrap();
+
+		let registered_asset_id =
+			pallet_token_gateway::SupportedAssets::<Test>::get(local_asset_id).unwrap();
+		assert_eq!(registered_asset_id, asset_id);
+
+		let is_native = pallet_token_gateway::NativeAssets::<Test>::get(local_asset_id);
+		assert!(is_native);
+
+		let reverse_lookup_id = pallet_token_gateway::LocalAssets::<Test>::get(asset_id).unwrap();
+		assert_eq!(reverse_lookup_id, local_asset_id);
+
+		let precision =
+			pallet_token_gateway::Precisions::<Test>::get(local_asset_id, StateMachine::Evm(1))
+				.unwrap();
+		assert_eq!(precision, 18);
+	})
+}

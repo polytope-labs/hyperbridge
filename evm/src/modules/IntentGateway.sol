@@ -355,7 +355,7 @@ contract IntentGateway is BaseIsmpModule {
      * @dev This function allows users to place an order by providing the order details.
      * @param order The order details to be placed.
      */
-    function placeOrder(Order memory order) public payable {
+    function placeOrder(Order memory order, bytes32 graffiti) public payable {
         address hostAddr = host();
         // fill out the order preludes
         order.nonce = _nonce;

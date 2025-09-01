@@ -16,7 +16,6 @@
 use alloc::vec::Vec;
 use anyhow::anyhow;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use polkadot_sdk::sp_io;
 
 #[derive(
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
@@ -104,6 +103,14 @@ impl Signature {
 			Signature::Sr25519 { public_key, signature } =>
 				Self::verify_sr25519(signature, public_key, msg, &public_key_op),
 			_ => Err(anyhow!("Signature is not of type Sr25519")),
+		}
+	}
+
+	pub fn signer(&self) -> Vec<u8> {
+		match self {
+			Signature::Evm { address, .. } => address.clone(),
+			Signature::Sr25519 { public_key, .. } => public_key.clone(),
+			Signature::Ed25519 { public_key, .. } => public_key.clone(),
 		}
 	}
 }

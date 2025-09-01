@@ -185,7 +185,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	async fn query_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
-		todo!()
+		Ok(U256::from(1))
 	}
 
 	async fn state_machine_update_notification(
@@ -250,7 +250,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, Error> {
-		todo!()
+		Ok(U256::from(1))
 	}
 
 	async fn veto_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {

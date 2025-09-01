@@ -144,6 +144,8 @@ pub mod pallet {
 		MissingCommitments,
 		/// Fee accumulation proof contains no address
 		IncompleteProof,
+		/// Signature Decoding Error
+		SignatureDecodingError,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -683,8 +685,19 @@ where
 						},
 						s if s.is_substrate() => {
 							use codec::Decode;
-							<Vec<u8>>::decode(&mut &*encoded_receipt)
-								.map_err(|_| Error::<T>::ProofValidationError)?
+							let relayer_bytes = <Vec<u8>>::decode(&mut &*encoded_receipt)
+								.map_err(|_| Error::<T>::ProofValidationError)?;
+							if relayer_bytes.len() > 32 {
+								let signature = Signature::decode(&mut &*relayer_bytes)
+									.map_err(|_| Error::<T>::SignatureDecodingError)?;
+								match signature {
+									Signature::Evm { address, .. } => address,
+									Signature::Sr25519 { public_key, .. } => public_key,
+									Signature::Ed25519 { public_key, .. } => public_key,
+								}
+							} else {
+								relayer_bytes
+							}
 						},
 						// unsupported
 						_ => Err(Error::<T>::MismatchedStateMachine)?,
@@ -750,7 +763,18 @@ where
 								let receipt =
 									pallet_ismp::ResponseReceipt::decode(&mut &*encoded_receipt)
 										.map_err(|_| Error::<T>::ProofValidationError)?;
-								(receipt.relayer, receipt.response.0)
+								let relayer = if receipt.relayer.len() > 32 {
+									let signature = Signature::decode(&mut &*receipt.relayer)
+										.map_err(|_| Error::<T>::SignatureDecodingError)?;
+									match signature {
+										Signature::Evm { address, .. } => address,
+										Signature::Sr25519 { public_key, .. } => public_key,
+										Signature::Ed25519 { public_key, .. } => public_key,
+									}
+								} else {
+									receipt.relayer
+								};
+								(relayer, receipt.response.0)
 							},
 							// unsupported
 							_ => Err(Error::<T>::MismatchedStateMachine)?,

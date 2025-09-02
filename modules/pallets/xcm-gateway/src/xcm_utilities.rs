@@ -216,9 +216,9 @@ where
 			// messages
 			let base_fee =
 				if who.dest_state_machine == StateMachine::Evm(1) { 20_000_000_000u128 } else { 0 };
-			// Cap protocol fees at 100 DOT
+			// Cap protocol fees at 10 DOT
 			let protocol_fees =
-				min(protocol_percentage * u128::from(amount) + base_fee, 1000_000_000_000u128);
+				min(protocol_percentage * u128::from(amount) + base_fee, 100_000_000_000u128);
 			let remainder = u128::from(amount)
 				.checked_sub(protocol_fees.into())
 				.ok_or_else(|| XcmError::Overflow)?

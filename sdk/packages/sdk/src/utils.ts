@@ -702,3 +702,23 @@ export async function getStorageSlot(
 
 	throw new Error(`Storage slot not found for data: ${methodSignature}`)
 }
+
+/**
+ * Adjusts fee amounts between different decimal precisions.
+ * Handles scaling up or down based on the decimal difference.
+ *
+ * @param feeInFeeToken - The fee amount to adjust
+ * @param fromDecimals - The current decimal precision
+ * @param toDecimals - The target decimal precision
+ * @returns The adjusted fee amount with the target decimal precision
+ */
+export function adjustFeeDecimals(feeInFeeToken: bigint, fromDecimals: number, toDecimals: number): bigint {
+	if (fromDecimals === toDecimals) return feeInFeeToken
+	if (fromDecimals < toDecimals) {
+		const scaleFactor = BigInt(10 ** (toDecimals - fromDecimals))
+		return feeInFeeToken * scaleFactor
+	} else {
+		const scaleFactor = BigInt(10 ** (fromDecimals - toDecimals))
+		return (feeInFeeToken + scaleFactor - 1n) / scaleFactor
+	}
+}

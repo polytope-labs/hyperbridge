@@ -1,9 +1,10 @@
 import { FillerStrategy } from "@/strategies/base"
-import { Order, ExecutionResult, HexString, FillOptions } from "@hyperbridge/sdk"
+import { Order, ExecutionResult, HexString, FillOptions, adjustFeeDecimals, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
-import { ChainConfigService, fetchTokenUsdPrice } from "@hyperbridge/sdk"
+import { ChainConfigService } from "@hyperbridge/sdk"
+import { compareDecimalValues } from "@/utils"
 
 export class BasicFiller implements FillerStrategy {
 	name = "BasicFiller"
@@ -42,6 +43,13 @@ export class BasicFiller implements FillerStrategy {
 				return false
 			}
 
+			// Validate order inputs and outputs
+			const isValidOrder = await this.validateOrderInputsOutputs(order)
+			if (!isValidOrder) {
+				console.debug(`Order inputs and outputs validation failed`)
+				return false
+			}
+
 			const hasEnoughTokens = await this.contractService.checkTokenBalances(order.outputs, order.destChain)
 			if (!hasEnoughTokens) {
 				console.debug(`Insufficient token balances for order`)
@@ -67,29 +75,30 @@ export class BasicFiller implements FillerStrategy {
 
 			const protocolFeeInFeeToken = (await this.contractService.quote(order)) + relayerFeeInFeeToken
 
-			const { decimals } = await this.contractService.getFeeTokenWithDecimals(order.destChain)
+			const { decimals: destFeeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(
+				order.destChain,
+			)
+			const { decimals: sourceFeeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(
+				order.sourceChain,
+			)
 
 			const totalGasEstimateInFeeToken =
-				(await this.contractService.convertGasToFeeToken(fillGas, order.destChain, decimals)) +
+				(await this.contractService.convertGasToFeeToken(fillGas, order.destChain, destFeeTokenDecimals)) +
 				protocolFeeInFeeToken +
 				relayerFeeInFeeToken
 
-			const { outputUsdValue, inputUsdValue } = await this.contractService.getTokenUsdValue(order)
+			const orderFeeInDestFeeToken = adjustFeeDecimals(order.fees, sourceFeeTokenDecimals, destFeeTokenDecimals)
 
-			const orderFeeInUsd = (order.fees * BigInt(10 ** decimals)) / BigInt(10 ** 18)
-			const totalGasEstimateInUsd = (totalGasEstimateInFeeToken * BigInt(10 ** decimals)) / BigInt(10 ** 18)
+			const profit =
+				orderFeeInDestFeeToken > totalGasEstimateInFeeToken
+					? orderFeeInDestFeeToken - totalGasEstimateInFeeToken
+					: BigInt(0)
 
-			const toReceive = inputUsdValue + orderFeeInUsd
-			const toPay = outputUsdValue + totalGasEstimateInUsd
-
-			const profit = toReceive > toPay ? toReceive - toPay : BigInt(0)
-
-			// Log for debugging
 			console.log({
 				orderFees: order.fees.toString(),
 				totalGasEstimateInFeeToken: totalGasEstimateInFeeToken.toString(),
 				profitable: profit > 0,
-				profitUsd: profit.toString(),
+				profitInFeeToken: profit.toString(),
 			})
 			return profit
 		} catch (error) {
@@ -151,6 +160,70 @@ export class BasicFiller implements FillerStrategy {
 				success: false,
 				error: error instanceof Error ? error.message : "Unknown error",
 			}
+		}
+	}
+
+	/**
+	 * Validates that order inputs and outputs are valid for filling
+	 * @param order The order to validate
+	 * @returns True if the order inputs and outputs are valid
+	 */
+	async validateOrderInputsOutputs(order: Order): Promise<boolean> {
+		try {
+			if (order.inputs.length !== order.outputs.length) {
+				console.debug(`Order length mismatch: ${order.inputs.length} inputs vs ${order.outputs.length} outputs`)
+				return false
+			}
+
+			const getTokenType = (tokenAddress: string, chain: string): string | null => {
+				tokenAddress = bytes32ToBytes20(tokenAddress)
+				const assets = {
+					DAI: this.configService.getDaiAsset(chain),
+					USDT: this.configService.getUsdtAsset(chain),
+					USDC: this.configService.getUsdcAsset(chain),
+				}
+				return Object.keys(assets).find((type) => assets[type as keyof typeof assets] === tokenAddress) || null
+			}
+
+			for (let i = 0; i < order.inputs.length; i++) {
+				const input = order.inputs[i]
+				const output = order.outputs[i]
+
+				const inputType = getTokenType(input.token, order.sourceChain)
+				const outputType = getTokenType(output.token, order.destChain)
+
+				if (!inputType) {
+					console.debug(`Unsupported input token at index ${i}: ${input.token}`)
+					return false
+				}
+
+				if (!outputType) {
+					console.debug(`Unsupported output token at index ${i}: ${output.token}`)
+					return false
+				}
+
+				if (inputType !== outputType) {
+					console.debug(`Token mismatch at index ${i}: ${inputType} → ${outputType}`)
+					return false
+				}
+
+				const [inputDecimals, outputDecimals] = await Promise.all([
+					this.contractService.getTokenDecimals(input.token, order.sourceChain),
+					this.contractService.getTokenDecimals(output.token, order.destChain),
+				])
+
+				if (!compareDecimalValues(input.amount, inputDecimals, output.amount, outputDecimals)) {
+					console.debug(
+						`Amount mismatch at index ${i}: ${input.amount} (${inputDecimals}d) ≠ ${output.amount} (${outputDecimals}d)`,
+					)
+					return false
+				}
+			}
+
+			return true
+		} catch (error) {
+			console.error(`Order validation failed:`, error)
+			return false
 		}
 	}
 }

@@ -95,4 +95,12 @@ export class ChainConfigService {
 	getUniswapV3QuoterAddress(chain: string): HexString {
 		return addresses.UniswapV3Quoter[chain as keyof typeof addresses.UniswapV3Quoter]! as HexString
 	}
+
+	getUniswapV4PoolManagerAddress(chain: string): HexString {
+		return addresses.UniswapV4PoolManager[chain as keyof typeof addresses.UniswapV4PoolManager]! as HexString
+	}
+
+	getUniswapV4QuoterAddress(chain: string): HexString {
+		return addresses.UniswapV4Quoter[chain as keyof typeof addresses.UniswapV4Quoter]! as HexString
+	}
 }

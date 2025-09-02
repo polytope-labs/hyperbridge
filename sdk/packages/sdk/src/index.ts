@@ -16,6 +16,7 @@ export {
 	getStorageSlot,
 	fetchTokenUsdPrice,
 	ERC20Method,
+	adjustFeeDecimals,
 } from "@/utils"
 export * from "@/protocols/intents"
 export * from "@/utils/tokenGateway"

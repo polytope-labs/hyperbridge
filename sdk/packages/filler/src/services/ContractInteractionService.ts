@@ -1,4 +1,4 @@
-import { getContract, toHex, encodePacked, keccak256, maxUint256, PublicClient } from "viem"
+import { getContract, toHex, encodePacked, keccak256, maxUint256, PublicClient, encodeAbiParameters } from "viem"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import {
 	ADDRESS_ZERO,
@@ -27,6 +27,12 @@ import { fetchTokenUsdPrice } from "@hyperbridge/sdk"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { Chains } from "@hyperbridge/sdk"
 import { CacheService } from "./CacheService"
+import { UNISWAP_V2_FACTORY_ABI } from "@/config/abis/UniswapV2Factory"
+import { UNISWAP_ROUTER_V2_ABI } from "@/config/abis/UniswapRouterV2"
+import { UNISWAP_V3_FACTORY_ABI } from "@/config/abis/UniswapV3Factory"
+import { UNISWAP_V3_POOL_ABI } from "@/config/abis/UniswapV3Pool"
+import { UNISWAP_V3_QUOTER_V2_ABI } from "@/config/abis/UniswapV3QuoterV2"
+import { UNISWAP_V4_QUOTER_ABI } from "@/config/abis/UniswapV4Quoter"
 /**
  * Handles contract interactions for tokens and other contracts
  */
@@ -641,4 +647,394 @@ export class ContractInteractionService {
 			totalBalanceUsd,
 		}
 	}
+
+	async getV2Quote(tokenIn: HexString, tokenOut: HexString, amountOut: bigint, destChain: string): Promise<bigint> {
+		try {
+			const v2Router = this.configService.getUniswapRouterV2Address(destChain)
+			const v2Factory = this.configService.getUniswapV2FactoryAddress(destChain)
+			const destClient = this.clientManager.getPublicClient(destChain)
+
+			// For V2/V3, convert native addresses to WETH for quotes
+			const wethAsset = this.configService.getWrappedNativeAssetWithDecimals(destChain).asset
+			const tokenInForQuote = tokenIn === ADDRESS_ZERO ? wethAsset : tokenIn
+			const tokenOutForQuote = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
+
+			const v2PairExists = (await destClient.readContract({
+				address: v2Factory,
+				abi: UNISWAP_V2_FACTORY_ABI,
+				functionName: "getPair",
+				args: [tokenInForQuote, tokenOutForQuote],
+			})) as HexString
+
+			if (v2PairExists !== ADDRESS_ZERO) {
+				const v2AmountIn = (await destClient.readContract({
+					address: v2Router,
+					abi: UNISWAP_ROUTER_V2_ABI,
+					functionName: "getAmountsIn",
+					args: [amountOut, [tokenInForQuote, tokenOutForQuote]],
+				})) as bigint[]
+
+				return v2AmountIn[0]
+			}
+
+			return maxUint256
+		} catch (error) {
+			console.warn("V2 quote failed:", error)
+			return maxUint256
+		}
+	}
+
+	async getV3Quote(
+		tokenIn: HexString,
+		tokenOut: HexString,
+		amountOut: bigint,
+		destChain: string,
+	): Promise<{ amountIn: bigint; fee: number }> {
+		const commonFees = [100, 500, 3000, 10000]
+		let bestAmountIn = maxUint256
+		let bestFee = 0
+
+		const v3Factory = this.configService.getUniswapV3FactoryAddress(destChain)
+		const v3Quoter = this.configService.getUniswapV3QuoterAddress(destChain)
+		const destClient = this.clientManager.getPublicClient(destChain)
+
+		// For V2/V3, convert native addresses to WETH for quotes
+		const wethAsset = this.configService.getWrappedNativeAssetWithDecimals(destChain).asset
+		const tokenInForQuote = tokenIn === ADDRESS_ZERO ? wethAsset : tokenIn
+		const tokenOutForQuote = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
+
+		for (const fee of commonFees) {
+			try {
+				const pool = await destClient.readContract({
+					address: v3Factory,
+					abi: UNISWAP_V3_FACTORY_ABI,
+					functionName: "getPool",
+					args: [tokenInForQuote, tokenOutForQuote, fee],
+				})
+
+				if (pool !== ADDRESS_ZERO) {
+					const liquidity = await destClient.readContract({
+						address: pool,
+						abi: UNISWAP_V3_POOL_ABI,
+						functionName: "liquidity",
+					})
+
+					if (liquidity > BigInt(0)) {
+						// Use simulateContract for V3 quoter (handles revert-based returns)
+						const quoteResult = (
+							await destClient.simulateContract({
+								address: v3Quoter,
+								abi: UNISWAP_V3_QUOTER_V2_ABI,
+								functionName: "quoteExactOutputSingle",
+								args: [
+									{
+										tokenIn: tokenInForQuote,
+										tokenOut: tokenOutForQuote,
+										fee: fee,
+										amount: amountOut,
+										sqrtPriceLimitX96: BigInt(0),
+									},
+								],
+							})
+						).result as [bigint, bigint, number, bigint] // [amountIn, sqrtPriceX96After, initializedTicksCrossed, gasEstimate]
+
+						const amountIn = quoteResult[0]
+
+						if (amountIn < bestAmountIn) {
+							bestAmountIn = amountIn
+							bestFee = fee
+						}
+					}
+				}
+			} catch (error) {
+				console.warn(`V3 quote failed for fee ${fee}, continuing to next fee tier`)
+			}
+		}
+
+		return { amountIn: bestAmountIn, fee: bestFee }
+	}
+
+	async getV4Quote(
+		tokenIn: HexString,
+		tokenOut: HexString,
+		amountOut: bigint,
+		destChain: string,
+	): Promise<{ amountIn: bigint; fee: number }> {
+		const commonFees = [100, 500, 3000, 10000]
+		let bestAmountIn = maxUint256
+		let bestFee = 0
+
+		const v4Quoter = this.configService.getUniswapV4QuoterAddress(destChain)
+		const destClient = this.clientManager.getPublicClient(destChain)
+
+		for (const fee of commonFees) {
+			try {
+				const currency0 = tokenIn.toLowerCase() < tokenOut.toLowerCase() ? tokenIn : tokenOut
+				const currency1 = tokenIn.toLowerCase() < tokenOut.toLowerCase() ? tokenOut : tokenIn
+
+				const zeroForOne = tokenIn.toLowerCase() === currency0.toLowerCase()
+
+				const poolKey = {
+					currency0: currency0,
+					currency1: currency1,
+					fee: fee,
+					tickSpacing: this.getTickSpacing(fee),
+					hooks: ADDRESS_ZERO, // No hooks
+				}
+
+				const quoteResult = (
+					await destClient.simulateContract({
+						address: v4Quoter,
+						abi: UNISWAP_V4_QUOTER_ABI,
+						functionName: "quoteExactOutputSingle",
+						args: [
+							{
+								poolKey: poolKey,
+								zeroForOne: zeroForOne,
+								exactAmount: amountOut,
+								hookData: "0x", // Empty hook data
+							},
+						],
+					})
+				).result as [bigint, bigint] // [amountIn, gasEstimate]
+
+				const amountIn = quoteResult[0]
+
+				if (amountIn < bestAmountIn) {
+					console.log("Found a better amountIn with fee", amountIn, fee)
+					bestAmountIn = amountIn
+					bestFee = fee
+				}
+			} catch (error) {
+				console.warn(`V4 quote failed for fee ${fee}, continuing to next fee tier`)
+			}
+		}
+
+		return { amountIn: bestAmountIn, fee: bestFee }
+	}
+
+	createV2SwapCalldata(
+		sourceTokenAddress: HexString,
+		targetTokenAddress: HexString,
+		amountOut: bigint,
+		amountInMax: bigint,
+		recipient: HexString,
+		assets: TokenAssets,
+	): { commands: HexString; inputs: HexString[] } {
+		const V2_SWAP_EXACT_OUT = 0x09
+		const isPermit2 = false
+
+		const swapSourceAddress = sourceTokenAddress === ADDRESS_ZERO ? assets.wethAsset : sourceTokenAddress
+		const swapTargetAddress = targetTokenAddress === ADDRESS_ZERO ? assets.wethAsset : targetTokenAddress
+
+		const path = [swapSourceAddress, swapTargetAddress]
+		const commands = encodePacked(["uint8"], [V2_SWAP_EXACT_OUT])
+		const inputs = [
+			encodeAbiParameters(
+				[
+					{ type: "address", name: "recipient" },
+					{ type: "uint256", name: "amountOut" },
+					{ type: "uint256", name: "amountInMax" },
+					{ type: "address[]", name: "path" },
+					{ type: "bool", name: "isPermit2" },
+				],
+				[recipient, amountOut, amountInMax, path, isPermit2],
+			),
+		]
+
+		return { commands, inputs }
+	}
+
+	createV3SwapCalldata(
+		sourceTokenAddress: HexString,
+		targetTokenAddress: HexString,
+		amountOut: bigint,
+		amountInMax: bigint,
+		fee: number,
+		recipient: HexString,
+		assets: TokenAssets,
+	): { commands: HexString; inputs: HexString[] } {
+		const V3_SWAP_EXACT_OUT = 0x01
+		const isPermit2 = false
+
+		const swapSourceAddress = sourceTokenAddress === ADDRESS_ZERO ? assets.wethAsset : sourceTokenAddress
+		const swapTargetAddress = targetTokenAddress === ADDRESS_ZERO ? assets.wethAsset : targetTokenAddress
+
+		const pathV3 = encodePacked(["address", "uint24", "address"], [swapTargetAddress, fee, swapSourceAddress])
+		const commands = encodePacked(["uint8"], [V3_SWAP_EXACT_OUT])
+		const inputs = [
+			encodeAbiParameters(
+				[
+					{ type: "address", name: "recipient" },
+					{ type: "uint256", name: "amountOut" },
+					{ type: "uint256", name: "amountInMax" },
+					{ type: "bytes", name: "path" },
+					{ type: "bool", name: "isPermit2" },
+				],
+				[recipient, amountOut, amountInMax, pathV3, isPermit2],
+			),
+		]
+
+		return { commands, inputs }
+	}
+
+	createV4SwapCalldata(
+		sourceTokenAddress: HexString,
+		targetTokenAddress: HexString,
+		amountOut: bigint,
+		amountInMax: bigint,
+		fee: number,
+	): { commands: HexString; inputs: HexString[] } {
+		const V4_SWAP = 0x10
+
+		const currency0 =
+			sourceTokenAddress.toLowerCase() < targetTokenAddress.toLowerCase()
+				? sourceTokenAddress
+				: targetTokenAddress
+		const currency1 =
+			sourceTokenAddress.toLowerCase() < targetTokenAddress.toLowerCase()
+				? targetTokenAddress
+				: sourceTokenAddress
+
+		const zeroForOne = sourceTokenAddress.toLowerCase() === currency0.toLowerCase()
+
+		const poolKey = {
+			currency0: currency0,
+			currency1: currency1,
+			fee: fee,
+			tickSpacing: this.getTickSpacing(fee),
+			hooks: ADDRESS_ZERO,
+		}
+
+		const SWAP_EXACT_OUT_SINGLE = 0x08
+		const SETTLE_ALL = 0x0c
+		const TAKE_ALL = 0x0f
+
+		const actions = encodePacked(["uint8", "uint8", "uint8"], [SWAP_EXACT_OUT_SINGLE, SETTLE_ALL, TAKE_ALL])
+
+		const swapParams = encodeAbiParameters(
+			[
+				{
+					type: "tuple",
+					name: "ExactOutputSingleParams",
+					components: [
+						{
+							type: "tuple",
+							name: "poolKey",
+							components: [
+								{ type: "address", name: "currency0" },
+								{ type: "address", name: "currency1" },
+								{ type: "uint24", name: "fee" },
+								{ type: "int24", name: "tickSpacing" },
+								{ type: "address", name: "hooks" },
+							],
+						},
+						{ type: "bool", name: "zeroForOne" },
+						{ type: "uint128", name: "amountOut" },
+						{ type: "uint128", name: "amountInMaximum" },
+						{ type: "bytes", name: "hookData" },
+					],
+				},
+			],
+			[
+				{
+					poolKey,
+					zeroForOne: zeroForOne,
+					amountOut: amountOut,
+					amountInMaximum: amountInMax,
+					hookData: "0x",
+				},
+			],
+		)
+
+		const settleParams = encodeAbiParameters(
+			[
+				{ type: "address", name: "currency" },
+				{ type: "uint128", name: "amount" },
+			],
+			[sourceTokenAddress, amountInMax],
+		)
+
+		const takeParams = encodeAbiParameters(
+			[
+				{ type: "address", name: "currency" },
+				{ type: "uint128", name: "amount" },
+			],
+			[targetTokenAddress, amountOut],
+		)
+
+		const params = [swapParams, settleParams, takeParams]
+
+		const commands = encodePacked(["uint8"], [V4_SWAP])
+		const inputs = [
+			encodeAbiParameters(
+				[
+					{ type: "bytes", name: "actions" },
+					{ type: "bytes[]", name: "params" },
+				],
+				[actions, params],
+			),
+		]
+
+		return { commands, inputs }
+	}
+
+	getTickSpacing(fee: number): number {
+		switch (fee) {
+			case 100: // 0.01%
+				return 1
+			case 500: // 0.05%
+				return 10
+			case 3000: // 0.30%
+				return 60
+			case 10000: // 1.00%
+				return 200
+			default:
+				return 60 // Default to medium
+		}
+	}
 }
+
+export interface TokenBalances {
+	dai: bigint
+	usdt: bigint
+	usdc: bigint
+	native: bigint
+}
+
+export interface TokenAssets {
+	daiAsset: HexString
+	usdtAsset: HexString
+	usdcAsset: HexString
+	wethAsset: HexString
+}
+
+export interface TokenDecimals {
+	daiDecimals: number
+	usdtDecimals: number
+	usdcDecimals: number
+}
+
+export interface SwapContext {
+	contractService: ContractInteractionService
+	fillerWalletAddress: HexString
+	destClient: PublicClient
+	destChain: string
+	assets: TokenAssets
+	decimals: TokenDecimals
+	initialBalances: TokenBalances
+	universalRouterAddress: HexString
+}
+
+export interface SwapContextWithRequirements extends SwapContext {
+	remainingBalances: TokenBalances
+	shortfalls: TokenBalances
+}
+
+export interface BestProtocol {
+	protocol: "v2" | "v3" | "v4" | null
+	amountIn: bigint
+	fee?: number
+}
+
+export type TokenType = keyof TokenBalances

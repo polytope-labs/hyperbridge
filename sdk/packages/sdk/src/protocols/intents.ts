@@ -7,6 +7,7 @@ import {
 	ADDRESS_ZERO,
 	MOCK_ADDRESS,
 	ERC20Method,
+	adjustFeeDecimals,
 } from "@/utils"
 import { maxUint256, parseEther, toHex } from "viem"
 import { type FillOptions, type HexString, type IPostRequest, type Order } from "@/types"
@@ -16,6 +17,7 @@ import UniswapRouterV2 from "@/abis/uniswapRouterV2"
 import UniswapV3Factory from "@/abis/uniswapV3Factory"
 import UniswapV3Pool from "@/abis/uniswapV3Pool"
 import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
+import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
 import { type PublicClient } from "viem"
 import { EvmChain } from "@/chains/evm"
 
@@ -69,7 +71,7 @@ export class IntentGateway {
 		const relayerFeeInSourceFeeToken =
 			postGasEstimateInSourceFeeToken + (postGasEstimateInSourceFeeToken * RELAYER_FEE_BPS) / 10000n
 
-		const relayerFeeInDestFeeToken = this.adjustFeeDecimals(
+		const relayerFeeInDestFeeToken = adjustFeeDecimals(
 			relayerFeeInSourceFeeToken,
 			sourceChainFeeTokenDecimals,
 			destChainFeeTokenDecimals,
@@ -178,7 +180,7 @@ export class IntentGateway {
 			sourceChainFeeTokenDecimals,
 		)
 
-		const protocolFeeInSourceFeeToken = this.adjustFeeDecimals(
+		const protocolFeeInSourceFeeToken = adjustFeeDecimals(
 			// Following baseIsmpModule.sol, the protocol fee is added to the relayer fee
 			(await this.dest.quote(postRequest)) + relayerFeeInDestFeeToken,
 			destChainFeeTokenDecimals,
@@ -207,23 +209,33 @@ export class IntentGateway {
 		tokenIn: HexString,
 		tokenOut: HexString,
 		amountOut: bigint,
-	): Promise<{ protocol: "v2" | "v3" | null; amountIn: bigint; fee?: number }> {
+	): Promise<{ protocol: "v2" | "v3" | "v4" | null; amountIn: bigint; fee?: number }> {
 		const destClient = this.dest.client
 		let amountInV2 = maxUint256
 		let amountInV3 = maxUint256
+		let amountInV4 = maxUint256
 		let bestV3Fee = 0
+		let bestV4Fee = 0
+		const commonFees = [100, 500, 3000, 10000]
 
 		const v2Router = this.source.config.getUniswapRouterV2Address(chain)
 		const v2Factory = this.source.config.getUniswapV2FactoryAddress(chain)
 		const v3Factory = this.source.config.getUniswapV3FactoryAddress(chain)
 		const v3Quoter = this.source.config.getUniswapV3QuoterAddress(chain)
+		const v4Quoter = this.source.config.getUniswapV4QuoterAddress(chain)
 
+		// For V2/V3, convert native addresses to WETH for quotes
+		const wethAsset = this.source.config.getWrappedNativeAssetWithDecimals(chain).asset
+		const tokenInForQuote = tokenIn === ADDRESS_ZERO ? wethAsset : tokenIn
+		const tokenOutForQuote = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
+
+		// V2 Protocol Check
 		try {
 			const v2PairExists = (await destClient.readContract({
 				address: v2Factory,
 				abi: UniswapV2Factory.ABI,
 				functionName: "getPair",
-				args: [tokenIn, tokenOut],
+				args: [tokenInForQuote, tokenOutForQuote],
 			})) as HexString
 
 			if (v2PairExists !== ADDRESS_ZERO) {
@@ -231,7 +243,7 @@ export class IntentGateway {
 					address: v2Router,
 					abi: UniswapRouterV2.ABI,
 					functionName: "getAmountsIn",
-					args: [amountOut, [tokenIn, tokenOut]],
+					args: [amountOut, [tokenInForQuote, tokenOutForQuote]],
 				})) as bigint[]
 
 				amountInV2 = v2AmountIn[0]
@@ -240,16 +252,16 @@ export class IntentGateway {
 			console.warn("V2 quote failed:", error)
 		}
 
+		// V3 Protocol Check - Find the best pool with best quote
 		let bestV3AmountIn = maxUint256
-		const fees = [500, 3000, 10000]
 
-		for (const fee of fees) {
+		for (const fee of commonFees) {
 			try {
 				const pool = await destClient.readContract({
 					address: v3Factory,
 					abi: UniswapV3Factory.ABI,
 					functionName: "getPool",
-					args: [tokenIn, tokenOut, fee],
+					args: [tokenInForQuote, tokenOutForQuote, fee],
 				})
 
 				if (pool !== ADDRESS_ZERO) {
@@ -268,8 +280,8 @@ export class IntentGateway {
 								functionName: "quoteExactOutputSingle",
 								args: [
 									{
-										tokenIn: tokenIn,
-										tokenOut: tokenOut,
+										tokenIn: tokenInForQuote,
+										tokenOut: tokenOutForQuote,
 										fee: fee,
 										amount: amountOut,
 										sqrtPriceLimitX96: BigInt(0),
@@ -293,14 +305,97 @@ export class IntentGateway {
 
 		amountInV3 = bestV3AmountIn
 
-		if (amountInV2 === maxUint256 && amountInV3 === maxUint256) {
-			return { protocol: null, amountIn: maxUint256 }
+		// V4 Protocol Check - Find the best pool with best quote (uses native addresses directly)
+		let bestV4AmountIn = maxUint256
+
+		for (const fee of commonFees) {
+			try {
+				// Create pool key for V4 - can use native addresses directly
+				const currency0 = tokenIn.toLowerCase() < tokenOut.toLowerCase() ? tokenIn : tokenOut
+				const currency1 = tokenIn.toLowerCase() < tokenOut.toLowerCase() ? tokenOut : tokenIn
+
+				const zeroForOne = tokenIn.toLowerCase() === currency0.toLowerCase()
+
+				const poolKey = {
+					currency0: currency0,
+					currency1: currency1,
+					fee: fee,
+					tickSpacing: this.getTickSpacing(fee),
+					hooks: ADDRESS_ZERO, // No hooks
+				}
+
+				// Get quote from V4 quoter
+				const quoteResult = (
+					await destClient.simulateContract({
+						address: v4Quoter,
+						abi: UNISWAP_V4_QUOTER_ABI,
+						functionName: "quoteExactOutputSingle",
+						args: [
+							{
+								poolKey: poolKey,
+								zeroForOne: zeroForOne,
+								exactAmount: amountOut,
+								hookData: "0x", // Empty hook data
+							},
+						],
+					})
+				).result as [bigint, bigint] // [amountIn, gasEstimate]
+
+				const amountIn = quoteResult[0]
+
+				if (amountIn < bestV4AmountIn) {
+					bestV4AmountIn = amountIn
+					bestV4Fee = fee
+				}
+			} catch (error) {
+				console.warn(`V4 quote failed for fee ${fee}, continuing to next fee tier`)
+			}
 		}
 
-		if (amountInV2 <= amountInV3) {
-			return { protocol: "v2", amountIn: amountInV2 }
+		amountInV4 = bestV4AmountIn
+
+		if (amountInV2 === maxUint256 && amountInV3 === maxUint256 && amountInV4 === maxUint256) {
+			// No liquidity in any protocol
+			return {
+				protocol: null,
+				amountIn: maxUint256,
+			}
+		}
+
+		// Prefer V4 when V4 is close to the best of V2/V3 (within thresholdBps)
+		if (amountInV4 !== maxUint256) {
+			const thresholdBps = 100n // 1%
+			if (amountInV3 !== maxUint256 && this.isWithinThreshold(amountInV4, amountInV3, thresholdBps)) {
+				return { protocol: "v4", amountIn: amountInV4, fee: bestV4Fee }
+			}
+			if (amountInV2 !== maxUint256 && this.isWithinThreshold(amountInV4, amountInV2, thresholdBps)) {
+				return { protocol: "v4", amountIn: amountInV4, fee: bestV4Fee }
+			}
+		}
+
+		const minAmount = [
+			{ protocol: "v2" as const, amountIn: amountInV2 },
+			{ protocol: "v3" as const, amountIn: amountInV3, fee: bestV3Fee },
+			{ protocol: "v4" as const, amountIn: amountInV4, fee: bestV4Fee },
+		].reduce((best, current) => (current.amountIn < best.amountIn ? current : best))
+
+		if (minAmount.protocol === "v2") {
+			return {
+				protocol: "v2",
+				amountIn: amountInV2,
+			}
+		} else if (minAmount.protocol === "v3") {
+			return {
+				protocol: "v3",
+				amountIn: amountInV3,
+				fee: bestV3Fee,
+			}
 		} else {
-			return { protocol: "v3", amountIn: amountInV3, fee: bestV3Fee }
+			return {
+				protocol: "v4",
+				amountIn: amountInV4,
+				fee: bestV4Fee,
+			}
 		}
 	}
 
@@ -319,23 +414,33 @@ export class IntentGateway {
 		tokenIn: HexString,
 		tokenOut: HexString,
 		amountIn: bigint,
-	): Promise<{ protocol: "v2" | "v3" | null; amountOut: bigint; fee?: number }> {
+	): Promise<{ protocol: "v2" | "v3" | "v4" | null; amountOut: bigint; fee?: number }> {
 		const destClient = this.dest.client
 		let amountOutV2 = BigInt(0)
 		let amountOutV3 = BigInt(0)
+		let amountOutV4 = BigInt(0)
 		let bestV3Fee = 0
+		let bestV4Fee = 0
+		const commonFees = [100, 500, 3000, 10000]
 
 		const v2Router = this.source.config.getUniswapRouterV2Address(chain)
 		const v2Factory = this.source.config.getUniswapV2FactoryAddress(chain)
 		const v3Factory = this.source.config.getUniswapV3FactoryAddress(chain)
 		const v3Quoter = this.source.config.getUniswapV3QuoterAddress(chain)
+		const v4Quoter = this.source.config.getUniswapV4QuoterAddress(chain)
 
+		// For V2/V3, convert native addresses to WETH for quotes
+		const wethAsset = this.source.config.getWrappedNativeAssetWithDecimals(chain).asset
+		const tokenInForQuote = tokenIn === ADDRESS_ZERO ? wethAsset : tokenIn
+		const tokenOutForQuote = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
+
+		// V2 Protocol Check
 		try {
 			const v2PairExists = (await destClient.readContract({
 				address: v2Factory,
 				abi: UniswapV2Factory.ABI,
 				functionName: "getPair",
-				args: [tokenIn, tokenOut],
+				args: [tokenInForQuote, tokenOutForQuote],
 			})) as HexString
 
 			if (v2PairExists !== ADDRESS_ZERO) {
@@ -343,7 +448,7 @@ export class IntentGateway {
 					address: v2Router,
 					abi: UniswapRouterV2.ABI,
 					functionName: "getAmountsOut",
-					args: [amountIn, [tokenIn, tokenOut]],
+					args: [amountIn, [tokenInForQuote, tokenOutForQuote]],
 				})) as bigint[]
 
 				amountOutV2 = v2AmountOut[1]
@@ -352,16 +457,16 @@ export class IntentGateway {
 			console.warn("V2 quote failed:", error)
 		}
 
+		// V3 Protocol Check - Find the best pool with best quote
 		let bestV3AmountOut = BigInt(0)
-		const fees = [500, 3000, 10000]
 
-		for (const fee of fees) {
+		for (const fee of commonFees) {
 			try {
 				const pool = await destClient.readContract({
 					address: v3Factory,
 					abi: UniswapV3Factory.ABI,
 					functionName: "getPool",
-					args: [tokenIn, tokenOut, fee],
+					args: [tokenInForQuote, tokenOutForQuote, fee],
 				})
 
 				if (pool !== ADDRESS_ZERO) {
@@ -380,8 +485,8 @@ export class IntentGateway {
 								functionName: "quoteExactInputSingle",
 								args: [
 									{
-										tokenIn: tokenIn,
-										tokenOut: tokenOut,
+										tokenIn: tokenInForQuote,
+										tokenOut: tokenOutForQuote,
 										fee: fee,
 										amountIn: amountIn,
 										sqrtPriceLimitX96: BigInt(0),
@@ -405,14 +510,97 @@ export class IntentGateway {
 
 		amountOutV3 = bestV3AmountOut
 
-		if (amountOutV2 === BigInt(0) && amountOutV3 === BigInt(0)) {
-			return { protocol: null, amountOut: BigInt(0) }
+		// V4 Protocol Check - Find the best pool with best quote (uses native addresses directly)
+		let bestV4AmountOut = BigInt(0)
+
+		for (const fee of commonFees) {
+			try {
+				// Create pool key for V4 - can use native addresses directly
+				const currency0 = tokenIn.toLowerCase() < tokenOut.toLowerCase() ? tokenIn : tokenOut
+				const currency1 = tokenIn.toLowerCase() < tokenOut.toLowerCase() ? tokenOut : tokenIn
+
+				const zeroForOne = tokenIn.toLowerCase() === currency0.toLowerCase()
+
+				const poolKey = {
+					currency0: currency0,
+					currency1: currency1,
+					fee: fee,
+					tickSpacing: this.getTickSpacing(fee),
+					hooks: ADDRESS_ZERO, // No hooks
+				}
+
+				// Get quote from V4 quoter
+				const quoteResult = (
+					await destClient.simulateContract({
+						address: v4Quoter,
+						abi: UNISWAP_V4_QUOTER_ABI,
+						functionName: "quoteExactInputSingle",
+						args: [
+							{
+								poolKey: poolKey,
+								zeroForOne: zeroForOne,
+								exactAmount: amountIn,
+								hookData: "0x", // Empty hook data
+							},
+						],
+					})
+				).result as [bigint, bigint] // [amountOut, gasEstimate]
+
+				const amountOut = quoteResult[0]
+
+				if (amountOut > bestV4AmountOut) {
+					bestV4AmountOut = amountOut
+					bestV4Fee = fee
+				}
+			} catch (error) {
+				console.warn(`V4 quote failed for fee ${fee}, continuing to next fee tier`)
+			}
 		}
 
-		if (amountOutV2 >= amountOutV3) {
-			return { protocol: "v2", amountOut: amountOutV2 }
+		amountOutV4 = bestV4AmountOut
+
+		if (amountOutV2 === BigInt(0) && amountOutV3 === BigInt(0) && amountOutV4 === BigInt(0)) {
+			// No liquidity in any protocol
+			return {
+				protocol: null,
+				amountOut: BigInt(0),
+			}
+		}
+
+		// Prefer V4 when V4 is close to the best of V2/V3 (within thresholdBps)
+		if (amountOutV4 !== BigInt(0)) {
+			const thresholdBps = 100n // 1%
+			if (amountOutV3 !== BigInt(0) && this.isWithinThreshold(amountOutV4, amountOutV3, thresholdBps)) {
+				return { protocol: "v4", amountOut: amountOutV4, fee: bestV4Fee }
+			}
+			if (amountOutV2 !== BigInt(0) && this.isWithinThreshold(amountOutV4, amountOutV2, thresholdBps)) {
+				return { protocol: "v4", amountOut: amountOutV4, fee: bestV4Fee }
+			}
+		}
+
+		const maxAmount = [
+			{ protocol: "v2" as const, amountOut: amountOutV2 },
+			{ protocol: "v3" as const, amountOut: amountOutV3, fee: bestV3Fee },
+			{ protocol: "v4" as const, amountOut: amountOutV4, fee: bestV4Fee },
+		].reduce((best, current) => (current.amountOut > best.amountOut ? current : best))
+
+		if (maxAmount.protocol === "v2") {
+			return {
+				protocol: "v2",
+				amountOut: amountOutV2,
+			}
+		} else if (maxAmount.protocol === "v3") {
+			return {
+				protocol: "v3",
+				amountOut: amountOutV3,
+				fee: bestV3Fee,
+			}
 		} else {
-			return { protocol: "v3", amountOut: amountOutV3, fee: bestV3Fee }
+			return {
+				protocol: "v4",
+				amountOut: amountOutV4,
+				fee: bestV4Fee,
+			}
 		}
 	}
 
@@ -450,26 +638,6 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Adjusts fee amounts between different decimal precisions.
-	 * Handles scaling up or down based on the decimal difference.
-	 *
-	 * @param feeInFeeToken - The fee amount to adjust
-	 * @param fromDecimals - The current decimal precision
-	 * @param toDecimals - The target decimal precision
-	 * @returns The adjusted fee amount with the target decimal precision
-	 */
-	adjustFeeDecimals(feeInFeeToken: bigint, fromDecimals: number, toDecimals: number): bigint {
-		if (fromDecimals === toDecimals) return feeInFeeToken
-		if (fromDecimals < toDecimals) {
-			const scaleFactor = BigInt(10 ** (toDecimals - fromDecimals))
-			return feeInFeeToken * scaleFactor
-		} else {
-			const scaleFactor = BigInt(10 ** (fromDecimals - toDecimals))
-			return (feeInFeeToken + scaleFactor - 1n) / scaleFactor
-		}
-	}
-
-	/**
 	 * Checks if an order has been filled by verifying the commitment status on-chain.
 	 * Reads the storage slot corresponding to the order's commitment hash.
 	 *
@@ -491,6 +659,38 @@ export class IntentGateway {
 			slot: filledSlot,
 		})
 		return filledStatus !== "0x0000000000000000000000000000000000000000000000000000000000000000"
+	}
+
+	/**
+	 * Returns the tick spacing for a given fee tier in Uniswap V4
+	 * @param fee - The fee tier in basis points
+	 * @returns The tick spacing value
+	 */
+	private getTickSpacing(fee: number): number {
+		switch (fee) {
+			case 100: // 0.01%
+				return 1
+			case 500: // 0.05%
+				return 10
+			case 3000: // 0.30%
+				return 60
+			case 10000: // 1.00%
+				return 200
+			default:
+				return 60 // Default to medium
+		}
+	}
+
+	/**
+	 * Returns true if candidate <= reference * (1 + thresholdBps/10000)
+	 * @param candidate - The candidate amount to compare
+	 * @param reference - The reference amount
+	 * @param thresholdBps - The threshold in basis points
+	 * @returns True if candidate is within threshold of reference
+	 */
+	private isWithinThreshold(candidate: bigint, reference: bigint, thresholdBps: bigint): boolean {
+		const basisPoints = 10000n
+		return candidate * basisPoints <= reference * (basisPoints + thresholdBps)
 	}
 }
 

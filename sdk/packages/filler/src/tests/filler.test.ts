@@ -30,6 +30,7 @@ import {
 	keccak256,
 	maxUint256,
 	parseEventLogs,
+	parseUnits,
 	PublicClient,
 	WalletClient,
 } from "viem"
@@ -43,6 +44,7 @@ import { HandlerV1_ABI } from "@/config/abis/HandlerV1"
 import { UNISWAP_ROUTER_V2_ABI } from "@/config/abis/UniswapRouterV2"
 import { UNISWAP_V2_FACTORY_ABI } from "@/config/abis/UniswapV2Factory"
 import { ChainConfigService } from "@hyperbridge/sdk"
+import { compareDecimalValues } from "@/utils"
 describe.sequential("Basic", () => {
 	let indexer: IndexerClient
 
@@ -273,16 +275,15 @@ describe.sequential("Basic", () => {
 		const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
 		intentFiller.start()
 
-		const daiAsset = chainConfigService.getDaiAsset(bscChapelId)
 		const inputs: TokenInfo[] = [
 			{
-				token: "0x0000000000000000000000000000000000000000000000000000000000000000",
+				token: bytes20ToBytes32(chainConfigService.getDaiAsset(gnosisChiadoId)),
 				amount: 100n,
 			},
 		]
 		const outputs: PaymentInfo[] = [
 			{
-				token: bytes20ToBytes32(daiAsset),
+				token: bytes20ToBytes32(chainConfigService.getDaiAsset(bscChapelId)),
 				amount: 100n,
 				beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
 			},
@@ -316,6 +317,13 @@ describe.sequential("Basic", () => {
 			gnosisChiadoIntentGateway.address,
 		)
 
+		await approveTokens(
+			gnosisChiadoWalletClient,
+			gnosisChiadoPublicClient,
+			chainConfigService.getDaiAsset(gnosisChiadoId),
+			gnosisChiadoIntentGateway.address,
+		)
+
 		const orderDetectedPromise = new Promise<Order>((resolve) => {
 			const eventMonitor = intentFiller.monitor
 			if (!eventMonitor) {
@@ -332,7 +340,6 @@ describe.sequential("Basic", () => {
 		const hash = await gnosisChiadoIntentGateway.write.placeOrder([order], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: gnosisChiado,
-			value: 100n,
 		})
 
 		const receipt = await gnosisChiadoPublicClient.waitForTransactionReceipt({
@@ -812,11 +819,163 @@ describe.sequential("Basic", () => {
 
 		newIntentFiller.stop()
 	}, 1_000_000)
+
+	it("Should validate order inputs and outputs correctly", async () => {
+		const { chainConfigService, bscChapelId, mainnetId } = await setUp()
+
+		const basicFiller = new BasicFiller(process.env.PRIVATE_KEY as HexString)
+
+		// Get token assets for both chains
+		const sourceDaiAsset = chainConfigService.getDaiAsset(bscChapelId)
+		const sourceUsdtAsset = chainConfigService.getUsdtAsset(bscChapelId)
+		const sourceUsdcAsset = chainConfigService.getUsdcAsset(bscChapelId)
+
+		const destDaiAsset = chainConfigService.getDaiAsset(mainnetId)
+		const destUsdtAsset = chainConfigService.getUsdtAsset(mainnetId)
+		const destUsdcAsset = chainConfigService.getUsdcAsset(mainnetId)
+
+		// Test case 1: Valid order with matching USDC tokens
+		const validOrder: Order = {
+			user: "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString,
+			sourceChain: bscChapelId,
+			destChain: mainnetId,
+			deadline: 65337297000n,
+			nonce: 0n,
+			fees: 1000000n,
+			inputs: [
+				{
+					token: bytes20ToBytes32(sourceUsdcAsset),
+					amount: 1n * 10n ** 18n, // 1 USDC (6 decimals)
+				},
+			],
+			outputs: [
+				{
+					token: bytes20ToBytes32(destUsdcAsset),
+					amount: 1n * 10n ** 6n, // 1 USDC (6 decimals)
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+			],
+			callData: "0x" as HexString,
+		}
+
+		// Test case 2: Invalid order with different array lengths
+		const invalidLengthOrder: Order = {
+			...validOrder,
+			inputs: [
+				{
+					token: bytes20ToBytes32(sourceUsdcAsset),
+					amount: 1000000n,
+				},
+				{
+					token: bytes20ToBytes32(sourceUsdtAsset),
+					amount: 1000000000n, // 1 USDT (6 decimals)
+				},
+			],
+			outputs: [
+				{
+					token: bytes20ToBytes32(destUsdcAsset),
+					amount: 1000000n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+			],
+		}
+
+		// Test case 3: Invalid order with token type mismatch
+		const invalidTokenTypeOrder: Order = {
+			...validOrder,
+			inputs: [
+				{
+					token: bytes20ToBytes32(sourceUsdcAsset),
+					amount: 1000000n,
+				},
+			],
+			outputs: [
+				{
+					token: bytes20ToBytes32(destUsdtAsset), // USDC input but USDT output
+					amount: 1000000n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+			],
+		}
+
+		// Test case 4: Invalid order with unsupported token
+		const unsupportedTokenOrder: Order = {
+			...validOrder,
+			inputs: [
+				{
+					token: bytes20ToBytes32("0x1234567890123456789012345678901234567890" as HexString), // Unsupported token
+					amount: 1000000n,
+				},
+			],
+			outputs: [
+				{
+					token: bytes20ToBytes32(destUsdcAsset),
+					amount: 1000000n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+			],
+		}
+
+		const canFillValid = await basicFiller.validateOrderInputsOutputs(validOrder)
+		expect(canFillValid).toBe(true)
+
+		const canFillInvalidLength = await basicFiller.validateOrderInputsOutputs(invalidLengthOrder)
+		expect(canFillInvalidLength).toBe(false)
+
+		// Invalid token type order should fail validation
+		const canFillInvalidTokenType = await basicFiller.validateOrderInputsOutputs(invalidTokenTypeOrder)
+		expect(canFillInvalidTokenType).toBe(false)
+
+		// Unsupported token order should fail validation
+		const canFillUnsupportedToken = await basicFiller.validateOrderInputsOutputs(unsupportedTokenOrder)
+		expect(canFillUnsupportedToken).toBe(false)
+
+		// Direct stress test for compare decimal values
+
+		// Core precision tests that matter
+		let val1 = parseUnits("11245.123456789012345678", 18) // Full 18 decimal precision
+		let val2 = parseUnits("11245.123456", 6) // 6 decimal precision
+		expect(compareDecimalValues(val1, 18, val2, 6)).toBe(false) // Different due to precision loss
+
+		let val3 = parseUnits("11245.123456000000000000", 18) // 18 decimals but only 6 significant
+		let val4 = parseUnits("11245.123456", 6) // Same logical value
+		expect(compareDecimalValues(val3, 18, val4, 6)).toBe(true)
+
+		// Edge case: 1 wei difference (matters for exact comparisons)
+		let wei18 = BigInt("1000000000000000001") // 1 ETH + 1 wei
+		let eth6 = parseUnits("1", 6) // 1 token (6 decimals)
+		expect(compareDecimalValues(wei18, 18, eth6, 6)).toBe(false) // 1 wei makes them different
+
+		// Zero values (should always match regardless of decimals)
+		let zero18 = parseUnits("0", 18)
+		let zero6 = parseUnits("0", 6)
+		expect(compareDecimalValues(zero18, 18, zero6, 6)).toBe(true)
+
+		// Real stablecoin amounts (common use case)
+		let usdc = parseUnits("1234.567890", 6) // USDC amount
+		let dai = parseUnits("1234.567890", 18) // Same USD value in DAI
+		expect(compareDecimalValues(usdc, 6, dai, 18)).toBe(true)
+
+		// Same decimals should work (sanity check)
+		let sameVal1 = parseUnits("100.5", 18)
+		let sameVal2 = parseUnits("100.5", 18)
+		expect(compareDecimalValues(sameVal1, 18, sameVal2, 18)).toBe(true)
+
+		// Large numbers (stress test)
+		let large18 = parseUnits("999999999999.123456000000000000", 18)
+		let large6 = parseUnits("999999999999.123456", 6)
+		expect(compareDecimalValues(large18, 18, large6, 6)).toBe(true)
+
+		// Fractional precision that gets truncated (common bug source)
+		let fraction18 = parseUnits("0.000000000000000123", 18) // 123 wei
+		zero6 = parseUnits("0", 6) // 0 in 6 decimals
+		expect(compareDecimalValues(fraction18, 18, zero6, 6)).toBe(false)
+	}, 300_000)
 })
 
 async function setUp() {
 	const bscChapelId = "EVM-97"
-
+	const mainnetId = "EVM-1"
 	const gnosisChiadoId = "EVM-10200"
 
 	const chains = [bscChapelId, gnosisChiadoId]
@@ -939,6 +1098,7 @@ async function setUp() {
 		gnosisChiadoHandler,
 		bscEvmHelper,
 		gnosisChiadoEvmHelper,
+		mainnetId,
 	}
 }
 

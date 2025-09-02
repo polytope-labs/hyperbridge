@@ -35,7 +35,6 @@ use frame_support::{
 	weights::Weight,
 };
 
-use crate::xcm_utilities::ASSET_HUB_PARA_ID;
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	events::Meta,

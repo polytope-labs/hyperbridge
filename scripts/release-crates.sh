@@ -2,6 +2,7 @@
 
 cargo release \
 -p serde-hex-utils \
+-p crypto-utils \
 -p ismp \
 -p pallet-hyperbridge \
 -p pallet-ismp \

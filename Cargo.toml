@@ -213,11 +213,11 @@ cometbft-light-client-verifier = { git = "https://github.com/cometbft/cometbft-r
 ics23 = { version = "0.12.0", default-features = false }
 
 # published crates
-ismp = { version = "1.3.0", path = "./modules/ismp/core", default-features = false }
+ismp = { version = "2506.0.0", path = "./modules/ismp/core", default-features = false }
 serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
 crypto-utils = { version = "0.1.0", path = "modules/utils/crypto", default-features = false }
-grandpa-verifier-primitives = { version = "3.0.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
-grandpa-verifier = { version = "3.0.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
+grandpa-verifier-primitives = { version = "2506.0.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
+grandpa-verifier = { version = "2506.0.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
 ismp-grandpa = { version = "2506.0.0", path = "./modules/ismp/clients/grandpa", default-features = false }
 ismp-parachain = { version = "2506.0.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
 ismp-parachain-inherent = { version = "2506.0.0", path = "./modules/ismp/clients/parachain/inherent" }

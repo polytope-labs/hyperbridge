@@ -32,13 +32,9 @@ use frame_support::{
 		fungibles::{self},
 		Get,
 	},
-};
-use polkadot_sdk::{
-	cumulus_primitives_core::{AllCounted, DepositAsset, Parachain, Weight, Wild, Xcm},
-	staging_xcm_executor::traits::TransferType,
+	weights::Weight,
 };
 
-use crate::xcm_utilities::ASSET_HUB_PARA_ID;
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	events::Meta,
@@ -52,7 +48,7 @@ use sp_runtime::{traits::AccountIdConversion, Permill};
 use staging_xcm::{
 	prelude::Assets,
 	v5::{Asset, AssetId, Fungibility, Junction, Location, WeightLimit},
-	VersionedAssets, VersionedLocation, VersionedXcm,
+	VersionedAssets, VersionedLocation,
 };
 use xcm_utilities::MultiAccount;
 
@@ -393,31 +389,24 @@ where
 
 		let asset_id = Location::parent();
 
-		// We don't custody user funds, we send the dot back to assethub using xcm
+		// We don't custody user funds, we send the dot back to the relaychain using xcm
 		let xcm_beneficiary: Location =
 			Junction::AccountId32 { network: None, id: body.to.0 }.into();
-
-		let xcm_dest = VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
+		let xcm_dest = VersionedLocation::V5(Location::parent());
+		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
 		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 
 		let mut assets = Assets::new();
-		assets.push(asset.clone());
+		assets.push(asset);
 
-		let custom_xcm_on_dest = Xcm::<()>(vec![DepositAsset {
-			assets: Wild(AllCounted(assets.len() as u32)),
-			beneficiary: xcm_beneficiary.clone(),
-		}]);
-
-		// Send xcm back to assethub
-		pallet_xcm::Pallet::<T>::transfer_assets_using_type_and_then(
+		// Send xcm back to relaychain
+		pallet_xcm::Pallet::<T>::limited_reserve_transfer_assets(
 			frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 			Box::new(xcm_dest),
-			Box::new(VersionedAssets::V5(assets.clone())),
-			Box::new(TransferType::DestinationReserve),
-			Box::new(asset.id.into()),
-			Box::new(TransferType::DestinationReserve),
-			Box::new(VersionedXcm::from(custom_xcm_on_dest)),
+			Box::new(xcm_beneficiary.into()),
+			Box::new(VersionedAssets::V5(assets)),
+			fee_asset_item,
 			weight_limit,
 		)
 		.map_err(|_| ismp::error::Error::ModuleDispatchError {
@@ -482,31 +471,23 @@ where
 					},
 				})?;
 				// We do an xcm limited reserve transfer from the pallet custody account to the user
-				// on assethub;
+				// on the relaychain;
 				let xcm_beneficiary: Location =
 					Junction::AccountId32 { network: None, id: body.from.0 }.into();
-				let asset_id = Location::parent();
-				let xcm_dest =
-					VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
+				let xcm_dest = VersionedLocation::V5(Location::parent());
+				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
-				let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
+				let asset =
+					Asset { id: AssetId(Location::parent()), fun: Fungibility::Fungible(amount) };
 
 				let mut assets = Assets::new();
-				assets.push(asset.clone());
-
-				let custom_xcm_on_dest = Xcm::<()>(vec![DepositAsset {
-					assets: Wild(AllCounted(assets.len() as u32)),
-					beneficiary: xcm_beneficiary.clone(),
-				}]);
-
-				pallet_xcm::Pallet::<T>::transfer_assets_using_type_and_then(
+				assets.push(asset);
+				pallet_xcm::Pallet::<T>::limited_reserve_transfer_assets(
 					frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
 					Box::new(xcm_dest),
-					Box::new(VersionedAssets::V5(assets.clone())),
-					Box::new(TransferType::DestinationReserve),
-					Box::new(asset.id.into()),
-					Box::new(TransferType::DestinationReserve),
-					Box::new(VersionedXcm::from(custom_xcm_on_dest)),
+					Box::new(xcm_beneficiary.into()),
+					Box::new(VersionedAssets::V5(assets)),
+					fee_asset_item,
 					weight_limit,
 				)
 				.map_err(|_| ismp::error::Error::ModuleDispatchError {

@@ -41,7 +41,7 @@ use staging_xcm_builder::{
 use staging_xcm_executor::XcmExecutor;
 
 use pallet_xcm_gateway::xcm_utilities::{
-	ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter, ASSET_HUB_PARA_ID,
+	ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter,
 };
 
 parameter_types! {
@@ -135,20 +135,18 @@ fn chain_part(location: &Location) -> Option<Location> {
 	}
 }
 
-pub struct AssetsFromAssetHub;
-impl ContainsPair<Asset, Location> for AssetsFromAssetHub {
+/// A `ContainsPair` implementation. Filters multi native assets whose
+/// reserve is same with `origin`.
+pub struct MultiNativeAsset;
+impl ContainsPair<Asset, Location> for MultiNativeAsset {
 	fn contains(asset: &Asset, origin: &Location) -> bool {
-		let self_para = Location::new(1, [Parachain(ParachainInfo::parachain_id().into())]);
-		if origin == &self_para {
-			return false;
+		let AssetId(location) = &asset.id;
+		// Check if the asset location matches the origin location for reserve checking
+		if let Some(location) = chain_part(location) {
+			if location == *origin {
+				return true;
+			}
 		}
-
-		let asset_hub = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
-		if origin == &asset_hub {
-			let AssetId(asset_id) = &asset.id;
-			return Location::parent() == *asset_id;
-		}
-
 		false
 	}
 }
@@ -160,11 +158,8 @@ impl staging_xcm_executor::Config for XcmConfig {
 	// How to withdraw and deposit an asset.
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
-	type IsReserve = AssetsFromAssetHub;
-	type IsTeleporter = (
-		// Important setting reflecting AssetHub
-		parachains_common::xcm_config::ConcreteAssetFromSystem<RelayLocation>,
-	);
+	type IsReserve = MultiNativeAsset;
+	type IsTeleporter = ();
 	type Aliasers = Nothing;
 	// Teleporting is disabled.
 	type UniversalLocation = UniversalLocation;

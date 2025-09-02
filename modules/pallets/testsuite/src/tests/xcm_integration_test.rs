@@ -8,11 +8,11 @@ use futures::StreamExt;
 use polkadot_sdk::{
 	sp_core::{bytes::from_hex, sr25519, Pair, H256},
 	sp_runtime::Weight,
-	staging_xcm::v5::{Asset, AssetId, Fungibility, Parent},
+	staging_xcm::v4::{Asset, AssetId, Fungibility},
 	*,
 };
 use staging_xcm::{
-	v5::{Junction, Junctions, Location, NetworkId, WeightLimit},
+	v4::{Junction, Junctions, Location, NetworkId, WeightLimit},
 	VersionedLocation,
 };
 use subxt::{
@@ -45,16 +45,9 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	let url = std::env::var("ROCOCO_LOCAL_URL")
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9922".to_string());
-	let relay_client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
+	let client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
 	let rpc_client = RpcClient::from_url(&url).await?;
 	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
-
-	let assethub_url = std::env::var("ASSET_HUB_LOCAL_URL")
-		.ok()
-		.unwrap_or("ws://127.0.0.1:9910".to_string());
-	let assethub_client = OnlineClient::<BlakeSubstrateChain>::from_url(&assethub_url).await?;
-	let _assethub_rpc_client = RpcClient::from_url(&assethub_url).await?;
-	let _assethub_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 
 	let para_url = std::env::var("PARA_LOCAL_URL")
 		.ok()
@@ -62,9 +55,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	let _para_client = OnlineClient::<Hyperbridge>::from_url(&para_url).await?;
 	let para_rpc_client = RpcClient::from_url(&para_url).await?;
 	let para_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(para_rpc_client.clone());
-
-	force_open_hrmp_channel(&relay_client, &signer, 1000, 2000).await?;
-	force_open_hrmp_channel(&relay_client, &signer, 2000, 1000).await?;
 
 	// Wait for parachain block production
 
@@ -86,13 +76,10 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
-	let dest: VersionedLocation =
-		VersionedLocation::V5(Location::new(1, [Junction::Parachain(2000)]));
+	let dest: VersionedLocation = VersionedLocation::V4(Junction::Parachain(2000).into());
 
-	let beneficiary_as_versioned = VersionedLocation::V5(beneficiary);
-	let dot_location: Location = Parent.into();
-	let assets_vec =
-		vec![Asset { id: dot_location.into(), fun: Fungibility::Fungible(SEND_AMOUNT) }];
+	let beneficiary_as_versioned = VersionedLocation::V4(beneficiary);
+	let assets_vec = vec![(Junctions::Here, SEND_AMOUNT).into()];
 
 	let dest_value = versioned_location_to_value(&dest);
 	let beneficiary_value = versioned_location_to_value(&beneficiary_as_versioned);
@@ -100,8 +87,26 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	let fee_asset_index_value = Value::u128(0);
 	let weight_limit_value = weight_limit_to_value(&weight_limit);
 
+	{
+		let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
+		let para_absolute_location: Location = Junction::Parachain(2000).into();
+		let version = 4u32;
+
+		let location_as_value = location_to_value(&para_absolute_location);
+		let version_as_value = Value::u128(version.into());
+
+		// Force set the xcm version to our supported version
+		let call = subxt::dynamic::tx(
+			"XcmPallet",
+			"force_xcm_version",
+			vec![location_as_value, version_as_value],
+		);
+		let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
+		send_extrinsic(&client, &signer, &tx, None).await?;
+	}
+
 	let ext = subxt::dynamic::tx(
-		"PolkadotXcm",
+		"XcmPallet",
 		"limited_reserve_transfer_assets",
 		vec![
 			dest_value,
@@ -118,9 +123,8 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.ok_or_else(|| anyhow!("Failed to fetch latest header"))?
 		.number();
 
-	send_extrinsic(&assethub_client, &signer, &ext, None).await?;
+	send_extrinsic(&client, &signer, &ext, None).await?;
 
-	println!("done performing limited reserve asset transfer");
 	let mut sub = para_rpc.chain_subscribe_finalized_heads().await?;
 
 	while let Some(res) = sub.next().await {
@@ -165,23 +169,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	}
 
 	Err(anyhow!("XCM Integration test failed"))
-}
-
-async fn force_open_hrmp_channel(
-	relay_client: &OnlineClient<BlakeSubstrateChain>,
-	signer: &InMemorySigner<BlakeSubstrateChain>,
-	sender: u128,
-	recipient: u128,
-) -> anyhow::Result<()> {
-	let force_call = subxt::dynamic::tx(
-		"Hrmp",
-		"force_open_hrmp_channel",
-		vec![Value::u128(sender), Value::u128(recipient), Value::u128(8), Value::u128(1024 * 1024)],
-	);
-	let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![force_call.into_value()]);
-	send_extrinsic(relay_client, signer, &sudo_call, None).await?;
-
-	Ok(())
 }
 
 fn junction_to_value(junction: &Junction) -> Value<()> {
@@ -266,11 +253,11 @@ pub fn force_xcm_version_value() -> Value<()> {
 
 fn versioned_location_to_value(loc: &VersionedLocation) -> Value<()> {
 	match loc {
-		VersionedLocation::V5(location) => {
+		VersionedLocation::V4(location) => {
 			let location_value = location_to_value(location);
-			Value::variant("V5", Composite::unnamed(vec![location_value]))
+			Value::variant("V4", Composite::unnamed(vec![location_value]))
 		},
-		_ => unimplemented!("This helper only supports V5 VersionedLocation"),
+		_ => unimplemented!("This helper only supports V4 VersionedLocation"),
 	}
 }
 
@@ -298,7 +285,7 @@ fn versioned_assets_to_value(assets_vec: &Vec<Asset>) -> Value<()> {
 	let inner_assets_value = Value::unnamed_composite(asset_values);
 
 	let assets_struct_value = Value::unnamed_composite(vec![inner_assets_value]);
-	Value::variant("V5", Composite::unnamed(vec![assets_struct_value]))
+	Value::variant("V4", Composite::unnamed(vec![assets_struct_value]))
 }
 
 fn weight_to_value(weight: &Weight) -> Value<()> {

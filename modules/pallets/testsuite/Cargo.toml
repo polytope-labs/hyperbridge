@@ -53,7 +53,6 @@ evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 ismp-grandpa = { workspace = true, default-features = true }
 rs_merkle = { version = "1.5.0"}
-log = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -89,10 +88,8 @@ features = [
     "pallet-collator-selection",
     "pallet-session",
     "pallet-assets-holder",
-    "cumulus-primitives-parachain-inherent",
-    "xcm-emulator"
+    "cumulus-primitives-parachain-inherent"
 ]
-
 
 [dev-dependencies]
 hex = "0.4.3"
@@ -103,7 +100,6 @@ tokio = { workspace = true }
 dotenv = "0.15.0"
 futures = "0.3.28"
 pallet-ismp-rpc = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 runtime-benchmarks = [

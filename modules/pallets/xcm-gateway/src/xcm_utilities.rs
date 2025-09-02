@@ -34,7 +34,6 @@ use staging_xcm_executor::{
 	traits::{ConvertLocation, Error as MatchError, MatchesFungibles, TransactAsset},
 	AssetsInHolding,
 };
-pub const ASSET_HUB_PARA_ID: u32 = 1000;
 pub struct WrappedNetworkId(pub NetworkId);
 
 impl TryFrom<WrappedNetworkId> for StateMachine {

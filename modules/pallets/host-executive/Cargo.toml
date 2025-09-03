@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-host-executive"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "The host executive is responsible for tracking all connected hosts and is responsible for updating them"
 authors = ["Polytope Labs <hello@polytope.technology>"]

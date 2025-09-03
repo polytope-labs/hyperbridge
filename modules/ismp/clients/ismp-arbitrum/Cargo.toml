@@ -1,6 +1,6 @@
 [package]
 name = "ismp-arbitrum"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "ISMP Consensus Client for the Arbitrum L2 Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]

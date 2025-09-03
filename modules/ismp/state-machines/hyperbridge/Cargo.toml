@@ -1,6 +1,6 @@
 [package]
 name = "hyperbridge-client-machine"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "State machine client for connected substrate-based chains which checks for protocol fees"
 publish = false

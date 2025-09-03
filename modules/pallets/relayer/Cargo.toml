@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-relayer"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Pallet for tracking relayer deliveries and managing their associated fees"

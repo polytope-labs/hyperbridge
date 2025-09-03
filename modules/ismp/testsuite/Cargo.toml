@@ -1,6 +1,6 @@
 [package]
 name = "ismp-testsuite"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Test suite for  ISMP"
 authors = ["Polytope Labs <hello@polytope.technology>"]

@@ -1,6 +1,6 @@
 [package]
 name = "pallet-messaging-fees"
-version = "0.1.0"
+version = "0.1.1"
 description = "FRAME pallet for incentivizing hyperbridge messaging relayers with rewards"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 edition = "2021"

@@ -31,8 +31,6 @@ pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, anyhow
 where
 	H: IsmpHost,
 {
-	let signer = msg.signer.clone();
-
 	let proof = msg.proof();
 	let state_machine = validate_state_machine(host, proof.height)?;
 	let state = host.state_machine_commitment(proof.height)?;
@@ -68,8 +66,8 @@ where
 
 				// in order to allow proxies, the host must configure the given state machine
 				// as it's proxy and must not have a state machine client for the source chain
-				let allow_proxy = host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-					check_state_machine_client(source_chain);
+				let allow_proxy = host.is_allowed_proxy(&msg.proof.height.id.state_id)
+					&& check_state_machine_client(source_chain);
 
 				// check if the response is allowed to be proxied
 				if response.source_chain() != msg.proof.height.id.state_id && !allow_proxy {
@@ -92,13 +90,13 @@ where
 				.map(|response| {
 					let cb = router.module_for_id(response.destination_module())?;
 					// Store response receipt to prevent reentrancy attack
-					host.store_response_receipt(&response, &msg.signer)?;
+					let signer = host.store_response_receipt(&response, &msg.signer)?;
 					let res = cb.on_response(response.clone()).map(|weight| {
 						total_weights.saturating_accrue(weight);
 						let commitment = hash_response::<H>(&response);
 						Event::PostResponseHandled(RequestResponseHandled {
 							commitment,
-							relayer: signer.clone(),
+							relayer: signer,
 						})
 					});
 					// Delete receipt if module callback failed so it can be timed out

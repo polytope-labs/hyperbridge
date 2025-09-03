@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "arb-host"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -909,7 +909,7 @@ checksum = "dde20b3d026af13f561bdd0f15edf01fc734f0dafcedbaf42bba506a9517f223"
 
 [[package]]
 name = "arbitrum-verifier"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -2987,7 +2987,7 @@ dependencies = [
 
 [[package]]
 name = "bsc-prover"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bsc-verifier",
@@ -3004,7 +3004,7 @@ dependencies = [
 
 [[package]]
 name = "bsc-verifier"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -4285,7 +4285,7 @@ dependencies = [
 
 [[package]]
 name = "crypto-utils"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "parity-scale-codec",
@@ -6719,7 +6719,7 @@ dependencies = [
 
 [[package]]
 name = "evm-state-machine"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -8184,7 +8184,7 @@ dependencies = [
 
 [[package]]
 name = "gargantua-runtime"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cumulus-pallet-parachain-system",
@@ -8296,7 +8296,7 @@ dependencies = [
 
 [[package]]
 name = "geth-primitives"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -8666,7 +8666,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-prover"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "derive_more 1.0.0",
@@ -8688,7 +8688,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "derive_more 0.99.20",
@@ -8712,7 +8712,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier-primitives"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "finality-grandpa",
@@ -9438,7 +9438,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.4.1"
+version = "1.4.0"
 dependencies = [
  "clap",
  "futures",
@@ -9448,7 +9448,7 @@ dependencies = [
  "ismp-parachain-runtime-api",
  "jsonrpsee 0.24.9",
  "log",
- "mmr-gadget 29.0.2",
+ "mmr-gadget 29.0.1",
  "nexus-runtime",
  "pallet-ismp",
  "pallet-ismp-rpc",
@@ -9466,7 +9466,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge-client-machine"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "hash-db",
  "ismp",
@@ -9481,7 +9481,7 @@ dependencies = [
 
 [[package]]
 name = "hyperclient"
-version = "0.6.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -10508,7 +10508,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-arbitrum"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "arbitrum-verifier",
  "evm-state-machine",
@@ -10523,7 +10523,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-bsc"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bsc-verifier",
@@ -10545,7 +10545,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
@@ -10563,7 +10563,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-optimism"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "arbitrum-verifier",
  "ethabi",
@@ -10587,7 +10587,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
@@ -10604,7 +10604,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -10626,7 +10626,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-polygon"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -10651,7 +10651,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-solidity-abi"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
@@ -10667,7 +10667,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-solidity-tests"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "anyhow",
@@ -10706,7 +10706,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-sync-committee"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "ethabi",
  "ethereum-triedb",
@@ -10728,7 +10728,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-testsuite"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "crypto-utils",
@@ -12566,7 +12566,7 @@ dependencies = [
 
 [[package]]
 name = "mmr-gadget"
-version = "29.0.2"
+version = "29.0.1"
 dependencies = [
  "futures",
  "log",
@@ -12600,7 +12600,7 @@ dependencies = [
 
 [[package]]
 name = "mmr-primitives"
-version = "1.15.3"
+version = "1.15.2"
 dependencies = [
  "ckb-merkle-mountain-range",
  "ismp",
@@ -13147,7 +13147,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexus-runtime"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cumulus-pallet-parachain-system",
@@ -13620,7 +13620,7 @@ dependencies = [
 
 [[package]]
 name = "op-host"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -13658,7 +13658,7 @@ dependencies = [
 
 [[package]]
 name = "op-verifier"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -14588,7 +14588,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-bridge-airdrop"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "log",
@@ -14724,7 +14724,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-call-decompressor"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "ismp",
  "log",
@@ -14757,7 +14757,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-collator-manager"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -14821,7 +14821,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-consensus-incentives"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "crypto-utils",
  "ismp",
@@ -15122,7 +15122,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-fishermen"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -15175,7 +15175,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "ismp",
@@ -15253,7 +15253,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "crypto-utils",
@@ -15272,7 +15272,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-demo"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "ismp",
@@ -15284,7 +15284,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-host-executive"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",
@@ -15301,7 +15301,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-relayer"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -15330,7 +15330,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "hash-db",
@@ -15350,7 +15350,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -15362,7 +15362,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-testsuite"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-types 0.7.7",
@@ -15487,7 +15487,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-messaging-fees"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "crypto-utils",
  "hyperbridge-client-machine",
@@ -15583,7 +15583,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-mmr-rpc"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "jsonrpsee 0.24.9",
@@ -15596,7 +15596,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-mmr-runtime-api"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "pallet-ismp",
  "parity-scale-codec",
@@ -15606,7 +15606,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-mmr-tree"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "array-bytes 6.2.3",
  "ckb-merkle-mountain-range",
@@ -16373,7 +16373,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-state-coprocessor"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -16499,7 +16499,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",
@@ -16518,7 +16518,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway-inspector"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",
@@ -16537,7 +16537,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-governor"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",
@@ -16873,7 +16873,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-xcm-gateway"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp-derive",
@@ -23742,7 +23742,7 @@ dependencies = [
 
 [[package]]
 name = "serde-hex-utils"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hex",
@@ -24141,7 +24141,7 @@ checksum = "620a1d43d70e142b1d46a929af51d44f383db9c7a2ec122de2cd992ccfcf3c18"
 
 [[package]]
 name = "simtests"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
@@ -27150,7 +27150,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "hash-db",
  "ismp",
@@ -27596,7 +27596,7 @@ dependencies = [
 
 [[package]]
 name = "subxt-utils"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "anyhow",
@@ -27929,7 +27929,7 @@ dependencies = [
 
 [[package]]
 name = "telemetry-server"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -28266,7 +28266,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.2.4"
+version = "1.2.3"
 dependencies = [
  "anyhow",
  "arb-host",
@@ -28303,7 +28303,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-evm"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
@@ -28370,7 +28370,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-grandpa"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28399,7 +28399,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-integration-tests"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "arb-host",
@@ -28447,7 +28447,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-messaging"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -28470,7 +28470,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-polygon"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28502,7 +28502,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-primitives"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28523,7 +28523,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-substrate"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28557,7 +28557,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-sync-committee"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "again",
  "anyhow",
@@ -28811,7 +28811,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "token-gateway-primitives"
-version = "2506.0.1"
+version = "2506.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",
@@ -29476,7 +29476,7 @@ dependencies = [
 
 [[package]]
 name = "transaction-fees"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",

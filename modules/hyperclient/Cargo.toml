@@ -1,6 +1,6 @@
 [package]
 name = "hyperclient"
-version = "0.6.1"
+version = "0.6.0"
 edition = "2021"
 description = "The hyperclient is a library for managing (in-flight) ISMP requests"
 repository = "https://github.com/polytope-labs/hyperbridge"

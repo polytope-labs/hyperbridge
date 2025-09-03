@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-polygon"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = "Polygon consensus relayer for tesseract"
 authors = ["Polytope Labs <hello@polytope.technology>"]

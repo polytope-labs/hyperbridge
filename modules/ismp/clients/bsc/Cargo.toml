@@ -1,6 +1,6 @@
 [package]
 name = "ismp-bsc"
-version = "0.1.2"
+version = "0.1.1"
 edition = "2021"
 description = "ISMP Consensus Client for the BNB POS Network's Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]

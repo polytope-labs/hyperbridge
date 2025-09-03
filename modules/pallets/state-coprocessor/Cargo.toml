@@ -1,6 +1,6 @@
 [package]
 name = "pallet-state-coprocessor"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = "The state coprocessor enables Hyperbridge to perform storage queries of connected chains"
 authors = ["Polytope Labs <hello@polytope.technology>"]

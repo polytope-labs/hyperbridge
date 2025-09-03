@@ -1,6 +1,6 @@
 [package]
 name = "ismp-solidity-tests"
-version = "0.1.2"
+version = "0.1.1"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Integration tests for ismp-solidity"

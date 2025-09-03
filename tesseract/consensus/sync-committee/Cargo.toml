@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-sync-committee"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = "Sync-committee primitives for ISMP messaging relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]

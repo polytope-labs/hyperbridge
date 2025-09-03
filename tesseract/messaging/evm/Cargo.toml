@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-evm"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 description = "EVM primitives for ISMP messaging relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]

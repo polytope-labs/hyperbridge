@@ -1,6 +1,6 @@
 [package]
 name = "arbitrum-verifier"
-version = "0.1.2"
+version = "0.1.1"
 edition = "2021"
 description = "Verifier for Arbitrum rollup protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]

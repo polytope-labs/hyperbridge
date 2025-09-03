@@ -1,6 +1,6 @@
 [package]
 name = "simtests"
-version = "0.1.2"
+version = "0.1.1"
 edition = "2021"
 description = "Simnode integration tests for the hyperbridge node subsystems"
 authors = ["Polytope Labs <hello@polytope.technology>"]

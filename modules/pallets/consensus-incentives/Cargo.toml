@@ -1,6 +1,6 @@
 [package]
 name = "pallet-consensus-incentives"
-version = "0.1.1"
+version = "0.1.0"
 description = "FRAME pallet for incentivizing hyperbridge consensus relayers with rewards"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 edition = "2021"

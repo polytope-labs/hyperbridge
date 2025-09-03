@@ -164,7 +164,7 @@ where
 						get: request.clone(),
 						values: Default::default(),
 					});
-					let signer = host.store_response_receipt(&response, &signer)?;
+					let signer = host.store_response_receipt(&response, &msg.signer)?;
 					let res = cb
 						.on_response(Response::Get(GetResponse { get: request.clone(), values }))
 						.map(|weight| {

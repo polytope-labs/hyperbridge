@@ -31,7 +31,6 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, anyhow:
 where
 	H: IsmpHost,
 {
-	let signer = msg.signer.clone();
 	let state_machine = validate_state_machine(host, msg.proof.height)?;
 	let consensus_clients = host.consensus_clients();
 	let check_state_machine_client = |state_machine: StateMachine| {
@@ -91,7 +90,7 @@ where
 			let mut lambda = || {
 				let cb = router.module_for_id(request.to.clone())?;
 				// Store request receipt to prevent reentrancy attack
-				let signer = host.store_request_receipt(&wrapped_req, &signer)?;
+				let signer = host.store_request_receipt(&wrapped_req, &msg.signer)?;
 				let res = cb.on_accept(request.clone()).map(|weight| {
 					total_weights.saturating_accrue(weight);
 

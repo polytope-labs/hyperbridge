@@ -10491,10 +10491,9 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "ismp"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
- "crypto-utils",
  "derive_more 1.0.0",
  "displaydoc",
  "hex",

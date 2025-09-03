@@ -336,7 +336,7 @@ impl<T: Config> ismp::messaging::Keccak256 for Pallet<T> {
 	}
 }
 
-pub fn extract_signer(signer: &[u8]) -> Result<Vec<u8>, Error> {
+fn extract_signer(signer: &[u8]) -> Result<Vec<u8>, Error> {
 	if signer.len() > 32 {
 		Signature::decode(&mut signer.as_ref())
 			.map(|sig| sig.signer())

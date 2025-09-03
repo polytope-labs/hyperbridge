@@ -1,6 +1,6 @@
 [package]
 name = "ismp"
-version = "2506.0.0"
+version = "2506.1.0"
 edition = "2021"
 description = "Rust implementation of the interoperable state machine protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -32,7 +32,6 @@ anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 serde-hex-utils = { workspace = true, default-features = false }
 sp-weights = { workspace = true, default-features = false }
-crypto-utils = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -49,5 +48,4 @@ std = [
     "displaydoc/std",
     "anyhow/std",
     "sp-weights/std",
-    "crypto-utils/std"
 ]

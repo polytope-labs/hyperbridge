@@ -165,12 +165,12 @@ pub trait IsmpHost: Keccak256 {
 
 	/// Stores a receipt for an incoming request after it is successfully routed to a module.
 	/// Prevents duplicate incoming requests from being processed. Includes the relayer account
-	fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error>;
+	fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<Vec<u8>, Error>;
 
 	/// Stores a receipt that shows that the given request has received a response. Includes the
 	/// relayer account
 	/// Implementors should map the request commitment to the response object commitment.
-	fn store_response_receipt(&self, req: &Response, signer: &Vec<u8>) -> Result<(), Error>;
+	fn store_response_receipt(&self, req: &Response, signer: &Vec<u8>) -> Result<Vec<u8>, Error>;
 
 	/// Stores a commitment for an outgoing request alongside some scale encoded metadata
 	fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error>;

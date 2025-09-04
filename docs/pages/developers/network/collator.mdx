@@ -6,11 +6,11 @@ description: This guide outlines the complete process of leveraging a Relayer's 
 # Becoming a Collator
 
 Our system is designed to reward active and reliable participants by allowing them to use their earnings as a reputation score, which is the primary factor in Collator
-selection. By becoming a Collator, a Relayer plays a more direct role in the network's security and block production, unlocking possibilities for rewards and participation.
+selection. By becoming a Collator, a Relayer plays a more direct role in the network's liveness guarantees and block production.
 
 ## Who is a Collator
 Collators are Block producers for the Hyperbridge Blockchain. Collators are essential for keeping the Hyperbridge chain live and processing transactions.
-They are rewarded with `$BRIDGE` tokens for their work. The primary responsibility for Collators on Hyperbridge are:
+They are rewarded with `$BRIDGE`. The primary responsibility for Collators on Hyperbridge are:
 
 - **Collecting Transactions**: They gather transactions from users.
 - **Producing Blocks**: They ensure the production of Blocks.
@@ -34,7 +34,7 @@ The process involves three main stages: Accruing reputation score/asset, prepari
 This is the foundation of the entire system. The primary goal is to be an active and reliable relayer.
 
 **Why Relayers**: Hyperbridge's Collator selection mechanism is based on proven economic activity on Hyperbridge. By rewarding relayers with reputation, we ensure that our collators are experienced,
-active, amd invested participants in the network success. This meritocratic approach secures the network by selecting for proven value creation.
+active, and invested participants in the network success. This meritocratic system ensures liveness guarantees are upheld by selecting for proven value creation.
 
 **Action**: Continue to relay messages or/and consensus proofs between connected chains
 
@@ -50,7 +50,7 @@ to your account. You can always find your Reputation Asset balance under the Pol
 To be a collator, you must run a full node and have set of hot keys known as session keys, available in your node's keystore. These keys are used for signing blocks.
 
 **Action 1: Set up a Collator Node**: You must have a fully synced node running the hyperbridge binary with --collator flag.
-Ensure it is stable and has a relaible network connection.
+Ensure it is stable and has a reliable network connection.
 
 **Action 2: Generate session Keys**: On your running collator node, you will need to generate your session keys by making an `author_rotateKeys` RPC Call.
 You can do this with a curl command:

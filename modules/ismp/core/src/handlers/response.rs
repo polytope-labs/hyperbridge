@@ -66,8 +66,8 @@ where
 
 				// in order to allow proxies, the host must configure the given state machine
 				// as it's proxy and must not have a state machine client for the source chain
-				let allow_proxy = host.is_allowed_proxy(&msg.proof.height.id.state_id)
-					&& check_state_machine_client(source_chain);
+				let allow_proxy = host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+					check_state_machine_client(source_chain);
 
 				// check if the response is allowed to be proxied
 				if response.source_chain() != msg.proof.height.id.state_id && !allow_proxy {

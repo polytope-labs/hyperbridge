@@ -474,7 +474,7 @@ export default defineConfig({
 
           {
             text: "Becoming a Collator",
-            link: "/developers/network/relayer/consensus/relayer",
+            link: "/developers/network/collator",
           },
         ],
       },

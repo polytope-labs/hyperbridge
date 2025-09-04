@@ -284,8 +284,10 @@ pub struct WithdrawalRequest<Account, Amount> {
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
 pub enum Message<Account, Balance> {
 	/// Set some new host params
+	#[codec(index = 0)]
 	UpdateHostParams(VersionedHostParams<Balance>),
 	/// Withdraw the fees owed to a relayer
+	#[codec(index = 2)]
 	WithdrawRelayerFees(WithdrawalRequest<Account, Balance>),
 }
 

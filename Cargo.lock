@@ -8689,7 +8689,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "derive_more 0.99.20",
@@ -8713,7 +8713,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier-primitives"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "finality-grandpa",
@@ -10492,10 +10492,9 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "ismp"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
- "crypto-utils",
  "derive_more 1.0.0",
  "displaydoc",
  "hex",
@@ -10547,7 +10546,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
@@ -10589,7 +10588,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
@@ -10606,7 +10605,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -15177,7 +15176,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "2506.0.0"
+version = "2506.1.1"
 dependencies = [
  "anyhow",
  "ismp",
@@ -15255,7 +15254,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "crypto-utils",
@@ -15332,7 +15331,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "anyhow",
  "hash-db",
@@ -15352,7 +15351,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -16501,7 +16500,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",
@@ -27152,7 +27151,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "hash-db",
  "ismp",
@@ -28221,7 +28220,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-bsc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28356,7 +28355,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-fisherman"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "futures",
@@ -28813,7 +28812,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "token-gateway-primitives"
-version = "2506.0.0"
+version = "2506.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",

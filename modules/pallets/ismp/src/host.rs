@@ -27,6 +27,7 @@ use crate::{
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
 use core::time::Duration;
+use crypto_utils::verification::Signature;
 use frame_support::traits::{Get, UnixTime};
 use ismp::{
 	consensus::{
@@ -254,20 +255,24 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		Ok(meta.relayer)
 	}
 
-	fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
+	fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+		let signer = extract_signer(signer)?;
+
 		let hash = hash_request::<Self>(req);
-		child_trie::RequestReceipts::<T>::insert(hash, signer);
-		Ok(())
+		child_trie::RequestReceipts::<T>::insert(hash, &signer);
+		Ok(signer)
 	}
 
-	fn store_response_receipt(&self, res: &Response, signer: &Vec<u8>) -> Result<(), Error> {
+	fn store_response_receipt(&self, res: &Response, signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+		let signer = extract_signer(signer)?;
+
 		let hash = hash_request::<Self>(&res.request());
 		let response = hash_response::<Self>(&res);
 		child_trie::ResponseReceipts::<T>::insert(
 			hash,
 			ResponseReceipt { response, relayer: signer.clone() },
 		);
-		Ok(())
+		Ok(signer)
 	}
 
 	fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>> {
@@ -328,5 +333,15 @@ impl<T: Config> ismp::messaging::Keccak256 for Pallet<T> {
 		Self: Sized,
 	{
 		sp_io::hashing::keccak_256(bytes).into()
+	}
+}
+
+fn extract_signer(signer: &[u8]) -> Result<Vec<u8>, Error> {
+	if signer.len() > 32 {
+		Signature::decode(&mut signer.as_ref())
+			.map(|sig| sig.signer())
+			.map_err(|_| Error::SignatureDecodingFailed)
+	} else {
+		Ok(signer.to_vec())
 	}
 }

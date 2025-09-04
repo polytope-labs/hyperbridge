@@ -345,16 +345,16 @@ impl IsmpHost for Host {
 		Ok(val.encode())
 	}
 
-	fn store_request_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
+	fn store_request_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(req);
 		self.receipts.borrow_mut().insert(hash, ());
-		Ok(())
+		Ok(vec![])
 	}
 
-	fn store_response_receipt(&self, res: &Response, _signer: &Vec<u8>) -> Result<(), Error> {
+	fn store_response_receipt(&self, res: &Response, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
 		let hash = hash_response::<Self>(res);
 		self.receipts.borrow_mut().insert(hash, ());
-		Ok(())
+		Ok(vec![])
 	}
 
 	fn store_request_commitment(&self, req: &Request, _meta: Vec<u8>) -> Result<(), Error> {

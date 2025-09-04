@@ -24,8 +24,6 @@ use crate::{
 	router::{GetResponse, Request, RequestResponse, Response, StorageValue},
 };
 use alloc::{vec, vec::Vec};
-use codec::Decode;
-use crypto_utils::verification::Signature;
 use sp_weights::Weight;
 
 /// Validate the state machine, verify the response message and dispatch the message to the modules
@@ -33,10 +31,6 @@ pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, anyhow
 where
 	H: IsmpHost,
 {
-	let signer: Vec<u8> = Signature::decode(&mut msg.signer.as_slice())
-		.map_err(|_| Error::SignatureDecodingFailed)?
-		.signer();
-
 	let proof = msg.proof();
 	let state_machine = validate_state_machine(host, proof.height)?;
 	let state = host.state_machine_commitment(proof.height)?;
@@ -96,13 +90,13 @@ where
 				.map(|response| {
 					let cb = router.module_for_id(response.destination_module())?;
 					// Store response receipt to prevent reentrancy attack
-					host.store_response_receipt(&response, &signer)?;
+					let signer = host.store_response_receipt(&response, &msg.signer)?;
 					let res = cb.on_response(response.clone()).map(|weight| {
 						total_weights.saturating_accrue(weight);
 						let commitment = hash_response::<H>(&response);
 						Event::PostResponseHandled(RequestResponseHandled {
 							commitment,
-							relayer: signer.clone(),
+							relayer: signer,
 						})
 					});
 					// Delete receipt if module callback failed so it can be timed out
@@ -168,7 +162,7 @@ where
 						get: request.clone(),
 						values: Default::default(),
 					});
-					host.store_response_receipt(&response, &signer)?;
+					let signer = host.store_response_receipt(&response, &msg.signer)?;
 					let res = cb
 						.on_response(Response::Get(GetResponse { get: request.clone(), values }))
 						.map(|weight| {
@@ -176,7 +170,7 @@ where
 							let commitment = hash_request::<H>(&wrapped_req);
 							Event::GetRequestHandled(RequestResponseHandled {
 								commitment,
-								relayer: signer.clone(),
+								relayer: signer,
 							})
 						});
 					// Delete receipt if module callback failed so it can be timed out

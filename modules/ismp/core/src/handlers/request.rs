@@ -24,8 +24,6 @@ use crate::{
 	router::{Request, RequestResponse},
 };
 use alloc::vec::Vec;
-use codec::Decode;
-use crypto_utils::verification::Signature;
 use sp_weights::Weight;
 
 /// Validate the state machine, verify the request message and dispatch the message to the modules
@@ -33,10 +31,6 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, anyhow:
 where
 	H: IsmpHost,
 {
-	let signer: Vec<u8> = Signature::decode(&mut msg.signer.as_slice())
-		.map_err(|_| Error::SignatureDecodingFailed)?
-		.signer();
-
 	let state_machine = validate_state_machine(host, msg.proof.height)?;
 	let consensus_clients = host.consensus_clients();
 	let check_state_machine_client = |state_machine: StateMachine| {
@@ -96,14 +90,14 @@ where
 			let mut lambda = || {
 				let cb = router.module_for_id(request.to.clone())?;
 				// Store request receipt to prevent reentrancy attack
-				host.store_request_receipt(&wrapped_req, &signer)?;
+				let signer = host.store_request_receipt(&wrapped_req, &msg.signer)?;
 				let res = cb.on_accept(request.clone()).map(|weight| {
 					total_weights.saturating_accrue(weight);
 
 					let commitment = hash_request::<H>(&wrapped_req);
 					Event::PostRequestHandled(RequestResponseHandled {
 						commitment,
-						relayer: signer.clone(),
+						relayer: signer,
 					})
 				});
 				// Delete receipt if module callback failed so it can be timed out

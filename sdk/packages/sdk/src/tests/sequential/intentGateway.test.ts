@@ -12,7 +12,7 @@ import {
 	parseEther,
 } from "viem"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
-import { bscTestnet, gnosisChiado } from "viem/chains"
+import { bsc, bscTestnet, gnosisChiado, mainnet } from "viem/chains"
 
 import { IndexerClient } from "@/client"
 import { ChainConfig, FillerConfig, type HexString, IPostRequest, Order, OrderStatus } from "@/types"
@@ -352,12 +352,69 @@ describe.sequential("Order Status Stream", () => {
 		assert(mainnetQuote3.protocol === "v4")
 		assert(mainnetQuote3.amountIn > 0n)
 	}, 1_000_000)
+
+	it.skip("Should generate the estimatedFee while doing bsc mainnet to eth mainnet", async () => {
+		const { chainConfigService, bscMainnetIsmpHost, mainnetIsmpHost } = await setUp()
+		const bscMainnetId = "EVM-56"
+		const mainnetId = "EVM-1"
+		const bscEvmChain = new EvmChain({
+			chainId: 56,
+			host: chainConfigService.getHostAddress(bscMainnetId),
+			url: process.env.BSC_MAINNET!,
+		})
+		const mainnetEvmChain = new EvmChain({
+			chainId: 1,
+			host: chainConfigService.getHostAddress(mainnetId),
+			url: process.env.ETH_MAINNET!,
+		})
+
+		const bscIntentGateway = new IntentGateway(bscEvmChain, mainnetEvmChain)
+
+		const bscUsdcAsset = chainConfigService.getUsdcAsset(bscMainnetId)
+		const mainnetUsdcAsset = chainConfigService.getUsdcAsset(mainnetId)
+
+		const order: Order = {
+			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+			sourceChain: await bscMainnetIsmpHost.read.host(),
+			destChain: await mainnetIsmpHost.read.host(),
+			deadline: 65337297000n,
+			nonce: 0n,
+			fees: 0n,
+			outputs: [
+				{
+					token: bytes20ToBytes32(mainnetUsdcAsset),
+					amount: 100n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+				},
+			],
+			inputs: [
+				{
+					token: bytes20ToBytes32(bscUsdcAsset),
+					amount: 100n,
+				},
+			],
+			callData: "0x" as HexString,
+		}
+
+		console.log("order", order)
+
+		const estimatedFee = await bscIntentGateway.estimateFillOrder({
+			...order,
+			id: orderCommitment(order),
+			destChain: hexToString(order.destChain as HexString),
+			sourceChain: hexToString(order.sourceChain as HexString),
+		})
+		console.log("Estimated fee:", estimatedFee)
+		assert(estimatedFee > 0n)
+	}, 1_000_000)
 })
 
 async function setUp() {
 	const bscChapelId = "EVM-97"
 	const gnosisChiadoId = "EVM-10200"
-	const chains = [bscChapelId, gnosisChiadoId]
+	const bscMainnetId = "EVM-56"
+	const mainnetId = "EVM-1"
+	const chains = [bscChapelId, gnosisChiadoId, bscMainnetId, mainnetId]
 
 	let chainConfigService = new ChainConfigService()
 	let chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
@@ -370,6 +427,18 @@ async function setUp() {
 			maxConfirmations: 5,
 		},
 		"10200": {
+			minAmount: "1000000000000000000", // 1 token
+			maxAmount: "1000000000000000000000", // 1000 tokens
+			minConfirmations: 1,
+			maxConfirmations: 5,
+		},
+		"56": {
+			minAmount: "1000000000000000000", // 1 token
+			maxAmount: "1000000000000000000000", // 1000 tokens
+			minConfirmations: 1,
+			maxConfirmations: 5,
+		},
+		"1": {
 			minAmount: "1000000000000000000", // 1 token
 			maxAmount: "1000000000000000000000", // 1000 tokens
 			minConfirmations: 1,
@@ -413,6 +482,16 @@ async function setUp() {
 		transport: http(process.env.GNOSIS_CHIADO),
 	})
 
+	const bscMainnetPublicClient = createPublicClient({
+		chain: bsc,
+		transport: http(process.env.BSC_MAINNET!),
+	})
+
+	const mainnetPublicClient = createPublicClient({
+		chain: mainnet,
+		transport: http(process.env.ETH_MAINNET!),
+	})
+
 	const bscIntentGateway = getContract({
 		address: chainConfigService.getIntentGatewayAddress(bscChapelId),
 		abi: INTENT_GATEWAY_ABI.ABI,
@@ -427,6 +506,8 @@ async function setUp() {
 
 	const bscIsmpHostAddress = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7" as HexString
 	const gnosisChiadoIsmpHostAddress = "0x58a41b89f4871725e5d898d98ef4bf917601c5eb" as HexString
+	const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
+	const mainnetIsmpHostAddress = "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20" as HexString
 
 	const bscIsmpHost = getContract({
 		address: bscIsmpHostAddress,
@@ -438,6 +519,18 @@ async function setUp() {
 		address: gnosisChiadoIsmpHostAddress,
 		abi: EVM_HOST.ABI,
 		client: gnosisChiadoPublicClient,
+	})
+
+	const bscMainnetIsmpHost = getContract({
+		address: bscMainnetIsmpHostAddress,
+		abi: EVM_HOST.ABI,
+		client: bscMainnetPublicClient,
+	})
+
+	const mainnetIsmpHost = getContract({
+		address: mainnetIsmpHostAddress,
+		abi: EVM_HOST.ABI,
+		client: mainnetPublicClient,
 	})
 
 	const bscHostParams = await bscIsmpHost.read.hostParams()
@@ -476,6 +569,8 @@ async function setUp() {
 		bscChapelId,
 		bscWalletClient,
 		gnosisChiadoId,
+		bscMainnetIsmpHost,
+		mainnetIsmpHost,
 	}
 }
 

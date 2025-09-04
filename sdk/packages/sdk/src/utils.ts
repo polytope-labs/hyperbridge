@@ -25,6 +25,7 @@ import { getStateCommitmentFieldSlot, type IChain } from "./chain"
 import { generateRootWithProof } from "./utils"
 import handler from "./abis/handler"
 import evmHost from "./abis/evmHost"
+import { generatePrivateKey, privateKeyToAddress } from "viem/accounts"
 
 export * from "./utils/mmr"
 export * from "./utils/substrate"
@@ -513,6 +514,10 @@ export function mapTestnetToMainnet(identifier: string): string {
 	identifier = identifier.toLowerCase()
 
 	switch (identifier) {
+		case "bnb":
+			return "wbnb"
+		case "eth":
+			return "weth"
 		case "tbnb":
 			return "wbnb"
 		case "0xc043f483373072f7f27420d6e7d7ad269c018e18".toLowerCase():

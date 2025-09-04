@@ -186,6 +186,7 @@ export class ContractInteractionService {
 				})
 
 				const tx = await walletClient.writeContract(request)
+				await destClient.waitForTransactionReceipt({ hash: tx })
 				console.log(`Approval confirmed for ${tokenAddress}`)
 			}
 		}
@@ -305,15 +306,15 @@ export class ContractInteractionService {
 			}
 
 			const ethValue = this.calculateRequiredEthValue(order.outputs)
+			const userAddress = privateKeyToAddress(this.privateKey)
+			const testValue = toHex(maxUint256 / 2n)
+			const intentGatewayAddress = this.configService.getIntentGatewayAddress(order.destChain)
 
 			const overrides = (
 				await Promise.all(
 					order.outputs.map(async (output) => {
 						const tokenAddress = bytes32ToBytes20(output.token)
 						if (tokenAddress === ADDRESS_ZERO) return null
-
-						const userAddress = privateKeyToAddress(this.privateKey)
-						const testValue = toHex(maxUint256)
 
 						try {
 							const balanceData = ERC20Method.BALANCE_OF + bytes20ToBytes32(userAddress).slice(2)
@@ -328,9 +329,7 @@ export class ContractInteractionService {
 								const allowanceData =
 									ERC20Method.ALLOWANCE +
 									bytes20ToBytes32(userAddress).slice(2) +
-									bytes20ToBytes32(this.configService.getIntentGatewayAddress(order.destChain)).slice(
-										2,
-									)
+									bytes20ToBytes32(intentGatewayAddress).slice(2)
 								const allowanceSlot = await getStorageSlot(
 									destClient as any,
 									tokenAddress,
@@ -350,9 +349,36 @@ export class ContractInteractionService {
 				)
 			).filter(Boolean)
 
+			const destChainFeeTokenAddress = (await this.getFeeTokenWithDecimals(order.destChain)).address
+
+			const destFeeTokenBalanceData = ERC20Method.BALANCE_OF + bytes20ToBytes32(userAddress).slice(2)
+			const destFeeTokenBalanceSlot = await getStorageSlot(
+				destClient as any,
+				destChainFeeTokenAddress,
+				destFeeTokenBalanceData as HexString,
+			)
+			const destFeeTokenAllowanceData =
+				ERC20Method.ALLOWANCE +
+				bytes20ToBytes32(userAddress).slice(2) +
+				bytes20ToBytes32(intentGatewayAddress).slice(2)
+			const destFeeTokenAllowanceSlot = await getStorageSlot(
+				destClient as any,
+				destChainFeeTokenAddress,
+				destFeeTokenAllowanceData as HexString,
+			)
+			const feeTokenStateDiffs = [
+				{ slot: destFeeTokenBalanceSlot, value: testValue },
+				{ slot: destFeeTokenAllowanceSlot, value: testValue },
+			]
+
+			overrides.push({
+				address: destChainFeeTokenAddress,
+				stateDiff: feeTokenStateDiffs as any,
+			})
+
 			const gas = await destClient.estimateContractGas({
 				abi: INTENT_GATEWAY_ABI,
-				address: this.configService.getIntentGatewayAddress(order.sourceChain),
+				address: this.configService.getIntentGatewayAddress(order.destChain),
 				functionName: "fillOrder",
 				args: [this.transformOrderForContract(order), fillOptions as any],
 				account: privateKeyToAccount(this.privateKey),
@@ -421,33 +447,6 @@ export class ContractInteractionService {
 			functionName: "decimals",
 		})
 		return { address: feeTokenAddress, decimals: feeTokenDecimals }
-	}
-
-	/**
-	 * Gets the HyperBridge protocol fee in fee token
-	 */
-	async getProtocolFee(order: Order, relayerFee: bigint): Promise<bigint> {
-		const destClient = this.clientManager.getPublicClient(order.destChain)
-		const intentFillerAddr = privateKeyToAddress(this.privateKey)
-		const requestBody = constructRedeemEscrowRequestBody(order, intentFillerAddr)
-
-		const dispatchPost: DispatchPost = {
-			dest: toHex(order.sourceChain),
-			to: this.configService.getIntentGatewayAddress(order.sourceChain),
-			body: requestBody,
-			timeout: 0n,
-			fee: relayerFee,
-			payer: intentFillerAddr,
-		}
-
-		const protocolFeeInFeeToken = await destClient.readContract({
-			abi: INTENT_GATEWAY_ABI,
-			address: this.configService.getIntentGatewayAddress(order.destChain),
-			functionName: "quote",
-			args: [dispatchPost as any],
-		})
-
-		return protocolFeeInFeeToken
 	}
 
 	/**

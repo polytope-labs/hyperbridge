@@ -9,7 +9,7 @@ import {
 	ERC20Method,
 	adjustFeeDecimals,
 } from "@/utils"
-import { maxUint256, parseEther, toHex } from "viem"
+import { maxUint256, toHex } from "viem"
 import { type FillOptions, type HexString, type IPostRequest, type Order } from "@/types"
 import IntentGatewayABI from "@/abis/IntentGateway"
 import UniswapV2Factory from "@/abis/uniswapV2Factory"
@@ -86,7 +86,7 @@ export class IntentGateway {
 			.reduce((sum, output) => sum + output.amount, 0n)
 
 		const intentGatewayAddress = this.source.config.getIntentGatewayAddress(order.destChain)
-		const testValue = toHex(maxUint256)
+		const testValue = toHex(maxUint256 / 2n)
 
 		const orderOverrides = await Promise.all(
 			order.outputs.map(async (output) => {

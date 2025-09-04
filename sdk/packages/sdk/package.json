@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/sdk",
-	"version": "1.2.1",
+	"version": "1.2.2",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
 	"types": "./dist/node/index.d.ts",

@@ -5,6 +5,7 @@ description: This guide outlines the complete process of leveraging a Relayer's 
 
 # Becoming a Collator
 
+This guide outlines the complete process of leveraging a Relayer's hardwork and accrued revenue to become a Collator on the network.
 Our system is designed to reward active and reliable participants by allowing them to use their earnings as a reputation score, which is the primary factor in Collator
 selection. By becoming a Collator, a Relayer plays a more direct role in the network's liveness guarantees and block production.
 
@@ -15,6 +16,16 @@ They are rewarded with `$BRIDGE`. The primary responsibility for Collators on Hy
 - **Collecting Transactions**: They gather transactions from users.
 - **Producing Blocks**: They ensure the production of Blocks.
 - **Submitting to Polkadot Validators**: They submit Blocks  along with proof to the relay chain validators, in this case, Polkadot.
+
+## The Relayer-Collator Relationship
+
+In the Hyperbridge ecosystem, the path to becoming a collator begins with being a successful relayer. The two roles are intrinsically linked:
+
+- **Relayers are the proving ground**: By relaying messages, you demonstrate your technical competence and commitment to the network's operation.
+- **Next step is becoming a Collator**: The collator set is exclusively selected from the pool of active relayers. Your economic activity as a relayer is
+the only way to gain the reputation required to be considered for a collator position.
+
+This creates a meritocratic system where the most dedicated and effective network participants are promoted to roles with greater responsibility and rewards.
 
 ## Core Concepts: How Reputation Works
 
@@ -31,7 +42,7 @@ the higher your reputation score becomes, and the better your chances of being s
 The process involves three main stages: Accruing reputation score/asset, preparing your node, and registering one's candidacy.
 
 ### Step 1: Accrue Reputation by Relaying Messages
-This is the foundation of the entire system. The primary goal is to be an active and reliable relayer.
+This is the foundation of the entire sys  tem. The primary goal is to be an active and reliable relayer.
 
 **Why Relayers**: Hyperbridge's Collator selection mechanism is based on proven economic activity on Hyperbridge. By rewarding relayers with reputation, we ensure that our collators are experienced,
 active, and invested participants in the network success. This meritocratic system ensures liveness guarantees are upheld by selecting for proven value creation.
@@ -48,6 +59,13 @@ to your account. You can always find your Reputation Asset balance under the Pol
 
 ### Step 2: Prepare Your Collator Node and Session Keys
 To be a collator, you must run a full node and have set of hot keys known as session keys, available in your node's keystore. These keys are used for signing blocks.
+
+#### A Note on Key Types
+
+You will be working with two types of keys:
+
+- **Account Key (sr25519)**: This is your main account key. It holds your reputation and is used to sign transactions. This key is what you used as the `signer` field in the relayer config.
+- **Session Key (aura)**: This is a "hot" key that lives on your collator node and is used for the high-frequency task of signing blocks.
 
 **Action 1: Set up a Collator Node**: You must have a fully synced node running the hyperbridge binary with --collator flag.
 Ensure it is stable and has a reliable network connection.
@@ -68,6 +86,7 @@ You do this by calling the `session.setKeys` extrinsic.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot UI.
 - Select your main account(the one with the reputation score).
+    Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
 - Choose the `session` pallet and the `setKeys` extrinsic.
 - Paste the entire hex string from the previous step into the `keys` field.
 - Leave the `proof` field empty (0x00).
@@ -86,6 +105,7 @@ Now that the node is ready and your keys are linked, you can now declare your in
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
 - Select your main account.
+     Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
 - Choose the `collatorSelection` pallet and the `registerAsCandidate` extrinsic.
 - Sign and submit the transaction.
 

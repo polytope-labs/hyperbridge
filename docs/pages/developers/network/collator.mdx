@@ -86,7 +86,7 @@ This command will return a long hex string. This is your session key public key
 You do this by calling the `session.setKeys` extrinsic from your Hyperbridge account.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot UI.
-- Select your main account(the one with the reputation score).
+- Select your Hyperbridge account(the one with the reputation score).
     Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
 - Choose the `session` pallet and the `setKeys` extrinsic.
 - Paste the entire hex string from the previous step into the `keys` field.
@@ -105,7 +105,7 @@ Now that the node is ready and your keys are linked, you can now declare your in
 **Action**: Call the `collatorSelection.registerAsCandidate` extrinsic.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
-- Select your main account.
+- Select your Hyperbridge account.
      Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
 - Choose the `collatorSelection` pallet and the `registerAsCandidate` extrinsic.
 - Sign and submit the transaction.

@@ -108,7 +108,6 @@
 			"ethereumHost": "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE",
 			"handlerV1": "0xf0b4024F15d07912953184840682690C31aD9bcC",
 			"erc6160ext20": "0x693B854D6965ffEAaE21C74049deA644b56FCaCB",
-			"intentGateway": "0x0",
 			"tokenGateway": "0x2Efdc11B11CaC34697b992A56E1D245c137a05B2"
 		}
 	}

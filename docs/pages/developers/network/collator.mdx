@@ -147,7 +147,7 @@ You do this by calling the `session.setKeys` extrinsic from your Controller acco
 - Sign and submit the transaction.
 
 **Final Action: Prepare Your Node for Block Production**:
-After you have successfully registered as a candidate, you should restart your node with the `--validator` flag. This prepares your
+After you have successfully registered as a candidate, you should restart your node with the `--collator` flag. This prepares your
 node to start producing blocks as soon as you are selected for the active set.
 
 <figure>
@@ -159,6 +159,7 @@ node to start producing blocks as soon as you are selected for the active set.
 ### Step 3: Register as a Candidate
 Now that the node is ready and your keys are linked, you can now declare your intention to becoming a Collator.
 
+**Candidacy Bond**: To register as a candidate, your controller account must have a `$BRIDGE` token of at least the minimum candidacy bond, which is 1,000,000,000,000 units (equivalent to 1 $BRIDGE).
 **Action**: Call the `collatorSelection.registerAsCandidate` extrinsic.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
@@ -186,7 +187,7 @@ At the beginning of each new session, our `pallet-collator-manager` runs it's se
 If you are selected:
 
 - Your Reputation Asset balance will be burned. This is somewhat like your stake for the session.
-- Your node will begin authoring and producing blocks after 2 rounds(sessions). To do this, you must ensure that your node is running(or it has been restarted) with the `--validator` flag
+- Your node will begin authoring and producing blocks after 2 rounds(sessions). To do this, you must ensure that your node is running(or it has been restarted) with the `--collator` flag
 in addition to the `--collator` flag.
 - Bear in mind that as you are still performing your duties of relaying messages or consensus proofs, you will keep stacking `$BRIDGE` rewards
 and your reputation asset will start increasing too, allowing you to compete for a spot in future sessions.

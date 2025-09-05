@@ -31,6 +31,7 @@ dataSources:
           filter:
             topics:
               - 'Transfer(address indexed from, address indexed to, uint256 amount)'
+  {{#if config.contracts.intentGateway}}
   - kind: ethereum/Runtime
     startBlock: {{blockNumber}}
     options:
@@ -62,6 +63,8 @@ dataSources:
           filter:
             topics:
               - 'EscrowRefunded(bytes32)'
+  {{/if}}
+  {{#if config.contracts.tokenGateway}}
   - kind: ethereum/Runtime
     startBlock: {{blockNumber}}
     options:
@@ -88,6 +91,7 @@ dataSources:
           filter:
             topics:
               - 'AssetRefunded(uint256,bytes32,address,bytes32)'
+  {{/if}}
   # - kind: ethereum/Runtime
   #   startBlock: 21535312
   #   options:

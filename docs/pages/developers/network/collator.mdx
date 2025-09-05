@@ -68,6 +68,24 @@ You will be working with two types of keys:
 section of the messaging and consensus relayer config.
 - **Session Key (aura)**: This is a "hot" key that lives on your collator node and is used for the high-frequency task of signing blocks.
 
+**Generating a secure Account Key(If you don't have one)**: Your relayer's `signing` key will become your main collator account.
+You can generate a new, secure `sr25519` key for this purpose using the `subkey` tool.
+
+1. **Install Subkey**: if you don't have it, install it with the following command:
+
+```
+cargo install subkey
+```
+
+2. **Generate a Key**: Run the following command to generate a new key:
+
+```
+subkey generate --scheme sr25519
+```
+
+3.**Securely Store Your Keys**: The command will output a mnemonic phrase, a private key, and a public address. Securely backup your mnemonic phrase.
+This is the master key to your account. The public address is what you will use as the signer in the `[hyperbridge]` section of the relayer configuration.
+
 **Action 1: Set up a Collator Node**: You must have a fully synced node running the hyperbridge binary with --collator flag.
 Ensure it is stable and has a reliable network connection.
 
@@ -92,6 +110,10 @@ You do this by calling the `session.setKeys` extrinsic from your Hyperbridge acc
 - Paste the entire hex string from the previous step into the `keys` field.
 - Leave the `proof` field empty (0x00).
 - Sign and submit the transaction.
+
+**Final Action: Prepare Your Node for Block Production**:
+After you have successfully registered as a candidate, you should restart your node with the `--validator` flag. This prepares your
+node to start producing blocks as soon as you are selected for the active set.
 
 <figure>
   <img src="/set_collator_keys.png" alt="Setting session keys" />
@@ -129,8 +151,8 @@ At the beginning of each new session, our `pallet-collator-manager` runs it's se
 If you are selected:
 
 - Your Reputation Asset balance will be burned. This is somewhat like your stake for the session.
-- Your node will begin authoring and producing blocks after 2 rounds(sessions). To do this, it must be running with the `--validator` flag
-in addition to the `--collator` flag
+- Your node will begin authoring and producing blocks after 2 rounds(sessions). To do this, you must ensure that your node is running(or it has been restarted) with the `--validator` flag
+in addition to the `--collator` flag.
 - Bear in mind that as you are still performing your duties of relaying messages or consensus proofs, you will keep stacking `$BRIDGE` rewards
 and your reputation asset will start increasing too, allowing you to compete for a spot in future sessions.
 

@@ -20,17 +20,11 @@ import {
 import { FillerStrategy } from "./base"
 import { privateKeyToAddress } from "viem/accounts"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
-import { encodeAbiParameters, encodeFunctionData, encodePacked, maxUint256, PublicClient } from "viem"
+import { encodeFunctionData, maxUint256 } from "viem"
 import { BATCH_EXECUTOR_ABI } from "@/config/abis/BatchExecutor"
-import { UNISWAP_ROUTER_V2_ABI } from "@/config/abis/UniswapRouterV2"
+
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { UNIVERSAL_ROUTER_ABI } from "@/config/abis/UniversalRouter"
-import { UNISWAP_V2_FACTORY_ABI } from "@/config/abis/UniswapV2Factory"
-import { UNISWAP_V3_FACTORY_ABI } from "@/config/abis/UniswapV3Factory"
-import { UNISWAP_V3_POOL_ABI } from "@/config/abis/UniswapV3Pool"
-import { UNISWAP_V3_QUOTER_V2_ABI } from "@/config/abis/UniswapV3QuoterV2"
-import { UNISWAP_V4_QUOTER_ABI } from "@/config/abis/UniswapV4Quoter"
-import { UNISWAP_V4_POOL_MANAGER_ABI } from "@/config/abis/UniswapV4PoolManager"
 import { isWithinThreshold } from "@/utils"
 
 export class StableSwapFiller implements FillerStrategy {
@@ -653,9 +647,9 @@ export class StableSwapFiller implements FillerStrategy {
 	}> {
 		// Get quotes from all protocols concurrently
 		const [amountInV2, v3Quote, v4Quote] = await Promise.all([
-			this.contractService.getV2Quote(tokenIn, tokenOut, amountOut, destChain),
-			this.contractService.getV3Quote(tokenIn, tokenOut, amountOut, destChain),
-			this.contractService.getV4Quote(tokenIn, tokenOut, amountOut, destChain),
+			this.contractService.getV2QuoteWithAmountOut(tokenIn, tokenOut, amountOut, destChain),
+			this.contractService.getV3QuoteWithAmountOut(tokenIn, tokenOut, amountOut, destChain),
+			this.contractService.getV4QuoteWithAmountOut(tokenIn, tokenOut, amountOut, destChain),
 		])
 
 		const { amountIn: amountInV3, fee: bestV3Fee } = v3Quote

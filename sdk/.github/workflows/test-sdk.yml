@@ -55,6 +55,8 @@ jobs:
                   INDEXER_URL=${{ secrets.INDEXER_URL }}
                   PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
                   SECRET_PHRASE=${{ secrets.SECRET_PHRASE }}
+                  ETH_MAINNET=${{ secrets.ETH_MAINNET }}
+                  BSC_MAINNET=${{ secrets.BSC_MAINNET }}
                   PING_MODULE_ADDRESS: "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
                   TOKEN_GATEWAY_ADDRESS: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
                   EOF

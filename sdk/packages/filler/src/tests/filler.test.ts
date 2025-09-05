@@ -134,7 +134,7 @@ describe.sequential("Basic", () => {
 			sourceChain: hexToString(order.sourceChain as HexString),
 		})
 
-		order.fees = estimatedFees
+		order.fees = estimatedFees.feeTokenAmount
 
 		await approveTokens(bscWalletClient, bscPublicClient, feeTokenBscAddress, bscIntentGateway.address)
 
@@ -308,7 +308,7 @@ describe.sequential("Basic", () => {
 			sourceChain: hexToString(order.sourceChain as HexString),
 		})
 
-		order.fees = estimatedFees
+		order.fees = estimatedFees.feeTokenAmount
 
 		await approveTokens(
 			gnosisChiadoWalletClient,
@@ -669,7 +669,7 @@ describe.sequential("Basic", () => {
 
 		console.log("Estimated fees: ", estimatedFees)
 
-		order.fees = estimatedFees
+		order.fees = estimatedFees.feeTokenAmount
 
 		// Approve tokens for the order
 		await approveTokens(

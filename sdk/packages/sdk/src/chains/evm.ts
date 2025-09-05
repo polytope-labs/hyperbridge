@@ -477,9 +477,9 @@ export class EvmChain implements IChain {
 	 *
 	 * @param request - The post request to estimate gas for
 	 * @param paraId - The ID of the parachain (Hyperbridge) that will process the request
-	 * @returns The estimated gas amount in gas units
+	 * @returns The estimated gas amount in gas units and the generated calldata
 	 */
-	async estimateGas(request: IPostRequest): Promise<bigint> {
+	async estimateGas(request: IPostRequest): Promise<{ gas: bigint; postRequestCalldata: HexString }> {
 		const hostParams = await this.publicClient.readContract({
 			address: this.params.host,
 			abi: EvmHost.ABI,
@@ -503,27 +503,37 @@ export class EvmChain implements IChain {
 			leafCount: treeSize,
 		}
 
+		const formattedRequest = {
+			...request,
+			source: toHex(request.source),
+			dest: toHex(request.dest),
+		}
+
+		const contractArgs = [
+			this.params.host,
+			{
+				proof: postParams,
+				requests: [
+					{
+						request: formattedRequest,
+						index,
+						kIndex,
+					},
+				],
+			},
+		] as const
+
+		const postRequestCalldata = encodeFunctionData({
+			abi: HandlerV1.ABI,
+			functionName: "handlePostRequests",
+			args: contractArgs,
+		})
+
 		const gas = await this.publicClient.estimateContractGas({
 			address: hostParams.handler,
 			abi: HandlerV1.ABI,
 			functionName: "handlePostRequests",
-			args: [
-				this.params.host,
-				{
-					proof: postParams,
-					requests: [
-						{
-							request: {
-								...request,
-								source: toHex(request.source),
-								dest: toHex(request.dest),
-							},
-							index,
-							kIndex,
-						},
-					],
-				},
-			],
+			args: contractArgs,
 			stateOverride: [
 				{
 					address: this.params.host,
@@ -537,7 +547,7 @@ export class EvmChain implements IChain {
 			],
 		})
 
-		return gas
+		return { gas, postRequestCalldata }
 	}
 
 	/**

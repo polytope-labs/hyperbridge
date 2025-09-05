@@ -253,13 +253,13 @@ describe.sequential("Order Status Stream", () => {
 			to: chainConfigService.getIntentGatewayAddress(order.sourceChain),
 		}
 
-		let postGasEstimate = await gnosisChiadoEvmChain.estimateGas(postRequest) // Source Chain Post Estimate
+		let { gas: postGasEstimate } = await gnosisChiadoEvmChain.estimateGas(postRequest) // Source Chain Post Estimate
 
 		console.log("Post gas estimate:", postGasEstimate)
 
 		assert(postGasEstimate > 0n)
 
-		let gasEstimate = await intentGateway.estimateFillOrder(order)
+		let { feeTokenAmount: gasEstimate } = await intentGateway.estimateFillOrder(order)
 
 		console.log("Gas estimate for fill order:", gasEstimate)
 
@@ -353,7 +353,7 @@ describe.sequential("Order Status Stream", () => {
 		assert(mainnetQuote3.amountIn > 0n)
 	}, 1_000_000)
 
-	it.skip("Should generate the estimatedFee while doing bsc mainnet to eth mainnet", async () => {
+	it("Should generate the estimatedFee while doing bsc mainnet to eth mainnet", async () => {
 		const { chainConfigService, bscMainnetIsmpHost, mainnetIsmpHost } = await setUp()
 		const bscMainnetId = "EVM-56"
 		const mainnetId = "EVM-1"
@@ -398,13 +398,19 @@ describe.sequential("Order Status Stream", () => {
 
 		console.log("order", order)
 
-		const estimatedFee = await bscIntentGateway.estimateFillOrder({
+		const {
+			feeTokenAmount: estimatedFee,
+			nativeTokenAmount,
+			postRequestCalldata,
+		} = await bscIntentGateway.estimateFillOrder({
 			...order,
 			id: orderCommitment(order),
 			destChain: hexToString(order.destChain as HexString),
 			sourceChain: hexToString(order.sourceChain as HexString),
 		})
 		console.log("Estimated fee:", estimatedFee)
+		console.log("Native token amount:", nativeTokenAmount)
+		console.log("Post request calldata:", postRequestCalldata)
 		assert(estimatedFee > 0n)
 	}, 1_000_000)
 })

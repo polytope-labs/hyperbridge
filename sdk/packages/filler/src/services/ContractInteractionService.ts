@@ -263,7 +263,7 @@ export class ContractInteractionService {
 	 */
 	async estimateGasFillPost(
 		order: Order,
-	): Promise<{ fillGas: bigint; postGas: bigint; relayerFeeInFeeToken: bigint }> {
+	): Promise<{ fillGas: bigint; postGas: bigint; relayerFeeInFeeToken: bigint; relayerFeeInNativeToken: bigint }> {
 		try {
 			// Check cache first
 			const cachedEstimate = this.cacheService.getGasEstimate(order.id!)
@@ -290,7 +290,9 @@ export class ContractInteractionService {
 				hostAddress: this.configService.getHostAddress(order.sourceChain),
 			})
 
-			const { decimals: destFeeTokenDecimals } = await this.getFeeTokenWithDecimals(order.destChain)
+			const { decimals: destFeeTokenDecimals, address: destFeeTokenAddress } = await this.getFeeTokenWithDecimals(
+				order.destChain,
+			)
 
 			// Add 2% markup
 			postGasEstimate = postGasEstimate + (postGasEstimate * 200n) / 10000n
@@ -349,52 +351,120 @@ export class ContractInteractionService {
 				)
 			).filter(Boolean)
 
-			const destChainFeeTokenAddress = (await this.getFeeTokenWithDecimals(order.destChain)).address
-
-			const destFeeTokenBalanceData = ERC20Method.BALANCE_OF + bytes20ToBytes32(userAddress).slice(2)
-			const destFeeTokenBalanceSlot = await getStorageSlot(
-				destClient as any,
-				destChainFeeTokenAddress,
-				destFeeTokenBalanceData as HexString,
-			)
-			const destFeeTokenAllowanceData =
-				ERC20Method.ALLOWANCE +
-				bytes20ToBytes32(userAddress).slice(2) +
-				bytes20ToBytes32(intentGatewayAddress).slice(2)
-			const destFeeTokenAllowanceSlot = await getStorageSlot(
-				destClient as any,
-				destChainFeeTokenAddress,
-				destFeeTokenAllowanceData as HexString,
-			)
-			const feeTokenStateDiffs = [
-				{ slot: destFeeTokenBalanceSlot, value: testValue },
-				{ slot: destFeeTokenAllowanceSlot, value: testValue },
+			const stateOverride = [
+				{
+					address: userAddress,
+					balance: maxUint256,
+				},
+				...overrides.map((override) => ({
+					address: override!.address,
+					stateDiff: override!.stateDiff,
+				})),
 			]
 
-			overrides.push({
-				address: destChainFeeTokenAddress,
-				stateDiff: feeTokenStateDiffs as any,
-			})
+			let gas = 0n
+			let relayerFeeInNativeToken = 0n
 
-			const gas = await destClient.estimateContractGas({
-				abi: INTENT_GATEWAY_ABI,
-				address: this.configService.getIntentGatewayAddress(order.destChain),
-				functionName: "fillOrder",
-				args: [this.transformOrderForContract(order), fillOptions as any],
-				account: privateKeyToAccount(this.privateKey),
-				value: ethValue,
-				stateOverride: overrides as any,
-			})
+			try {
+				const protocolFeeInNativeToken = await this.quoteNative(
+					postRequest,
+					postGasEstimateInDestFeeToken,
+					order.destChain,
+				)
+
+				gas = await destClient.estimateContractGas({
+					abi: INTENT_GATEWAY_ABI,
+					address: this.configService.getIntentGatewayAddress(order.destChain),
+					functionName: "fillOrder",
+					args: [this.transformOrderForContract(order), fillOptions as any],
+					account: privateKeyToAccount(this.privateKey),
+					value: ethValue + protocolFeeInNativeToken,
+					stateOverride: stateOverride as any,
+				})
+				relayerFeeInNativeToken = protocolFeeInNativeToken
+			} catch {
+				console.warn(
+					`Could not estimate gas for fill order with native token as fees for chain ${order.destChain}, now trying with fee token as fees`,
+				)
+				const destChainFeeTokenAddress = (await this.getFeeTokenWithDecimals(order.destChain)).address
+
+				const destFeeTokenBalanceData = ERC20Method.BALANCE_OF + bytes20ToBytes32(userAddress).slice(2)
+				const destFeeTokenBalanceSlot = await getStorageSlot(
+					destClient as any,
+					destChainFeeTokenAddress,
+					destFeeTokenBalanceData as HexString,
+				)
+				const destFeeTokenAllowanceData =
+					ERC20Method.ALLOWANCE +
+					bytes20ToBytes32(userAddress).slice(2) +
+					bytes20ToBytes32(intentGatewayAddress).slice(2)
+				const destFeeTokenAllowanceSlot = await getStorageSlot(
+					destClient as any,
+					destChainFeeTokenAddress,
+					destFeeTokenAllowanceData as HexString,
+				)
+				const feeTokenStateDiffs = [
+					{ slot: destFeeTokenBalanceSlot, value: testValue },
+					{ slot: destFeeTokenAllowanceSlot, value: testValue },
+				]
+
+				overrides.push({
+					address: destChainFeeTokenAddress,
+					stateDiff: feeTokenStateDiffs as any,
+				})
+
+				gas = await destClient.estimateContractGas({
+					abi: INTENT_GATEWAY_ABI,
+					address: this.configService.getIntentGatewayAddress(order.destChain),
+					functionName: "fillOrder",
+					args: [this.transformOrderForContract(order), fillOptions as any],
+					account: privateKeyToAccount(this.privateKey),
+					value: ethValue,
+					stateOverride: stateOverride as any,
+				})
+			}
 
 			// Cache the results
-			this.cacheService.setGasEstimate(order.id!, gas, postGasEstimate, postGasEstimateInDestFeeToken)
+			this.cacheService.setGasEstimate(
+				order.id!,
+				gas,
+				postGasEstimate,
+				postGasEstimateInDestFeeToken,
+				relayerFeeInNativeToken,
+			)
 
-			return { fillGas: gas, postGas: postGasEstimate, relayerFeeInFeeToken: postGasEstimateInDestFeeToken }
+			return {
+				fillGas: gas,
+				postGas: postGasEstimate,
+				relayerFeeInFeeToken: postGasEstimateInDestFeeToken,
+				relayerFeeInNativeToken,
+			}
 		} catch (error) {
 			console.error(`Error estimating gas:`, error)
 			// Return a conservative estimate if we can't calculate precisely
-			return { fillGas: 3000000n, postGas: 270000n, relayerFeeInFeeToken: 10000000n }
+			return { fillGas: 3000000n, postGas: 270000n, relayerFeeInFeeToken: 10000000n, relayerFeeInNativeToken: 0n }
 		}
+	}
+
+	async quoteNative(postRequest: IPostRequest, fee: bigint, chain: string): Promise<bigint> {
+		const client = this.clientManager.getPublicClient(chain)
+
+		const dispatchPost: DispatchPost = {
+			dest: toHex(postRequest.dest),
+			to: postRequest.to,
+			body: postRequest.body,
+			timeout: postRequest.timeoutTimestamp,
+			fee: fee,
+			payer: postRequest.from,
+		}
+
+		const quoteNative = await client.readContract({
+			abi: INTENT_GATEWAY_ABI,
+			address: this.configService.getIntentGatewayAddress(postRequest.dest),
+			functionName: "quoteNative",
+			args: [dispatchPost] as any,
+		})
+		return quoteNative
 	}
 
 	/**
@@ -647,7 +717,12 @@ export class ContractInteractionService {
 		}
 	}
 
-	async getV2Quote(tokenIn: HexString, tokenOut: HexString, amountOut: bigint, destChain: string): Promise<bigint> {
+	async getV2QuoteWithAmountOut(
+		tokenIn: HexString,
+		tokenOut: HexString,
+		amountOut: bigint,
+		destChain: string,
+	): Promise<bigint> {
 		try {
 			const v2Router = this.configService.getUniswapRouterV2Address(destChain)
 			const v2Factory = this.configService.getUniswapV2FactoryAddress(destChain)
@@ -683,7 +758,7 @@ export class ContractInteractionService {
 		}
 	}
 
-	async getV3Quote(
+	async getV3QuoteWithAmountOut(
 		tokenIn: HexString,
 		tokenOut: HexString,
 		amountOut: bigint,
@@ -753,7 +828,7 @@ export class ContractInteractionService {
 		return { amountIn: bestAmountIn, fee: bestFee }
 	}
 
-	async getV4Quote(
+	async getV4QuoteWithAmountOut(
 		tokenIn: HexString,
 		tokenOut: HexString,
 		amountOut: bigint,

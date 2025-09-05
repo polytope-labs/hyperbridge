@@ -283,7 +283,7 @@ export class ContractInteractionService {
 				to: this.configService.getIntentGatewayAddress(order.sourceChain),
 			}
 
-			let postGasEstimate = await estimateGasForPost({
+			let { gas_fee: postGasEstimate } = await estimateGasForPost({
 				postRequest: postRequest,
 				sourceClient: sourceClient as any,
 				hostLatestStateMachineHeight: await this.getHostLatestStateMachineHeight(),

@@ -1,78 +1,50 @@
 import {
+	http,
+	type PublicClient,
 	bytesToBigInt,
 	bytesToHex,
 	createPublicClient,
 	encodeFunctionData,
-	hexToBytes,
-	http,
-	type PublicClient,
-	toHex,
-	keccak256,
-	toBytes,
-	pad,
 	erc20Abi,
-	encodePacked,
-	encodeAbiParameters,
-	maxUint256,
-	hexToString,
+	hexToBytes,
+	keccak256,
+	pad,
+	toBytes,
+	toHex,
 } from "viem"
 import {
-	mainnet,
 	arbitrum,
 	arbitrumSepolia,
-	optimism,
-	optimismSepolia,
 	base,
 	baseSepolia,
-	soneium,
 	bsc,
 	bscTestnet,
 	gnosis,
 	gnosisChiado,
+	mainnet,
+	optimism,
+	optimismSepolia,
+	soneium,
 } from "viem/chains"
 
-import type { GetProofParameters, Hex } from "viem"
-import { zip, flatten } from "lodash-es"
+import { flatten, zip } from "lodash-es"
 import { match } from "ts-pattern"
+import type { GetProofParameters, Hex } from "viem"
 
 import EvmHost from "@/abis/evmHost"
-import type { IChain, IIsmpMessage } from "@/chain"
-import HandlerV1 from "@/abis/handler"
-import UniversalRouter from "@/abis/universalRouter"
-import UniswapV2Factory from "@/abis/uniswapV2Factory"
-import UniswapRouterV2 from "@/abis/uniswapRouterV2"
-import UniswapV3Factory from "@/abis/uniswapV3Factory"
-import UniswapV3Pool from "@/abis/uniswapV3Pool"
-import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
-import IntentGatewayABI from "@/abis/IntentGateway"
-import {
-	ADDRESS_ZERO,
-	bytes32ToBytes20,
-	calculateMMRSize,
-	constructRedeemEscrowRequestBody,
-	EvmStateProof,
-	fetchTokenUsdPrice,
-	generateRootWithProof,
-	getStorageSlot,
-	mmrPositionToKIndex,
-	MmrProof,
-	MOCK_ADDRESS,
-	orderCommitment,
-	SubstrateStateProof,
-} from "@/utils"
-import {
-	DispatchPost,
-	HostParams,
-	type FillOptions,
-	type HexString,
-	type IMessage,
-	type IPostRequest,
-	type Order,
-	type StateMachineHeight,
-	type StateMachineIdParams,
-} from "@/types"
 import evmHost from "@/abis/evmHost"
+import HandlerV1 from "@/abis/handler"
+import type { IChain, IIsmpMessage } from "@/chain"
 import { ChainConfigService } from "@/configs/ChainConfigService"
+import type { HexString, IMessage, IPostRequest, StateMachineHeight, StateMachineIdParams } from "@/types"
+import {
+	EvmStateProof,
+	MmrProof,
+	SubstrateStateProof,
+	calculateMMRSize,
+	generateRootWithProof,
+	mmrPositionToKIndex,
+} from "@/utils"
 
 const chains = {
 	[mainnet.id]: mainnet,

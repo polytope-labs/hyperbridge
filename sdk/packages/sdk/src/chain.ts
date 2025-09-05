@@ -1,16 +1,17 @@
+import { EvmChain, SubstrateChain } from "@/chain"
 import type {
 	GetResponseStorageValues,
 	HexString,
 	IEvmConfig,
 	IGetRequest,
+	IMessage,
 	IPostRequest,
 	ISubstrateConfig,
-	IMessage,
-	StateMachineIdParams,
 	StateMachineHeight,
+	StateMachineIdParams,
 } from "@/types"
 import { isEvmChain, isSubstrateChain } from "@/utils"
-import { EvmChain, SubstrateChain } from "@/chain"
+import { ExpectedError } from "./utils/exceptions"
 
 export * from "@/chains/evm"
 export * from "@/chains/substrate"
@@ -206,5 +207,5 @@ export async function getChain(chainConfig: IEvmConfig | ISubstrateConfig): Prom
 		return substrateChain
 	}
 
-	throw new Error(`Unsupported chain: ${chainConfig.stateMachineId}`)
+	throw new ExpectedError(`Unsupported chain: ${chainConfig.stateMachineId}`)
 }

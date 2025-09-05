@@ -1,4 +1,4 @@
-import { type ConsolaInstance, createConsola, LogLevels } from "consola"
+import { type ConsolaInstance, LogLevels, createConsola } from "consola"
 import { isNil, maxBy } from "lodash-es"
 import { pad, toHex } from "viem"
 
@@ -24,15 +24,16 @@ import type {
 	RetryConfig,
 	StateMachineResponse,
 	StateMachineUpdate,
-	TokenGatewayAssetTeleportedWithStatus,
 	TimeoutStatusKey,
+	TokenGatewayAssetTeleportedWithStatus,
 } from "@/types"
 
+import { type IChain, type SubstrateChain, getChain } from "@/chain"
 import {
-	STATE_MACHINE_UPDATES_BY_HEIGHT,
-	STATE_MACHINE_UPDATES_BY_TIMESTAMP,
 	ASSET_TELEPORTED_BY_PARAMS,
 	GET_RESPONSE_BY_REQUEST_ID,
+	STATE_MACHINE_UPDATES_BY_HEIGHT,
+	STATE_MACHINE_UPDATES_BY_TIMESTAMP,
 } from "@/queries"
 import {
 	COMBINED_STATUS_WEIGHTS,
@@ -46,17 +47,17 @@ import {
 	sleep,
 	waitForChallengePeriod,
 } from "@/utils"
-import { getChain, type IChain, type SubstrateChain } from "@/chain"
 import {
 	_queryGetRequestInternal,
-	_queryRequestInternal,
 	_queryOrderInternal,
+	_queryRequestInternal,
 	_queryTokenGatewayAssetTeleportedInternal,
 } from "./query-client"
 
-import { AbortSignalInternal, OrderStatus, RequestStatus, TeleportStatus, TimeoutStatus } from "@/types"
+import { OrderStatus, RequestStatus, TeleportStatus, TimeoutStatus } from "@/types"
 
 import type { IndexerQueryClient } from "@/types"
+import { AbortSignalInternal, ExpectedError } from "./utils/exceptions"
 
 /**
  * IndexerClient provides methods for interacting with the Hyperbridge indexer.
@@ -687,7 +688,7 @@ export class IndexerClient {
 			switch (status) {
 				// request has been dispatched from source chain
 				case RequestStatus.SOURCE: {
-					let sourceUpdate = await this.waitOrAbort({
+					const sourceUpdate = await this.waitOrAbort({
 						signal,
 						promise: () =>
 							this.queryStateMachineUpdateByHeight({
@@ -741,11 +742,12 @@ export class IndexerClient {
 				// the request has been verified and aggregated on Hyperbridge
 				case RequestStatus.HYPERBRIDGE_DELIVERED: {
 					// Get the latest state machine update for hyperbridge on the destination chain
-					let hyperbridgeFinalized = await this.waitOrAbort({
+					const hyperbridgeFinalized = await this.waitOrAbort({
 						signal,
 						promise: () => {
 							const stateMachineId = this.config.hyperbridge.stateMachineId
 							const index = request.source === stateMachineId ? 0 : 1
+
 							return this.queryStateMachineUpdateByHeight({
 								statemachineId: stateMachineId,
 								height: request.statuses[index].metadata.blockNumber,
@@ -760,18 +762,40 @@ export class IndexerClient {
 						hasher: "Keccak",
 					})
 
-					const proof = await hyperbridge.queryProof(
-						{ Requests: [postRequestCommitment(request).commitment] },
-						request.dest,
-						BigInt(hyperbridgeFinalized.height),
-					)
+					const safeFetchProof = async () => {
+						try {
+							const proof_hex = await hyperbridge.queryProof(
+								{ Requests: [postRequestCommitment(request).commitment] },
+								request.dest,
+								BigInt(hyperbridgeFinalized.height),
+							)
+							return { data: proof_hex, error: null }
+						} catch (err) {
+							return { error: err as unknown, data: null }
+						}
+					}
+
+					const proof = await this.waitOrAbort({
+						signal,
+						promise: () =>
+							this.withRetry(safeFetchProof, {
+								backoffMs: 2000,
+								maxRetries: 6, // <-- should fail after 2mins
+							}),
+					})
+
+					if (proof.data === null) {
+						this.logger.error("Failed to fetch proof:", proof.error)
+
+						throw proof.error
+					}
 
 					const calldata = destChain.encode({
 						kind: "PostRequest",
 						proof: {
 							stateMachine: this.config.hyperbridge.stateMachineId,
 							consensusStateId: this.config.hyperbridge.consensusStateId,
-							proof,
+							proof: proof.data,
 							height: BigInt(hyperbridgeFinalized.height),
 						},
 						requests: [request],
@@ -873,7 +897,7 @@ export class IndexerClient {
 		const controller = new AbortController()
 		// wait for request to be created
 		try {
-			let request = await this.waitOrAbort({
+			const request = await this.waitOrAbort({
 				signal: controller.signal,
 				promise: () => this.queryGetRequest(hash),
 			})
@@ -925,7 +949,7 @@ export class IndexerClient {
 			switch (status) {
 				// request has been dispatched from source chain
 				case RequestStatus.SOURCE: {
-					let sourceUpdate = await this.waitOrAbort({
+					const sourceUpdate = await this.waitOrAbort({
 						signal,
 						promise: () =>
 							this.queryStateMachineUpdateByHeight({
@@ -982,7 +1006,7 @@ export class IndexerClient {
 						return
 					}
 					// Get the latest state machine update for hyperbridge on the destination chain
-					let hyperbridgeFinalized = await this.waitOrAbort({
+					const hyperbridgeFinalized = await this.waitOrAbort({
 						signal,
 						promise: () =>
 							this.queryStateMachineUpdateByHeight({
@@ -1286,7 +1310,7 @@ export class IndexerClient {
 								}),
 						})
 					} else {
-						let timeout = await this.waitOrAbort({
+						const timeout = await this.waitOrAbort({
 							signal,
 							promise: async () => {
 								const req = await this.queryPostRequest(hash)

@@ -2,30 +2,29 @@ import {
 	type HexString,
 	type IGetRequest,
 	type IPostRequest,
-	RequestStatus,
-	TimeoutStatus,
-	type StateMachineHeight,
 	RequestKind,
+	RequestStatus,
+	type StateMachineHeight,
+	TimeoutStatus,
 } from "@/types"
-import type { RequestStatusKey, TimeoutStatusKey, RetryConfig, Order } from "@/types"
+import type { EstimateGasCallData, Order, RequestStatusKey, RetryConfig, TimeoutStatusKey } from "@/types"
+import { LogLevels, createConsola } from "consola"
 import {
+	type CallParameters,
+	type PublicClient,
+	bytesToHex,
+	concatHex,
+	encodeAbiParameters,
 	encodePacked,
+	hexToBytes,
 	keccak256,
 	toHex,
-	encodeAbiParameters,
-	hexToBytes,
-	bytesToHex,
-	type PublicClient,
-	concatHex,
-	CallParameters,
 } from "viem"
-import { createConsola, LogLevels } from "consola"
-import { _queryRequestInternal } from "./query-client"
-import { getStateCommitmentFieldSlot, type IChain } from "./chain"
-import { generateRootWithProof } from "./utils"
-import handler from "./abis/handler"
 import evmHost from "./abis/evmHost"
-import { generatePrivateKey, privateKeyToAddress } from "viem/accounts"
+import handler from "./abis/handler"
+import { type IChain, getStateCommitmentFieldSlot } from "./chain"
+import { _queryRequestInternal } from "./query-client"
+import { generateRootWithProof } from "./utils"
 
 export * from "./utils/mmr"
 export * from "./utils/substrate"
@@ -281,6 +280,15 @@ export const DEFAULT_LOGGER = createConsola({
 	level: LogLevels.silent,
 })
 
+/**
+ * Retries a promise-returning operation with exponential backoff.
+ * This function will attempt to execute the operation up to maxRetries times,
+ * with an exponential backoff delay between attempts.
+ *
+ * @param operation The async operation to retry
+ * @param retryConfig Configuration object containing retry parameters
+ * @returns Promise that resolves with the operation result or rejects with the last error
+ */
 export async function retryPromise<T>(operation: () => Promise<T>, retryConfig: RetryConfig): Promise<T> {
 	const { logger = DEFAULT_LOGGER, logMessage = "Retry operation failed" } = retryConfig
 
@@ -387,7 +395,7 @@ export async function estimateGasForPost(params: {
 	sourceClient: PublicClient
 	hostLatestStateMachineHeight: bigint
 	hostAddress: HexString
-}): Promise<bigint> {
+}): Promise<{ gas_fee: bigint; call_data: EstimateGasCallData }> {
 	const hostParams = await params.sourceClient.readContract({
 		address: params.hostAddress,
 		abi: evmHost.ABI,
@@ -410,27 +418,29 @@ export async function estimateGasForPost(params: {
 		leafCount: treeSize,
 	}
 
-	const gas = await params.sourceClient.estimateContractGas({
+	const call_data: EstimateGasCallData = [
+		params.hostAddress,
+		{
+			proof: postParams,
+			requests: [
+				{
+					request: {
+						...params.postRequest,
+						source: toHex(params.postRequest.source),
+						dest: toHex(params.postRequest.dest),
+					},
+					index,
+					kIndex,
+				},
+			],
+		},
+	]
+
+	const gas_fee = await params.sourceClient.estimateContractGas({
 		address: hostParams.handler,
 		abi: handler.ABI,
 		functionName: "handlePostRequests",
-		args: [
-			params.hostAddress,
-			{
-				proof: postParams,
-				requests: [
-					{
-						request: {
-							...params.postRequest,
-							source: toHex(params.postRequest.source),
-							dest: toHex(params.postRequest.dest),
-						},
-						index,
-						kIndex,
-					},
-				],
-			},
-		],
+		args: call_data,
 		stateOverride: [
 			{
 				address: params.hostAddress,
@@ -444,7 +454,7 @@ export async function estimateGasForPost(params: {
 		],
 	})
 
-	return gas
+	return { gas_fee, call_data }
 }
 
 /**

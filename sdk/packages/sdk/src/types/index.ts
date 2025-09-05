@@ -1,6 +1,13 @@
 import type { ConsolaInstance } from "consola"
 import type { GraphQLClient } from "graphql-request"
-import type { Hex, Log } from "viem"
+import type { ContractFunctionArgs, Hex, Log } from "viem"
+import type HandlerV1 from "@/abis/handler"
+
+export type EstimateGasCallData = ContractFunctionArgs<
+	typeof HandlerV1.ABI,
+	"nonpayable" | "payable",
+	"handlePostRequests"
+>
 
 export type HexString = `0x${string}`
 
@@ -120,6 +127,9 @@ export interface ClientConfig {
 
 export interface RetryConfig {
 	maxRetries: number
+	/**
+	 * @description The initial backoff time in milliseconds before the first retry attempt.
+	 */
 	backoffMs: number
 	logMessage?: string
 	logger?: ConsolaInstance
@@ -1126,18 +1136,5 @@ export interface TokenRegistryResponse {
 			lastUpdatedAt: bigint
 			createdAt: string
 		}>
-	}
-}
-
-export class AbortSignalInternal extends Error {
-	constructor(message: string) {
-		super()
-
-		this.name = "AbortSignalInternal"
-		this.message = message
-	}
-
-	static isError(error: unknown): error is AbortSignalInternal {
-		return error instanceof AbortSignalInternal
 	}
 }

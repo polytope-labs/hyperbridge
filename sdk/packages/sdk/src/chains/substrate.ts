@@ -1,13 +1,14 @@
 import { ApiPromise, WsProvider } from "@polkadot/api"
-import { RpcWebSocketClient } from "rpc-websocket-client"
-import { bytesToHex, hexToBytes, toBytes, toHex } from "viem"
-import { match } from "ts-pattern"
 import { capitalize } from "lodash-es"
-import { u8, Vector } from "scale-ts"
+import { RpcWebSocketClient } from "rpc-websocket-client"
+import { Vector, u8 } from "scale-ts"
+import { match } from "ts-pattern"
+import { bytesToHex, hexToBytes, toBytes, toHex } from "viem"
 
-import { BasicProof, isEvmChain, isSubstrateChain, type IStateMachine, Message, SubstrateStateProof } from "@/utils"
 import type { IChain, IIsmpMessage } from "@/chain"
 import type { HexString, IMessage, IPostRequest, StateMachineHeight, StateMachineIdParams } from "@/types"
+import { BasicProof, type IStateMachine, Message, SubstrateStateProof, isEvmChain, isSubstrateChain } from "@/utils"
+import { ExpectedError } from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 
 export interface SubstrateChainParams {
@@ -175,7 +176,7 @@ export class SubstrateChain implements IChain {
 			return toHex(encoded)
 		}
 
-		throw new Error(`Unsupported chain type for counterparty: ${counterparty}`)
+		throw new ExpectedError(`Unsupported chain type for counterparty: ${counterparty}`)
 	}
 
 	/**
@@ -263,7 +264,7 @@ export class SubstrateChain implements IChain {
 
 	/**
 	 * Get the state machine update time for a given state machine height.
-	 * @param {StateMachineHeight} stateMachineheight - The state machine height.
+	 * @param {StateMachineHeight} stateMachineHeight - The state machine height.
 	 * @returns {Promise<bigint>} The statemachine update time in seconds.
 	 */
 	async stateMachineUpdateTime(stateMachineHeight: StateMachineHeight): Promise<bigint> {

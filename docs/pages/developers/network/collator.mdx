@@ -64,7 +64,7 @@ To be a collator, you must run a full node and have set of hot keys known as ses
 
 You will be working with two types of keys:
 
-- **Account Key (sr25519)**: This is your main account key. It holds your reputation and is used to sign transactions. This key is what you used as the `signer` field in the `[hyperbridge]`
+- **Controller Account Key (sr25519)**: This is your main account key known as the controller account. It holds your reputation and is used to sign transactions. This key is what you used as the `signer` field in the `[hyperbridge]`
 section of the messaging and consensus relayer config.
 - **Session Key (aura)**: This is a "hot" key that lives on your collator node and is used for the high-frequency task of signing blocks.
 
@@ -83,8 +83,43 @@ cargo install subkey
 subkey generate --scheme sr25519
 ```
 
+<figure>
+  <img src="/sample_subscan_generated.png" alt="Sample Key Generation with subscan  " />
+  <figcaption style={{ textAlign: "center" }}>How to generate controller account key</figcaption>
+</figure>
+
+
 3.**Securely Store Your Keys**: The command will output a mnemonic phrase, a private key, and a public address. Securely backup your mnemonic phrase.
-This is the master key to your account. The public address is what you will use as the signer in the `[hyperbridge]` section of the relayer configuration.
+This is the master key to your account. The hexadecimal private key is what you will use as the signer in the `[hyperbridge]` section of the relayer configuration.
+
+```toml
+# Hyperbridge consensus client config, required.
+[hyperbridge]
+# Specifies the consensus mechanism of the Hyperbridge chain.
+# "grandpa" is used for Substrate-based chains utilizing the GRANDPA finality gadget.
+# "beefy" is used for chains utilizing the BEEFY finality gadget
+type = "grandpa"
+
+# Configuration specific to the GRANDPA consensus client.
+[hyperbridge.grandpa]
+# The WebSocket RPC endpoint for a Standalone or Relay Chain.
+rpc = "wss://localhost:443"
+# The expected time duration for a block slot in milliseconds.
+slot_duration = 6000
+# A list of parachain IDs that are connected to this relay chain and should be monitored.
+para_ids = [4009]
+
+# Configuration for the Hyperbridge parachain itself.
+[hyperbridge.substrate]
+# The WebSocket RPC endpoint for the Hyperbridge parachain.
+rpc_ws = "wss://localhost:443"
+# The state machine identifier for the Hyperbridge parachain.
+state_machine = "KUSAMA-4009"
+# Relayer account seed.
+signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
+...
+```
+
 
 **Action 1: Set up a Collator Node**: You must have a fully synced node running the hyperbridge binary with --collator flag.
 Ensure it is stable and has a reliable network connection.
@@ -100,11 +135,11 @@ curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method":
 Note: Replace 9990 with your node's RPC port if it is different.
 This command will return a long hex string. This is your session key public key
 
-**Action 3: Link your keys**: You must now tell the blockchain that your Hyperbridge account (`AccountId`) will use these new session keys for collating.
-You do this by calling the `session.setKeys` extrinsic from your Hyperbridge account.
+**Action 3: Link your keys**: You must now tell the blockchain that your Controller account (`AccountId`) will use these new session keys for collating.
+You do this by calling the `session.setKeys` extrinsic from your Controller account.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot UI.
-- Select your Hyperbridge account(the one with the reputation score).
+- Select your Controller account(the one with the reputation score).
     Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
 - Choose the `session` pallet and the `setKeys` extrinsic.
 - Paste the entire hex string from the previous step into the `keys` field.
@@ -127,7 +162,7 @@ Now that the node is ready and your keys are linked, you can now declare your in
 **Action**: Call the `collatorSelection.registerAsCandidate` extrinsic.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
-- Select your Hyperbridge account.
+- Select your Controller account.
      Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
 - Choose the `collatorSelection` pallet and the `registerAsCandidate` extrinsic.
 - Sign and submit the transaction.

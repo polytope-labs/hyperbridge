@@ -3,15 +3,16 @@ import { ethers } from "ethers"
 import type { Hex } from "viem"
 import { hexToBytes, bytesToHex, keccak256, encodeAbiParameters } from "viem"
 
-import { OrderStatus, OrderStatusMetadata, ProtocolParticipant, RewardPointsActivityType } from "@/configs/src/types"
+import { OrderStatus, OrderStatusMetadata, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
-import { OrderPlaced } from "@/configs/src/types/models/OrderPlaced"
+import { Order as OrderPlaced } from "@/configs/src/types/models/Order"
 import { timestampToDate } from "@/utils/date.helpers"
 
 import { PointsService } from "./points.service"
 import { VolumeService } from "./volume.service"
 import PriceHelper from "@/utils/price.helpers"
 import { TokenPriceService } from "./token-price.service"
+import stringify from "safe-stable-stringify"
 
 export interface TokenInfo {
 	token: Hex
@@ -35,9 +36,12 @@ export interface Order {
 	callData: Hex
 }
 
+export const DEFAULT_REFERRER = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex
+
 export class IntentGatewayService {
 	static async getOrCreateOrder(
 		order: Order,
+		referrer: string,
 		logsData: {
 			transactionHash: string
 			blockNumber: number
@@ -69,12 +73,21 @@ export class IntentGatewayService {
 				outputBeneficiaries: order.outputs.map((output) => output.beneficiary),
 				calldata: order.callData,
 				status: OrderStatus.PLACED,
+				referrer,
 				createdAt: timestampToDate(timestamp),
 				blockNumber: BigInt(blockNumber),
 				blockTimestamp: timestamp,
 				transactionHash,
 			})
 			await orderPlaced.save()
+
+			logger.info(
+				`Order Placed Event successfully saved: ${stringify({
+					orderPlaced,
+				})}`,
+			)
+
+			logger.info("Now awarding points for the Order Placed Event")
 
 			// Award points for order placement - using USD value directly
 			const orderValue = new Decimal(inputUSD)
@@ -84,8 +97,8 @@ export class IntentGatewayService {
 				this.bytes32ToBytes20(order.user),
 				ethers.utils.toUtf8String(order.sourceChain),
 				BigInt(pointsToAward),
-				ProtocolParticipant.USER,
-				RewardPointsActivityType.ORDER_PLACED_POINTS,
+				ProtocolParticipantType.USER,
+				PointsActivityType.ORDER_PLACED_POINTS,
 				transactionHash,
 				`Points awarded for placing order ${order.id} with value ${inputUSD} USD`,
 				timestamp,
@@ -172,20 +185,7 @@ export class IntentGatewayService {
 
 			// Award points for order filling - using USD value directly
 			if (status === OrderStatus.FILLED && filler) {
-				const orderValue = new Decimal(orderPlaced.inputUSD)
-				const pointsToAward = orderValue.floor().toNumber()
-
-				await PointsService.awardPoints(
-					filler,
-					ethers.utils.toUtf8String(orderPlaced.destChain),
-					BigInt(pointsToAward),
-					ProtocolParticipant.FILLER,
-					RewardPointsActivityType.ORDER_FILLED_POINTS,
-					transactionHash,
-					`Points awarded for filling order ${commitment} with value ${orderPlaced.inputUSD} USD`,
-					timestamp,
-				)
-
+				// Volume
 				let outputPaymentInfo: PaymentInfo[] = orderPlaced.outputTokens.map((token, index) => {
 					return {
 						token: token as Hex,
@@ -194,7 +194,37 @@ export class IntentGatewayService {
 					}
 				})
 				let outputUSD = await this.getOutputValuesUSD(outputPaymentInfo)
-				await VolumeService.updateVolume("IntentGateway.FILLER", outputUSD.total, timestamp)
+				await VolumeService.updateVolume(`IntentGateway.FILLER.${filler}`, outputUSD.total, timestamp)
+
+				const orderValue = new Decimal(orderPlaced.inputUSD)
+				const pointsToAward = orderValue.floor().toNumber()
+
+				// Rewards
+				await PointsService.awardPoints(
+					filler,
+					ethers.utils.toUtf8String(orderPlaced.destChain),
+					BigInt(pointsToAward),
+					ProtocolParticipantType.FILLER,
+					PointsActivityType.ORDER_FILLED_POINTS,
+					transactionHash,
+					`Points awarded for filling order ${commitment} with value ${orderPlaced.inputUSD} USD`,
+					timestamp,
+				)
+
+				if (orderPlaced.referrer != DEFAULT_REFERRER) {
+					const referrerPointsToAward = Math.floor(pointsToAward / 2)
+
+					await PointsService.awardPoints(
+						orderPlaced.referrer ?? DEFAULT_REFERRER,
+						ethers.utils.toUtf8String(orderPlaced.sourceChain),
+						BigInt(referrerPointsToAward),
+						ProtocolParticipantType.REFERRER,
+						PointsActivityType.ORDER_REFERRED_POINTS,
+						transactionHash,
+						`Points awarded for filling order ${commitment} with value ${orderPlaced.inputUSD} USD`,
+						timestamp,
+					)
+				}
 			}
 
 			// Deduct points when order is cancelled
@@ -206,8 +236,8 @@ export class IntentGatewayService {
 					orderPlaced.user,
 					orderPlaced.sourceChain,
 					BigInt(pointsToDeduct),
-					ProtocolParticipant.USER,
-					RewardPointsActivityType.ORDER_PLACED_POINTS,
+					ProtocolParticipantType.USER,
+					PointsActivityType.ORDER_PLACED_POINTS,
 					transactionHash,
 					`Points deducted for refunded order ${commitment} with value ${orderPlaced.inputUSD} USD`,
 					timestamp,

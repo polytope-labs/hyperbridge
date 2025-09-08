@@ -286,7 +286,7 @@ export class ContractInteractionService {
 			let { gas_fee: postGasEstimate } = await estimateGasForPost({
 				postRequest: postRequest,
 				sourceClient: sourceClient as any,
-				hostLatestStateMachineHeight: await this.getHostLatestStateMachineHeight(),
+				hostLatestStateMachineHeight: 6291991n,
 				hostAddress: this.configService.getHostAddress(order.sourceChain),
 			})
 

@@ -9,7 +9,7 @@ import { wrap } from "@/utils/event.utils"
 export const handleOrderFilledEvent = wrap(async (event: OrderFilledLog): Promise<void> => {
 	logger.info(`Order Filled Event: ${stringify(event)}`)
 
-	const { blockNumber, transactionHash, args, block, blockHash } = event
+	const { blockNumber, transactionHash, args, blockHash } = event
 	const { commitment, filler } = args!
 
 	if (!args) return

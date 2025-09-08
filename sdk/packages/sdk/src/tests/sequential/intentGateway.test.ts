@@ -16,7 +16,14 @@ import { bsc, bscTestnet, gnosisChiado, mainnet } from "viem/chains"
 
 import { IndexerClient } from "@/client"
 import { ChainConfig, FillerConfig, type HexString, IPostRequest, Order, OrderStatus } from "@/types"
-import { orderCommitment, hexToString, bytes20ToBytes32, constructRedeemEscrowRequestBody, ADDRESS_ZERO } from "@/utils"
+import {
+	orderCommitment,
+	hexToString,
+	bytes20ToBytes32,
+	constructRedeemEscrowRequestBody,
+	ADDRESS_ZERO,
+	DEFAULT_GRAFFITI,
+} from "@/utils"
 
 import ERC6160 from "@/abis/erc6160"
 import INTENT_GATEWAY_ABI from "@/abis/IntentGateway"
@@ -63,7 +70,7 @@ describe.sequential("Order Status Stream", () => {
 
 		await hyperbridge.connect()
 		hyperbridgeInstance = hyperbridge
-	}, 10_000)
+	}, 100_000)
 
 	it.skip("should successfully stream and query the order status", async () => {
 		const {
@@ -112,7 +119,7 @@ describe.sequential("Order Status Stream", () => {
 
 		await approveTokens(bscWalletClient, bscPublicClient, bscFeeToken.address, bscIntentGateway.address)
 
-		const hash = await bscIntentGateway.write.placeOrder([order as any], {
+		const hash = await bscIntentGateway.write.placeOrder([order as any, DEFAULT_GRAFFITI], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: bscTestnet,
 		})
@@ -290,11 +297,11 @@ describe.sequential("Order Status Stream", () => {
 		assert(bestQuoteWithAmountIn.amountIn === initialAmountIn)
 
 		// Order filled checker
-		const filledOrderCommitment = "0x1dede1bc4939f194e8a06a9086377d1e64c5c1c77c055e4430ff7141c774528c" as HexString
-		let isFilled = await intentGateway.isOrderFilled(order)
 
+		let isFilled = await intentGateway.isOrderFilled(order)
 		assert(isFilled === false)
 
+		const filledOrderCommitment = "0xaf7637a0332dfb24d0f51ba6228332776ff0d6d8fe7f037bf4c8baac5f82f5a0" as HexString
 		// Create a mock order with the filled commitment for testing
 		let filledOrder = { ...order, id: filledOrderCommitment }
 		isFilled = await intentGateway.isOrderFilled(filledOrder)

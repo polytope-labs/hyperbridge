@@ -29,25 +29,6 @@ enum Status {
 }
 
 """
-Types of participants in the Hyperbridge Protocol
-"""
-enum ProtocolParticipant {
-	RELAYER
-	FILLER
-	USER
-}
-
-"""
-System activity types related to reward points
-"""
-enum RewardPointsActivityType {
-	REWARD_POINTS_EARNED
-	ORDER_PLACED_POINTS
-	ORDER_FILLED_POINTS
-	TOKEN_TELEPORTED_POINTS
-}
-
-"""
 The status of an order
 """
 enum OrderStatus {
@@ -85,6 +66,27 @@ enum TeleportStatus {
 	The asset has been refunded due to failed teleport
 	"""
 	REFUNDED
+}
+
+"""
+Types of participants in the Hyperbridge Protocol
+"""
+enum ProtocolParticipantType {
+	RELAYER
+	FILLER
+	USER
+	REFERRER
+}
+
+"""
+System activity types related to reward points
+"""
+enum PointsActivityType {
+	REWARD_POINTS_EARNED
+	ORDER_PLACED_POINTS
+	ORDER_FILLED_POINTS
+	TOKEN_TELEPORTED_POINTS
+	ORDER_REFERRED_POINTS
 }
 
 """
@@ -221,17 +223,17 @@ type Relayer @entity {
 Hyperbridge Relayer Activity
 """
 type RelayerActivity @entity {
-    """
-    Unique Identifier for the activity
-    """
-    id: ID!
+	"""
+	Unique Identifier for the activity
+	"""
+	id: ID!
 
-    """
-    Relayer the activities are for
-    """
-    relayer: Relayer!
+	"""
+	Relayer the activities are for
+	"""
+	relayer: Relayer!
 
-    """
+	"""
 	Last updated at
 	"""
 	lastUpdatedAt: BigInt!
@@ -554,15 +556,15 @@ type ResponseStatusMetadata @entity {
 """
 Reward points earned by participants in the hyperbridge protocol
 """
-type RewardPoints @entity @compositeIndexes(fields: [["address", "chain"], ["earnerType", "chain"]]) {
+type Rewards @entity @compositeIndexes(fields: [["address", "chain"], ["earnerType", "chain"]]) {
 	id: ID!
 	address: String! @index
 	chain: String! @index
 	points: BigInt! @index
-	earnerType: ProtocolParticipant!
+	earnerType: ProtocolParticipantType
 }
 
-type RewardPointsActivityLog
+type RewardsActivityLog
 	@entity
 	@compositeIndexes(fields: [["earnerAddress", "chain"], ["earnerType", "chain"], ["activityType", "chain"]]) {
 	id: ID!
@@ -570,8 +572,8 @@ type RewardPointsActivityLog
 	points: BigInt! @index
 	transactionHash: String! @index
 	earnerAddress: String! @index
-	earnerType: ProtocolParticipant!
-	activityType: RewardPointsActivityType!
+	earnerType: ProtocolParticipantType
+	activityType: PointsActivityType
 	description: String!
 	createdAt: Date! @index
 }
@@ -811,7 +813,7 @@ type GetResponse @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 Represents an order placed through the IntentGateway contract.
 This entity tracks cross-chain orders.
 """
-type OrderPlaced @entity {
+type Order @entity {
 	"""
 	Unique identifier for the order (commitment)
 	"""
@@ -903,6 +905,11 @@ type OrderPlaced @entity {
 	statusMetadata: [OrderStatusMetadata]! @derivedFrom(field: "order")
 
 	"""
+	Referrer address that referred the user
+	"""
+	referrer: String
+
+	"""
 	Timestamp when the order was created
 	"""
 	createdAt: Date! @index
@@ -960,7 +967,7 @@ type OrderStatusMetadata @entity {
 	"""
 	The order that owns this status change
 	"""
-	order: OrderPlaced!
+	order: Order
 
 	"""
 	The filler of the order if the order has been filled
@@ -1147,12 +1154,12 @@ type DailyVolumeUSD @entity {
 Daily Hyperbridge Protocol Fees Stats
 """
 type DailyProtocolFeesStats @entity {
-    """
-    Unique identifier of the daily protocol fees
-    """
-    id: ID!
+	"""
+	Unique identifier of the daily protocol fees
+	"""
+	id: ID!
 
-   	"""
+	"""
 	The chain on which the protocol fees are charged
 	"""
 	chain: String! @index

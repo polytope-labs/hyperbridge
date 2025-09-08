@@ -1027,6 +1027,11 @@ export const INTENT_GATEWAY_ABI = [
 				name: "order",
 				type: "tuple",
 			},
+			{
+				internalType: "bytes32",
+				name: "graffiti",
+				type: "bytes32",
+			},
 		],
 		name: "placeOrder",
 		outputs: [],

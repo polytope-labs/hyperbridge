@@ -5,8 +5,8 @@ import {
 	TeleportStatus,
 	TeleportStatusMetadata,
 	TokenGatewayAssetTeleported,
-	ProtocolParticipant,
-	RewardPointsActivityType,
+	ProtocolParticipantType,
+	PointsActivityType,
 } from "@/configs/src/types"
 import { timestampToDate } from "@/utils/date.helpers"
 import { TOKEN_GATEWAY_CONTRACT_ADDRESSES } from "@/addresses/tokenGateway.addresses"
@@ -103,8 +103,8 @@ export class TokenGatewayService {
 				teleportParams.from,
 				chainId,
 				BigInt(pointsToAward),
-				ProtocolParticipant.USER,
-				RewardPointsActivityType.TOKEN_TELEPORTED_POINTS,
+				ProtocolParticipantType.USER,
+				PointsActivityType.TOKEN_TELEPORTED_POINTS,
 				transactionHash,
 				`Points awarded for teleporting token ${teleportParams.assetId} with value ${amountValueInUSD} USD`,
 				timestamp,
@@ -151,8 +151,8 @@ export class TokenGatewayService {
 					teleport.from,
 					teleport.sourceChain,
 					BigInt(pointsToDeduct),
-					ProtocolParticipant.USER,
-					RewardPointsActivityType.TOKEN_TELEPORTED_POINTS,
+					ProtocolParticipantType.USER,
+					PointsActivityType.TOKEN_TELEPORTED_POINTS,
 					transactionHash,
 					`Points deducted for refunded teleport ${commitment} with value ${teleport.usdValue} USD`,
 					timestamp,

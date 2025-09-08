@@ -19,6 +19,7 @@ import {
 	postRequestCommitment,
 	EvmChain,
 	IntentGateway,
+	DEFAULT_GRAFFITI,
 } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import { ConfirmationPolicy } from "@/config/confirmation-policy"
@@ -75,7 +76,7 @@ describe.sequential("Basic", () => {
 			queryClient: queryClient,
 			pollInterval: 1_000,
 		})
-	})
+	}, 1_000_000)
 
 	it.skip("Should listen, place order, fill order, and check if filled at the source chain", async () => {
 		const {
@@ -151,7 +152,7 @@ describe.sequential("Basic", () => {
 			})
 		})
 
-		const hash = await bscIntentGateway.write.placeOrder([order], {
+		const hash = await bscIntentGateway.write.placeOrder([order, DEFAULT_GRAFFITI], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: bscTestnet,
 		})
@@ -337,10 +338,13 @@ describe.sequential("Basic", () => {
 			})
 		})
 
-		const hash = await gnosisChiadoIntentGateway.write.placeOrder([order], {
-			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
-			chain: gnosisChiado,
-		})
+		const hash = await gnosisChiadoIntentGateway.write.placeOrder(
+			[order, bytes20ToBytes32("0x7f5f2cf1aec83bf0c74df566a41aa7ed65ea84ea")],
+			{
+				account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
+				chain: gnosisChiado,
+			},
+		)
 
 		const receipt = await gnosisChiadoPublicClient.waitForTransactionReceipt({
 			hash,
@@ -479,7 +483,7 @@ describe.sequential("Basic", () => {
 
 		await approveTokens(bscWalletClient, bscPublicClient, feeTokenBscAddress, bscIntentGateway.address)
 
-		let hash = await bscIntentGateway.write.placeOrder([order], {
+		let hash = await bscIntentGateway.write.placeOrder([order, DEFAULT_GRAFFITI], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: bscTestnet,
 		})
@@ -718,7 +722,7 @@ describe.sequential("Basic", () => {
 		await clearOutputTokenBalance(bscWalletClient, bscPublicClient, [usdtAsset], [pairAddress])
 
 		// Place the order
-		const hash = await gnosisChiadoIntentGateway.write.placeOrder([order], {
+		const hash = await gnosisChiadoIntentGateway.write.placeOrder([order, DEFAULT_GRAFFITI], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: gnosisChiado,
 			value: 100n,

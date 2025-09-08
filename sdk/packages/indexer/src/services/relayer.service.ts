@@ -1,4 +1,3 @@
-import { ProtocolParticipant } from "@/configs/src/types/enums"
 import { Relayer, RelayerActivity, Transfer } from "@/configs/src/types/models"
 import { RelayerChainStatsService } from "@/services/relayerChainStats.service"
 // import {

@@ -17,6 +17,7 @@ export {
 	fetchTokenUsdPrice,
 	ERC20Method,
 	adjustFeeDecimals,
+	DEFAULT_GRAFFITI,
 } from "@/utils"
 export * from "@/protocols/intents"
 export * from "@/utils/tokenGateway"

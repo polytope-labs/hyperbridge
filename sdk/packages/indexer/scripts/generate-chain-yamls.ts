@@ -70,6 +70,9 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
 
+	// Check if price indexing should be enabled (Hyperbridge chain but not testnet)
+	const enablePriceIndexing = isHyperbridgeChain && currentEnv !== "testnet"
+
 	const templateData = {
 		name: `${chain}-chain`,
 		description: `${chain.charAt(0).toUpperCase() + chain.slice(1)} Chain Indexer`,
@@ -84,6 +87,7 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		chainTypesConfig,
 		blockNumber,
 		isHyperbridgeChain,
+		enablePriceIndexing,
 		handlerKind: "substrate/EventHandler",
 		handlers: [
 			{ handler: "handleIsmpStateMachineUpdatedEvent", module: "ismp", method: "StateMachineUpdated" },
@@ -262,6 +266,22 @@ const generateChainsIntentGatewayAddresses = () => {
 	console.log("Generated intent-gateway-addresses.ts")
 }
 
+const generateTestnetStateMachineIds = () => {
+	const testnetStateMachineIds = new Set()
+
+	// Only generate testnet state machine IDs when in testnet environment
+	if (currentEnv === "testnet") {
+		validChains.forEach((config) => {
+			testnetStateMachineIds.add(config.stateMachineId)
+		})
+	}
+
+	const value = `// Auto-generated, DO NOT EDIT \nexport const TESTNET_STATE_MACHINE_IDS: string[] = ${JSON.stringify(Array.from(testnetStateMachineIds), null, 2)}`
+
+	fs.writeFileSync(root + "/src/testnet-state-machine-ids.ts", value)
+	console.log("Generated testnet-state-machine-ids.ts")
+}
+
 const generateEnvironmentConfig = () => {
 	const configurations = {}
 
@@ -288,6 +308,7 @@ try {
 	generateChainsByIsmpHost()
 	generateChainsIntentGatewayAddresses()
 	generateChainsTokenGatewayAddresses()
+	generateTestnetStateMachineIds()
 	generateEnvironmentConfig()
 	process.exit(0)
 } catch (err) {

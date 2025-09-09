@@ -17,6 +17,8 @@ dataSources:
           filter:
             module: xcmGateway
             method: AssetTeleported
+{{/if}}
+{{#if enablePriceIndexing}}
         - handler: handlePriceIndexing
           kind: substrate/BlockHandler
           filter:

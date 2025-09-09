@@ -4,11 +4,26 @@ import { normalizeTimestamp, timestampToDate } from "@/utils/date.helpers"
 import PriceHelper from "@/utils/price.helpers"
 import { fulfilled } from "@/utils/data.helper"
 import { ErrTokenPriceUnavailable } from "@/types/errors"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { TESTNET_STATE_MACHINE_IDS } from "@/testnet-state-machine-ids"
 
 import { TokenRegistryService } from "./token-registry.service"
 import { TokenConfig } from "@/addresses/token-registry.addresses"
 
 const DEFAULT_PROVIDER = "COINGECKO" as const
+
+/**
+ * Check if current chain is a testnet chain
+ */
+function isTestnetChain(): boolean {
+	try {
+		const currentStateMachineId = getHostStateMachine(chainId)
+		return TESTNET_STATE_MACHINE_IDS.includes(currentStateMachineId)
+	} catch (error) {
+		// If we can't determine the state machine ID, assume it's not testnet
+		return false
+	}
+}
 
 /**
  * Token Price Service fetches prices from CoinGecko adapter and stores them in the TokenPrice (current) and TokenPriceLog (historical).
@@ -20,6 +35,12 @@ export class TokenPriceService {
 	 * @returns A Promise that resolves to the price as a number
 	 */
 	static async getPrice(symbol: string, currentTimestamp = BigInt(Date.now())): Promise<number> {
+		// Return zero price for testnet chains
+		if (isTestnetChain()) {
+			logger.info(`[TokenPriceService.getPrice] Returning zero price for testnet chain: ${symbol}`)
+			return 0
+		}
+
 		try {
 			let token = await TokenRegistryService.get(symbol)
 			if (!token) {
@@ -31,10 +52,15 @@ export class TokenPriceService {
 			if (!tokenPrice) {
 				const updatedTokenPrices = await this.updateTokenPrices([symbol], currentTimestamp)
 				if (updatedTokenPrices instanceof Error) {
-					throw updatedTokenPrices
+					logger.error(
+						`[TokenPriceService.getPrice] Failed to update token price for ${symbol}`,
+						updatedTokenPrices,
+					)
+					return 0
 				}
 				if (updatedTokenPrices.length === 0) {
-					throw new Error(`Failed to update token price for ${symbol}`)
+					logger.error(`[TokenPriceService.getPrice] No token prices updated for ${symbol}`)
+					return 0
 				}
 				tokenPrice = updatedTokenPrices[0]
 			}
@@ -44,10 +70,15 @@ export class TokenPriceService {
 
 			const updatedTokenPrices = await this.updateTokenPrices([symbol], currentTimestamp)
 			if (updatedTokenPrices instanceof Error) {
-				throw updatedTokenPrices
+				logger.error(
+					`[TokenPriceService.getPrice] Failed to update stale token price for ${symbol}`,
+					updatedTokenPrices,
+				)
+				return 0
 			}
 			if (updatedTokenPrices.length === 0) {
-				throw new Error(`Failed to update token price for ${symbol}`)
+				logger.error(`[TokenPriceService.getPrice] No token prices updated for stale ${symbol}`)
+				return 0
 			}
 
 			return parseFloat(tokenPrice.price)
@@ -57,8 +88,8 @@ export class TokenPriceService {
 				return 0
 			}
 
-			logger.error(`[TokenPriceService.getPrice] Failed to update token price for ${symbol}`, error)
-			throw error
+			logger.error(`[TokenPriceService.getPrice] Failed to get token price for ${symbol}`, error)
+			return 0
 		}
 	}
 
@@ -131,7 +162,10 @@ export class TokenPriceService {
 			return
 		}
 
-		await this.updateTokenPrices(symbolsNeedingUpdate, currentTimestamp)
+		const result = await this.updateTokenPrices(symbolsNeedingUpdate, currentTimestamp)
+		if (result instanceof Error) {
+			logger.error(`[TokenPriceService.syncAllTokenPrices] Failed to update token prices`, result)
+		}
 	}
 
 	/**

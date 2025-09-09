@@ -82,5 +82,6 @@ chain-ids-by-genesis.ts
 chains-by-ismp-host.ts
 token-gateway-addresses.ts
 intent-gateway-addresses.ts
+testnet-state-machine-ids.ts
 
 packages/filler/src/config/chain.ts

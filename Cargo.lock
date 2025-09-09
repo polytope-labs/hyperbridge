@@ -8203,6 +8203,7 @@ dependencies = [
  "log",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-collator-balances",
  "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -14753,6 +14754,15 @@ dependencies = [
  "sp-core 37.0.0",
  "sp-io 41.0.1",
  "sp-runtime 42.0.0",
+]
+
+[[package]]
+name = "pallet-collator-balances"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
 ]
 
 [[package]]

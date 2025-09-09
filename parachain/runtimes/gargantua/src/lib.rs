@@ -535,6 +535,16 @@ impl pallet_aura::Config for Runtime {
 }
 
 parameter_types! {
+	pub const CollatorBondLockId: frame_support::traits::LockIdentifier = *b"collbond";
+}
+
+impl pallet_collator_balances::Config for Runtime {
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type LockId = CollatorBondLockId;
+}
+
+parameter_types! {
 	pub const PotId: PalletId = PalletId(*b"PotStake");
 	pub const MaxCandidates: u32 = 1000;
 	pub const MinEligibleCollators: u32 = 5;
@@ -548,7 +558,7 @@ pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
+	type Currency = CollatorBalances;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -825,6 +835,8 @@ mod runtime {
 	pub type IsmpArbitrum = ismp_arbitrum::pallet;
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
+	#[runtime::pallet_index(85)]
+	pub type CollatorBalances = pallet_collator_balances;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;

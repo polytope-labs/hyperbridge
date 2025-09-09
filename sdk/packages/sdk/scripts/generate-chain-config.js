@@ -28,6 +28,8 @@ const chainNameMap = {
 	"gnosis-chiado": "gnosisChiado",
 	sepolia: "sepolia",
 	mainnet: "mainnet",
+	"base-mainnet": "base",
+	"arbitrum-mainnet": "arbitrum",
 }
 
 const viemChains = Object.entries(config.chains)
@@ -90,7 +92,7 @@ const consensusStateIds = Object.entries(config.chains)
 	.join(",\n")
 
 const tsContent = `
-import { Chain, bscTestnet, gnosisChiado, sepolia, mainnet, bsc } from "viem/chains"
+import { Chain, bscTestnet, gnosisChiado, sepolia, mainnet, bsc, base, arbitrum } from "viem/chains"
 
 export enum Chains {
 ${chainsEnum}

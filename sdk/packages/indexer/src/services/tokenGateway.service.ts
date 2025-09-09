@@ -9,10 +9,10 @@ import {
 	PointsActivityType,
 } from "@/configs/src/types"
 import { timestampToDate } from "@/utils/date.helpers"
-import { TOKEN_GATEWAY_CONTRACT_ADDRESSES } from "@/addresses/tokenGateway.addresses"
 import { PointsService } from "./points.service"
 import { TokenPriceService } from "./token-price.service"
 import PriceHelper from "@/utils/price.helpers"
+import { TOKEN_GATEWAY_ADDRESSES } from "@/token-gateway-addresses"
 
 export interface IAssetDetails {
 	erc20_address: string
@@ -36,7 +36,7 @@ export class TokenGatewayService {
 	 * Get asset details
 	 */
 	static async getAssetDetails(asset_id: string): Promise<IAssetDetails> {
-		const TOKEN_GATEWAY_CONTRACT_ADDRESS = TOKEN_GATEWAY_CONTRACT_ADDRESSES[`EVM-${chainId}`]
+		const TOKEN_GATEWAY_CONTRACT_ADDRESS = TOKEN_GATEWAY_ADDRESSES[`EVM-${chainId}`]
 		const tokenGatewayContract = TokenGatewayAbi__factory.connect(TOKEN_GATEWAY_CONTRACT_ADDRESS, api)
 
 		const erc20Address = await tokenGatewayContract.erc20(asset_id)

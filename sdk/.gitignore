@@ -80,5 +80,7 @@ Thumbs.db
 env-config.json
 chain-ids-by-genesis.ts
 chains-by-ismp-host.ts
+token-gateway-addresses.ts
+intent-gateway-addresses.ts
 
 packages/filler/src/config/chain.ts

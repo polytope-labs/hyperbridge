@@ -108,6 +108,7 @@
 		"chainId": "80002",
 		"startBlock": 24949552,
 		"stateMachineId": "EVM-80002",
+		"blockConfirmations": 30,
 		"contracts": {
 			"ethereumHost": "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE",
 			"handlerV1": "0xf0b4024F15d07912953184840682690C31aD9bcC",

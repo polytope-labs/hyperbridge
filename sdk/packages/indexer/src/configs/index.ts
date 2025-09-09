@@ -17,6 +17,7 @@ const evmContractsSchema = z.object({
 const baseChainConfigSchema = z.object({
 	chainId: z.string(),
 	startBlock: z.number().int().min(0),
+	blockConfirmations: z.number().int().min(0).optional(),
 	stateMachineId: z.string().min(3, "Invalid state machine ID format"),
 })
 

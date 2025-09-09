@@ -11,4 +11,7 @@
 - --block-confirmations=0
 - --unfinalized-blocks
 {{/if}}
+{{#if blockConfirmations}}
+- --block-confirmations={{blockConfirmations}}
+{{/if}}
 - --store-cache-async=true

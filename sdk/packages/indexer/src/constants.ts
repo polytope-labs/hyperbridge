@@ -57,7 +57,9 @@ export const SONEMIUM = {
 import ENV_CONFIG from "./env-config.json"
 import { CHAIN_IDS_BY_GENESIS } from "./chain-ids-by-genesis"
 import { CHAINS_BY_ISMP_HOST } from "./chains-by-ismp-host"
-export { CHAIN_IDS_BY_GENESIS, CHAINS_BY_ISMP_HOST, ENV_CONFIG }
+import { INTENT_GATEWAY_ADDRESSES } from "./intent-gateway-addresses"
+import { TOKEN_GATEWAY_ADDRESSES } from "./token-gateway-addresses"
+export { CHAIN_IDS_BY_GENESIS, CHAINS_BY_ISMP_HOST, ENV_CONFIG, TOKEN_GATEWAY_ADDRESSES, INTENT_GATEWAY_ADDRESSES }
 
 // Replaced by auto-generated version
 

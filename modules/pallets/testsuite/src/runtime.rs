@@ -42,11 +42,10 @@ use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use polkadot_sdk::{
-	frame_support::weights::WeightToFee,
+	frame_support::{traits::LockIdentifier, weights::WeightToFee},
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys, Weight},
 };
-use polkadot_sdk::frame_support::traits::LockIdentifier;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},

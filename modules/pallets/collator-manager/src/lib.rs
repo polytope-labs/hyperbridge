@@ -33,22 +33,21 @@ pub mod pallet {
 	use frame_support::{
 		dispatch::DispatchResult,
 		pallet_prelude::*,
-	};
-	use frame_support::traits::{
-		Currency, ExistenceRequirement, LockIdentifier, LockableCurrency, ReservableCurrency,
-		SignedImbalance, WithdrawReasons,
-		Get,
-		fungible::{self, Inspect, Mutate},
-		tokens::{Fortitude, Precision, Preservation},
+		traits::{
+			Currency, ExistenceRequirement, Get, LockIdentifier, LockableCurrency,
+			ReservableCurrency, SignedImbalance, WithdrawReasons,
+			fungible::{self, Inspect, Mutate},
+			tokens::{Fortitude, Precision, Preservation},
+		},
 	};
 	use pallet_session::SessionManager;
-	use sp_staking::SessionIndex;
-	use sp_std::vec::Vec;
 	use scale_info::TypeInfo;
 	use sp_runtime::{
 		DispatchError, FixedPointOperand,
 		traits::{AtLeast32BitUnsigned, Saturating, Zero},
 	};
+	use sp_staking::SessionIndex;
+	use sp_std::vec::Vec;
 
 	/// Positive imbalance type of the wrapped `NativeCurrency`.
 	type PositiveImbalanceOf<T> = <<T as Config>::NativeCurrency as Currency<
@@ -79,22 +78,22 @@ pub mod pallet {
 
 		/// The Native balance type
 		type Balance: Parameter
-		+ Member
-		+ AtLeast32BitUnsigned
-		+ Codec
-		+ HasCompact<Type: DecodeWithMemTracking>
-		+ Default
-		+ Copy
-		+ MaybeSerializeDeserialize
-		+ Debug
-		+ MaxEncodedLen
-		+ TypeInfo
-		+ FixedPointOperand;
+			+ Member
+			+ AtLeast32BitUnsigned
+			+ Codec
+			+ HasCompact<Type: DecodeWithMemTracking>
+			+ Default
+			+ Copy
+			+ MaybeSerializeDeserialize
+			+ Debug
+			+ MaxEncodedLen
+			+ TypeInfo
+			+ FixedPointOperand;
 
 		/// This is meant to `pallet-balances` which is the underlying native currency pallet that
 		/// this pallet wraps around.
 		type NativeCurrency: ReservableCurrency<Self::AccountId, Balance = <Self as pallet::Config>::Balance>
-		+ LockableCurrency<Self::AccountId, Balance = <Self as pallet::Config>::Balance>;
+			+ LockableCurrency<Self::AccountId, Balance = <Self as pallet::Config>::Balance>;
 
 		/// The identifier for the locks placed by this pallet.
 		#[pallet::constant]
@@ -104,7 +103,7 @@ pub mod pallet {
 	/// Tracks the total amount an account has bonded through this pallet.
 	#[pallet::storage]
 	pub type Bonded<T: Config> =
-	StorageMap<_, Blake2_128Concat, T::AccountId, <T as pallet::Config>::Balance, ValueQuery>;
+		StorageMap<_, Blake2_128Concat, T::AccountId, <T as pallet::Config>::Balance, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -247,7 +246,10 @@ pub mod pallet {
 		/// It reduces the amount in its internal `Bonded` ledger and then updates the lock on
 		/// `pallet-balances` to match. If the bonded amount becomes zero, the lock is removed
 		/// entirely.
-		fn unreserve(who: &T::AccountId, value: <T as pallet::Config>::Balance) -> <T as pallet::Config>::Balance {
+		fn unreserve(
+			who: &T::AccountId,
+			value: <T as pallet::Config>::Balance,
+		) -> <T as pallet::Config>::Balance {
 			let unreserved_amount = Bonded::<T>::mutate(who, |bonded| {
 				let to_unreserve = (*bonded).min(value);
 				*bonded = bonded.saturating_sub(to_unreserve);

@@ -46,6 +46,7 @@ use polkadot_sdk::{
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys, Weight},
 };
+use polkadot_sdk::frame_support::traits::LockIdentifier;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
@@ -160,6 +161,10 @@ impl pallet_balances::Config for Test {
 	type MaxReserves = ConstU32<50>;
 	type MaxFreezes = ();
 	type DoneSlashHandler = ();
+}
+
+parameter_types! {
+	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
 }
 
 impl pallet_fishermen::Config for Test {
@@ -339,7 +344,7 @@ parameter_types! {
 
 impl pallet_collator_selection::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
+	type Currency = CollatorManager;
 	type UpdateOrigin = EnsureRoot<AccountId32>;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -354,6 +359,9 @@ impl pallet_collator_selection::Config for Test {
 impl pallet_collator_manager::Config for Test {
 	type ReputationAsset = ReputationAsset;
 	type DesiredCollators = DesiredCollators;
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type LockId = CollatorBondLockId;
 }
 
 impl pallet_token_gateway_inspector::Config for Test {

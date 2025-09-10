@@ -535,10 +535,17 @@ impl pallet_aura::Config for Runtime {
 }
 
 parameter_types! {
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+	pub const DesiredCollators: u32 = 2;
 	pub const CollatorBondLockId: frame_support::traits::LockIdentifier = *b"collbond";
 }
 
-impl pallet_collator_balances::Config for Runtime {
+pub type ReputationAsset =
+frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type DesiredCollators = DesiredCollators;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;
@@ -558,7 +565,7 @@ pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = CollatorBalances;
+	type Currency = CollatorManager;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -836,7 +843,7 @@ mod runtime {
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
 	#[runtime::pallet_index(85)]
-	pub type CollatorBalances = pallet_collator_balances;
+	pub type CollatorManager = pallet_collator_manager;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;

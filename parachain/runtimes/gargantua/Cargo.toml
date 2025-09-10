@@ -49,7 +49,7 @@ pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
-pallet-collator-balances = { workspace = true }
+pallet-collator-manager = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -147,7 +147,7 @@ std = [
     "ismp-arbitrum/std",
     "ismp-optimism/std",
     "ismp-polygon/std",
-    "pallet-collator-balances/std"
+    "pallet-collator-manager/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

@@ -1,19 +1,19 @@
-import path from "node:path"
 import { copyFile } from "node:fs/promises"
+import path from "node:path"
 import { colorize } from "consola/utils"
 
 const logMessage = (message) => {
-	const time = new Date().toLocaleTimeString([], {
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-		hour12: true,
-	})
+  const time = new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  })
 
-	const timestamp = colorize("dim", time)
-	const tag = colorize("bold", colorize("magenta", "[hyperbridge]"))
+  const timestamp = colorize("dim", time)
+  const tag = colorize("bold", colorize("magenta", "[hyperbridge]"))
 
-	return console.log(timestamp, tag, message)
+  return console.log(timestamp, tag, message)
 }
 
 /**
@@ -21,35 +21,48 @@ const logMessage = (message) => {
  * @returns {Plugin}
  */
 const copyWasm = () => {
-	return {
-		name: "hyperbridge-copy-wasm-plugin",
-		buildStart: async function makeCopy(ctx) {
-			const is_dev_mode = Object.keys(ctx).length === 0
+  let is_dev_server = false
 
-			if (!is_dev_mode) return
+  return {
+    name: "@hyperbridge/vite:wasm-deps",
+    configResolved(config) {
+      if (config.command === "serve") {
+        is_dev_server = true
+      }
+    },
+    buildStart: async function makeCopy() {
+      if (!is_dev_server) {
+        logMessage("⏭️ Skipping wasm dependency. No neccessary in build step");
+        return;
+      }
 
-			// Get path to the consuming project's node_modules
-			const projectNodeModules = path.resolve(process.cwd(), "node_modules")
+      // @todo: Add monorepo support
 
-			// Find the @hyperbridge/sdk package in node_modules
-			const source = path.resolve(projectNodeModules, "@hyperbridge/sdk/dist/browser/web_bg.wasm")
+      // Get path to the consuming project's node_modules
+      const projectNodeModules = path.resolve(process.cwd(), "node_modules")
 
-			// Destination in the Vite cache directory
-			const destDir = path.resolve(projectNodeModules, ".vite/deps")
-			const dest = path.resolve(destDir, "web_bg.wasm")
+      // Find the @hyperbridge/sdk package in node_modules
+      const source = path.resolve(
+        projectNodeModules,
+        "@hyperbridge/sdk/dist/browser/web_bg.wasm",
+      )
 
-			// Wait for .vite folder to exist
-			setTimeout(async () => {
-				try {
-					logMessage("📦 Copying wasm dependency")
-					await copyFile(source, dest)
-					logMessage("✅ Copy complete")
-				} catch (error) {
-					logMessage(`❌ Error copying wasm file: ${error.message}`)
-				}
-			}, 2000)
-		},
-	}
+      // Destination in the Vite cache directory
+      const destDir = path.resolve(projectNodeModules, ".vite/deps")
+      const dest = path.resolve(destDir, "web_bg.wasm")
+
+      // Wait for .vite folder to exist
+      setTimeout(async () => {
+        try {
+          logMessage("📦 Copying wasm dependency")
+          await copyFile(source, dest)
+          logMessage("✅ Copy complete")
+        } catch (error) {
+          logMessage(`❌ Error copying wasm file: ${error?.message}`)
+        }
+      }, 2000)
+    },
+  }
 }
 
 export default copyWasm

@@ -45,14 +45,14 @@ where
 				RequestResponse::Response(responses) =>
 					for r in responses {
 						if let Response::Post(post_response) = r {
-							let commitment = hash_response::<<T as pallet::Config>::IsmpHost>(
-								&Response::Post(post_response.clone()),
-							);
+							let response = Response::Post(post_response.clone());
+							let commitment =
+								hash_response::<<T as pallet::Config>::IsmpHost>(&response);
 							fee_data.push((
 								post_response.response.len(),
 								commitment,
-								post_response.post.source.clone(),
-								post_response.post.dest.clone(),
+								response.source_chain(),
+								response.dest_chain(),
 							));
 						}
 					},
@@ -147,7 +147,7 @@ where
 					}
 				},
 			Message::Response(msg) => match msg.datagram.clone() {
-				RequestResponse::Request(requests) => return Ok(()),
+				RequestResponse::Request(_) => return Ok(()),
 				RequestResponse::Response(responses) =>
 					for res in responses {
 						let source_chain = res.source_chain();

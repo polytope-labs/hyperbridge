@@ -1,7 +1,7 @@
 use crate::runtime::{
 	new_test_ext, Assets, Balance, Balances, CollatorBondLockId, CollatorManager,
 	CollatorSelection, ReputationAssetId, RuntimeCall, RuntimeOrigin, Session, Sudo, Test, Vesting,
-	ALICE, BOB, CHARLIE, DAVE, EXISTENTIAL_DEPOSIT, INITIAL_BALANCE, UNIT,
+	ALICE, BOB, CHARLIE, DAVE, INITIAL_BALANCE, UNIT,
 };
 use frame_system::Pallet as System;
 use pallet_collator_manager::Error;

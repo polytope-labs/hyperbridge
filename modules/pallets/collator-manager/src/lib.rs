@@ -224,7 +224,6 @@ pub mod pallet {
 		/// `Bonded` storage and then places a lock on `pallet-balances` for the new total
 		/// bonded amount.
 		fn reserve(who: &T::AccountId, value: <T as pallet::Config>::Balance) -> DispatchResult {
-			dbg!("reserving for {:?} {:?}", who, value);
 			ensure!(Self::can_reserve(who, value), Error::<T>::InsufficientBalance);
 
 			let new_total_bonded = Bonded::<T>::mutate(who, |bonded| {

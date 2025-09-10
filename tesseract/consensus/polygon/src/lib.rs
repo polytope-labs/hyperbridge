@@ -7,7 +7,7 @@ use ismp::{
 };
 use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLIENT_ID};
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
+use std::{future::pending, sync::Arc, time::Duration};
 use tendermint_primitives::{self, Client, CodecTrustedState};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
@@ -28,6 +28,8 @@ pub struct HostConfig {
 	pub heimdall_rest_url: String,
 	/// Execution RPC URL
 	pub execution_rpc_url: String,
+	/// Disable consensus task
+	pub disable: Option<bool>,
 }
 
 /// Top-level config for Polygon POS relayer
@@ -134,48 +136,55 @@ impl IsmpHost for PolygonPosHost {
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		use crate::notification::consensus_notification;
-		let interval = tokio::time::interval(Duration::from_secs(
-			self.host.consensus_update_frequency.unwrap_or(300),
-		));
-		let client = self.clone();
-		let counterparty_clone = counterparty.clone();
-		let mut interval = Box::pin(interval);
-		let provider = self.provider();
-		loop {
-			interval.as_mut().tick().await;
-			match consensus_notification(&client, counterparty_clone.clone()).await {
-				Ok(Some(update)) => {
-					use ismp::messaging::ConsensusMessage;
-					let consensus_message = ConsensusMessage {
-						consensus_proof: update.encode(),
-						consensus_state_id: client.consensus_state_id,
-						signer: counterparty.address(),
-					};
-					log::info!(
-						target: "tesseract",
-						"🛰️ Transmitting consensus message from {} to {}",
-						provider.name(), counterparty.name()
-					);
-					let res = counterparty
-						.submit(
-							vec![Message::Consensus(consensus_message)],
-							counterparty.state_machine_id().state_id,
-						)
-						.await;
-					if let Err(err) = res {
-						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
-							counterparty.name()
-						)
-					}
-				},
-				Ok(None) => {
-					// No update to send, just continue
-				},
-				Err(e) => {
-					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
-				},
+		let disable = self.host.disable.unwrap_or_default();
+
+		if disable {
+			let _ = pending::<()>().await;
+			Ok(())
+		} else {
+			use crate::notification::consensus_notification;
+			let interval = tokio::time::interval(Duration::from_secs(
+				self.host.consensus_update_frequency.unwrap_or(300),
+			));
+			let client = self.clone();
+			let counterparty_clone = counterparty.clone();
+			let mut interval = Box::pin(interval);
+			let provider = self.provider();
+			loop {
+				interval.as_mut().tick().await;
+				match consensus_notification(&client, counterparty_clone.clone()).await {
+					Ok(Some(update)) => {
+						use ismp::messaging::ConsensusMessage;
+						let consensus_message = ConsensusMessage {
+							consensus_proof: update.encode(),
+							consensus_state_id: client.consensus_state_id,
+							signer: counterparty.address(),
+						};
+						log::info!(
+							target: "tesseract",
+							"🛰️ Transmitting consensus message from {} to {}",
+							provider.name(), counterparty.name()
+						);
+						let res = counterparty
+							.submit(
+								vec![Message::Consensus(consensus_message)],
+								counterparty.state_machine_id().state_id,
+							)
+							.await;
+						if let Err(err) = res {
+							log::error!(
+								"Failed to submit transaction to {}: {err:?}",
+								counterparty.name()
+							)
+						}
+					},
+					Ok(None) => {
+						// No update to send, just continue
+					},
+					Err(e) => {
+						log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					},
+				}
 			}
 		}
 	}

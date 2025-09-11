@@ -130,21 +130,9 @@ state_machine = "KUSAMA-4009"
 # Hyperbridge node ws rpc endpoint.
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 
-# Sets the maximum size of an rpc request or response
-#  in bytes defaults to 150mb
-max_rpc_payload_size = 150000000
+signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
 
-# (Optional) initial height
-# This sets the height at which to start querying messages,
-# This exists for testing and development
-# misuse can cause the rpc to be overloaded with queries
-# initial_height = 1000
-
-# (Optional) Frequency in seconds to poll the chain
-# for new state machine update events
-# poll_interval = 10
-
-# (Optional) Hyperbridge's consensus state id
+# Hyperbridge's consensus state id
 # Only add this if relaying to a solochain.
 # Relaying between solochains and parachains with the
 # same relayer instance is not supported.
@@ -152,13 +140,27 @@ max_rpc_payload_size = 150000000
 # For Polkadot Mainnet: DOT0
 # consensus_state_id = "PAS0"
 
+# [bsc]
+type = "evm"
+poll_interval = 60
+state_machine = "EVM-97"
+rpc_urls = [
+	"https://bsc-rpc.network",
+]
+consensus_state_id = "BSC0"
+etherscan_api_key = ""
+ismp_host = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7"
+signer = ""
+tracing_batch_size = 5
+query_batch_size = 10000
+
 # Relayer config, required
 [relayer]
 # Define your profitability configuration.
 # 0 -> 0% i.e relay all requests, even unprofitable ones.
 # 1 -> 1%. ie fees provided for requests must be
 # profitable by at least 1%. etc.
-minimum_profit_percentage = 0
+minimum_profit_percentage = 1
 
 # How frequently to initiate withdrawals in seconds
 # defaults to 24 hours
@@ -171,62 +173,9 @@ minimum_withdrawal_amount = 100
 # If not empty, tesseract will only deliver requests
 # to the specified state-machines
 delivery_endpoints = [
-    "EVM-11155111",
-    "EVM-421614",
-    "EVM-11155420",
-    "EVM-84532",
     "EVM-97",
-    "SUBSTRATE-myid",
-    "POLKADOT-2100"
 ]
 
-# (Optional)
-# If not empty, will filter requests to be delivered
-# by originating module identifier (eg contract address/pallet ids)
-# module_filter = []
-
-# (Optional)
-# How frequently to retry unprofitable or
-# failed messages in seconds.
-# If this is value not supplied retries will not be enabled.
-# unprofitable_retry_frequency = 600
-
-# (Optional) Disable fee accumulation task
-# If this value is true, fee accumulation will be disabled.
-# This should only be enabled when running a private relayer
-# disable_fee_accumulation = false
-
-# Here you'll declare a new chain entry
-# for every chain you want to support.
-
-...
-
-[substrate]
-type = "substrate"
-
-# The state machine identifier for this substrate based chain.
-# must be one of:
-#  "POLKADOT-{paraId}"
-#  "KUSAMA-{paraId}"
-#  "SUBSTRATE-{customId}"
-state_machine = "KUSAMA-4009"
-
-# Hashing can be "Keccak" or "Blake2"
-hashing = "Blake2"
-
-# substrate node ws(s) rpc endpoint.
-rpc_ws = "ws://127.0.0.1:9944" # example endpoint
-
-# The consensus state identifier for this chain on hyperbridge.
-# "PARA" for parachains
-consensus_state_id = "PARA"
-
-# (Optional)
-# Configures the maximum size of an rpc request/response in bytes
-# max_rpc_payload_size = 150000000
-
-# Hex-encoded private key for the relayer account on this chain
-signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
 ```
 
 
@@ -312,7 +261,3 @@ If you are not selected:
 - Continue relaying messages to increase you Reputation Asset balance and improve your chances of being selected in the next session.
 
 This creates a dynamic and meritocratic system where the most active and successful participants are rewarded with the responsibility of securing the network.
-
-
-
-

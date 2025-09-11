@@ -190,6 +190,9 @@ impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> Ismp
 						)
 						.await;
 					if let Err(err) = res {
+						// Rpc Errors can be too long sometimes, let's truncate them
+						let mut err = err.to_string();
+						err.truncate(1024);
 						log::error!(
 							"Failed to submit transaction to {}: {err:?}",
 							counterparty.name()

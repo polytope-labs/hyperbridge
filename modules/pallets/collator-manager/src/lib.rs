@@ -278,18 +278,13 @@ pub mod pallet {
 			who: &T::AccountId,
 			value: <T as pallet::Config>::Balance,
 		) -> (NegativeImbalanceOf<T>, <T as pallet::Config>::Balance) {
-			Bonded::<T>::mutate(who, |bonded| {
+			let amount = Bonded::<T>::mutate(who, |bonded| {
 				let to_slash = (*bonded).min(value);
 				*bonded = bonded.saturating_sub(to_slash);
 				to_slash
 			});
 
-			T::NativeCurrency::set_lock(
-				T::LockId::get(),
-				who,
-				Bonded::<T>::get(who),
-				WithdrawReasons::all(),
-			);
+			T::NativeCurrency::set_lock(T::LockId::get(), who, amount, WithdrawReasons::all());
 
 			let (imbalance, remainder) = T::NativeCurrency::slash(who, value);
 			(imbalance, remainder)

@@ -15,7 +15,6 @@ import {
 	FillOptions,
 	HexString,
 	Order,
-	fetchTokenUsdPrice,
 } from "@hyperbridge/sdk"
 import { FillerStrategy } from "./base"
 import { privateKeyToAddress } from "viem/accounts"

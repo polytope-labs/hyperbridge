@@ -4,6 +4,7 @@ stateMachineId = "EVM-97"
 wrappedNativeDecimals = 18
 rpcUrl = { env = "BSC_CHAPEL", url = "https://bnb-testnet.api.onfinality.io/public" }
 consensusStateId = "BSC0"
+coingecko = "binance-smart-chain"
 
 [chains.bsc-chapel.assets]
 WETH = "0xae13d989dac2f0debff460ac112a837c89baa7cd"
@@ -30,6 +31,7 @@ stateMachineId = "EVM-10200"
 wrappedNativeDecimals = 18
 rpcUrl = { env = "GNOSIS_CHIADO", url = "https://gnosis-chiado-rpc.publicnode.com" }
 consensusStateId = "GNO0"
+coingecko = "gnosis"
 
 [chains.gnosis-chiado.assets]
 WETH = "0x0000000000000000000000000000000000000000"
@@ -48,6 +50,7 @@ type = "substrate"
 stateMachineId = "KUSAMA-4009"
 rpcUrl = { env = "HYPERBRIDGE_GARGANTUA", url = "" }
 consensusStateId = "PAS0"
+coingecko= 'hyperbridge'
 
 [chains.sepolia]
 type = "evm"
@@ -55,6 +58,7 @@ stateMachineId = "EVM-11155111"
 wrappedNativeDecimals = 18
 rpcUrl = { env = "SEPOLIA", url = "https://1rpc.io/sepolia" }
 consensusStateId = "ETH0"
+coingecko= 'ethereum'
 
 [chains.sepolia.assets]
 WETH = "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9"
@@ -75,6 +79,7 @@ stateMachineId = "EVM-1"
 wrappedNativeDecimals = 18
 rpcUrl = { env = "ETH_MAINNET", url = "https://eth-mainnet.g.alchemy.com/v2/demo" }
 consensusStateId = "ETH0"
+coingecko = 'ethereum'
 
 [chains.mainnet.assets]
 WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -101,6 +106,7 @@ stateMachineId = "EVM-56"
 wrappedNativeDecimals = 18
 rpcUrl = { env = "BSC_MAINNET", url = "https://binance.llamarpc.com" }
 consensusStateId = "BSC0"
+coingecko = "binance-smart-chain"
 
 [chains.bsc-mainnet.assets]
 WETH = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
@@ -127,6 +133,7 @@ stateMachineId = "EVM-42161"
 wrappedNativeDecimals = 18
 rpcUrl = { env = "ARBITRUM_MAINNET", url = "https://arbitrum-one.public.blastapi.io" }
 consensusStateId = "ETH0"
+coingecko = "arbitrum-one"
 
 [chains.arbitrum-mainnet.assets]
 WETH = "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"
@@ -153,6 +160,7 @@ stateMachineId = "EVM-8453"
 wrappedNativeDecimals = 18
 rpcUrl = { env = "BASE_MAINNET", url = "https://base-mainnet.public.blastapi.io" }
 consensusStateId = "ETH0"
+coingecko = "base"
 
 [chains.base-mainnet.assets]
 WETH = "0x4200000000000000000000000000000000000006"

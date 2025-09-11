@@ -7,13 +7,13 @@ import { ChainClientManager, ContractInteractionService } from "@/services"
 import { ChainConfigService } from "@hyperbridge/sdk"
 
 import { PublicClient } from "viem"
+import { generatePrivateKey } from "viem/accounts"
 
 export class IntentFiller {
 	public monitor: EventMonitor
 	private strategies: FillerStrategy[]
 	private chainQueues: Map<number, pQueue>
 	private globalQueue: pQueue
-	private configService: ChainConfigService
 	private chainClientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private config: FillerConfig
@@ -22,9 +22,8 @@ export class IntentFiller {
 		this.monitor = new EventMonitor(chainConfigs)
 		this.strategies = strategies
 		this.config = config
-		this.configService = new ChainConfigService()
-		this.chainClientManager = new ChainClientManager(DUMMY_PRIVATE_KEY)
-		this.contractService = new ContractInteractionService(this.chainClientManager, DUMMY_PRIVATE_KEY)
+		this.chainClientManager = new ChainClientManager(generatePrivateKey())
+		this.contractService = new ContractInteractionService(this.chainClientManager, generatePrivateKey())
 		this.chainQueues = new Map()
 		chainConfigs.forEach((chainConfig) => {
 			// 1 order per chain at a time due to EVM constraints

@@ -981,8 +981,9 @@ async function setUp() {
 	const bscChapelId = "EVM-97"
 	const mainnetId = "EVM-1"
 	const gnosisChiadoId = "EVM-10200"
+	const bscMainnet = "EVM-56"
 
-	const chains = [bscChapelId, gnosisChiadoId]
+	const chains = [bscMainnet, mainnetId, gnosisChiadoId, bscChapelId]
 
 	let chainConfigService = new ChainConfigService()
 	let chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))

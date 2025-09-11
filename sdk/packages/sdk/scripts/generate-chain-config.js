@@ -91,6 +91,11 @@ const consensusStateIds = Object.entries(config.chains)
 	.map(([chain, data]) => `\t[Chains.${chain.toUpperCase().replace(/-/g, "_")}]: "${data.consensusStateId}"`)
 	.join(",\n")
 
+const coingeckoIds = Object.entries(config.chains)
+	.filter(([_, data]) => data.coingecko)
+	.map(([chain, data]) => `\t[Chains.${chain.toUpperCase().replace(/-/g, "_")}]: "${data.coingecko}"`)
+	.join(",\n")
+
 const tsContent = `
 import { Chain, bscTestnet, gnosisChiado, sepolia, mainnet, bsc, base, arbitrum } from "viem/chains"
 
@@ -134,6 +139,10 @@ ${rpcUrls}
 
 export const consensusStateIds = {
 ${consensusStateIds}
+}
+
+export const coingeckoIds = {
+${coingeckoIds}
 }
 `
 

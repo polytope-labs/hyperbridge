@@ -14,8 +14,8 @@ export {
 	constructRedeemEscrowRequestBody,
 	estimateGasForPost,
 	getStorageSlot,
-	fetchTokenUsdPrice,
 	ERC20Method,
+	fetchPrice,
 	adjustFeeDecimals,
 	DEFAULT_GRAFFITI,
 } from "@/utils"

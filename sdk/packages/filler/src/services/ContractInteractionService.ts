@@ -15,6 +15,7 @@ import {
 	IPostRequest,
 	getStorageSlot,
 	ERC20Method,
+	fetchPrice,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -23,7 +24,6 @@ import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { EVM_HOST } from "@/config/abis/EvmHost"
 import { orderCommitment } from "@hyperbridge/sdk"
 import { ApiPromise, WsProvider } from "@polkadot/api"
-import { fetchTokenUsdPrice } from "@hyperbridge/sdk"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import { Chains } from "@hyperbridge/sdk"
 import { CacheService } from "./CacheService"
@@ -149,45 +149,43 @@ export class ContractInteractionService {
 	 * Approves ERC20 tokens for the contract if needed
 	 */
 	async approveTokensIfNeeded(order: Order): Promise<void> {
-		const uniqueTokens: string[] = []
 		const wallet = privateKeyToAccount(this.privateKey)
-		const outputs = order.outputs
 		const destClient = this.clientManager.getPublicClient(order.destChain)
 		const walletClient = this.clientManager.getWalletClient(order.destChain)
 		const intentGateway = this.configService.getIntentGatewayAddress(order.destChain)
 
-		// Collect unique ERC20 tokens
-		for (const output of outputs) {
-			const bytes20Address = bytes32ToBytes20(output.token)
-			if (bytes20Address !== ADDRESS_ZERO) {
-				uniqueTokens.push(bytes20Address)
-			}
-		}
+		const tokens = [
+			...new Set(order.outputs.map((o) => bytes32ToBytes20(o.token)).filter((addr) => addr !== ADDRESS_ZERO)),
+			(await this.getFeeTokenWithDecimals(order.destChain)).address,
+		].map((address) => ({
+			address,
+			amount: order.outputs.find((o) => bytes32ToBytes20(o.token) === address)?.amount || 0n,
+		}))
 
-		// Approve each token
-		for (const tokenAddress of [...uniqueTokens, (await this.getFeeTokenWithDecimals(order.destChain)).address]) {
-			const currentAllowance = await destClient.readContract({
+		for (const token of tokens) {
+			const allowance = await destClient.readContract({
 				abi: ERC20_ABI,
-				address: tokenAddress as HexString,
+				address: token.address as HexString,
 				functionName: "allowance",
 				args: [wallet.address, intentGateway],
 			})
 
-			// If allowance is too low, approve a very large amount
-			if (currentAllowance < maxUint256) {
-				console.log(`Approving ${tokenAddress} for the contract`)
+			if (allowance < token.amount) {
+				console.log(`Approving ${token.address}`)
+				const gasPrice = await destClient.getGasPrice()
 
-				const { request } = await destClient.simulateContract({
+				const tx = await walletClient.writeContract({
 					abi: ERC20_ABI,
-					address: tokenAddress as HexString,
+					address: token.address as HexString,
 					functionName: "approve",
 					args: [intentGateway, maxUint256],
 					account: wallet,
+					chain: walletClient.chain,
+					gasPrice: gasPrice + (gasPrice * 2000n) / 10000n,
 				})
 
-				const tx = await walletClient.writeContract(request)
 				await destClient.waitForTransactionReceipt({ hash: tx })
-				console.log(`Approval confirmed for ${tokenAddress}`)
+				console.log(`Approved ${token.address}`)
 			}
 		}
 	}
@@ -473,12 +471,13 @@ export class ContractInteractionService {
 	async getNativeTokenPrice(chain: string): Promise<bigint> {
 		let client = this.clientManager.getPublicClient(chain)
 		const nativeToken = client.chain?.nativeCurrency
+		const chainId = client.chain?.id
 
 		if (!nativeToken?.symbol || !nativeToken?.decimals) {
 			throw new Error("Chain native currency information not available")
 		}
 
-		const nativeTokenPriceUsd = await fetchTokenUsdPrice(nativeToken.symbol)
+		const nativeTokenPriceUsd = await fetchPrice(nativeToken.symbol, chainId)
 
 		return BigInt(Math.floor(nativeTokenPriceUsd * Math.pow(10, 18)))
 	}
@@ -488,16 +487,17 @@ export class ContractInteractionService {
 		const gasPrice = await client.getGasPrice()
 		const gasCostInWei = gasEstimate * gasPrice
 		const nativeToken = client.chain?.nativeCurrency
+		const chainId = client.chain?.id
 
 		if (!nativeToken?.symbol || !nativeToken?.decimals) {
 			throw new Error("Chain native currency information not available")
 		}
 
 		const gasCostInToken = Number(gasCostInWei) / Math.pow(10, nativeToken.decimals)
-		const tokenPriceUsd = await fetchTokenUsdPrice(nativeToken.symbol)
+		const tokenPriceUsd = await fetchPrice(nativeToken.symbol, chainId)
 		const gasCostUsd = gasCostInToken * tokenPriceUsd
 
-		const feeTokenPriceUsd = await fetchTokenUsdPrice("DAI") // Using DAI as default
+		const feeTokenPriceUsd = await fetchPrice("DAI") // Using DAI as default
 		let gasCostInFeeToken = gasCostUsd / feeTokenPriceUsd
 
 		return BigInt(Math.floor(gasCostInFeeToken * Math.pow(10, targetDecimals)))
@@ -625,7 +625,7 @@ export class ContractInteractionService {
 			}
 
 			// Always use 18 decimals for USD due to multiple token decimal inconsistencies
-			const pricePerToken = await this.getTokenPrice(priceIdentifier, 18)
+			const pricePerToken = await this.getTokenPrice(priceIdentifier, 18, destClient.chain?.id!)
 			const tokenUsdValue = (amount * pricePerToken) / BigInt(10 ** decimals)
 			outputUsdValue = outputUsdValue + tokenUsdValue
 		}
@@ -645,7 +645,7 @@ export class ContractInteractionService {
 			}
 
 			// Always use 18 decimals for USD due to multiple token decimal inconsistencies
-			const pricePerToken = await this.getTokenPrice(priceIdentifier, 18)
+			const pricePerToken = await this.getTokenPrice(priceIdentifier, 18, sourceClient.chain?.id!)
 			const tokenUsdValue = (amount * pricePerToken) / BigInt(10 ** decimals)
 			inputUsdValue = inputUsdValue + tokenUsdValue
 		}
@@ -653,8 +653,8 @@ export class ContractInteractionService {
 		return { outputUsdValue, inputUsdValue }
 	}
 
-	async getTokenPrice(tokenAddress: string, decimals: number): Promise<bigint> {
-		const usdValue = await fetchTokenUsdPrice(tokenAddress)
+	async getTokenPrice(tokenAddress: string, decimals: number, chainId: number): Promise<bigint> {
+		const usdValue = await fetchPrice(tokenAddress, chainId)
 		return BigInt(Math.floor(usdValue * Math.pow(10, decimals)))
 	}
 
@@ -667,6 +667,7 @@ export class ContractInteractionService {
 	}> {
 		const fillerWalletAddress = privateKeyToAddress(this.privateKey)
 		const destClient = this.clientManager.getPublicClient(chain)
+		const chainId = destClient.chain?.id!
 
 		const nativeTokenBalance = await destClient.getBalance({ address: fillerWalletAddress })
 		const nativeTokenPrice = await this.getNativeTokenPrice(chain)
@@ -681,7 +682,7 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const daiDecimals = await this.getTokenDecimals(daiAddress, chain)
-		const daiPrice = await this.getTokenPrice(daiAddress, 18) // Normalize to 18 decimals
+		const daiPrice = await this.getTokenPrice(daiAddress, 18, chainId) // Normalize to 18 decimals
 		const daiBalanceUsd = (daiBalance * daiPrice) / BigInt(10 ** daiDecimals)
 
 		const usdtAddress = this.configService.getUsdtAsset(chain)
@@ -692,7 +693,7 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const usdtDecimals = await this.getTokenDecimals(usdtAddress, chain)
-		const usdtPrice = await this.getTokenPrice(usdtAddress, 18) // Normalize to 18 decimals
+		const usdtPrice = await this.getTokenPrice(usdtAddress, 18, chainId) // Normalize to 18 decimals
 		const usdtBalanceUsd = (usdtBalance * usdtPrice) / BigInt(10 ** usdtDecimals)
 
 		const usdcAddress = this.configService.getUsdcAsset(chain)
@@ -703,7 +704,7 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const usdcDecimals = await this.getTokenDecimals(usdcAddress, chain)
-		const usdcPrice = await this.getTokenPrice(usdcAddress, 18) // Normalize to 18 decimals
+		const usdcPrice = await this.getTokenPrice(usdcAddress, 18, chainId) // Normalize to 18 decimals
 		const usdcBalanceUsd = (usdcBalance * usdcPrice) / BigInt(10 ** usdcDecimals)
 
 		const totalBalanceUsd = nativeTokenUsdValue + daiBalanceUsd + usdtBalanceUsd + usdcBalanceUsd

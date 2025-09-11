@@ -2,12 +2,12 @@ import {
 	bytes32ToBytes20,
 	bytes20ToBytes32,
 	constructRedeemEscrowRequestBody,
-	fetchTokenUsdPrice,
 	getStorageSlot,
 	ADDRESS_ZERO,
 	MOCK_ADDRESS,
 	ERC20Method,
 	adjustFeeDecimals,
+	fetchPrice,
 } from "@/utils"
 import { maxUint256, toHex } from "viem"
 import { DispatchPost, type FillOptions, type HexString, type IPostRequest, type Order } from "@/types"
@@ -244,6 +244,7 @@ export class IntentGateway {
 		feeTokenDecimals: number,
 	): Promise<bigint> {
 		const nativeToken = publicClient.chain?.nativeCurrency
+		const chainId = publicClient.chain?.id
 
 		if (!nativeToken?.symbol || !nativeToken?.decimals) {
 			throw new Error("Chain native currency information not available")
@@ -251,7 +252,7 @@ export class IntentGateway {
 
 		const feeTokenAmountNumber = Number(feeTokenAmount) / Math.pow(10, feeTokenDecimals)
 
-		const nativeTokenPriceUsd = await fetchTokenUsdPrice(nativeToken.symbol)
+		const nativeTokenPriceUsd = await fetchPrice(nativeToken.symbol, chainId)
 
 		const totalCostInNativeToken = feeTokenAmountNumber / nativeTokenPriceUsd
 
@@ -276,16 +277,17 @@ export class IntentGateway {
 		const gasPrice = await publicClient.getGasPrice()
 		const gasCostInWei = gasEstimate * gasPrice
 		const nativeToken = publicClient.chain?.nativeCurrency
+		const chainId = publicClient.chain?.id
 
 		if (!nativeToken?.symbol || !nativeToken?.decimals) {
 			throw new Error("Chain native currency information not available")
 		}
 
 		const gasCostInToken = Number(gasCostInWei) / Math.pow(10, nativeToken.decimals)
-		const tokenPriceUsd = await fetchTokenUsdPrice(nativeToken.symbol)
+		const tokenPriceUsd = await fetchPrice(nativeToken.symbol, chainId)
 		const gasCostUsd = gasCostInToken * tokenPriceUsd
 
-		const feeTokenPriceUsd = await fetchTokenUsdPrice("DAI")
+		const feeTokenPriceUsd = await fetchPrice("DAI")
 		const gasCostInFeeToken = gasCostUsd / feeTokenPriceUsd
 
 		return BigInt(Math.floor(gasCostInFeeToken * Math.pow(10, targetDecimals)))

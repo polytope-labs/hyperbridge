@@ -5,6 +5,7 @@ import {
 	assets,
 	chainIds,
 	consensusStateIds,
+	coingeckoIds,
 	Chains,
 	WrappedNativeDecimals,
 	createRpcUrls,
@@ -102,5 +103,9 @@ export class ChainConfigService {
 
 	getUniswapV4QuoterAddress(chain: string): HexString {
 		return addresses.UniswapV4Quoter[chain as keyof typeof addresses.UniswapV4Quoter]! as HexString
+	}
+
+	getCoingeckoId(chain: string): string | undefined {
+		return coingeckoIds[chain as keyof typeof coingeckoIds]
 	}
 }

@@ -12,23 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-	collections::{HashMap, HashSet},
-	time::Duration,
-};
-
 use anyhow::{anyhow, Context};
 use bytes::Buf;
 use codec::{Decode, Encode};
 use ethers::abi::AbiEncode;
 use hex_literal::hex;
-use polkadot_sdk::sp_runtime::traits::Keccak256;
+use polkadot_sdk::*;
 use primitive_types::H256;
 use redis::{AsyncCommands, RedisError};
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
 use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, SignedCommitment, VersionedFinalityProof,
+};
+use sp_runtime::{
+	generic,
+	traits::{BlakeTwo256, Header as _, Keccak256},
+};
+use std::{
+	collections::{HashMap, HashSet},
+	time::Duration,
 };
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
@@ -113,6 +116,7 @@ where
 	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + Send + Sync,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor<P>>,
+	HashFor<R>: From<H256>,
 {
 	/// Constructs an instance of the [`BeefyProver`]
 	pub async fn new(
@@ -286,7 +290,7 @@ where
 	/// by beefy and the last known finalized block.
 	pub async fn query_next_finalized_epoch(
 		&self,
-	) -> Result<(Option<(HashFor<R>, u64)>, R::Header), anyhow::Error> {
+	) -> Result<(Option<(HashFor<R>, u64)>, generic::Header<u32, BlakeTwo256>), anyhow::Error> {
 		let initial_height = self.consensus_state.inner.latest_beefy_height;
 		let relay_rpc = self.prover.inner().relay_rpc.clone();
 		let from = relay_rpc
@@ -301,18 +305,16 @@ where
 				.relay_rpc_client
 				.request::<HashFor<R>>("beefy_getFinalizedHead", rpc_params![])
 				.await?;
-			relay_rpc
+			let h = relay_rpc
 				.chain_get_header(Some(hash))
 				.await?
-				.ok_or_else(|| anyhow!("Block hash should exist"))?
+				.ok_or_else(|| anyhow!("Block hash should exist"))?;
+
+			generic::Header::<u32, BlakeTwo256>::decode(&mut &*h.encode()).unwrap()
 		};
 
-		let metadata = self.prover.inner().relay.metadata();
-		let hasher = R::Hasher::new(&metadata);
-		let header_hash = header.hash_with(hasher);
-
 		let changes = relay_rpc
-			.state_query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(header_hash))
+			.state_query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(header.hash().into()))
 			.await?;
 
 		let mut block_hash_and_set_id = changes
@@ -471,17 +473,9 @@ where
 						}
 					}
 
-					let metadata = self.prover.inner().relay.metadata();
-					let hasher = R::Hasher::new(&metadata);
-					let latest_beefy_header_hash = latest_beefy_header.hash_with(hasher);
-
-					let (latest_parachain_height, messages) =
-						self.latest_ismp_message_events(latest_beefy_header_hash).await?;
-
-					// let messages = messages.into_iter()
-					//    .
-
-					// todo: filter out messages to state machines that require beefy update.
+					let (latest_parachain_height, messages) = self
+						.latest_ismp_message_events(latest_beefy_header.parent_hash.into())
+						.await?;
 
 					if messages.is_empty() {
 						self.consensus_state.finalized_parachain_height = latest_parachain_height;
@@ -518,18 +512,17 @@ where
 									.relay_rpc_client
 									.request::<HashFor<R>>("beefy_getFinalizedHead", rpc_params![])
 									.await?;
-								relay_rpc
+								let h = relay_rpc
 									.chain_get_header(Some(hash))
 									.await?
-									.ok_or_else(|| anyhow!("Block hash should exist"))?
+									.ok_or_else(|| anyhow!("Block hash should exist"))?;
+
+								generic::Header::<u32, BlakeTwo256>::decode(&mut &h.encode()[..])?
 							};
-							let metadata = self.prover.inner().relay.metadata();
-							let hasher = R::Hasher::new(&metadata);
-							let header_hash = header.hash_with(hasher);
 
 							let para_header = query_parachain_header(
 								&self.prover.inner().relay_rpc,
-								header_hash,
+								header.parent_hash.into(),
 								para_id,
 							)
 							.await?;
@@ -541,12 +534,9 @@ where
 						}
 					}
 
-					let metadata = self.prover.inner().relay.metadata();
-					let hasher = R::Hasher::new(&metadata);
-					let latest_beefy_header_hash = latest_beefy_header.hash_with(hasher);
-
-					let (latest_parachain_height, messages) =
-						self.latest_ismp_message_events(latest_beefy_header_hash).await?;
+					let (latest_parachain_height, messages) = self
+						.latest_ismp_message_events(latest_beefy_header.parent_hash.into())
+						.await?;
 
 					let state_machines = messages
 						.iter()
@@ -577,10 +567,7 @@ where
 
 					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}");
 
-					let metadata = self.prover.inner().relay.metadata();
-					let hasher = R::Hasher::new(&metadata);
-					let latest_beefy_header_hash = latest_beefy_header.hash_with(hasher);
-
+					let latest_beefy_header_hash = latest_beefy_header.hash().into();
 					let (commitment, _) = fetch_latest_beefy_justification(
 						&self.prover.inner().relay_rpc,
 						latest_beefy_header_hash,
@@ -622,8 +609,7 @@ where
 							.await?; // fatal
 					}
 
-					self.consensus_state.inner.latest_beefy_height =
-						latest_beefy_header.number().into() as u32;
+					self.consensus_state.inner.latest_beefy_height = *latest_beefy_header.number();
 					self.consensus_state.finalized_parachain_height = latest_parachain_height;
 					self.connection
 						.set::<_, _, ()>(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())

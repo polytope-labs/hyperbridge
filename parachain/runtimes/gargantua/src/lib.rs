@@ -35,6 +35,7 @@ use cumulus_pallet_parachain_system::{
 };
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::{TransformOrigin, WithdrawReasons};
+use pallet_messaging_fees::types::PriceOracle;
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use polkadot_sdk::{
@@ -96,6 +97,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
 use cumulus_primitives_core::ParaId;
+use frame_benchmarking::__private::traits::tasks::__private::DispatchError;
 use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, ConstBool},
@@ -107,6 +109,7 @@ use staging_xcm::latest::prelude::BodyId;
 use pallet_collective::PrimeDefaultVote;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
+use polkadot_sdk::sp_core::U256;
 
 use pallet_ismp::offchain::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};
@@ -518,7 +521,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorSelection;
+	type SessionManager = CollatorManager;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -712,6 +715,46 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
+impl pallet_consensus_incentives::Config for Runtime {
+	type IsmpHost = Ismp;
+	type TreasuryAccount = TreasuryPalletId;
+	type WeightInfo = ();
+	type IncentivesOrigin = EnsureRoot<AccountId>;
+	type ReputationAsset = ReputationAsset;
+}
+
+parameter_types! {
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+pub type ReputationAsset =
+	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId>;
+
+impl pallet_messaging_fees::Config for Runtime {
+	type IsmpHost = Ismp;
+	type TreasuryAccount = TreasuryPalletId;
+	type IncentivesOrigin = EnsureRoot<AccountId>;
+	type PriceOracle = FixedPriceOracle;
+
+	/// Target message size: 6.51 KB (6.51 * 1024 = 6666 bytes)
+	type TargetMessageSize = ConstU32<6666>;
+	type WeightInfo = ();
+	type ReputationAsset = ReputationAsset;
+}
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type DesiredCollators = MinEligibleCollators;
+}
+
+pub struct FixedPriceOracle;
+
+impl PriceOracle for FixedPriceOracle {
+	fn get_bridge_price() -> Result<U256, DispatchError> {
+		// return 0.05 with 18 decimals: 0.05 * 10^18
+		Ok(U256::from(50_000_000_000_000_000u128))
+	}
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -825,6 +868,12 @@ mod runtime {
 	pub type IsmpArbitrum = ismp_arbitrum::pallet;
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
+	#[runtime::pallet_index(85)]
+	pub type ConsensusIncentives = pallet_consensus_incentives;
+	#[runtime::pallet_index(86)]
+	pub type MessagingFees = pallet_messaging_fees;
+	#[runtime::pallet_index(87)]
+	pub type CollatorManager = pallet_collator_manager;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;

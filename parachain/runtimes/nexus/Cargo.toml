@@ -52,6 +52,8 @@ ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
+pallet-messaging-fees = { workspace = true }
+pallet-collator-manager = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
 
@@ -156,7 +158,10 @@ std = [
     "ismp-optimism/std",
     "pallet-consensus-incentives/std",
     "polkadot-sdk/std",
-    "ismp-polygon/std"
+    "ismp-polygon/std",
+    "pallet-consensus-incentives/std",
+    "pallet-messaging-fees/std",
+    "pallet-collator-manager/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

@@ -46,3 +46,13 @@ export const getPriceDataFromEthereumLog = async (
 		decimals,
 	}
 }
+
+/**
+ * extractAddressFromTopic converts a 32-byte indexed topic into a 20-byte EVM address
+ */
+export function extractAddressFromTopic(topic: string): string {
+	if (topic.startsWith("0x") && topic.length === 66) {
+		return ("0x" + topic.slice(26)).toLowerCase()
+	}
+	return topic.toLowerCase()
+}

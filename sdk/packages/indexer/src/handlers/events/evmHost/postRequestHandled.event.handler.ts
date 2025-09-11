@@ -1,5 +1,5 @@
 import { HyperBridgeService } from "@/services/hyperbridge.service"
-import { Status, Transfer } from "@/configs/src/types"
+import { Status, Transfer, Request } from "@/configs/src/types"
 import { PostRequestHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { RequestService } from "@/services/request.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
@@ -7,9 +7,12 @@ import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { wrap } from "@/utils/event.utils"
 import { VolumeService } from "@/services/volume.service"
-import { getPriceDataFromEthereumLog, isERC20TransferEvent } from "@/utils/transfer.helpers"
+import { getPriceDataFromEthereumLog, isERC20TransferEvent, extractAddressFromTopic } from "@/utils/transfer.helpers"
 import { TransferService } from "@/services/transfer.service"
 import { safeArray } from "@/utils/data.helper"
+import HandlerV1Abi from "@/configs/abis/HandlerV1.abi.json"
+import { PostRequestMessage } from "@/types/ismp"
+import { Interface } from "@ethersproject/abi"
 
 /**
  * Handles the PostRequestHandled event from Hyperbridge
@@ -43,18 +46,43 @@ export const handlePostRequestHandledEvent = wrap(async (event: PostRequestHandl
 			transactionHash,
 		})
 
-		for (const log of safeArray(transaction.logs)) {
+		let toAddresses = [] as string[]
+
+		if (transaction?.input) {
+			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
+
+			try {
+				if (name === "handlePostRequests" && args && args.length > 1) {
+					const postRequests = args[1] as PostRequestMessage
+					for (const postRequest of postRequests.requests) {
+						const { to: postRequestTo } = postRequest.request
+						toAddresses.push(postRequestTo)
+					}
+				}
+			} catch (e: any) {
+				logger.error(
+					`Error decoding Post Request Handled event: ${stringify({
+						error: e as unknown as Error,
+					})}`,
+				)
+			}
+		}
+
+		for (const [index, log] of safeArray(transaction.logs).entries()) {
 			if (!isERC20TransferEvent(log)) {
 				continue
 			}
 
 			const value = BigInt(log.data)
-			const transfer = await Transfer.get(log.transactionHash)
+			const transferId = `${log.transactionHash}-index-${index}`
+			const transfer = await Transfer.get(transferId)
 
 			if (!transfer) {
-				const [_, from, to] = log.topics
+				const [_, fromTopic, toTopic] = log.topics
+				const from = extractAddressFromTopic(fromTopic)
+				const to = extractAddressFromTopic(toTopic)
 				await TransferService.storeTransfer({
-					transactionHash: log.transactionHash,
+					transactionHash: transferId,
 					chain,
 					value,
 					from,
@@ -67,6 +95,14 @@ export const handlePostRequestHandledEvent = wrap(async (event: PostRequestHandl
 					blockTimestamp,
 				)
 				await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
+
+				const matchingContract = toAddresses.find(
+					(addr) => addr.toLowerCase() === from.toLowerCase() || addr.toLowerCase() === to.toLowerCase(),
+				)
+
+				if (matchingContract) {
+					await VolumeService.updateVolume(`Contract.${matchingContract}`, amountValueInUSD, blockTimestamp)
+				}
 			}
 		}
 	} catch (error) {

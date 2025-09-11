@@ -1,4 +1,4 @@
-import { Status, Transfer } from "@/configs/src/types"
+import { Status, Transfer, Request } from "@/configs/src/types"
 import { PostRequestTimeoutHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { RequestService } from "@/services/request.service"
@@ -7,9 +7,12 @@ import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import stringify from "safe-stable-stringify"
 import { VolumeService } from "@/services/volume.service"
-import { getPriceDataFromEthereumLog, isERC20TransferEvent } from "@/utils/transfer.helpers"
+import { getPriceDataFromEthereumLog, isERC20TransferEvent, extractAddressFromTopic } from "@/utils/transfer.helpers"
 import { TransferService } from "@/services/transfer.service"
 import { safeArray } from "@/utils/data.helper"
+import HandlerV1Abi from "@/configs/abis/HandlerV1.abi.json"
+import { PostRequestTimeoutMessage } from "@/types/ismp"
+import { Interface } from "@ethersproject/abi"
 
 /**
  * Handles the PostRequestTimeoutHandled event
@@ -43,18 +46,35 @@ export const handlePostRequestTimeoutHandledEvent = wrap(async (event: PostReque
 			transactionHash,
 		})
 
-		for (const log of safeArray(transaction.logs)) {
+		let fromAddresses = [] as string[]
+
+		if (transaction?.input) {
+			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
+
+			if (name === "handlePostRequestTimeouts" && args && args.length > 1) {
+				const { timeouts } = args[1] as PostRequestTimeoutMessage
+				for (const timeout of timeouts) {
+					const { from } = timeout
+					fromAddresses.push(from)
+				}
+			}
+		}
+
+		for (const [index, log] of safeArray(transaction.logs).entries()) {
 			if (!isERC20TransferEvent(log)) {
 				continue
 			}
 
 			const value = BigInt(log.data)
-			const transfer = await Transfer.get(log.transactionHash)
+			const transferId = `${log.transactionHash}-index-${index}`
+			const transfer = await Transfer.get(transferId)
 
 			if (!transfer) {
-				const [_, from, to] = log.topics
+				const [_, fromTopic, toTopic] = log.topics
+				const from = extractAddressFromTopic(fromTopic)
+				const to = extractAddressFromTopic(toTopic)
 				await TransferService.storeTransfer({
-					transactionHash: log.transactionHash,
+					transactionHash: transferId,
 					chain,
 					value,
 					from,
@@ -67,6 +87,14 @@ export const handlePostRequestTimeoutHandledEvent = wrap(async (event: PostReque
 					blockTimestamp,
 				)
 				await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
+
+				const matchingContract = fromAddresses.find(
+					(addr) => addr.toLowerCase() === from.toLowerCase() || addr.toLowerCase() === to.toLowerCase(),
+				)
+
+				if (matchingContract) {
+					await VolumeService.updateVolume(`Contract.${matchingContract}`, amountValueInUSD, blockTimestamp)
+				}
 			}
 		}
 	} catch (error) {

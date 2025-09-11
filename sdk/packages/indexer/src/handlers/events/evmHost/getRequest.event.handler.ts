@@ -2,11 +2,15 @@ import { GetRequestEventLog } from "@/configs/src/types/abi-interfaces/EthereumH
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { GetRequestService } from "@/services/getRequest.service"
-import { GetRequestStatusMetadata, Status } from "@/configs/src/types"
+import { GetRequestStatusMetadata, Status, Transfer } from "@/configs/src/types"
 import { timestampToDate } from "@/utils/date.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { wrap } from "@/utils/event.utils"
+import { extractAddressFromTopic, getPriceDataFromEthereumLog, isERC20TransferEvent } from "@/utils/transfer.helpers"
+import { TransferService } from "@/services/transfer.service"
+import { VolumeService } from "@/services/volume.service"
+import { safeArray } from "@/utils/data.helper"
 
 /**
  * Handles the GetRequest event from Evm Hosts
@@ -19,7 +23,7 @@ export const handleGetRequestEvent = wrap(async (event: GetRequestEventLog): Pro
 	)
 	if (!event.args) return
 
-	const { blockNumber, transactionHash, args, block, blockHash } = event
+	const { blockNumber, transactionHash, args, block, blockHash, transaction } = event
 	let { source, dest, from, nonce, height, context, timeoutTimestamp, fee } = args
 	let keys = args[3]
 
@@ -94,4 +98,38 @@ export const handleGetRequestEvent = wrap(async (event: GetRequestEventLog): Pro
 	})
 
 	await getRequestStatusMetadata.save()
+
+	// Process transfer logs associated with the get request
+	for (const [index, log] of safeArray(transaction?.logs).entries()) {
+		if (!isERC20TransferEvent(log)) {
+			continue
+		}
+
+		const value = BigInt(log.data)
+		const transferId = `${log.transactionHash}-index-${index}`
+		const transfer = await Transfer.get(transferId)
+
+		if (!transfer) {
+			const [_, fromTopic, toTopic] = log.topics
+			const logFrom = extractAddressFromTopic(fromTopic)
+			const logTo = extractAddressFromTopic(toTopic)
+
+			// Store all transfers for volume tracking
+			await TransferService.storeTransfer({
+				transactionHash: transferId,
+				chain,
+				value,
+				from: logFrom,
+				to: logTo,
+			})
+
+			const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(log.address, value, blockTimestamp)
+			await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
+
+			// Only update contract volume for transfers associated with the request's from address
+			if (logFrom.toLowerCase() === from.toLowerCase() || logTo.toLowerCase() === from.toLowerCase()) {
+				await VolumeService.updateVolume(`Contract.${from}`, amountValueInUSD, blockTimestamp)
+			}
+		}
+	}
 })

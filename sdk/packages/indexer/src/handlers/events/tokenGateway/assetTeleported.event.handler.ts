@@ -5,7 +5,6 @@ import { TokenGatewayService } from "@/services/tokenGateway.service"
 import { TeleportStatus } from "@/configs/src/types"
 import { getHostStateMachine, isSubstrateChain } from "@/utils/substrate.helpers"
 import { wrap } from "@/utils/event.utils"
-import { VolumeService } from "@/services/volume.service"
 import { TokenPriceService } from "@/services/token-price.service"
 import PriceHelper from "@/utils/price.helpers"
 
@@ -17,18 +16,6 @@ export const handleAssetTeleportedEvent = wrap(async (event: AssetTeleportedLog)
 
 	const chain = getHostStateMachine(chainId)
 	const timestamp = await getBlockTimestamp(blockHash, chain)
-
-	if (isSubstrateChain(dest)) {
-		const tokenContract = await TokenGatewayService.getAssetTokenContract(assetId.toString())
-		const decimals = await tokenContract.decimals()
-		const symbol = await tokenContract.symbol()
-
-		const price = await TokenPriceService.getPrice(symbol, timestamp)
-		const { amountValueInUSD } = PriceHelper.getAmountValueInUSD(amount.toBigInt(), decimals, price)
-
-		await VolumeService.updateVolume("TokenGateway", amountValueInUSD, timestamp)
-		return
-	}
 
 	logger.info(
 		`Asset Teleported Event: ${stringify({

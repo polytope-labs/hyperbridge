@@ -92,7 +92,7 @@ subkey generate --scheme sr25519
 3.**Securely Store Your Keys**: The command will output a mnemonic phrase, a private key, and a public address. Securely backup your mnemonic phrase.
 This is the master key to your account. The hexadecimal private key is what you will use as the signer in the `[hyperbridge]` section of both the messaging and consensus relayer configurations.
 
-You can see a sample consensus relayer config showing the signing key which is the controller account as the key we generated using subscan:
+You can see a sample consensus relayer config showing the signing key which is the controller account as the key we generated using subkey:
 ```toml
 # Hyperbridge consensus client config, required.
 [hyperbridge]

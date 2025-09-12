@@ -1,0 +1,69 @@
+name: Compile Core Interfaces
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "packages/core/**"
+            - ".github/workflows/test-core.yml"
+    pull_request:
+        branches:
+            - main
+        paths:
+            - "packages/core/**"
+            - ".github/workflows/test-core.yml"
+
+concurrency:
+    group: ${{ github.ref }}-core
+    cancel-in-progress: true
+
+env:
+    FOUNDRY_PROFILE: ci
+
+jobs:
+    compile:
+        name: Compile Interfaces
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: "18"
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+                  run_install: false
+
+            - name: Get pnpm store directory
+              id: pnpm-cache
+              shell: bash
+              run: |
+                  echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - name: Setup pnpm cache
+              uses: actions/cache@v3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Compile interfaces
+              working-directory: packages/core
+              run: |
+                  echo "Compiling Solidity interfaces with Forge..."
+                  forge build --contracts interfaces/ --skip test --skip script --sizes
+                  echo "✅ All interfaces compiled successfully"

@@ -71,6 +71,9 @@ Thumbs.db
 .data
 .yarn
 
+cache
+out 
+
 .DS_Store
 
 .env*

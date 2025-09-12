@@ -1,0 +1,3 @@
+[submodule "packages/core/lib/forge-std"]
+	path = packages/core/lib/forge-std
+	url = git@github.com:foundry-rs/forge-std.git

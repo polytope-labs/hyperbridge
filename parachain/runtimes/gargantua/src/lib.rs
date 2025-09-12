@@ -109,8 +109,7 @@ use staging_xcm::latest::prelude::BodyId;
 use pallet_collective::PrimeDefaultVote;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
-use polkadot_sdk::frame_support::traits::LockIdentifier;
-use polkadot_sdk::sp_core::U256;
+use polkadot_sdk::{frame_support::traits::LockIdentifier, sp_core::U256};
 
 use pallet_ismp::offchain::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};

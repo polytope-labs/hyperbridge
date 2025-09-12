@@ -332,8 +332,7 @@ use frame_support::{
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
-use polkadot_sdk::frame_support::traits::LockIdentifier;
-use polkadot_sdk::sp_core::U256;
+use polkadot_sdk::{frame_support::traits::LockIdentifier, sp_core::U256};
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;

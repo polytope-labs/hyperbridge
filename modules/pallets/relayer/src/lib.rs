@@ -21,7 +21,7 @@
 extern crate alloc;
 
 pub mod withdrawal;
-use crate::withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
+use crate::withdrawal::{Key, WithdrawalInputData, WithdrawalProof};
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
@@ -44,7 +44,7 @@ use ismp::{
 pub use pallet::*;
 use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
-use pallet_ismp_host_executive::{HostParam, HostParams};
+use pallet_ismp_host_executive::{withdrawal::*, HostParam, HostParams};
 use polkadot_sdk::*;
 use sp_core::{Get, H256, U256};
 use sp_runtime::{AccountId32, DispatchError};
@@ -146,8 +146,6 @@ pub mod pallet {
 		IncompleteProof,
 		/// Signature Decoding Error
 		SignatureDecodingError,
-		/// Invalid State Machine
-		UnsupportedStateMachine,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -213,55 +211,6 @@ pub mod pallet {
 			MinimumWithdrawalAmount::<T>::insert(state_machine, U256::from(amount));
 			Ok(())
 		}
-
-		/// Issues a call to withdraw protocol the fees from an evm chain
-		#[pallet::weight(T::DbWeight::get().writes(1))]
-		#[pallet::call_index(3)]
-		pub fn withdraw_protocol_fees(
-			origin: OriginFor<T>,
-			state_machine: StateMachine,
-			withdrawal_params: WithdrawalParams,
-		) -> DispatchResult {
-			T::RelayerOrigin::ensure_origin(origin)?;
-
-			ensure!(state_machine.is_evm(), Error::<T>::UnsupportedStateMachine);
-
-			let HostParam::EvmHostParam(params) = HostParams::<T>::get(state_machine)
-				.ok_or_else(|| Error::<T>::MissingMangerAddress)?
-			else {
-				Err(Error::<T>::MismatchedStateMachine)?
-			};
-
-			let data = withdrawal_params.abi_encode();
-
-			let post = DispatchPost {
-				dest: state_machine,
-				from: MODULE_ID.to_vec(),
-				to: params.host_manager.0.to_vec(),
-				timeout: 0,
-				body: data,
-			};
-
-			let dispatcher = <T as Config>::IsmpHost::default();
-
-			// Account is not useful in this case
-			dispatcher
-				.dispatch_request(
-					DispatchRequest::Post(post),
-					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
-				)
-				.map_err(|_| Error::<T>::DispatchFailed)?;
-
-			Self::deposit_event(Event::<T>::Withdraw {
-				address: sp_runtime::BoundedVec::truncate_from(
-					withdrawal_params.beneficiary_address,
-				),
-				state_machine,
-				amount: withdrawal_params.amount,
-			});
-
-			Ok(())
-		}
 	}
 
 	#[pallet::validate_unsigned]
@@ -280,9 +229,8 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			let res = match call {
-				Call::accumulate_fees { withdrawal_proof } => {
-					Self::accumulate(withdrawal_proof.clone())
-				},
+				Call::accumulate_fees { withdrawal_proof } =>
+					Self::accumulate(withdrawal_proof.clone()),
 				Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
@@ -354,8 +302,8 @@ where
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
-		if available_amount
-			< Self::min_withdrawal_amount(withdrawal_data.dest_chain)
+		if available_amount <
+			Self::min_withdrawal_amount(withdrawal_data.dest_chain)
 				.unwrap_or(MinWithdrawal::get())
 		{
 			Err(Error::<T>::NotEnoughBalance)?
@@ -601,9 +549,8 @@ where
 							.to_vec(),
 						);
 					},
-					s if s.is_substrate() => {
-						keys.push(RequestCommitments::<T>::storage_key(*commitment))
-					},
+					s if s.is_substrate() =>
+						keys.push(RequestCommitments::<T>::storage_key(*commitment)),
 					// unsupported
 					_ => {},
 				},
@@ -619,9 +566,8 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() => {
-							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment))
-						},
+						s if s.is_substrate() =>
+							keys.push(ResponseCommitments::<T>::storage_key(*response_commitment)),
 						// unsupported
 						_ => {},
 					}
@@ -665,11 +611,10 @@ where
 								.to_vec(),
 							);
 						},
-						s if s.is_substrate() => {
+						s if s.is_substrate() =>
 							keys.push(pallet_ismp::child_trie::ResponseReceipts::<T>::storage_key(
 								*request_commitment,
-							))
-						},
+							)),
 						// unsupported
 						_ => {},
 					}

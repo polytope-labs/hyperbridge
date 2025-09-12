@@ -1,6 +1,4 @@
-use alloc::collections::BTreeMap;
-use alloc::vec;
-
+use alloc::{collections::BTreeMap, vec};
 
 use codec::{Decode, Encode};
 use hyperbridge_client_machine::OnRequestProcessed;

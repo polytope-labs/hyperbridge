@@ -332,6 +332,7 @@ use frame_support::{
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
+use polkadot_sdk::frame_support::traits::LockIdentifier;
 use polkadot_sdk::sp_core::U256;
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
@@ -882,9 +883,16 @@ impl pallet_messaging_fees::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 }
 
+parameter_types! {
+	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
+}
+
 impl pallet_collator_manager::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 	type DesiredCollators = MinEligibleCollators;
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type LockId = CollatorBondLockId;
 }
 
 pub struct FixedPriceOracle;

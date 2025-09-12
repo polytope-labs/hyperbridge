@@ -18,6 +18,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod params;
+pub mod withdrawal;
 
 extern crate alloc;
 
@@ -28,6 +29,7 @@ use polkadot_sdk::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use crate::withdrawal::WithdrawalParams;
 	use alloc::{collections::BTreeMap, vec};
 	use frame_support::{
 		pallet_prelude::{OptionQuery, *},
@@ -40,7 +42,7 @@ pub mod pallet {
 	};
 	use pallet_hyperbridge::{Message, PALLET_HYPERBRIDGE};
 	use pallet_ismp::ModuleId;
-	use primitive_types::H160;
+	use primitive_types::{H160, U256};
 
 	/// ISMP module identifier
 	pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"hostexec"));
@@ -124,6 +126,15 @@ pub mod pallet {
 			state_machine: StateMachine,
 			/// Decimals updated to
 			decimals: u8,
+		},
+		/// A call to withdraw protocol fees was executed
+		Withdraw {
+			/// Beneficiary address
+			address: BoundedVec<u8, ConstU32<32>>,
+			/// destination state machine
+			state_machine: StateMachine,
+			/// Amount withdrawn
+			amount: U256,
 		},
 	}
 
@@ -269,6 +280,55 @@ pub mod pallet {
 			FeeTokenDecimals::<T>::insert(state_machine, decimals);
 
 			Self::deposit_event(Event::FeeTokenDecimalsUpdated { state_machine, decimals });
+
+			Ok(())
+		}
+
+		/// Issues a call to withdraw the protocol fees from an evm chain
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::call_index(4)]
+		pub fn withdraw_protocol_fees(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			withdrawal_params: WithdrawalParams,
+		) -> DispatchResult {
+			T::HostExecutiveOrigin::ensure_origin(origin)?;
+
+			ensure!(state_machine.is_evm(), Error::<T>::UnsupportedStateMachine);
+
+			let HostParam::EvmHostParam(params) = HostParams::<T>::get(state_machine)
+				.ok_or_else(|| Error::<T>::UnknownStateMachine)?
+			else {
+				Err(Error::<T>::UnknownStateMachine)?
+			};
+
+			let data = withdrawal_params.abi_encode();
+
+			let post = DispatchPost {
+				dest: state_machine,
+				from: PALLET_ID.to_bytes(),
+				to: params.host_manager.0.to_vec(),
+				timeout: 0,
+				body: data,
+			};
+
+			let dispatcher = <T as Config>::IsmpHost::default();
+
+			// Account is not useful in this case
+			dispatcher
+				.dispatch_request(
+					DispatchRequest::Post(post),
+					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+				)
+				.map_err(|_| Error::<T>::DispatchFailed)?;
+
+			Self::deposit_event(Event::<T>::Withdraw {
+				address: sp_runtime::BoundedVec::truncate_from(
+					withdrawal_params.beneficiary_address,
+				),
+				state_machine,
+				amount: withdrawal_params.amount,
+			});
 
 			Ok(())
 		}

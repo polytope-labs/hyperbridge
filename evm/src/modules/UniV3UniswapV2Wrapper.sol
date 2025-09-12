@@ -46,16 +46,22 @@ contract UniV3UniswapV2Wrapper {
     Params private _params;
 
     /**
+     * @dev Private variable to track initialization status.
+     */
+    bool private _initialized;
+
+    /**
      * @dev The maximum allowable fees for the UniV3UniswapV2Wrapper module.
      * This constant represents a fee of 0.3%, which is equivalent to 3,000 basis points.
      */
     uint24 constant MAX_FEES = 3_000; // 0.3%
 
     /**
-     * @dev Address of the admin. This address has special privileges and control over certain
-     * aspects of the contract.
+     * @dev The deployer of the contract.
+     * The deployer may initialize the contract only once.
+     * They also receive all unspent ETH.
      */
-    address private _admin;
+    address private _deployer;
 
     /**
      * @dev Error indicating that a deposit operation has failed.
@@ -77,8 +83,8 @@ contract UniV3UniswapV2Wrapper {
      */
     error InvalidWethAddress();
 
-    constructor(address admin) {
-        _admin = admin;
+    constructor(address deployer) {
+        _deployer = deployer;
     }
 
     /**
@@ -87,13 +93,12 @@ contract UniV3UniswapV2Wrapper {
      * @param params Initialization parameters.
      */
     function init(Params memory params) public {
-        if (msg.sender != _admin) revert Unauthorized();
+        if (_initialized || msg.sender != _deployer) revert Unauthorized();
         // approve the swap router to spend WETH
         IWETH(params.WETH).approve(params.swapRouter, type(uint256).max);
 
         _params = params;
-        // admin can only do this once
-        _admin = address(0);
+        _initialized = true;
     }
 
     /**

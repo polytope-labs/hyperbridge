@@ -13,7 +13,7 @@ use crate::{types::IncentivizedMessage, *};
 use crypto_utils::verification::Signature;
 use ismp::{
 	events::Event as IsmpEvent,
-	messaging::{hash_request, Message, MessageWithWeight},
+	messaging::{hash_request, hash_response, Message, MessageWithWeight},
 	router::{Request, RequestResponse, Response},
 };
 use pallet_hyperbridge::VersionedHostParams;
@@ -27,21 +27,46 @@ where
 	T::AccountId: AsRef<[u8]>,
 {
 	fn accumulate_protocol_fees(message: &Message, relayer_account: &T::AccountId) {
-		let requests = match message {
-			Message::Request(req) => req.requests.clone(),
+		let mut fee_data: Vec<(usize, H256, StateMachine, StateMachine)> = vec![];
+		match message {
+			Message::Request(req) =>
+				for post in &req.requests {
+					let commitment = hash_request::<<T as pallet::Config>::IsmpHost>(
+						&Request::Post(post.clone()),
+					);
+					fee_data.push((
+						post.body.len(),
+						commitment,
+						post.source.clone(),
+						post.dest.clone(),
+					));
+				},
+			Message::Response(res) => match &res.datagram {
+				RequestResponse::Response(responses) =>
+					for r in responses {
+						if let Response::Post(post_response) = r {
+							let response = Response::Post(post_response.clone());
+							let commitment =
+								hash_response::<<T as pallet::Config>::IsmpHost>(&response);
+							fee_data.push((
+								post_response.response.len(),
+								commitment,
+								response.source_chain(),
+								response.dest_chain(),
+							));
+						}
+					},
+				RequestResponse::Request(_) => return,
+			},
 			_ => return,
 		};
 
 		let relayer_address = relayer_account.as_ref().to_vec();
 
-		for req in requests {
-			let commitment =
-				hash_request::<<T as pallet::Config>::IsmpHost>(&Request::Post(req.clone()));
-			let source_chain = &req.source;
-
+		for (size, commitment, source_chain, dest_chain) in fee_data {
 			if source_chain.is_evm() {
-				if let Some(per_byte_fee) = Self::get_per_byte_fee(&req.dest) {
-					let fee = per_byte_fee.saturating_mul(U256::from(req.body.len()));
+				if let Some(per_byte_fee) = Self::get_per_byte_fee(&dest_chain) {
+					let fee = per_byte_fee.saturating_mul(U256::from(size));
 					if fee > U256::zero() {
 						pallet_ismp_relayer::Pallet::<T>::accumulate_fee_and_deposit_event(
 							source_chain.clone(),
@@ -122,19 +147,7 @@ where
 					}
 				},
 			Message::Response(msg) => match msg.datagram.clone() {
-				RequestResponse::Request(requests) =>
-					for req in requests {
-						let source_chain = req.source_chain();
-						let dest_chain = req.dest_chain();
-						if IncentivizedRoutes::<T>::get(source_chain).is_some() &&
-							IncentivizedRoutes::<T>::get(dest_chain).is_some()
-						{
-							messages_by_chain
-								.entry(dest_chain)
-								.or_default()
-								.push(IncentivizedMessage::Request(req));
-						}
-					},
+				RequestResponse::Request(_) => return Ok(()),
 				RequestResponse::Response(responses) =>
 					for res in responses {
 						let source_chain = res.source_chain();
@@ -196,7 +209,7 @@ where
 				let base_reward_as_balance: T::Balance = base_reward_12_decimals.saturated_into();
 				let target_message_size = T::TargetMessageSize::get();
 
-				if current_total_bytes <= target_message_size {
+				if current_total_bytes < target_message_size {
 					let reward_amount = Self::calculate_reward(
 						current_total_bytes,
 						target_message_size,

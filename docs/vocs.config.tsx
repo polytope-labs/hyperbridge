@@ -471,6 +471,11 @@ export default defineConfig({
             text: "Running a Consensus Relayer",
             link: "/developers/network/relayer/consensus/relayer",
           },
+
+          {
+            text: "Becoming a Collator",
+            link: "/developers/network/collator",
+          },
         ],
       },
     ],

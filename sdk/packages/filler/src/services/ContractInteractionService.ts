@@ -159,7 +159,7 @@ export class ContractInteractionService {
 			(await this.getFeeTokenWithDecimals(order.destChain)).address,
 		].map((address) => ({
 			address,
-			amount: order.outputs.find((o) => bytes32ToBytes20(o.token) === address)?.amount || 0n,
+			amount: order.outputs.find((o) => bytes32ToBytes20(o.token) === address)?.amount || maxUint256 / 2n,
 		}))
 
 		for (const token of tokens) {

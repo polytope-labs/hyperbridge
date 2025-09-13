@@ -1,272 +1,191 @@
 # Filler Package
 
-The Filler package is a TypeScript implementation for interacting with the IntentGateway contract. It provides functionality for filling orders and monitoring order events on EVM-compatible chains.
+A TypeScript package for automatically filling orders on the Hyperbridge IntentGateway contract. Monitors multiple chains for orders and fills them based on configurable strategies.
 
-## Overview
+## Quick Start
 
-The Filler package allows users to:
-- Monitor and fill orders on the IntentGateway contract
-- Track order events and status changes
-- Implement custom filling strategies
-- Interact with multiple chains through a unified interface
-- Handle order confirmations and chain-specific constraints
-- Calculate order profitability and execute orders based on strategies
+```typescript
+import { IntentFiller, BasicFiller, ConfirmationPolicy } from "@polytope-labs/hyperbridge-filler"
+import { ChainConfigService } from "@hyperbridge/sdk"
+
+// 1. Get chain configs
+const configService = new ChainConfigService()
+const chainConfigs = ["EVM-97", "EVM-10200"].map((id) => configService.getChainConfig(id))
+
+// 2. Set up confirmation policy
+const confirmationPolicy = new ConfirmationPolicy({
+	"97": {
+		minAmount: "1000000000000000000",
+		maxAmount: "1000000000000000000000",
+		minConfirmations: 1,
+		maxConfirmations: 5,
+	},
+	"10200": {
+		minAmount: "1000000000000000000",
+		maxAmount: "1000000000000000000000",
+		minConfirmations: 1,
+		maxConfirmations: 5,
+	},
+})
+
+// 3. Create filler with your private key
+const filler = new IntentFiller(
+	chainConfigs,
+	[new BasicFiller("0x...")], // Your private key
+	{
+		maxConcurrentOrders: 5,
+		confirmationPolicy: {
+			getConfirmationBlocks: (chainId, amount) => confirmationPolicy.getConfirmationBlocks(chainId, amount),
+		},
+	},
+)
+
+// 4. Start filling orders
+filler.start()
+
+// Listen for events
+filler.monitor.on("newOrder", ({ order }) => {
+	console.log("New order:", order.id)
+})
+
+filler.monitor.on("orderFilled", ({ orderId, hash }) => {
+	console.log("Order filled:", orderId, hash)
+})
+```
+
+## How It Works
+
+The filler automatically:
+
+1. **Monitors** multiple chains for `OrderPlaced` events
+2. **Waits** for required confirmations based on order value
+3. **Evaluates** orders using your strategies (profitability, eligibility)
+4. **Fills** profitable orders using chain-specific queues
+
+## Built-in Strategy
+
+### BasicFiller
+
+- Validates order inputs/outputs match
+- Checks token balances
+- Calculates profitability (fees vs gas costs)
+- Executes fills with proper approvals
+
+```typescript
+const strategy = new BasicFiller("0x...") // Your private key
+```
+
+## Custom Strategy
+
+```typescript
+import { FillerStrategy } from "@polytope-labs/hyperbridge-filler"
+
+class MyStrategy implements FillerStrategy {
+	name = "MyStrategy"
+
+	async canFill(order: Order): Promise<boolean> {
+		// Return true if order is eligible
+		return true
+	}
+
+	async calculateProfitability(order: Order): Promise<bigint> {
+		// Return profit amount (0 if not profitable)
+		return 1000000n
+	}
+
+	async executeOrder(order: Order): Promise<ExecutionResult> {
+		// Fill the order and return result
+		return { success: true, txHash: "0x..." }
+	}
+}
+```
+
+## Configuration
+
+### Confirmation Policy
+
+Higher value orders require more confirmations for security:
+
+```typescript
+const policy = new ConfirmationPolicy({
+	"1": {
+		// Ethereum mainnet
+		minAmount: "1000000000000000000", // 1 ETH
+		maxAmount: "100000000000000000000", // 100 ETH
+		minConfirmations: 12,
+		maxConfirmations: 30,
+	},
+	"97": {
+		// BSC testnet
+		minAmount: "1000000000000000000",
+		maxAmount: "1000000000000000000000",
+		minConfirmations: 1,
+		maxConfirmations: 5,
+	},
+})
+```
+
+### Filler Config
+
+```typescript
+const config = {
+	maxConcurrentOrders: 5, // Max orders processed simultaneously
+	confirmationPolicy: {
+		getConfirmationBlocks: (chainId, amount) => policy.getConfirmationBlocks(chainId, amount),
+	},
+	pendingQueueConfig: {
+		maxRechecks: 10,
+		recheckDelayMs: 30000,
+	},
+}
+```
+
+## Events
+
+```typescript
+// New order detected
+filler.monitor.on("newOrder", ({ order }) => {
+	console.log("Order:", order.id, order.sourceChain, "→", order.destChain)
+})
+
+// Order successfully filled
+filler.monitor.on("orderFilled", ({ orderId, hash }) => {
+	console.log("Filled:", orderId, hash)
+})
+```
+
+## Key Features
+
+- **Multi-chain support**: Monitor and fill across multiple EVM chains
+- **Strategy-based**: Implement custom logic for order evaluation
+- **Queue management**: Chain-specific queues prevent transaction conflicts
+- **Dynamic confirmations**: Security scales with order value
+- **Event-driven**: Real-time order monitoring and processing
+- **Built-in strategies**: Ready-to-use BasicFiller for common use cases
+
+## Environment Variables
+
+Create a `.env` file with the following variables:
+
+````bash
+# Your private key (required)
+PRIVATE_KEY=0x...
+
+# RPC endpoints for chains you want to monitor
+- `BASE_MAINNET` - Base mainnet RPC URL
+- `ARBITRUM_MAINNET` - Arbitrum mainnet RPC URL
+- `BSC_MAINNET` - BSC mainnet RPC URL
+- `ETH_MAINNET` - Ethereum mainnet RPC URL
+
+## Requirements
+
+- Private key with funds for gas fees
+- RPC endpoints for target chains
+- Sufficient token balances for fills
+- Environment variables configured
 
 ## Installation
 
 ```bash
 npm install @polytope-labs/hyperbridge-filler
-```
-
-## Core Components
-
-### IntentFiller
-
-The main `IntentFiller` class provides the core functionality for interacting with the IntentGateway contract. It handles:
-- Order monitoring and event tracking
-- Order filling operations with chain-specific queues
-- Order value calculation and confirmation tracking
-- Strategy evaluation and execution
-- Concurrent order processing with configurable limits
-- Chain-specific transaction management
-
-### EventMonitor
-
-The `EventMonitor` class is responsible for:
-- Tracking OrderPlaced events across multiple chains
-- Managing event subscriptions and polling
-- Decoding and processing order events
-- Providing real-time updates on new orders
-- Handling chain-specific event watching
-
-## Services
-
-The filler package includes several service classes that handle different aspects of the system:
-
-### ContractInteractionService
-Handles all contract interactions with the IntentGateway contract:
-- Token operations (decimals, balances)
-- Contract calls and transactions
-- Event watching and processing
-
-### ChainClientManager
-Manages chain-specific clients:
-- Public client creation and management
-- Chain-specific configuration
-- RPC endpoint handling
-
-### ChainConfigService
-Handles chain configurations:
-- Chain metadata
-- Contract addresses
-- Network parameters
-
-## Built-in Strategies
-
-### BasicStrategy
-The package includes a basic strategy implementation that:
-- Checks order eligibility based on basic criteria
-- Calculates profitability using token prices
-- Executes orders with standard parameters
-
-```typescript
-import { BasicStrategy } from '@polytope-labs/hyperbridge-filler/strategies';
-
-const filler = new IntentFiller(
-  chainConfigs,
-  [new BasicStrategy()],
-  config
-);
-```
-
-## Configuration System
-
-### Chain Configuration
-Chain configurations are defined in `chains.toml` and include:
-- Chain IDs
-- RPC endpoints
-- Contract addresses
-- Network parameters
-
-### Confirmation Policy
-
-The confirmation policy determines how many blocks to wait before processing an order based on the order value and chain. The policy uses a dynamic approach that scales confirmations based on the order amount:
-
-```typescript
-interface ConfirmationPolicy {
-  getConfirmationBlocks(chainId: number, amount: bigint): number;
-}
-```
-
-The policy is configured with the following parameters per chain:
-- `minAmount`: Minimum order amount for the chain
-- `maxAmount`: Maximum order amount for the chain
-- `minConfirmations`: Minimum number of confirmations required
-- `maxConfirmations`: Maximum number of confirmations required
-
-The number of confirmations is calculated using a linear interpolation between `minConfirmations` and `maxConfirmations` based on the order amount:
-
-```typescript
-// Example configuration
-const policyConfig = {
-  "1": { // Ethereum Mainnet
-    minAmount: "1000000000000000000", // 1 ETH
-    maxAmount: "100000000000000000000", // 100 ETH
-    minConfirmations: 12,
-    maxConfirmations: 30
-  },
-  "97": { // BSC Testnet
-    minAmount: "1000000000000000000",
-    maxAmount: "100000000000000000000",
-    minConfirmations: 1,
-    maxConfirmations: 5
-  }
-};
-
-const policy = new ConfirmationPolicy(policyConfig);
-```
-
-The confirmation calculation works as follows:
-1. If the order amount is less than or equal to `minAmount`, use `minConfirmations`
-2. If the order amount is greater than or equal to `maxAmount`, use `maxConfirmations`
-3. For amounts between `minAmount` and `maxAmount`, calculate confirmations using linear interpolation:
-   ```typescript
-   const amountRange = maxAmount - minAmount;
-   const confirmationRange = maxConfirmations - minConfirmations;
-   const amountPosition = amount - minAmount;
-   const confirmationPosition = (amountPosition * confirmationRange) / amountRange;
-   return minConfirmations + confirmationPosition;
-   ```
-
-Default confirmations are provided for certain chains:
-- BSC Testnet (97): 1 confirmation
-- Gnosis Chiado (10200): 1 confirmation
-- Other chains default to 1 confirmation
-
-This dynamic approach ensures:
-- Higher value orders require more confirmations for security
-- Lower value orders can be processed faster
-- Chain-specific security requirements are respected
-- Smooth scaling of confirmations based on order value
-
-## Usage
-
-### Basic Setup
-
-```typescript
-import { IntentFiller } from '@polytope-labs/hyperbridge-filler';
-import { BaseStrategy } from '@polytope-labs/hyperbridge-filler/strategies';
-
-// Initialize filler with chain configurations and strategies
-const filler = new IntentFiller(
-  [
-    {
-      chainId: 1, // Ethereum mainnet
-      rpcUrl: 'https://mainnet.infura.io/v3/YOUR_API_KEY',
-      intentGatewayAddress: '0x...'
-    }
-  ],
-  [new BaseStrategy()],
-  {
-    maxConcurrentOrders: 5,
-    confirmationPolicy: {
-      getConfirmationBlocks: (chainId, orderValue) => 12
-    }
-  }
-);
-
-// Start monitoring orders
-filler.start();
-```
-
-### Monitoring Events
-
-The filler uses viem's `PublicClient` to watch for OrderPlaced events on the IntentGateway contract. Events are automatically processed and emitted through the monitor:
-
-```typescript
-// The filler automatically processes OrderPlaced events
-// You can access the processed orders through the monitor
-filler.monitor.on('newOrder', ({ order }) => {
-  console.log('New order detected:', order);
-});
-
-// Order filled event is emitted when an order is successfully filled
-filler.monitor.on('orderFilled', ({ orderId }) => {
-  console.log('Order filled:', orderId);
-});
-```
-
-### Custom Strategy Implementation
-
-```typescript
-import { FillerStrategy, Order } from '@polytope-labs/hyperbridge-filler';
-
-class CustomStrategy implements FillerStrategy {
-  name = 'CustomStrategy';
-
-  async canFill(order: Order): Promise<boolean> {
-    // Implement custom eligibility logic
-    return true;
-  }
-
-  async calculateProfitability(order: Order): Promise<number> {
-    // Implement custom profitability calculation
-    return 1.0;
-  }
-
-  async executeOrder(order: Order): Promise<{ success: boolean }> {
-    // Implement custom execution logic
-    return { success: true };
-  }
-}
-```
-
-## Best Practices
-
-1. Configure appropriate confirmation policies based on chain security
-2. Implement robust strategies for order evaluation
-3. Monitor gas prices and adjust strategies accordingly
-4. Handle chain-specific constraints (e.g., EVM transaction ordering)
-5. Implement proper logging and monitoring
-6. Consider order value when setting confirmation requirements
-7. Use chain-specific queues to prevent transaction conflicts
-
-## API Reference
-
-### IntentFiller Class
-
-#### Constructor
-```typescript
-constructor(
-  chainConfigs: ChainConfig[],
-  strategies: FillerStrategy[],
-  config: FillerConfig
-)
-```
-
-#### Methods
-- `start(): void` - Start monitoring and processing orders
-- `stop(): Promise<void>` - Stop monitoring and wait for all orders to complete
-- `handleNewOrder(order: Order): void` - Internal method for processing new orders
-- `calculateOrderValue(order: Order, client: PublicClient): Promise<bigint>` - Internal method to calculate order value in USD
-- `evaluateAndExecuteOrder(order: Order): void` - Internal method to evaluate strategies and execute orders
-
-### EventMonitor Class
-
-#### Constructor
-```typescript
-constructor(chainConfigs: ChainConfig[])
-```
-
-#### Methods
-- `startListening(): Promise<void>` - Start monitoring for OrderPlaced events
-- `stopListening(): Promise<void>` - Stop monitoring events
-- `emit(event: string, data: any): void` - Emit events
-
-## Contributing
-
-Meaningful contributions are welcome!
-
-## License
-
-This package is licensed under the Apache License 2.0. 
+````

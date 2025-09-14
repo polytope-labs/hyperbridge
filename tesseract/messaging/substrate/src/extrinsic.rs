@@ -15,13 +15,13 @@
 
 //! Extrinsic utilities
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use codec::{Decode, Encode};
 use subxt::{
 	backend::{chain_head::rpc_methods::DryRunResultBytes, legacy::LegacyRpcMethods},
 	config::HashFor,
 	ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType},
-	tx::Payload,
+	tx::{Payload, TxInBlock, TxProgress, TxStatus},
 	utils::{MultiSignature, H256},
 	OnlineClient,
 };
@@ -59,7 +59,7 @@ impl subxt::events::StaticEvent for PostResponseHandledEvent {
 pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
 	payload: Tx,
-	_wait_for_finalization: bool,
+	wait_for_finalization: bool,
 ) -> Result<Option<(HashFor<T>, Vec<H256>)>, anyhow::Error>
 where
 	T::Signature: From<MultiSignature> + Send + Sync,
@@ -78,13 +78,19 @@ where
 	};
 	let ext_hash = progress.extrinsic_hash();
 
-	let tx_in_block = progress.wait_for_finalized().await;
+	let tx_in_block = if _wait_for_finalization {
+		progress.wait_for_finalized().await.map_err(|err| {
+			refine_subxt_error(err).context(format!(
+				"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
+			))
+		})
+	} else {
+		wait_for_inblock::<T>(progress).await
+	};
 
 	let extrinsic = match tx_in_block {
 		Ok(p) => p,
-		Err(err) => Err(refine_subxt_error(err)).context(format!(
-			"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
-		))?,
+		Err(err) => Err(err)?,
 	};
 
 	let block_hash = extrinsic.block_hash();
@@ -112,6 +118,28 @@ where
 	Ok(Some((hash, receipts)))
 }
 
+pub async fn wait_for_inblock<T: subxt::Config>(
+	mut tx_status: TxProgress<T, OnlineClient<T>>,
+) -> Result<TxInBlock<T, OnlineClient<T>>, anyhow::Error> {
+	while let Some(status) = tx_status.next().await {
+		match status? {
+			// Finalized! Return.
+			TxStatus::InFinalizedBlock(s) => return Ok(s),
+			TxStatus::InBestBlock(s) => return Ok(s),
+			// Error scenarios; return the error.
+			TxStatus::Error { message } => return Err(anyhow!("{message}")),
+			TxStatus::Invalid { message } => {
+				return Err(anyhow!("{message}"));
+			},
+			TxStatus::Dropped { message } => {
+				return Err(anyhow!("{message}"));
+			},
+			// Ignore and wait for next status event:
+			_ => continue,
+		}
+	}
+	Err(anyhow!("Subscription Dropped"))
+}
 /// Dry run extrinsic
 pub async fn system_dry_run_unsigned<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,

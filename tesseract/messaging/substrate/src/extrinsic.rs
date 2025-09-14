@@ -78,7 +78,7 @@ where
 	};
 	let ext_hash = progress.extrinsic_hash();
 
-	let tx_in_block = if _wait_for_finalization {
+	let tx_in_block = if wait_for_finalization {
 		progress.wait_for_finalized().await.map_err(|err| {
 			refine_subxt_error(err).context(format!(
 				"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"

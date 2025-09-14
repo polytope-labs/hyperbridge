@@ -119,20 +119,28 @@ where
 }
 
 pub async fn wait_for_inblock<T: subxt::Config>(
-	mut tx_status: TxProgress<T, OnlineClient<T>>,
+	mut progress: TxProgress<T, OnlineClient<T>>,
 ) -> Result<TxInBlock<T, OnlineClient<T>>, anyhow::Error> {
-	while let Some(status) = tx_status.next().await {
+	let ext_hash = progress.extrinsic_hash();
+	while let Some(status) = progress.next().await {
 		match status? {
 			// Finalized! Return.
 			TxStatus::InFinalizedBlock(s) => return Ok(s),
 			TxStatus::InBestBlock(s) => return Ok(s),
 			// Error scenarios; return the error.
-			TxStatus::Error { message } => return Err(anyhow!("{message}")),
-			TxStatus::Invalid { message } => {
-				return Err(anyhow!("{message}"));
+			TxStatus::Error { .. } =>
+				return Err(anyhow!(
+					"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
+				)),
+			TxStatus::Invalid { .. } => {
+				return Err(anyhow!(
+					"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
+				));
 			},
-			TxStatus::Dropped { message } => {
-				return Err(anyhow!("{message}"));
+			TxStatus::Dropped { .. } => {
+				return Err(anyhow!(
+					"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
+				));
 			},
 			// Ignore and wait for next status event:
 			_ => continue,

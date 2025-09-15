@@ -50,7 +50,7 @@ fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32)
 fn setup_host_params(dest_chain: StateMachine) {
 	let host_params = HostParam::EvmHostParam(EvmHostParam {
 		per_byte_fees: vec![PerByteFee {
-			state_id: H256(keccak_256(&dest_chain.encode())),
+			state_id: H256(keccak_256(&dest_chain.to_string().as_bytes())),
 			per_byte_fee: U256::from(50u128),
 		}]
 		.try_into()
@@ -59,6 +59,7 @@ fn setup_host_params(dest_chain: StateMachine) {
 	});
 
 	pallet_ismp_host_executive::HostParams::<Test>::insert(dest_chain, host_params);
+	pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(dest_chain, 18);
 }
 
 fn create_request_message(

@@ -1,4 +1,4 @@
-use alloc::{collections::BTreeMap, vec};
+use alloc::{collections::BTreeMap, string::String, vec};
 
 use codec::{Decode, Encode};
 use hyperbridge_client_machine::OnRequestProcessed;
@@ -98,11 +98,24 @@ where
 					.per_byte_fees
 					.iter()
 					.find(|fee| {
-						let hashed_chain_id = sp_io::hashing::keccak_256(&state_machine.encode());
+						let hashed_chain_id =
+							sp_io::hashing::keccak_256(&state_machine.to_string().as_bytes());
 						fee.state_id == H256(hashed_chain_id)
 					})
 					.map(|fee| fee.per_byte_fee)
 					.unwrap_or(evm_host_param.default_per_byte_fee);
+
+				let Some(decimals) =
+					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(state_machine)
+				else {
+					return None;
+				};
+				dbg!(decimals);
+				dbg!(fee);
+				let scaling_power = 18u8.saturating_sub(decimals); // assumption that the decimals will always be less than 18
+				let scaling_factor = U256::from(10u128.pow(scaling_power as u32));
+				let fee = fee.saturating_mul(scaling_factor);
+				dbg!(fee);
 				fee
 			},
 			SubstrateHostParam(VersionedHostParams::V1(substrate_params)) => {

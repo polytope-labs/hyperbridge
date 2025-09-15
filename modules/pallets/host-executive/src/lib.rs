@@ -276,7 +276,6 @@ pub mod pallet {
 		) -> DispatchResult {
 			T::HostExecutiveOrigin::ensure_origin(origin)?;
 
-			ensure!(state_machine.is_substrate(), Error::<T>::UnsupportedStateMachine);
 			FeeTokenDecimals::<T>::insert(state_machine, decimals);
 
 			Self::deposit_event(Event::FeeTokenDecimalsUpdated { state_machine, decimals });

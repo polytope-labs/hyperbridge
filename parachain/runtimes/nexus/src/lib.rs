@@ -16,7 +16,7 @@
 #![allow(non_local_definitions)]
 #![cfg_attr(not(feature = "std"), no_std)]
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
 
 // Make the WASM binary available.
 #[cfg(feature = "std")]
@@ -29,6 +29,7 @@ pub mod governance;
 mod ismp;
 mod weights;
 pub mod xcm;
+use crate::sp_runtime::DispatchError;
 #[cfg(feature = "runtime-benchmarks")]
 use alloc::sync::Arc;
 
@@ -83,6 +84,7 @@ use frame_system::{
 	EnsureRoot, EnsureRootWithSuccess,
 };
 use pallet_ismp::offchain::{Proof, ProofKeys};
+use pallet_messaging_fees::types::PriceOracle;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -99,7 +101,8 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 // XCM Imports
 use crate::pallet_collective::PrimeDefaultVote;
 use cumulus_primitives_core::ParaId;
-use frame_support::traits::ConstBool;
+
+use frame_support::traits::{ConstBool, EitherOfDiverse};
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use staging_xcm::latest::prelude::BodyId;
 
@@ -226,7 +229,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 4_100,
+	spec_version: 5_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -329,6 +332,7 @@ use frame_support::{
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
+use polkadot_sdk::{frame_support::traits::LockIdentifier, sp_core::U256};
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
@@ -459,7 +463,7 @@ impl pallet_transaction_payment::Config for Runtime {
 	type LengthToFee = ConstantMultiplier<Balance, TransactionByteFee>;
 	type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
 	type OperationalFeeMultiplier = ConstU8<5>;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_transaction_payment::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -538,7 +542,7 @@ impl pallet_message_queue::Config for Runtime {
 }
 
 parameter_types! {
-	pub const Period: u32 = 6 * HOURS;
+	pub const Period: u32 = 24 * HOURS;
 	pub const Offset: u32 = 0;
 }
 
@@ -549,7 +553,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorSelection;
+	type SessionManager = CollatorManager;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -569,7 +573,6 @@ parameter_types! {
 	pub const PotId: PalletId = PalletId(*b"PotStake");
 	pub const MaxCandidates: u32 = 1000;
 	pub const MinEligibleCollators: u32 = 5;
-	pub const SessionLength: BlockNumber = 6 * HOURS;
 	pub const MaxInvulnerables: u32 = 100;
 	pub const ExecutiveBody: BodyId = BodyId::Executive;
 }
@@ -579,7 +582,7 @@ pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
+	type Currency = CollatorManager;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -757,7 +760,7 @@ impl pallet_vesting::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	const MAX_VESTING_SCHEDULES: u32 = 28;
 	type MinVestedTransfer = MinVestedTransfer;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_vesting::WeightInfo<Runtime>;
 	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
 	type BlockNumberProvider = System;
 }
@@ -857,6 +860,46 @@ impl pallet_proxy::Config for Runtime {
 	type AnnouncementDepositBase = AnnouncementDepositBase;
 	type AnnouncementDepositFactor = AnnouncementDepositFactor;
 	type BlockNumberProvider = System;
+}
+
+impl pallet_messaging_fees::Config for Runtime {
+	type IsmpHost = Ismp;
+	type TreasuryAccount = TreasuryPalletId;
+	type IncentivesOrigin = EitherOfDiverse<
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureMembers<
+			AccountId,
+			TechnicalCollectiveInstance,
+			MIN_TECH_COLLECTIVE_APPROVAL,
+		>,
+	>;
+	type PriceOracle = FixedPriceOracle;
+
+	/// Target message size: 6.51 KB (6.51 * 1024 = 6666 bytes)
+	type TargetMessageSize = ConstU32<6666>;
+	type WeightInfo = ();
+	type ReputationAsset = ReputationAsset;
+}
+
+parameter_types! {
+	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
+}
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type DesiredCollators = MinEligibleCollators;
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type LockId = CollatorBondLockId;
+}
+
+pub struct FixedPriceOracle;
+
+impl PriceOracle for FixedPriceOracle {
+	fn get_bridge_price() -> Result<U256, DispatchError> {
+		// return 0.05 with 18 decimals: 0.05 * 10^18
+		Ok(U256::from(50_000_000_000_000_000u128))
+	}
 }
 
 #[frame_support::runtime]
@@ -989,6 +1032,10 @@ mod runtime {
 	pub type IsmpOptimism = ismp_optimism::pallet;
 	#[runtime::pallet_index(91)]
 	pub type ConsensusIncentives = pallet_consensus_incentives::pallet;
+	#[runtime::pallet_index(92)]
+	pub type MessagingFees = pallet_messaging_fees;
+	#[runtime::pallet_index(93)]
+	pub type CollatorManager = pallet_collator_manager;
 
 	// consensus clients
 	#[runtime::pallet_index(255)]

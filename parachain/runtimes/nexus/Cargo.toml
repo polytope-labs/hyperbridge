@@ -15,7 +15,7 @@ substrate-wasm-builder = { workspace = true }
 [dependencies]
 # crates.io
 codec = { workspace = true, features = ["derive"] }
-hex-literal = { workspace = true, optional = true }
+hex-literal = { workspace = true, default-features = true }
 log = { workspace = true }
 json = { workspace = true }
 scale-info = { version = "2.3.1", default-features = false, features = [
@@ -52,6 +52,8 @@ ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
+pallet-messaging-fees = { workspace = true }
+pallet-collator-manager = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
 
@@ -156,10 +158,12 @@ std = [
     "ismp-optimism/std",
     "pallet-consensus-incentives/std",
     "polkadot-sdk/std",
-    "ismp-polygon/std"
+    "ismp-polygon/std",
+    "pallet-consensus-incentives/std",
+    "pallet-messaging-fees/std",
+    "pallet-collator-manager/std"
 ]
 runtime-benchmarks = [
-    "hex-literal",
     "frame-benchmarking/runtime-benchmarks",
     "polkadot-sdk/frame-system-benchmarking",
     "polkadot-sdk/runtime-benchmarks",

@@ -41,7 +41,7 @@ parameter_types! {
 }
 
 impl pallet_preimage::Config for Runtime {
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_preimage::WeightInfo<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type ManagerOrigin = EnsureRoot<AccountId>;
@@ -54,7 +54,7 @@ impl pallet_preimage::Config for Runtime {
 }
 
 impl pallet_conviction_voting::Config for Runtime {
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_conviction_voting::WeightInfo<Runtime>;
 	type RuntimeEvent = RuntimeEvent;
 	type Currency = Balances;
 	type VoteLockingPeriod = VoteLockingPeriod;
@@ -78,7 +78,7 @@ parameter_types! {
 pub type TreasurySpender = EitherOf<EnsureRootWithSuccess<AccountId, MaxBalance>, Spender>;
 
 impl pallet_whitelist::Config for Runtime {
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_whitelist::WeightInfo<Runtime>;
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
 	type WhitelistOrigin = EitherOfDiverse<EnsureRoot<Self::AccountId>, FellowshipAdmin>;
@@ -101,14 +101,14 @@ impl pallet_scheduler::Config for Runtime {
 	type MaximumWeight = MaximumSchedulerWeight;
 	type ScheduleOrigin = EnsureRoot<AccountId>;
 	type MaxScheduledPerBlock = MaxScheduledPerBlock;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_scheduler::WeightInfo<Runtime>;
 	type OriginPrivilegeCmp = frame_support::traits::EqualPrivilegeOnly;
 	type Preimages = Preimage;
 	type BlockNumberProvider = System;
 }
 
 impl pallet_referenda::Config for Runtime {
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_referenda::WeightInfo<Runtime>;
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
 	type Scheduler = Scheduler;

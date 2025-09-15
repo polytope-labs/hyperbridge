@@ -15,7 +15,7 @@ substrate-wasm-builder = { workspace = true }
 [dependencies]
 # crates.io
 codec = { workspace = true, features = ["derive"] }
-hex-literal = { workspace = true, optional = true }
+hex-literal = { workspace = true, default-features = true }
 log = { workspace = true }
 json = { workspace = true }
 scale-info = { version = "2.3.1", default-features = false, features = [
@@ -164,7 +164,6 @@ std = [
     "pallet-collator-manager/std"
 ]
 runtime-benchmarks = [
-    "hex-literal",
     "frame-benchmarking/runtime-benchmarks",
     "polkadot-sdk/frame-system-benchmarking",
     "polkadot-sdk/runtime-benchmarks",

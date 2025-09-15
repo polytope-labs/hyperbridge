@@ -110,13 +110,9 @@ where
 				else {
 					return None;
 				};
-				dbg!(decimals);
-				dbg!(fee);
 				let scaling_power = 18u8.saturating_sub(decimals); // assumption that the decimals will always be less than 18
 				let scaling_factor = U256::from(10u128.pow(scaling_power as u32));
-				let fee = fee.saturating_mul(scaling_factor);
-				dbg!(fee);
-				fee
+				fee.saturating_mul(scaling_factor)
 			},
 			SubstrateHostParam(VersionedHostParams::V1(substrate_params)) => {
 				let fee = substrate_params

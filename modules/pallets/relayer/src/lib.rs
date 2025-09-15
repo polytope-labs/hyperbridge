@@ -21,7 +21,7 @@
 extern crate alloc;
 
 pub mod withdrawal;
-use crate::withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
+use crate::withdrawal::{Key, WithdrawalInputData, WithdrawalProof};
 use alloc::{collections::BTreeMap, vec, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
@@ -44,7 +44,7 @@ use ismp::{
 pub use pallet::*;
 use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
-use pallet_ismp_host_executive::{HostParam, HostParams};
+use pallet_ismp_host_executive::{withdrawal::*, HostParam, HostParams};
 use polkadot_sdk::*;
 use sp_core::{Get, H256, U256};
 use sp_runtime::{AccountId32, DispatchError};

@@ -83,8 +83,6 @@ slot_duration = 6000
 consensus_update_frequency = 6000000000000000
 # A list of parachain IDs that are connected to this relay chain and should be monitored.
 para_ids = [4009]
-# (Optional) The maximum block range to prove finality for
-max_block_range = 10
 
 # Configuration for the Hyperbridge parachain itself.
 [hyperbridge.substrate]
@@ -105,10 +103,6 @@ signer = "SIGNER"
 # initial_height = 0
 # (Optional) Maximum concurrent rpc requests allowed.
 max_concurent_queries = 0
-# (Optional) Frequency at which state machine updates will be queried in seconds.
-# poll_interval = 0
-# (Optional) Decimals for the fee token on this substrate chain.
-fee_token_decimals = 12
 
 # Configuration for Sepolia (L1).
 [ethereum]

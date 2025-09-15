@@ -228,6 +228,9 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeProver<C, ETH1_
 		let full_url = self.generate_route(&path)?;
 
 		let response = self.client.get(full_url).send().await.map_err(|e| {
+			// Rpc Errors can be too long sometimes, let's truncate them
+			let mut e = e.to_string();
+			e.truncate(1024);
 			anyhow!("Failed to fetch beacon state with id {state_id} due to error {e:?}")
 		})?;
 

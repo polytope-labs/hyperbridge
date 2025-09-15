@@ -13,14 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 pub use crypto_utils::verification::Signature;
 use ismp::{host::StateMachine, messaging::Proof};
 use polkadot_sdk::*;
-use sp_core::{H256, U256};
+use sp_core::H256;
 
 #[derive(
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
@@ -67,50 +67,4 @@ pub struct WithdrawalInputData {
 	pub signature: Signature,
 	/// Chain to withdraw funds from
 	pub dest_chain: StateMachine,
-}
-
-#[derive(
-	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
-)]
-pub struct WithdrawalParams {
-	pub beneficiary_address: Vec<u8>,
-	pub amount: U256,
-	pub native: bool,
-}
-
-impl WithdrawalParams {
-	pub fn abi_encode(&self) -> Vec<u8> {
-		let mut data = vec![0];
-		let tokens = [
-			ethabi::Token::Address(ethabi::ethereum_types::H160::from_slice(
-				&self.beneficiary_address,
-			)),
-			ethabi::Token::Uint(ethabi::ethereum_types::U256::from_big_endian(
-				&self.amount.to_big_endian(),
-			)),
-			ethabi::Token::Bool(self.native),
-		];
-		let params = ethabi::encode(&tokens);
-		data.extend_from_slice(&params);
-		data
-	}
-}
-
-#[cfg(test)]
-mod test {
-	use crate::withdrawal::WithdrawalParams;
-	use polkadot_sdk::*;
-	use sp_core::{H160, U256};
-	#[test]
-	fn check_decoding() {
-		let params = WithdrawalParams {
-			beneficiary_address: H160::random().0.to_vec(),
-			amount: U256::from(500_00_000_000u128),
-			native: false,
-		};
-
-		let encoding = params.abi_encode();
-
-		assert_eq!(encoding.len(), 97);
-	}
 }

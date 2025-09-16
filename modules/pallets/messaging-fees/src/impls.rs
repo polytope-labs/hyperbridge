@@ -172,7 +172,7 @@ where
 
 		for (state_machine, messages) in &messages_by_chain {
 			for msg in messages {
-				let (bytes_processed, is_incentivized) = match msg {
+				let (mut bytes_processed, is_incentivized) = match msg {
 					IncentivizedMessage::Request(req, is_incentivized) => {
 						let size = match req {
 							Request::Post(post) => post.body.len() as u32,
@@ -193,10 +193,7 @@ where
 						(size, *is_incentivized)
 					},
 				};
-
-				if bytes_processed == 0 {
-					continue;
-				}
+				bytes_processed = core::cmp::max(bytes_processed, 32);
 
 				if let Some(per_byte_fee) = Self::get_per_byte_fee(&state_machine) {
 					let cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));

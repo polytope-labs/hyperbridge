@@ -220,10 +220,6 @@ where
 					let base_reward_as_balance: T::Balance =
 						base_reward_12_decimals.saturated_into();
 
-					if u128::from(base_reward_as_balance) == 0 {
-						continue;
-					}
-
 					if is_incentivized {
 						TotalBytesProcessed::<T>::mutate(|total| {
 							*total = total.saturating_add(bytes_processed)

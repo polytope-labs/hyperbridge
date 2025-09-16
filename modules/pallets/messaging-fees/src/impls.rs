@@ -247,6 +247,8 @@ where
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						} else {
 							Self::pay_fee(&relayer, base_reward_as_balance)?;
+							T::ReputationAsset::mint_into(&relayer, base_reward_as_balance)
+								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						}
 					} else {
 						Self::pay_fee(&relayer, base_reward_as_balance)?;
@@ -299,8 +301,6 @@ where
 		.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
 		Self::deposit_event(Event::FeePaid { relayer: relayer.clone(), amount: fee });
-		T::ReputationAsset::mint_into(&relayer, fee)
-			.map_err(|_| Error::<T>::ReputationMintFailed)?;
 
 		Ok(())
 	}

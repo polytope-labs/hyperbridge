@@ -145,15 +145,13 @@ where
 		match message {
 			Message::Request(msg) =>
 				for req in &msg.requests {
-					if IncentivizedRoutes::<T>::get(req.source).is_some() &&
-						IncentivizedRoutes::<T>::get(req.dest).is_some()
-					{
-						let request = Request::Post(req.clone());
-						messages_by_chain
-							.entry(req.dest)
-							.or_default()
-							.push(IncentivizedMessage::Request(request));
-					}
+					let is_incentivized = IncentivizedRoutes::<T>::get(&req.source).is_some() &&
+						IncentivizedRoutes::<T>::get(&req.dest).is_some();
+					let request = Request::Post(req.clone());
+					messages_by_chain
+						.entry(req.dest.clone())
+						.or_default()
+						.push(IncentivizedMessage::Request(request, is_incentivized));
 				},
 			Message::Response(msg) => match msg.datagram.clone() {
 				RequestResponse::Request(_) => return Ok(()),
@@ -161,99 +159,105 @@ where
 					for res in responses {
 						let source_chain = res.source_chain();
 						let dest_chain = res.dest_chain();
-						if IncentivizedRoutes::<T>::get(source_chain).is_some() &&
-							IncentivizedRoutes::<T>::get(dest_chain).is_some()
-						{
-							messages_by_chain
-								.entry(dest_chain)
-								.or_default()
-								.push(IncentivizedMessage::Response(res));
-						}
+						let is_incentivized = IncentivizedRoutes::<T>::get(source_chain).is_some() &&
+							IncentivizedRoutes::<T>::get(dest_chain).is_some();
+						messages_by_chain
+							.entry(dest_chain)
+							.or_default()
+							.push(IncentivizedMessage::Response(res, is_incentivized));
 					},
 			},
 			_ => return Ok(()),
 		};
 
 		for (state_machine, messages) in &messages_by_chain {
-			let bytes_processed: u32 = messages
-				.iter()
-				.map(|msg| match msg {
-					IncentivizedMessage::Request(req) => match req {
-						Request::Post(post) => post.body.len() as u32,
-						Request::Get(_) => 0,
+			for msg in messages {
+				let (bytes_processed, is_incentivized) = match msg {
+					IncentivizedMessage::Request(req, is_incentivized) => {
+						let size = match req {
+							Request::Post(post) => post.body.len() as u32,
+							Request::Get(_) => 0,
+						};
+						(size, *is_incentivized)
 					},
-					IncentivizedMessage::Response(res) => match res {
-						Response::Post(post) => post.response.len() as u32,
-						Response::Get(get) => get
-							.values
-							.iter()
-							.filter_map(|storage_val| storage_val.value.as_ref())
-							.map(|bytes| bytes.len())
-							.sum::<usize>() as u32,
+					IncentivizedMessage::Response(res, is_incentivized) => {
+						let size = match res {
+							Response::Post(post) => post.response.len() as u32,
+							Response::Get(get) => get
+								.values
+								.iter()
+								.filter_map(|storage_val| storage_val.value.as_ref())
+								.map(|bytes| bytes.len())
+								.sum::<usize>() as u32,
+						};
+						(size, *is_incentivized)
 					},
-				})
-				.sum();
+				};
 
-			TotalBytesProcessed::<T>::mutate(|total| {
-				*total = total.saturating_add(bytes_processed)
-			});
-			let current_total_bytes = TotalBytesProcessed::<T>::get();
+				if bytes_processed == 0 {
+					continue;
+				}
 
-			if let Some(per_byte_fee) = Self::get_per_byte_fee(&state_machine) {
-				let cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
-				let bridge_price = T::PriceOracle::get_bridge_price()
-					.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
+				if let Some(per_byte_fee) = Self::get_per_byte_fee(&state_machine) {
+					let cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
+					if cost.is_zero() {
+						continue;
+					}
+					let bridge_price = T::PriceOracle::get_bridge_price()
+						.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
-				let cost_bridge_price_18_decimals =
-					cost.checked_mul(bridge_price).ok_or(Error::<T>::CalculationOverflow)?;
+					let cost_bridge_price_18_decimals =
+						cost.checked_mul(bridge_price).ok_or(Error::<T>::CalculationOverflow)?;
 
-				let cost_bridge_price_12_decimals_u256 = cost_bridge_price_18_decimals
-					.checked_div(SCALING_FACTOR_18_TO_12.into())
-					.ok_or(Error::<T>::CalculationOverflow)?;
+					let cost_bridge_price_12_decimals_u256 = cost_bridge_price_18_decimals
+						.checked_div(SCALING_FACTOR_18_TO_12.into())
+						.ok_or(Error::<T>::CalculationOverflow)?;
 
-				let base_reward_12_decimals: u128 = cost_bridge_price_12_decimals_u256
-					.try_into()
-					.map_err(|_| Error::<T>::CalculationOverflow)?;
+					let base_reward_12_decimals: u128 = cost_bridge_price_12_decimals_u256
+						.try_into()
+						.map_err(|_| Error::<T>::CalculationOverflow)?;
 
-				let base_reward_as_balance: T::Balance = base_reward_12_decimals.saturated_into();
-				let target_message_size = T::TargetMessageSize::get();
+					let base_reward_as_balance: T::Balance =
+						base_reward_12_decimals.saturated_into();
 
-				if current_total_bytes < target_message_size {
-					let reward_amount = Self::calculate_reward(
-						current_total_bytes,
-						target_message_size,
-						base_reward_12_decimals.into(),
-					)?;
+					if u128::from(base_reward_as_balance) == 0 {
+						continue;
+					}
 
-					T::Currency::transfer(
-						&T::TreasuryAccount::get().into_account_truncating(),
-						&relayer,
-						reward_amount.saturated_into(),
-						Preservation::Expendable,
-					)
-					.map_err(|_| Error::<T>::RewardTransferFailed)?;
+					if is_incentivized {
+						TotalBytesProcessed::<T>::mutate(|total| {
+							*total = total.saturating_add(bytes_processed)
+						});
+						let current_total_bytes = TotalBytesProcessed::<T>::get();
+						let target_message_size = T::TargetMessageSize::get();
 
-					Self::deposit_event(Event::FeeRewarded {
-						relayer: relayer.clone(),
-						amount: reward_amount.saturated_into(),
-					});
-					T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
-						.map_err(|_| Error::<T>::ReputationMintFailed)?;
-				} else {
-					T::Currency::transfer(
-						&relayer,
-						&T::TreasuryAccount::get().into_account_truncating(),
-						base_reward_as_balance,
-						Preservation::Expendable,
-					)
-					.map_err(|_| Error::<T>::RewardTransferFailed)?;
+						if current_total_bytes < target_message_size {
+							let reward_amount = Self::calculate_reward(
+								current_total_bytes,
+								target_message_size,
+								base_reward_12_decimals.into(),
+							)?;
 
-					Self::deposit_event(Event::FeePaid {
-						relayer: relayer.clone(),
-						amount: base_reward_as_balance,
-					});
-					T::ReputationAsset::mint_into(&relayer, base_reward_as_balance)
-						.map_err(|_| Error::<T>::ReputationMintFailed)?;
+							T::Currency::transfer(
+								&T::TreasuryAccount::get().into_account_truncating(),
+								&relayer,
+								reward_amount.saturated_into(),
+								Preservation::Expendable,
+							)
+							.map_err(|_| Error::<T>::RewardTransferFailed)?;
+
+							Self::deposit_event(Event::FeeRewarded {
+								relayer: relayer.clone(),
+								amount: reward_amount.saturated_into(),
+							});
+							T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
+								.map_err(|_| Error::<T>::ReputationMintFailed)?;
+						} else {
+							Self::pay_fee(&relayer, base_reward_as_balance)?;
+						}
+					} else {
+						Self::pay_fee(&relayer, base_reward_as_balance)?;
+					}
 				}
 			}
 		}
@@ -290,6 +294,22 @@ where
 			.ok_or(Error::<T>::CalculationOverflow)?;
 
 		Ok(final_reward_numerator.saturating_div(target_size_sq))
+	}
+
+	fn pay_fee(relayer: &T::AccountId, fee: T::Balance) -> Result<(), Error<T>> {
+		T::Currency::transfer(
+			relayer,
+			&T::TreasuryAccount::get().into_account_truncating(),
+			fee,
+			Preservation::Expendable,
+		)
+		.map_err(|_| Error::<T>::RewardTransferFailed)?;
+
+		Self::deposit_event(Event::FeePaid { relayer: relayer.clone(), amount: fee });
+		T::ReputationAsset::mint_into(&relayer, fee)
+			.map_err(|_| Error::<T>::ReputationMintFailed)?;
+
+		Ok(())
 	}
 }
 

@@ -13,8 +13,8 @@ pub type AuthorityId = sp_core::sr25519::Public;
 pub type AuthoritySignature = sp_core::sr25519::Signature;
 
 pub enum IncentivizedMessage {
-	Request(Request),
-	Response(Response),
+	Request(Request, bool),
+	Response(Response, bool),
 }
 
 /// A trait for Bridge price oracle.

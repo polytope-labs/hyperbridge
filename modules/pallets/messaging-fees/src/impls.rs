@@ -78,12 +78,13 @@ where
 			} else if source_chain.is_substrate() {
 				if let Some(fee) = CommitmentFees::<T>::take(&commitment) {
 					let fee_u256: U256 = u128::from(fee).into();
-
-					pallet_ismp_relayer::Pallet::<T>::accumulate_fee_and_deposit_event(
-						source_chain.clone(),
-						relayer_address.clone(),
-						fee_u256,
-					);
+					if fee_u256 > U256::zero() {
+						pallet_ismp_relayer::Pallet::<T>::accumulate_fee_and_deposit_event(
+							source_chain.clone(),
+							relayer_address.clone(),
+							fee_u256,
+						);
+					}
 				}
 			}
 		}
@@ -193,6 +194,7 @@ where
 						(size, *is_incentivized)
 					},
 				};
+
 				bytes_processed = core::cmp::max(bytes_processed, 32);
 
 				if let Some(per_byte_fee) = Self::get_per_byte_fee(&state_machine) {

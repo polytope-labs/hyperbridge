@@ -233,7 +233,7 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 	});
 }
 #[test]
-fn test_skip_incentivizing_for_unsupported_route() {
+fn test_skip_incentivizing_for_unsupported_route_but_fees_should_still_be_paid() {
 	new_test_ext().execute_with(|| {
 		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
 		let relayer_account: AccountId32 = relayer_pair.public().into();
@@ -248,9 +248,11 @@ fn test_skip_incentivizing_for_unsupported_route() {
 		let request_message =
 			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
 
+		let initial_relayer_balance = Balances::balance(&relayer_account);
 		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
+		let current_relayer_balance = Balances::balance(&relayer_account);
 
-		assert_eq!(Balances::balance(&relayer_account), 1000 * UNIT);
+		assert!(current_relayer_balance < initial_relayer_balance);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
 	});
 }

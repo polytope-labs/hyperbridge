@@ -4,7 +4,8 @@ import { FillerStrategy } from "@/strategies/base"
 import { Order, FillerConfig, ChainConfig, DUMMY_PRIVATE_KEY, ADDRESS_ZERO, bytes20ToBytes32 } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
 import { ChainClientManager, ContractInteractionService } from "@/services"
-import { ChainConfigService } from "@hyperbridge/sdk"
+import { FillerConfigService } from "@/services/FillerConfigService"
+import { getLogger } from "@/services/Logger"
 
 import { PublicClient } from "viem"
 import { generatePrivateKey } from "viem/accounts"
@@ -17,13 +18,25 @@ export class IntentFiller {
 	private chainClientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private config: FillerConfig
+	private configService: FillerConfigService
+	private logger = getLogger("intent-filler")
 
-	constructor(chainConfigs: ChainConfig[], strategies: FillerStrategy[], config: FillerConfig) {
-		this.monitor = new EventMonitor(chainConfigs)
+	constructor(
+		chainConfigs: ChainConfig[],
+		strategies: FillerStrategy[],
+		config: FillerConfig,
+		configService: FillerConfigService,
+	) {
+		this.configService = configService
+		this.monitor = new EventMonitor(chainConfigs, configService)
 		this.strategies = strategies
 		this.config = config
-		this.chainClientManager = new ChainClientManager(generatePrivateKey())
-		this.contractService = new ContractInteractionService(this.chainClientManager, generatePrivateKey())
+		this.chainClientManager = new ChainClientManager(configService)
+		this.contractService = new ContractInteractionService(
+			this.chainClientManager,
+			generatePrivateKey(),
+			configService,
+		)
 		this.chainQueues = new Map()
 		chainConfigs.forEach((chainConfig) => {
 			// 1 order per chain at a time due to EVM constraints
@@ -55,7 +68,7 @@ export class IntentFiller {
 		promises.push(this.globalQueue.onIdle())
 
 		Promise.all(promises).then(() => {
-			console.log("All orders processed, filler stopped")
+			this.logger.info("All orders processed, filler stopped")
 		})
 	}
 
@@ -65,6 +78,7 @@ export class IntentFiller {
 		// Use the global queue for the initial analysis
 		// This can happen in parallel for PublicClient orders
 		this.globalQueue.add(async () => {
+			this.logger.info({ orderId: order.id }, "New order detected")
 			try {
 				const sourceClient = this.chainClientManager.getPublicClient(order.sourceChain)
 				const orderValue = await this.contractService.getTokenUsdValue(order)
@@ -75,9 +89,9 @@ export class IntentFiller {
 					chainIds[order.sourceChain as keyof typeof chainIds],
 					orderValue.inputUsdValue,
 				)
-				console.log(
-					`For order ${order.id}, required confirmations: ${requiredConfirmations},
-					current confirmations: ${currentConfirmations}`,
+				this.logger.info(
+					{ orderId: order.id, requiredConfirmations, currentConfirmations },
+					"Order confirmation requirements",
 				)
 
 				while (currentConfirmations < requiredConfirmations) {
@@ -85,14 +99,14 @@ export class IntentFiller {
 					currentConfirmations = await sourceClient.getTransactionConfirmations({
 						hash: order.transactionHash!,
 					})
-					console.log(`Order ${order.id} current confirmations: ${currentConfirmations}`)
+					this.logger.debug({ orderId: order.id, currentConfirmations }, "Order confirmation progress")
 				}
 
-				console.log(`Order ${order.id} confirmed on source chain: ${currentConfirmations}`)
+				this.logger.info({ orderId: order.id, currentConfirmations }, "Order confirmed on source chain")
 
 				this.evaluateAndExecuteOrder(order)
 			} catch (error) {
-				console.error(`Error processing order ${order.id}:`, error)
+				this.logger.error({ orderId: order.id, err: error }, "Error processing order")
 			}
 		})
 	}
@@ -115,14 +129,14 @@ export class IntentFiller {
 					.sort((a, b) => Number(b.profitability) - Number(a.profitability))
 
 				if (validStrategies.length === 0) {
-					console.log(`No profitable strategy found for order ${order.id}`)
+					this.logger.warn({ orderId: order.id }, "No profitable strategy found for order")
 					return
 				}
 
 				// Get the chain-specific queue
 				const chainQueue = this.chainQueues.get(chainIds[order.destChain as keyof typeof chainIds]!)
 				if (!chainQueue) {
-					console.error(`No queue configured for chain ${order.destChain}`)
+					this.logger.error({ chain: order.destChain }, "No queue configured for chain")
 					return
 				}
 
@@ -130,24 +144,25 @@ export class IntentFiller {
 				// This ensures transactions for the same chain are processed sequentially
 				chainQueue.add(async () => {
 					const bestStrategy = validStrategies[0].strategy
-					console.log(
-						`Executing order ${order.id} with strategy ${bestStrategy.name} on chain ${order.destChain}`,
+					this.logger.info(
+						{ orderId: order.id, strategy: bestStrategy.name, chain: order.destChain },
+						"Executing order",
 					)
 
 					try {
 						const result = await bestStrategy.executeOrder(order)
-						console.log(`Order execution result:`, result)
+						this.logger.info({ orderId: order.id, result }, "Order execution completed")
 						if (result.success) {
 							this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash })
 						}
 						return result
 					} catch (error) {
-						console.error(`Order execution failed:`, error)
+						this.logger.error({ orderId: order.id, err: error }, "Order execution failed")
 						throw error
 					}
 				})
 			} catch (error) {
-				console.error(`Error processing order ${order.id}:`, error)
+				this.logger.error({ orderId: order.id, err: error }, "Error processing order")
 			}
 		})
 	}

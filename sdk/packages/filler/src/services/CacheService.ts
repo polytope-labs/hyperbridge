@@ -1,3 +1,5 @@
+import { getLogger } from "./Logger"
+
 interface GasEstimateCache {
 	fillGas: string
 	postGas: string
@@ -26,6 +28,7 @@ interface CacheData {
 export class CacheService {
 	private cacheData: CacheData
 	private readonly CACHE_EXPIRY_MS = 1 * 60 * 1000 // 1 minute
+	private logger = getLogger("cache-service")
 
 	constructor() {
 		this.cacheData = { gasEstimates: {}, swapOperations: {} }
@@ -70,7 +73,7 @@ export class CacheService {
 			}
 			return null
 		} catch (error) {
-			console.error("Error getting gas estimate:", error)
+			this.logger.error({ err: error }, "Error getting gas estimate")
 			return null
 		}
 	}
@@ -95,7 +98,7 @@ export class CacheService {
 				timestamp: Date.now(),
 			}
 		} catch (error) {
-			console.error("Error setting gas estimate:", error)
+			this.logger.error({ err: error }, "Error setting gas estimate")
 			throw error
 		}
 	}
@@ -111,7 +114,7 @@ export class CacheService {
 			}
 			return null
 		} catch (error) {
-			console.error("Error getting swap operations:", error)
+			this.logger.error({ err: error }, "Error getting swap operations")
 			return null
 		}
 	}
@@ -125,7 +128,7 @@ export class CacheService {
 				timestamp: Date.now(),
 			}
 		} catch (error) {
-			console.error("Error setting swap operations:", error)
+			this.logger.error({ err: error }, "Error setting swap operations")
 			throw error
 		}
 	}

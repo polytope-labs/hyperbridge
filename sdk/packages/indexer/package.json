@@ -45,7 +45,6 @@
 		"build": "npm run codegen:yamls && npm run codegen:subql && ./node_modules/.bin/subql build"
 	},
 	"dependencies": {
-		"@bifrost-finance/type-definitions": "^1.11.9",
 		"@ethersproject/abi": "^5.7.0",
 		"@ethersproject/providers": "^5.7.2",
 		"@ethersproject/shims": "^5.7.0",

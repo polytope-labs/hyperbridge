@@ -9,19 +9,23 @@ import {
 } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { PublicClient } from "viem"
-import { addresses } from "@hyperbridge/sdk"
 import { ChainClientManager } from "@/services"
+import { FillerConfigService } from "@/services/FillerConfigService"
+import { getLogger } from "@/services/Logger"
 
 export class EventMonitor extends EventEmitter {
 	private clients: Map<number, PublicClient> = new Map()
 	private listening: boolean = false
 	private unwatchFunctions: Map<number, () => void> = new Map()
 	private clientManager: ChainClientManager
+	private configService: FillerConfigService
+	private logger = getLogger("event-monitor")
 
-	constructor(chainConfigs: ChainConfig[]) {
+	constructor(chainConfigs: ChainConfig[], configService: FillerConfigService) {
 		super()
 
-		this.clientManager = new ChainClientManager(DUMMY_PRIVATE_KEY)
+		this.configService = configService
+		this.clientManager = new ChainClientManager(configService)
 
 		chainConfigs.forEach((config) => {
 			const chainName = `EVM-${config.chainId}`
@@ -40,8 +44,9 @@ export class EventMonitor extends EventEmitter {
 					(item) => item.type === "event" && item.name === "OrderPlaced",
 				)
 
+				const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
 				const unwatch = client.watchEvent({
-					address: addresses.IntentGateway[`EVM-${chainId}` as keyof typeof addresses.IntentGateway],
+					address: intentGatewayAddress,
 					event: orderPlacedEvent,
 					onLogs: (logs) => {
 						for (const log of logs) {
@@ -77,7 +82,7 @@ export class EventMonitor extends EventEmitter {
 
 								this.emit("newOrder", { order })
 							} catch (error) {
-								console.error(`Error parsing event log:`, error)
+								this.logger.error({ err: error }, "Error parsing event log")
 							}
 						}
 					},
@@ -86,9 +91,9 @@ export class EventMonitor extends EventEmitter {
 				})
 				this.unwatchFunctions.set(chainId, unwatch)
 
-				console.log(`Started watching for OrderPlaced events on chain ${chainId}`)
+				this.logger.info({ chainId }, "Started watching OrderPlaced events")
 			} catch (error) {
-				console.error(`Failed to create event filter for chain ${chainId}:`, error)
+				this.logger.error({ chainId, err: error }, "Failed to create event filter")
 			}
 		}
 	}
@@ -97,9 +102,9 @@ export class EventMonitor extends EventEmitter {
 		for (const [chainId, unwatch] of this.unwatchFunctions.entries()) {
 			try {
 				unwatch()
-				console.log(`Stopped watching for events on chain ${chainId}`)
+				this.logger.info({ chainId }, "Stopped watching for events")
 			} catch (error) {
-				console.error(`Error stopping event watcher for chain ${chainId}:`, error)
+				this.logger.error({ chainId, err: error }, "Error stopping event watcher")
 			}
 		}
 

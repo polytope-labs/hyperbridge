@@ -7,15 +7,9 @@ import {
 	TokenBalances,
 	TokenType,
 } from "@/services"
-import {
-	ADDRESS_ZERO,
-	bytes32ToBytes20,
-	ChainConfigService,
-	ExecutionResult,
-	FillOptions,
-	HexString,
-	Order,
-} from "@hyperbridge/sdk"
+import { ADDRESS_ZERO, bytes32ToBytes20, ExecutionResult, FillOptions, HexString, Order } from "@hyperbridge/sdk"
+import { FillerConfigService } from "@/services/FillerConfigService"
+import { getLogger } from "@/services/Logger"
 import { FillerStrategy } from "./base"
 import { privateKeyToAddress } from "viem/accounts"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
@@ -31,13 +25,14 @@ export class StableSwapFiller implements FillerStrategy {
 	private privateKey: HexString
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
-	private configService: ChainConfigService
+	private configService: FillerConfigService
+	private logger = getLogger("stable-swap-filler")
 
-	constructor(privateKey: HexString) {
+	constructor(privateKey: HexString, configService: FillerConfigService) {
 		this.privateKey = privateKey
-		this.configService = new ChainConfigService()
-		this.clientManager = new ChainClientManager(privateKey)
-		this.contractService = new ContractInteractionService(this.clientManager, privateKey)
+		this.configService = configService
+		this.clientManager = new ChainClientManager(configService, privateKey)
+		this.contractService = new ContractInteractionService(this.clientManager, privateKey, configService)
 	}
 
 	/**
@@ -52,13 +47,13 @@ export class StableSwapFiller implements FillerStrategy {
 			const deadline = BigInt(order.deadline)
 
 			if (deadline < currentBlock) {
-				console.debug(`Order expired at block ${deadline}, current block ${currentBlock}`)
+				this.logger.debug({ deadline: Number(deadline), currentBlock: Number(currentBlock) }, "Order expired")
 				return false
 			}
 
 			const isAlreadyFilled = await this.contractService.checkIfOrderFilled(order)
 			if (isAlreadyFilled) {
-				console.debug(`Order is already filled`)
+				this.logger.debug("Order is already filled")
 				return false
 			}
 
@@ -68,13 +63,16 @@ export class StableSwapFiller implements FillerStrategy {
 			const { outputUsdValue } = await this.contractService.getTokenUsdValue(order)
 
 			if (fillerBalanceUsd.totalBalanceUsd < outputUsdValue) {
-				console.debug(`Insufficient USD value for order`)
+				this.logger.debug(
+					{ required: outputUsdValue, available: fillerBalanceUsd.totalBalanceUsd },
+					"Insufficient USD value for order",
+				)
 				return false
 			}
 
 			return true
 		} catch (error) {
-			console.error(`Error in canFill:`, error)
+			this.logger.error({ err: error }, "Error in canFill")
 			return false
 		}
 	}
@@ -115,15 +113,17 @@ export class StableSwapFiller implements FillerStrategy {
 			const profit = toReceive > toPay ? toReceive - toPay : BigInt(0)
 
 			// Log for debugging
-			console.log({
-				orderFees: order.fees.toString(),
-				totalGasEstimateInFeeToken: totalGasEstimateInFeeToken.toString(),
-				profitable: profit > 0,
-				profitUsd: profit.toString(),
-			})
+			this.logger.debug(
+				{
+					orderFees: order.fees.toString(),
+					totalGasEstimateInFeeToken: totalGasEstimateInFeeToken.toString(),
+					profit: profit.toString(),
+				},
+				"Profitability calculation",
+			)
 			return profit
 		} catch (error) {
-			console.error(`Error calculating profitability:`, error)
+			this.logger.error({ err: error }, "Error calculating profitability")
 			return BigInt(0)
 		}
 	}
@@ -188,9 +188,10 @@ export class StableSwapFiller implements FillerStrategy {
 				processingTimeMs,
 			}
 		} catch (error) {
-			console.error(`Error executing order:`, error)
+			this.logger.error({ err: error }, "Error executing order")
 			return {
 				success: false,
+				error: error instanceof Error ? error.message : "Unknown error",
 			}
 		}
 	}
@@ -201,7 +202,7 @@ export class StableSwapFiller implements FillerStrategy {
 		// Check cache first
 		const cachedOperations = this.contractService.cacheService.getSwapOperations(order.id!)
 		if (cachedOperations) {
-			console.log(`Using cached swap operations for order ${order.id}`)
+			this.logger.info({ orderId: order.id }, "Using cached swap operations")
 			return this.formatCachedOperations(cachedOperations)
 		}
 
@@ -355,9 +356,13 @@ export class StableSwapFiller implements FillerStrategy {
 						context.destChain,
 					)
 				} catch (error) {
-					console.error(
-						`Error finding best protocol for swap ${sourceTokenAddress} -> ${targetTokenAddress}:`,
-						error,
+					this.logger.error(
+						{
+							sourceToken: sourceTokenAddress,
+							targetToken: targetTokenAddress,
+							err: error,
+						},
+						"Error finding best protocol for swap",
 					)
 					continue
 				}
@@ -383,8 +388,15 @@ export class StableSwapFiller implements FillerStrategy {
 				)
 				if (gasEstimate === null) continue
 
-				console.log(
-					`Using ${bestProtocol.protocol.toUpperCase()} for swap ${sourceTokenAddress} -> ${targetTokenAddress}, amountIn: ${bestProtocol.amountIn}${bestProtocol.fee ? `, fee: ${bestProtocol.fee}` : ""}`,
+				this.logger.info(
+					{
+						protocol: bestProtocol.protocol.toUpperCase(),
+						sourceToken: sourceTokenAddress,
+						targetToken: targetTokenAddress,
+						amountIn: bestProtocol.amountIn.toString(),
+						fee: bestProtocol.fee,
+					},
+					"Selected protocol for swap",
 				)
 
 				calls.push(...swapCalls)
@@ -598,7 +610,7 @@ export class StableSwapFiller implements FillerStrategy {
 			})
 			return results.reduce((acc: bigint, result: { gasUsed: bigint }) => acc + result.gasUsed, BigInt(0))
 		} catch (error) {
-			console.error("Swap simulation failed:", error)
+			this.logger.error({ err: error }, "Swap simulation failed")
 			return null
 		}
 	}

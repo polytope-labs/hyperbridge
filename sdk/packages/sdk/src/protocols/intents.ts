@@ -59,6 +59,7 @@ export class IntentGateway {
 
 		const { decimals: sourceChainFeeTokenDecimals, address: sourceChainFeeTokenAddress } =
 			await this.source.getFeeTokenWithDecimals()
+
 		const { address: destChainFeeTokenAddress, decimals: destChainFeeTokenDecimals } =
 			await this.dest.getFeeTokenWithDecimals()
 
@@ -70,9 +71,8 @@ export class IntentGateway {
 			sourceChainFeeTokenDecimals,
 		)
 
-		const RELAYER_FEE_BPS = 200n
 		const relayerFeeInSourceFeeToken =
-			postGasEstimateInSourceFeeToken + (postGasEstimateInSourceFeeToken * RELAYER_FEE_BPS) / 10000n
+			postGasEstimateInSourceFeeToken + 25n * 10n ** BigInt(sourceChainFeeTokenDecimals - 2)
 
 		const relayerFeeInDestFeeToken = adjustFeeDecimals(
 			relayerFeeInSourceFeeToken,
@@ -145,7 +145,11 @@ export class IntentGateway {
 		let destChainFillGas = 0n
 
 		try {
-			const protocolFeeInNativeToken = await this.quoteNative(postRequest, relayerFeeInDestFeeToken)
+			let protocolFeeInNativeToken = await this.quoteNative(postRequest, relayerFeeInDestFeeToken)
+
+			// Add 0.5% markup
+			protocolFeeInNativeToken = protocolFeeInNativeToken + (protocolFeeInNativeToken * 50n) / 10000n
+
 			destChainFillGas = await this.dest.client.estimateContractGas({
 				abi: IntentGatewayABI.ABI,
 				address: intentGatewayAddress,
@@ -211,7 +215,7 @@ export class IntentGateway {
 
 		const totalEstimate = fillGasInSourceFeeToken + protocolFeeInSourceFeeToken + relayerFeeInSourceFeeToken
 
-		const SWAP_OPERATIONS_BPS = 2500n
+		const SWAP_OPERATIONS_BPS = 3500n
 		const swapOperationsInFeeToken = (totalEstimate * SWAP_OPERATIONS_BPS) / 10000n
 		const totalFeeTokenAmount = totalEstimate + swapOperationsInFeeToken
 

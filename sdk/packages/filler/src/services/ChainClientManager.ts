@@ -1,7 +1,8 @@
 import { PublicClient, WalletClient, createPublicClient, createWalletClient, http, type Chain } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
-import { Order, HexString, ChainConfig, ChainConfigService } from "@hyperbridge/sdk"
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
+import { Order, HexString, ChainConfig } from "@hyperbridge/sdk"
 import { viemChains } from "@hyperbridge/sdk"
+import { FillerConfigService } from "./FillerConfigService"
 
 /**
  * Factory for creating and managing Viem clients
@@ -59,12 +60,12 @@ export const viemClientFactory = new ViemClientFactory()
  */
 export class ChainClientManager {
 	private privateKey: HexString
-	private configService: ChainConfigService
+	private configService: FillerConfigService
 	private clientFactory: ViemClientFactory
 
-	constructor(privateKey: HexString) {
-		this.privateKey = privateKey
-		this.configService = new ChainConfigService()
+	constructor(configService: FillerConfigService, privateKey?: HexString) {
+		this.privateKey = privateKey || generatePrivateKey()
+		this.configService = configService
 		this.clientFactory = viemClientFactory
 	}
 

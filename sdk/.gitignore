@@ -8,6 +8,8 @@ node_modules/
 dist/
 local/
 
+config.toml
+
 # lock files
 yarn.lock
 package-lock.json
@@ -21,6 +23,7 @@ packages/indexer/docker/mainnet/
 .claude/
 
 packages/filler/src/config/chain.ts
+packages/filler/src/filler-config.toml
 # Compiled Java class files
 *.class
 
@@ -72,7 +75,7 @@ Thumbs.db
 .yarn
 
 cache
-out 
+out
 
 .DS_Store
 

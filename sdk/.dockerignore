@@ -1,0 +1,51 @@
+# Version Control
+.git/
+.github/
+.gitignore
+.gitmodules
+.changeset/
+.claude/
+
+# Development
+**/tests/
+**/*.test.ts
+**/*.spec.ts
+**/__tests__/
+**/vitest.config.ts
+**/jest.config.js
+**/coverage/
+
+# We need node_modules and dist for building
+# Don't exclude: node_modules/, **/node_modules/, **/dist/
+
+# Environment
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Documentation
+**/*.md
+!README.md
+
+# Misc
+.DS_Store
+.vscode/
+.idea/
+.eslintcache
+.npm
+.yarn/
+.yarnrc.yml
+.npmrc
+
+# Docker
+**/Dockerfile
+**/docker-compose.yml
+**/docker-compose.*.yml
+.dockerignore
+
+# Temporary files
+**/tmp/
+**/temp/
+**/logs/
+**/.log

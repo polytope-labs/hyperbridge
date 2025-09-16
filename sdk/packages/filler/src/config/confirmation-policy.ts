@@ -35,7 +35,7 @@ export class ConfirmationPolicy {
 
 	getConfirmationBlocks(chainId: number, amount: bigint): number {
 		const chainPolicy = this.policies.get(chainId)
-		if (!chainPolicy) return this.getDefaultConfirmations(chainId)
+		if (!chainPolicy) throw new Error(`No confirmation policy found for chainId ${chainId}`)
 
 		if (amount <= chainPolicy.minAmount) {
 			return chainPolicy.minConfirmations
@@ -52,15 +52,5 @@ export class ConfirmationPolicy {
 		const confirmationPosition = (amountPosition * confirmationRange) / amountRange
 
 		return chainPolicy.minConfirmations + Number(confirmationPosition)
-	}
-
-	private getDefaultConfirmations(chainId: number): number {
-		// Default confirmation blocks based on chain
-		const defaults: Record<number, number> = {
-			97: 1, // BSC Testnet
-			10200: 1, // Gnosis Chiado
-		}
-
-		return defaults[chainId] || 1
 	}
 }

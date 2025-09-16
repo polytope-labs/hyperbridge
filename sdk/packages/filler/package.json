@@ -1,10 +1,13 @@
 {
 	"name": "@hyperbridge/filler",
-	"version": "0.1.1",
-	"description": "Intent filler package for hyperbridge",
+	"version": "0.1.0",
+	"description": "IntentGateway filler package for hyperbridge",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"type": "module",
+	"bin": {
+		"filler": "./dist/bin/filler.js"
+	},
 	"exports": {
 		".": {
 			"import": "./dist/index.js",
@@ -22,13 +25,17 @@
 		"test:watch": "vitest",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",
-		"format": "prettier --write \"src/**/*.ts\""
+		"format": "prettier --write \"src/**/*.ts\"",
+		"cli": "NODE_NO_WARNINGS=1 tsx src/bin/filler.ts",
+		"cli:dev": "nodemon --watch src --ext ts --exec tsx src/bin/filler.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
 		"@types/node": "^22.13.5",
 		"@vitest/coverage-v8": "^3.0.7",
+		"nodemon": "^3.1.0",
 		"tsup": "^8.4.0",
+		"tsx": "^4.16.2",
 		"typescript": "^5.7.3",
 		"vite-tsconfig-paths": "^5.1.4",
 		"vitest": "^3.0.7"
@@ -42,16 +49,52 @@
 	},
 	"dependencies": {
 		"@hyperbridge/sdk": "workspace:*",
-		"@polkadot/api": "^15.9.1",
-		"@polkadot/util-crypto": "^13.4.4",
+		"@polkadot/api": "latest",
+		"@polkadot/util-crypto": "latest",
 		"@safe-global/api-kit": "^3.0.1",
 		"@safe-global/protocol-kit": "^6.0.4",
 		"@safe-global/types-kit": "^2.0.1",
 		"ckb-mmr-wasm": "link:wasm-b",
+		"commander": "^12.0.0",
 		"dotenv": "^16.4.7",
 		"ethers": "^5.7.2",
 		"p-queue": "^8.1.0",
+		"pino": "^9.9.5",
+		"pino-pretty": "^11.3.0",
 		"scale-ts": "^1.6.1",
+		"toml": "^3.0.0",
 		"viem": "^2.34.0"
+	},
+	"resolutions": {
+		"@polkadot/api": "^16.4.6",
+		"@polkadot/api-augment": "^16.4.6",
+		"@polkadot/api-base": "^16.4.6",
+		"@polkadot/api-contract": "^16.4.6",
+		"@polkadot/api-derive": "^16.4.6",
+		"@polkadot/hw-ledger": "^13.5.6",
+		"@polkadot/keyring": "^13.5.6",
+		"@polkadot/networks": "^13.5.6",
+		"@polkadot/phishing": "^0.25.18",
+		"@polkadot/rpc-augment": "^16.4.6",
+		"@polkadot/rpc-core": "^16.4.6",
+		"@polkadot/rpc-provider": "^16.4.6",
+		"@polkadot/typegen": "^16.4.6",
+		"@polkadot/types": "^16.4.6",
+		"@polkadot/types-augment": "^16.4.6",
+		"@polkadot/types-codec": "^16.4.6",
+		"@polkadot/types-create": "^16.4.6",
+		"@polkadot/types-known": "^16.4.6",
+		"@polkadot/types-support": "^16.4.6",
+		"@polkadot/util": "^13.5.6",
+		"@polkadot/util-crypto": "^13.5.6",
+		"@polkadot/wasm-crypto": "^7.5.1",
+		"@polkadot/x-bigint": "^13.5.6",
+		"@polkadot/x-fetch": "^13.5.6",
+		"@polkadot/x-global": "^13.5.6",
+		"@polkadot/x-randomvalues": "^13.5.6",
+		"@polkadot/x-textdecoder": "^13.5.6",
+		"@polkadot/x-textencoder": "^13.5.6",
+		"@polkadot/x-ws": "^13.5.6",
+		"typescript": "^5.5.4"
 	}
 }

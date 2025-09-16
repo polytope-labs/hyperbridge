@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+    filler:
+        image: polytopelabs/hyperbridge-filler:latest
+        build:
+            context: ../../..
+            dockerfile: packages/filler/scripts/Dockerfile
+        container_name: hyperbridge-filler
+        restart: unless-stopped
+        volumes:
+            - ${CONFIG_PATH:-../config.toml}:/app/packages/filler/config/config.toml:ro
+        environment:
+            - NODE_ENV=production
+        networks:
+            - filler-network
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+        healthcheck:
+            test: ["CMD", "/app/healthcheck.sh"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 5s
+
+networks:
+    filler-network:
+        driver: bridge

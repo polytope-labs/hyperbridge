@@ -1,5 +1,11 @@
 import { IntentFiller } from "@/core/filler"
-import { ChainClientManager, ContractInteractionService } from "@/services"
+import {
+	ChainClientManager,
+	ContractInteractionService,
+	FillerConfigService,
+	FillerChainConfig,
+	HyperbridgeConfig,
+} from "@/services"
 import { BasicFiller } from "@/strategies/basic"
 import { StableSwapFiller } from "@/strategies/swap"
 import {
@@ -44,8 +50,41 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { HandlerV1_ABI } from "@/config/abis/HandlerV1"
 import { UNISWAP_ROUTER_V2_ABI } from "@/config/abis/UniswapRouterV2"
 import { UNISWAP_V2_FACTORY_ABI } from "@/config/abis/UniswapV2Factory"
-import { ChainConfigService } from "@hyperbridge/sdk"
 import { compareDecimalValues } from "@/utils"
+import { readFileSync } from "fs"
+import { resolve, dirname } from "path"
+import { fileURLToPath } from "url"
+import { parse } from "toml"
+
+// Helper function to load test configuration from TOML
+function loadTestConfig() {
+	const __filename = fileURLToPath(import.meta.url)
+	const __dirname = dirname(__filename)
+	const configPath = resolve(__dirname, "test-config.toml")
+	let tomlContent = readFileSync(configPath, "utf-8")
+
+	// Replace environment variable placeholders with actual values
+	tomlContent = tomlContent.replace(
+		/\$\{BSC_CHAPEL\}/g,
+		process.env.BSC_CHAPEL || "https://bnb-testnet.api.onfinality.io/public",
+	)
+	tomlContent = tomlContent.replace(
+		/\$\{GNOSIS_CHIADO\}/g,
+		process.env.GNOSIS_CHIADO || "https://gnosis-chiado-rpc.publicnode.com",
+	)
+	tomlContent = tomlContent.replace(
+		/\$\{ETH_MAINNET\}/g,
+		process.env.ETH_MAINNET || "https://eth-mainnet.g.alchemy.com/v2/demo",
+	)
+	tomlContent = tomlContent.replace(/\$\{BSC_MAINNET\}/g, process.env.BSC_MAINNET || "https://binance.llamarpc.com")
+	tomlContent = tomlContent.replace(
+		/\$\{HYPERBRIDGE_GARGANTUA\}/g,
+		process.env.HYPERBRIDGE_GARGANTUA || "wss://gargantua.hyperbridge.xyz",
+	)
+
+	return parse(tomlContent)
+}
+
 describe.sequential("Basic", () => {
 	let indexer: IndexerClient
 
@@ -97,8 +136,8 @@ describe.sequential("Basic", () => {
 		} = await setUp()
 
 		const intentGatewayHelper = new IntentGateway(bscEvmHelper, gnosisChiadoEvmHelper)
-		const strategies = [new BasicFiller(process.env.PRIVATE_KEY as HexString)]
-		const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
+		const strategies = [new BasicFiller(process.env.PRIVATE_KEY as HexString, chainConfigService)]
+		const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig, chainConfigService)
 		intentFiller.start()
 
 		const daiAsset = chainConfigService.getDaiAsset(bscChapelId)
@@ -272,8 +311,8 @@ describe.sequential("Basic", () => {
 		} = await setUp()
 
 		const intentGatewayHelper = new IntentGateway(gnosisChiadoEvmHelper, bscEvmHelper)
-		const strategies = [new BasicFiller(process.env.PRIVATE_KEY as HexString)]
-		const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
+		const strategies = [new BasicFiller(process.env.PRIVATE_KEY as HexString, chainConfigService)]
+		const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig, chainConfigService)
 		intentFiller.start()
 
 		const inputs: TokenInfo[] = [
@@ -628,8 +667,8 @@ describe.sequential("Basic", () => {
 
 		// Create a new intent filler with StableSwapFiller strategy
 		const intentGatewayHelper = new IntentGateway(gnosisChiadoEvmHelper, bscEvmHelper)
-		const strategies = [new StableSwapFiller(process.env.PRIVATE_KEY as HexString)]
-		const newIntentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
+		const strategies = [new StableSwapFiller(process.env.PRIVATE_KEY as HexString, chainConfigService)]
+		const newIntentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig, chainConfigService)
 
 		newIntentFiller.start()
 
@@ -827,7 +866,7 @@ describe.sequential("Basic", () => {
 	it("Should validate order inputs and outputs correctly", async () => {
 		const { chainConfigService, bscChapelId, mainnetId } = await setUp()
 
-		const basicFiller = new BasicFiller(process.env.PRIVATE_KEY as HexString)
+		const basicFiller = new BasicFiller(process.env.PRIVATE_KEY as HexString, chainConfigService)
 
 		// Get token assets for both chains
 		const sourceDaiAsset = chainConfigService.getDaiAsset(bscChapelId)
@@ -985,40 +1024,58 @@ async function setUp() {
 
 	const chains = [bscMainnet, mainnetId, gnosisChiadoId, bscChapelId]
 
-	let chainConfigService = new ChainConfigService()
+	// Load test configuration from TOML file
+	const config = loadTestConfig()
+
+	// Convert TOML chain configs to FillerChainConfig format
+	const testChainConfigs: FillerChainConfig[] = config.chains.map((chain: any) => ({
+		chainId: chain.chainId,
+		rpcUrl: chain.rpcUrl,
+		intentGatewayAddress: chain.intentGatewayAddress,
+		hostAddress: chain.hostAddress,
+		consensusStateId: chain.consensusStateId,
+		coingeckoId: chain.coingeckoId,
+		wrappedNativeDecimals: chain.wrappedNativeDecimals,
+		assets: chain.assets,
+		addresses: chain.addresses,
+	}))
+
+	// Convert TOML hyperbridge config
+	const hyperbridgeConfig: HyperbridgeConfig = {
+		chainId: config.hyperbridge.chainId,
+		rpcUrl: config.hyperbridge.rpcUrl,
+	}
+
+	// Convert TOML filler config including CoinGecko
+	const fillerConfigForService = config.filler.coingecko
+		? {
+				privateKey: config.filler.privateKey,
+				maxConcurrentOrders: config.filler.maxConcurrentOrders,
+				coingecko: config.filler.coingecko,
+			}
+		: undefined
+
+	// Create the custom config service
+	const chainConfigService = new FillerConfigService(testChainConfigs, hyperbridgeConfig, fillerConfigForService)
 	let chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
 
-	const confirmationPolicy = new ConfirmationPolicy({
-		"97": {
-			minAmount: "1000000000000000000", // 1 USD with 18 decimals
-			maxAmount: "1000000000000000000000", // 1000 USD with 18 decimals
-			minConfirmations: 1,
-			maxConfirmations: 5,
-		},
-		"10200": {
-			minAmount: "1000000000000000000", // 1 USD with 18 decimals
-			maxAmount: "1000000000000000000000", // 1000 USD with 18 decimals
-			minConfirmations: 1,
-			maxConfirmations: 5,
-		},
-	})
+	// Use confirmation policies from TOML config
+	const confirmationPolicy = new ConfirmationPolicy(config.confirmationPolicies)
 
 	const fillerConfig: FillerConfig = {
 		confirmationPolicy: {
 			getConfirmationBlocks: (chainId: number, amount: bigint) =>
 				confirmationPolicy.getConfirmationBlocks(chainId, BigInt(amount)),
 		},
-		maxConcurrentOrders: 5,
-		pendingQueueConfig: {
-			maxRechecks: 10,
-			recheckDelayMs: 30000,
-		},
+		maxConcurrentOrders: config.filler.maxConcurrentOrders,
+		pendingQueueConfig: config.filler.pendingQueue,
 	}
 
-	const chainClientManager = new ChainClientManager(process.env.PRIVATE_KEY as HexString)
+	const chainClientManager = new ChainClientManager(chainConfigService, process.env.PRIVATE_KEY as HexString)
 	const contractInteractionService = new ContractInteractionService(
 		chainClientManager,
 		process.env.PRIVATE_KEY as HexString,
+		chainConfigService,
 	)
 	const bscWalletClient = chainClientManager.getWalletClient(bscChapelId)
 	const gnosisChiadoWalletClient = chainClientManager.getWalletClient(gnosisChiadoId)

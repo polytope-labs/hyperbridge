@@ -1,23 +1,26 @@
 import { FillerStrategy } from "@/strategies/base"
 import { Order, ExecutionResult, HexString, FillOptions, adjustFeeDecimals, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
-import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
+import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
-import { ChainConfigService } from "@hyperbridge/sdk"
+import { FillerConfigService } from "@/services/FillerConfigService"
 import { compareDecimalValues } from "@/utils"
+import { formatUnits } from "viem"
+import { getLogger } from "@/services/Logger"
 
 export class BasicFiller implements FillerStrategy {
 	name = "BasicFiller"
 	private privateKey: HexString
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
-	private configService: ChainConfigService
+	private configService: FillerConfigService
+	private logger = getLogger("basic-filler")
 
-	constructor(privateKey: HexString) {
+	constructor(privateKey: HexString, configService: FillerConfigService) {
 		this.privateKey = privateKey
-		this.configService = new ChainConfigService()
-		this.clientManager = new ChainClientManager(privateKey)
-		this.contractService = new ContractInteractionService(this.clientManager, privateKey)
+		this.configService = configService
+		this.clientManager = new ChainClientManager(configService, privateKey)
+		this.contractService = new ContractInteractionService(this.clientManager, privateKey, configService)
 	}
 
 	/**
@@ -33,32 +36,32 @@ export class BasicFiller implements FillerStrategy {
 			const deadline = BigInt(order.deadline)
 
 			if (deadline < currentBlock) {
-				console.debug(`Order expired at block ${deadline}, current block ${currentBlock}`)
+				this.logger.debug({ deadline: Number(deadline), currentBlock: Number(currentBlock) }, "Order expired")
 				return false
 			}
 
 			const isAlreadyFilled = await this.contractService.checkIfOrderFilled(order)
 			if (isAlreadyFilled) {
-				console.debug(`Order is already filled`)
+				this.logger.debug("Order is already filled")
 				return false
 			}
 
 			// Validate order inputs and outputs
 			const isValidOrder = await this.validateOrderInputsOutputs(order)
 			if (!isValidOrder) {
-				console.debug(`Order inputs and outputs validation failed`)
+				this.logger.debug("Order inputs and outputs validation failed")
 				return false
 			}
 
 			const hasEnoughTokens = await this.contractService.checkTokenBalances(order.outputs, order.destChain)
 			if (!hasEnoughTokens) {
-				console.debug(`Insufficient token balances for order`)
+				this.logger.debug("Insufficient token balances for order")
 				return false
 			}
 
 			return true
 		} catch (error) {
-			console.error(`Error in canFill:`, error)
+			this.logger.error({ err: error }, "Error in canFill")
 			return false
 		}
 	}
@@ -94,15 +97,18 @@ export class BasicFiller implements FillerStrategy {
 					? orderFeeInDestFeeToken - totalGasEstimateInFeeToken
 					: BigInt(0)
 
-			console.log({
-				orderFees: order.fees.toString(),
-				totalGasEstimateInFeeToken: totalGasEstimateInFeeToken.toString(),
-				profitable: profit > 0,
-				profitInFeeToken: profit.toString(),
-			})
+			this.logger.info(
+				{
+					orderFeesUSD: formatUnits(orderFeeInDestFeeToken, destFeeTokenDecimals),
+					totalGasEstimateUSD: formatUnits(totalGasEstimateInFeeToken, destFeeTokenDecimals),
+					profitable: profit > 0,
+					profitUSD: formatUnits(profit, destFeeTokenDecimals),
+				},
+				"Profitability evaluation",
+			)
 			return profit
 		} catch (error) {
-			console.error(`Error calculating profitability:`, error)
+			this.logger.error({ err: error }, "Error calculating profitability")
 			return BigInt(0)
 		}
 	}
@@ -128,16 +134,15 @@ export class BasicFiller implements FillerStrategy {
 
 			await this.contractService.approveTokensIfNeeded(order)
 
-			const { request } = await destClient.simulateContract({
+			const tx = await walletClient.writeContract({
 				abi: INTENT_GATEWAY_ABI,
 				address: this.configService.getIntentGatewayAddress(order.destChain),
 				functionName: "fillOrder",
 				args: [this.contractService.transformOrderForContract(order), fillOptions as any],
 				account: privateKeyToAccount(this.privateKey),
 				value: relayerFeeInFeeToken !== 0n ? ethValue + relayerFeeInNativeToken : ethValue,
+				chain: walletClient.chain,
 			})
-
-			const tx = await walletClient.writeContract(request)
 
 			const endTime = Date.now()
 			const processingTimeMs = endTime - startTime
@@ -155,7 +160,7 @@ export class BasicFiller implements FillerStrategy {
 				processingTimeMs,
 			}
 		} catch (error) {
-			console.error(`Error executing order:`, error)
+			this.logger.error({ err: error }, "Error executing order")
 
 			return {
 				success: false,
@@ -172,18 +177,24 @@ export class BasicFiller implements FillerStrategy {
 	async validateOrderInputsOutputs(order: Order): Promise<boolean> {
 		try {
 			if (order.inputs.length !== order.outputs.length) {
-				console.debug(`Order length mismatch: ${order.inputs.length} inputs vs ${order.outputs.length} outputs`)
+				this.logger.debug(
+					{ inputs: order.inputs.length, outputs: order.outputs.length },
+					"Order length mismatch",
+				)
 				return false
 			}
 
 			const getTokenType = (tokenAddress: string, chain: string): string | null => {
-				tokenAddress = bytes32ToBytes20(tokenAddress)
+				tokenAddress = bytes32ToBytes20(tokenAddress).toLowerCase()
 				const assets = {
-					DAI: this.configService.getDaiAsset(chain),
-					USDT: this.configService.getUsdtAsset(chain),
-					USDC: this.configService.getUsdcAsset(chain),
+					DAI: this.configService.getDaiAsset(chain).toLowerCase(),
+					USDT: this.configService.getUsdtAsset(chain).toLowerCase(),
+					USDC: this.configService.getUsdcAsset(chain).toLowerCase(),
 				}
-				return Object.keys(assets).find((type) => assets[type as keyof typeof assets] === tokenAddress) || null
+				const result =
+					Object.keys(assets).find((type) => assets[type as keyof typeof assets] === tokenAddress) || null
+
+				return result
 			}
 
 			for (let i = 0; i < order.inputs.length; i++) {
@@ -194,17 +205,17 @@ export class BasicFiller implements FillerStrategy {
 				const outputType = getTokenType(output.token, order.destChain)
 
 				if (!inputType) {
-					console.debug(`Unsupported input token at index ${i}: ${input.token}`)
+					this.logger.debug({ index: i, token: input.token }, "Unsupported input token")
 					return false
 				}
 
 				if (!outputType) {
-					console.debug(`Unsupported output token at index ${i}: ${output.token}`)
+					this.logger.debug({ index: i, token: output.token }, "Unsupported output token")
 					return false
 				}
 
 				if (inputType !== outputType) {
-					console.debug(`Token mismatch at index ${i}: ${inputType} → ${outputType}`)
+					this.logger.debug({ index: i, inputType, outputType }, "Token mismatch")
 					return false
 				}
 
@@ -214,8 +225,15 @@ export class BasicFiller implements FillerStrategy {
 				])
 
 				if (!compareDecimalValues(input.amount, inputDecimals, output.amount, outputDecimals)) {
-					console.debug(
-						`Amount mismatch at index ${i}: ${input.amount} (${inputDecimals}d) ≠ ${output.amount} (${outputDecimals}d)`,
+					this.logger.debug(
+						{
+							index: i,
+							inputAmount: input.amount.toString(),
+							inputDecimals,
+							outputAmount: output.amount.toString(),
+							outputDecimals,
+						},
+						"Amount mismatch",
 					)
 					return false
 				}
@@ -223,7 +241,7 @@ export class BasicFiller implements FillerStrategy {
 
 			return true
 		} catch (error) {
-			console.error(`Order validation failed:`, error)
+			this.logger.error({ err: error }, "Order validation failed")
 			return false
 		}
 	}

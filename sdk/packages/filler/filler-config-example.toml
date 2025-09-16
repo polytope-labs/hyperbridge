@@ -1,0 +1,91 @@
+# Hyperbridge Intent Filler Simplified Configuration
+# This is a minimal configuration file that leverages the SDK's built-in chain configurations
+# Copy this file to filler-config.toml and update with your actual values
+
+# Filler configuration
+[filler]
+privateKey = ""  # Replace with your actual private key
+maxConcurrentOrders = 5
+
+# CoinGecko API configuration (optional)
+[filler.coingecko]
+apiKey = ""  # Optional: Add your CoinGecko Pro API key for higher rate limits
+
+# Pending queue configuration
+[filler.pendingQueue]
+maxRechecks = 10
+recheckDelayMs = 30000  # 30 seconds
+
+# Strategy configuration
+# You can configure multiple strategies
+[[strategies]]
+type = "basic"
+privateKey = ""  # Replace with your actual private key
+
+# stable swap strategy not officially supported yet, but very soon!
+# [[strategies]]
+# type = "stable-swap"
+# privateKey = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# Chain configuration - RPC URLs are required
+# All other chain data (addresses, assets, etc.) comes from the SDK automatically
+[[chains]]
+chainId = 1  # Ethereum Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 56  # BSC Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 42161  # Arbitrum Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 8453  # Base Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+
+# Confirmation policies per chain
+# The chain ID should match the numeric ID from the chain configuration
+[confirmationPolicies."97"]  # BSC Testnet
+minAmount = "1000000000000000000"      # 1 USD with 18 decimals
+maxAmount = "1000000000000000000000"   # 1000 USD with 18 decimals
+minConfirmations = 1
+maxConfirmations = 5
+
+[confirmationPolicies."10200"]  # Gnosis Chiado
+minAmount = "1000000000000000000"      # 1 USD with 18 decimals
+maxAmount = "1000000000000000000000"   # 1000 USD with 18 decimals
+minConfirmations = 1
+maxConfirmations = 5
+
+[confirmationPolicies."1"]  # Ethereum Mainnet
+minAmount = "5000000000000000000"      # 5 USD with 18 decimals
+maxAmount = "10000000000000000000000"  # 10000 USD with 18 decimals
+minConfirmations = 3
+maxConfirmations = 12
+
+[confirmationPolicies."56"]  # BSC Mainnet
+minAmount = "1000000000000000000"      # 1 USD with 18 decimals
+maxAmount = "5000000000000000000000"   # 5000 USD with 18 decimals
+minConfirmations = 3
+maxConfirmations = 15
+
+[confirmationPolicies."11155111"]  # Sepolia
+minAmount = "1000000000000000000"      # 1 USD with 18 decimals
+maxAmount = "1000000000000000000000"   # 1000 USD with 18 decimals
+minConfirmations = 1
+maxConfirmations = 5
+
+[confirmationPolicies."42161"]  # Arbitrum Mainnet
+minAmount = "2000000000000000000"      # 2 USD with 18 decimals
+maxAmount = "8000000000000000000000"   # 8000 USD with 18 decimals
+minConfirmations = 2
+maxConfirmations = 10
+
+[confirmationPolicies."8453"]  # Base Mainnet
+minAmount = "2000000000000000000"      # 2 USD with 18 decimals
+maxAmount = "8000000000000000000000"   # 8000 USD with 18 decimals
+minConfirmations = 2
+maxConfirmations = 10

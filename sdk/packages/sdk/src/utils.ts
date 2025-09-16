@@ -549,12 +549,12 @@ export function mapTestnetToMainnet(identifier: string): string {
 	}
 }
 
-export async function fetchPrice(identifier: string, chainId: number = 1): Promise<number> {
+export async function fetchPrice(identifier: string, chainId: number = 1, apiKey?: string): Promise<number> {
 	const mappedIdentifier = mapTestnetToMainnet(identifier)
 
 	const network = new ChainConfigService().getCoingeckoId(`EVM-${chainId}`) || "ethereum"
 
-	const apiKey = typeof process !== "undefined" ? (process as any)?.env?.COINGECKO : undefined
+	apiKey = apiKey || (typeof process !== "undefined" ? (process as any)?.env?.COINGECKO : undefined)
 	const baseUrl = apiKey ? "https://pro-api.coingecko.com/api/v3" : "https://api.coingecko.com/api/v3"
 
 	const url = mappedIdentifier.startsWith("0x")

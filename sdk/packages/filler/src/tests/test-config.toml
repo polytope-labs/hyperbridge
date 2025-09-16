@@ -1,0 +1,167 @@
+# Test configuration for Hyperbridge Intent Filler
+# This file contains the configuration used for running tests
+
+# Filler configuration
+[filler]
+privateKey = "0x0000000000000000000000000000000000000000000000000000000000000000"  # Dummy key for tests
+maxConcurrentOrders = 5
+
+# CoinGecko API configuration
+[filler.coingecko]
+apiKey = ""  # Optional: Add your CoinGecko Pro API key for higher rate limits
+
+# Pending queue configuration
+[filler.pendingQueue]
+maxRechecks = 10
+recheckDelayMs = 30000  # 30 seconds
+
+# Strategy configuration
+[[strategies]]
+type = "basic"
+privateKey = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+# BSC Chapel Testnet
+[[chains]]
+chainId = 97
+rpcUrl = "${BSC_CHAPEL}"
+intentGatewayAddress = "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509"
+hostAddress = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7"
+consensusStateId = "BSC0"
+coingeckoId = "binance-smart-chain"
+wrappedNativeDecimals = 18
+
+# Asset addresses for BSC Chapel
+[chains.assets]
+WETH = "0xae13d989dac2f0debff460ac112a837c89baa7cd"
+DAI = "0x1938165569A5463327fb206bE06d8D9253aa06b7"
+USDC = "0xC625ec7D30A4b1AAEfb1304610CdAcD0d606aC92"
+USDT = "0xc043f483373072f7f27420d6e7d7ad269c018e18"
+
+# Contract addresses for BSC Chapel
+[chains.addresses]
+UniswapRouter02 = "0x9639379819420704457B07A0C33B678D9E0F8Df0"
+UniswapV2Factory = "0x12e036669DA18F4A2777853d6e2136b32AceEC86"
+BatchExecutor = "0x4CC58B5D8FBf838d062E4b21F75C327835B5F0ef"
+UniversalRouter = "0xcc6d5ece3d4a57245bf5a2f64f3ed9179b81f714"
+UniswapV3Router = "0x0000000000000000000000000000000000000000"
+UniswapV3Factory = "0x0000000000000000000000000000000000000000"
+UniswapV3Quoter = "0x0000000000000000000000000000000000000000"
+UniswapV4PoolManager = "0x0000000000000000000000000000000000000000"
+UniswapV4Quoter = "0x0000000000000000000000000000000000000000"
+
+# Gnosis Chiado Testnet
+[[chains]]
+chainId = 10200
+rpcUrl = "${GNOSIS_CHIADO}"
+intentGatewayAddress = "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509"
+hostAddress = "0x58a41b89f4871725e5d898d98ef4bf917601c5eb"
+consensusStateId = "GNO0"
+coingeckoId = "gnosis"
+wrappedNativeDecimals = 18
+
+# Asset addresses for Gnosis Chiado
+[chains.assets]
+WETH = "0x0000000000000000000000000000000000000000"
+DAI = "0x50B1d3c7c073c9caa1Ef207365A2c9C976bD70b9"
+USDC = "0x0000000000000000000000000000000000000000"
+USDT = "0x0000000000000000000000000000000000000000"
+
+# Contract addresses for Gnosis Chiado
+[chains.addresses]
+UniswapRouter02 = "0x0000000000000000000000000000000000000000"
+UniswapV2Factory = "0x0000000000000000000000000000000000000000"
+BatchExecutor = "0x0000000000000000000000000000000000000000"
+UniversalRouter = "0x0000000000000000000000000000000000000000"
+UniswapV3Router = "0x0000000000000000000000000000000000000000"
+UniswapV3Factory = "0x0000000000000000000000000000000000000000"
+UniswapV3Quoter = "0x0000000000000000000000000000000000000000"
+UniswapV4PoolManager = "0x0000000000000000000000000000000000000000"
+UniswapV4Quoter = "0x0000000000000000000000000000000000000000"
+
+# Ethereum Mainnet
+[[chains]]
+chainId = 1
+rpcUrl = "${ETH_MAINNET}"
+intentGatewayAddress = "0xd54165e45926720b062C192a5bacEC64d5bB08DA"
+hostAddress = "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20"
+consensusStateId = "ETH0"
+coingeckoId = "ethereum"
+wrappedNativeDecimals = 18
+
+# Asset addresses for Ethereum Mainnet
+[chains.assets]
+WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+DAI = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+USDT = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+
+# Contract addresses for Ethereum Mainnet
+[chains.addresses]
+UniswapRouter02 = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
+UniswapV2Factory = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"
+BatchExecutor = "0x0000000000000000000000000000000000000000"
+UniversalRouter = "0x0000000000000000000000000000000000000000"
+UniswapV3Router = "0x1F98431c8aD98523631AE4a59f267346ea31F984"
+UniswapV3Factory = "0x1F98431c8aD98523631AE4a59f267346ea31F984"
+UniswapV3Quoter = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e"
+UniswapV4PoolManager = "0x0000000000000000000000000000000000000000"
+UniswapV4Quoter = "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203"
+
+# BSC Mainnet
+[[chains]]
+chainId = 56
+rpcUrl = "${BSC_MAINNET}"
+intentGatewayAddress = "0xd54165e45926720b062C192a5bacEC64d5bB08DA"
+hostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7"
+consensusStateId = "BSC0"
+coingeckoId = "binance-smart-chain"
+wrappedNativeDecimals = 18
+
+# Asset addresses for BSC Mainnet
+[chains.assets]
+WETH = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+DAI = "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3"
+USDC = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
+USDT = "0x55d398326f99059fF775485246999027B3197955"
+
+# Contract addresses for BSC Mainnet
+[chains.addresses]
+UniswapRouter02 = "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24"
+UniswapV2Factory = "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6"
+BatchExecutor = "0x0000000000000000000000000000000000000000"
+UniversalRouter = "0x0000000000000000000000000000000000000000"
+UniswapV3Router = "0x0000000000000000000000000000000000000000"
+UniswapV3Factory = "0x0000000000000000000000000000000000000000"
+UniswapV3Quoter = "0x0000000000000000000000000000000000000000"
+UniswapV4PoolManager = "0x0000000000000000000000000000000000000000"
+UniswapV4Quoter = "0x0000000000000000000000000000000000000000"
+
+# Hyperbridge configuration
+[hyperbridge]
+chainId = 4009
+rpcUrl = "${HYPERBRIDGE_GARGANTUA}"
+
+# Confirmation policies per chain
+[confirmationPolicies."97"]  # BSC Testnet
+minAmount = "1000000000000000000"      # 1 USD with 18 decimals
+maxAmount = "1000000000000000000000"   # 1000 USD with 18 decimals
+minConfirmations = 1
+maxConfirmations = 5
+
+[confirmationPolicies."10200"]  # Gnosis Chiado
+minAmount = "1000000000000000000"      # 1 USD with 18 decimals
+maxAmount = "1000000000000000000000"   # 1000 USD with 18 decimals
+minConfirmations = 1
+maxConfirmations = 5
+
+[confirmationPolicies."1"]  # Ethereum Mainnet
+minAmount = "5000000000000000000"      # 5 USD with 18 decimals
+maxAmount = "10000000000000000000000"  # 10000 USD with 18 decimals
+minConfirmations = 3
+maxConfirmations = 12
+
+[confirmationPolicies."56"]  # BSC Mainnet
+minAmount = "1000000000000000000"      # 1 USD with 18 decimals
+maxAmount = "5000000000000000000000"   # 5000 USD with 18 decimals
+minConfirmations = 3
+maxConfirmations = 15

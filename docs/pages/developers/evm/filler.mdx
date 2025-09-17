@@ -328,34 +328,34 @@ Confirmations = Linear interpolation between min/max based on order value
 
 ```toml
 [confirmationPolicies."1"]  # Ethereum mainnet
-minAmount = "1000000000000000000"      # 1 ETH
-maxAmount = "100000000000000000000"    # 100 ETH
+minAmount = "1000"      # 1000 USD
+maxAmount = "10000"    # 10000 USD
 minConfirmations = 12                  # 12 blocks for small orders (~3 minutes)
 maxConfirmations = 30                  # 30 blocks for large orders (~7.5 minutes)
 
 [confirmationPolicies."97"]  # BSC testnet
-minAmount = "1000000000000000000"      # 1 BNB
-maxAmount = "10000000000000000000"     # 10 BNB
+minAmount = "1000"      # 1000 USD
+maxAmount = "10000"    # 10000 USD
 minConfirmations = 1                   # 1 block for small orders (~3 seconds)
 maxConfirmations = 5                   # 5 blocks for large orders (~15 seconds)
 ```
 
 #### Example Calculation
 
-For a 50 ETH order on Ethereum:
+For a 5000 USD order on Ethereum:
 
-- Min: 1 ETH → 12 confirmations
-- Max: 100 ETH → 30 confirmations
-- Order: 50 ETH → ~21 confirmations (halfway between min/max)
+- Min: 1000 USD → 12 confirmations
+- Max: 10000 USD → 30 confirmations
+- Order: 5000 USD → 20 confirmations
 
-#### Chain-Specific Recommendations
+#### Chain-Specific Recommendations (With Approx Block Time Values)
 
 | Chain    | Block Time | Low-Value | High-Value | Reasoning                                   |
 | -------- | ---------- | --------- | ---------- | ------------------------------------------- |
-| Ethereum | ~12s       | 6 blocks  | 30 blocks  | Higher security, slower finality            |
-| BSC      | ~3s        | 3 blocks  | 15 blocks  | Faster blocks, moderate security            |
-| Polygon  | ~2s        | 5 blocks  | 25 blocks  | Very fast, but less decentralized           |
-| Arbitrum | ~0.25s     | 10 blocks | 50 blocks  | Optimistic rollup, needs more confirmations |
+| Ethereum | ~12s       | 12 blocks | 30 blocks  | Highest security, slower finality (~6 min) |
+| Arbitrum | ~0.25s     | 20 blocks | 100 blocks | Optimistic rollup, 7-day challenge period  |
+| Base     | ~2s        | 10 blocks | 50 blocks  | Optimistic rollup on Ethereum L2           |
+| BSC      | ~1s        | 5 blocks  | 20 blocks  | Faster blocks, validator-based consensus    |
 
 #### Security Trade-offs
 
@@ -539,31 +539,41 @@ chainId = 1                             # Ethereum Mainnet
 rpcUrl = "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_PRO_KEY"
 
 [[chains]]
-chainId = 137                           # Polygon
-rpcUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_PRO_KEY"
-
-[[chains]]
 chainId = 42161                         # Arbitrum
 rpcUrl = "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_PRO_KEY"
 
+[[chains]]
+chainId = 8453                          # Base
+rpcUrl = "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_PRO_KEY"
+
+[[chains]]
+chainId = 56                            # BSC
+rpcUrl = "https://bsc-dataseed.binance.org/"
+
 # Confirmation policies per chain
 [confirmationPolicies."1"]              # Ethereum - slower but secure
-minAmount = "1000000000000000000"       # 1 ETH
-maxAmount = "100000000000000000000"     # 100 ETH
-minConfirmations = 12                   # ~3 minutes
-maxConfirmations = 30                   # ~7.5 minutes
-
-[confirmationPolicies."137"]            # Polygon - faster blocks
-minAmount = "1000000000000000000"       # 1 MATIC
-maxAmount = "50000000000000000000"      # 50 MATIC
-minConfirmations = 5                    # ~10 seconds
-maxConfirmations = 25                   # ~50 seconds
+minAmount = "1000"       # 1000 USD
+maxAmount = "10000"     # 10000 USD
+minConfirmations = 3                   # ~36 seconds
+maxConfirmations = 10                   # ~120 seconds
 
 [confirmationPolicies."42161"]          # Arbitrum - needs more confirmations
-minAmount = "1000000000000000000"       # 1 ETH
-maxAmount = "100000000000000000000"     # 100 ETH
-minConfirmations = 10                   # ~2.5 seconds
-maxConfirmations = 50                   # ~12.5 seconds
+minAmount = "1000"       # 1000 USD
+maxAmount = "10000"      # 10000 USD
+minConfirmations = 20                   # ~5 seconds
+maxConfirmations = 100                  # ~25 seconds
+
+[confirmationPolicies."8453"]           # Base - optimistic rollup
+minAmount = "1000"       # 1000 USD
+maxAmount = "10000"      # 10000 USD
+minConfirmations = 10                   # ~20 seconds
+maxConfirmations = 50                   # ~100 seconds
+
+[confirmationPolicies."56"]             # BSC - fast consensus
+minAmount = "1000"       # 1000 USD
+maxAmount = "10000"      # 10000 USD
+minConfirmations = 5                    # ~5 seconds
+maxConfirmations = 20                   # ~20 seconds
 ```
 
 ## Event Monitoring

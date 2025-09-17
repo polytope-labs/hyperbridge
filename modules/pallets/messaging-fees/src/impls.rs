@@ -205,19 +205,14 @@ where
 					let bridge_price = T::PriceOracle::get_bridge_price()
 						.map_err(|_| Error::<T>::ErrorInPriceConversion)?;
 
-					let cost_bridge_price_18_decimals =
-						cost.checked_mul(bridge_price).ok_or(Error::<T>::CalculationOverflow)?;
-
-					let cost_bridge_price_12_decimals_u256 = cost_bridge_price_18_decimals
+					// Get reward in bridge tokens and scale down to 12 decimals
+					let base_reward: u128 = cost
+						.checked_mul(bridge_price)
+						.ok_or(Error::<T>::CalculationOverflow)?
 						.checked_div(SCALING_FACTOR_18_TO_12.into())
-						.ok_or(Error::<T>::CalculationOverflow)?;
-
-					let base_reward_12_decimals: u128 = cost_bridge_price_12_decimals_u256
+						.ok_or(Error::<T>::CalculationOverflow)?
 						.try_into()
 						.map_err(|_| Error::<T>::CalculationOverflow)?;
-
-					let base_reward_as_balance: T::Balance =
-						base_reward_12_decimals.saturated_into();
 
 					if is_incentivized {
 						TotalBytesProcessed::<T>::mutate(|total| {
@@ -230,7 +225,7 @@ where
 							let reward_amount = Self::calculate_reward(
 								current_total_bytes,
 								target_message_size,
-								base_reward_12_decimals.into(),
+								base_reward,
 							)?;
 
 							T::Currency::transfer(
@@ -248,12 +243,14 @@ where
 							T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						} else {
-							Self::pay_fee(&relayer, base_reward_as_balance)?;
-							T::ReputationAsset::mint_into(&relayer, base_reward_as_balance)
+							Self::pay_fee(&relayer, base_reward.saturated_into())?;
+							T::ReputationAsset::mint_into(&relayer, base_reward.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						}
 					} else {
-						Self::pay_fee(&relayer, base_reward_as_balance)?;
+						Self::pay_fee(&relayer, base_reward.saturated_into())?;
+						T::ReputationAsset::mint_into(&relayer, base_reward.saturated_into())
+							.map_err(|_| Error::<T>::ReputationMintFailed)?;
 					}
 				}
 			}

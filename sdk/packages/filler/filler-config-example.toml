@@ -49,43 +49,43 @@ rpcUrl = ""  # Required: your RPC URL
 # Confirmation policies per chain
 # The chain ID should match the numeric ID from the chain configuration
 [confirmationPolicies."97"]  # BSC Testnet
-minAmount = "1000000000000000000"      # 1 USD with 18 decimals
-maxAmount = "1000000000000000000000"   # 1000 USD with 18 decimals
+minAmount = "1"      # 1 USD 
+maxAmount = "1000"   # 1000 USD 
 minConfirmations = 1
 maxConfirmations = 5
 
 [confirmationPolicies."10200"]  # Gnosis Chiado
-minAmount = "1000000000000000000"      # 1 USD with 18 decimals
-maxAmount = "1000000000000000000000"   # 1000 USD with 18 decimals
+minAmount = "1"      # 1 USD 
+maxAmount = "1000"   # 1000 USD 
 minConfirmations = 1
 maxConfirmations = 5
 
 [confirmationPolicies."1"]  # Ethereum Mainnet
-minAmount = "5000000000000000000"      # 5 USD with 18 decimals
-maxAmount = "10000000000000000000000"  # 10000 USD with 18 decimals
+minAmount = "5"      # 5 USD 
+maxAmount = "5000"   # 5000 USD 
 minConfirmations = 3
 maxConfirmations = 12
 
 [confirmationPolicies."56"]  # BSC Mainnet
-minAmount = "1000000000000000000"      # 1 USD with 18 decimals
-maxAmount = "5000000000000000000000"   # 5000 USD with 18 decimals
+minAmount = "1"      # 1 USD 
+maxAmount = "5000"   # 5000 USD 
 minConfirmations = 3
 maxConfirmations = 15
 
 [confirmationPolicies."11155111"]  # Sepolia
-minAmount = "1000000000000000000"      # 1 USD with 18 decimals
-maxAmount = "1000000000000000000000"   # 1000 USD with 18 decimals
+minAmount = "1"      # 1 USD 
+maxAmount = "1000"   # 1000 USD 
 minConfirmations = 1
 maxConfirmations = 5
 
 [confirmationPolicies."42161"]  # Arbitrum Mainnet
-minAmount = "2000000000000000000"      # 2 USD with 18 decimals
-maxAmount = "8000000000000000000000"   # 8000 USD with 18 decimals
+minAmount = "2"      # 2 USD 
+maxAmount = "8000"   # 8000 USD 
 minConfirmations = 2
 maxConfirmations = 10
 
 [confirmationPolicies."8453"]  # Base Mainnet
-minAmount = "2000000000000000000"      # 2 USD with 18 decimals
-maxAmount = "8000000000000000000000"   # 8000 USD with 18 decimals
+minAmount = "2"      # 2 USD 
+maxAmount = "8000"   # 8000 USD 
 minConfirmations = 2
 maxConfirmations = 10

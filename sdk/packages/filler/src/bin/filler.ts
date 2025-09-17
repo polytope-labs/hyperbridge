@@ -116,7 +116,7 @@ program
 			// Create filler configuration
 			const fillerConfig: FillerConfig = {
 				confirmationPolicy: {
-					getConfirmationBlocks: (chainId: number, amount: bigint) =>
+					getConfirmationBlocks: (chainId: number, amount: number) =>
 						confirmationPolicy.getConfirmationBlocks(chainId, amount),
 				},
 				maxConcurrentOrders: config.filler.maxConcurrentOrders,

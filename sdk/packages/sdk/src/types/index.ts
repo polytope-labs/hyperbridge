@@ -740,7 +740,7 @@ export interface FillerConfig {
 	 * Policy for determining confirmation requirements
 	 */
 	confirmationPolicy: {
-		getConfirmationBlocks: (chainId: number, amount: bigint) => number
+		getConfirmationBlocks: (chainId: number, amountUsd: number) => number
 	}
 
 	/**

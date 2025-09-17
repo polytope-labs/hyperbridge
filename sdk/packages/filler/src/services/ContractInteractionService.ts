@@ -1,4 +1,13 @@
-import { getContract, toHex, encodePacked, keccak256, maxUint256, PublicClient, encodeAbiParameters } from "viem"
+import {
+	getContract,
+	toHex,
+	encodePacked,
+	keccak256,
+	maxUint256,
+	PublicClient,
+	encodeAbiParameters,
+	formatUnits,
+} from "viem"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import {
 	ADDRESS_ZERO,
@@ -643,10 +652,10 @@ export class ContractInteractionService {
 		return BigInt(latestHeight.toString())
 	}
 
-	async getTokenUsdValue(order: Order): Promise<{ outputUsdValue: bigint; inputUsdValue: bigint }> {
+	async getTokenUsdValue(order: Order): Promise<{ outputUsdValue: number; inputUsdValue: number }> {
 		const { destClient, sourceClient } = this.clientManager.getClientsForOrder(order)
-		let outputUsdValue = BigInt(0)
-		let inputUsdValue = BigInt(0)
+		let outputUsdValue = 0
+		let inputUsdValue = 0
 		const outputs = order.outputs
 		const inputs = order.inputs
 
@@ -664,10 +673,15 @@ export class ContractInteractionService {
 				priceIdentifier = tokenAddress
 			}
 
-			// Always use 18 decimals for USD due to multiple token decimal inconsistencies
-			const pricePerToken = await this.getTokenPrice(priceIdentifier, 18, destClient.chain?.id!)
-			const tokenUsdValue = (amount * pricePerToken) / BigInt(10 ** decimals)
-			outputUsdValue = outputUsdValue + tokenUsdValue
+			const pricePerToken = await fetchPrice(
+				priceIdentifier,
+				destClient.chain?.id!,
+				this.configService.getCoinGeckoApiKey(),
+			)
+
+			const tokenAmount = parseFloat(formatUnits(amount, decimals))
+			const tokenAmountValue = tokenAmount * pricePerToken
+			outputUsdValue += tokenAmountValue
 		}
 
 		for (const input of inputs) {
@@ -684,18 +698,18 @@ export class ContractInteractionService {
 				priceIdentifier = tokenAddress
 			}
 
-			// Always use 18 decimals for USD due to multiple token decimal inconsistencies
-			const pricePerToken = await this.getTokenPrice(priceIdentifier, 18, sourceClient.chain?.id!)
-			const tokenUsdValue = (amount * pricePerToken) / BigInt(10 ** decimals)
-			inputUsdValue = inputUsdValue + tokenUsdValue
+			const pricePerToken = await fetchPrice(
+				priceIdentifier,
+				sourceClient.chain?.id!,
+				this.configService.getCoinGeckoApiKey(),
+			)
+
+			const tokenAmount = parseFloat(formatUnits(amount, decimals))
+			const tokenAmountValue = tokenAmount * pricePerToken
+			inputUsdValue += tokenAmountValue
 		}
 
 		return { outputUsdValue, inputUsdValue }
-	}
-
-	async getTokenPrice(tokenAddress: string, decimals: number, chainId: number): Promise<bigint> {
-		const usdValue = await fetchPrice(tokenAddress, chainId, this.configService.getCoinGeckoApiKey())
-		return BigInt(Math.floor(usdValue * Math.pow(10, decimals)))
 	}
 
 	async getFillerBalanceUSD(chain: string): Promise<{
@@ -703,16 +717,24 @@ export class ContractInteractionService {
 		daiBalance: bigint
 		usdtBalance: bigint
 		usdcBalance: bigint
-		totalBalanceUsd: bigint
+		totalBalanceUsd: number
 	}> {
 		const fillerWalletAddress = privateKeyToAddress(this.privateKey)
 		const destClient = this.clientManager.getPublicClient(chain)
 		const chainId = destClient.chain?.id!
 
 		const nativeTokenBalance = await destClient.getBalance({ address: fillerWalletAddress })
-		const nativeTokenPrice = await this.getNativeTokenPrice(chain)
-		const nativeDecimals = destClient.chain?.nativeCurrency?.decimals || 18
-		const nativeTokenUsdValue = (nativeTokenBalance * nativeTokenPrice) / BigInt(10 ** nativeDecimals)
+		const nativeToken = destClient.chain?.nativeCurrency
+		if (!nativeToken?.symbol || !nativeToken?.decimals) {
+			throw new Error("Chain native currency information not available")
+		}
+		const nativeTokenPriceUsd = await fetchPrice(
+			nativeToken.symbol,
+			chainId,
+			this.configService.getCoinGeckoApiKey(),
+		)
+		const nativeTokenAmount = parseFloat(formatUnits(nativeTokenBalance, nativeToken.decimals))
+		const nativeTokenUsdValue = nativeTokenAmount * nativeTokenPriceUsd
 
 		const daiAddress = this.configService.getDaiAsset(chain)
 		const daiBalance = await destClient.readContract({
@@ -722,8 +744,8 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const daiDecimals = await this.getTokenDecimals(daiAddress, chain)
-		const daiPrice = await this.getTokenPrice(daiAddress, 18, chainId) // Normalize to 18 decimals
-		const daiBalanceUsd = (daiBalance * daiPrice) / BigInt(10 ** daiDecimals)
+		const daiAmount = parseFloat(formatUnits(daiBalance, daiDecimals))
+		const daiBalanceUsd = daiAmount
 
 		const usdtAddress = this.configService.getUsdtAsset(chain)
 		const usdtBalance = await destClient.readContract({
@@ -733,8 +755,8 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const usdtDecimals = await this.getTokenDecimals(usdtAddress, chain)
-		const usdtPrice = await this.getTokenPrice(usdtAddress, 18, chainId) // Normalize to 18 decimals
-		const usdtBalanceUsd = (usdtBalance * usdtPrice) / BigInt(10 ** usdtDecimals)
+		const usdtAmount = parseFloat(formatUnits(usdtBalance, usdtDecimals))
+		const usdtBalanceUsd = usdtAmount
 
 		const usdcAddress = this.configService.getUsdcAsset(chain)
 		const usdcBalance = await destClient.readContract({
@@ -744,8 +766,8 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const usdcDecimals = await this.getTokenDecimals(usdcAddress, chain)
-		const usdcPrice = await this.getTokenPrice(usdcAddress, 18, chainId) // Normalize to 18 decimals
-		const usdcBalanceUsd = (usdcBalance * usdcPrice) / BigInt(10 ** usdcDecimals)
+		const usdcAmount = parseFloat(formatUnits(usdcBalance, usdcDecimals))
+		const usdcBalanceUsd = usdcAmount
 
 		const totalBalanceUsd = nativeTokenUsdValue + daiBalanceUsd + usdtBalanceUsd + usdcBalanceUsd
 

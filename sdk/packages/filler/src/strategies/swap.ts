@@ -13,7 +13,7 @@ import { getLogger } from "@/services/Logger"
 import { FillerStrategy } from "./base"
 import { privateKeyToAddress } from "viem/accounts"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
-import { encodeFunctionData, maxUint256 } from "viem"
+import { encodeFunctionData, formatUnits, maxUint256 } from "viem"
 import { BATCH_EXECUTOR_ABI } from "@/config/abis/BatchExecutor"
 
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -81,15 +81,19 @@ export class StableSwapFiller implements FillerStrategy {
 	 * Calculates the USD value of the order's inputs, outputs, fees and compares
 	 * what will the filler receive and what will the filler pay
 	 * @param order The order to calculate the USD value for
-	 * @returns The profit in USD (BigInt)
+	 * @returns The profit in USD (Number)
 	 */
-	async calculateProfitability(order: Order): Promise<bigint> {
+	async calculateProfitability(order: Order): Promise<number> {
 		try {
 			const { fillGas, relayerFeeInFeeToken } = await this.contractService.estimateGasFillPost(order)
 			const { totalGasEstimate: swapGasEstimate } = await this.calculateSwapOperations(order)
 			const protocolFeeInFeeToken = (await this.contractService.quote(order)) + relayerFeeInFeeToken
 			const { decimals: destFeeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(
 				order.destChain,
+			)
+
+			const { decimals: sourceFeeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(
+				order.sourceChain,
 			)
 
 			const gasEstimateExcludingRelayerFee = fillGas + swapGasEstimate
@@ -103,14 +107,13 @@ export class StableSwapFiller implements FillerStrategy {
 				relayerFeeInFeeToken
 
 			const { outputUsdValue, inputUsdValue } = await this.contractService.getTokenUsdValue(order)
-			const orderFeeInUsd = (order.fees * BigInt(10 ** destFeeTokenDecimals)) / BigInt(10 ** 18)
-			const totalGasEstimateInUsd =
-				(totalGasEstimateInFeeToken * BigInt(10 ** destFeeTokenDecimals)) / BigInt(10 ** 18)
+			const orderFeeInUsd = parseFloat(formatUnits(order.fees, sourceFeeTokenDecimals))
+			const totalGasEstimateInUsd = parseFloat(formatUnits(totalGasEstimateInFeeToken, destFeeTokenDecimals))
 
 			const toReceive = inputUsdValue + orderFeeInUsd
 			const toPay = outputUsdValue + totalGasEstimateInUsd
 
-			const profit = toReceive > toPay ? toReceive - toPay : BigInt(0)
+			const profit = toReceive > toPay ? toReceive - toPay : 0
 
 			// Log for debugging
 			this.logger.debug(
@@ -124,7 +127,7 @@ export class StableSwapFiller implements FillerStrategy {
 			return profit
 		} catch (error) {
 			this.logger.error({ err: error }, "Error calculating profitability")
-			return BigInt(0)
+			return 0
 		}
 	}
 

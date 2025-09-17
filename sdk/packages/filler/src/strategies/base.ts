@@ -4,7 +4,7 @@ export interface FillerStrategy {
 
 	canFill(order: Order): Promise<boolean>
 
-	calculateProfitability(order: Order): Promise<bigint>
+	calculateProfitability(order: Order): Promise<number>
 
 	executeOrder(order: Order): Promise<ExecutionResult>
 }

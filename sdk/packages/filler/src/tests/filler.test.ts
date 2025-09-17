@@ -3,8 +3,7 @@ import {
 	ChainClientManager,
 	ContractInteractionService,
 	FillerConfigService,
-	FillerChainConfig,
-	HyperbridgeConfig,
+	UserProvidedChainConfig,
 } from "@/services"
 import { BasicFiller } from "@/strategies/basic"
 import { StableSwapFiller } from "@/strategies/swap"
@@ -1016,6 +1015,93 @@ describe.sequential("Basic", () => {
 	}, 300_000)
 })
 
+describe.sequential("ConfirmationPolicy", () => {
+	it("Should return correct confirmations for min, max, and interpolated amounts", () => {
+		const policyConfig = {
+			"1": {
+				minAmount: "100",
+				maxAmount: "1000",
+				minConfirmations: 2,
+				maxConfirmations: 12,
+			},
+		}
+
+		const policy = new ConfirmationPolicy(policyConfig)
+
+		// Test boundaries
+		expect(policy.getConfirmationBlocks(1, 50)).toBe(2) // Below min
+		expect(policy.getConfirmationBlocks(1, 100)).toBe(2) // At min
+		expect(policy.getConfirmationBlocks(1, 1000)).toBe(12) // At max
+		expect(policy.getConfirmationBlocks(1, 1500)).toBe(12) // Above max
+
+		// Test interpolation at midpoint
+		expect(policy.getConfirmationBlocks(1, 550)).toBe(7) // Midpoint
+	})
+
+	it("Should handle multiple chains with different policies", () => {
+		const policyConfig = {
+			"1": {
+				minAmount: "1000",
+				maxAmount: "10000",
+				minConfirmations: 3,
+				maxConfirmations: 30,
+			},
+			"97": {
+				minAmount: "10",
+				maxAmount: "100",
+				minConfirmations: 1,
+				maxConfirmations: 5,
+			},
+		}
+
+		const policy = new ConfirmationPolicy(policyConfig)
+
+		expect(policy.getConfirmationBlocks(1, 5500)).toBe(17) // Mainnet midpoint
+		expect(policy.getConfirmationBlocks(97, 55)).toBe(3) // BSC Chapel midpoint
+	})
+
+	it("Should handle decimal/floating point amounts correctly", () => {
+		const policyConfig = {
+			"1": {
+				minAmount: "10.5",
+				maxAmount: "100.75",
+				minConfirmations: 2,
+				maxConfirmations: 20,
+			},
+		}
+
+		const policy = new ConfirmationPolicy(policyConfig)
+
+		// Test boundaries with decimals
+		expect(policy.getConfirmationBlocks(1, 5.0)).toBe(2) // Below min
+		expect(policy.getConfirmationBlocks(1, 10.5)).toBe(2) // At min
+		expect(policy.getConfirmationBlocks(1, 100.75)).toBe(20) // At max
+		expect(policy.getConfirmationBlocks(1, 150.25)).toBe(20) // Above max
+
+		// Test interpolation with decimals
+		expect(policy.getConfirmationBlocks(1, 55.625)).toBe(11)
+
+		// Test with very precise decimals
+		expect(policy.getConfirmationBlocks(1, 33.1875)).toBe(7) // ~25% point
+		expect(policy.getConfirmationBlocks(1, 78.0625)).toBe(15) // ~75% point
+	})
+
+	it("Should throw error for unknown chainId", () => {
+		const policyConfig = {
+			"1": {
+				minAmount: "100",
+				maxAmount: "1000",
+				minConfirmations: 2,
+				maxConfirmations: 12,
+			},
+		}
+
+		const policy = new ConfirmationPolicy(policyConfig)
+
+		expect(() => policy.getConfirmationBlocks(999, 500)).toThrow("No confirmation policy found for chainId 999")
+	})
+})
+
 async function setUp() {
 	const bscChapelId = "EVM-97"
 	const mainnetId = "EVM-1"
@@ -1027,24 +1113,11 @@ async function setUp() {
 	// Load test configuration from TOML file
 	const config = loadTestConfig()
 
-	// Convert TOML chain configs to FillerChainConfig format
-	const testChainConfigs: FillerChainConfig[] = config.chains.map((chain: any) => ({
+	// Convert TOML chain configs to UserProvidedChainConfig format
+	const testChainConfigs: UserProvidedChainConfig[] = config.chains.map((chain: any) => ({
 		chainId: chain.chainId,
 		rpcUrl: chain.rpcUrl,
-		intentGatewayAddress: chain.intentGatewayAddress,
-		hostAddress: chain.hostAddress,
-		consensusStateId: chain.consensusStateId,
-		coingeckoId: chain.coingeckoId,
-		wrappedNativeDecimals: chain.wrappedNativeDecimals,
-		assets: chain.assets,
-		addresses: chain.addresses,
 	}))
-
-	// Convert TOML hyperbridge config
-	const hyperbridgeConfig: HyperbridgeConfig = {
-		chainId: config.hyperbridge.chainId,
-		rpcUrl: config.hyperbridge.rpcUrl,
-	}
 
 	// Convert TOML filler config including CoinGecko
 	const fillerConfigForService = config.filler.coingecko
@@ -1056,7 +1129,7 @@ async function setUp() {
 		: undefined
 
 	// Create the custom config service
-	const chainConfigService = new FillerConfigService(testChainConfigs, hyperbridgeConfig, fillerConfigForService)
+	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
 	let chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
 
 	// Use confirmation policies from TOML config
@@ -1064,8 +1137,8 @@ async function setUp() {
 
 	const fillerConfig: FillerConfig = {
 		confirmationPolicy: {
-			getConfirmationBlocks: (chainId: number, amount: bigint) =>
-				confirmationPolicy.getConfirmationBlocks(chainId, BigInt(amount)),
+			getConfirmationBlocks: (chainId: number, amountUsd: number) =>
+				confirmationPolicy.getConfirmationBlocks(chainId, amountUsd),
 		},
 		maxConcurrentOrders: config.filler.maxConcurrentOrders,
 		pendingQueueConfig: config.filler.pendingQueue,

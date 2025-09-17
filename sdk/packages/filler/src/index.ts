@@ -13,4 +13,3 @@ export { ConfirmationPolicy } from "./config/confirmation-policy"
 
 // Service exports
 export { ChainClientManager, ContractInteractionService } from "./services"
-

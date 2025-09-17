@@ -3,8 +3,8 @@ export class ConfirmationPolicy {
 	private policies: Map<
 		number,
 		{
-			minAmount: bigint
-			maxAmount: bigint
+			minAmount: number
+			maxAmount: number
 			minConfirmations: number
 			maxConfirmations: number
 		}
@@ -25,32 +25,32 @@ export class ConfirmationPolicy {
 
 		Object.entries(policyConfig).forEach(([chainId, config]) => {
 			this.policies.set(Number(chainId), {
-				minAmount: BigInt(config.minAmount),
-				maxAmount: BigInt(config.maxAmount),
+				minAmount: parseFloat(config.minAmount),
+				maxAmount: parseFloat(config.maxAmount),
 				minConfirmations: config.minConfirmations,
 				maxConfirmations: config.maxConfirmations,
 			})
 		})
 	}
 
-	getConfirmationBlocks(chainId: number, amount: bigint): number {
+	getConfirmationBlocks(chainId: number, amountUsd: number): number {
 		const chainPolicy = this.policies.get(chainId)
 		if (!chainPolicy) throw new Error(`No confirmation policy found for chainId ${chainId}`)
 
-		if (amount <= chainPolicy.minAmount) {
+		if (amountUsd <= chainPolicy.minAmount) {
 			return chainPolicy.minConfirmations
 		}
 
-		if (amount >= chainPolicy.maxAmount) {
+		if (amountUsd >= chainPolicy.maxAmount) {
 			return chainPolicy.maxConfirmations
 		}
 
 		const amountRange = chainPolicy.maxAmount - chainPolicy.minAmount
-		const confirmationRange = BigInt(chainPolicy.maxConfirmations - chainPolicy.minConfirmations)
-		const amountPosition = amount - chainPolicy.minAmount
+		const confirmationRange = chainPolicy.maxConfirmations - chainPolicy.minConfirmations
+		const amountPosition = amountUsd - chainPolicy.minAmount
 
 		const confirmationPosition = (amountPosition * confirmationRange) / amountRange
 
-		return chainPolicy.minConfirmations + Number(confirmationPosition)
+		return chainPolicy.minConfirmations + Math.round(confirmationPosition)
 	}
 }

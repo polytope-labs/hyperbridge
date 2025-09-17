@@ -70,9 +70,9 @@ export class BasicFiller implements FillerStrategy {
 	 * Calculates the USD value of the order's inputs, outputs, fees and compares
 	 * what will the filler receive and what will the filler pay
 	 * @param order The order to calculate the USD value for
-	 * @returns The profit in USD (BigInt)
+	 * @returns The profit in USD (Number)
 	 */
-	async calculateProfitability(order: Order): Promise<bigint> {
+	async calculateProfitability(order: Order): Promise<number> {
 		try {
 			const { fillGas, relayerFeeInFeeToken } = await this.contractService.estimateGasFillPost(order)
 
@@ -106,10 +106,10 @@ export class BasicFiller implements FillerStrategy {
 				},
 				"Profitability evaluation",
 			)
-			return profit
+			return parseFloat(formatUnits(profit, destFeeTokenDecimals))
 		} catch (error) {
 			this.logger.error({ err: error }, "Error calculating profitability")
-			return BigInt(0)
+			return 0
 		}
 	}
 

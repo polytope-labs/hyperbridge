@@ -169,17 +169,8 @@ impl pallet_ismp::Config for Runtime {
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = (
-		pallet_consensus_incentives::Pallet<Runtime>,
-		pallet_messaging_fees::Pallet<Runtime>,
-		pallet_ismp::fee_handler::WeightFeeHandler<
-			AccountId,
-			Balances,
-			IsmpWeightToFee,
-			TreasuryPalletId,
-			false,
-		>,
-	);
+	type FeeHandler =
+		(pallet_consensus_incentives::Pallet<Runtime>, pallet_messaging_fees::Pallet<Runtime>);
 }
 
 impl pallet_ismp_relayer::Config for Runtime {

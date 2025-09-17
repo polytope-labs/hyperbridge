@@ -352,10 +352,10 @@ For a 5000 USD order on Ethereum:
 
 | Chain    | Block Time | Low-Value | High-Value | Reasoning                                   |
 | -------- | ---------- | --------- | ---------- | ------------------------------------------- |
-| Ethereum | ~12s       | 12 blocks | 30 blocks  | Highest security, slower finality (~6 min) |
+| Ethereum | ~12s       | 2 blocks  | 20 blocks   | Highest security, slower finality (~6 min) |
 | Arbitrum | ~0.25s     | 20 blocks | 100 blocks | Optimistic rollup, 7-day challenge period  |
 | Base     | ~2s        | 10 blocks | 50 blocks  | Optimistic rollup on Ethereum L2           |
-| BSC      | ~1s        | 5 blocks  | 20 blocks  | Faster blocks, validator-based consensus    |
+| BSC      | ~1s        | 5 blocks  | 10 blocks  | Faster blocks, validator-based consensus    |
 
 #### Security Trade-offs
 
@@ -554,8 +554,8 @@ rpcUrl = "https://bsc-dataseed.binance.org/"
 [confirmationPolicies."1"]              # Ethereum - slower but secure
 minAmount = "1000"       # 1000 USD
 maxAmount = "10000"     # 10000 USD
-minConfirmations = 3                   # ~36 seconds
-maxConfirmations = 10                   # ~120 seconds
+minConfirmations = 2                   # ~24 seconds
+maxConfirmations = 20                   # ~240 seconds
 
 [confirmationPolicies."42161"]          # Arbitrum - needs more confirmations
 minAmount = "1000"       # 1000 USD
@@ -573,7 +573,7 @@ maxConfirmations = 50                   # ~100 seconds
 minAmount = "1000"       # 1000 USD
 maxAmount = "10000"      # 10000 USD
 minConfirmations = 5                    # ~5 seconds
-maxConfirmations = 20                   # ~20 seconds
+maxConfirmations = 10                   # ~10 seconds
 ```
 
 ## Event Monitoring

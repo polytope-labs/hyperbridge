@@ -1299,3 +1299,33 @@ type TokenRegistry @entity @compositeIndexes(fields: [["symbol", "lastUpdatedAt"
 	"""
 	createdAt: Date! @index
 }
+
+"""
+Bridge token supply tracking for Hyperbridge
+"""
+type BridgeTokenSupply @entity {
+	"""
+	Unique identifier for the token supply entry
+	"""
+	id: ID!
+
+	"""
+	Total supply of the token
+	"""
+	totalSupply: BigInt! @index
+
+	"""
+	Circulating supply of the token (total supply minus locked/staked amounts)
+	"""
+	circulatingSupply: BigInt! @index
+
+	"""
+	Timestamp when this supply data was last updated
+	"""
+	lastUpdatedAt: BigInt! @index
+
+	"""
+	Record creation timestamp
+	"""
+	createdAt: Date! @index
+}

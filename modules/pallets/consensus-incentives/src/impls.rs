@@ -96,18 +96,17 @@ where
 		messages: Vec<MessageWithWeight>,
 		events: Vec<IsmpEvent>,
 	) -> DispatchResultWithPostInfo {
-		let mut maybe_relayer_account: Option<T::AccountId> = None;
-		if let Message::Consensus(consensus_msg) = &messages[0].message {
-			let data = sp_io::hashing::keccak_256(&consensus_msg.consensus_proof);
-			if let Some(relayer_pub_key) = Signature::decode(&mut &consensus_msg.signer[..])
-				.ok()
-				.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
-			{
-				maybe_relayer_account = Some(relayer_pub_key.into());
+		if let Some(relayer_account) = messages.get(0).and_then(|first_message| {
+			if let Message::Consensus(consensus_msg) = &first_message.message {
+				let data = sp_io::hashing::keccak_256(&consensus_msg.consensus_proof);
+				Signature::decode(&mut &consensus_msg.signer[..])
+					.ok()
+					.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+					.map(|pub_key| pub_key.into())
+			} else {
+				None::<[u8; 32]>
 			}
-		}
-
-		if let Some(relayer_account) = maybe_relayer_account {
+		}) {
 			for event in events {
 				if let IsmpEvent::StateMachineUpdated(update) = event {
 					let state_machine_height = StateMachineHeight {

@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/filler",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "IntentGateway filler package for hyperbridge",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
@@ -56,6 +56,7 @@
 		"@safe-global/types-kit": "^2.0.1",
 		"ckb-mmr-wasm": "link:wasm-b",
 		"commander": "^12.0.0",
+		"decimal.js": "^10.5.0",
 		"dotenv": "^16.4.7",
 		"ethers": "^5.7.2",
 		"p-queue": "^8.1.0",

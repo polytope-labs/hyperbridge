@@ -41,6 +41,10 @@ import { UNISWAP_V3_POOL_ABI } from "@/config/abis/UniswapV3Pool"
 import { UNISWAP_V3_QUOTER_V2_ABI } from "@/config/abis/UniswapV3QuoterV2"
 import { UNISWAP_V4_QUOTER_ABI } from "@/config/abis/UniswapV4Quoter"
 import { getLogger } from "@/services/Logger"
+import { Decimal } from "decimal.js"
+
+// Configure for financial precision
+Decimal.config({ precision: 28, rounding: 4 })
 /**
  * Handles contract interactions for tokens and other contracts
  */
@@ -652,10 +656,10 @@ export class ContractInteractionService {
 		return BigInt(latestHeight.toString())
 	}
 
-	async getTokenUsdValue(order: Order): Promise<{ outputUsdValue: number; inputUsdValue: number }> {
+	async getTokenUsdValue(order: Order): Promise<{ outputUsdValue: Decimal; inputUsdValue: Decimal }> {
 		const { destClient, sourceClient } = this.clientManager.getClientsForOrder(order)
-		let outputUsdValue = 0
-		let inputUsdValue = 0
+		let outputUsdValue = new Decimal(0)
+		let inputUsdValue = new Decimal(0)
 		const outputs = order.outputs
 		const inputs = order.inputs
 
@@ -679,9 +683,11 @@ export class ContractInteractionService {
 				this.configService.getCoinGeckoApiKey(),
 			)
 
-			const tokenAmount = parseFloat(formatUnits(amount, decimals))
-			const tokenAmountValue = tokenAmount * pricePerToken
-			outputUsdValue += tokenAmountValue
+			// Use Decimal for precise calculations
+			const tokenAmount = new Decimal(formatUnits(amount, decimals))
+			const tokenPrice = new Decimal(pricePerToken)
+			const tokenAmountValue = tokenAmount.times(tokenPrice)
+			outputUsdValue = outputUsdValue.plus(tokenAmountValue)
 		}
 
 		for (const input of inputs) {
@@ -704,12 +710,16 @@ export class ContractInteractionService {
 				this.configService.getCoinGeckoApiKey(),
 			)
 
-			const tokenAmount = parseFloat(formatUnits(amount, decimals))
-			const tokenAmountValue = tokenAmount * pricePerToken
-			inputUsdValue += tokenAmountValue
+			const tokenAmount = new Decimal(formatUnits(amount, decimals))
+			const tokenPrice = new Decimal(pricePerToken)
+			const tokenAmountValue = tokenAmount.times(tokenPrice)
+			inputUsdValue = inputUsdValue.plus(tokenAmountValue)
 		}
 
-		return { outputUsdValue, inputUsdValue }
+		return {
+			outputUsdValue: outputUsdValue,
+			inputUsdValue: inputUsdValue,
+		}
 	}
 
 	async getFillerBalanceUSD(chain: string): Promise<{
@@ -717,7 +727,7 @@ export class ContractInteractionService {
 		daiBalance: bigint
 		usdtBalance: bigint
 		usdcBalance: bigint
-		totalBalanceUsd: number
+		totalBalanceUsd: Decimal
 	}> {
 		const fillerWalletAddress = privateKeyToAddress(this.privateKey)
 		const destClient = this.clientManager.getPublicClient(chain)
@@ -728,14 +738,19 @@ export class ContractInteractionService {
 		if (!nativeToken?.symbol || !nativeToken?.decimals) {
 			throw new Error("Chain native currency information not available")
 		}
+
 		const nativeTokenPriceUsd = await fetchPrice(
 			nativeToken.symbol,
 			chainId,
 			this.configService.getCoinGeckoApiKey(),
 		)
-		const nativeTokenAmount = parseFloat(formatUnits(nativeTokenBalance, nativeToken.decimals))
-		const nativeTokenUsdValue = nativeTokenAmount * nativeTokenPriceUsd
 
+		// Use Decimal for precise calculations
+		const nativeTokenAmount = new Decimal(formatUnits(nativeTokenBalance, nativeToken.decimals))
+		const nativeTokenPrice = new Decimal(nativeTokenPriceUsd)
+		const nativeTokenUsdValue = nativeTokenAmount.times(nativeTokenPrice)
+
+		// DAI Balance
 		const daiAddress = this.configService.getDaiAsset(chain)
 		const daiBalance = await destClient.readContract({
 			abi: ERC20_ABI,
@@ -744,9 +759,10 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const daiDecimals = await this.getTokenDecimals(daiAddress, chain)
-		const daiAmount = parseFloat(formatUnits(daiBalance, daiDecimals))
-		const daiBalanceUsd = daiAmount
+		const daiAmount = new Decimal(formatUnits(daiBalance, daiDecimals))
+		const daiBalanceUsd = daiAmount // DAI ≈ $1
 
+		// USDT Balance
 		const usdtAddress = this.configService.getUsdtAsset(chain)
 		const usdtBalance = await destClient.readContract({
 			abi: ERC20_ABI,
@@ -755,9 +771,10 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const usdtDecimals = await this.getTokenDecimals(usdtAddress, chain)
-		const usdtAmount = parseFloat(formatUnits(usdtBalance, usdtDecimals))
-		const usdtBalanceUsd = usdtAmount
+		const usdtAmount = new Decimal(formatUnits(usdtBalance, usdtDecimals))
+		const usdtBalanceUsd = usdtAmount // USDT ≈ $1
 
+		// USDC Balance
 		const usdcAddress = this.configService.getUsdcAsset(chain)
 		const usdcBalance = await destClient.readContract({
 			abi: ERC20_ABI,
@@ -766,10 +783,10 @@ export class ContractInteractionService {
 			args: [fillerWalletAddress],
 		})
 		const usdcDecimals = await this.getTokenDecimals(usdcAddress, chain)
-		const usdcAmount = parseFloat(formatUnits(usdcBalance, usdcDecimals))
-		const usdcBalanceUsd = usdcAmount
+		const usdcAmount = new Decimal(formatUnits(usdcBalance, usdcDecimals))
+		const usdcBalanceUsd = usdcAmount // USDC ≈ $1
 
-		const totalBalanceUsd = nativeTokenUsdValue + daiBalanceUsd + usdtBalanceUsd + usdcBalanceUsd
+		const totalBalanceUsd = nativeTokenUsdValue.plus(daiBalanceUsd).plus(usdtBalanceUsd).plus(usdcBalanceUsd)
 
 		return {
 			nativeTokenBalance,

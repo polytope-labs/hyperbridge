@@ -19,6 +19,7 @@ import { BATCH_EXECUTOR_ABI } from "@/config/abis/BatchExecutor"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { UNIVERSAL_ROUTER_ABI } from "@/config/abis/UniversalRouter"
 import { isWithinThreshold } from "@/utils"
+import Decimal from "decimal.js"
 
 export class StableSwapFiller implements FillerStrategy {
 	name = "StableSwapFiller"
@@ -107,13 +108,13 @@ export class StableSwapFiller implements FillerStrategy {
 				relayerFeeInFeeToken
 
 			const { outputUsdValue, inputUsdValue } = await this.contractService.getTokenUsdValue(order)
-			const orderFeeInUsd = parseFloat(formatUnits(order.fees, sourceFeeTokenDecimals))
-			const totalGasEstimateInUsd = parseFloat(formatUnits(totalGasEstimateInFeeToken, destFeeTokenDecimals))
+			const orderFeeInUsd = new Decimal(formatUnits(order.fees, sourceFeeTokenDecimals))
+			const totalGasEstimateInUsd = new Decimal(formatUnits(totalGasEstimateInFeeToken, destFeeTokenDecimals))
 
-			const toReceive = inputUsdValue + orderFeeInUsd
-			const toPay = outputUsdValue + totalGasEstimateInUsd
+			const toReceive = inputUsdValue.plus(orderFeeInUsd)
+			const toPay = outputUsdValue.plus(totalGasEstimateInUsd)
 
-			const profit = toReceive > toPay ? toReceive - toPay : 0
+			const profit = toReceive.gt(toPay) ? toReceive.minus(toPay) : new Decimal(0)
 
 			// Log for debugging
 			this.logger.debug(
@@ -124,7 +125,7 @@ export class StableSwapFiller implements FillerStrategy {
 				},
 				"Profitability calculation",
 			)
-			return profit
+			return profit.toNumber()
 		} catch (error) {
 			this.logger.error({ err: error }, "Error calculating profitability")
 			return 0

@@ -16,6 +16,7 @@ import {
 	CoinGeckoConfig,
 } from "../services/FillerConfigService.js"
 import { getLogger } from "../services/Logger.js"
+import { Decimal } from "decimal.js"
 const logger = getLogger("cli")
 
 // ASCII art header
@@ -117,7 +118,7 @@ program
 			const fillerConfig: FillerConfig = {
 				confirmationPolicy: {
 					getConfirmationBlocks: (chainId: number, amount: number) =>
-						confirmationPolicy.getConfirmationBlocks(chainId, amount),
+						confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amount)),
 				},
 				maxConcurrentOrders: config.filler.maxConcurrentOrders,
 				pendingQueueConfig: config.filler.pendingQueue,

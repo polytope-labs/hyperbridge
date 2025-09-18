@@ -87,7 +87,7 @@ export class IntentFiller {
 				})
 				const requiredConfirmations = this.config.confirmationPolicy.getConfirmationBlocks(
 					chainIds[order.sourceChain as keyof typeof chainIds],
-					orderValue.inputUsdValue,
+					orderValue.inputUsdValue.toNumber(),
 				)
 				this.logger.info(
 					{ orderId: order.id, requiredConfirmations, currentConfirmations },

@@ -7,7 +7,6 @@ import {
 	MOCK_ADDRESS,
 	ERC20Method,
 	adjustFeeDecimals,
-	fetchPrice,
 } from "@/utils"
 import { maxUint256, toHex } from "viem"
 import { DispatchPost, type FillOptions, type HexString, type IPostRequest, type Order } from "@/types"
@@ -57,19 +56,14 @@ export class IntentGateway {
 			to: this.source.config.getIntentGatewayAddress(order.sourceChain),
 		}
 
-		const { decimals: sourceChainFeeTokenDecimals, address: sourceChainFeeTokenAddress } =
-			await this.source.getFeeTokenWithDecimals()
+		const { decimals: sourceChainFeeTokenDecimals } = await this.source.getFeeTokenWithDecimals()
 
 		const { address: destChainFeeTokenAddress, decimals: destChainFeeTokenDecimals } =
 			await this.dest.getFeeTokenWithDecimals()
 
 		const { gas: postGasEstimate, postRequestCalldata } = await this.source.estimateGas(postRequest)
 
-		const postGasEstimateInSourceFeeToken = await this.convertGasToFeeToken(
-			postGasEstimate,
-			this.source.client,
-			sourceChainFeeTokenDecimals,
-		)
+		const postGasEstimateInSourceFeeToken = await this.convertGasToFeeToken(postGasEstimate, "source")
 
 		const relayerFeeInSourceFeeToken =
 			postGasEstimateInSourceFeeToken + 25n * 10n ** BigInt(sourceChainFeeTokenDecimals - 2)
@@ -200,9 +194,10 @@ export class IntentGateway {
 			})
 		}
 
-		const fillGasInSourceFeeToken = await this.convertGasToFeeToken(
-			destChainFillGas,
-			this.dest.client,
+		const fillGasInDestFeeToken = await this.convertGasToFeeToken(destChainFillGas, "dest")
+		const fillGasInSourceFeeToken = adjustFeeDecimals(
+			fillGasInDestFeeToken,
+			destChainFeeTokenDecimals,
 			sourceChainFeeTokenDecimals,
 		)
 
@@ -219,11 +214,7 @@ export class IntentGateway {
 		const swapOperationsInFeeToken = (totalEstimate * SWAP_OPERATIONS_BPS) / 10000n
 		const totalFeeTokenAmount = totalEstimate + swapOperationsInFeeToken
 
-		const totalNativeTokenAmount = await this.convertFeeTokenToNative(
-			totalFeeTokenAmount,
-			this.source.client,
-			sourceChainFeeTokenDecimals,
-		)
+		const totalNativeTokenAmount = await this.convertFeeTokenToNative(totalFeeTokenAmount, "source")
 
 		return {
 			feeTokenAmount: totalFeeTokenAmount,
@@ -242,25 +233,21 @@ export class IntentGateway {
 	 * @returns The fee token amount converted to native token amount
 	 * @private
 	 */
-	private async convertFeeTokenToNative(
-		feeTokenAmount: bigint,
-		publicClient: PublicClient,
-		feeTokenDecimals: number,
-	): Promise<bigint> {
-		const nativeToken = publicClient.chain?.nativeCurrency
-		const chainId = publicClient.chain?.id
+	private async convertFeeTokenToNative(feeTokenAmount: bigint, getQuoteIn: "source" | "dest"): Promise<bigint> {
+		const client = this[getQuoteIn].client
+		const evmChainID = `EVM-${client.chain?.id}`
+		const wethAsset = this[getQuoteIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
+		const feeToken = await this[getQuoteIn].getFeeTokenWithDecimals()
 
-		if (!nativeToken?.symbol || !nativeToken?.decimals) {
-			throw new Error("Chain native currency information not available")
-		}
+		const { amountOut } = await this.findBestProtocolWithAmountIn(
+			getQuoteIn,
+			feeToken.address,
+			wethAsset,
+			feeTokenAmount,
+			"v2",
+		)
 
-		const feeTokenAmountNumber = Number(feeTokenAmount) / Math.pow(10, feeTokenDecimals)
-
-		const nativeTokenPriceUsd = await fetchPrice(nativeToken.symbol, chainId)
-
-		const totalCostInNativeToken = feeTokenAmountNumber / nativeTokenPriceUsd
-
-		return BigInt(Math.floor(totalCostInNativeToken * Math.pow(10, nativeToken.decimals)))
+		return amountOut
 	}
 
 	/**
@@ -273,28 +260,23 @@ export class IntentGateway {
 	 * @returns The gas cost converted to fee token amount
 	 * @private
 	 */
-	private async convertGasToFeeToken(
-		gasEstimate: bigint,
-		publicClient: PublicClient,
-		targetDecimals: number,
-	): Promise<bigint> {
-		const gasPrice = await publicClient.getGasPrice()
+	private async convertGasToFeeToken(gasEstimate: bigint, gasEstimateIn: "source" | "dest"): Promise<bigint> {
+		const client = this[gasEstimateIn].client
+		const gasPrice = await client.getGasPrice()
 		const gasCostInWei = gasEstimate * gasPrice
-		const nativeToken = publicClient.chain?.nativeCurrency
-		const chainId = publicClient.chain?.id
+		const evmChainID = `EVM-${client.chain?.id}`
+		const wethAddr = this[gasEstimateIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
+		const feeToken = await this[gasEstimateIn].getFeeTokenWithDecimals()
 
-		if (!nativeToken?.symbol || !nativeToken?.decimals) {
-			throw new Error("Chain native currency information not available")
-		}
+		const { amountOut } = await this.findBestProtocolWithAmountIn(
+			gasEstimateIn,
+			wethAddr,
+			feeToken.address,
+			gasCostInWei,
+			"v2",
+		)
 
-		const gasCostInToken = Number(gasCostInWei) / Math.pow(10, nativeToken.decimals)
-		const tokenPriceUsd = await fetchPrice(nativeToken.symbol, chainId)
-		const gasCostUsd = gasCostInToken * tokenPriceUsd
-
-		const feeTokenPriceUsd = await fetchPrice("DAI")
-		const gasCostInFeeToken = gasCostUsd / feeTokenPriceUsd
-
-		return BigInt(Math.floor(gasCostInFeeToken * Math.pow(10, targetDecimals)))
+		return amountOut
 	}
 
 	async quoteNative(postRequest: IPostRequest, fee: bigint): Promise<bigint> {
@@ -328,12 +310,13 @@ export class IntentGateway {
 	 * @returns Object containing the best protocol, required input amount, and fee tier (for V3/V4)
 	 */
 	async findBestProtocolWithAmountOut(
-		chain: string,
+		getQuoteIn: "source" | "dest",
 		tokenIn: HexString,
 		tokenOut: HexString,
 		amountOut: bigint,
 	): Promise<{ protocol: "v2" | "v3" | "v4" | null; amountIn: bigint; fee?: number }> {
-		const destClient = this.dest.client
+		const client = this[getQuoteIn].client
+		const evmChainID = `EVM-${client.chain?.id}`
 		let amountInV2 = maxUint256
 		let amountInV3 = maxUint256
 		let amountInV4 = maxUint256
@@ -341,20 +324,20 @@ export class IntentGateway {
 		let bestV4Fee = 0
 		const commonFees = [100, 500, 3000, 10000]
 
-		const v2Router = this.source.config.getUniswapRouterV2Address(chain)
-		const v2Factory = this.source.config.getUniswapV2FactoryAddress(chain)
-		const v3Factory = this.source.config.getUniswapV3FactoryAddress(chain)
-		const v3Quoter = this.source.config.getUniswapV3QuoterAddress(chain)
-		const v4Quoter = this.source.config.getUniswapV4QuoterAddress(chain)
+		const v2Router = this.source.config.getUniswapRouterV2Address(evmChainID)
+		const v2Factory = this.source.config.getUniswapV2FactoryAddress(evmChainID)
+		const v3Factory = this.source.config.getUniswapV3FactoryAddress(evmChainID)
+		const v3Quoter = this.source.config.getUniswapV3QuoterAddress(evmChainID)
+		const v4Quoter = this.source.config.getUniswapV4QuoterAddress(evmChainID)
 
 		// For V2/V3, convert native addresses to WETH for quotes
-		const wethAsset = this.source.config.getWrappedNativeAssetWithDecimals(chain).asset
+		const wethAsset = this.source.config.getWrappedNativeAssetWithDecimals(evmChainID).asset
 		const tokenInForQuote = tokenIn === ADDRESS_ZERO ? wethAsset : tokenIn
 		const tokenOutForQuote = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
 
 		// V2 Protocol Check
 		try {
-			const v2PairExists = (await destClient.readContract({
+			const v2PairExists = (await client.readContract({
 				address: v2Factory,
 				abi: UniswapV2Factory.ABI,
 				functionName: "getPair",
@@ -362,7 +345,7 @@ export class IntentGateway {
 			})) as HexString
 
 			if (v2PairExists !== ADDRESS_ZERO) {
-				const v2AmountIn = (await destClient.readContract({
+				const v2AmountIn = (await client.readContract({
 					address: v2Router,
 					abi: UniswapRouterV2.ABI,
 					functionName: "getAmountsIn",
@@ -380,7 +363,7 @@ export class IntentGateway {
 
 		for (const fee of commonFees) {
 			try {
-				const pool = await destClient.readContract({
+				const pool = await client.readContract({
 					address: v3Factory,
 					abi: UniswapV3Factory.ABI,
 					functionName: "getPool",
@@ -388,7 +371,7 @@ export class IntentGateway {
 				})
 
 				if (pool !== ADDRESS_ZERO) {
-					const liquidity = await destClient.readContract({
+					const liquidity = await client.readContract({
 						address: pool,
 						abi: UniswapV3Pool.ABI,
 						functionName: "liquidity",
@@ -397,7 +380,7 @@ export class IntentGateway {
 					if (liquidity > BigInt(0)) {
 						// Use simulateContract for V3 quoter (handles revert-based returns)
 						const quoteResult = (
-							await destClient.simulateContract({
+							await client.simulateContract({
 								address: v3Quoter,
 								abi: UniswapV3Quoter.ABI,
 								functionName: "quoteExactOutputSingle",
@@ -449,7 +432,7 @@ export class IntentGateway {
 
 				// Get quote from V4 quoter
 				const quoteResult = (
-					await destClient.simulateContract({
+					await client.simulateContract({
 						address: v4Quoter,
 						abi: UNISWAP_V4_QUOTER_ABI,
 						functionName: "quoteExactOutputSingle",
@@ -533,12 +516,14 @@ export class IntentGateway {
 	 * @returns Object containing the best protocol, expected output amount, and fee tier (for V3/V4)
 	 */
 	async findBestProtocolWithAmountIn(
-		chain: string,
+		getQuoteIn: "source" | "dest",
 		tokenIn: HexString,
 		tokenOut: HexString,
 		amountIn: bigint,
+		selectedProtocol?: "v2" | "v3" | "v4",
 	): Promise<{ protocol: "v2" | "v3" | "v4" | null; amountOut: bigint; fee?: number }> {
-		const destClient = this.dest.client
+		const client = this[getQuoteIn].client
+		const evmChainID = `EVM-${client.chain?.id}`
 		let amountOutV2 = BigInt(0)
 		let amountOutV3 = BigInt(0)
 		let amountOutV4 = BigInt(0)
@@ -546,20 +531,20 @@ export class IntentGateway {
 		let bestV4Fee = 0
 		const commonFees = [100, 500, 3000, 10000]
 
-		const v2Router = this.source.config.getUniswapRouterV2Address(chain)
-		const v2Factory = this.source.config.getUniswapV2FactoryAddress(chain)
-		const v3Factory = this.source.config.getUniswapV3FactoryAddress(chain)
-		const v3Quoter = this.source.config.getUniswapV3QuoterAddress(chain)
-		const v4Quoter = this.source.config.getUniswapV4QuoterAddress(chain)
+		const v2Router = this.source.config.getUniswapRouterV2Address(evmChainID)
+		const v2Factory = this.source.config.getUniswapV2FactoryAddress(evmChainID)
+		const v3Factory = this.source.config.getUniswapV3FactoryAddress(evmChainID)
+		const v3Quoter = this.source.config.getUniswapV3QuoterAddress(evmChainID)
+		const v4Quoter = this.source.config.getUniswapV4QuoterAddress(evmChainID)
 
 		// For V2/V3, convert native addresses to WETH for quotes
-		const wethAsset = this.source.config.getWrappedNativeAssetWithDecimals(chain).asset
+		const wethAsset = this.source.config.getWrappedNativeAssetWithDecimals(evmChainID).asset
 		const tokenInForQuote = tokenIn === ADDRESS_ZERO ? wethAsset : tokenIn
 		const tokenOutForQuote = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
 
 		// V2 Protocol Check
 		try {
-			const v2PairExists = (await destClient.readContract({
+			const v2PairExists = (await client.readContract({
 				address: v2Factory,
 				abi: UniswapV2Factory.ABI,
 				functionName: "getPair",
@@ -567,7 +552,7 @@ export class IntentGateway {
 			})) as HexString
 
 			if (v2PairExists !== ADDRESS_ZERO) {
-				const v2AmountOut = (await destClient.readContract({
+				const v2AmountOut = (await client.readContract({
 					address: v2Router,
 					abi: UniswapRouterV2.ABI,
 					functionName: "getAmountsOut",
@@ -575,6 +560,9 @@ export class IntentGateway {
 				})) as bigint[]
 
 				amountOutV2 = v2AmountOut[1]
+				if (selectedProtocol === "v2") {
+					return { protocol: "v2", amountOut: amountOutV2 }
+				}
 			}
 		} catch (error) {
 			console.warn("V2 quote failed:", error)
@@ -585,7 +573,7 @@ export class IntentGateway {
 
 		for (const fee of commonFees) {
 			try {
-				const pool = await destClient.readContract({
+				const pool = await client.readContract({
 					address: v3Factory,
 					abi: UniswapV3Factory.ABI,
 					functionName: "getPool",
@@ -593,7 +581,7 @@ export class IntentGateway {
 				})
 
 				if (pool !== ADDRESS_ZERO) {
-					const liquidity = await destClient.readContract({
+					const liquidity = await client.readContract({
 						address: pool,
 						abi: UniswapV3Pool.ABI,
 						functionName: "liquidity",
@@ -602,7 +590,7 @@ export class IntentGateway {
 					if (liquidity > BigInt(0)) {
 						// Use simulateContract for V3 quoter (handles revert-based returns)
 						const quoteResult = (
-							await destClient.simulateContract({
+							await client.simulateContract({
 								address: v3Quoter,
 								abi: UniswapV3Quoter.ABI,
 								functionName: "quoteExactInputSingle",
@@ -633,6 +621,10 @@ export class IntentGateway {
 
 		amountOutV3 = bestV3AmountOut
 
+		if (selectedProtocol === "v3") {
+			return { protocol: "v3", amountOut: amountOutV3, fee: bestV3Fee }
+		}
+
 		// V4 Protocol Check - Find the best pool with best quote (uses native addresses directly)
 		let bestV4AmountOut = BigInt(0)
 
@@ -654,7 +646,7 @@ export class IntentGateway {
 
 				// Get quote from V4 quoter
 				const quoteResult = (
-					await destClient.simulateContract({
+					await client.simulateContract({
 						address: v4Quoter,
 						abi: UNISWAP_V4_QUOTER_ABI,
 						functionName: "quoteExactInputSingle",
@@ -681,6 +673,10 @@ export class IntentGateway {
 		}
 
 		amountOutV4 = bestV4AmountOut
+
+		if (selectedProtocol === "v4") {
+			return { protocol: "v4", amountOut: amountOutV4, fee: bestV4Fee }
+		}
 
 		if (amountOutV2 === BigInt(0) && amountOutV3 === BigInt(0) && amountOutV4 === BigInt(0)) {
 			// No liquidity in any protocol

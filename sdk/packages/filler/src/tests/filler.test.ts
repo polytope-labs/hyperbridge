@@ -54,6 +54,7 @@ import { readFileSync } from "fs"
 import { resolve, dirname } from "path"
 import { fileURLToPath } from "url"
 import { parse } from "toml"
+import { Decimal } from "decimal.js"
 
 // Helper function to load test configuration from TOML
 function loadTestConfig() {
@@ -1029,13 +1030,13 @@ describe.sequential("ConfirmationPolicy", () => {
 		const policy = new ConfirmationPolicy(policyConfig)
 
 		// Test boundaries
-		expect(policy.getConfirmationBlocks(1, 50)).toBe(2) // Below min
-		expect(policy.getConfirmationBlocks(1, 100)).toBe(2) // At min
-		expect(policy.getConfirmationBlocks(1, 1000)).toBe(12) // At max
-		expect(policy.getConfirmationBlocks(1, 1500)).toBe(12) // Above max
+		expect(policy.getConfirmationBlocks(1, new Decimal(50))).toBe(2) // Below min
+		expect(policy.getConfirmationBlocks(1, new Decimal(100))).toBe(2) // At min
+		expect(policy.getConfirmationBlocks(1, new Decimal(1000))).toBe(12) // At max
+		expect(policy.getConfirmationBlocks(1, new Decimal(1500))).toBe(12) // Above max
 
 		// Test interpolation at midpoint
-		expect(policy.getConfirmationBlocks(1, 550)).toBe(7) // Midpoint
+		expect(policy.getConfirmationBlocks(1, new Decimal(550))).toBe(7) // Midpoint
 	})
 
 	it("Should handle multiple chains with different policies", () => {
@@ -1056,8 +1057,8 @@ describe.sequential("ConfirmationPolicy", () => {
 
 		const policy = new ConfirmationPolicy(policyConfig)
 
-		expect(policy.getConfirmationBlocks(1, 5500)).toBe(17) // Mainnet midpoint
-		expect(policy.getConfirmationBlocks(97, 55)).toBe(3) // BSC Chapel midpoint
+		expect(policy.getConfirmationBlocks(1, new Decimal(5500))).toBe(17) // Mainnet midpoint
+		expect(policy.getConfirmationBlocks(97, new Decimal(55))).toBe(3) // BSC Chapel midpoint
 	})
 
 	it("Should handle decimal/floating point amounts correctly", () => {
@@ -1073,17 +1074,17 @@ describe.sequential("ConfirmationPolicy", () => {
 		const policy = new ConfirmationPolicy(policyConfig)
 
 		// Test boundaries with decimals
-		expect(policy.getConfirmationBlocks(1, 5.0)).toBe(2) // Below min
-		expect(policy.getConfirmationBlocks(1, 10.5)).toBe(2) // At min
-		expect(policy.getConfirmationBlocks(1, 100.75)).toBe(20) // At max
-		expect(policy.getConfirmationBlocks(1, 150.25)).toBe(20) // Above max
+		expect(policy.getConfirmationBlocks(1, new Decimal(5.0))).toBe(2) // Below min
+		expect(policy.getConfirmationBlocks(1, new Decimal(10.5))).toBe(2) // At min
+		expect(policy.getConfirmationBlocks(1, new Decimal(100.75))).toBe(20) // At max
+		expect(policy.getConfirmationBlocks(1, new Decimal(150.25))).toBe(20) // Above max
 
 		// Test interpolation with decimals
-		expect(policy.getConfirmationBlocks(1, 55.625)).toBe(11)
+		expect(policy.getConfirmationBlocks(1, new Decimal(55.625))).toBe(11)
 
 		// Test with very precise decimals
-		expect(policy.getConfirmationBlocks(1, 33.1875)).toBe(7) // ~25% point
-		expect(policy.getConfirmationBlocks(1, 78.0625)).toBe(15) // ~75% point
+		expect(policy.getConfirmationBlocks(1, new Decimal(33.1875))).toBe(7) // ~25% point
+		expect(policy.getConfirmationBlocks(1, new Decimal(78.0625))).toBe(15) // ~75% point
 	})
 
 	it("Should throw error for unknown chainId", () => {
@@ -1098,7 +1099,9 @@ describe.sequential("ConfirmationPolicy", () => {
 
 		const policy = new ConfirmationPolicy(policyConfig)
 
-		expect(() => policy.getConfirmationBlocks(999, 500)).toThrow("No confirmation policy found for chainId 999")
+		expect(() => policy.getConfirmationBlocks(999, new Decimal(500))).toThrow(
+			"No confirmation policy found for chainId 999",
+		)
 	})
 })
 
@@ -1138,7 +1141,7 @@ async function setUp() {
 	const fillerConfig: FillerConfig = {
 		confirmationPolicy: {
 			getConfirmationBlocks: (chainId: number, amountUsd: number) =>
-				confirmationPolicy.getConfirmationBlocks(chainId, amountUsd),
+				confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 		},
 		maxConcurrentOrders: config.filler.maxConcurrentOrders,
 		pendingQueueConfig: config.filler.pendingQueue,

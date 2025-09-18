@@ -1,3 +1,5 @@
+import Decimal from "decimal.js"
+
 export class ConfirmationPolicy {
 	// Maps chainId -> policy configuration
 	private policies: Map<
@@ -33,24 +35,24 @@ export class ConfirmationPolicy {
 		})
 	}
 
-	getConfirmationBlocks(chainId: number, amountUsd: number): number {
+	getConfirmationBlocks(chainId: number, amountUsd: Decimal): number {
 		const chainPolicy = this.policies.get(chainId)
 		if (!chainPolicy) throw new Error(`No confirmation policy found for chainId ${chainId}`)
 
-		if (amountUsd <= chainPolicy.minAmount) {
+		if (amountUsd.lte(chainPolicy.minAmount)) {
 			return chainPolicy.minConfirmations
 		}
 
-		if (amountUsd >= chainPolicy.maxAmount) {
+		if (amountUsd.gte(chainPolicy.maxAmount)) {
 			return chainPolicy.maxConfirmations
 		}
 
 		const amountRange = chainPolicy.maxAmount - chainPolicy.minAmount
 		const confirmationRange = chainPolicy.maxConfirmations - chainPolicy.minConfirmations
-		const amountPosition = amountUsd - chainPolicy.minAmount
+		const amountPosition = amountUsd.minus(chainPolicy.minAmount)
 
-		const confirmationPosition = (amountPosition * confirmationRange) / amountRange
+		const confirmationPosition = amountPosition.times(confirmationRange).div(amountRange)
 
-		return chainPolicy.minConfirmations + Math.round(confirmationPosition)
+		return chainPolicy.minConfirmations + Math.round(confirmationPosition.toNumber())
 	}
 }

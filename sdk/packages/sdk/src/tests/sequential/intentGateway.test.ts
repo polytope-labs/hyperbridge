@@ -53,21 +53,16 @@ describe.sequential("Intents protocol tests", () => {
 			callData: "0x" as HexString,
 		}
 
-		console.log("order", order)
-
-		const {
-			feeTokenAmount: estimatedFee,
-			nativeTokenAmount,
-			postRequestCalldata,
-		} = await bscIntentGateway.estimateFillOrder({
+		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await bscIntentGateway.estimateFillOrder({
 			...order,
 			id: orderCommitment(order),
 			destChain: hexToString(order.destChain as HexString),
 			sourceChain: hexToString(order.sourceChain as HexString),
 		})
+		console.log("BSC => ETH")
 		console.log("Estimated fee:", estimatedFee)
 		console.log("Native token amount:", nativeTokenAmount)
-		console.log("Post request calldata:", postRequestCalldata)
+
 		assert(estimatedFee > 0n)
 	}, 1_000_000)
 
@@ -114,7 +109,7 @@ describe.sequential("Intents protocol tests", () => {
 			callData: "0x" as HexString,
 		}
 
-		const { feeTokenAmount: estimatedFee } = await bscIntentGateway.estimateFillOrder({
+		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await bscIntentGateway.estimateFillOrder({
 			...order,
 			id: orderCommitment(order),
 			destChain: hexToString(order.destChain as HexString),
@@ -122,7 +117,8 @@ describe.sequential("Intents protocol tests", () => {
 		})
 
 		console.log("BSC => Arbitrum")
-		console.log("Order.fees", estimatedFee)
+		console.log("Estimated Fee", estimatedFee)
+		console.log("Native Token Amount", nativeTokenAmount)
 
 		assert(estimatedFee > 0n)
 	}, 1_000_000)
@@ -170,7 +166,7 @@ describe.sequential("Intents protocol tests", () => {
 			callData: "0x" as HexString,
 		}
 
-		const { feeTokenAmount: estimatedFee } = await baseIntentGateway.estimateFillOrder({
+		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await baseIntentGateway.estimateFillOrder({
 			...order,
 			id: orderCommitment(order),
 			destChain: hexToString(order.destChain as HexString),
@@ -178,7 +174,8 @@ describe.sequential("Intents protocol tests", () => {
 		})
 
 		console.log("Base => BSC")
-		console.log("Order.fees", estimatedFee)
+		console.log("Estimated Fee", estimatedFee)
+		console.log("Native Token Amount", nativeTokenAmount)
 
 		assert(estimatedFee > 0n)
 	}, 1_000_000)

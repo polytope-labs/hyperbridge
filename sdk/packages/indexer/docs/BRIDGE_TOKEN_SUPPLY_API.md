@@ -30,13 +30,15 @@ curl -X POST \
 **GraphQL Query:**
 ```graphql
 query GetTokenSupply {
-  bridgeTokenSupplies {
-    id
-    totalSupply
-    circulatingSupply
-    lastUpdatedAt
-    createdAt
-  }
+    bridgeTokenSupplies {
+       nodes {
+         id
+         totalSupply
+         circulatingSupply
+         lastUpdatedAt
+         circulatingSupply
+       }
+    }
 }
 ```
 
@@ -74,15 +76,16 @@ Here's an example response from the BridgeTokenSupply API:
 ```json
 {
   "data": {
-    "bridgeTokenSupplies": [
-      {
-        "id": "hyperbridge-token-supply",
-        "totalSupply": "1000000000000",
-        "circulatingSupply": "750000000000",
-        "lastUpdatedAt": "1734451200000",
-        "createdAt": "2024-12-17T15:20:00.000Z"
-      }
-    ]
+    "bridgeTokenSupplies": {
+      "nodes": [
+        {
+          "id": "hyperbridge-token-supply",
+          "totalSupply": "1000015803",
+          "circulatingSupply": "223545327",
+          "lastUpdatedAt": "1758171534000"
+        }
+      ]
+    }
   }
 }
 ```

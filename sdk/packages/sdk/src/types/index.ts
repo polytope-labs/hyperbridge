@@ -444,6 +444,7 @@ export interface GetRequestWithStatus extends GenericRequestWithStatuses {
 	height: bigint
 	keys: HexString[]
 	context: HexString
+	commitment: HexString
 }
 
 export interface GetResponseByRequestIdResponse {

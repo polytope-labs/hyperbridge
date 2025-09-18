@@ -15,6 +15,7 @@ import type {
 	TokenPricesResponse,
 	TokenRegistry,
 	TokenRegistryResponse,
+	HexString,
 } from "./types"
 import type { ConsolaInstance } from "consola"
 import {
@@ -246,6 +247,7 @@ export async function _queryGetRequestInternal(params: InternalQueryParams): Pro
 
 	return {
 		...rest,
+		commitment: commitmentHash as HexString,
 		timeoutTimestamp: BigInt(rest.timeoutTimestamp),
 		nonce: BigInt(rest.nonce),
 		height: BigInt(rest.height),

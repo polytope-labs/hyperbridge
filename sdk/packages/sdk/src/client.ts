@@ -242,7 +242,7 @@ export class IndexerClient {
 	 * @param commitment_hash - Can be commitment
 	 * @returns Latest status and block metadata of the request
 	 */
-	async queryPostRequest(commitment_hash: string): Promise<PostRequestWithStatus | undefined> {
+	async queryPostRequest(commitment_hash: HexString): Promise<PostRequestWithStatus | undefined> {
 		return _queryRequestInternal({
 			commitmentHash: commitment_hash,
 			queryClient: this.client,
@@ -256,7 +256,7 @@ export class IndexerClient {
 	 * @param hash - Can be commitment, hyperbridge tx hash, source tx hash, destination tx hash, or timeout tx hash
 	 * @returns Latest status and block metadata of the request
 	 */
-	async queryGetRequest(hash: string): Promise<GetRequestWithStatus | undefined> {
+	async queryGetRequest(hash: HexString): Promise<GetRequestWithStatus | undefined> {
 		return _queryGetRequestInternal({
 			commitmentHash: hash,
 			queryClient: this.client,
@@ -548,7 +548,7 @@ export class IndexerClient {
 	 * @returns Full request data with all inferred status events, including SOURCE_FINALIZED and HYPERBRIDGE_FINALIZED
 	 * @remarks Unlike queryRequest(), this method adds derived finalization status events by querying state machine updates
 	 */
-	async queryRequestWithStatus(hash: string): Promise<PostRequestWithStatus | undefined> {
+	async queryRequestWithStatus(hash: HexString): Promise<PostRequestWithStatus | undefined> {
 		let request = await this.queryPostRequest(hash)
 
 		if (!request) return
@@ -561,6 +561,143 @@ export class IndexerClient {
 		)
 
 		return request
+	}
+
+	/**
+	 * Queries a GET request and returns it alongside its statuses,
+	 * including any finalization events.
+	 * @param hash - Can be commitment, hyperbridge tx hash, source tx hash, destination tx hash, or timeout tx hash
+	 * @returns Full GET request data with all inferred status events, including SOURCE_FINALIZED and HYPERBRIDGE_FINALIZED
+	 * @remarks Unlike queryGetRequest(), this method adds derived finalization status events by querying state machine updates
+	 */
+	async queryGetRequestWithStatus(hash: HexString): Promise<GetRequestWithStatus | undefined> {
+		let request = await this.queryGetRequest(hash)
+
+		if (!request) return
+
+		request = await this.addGetRequestFinalityEvents(request)
+
+		request.statuses = request.statuses.sort(
+			(a, b) => COMBINED_STATUS_WEIGHTS[a.status] - COMBINED_STATUS_WEIGHTS[b.status],
+		)
+
+		return request
+	}
+
+	/**
+	 * Enhances a GET request with finality events by querying state machine updates.
+	 *
+	 * This method augments a GET request object with additional inferred status events
+	 * that represent chain finality confirmations. It adds:
+	 * - SOURCE_FINALIZED: When the source chain has finalized the request
+	 * - HYPERBRIDGE_FINALIZED: When Hyperbridge has finalized the delivery confirmation and response is ready
+	 *
+	 * The method also generates appropriate calldata for submitting cross-chain proofs
+	 * when applicable.
+	 *
+	 * @param request - The GET request to enhance with finality events
+	 * @returns The request with finality events added
+	 * @private
+	 */
+	private async addGetRequestFinalityEvents(request: GetRequestWithStatus): Promise<GetRequestWithStatus> {
+		const events: RequestStatusWithMetadata[] = []
+
+		const addFinalityEvents = (request: GetRequestWithStatus) => {
+			this.logger.trace(`Added ${events.length} \`GetRequest\` finality events`, events)
+
+			request.statuses = [...request.statuses, ...events]
+			return request
+		}
+
+		let hyperbridgeDelivered: RequestStatusWithMetadata | undefined
+
+		if (request.source === this.config.hyperbridge.stateMachineId) {
+			hyperbridgeDelivered = request.statuses[0]
+			return addFinalityEvents(request)
+		} else {
+			const sourceFinality = await this.queryStateMachineUpdateByHeight({
+				statemachineId: request.source,
+				height: request.statuses[0].metadata.blockNumber,
+				chain: this.config.hyperbridge.stateMachineId,
+			})
+
+			if (!sourceFinality) return addFinalityEvents(request)
+
+			events.push({
+				status: RequestStatus.SOURCE_FINALIZED,
+				metadata: {
+					blockHash: sourceFinality.blockHash,
+					blockNumber: sourceFinality.height,
+					transactionHash: sourceFinality.transactionHash,
+					timestamp: sourceFinality.timestamp,
+				},
+			})
+
+			hyperbridgeDelivered = request.statuses.find((item) => item.status === RequestStatus.HYPERBRIDGE_DELIVERED)
+
+			if (!hyperbridgeDelivered) return addFinalityEvents(request)
+		}
+
+		const hyperbridgeFinality = await this.queryStateMachineUpdateByHeight({
+			statemachineId: this.config.hyperbridge.stateMachineId,
+			height: hyperbridgeDelivered.metadata.blockNumber,
+			chain: request.source,
+		})
+
+		if (!hyperbridgeFinality) return addFinalityEvents(request)
+
+		const sourceChain = await getChain(this.config.source)
+		const hyperbridge = await getChain({
+			...this.config.hyperbridge,
+			hasher: "Keccak",
+		})
+
+		try {
+			const response = await this.queryResponseByRequestId(request.commitment)
+
+			if (!response) return addFinalityEvents(request)
+
+			const proof = await hyperbridge.queryProof(
+				{ Responses: [response.commitment as HexString] },
+				request.source,
+				BigInt(hyperbridgeFinality.height),
+			)
+
+			const calldata = sourceChain.encode({
+				kind: "GetResponse",
+				proof: {
+					stateMachine: this.config.hyperbridge.stateMachineId,
+					consensusStateId: this.config.hyperbridge.consensusStateId,
+					proof,
+					height: BigInt(hyperbridgeFinality.height),
+				},
+				responses: [
+					{
+						get: request,
+						values: request.keys.map((key, index) => ({
+							key,
+							value: (response.values[index] as HexString) || "0x",
+						})),
+					},
+				],
+				signer: pad("0x"),
+			})
+
+			events.push({
+				status: RequestStatus.HYPERBRIDGE_FINALIZED,
+				metadata: {
+					blockHash: hyperbridgeFinality.blockHash,
+					blockNumber: hyperbridgeFinality.height,
+					transactionHash: hyperbridgeFinality.transactionHash,
+					timestamp: hyperbridgeFinality.timestamp,
+					calldata,
+				},
+			})
+		} catch (error) {
+			this.logger.trace("Could not generate HYPERBRIDGE_FINALIZED event for GET request:", error)
+		}
+
+		return addFinalityEvents(request)
 	}
 
 	/**
@@ -662,7 +799,7 @@ export class IndexerClient {
 	 * @returns AsyncGenerator that emits status updates until a terminal state is reached
 	 */
 	private async *postRequestStatusStreamInternal(
-		hash: string,
+		hash: HexString,
 		signal: AbortSignal,
 	): AsyncGenerator<RequestStatusWithMetadata, void> {
 		let request = await this.waitOrAbort({ signal, promise: () => this.queryPostRequest(hash) })
@@ -928,7 +1065,7 @@ export class IndexerClient {
 	 * @returns AsyncGenerator that emits status updates until a terminal state is reached
 	 */
 	private async *getRequestStatusStreamInternal(
-		hash: string,
+		hash: HexString,
 		signal: AbortSignal,
 	): AsyncGenerator<RequestStatusWithMetadata, void> {
 		let request = await this.waitOrAbort({ signal, promise: () => this.queryGetRequest(hash) })

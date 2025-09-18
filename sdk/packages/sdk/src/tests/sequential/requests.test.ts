@@ -12,7 +12,7 @@ import {
 	toHex,
 } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { bscTestnet, gnosisChiado } from "viem/chains"
+import { bscTestnet, gnosisChiado, sepolia } from "viem/chains"
 
 import { IndexerClient } from "@/client"
 import { type HexString, RequestStatus, TimeoutStatus } from "@/types"
@@ -300,20 +300,20 @@ describe.sequential("Get and Post Requests", () => {
 		}, 1_000_000)
 	})
 
-	describe.skip("Get Request", () => {
+	describe("Get Request", () => {
 		it("should successfully stream and query the get request status", async () => {
-			const { bscTestnetClient, bscPing, gnosisChiadoHost, bscIsmpHost, bscHandler } = await setUp()
+			const { bscTestnetClient, bscPing, ethSepoliaHost, bscIsmpHost, bscHandler } = await setUp()
 			console.log("\n\nSending Get Request\n\n")
 
 			const latestHeight = await hyperbridgeInstance.latestStateMachineHeight({
-				stateId: { Evm: 10200 },
-				consensusStateId: toHex("GNO0"),
+				stateId: { Evm: 11155111 },
+				consensusStateId: toHex("ETH0"),
 			})
 
 			const hash = await bscPing.write.dispatch([
 				{
 					source: await bscIsmpHost.read.host(),
-					dest: await gnosisChiadoHost.read.host(),
+					dest: await ethSepoliaHost.read.host(),
 					nonce: await bscIsmpHost.read.nonce(),
 					from: process.env.PING_MODULE_ADDRESS! as `0x${string}`,
 					timeoutTimestamp: BigInt(Math.floor(Date.now() / 1000) + 60 * 60),
@@ -394,6 +394,64 @@ describe.sequential("Get and Post Requests", () => {
 			const req = await indexer.queryGetRequest(commitment)
 			expect(req?.statuses.length).toBe(3)
 		}, 1_000_000)
+
+		it("should successfully query the get request with its finality statuses", async () => {
+			const { bscPing, ethSepoliaHost, bscIsmpHost, bscTestnetClient } = await setUp()
+			console.log("\n\nSending Get Request for queryGetRequestWithStatus test\n\n")
+
+			const latestHeight = await hyperbridgeInstance.latestStateMachineHeight({
+				stateId: { Evm: 11155111 },
+				consensusStateId: toHex("ETH0"),
+			})
+
+			const hash = await bscPing.write.dispatch([
+				{
+					source: await bscIsmpHost.read.host(),
+					dest: await ethSepoliaHost.read.host(),
+					nonce: await bscIsmpHost.read.nonce(),
+					from: process.env.PING_MODULE_ADDRESS! as `0x${string}`,
+					timeoutTimestamp: BigInt(Math.floor(Date.now() / 1000) + 60 * 60),
+					keys: ["0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"],
+					height: latestHeight,
+					context: "0x",
+				},
+			])
+
+			const receipt = await bscTestnetClient.waitForTransactionReceipt({
+				hash,
+				confirmations: 1,
+			})
+
+			console.log(`Transaction receipt: ${bscTestnet.blockExplorers.default.url}/tx/${hash}`)
+
+			const event = parseEventLogs({ abi: EVM_HOST.ABI, logs: receipt.logs })[0]
+			if (event.eventName !== "GetRequestEvent") {
+				throw new Error("Unexpected Event type")
+			}
+
+			const request = event.args
+			const commitment = getRequestCommitment({ ...request, keys: [...request.keys] })
+			console.log("Get Request Commitment: ", commitment)
+
+			console.log("Waiting 200 seconds for indexer to process finality events...")
+			await new Promise((resolve) => setTimeout(resolve, 200000))
+
+			const req = await indexer.queryGetRequestWithStatus(commitment)
+			console.log("Full status from queryGetRequestWithStatus:", JSON.stringify(req, bigIntReplacer, 4))
+
+			expect(req).toBeDefined()
+
+			const sourceFinalizedStatus = req?.statuses.find(
+				(status) => status.status === RequestStatus.SOURCE_FINALIZED,
+			)
+			expect(sourceFinalizedStatus).toBeDefined()
+
+			const hyperbridgeFinalizedStatus = req?.statuses.find(
+				(status) => status.status === RequestStatus.HYPERBRIDGE_FINALIZED,
+			)
+			expect(hyperbridgeFinalizedStatus).toBeDefined()
+			expect(hyperbridgeFinalizedStatus?.metadata.calldata).toBeDefined()
+		}, 1_000_000)
 	})
 })
 
@@ -420,6 +478,11 @@ async function setUp() {
 	const gnosisChiadoClient = createPublicClient({
 		chain: gnosisChiado,
 		transport: http(process.env.GNOSIS_CHIADO),
+	})
+
+	const ethSepoliaClient = createPublicClient({
+		chain: sepolia,
+		transport: http(process.env.ETH_SEPOLIA),
 	})
 
 	const bscPing = getContract({
@@ -453,8 +516,16 @@ async function setUp() {
 	const gnosisChiadoPing = getContract({
 		address: process.env.PING_MODULE_ADDRESS! as HexString,
 		abi: PING_MODULE.ABI,
-		client: gnosisChiadoClient,
+		client: { public: gnosisChiadoClient, wallet: gnosisChiadoWallet },
 	})
+
+	const ethSepoliaPing = getContract({
+		address: process.env.PING_MODULE_ADDRESS! as HexString,
+		abi: PING_MODULE.ABI,
+		client: ethSepoliaClient,
+	})
+
+	const ethSepoliaHostAddress = await ethSepoliaPing.read.host()
 
 	const gnosisChiadoHostAddress = await gnosisChiadoPing.read.host()
 
@@ -462,6 +533,12 @@ async function setUp() {
 		address: gnosisChiadoHostAddress,
 		abi: EVM_HOST.ABI,
 		client: gnosisChiadoClient,
+	})
+
+	const ethSepoliaHost = getContract({
+		address: ethSepoliaHostAddress,
+		abi: EVM_HOST.ABI,
+		client: ethSepoliaClient,
 	})
 
 	const gnosisChiadoHostParams = await gnosisChiadoHost.read.hostParams()
@@ -484,6 +561,8 @@ async function setUp() {
 	})
 
 	return {
+		ethSepoliaClient,
+		ethSepoliaHost,
 		bscTestnetClient,
 		bscFeeToken,
 		account,
@@ -491,6 +570,7 @@ async function setUp() {
 		gnosisChiadoHandler,
 		bscHandler,
 		bscPing,
+		gnosisChiadoPing,
 		gnosisChiadoClient,
 		gnosisChiadoHost,
 		bscIsmpHost,

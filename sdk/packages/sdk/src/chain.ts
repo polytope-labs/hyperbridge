@@ -19,7 +19,7 @@ export * from "@/chains/substrate"
 /**
  * Type representing an ISMP message.
  */
-export type IIsmpMessage = IRequestMessage | ITimeoutPostRequestMessage | IGetResponseMessage
+export type IIsmpMessage = IRequestMessage | ITimeoutPostRequestMessage | IGetResponseMessage | IGetRequestMessage
 
 export interface IRequestMessage {
 	/**
@@ -50,9 +50,13 @@ export interface IGetRequestMessage {
 	 */
 	requests: IGetRequest[]
 	/**
-	 * The proof of the requests.
+	 * The proof of the requests from the source chain.
 	 */
-	proof: IProof
+	source: IProof
+	/**
+	 * The proof of the response from the target chain
+	 */
+	response: IProof
 	/**
 	 * The signer of the message.
 	 */

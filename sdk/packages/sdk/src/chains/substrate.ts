@@ -6,8 +6,16 @@ import { match } from "ts-pattern"
 import { bytesToHex, hexToBytes, toBytes, toHex } from "viem"
 
 import type { IChain, IIsmpMessage } from "@/chain"
-import type { HexString, IMessage, IPostRequest, StateMachineHeight, StateMachineIdParams } from "@/types"
-import { BasicProof, type IStateMachine, Message, SubstrateStateProof, isEvmChain, isSubstrateChain } from "@/utils"
+import type { HexString, IGetRequest, IMessage, IPostRequest, StateMachineHeight, StateMachineIdParams } from "@/types"
+import {
+	BasicProof,
+	GetRequestsWithProof,
+	type IStateMachine,
+	Message,
+	SubstrateStateProof,
+	isEvmChain,
+	isSubstrateChain,
+} from "@/utils"
 import { ExpectedError } from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 
@@ -192,9 +200,14 @@ export class SubstrateChain implements IChain {
 	}> {
 		if (!this.api) throw new Error("API not initialized")
 		const { api } = this
-		// remove the call and method selectors
-		const args = hexToBytes(this.encode(message)).slice(2)
-		const tx = api.tx.ismp.handleUnsigned(args)
+
+		const args = encodeISMPMessage(message)
+		let tx
+		if (message.kind === "GetRequest") {
+			tx = api.tx.stateCoprocessor.handleUnsigned(args)
+		} else {
+			tx = api.tx.ismp.handleUnsigned(args)
+		}
 
 		return new Promise((resolve, reject) => {
 			let unsub = () => {}
@@ -379,6 +392,24 @@ function convertIPostRequestToCodec(request: IPostRequest) {
 	} as const
 }
 
+/**
+ * Converts an IGetRequest object to a codec representation.
+ * @param {IGetRequest} request - The IGetRequest object.
+ * @returns The codec representation of the request.
+ */
+function convertIGetRequestToCodec(request: IGetRequest) {
+	return {
+		source: convertStateMachineIdToEnum(request.source),
+		dest: convertStateMachineIdToEnum(request.dest),
+		from: Array.from(hexToBytes(request.from)),
+		nonce: request.nonce,
+		keys: request.keys.map((key) => Array.from(hexToBytes(key))),
+		context: Array.from(hexToBytes(request.context)),
+		timeoutTimestamp: request.timeoutTimestamp,
+		height: request.height,
+	} as const
+}
+
 export function encodeISMPMessage(message: IIsmpMessage): Uint8Array {
 	try {
 		return match(message)
@@ -407,6 +438,32 @@ export function encodeISMPMessage(message: IIsmpMessage): Uint8Array {
 			})
 			.with({ kind: "GetResponse" }, (message) => {
 				throw new Error("GetResponse is not yet supported on Substrate chains")
+			})
+			.with({ kind: "GetRequest" }, (message) => {
+				return GetRequestsWithProof.enc({
+					requests: message.requests.map((request) => convertIGetRequestToCodec(request)),
+					source: {
+						height: {
+							height: message.source.height,
+							id: {
+								consensusStateId: Array.from(toBytes(message.source.consensusStateId)),
+								id: convertStateMachineIdToEnum(message.source.stateMachine),
+							},
+						},
+						proof: Array.from(hexToBytes(message.source.proof)),
+					},
+					response: {
+						height: {
+							height: message.response.height,
+							id: {
+								consensusStateId: Array.from(toBytes(message.response.consensusStateId)),
+								id: convertStateMachineIdToEnum(message.response.stateMachine),
+							},
+						},
+						proof: Array.from(hexToBytes(message.response.proof)),
+					},
+					signer: Array.from(hexToBytes(message.signer)),
+				})
 			})
 			.with({ kind: "TimeoutPostRequest" }, (message) => {
 				return Vector(Message).enc([

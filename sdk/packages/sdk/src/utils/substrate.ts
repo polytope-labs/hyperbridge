@@ -251,6 +251,10 @@ export const GetRequest = Struct({
 	 */
 	keys: Vector(Vector(u8)),
 	/*
+	 * The height of the state machine
+	 */
+	height: u64,
+	/*
 	 * Some application-specific metadata relating to this request
 	 */
 	context: Vector(u8),
@@ -383,6 +387,28 @@ export const TimeoutMessage = Enum({
 		 */
 		requests: Vector(Request),
 	}),
+})
+
+export const GetRequestsWithProof = Struct({
+	/*
+	 * Requests to be fetched
+	 */
+	requests: Vector(GetRequest),
+
+	/*
+	 * Membership batch proof for these requests
+	 */
+	source: Proof,
+
+	/*
+	 * Storage proof for these responses
+	 */
+	response: Proof,
+
+	/*
+	 * Signer information. Ideally should be their account identifier
+	 */
+	signer: Vector(u8),
 })
 
 export const Message = Enum({

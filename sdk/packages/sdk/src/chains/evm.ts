@@ -413,6 +413,9 @@ export class EvmChain implements IChain {
 
 				return encoded
 			})
+			.with({ kind: "GetRequest" }, (message) => {
+				throw new Error("GetResponse is not yet supported on Substrate chains")
+			})
 			.exhaustive()
 
 		return encoded

@@ -7,6 +7,7 @@ import {
 	PublicClient,
 	encodeAbiParameters,
 	formatUnits,
+	parseUnits,
 } from "viem"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import {
@@ -491,6 +492,14 @@ export class ContractInteractionService {
 		}
 	}
 
+	/**
+	 * Gets a quote for the native token cost of dispatching a post request.
+	 *
+	 * @param postRequest - The post request to quote
+	 * @param fee - The fee amount in fee token
+	 * @param chain - The chain identifier where the quote will be executed
+	 * @returns The native token amount required
+	 */
 	async quoteNative(postRequest: IPostRequest, fee: bigint, chain: string): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
 
@@ -513,7 +522,10 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Gets the current Native token price (including Decimals)
+	 * Gets the current native token price in USD with 18 decimal precision.
+	 *
+	 * @param chain - The chain identifier to get native token price for
+	 * @returns The native token price in USD scaled to 18 decimals (e.g., $3000.50 becomes 3000500000000000000000n)
 	 */
 	async getNativeTokenPrice(chain: string): Promise<bigint> {
 		let client = this.clientManager.getPublicClient(chain)
@@ -533,6 +545,15 @@ export class ContractInteractionService {
 		return BigInt(Math.floor(nativeTokenPriceUsd * Math.pow(10, 18)))
 	}
 
+	/**
+	 * Converts gas costs to the equivalent amount in the fee token.
+	 * Uses USD pricing to convert between native token gas costs and fee token amounts.
+	 *
+	 * @param gasEstimate - The estimated gas units
+	 * @param chain - The chain identifier to get gas prices and native token info
+	 * @param targetDecimals - The decimal places of the target fee token
+	 * @returns The gas cost converted to fee token amount
+	 */
 	async convertGasToFeeToken(gasEstimate: bigint, chain: string, targetDecimals: number): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
 		const gasPrice = await client.getGasPrice()
@@ -544,16 +565,24 @@ export class ContractInteractionService {
 			throw new Error("Chain native currency information not available")
 		}
 
-		const gasCostInToken = Number(gasCostInWei) / Math.pow(10, nativeToken.decimals)
-		const tokenPriceUsd = await fetchPrice(nativeToken.symbol, chainId, this.configService.getCoinGeckoApiKey())
-		const gasCostUsd = gasCostInToken * tokenPriceUsd
+		const gasCostInToken = new Decimal(formatUnits(gasCostInWei, nativeToken.decimals))
+		const tokenPriceUsd = new Decimal(
+			await fetchPrice(nativeToken.symbol, chainId, this.configService.getCoinGeckoApiKey()),
+		)
+		const gasCostUsd = gasCostInToken.times(tokenPriceUsd)
 
-		const feeTokenPriceUsd = await fetchPrice("DAI", chainId, this.configService.getCoinGeckoApiKey()) // Using DAI as default
-		let gasCostInFeeToken = gasCostUsd / feeTokenPriceUsd
+		const feeTokenPriceUsd = new Decimal(1) // DAI/USDC/USDT ≈ $1 (stable coin)
+		const gasCostInFeeToken = gasCostUsd.dividedBy(feeTokenPriceUsd)
 
-		return BigInt(Math.floor(gasCostInFeeToken * Math.pow(10, targetDecimals)))
+		return parseUnits(gasCostInFeeToken.toFixed(targetDecimals), targetDecimals)
 	}
 
+	/**
+	 * Gets the fee token address and decimals for a given chain.
+	 *
+	 * @param chain - The chain identifier to get fee token info for
+	 * @returns An object containing the fee token address and its decimal places
+	 */
 	async getFeeTokenWithDecimals(chain: string): Promise<{ address: HexString; decimals: number }> {
 		const client = this.clientManager.getPublicClient(chain)
 		const feeTokenAddress = await client.readContract({
@@ -574,8 +603,8 @@ export class ContractInteractionService {
 	 * The fee is calculated based on the per-byte fee for the destination chain
 	 * multiplied by the size of the request body.
 	 *
-	 * @param request - The post request to calculate the fee for
-	 * @returns The total fee in wei required to send the post request
+	 * @param order - The order to calculate the fee for
+	 * @returns The total fee in fee token required to send the post request
 	 */
 	async quote(order: Order): Promise<bigint> {
 		const { destClient } = this.clientManager.getClientsForOrder(order)
@@ -603,7 +632,10 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Gets the host nonce
+	 * Gets the current nonce from the host contract.
+	 *
+	 * @param chain - The chain identifier to get the host nonce for
+	 * @returns The current nonce value
 	 */
 	async getHostNonce(chain: string): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
@@ -617,7 +649,12 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Gets the host latest state machine height
+	 * Gets the latest state machine height from the host.
+	 * If a chain is specified, gets the height for that chain's state machine.
+	 * Otherwise, gets the current block number from the Hyperbridge API.
+	 *
+	 * @param chain - Optional chain identifier to get specific state machine height
+	 * @returns The latest state machine height or current block number
 	 */
 	async getHostLatestStateMachineHeight(chain?: string): Promise<bigint> {
 		if (!this.api) {
@@ -656,6 +693,12 @@ export class ContractInteractionService {
 		return BigInt(latestHeight.toString())
 	}
 
+	/**
+	 * Calculates the total USD value of tokens in an order's inputs and outputs.
+	 *
+	 * @param order - The order to calculate token values for
+	 * @returns An object containing the total USD values of outputs and inputs
+	 */
 	async getTokenUsdValue(order: Order): Promise<{ outputUsdValue: Decimal; inputUsdValue: Decimal }> {
 		const { destClient, sourceClient } = this.clientManager.getClientsForOrder(order)
 		let outputUsdValue = new Decimal(0)
@@ -722,6 +765,13 @@ export class ContractInteractionService {
 		}
 	}
 
+	/**
+	 * Gets the filler's token balances and their total USD value on a specific chain.
+	 * Includes native token, DAI, USDT, and USDC balances.
+	 *
+	 * @param chain - The chain identifier to get balances for
+	 * @returns An object containing individual token balances and total USD value
+	 */
 	async getFillerBalanceUSD(chain: string): Promise<{
 		nativeTokenBalance: bigint
 		daiBalance: bigint

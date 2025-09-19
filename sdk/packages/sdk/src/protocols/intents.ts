@@ -7,8 +7,9 @@ import {
 	MOCK_ADDRESS,
 	ERC20Method,
 	adjustFeeDecimals,
+	fetchPrice,
 } from "@/utils"
-import { maxUint256, toHex } from "viem"
+import { formatUnits, maxUint256, parseUnits, toHex } from "viem"
 import { DispatchPost, type FillOptions, type HexString, type IPostRequest, type Order } from "@/types"
 import IntentGatewayABI from "@/abis/IntentGateway"
 import UniswapV2Factory from "@/abis/uniswapV2Factory"
@@ -17,8 +18,8 @@ import UniswapV3Factory from "@/abis/uniswapV3Factory"
 import UniswapV3Pool from "@/abis/uniswapV3Pool"
 import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
-import { type PublicClient } from "viem"
 import { EvmChain } from "@/chains/evm"
+import { Decimal } from "decimal.js"
 
 /**
  * IntentGateway handles cross-chain intent operations between EVM chains.
@@ -137,6 +138,7 @@ export class IntentGateway {
 		]
 
 		let destChainFillGas = 0n
+		let filledWithNativeToken = false
 
 		try {
 			let protocolFeeInNativeToken = await this.quoteNative(postRequest, relayerFeeInDestFeeToken)
@@ -153,6 +155,7 @@ export class IntentGateway {
 				value: totalEthValue + protocolFeeInNativeToken,
 				stateOverride: stateOverrides as any,
 			})
+			filledWithNativeToken = true
 		} catch {
 			console.warn(
 				`Could not estimate gas for fill order with native token as fees for chain ${order.destChain}, now trying with fee token as fees`,
@@ -202,22 +205,27 @@ export class IntentGateway {
 		)
 
 		const protocolFeeInSourceFeeToken = adjustFeeDecimals(
-			// Following baseIsmpModule.sol, the protocol fee is added to the relayer fee
-			(await this.dest.quote(postRequest)) + relayerFeeInDestFeeToken,
+			await this.dest.quote(postRequest),
 			destChainFeeTokenDecimals,
 			sourceChainFeeTokenDecimals,
 		)
 
-		const totalEstimate = fillGasInSourceFeeToken + protocolFeeInSourceFeeToken + relayerFeeInSourceFeeToken
+		let totalEstimateInSourceFeeToken =
+			fillGasInSourceFeeToken + protocolFeeInSourceFeeToken + relayerFeeInSourceFeeToken
 
-		const SWAP_OPERATIONS_BPS = 3500n
-		const swapOperationsInFeeToken = (totalEstimate * SWAP_OPERATIONS_BPS) / 10000n
-		const totalFeeTokenAmount = totalEstimate + swapOperationsInFeeToken
+		if (!filledWithNativeToken) {
+			// Testnet block
+			totalEstimateInSourceFeeToken =
+				totalEstimateInSourceFeeToken + (totalEstimateInSourceFeeToken * 200n) / 10000n
+		}
 
-		const totalNativeTokenAmount = await this.convertFeeTokenToNative(totalFeeTokenAmount, "source")
+		let totalNativeTokenAmount = await this.convertFeeTokenToNative(totalEstimateInSourceFeeToken, "source")
+
+		// 2% buffer to avoid close call with filler's internal calculations
+		totalNativeTokenAmount = totalNativeTokenAmount + (totalNativeTokenAmount * 200n) / 10000n
 
 		return {
-			feeTokenAmount: totalFeeTokenAmount,
+			feeTokenAmount: totalEstimateInSourceFeeToken,
 			nativeTokenAmount: totalNativeTokenAmount,
 			postRequestCalldata,
 		}
@@ -228,8 +236,7 @@ export class IntentGateway {
 	 * Uses USD pricing to convert between fee token amounts and native token costs.
 	 *
 	 * @param feeTokenAmount - The amount in fee token (DAI)
-	 * @param publicClient - The client for the chain to get native token info
-	 * @param feeTokenDecimals - The decimal places of the fee token
+	 * @param getQuoteIn - Whether to use "source" or "dest" chain for the conversion
 	 * @returns The fee token amount converted to native token amount
 	 * @private
 	 */
@@ -239,15 +246,28 @@ export class IntentGateway {
 		const wethAsset = this[getQuoteIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
 		const feeToken = await this[getQuoteIn].getFeeTokenWithDecimals()
 
-		const { amountOut } = await this.findBestProtocolWithAmountIn(
-			getQuoteIn,
-			feeToken.address,
-			wethAsset,
-			feeTokenAmount,
-			"v2",
-		)
+		try {
+			const { amountOut } = await this.findBestProtocolWithAmountIn(
+				getQuoteIn,
+				feeToken.address,
+				wethAsset,
+				feeTokenAmount,
+				"v2",
+			)
 
-		return amountOut
+			if (amountOut === 0n) {
+				throw new Error()
+			}
+			return amountOut
+		} catch {
+			// Testnet block
+			const nativeCurrency = client.chain?.nativeCurrency
+			const chainId = client.chain?.id
+			const feeTokenAmountDecimal = new Decimal(formatUnits(feeTokenAmount, feeToken.decimals))
+			const nativeTokenPriceUsd = new Decimal(await fetchPrice(nativeCurrency?.symbol!, chainId))
+			const totalCostInNativeToken = feeTokenAmountDecimal.dividedBy(nativeTokenPriceUsd)
+			return parseUnits(totalCostInNativeToken.toFixed(nativeCurrency?.decimals!), nativeCurrency?.decimals!)
+		}
 	}
 
 	/**
@@ -255,8 +275,7 @@ export class IntentGateway {
 	 * Uses USD pricing to convert between native token gas costs and fee token amounts.
 	 *
 	 * @param gasEstimate - The estimated gas units
-	 * @param publicClient - The client for the chain to get gas prices
-	 * @param targetDecimals - The decimal places of the target fee token
+	 * @param gasEstimateIn - Whether to use "source" or "dest" chain for the conversion
 	 * @returns The gas cost converted to fee token amount
 	 * @private
 	 */
@@ -268,17 +287,38 @@ export class IntentGateway {
 		const wethAddr = this[gasEstimateIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
 		const feeToken = await this[gasEstimateIn].getFeeTokenWithDecimals()
 
-		const { amountOut } = await this.findBestProtocolWithAmountIn(
-			gasEstimateIn,
-			wethAddr,
-			feeToken.address,
-			gasCostInWei,
-			"v2",
-		)
-
-		return amountOut
+		try {
+			const { amountOut } = await this.findBestProtocolWithAmountIn(
+				gasEstimateIn,
+				wethAddr,
+				feeToken.address,
+				gasCostInWei,
+				"v2",
+			)
+			if (amountOut === 0n) {
+				throw new Error()
+			}
+			return amountOut
+		} catch {
+			// Testnet block
+			const nativeCurrency = client.chain?.nativeCurrency
+			const chainId = client.chain?.id
+			const gasCostInToken = new Decimal(formatUnits(gasCostInWei, nativeCurrency?.decimals!))
+			const tokenPriceUsd = await fetchPrice(nativeCurrency?.symbol!, chainId)
+			const gasCostUsd = gasCostInToken.times(tokenPriceUsd)
+			const feeTokenPriceUsd = new Decimal(1) // stable coin
+			const gasCostInFeeToken = gasCostUsd.dividedBy(feeTokenPriceUsd)
+			return parseUnits(gasCostInFeeToken.toFixed(feeToken.decimals), feeToken.decimals)
+		}
 	}
 
+	/**
+	 * Gets a quote for the native token cost of dispatching a post request.
+	 *
+	 * @param postRequest - The post request to quote
+	 * @param fee - The fee amount in fee token
+	 * @returns The native token amount required
+	 */
 	async quoteNative(postRequest: IPostRequest, fee: bigint): Promise<bigint> {
 		const dispatchPost: DispatchPost = {
 			dest: toHex(postRequest.dest),
@@ -303,7 +343,7 @@ export class IntentGateway {
 	 * Finds the best Uniswap protocol (V2, V3, or V4) for swapping tokens given a desired output amount.
 	 * Compares liquidity and pricing across different protocols and fee tiers.
 	 *
-	 * @param chain - The chain identifier where the swap will occur
+	 * @param getQuoteIn - Whether to use "source" or "dest" chain for the swap
 	 * @param tokenIn - The address of the input token
 	 * @param tokenOut - The address of the output token
 	 * @param amountOut - The desired output amount
@@ -509,10 +549,11 @@ export class IntentGateway {
 	 * Finds the best Uniswap protocol (V2, V3, or V4) for swapping tokens given an input amount.
 	 * Compares liquidity and pricing across different protocols and fee tiers.
 	 *
-	 * @param chain - The chain identifier where the swap will occur
+	 * @param getQuoteIn - Whether to use "source" or "dest" chain for the swap
 	 * @param tokenIn - The address of the input token
 	 * @param tokenOut - The address of the output token
 	 * @param amountIn - The input amount to swap
+	 * @param selectedProtocol - Optional specific protocol to use ("v2", "v3", or "v4")
 	 * @returns Object containing the best protocol, expected output amount, and fee tier (for V3/V4)
 	 */
 	async findBestProtocolWithAmountIn(

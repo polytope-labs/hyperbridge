@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/filler",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "IntentGateway filler package for hyperbridge",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",

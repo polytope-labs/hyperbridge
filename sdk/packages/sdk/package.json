@@ -67,6 +67,7 @@
 		"@polkadot/util-crypto": "latest",
 		"@types/lodash-es": "^4.17.12",
 		"consola": "^3.4.2",
+		"decimal.js": "^10.5.0",
 		"graphql": "^16.10.0",
 		"graphql-request": "^7.1.2",
 		"lodash-es": "^4.17.15",

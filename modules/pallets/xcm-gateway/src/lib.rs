@@ -340,7 +340,10 @@ where
 		ensure!(
 			!matches!(
 				request.source_chain(),
-				StateMachine::Kusama(_) | StateMachine::Polkadot(_) | StateMachine::Substrate(_)
+				StateMachine::Kusama(_) |
+					StateMachine::Polkadot(_) |
+					StateMachine::Substrate(_) |
+					StateMachine::Relay { .. }
 			),
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Illegal source chain".to_string(),

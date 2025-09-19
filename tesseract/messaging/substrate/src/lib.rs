@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use anyhow::Context;
 use std::sync::Arc;
 
 use polkadot_sdk::sp_core::{bytes::from_hex, sr25519, Pair};
@@ -59,7 +60,7 @@ pub struct SubstrateConfig {
 	/// Maximum size in bytes for the rpc payloads, both requests & responses.
 	pub max_rpc_payload_size: Option<u32>,
 	/// Relayer account seed
-	pub signer: Option<String>,
+	pub signer: String,
 	/// Initial height from which to start querying messages
 	pub initial_height: Option<u64>,
 	/// Max concurrent rpc requests allowed
@@ -126,11 +127,8 @@ where
 				.number()
 				.into()
 		};
-		let bytes = config
-			.signer
-			.clone()
-			.and_then(|seed| from_hex(&seed).ok())
-			.unwrap_or(H256::random().0.to_vec());
+		let bytes =
+			from_hex(&config.signer).context("Signer must be a valid hex-encoded String")?;
 		let signer = sr25519::Pair::from_seed_slice(&bytes)?;
 		let mut consensus_state_id: ConsensusStateId = Default::default();
 		consensus_state_id

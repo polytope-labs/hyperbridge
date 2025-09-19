@@ -18,7 +18,7 @@ async fn test_payload_proof_verification() {
 	let op_orl = std::env::var("OP_URL").expect("OP_URL must be set.");
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
 	let host = HostConfig {
-		beacon_rpc_url: vec![geth_url],
+		ethereum_rpc_url: vec![geth_url],
 		l2_oracle: Some(H160::from(L2_ORACLE)),
 		message_parser: H160::from(MESSAGE_PARSER),
 		dispute_game_factory: Some(H160::from(DISPUTE_GAME_FACTORY)),
@@ -74,7 +74,7 @@ async fn test_dispute_game_proof_verification() {
 	let op_orl = std::env::var("OP_URL").expect("OP_URL must be set.");
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
 	let host = HostConfig {
-		beacon_rpc_url: vec![geth_url],
+		ethereum_rpc_url: vec![geth_url],
 		l2_oracle: Some(H160::from(L2_ORACLE)),
 		message_parser: H160::from(MESSAGE_PARSER),
 		dispute_game_factory: Some(H160::from(DISPUTE_GAME_FACTORY)),

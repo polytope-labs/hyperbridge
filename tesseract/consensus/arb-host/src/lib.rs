@@ -36,7 +36,7 @@ pub struct ArbConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
 	/// RPC url for beacon execution client
-	pub beacon_rpc_url: Vec<String>,
+	pub ethereum_rpc_url: Vec<String>,
 	/// RollupCore contract address on L1
 	pub rollup_core: H160,
 	/// State machine Identifier for the L1/Beacon chain.
@@ -90,7 +90,7 @@ impl ArbHost {
 			None,
 		));
 		let beacon_client = Provider::new(Http::new_client_with_chain_middleware(
-			host.beacon_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+			host.ethereum_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
 			None,
 		));
 

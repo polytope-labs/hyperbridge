@@ -21,7 +21,7 @@ async fn test_payload_proof_verification() {
 	let arb_url = std::env::var("ARB_URL").expect("ARB_URL must be set.");
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
 	let host = HostConfig {
-		beacon_rpc_url: vec![geth_url],
+		ethereum_rpc_url: vec![geth_url],
 		rollup_core: H160::from_slice(&ROLLUP_CORE),
 		l1_state_machine: StateMachine::Evm(10),
 		l1_consensus_state_id: "ETH0".to_string(),

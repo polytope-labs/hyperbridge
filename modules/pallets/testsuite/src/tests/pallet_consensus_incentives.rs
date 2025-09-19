@@ -60,7 +60,7 @@ fn setup_host_and_message(host: &Ismp) -> (Message, AccountId32) {
 	setup_balances(&relayer_account.clone().into(), &treasury_account);
 
 	let consensus_proof: Vec<u8> = vec![0];
-	let signed_data = keccak_256(&consensus_proof.encode());
+	let signed_data = keccak_256(&consensus_proof);
 	let signature = relayer_pair.sign(&signed_data);
 	let signature = Signature::Sr25519 {
 		public_key: relayer_pair.public().to_raw_vec(),

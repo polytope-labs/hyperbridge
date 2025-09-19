@@ -96,39 +96,31 @@ where
 		messages: Vec<MessageWithWeight>,
 		events: Vec<IsmpEvent>,
 	) -> DispatchResultWithPostInfo {
-		let mut state_machine_map = BTreeMap::new();
-
-		for event in events {
-			if let IsmpEvent::StateMachineUpdated(update) = event {
-				state_machine_map.insert(
-					update.state_machine_id.clone(),
-					(update.state_machine_id.consensus_state_id.clone(), update.latest_height),
-				);
-			}
-		}
-
-		for message in messages {
-			if let Message::Consensus(consensus_msg) = message.message {
-				let data = sp_io::hashing::keccak_256(&consensus_msg.consensus_proof.encode());
-				let verification_result = Signature::decode(&mut &consensus_msg.signer[..])
+		let maybe_relayer_account = messages.get(0).and_then(|first_message| {
+			if let Message::Consensus(consensus_msg) = &first_message.message {
+				let data = sp_io::hashing::keccak_256(&consensus_msg.consensus_proof);
+				Signature::decode(&mut &consensus_msg.signer[..])
 					.ok()
-					.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok());
-				if let Some(relayer_account) = verification_result {
-					let maybe_match =
-						state_machine_map.iter().find(|(_, (consensus_state_id, _))| {
-							*consensus_state_id == consensus_msg.consensus_state_id
-						});
+					.and_then(|sig| sig.verify_and_get_sr25519_pubkey(&data, None).ok())
+					.map(|pub_key| pub_key.into())
+			} else {
+				None::<[u8; 32]>
+			}
+		});
 
-					if let Some((state_machine_id, (_, height))) = maybe_match {
-						let state_machine_height =
-							StateMachineHeight { id: state_machine_id.clone(), height: *height };
+		if let Some(relayer_account) = maybe_relayer_account {
+			for event in events {
+				if let IsmpEvent::StateMachineUpdated(update) = event {
+					let state_machine_height = StateMachineHeight {
+						id: update.state_machine_id.clone(),
+						height: update.latest_height,
+					};
 
-						let _ = Self::process_message(
-							state_machine_height,
-							state_machine_id.clone(),
-							relayer_account.into(),
-						);
-					}
+					let _ = Self::process_message(
+						state_machine_height,
+						update.state_machine_id,
+						relayer_account.clone().into(),
+					);
 				}
 			}
 		}

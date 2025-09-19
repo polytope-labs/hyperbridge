@@ -21,7 +21,7 @@ Every order in the Intent Gateway consists of:
 struct Order {
     bytes32 user;           // Address of the user placing the order
     bytes sourceChain;      // Source chain state machine ID
-    bytes destChain;        // Destination chain state machine ID  
+    bytes destChain;        // Destination chain state machine ID
     uint256 deadline;       // Block number deadline on destination chain
     uint256 nonce;          // Unique order identifier
     uint256 fees;           // Execution fees for fillers (in fee token)
@@ -41,7 +41,7 @@ struct TokenInfo {
 
 struct PaymentInfo {
     bytes32 token;        // Token address to provide
-    uint256 amount;       // Amount to provide  
+    uint256 amount;       // Amount to provide
     bytes32 beneficiary;  // Address to receive tokens
 }
 ```
@@ -206,10 +206,12 @@ function placeOrder(Order memory order, bytes32 graffiti) public payable
 ```
 
 **Parameters:**
+
 - `order`: Order details including tokens, amounts, and destination
 - `graffiti`: Optional metadata for the order, bytes32(0) for no graffiti
 
 **Requirements:**
+
 - User must approve token transfers for input amounts
 - Must provide sufficient ETH for native token inputs
 - Order fees can be paid with native tokens (via quotes from `quoteNative()`) or directly with fee tokens
@@ -220,7 +222,7 @@ function placeOrder(Order memory order, bytes32 graffiti) public payable
 // Order to swap 1000 USDC on Ethereum for 1000 USDT on Arbitrum
 Order memory order = Order({
     user: bytes32(0), // Set automatically
-    sourceChain: bytes(""), // Set automatically  
+    sourceChain: bytes(""), // Set automatically
     destChain: toUtf8Bytes("EVM-42161"), // Arbitrum chainId
     deadline: 12345678, // Block number on Arbitrum
     nonce: 0, // Set automatically
@@ -256,10 +258,12 @@ function fillOrder(Order calldata order, FillOptions memory options) public paya
 ```
 
 **Parameters:**
+
 - `order`: The order to fill (must match original exactly)
 - `options`: Fill options including relayer fee
 
 **Requirements:**
+
 - Order must not be expired (before deadline)
 - Order must not be already filled
 - Must be called on the destination chain
@@ -274,7 +278,7 @@ FillOptions memory options = FillOptions({
     relayerFee: 300_000 // $0.25 + execution costs (USDC on Arbitrum, 6 decimals)
 });
 
-// Approve USDT transfer  
+// Approve USDT transfer
 IERC20(USDT_ADDRESS).approve(intentGateway, 1000_000_000);
 
 // Option 1: Pay relayer fee with native tokens (ETH on Arbitrum)
@@ -295,10 +299,12 @@ function cancelOrder(Order calldata order, CancelOptions memory options) public 
 ```
 
 **Parameters:**
+
 - `order`: The order to cancel
 - `options`: Cancel options including relayer fee and height proof
 
 **Requirements:**
+
 - Only order creator can cancel
 - Order must be expired (past deadline)
 - Order must not be filled
@@ -334,6 +340,7 @@ Total Filler Costs = Fill Gas + Protocol Fees + Relayer Fees + Capital Costs
 ```
 
 **Fee Components:**
+
 - **Fill Gas**: Gas to execute `fillOrder()` on destination
 - **Protocol Fees**: ISMP messaging fees (per-byte + base)
 - **Relayer Fees**: Additional fee for message delivery
@@ -344,15 +351,17 @@ Total Filler Costs = Fill Gas + Protocol Fees + Relayer Fees + Capital Costs
 Each chain has a designated fee token with different decimals. The fee tokens may change:
 
 - **Ethereum**: DAI (18 decimals)
-- **Arbitrum**: DAI (18 decimals)  
+- **Arbitrum**: DAI (18 decimals)
 - **Base**: USDC (6 decimals)
 - **BSC**: USDT (18 decimals)
 
 **Fee Payment Options:**
+
 1. **Direct**: Pay in fee token via `transferFrom` (user/filler pre-approves)
 2. **Native**: Pay in ETH/native token using `quoteNative()`
 
-**Important**: 
+**Important**:
+
 - Order fees are always denominated in the **source chain's fee token**, regardless of payment method
 - Relayer fees are denominated in the **destination chain's fee token** (for fills) or **source chain's fee token** (for cancels)
 - Both users and fillers can choose either payment method for their respective fees
@@ -366,7 +375,7 @@ Order Fee: 2.80 DAI (18 decimals) = 2_800_000_000_000_000_000 wei
 
 Filler Costs:
 - Fill Gas: ~$0.15 (varies by chain)
-- Protocol Fee: ~$0.95 (per-byte fee × message size)  
+- Protocol Fee: ~$0.95 (per-byte fee × message size)
 - Relayer Fee: $0.25 (minimum, in destination fee token)
 - Total Costs: ~$1.35
 
@@ -374,6 +383,7 @@ Filler Profit: $2.80 - $1.35 = $1.45
 ```
 
 **Important Notes:**
+
 - Even for USDC→USDC transfers, amounts may differ due to different token decimals
 - USDC on Ethereum: 6 decimals, USDC on Arbitrum: 6 decimals (same)
 - USDC on Ethereum: 6 decimals, USDT on BSC: 18 decimals (different)
@@ -389,6 +399,7 @@ bytes32 commitment = keccak256(abi.encode(order));
 ```
 
 This prevents:
+
 - Order tampering
 - Replay attacks
 - Double spending
@@ -425,7 +436,7 @@ Emitted when a new order is created:
 event OrderPlaced(
     bytes32 user,
     bytes sourceChain,
-    bytes destChain, 
+    bytes destChain,
     uint256 deadline,
     uint256 nonce,
     uint256 fees,
@@ -502,15 +513,15 @@ Different chains use tokens with different decimals:
 // Ethereum USDC: 6 decimals
 const ethUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
 
-// Arbitrum USDC: 6 decimals  
+// Arbitrum USDC: 6 decimals
 const arbUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
 
 // BSC USDT: 18 decimals
 const bscUSDT = ethers.parseUnits("1000", 18); // 1000_000_000_000_000_000_000
 
 // Fee tokens also vary by chain
-const ethFees = ethers.parseEther("2.8");      // DAI: 18 decimals
-const arbFees = ethers.parseUnits("2.8", 6);   // USDC: 6 decimals
+const ethFees = ethers.parseEther("2.8"); // DAI: 18 decimals
+const arbFees = ethers.parseUnits("2.8", 6); // USDC: 6 decimals
 ```
 
 ## Advanced Features
@@ -527,8 +538,9 @@ struct Order {
 ```
 
 **Use Cases:**
+
 - Token approvals after receiving funds
-- DEX trades with received tokens  
+- DEX trades with received tokens
 - Protocol interactions
 - Multi-step transactions
 
@@ -586,12 +598,11 @@ DispatchGet memory request = DispatchGet({
 ```
 
 **How it works:**
+
 1. Source gateway dispatches GET request to query destination storage slot
 2. Relayers monitor GET requests and query the destination chain directly
 3. Relayers submit GET response with proof that storage slot is empty (unfilled)
 4. Source gateway verifies proof and processes refund
-
-
 
 ## Best Practices
 
@@ -612,15 +623,11 @@ DispatchGet memory request = DispatchGet({
 ### For Integrators
 
 1. **Error Handling**: Implement robust error handling for all functions
-2. **Event Monitoring**: Use events for real-time order tracking  
+2. **Event Monitoring**: Use events for real-time order tracking
 3. **Fee Estimation**: Provide accurate fee estimates to users
 4. **Multi-Chain Support**: Handle different fee tokens per chain
-
-
 
 ## Further Reading
 
 - [ISMP Protocol Specification](https://docs.hyperbridge.network/protocol/ismp)
 - [Hyperbridge Filler Documentation](./filler)
-- [Cross-Chain Token Gateway](./token-gateway)
-- [Smart Contract Security Best Practices](./security)

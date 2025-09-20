@@ -60,7 +60,6 @@ use sp_runtime::{
 use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
-use pallet_ismp::weights::IsmpModuleWeight;
 use pallet_messaging_fees::types::PriceOracle;
 use substrate_state_machine::SubstrateStateMachine;
 use xcm_simulator::mock_message_queue;

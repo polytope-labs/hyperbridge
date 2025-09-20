@@ -16883,6 +16883,7 @@ dependencies = [
  "alloy-sol-types 0.7.7",
  "anyhow",
  "ismp",
+ "log",
  "pallet-ismp",
  "pallet-token-gateway",
  "pallet-token-governor",

@@ -2,6 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use alloy_primitives::hex;
 use alloy_sol_types::SolType;
 use anyhow::anyhow;
 use futures::StreamExt;
@@ -36,9 +37,8 @@ const SEND_AMOUNT: u128 = 2_000_000_000_000;
 #[tokio::test]
 async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
-	let private_key = std::env::var("SUBSTRATE_SIGNING_KEY").ok().unwrap_or(
-		"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
-	);
+	let private_key =
+		"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string();
 	let seed = from_hex(&private_key)?;
 	let pair = sr25519::Pair::from_seed_slice(&seed)?;
 	let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
@@ -75,13 +75,14 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.await
 		.into_iter()
 		.collect::<Result<Vec<_>, _>>()?;
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: Location = Junctions::X4(Arc::new([
 		Junction::AccountId32 { network: None, id: pair.public().into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 1 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
 	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
@@ -186,8 +187,9 @@ async fn force_open_hrmp_channel(
 
 fn junction_to_value(junction: &Junction) -> Value<()> {
 	match junction {
-		Junction::Parachain(id) =>
-			Value::variant("Parachain", Composite::unnamed(vec![Value::u128((*id).into())])),
+		Junction::Parachain(id) => {
+			Value::variant("Parachain", Composite::unnamed(vec![Value::u128((*id).into())]))
+		},
 		Junction::AccountId32 { network, id } => {
 			let network_value = match network {
 				Some(n) => Value::variant("Some", Composite::unnamed(vec![network_id_to_value(n)])),
@@ -210,8 +212,9 @@ fn junction_to_value(junction: &Junction) -> Value<()> {
 			]);
 			Value::variant("AccountKey20", composite)
 		},
-		Junction::GeneralIndex(index) =>
-			Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(*index)])),
+		Junction::GeneralIndex(index) => {
+			Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(*index)]))
+		},
 		_ => unimplemented!("This helper only supports a subset of junctions for now"),
 	}
 }
@@ -276,8 +279,9 @@ fn versioned_location_to_value(loc: &VersionedLocation) -> Value<()> {
 
 fn fungibility_to_value(fun: &Fungibility) -> Value<()> {
 	match fun {
-		Fungibility::Fungible(amount) =>
-			Value::variant("Fungible", Composite::unnamed(vec![Value::u128(*amount)])),
+		Fungibility::Fungible(amount) => {
+			Value::variant("Fungible", Composite::unnamed(vec![Value::u128(*amount)]))
+		},
 		_ => unimplemented!("This helper only supports Fungible variant"),
 	}
 }

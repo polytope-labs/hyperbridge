@@ -15,7 +15,7 @@
 
 use crate::{AssetIds, Config, Pallet};
 use alloc::vec::Vec;
-use codec::Encode;
+use codec::{Decode, Encode};
 use core::{cmp::min, marker::PhantomData};
 use frame_support::traits::{
 	fungibles::{self, Mutate},
@@ -53,6 +53,7 @@ impl TryFrom<WrappedNetworkId> for StateMachine {
 /// description matches a supported Ismp State machine
 pub struct MultilocationToMultiAccount<A>(PhantomData<A>);
 
+#[derive(Encode, Decode, Clone)]
 pub struct MultiAccount<A> {
 	/// Origin substrate account
 	pub substrate_account: A,
@@ -62,6 +63,8 @@ pub struct MultiAccount<A> {
 	pub dest_state_machine: StateMachine,
 	/// Request time out in seconds
 	pub timeout: u64,
+	/// Nonce of the substrate account that sent the tx
+	pub account_nonce: u64,
 }
 
 // Supports a Multilocation interior of Junctions::X3
@@ -74,10 +77,10 @@ where
 {
 	fn convert_location(location: &Location) -> Option<MultiAccount<A>> {
 		match location {
-			Location { parents: 0, interior: Junctions::X3(arc_junctions) } => {
+			Location { parents: 0, interior: Junctions::X4(arc_junctions) } => {
 				// Dereference the Arc to access the underlying array
 				match arc_junctions.as_ref() {
-					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout)] =>
+					[Junction::AccountId32 { id, .. }, Junction::AccountKey20 { network: Some(network), key }, Junction::GeneralIndex(timeout), Junction::GeneralIndex(nonce)] =>
 					{
 						// Ensure that the network Id is one of the supported ethereum networks
 						// If it transforms correctly we return the ethereum account
@@ -88,6 +91,7 @@ where
 							evm_account: H160::from(*key),
 							dest_state_machine,
 							timeout: *timeout as u64,
+							account_nonce: *nonce as u64,
 						})
 					},
 					_ => None,
@@ -204,7 +208,6 @@ where
 	fn deposit_asset(what: &Asset, who: &Location, _context: Option<&XcmContext>) -> XcmResult {
 		// Check we handle this asset.
 		let (asset_id, amount) = Matcher::matches_fungibles(what)?;
-
 		// Ismp xcm transaction
 		if let Some(who) = MultilocationToMultiAccount::<T::AccountId>::convert_location(who) {
 			// We would remove the protocol fee at this point
@@ -231,7 +234,11 @@ where
 			T::Assets::mint_into(asset_id, &pallet_account, remainder)
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
 			// We dispatch an ismp request to the destination chain
-			Pallet::<T>::dispatch_request(who, remainder)
+			let identifier = {
+				let encoded = (who.clone(), amount).encode();
+				sp_io::hashing::keccak_256(&encoded).into()
+			};
+			Pallet::<T>::dispatch_request(who, identifier, remainder)
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
 		} else {
 			Err(MatchError::AccountIdConversionFailed)?

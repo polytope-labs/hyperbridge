@@ -35,14 +35,19 @@ use xcm_simulator::TestExt;
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
 const PARA_ID: u32 = crate::xcm::SIBLING_PARA_ID;
 
+<<<<<<< HEAD
 fn reserve_transfer_on_ah() {
 	let beneficiary: Location = Junctions::X3(Arc::new([
+=======
+	let beneficiary: Location = Junctions::X4(Arc::new([
+>>>>>>> 3b69f424 (add identifier to asset teleported event)
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
 	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
@@ -118,13 +123,14 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 fn should_process_on_accept_module_callback_correctly() {
 	MockNet::reset();
 
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: Location = Junctions::X4(Arc::new([
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
 	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
@@ -220,18 +226,14 @@ fn should_process_on_accept_module_callback_correctly() {
 fn should_process_on_timeout_module_callback_correctly() {
 	MockNet::reset();
 
-	let asset_location = Location::new(1, Here);
-
-	let dest = Location::new(1, [Parachain(PARA_ID)]);
-	let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
-
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: Location = Junctions::X4(Arc::new([
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [0u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
 	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;

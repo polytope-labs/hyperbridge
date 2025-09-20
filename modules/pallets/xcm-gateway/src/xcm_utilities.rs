@@ -236,7 +236,7 @@ where
 				.map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
 			// We dispatch an ismp request to the destination chain
 			let identifier = {
-				let encoded = (who.clone(), amount).encode();
+				let encoded = who.encode();
 				sp_io::hashing::keccak_256(&encoded).into()
 			};
 			Pallet::<T>::dispatch_request(who, identifier, remainder)

@@ -2,7 +2,6 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use alloy_primitives::hex;
 use alloy_sol_types::SolType;
 use anyhow::anyhow;
 use futures::StreamExt;
@@ -33,36 +32,26 @@ use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Hyperbridge, InMemorySign
 
 const SEND_AMOUNT: u128 = 2_000_000_000_000;
 
-#[test]
-fn message_id() {
-	let bytes = vec![
-		106, 206, 18, 24, 137, 48, 158, 220, 103, 108, 104, 89, 2, 100, 104, 162, 242, 2, 244, 168,
-		45, 238, 140, 80, 105, 57, 151, 253, 14, 88, 174, 249,
-	];
-	let hex_string = hex::encode(bytes);
-	println!("Message Id: 0x{hex_string:?}");
-}
-
 #[ignore]
 #[tokio::test]
 async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
-	let private_key =
-		"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string();
+	let private_key = std::env::var("SUBSTRATE_SIGNING_KEY").ok().unwrap_or(
+		"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+	);
 	let seed = from_hex(&private_key)?;
 	let pair = sr25519::Pair::from_seed_slice(&seed)?;
 	let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
-	let url = "ws://127.0.0.1:9922".to_string();
-	// .ok()
-	// .unwrap_or();
+	let url = std::env::var("ROCOCO_LOCAL_URL")
+		.ok()
+		.unwrap_or("ws://127.0.0.1:9922".to_string());
 	let client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
 	let rpc_client = RpcClient::from_url(&url).await?;
 	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 
-	let para_url = "ws://127.0.0.1:9990".to_string();
-	// std::env::var("PARA_LOCAL_URL")
-	// 	.ok()
-	// 	.unwrap_or("ws://127.0.0.1:9990".to_string());
+	let para_url = std::env::var("PARA_LOCAL_URL")
+		.ok()
+		.unwrap_or("ws://127.0.0.1:9990".to_string());
 	let _para_client = OnlineClient::<Hyperbridge>::from_url(&para_url).await?;
 	let para_rpc_client = RpcClient::from_url(&para_url).await?;
 	let para_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(para_rpc_client.clone());
@@ -117,7 +106,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		send_extrinsic(&client, &signer, &tx, None).await?;
 	}
 
-	println!("Submitting xcm call");
 	let ext = subxt::dynamic::tx(
 		"XcmPallet",
 		"limited_reserve_transfer_assets",
@@ -135,8 +123,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.await?
 		.ok_or_else(|| anyhow!("Failed to fetch latest header"))?
 		.number();
-
-	println!("Sending extrinsic");
 
 	send_extrinsic(&client, &signer, &ext, None).await?;
 

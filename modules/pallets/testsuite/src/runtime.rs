@@ -356,7 +356,6 @@ impl pallet_collator_selection::Config for Test {
 }
 impl pallet_collator_manager::Config for Test {
 	type ReputationAsset = ReputationAsset;
-	type DesiredCollators = DesiredCollators;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;
@@ -562,8 +561,9 @@ impl ConsensusClient for MockConsensusClient {
 
 	fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, IsmpError> {
 		let state_machine: Box<dyn StateMachineClient> = match _id {
-			StateMachine::Kusama(2000) | StateMachine::Kusama(2001) =>
-				Box::new(SubstrateStateMachine::<Test>::default()),
+			StateMachine::Kusama(2000) | StateMachine::Kusama(2001) => {
+				Box::new(SubstrateStateMachine::<Test>::default())
+			},
 			_ => Box::new(MockStateMachine),
 		};
 		Ok(state_machine)

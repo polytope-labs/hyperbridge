@@ -150,8 +150,6 @@ pub mod pallet {
 			amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
 			/// Destination chain
 			source: StateMachine,
-			// /// Request commitment
-			// commitment: H256,
 		},
 
 		/// An asset has been refunded and transferred to the beneficiary's account on the
@@ -163,8 +161,6 @@ pub mod pallet {
 			amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
 			/// Destination chain
 			source: StateMachine,
-			// /// Request commitment
-			// commitment: H256,
 		},
 	}
 

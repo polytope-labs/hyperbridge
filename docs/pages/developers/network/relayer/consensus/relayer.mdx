@@ -95,28 +95,21 @@ para_ids = [3367]
 # The WebSocket RPC endpoint for the Hyperbridge parachain.
 rpc_ws = "wss://nexus.ibp.network"
 
-# (Optional) The hashing algorithm used by the parachain. Can be "Keccak" or "Blake2".
+# The hashing algorithm used by the parachain. Can be "Keccak" or "Blake2".
 hashing = "Keccak"
 
-# (Optional) The consensus state identifier for Hyperbridge itself.
-# For Hyperbridge Mainnet, this is "DOT0".
+# The consensus state identifier for Hyperbridge itself.
+# For Hyperbridge Mainnet, this is "DOT0" and "PASO" for Paseo Testnet.
 consensus_state_id = "DOT0"
 
 # The state machine identifier for the Hyperbridge parachain.
 # state_machine = "KUSAMA-4009" # Hyperbridge parachain testnet Testnet
 state_machine = "POLKADOT-3367"
 
-# (Optional) Maximum size in bytes for the rpc payloads, both requests & responses.
-# max_rpc_payload_size = 2
 
 # Relayer account seed. This can be generated using subkey
 signer = "YOUR-PRIVATE-KEY"
 
-# (Optional) Initial height from which to start querying messages.
-# initial_height = 0
-
-# (Optional) Maximum concurrent rpc requests allowed.
-max_concurent_queries = 0
 
 # Relayer-specific configuration.
 [relayer]
@@ -203,11 +196,11 @@ signer = "SIGNER-KEY"
 
 # Host (L1) configuration for the Arbitrum Orbit chain above.
 [arbitrum.host]
-# The RPC URL for the Ethereum node.
+# The RPC URL for the Ethereum execution client.
 ethereum_rpc_url = ["http://localhost:3400"]
 
 # [The address of the RollupCore contract on the L1.](https://docs.arbitrum.io/build-decentralized-apps/reference/contract-addresses)
-rollup_core = "ROLLUP-CONTRACT-ADDRESS"
+rollup_core = "0x4DCeB440657f21083db8aDd07665f8ddBe1DCfc0"
 
 # State machine Identifier for the L1/Beacon chain.
 l1_state_machine = "EVM-1"
@@ -243,8 +236,14 @@ signer = "SIGNER-KEY"
 
 # Host (L1) configuration for the OP Stack chain above.
 [optimism.host]
+# The RPC URL for the Ethereum execution client.
+ethereum_rpc_url = ["http://localhost:3400"]
+
 # [The address of the DisputeGameFactory contract on the L1.](https://docs.optimism.io/superchain/addresses)
-dispute_game_factory = "DISPUTE-GAME-FACTORY-ADDRESS"
+dispute_game_factory = "0xe5965Ab5962eDc7477C8520243A95517CD252fA9"
+
+# L2 Message parser contract
+message_parser = "0x4200000000000000000000000000000000000016"
 
 # State machine Identifier for the L1/Beacon chain.
 l1_state_machine = "EVM-1"
@@ -252,6 +251,95 @@ l1_state_machine = "EVM-1"
 # L1 Consensus state Id representation.
 l1_consensus_state_id = "ETH0"
 ```
+
+
+#### Base
+```toml
+# Configuration for an OP Stack chain (L2).
+[base]
+# The type of chain configuration. "op_stack" is for Optimism L2s and other OP Stack chains.
+type = "op_stack"
+
+# The state machine identifier for this chain, formatted as "EVM-{chainId}".
+state_machine = "EVM-8453"
+
+# A list of HTTP(s) RPC URLs for this chain.
+rpc_urls = ["http://localhost:3400"]
+
+# Etherscan API key for this chain.
+etherscan_api_key = "API-KEY"
+
+# The deployed IsmpHost contract address on this Optimism chain.
+ismp_host = "0x6FFe92e4d7a9D589549644544780e6725E84b248"
+
+# The consensus state identifier for this chain's host (L1) on Hyperbridge.
+consensus_state_id = "BASE"
+
+# Hex-encoded private key for the relayer account on this chain.
+signer = "SIGNER-KEY"
+
+# Host (L1) configuration for the OP Stack chain above.
+[base.host]
+# The RPC URL for the Ethereum execution client.
+ethereum_rpc_url = ["http://localhost:3400"]
+
+# [The address of the DisputeGameFactoryProxy contract on the L1.](https://docs.base.org/base-chain/network-information/base-contracts)
+dispute_game_factory = "0x43edB88C4B80fDD2AdFF2412A7BebF9dF42cB40e"
+
+# L2 Message parser contract
+message_parser = "0x4200000000000000000000000000000000000016"
+
+# State machine Identifier for the L1/Beacon chain.
+l1_state_machine = "EVM-1"
+
+# L1 Consensus state Id representation.
+l1_consensus_state_id = "ETH0"
+```
+
+
+#### Soneium
+```toml
+# Configuration for an OP Stack chain (L2).
+[soneium]
+# The type of chain configuration. "op_stack" is for Optimism L2s and other OP Stack chains.
+type = "op_stack"
+
+# The state machine identifier for this chain, formatted as "EVM-{chainId}".
+state_machine = "EVM-1868"
+
+# A list of HTTP(s) RPC URLs for this chain.
+rpc_urls = ["http://localhost:3400"]
+
+# Etherscan API key for this chain.
+etherscan_api_key = "API-KEY"
+
+# The deployed IsmpHost contract address on this Optimism chain.
+ismp_host = "0x7F0165140D0f3251c8f6465e94E9d12C7FD40711"
+
+# The consensus state identifier for this chain's host (L1) on Hyperbridge.
+consensus_state_id = "SON0"
+
+# Hex-encoded private key for the relayer account on this chain.
+signer = "SIGNER-KEY"
+
+# Host (L1) configuration for the OP Stack chain above.
+[soneium.host]
+# The RPC URL for the Ethereum execution client.
+ethereum_rpc_url = ["http://localhost:3400"]
+
+# [The address of the DisputeGameFactoryProxy contract on the L1.](https://docs.soneium.org/docs/builders/contracts)
+dispute_game_factory = "0x512a3d2c7a43bd9261d2b8e8c9c70d4bd4d503c0"
+
+# L2 Message parser contract
+message_parser = "0x4200000000000000000000000000000000000016"
+
+# State machine Identifier for the L1/Beacon chain.
+l1_state_machine = "EVM-1"
+
+# L1 Consensus state Id representation.
+l1_consensus_state_id = "ETH0"
+```
+
 
 #### BSC
 ```toml
@@ -312,7 +400,7 @@ ismp_host = "0x50c236247447B9d4Ee0561054ee596fbDa7791b1"
 # Hex-encoded private key for the relayer account on this chain.
 signer = "SIGNER-KEY"
 
-# Host configuration for this chain (as it hosts L2s).
+# Host configuration for this chain.
 [gnosis.host]
 # A list of HTTP URLs for the consensus layer beacon node.
 beacon_http_urls = [
@@ -350,8 +438,14 @@ signer = "SIGNER-KEY"
 
 # Host (L1) configuration for the OP Stack chain above.
 [unichain.host]
+# The RPC URL for the Ethereum execution client.
+ethereum_rpc_url = ["http://localhost:3400"]
+
 # [The address of the DisputeGameFactory contract on the L1.](https://docs.unichain.org/docs/technical-information/contract-addresses)
-dispute_game_factory = "DISPUTE-GAME-FACTORY-ADDRESS"
+dispute_game_factory = "0x2F12d621a16e2d3285929C9996f478508951dFe4"
+
+# L2 Message parser contract
+message_parser = "0x4200000000000000000000000000000000000016"
 
 # State machine Identifier for the L1/Beacon chain.
 l1_state_machine = "EVM-1"
@@ -359,6 +453,7 @@ l1_state_machine = "EVM-1"
 # L1 Consensus state Id representation.
 l1_consensus_state_id = "ETH0"
 ```
+
 Before running the relayer, please review your configuration file and ensure you have replaced all placeholder values.
 
 #### Important Check list

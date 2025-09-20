@@ -35,12 +35,8 @@ use xcm_simulator::TestExt;
 const SEND_AMOUNT: u128 = 1000_000_000_0000;
 const PARA_ID: u32 = crate::xcm::SIBLING_PARA_ID;
 
-<<<<<<< HEAD
 fn reserve_transfer_on_ah() {
-	let beneficiary: Location = Junctions::X3(Arc::new([
-=======
 	let beneficiary: Location = Junctions::X4(Arc::new([
->>>>>>> 3b69f424 (add identifier to asset teleported event)
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 97 }),

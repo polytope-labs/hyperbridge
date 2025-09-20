@@ -1,7 +1,7 @@
 use crate::runtime::{
 	new_test_ext, Assets, Balance, Balances, CollatorBondLockId, CollatorManager,
-	CollatorSelection, ReputationAssetId, RuntimeCall, RuntimeOrigin, Session, Sudo, Test, Vesting,
-	ALICE, BOB, CHARLIE, DAVE, INITIAL_BALANCE, UNIT,
+	CollatorSelection, ReputationAssetId, RuntimeOrigin, Session, Sudo, Test, Vesting, ALICE, BOB,
+	CHARLIE, DAVE, INITIAL_BALANCE, UNIT,
 };
 use frame_system::Pallet as System;
 use pallet_collator_manager::Error;
@@ -11,8 +11,7 @@ use polkadot_sdk::{
 	frame_support::{
 		assert_err, assert_ok,
 		traits::{
-			fungible::Mutate as BalanceMutate, fungibles::Mutate, Currency, LockableCurrency,
-			OnInitialize, ReservableCurrency,
+			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, ReservableCurrency,
 		},
 	},
 	pallet_balances::BalanceLock,

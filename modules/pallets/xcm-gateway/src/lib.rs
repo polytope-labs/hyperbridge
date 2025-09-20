@@ -137,6 +137,8 @@ pub mod pallet {
 			dest: StateMachine,
 			/// Request commitment
 			commitment: H256,
+			/// XCM message hash
+			message_id: H256,
 		},
 
 		/// An asset has been received and transferred to the beneficiary's account on the
@@ -148,6 +150,8 @@ pub mod pallet {
 			amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
 			/// Destination chain
 			source: StateMachine,
+			// /// Request commitment
+			// commitment: H256,
 		},
 
 		/// An asset has been refunded and transferred to the beneficiary's account on the
@@ -159,6 +163,8 @@ pub mod pallet {
 			amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
 			/// Destination chain
 			source: StateMachine,
+			// /// Request commitment
+			// commitment: H256,
 		},
 	}
 
@@ -253,6 +259,7 @@ where
 	/// Dispatch ismp request to token gateway on destination chain
 	pub fn dispatch_request(
 		multi_account: MultiAccount<T::AccountId>,
+		identifier: H256,
 		amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
 	) -> Result<(), Error<T>> {
 		let dispatcher = <T as Config>::IsmpHost::default();
@@ -300,6 +307,7 @@ where
 			dest: multi_account.dest_state_machine,
 			amount,
 			commitment,
+			message_id: identifier,
 		});
 
 		Ok(())

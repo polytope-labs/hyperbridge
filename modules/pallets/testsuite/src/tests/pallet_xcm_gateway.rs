@@ -29,13 +29,14 @@ pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 	MockNet::reset();
 
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: Location = Junctions::X4(Arc::new([
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
 	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
@@ -86,13 +87,14 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 fn should_process_on_accept_module_callback_correctly() {
 	MockNet::reset();
 
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: Location = Junctions::X4(Arc::new([
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
 	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
@@ -192,13 +194,14 @@ fn should_process_on_accept_module_callback_correctly() {
 fn should_process_on_timeout_module_callback_correctly() {
 	MockNet::reset();
 
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: Location = Junctions::X4(Arc::new([
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 97 }),
 			key: [0u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
 	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;

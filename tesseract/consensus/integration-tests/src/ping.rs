@@ -20,7 +20,7 @@ use hex_literal::hex;
 use ismp::{events::Event, host::StateMachine, router::Request};
 use ismp_solidity_abi::evm_host::EvmHost;
 use primitive_types::{H160, U256};
-use sp_core::Pair;
+use sp_core::{Pair, H256};
 use tesseract_evm::{
 	abi::{erc_20::Erc20, PingMessage, PingModule},
 	EvmConfig,
@@ -59,7 +59,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 		consensus_state_id: Some("PARA".to_string()),
 		// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		rpc_ws: "ws://127.0.0.1:9001".to_string(),
-		signer: None,
+		signer: format!("{:?}", H256::random()),
 		initial_height: None,
 		poll_interval: None,
 		max_concurent_queries: None,

@@ -853,7 +853,7 @@ mod tests {
 			// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 			rpc_ws: "ws://localhost:9902".to_string(),
 			max_rpc_payload_size: None,
-			signer: None,
+			signer: format!("{:?}", H256::random()),
 			initial_height: None,
 			max_concurent_queries: None,
 			poll_interval: None,

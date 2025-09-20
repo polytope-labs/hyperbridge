@@ -46,7 +46,7 @@ pub struct OpConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
 	/// WS url for the beacon execution client
-	pub beacon_rpc_url: Vec<String>,
+	pub ethereum_rpc_url: Vec<String>,
 	/// L2Oracle contract address on L1
 	pub l2_oracle: Option<H160>,
 	/// DisputeGameFactory contract address on L1
@@ -143,7 +143,7 @@ impl OpHost {
 			None,
 		));
 		let beacon_client = Provider::new(Http::new_client_with_chain_middleware(
-			host.beacon_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+			host.ethereum_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
 			None,
 		));
 		let l1_chain_id = beacon_client.get_chainid().await?.low_u64();
@@ -281,8 +281,8 @@ impl OpHost {
 			let l2_block_number = contract.l_2_block_number().call().await?;
 			// Since anyone can create dispute games including bots we need to be sure the block
 			// number exists
-			if l2_block_number.low_u64() >
-				self.op_execution_client.get_block_number().await?.low_u64()
+			if l2_block_number.low_u64()
+				> self.op_execution_client.get_block_number().await?.low_u64()
 			{
 				log::trace!(target: "tesseract", "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
 				continue;

@@ -132,7 +132,7 @@ Now, you can choose between any of the networks Hyperbridge supports for your re
 #### Ethereum
 
 ```toml
-# Configuration for Sepolia (L1).
+# Configuration for Ethereum Mainet.
 [ethereum]
 # The type of chain configuration. "evm" is for standard EVM-compatible chains.
 type = "ethereum"
@@ -458,13 +458,12 @@ Before running the relayer, please review your configuration file and ensure you
 
 #### Important Check list
 
-- `YOUR-PRIVATE-KEY`: Your Hyperbridge account's(controller) private key, this you can use subkey to generate.
+- `YOUR-PRIVATE-KEY`: Your Hyperbridge account's(controller) private key, can be generated using subkey. Relayer incentives in BRIDGE tokens will be paid to this account, it should also be the same key used in the messaging relayer.
 - `SIGNER-KEY`: Your EVM account's hex-encoded private key.
-- `API-KEY`: Your Etherscan API key.
-- contract addresses (e.g., rollup_core) are correct for the network.
-- All rpc_urls and ethereum_rpc_url endpoints are correct and accessible.
+- `API-KEY`: Your Etherscan API key. You can obtain the required etherscan v2 API key by following [this guide](https://docs.etherscan.io/). Do note that all EVM chains share the same etherscan API key.
+- All contract addresses in the docs have the correct mainnet values and should not be changed.
+- Replace all rpc urls with highly reliable rpc endpoints for each network
 
-You can obtain the required etherscan API key by following [this guide](https://docs.etherscan.io/getting-started/viewing-api-usage-statistics) for the appropriate network. Do note that since Ethereum and its L2s all use Ether as the gas token. They can all share the same etherscan API key.
 
 ### Contract addresses
 

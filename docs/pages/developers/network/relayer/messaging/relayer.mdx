@@ -160,14 +160,21 @@ The configuration file is a toml file that at the moment, that expects the follo
 ```toml
 # Hyperbridge config, required
 [hyperbridge]
+# For mainnet "POLKADOT-3367"
 state_machine = "KUSAMA-4009"
+
+hashing = "Keccak"
 
 # Hyperbridge node ws rpc endpoint.
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 
+# hex-encoded private key for the relayer account on Hyperbridge.
+# This is the private key to the Hyperbridge account where you earn BRIDGE token rewards
+signer = ""
+
 # Sets the maximum size of an rpc request or response
 #  in bytes defaults to 150mb
-max_rpc_payload_size = 150000000
+# max_rpc_payload_size = 150000000
 
 # (Optional) initial height
 # This sets the height at which to start querying messages,
@@ -185,7 +192,7 @@ max_rpc_payload_size = 150000000
 # same relayer instance is not supported.
 # For Paseo Testnet: PAS0
 # For Polkadot Mainnet: DOT0
-# consensus_state_id = "PAS0"
+consensus_state_id = "PAS0"
 
 # Relayer config, required
 [relayer]
@@ -193,7 +200,7 @@ max_rpc_payload_size = 150000000
 # 0 -> 0% i.e relay all requests, even unprofitable ones.
 # 1 -> 1%. ie fees provided for requests must be
 # profitable by at least 1%. etc.
-minimum_profit_percentage = 0
+minimum_profit_percentage = 1
 
 # How frequently to initiate withdrawals in seconds
 # defaults to 24 hours
@@ -234,9 +241,8 @@ delivery_endpoints = [
 # Here you'll declare a new chain entry
 # for every chain you want to support.
 
-# eg ethereum
+# Configuraion for EVM chains
 [ethereum]
-# configuration type can be either "evm" or "substrate"
 type = "evm"
 
 # State machine identifier for this evm chain.
@@ -264,14 +270,7 @@ rpc_urls = ["http://127.0.0.1:8545", "http://localhost:8545"]
 # for BSC this will be "BSC0".
 consensus_state_id = "ETH0"
 
-# Etherscan api key for querying the
-# state machine's native token price.
-# Do note that ethereum and all
-# its L2's use ETH as the native token
-# So they can all share the same key
-#
-# Bsc on the other hand uses the BNB token
-# and would need its own API key from bscscan
+# Etherscan v2 api key,all evm chains  share the same etherscan api key
 etherscan_api_key = ""
 
 # The IsmpHost contract address on this chain
@@ -326,6 +325,7 @@ signer = ""
 # for new state machine update events
 # poll_interval = 10
 
+# Substrate chain configurations
 [substrate]
 type = "substrate"
 
@@ -343,8 +343,8 @@ hashing = "Blake2"
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 
 # The consensus state identifier for this chain on hyperbridge.
-# "PARA" for parachains
-consensus_state_id = "PARA"
+# "DOT0"  for parachains on mainnet and "PAS0" on Paseo testnet
+consensus_state_id = "PAS0"
 
 # (Optional)
 # Configures the maximum size of an rpc request/response in bytes
@@ -371,7 +371,7 @@ signer = ""
 
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
 
-You can obtain the required etherscan API key by following [this guide](https://docs.etherscan.io/getting-started/viewing-api-usage-statistics) for the appropriate network. Do note that since Ethereum and its L2s all use Ether as the gas token. They can all share the same etherscan API key.
+You can obtain the required etherscan v2 API key by following [this guide](https://docs.etherscan.io/). All EVM chains share the same etherscan API key.
 
 ### RPC Requirements
 

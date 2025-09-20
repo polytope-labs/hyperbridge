@@ -65,13 +65,14 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.await
 		.into_iter()
 		.collect::<Result<Vec<_>, _>>()?;
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: Location = Junctions::X4(Arc::new([
 		Junction::AccountId32 { network: None, id: pair.public().into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 1 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
 	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;

@@ -21,6 +21,7 @@ alloy-primitives = { workspace = true }
 alloy-rlp-derive = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
+log = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

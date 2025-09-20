@@ -26,9 +26,7 @@ use ismp::{
 	module::IsmpModule,
 	router::PostRequest,
 };
-use pallet_hyperbridge::{
-	Message, SubstrateHostParams, VersionedHostParams, WithdrawalRequest, PALLET_HYPERBRIDGE,
-};
+use pallet_hyperbridge::{Message, SubstrateHostParams, VersionedHostParams, WithdrawalRequest};
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
 
 use crate::runtime::{new_test_ext, Balances, Coprocessor, Hyperbridge, UNIT};

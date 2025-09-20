@@ -16,7 +16,6 @@
 //! Implementation blocks for pallet-consensus-incentives.
 
 use crate::*;
-use alloc::collections::BTreeMap;
 use crypto_utils::verification::Signature;
 use frame_support::traits::tokens::Preservation;
 use ismp::{

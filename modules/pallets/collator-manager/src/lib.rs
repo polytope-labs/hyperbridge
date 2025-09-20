@@ -72,9 +72,6 @@ pub mod pallet {
 	{
 		/// The pallet-assets instance that manages the reputation token.
 		type ReputationAsset: fungible::Mutate<Self::AccountId, Balance = <Self as pallet::Config>::Balance>;
-		/// A constant that defines the target number of collators for the active set.
-		#[pallet::constant]
-		type DesiredCollators: Get<u32>;
 
 		/// The Native balance type
 		type Balance: Parameter
@@ -134,7 +131,10 @@ pub mod pallet {
 	{
 		fn new_session(_new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
 			let active_collators = <pallet_session::Pallet<T>>::validators();
-			let desired_collators = T::DesiredCollators::get() as usize;
+			let desired_collators = core::cmp::max(
+				pallet_collator_selection::DesiredCandidates::<T>::get(),
+				<T as pallet_collator_selection::Config>::MinEligibleCollators::get(),
+			) as usize;
 
 			let mut new_set_validators: Vec<<T as pallet_session::Config>::ValidatorId> =
 				Vec::new();

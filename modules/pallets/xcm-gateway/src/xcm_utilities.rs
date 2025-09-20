@@ -54,7 +54,7 @@ pub struct MultilocationToMultiAccount<A>(PhantomData<A>);
 
 #[derive(Encode, Decode, Clone)]
 pub struct MultiAccount<A> {
-	/// Origin substrate account
+	/// Origin substrate account on the relaychain
 	pub substrate_account: A,
 	/// Destination evm account
 	pub evm_account: H160,
@@ -62,14 +62,16 @@ pub struct MultiAccount<A> {
 	pub dest_state_machine: StateMachine,
 	/// Request time out in seconds
 	pub timeout: u64,
-	/// Nonce of the substrate account that sent the tx
+	/// Nonce of the substrate account that sent the tx on the relaychain
 	pub account_nonce: u64,
 }
 
 // Supports a Multilocation interior of Junctions::X3
-// Junctions::X3(AccountId32 { .. }, AccountKey20 { .. }, GeneralIndex(..))
-// The value specified in the GeneralIndex will be used as the timeout in seconds for the ismp
+// Junctions::X4(AccountId32 { .. }, AccountKey20 { .. }, GeneralIndex(..), GeneralIndex(..))
+// The value specified in the first GeneralIndex will be used as the timeout in seconds for the ismp
 // request that will be dispatched
+// The value in the second GeneralIndex should be the nonce of the substrate account on the
+// relaychain
 impl<A> ConvertLocation<MultiAccount<A>> for MultilocationToMultiAccount<A>
 where
 	A: From<[u8; 32]> + Into<[u8; 32]> + Clone,

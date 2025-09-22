@@ -8,6 +8,7 @@ export interface IAssetTeleportedArgs {
 	amount: bigint
 	dest: string
 	commitment: string
+	message_id: string
 	chain: string
 	blockNumber: string
 	blockHash: string
@@ -19,10 +20,10 @@ export class AssetTeleportedService {
 	 * Create or update an AssetTeleported record
 	 */
 	static async createOrUpdate(args: IAssetTeleportedArgs): Promise<AssetTeleported> {
-		const { from, to, amount, dest, commitment, chain, blockNumber, blockHash, blockTimestamp } = args
+		const { from, to, amount, dest, commitment, message_id, chain, blockNumber, blockHash, blockTimestamp } = args
 
 		// Use commitment as the unique identifier for the asset teleport
-		const id = commitment
+		const id = message_id
 
 		// Try to find an existing record
 		let assetTeleported = await AssetTeleported.get(id)

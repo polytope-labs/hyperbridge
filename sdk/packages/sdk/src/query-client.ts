@@ -1,5 +1,5 @@
 import { GraphQLClient } from "graphql-request"
-import { DEFAULT_LOGGER, REQUEST_STATUS_WEIGHTS, retryPromise } from "./utils"
+import { DEFAULT_LOGGER, REQUEST_STATUS_WEIGHTS, retryPromise, sleep } from "./utils"
 import type {
 	GetRequestResponse,
 	GetRequestWithStatus,
@@ -16,6 +16,8 @@ import type {
 	TokenRegistry,
 	TokenRegistryResponse,
 	HexString,
+	AssetTeleported,
+	AssetTeleportedResponse,
 } from "./types"
 import type { ConsolaInstance } from "consola"
 import {
@@ -25,6 +27,7 @@ import {
 	TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS,
 	TOKEN_PRICE,
 	TOKEN_REGISTRY,
+	ASSET_TELEPORTED_BY_PARAMS,
 } from "./queries"
 
 export function createQueryClient(config: { url: string }) {
@@ -45,6 +48,32 @@ export function createQueryClient(config: { url: string }) {
  */
 export function queryPostRequest(params: { commitmentHash: string; queryClient: IndexerQueryClient }) {
 	return _queryRequestInternal(params)
+}
+
+/**
+ * Query for asset teleported events by sender, recipient, and destination chain
+ * @param from - The sender address
+ * @param to - The recipient address
+ * @param dest - The destination chain ID
+ * @returns The asset teleported event if found, undefined otherwise
+ */
+export async function queryAssetTeleported(params: {
+	id: string
+	queryClient: IndexerQueryClient
+}): Promise<AssetTeleported | undefined> {
+	const { id, queryClient } = params
+
+	while (true) {
+		const response = await queryClient.request<AssetTeleportedResponse>(ASSET_TELEPORTED_BY_PARAMS, {
+			id,
+		})
+
+		if (response?.assetTeleported) {
+			return response.assetTeleported
+		} else {
+			await sleep(2000)
+		}
+	}
 }
 
 /**

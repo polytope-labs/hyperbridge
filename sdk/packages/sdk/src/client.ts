@@ -1550,31 +1550,6 @@ export class IndexerClient {
 	}
 
 	/**
-	 * Query for asset teleported events by sender, recipient, and destination chain
-	 * @param from - The sender address
-	 * @param to - The recipient address
-	 * @param dest - The destination chain ID
-	 * @returns The asset teleported event if found, undefined otherwise
-	 */
-	async queryAssetTeleported(
-		from: string,
-		to: string,
-		dest: string,
-		blockNumber: number,
-	): Promise<AssetTeleported | undefined> {
-		const response = await this.withRetry(() =>
-			this.client.request<AssetTeleportedResponse>(ASSET_TELEPORTED_BY_PARAMS, {
-				from,
-				to,
-				dest,
-				blockNumber,
-			}),
-		)
-
-		return response.assetTeleporteds.nodes[0]
-	}
-
-	/**
 	 * Executes an async operation with exponential backoff retry
 	 * @param operation - Async function to execute
 	 * @param retryConfig - Optional retry configuration

@@ -498,9 +498,7 @@ export interface AssetTeleported {
 }
 
 export interface AssetTeleportedResponse {
-	assetTeleporteds: {
-		nodes: AssetTeleported[]
-	}
+	assetTeleported: AssetTeleported
 }
 
 export interface StateMachineIdParams {

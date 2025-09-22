@@ -26,7 +26,7 @@ import type { KeyringPair } from "@polkadot/keyring/types"
 import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { u8aToHex, hexToU8a } from "@polkadot/util"
 import { normalizeTimestamp, postRequestCommitment } from "@/utils"
-import { createQueryClient } from "@/query-client"
+import { createQueryClient, queryAssetTeleported } from "@/query-client"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 
 const query_client = createQueryClient({
@@ -77,7 +77,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		})
 	})
 
-	it.skip("should teleport DOT using indexer client", async () => {
+	it("should teleport DOT using indexer client", async () => {
 		const params = {
 			destination: 97,
 			recipient: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" as HexString,
@@ -86,7 +86,7 @@ describe.sequential("Hyperbridge Requests", () => {
 			paraId: 4009,
 		}
 
-		const { hyperbridge, relayApi, bob, signer } = await hyperbridgeSetup()
+		const { relayApi, bob, signer } = await hyperbridgeSetup()
 
 		console.log("Api connected")
 
@@ -94,13 +94,11 @@ describe.sequential("Hyperbridge Requests", () => {
 			// Call the teleport function with indexer
 			console.log("Teleport Dot with Indexer started")
 			const result = await teleportDot({
-				relayApi,
-				hyperbridge,
+				sourceApi: relayApi,
+				sourceIsAssetHub: true,
 				who: bob.address,
 				options: { signer },
 				xcmGatewayParams: params,
-				indexerClient: indexer,
-				pollInterval: 2000,
 			})
 
 			for await (const event of result) {
@@ -115,8 +113,7 @@ describe.sequential("Hyperbridge Requests", () => {
 
 				if (event.kind === "Finalized") {
 					// Verify that required fields are present
-					expect(event.commitment).toBeDefined()
-					expect(event.block_number).toBeDefined()
+					expect(event.message_id).toBeDefined()
 					console.log(event)
 				}
 			}
@@ -125,7 +122,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		}
 	}, 300_000)
 
-	it.skip("It should correctly monitor requests that originate from hyperbridge", async () => {
+	it("It should correctly monitor requests that originate from hyperbridge", async () => {
 		const { bscTestnetClient, bscHandler, bscWalletClient } = await bscSetup()
 		const { hyperbridge, relayApi, bob, signer } = await hyperbridgeSetup()
 		const params = {
@@ -148,13 +145,11 @@ describe.sequential("Hyperbridge Requests", () => {
 			}
 
 			const result = await teleportDot({
-				relayApi,
-				hyperbridge,
+				sourceApi: relayApi,
+				sourceIsAssetHub: true,
 				who: bob.address,
 				options: { signer },
 				xcmGatewayParams: params,
-				indexerClient: indexer,
-				pollInterval: 2000,
 			})
 
 			let commitment
@@ -169,7 +164,9 @@ describe.sequential("Hyperbridge Requests", () => {
 
 				if (event.kind === "Finalized") {
 					console.log(event)
-					commitment = event.commitment
+					expect(event.message_id).toBeDefined()
+					commitment = (await queryAssetTeleported({ id: event.message_id!, queryClient: query_client }))
+						?.commitment! as HexString
 					break
 				}
 			}
@@ -233,7 +230,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		}
 	}, 1_000_000)
 
-	it.skip("It should correctly monitor requests that timeout from hyperbridge", async () => {
+	it("It should correctly monitor requests that timeout from hyperbridge", async () => {
 		const { hyperbridge, relayApi, bob, signer } = await hyperbridgeSetup()
 		const params = {
 			destination: 97,
@@ -254,13 +251,11 @@ describe.sequential("Hyperbridge Requests", () => {
 				throw new Error("Indexer client is not defined")
 			}
 			const stream = await teleportDot({
-				relayApi,
-				hyperbridge,
+				sourceApi: relayApi,
+				sourceIsAssetHub: true,
 				who: bob.address,
 				options: { signer },
 				xcmGatewayParams: params,
-				indexerClient: indexer,
-				pollInterval: 2000,
 			})
 
 			let commitment
@@ -275,7 +270,9 @@ describe.sequential("Hyperbridge Requests", () => {
 
 				if (event.kind === "Finalized") {
 					console.log(event)
-					commitment = event.commitment
+					expect(event.message_id).toBeDefined()
+					commitment = (await queryAssetTeleported({ id: event.message_id!, queryClient: query_client }))
+						?.commitment! as HexString
 					break
 				}
 			}
@@ -323,7 +320,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		}
 	}, 1_200_000)
 
-	it.skip("should successfully deliver requests to Hyperbridge", async () => {
+	it("should successfully deliver requests to Hyperbridge", async () => {
 		const { bscTestnetClient, bscTokenGateway, bscIsmpHost } = await bscSetup()
 		indexer = new IndexerClient({
 			queryClient: query_client,
@@ -407,7 +404,7 @@ describe.sequential("Hyperbridge Requests", () => {
 		expect(final_status).toEqual(RequestStatus.DESTINATION)
 	}, 1_200_000)
 
-	it.skip("should successfully timeout requests sent to Hyperbridge", async () => {
+	it("should successfully timeout requests sent to Hyperbridge", async () => {
 		const { bscTestnetClient, bscTokenGateway, bscHandler, bscIsmpHost } = await bscSetup()
 
 		indexer = new IndexerClient({
@@ -494,12 +491,11 @@ describe.sequential("Hyperbridge Requests", () => {
 			throw new Error("Indexer client is not defined")
 		}
 		const result = await teleportDot({
-			relayApi,
-			hyperbridge,
+			sourceApi: relayApi,
+			sourceIsAssetHub: true,
 			who: bob.address,
 			options: { signer },
 			xcmGatewayParams: params,
-			indexerClient: indexer,
 		})
 
 		let hyp_commitment
@@ -514,7 +510,9 @@ describe.sequential("Hyperbridge Requests", () => {
 
 			if (event.kind === "Finalized") {
 				console.log(event)
-				hyp_commitment = event.commitment
+				expect(event.message_id).toBeDefined()
+				hyp_commitment = (await queryAssetTeleported({ id: event.message_id!, queryClient: query_client }))
+					?.commitment! as HexString
 				break
 			}
 		}

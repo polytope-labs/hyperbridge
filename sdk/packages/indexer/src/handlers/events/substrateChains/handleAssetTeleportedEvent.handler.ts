@@ -12,7 +12,7 @@ export const handleSubstrateAssetTeleportedEvent = wrap(async (event: SubstrateE
 
 	if (!event.event.data) return
 
-	const [from, to, amount, dest, commitment] = event.event.data
+	const [from, to, amount, dest, commitment, message_id] = event.event.data
 
 	// Convert the SS58 address to hex format
 	let fromHex: string
@@ -36,6 +36,7 @@ export const handleSubstrateAssetTeleportedEvent = wrap(async (event: SubstrateE
 			amount: amount.toString(),
 			dest: dest.toString(),
 			commitment: commitment.toString(),
+			message_id: message_id.toString(),
 		})}`,
 	)
 
@@ -50,6 +51,7 @@ export const handleSubstrateAssetTeleportedEvent = wrap(async (event: SubstrateE
 		amount: BigInt(amount.toString()),
 		dest: destId,
 		commitment: commitment.toString(),
+		message_id: message_id.toString(),
 		chain: host,
 		blockNumber: event.block.block.header.number.toString(),
 		blockHash: event.block.block.header.hash.toString(),

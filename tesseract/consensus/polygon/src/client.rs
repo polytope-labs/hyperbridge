@@ -465,9 +465,12 @@ impl Client for HeimdallClient {
 		let mut all_validators = Vec::new();
 		let mut page = 1;
 		let page_size = 100;
-		let mut total_validators = "0".to_string(); // Store the actual total from first response
+		let mut expected_total = 0usize;
 
 		loop {
+			log::debug!(target: "tesseract", "Requesting validators page {} with page_size {} for height {}", 
+					   page, page_size, height);
+
 			let heimdall_response: HeimdallValidatorsResponse = self
 				.rpc_request(
 					"validators",
@@ -479,35 +482,49 @@ impl Client for HeimdallClient {
 				)
 				.await?;
 
-			// Store the total from the first response (this is the authoritative total)
+			log::trace!(target: "tesseract", "Received {} validators in page {}", 
+					   heimdall_response.validators.len(), page);
+
 			if page == 1 {
-				total_validators = heimdall_response.total.clone();
+				expected_total = heimdall_response
+					.total
+					.parse()
+					.map_err(|_| ProverError::ConversionError("Invalid total count".to_string()))?;
+
+				log::info!(target: "tesseract", "Total validators expected: {} for height {}", 
+						  expected_total, height);
 			}
 
+			let validators_before = all_validators.len();
 			all_validators.extend(heimdall_response.clone().validators);
 
-			if heimdall_response.validators.len() < page_size {
+			log::trace!(target: "tesseract", "Added {} validators, total collected: {}/{}", 
+					   all_validators.len() - validators_before, all_validators.len(), expected_total);
+
+			if all_validators.len() >= expected_total {
+				if all_validators.len() > expected_total {
+					log::warn!(target: "tesseract", "Collected more validators than expected! Got {}, expected {}. Truncating to expected count.", 
+							  all_validators.len(), expected_total);
+				} else {
+					log::debug!(target: "tesseract", "Successfully collected all {} validators for height {}", 
+							   expected_total, height);
+				}
+
+				all_validators.truncate(expected_total);
 				break;
 			}
 
 			page += 1;
-
-			// Safety check to prevent infinite loops
-			if page > 10 {
-				log::warn!(target: "tesseract", "Reached maximum page limit (10), stopping pagination");
-				break;
-			}
 		}
 
 		let complete_response = HeimdallValidatorsResponse {
 			block_height: height.to_string(),
 			validators: all_validators.clone(),
 			count: all_validators.len().to_string(),
-			total: total_validators,
+			total: expected_total.to_string(),
 		};
 
 		let heimdall_response = complete_response;
-
 		let validators_response: ValidatorsResponse = heimdall_response.into();
 
 		Ok(validators_response.validators)

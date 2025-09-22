@@ -229,7 +229,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 5_100,
+	spec_version: 5_200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -887,7 +887,6 @@ parameter_types! {
 
 impl pallet_collator_manager::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
-	type DesiredCollators = MinEligibleCollators;
 	type Balance = Balance;
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;

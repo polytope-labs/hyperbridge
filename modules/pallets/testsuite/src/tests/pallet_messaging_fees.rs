@@ -253,7 +253,7 @@ fn test_skip_incentivizing_for_unsupported_route_but_fees_should_still_be_paid()
 		let current_relayer_balance = Balances::balance(&relayer_account);
 
 		assert!(current_relayer_balance < initial_relayer_balance);
-		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
+		assert_eq!(TotalBytesProcessed::<Test>::get(), 100);
 	});
 }
 

@@ -20,11 +20,10 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 		std::env::var("POLYGON_HEIMDALL").expect("POLYGON_HEIMDALL must be set.");
 	let polygon_heimdall_rest =
 		std::env::var("POLYGON_HEIMDALL_REST").expect("POLYGON_HEIMDALL_REST must be set.");
-	let chain_id = std::env::var("POLYGON_CHAIN_ID").expect("POLYGON_CHAIN_ID must be set.");
 
 	let evm_config = EvmConfig {
 		rpc_urls: vec![polygon_execution_url.clone()],
-		state_machine: StateMachine::Evm(chain_id.parse::<u32>().unwrap()),
+		state_machine: StateMachine::Evm(137),
 		consensus_state_id: "POLY".to_string(),
 		ismp_host: Default::default(),
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
@@ -74,9 +73,7 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 			consensus_client_id: *b"PLGN",
 			consensus_state_id: *b"POLY",
 			unbonding_period: 82 * 3600,
-			challenge_periods: vec![(StateMachine::Evm(chain_id.parse::<u32>().unwrap()), 2 * 60)]
-				.into_iter()
-				.collect(),
+			challenge_periods: vec![(StateMachine::Evm(137), 2 * 60)].into_iter().collect(),
 			state_machine_commitments: vec![],
 		})
 		.await?;

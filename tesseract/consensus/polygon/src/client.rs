@@ -462,11 +462,51 @@ impl Client for HeimdallClient {
 	}
 
 	async fn validators(&self, height: u64) -> Result<Vec<Validator>, ProverError> {
-		// Use Heimdall-specific response type
-		let heimdall_response: HeimdallValidatorsResponse =
-			self.rpc_request("validators", json!({"height": height.to_string()})).await?;
+		let mut all_validators = Vec::new();
+		let mut page = 1;
+		let page_size = 100;
+
+		loop {
+			let heimdall_response: HeimdallValidatorsResponse = self
+				.rpc_request(
+					"validators",
+					json!({
+						"height": height.to_string(),
+						"page": page.to_string(),
+						"per_page": page_size.to_string()
+					}),
+				)
+				.await?;
+
+			all_validators.extend(heimdall_response.clone().validators);
+
+			if heimdall_response.validators.len() < page_size {
+				break;
+			}
+
+			page += 1;
+
+			// Safety check to prevent infinite loops
+			if page > 10 {
+				log::warn!(target: "tesseract", "Reached maximum page limit (10), stopping pagination");
+				break;
+			}
+		}
+
+		let mut complete_response = HeimdallValidatorsResponse {
+			block_height: height.to_string(),
+			validators: all_validators,
+			count: "0".to_string(), // Will be set correctly below
+			total: "0".to_string(), // Will be set correctly below
+		};
+
+		complete_response.count = complete_response.validators.len().to_string();
+		complete_response.total = complete_response.validators.len().to_string();
+
+		let heimdall_response = complete_response;
 
 		let validators_response: ValidatorsResponse = heimdall_response.into();
+
 		Ok(validators_response.validators)
 	}
 

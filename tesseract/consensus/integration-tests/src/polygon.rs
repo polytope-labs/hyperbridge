@@ -81,7 +81,7 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 		})
 		.await?;
 
-	println!("created consensus state for testnet");
+	println!("created consensus state");
 
 	polygon_host.start_consensus(Arc::new(chain_a)).await?;
 

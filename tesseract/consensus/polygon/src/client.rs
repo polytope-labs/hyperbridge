@@ -465,6 +465,7 @@ impl Client for HeimdallClient {
 		let mut all_validators = Vec::new();
 		let mut page = 1;
 		let page_size = 100;
+		let mut total_validators = "0".to_string(); // Store the actual total from first response
 
 		loop {
 			let heimdall_response: HeimdallValidatorsResponse = self
@@ -477,6 +478,11 @@ impl Client for HeimdallClient {
 					}),
 				)
 				.await?;
+
+			// Store the total from the first response (this is the authoritative total)
+			if page == 1 {
+				total_validators = heimdall_response.total.clone();
+			}
 
 			all_validators.extend(heimdall_response.clone().validators);
 
@@ -493,15 +499,12 @@ impl Client for HeimdallClient {
 			}
 		}
 
-		let mut complete_response = HeimdallValidatorsResponse {
+		let complete_response = HeimdallValidatorsResponse {
 			block_height: height.to_string(),
-			validators: all_validators,
-			count: "0".to_string(), // Will be set correctly below
-			total: "0".to_string(), // Will be set correctly below
+			validators: all_validators.clone(),
+			count: all_validators.len().to_string(),
+			total: total_validators,
 		};
-
-		complete_response.count = complete_response.validators.len().to_string();
-		complete_response.total = complete_response.validators.len().to_string();
 
 		let heimdall_response = complete_response;
 

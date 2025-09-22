@@ -377,7 +377,7 @@ jobs:
 
             - name: polygon pos integration tests
               run: |
-                  RUST_LOG=tesseract=trace,cargo test -p tesseract-integration-tests -- --nocapture
+                  RUST_LOG=tesseract=trace, cargo test -p tesseract-integration-tests -- --nocapture
 
             - name: Binance Smart Chain integration tests
               run: |

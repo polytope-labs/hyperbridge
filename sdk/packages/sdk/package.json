@@ -1,138 +1,138 @@
 {
-	"name": "@hyperbridge/sdk",
-	"version": "1.3.7",
-	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
-	"type": "module",
-	"types": "./dist/node/index.d.ts",
-	"exports": {
-		".": {
-			"browser": "./dist/browser/index.js",
-			"import": "./dist/node/index.js"
-		},
-		"./plugins/vite": {
-			"import": "./plugins/vite.js",
-			"types": "./plugins/vite.d.ts"
-		}
-	},
-	"files": [
-		"dist",
-		"plugins"
-	],
-	"keywords": [
-		"hyperbridge",
-		"indexer",
-		"subquery",
-		"graphql",
-		"substrate",
-		"blockchain",
-		"interoperability",
-		"cryptocurrency",
-		"evm"
-	],
-	"homepage": "https://github.com/polytope-labs/hyperbridge-sdk#readme",
-	"bugs": {
-		"url": "https://github.com/polytope-labs/hyperbridge-sdk/issues"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/polytope-labs/hyperbridge-sdk.git"
-	},
-	"license": "ISC",
-	"author": "Polytope Labs",
-	"scripts": {
-		"build": "pnpm run generate:config && pnpm run build:browser && pnpm run build:node",
-		"build:node": "tsup --config tsup-node.config.ts",
-		"build:browser": "tsup --config tsup-browser.config.ts",
-		"prepublishOnly": "npm run build",
-		"postinstall": "pnpm run build",
-		"generate:config": "node scripts/generate-chain-config.js",
-		"test": "npm run test:concurrent && npm run test:sequence",
-		"test:file": "vitest --watch=false --maxConcurrency=1",
-		"test:concurrent": "vitest --watch=false --exclude=./src/tests/sequential",
-		"test:sequence": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/**",
-		"test:requests": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/requests.test.ts",
-		"test:intent-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/intentGateway.test.ts",
-		"test:token-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/tokenGateway.test.ts",
-		"test:evm-substrate": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/evm-substrate.test.ts",
-		"test:watch": "vitest --exclude=./src/tests/sequential",
-		"lint": "biome lint .",
-		"lint:fix": "biome lint --write .",
-		"format": "prettier --write \"src/**/*.ts\""
-	},
-	"dependencies": {
-		"@async-generator/merge-race": "^1.0.3",
-		"@polkadot/api": "latest",
-		"@polkadot/types": "latest",
-		"@polkadot/util": "latest",
-		"@polkadot/util-crypto": "latest",
-		"@types/lodash-es": "^4.17.12",
-		"consola": "^3.4.2",
-		"decimal.js": "^10.5.0",
-		"graphql": "^16.10.0",
-		"graphql-request": "^7.1.2",
-		"lodash-es": "^4.17.15",
-		"rpc-websocket-client": "^1.1.4",
-		"scale-ts": "^1.6.1",
-		"std-env": "^3.9.0",
-		"ts-pattern": "^5.6.2",
-		"viem": "^2.34.0"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "^1.9.4",
-		"@hyperbridge/filler": "workspace:*",
-		"@iarna/toml": "^2.2.5",
-		"@polkadot/keyring": "latest",
-		"@polytope-labs/hyperclient": "1.2.0",
-		"@types/node": "^22.13.5",
-		"@vitest/coverage-v8": "^3.1.4",
-		"dotenv": "^16.4.7",
-		"jsdom": "^26.0.0",
-		"log-timestamp": "^0.3.0",
-		"tsup": "^8.4.0",
-		"typescript": "^5.7.3",
-		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.1.4"
-	},
-	"resolutions": {
-		"@polkadot/api": "^16.4.6",
-		"@polkadot/api-augment": "^16.4.6",
-		"@polkadot/api-base": "^16.4.6",
-		"@polkadot/api-contract": "^16.4.6",
-		"@polkadot/api-derive": "^16.4.6",
-		"@polkadot/hw-ledger": "^13.5.6",
-		"@polkadot/keyring": "^13.5.6",
-		"@polkadot/networks": "^13.5.6",
-		"@polkadot/phishing": "^0.25.18",
-		"@polkadot/rpc-augment": "^16.4.6",
-		"@polkadot/rpc-core": "^16.4.6",
-		"@polkadot/rpc-provider": "^16.4.6",
-		"@polkadot/typegen": "^16.4.6",
-		"@polkadot/types": "^16.4.6",
-		"@polkadot/types-augment": "^16.4.6",
-		"@polkadot/types-codec": "^16.4.6",
-		"@polkadot/types-create": "^16.4.6",
-		"@polkadot/types-known": "^16.4.6",
-		"@polkadot/types-support": "^16.4.6",
-		"@polkadot/util": "^13.5.6",
-		"@polkadot/util-crypto": "^13.5.6",
-		"@polkadot/wasm-crypto": "^7.5.1",
-		"@polkadot/x-bigint": "^13.5.6",
-		"@polkadot/x-fetch": "^13.5.6",
-		"@polkadot/x-global": "^13.5.6",
-		"@polkadot/x-randomvalues": "^13.5.6",
-		"@polkadot/x-textdecoder": "^13.5.6",
-		"@polkadot/x-textencoder": "^13.5.6",
-		"@polkadot/x-ws": "^13.5.6",
-		"typescript": "^5.5.4"
-	},
-	"peerDependencies": {
-		"vite": "^5.0.0 || ^6.0.0"
-	},
-	"publishConfig": {
-		"access": "public"
-	},
-	"engineStrict": true,
-	"engines": {
-		"node": ">=22.x.x"
-	}
+  "name": "@hyperbridge/sdk",
+  "version": "1.3.8",
+  "description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
+  "type": "module",
+  "types": "./dist/node/index.d.ts",
+  "exports": {
+    ".": {
+      "browser": "./dist/browser/index.js",
+      "import": "./dist/node/index.js"
+    },
+    "./plugins/vite": {
+      "import": "./plugins/vite.js",
+      "types": "./plugins/vite.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "plugins"
+  ],
+  "keywords": [
+    "hyperbridge",
+    "indexer",
+    "subquery",
+    "graphql",
+    "substrate",
+    "blockchain",
+    "interoperability",
+    "cryptocurrency",
+    "evm"
+  ],
+  "homepage": "https://github.com/polytope-labs/hyperbridge-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/polytope-labs/hyperbridge-sdk/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/polytope-labs/hyperbridge-sdk.git"
+  },
+  "license": "ISC",
+  "author": "Polytope Labs",
+  "scripts": {
+    "build": "pnpm run generate:config && pnpm run build:browser && pnpm run build:node",
+    "build:node": "tsup --config tsup-node.config.ts",
+    "build:browser": "tsup --config tsup-browser.config.ts",
+    "prepublishOnly": "npm run build",
+    "postinstall": "pnpm run build",
+    "generate:config": "node scripts/generate-chain-config.js",
+    "test": "npm run test:concurrent && npm run test:sequence",
+    "test:file": "vitest --watch=false --maxConcurrency=1",
+    "test:concurrent": "vitest --watch=false --exclude=./src/tests/sequential",
+    "test:sequence": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/**",
+    "test:requests": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/requests.test.ts",
+    "test:intent-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/intentGateway.test.ts",
+    "test:token-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/tokenGateway.test.ts",
+    "test:evm-substrate": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/evm-substrate.test.ts",
+    "test:watch": "vitest --exclude=./src/tests/sequential",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "@async-generator/merge-race": "^1.0.3",
+    "@polkadot/api": "latest",
+    "@polkadot/types": "latest",
+    "@polkadot/util": "latest",
+    "@polkadot/util-crypto": "latest",
+    "@types/lodash-es": "^4.17.12",
+    "consola": "^3.4.2",
+    "decimal.js": "^10.5.0",
+    "graphql": "^16.10.0",
+    "graphql-request": "^7.1.2",
+    "lodash-es": "^4.17.15",
+    "rpc-websocket-client": "^1.1.4",
+    "scale-ts": "^1.6.1",
+    "std-env": "^3.9.0",
+    "ts-pattern": "^5.6.2",
+    "viem": "^2.34.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@hyperbridge/filler": "workspace:*",
+    "@iarna/toml": "^2.2.5",
+    "@polkadot/keyring": "latest",
+    "@polytope-labs/hyperclient": "1.2.0",
+    "@types/node": "^22.13.5",
+    "@vitest/coverage-v8": "^3.1.4",
+    "dotenv": "^16.4.7",
+    "jsdom": "^26.0.0",
+    "log-timestamp": "^0.3.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.3",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.1.4"
+  },
+  "resolutions": {
+    "@polkadot/api": "^16.4.6",
+    "@polkadot/api-augment": "^16.4.6",
+    "@polkadot/api-base": "^16.4.6",
+    "@polkadot/api-contract": "^16.4.6",
+    "@polkadot/api-derive": "^16.4.6",
+    "@polkadot/hw-ledger": "^13.5.6",
+    "@polkadot/keyring": "^13.5.6",
+    "@polkadot/networks": "^13.5.6",
+    "@polkadot/phishing": "^0.25.18",
+    "@polkadot/rpc-augment": "^16.4.6",
+    "@polkadot/rpc-core": "^16.4.6",
+    "@polkadot/rpc-provider": "^16.4.6",
+    "@polkadot/typegen": "^16.4.6",
+    "@polkadot/types": "^16.4.6",
+    "@polkadot/types-augment": "^16.4.6",
+    "@polkadot/types-codec": "^16.4.6",
+    "@polkadot/types-create": "^16.4.6",
+    "@polkadot/types-known": "^16.4.6",
+    "@polkadot/types-support": "^16.4.6",
+    "@polkadot/util": "^13.5.6",
+    "@polkadot/util-crypto": "^13.5.6",
+    "@polkadot/wasm-crypto": "^7.5.1",
+    "@polkadot/x-bigint": "^13.5.6",
+    "@polkadot/x-fetch": "^13.5.6",
+    "@polkadot/x-global": "^13.5.6",
+    "@polkadot/x-randomvalues": "^13.5.6",
+    "@polkadot/x-textdecoder": "^13.5.6",
+    "@polkadot/x-textencoder": "^13.5.6",
+    "@polkadot/x-ws": "^13.5.6",
+    "typescript": "^5.5.4"
+  },
+  "peerDependencies": {
+    "vite": "^5.0.0 || ^6.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engineStrict": true,
+  "engines": {
+    "node": ">=22.x.x"
+  }
 }

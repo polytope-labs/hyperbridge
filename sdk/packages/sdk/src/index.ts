@@ -1,5 +1,5 @@
 export { IndexerClient } from "@/client"
-export { createQueryClient, queryGetRequest, queryPostRequest } from "@/query-client"
+export { createQueryClient, queryGetRequest, queryPostRequest, queryAssetTeleported } from "@/query-client"
 export {
 	__test,
 	postRequestCommitment,

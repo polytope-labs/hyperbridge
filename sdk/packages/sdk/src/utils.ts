@@ -549,7 +549,7 @@ export function mapTestnetToMainnet(identifier: string): string {
 	}
 }
 
-export async function fetchPrice(identifier: string, chainId: number = 1, apiKey?: string): Promise<number> {
+export async function fetchPrice(identifier: string, chainId = 1, apiKey?: string): Promise<number> {
 	const mappedIdentifier = mapTestnetToMainnet(identifier)
 
 	const network = new ChainConfigService().getCoingeckoId(`EVM-${chainId}`) || "ethereum"

@@ -1,11 +1,11 @@
-import type { ApiPromise } from "@polkadot/api"
 import type { HexString } from "@/types"
+import { StateMachine, sleep } from "@/utils"
+import type { ApiPromise } from "@polkadot/api"
 import type { SignerOptions } from "@polkadot/api/types"
-import { u8aToHex, hexToU8a } from "@polkadot/util"
+import { hexToU8a, u8aToHex } from "@polkadot/util"
 import { decodeAddress, keccakAsHex } from "@polkadot/util-crypto"
+import { Bytes, Struct, Tuple, u8, u64, u128 } from "scale-ts"
 import { parseUnits } from "viem"
-import { sleep, StateMachine } from "@/utils"
-import { Bytes, Struct, Tuple, u128, u64, u8 } from "scale-ts"
 
 const MultiAccount = Struct({
 	substrate_account: Bytes(32),
@@ -91,8 +91,8 @@ export type XcmGatewayParams = {
  * Note: There is no guarantee that both Dispatched and Finalized events will be yielded.
  * Consumers should listen for either one of these events instead of expecting both.
  *
- * @param relayApi - Polkadot API instance connected to the relay chain
- * @param hyperbridge - Polkadot API instance connected to the Hyperbridge parachain
+ * @param sourceApi - Polkadot API instance connected to the relay chain or asset hub
+ * @param sourceIsAssetHub - If `true` uses AssetHub Network for teleport
  * @param who - Sender's SS58Address address
  * @param options - Transaction signing options
  * @param params - Teleport parameters including destination, recipient, and amount
@@ -108,9 +108,9 @@ export async function teleportDot(param_: {
 	options: Partial<SignerOptions>
 }): Promise<ReadableStream<HyperbridgeTxEvents>> {
 	const { sourceApi, sourceIsAssetHub, who, options, xcmGatewayParams: params } = param_
-	let { nonce: accountNonce } = (await sourceApi.query.system.account(who)) as any
+	const { nonce: accountNonce } = (await sourceApi.query.system.account(who)) as any
 
-	let encoded_message = MultiAccount.enc({
+	const encoded_message = MultiAccount.enc({
 		substrate_account: decodeAddress(who),
 		evm_account: hexToU8a(params.recipient),
 		dest_state_machine: { tag: "Evm", value: params.destination },
@@ -118,7 +118,7 @@ export async function teleportDot(param_: {
 		account_nonce: accountNonce,
 	})
 
-	let message_id = keccakAsHex(encoded_message)
+	const message_id = keccakAsHex(encoded_message)
 
 	// Set up the transaction parameters
 	const beneficiary = {

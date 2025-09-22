@@ -10,7 +10,7 @@ import {
 	fetchPrice,
 } from "@/utils"
 import { formatUnits, maxUint256, parseUnits, toHex } from "viem"
-import { DispatchPost, type FillOptions, type HexString, type IPostRequest, type Order } from "@/types"
+import type { DispatchPost, FillOptions, HexString, IPostRequest, Order } from "@/types"
 import IntentGatewayABI from "@/abis/IntentGateway"
 import UniswapV2Factory from "@/abis/uniswapV2Factory"
 import UniswapRouterV2 from "@/abis/uniswapRouterV2"
@@ -18,7 +18,7 @@ import UniswapV3Factory from "@/abis/uniswapV3Factory"
 import UniswapV3Pool from "@/abis/uniswapV3Pool"
 import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
-import { EvmChain } from "@/chains/evm"
+import type { EvmChain } from "@/chains/evm"
 import { Decimal } from "decimal.js"
 
 /**
@@ -124,7 +124,7 @@ export class IntentGateway {
 			}),
 		).then((results) => results.filter(Boolean))
 
-		let stateOverrides = [
+		const stateOverrides = [
 			// Mock address with ETH balance so that any chain estimation runs
 			// even when the address doesn't hold any native token in that chain
 			{
@@ -774,7 +774,7 @@ export class IntentGateway {
 	async isOrderFilled(order: Order): Promise<boolean> {
 		const intentGatewayAddress = this.source.config.getIntentGatewayAddress(order.destChain)
 
-		let filledSlot = await this.dest.client.readContract({
+		const filledSlot = await this.dest.client.readContract({
 			abi: IntentGatewayABI.ABI,
 			address: intentGatewayAddress,
 			functionName: "calculateCommitmentSlotHash",

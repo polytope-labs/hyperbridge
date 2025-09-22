@@ -374,6 +374,11 @@ jobs:
             #
             #          cargo test -p polygon-pos-prover -- --nocapture --ignored
 
+
+            - name: polygon pos integration tests
+              run: |
+                  RUST_LOG=tesseract=trace,cargo test -p tesseract-integration-tests -- --nocapture
+
             - name: Binance Smart Chain integration tests
               run: |
                   cargo test -p bsc-prover -- --nocapture --ignored

@@ -4,8 +4,11 @@ mod tests {
 
 	use crate::{prove_header_update, CometBFTClient};
 	use ismp_polygon::Milestone;
-	use tendermint_primitives::{Client, TrustedState, VerificationError, VerificationOptions};
+	use tendermint_primitives::{
+		Client, TrustedState, ValidatorSet, VerificationError, VerificationOptions,
+	};
 	use tendermint_verifier::hashing::SpIoSha256;
+	use tendermint_verifier::validate_validator_set_hash;
 	use tesseract_polygon::HeimdallClient;
 	use tokio::time::{interval, timeout, Duration};
 	use tracing::trace;
@@ -207,7 +210,49 @@ mod tests {
 			interval.tick().await;
 
 			let latest_height = client.latest_height().await?;
-			let target_height = latest_height;
+			let mut target_height = latest_height;
+
+			let header0 = client.signed_header(target_height).await?;
+			let matches_current = validate_validator_set_hash(
+				&ValidatorSet::new(trusted_state.validators.clone(), None),
+				header0.header.validators_hash,
+				false,
+			)
+			.is_ok();
+			let matches_next = validate_validator_set_hash(
+				&ValidatorSet::new(trusted_state.next_validators.clone(), None),
+				header0.header.validators_hash,
+				true,
+			)
+			.is_ok();
+			if !(matches_current || matches_next) {
+				let mut h = latest_height.saturating_sub(1);
+				while h > trusted_state.height {
+					let maybe_header = client.signed_header(h).await;
+					if let Ok(hdr) = maybe_header {
+						let cur_ok = validate_validator_set_hash(
+							&ValidatorSet::new(trusted_state.validators.clone(), None),
+							hdr.header.validators_hash,
+							false,
+						)
+						.is_ok();
+						let next_ok = validate_validator_set_hash(
+							&ValidatorSet::new(trusted_state.next_validators.clone(), None),
+							hdr.header.validators_hash,
+							true,
+						)
+						.is_ok();
+						if cur_ok || next_ok {
+							target_height = h;
+							break;
+						}
+					}
+					if h == 0 {
+						break;
+					}
+					h -= 1;
+				}
+			}
 
 			let consensus_proof =
 				prove_header_update(&client, &trusted_state, target_height).await?;
@@ -309,7 +354,49 @@ mod tests {
 			interval.tick().await;
 
 			let latest_height = client.latest_height().await?;
-			let target_height = latest_height;
+			let mut target_height = latest_height;
+
+			let header0 = client.signed_header(target_height).await?;
+			let matches_current = validate_validator_set_hash(
+				&ValidatorSet::new(trusted_state.validators.clone(), None),
+				header0.header.validators_hash,
+				false,
+			)
+			.is_ok();
+			let matches_next = validate_validator_set_hash(
+				&ValidatorSet::new(trusted_state.next_validators.clone(), None),
+				header0.header.validators_hash,
+				true,
+			)
+			.is_ok();
+			if !(matches_current || matches_next) {
+				let mut h = latest_height.saturating_sub(1);
+				while h > trusted_state.height {
+					let maybe_header = client.signed_header(h).await;
+					if let Ok(hdr) = maybe_header {
+						let cur_ok = validate_validator_set_hash(
+							&ValidatorSet::new(trusted_state.validators.clone(), None),
+							hdr.header.validators_hash,
+							false,
+						)
+						.is_ok();
+						let next_ok = validate_validator_set_hash(
+							&ValidatorSet::new(trusted_state.next_validators.clone(), None),
+							hdr.header.validators_hash,
+							true,
+						)
+						.is_ok();
+						if cur_ok || next_ok {
+							target_height = h;
+							break;
+						}
+					}
+					if h == 0 {
+						break;
+					}
+					h -= 1;
+				}
+			}
 
 			let consensus_proof =
 				prove_header_update(&client, &trusted_state, target_height).await?;

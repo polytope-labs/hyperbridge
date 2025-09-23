@@ -462,11 +462,71 @@ impl Client for HeimdallClient {
 	}
 
 	async fn validators(&self, height: u64) -> Result<Vec<Validator>, ProverError> {
-		// Use Heimdall-specific response type
-		let heimdall_response: HeimdallValidatorsResponse =
-			self.rpc_request("validators", json!({"height": height.to_string()})).await?;
+		let mut all_validators = Vec::new();
+		let mut page = 1;
+		let page_size = 100;
+		let mut expected_total = 0usize;
 
+		loop {
+			log::debug!(target: "tesseract", "Requesting validators page {} with page_size {} for height {}", 
+					   page, page_size, height);
+
+			let heimdall_response: HeimdallValidatorsResponse = self
+				.rpc_request(
+					"validators",
+					json!({
+						"height": height.to_string(),
+						"page": page.to_string(),
+						"per_page": page_size.to_string()
+					}),
+				)
+				.await?;
+
+			log::trace!(target: "tesseract", "Received {} validators in page {}", 
+					   heimdall_response.validators.len(), page);
+
+			if page == 1 {
+				expected_total = heimdall_response
+					.total
+					.parse()
+					.map_err(|_| ProverError::ConversionError("Invalid total count".to_string()))?;
+
+				log::info!(target: "tesseract", "Total validators expected: {} for height {}", 
+						  expected_total, height);
+			}
+
+			let validators_before = all_validators.len();
+			all_validators.extend(heimdall_response.clone().validators);
+
+			log::trace!(target: "tesseract", "Added {} validators, total collected: {}/{}", 
+					   all_validators.len() - validators_before, all_validators.len(), expected_total);
+
+			if all_validators.len() >= expected_total {
+				if all_validators.len() > expected_total {
+					log::warn!(target: "tesseract", "Collected more validators than expected! Got {}, expected {}. Truncating to expected count.", 
+							  all_validators.len(), expected_total);
+				} else {
+					log::debug!(target: "tesseract", "Successfully collected all {} validators for height {}", 
+							   expected_total, height);
+				}
+
+				all_validators.truncate(expected_total);
+				break;
+			}
+
+			page += 1;
+		}
+
+		let complete_response = HeimdallValidatorsResponse {
+			block_height: height.to_string(),
+			validators: all_validators.clone(),
+			count: all_validators.len().to_string(),
+			total: expected_total.to_string(),
+		};
+
+		let heimdall_response = complete_response;
 		let validators_response: ValidatorsResponse = heimdall_response.into();
+
 		Ok(validators_response.validators)
 	}
 

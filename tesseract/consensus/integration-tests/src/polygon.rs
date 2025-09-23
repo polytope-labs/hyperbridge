@@ -23,7 +23,7 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 
 	let evm_config = EvmConfig {
 		rpc_urls: vec![polygon_execution_url.clone()],
-		state_machine: StateMachine::Evm(80002),
+		state_machine: StateMachine::Evm(137),
 		consensus_state_id: "POLY".to_string(),
 		ismp_host: Default::default(),
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
@@ -41,6 +41,7 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 		heimdall_rpc_url: polygon_heimdall_rpc,
 		heimdall_rest_url: polygon_heimdall_rest,
 		execution_rpc_url: polygon_execution_url,
+		disable: Some(false),
 	};
 
 	let polygon_config = PolygonPosConfig { host: host_config, evm_config };
@@ -72,7 +73,7 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 			consensus_client_id: *b"PLGN",
 			consensus_state_id: *b"POLY",
 			unbonding_period: 82 * 3600,
-			challenge_periods: vec![(StateMachine::Evm(80002), 2 * 60)].into_iter().collect(),
+			challenge_periods: vec![(StateMachine::Evm(137), 2 * 60)].into_iter().collect(),
 			state_machine_commitments: vec![],
 		})
 		.await?;

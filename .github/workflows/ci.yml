@@ -3,7 +3,7 @@ name: CI
 on:
     push:
         branches:
-            - roy/fix-polygon-mainnet-validators
+            - main
 
     pull_request_target:
         types: [opened, synchronize]
@@ -379,7 +379,7 @@ jobs:
 
             - name: Tendermint Integration Test
               run: |
-                  RUST_LOG=tendermint_prover=trace,tesseract=trace, tendermint_verifier=trace cargo test -p tendermint-prover -- --nocapture --ignored
+                  RUST_LOG=tendermint_prover=trace,tesseract=trace,tendermint_verifier=trace cargo test -p tendermint-prover -- --nocapture --ignored
 
             - name: Clean up docker
               if: always()

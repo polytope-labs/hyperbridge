@@ -8,9 +8,24 @@ import {
 	ERC20Method,
 	adjustFeeDecimals,
 	fetchPrice,
+	parseStateMachineId,
+	orderCommitment,
+	sleep,
+	getRequestCommitment,
+	waitForChallengePeriod,
+	retryPromise,
 } from "@/utils"
-import { formatUnits, maxUint256, parseUnits, toHex } from "viem"
-import type { DispatchPost, FillOptions, HexString, IPostRequest, Order } from "@/types"
+import { formatUnits, hexToString, maxUint256, pad, parseUnits, toHex } from "viem"
+import {
+	DispatchPost,
+	IGetRequest,
+	IHyperbridgeConfig,
+	RequestStatus,
+	type FillOptions,
+	type HexString,
+	type IPostRequest,
+	type Order,
+} from "@/types"
 import IntentGatewayABI from "@/abis/IntentGateway"
 import UniswapV2Factory from "@/abis/uniswapV2Factory"
 import UniswapRouterV2 from "@/abis/uniswapRouterV2"
@@ -20,6 +35,8 @@ import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
 import type { EvmChain } from "@/chains/evm"
 import { Decimal } from "decimal.js"
+import { getChain, IGetRequestMessage, IProof, SubstrateChain } from "@/chain"
+import { IndexerClient } from "@/client"
 
 /**
  * IntentGateway handles cross-chain intent operations between EVM chains.
@@ -27,6 +44,16 @@ import { Decimal } from "decimal.js"
  * and checking order statuses across different chains.
  */
 export class IntentGateway {
+	private destStateproofCache = new Map<HexString, IProof>()
+
+	public getCachedProof(id: HexString): IProof | undefined {
+		return this.destStateproofCache.get(id)
+	}
+
+	public clearCachedProof(id: HexString) {
+		this.destStateproofCache.delete(id)
+	}
+
 	/**
 	 * Creates a new IntentGateway instance for cross-chain operations.
 	 * @param source - The source EVM chain
@@ -786,6 +813,153 @@ export class IntentGateway {
 			slot: filledSlot,
 		})
 		return filledStatus !== "0x0000000000000000000000000000000000000000000000000000000000000000"
+	}
+
+	async *cancelOrder(order: Order, hyperbridgeConfig: IHyperbridgeConfig, indexerClient: IndexerClient) {
+		const hyperbridge = (await getChain({
+			...hyperbridgeConfig,
+			hasher: "Keccak",
+		})) as SubstrateChain
+
+		const sourceStateMachine = hexToString(order.sourceChain as HexString)
+		const destStateMachine = hexToString(order.destChain as HexString)
+		const sourceConsensusStateId = this.source.config.getConsensusStateId(sourceStateMachine)
+		const destConsensusStateId = this.dest.config.getConsensusStateId(destStateMachine)
+
+		let latestHeight = 0n
+		while (latestHeight <= order.deadline) {
+			const { stateId } = parseStateMachineId(destStateMachine)
+
+			latestHeight = await hyperbridge.latestStateMachineHeight({
+				stateId,
+				consensusStateId: destConsensusStateId,
+			})
+
+			yield {
+				status: "AWAITING_DESTINATION_FINALIZED",
+				data: { currentHeight: latestHeight, deadline: order.deadline },
+			}
+
+			if (latestHeight <= order.deadline) {
+				await sleep(10000)
+			}
+		}
+
+		yield { status: "DESTINATION_FINALIZED", data: { height: latestHeight } }
+
+		const intentGatewayAddress = this.dest.config.getIntentGatewayAddress(destStateMachine)
+
+		const orderId = orderCommitment(order)
+
+		const slotHash = await this.dest.client.readContract({
+			abi: IntentGatewayABI.ABI,
+			address: intentGatewayAddress,
+			functionName: "calculateCommitmentSlotHash",
+			args: [orderId],
+		})
+
+		const proof = await this.dest.queryStateProof(latestHeight, [slotHash], intentGatewayAddress)
+
+		const destIProof: IProof = {
+			consensusStateId: destConsensusStateId,
+			height: latestHeight,
+			proof,
+			stateMachine: destStateMachine,
+		}
+
+		this.destStateproofCache.set(order.id as HexString, destIProof)
+
+		yield { status: "STATE_PROOF_RECEIVED", data: { proof, height: latestHeight } }
+
+		const getRequest = (yield { status: "AWAITING_GET_REQUEST" }) as IGetRequest | undefined
+
+		if (!getRequest) {
+			throw new Error("[Cancel Order]: Get Request not provided")
+		}
+
+		const commitment = getRequestCommitment({
+			...getRequest,
+			keys: [...getRequest.keys],
+		})
+
+		const statusStream = indexerClient.getRequestStatusStream(commitment)
+
+		for await (const statusUpdate of statusStream) {
+			if (statusUpdate.status === RequestStatus.SOURCE_FINALIZED) {
+				const sourceHeight = statusUpdate.metadata.blockNumber
+				const proof = await this.source.queryProof(
+					{ Requests: [commitment] },
+					hyperbridgeConfig.stateMachineId,
+					BigInt(sourceHeight),
+				)
+
+				const { stateId } = parseStateMachineId(sourceStateMachine)
+				const sourceIProof: IProof = {
+					height: BigInt(sourceHeight),
+					stateMachine: sourceStateMachine,
+					consensusStateId: sourceConsensusStateId,
+					proof,
+				}
+				const getRequestMessage: IGetRequestMessage = {
+					kind: "GetRequest",
+					requests: [getRequest],
+					source: sourceIProof,
+					response: this.getCachedProof(order.id as HexString)!,
+					signer: pad("0x"),
+				}
+
+				// wait for challenge period for the source chain
+				await waitForChallengePeriod(hyperbridge, {
+					height: BigInt(sourceHeight),
+					id: {
+						stateId,
+						consensusStateId: sourceConsensusStateId,
+					},
+				})
+
+				const receiptKey = hyperbridge.requestReceiptKey(commitment)
+
+				const { api } = hyperbridge
+
+				if (!api) {
+					throw new Error("Hyperbridge API is not available")
+				}
+
+				let storageValue = await api.rpc.childstate.getStorage(":child_storage:default:ISMP", receiptKey)
+
+				if (storageValue.isNone) {
+					console.log("No receipt found. Attempting to submit...")
+					try {
+						await hyperbridge.submitUnsigned(getRequestMessage)
+					} catch {
+						console.warn("Submission failed. Awaiting network confirmation...")
+					}
+
+					console.log("Waiting for network state update...")
+					await sleep(30000)
+
+					storageValue = await retryPromise(
+						async () => {
+							const value = await api.rpc.childstate.getStorage(":child_storage:default:ISMP", receiptKey)
+
+							if (value.isNone) {
+								throw new Error("Receipt not found")
+							}
+
+							return value
+						},
+						{
+							maxRetries: 10,
+							backoffMs: 5000,
+							logMessage: "Checking for receipt",
+						},
+					)
+				}
+				console.log("Receipt confirmed on Hyperbridge. Proceeding.")
+			}
+
+			yield statusUpdate
+		}
 	}
 
 	/**

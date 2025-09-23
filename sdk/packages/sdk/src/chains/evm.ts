@@ -180,11 +180,12 @@ export class EvmChain implements IChain {
 	 * Query and return the encoded storage proof for the provided keys at the given height.
 	 * @param {bigint} at - The block height at which to query the storage proof.
 	 * @param {HexString[]} keys - The keys for which to query the storage proof.
+	 * @param {HexString} address - Optional contract address to fetch storage proof else default to host contract
 	 * @returns {Promise<HexString>} The encoded storage proof.
 	 */
-	async queryStateProof(at: bigint, keys: HexString[]): Promise<HexString> {
+	async queryStateProof(at: bigint, keys: HexString[], address?: HexString): Promise<HexString> {
 		const config: GetProofParameters = {
-			address: this.params.host,
+			address: address ?? this.params.host,
 			storageKeys: keys,
 		}
 		if (!at) {

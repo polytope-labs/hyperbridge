@@ -67,7 +67,7 @@ describe.sequential("Get and Post Requests", () => {
 		await hyperbridgeInstance.disconnect()
 	})
 
-	describe("Post Request", () => {
+	describe.sequential("Post Request", () => {
 		it.skip("should stream and query the timeout status", async () => {
 			const { bscTestnetClient, bscHandler, bscPing, gnosisChiadoHost } = await setUp()
 			console.log("\n\nSending Post Request\n\n")
@@ -300,8 +300,8 @@ describe.sequential("Get and Post Requests", () => {
 		}, 1_000_000)
 	})
 
-	describe("Get Request", () => {
-		it("should successfully stream and query the get request status", async () => {
+	describe.sequential("Get Request", () => {
+		it("should successfully stream and query the get request status to yield the finality events", async () => {
 			const { bscTestnetClient, bscPing, ethSepoliaHost, bscIsmpHost, bscHandler } = await setUp()
 			console.log("\n\nSending Get Request\n\n")
 
@@ -393,9 +393,26 @@ describe.sequential("Get and Post Requests", () => {
 
 			const req = await indexer.queryGetRequest(commitment)
 			expect(req?.statuses.length).toBe(3)
-		}, 1_000_000)
 
-		it("should successfully query the get request with its finality statuses", async () => {
+			const reqWithStatus = await indexer.queryGetRequestWithStatus(commitment)
+			console.log("Full status from queryGetRequestWithStatus:", JSON.stringify(reqWithStatus, bigIntReplacer, 4))
+
+			expect(reqWithStatus).toBeDefined()
+
+			const sourceFinalizedStatus = reqWithStatus?.statuses.find(
+				(status) => status.status === RequestStatus.SOURCE_FINALIZED,
+			)
+			expect(sourceFinalizedStatus).toBeDefined()
+
+			const hyperbridgeFinalizedStatus = reqWithStatus?.statuses.find(
+				(status) => status.status === RequestStatus.HYPERBRIDGE_FINALIZED,
+			)
+
+			expect(hyperbridgeFinalizedStatus).toBeDefined()
+			expect(hyperbridgeFinalizedStatus?.metadata.calldata).toBeDefined()
+		}, 1_800_000)
+
+		it.skip("should successfully query the get request with its finality statuses", async () => {
 			const { bscPing, ethSepoliaHost, bscIsmpHost, bscTestnetClient } = await setUp()
 			console.log("\n\nSending Get Request for queryGetRequestWithStatus test\n\n")
 
@@ -449,9 +466,10 @@ describe.sequential("Get and Post Requests", () => {
 			const hyperbridgeFinalizedStatus = req?.statuses.find(
 				(status) => status.status === RequestStatus.HYPERBRIDGE_FINALIZED,
 			)
+
 			expect(hyperbridgeFinalizedStatus).toBeDefined()
 			expect(hyperbridgeFinalizedStatus?.metadata.calldata).toBeDefined()
-		}, 1_000_000)
+		}, 1_800_000)
 	})
 })
 
@@ -482,7 +500,7 @@ async function setUp() {
 
 	const ethSepoliaClient = createPublicClient({
 		chain: sepolia,
-		transport: http(process.env.ETH_SEPOLIA),
+		transport: http(process.env.SEPOLIA),
 	})
 
 	const bscPing = getContract({

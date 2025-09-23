@@ -74,7 +74,7 @@ query StateMachineUpdatesByHeight($statemachineId: String!, $height: Int!, $chai
 				{ chain: { equalTo: $chain } }
 			]
 		}
-		orderBy: HEIGHT_ASC
+		orderBy: HEIGHT_DESC
 		first: 1
 	) {
     nodes {

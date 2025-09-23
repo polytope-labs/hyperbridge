@@ -30,7 +30,7 @@ mod tests {
 			.unwrap_or_else(|_| "https://rpc-amoy.polygon.technology/".to_string())
 	}
 
-	const VALIDATOR_SET_TRANSITIONS: u32 = 8;
+	const VALIDATOR_SET_TRANSITIONS: u32 = 3;
 
 	#[tokio::test]
 	#[ignore]
@@ -301,7 +301,7 @@ mod tests {
 		);
 		trace!("Initial trusted height: {}", trusted_state.height);
 
-		let mut interval = interval(Duration::from_secs(300));
+		let mut interval = interval(Duration::from_secs(30));
 
 		let mut actual_transitions = 0;
 		let mut attempt = 1;

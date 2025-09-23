@@ -213,17 +213,17 @@ export class IntentGateway {
 		let totalEstimateInSourceFeeToken =
 			fillGasInSourceFeeToken + protocolFeeInSourceFeeToken + relayerFeeInSourceFeeToken
 
-		if (!filledWithNativeToken) {
-			// Testnet block
-			totalEstimateInSourceFeeToken =
-				totalEstimateInSourceFeeToken + (totalEstimateInSourceFeeToken * 200n) / 10000n
-		}
-
 		let totalNativeTokenAmount = await this.convertFeeTokenToNative(totalEstimateInSourceFeeToken, "source")
 
-		// 2% buffer to avoid close call with filler's internal calculations
-		totalNativeTokenAmount = totalNativeTokenAmount + (totalNativeTokenAmount * 200n) / 10000n
-
+		if ([order.destChain, order.sourceChain].includes("EVM-1")) {
+			totalEstimateInSourceFeeToken =
+				totalEstimateInSourceFeeToken + (totalEstimateInSourceFeeToken * 3000n) / 10000n
+			totalNativeTokenAmount = totalNativeTokenAmount + (totalNativeTokenAmount * 3200n) / 10000n
+		} else {
+			totalEstimateInSourceFeeToken =
+				totalEstimateInSourceFeeToken + (totalEstimateInSourceFeeToken * 250n) / 10000n
+			totalNativeTokenAmount = totalNativeTokenAmount + (totalNativeTokenAmount * 350n) / 10000n
+		}
 		return {
 			feeTokenAmount: totalEstimateInSourceFeeToken,
 			nativeTokenAmount: totalNativeTokenAmount,

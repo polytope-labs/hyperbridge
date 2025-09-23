@@ -15,9 +15,10 @@ abstract contract BaseScript is Script {
     address payable internal UNICHAIN_HOST = payable(vm.envAddress("UNICHAIN_HOST"));
 
     bytes32 internal privateKey = vm.envBytes32("PRIVATE_KEY");
-    string internal host = vm.envString("HOST");
     address internal admin = vm.envAddress("ADMIN");
     bytes internal consensusState = vm.envBytes("CONSENSUS_STATE");
+    string internal host = vm.envString("HOST");
+    address internal HOST_ADDRESS = vm.envAddress(string.concat(host, "_HOST"));
     bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
 
     /**

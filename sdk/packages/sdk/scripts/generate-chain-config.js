@@ -30,6 +30,8 @@ const chainNameMap = {
 	mainnet: "mainnet",
 	"base-mainnet": "base",
 	"arbitrum-mainnet": "arbitrum",
+	"polygon-mainnet": "polygon",
+	"unichain-mainnet": "unichain",
 }
 
 const viemChains = Object.entries(config.chains)
@@ -97,7 +99,7 @@ const coingeckoIds = Object.entries(config.chains)
 	.join(",\n")
 
 const tsContent = `
-import { Chain, bscTestnet, gnosisChiado, sepolia, mainnet, bsc, base, arbitrum } from "viem/chains"
+import { Chain, bscTestnet, gnosisChiado, sepolia, mainnet, bsc, base, arbitrum, polygon, unichain } from "viem/chains"
 
 export enum Chains {
 ${chainsEnum}

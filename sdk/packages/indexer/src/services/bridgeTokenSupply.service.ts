@@ -4,8 +4,11 @@ import { replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import { ENV_CONFIG } from "@/constants"
 import fetch from "node-fetch"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
-import { Codec, Vector, Struct, u128, u8, Tuple } from "scale-ts"
+import { Codec, Vector, Struct, u128, u8, Tuple, u64, u32 } from "scale-ts"
 import { hexToBytes } from "viem"
+
+const FOUNDATION = "1e3df2cbfa10ceadc854bd5aa305462c2f81bbc81cc7f6ef462ce857bd0c90b3"
+const TEAM = "5525104d00c439213dcbf428b867f0930754f100b75873382f2103ce5f846163"
 
 interface SubstrateStorageResponse {
 	jsonrpc: "2.0"
@@ -26,6 +29,19 @@ interface SubstrateKeysResponse {
 		message: string
 	}
 }
+
+const AccountInfo = Struct({
+	nonce: u32,
+	consumers: u32,
+	providers: u32,
+	sufficients: u32,
+	data: Struct({
+		free: u128,
+		reserve: u128,
+		frozen: u128,
+		flags: u128,
+	}),
+})
 
 // Define the BalanceLock codec using scale-ts
 // BalanceLock struct: [u8; 8] (lock ID), u128 (amount), enum (reasons)
@@ -171,6 +187,12 @@ export class BridgeTokenSupplyService {
 				return inactiveIssuance
 			}
 
+			// Get team and foundation account
+			const teamTotal = await this.getTeamAndFoundationBalance(rpcUrl)
+			if (teamTotal instanceof Error) {
+				return teamTotal
+			}
+
 			// Get sum of all account locks
 			const totalLocks = await this.getTotalAccountLocks(rpcUrl)
 			if (totalLocks instanceof Error) {
@@ -178,10 +200,10 @@ export class BridgeTokenSupplyService {
 			}
 
 			// Calculate circulating supply: Total Supply - (Inactive Issuance + Total Locks)
-			const circulatingSupply = totalSupply - (inactiveIssuance + totalLocks)
+			const circulatingSupply = totalSupply - (inactiveIssuance + totalLocks + teamTotal)
 
 			logger.debug(
-				`[BridgeTokenSupplyService.getCirculatingSupply] Total: ${totalSupply}, Inactive: ${inactiveIssuance}, Locks: ${totalLocks}, Circulating: ${circulatingSupply}`,
+				`[BridgeTokenSupplyService.getCirculatingSupply] Total: ${totalSupply}, Inactive: ${inactiveIssuance}, Locks: ${totalLocks}, Team and Foundation: ${teamTotal}, Circulating: ${circulatingSupply}`,
 			)
 
 			return circulatingSupply
@@ -229,6 +251,69 @@ export class BridgeTokenSupplyService {
 			const inactiveIssuance = u128.dec(bytes)
 
 			return inactiveIssuance
+		} catch (error) {
+			logger.error(`[BridgeTokenSupplyService.getInactiveIssuance] Failed to get inactive issuance`, error)
+			return error instanceof Error ? error : new Error(String(error))
+		}
+	}
+
+	/**
+	 * Gets the inactive issuance from the balances pallet
+	 * @param rpcUrl - The RPC URL for the substrate chain
+	 */
+	private static async getTeamAndFoundationBalance(rpcUrl: string): Promise<bigint | Error> {
+		try {
+			// Storage key for balances.inactiveIssuance
+			const foundation_account_key =
+				"0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da9cc2c6dacd6a81b5cfa93c676700c2ccf1e3df2cbfa10ceadc854bd5aa305462c2f81bbc81cc7f6ef462ce857bd0c90b3"
+			const team_account_key =
+				"0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da9a6f084e8a3b94abf6e45b5ee4bcc89db5525104d00c439213dcbf428b867f0930754f100b75873382f2103ce5f846163"
+
+			// Query multiple storage keys at once
+			const response = await fetch(rpcUrl, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "state_queryStorageAt",
+					params: [[foundation_account_key, team_account_key], null],
+				}),
+			})
+
+			const result = await response.json()
+
+			if (result.error) {
+				throw new Error(`RPC error querying team and foundation accounts: ${result.error.message}`)
+			}
+
+			if (!result.result || !result.result.length) {
+				return BigInt(0)
+			}
+
+			let batchTotal = BigInt(0)
+
+			// Process each storage result
+			for (const storageResult of result.result) {
+				if (!storageResult.changes) continue
+
+				for (const [key, value] of storageResult.changes) {
+					if (!value) continue
+
+					try {
+						const amount = this.parseAccountBalance(value)
+						batchTotal += amount
+					} catch (parseError) {
+						logger.warn(
+							`[BridgeTokenSupplyService.processBatchLocks] Failed to parse lock data for key ${key}:`,
+							parseError,
+						)
+						// Continue processing other locks even if one fails
+					}
+				}
+			}
+
+			return batchTotal
 		} catch (error) {
 			logger.error(`[BridgeTokenSupplyService.getInactiveIssuance] Failed to get inactive issuance`, error)
 			return error instanceof Error ? error : new Error(String(error))
@@ -348,6 +433,11 @@ export class BridgeTokenSupplyService {
 
 				for (const [key, value] of storageResult.changes) {
 					if (!value) continue
+					// Don't count team and foundation locks
+					if (key.endsWith(FOUNDATION) || key.endsWith(TEAM)) {
+						logger.info(`Skipping locks on team and foundation account`)
+						continue
+					}
 
 					try {
 						// Parse the encoded locks data
@@ -415,6 +505,35 @@ export class BridgeTokenSupplyService {
 			return totalLocked
 		} catch (error) {
 			logger.error(`[BridgeTokenSupplyService.parseLockData] Failed to parse lock data: ${hexData}`, error)
+			return BigInt(0)
+		}
+	}
+
+	private static parseAccountBalance(hexData: string): bigint {
+		try {
+			// Remove 0x prefix if present
+			const cleanHex = hexData.startsWith("0x") ? hexData.slice(2) : hexData
+
+			if (cleanHex.length === 0) {
+				return BigInt(0)
+			}
+
+			// Convert hex string to Uint8Array using viem's hexToBytes
+			const hexWithPrefix = cleanHex.startsWith("0x") ? cleanHex : `0x${cleanHex}`
+			const bytes = hexToBytes(hexWithPrefix as `0x${string}`)
+
+			if (bytes.length === 0) {
+				return BigInt(0)
+			}
+
+			const account = AccountInfo.dec(bytes)
+
+			return account.data.free
+		} catch (error) {
+			logger.error(
+				`[BridgeTokenSupplyService.parseAccountBalance] Failed to parse account info: ${hexData}`,
+				error,
+			)
 			return BigInt(0)
 		}
 	}

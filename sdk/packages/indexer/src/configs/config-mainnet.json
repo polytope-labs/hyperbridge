@@ -29,6 +29,12 @@
 		"startBlock": 9081787,
 		"stateMachineId": "POLKADOT-2086"
 	},
+	"zkverify-mainnet": {
+		"type": "substrate",
+		"chainId": "0x060e3dd3fa2904d031206bb913c954687a2bcc350e5a83d33d9e273ad21460f1",
+		"startBlock": 124841,
+		"stateMachineId": "SUBSTRATE-zkv_"
+	},
 	"ethereum-mainnet": {
 		"type": "evm",
 		"chainId": "1",
@@ -115,6 +121,32 @@
 			"erc6160ext20": "0xbA9986D2381edf1DA03B0B9c1f8b00dc4AacC369",
 			"handlerV1": "0x59AaE0639Afd39d98d000f3c1E2b69Da359F1Def",
 			"tokenGateway": "0xCe304770236f39F9911BfCC51afBdfF3b8635718"
+		}
+	},
+	"polygon-mainnet": {
+		"type": "evm",
+		"chainId": "137",
+		"startBlock": 75599047,
+		"stateMachineId": "EVM-137",
+		"contracts": {
+			"ethereumHost": "0xD8d3db17C1dF65b301D45C84405CcAC1395C559a",
+			"erc6160ext20": "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
+			"handlerV1": "0x61f56ee7D15F4a11ba7ee9f233c136563cB5ad37",
+			"intentGateway": "0xd54165e45926720b062C192a5bacEC64d5bB08DA",
+			"tokenGateway": "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E"
+		}
+	},
+	"unichain-mainnet": {
+		"type": "evm",
+		"chainId": "130",
+		"startBlock": 25296880,
+		"stateMachineId": "EVM-130",
+		"contracts": {
+			"ethereumHost": "0x2A17C1c3616Bbc33FCe5aF5B965F166ba76cEDAf",
+			"erc6160ext20": "0x078d782b760474a361dda0af3839290b0ef57ad6",
+			"handlerV1": "0x85F82D70ceED45ca0D1b154C297946BabCf4d344",
+			"tokenGateway": "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
+			"intentGateway": "0xd54165e45926720b062C192a5bacEC64d5bB08DA"
 		}
 	}
 }

@@ -45,6 +45,14 @@ rpcUrl = ""  # Required: your RPC URL
 chainId = 8453  # Base Mainnet
 rpcUrl = ""  # Required: your RPC URL
 
+[[chains]]
+chainId = 137  # Polygon Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 130  # Unichain Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
 
 # Confirmation policies per chain
 # The chain ID should match the numeric ID from the chain configuration
@@ -85,6 +93,18 @@ minConfirmations = 2
 maxConfirmations = 10
 
 [confirmationPolicies."8453"]  # Base Mainnet
+minAmount = "2"      # 2 USD 
+maxAmount = "8000"   # 8000 USD 
+minConfirmations = 2
+maxConfirmations = 10
+
+[confirmationPolicies."137"]  # Polygon Mainnet
+minAmount = "2"      # 2 USD 
+maxAmount = "8000"   # 8000 USD 
+minConfirmations = 2
+maxConfirmations = 10
+
+[confirmationPolicies."130"]  # Unichain Mainnet
 minAmount = "2"      # 2 USD 
 maxAmount = "8000"   # 8000 USD 
 minConfirmations = 2

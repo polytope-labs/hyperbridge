@@ -58,6 +58,19 @@ describe("BridgeTokenSupplyService", () => {
 			console.log(`Inactive issuance: ${result}`)
 		}, 15000) // 15 second timeout
 
+		it("should successfully get team and foundation balance", async () => {
+			const result = await BridgeTokenSupplyService["getTeamAndFoundationBalance"](HTTP_RPC_URL)
+
+			// Verify the result is not an error
+			expect(result).not.toBeInstanceOf(Error)
+
+			// Verify the result is a valid BigInt
+			expect(typeof result).toBe("bigint")
+			expect(result).toBeGreaterThan(BigInt(0))
+
+			console.log(`Team and Foundation Balance: ${result}`)
+		}, 15000) // 15 second timeout
+
 		it("should successfully get total account locks from live network", async () => {
 			const result = await BridgeTokenSupplyService["getTotalAccountLocks"](HTTP_RPC_URL)
 

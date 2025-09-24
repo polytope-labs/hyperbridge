@@ -18,20 +18,8 @@ contract DeployScript is BaseScript {
 
         vm.startBroadcast(uint256(privateKey));
         PingModule ping = new PingModule{salt: salt}(admin);
+        ping.setIsmpHost(HOST_ADDRESS, tokenFaucet);
 
-        if (host.toSlice().startsWith("ethereum".toSlice())) {
-            ping.setIsmpHost(ETHEREUM_HOST, tokenFaucet);
-        } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
-            ping.setIsmpHost(ARBITRUM_HOST, tokenFaucet);
-        } else if (host.toSlice().startsWith("optimism".toSlice())) {
-            ping.setIsmpHost(OPTIMISM_HOST, tokenFaucet);
-        } else if (host.toSlice().startsWith("base".toSlice())) {
-            ping.setIsmpHost(BASE_HOST, tokenFaucet);
-        } else if (host.toSlice().startsWith("bsc".toSlice())) {
-            ping.setIsmpHost(BNB_HOST, tokenFaucet);
-        } else if (host.toSlice().startsWith("polygon".toSlice())) {
-            ping.setIsmpHost(POLYGON_HOST, tokenFaucet);
-        }
         vm.stopBroadcast();
     }
 }

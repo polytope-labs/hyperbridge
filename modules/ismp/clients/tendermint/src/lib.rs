@@ -10,6 +10,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
+use evm_state_machine::EvmStateMachine;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -24,9 +25,8 @@ use pallet_ismp_host_executive::Config as HostExecutiveConfig;
 use tendermint_primitives::{CodecConsensusProof, CodecTrustedState, TrustedState};
 use tendermint_verifier::verify_header_update;
 
-/// Consensus client ID for Tendermint
-/// TODO: Make this configurable
-pub const TENDERMINT_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"TNDR";
+/// Default consensus client ID for Tendermint
+pub const DEFAULT_TENDERMINT_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"TNDR";
 
 /// The consensus update/proof for Tendermint
 #[derive(Debug, Clone, Encode, Decode)]
@@ -45,11 +45,21 @@ pub struct ConsensusState {
 }
 
 /// Tendermint consensus client implementation
-pub struct TendermintClient<H: IsmpHost, T: HostExecutiveConfig>(core::marker::PhantomData<(H, T)>);
+pub struct TendermintClient<H: IsmpHost, T: HostExecutiveConfig> {
+	client_id: ConsensusClientId,
+	_marker: core::marker::PhantomData<(H, T)>,
+}
+
+impl<H: IsmpHost, T: HostExecutiveConfig> TendermintClient<H, T> {
+	/// Construct with a specific client ID
+	pub fn new(client_id: ConsensusClientId) -> Self {
+		Self { client_id, _marker: core::marker::PhantomData }
+	}
+}
 
 impl<H: IsmpHost, T: HostExecutiveConfig> Default for TendermintClient<H, T> {
 	fn default() -> Self {
-		Self(core::marker::PhantomData)
+		Self::new(DEFAULT_TENDERMINT_CONSENSUS_CLIENT_ID)
 	}
 }
 
@@ -86,14 +96,19 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			BTreeMap::new();
 		let mut updated_consensus_state = consensus_state.clone();
 
+		let app_hash: [u8; 32] = consensus_proof
+			.signed_header
+			.header
+			.app_hash
+			.as_bytes()
+			.try_into()
+			.map_err(|_| Error::Custom("Invalid app hash length".to_string()))?;
+
 		let state_commitment = StateCommitmentHeight {
 			commitment: StateCommitment {
 				timestamp: updated_state.verified_timestamp,
 				overlay_root: None,
-				// Is finalized header hash the same as the state root?
-				state_root: primitive_types::H256(
-					updated_state.trusted_state.finalized_header_hash,
-				),
+				state_root: primitive_types::H256(app_hash),
 			},
 			height: updated_state.trusted_state.height,
 		};
@@ -162,18 +177,13 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 	}
 
 	fn consensus_client_id(&self) -> ConsensusClientId {
-		TENDERMINT_CONSENSUS_CLIENT_ID
+		self.client_id
 	}
 
-	// TODO: May need to implement TendermintStateMachine after clarifying
-	// How to use TendermintStateMachine here?
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-		// match id {
-		// 	StateMachine::Tendermint(chain_id) => {
-		// 		Ok(Box::new(TendermintStateMachine::<H, T>::default()))
-		// 	},
-		// 	_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
-		// }
-		unimplemented!()
+		match id {
+			StateMachine::Evm(_) => Ok(Box::new(EvmStateMachine::<H, T>::default())),
+			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
+		}
 	}
 }

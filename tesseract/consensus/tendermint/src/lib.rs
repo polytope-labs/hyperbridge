@@ -5,11 +5,12 @@ use ismp::{
 	host::StateMachine,
 	messaging::{CreateConsensusState, Message, StateCommitmentHeight},
 };
-use ismp_tendermint::{ConsensusState, TENDERMINT_CONSENSUS_CLIENT_ID};
+use ismp_tendermint::ConsensusState;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tendermint_primitives::{self, Client, CodecTrustedState};
 use tendermint_prover::CometBFTClient;
+use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod notification;
@@ -23,21 +24,30 @@ pub struct HostConfig {
 	pub rpc_url: String,
 	/// Chain ID
 	pub chain_id: String,
+	/// Trusting period in seconds for light client verification
+	pub trusting_period_secs: Option<u64>,
+	/// Unbonding period in seconds for CreateConsensusState
+	pub unbonding_period_secs: Option<u64>,
 }
 
 /// Top-level config for Tendermint relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TendermintConfig {
 	pub host: HostConfig,
+	pub evm_config: EvmConfig,
+	/// The consensus client ID to use when creating the client on the counterparty
+	pub consensus_client_id: [u8; 4],
 }
 
 impl TendermintConfig {
 	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(TendermintHost::new(&self.host).await?))
+		Ok(Arc::new(
+			TendermintHost::new(&self.host, &self.evm_config, self.consensus_client_id).await?,
+		))
 	}
 
 	pub fn state_machine(&self) -> StateMachine {
-		StateMachine::Tendermint(self.host.chain_id.as_bytes().try_into().unwrap())
+		self.evm_config.state_machine
 	}
 }
 
@@ -48,19 +58,25 @@ pub struct TendermintHost {
 	pub state_machine: StateMachine,
 	pub host: HostConfig,
 	pub provider: Arc<dyn IsmpProvider>,
-	pub prover: CometBFTClient,
+	pub prover: Arc<CometBFTClient>,
+	pub consensus_client_id: [u8; 4],
 }
 
 impl TendermintHost {
 	/// Create a new TendermintHost
-	pub async fn new(host: &HostConfig) -> Result<Self, anyhow::Error> {
-		let ismp_provider = ; // TODO: Get the ismp provider for the Tendermint chain
+	pub async fn new(
+		host: &HostConfig,
+		evm: &EvmConfig,
+		consensus_client_id: [u8; 4],
+	) -> Result<Self, anyhow::Error> {
+		let ismp_provider = EvmClient::new(evm.clone()).await?;
 		Ok(Self {
 			consensus_state_id: Default::default(),
-			state_machine: StateMachine::Tendermint(host.chain_id),
+			state_machine: evm.state_machine,
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
-			prover: CometBFTClient::new(&host.rpc_url).await?,
+			prover: Arc::new(CometBFTClient::new(&host.rpc_url).await?),
+			consensus_client_id,
 		})
 	}
 
@@ -83,14 +99,16 @@ impl TendermintHost {
 			trusted_validators,
 			trusted_next_validators,
 			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
-			82 * 3600, // TODO: This is derived from the checkpoint interval, which changes as per each tendermint chain
+			self.host.trusting_period_secs.unwrap_or(82 * 3600),
 			tendermint_primitives::VerificationOptions::default(),
 		);
 
 		let codec_trusted_state = CodecTrustedState::from(&trusted_state);
 
-		let consensus_state =
-			ConsensusState { tendermint_state: codec_trusted_state, chain_id: self.host.chain_id.as_bytes().try_into().unwrap() };
+		let consensus_state = ConsensusState {
+			tendermint_state: codec_trusted_state,
+			chain_id: self.host.chain_id.as_bytes().try_into().unwrap(),
+		};
 
 		Ok(consensus_state)
 	}
@@ -161,11 +179,17 @@ impl IsmpHost for TendermintHost {
 				anyhow::anyhow!("TendermintHost: fetch initial consensus state failed: {e}")
 			})?;
 
+		let header = self
+			.prover
+			.signed_header(initial_consensus_state.tendermint_state.height.into())
+			.await?;
+		let app_hash: [u8; 32] = header.header.app_hash.as_bytes().try_into().unwrap();
+
 		Ok(Some(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),
-			consensus_client_id: TENDERMINT_CONSENSUS_CLIENT_ID,
+			consensus_client_id: self.consensus_client_id,
 			consensus_state_id: self.consensus_state_id,
-			unbonding_period: 82 * 3600, // TODO: This is derived from the checkpoint interval, which changes as per each tendermint chain
+			unbonding_period: self.host.unbonding_period_secs.unwrap_or(82 * 3600),
 			challenge_periods: vec![(self.state_machine, 2 * 60)].into_iter().collect(),
 			state_machine_commitments: vec![(
 				ismp::consensus::StateMachineId {
@@ -176,9 +200,7 @@ impl IsmpHost for TendermintHost {
 					commitment: StateCommitment {
 						timestamp: initial_consensus_state.tendermint_state.timestamp,
 						overlay_root: None,
-						state_root: primitive_types::H256(
-							initial_consensus_state.tendermint_state.finalized_header_hash,
-						),
+						state_root: primitive_types::H256(app_hash),
 					},
 					height: initial_consensus_state.tendermint_state.height,
 				},

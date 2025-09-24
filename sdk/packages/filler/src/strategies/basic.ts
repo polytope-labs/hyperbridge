@@ -124,8 +124,9 @@ export class BasicFiller implements FillerStrategy {
 		try {
 			const { destClient, walletClient } = this.clientManager.getClientsForOrder(order)
 
-			const { relayerFeeInFeeToken, relayerFeeInNativeToken } =
+			const { relayerFeeInFeeToken, relayerFeeInNativeToken, fillGas } =
 				await this.contractService.estimateGasFillPost(order)
+
 			const fillOptions: FillOptions = {
 				relayerFee: relayerFeeInFeeToken,
 			}
@@ -142,12 +143,21 @@ export class BasicFiller implements FillerStrategy {
 				account: privateKeyToAccount(this.privateKey),
 				value: relayerFeeInFeeToken !== 0n ? ethValue + relayerFeeInNativeToken : ethValue,
 				chain: walletClient.chain,
+				gas: fillGas + (fillGas * 2500n) / 10000n,
 			})
 
 			const endTime = Date.now()
 			const processingTimeMs = endTime - startTime
 
 			const receipt = await destClient.waitForTransactionReceipt({ hash: tx })
+
+			if (receipt.status !== "success") {
+				this.logger.error({ txHash: receipt.transactionHash, status: receipt.status }, "Could not fill order")
+				return {
+					success: false,
+					txHash: tx,
+				}
+			}
 
 			return {
 				success: true,

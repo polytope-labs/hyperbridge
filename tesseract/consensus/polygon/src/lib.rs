@@ -24,8 +24,6 @@ pub struct HostConfig {
 	pub consensus_update_frequency: Option<u64>,
 	/// Heimdall RPC URL
 	pub heimdall_rpc_url: String,
-	/// Heimdall REST URL
-	pub heimdall_rest_url: String,
 	/// Disable consensus task
 	pub disable: Option<bool>,
 }
@@ -144,7 +142,7 @@ impl IsmpHost for PolygonPosHost {
 		} else {
 			use crate::notification::consensus_notification;
 			let interval = tokio::time::interval(Duration::from_secs(
-				self.host.consensus_update_frequency.unwrap_or(300),
+				self.host.consensus_update_frequency.unwrap_or(30),
 			));
 			let client = self.clone();
 			let counterparty_clone = counterparty.clone();

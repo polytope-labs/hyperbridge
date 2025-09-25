@@ -281,8 +281,8 @@ impl OpHost {
 			let l2_block_number = contract.l_2_block_number().call().await?;
 			// Since anyone can create dispute games including bots we need to be sure the block
 			// number exists
-			if l2_block_number.low_u64()
-				> self.op_execution_client.get_block_number().await?.low_u64()
+			if l2_block_number.low_u64() >
+				self.op_execution_client.get_block_number().await?.low_u64()
 			{
 				log::trace!(target: "tesseract", "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
 				continue;

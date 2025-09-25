@@ -454,6 +454,34 @@ l1_state_machine = "EVM-1"
 l1_consensus_state_id = "ETH0"
 ```
 
+#### Polygon
+```toml
+[polygon]
+type = "polygon"
+# Polygon state machine id
+state_machine = "EVM-137"
+# Polygon's POS rpc endpoints
+rpc_urls = [
+	"http://localhost:3400",
+]
+# Polygon's cosensus state id on hyperbridge
+consensus_state_id = "POLY"
+# Etherscan v2 API key
+etherscan_api_key = "API-KEY"
+# Ismp host address
+ismp_host = "0xD8d3db17C1dF65b301D45C84405CcAC1395C559a"
+# Hex encoded private key
+signer = "SIGNER-KEY"
+
+[polygon.host]
+# Consensus update poll interval
+consensus_update_frequency = 15
+# Polygon heimdall rpc endpoint for abci queries
+heimdall_rpc_url = "https://polygon-heimdall-rpc.publicnode.com:443"
+
+```
+
+
 Before running the relayer, please review your configuration file and ensure you have replaced all placeholder values.
 
 #### Important Check list

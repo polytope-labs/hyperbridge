@@ -33,7 +33,6 @@ pub struct HeimdallClient {
 	raw_client: ReqwestClient,
 	consensus_rpc_url: String,
 	http_client: HttpClient,
-	rest_url: String,
 	execution_rpc_client: Arc<Provider<Http>>,
 }
 
@@ -43,7 +42,6 @@ impl HeimdallClient {
 	/// # Arguments
 	///
 	/// * `url` - The consensus RPC endpoint URL of the Heimdall node
-	/// * `rest_url` - The REST API endpoint URL of the Heimdall node
 	/// * `execution_rpc` - The execution RPC endpoint URL for Ethereum/Polygon PoS chain
 	///
 	/// # Returns
@@ -56,7 +54,7 @@ impl HeimdallClient {
 	/// - The consensus RPC URL is invalid
 	/// - The HTTP client cannot be created
 	/// - The execution RPC provider cannot be created
-	pub fn new(url: &str, rest_url: &str, execution_rpc: &str) -> Result<Self, ProverError> {
+	pub fn new(url: &str, execution_rpc: &str) -> Result<Self, ProverError> {
 		let raw_client = ReqwestClient::new();
 		let consensus_rpc_url = url.to_string();
 		let client_url = url
@@ -71,13 +69,7 @@ impl HeimdallClient {
 		})?;
 		let execution_rpc_client = Arc::new(provider);
 
-		Ok(Self {
-			raw_client,
-			consensus_rpc_url,
-			http_client,
-			rest_url: rest_url.to_string(),
-			execution_rpc_client,
-		})
+		Ok(Self { raw_client, consensus_rpc_url, http_client, execution_rpc_client })
 	}
 
 	/// Performs a JSON-RPC request to the Heimdall node.
@@ -127,77 +119,6 @@ impl HeimdallClient {
 		rpc_response
 			.result
 			.ok_or_else(|| ProverError::RpcError("No result in response".to_string()))
-	}
-
-	/// Retrieves the number of milestones in the blockchain.
-	///
-	/// # Returns
-	///
-	/// - `Ok(u64)`: The number of milestones
-	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
-	pub async fn get_milestone_count(&self) -> Result<u64, ProverError> {
-		let response = self
-			.raw_client
-			.get(format!("{}/milestones/count", self.rest_url))
-			.send()
-			.await
-			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
-		let count_resp: serde_json::Value =
-			response.json().await.map_err(|e| ProverError::NetworkError(e.to_string()))?;
-
-		let latest_count = count_resp["count"].as_str().unwrap().parse::<u64>().unwrap();
-		Ok(latest_count)
-	}
-
-	/// Retrieves a milestone by its count.
-	///
-	/// # Arguments
-	///
-	/// * `count` - The count of the milestone to retrieve
-	///
-	/// # Returns
-	///
-	/// - `Ok(Milestone)`: The milestone data
-	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
-	///
-	/// # Errors
-	///
-	/// Returns `ProverError` if:
-	/// - The HTTP request fails
-	/// - The response cannot be deserialized
-	/// - The milestone field is missing from the response
-	pub async fn get_milestone(&self, count: u64) -> Result<Milestone, ProverError> {
-		let response = self
-			.raw_client
-			.get(format!("{}/milestones/{}", self.rest_url, count))
-			.send()
-			.await
-			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
-		let milestone_resp: serde_json::Value =
-			response.json().await.map_err(|e| ProverError::NetworkError(e.to_string()))?;
-
-		let milestone_value = milestone_resp.get("milestone").ok_or_else(|| {
-			ProverError::NetworkError("Missing 'milestone' field in response".to_string())
-		})?;
-
-		let milestone: Milestone =
-			serde_json::from_value(milestone_value.clone()).map_err(|e| {
-				ProverError::ConversionError(format!("Failed to deserialize Milestone: {}", e))
-			})?;
-
-		Ok(milestone)
-	}
-
-	/// Retrieves the latest milestone.
-	///
-	/// # Returns
-	///
-	/// - `Ok(Milestone)`: The latest milestone
-	/// - `Err(ProverError)`: If the request fails or the response cannot be parsed
-	pub async fn get_latest_milestone(&self) -> Result<(u64, Milestone), ProverError> {
-		let latest_count = self.get_milestone_count().await?;
-		let milestone = self.get_milestone(latest_count).await?;
-		Ok((latest_count, milestone))
 	}
 
 	/// Retrieves the ICS23 proof for a specific milestone.
@@ -468,7 +389,7 @@ impl Client for HeimdallClient {
 		let mut expected_total = 0usize;
 
 		loop {
-			log::debug!(target: "tesseract", "Requesting validators page {} with page_size {} for height {}", 
+			log::debug!(target: "tesseract", "Requesting validators page {} with page_size {} for height {}",
 					   page, page_size, height);
 
 			let heimdall_response: HeimdallValidatorsResponse = self
@@ -482,7 +403,7 @@ impl Client for HeimdallClient {
 				)
 				.await?;
 
-			log::trace!(target: "tesseract", "Received {} validators in page {}", 
+			log::trace!(target: "tesseract", "Received {} validators in page {}",
 					   heimdall_response.validators.len(), page);
 
 			if page == 1 {
@@ -491,22 +412,22 @@ impl Client for HeimdallClient {
 					.parse()
 					.map_err(|_| ProverError::ConversionError("Invalid total count".to_string()))?;
 
-				log::info!(target: "tesseract", "Total validators expected: {} for height {}", 
+				log::info!(target: "tesseract", "Total validators expected: {} for height {}",
 						  expected_total, height);
 			}
 
 			let validators_before = all_validators.len();
 			all_validators.extend(heimdall_response.clone().validators);
 
-			log::trace!(target: "tesseract", "Added {} validators, total collected: {}/{}", 
+			log::trace!(target: "tesseract", "Added {} validators, total collected: {}/{}",
 					   all_validators.len() - validators_before, all_validators.len(), expected_total);
 
 			if all_validators.len() >= expected_total {
 				if all_validators.len() > expected_total {
-					log::warn!(target: "tesseract", "Collected more validators than expected! Got {}, expected {}. Truncating to expected count.", 
+					log::warn!(target: "tesseract", "Collected more validators than expected! Got {}, expected {}. Truncating to expected count.",
 							  all_validators.len(), expected_total);
 				} else {
-					log::debug!(target: "tesseract", "Successfully collected all {} validators for height {}", 
+					log::debug!(target: "tesseract", "Successfully collected all {} validators for height {}",
 							   expected_total, height);
 				}
 

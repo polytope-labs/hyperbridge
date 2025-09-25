@@ -7,8 +7,7 @@ mod tests {
 	use tendermint_primitives::{
 		Client, TrustedState, ValidatorSet, VerificationError, VerificationOptions,
 	};
-	use tendermint_verifier::hashing::SpIoSha256;
-	use tendermint_verifier::validate_validator_set_hash;
+	use tendermint_verifier::{hashing::SpIoSha256, validate_validator_set_hash};
 	use tesseract_polygon::HeimdallClient;
 	use tokio::time::{interval, timeout, Duration};
 	use tracing::trace;
@@ -21,11 +20,6 @@ mod tests {
 	fn get_polygon_rpc_url() -> String {
 		std::env::var("POLYGON_HEIMDALL")
 			.unwrap_or_else(|_| "https://polygon-amoy-heimdall-rpc.publicnode.com".to_string())
-	}
-
-	fn get_polygon_rest_url() -> String {
-		std::env::var("POLYGON_HEIMDALL_REST")
-			.unwrap_or_else(|_| "https://polygon-amoy-heimdall-rest.publicnode.com/".to_string())
 	}
 
 	fn get_polygon_execution_rpc_url() -> String {
@@ -124,16 +118,13 @@ mod tests {
 	async fn test_abci_query_milestone_proof_inner() -> Result<(), Box<dyn std::error::Error>> {
 		use cometbft_rpc::endpoint::abci_query::AbciQuery;
 
-		let client = HeimdallClient::new(
-			&get_polygon_rpc_url(),
-			&get_polygon_rest_url(),
-			&get_polygon_execution_rpc_url(),
-		)?;
+		let client = HeimdallClient::new(&get_polygon_rpc_url(), &get_polygon_execution_rpc_url())?;
+		let latest_height = client.latest_height().await?;
 
-		let (milestone_number, milestone) = client.get_latest_milestone().await?;
+		let (milestone_number, milestone) =
+			client.get_latest_milestone_at_height(latest_height).await?.unwrap();
 		trace!("Latest milestone: number {}", milestone_number);
 
-		let latest_height = client.latest_height().await?;
 		let abci_query: AbciQuery =
 			client.get_milestone_proof(milestone_number, latest_height).await?;
 
@@ -267,8 +258,8 @@ mod tests {
 				current_time,
 			) {
 				Ok(updated_state) => {
-					let is_validator_set_change = trusted_state.next_validators_hash
-						== consensus_proof.signed_header.header.validators_hash.as_bytes();
+					let is_validator_set_change = trusted_state.next_validators_hash ==
+						consensus_proof.signed_header.header.validators_hash.as_bytes();
 					if is_validator_set_change {
 						actual_transitions += 1;
 					}
@@ -315,9 +306,8 @@ mod tests {
 	async fn run_integration_test_heimdall(
 		rpc_url: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		let client: HeimdallClient =
-			HeimdallClient::new(rpc_url, &get_polygon_rest_url(), &get_polygon_execution_rpc_url())
-				.expect("Failed to create client");
+		let client: HeimdallClient = HeimdallClient::new(rpc_url, &get_polygon_execution_rpc_url())
+			.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		let latest_height = client.latest_height().await?;
@@ -412,8 +402,8 @@ mod tests {
 				current_time,
 			) {
 				Ok(updated_state) => {
-					let is_validator_set_change = trusted_state.next_validators_hash
-						== consensus_proof.signed_header.header.validators_hash.as_bytes();
+					let is_validator_set_change = trusted_state.next_validators_hash ==
+						consensus_proof.signed_header.header.validators_hash.as_bytes();
 					if is_validator_set_change {
 						actual_transitions += 1;
 					}
@@ -457,9 +447,8 @@ mod tests {
 
 	/// Basic Heimdall RPC test: header and validator retrieval
 	async fn test_polygon_basic_rpc(rpc_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-		let client =
-			HeimdallClient::new(rpc_url, &get_polygon_rest_url(), &get_polygon_execution_rpc_url())
-				.expect("Failed to create client");
+		let client = HeimdallClient::new(rpc_url, &get_polygon_execution_rpc_url())
+			.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		trace!("Chain ID: {}", chain_id);

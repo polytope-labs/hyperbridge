@@ -39,8 +39,6 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 	let host_config = HostConfig {
 		consensus_update_frequency: Some(300),
 		heimdall_rpc_url: polygon_heimdall_rpc,
-		heimdall_rest_url: polygon_heimdall_rest,
-		execution_rpc_url: polygon_execution_url,
 		disable: Some(false),
 	};
 

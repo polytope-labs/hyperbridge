@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use codec::Encode;
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment},
@@ -26,8 +26,6 @@ pub struct HostConfig {
 	pub heimdall_rpc_url: String,
 	/// Heimdall REST URL
 	pub heimdall_rest_url: String,
-	/// Execution RPC URL
-	pub execution_rpc_url: String,
 	/// Disable consensus task
 	pub disable: Option<bool>,
 }
@@ -65,6 +63,8 @@ impl PolygonPosHost {
 	/// Create a new PolygonPosHost
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
+		let execution_rpc_url =
+			evm.rpc_urls.get(0).ok_or_else(|| anyhow!("No rpc urls privided"))?;
 		Ok(Self {
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();
@@ -75,11 +75,7 @@ impl PolygonPosHost {
 			host: host.clone(),
 			evm: evm.clone(),
 			provider: Arc::new(ismp_provider),
-			prover: HeimdallClient::new(
-				&host.heimdall_rpc_url,
-				&host.heimdall_rest_url,
-				&host.execution_rpc_url,
-			)?,
+			prover: HeimdallClient::new(&host.heimdall_rpc_url, &execution_rpc_url)?,
 		})
 	}
 
@@ -112,7 +108,11 @@ impl PolygonPosHost {
 		);
 
 		let codec_trusted_state = CodecTrustedState::from(&trusted_state);
-		let (_, milestone) = self.prover.get_latest_milestone().await?;
+		let (_, milestone) = self
+			.prover
+			.get_latest_milestone_at_height(latest_height)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to fetch latest milestone"))?;
 
 		let consensus_state = ConsensusState {
 			tendermint_state: codec_trusted_state,
@@ -195,11 +195,10 @@ impl IsmpHost for PolygonPosHost {
 		let initial_consensus_state = self.get_consensus_state().await.map_err(|e| {
 			anyhow::anyhow!("PolygonPosHost: fetch initial consensus state failed: {e}")
 		})?;
-		let (_, milestone) = self.prover.get_latest_milestone().await?;
 
 		let evm_header = self
 			.prover
-			.fetch_header(milestone.end_block)
+			.fetch_header(initial_consensus_state.last_finalized_block)
 			.await?
 			.ok_or_else(|| anyhow::anyhow!("EVM header not found for milestone end block"))?;
 

@@ -7,8 +7,7 @@ mod tests {
 	use tendermint_primitives::{
 		Client, TrustedState, ValidatorSet, VerificationError, VerificationOptions,
 	};
-	use tendermint_verifier::hashing::SpIoSha256;
-	use tendermint_verifier::validate_validator_set_hash;
+	use tendermint_verifier::{hashing::SpIoSha256, validate_validator_set_hash};
 	use tesseract_polygon::HeimdallClient;
 	use tokio::time::{interval, timeout, Duration};
 	use tracing::trace;
@@ -267,8 +266,8 @@ mod tests {
 				current_time,
 			) {
 				Ok(updated_state) => {
-					let is_validator_set_change = trusted_state.next_validators_hash
-						== consensus_proof.signed_header.header.validators_hash.as_bytes();
+					let is_validator_set_change = trusted_state.next_validators_hash ==
+						consensus_proof.signed_header.header.validators_hash.as_bytes();
 					if is_validator_set_change {
 						actual_transitions += 1;
 					}
@@ -412,8 +411,8 @@ mod tests {
 				current_time,
 			) {
 				Ok(updated_state) => {
-					let is_validator_set_change = trusted_state.next_validators_hash
-						== consensus_proof.signed_header.header.validators_hash.as_bytes();
+					let is_validator_set_change = trusted_state.next_validators_hash ==
+						consensus_proof.signed_header.header.validators_hash.as_bytes();
 					if is_validator_set_change {
 						actual_transitions += 1;
 					}

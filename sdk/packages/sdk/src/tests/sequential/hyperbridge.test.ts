@@ -230,7 +230,8 @@ describe.sequential("Hyperbridge Requests", () => {
 		}
 	}, 1_000_000)
 
-	it("It should correctly monitor requests that timeout from hyperbridge", async () => {
+	// non membership proofs are returning trie root mismatch errors due to the Erigon proof bug
+	it.skip("It should correctly monitor requests that timeout from hyperbridge", async () => {
 		const { hyperbridge, relayApi, bob, signer } = await hyperbridgeSetup()
 		const params = {
 			destination: 97,

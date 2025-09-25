@@ -893,6 +893,8 @@ export class IntentGateway {
 					BigInt(sourceHeight),
 				)
 
+				yield { status: "SOURCE_PROOF_RECIEVED", data: proof }
+
 				const { stateId } = parseStateMachineId(sourceStateMachine)
 				const sourceIProof: IProof = {
 					height: BigInt(sourceHeight),

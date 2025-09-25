@@ -242,7 +242,7 @@ describe("Order Cancellation tests", () => {
 
 		await hyperbridge.connect()
 		hyperbridgeInstance = hyperbridge
-	}, 10_000)
+	}, 1_000_000)
 
 	it("Should cancel order when deadline has reached and yield the necessary proofs", async () => {
 		const {
@@ -401,6 +401,9 @@ describe("Order Cancellation tests", () => {
 		result = await cancelGenerator.next(getRequest)
 
 		console.log("Result after SOURCE FINALIZED:", result)
+
+		expect(result.value?.status).toBe("SOURCE_PROOF_RECIEVED")
+		expect((result.value as any).data).toBeDefined()
 
 		while (!result.done) {
 			console.log("Status:", result.value?.status)

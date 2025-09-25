@@ -10727,6 +10727,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-tendermint"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "evm-state-machine",
+ "geth-primitives",
+ "ibc",
+ "ismp",
+ "log",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "prost 0.13.5",
+ "scale-info",
+ "serde",
+ "serde_json",
+ "sp-io 41.0.1",
+ "tendermint-ics23-primitives",
+ "tendermint-primitives",
+ "tendermint-verifier",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "ismp-testsuite"
 version = "0.1.1"
 dependencies = [
@@ -28593,6 +28618,40 @@ dependencies = [
  "tesseract-primitives",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "tesseract-tendermint"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.21.7",
+ "cometbft",
+ "cometbft-rpc",
+ "ethers",
+ "geth-primitives",
+ "ibc",
+ "ibc-proto 0.52.0",
+ "ics23",
+ "ismp",
+ "ismp-tendermint",
+ "log",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "prost 0.13.5",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3",
+ "tendermint-ics23-primitives",
+ "tendermint-primitives",
+ "tendermint-prover",
+ "tendermint-verifier",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
 ]
 
 [[package]]

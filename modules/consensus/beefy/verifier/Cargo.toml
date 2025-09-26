@@ -1,0 +1,38 @@
+[package]
+name = "beefy-verifier"
+version = "0.1.0"
+edition = "2024"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Verifier for the BEEFY consensus client"
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+log = { workspace = true }
+anyhow = { workspace = true, default-features = false }
+primitive-types = { workspace = true, features = ["codec"] }
+codec = { workspace = true, features = ["derive"], default-features = true }
+beefy-verifier-primitives = { workspace = true }
+ismp = { workspace = true, default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "sp-core",
+]
+
+
+
+[features]
+default = ["std"]
+std = [
+    "log/std",
+    "anyhow/std",
+    "codec/std",
+    "ismp/std",
+    "primitive-types/std",
+    "beefy-verifier-primitives/std",
+    "polkadot-sdk/std"
+]

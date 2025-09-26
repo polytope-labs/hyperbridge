@@ -2280,6 +2280,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "beefy-verifier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beefy-verifier-primitives",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+]
+
+[[package]]
 name = "beefy-verifier-primitives"
 version = "0.1.1"
 dependencies = [

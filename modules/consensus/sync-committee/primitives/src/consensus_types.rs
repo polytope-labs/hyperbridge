@@ -420,9 +420,9 @@ pub struct BeaconState<
 	pub randao_mixes: Vector<Bytes32, EPOCHS_PER_HISTORICAL_VECTOR>,
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
 	pub slashings: Vector<Gwei, EPOCHS_PER_SLASHINGS_VECTOR>,
-	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_u8_str_or_hex"))]
 	pub previous_epoch_participation: List<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
-	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_u8_str_or_hex"))]
 	pub current_epoch_participation: List<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
 	pub justification_bits: Bitvector<JUSTIFICATION_BITS_LENGTH>,
 	pub previous_justified_checkpoint: Checkpoint,

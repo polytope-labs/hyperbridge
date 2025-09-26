@@ -236,6 +236,7 @@ pub mod seq_of_str {
 		seq.end()
 	}
 
+	/// Serde Visitor for deserializing sequence of strings
 	struct Visitor<T>(PhantomData<Vec<T>>);
 
 	impl<'de, T: FromStr> serde::de::Visitor<'de> for Visitor<T> {
@@ -269,6 +270,69 @@ pub mod seq_of_str {
 		U: FromStr,
 	{
 		let data = deserializer.deserialize_seq(Visitor(PhantomData))?;
+		T::try_from(data).map_err(|_| serde::de::Error::custom("failure to parse collection"))
+	}
+}
+
+/// Deserializer needed to fix edge case with deserializing current_epoch_participation and
+/// next_epoch_participation Erigon's beacon state
+pub mod seq_of_u8_str_or_hex {
+	use super::*;
+	use alloc::string::String;
+	use core::{fmt, marker::PhantomData, str::FromStr};
+	use serde::de::{Deserializer, Error};
+
+	pub use seq_of_str::serialize;
+
+	/// Serde Visitor for deserializing sequence of strings or hex string into sequence of bytes
+	struct AnyVisitor(PhantomData<Vec<u8>>);
+
+	impl<'de> serde::de::Visitor<'de> for AnyVisitor {
+		type Value = Vec<u8>;
+
+		fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+			formatter.write_str("sequence of string or hex string")
+		}
+
+		fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+		where
+			E: Error,
+		{
+			let data = try_bytes_from_hex_str(v).map_err(serde::de::Error::custom)?;
+			Ok(data)
+		}
+
+		fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+		where
+			E: Error,
+		{
+			let data = try_bytes_from_hex_str(&v).map_err(serde::de::Error::custom)?;
+			Ok(data)
+		}
+
+		fn visit_seq<S>(self, mut access: S) -> Result<Self::Value, S::Error>
+		where
+			S: serde::de::SeqAccess<'de>,
+		{
+			let mut coll = Vec::with_capacity(access.size_hint().unwrap_or(0));
+
+			while let Some(elem) = access.next_element()? {
+				let recovered_elem = <u8>::from_str(elem).map_err(|_| {
+					Error::custom("failure to parse element of sequence from string")
+				})?;
+				coll.push(recovered_elem);
+			}
+			Ok(coll)
+		}
+	}
+
+	/// Deserialize generic type from a sequence of strings or
+	pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+	where
+		D: Deserializer<'de>,
+		T: TryFrom<Vec<u8>>,
+	{
+		let data = deserializer.deserialize_any(AnyVisitor(PhantomData))?;
 		T::try_from(data).map_err(|_| serde::de::Error::custom("failure to parse collection"))
 	}
 }

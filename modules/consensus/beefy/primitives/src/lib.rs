@@ -89,25 +89,25 @@ pub struct PartialMmrLeaf {
 	pub beefy_next_authority_set: BeefyAuthoritySet<H256>,
 }
 
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 /// Parachain header and metadata needed for merkle inclusion proof
 pub struct ParachainHeader {
 	/// scale encoded parachain header
 	pub header: Vec<u8>,
 	/// leaf index for parachain heads proof
-	pub index: usize,
+	pub index: u32,
 	/// ParaId for parachain
 	pub para_id: u32,
 }
 
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 /// Parachain proofs definition
 pub struct ParachainProof {
 	/// List of parachains we have a proof for
 	pub parachains: Vec<ParachainHeader>,
 
 	/// Proof for parachain header inclusion in the parachain headers root
-	pub proof: Vec<Vec<(usize, [u8; 32])>>,
+	pub proof: Vec<Vec<(u32, [u8; 32])>>,
 }
 
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
@@ -117,6 +117,42 @@ pub struct ConsensusMessage {
 	pub parachain: ParachainProof,
 	/// proof for finalized mmr root
 	pub mmr: MmrProof,
+}
+
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct Node {
+	pub index: u32,
+	pub hash: H256
+}
+
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct BeefyMmrLeaf {
+	pub version: MmrLeafVersion,
+	pub parent_block_and_hash: (u32, H256),
+	pub beefy_next_authority_set: BeefyAuthoritySet<H256>,
+	pub k_index: u32,
+	pub leaf_index: u32,
+	pub extra: H256
+}
+
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct RelaychainProof {
+	/// Signed commitment
+	pub signed_commitment: SignedCommitment,
+	/// Latest leaf added to mmr
+	pub latest_mmr_leaf: BeefyMmrLeaf,
+	/// Proof for the latest mmr leaf
+	pub mmr_proof: Vec<H256>,
+	/// Proof for authorities in current/next session
+	pub proof: Vec<Vec<Node>>
+}
+
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct BeefyConsensusProof {
+	// The proof items for the relay chain consensus
+	pub relay: RelaychainProof,
+	// The proof items for parachain headers
+	pub parachain: ParachainProof
 }
 
 #[cfg(feature = "std")]

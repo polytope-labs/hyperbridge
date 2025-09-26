@@ -339,9 +339,34 @@ pub mod seq_of_u8_str_or_hex {
 
 #[cfg(test)]
 mod test {
-	use primitive_types::{H256, H512};
-
+	use super::seq_of_u8_str_or_hex;
 	use ismp::router::{GetRequest, GetResponse, PostRequest, PostResponse, StorageValue};
+	use primitive_types::{H256, H512};
+	use serde::Deserialize;
+
+	#[test]
+	fn should_deserialize_from_hex_string_and_sequence_of_strings() {
+		#[derive(Deserialize, Debug)]
+		struct TestData {
+			#[serde(with = "seq_of_u8_str_or_hex")]
+			data: Vec<u8>,
+		}
+
+		let json_value_1 = r#"{
+			"data":"0x00430708"
+			}"#;
+		let json_value_2 = r#"{
+			"data":["0", "2", "7", "0"]
+			}"#;
+
+		let deserialized_1 = serde_json::from_str::<TestData>(json_value_1);
+		let deserialized_2 = serde_json::from_str::<TestData>(json_value_2);
+		println!("{deserialized_1:?}");
+		println!("{deserialized_2:?}");
+
+		assert!(deserialized_1.is_ok());
+		assert!(deserialized_2.is_ok());
+	}
 
 	#[test]
 	fn serialize_and_deserialize_post_request() {

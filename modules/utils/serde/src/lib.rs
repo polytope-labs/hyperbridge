@@ -346,17 +346,17 @@ mod test {
 
 	#[test]
 	fn should_deserialize_from_hex_string_and_sequence_of_strings() {
-		#[derive(Deserialize, Debug)]
+		#[derive(Deserialize, Debug, PartialEq, Eq)]
 		struct TestData {
 			#[serde(with = "seq_of_u8_str_or_hex")]
 			data: Vec<u8>,
 		}
 
 		let json_value_1 = r#"{
-			"data":"0x00430708"
+			"data":"0x00050708"
 			}"#;
 		let json_value_2 = r#"{
-			"data":["0", "2", "7", "0"]
+			"data":["0", "5", "7", "8"]
 			}"#;
 
 		let deserialized_1 = serde_json::from_str::<TestData>(json_value_1);
@@ -366,6 +366,8 @@ mod test {
 
 		assert!(deserialized_1.is_ok());
 		assert!(deserialized_2.is_ok());
+
+		assert!(deserialized_1.unwrap() == deserialized_2.unwrap());
 	}
 
 	#[test]

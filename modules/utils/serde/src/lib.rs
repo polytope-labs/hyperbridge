@@ -186,9 +186,54 @@ pub mod seq_of_hex {
 
 /// String serializer and deserializer
 pub mod as_string {
-	use alloc::{format, string::String};
-	use core::{fmt, str::FromStr};
-	use serde::de::Deserialize;
+	use alloc::{
+		format,
+		string::{String, ToString},
+	};
+	use core::{fmt, marker::PhantomData, str::FromStr};
+	use serde::de::Error;
+
+	/// Serde Visitor for deserializing sequence of strings or hex string into sequence of bytes
+	struct AnyVisitor<T>(PhantomData<T>);
+
+	impl<'de, T: FromStr> serde::de::Visitor<'de> for AnyVisitor<T> {
+		type Value = T;
+
+		fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+			formatter.write_str("string or integer")
+		}
+
+		fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+		where
+			E: Error,
+		{
+			let inner: T = v
+				.parse()
+				.map_err(|_| serde::de::Error::custom("failure to parse string data"))?;
+			Ok(inner)
+		}
+
+		fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+		where
+			E: Error,
+		{
+			let inner: T = v
+				.parse()
+				.map_err(|_| serde::de::Error::custom("failure to parse string data"))?;
+			Ok(inner)
+		}
+
+		fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+		where
+			E: Error,
+		{
+			let inner: T = v
+				.to_string()
+				.parse()
+				.map_err(|_| serde::de::Error::custom("failure to parse string data"))?;
+			Ok(inner)
+		}
+	}
 
 	/// Serialize into a string
 	pub fn serialize<S, T: fmt::Display>(data: T, serializer: S) -> Result<S::Ok, S::Error>
@@ -204,11 +249,8 @@ pub mod as_string {
 	where
 		D: serde::Deserializer<'de>,
 	{
-		let s: String = <String>::deserialize(deserializer)?;
-		let inner: T = s
-			.parse()
-			.map_err(|_| serde::de::Error::custom("failure to parse string data"))?;
-		Ok(inner)
+		let data = deserializer.deserialize_any(AnyVisitor(PhantomData::<T>))?;
+		T::try_from(data).map_err(|_| serde::de::Error::custom("failure to parse string"))
 	}
 }
 
@@ -339,7 +381,7 @@ pub mod seq_of_u8_str_or_hex {
 
 #[cfg(test)]
 mod test {
-	use super::seq_of_u8_str_or_hex;
+	use super::{as_string, seq_of_u8_str_or_hex};
 	use ismp::router::{GetRequest, GetResponse, PostRequest, PostResponse, StorageValue};
 	use primitive_types::{H256, H512};
 	use serde::Deserialize;
@@ -350,13 +392,17 @@ mod test {
 		struct TestData {
 			#[serde(with = "seq_of_u8_str_or_hex")]
 			data: Vec<u8>,
+			#[serde(with = "as_string")]
+			value: u64,
 		}
 
 		let json_value_1 = r#"{
-			"data":"0x00050708"
+			"data":"0x00050708",
+			"value":29716
 			}"#;
 		let json_value_2 = r#"{
-			"data":["0", "5", "7", "8"]
+			"data":["0", "5", "7", "8"],
+			"value": "29716"
 			}"#;
 
 		let deserialized_1 = serde_json::from_str::<TestData>(json_value_1);

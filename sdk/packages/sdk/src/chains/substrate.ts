@@ -1,6 +1,5 @@
 import { ApiPromise, WsProvider } from "@polkadot/api"
 import { capitalize } from "lodash-es"
-import { RpcWebSocketClient } from "rpc-websocket-client"
 import { Vector, u8 } from "scale-ts"
 import { match } from "ts-pattern"
 import { bytesToHex, hexToBytes, toBytes, toHex } from "viem"
@@ -15,13 +14,15 @@ import {
 	SubstrateStateProof,
 	isEvmChain,
 	isSubstrateChain,
+	replaceWebsocketWithHttp,
 } from "@/utils"
 import { ExpectedError } from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 
 export interface SubstrateChainParams {
 	/*
-	 * ws: The WebSocket URL for the Substrate chain.
+	 * ws: The WebSocket URL for the Substrate chain RPC endpoint.
+	 * Will be automatically converted to HTTP for JSON-RPC calls.
 	 */
 	ws: string
 
@@ -31,18 +32,68 @@ export interface SubstrateChainParams {
 	hasher: "Keccak" | "Blake2"
 }
 
+/**
+ * HTTP RPC Client for making JSON-RPC calls over HTTP
+ */
+class HttpRpcClient {
+	constructor(private readonly url: string) {}
+
+	/**
+	 * Make an RPC call over HTTP
+	 * @param method - The RPC method name
+	 * @param params - The parameters for the RPC call
+	 * @returns Promise resolving to the RPC response
+	 */
+	async call(method: string, params: any[] = []): Promise<any> {
+		const body = JSON.stringify({
+			jsonrpc: "2.0",
+			id: Date.now(),
+			method,
+			params,
+		})
+
+		const response = await fetch(this.url, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body,
+		})
+
+		if (!response.ok) {
+			throw new Error(`HTTP error! status: ${response.status}`)
+		}
+
+		const result = await response.json()
+
+		if (result.error) {
+			throw new Error(`RPC error: ${result.error.message}`)
+		}
+
+		return result.result
+	}
+}
+
 export class SubstrateChain implements IChain {
 	/*
 	 * api: The Polkadot API instance for the Substrate chain.
 	 */
 	api?: ApiPromise
-	constructor(private readonly params: SubstrateChainParams) {}
+	private rpcClient: HttpRpcClient
+
+	constructor(private readonly params: SubstrateChainParams) {
+		const url = this.params.ws
+
+		const httpUrl = replaceWebsocketWithHttp(url)
+		this.rpcClient = new HttpRpcClient(httpUrl)
+	}
 
 	/*
 	 * connect: Connects to the Substrate chain using the provided WebSocket URL.
 	 */
 	public async connect() {
 		const wsProvider = new WsProvider(this.params.ws)
+
 		const typesBundle =
 			this.params.hasher === "Keccak"
 				? {
@@ -111,9 +162,7 @@ export class SubstrateChain implements IChain {
 		const prefix = toHex(":child_storage:default:ISMP")
 		const key = this.requestCommitmentKey(commitment)
 
-		const rpc = new RpcWebSocketClient()
-		await rpc.connect(this.params.ws)
-		const item: any = await rpc.call("childstate_getStorage", [prefix, key])
+		const item: any = await this.rpcClient.call("childstate_getStorage", [prefix, key])
 
 		return item
 	}
@@ -127,9 +176,7 @@ export class SubstrateChain implements IChain {
 		const prefix = toHex(":child_storage:default:ISMP")
 		const key = this.requestReceiptKey(commitment)
 
-		const rpc = new RpcWebSocketClient()
-		await rpc.connect(this.params.ws)
-		const item: any = await rpc.call("childstate_getStorage", [prefix, key])
+		const item: any = await this.rpcClient.call("childstate_getStorage", [prefix, key])
 
 		return item
 	}
@@ -154,12 +201,9 @@ export class SubstrateChain implements IChain {
 	 * @returns {Promise<HexString>} The proof.
 	 */
 	async queryProof(message: IMessage, counterparty: string, at?: bigint): Promise<HexString> {
-		const rpc = new RpcWebSocketClient()
-		await rpc.connect(this.params.ws)
-
 		if (isEvmChain(counterparty)) {
 			// for evm chains, query the mmr proof
-			const proof: any = await rpc.call("mmr_queryProof", [Number(at), message])
+			const proof: any = await this.rpcClient.call("mmr_queryProof", [Number(at), message])
 			return toHex(proof.proof)
 		}
 
@@ -169,7 +213,7 @@ export class SubstrateChain implements IChain {
 				"Requests" in message
 					? message.Requests.map(requestCommitmentStorageKey)
 					: message.Responses.map(responseCommitmentStorageKey)
-			const proof: any = await rpc.call("ismp_queryChildTrieProof", [Number(at), childTrieKeys])
+			const proof: any = await this.rpcClient.call("ismp_queryChildTrieProof", [Number(at), childTrieKeys])
 			const basicProof = BasicProof.dec(toHex(proof.proof))
 			const encoded = SubstrateStateProof.enc({
 				tag: "OverlayProof",
@@ -246,10 +290,8 @@ export class SubstrateChain implements IChain {
 	 * @returns The state proof as a hexadecimal string.
 	 */
 	async queryStateProof(at: bigint, keys: HexString[]): Promise<HexString> {
-		const rpc = new RpcWebSocketClient()
-		await rpc.connect(this.params.ws)
 		const encodedKeys = keys.map((key) => Array.from(hexToBytes(key)))
-		const proof: any = await rpc.call("ismp_queryChildTrieProof", [Number(at), encodedKeys])
+		const proof: any = await this.rpcClient.call("ismp_queryChildTrieProof", [Number(at), encodedKeys])
 		const basicProof = BasicProof.dec(toHex(proof.proof))
 		const encoded = SubstrateStateProof.enc({
 			tag: "OverlayProof",
@@ -270,9 +312,19 @@ export class SubstrateChain implements IChain {
 	 * @returns {Promise<bigint>} The latest state machine height.
 	 */
 	async latestStateMachineHeight(stateMachineId: StateMachineIdParams): Promise<bigint> {
-		if (!this.api) throw new Error("API not initialized")
-		const latestHeight = await this.api.query.ismp.latestStateMachineHeight(stateMachineId)
-		return BigInt(latestHeight.toString())
+		const state_id = convertStateIdToStateMachineId(stateMachineId.stateId)
+
+		const consensusStateIdToBytes = hexToBytes(stateMachineId.consensusStateId)
+		const decoder = new TextDecoder("utf-8")
+		const decodedConsensusStateId = decoder.decode(consensusStateIdToBytes)
+
+		const payload = {
+			state_id,
+			consensus_state_id: decodedConsensusStateId,
+		}
+
+		const latestHeight: number = await this.rpcClient.call("ismp_queryStateMachineLatestHeight", [payload])
+		return BigInt(latestHeight)
 	}
 
 	/**
@@ -281,9 +333,24 @@ export class SubstrateChain implements IChain {
 	 * @returns {Promise<bigint>} The statemachine update time in seconds.
 	 */
 	async stateMachineUpdateTime(stateMachineHeight: StateMachineHeight): Promise<bigint> {
-		if (!this.api) throw new Error("API not initialized")
-		const updateTime = await this.api.query.ismp.stateMachineUpdateTime(stateMachineHeight)
-		return BigInt(updateTime.toString())
+		const state_id = convertStateIdToStateMachineId(stateMachineHeight.id.stateId)
+
+		const consensusStateIdToBytes = hexToBytes(stateMachineHeight.id.consensusStateId)
+		const decoder = new TextDecoder("utf-8")
+		const decodedConsensusStateId = decoder.decode(consensusStateIdToBytes)
+
+		const stateMachineId = {
+			state_id,
+			consensus_state_id: decodedConsensusStateId,
+		}
+
+		const payload = {
+			id: stateMachineId,
+			height: Number(stateMachineHeight.height),
+		}
+
+		const updateTime: number = await this.rpcClient.call("ismp_queryStateMachineUpdateTime", [payload])
+		return BigInt(updateTime)
 	}
 
 	/**
@@ -292,9 +359,19 @@ export class SubstrateChain implements IChain {
 	 * @returns {Promise<bigint>} The challenge period in seconds.
 	 */
 	async challengePeriod(stateMachineId: StateMachineIdParams): Promise<bigint> {
-		if (!this.api) throw new Error("API not initialized")
-		const challengePeriod = await this.api.query.ismp.challengePeriod(stateMachineId)
-		return BigInt(challengePeriod.toString())
+		const state_id = convertStateIdToStateMachineId(stateMachineId.stateId)
+
+		const consensusStateIdToBytes = hexToBytes(stateMachineId.consensusStateId)
+		const decoder = new TextDecoder("utf-8")
+		const decodedConsensusStateId = decoder.decode(consensusStateIdToBytes)
+
+		const payload = {
+			state_id,
+			consensus_state_id: decodedConsensusStateId,
+		}
+
+		const challengePeriod: number = await this.rpcClient.call("ismp_queryChallengePeriod", [payload])
+		return BigInt(challengePeriod)
 	}
 
 	/**
@@ -370,6 +447,35 @@ export function convertStateMachineIdToEnum(id: string): IStateMachine {
 	}
 
 	return { tag, value }
+}
+
+/**
+ * Converts a stateId object back to the state_id format used by the RPC.
+ * @param stateId - The stateId object from StateMachineIdParams
+ * @returns The string representation like "EVM-11155111" or "SUBSTRATE-cere"
+ */
+export function convertStateIdToStateMachineId(stateId: {
+	Evm?: number
+	Substrate?: HexString
+	Polkadot?: number
+	Kusama?: number
+}): string {
+	switch (true) {
+		case stateId.Evm !== undefined:
+			return `EVM-${stateId.Evm}`
+		case stateId.Polkadot !== undefined:
+			return `POLKADOT-${stateId.Polkadot}`
+		case stateId.Kusama !== undefined:
+			return `KUSAMA-${stateId.Kusama}`
+		case stateId.Substrate !== undefined: {
+			const bytes = hexToBytes(stateId.Substrate as HexString)
+			const decoder = new TextDecoder("utf-8")
+			const decoded = decoder.decode(bytes)
+			return `SUBSTRATE-${decoded}`
+		}
+		default:
+			throw new Error("Unsupported stateId variant")
+	}
 }
 
 /**

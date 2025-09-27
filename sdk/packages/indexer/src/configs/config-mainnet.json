@@ -128,6 +128,7 @@
 		"chainId": "137",
 		"startBlock": 75599047,
 		"stateMachineId": "EVM-137",
+		"blockConfirmations": 30,
 		"contracts": {
 			"ethereumHost": "0xD8d3db17C1dF65b301D45C84405CcAC1395C559a",
 			"erc6160ext20": "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",

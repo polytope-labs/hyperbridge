@@ -686,3 +686,16 @@ export function adjustFeeDecimals(feeInFeeToken: bigint, fromDecimals: number, t
 		return (feeInFeeToken + scaleFactor - 1n) / scaleFactor
 	}
 }
+
+/**
+ * Replace Websocket with HTTP is a function that replaces a websocket URL with an HTTP URL.
+ * @param url The URL to replace
+ */
+export function replaceWebsocketWithHttp(url: string): string {
+	if (url.startsWith("ws://")) {
+		return url.replace("ws://", "http://")
+	} else if (url.startsWith("wss://")) {
+		return url.replace("wss://", "https://")
+	}
+	return url
+}

@@ -1,5 +1,23 @@
 # @hyperbridge/sdk
 
+## 1.3.14
+
+### Patch Changes
+
+- Minor fix
+
+## 1.3.13
+
+### Patch Changes
+
+- Minor patch
+
+## 1.3.12
+
+### Patch Changes
+
+- Bump sdk
+
 ## 1.3.11
 
 ### Patch Changes

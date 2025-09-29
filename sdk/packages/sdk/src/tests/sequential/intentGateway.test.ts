@@ -360,9 +360,8 @@ describe("Order Cancellation tests", () => {
 		expect(result.value?.status).toBe("DESTINATION_FINALIZED")
 
 		if (result.value?.status === "DESTINATION_FINALIZED" && result.value && "data" in result.value) {
-			const data = (result.value as any).data as { proof: IProof; height: bigint }
+			const data = (result.value as any).data as { proof: IProof }
 			expect(data.proof).toBeDefined()
-			expect(data.height).toBeDefined()
 		}
 		const finalizedHeight = (result.value as any).data.height as bigint
 

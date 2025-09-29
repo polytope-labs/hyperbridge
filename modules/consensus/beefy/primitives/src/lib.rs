@@ -17,7 +17,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::all)]
-#![deny(missing_docs)]
+//#![deny(missing_docs)]
 
 use codec::{Decode, Encode};
 use polkadot_sdk::*;

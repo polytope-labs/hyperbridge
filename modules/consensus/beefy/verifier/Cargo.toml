@@ -16,11 +16,14 @@ primitive-types = { workspace = true, features = ["codec"] }
 codec = { workspace = true, features = ["derive"], default-features = true }
 beefy-verifier-primitives = { workspace = true }
 ismp = { workspace = true, default-features = false }
+merkle-mountain-range = {workspace = true, default-features = false}
+rs_merkle = {workspace = true}
 
 [dependencies.polkadot-sdk]
 workspace = true
 features = [
     "sp-core",
+    "sp-runtime"
 ]
 
 
@@ -34,5 +37,8 @@ std = [
     "ismp/std",
     "primitive-types/std",
     "beefy-verifier-primitives/std",
-    "polkadot-sdk/std"
+    "polkadot-sdk/std",
+    "merkle-mountain-range/std",
+    "rs_merkle/std"
+
 ]

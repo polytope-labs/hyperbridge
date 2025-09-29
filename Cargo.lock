@@ -2285,11 +2285,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
+ "ckb-merkle-mountain-range",
  "ismp",
  "log",
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "rs_merkle 1.5.0",
 ]
 
 [[package]]

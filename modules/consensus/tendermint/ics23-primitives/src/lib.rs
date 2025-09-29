@@ -1,6 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use crate::sp_io::hashing::keccak_256;
+use ismp::messaging::Keccak256;
 use polkadot_sdk::sp_io;
+use primitive_types::H256;
 
 pub struct ICS23HostFunctions;
 
@@ -50,5 +53,11 @@ impl ics23::HostFunctionsProvider for ICS23HostFunctions {
 
 	fn blake3(message: &[u8]) -> [u8; 32] {
 		blake3::hash(message).into()
+	}
+}
+
+impl Keccak256 for ICS23HostFunctions {
+	fn keccak256(bytes: &[u8]) -> H256 {
+		keccak_256(bytes).into()
 	}
 }

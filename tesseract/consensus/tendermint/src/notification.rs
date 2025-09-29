@@ -91,6 +91,7 @@ pub async fn consensus_notification(
 				let matched_height = height;
 				let matched_header = matched_header.expect("Header must be present if found");
 				let next_validators = client.prover.next_validators(matched_height).await?;
+
 				return Ok(Some(TendermintConsensusUpdate {
 					tendermint_proof: CodecConsensusProof::from(&ConsensusProof::new(
 						matched_header.clone(),

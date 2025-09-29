@@ -10,7 +10,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
-use evm_state_machine::EvmStateMachine;
+use evm_state_machine::TendermintEvmStateMachine;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -182,7 +182,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match id {
-			StateMachine::Evm(_) => Ok(Box::new(EvmStateMachine::<H, T>::default())),
+			StateMachine::Evm(_) => Ok(Box::new(TendermintEvmStateMachine::<H, T>::default())),
 			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
 		}
 	}

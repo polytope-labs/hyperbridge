@@ -11,7 +11,8 @@ use ethers::{
 	providers::Middleware,
 	types::{CallFrame, GethDebugTracingCallOptions, GethTrace, GethTraceFrame},
 };
-use evm_state_machine::types::EvmStateProof;
+use evm_state_machine::presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT};
+use evm_state_machine::types::{EvmKVProof, EvmStateProof};
 use geth_primitives::new_u256;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
@@ -34,6 +35,10 @@ use ethers::{
 	},
 };
 use futures::{stream::FuturesOrdered, FutureExt};
+use ibc::core::commitment_types::{
+	commitment::CommitmentProofBytes, merkle::MerkleProof, proto::v1::MerkleProof as RawMerkleProof,
+};
+use ics23::CommitmentProof;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
 	host::StateMachine,
@@ -42,9 +47,11 @@ use ismp::{
 use primitive_types::U256;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use tendermint_primitives::keys::EvmStoreKeys;
+use tendermint_prover::CometBFTClient;
 use tesseract_primitives::{
-	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StateProofQueryType, TxResult,
+	wait_for_challenge_period, BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider,
+	Query, Signature, StateMachineUpdated, StateProofQueryType, TxResult,
 };
 
 #[async_trait::async_trait]
@@ -487,19 +494,20 @@ impl IsmpProvider for EvmClient {
 						};
 
 						let gas_cost_for_data_in_usd = match client.state_machine {
-							StateMachine::Evm(_) =>
+							StateMachine::Evm(_) => {
 								get_l2_data_cost(
 									call.tx.rlp(),
 									client.state_machine,
 									client.client.clone(),
 									gas_breakdown.unit_wei_cost,
 								)
-								.await?,
+								.await?
+							},
 							_ => U256::zero().into(),
 						};
 
-						let execution_cost = (gas_breakdown.gas_price_cost * gas_to_be_used) +
-							gas_cost_for_data_in_usd;
+						let execution_cost = (gas_breakdown.gas_price_cost * gas_to_be_used)
+							+ gas_cost_for_data_in_usd;
 						Ok::<_, Error>(EstimateGasReturnParams {
 							execution_cost,
 							successful_execution,
@@ -900,6 +908,303 @@ impl IsmpProvider for EvmClient {
 		let decimals = contract.decimals().call().await?;
 
 		Ok(decimals)
+	}
+}
+
+#[derive(Clone)]
+pub struct TendermintEvmClient {
+	pub inner: EvmClient,
+	prover: std::sync::Arc<CometBFTClient>,
+	store_key: String,
+	keys: std::sync::Arc<dyn EvmStoreKeys + Send + Sync>,
+}
+
+impl TendermintEvmClient {
+	pub async fn new(
+		inner: EvmClient,
+		cometbft_rpc_url: String,
+		store_key: String,
+		keys: std::sync::Arc<dyn EvmStoreKeys + Send + Sync>,
+	) -> anyhow::Result<Self> {
+		let prover = std::sync::Arc::new(CometBFTClient::new(&cometbft_rpc_url).await?);
+		Ok(Self { inner, prover, store_key, keys })
+	}
+}
+
+#[async_trait::async_trait]
+impl IsmpProvider for TendermintEvmClient {
+	async fn query_consensus_state(
+		&self,
+		at: Option<u64>,
+		id: ConsensusStateId,
+	) -> Result<Vec<u8>, Error> {
+		self.inner.query_consensus_state(at, id).await
+	}
+
+	async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, Error> {
+		self.inner.query_latest_height(id).await
+	}
+
+	async fn query_finalized_height(&self) -> Result<u64, Error> {
+		self.inner.query_finalized_height().await
+	}
+
+	async fn query_state_machine_commitment(
+		&self,
+		height: StateMachineHeight,
+	) -> Result<StateCommitment, Error> {
+		self.inner.query_state_machine_commitment(height).await
+	}
+
+	async fn query_state_machine_update_time(
+		&self,
+		height: StateMachineHeight,
+	) -> Result<Duration, Error> {
+		self.inner.query_state_machine_update_time(height).await
+	}
+
+	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, Error> {
+		self.inner.query_challenge_period(id).await
+	}
+
+	async fn query_timestamp(&self) -> Result<Duration, Error> {
+		self.inner.query_timestamp().await
+	}
+
+	async fn query_requests_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, Error> {
+		let mut proofs: Vec<EvmKVProof> = Vec::new();
+		for q in keys.into_iter() {
+			let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+			let slot_hash =
+				super::derive_map_key(q.commitment.0.to_vec(), REQUEST_COMMITMENTS_SLOT);
+			let key_bytes = self.keys.storage_key(&contract_addr, slot_hash.0);
+			let resp = self
+				.prover
+				.abci_query_key(&self.store_key, key_bytes, at)
+				.await
+				.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
+			let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
+			proofs.push(EvmKVProof { value: resp.value, proof: proof_bytes });
+		}
+		Ok(proofs.encode())
+	}
+
+	async fn query_responses_proof(
+		&self,
+		at: u64,
+		keys: Vec<Query>,
+		_counterparty: StateMachine,
+	) -> Result<Vec<u8>, Error> {
+		let mut proofs: Vec<EvmKVProof> = Vec::new();
+		for q in keys.into_iter() {
+			let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+			let slot_hash =
+				super::derive_map_key(q.commitment.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
+			let key_bytes = self.keys.storage_key(&contract_addr, slot_hash.0);
+			let resp = self
+				.prover
+				.abci_query_key(&self.store_key, key_bytes, at)
+				.await
+				.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
+			let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
+			proofs.push(EvmKVProof { value: resp.value, proof: proof_bytes });
+		}
+		Ok(proofs.encode())
+	}
+
+	async fn query_state_proof(
+		&self,
+		at: u64,
+		keys: StateProofQueryType,
+	) -> Result<Vec<u8>, Error> {
+		let mut proofs: Vec<EvmKVProof> = Vec::new();
+		match keys {
+			StateProofQueryType::Ismp(keys) | StateProofQueryType::Arbitrary(keys) => {
+				for key in keys.into_iter() {
+					let resp = self
+						.prover
+						.abci_query_key(&self.store_key, key, at)
+						.await
+						.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
+					let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
+					proofs.push(EvmKVProof { value: resp.value, proof: proof_bytes });
+				}
+			},
+		}
+		Ok(proofs.encode())
+	}
+
+	async fn query_ismp_events(
+		&self,
+		previous_height: u64,
+		event: StateMachineUpdated,
+	) -> Result<Vec<Event>, Error> {
+		self.inner.query_ismp_events(previous_height, event).await
+	}
+
+	fn name(&self) -> String {
+		self.inner.name()
+	}
+
+	fn state_machine_id(&self) -> StateMachineId {
+		self.inner.state_machine_id()
+	}
+
+	fn block_max_gas(&self) -> u64 {
+		self.inner.block_max_gas()
+	}
+
+	fn initial_height(&self) -> u64 {
+		self.inner.initial_height()
+	}
+
+	async fn estimate_gas(&self, msg: Vec<Message>) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		self.inner.estimate_gas(msg).await
+	}
+
+	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
+		self.inner.query_request_fee_metadata(hash).await
+	}
+
+	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, Error> {
+		self.inner.query_request_receipt(hash).await
+	}
+
+	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, Error> {
+		self.inner.query_response_receipt(hash).await
+	}
+
+	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
+		self.inner.query_response_fee_metadata(hash).await
+	}
+
+	async fn state_machine_update_notification(
+		&self,
+		counterparty_state_id: StateMachineId,
+	) -> Result<BoxStream<StateMachineUpdated>, Error> {
+		self.inner.state_machine_update_notification(counterparty_state_id).await
+	}
+
+	async fn state_commitment_vetoed_notification(
+		&self,
+		from: u64,
+		height: StateMachineHeight,
+	) -> BoxStream<StateCommitmentVetoed> {
+		self.inner.state_commitment_vetoed_notification(from, height).await
+	}
+
+	async fn submit(
+		&self,
+		messages: Vec<Message>,
+		coprocessor: StateMachine,
+	) -> Result<TxResult, Error> {
+		self.inner.submit(messages, coprocessor).await
+	}
+
+	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		self.inner.request_commitment_full_key(commitment)
+	}
+
+	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		self.inner.request_receipt_full_key(commitment)
+	}
+
+	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		self.inner.response_commitment_full_key(commitment)
+	}
+
+	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		self.inner.response_receipt_full_key(commitment)
+	}
+
+	fn address(&self) -> Vec<u8> {
+		self.inner.address()
+	}
+
+	fn sign(&self, msg: &[u8]) -> Signature {
+		self.inner.sign(msg)
+	}
+
+	async fn set_latest_finalized_height(
+		&mut self,
+		counterparty: Arc<dyn IsmpProvider>,
+	) -> Result<(), Error> {
+		self.inner.set_latest_finalized_height(counterparty).await
+	}
+
+	async fn set_initial_consensus_state(
+		&self,
+		message: CreateConsensusState,
+	) -> Result<(), Error> {
+		self.inner.set_initial_consensus_state(message).await
+	}
+
+	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+		self.inner.veto_state_commitment(height).await
+	}
+
+	async fn query_host_params(
+		&self,
+		state_machine: StateMachine,
+	) -> Result<HostParam<u128>, Error> {
+		self.inner.query_host_params(state_machine).await
+	}
+
+	fn max_concurrent_queries(&self) -> usize {
+		self.inner.max_concurrent_queries()
+	}
+
+	async fn fee_token_decimals(&self) -> Result<u8, Error> {
+		self.inner.fee_token_decimals().await
+	}
+}
+
+fn proof_ops_to_commitment_proof_bytes(
+	proof: Option<cometbft::merkle::proof::ProofOps>,
+) -> anyhow::Result<Vec<u8>> {
+	if let Some(tm_proof) = proof {
+		let mut proofs = Vec::new();
+		for op in &tm_proof.ops {
+			let mut parse = CommitmentProof { proof: None };
+			prost::Message::merge(&mut parse, op.data.as_slice())
+				.map_err(|e| anyhow::anyhow!("commitment proof decoding failed: {}", e))?;
+			proofs.push(parse);
+		}
+		let raw_merkle_proof = RawMerkleProof { proofs };
+		let merkle_proof = MerkleProof::try_from(raw_merkle_proof)
+			.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?;
+		let proof_bytes = CommitmentProofBytes::try_from(merkle_proof)
+			.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?
+			.into();
+		Ok(proof_bytes)
+	} else {
+		Ok(Vec::new())
+	}
+}
+
+#[async_trait::async_trait]
+impl ByzantineHandler for TendermintEvmClient {
+	async fn check_for_byzantine_attack(
+		&self,
+		coprocessor: StateMachine,
+		counterparty: Arc<dyn IsmpProvider>,
+		challenge_event: StateMachineUpdated,
+	) -> Result<(), Error> {
+		self.inner
+			.check_for_byzantine_attack(coprocessor, counterparty, challenge_event)
+			.await
+	}
+
+	async fn state_machine_updates(
+		&self,
+		counterparty_state_id: StateMachineId,
+	) -> Result<BoxStream<Vec<StateMachineUpdated>>, Error> {
+		self.inner.state_machine_updates(counterparty_state_id).await
 	}
 }
 

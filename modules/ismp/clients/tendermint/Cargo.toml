@@ -9,6 +9,8 @@ publish = false
 [features]
 default = ["std"]
 std = [
+    "polkadot-sdk/std",
+    "pallet-ismp/std",
     "log/std",
     "anyhow/std",
     "base64/std",
@@ -35,6 +37,8 @@ base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 primitive-types = { workspace = true, default-features = false }
 pallet-ismp-host-executive = { workspace = true, default-features = false }
+polkadot-sdk = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
 sp-io = { workspace = true }
 ismp = { workspace = true, default-features = false }
 tendermint-verifier = { workspace = true, default-features = false }

@@ -977,20 +977,30 @@ impl IsmpProvider for TendermintEvmClient {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let mut proofs: Vec<EvmKVProof> = Vec::new();
-		for q in keys.into_iter() {
-			let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
-			let slot_hash =
-				super::derive_map_key(q.commitment.0.to_vec(), REQUEST_COMMITMENTS_SLOT);
-			let key_bytes = self.keys.storage_key(&contract_addr, slot_hash.0);
-			let resp = self
-				.prover
-				.abci_query_key(&self.store_key, key_bytes, at - 1)
-				.await
-				.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
-			let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
-			proofs.push(EvmKVProof { value: resp.value, proof: proof_bytes });
-		}
+		let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+		let storage_keys: Vec<Vec<u8>> = keys
+			.into_iter()
+			.map(|q| {
+				let slot_hash =
+					super::derive_map_key(q.commitment.0.to_vec(), REQUEST_COMMITMENTS_SLOT);
+				self.keys.storage_key(&contract_addr, slot_hash.0)
+			})
+			.collect();
+
+		let responses = self
+			.prover
+			.abci_query_keys(&self.store_key, storage_keys, at - 1)
+			.await
+			.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
+
+		let proofs: Vec<EvmKVProof> = responses
+			.into_iter()
+			.map(|resp| {
+				let proof = proof_ops_to_commitment_proof_bytes(resp.proof).unwrap_or_default();
+				EvmKVProof { value: resp.value, proof }
+			})
+			.collect();
+
 		Ok(proofs.encode())
 	}
 
@@ -1000,20 +1010,30 @@ impl IsmpProvider for TendermintEvmClient {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let mut proofs: Vec<EvmKVProof> = Vec::new();
-		for q in keys.into_iter() {
-			let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
-			let slot_hash =
-				super::derive_map_key(q.commitment.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
-			let key_bytes = self.keys.storage_key(&contract_addr, slot_hash.0);
-			let resp = self
-				.prover
-				.abci_query_key(&self.store_key, key_bytes, at - 1)
-				.await
-				.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
-			let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
-			proofs.push(EvmKVProof { value: resp.value, proof: proof_bytes });
-		}
+		let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+		let storage_keys: Vec<Vec<u8>> = keys
+			.into_iter()
+			.map(|q| {
+				let slot_hash =
+					super::derive_map_key(q.commitment.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
+				self.keys.storage_key(&contract_addr, slot_hash.0)
+			})
+			.collect();
+
+		let responses = self
+			.prover
+			.abci_query_keys(&self.store_key, storage_keys, at - 1)
+			.await
+			.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
+
+		let proofs: Vec<EvmKVProof> = responses
+			.into_iter()
+			.map(|resp| {
+				let proof = proof_ops_to_commitment_proof_bytes(resp.proof).unwrap_or_default();
+				EvmKVProof { value: resp.value, proof }
+			})
+			.collect();
+
 		Ok(proofs.encode())
 	}
 
@@ -1025,44 +1045,63 @@ impl IsmpProvider for TendermintEvmClient {
 		let mut proofs: Vec<EvmKVProof> = Vec::new();
 		match keys {
 			StateProofQueryType::Ismp(keys) => {
-				for key in keys.into_iter() {
-					// ISMP keys must be 32 bytes (slot under ISMP host contract)
-					if key.len() != 32 {
-						return Err(anyhow::anyhow!(
-							"All ISMP keys must have a length of 32 bytes, found {}",
-							key.len()
-						))?;
-					}
-					let slot = H256::from_slice(&key);
-					let storage_key = self.keys.storage_key(&self.inner.config.ismp_host.0, slot.0);
-					let resp = self
-						.prover
-						.abci_query_key(&self.store_key, storage_key, at - 1)
-						.await
-						.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
-					let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
-					proofs.push(EvmKVProof { value: resp.value, proof: proof_bytes });
+				let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+				// Validate lengths first to avoid Result in iterator
+				if keys.iter().any(|key| key.len() != 32) {
+					return Err(anyhow::anyhow!("All ISMP keys must have a length of 32 bytes",));
 				}
+				let storage_keys: Vec<Vec<u8>> = keys
+					.into_iter()
+					.map(|key| {
+						let slot = H256::from_slice(&key);
+						self.keys.storage_key(&contract_addr, slot.0)
+					})
+					.collect();
+
+				let responses = self
+					.prover
+					.abci_query_keys(&self.store_key, storage_keys, at - 1)
+					.await
+					.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
+
+				proofs = responses
+					.into_iter()
+					.map(|resp| {
+						let proof =
+							proof_ops_to_commitment_proof_bytes(resp.proof).unwrap_or_default();
+						EvmKVProof { value: resp.value, proof }
+					})
+					.collect();
 			},
 			StateProofQueryType::Arbitrary(keys) => {
+				let mut grouped: BTreeMap<[u8; 20], Vec<[u8; 32]>> = BTreeMap::new();
 				for key in keys.into_iter() {
-					// Arbitrary keys must be 52 bytes: first 20 contract address, last 32 slot
 					if key.len() != 52 {
-						return Err(anyhow::anyhow!(
+						anyhow::bail!(
 							"All arbitrary keys must have a length of 52 bytes, found {}",
 							key.len()
-						))?;
+						);
 					}
 					let contract_address = H160::from_slice(&key[..20]);
 					let slot = H256::from_slice(&key[20..]);
-					let storage_key = self.keys.storage_key(&contract_address.0, slot.0);
-					let resp = self
+					grouped.entry(contract_address.0).or_default().push(slot.0);
+				}
+
+				for (addr, slots) in grouped.into_iter() {
+					let storage_keys: Vec<Vec<u8>> =
+						slots.into_iter().map(|slot| self.keys.storage_key(&addr, slot)).collect();
+
+					let responses = self
 						.prover
-						.abci_query_key(&self.store_key, storage_key, at - 1)
+						.abci_query_keys(&self.store_key, storage_keys, at - 1)
 						.await
-						.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
-					let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
-					proofs.push(EvmKVProof { value: resp.value, proof: proof_bytes });
+						.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
+
+					proofs.extend(responses.into_iter().map(|resp| {
+						let proof =
+							proof_ops_to_commitment_proof_bytes(resp.proof).unwrap_or_default();
+						EvmKVProof { value: resp.value, proof }
+					}));
 				}
 			},
 		}

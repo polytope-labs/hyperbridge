@@ -4,6 +4,7 @@ use cometbft::{block::Height, validator::Info as Validator};
 use cometbft_rpc::{
 	endpoint::abci_query::AbciQuery, Client as OtherClient, HttpClient, Paging, Url,
 };
+use futures::future::join_all;
 use tendermint_primitives::{Client, ProverError};
 
 /// A client implementation for interacting with CometBFT nodes.
@@ -67,6 +68,23 @@ impl CometBFTClient {
 			.abci_query(Some(format!("/store/{}/key", store_key)), key, Some(height), true)
 			.await
 			.map_err(|e| ProverError::NetworkError(e.to_string()))
+	}
+
+	/// Perform multiple ABCI key queries concurrently under the same store key and height.
+	/// Returns results in the same order as the input keys.
+	pub async fn abci_query_keys(
+		&self,
+		store_key: &str,
+		keys: Vec<Vec<u8>>,
+		height: u64,
+	) -> Result<Vec<AbciQuery>, ProverError> {
+		let futs = keys.into_iter().map(|key| self.abci_query_key(store_key, key, height));
+		let results = join_all(futs).await;
+		let mut out = Vec::with_capacity(results.len());
+		for res in results {
+			out.push(res?);
+		}
+		Ok(out)
 	}
 }
 

@@ -923,39 +923,87 @@ export class IntentGateway {
 		const sourceStatusStream = indexerClient.getRequestStatusStream(commitment)
 		for await (const statusUpdate of sourceStatusStream) {
 			if (statusUpdate.status === RequestStatus.SOURCE_FINALIZED) {
-				const sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
-				const proof = await this.source.queryProof(
-					{ Requests: [commitment] },
-					hyperbridgeConfig.stateMachineId,
-					sourceHeight,
-				)
-
-				const sourceIProof: IProof = {
-					height: sourceHeight,
-					stateMachine: sourceStateMachine,
-					consensusStateId: sourceConsensusStateId,
-					proof,
+				let sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
+				let proof: HexString | undefined
+				// Check if request was delivered while waiting for proof
+				const checkIfAlreadyDelivered = async () => {
+					const currentStatus = await indexerClient.queryGetRequestWithStatus(commitment)
+					return (
+						currentStatus?.statuses.some(
+							(status) => status.status === RequestStatus.HYPERBRIDGE_DELIVERED,
+						) ?? false
+					)
 				}
 
-				yield { status: "SOURCE_PROOF_RECEIVED", data: sourceIProof }
+				while (true) {
+					try {
+						proof = await this.source.queryProof(
+							{ Requests: [commitment] },
+							hyperbridgeConfig.stateMachineId,
+							sourceHeight,
+						)
+						break
+					} catch {
+						const failedHeight = sourceHeight
+						while (sourceHeight <= failedHeight) {
+							if (await checkIfAlreadyDelivered()) {
+								break
+							}
 
-				const getRequestMessage: IGetRequestMessage = {
-					kind: "GetRequest",
-					requests: [getRequest],
-					source: sourceIProof,
-					response: destIProof,
-					signer: pad("0x"),
+							const nextHeight = await retryPromise(
+								() =>
+									hyperbridge.latestStateMachineHeight({
+										stateId: parseStateMachineId(sourceStateMachine).stateId,
+										consensusStateId: sourceConsensusStateId,
+									}),
+								{
+									maxRetries: 5,
+									backoffMs: 5000,
+									logMessage:
+										"Failed to fetch latest state machine height (post-source-proof failure)",
+								},
+							)
+							if (nextHeight <= failedHeight) {
+								await sleep(10000)
+								continue
+							}
+							sourceHeight = nextHeight
+						}
+
+						if (await checkIfAlreadyDelivered()) {
+							break
+						}
+					}
 				}
 
-				await waitForChallengePeriod(hyperbridge, {
-					height: sourceHeight,
-					id: {
-						stateId: parseStateMachineId(sourceStateMachine).stateId,
+				if (proof) {
+					const sourceIProof: IProof = {
+						height: sourceHeight,
+						stateMachine: sourceStateMachine,
 						consensusStateId: sourceConsensusStateId,
-					},
-				})
+						proof,
+					}
 
-				await this.submitAndConfirmReceipt(hyperbridge, commitment, getRequestMessage)
+					yield { status: "SOURCE_PROOF_RECEIVED", data: sourceIProof }
+
+					const getRequestMessage: IGetRequestMessage = {
+						kind: "GetRequest",
+						requests: [getRequest],
+						source: sourceIProof,
+						response: destIProof,
+						signer: pad("0x"),
+					}
+
+					await waitForChallengePeriod(hyperbridge, {
+						height: sourceHeight,
+						id: {
+							stateId: parseStateMachineId(sourceStateMachine).stateId,
+							consensusStateId: sourceConsensusStateId,
+						},
+					})
+
+					await this.submitAndConfirmReceipt(hyperbridge, commitment, getRequestMessage)
+				}
 			}
 
 			yield statusUpdate

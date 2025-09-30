@@ -363,7 +363,7 @@ describe("Order Cancellation tests", () => {
 			const data = (result.value as any).data as { proof: IProof }
 			expect(data.proof).toBeDefined()
 		}
-		const finalizedHeight = (result.value as any).data.height as bigint
+		const finalizedHeight = (result.value as any).data.proof.height as bigint
 
 		result = await cancelGenerator.next()
 		expect(result.value?.status).toBe("AWAITING_GET_REQUEST")

@@ -24,6 +24,8 @@ import {
 	mainnet,
 	optimism,
 	optimismSepolia,
+	polygon,
+	unichain,
 	soneium,
 } from "viem/chains"
 
@@ -59,6 +61,8 @@ const chains = {
 	[bscTestnet.id]: bscTestnet,
 	[gnosis.id]: gnosis,
 	[gnosisChiado.id]: gnosisChiado,
+	[polygon.id]: polygon,
+	[unichain.id]: unichain,
 }
 
 /**

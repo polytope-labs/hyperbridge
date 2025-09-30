@@ -985,7 +985,7 @@ impl IsmpProvider for TendermintEvmClient {
 			let key_bytes = self.keys.storage_key(&contract_addr, slot_hash.0);
 			let resp = self
 				.prover
-				.abci_query_key(&self.store_key, key_bytes, at)
+				.abci_query_key(&self.store_key, key_bytes, at - 1)
 				.await
 				.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
 			let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
@@ -1008,7 +1008,7 @@ impl IsmpProvider for TendermintEvmClient {
 			let key_bytes = self.keys.storage_key(&contract_addr, slot_hash.0);
 			let resp = self
 				.prover
-				.abci_query_key(&self.store_key, key_bytes, at)
+				.abci_query_key(&self.store_key, key_bytes, at - 1)
 				.await
 				.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
 			let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
@@ -1024,11 +1024,41 @@ impl IsmpProvider for TendermintEvmClient {
 	) -> Result<Vec<u8>, Error> {
 		let mut proofs: Vec<EvmKVProof> = Vec::new();
 		match keys {
-			StateProofQueryType::Ismp(keys) | StateProofQueryType::Arbitrary(keys) => {
+			StateProofQueryType::Ismp(keys) => {
 				for key in keys.into_iter() {
+					// ISMP keys must be 32 bytes (slot under ISMP host contract)
+					if key.len() != 32 {
+						return Err(anyhow::anyhow!(
+							"All ISMP keys must have a length of 32 bytes, found {}",
+							key.len()
+						))?;
+					}
+					let slot = H256::from_slice(&key);
+					let storage_key = self.keys.storage_key(&self.inner.config.ismp_host.0, slot.0);
 					let resp = self
 						.prover
-						.abci_query_key(&self.store_key, key, at)
+						.abci_query_key(&self.store_key, storage_key, at - 1)
+						.await
+						.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
+					let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
+					proofs.push(EvmKVProof { value: resp.value, proof: proof_bytes });
+				}
+			},
+			StateProofQueryType::Arbitrary(keys) => {
+				for key in keys.into_iter() {
+					// Arbitrary keys must be 52 bytes: first 20 contract address, last 32 slot
+					if key.len() != 52 {
+						return Err(anyhow::anyhow!(
+							"All arbitrary keys must have a length of 52 bytes, found {}",
+							key.len()
+						))?;
+					}
+					let contract_address = H160::from_slice(&key[..20]);
+					let slot = H256::from_slice(&key[20..]);
+					let storage_key = self.keys.storage_key(&contract_address.0, slot.0);
+					let resp = self
+						.prover
+						.abci_query_key(&self.store_key, storage_key, at - 1)
 						.await
 						.map_err(|e| anyhow::anyhow!("abci_query_key error: {e:?}"))?;
 					let proof_bytes = proof_ops_to_commitment_proof_bytes(resp.proof)?;
@@ -1044,7 +1074,11 @@ impl IsmpProvider for TendermintEvmClient {
 		previous_height: u64,
 		event: StateMachineUpdated,
 	) -> Result<Vec<Event>, Error> {
-		self.inner.query_ismp_events(previous_height, event).await
+		let adjusted_event = StateMachineUpdated {
+			state_machine_id: event.state_machine_id,
+			latest_height: event.latest_height.saturating_sub(1),
+		};
+		self.inner.query_ismp_events(previous_height, adjusted_event).await
 	}
 
 	fn name(&self) -> String {

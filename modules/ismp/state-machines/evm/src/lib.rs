@@ -252,9 +252,9 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
 
-		// Only support 32-byte slot keys
-		if keys.iter().any(|k| k.len() != 32) {
-			return Err(Error::Custom("Only 32-byte keys supported".to_string()));
+		// Only support 32-byte or 52-byte keys
+		if keys.iter().any(|k| !(k.len() == 32 || k.len() == 52)) {
+			return Err(Error::Custom("Only 32-byte or 52-byte keys are supported".to_string()));
 		}
 
 		let proofs: prelude::Vec<crate::types::EvmKVProof> =
@@ -269,9 +269,19 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let store_key = store_key_str.as_bytes();
 		let mut out = prelude::BTreeMap::new();
 
-		for (slot, ev) in keys.into_iter().zip(proofs.into_iter()) {
-			let key = key_provider
-				.storage_key(&contract_address.0, slot.clone().try_into().expect("32 bytes"));
+		for (key_bytes, ev) in keys.into_iter().zip(proofs.into_iter()) {
+			// Determine contract address and 32-byte slot based on key length
+			let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {
+				(contract_address, key_bytes.clone().try_into().expect("32 bytes"))
+			} else {
+				// 52 bytes: first 20 bytes are contract address, last 32 bytes are the slot
+				let addr = H160::from_slice(&key_bytes[..20]);
+				let mut slot_arr = [0u8; 32];
+				slot_arr.copy_from_slice(&key_bytes[20..]);
+				(addr, slot_arr)
+			};
+
+			let key = key_provider.storage_key(&addr.0, slot);
 
 			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
 				.map_err(|e| Error::Custom(e.to_string()))?;
@@ -293,7 +303,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 				)
 				.map_err(|e| Error::Custom(e.to_string()))?;
 
-			out.insert(slot, Some(ev.value));
+			out.insert(key_bytes, Some(ev.value));
 		}
 
 		Ok(out)

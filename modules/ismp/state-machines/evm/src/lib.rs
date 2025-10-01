@@ -21,16 +21,6 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
-use alloc::string::String;
-use ibc::core::{
-	commitment_types::{
-		commitment::CommitmentProofBytes,
-		merkle::{MerklePath, MerkleProof},
-		proto::v1::MerkleRoot,
-		specs::ProofSpecs,
-	},
-	host::types::path::PathBytes,
-};
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
@@ -39,8 +29,6 @@ use ismp::{
 	router::RequestResponse,
 };
 use primitive_types::{H160, H256};
-use tendermint_ics23_primitives::ICS23HostFunctions;
-use tendermint_primitives::keys::{DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys};
 
 pub mod prelude {
 	pub use alloc::collections::BTreeMap;
@@ -51,8 +39,10 @@ use pallet_ismp_host_executive::EvmHosts;
 use prelude::*;
 
 pub mod presets;
+pub mod tendermint;
 pub mod types;
 pub mod utils;
+pub use tendermint::TendermintEvmStateMachine;
 pub use utils::*;
 
 pub fn verify_membership<H: Keccak256 + Send + Sync>(
@@ -160,166 +150,6 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	}
 
 	Ok(map)
-}
-
-/// Tendermint EVM State Machine client verifying ICS23 KV proofs against app hash
-pub struct TendermintEvmStateMachine<H: IsmpHost, T: pallet_ismp_host_executive::Config>(
-	core::marker::PhantomData<(H, T)>,
-);
-
-impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Default
-	for TendermintEvmStateMachine<H, T>
-{
-	fn default() -> Self {
-		Self(core::marker::PhantomData)
-	}
-}
-
-impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Clone for TendermintEvmStateMachine<H, T> {
-	fn clone(&self) -> Self {
-		Self::default()
-	}
-}
-
-impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMachineClient
-	for TendermintEvmStateMachine<H, T>
-{
-	fn verify_membership(
-		&self,
-		_host: &dyn IsmpHost,
-		item: RequestResponse,
-		root: StateCommitment,
-		proof: &Proof,
-	) -> Result<(), Error> {
-		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
-
-		let slot_keys = req_res_commitment_key::<ICS23HostFunctions>(item);
-
-		let proofs: prelude::Vec<crate::types::EvmKVProof> =
-			codec::Decode::decode(&mut &proof.proof[..])
-				.map_err(|e| Error::Custom(e.to_string()))?;
-
-		// Compose ABCI keys using chain-specific layout and verify against Tendermint app hash
-		let app_hash: [u8; 32] = root.state_root.0;
-		let (store_key_str, key_provider) = select_keys_by_chain(proof.height.id.state_id);
-		let store_key = store_key_str.as_bytes();
-
-		if proofs.len() != slot_keys.len() {
-			return Err(Error::Custom("mismatched proofs/keys".to_string()));
-		}
-
-		for (slot, ev) in slot_keys.into_iter().zip(proofs.into_iter()) {
-			// slot is expected to be 32 bytes keccak slot
-			let key = key_provider
-				.storage_key(&contract_address.0, slot.clone().try_into().expect("32 bytes"));
-
-			// Verify ICS23 membership using provided value and commitment proof bytes
-			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
-				.map_err(|e| Error::Custom(e.to_string()))?;
-			let merkle_proof = MerkleProof::try_from(&commitment_proof)
-				.map_err(|e| Error::Custom(e.to_string()))?;
-			let specs = ProofSpecs::cosmos();
-			let root_hash = MerkleRoot { hash: app_hash.to_vec() };
-			let merkle_path = MerklePath::new(prelude::vec![
-				PathBytes::from_bytes(store_key),
-				PathBytes::from_bytes(&key),
-			]);
-			merkle_proof
-				.verify_membership::<ICS23HostFunctions>(
-					&specs,
-					root_hash,
-					merkle_path,
-					ev.value,
-					0,
-				)
-				.map_err(|e| Error::Custom(e.to_string()))?;
-		}
-		Ok(())
-	}
-
-	fn receipts_state_trie_key(&self, items: RequestResponse) -> prelude::Vec<prelude::Vec<u8>> {
-		req_res_receipt_keys::<ICS23HostFunctions>(items)
-	}
-
-	fn verify_state_proof(
-		&self,
-		_host: &dyn IsmpHost,
-		keys: prelude::Vec<prelude::Vec<u8>>,
-		root: StateCommitment,
-		proof: &Proof,
-	) -> Result<prelude::BTreeMap<prelude::Vec<u8>, Option<prelude::Vec<u8>>>, Error> {
-		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
-
-		// Only support 32-byte or 52-byte keys
-		if keys.iter().any(|k| !(k.len() == 32 || k.len() == 52)) {
-			return Err(Error::Custom("Only 32-byte or 52-byte keys are supported".to_string()));
-		}
-
-		let proofs: prelude::Vec<crate::types::EvmKVProof> =
-			codec::Decode::decode(&mut &proof.proof[..])
-				.map_err(|e| Error::Custom(e.to_string()))?;
-		if proofs.len() != keys.len() {
-			return Err(Error::Custom("mismatched proofs/keys".to_string()));
-		}
-
-		let app_hash: [u8; 32] = root.state_root.0;
-		let (store_key_str, key_provider) = select_keys_by_chain(proof.height.id.state_id);
-		let store_key = store_key_str.as_bytes();
-		let mut out = prelude::BTreeMap::new();
-
-		for (key_bytes, ev) in keys.into_iter().zip(proofs.into_iter()) {
-			// Determine contract address and 32-byte slot based on key length
-			let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {
-				(contract_address, key_bytes.clone().try_into().expect("32 bytes"))
-			} else {
-				// 52 bytes: first 20 bytes are contract address, last 32 bytes are the slot
-				let addr = H160::from_slice(&key_bytes[..20]);
-				let mut slot_arr = [0u8; 32];
-				slot_arr.copy_from_slice(&key_bytes[20..]);
-				(addr, slot_arr)
-			};
-
-			let key = key_provider.storage_key(&addr.0, slot);
-
-			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
-				.map_err(|e| Error::Custom(e.to_string()))?;
-			let merkle_proof = MerkleProof::try_from(&commitment_proof)
-				.map_err(|e| Error::Custom(e.to_string()))?;
-			let specs = ProofSpecs::cosmos();
-			let root_hash = MerkleRoot { hash: app_hash.to_vec() };
-			let merkle_path = MerklePath::new(prelude::vec![
-				PathBytes::from_bytes(store_key),
-				PathBytes::from_bytes(&key),
-			]);
-			merkle_proof
-				.verify_membership::<ICS23HostFunctions>(
-					&specs,
-					root_hash,
-					merkle_path,
-					ev.value.clone(),
-					0,
-				)
-				.map_err(|e| Error::Custom(e.to_string()))?;
-
-			out.insert(key_bytes, Some(ev.value));
-		}
-
-		Ok(out)
-	}
-}
-
-fn select_keys_by_chain(
-	state_id: ismp::host::StateMachine,
-) -> (String, Box<dyn EvmStoreKeys + Send + Sync>) {
-	match state_id {
-		ismp::host::StateMachine::Evm(id) => match id {
-			1329 => ("evm".to_string(), Box::new(SeiEvmKeys)),
-			_ => ("evm".to_string(), Box::new(DefaultEvmKeys)),
-		},
-		_ => ("evm".to_string(), Box::new(DefaultEvmKeys)),
-	}
 }
 
 pub struct EvmStateMachine<H: IsmpHost, T: pallet_ismp_host_executive::Config>(

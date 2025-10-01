@@ -32,6 +32,14 @@ ics23 = { workspace = true, default-features = false }
 [dev-dependencies]
 tendermint-verifier = { path = "../verifier" }
 tesseract-polygon = { workspace = true }
+evm-state-machine = { workspace = true }
+ismp = { workspace = true }
+primitive-types = { workspace = true }
+hex = { workspace = true }
+anyhow = { workspace = true }
+ibc = { version = "0.57.0" }
+tendermint-ics23-primitives = { workspace = true }
+codec ={ workspace = true}
 
 [dependencies.polkadot-sdk]
 workspace = true

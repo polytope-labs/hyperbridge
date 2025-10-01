@@ -3,15 +3,34 @@ mod tests {
 	use std::time::{SystemTime, UNIX_EPOCH};
 
 	use crate::{prove_header_update, CometBFTClient};
+	use codec::Encode;
 	use ismp_polygon::Milestone;
 	use tendermint_primitives::{
-		Client, TrustedState, ValidatorSet, VerificationError, VerificationOptions,
+		Client, EvmStoreKeys, SeiEvmKeys, TrustedState, ValidatorSet, VerificationError,
+		VerificationOptions,
 	};
 	use tendermint_verifier::hashing::SpIoSha256;
 	use tendermint_verifier::validate_validator_set_hash;
 	use tesseract_polygon::HeimdallClient;
 	use tokio::time::{interval, timeout, Duration};
 	use tracing::trace;
+
+	// use cometbft_rpc::endpoint::abci_query::AbciQuery;
+	use evm_state_machine::types::EvmKVProof;
+	use ibc::core::commitment_types::{
+		commitment::CommitmentProofBytes, merkle::MerkleProof,
+		proto::v1::MerkleProof as RawMerkleProof,
+	};
+	use ibc::core::host::types::path::PathBytes;
+	use ismp::consensus::StateCommitment;
+	use ismp::{
+		consensus::{StateMachineHeight, StateMachineId},
+		host::StateMachine,
+		messaging::Proof as IsmpProof,
+	};
+	use primitive_types::H160;
+	use primitive_types::H256;
+	// use tendermint_primitives::keys::SeiEvmKeys;
 
 	fn get_standard_rpc_url() -> String {
 		std::env::var("STANDARD_TENDERMINT_URL")
@@ -484,5 +503,135 @@ mod tests {
 			Ok(false) => Err("RPC client is not healthy".into()),
 			Err(e) => Err(format!("Failed to check health: {}", e).into()),
 		}
+	}
+
+	fn proof_ops_to_commitment_proof_bytes(
+		proof: Option<cometbft::merkle::proof::ProofOps>,
+	) -> anyhow::Result<Vec<u8>> {
+		if let Some(tm_proof) = proof {
+			let mut proofs = Vec::new();
+			for op in &tm_proof.ops {
+				let mut parse = ics23::CommitmentProof { proof: None };
+				prost::Message::merge(&mut parse, op.data.as_slice())
+					.map_err(|e| anyhow::anyhow!("commitment proof decoding failed: {}", e))?;
+				proofs.push(parse);
+			}
+			let raw_merkle_proof = RawMerkleProof { proofs };
+			let merkle_proof = MerkleProof::try_from(raw_merkle_proof)
+				.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?;
+			let proof_bytes = CommitmentProofBytes::try_from(merkle_proof)
+				.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?
+				.into();
+			Ok(proof_bytes)
+		} else {
+			Ok(Vec::new())
+		}
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn evm_state_proof() -> anyhow::Result<()> {
+		let client = CometBFTClient::new(&get_standard_rpc_url()).await?;
+		let latest_height = client.latest_height().await?;
+
+		let signed_header = client.signed_header(latest_height).await?;
+		let app_hash = H256::from_slice(signed_header.header.app_hash.as_bytes());
+		let contract: H160 = H160::from_slice(&hex::decode(
+			"e15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392".to_lowercase(),
+		)?);
+		let slot: H256 = H256::from_slice(&hex::decode(
+			"26387b69acd9674861659d8f121f3f72d8c4934eeea15b947235839377526d2c".to_lowercase(),
+		)?);
+		let state_id = StateMachine::Tendermint([0u8; 4]);
+		let sei = SeiEvmKeys;
+		let new_key = sei.storage_key(&contract.0, slot.0);
+		let mut key52 = Vec::with_capacity(52);
+		key52.extend_from_slice(&contract.0);
+		key52.extend_from_slice(&slot.0);
+
+		let res = client.abci_query_key(&"evm", new_key, latest_height - 1).await?;
+		let proof = proof_ops_to_commitment_proof_bytes(res.proof)?;
+		let value = res.value;
+
+		let evm_kv_proof = EvmKVProof { value, proof };
+		let proofs = vec![evm_kv_proof];
+		let encoded_proofs = proofs.encode();
+
+		let ismp_proof = IsmpProof {
+			height: StateMachineHeight {
+				id: StateMachineId { state_id, consensus_state_id: [0; 4] },
+				height: latest_height - 1,
+			},
+			proof: encoded_proofs,
+		};
+
+		let state_commitment =
+			StateCommitment { timestamp: 0, overlay_root: None, state_root: app_hash };
+
+		let res = verify_state_proof(vec![key52], state_commitment, &ismp_proof, contract);
+
+		res?;
+		println!("✓ State proof verification passed for slot: {}", hex::encode(&slot.0));
+		Ok(())
+	}
+
+	fn verify_state_proof(
+		keys: Vec<Vec<u8>>,
+		root: StateCommitment,
+		proof: &IsmpProof,
+		ismp_address: H160,
+	) -> anyhow::Result<()> {
+		let proofs: Vec<EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
+			.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+		if proofs.len() != keys.len() {
+			anyhow::bail!("mismatched proofs/keys");
+		}
+
+		if keys.iter().any(|k| !(k.len() == 32 || k.len() == 52)) {
+			anyhow::bail!("Only 32-byte or 52-byte keys are supported");
+		}
+
+		let app_hash: [u8; 32] = root.state_root.0;
+		let (store_key_str, key_provider): (String, Box<dyn EvmStoreKeys + Send + Sync>) =
+			("evm".to_string(), Box::new(SeiEvmKeys));
+		let store_key = store_key_str.as_bytes();
+
+		for (key_bytes, ev) in keys.into_iter().zip(proofs.into_iter()) {
+			let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {
+				(ismp_address, key_bytes.clone().try_into().expect("32 bytes"))
+			} else {
+				let addr = H160::from_slice(&key_bytes[..20]);
+				let mut slot_arr = [0u8; 32];
+				slot_arr.copy_from_slice(&key_bytes[20..]);
+				(addr, slot_arr)
+			};
+
+			let key = key_provider.storage_key(&addr.0, slot);
+
+			let commitment_proof = CommitmentProofBytes::try_from(ev.proof)
+				.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+			let merkle_proof = MerkleProof::try_from(&commitment_proof)
+				.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+			let specs = ibc::core::commitment_types::specs::ProofSpecs::cosmos();
+			let root_hash =
+				ibc::core::commitment_types::proto::v1::MerkleRoot { hash: app_hash.to_vec() };
+
+			let merkle_path = ibc::core::commitment_types::merkle::MerklePath::new(vec![
+				PathBytes::from_bytes(store_key),
+				PathBytes::from_bytes(&key),
+			]);
+			merkle_proof
+				.verify_membership::<tendermint_ics23_primitives::ICS23HostFunctions>(
+					&specs,
+					root_hash,
+					merkle_path,
+					ev.value,
+					0,
+				)
+				.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+		}
+
+		Ok(())
 	}
 }

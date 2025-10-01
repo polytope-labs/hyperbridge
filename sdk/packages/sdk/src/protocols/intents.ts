@@ -81,7 +81,11 @@ export class IntentGateway {
 
 		const { gas: postGasEstimate, postRequestCalldata } = await this.source.estimateGas(postRequest)
 
-		const postGasEstimateInSourceFeeToken = await this.convertGasToFeeToken(postGasEstimate, "source")
+		const postGasEstimateInSourceFeeToken = await this.convertGasToFeeToken(
+			postGasEstimate,
+			"source",
+			order.sourceChain,
+		)
 
 		const relayerFeeInSourceFeeToken =
 			postGasEstimateInSourceFeeToken + 25n * 10n ** BigInt(sourceChainFeeTokenDecimals - 2)
@@ -155,8 +159,6 @@ export class IntentGateway {
 		]
 
 		let destChainFillGas = 0n
-		let filledWithNativeToken = false
-
 		try {
 			let protocolFeeInNativeToken = await this.quoteNative(postRequest, relayerFeeInDestFeeToken)
 
@@ -172,7 +174,6 @@ export class IntentGateway {
 				value: totalEthValue + protocolFeeInNativeToken,
 				stateOverride: stateOverrides as any,
 			})
-			filledWithNativeToken = true
 		} catch {
 			console.warn(
 				`Could not estimate gas for fill order with native token as fees for chain ${order.destChain}, now trying with fee token as fees`,
@@ -214,7 +215,7 @@ export class IntentGateway {
 			})
 		}
 
-		const fillGasInDestFeeToken = await this.convertGasToFeeToken(destChainFillGas, "dest")
+		const fillGasInDestFeeToken = await this.convertGasToFeeToken(destChainFillGas, "dest", order.destChain)
 		const fillGasInSourceFeeToken = adjustFeeDecimals(
 			fillGasInDestFeeToken,
 			destChainFeeTokenDecimals,
@@ -230,7 +231,11 @@ export class IntentGateway {
 		let totalEstimateInSourceFeeToken =
 			fillGasInSourceFeeToken + protocolFeeInSourceFeeToken + relayerFeeInSourceFeeToken
 
-		let totalNativeTokenAmount = await this.convertFeeTokenToNative(totalEstimateInSourceFeeToken, "source")
+		let totalNativeTokenAmount = await this.convertFeeTokenToNative(
+			totalEstimateInSourceFeeToken,
+			"source",
+			order.sourceChain,
+		)
 
 		if ([order.destChain, order.sourceChain].includes("EVM-1")) {
 			totalEstimateInSourceFeeToken =
@@ -254,12 +259,16 @@ export class IntentGateway {
 	 *
 	 * @param feeTokenAmount - The amount in fee token (DAI)
 	 * @param getQuoteIn - Whether to use "source" or "dest" chain for the conversion
+	 * @param evmChainID - The EVM chain ID in format "EVM-{id}"
 	 * @returns The fee token amount converted to native token amount
 	 * @private
 	 */
-	private async convertFeeTokenToNative(feeTokenAmount: bigint, getQuoteIn: "source" | "dest"): Promise<bigint> {
+	private async convertFeeTokenToNative(
+		feeTokenAmount: bigint,
+		getQuoteIn: "source" | "dest",
+		evmChainID: string,
+	): Promise<bigint> {
 		const client = this[getQuoteIn].client
-		const evmChainID = `EVM-${client.chain?.id}`
 		const wethAsset = this[getQuoteIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
 		const feeToken = await this[getQuoteIn].getFeeTokenWithDecimals()
 
@@ -269,6 +278,7 @@ export class IntentGateway {
 				feeToken.address,
 				wethAsset,
 				feeTokenAmount,
+				evmChainID,
 				"v2",
 			)
 
@@ -279,7 +289,7 @@ export class IntentGateway {
 		} catch {
 			// Testnet block
 			const nativeCurrency = client.chain?.nativeCurrency
-			const chainId = client.chain?.id
+			const chainId = Number.parseInt(evmChainID.split("-")[1])
 			const feeTokenAmountDecimal = new Decimal(formatUnits(feeTokenAmount, feeToken.decimals))
 			const nativeTokenPriceUsd = new Decimal(await fetchPrice(nativeCurrency?.symbol!, chainId))
 			const totalCostInNativeToken = feeTokenAmountDecimal.dividedBy(nativeTokenPriceUsd)
@@ -293,14 +303,18 @@ export class IntentGateway {
 	 *
 	 * @param gasEstimate - The estimated gas units
 	 * @param gasEstimateIn - Whether to use "source" or "dest" chain for the conversion
+	 * @param evmChainID - The EVM chain ID in format "EVM-{id}"
 	 * @returns The gas cost converted to fee token amount
 	 * @private
 	 */
-	private async convertGasToFeeToken(gasEstimate: bigint, gasEstimateIn: "source" | "dest"): Promise<bigint> {
+	private async convertGasToFeeToken(
+		gasEstimate: bigint,
+		gasEstimateIn: "source" | "dest",
+		evmChainID: string,
+	): Promise<bigint> {
 		const client = this[gasEstimateIn].client
 		const gasPrice = await client.getGasPrice()
 		const gasCostInWei = gasEstimate * gasPrice
-		const evmChainID = `EVM-${client.chain?.id}`
 		const wethAddr = this[gasEstimateIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
 		const feeToken = await this[gasEstimateIn].getFeeTokenWithDecimals()
 
@@ -310,16 +324,18 @@ export class IntentGateway {
 				wethAddr,
 				feeToken.address,
 				gasCostInWei,
+				evmChainID,
 				"v2",
 			)
 			if (amountOut === 0n) {
+				console.log("Amount out not found")
 				throw new Error()
 			}
 			return amountOut
 		} catch {
 			// Testnet block
 			const nativeCurrency = client.chain?.nativeCurrency
-			const chainId = client.chain?.id
+			const chainId = Number.parseInt(evmChainID.split("-")[1])
 			const gasCostInToken = new Decimal(formatUnits(gasCostInWei, nativeCurrency?.decimals!))
 			const tokenPriceUsd = await fetchPrice(nativeCurrency?.symbol!, chainId)
 			const gasCostUsd = gasCostInToken.times(tokenPriceUsd)
@@ -570,6 +586,7 @@ export class IntentGateway {
 	 * @param tokenIn - The address of the input token
 	 * @param tokenOut - The address of the output token
 	 * @param amountIn - The input amount to swap
+	 * @param evmChainID - The EVM chain ID in format "EVM-{id}"
 	 * @param selectedProtocol - Optional specific protocol to use ("v2", "v3", or "v4")
 	 * @returns Object containing the best protocol, expected output amount, and fee tier (for V3/V4)
 	 */
@@ -578,10 +595,10 @@ export class IntentGateway {
 		tokenIn: HexString,
 		tokenOut: HexString,
 		amountIn: bigint,
+		evmChainID: string,
 		selectedProtocol?: "v2" | "v3" | "v4",
 	): Promise<{ protocol: "v2" | "v3" | "v4" | null; amountOut: bigint; fee?: number }> {
 		const client = this[getQuoteIn].client
-		const evmChainID = `EVM-${client.chain?.id}`
 		let amountOutV2 = BigInt(0)
 		let amountOutV3 = BigInt(0)
 		let amountOutV4 = BigInt(0)
@@ -825,7 +842,7 @@ export class IntentGateway {
 					if (!value) throw new Error("Receipt not found")
 					return value
 				},
-				{ maxRetries: 5, backoffMs: 5000, logMessage: "Checking for receipt" },
+				{ maxRetries: 10, backoffMs: 5000, logMessage: "Checking for receipt" },
 			)
 		}
 

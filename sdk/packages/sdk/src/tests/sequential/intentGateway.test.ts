@@ -204,6 +204,63 @@ describe.sequential("Intents protocol tests", () => {
 
 		assert(estimatedFee > 0n)
 	}, 1_000_000)
+
+	it.skip("Should generate the estimatedFee while doing bsc mainnet to polygon mainnet", async () => {
+		const { chainConfigService, bscMainnetIsmpHost, polygonMainnetIsmpHost } = await setUpBscToPolygon()
+		const bscMainnetId = "EVM-56"
+		const polygonMainnetId = "EVM-137"
+		const bscEvmChain = new EvmChain({
+			chainId: 56,
+			host: chainConfigService.getHostAddress(bscMainnetId),
+			url: process.env.BSC_MAINNET!,
+		})
+		const polygonEvmChain = new EvmChain({
+			chainId: 137,
+			host: chainConfigService.getHostAddress(polygonMainnetId),
+			url: process.env.POLYGON_MAINNET!,
+		})
+
+		const bscIntentGateway = new IntentGateway(bscEvmChain, polygonEvmChain)
+
+		const bscUsdcAsset = chainConfigService.getUsdcAsset(bscMainnetId)
+		const polygonUsdcAsset = chainConfigService.getUsdcAsset(polygonMainnetId)
+
+		const order: Order = {
+			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+			sourceChain: await bscMainnetIsmpHost.read.host(),
+			destChain: await polygonMainnetIsmpHost.read.host(),
+			deadline: 65337297000n,
+			nonce: 0n,
+			fees: 0n,
+			outputs: [
+				{
+					token: bytes20ToBytes32(polygonUsdcAsset),
+					amount: 100n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+				},
+			],
+			inputs: [
+				{
+					token: bytes20ToBytes32(bscUsdcAsset),
+					amount: 100n,
+				},
+			],
+			callData: "0x" as HexString,
+		}
+
+		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await bscIntentGateway.estimateFillOrder({
+			...order,
+			id: orderCommitment(order),
+			destChain: hexToString(order.destChain as HexString),
+			sourceChain: hexToString(order.sourceChain as HexString),
+		})
+
+		console.log("BSC => Polygon")
+		console.log("Estimated Fee", estimatedFee)
+		console.log("Native Token Amount", nativeTokenAmount)
+
+		assert(estimatedFee > 0n)
+	}, 1_000_000)
 })
 
 describe("Order Cancellation tests", () => {
@@ -636,6 +693,52 @@ async function setUpBscToSepoliaOrder() {
 		bscChapelIsmpHost,
 		bscChapelFeeToken,
 		bscChapelHandler,
+	}
+}
+
+async function setUpBscToPolygon() {
+	const bscMainnetId = "EVM-56"
+	const polygonMainnetId = "EVM-137"
+	const chains = [bscMainnetId, polygonMainnetId]
+
+	let chainConfigService = new ChainConfigService()
+	let chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
+
+	const bscMainnetPublicClient = createPublicClient({
+		chain: bsc,
+		transport: http(process.env.BSC_MAINNET!),
+	})
+
+	const polygonPublicClient = createPublicClient({
+		chain: {
+			id: 137,
+			name: "polygon",
+			nativeCurrency: { name: "MATIC", symbol: "MATIC", decimals: 18 },
+			rpcUrls: { default: { http: [process.env.POLYGON_MAINNET!] } },
+		},
+		transport: http(process.env.POLYGON_MAINNET!),
+	})
+
+	const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
+	const polygonIsmpHostAddress = "0xD8d3db17C1dF65b301D45C84405CcAC1395C559a" as HexString
+
+	const bscMainnetIsmpHost = getContract({
+		address: bscMainnetIsmpHostAddress,
+		abi: EVM_HOST.ABI,
+		client: bscMainnetPublicClient,
+	})
+
+	const polygonMainnetIsmpHost = getContract({
+		address: polygonIsmpHostAddress,
+		abi: EVM_HOST.ABI,
+		client: polygonPublicClient,
+	})
+
+	return {
+		chainConfigs,
+		chainConfigService,
+		bscMainnetIsmpHost,
+		polygonMainnetIsmpHost,
 	}
 }
 

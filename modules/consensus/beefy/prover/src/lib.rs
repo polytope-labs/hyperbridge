@@ -68,6 +68,8 @@ pub struct Prover<R: Config, P: Config> {
 	pub para_rpc_client: RpcClient,
 	/// Para Id for the associated parachains.
 	pub para_ids: Vec<u32>,
+	/// Leaf chunk size
+	pub query_batch_size: Option<u32>,
 }
 
 #[cfg(not(feature = "local"))]
@@ -98,9 +100,15 @@ pub const PARAS_PARACHAINS: [u8; 32] =
 
 impl<R: Config, P: Config> Prover<R, P> {
 	/// Construct a beefy client state to be submitted to the counterparty chain
-	pub async fn get_initial_consensus_state(&self) -> Result<ConsensusState, anyhow::Error> {
-		let latest_finalized_head =
-			self.relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await?;
+	pub async fn get_initial_consensus_state(
+		&self,
+		at: Option<HashFor<R>>,
+	) -> Result<ConsensusState, anyhow::Error> {
+		let latest_finalized_head = if let Some(at) = at {
+			at
+		} else {
+			self.relay_rpc_client.request("beefy_getFinalizedHead", rpc_params!()).await?
+		};
 		let (signed_commitment, latest_beefy_finalized) =
 			fetch_latest_beefy_justification(&self.relay_rpc, latest_finalized_head).await?;
 
@@ -174,8 +182,13 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
+		log::trace!("\n\nQuerying mmr proof\n\n");
+
 		let (mmr_proof, latest_leaf) =
-			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?).await?;
+			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?, self.query_batch_size)
+				.await?;
+
+		log::trace!("\n\nQueried mmr proof\n\n");
 
 		// create authorities proof
 		let signatures = signed_commitment
@@ -200,6 +213,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.filter_map(|x| x)
 			.collect::<Vec<_>>();
 		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
+
+		log::trace!("\n\nQueried authorities\n\n");
+
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
@@ -221,6 +237,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
 		)
 		.await?;
+
+		println!("\n\nQueried Parachains\n\n");
+
 		let (parachains, indices): (Vec<_>, Vec<_>) = self
 			.para_ids
 			.iter()

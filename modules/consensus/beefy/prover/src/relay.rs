@@ -3,6 +3,7 @@
 
 use anyhow::anyhow;
 use codec::{Decode, Encode};
+use futures::stream::FuturesOrdered;
 use hex_literal::hex;
 use merkle_mountain_range::{helper::get_peaks, leaf_index_to_mmr_size};
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -261,7 +262,9 @@ pub async fn query_mmr_leaf<T: Config>(
 pub async fn fetch_mmr_proof<T: Config>(
 	rpc: &LegacyRpcMethods<T>,
 	block_number: u32,
+	query_batch_size: Option<u32>,
 ) -> Result<(LeafProof<H256>, MmrLeaf<u32, H256, H256, H256>), anyhow::Error> {
+	use tokio_stream::StreamExt;
 	let block_hash = rpc
 		.chain_get_block_hash(Some(block_number.into()))
 		.await?
@@ -298,25 +301,51 @@ pub async fn fetch_mmr_proof<T: Config>(
 		proof.push(peak_root);
 	}
 
+	log::trace!("\n\nQuerying {} leaves \n\n", 2u32.pow(last_subtree_height));
+	let pb = indicatif::ProgressBar::with_draw_target(
+		Some(2u32.pow(last_subtree_height) as u64),
+		indicatif::ProgressDrawTarget::stdout(),
+	);
 	let leaf = if last_subtree_height != 0 {
 		// construct the proof for the last peak manually
 		let subtree_leaves = u32::pow(2, last_subtree_height as u32);
 		let first_leaf = block_number - subtree_leaves + 1;
 
 		let mut leaves = vec![];
-
+		let range = (first_leaf..=block_number).into_iter().collect::<Vec<_>>();
 		// get all leaves in the peak
-		for block in first_leaf..=block_number {
-			// we try to reconstruct the mmr leaf from onchain data because offchain db where
-			// mmr_generateProof fetches leaves from might be corrupted
-			let block_hash = rpc
-				.chain_get_block_hash(Some(block.into()))
-				.await?
-				.ok_or_else(|| anyhow!("Block hash not found"))?;
+		for chunk in range.chunks(query_batch_size.unwrap_or(200) as usize) {
+			let processes = chunk
+				.into_iter()
+				.map(|block| {
+					let rpc = rpc.clone();
+					let block = *block;
+					tokio::spawn(async move {
+						// we try to reconstruct the mmr leaf from onchain data because offchain db
+						// where mmr_generateProof fetches leaves from might be corrupted
+						let block_hash = rpc
+							.chain_get_block_hash(Some(block.into()))
+							.await?
+							.ok_or_else(|| anyhow!("Block hash not found"))?;
 
-			let leaf = query_mmr_leaf(rpc, block_hash).await?;
-			leaves.push(leaf);
+						let leaf = query_mmr_leaf(&rpc, block_hash).await?;
+						Ok::<_, anyhow::Error>(leaf)
+					})
+				})
+				.collect::<FuturesOrdered<_>>();
+
+			let leaf_batch = processes
+				.collect::<Result<Vec<_>, _>>()
+				.await?
+				.into_iter()
+				.collect::<Result<Vec<_>, _>>()?;
+			log::trace!("\nDownloaded {} leaves\n", leaf_batch.len());
+			leaves.extend(leaf_batch);
+
+			pb.inc(200);
 		}
+
+		pb.finish_with_message("Finished downloading leaves");
 
 		// manually generate the merkle proof for the last peak
 		let leaf_hashes = leaves.iter().map(|leaf| keccak_256(&leaf.encode())).collect::<Vec<_>>();
@@ -328,6 +357,8 @@ pub async fn fetch_mmr_proof<T: Config>(
 	} else {
 		query_mmr_leaf(rpc, block_hash).await?
 	};
+
+	log::trace!("\n\nQueried leaves proof\n\n");
 
 	Ok((
 		LeafProof {

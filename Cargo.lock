@@ -492,7 +492,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 0.11.1",
  "alloy-sol-types 0.8.25",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -2267,8 +2267,11 @@ dependencies = [
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
  "derive_more 1.0.0",
+ "futures",
  "hex",
  "hex-literal 0.4.1",
+ "indicatif 0.18.0",
+ "log",
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
@@ -2277,6 +2280,7 @@ dependencies = [
  "subxt-core 0.42.1",
  "subxt-utils",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -2393,7 +2397,7 @@ dependencies = [
  "bitflags 2.9.1",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -3371,7 +3375,7 @@ dependencies = [
  "num-traits",
  "serde",
  "wasm-bindgen",
- "windows-link",
+ "windows-link 0.1.3",
 ]
 
 [[package]]
@@ -3792,6 +3796,19 @@ dependencies = [
  "once_cell",
  "unicode-width 0.2.1",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "console"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b430743a6eb14e9764d4260d4c0d8123087d504eeb9c48f2b2a5e810dd369df4"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "once_cell",
+ "unicode-width 0.2.1",
+ "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -8675,7 +8692,7 @@ dependencies = [
  "grandpa-verifier-primitives",
  "hex",
  "hex-literal 0.4.1",
- "indicatif",
+ "indicatif 0.17.11",
  "ismp",
  "log",
  "parity-scale-codec",
@@ -9168,7 +9185,7 @@ checksum = "a56f203cd1c76362b69e3863fd987520ac36cf70a8c92627449b2f64a8cf7d65"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-link",
+ "windows-link 0.1.3",
 ]
 
 [[package]]
@@ -10307,10 +10324,23 @@ version = "0.17.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
 dependencies = [
- "console",
+ "console 0.15.11",
  "number_prefix",
  "portable-atomic",
  "unicode-width 0.2.1",
+ "web-time",
+]
+
+[[package]]
+name = "indicatif"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70a646d946d06bedbbc4cac4c218acf4bbf2d87757a784857025f4d447e4e1cd"
+dependencies = [
+ "console 0.16.1",
+ "portable-atomic",
+ "unicode-width 0.2.1",
+ "unit-prefix",
  "vt100",
  "web-time",
 ]
@@ -22500,7 +22530,7 @@ version = "0.50.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f73c84bc96fe3a232a01e35288e3a07d05676a3f8b3db635346f3bd7eb45b664"
 dependencies = [
- "console",
+ "console 0.15.11",
  "futures",
  "futures-timer",
  "log",
@@ -23132,7 +23162,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d80e2558a0100794d5b4f4d75cb45cae65c061aaf386fd807d7a7e2c272251d2"
 dependencies = [
  "chrono",
- "console",
+ "console 0.15.11",
  "is-terminal",
  "libc",
  "log",
@@ -24155,7 +24185,7 @@ dependencies = [
  "hash-db",
  "hex",
  "hex-literal 0.4.1",
- "indicatif",
+ "indicatif 0.17.11",
  "ismp",
  "ismp-parachain",
  "jsonrpsee-core 0.24.9",
@@ -26469,7 +26499,7 @@ dependencies = [
  "futures",
  "hashbrown 0.14.5",
  "hex",
- "indicatif",
+ "indicatif 0.17.11",
  "itertools 0.13.0",
  "p3-baby-bear",
  "p3-field",
@@ -27194,7 +27224,7 @@ dependencies = [
  "array-bytes 6.2.3",
  "build-helper",
  "cargo_metadata 0.15.4",
- "console",
+ "console 0.15.11",
  "filetime",
  "frame-metadata 23.0.0",
  "jobserver",
@@ -28302,6 +28332,7 @@ dependencies = [
  "tesseract-sync-committee",
  "tokio",
  "toml 0.7.8",
+ "tracing-indicatif",
  "tracing-subscriber",
 ]
 
@@ -29390,11 +29421,11 @@ dependencies = [
 
 [[package]]
 name = "tracing-indicatif"
-version = "0.3.9"
+version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8201ca430e0cd893ef978226fd3516c06d9c494181c8bf4e5b32e30ed4b40aa1"
+checksum = "04d4e11e0e27acef25a47f27e9435355fecdc488867fa2bc90e75b0700d2823d"
 dependencies = [
- "indicatif",
+ "indicatif 0.18.0",
  "tracing",
  "tracing-core",
  "tracing-subscriber",
@@ -29833,6 +29864,12 @@ name = "unicode_categories"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
+
+[[package]]
+name = "unit-prefix"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "323402cff2dd658f39ca17c789b502021b3f18707c91cdf22e3838e1b4023817"
 
 [[package]]
 name = "universal-hash"
@@ -31034,7 +31071,7 @@ dependencies = [
  "windows-collections",
  "windows-core 0.61.2",
  "windows-future",
- "windows-link",
+ "windows-link 0.1.3",
  "windows-numerics",
 ]
 
@@ -31074,7 +31111,7 @@ checksum = "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3"
 dependencies = [
  "windows-implement",
  "windows-interface",
- "windows-link",
+ "windows-link 0.1.3",
  "windows-result 0.3.4",
  "windows-strings",
 ]
@@ -31086,7 +31123,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e"
 dependencies = [
  "windows-core 0.61.2",
- "windows-link",
+ "windows-link 0.1.3",
  "windows-threading",
 ]
 
@@ -31119,13 +31156,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e6ad25900d524eaabdbbb96d20b4311e1e7ae1699af4fb28c17ae66c80d798a"
 
 [[package]]
+name = "windows-link"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45e46c0661abb7180e7b9c281db115305d49ca1709ab8242adf09666d2173c65"
+
+[[package]]
 name = "windows-numerics"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
 dependencies = [
  "windows-core 0.61.2",
- "windows-link",
+ "windows-link 0.1.3",
 ]
 
 [[package]]
@@ -31134,7 +31177,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3bab093bdd303a1240bb99b8aba8ea8a69ee19d34c9e2ef9594e708a4878820"
 dependencies = [
- "windows-link",
+ "windows-link 0.1.3",
  "windows-result 0.3.4",
  "windows-strings",
 ]
@@ -31154,7 +31197,7 @@ version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56f42bd332cc6c8eac5af113fc0c1fd6a8fd2aa08a0119358686e5160d0586c6"
 dependencies = [
- "windows-link",
+ "windows-link 0.1.3",
 ]
 
 [[package]]
@@ -31163,7 +31206,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
 dependencies = [
- "windows-link",
+ "windows-link 0.1.3",
 ]
 
 [[package]]
@@ -31200,6 +31243,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.61.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f109e41dd4a3c848907eb83d5a42ea98b3769495597450cf6d153507b166f0f"
+dependencies = [
+ "windows-link 0.2.0",
 ]
 
 [[package]]
@@ -31270,7 +31322,7 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66463ad2e0ea3bbf808b7f1d371311c80e115c0b71d60efc142cafbcfb057a6"
 dependencies = [
- "windows-link",
+ "windows-link 0.1.3",
 ]
 
 [[package]]
@@ -31907,14 +31959,11 @@ dependencies = [
  "futures",
  "hex",
  "hex-literal 0.4.1",
- "ismp-parachain",
  "ismp-solidity-abi",
- "pallet-ismp",
  "parity-scale-codec",
  "polkadot-ckb-merkle-mountain-range",
  "polkadot-sdk",
  "primitive-types 0.13.1",
- "reconnecting-jsonrpsee-ws-client",
  "rs_merkle 1.5.0",
  "serde",
  "sp-consensus-beefy",

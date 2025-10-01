@@ -27,3 +27,21 @@ impl EvmStoreKeys for SeiEvmKeys {
 		k
 	}
 }
+
+/// Uses the standard ethermint/evmos EVM module
+/// Chains: Kava, XrpEvm, Cronos, Injective
+pub struct DefaultEvmKeys;
+
+impl EvmStoreKeys for DefaultEvmKeys {
+	fn store_key(&self) -> &str {
+		"evm"
+	}
+
+	fn storage_key(&self, addr: &[u8; 20], slot: [u8; 32]) -> Vec<u8> {
+		let mut k = Vec::with_capacity(1 + 20 + 32);
+		k.push(0x02);
+		k.extend_from_slice(addr);
+		k.extend_from_slice(&slot);
+		k
+	}
+}

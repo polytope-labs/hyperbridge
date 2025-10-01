@@ -40,7 +40,7 @@ use ismp::{
 };
 use primitive_types::{H160, H256};
 use tendermint_ics23_primitives::ICS23HostFunctions;
-use tendermint_primitives::keys::{EvmStoreKeys, SeiEvmKeys};
+use tendermint_primitives::keys::{DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys};
 
 pub mod prelude {
 	pub use alloc::collections::BTreeMap;
@@ -314,9 +314,11 @@ fn select_keys_by_chain(
 	state_id: ismp::host::StateMachine,
 ) -> (String, Box<dyn EvmStoreKeys + Send + Sync>) {
 	match state_id {
-		// Map per-chain once we have all the chain keys; default to Sei-style EVM layout and store key "evm"
-		ismp::host::StateMachine::Tendermint(_id) => ("evm".to_string(), Box::new(SeiEvmKeys)),
-		_ => ("evm".to_string(), Box::new(SeiEvmKeys)),
+		ismp::host::StateMachine::Evm(id) => match id {
+			1329 => ("evm".to_string(), Box::new(SeiEvmKeys)),
+			_ => ("evm".to_string(), Box::new(DefaultEvmKeys)),
+		},
+		_ => ("evm".to_string(), Box::new(DefaultEvmKeys)),
 	}
 }
 

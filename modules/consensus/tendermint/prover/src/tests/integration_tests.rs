@@ -36,6 +36,11 @@ mod tests {
 			.unwrap_or_else(|_| "https://rpc.ankr.com/sei/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
 	}
 
+	fn get_sei_rpc() -> String {
+		std::env::var("SEI_RPC_URL")
+			.unwrap_or_else(|_| "https://rpc.ankr.com/sei/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
+	}
+
 	fn get_polygon_rpc_url() -> String {
 		std::env::var("POLYGON_HEIMDALL")
 			.unwrap_or_else(|_| "https://polygon-amoy-heimdall-rpc.publicnode.com".to_string())
@@ -529,8 +534,8 @@ mod tests {
 
 	#[tokio::test]
 	#[ignore]
-	async fn evm_state_proof() -> anyhow::Result<()> {
-		let client = CometBFTClient::new(&get_standard_rpc_url()).await?;
+	async fn sei_evm_state_proof() -> anyhow::Result<()> {
+		let client = CometBFTClient::new(&get_sei_rpc()).await?;
 		let latest_height = 171021831;
 
 		let signed_header = client.signed_header(latest_height).await?;
@@ -548,7 +553,7 @@ mod tests {
 		key52.extend_from_slice(&contract.0);
 		key52.extend_from_slice(&slot.0);
 
-		let res = client.abci_query_key(&"evm", new_key, latest_height - 1).await?;
+		let res = client.abci_query_key(&sei.store_key(), new_key, latest_height - 1).await?;
 		let proof = proof_ops_to_commitment_proof_bytes(res.proof)?;
 		let value = res.value;
 
@@ -567,18 +572,25 @@ mod tests {
 		let state_commitment =
 			StateCommitment { timestamp: 0, overlay_root: None, state_root: app_hash };
 
-		let res = verify_state_proof(vec![key52], state_commitment, &ismp_proof, contract);
+		let res = verify_state_proof_with_key_provider(
+			vec![key52],
+			state_commitment,
+			&ismp_proof,
+			contract,
+			Box::new(SeiEvmKeys),
+		);
 
 		res?;
-		println!("✓ State proof verification passed for slot: {}", hex::encode(&slot.0));
+		println!("✓ Sei EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
 		Ok(())
 	}
 
-	fn verify_state_proof(
+	fn verify_state_proof_with_key_provider(
 		keys: Vec<Vec<u8>>,
 		root: StateCommitment,
 		proof: &IsmpProof,
 		ismp_address: H160,
+		key_provider: Box<dyn EvmStoreKeys + Send + Sync>,
 	) -> anyhow::Result<()> {
 		let proofs: Vec<EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
 			.map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -592,9 +604,7 @@ mod tests {
 		}
 
 		let app_hash: [u8; 32] = root.state_root.0;
-		let (store_key_str, key_provider): (String, Box<dyn EvmStoreKeys + Send + Sync>) =
-			("evm".to_string(), Box::new(SeiEvmKeys));
-		let store_key = store_key_str.as_bytes();
+		let store_key = key_provider.store_key().as_bytes();
 
 		for (key_bytes, ev) in keys.into_iter().zip(proofs.into_iter()) {
 			let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {

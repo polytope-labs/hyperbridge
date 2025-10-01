@@ -20,7 +20,7 @@ beefy-prover = { workspace = true }
 sp-consensus-beefy = { workspace = true }
 subxt = { workspace = true }
 sp-crypto-hashing = { workspace = true }
-ismp-solidity-abi = { workspace = true }
+ismp-solidity-abi = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true }
 polkadot-ckb-merkle-mountain-range = "0.8.1"
 hex-literal = "0.4.1"
@@ -34,8 +34,11 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 futures = "0.3.27"
 envy = "0.4.2"
-subxt-utils = { workspace = true }
+subxt-utils = { workspace = true, default-features = true }
 hex = { version = "0.4.3", features = [] }
+reconnecting-jsonrpsee-ws-client = { workspace = true, features =["native"] }
+pallet-ismp = { workspace = true, default-features = true }
+ismp-parachain = { workspace = true, default-features = true }
 
 [dev-dependencies.polkadot-sdk]
 workspace = true

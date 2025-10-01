@@ -162,8 +162,8 @@ pub async fn fetch_next_beefy_justification<T: Config>(
 			})
 		});
 
-		if (current_set_id..=(current_set_id + 1)).contains(&set_id) &&
-			beefy_justification.is_some()
+		if (current_set_id..=(current_set_id + 1)).contains(&set_id)
+			&& beefy_justification.is_some()
 		{
 			let VersionedFinalityProof::V1(signed_commitment) =
 				VersionedFinalityProof::<u32, sp_consensus_beefy::ecdsa_crypto::Signature>::decode(
@@ -342,7 +342,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 			log::trace!("\nDownloaded {} leaves\n", leaf_batch.len());
 			leaves.extend(leaf_batch);
 
-			pb.inc(200);
+			pb.inc(query_batch_size.unwrap_or(200).into());
 		}
 
 		pb.finish_with_message("Finished downloading leaves");

@@ -1,0 +1,21 @@
+{
+  "hyperbridge-nexus": {
+    "type": "substrate",
+    "chainId": "0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540",
+    "startBlock": 7179658,
+    "stateMachineId": "POLKADOT-3367"
+  },
+  "gnosis-chiado": {
+    "type": "evm",
+    "chainId": "10200",
+    "startBlock": 12294845,
+    "stateMachineId": "EVM-10200",
+    "contracts": {
+      "ethereumHost": "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
+      "handlerV1": "0x01b40De26Ba4C63c17A6f4Ed2cF96927C280B029",
+      "erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
+      "intentGateway": "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
+      "tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
+    }
+  }
+}

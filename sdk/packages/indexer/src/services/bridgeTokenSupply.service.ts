@@ -30,7 +30,7 @@ interface SubstrateKeysResponse {
 	}
 }
 
-const AccountInfo = Struct({
+export const AccountInfo = Struct({
 	nonce: u32,
 	consumers: u32,
 	providers: u32,

@@ -65,7 +65,7 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	const rpc = new RpcWebSocketClient()
 	await rpc.connect(rpcUrl as string)
 	const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
-	const blockNumber = currentEnv === "local" ? hexToNumber(header.number) : config.startBlock
+	const blockNumber = currentEnv === "local" || currentEnv === "nexus-ci" ? hexToNumber(header.number) : config.startBlock
 
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)

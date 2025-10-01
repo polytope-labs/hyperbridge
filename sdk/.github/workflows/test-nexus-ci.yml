@@ -1,0 +1,108 @@
+name: Indexer GraphQL Test
+
+# Cancel running workflows from the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/indexer/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/indexer/**"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: "7"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Set up environment variables
+        run: |
+          # Set up environment variables from secrets
+          cat > .env.nexus-ci << EOF
+          HYPERBRIDGE_NEXUS=${{ secrets.HYPERBRIDGE_NEXUS }}
+          GNOSIS_CHIADO=${{ secrets.GNOSIS_CHIADO }}
+          INDEXER_URL=${{ secrets.INDEXER_URL }}
+          PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
+          SECRET_PHRASE=${{ secrets.SECRET_PHRASE }}
+          EOF
+
+      - name: Build packages
+        run: pnpm build
+        env:
+          ENV: nexus-ci
+
+      - name: Install Docker Compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose
+          docker compose version
+
+      - name: Start Nexus CI indexer (in background)
+        env:
+          DB_USER: "postgres"
+          DB_PASS: "postgres"
+          DB_DATABASE: "postgres"
+          DB_HOST: "postgres"
+          DB_PORT: 5432
+          DB_PATH: "./.indexer"
+          LOG_LEVEL: ${{ secrets.ACTIONS_RUNNER_DEBUG == 'true' && 'debug' || 'info' }}
+        run: |
+          cd packages/indexer
+          nohup pnpm start:nexus-ci > indexer_output.log 2>&1 &
+          echo "Started indexer process in background"
+
+      - name: Wait for GraphQL server to be available
+        run: |
+          echo "Waiting for GraphQL server to be available on port 3100..."
+          timeout=300  # 5 minutes timeout
+          elapsed=0
+          interval=5
+          while ! nc -z localhost 3100; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "Timed out waiting for GraphQL server on port 3100"
+              cat packages/indexer/indexer_output.log
+              exit 1
+            fi
+            echo "Waiting for GraphQL server (elapsed: ${elapsed}s)..."
+            sleep $interval
+            elapsed=$((elapsed + interval))
+          done
+          echo "GraphQL server is available!"
+          sleep 120  # Give it a few more seconds to fully initialize
+
+      - name: Run Indexer Graphql tests
+        run: |
+          cd packages/indexer
+          pnpm test graphql
+
+      - name: Clean up
+        if: always()
+        run: |
+          # Stop any containers started by the indexer
+          docker compose -f packages/indexer/docker/docker-compose.nexus-ci.yml down || true
+          # Show logs in case of failure
+          if [ -f packages/indexer/indexer_output.log ]; then
+            echo "Indexer logs:"
+            cat packages/indexer/indexer_output.log
+          fi

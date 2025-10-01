@@ -28332,7 +28332,6 @@ dependencies = [
  "tesseract-sync-committee",
  "tokio",
  "toml 0.7.8",
- "tracing-indicatif",
  "tracing-subscriber",
 ]
 

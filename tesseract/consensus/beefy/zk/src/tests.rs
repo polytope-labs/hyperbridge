@@ -19,7 +19,7 @@ fn default_para_id() -> u32 {
 }
 
 fn default_relay_ws_url() -> String {
-	"wss://hyperbridge-polkadot-rpc.blockops.network:443".to_string()
+	"wss://rpc.stakeworld.io:443".to_string()
 }
 
 fn default_para_ws_url() -> String {
@@ -39,11 +39,7 @@ struct Config {
 pub fn setup() -> Result<(), anyhow::Error> {
 	let filter =
 		tracing_subscriber::EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
-	tracing_subscriber::fmt()
-		.with_env_filter(filter)
-		.with_env_filter("zk_beefy=trace")
-		.finish()
-		.try_init()?;
+	tracing_subscriber::fmt().with_env_filter(filter).finish().try_init()?;
 
 	Ok(())
 }
@@ -126,12 +122,12 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	});
 
 	let consensus_state_bytes = hex!("000000000000000000000000000000000000000000000000000000000183db1000000000000000000000000000000000000000000000000000000000012a531800000000000000000000000000000000000000000000000000000000000009980000000000000000000000000000000000000000000000000000000000000258bea1ea741f3a85e9d200e3dc6fd7d929a82c313566c2e3ed8e75cd141b58498300000000000000000000000000000000000000000000000000000000000009990000000000000000000000000000000000000000000000000000000000000258bea1ea741f3a85e9d200e3dc6fd7d929a82c313566c2e3ed8e75cd141b584983");
-	let _consensus_state =
+	let consensus_state =
 		<BeefyConsensusState as ethers::core::abi::AbiDecode>::decode(&consensus_state_bytes)
 			.unwrap();
 
 	let block_hash =
-		relay_rpc.chain_get_block_hash(Some(28009240u64.into())).await.unwrap().unwrap();
+		relay_rpc.chain_get_block_hash(Some(25420895u64.into())).await.unwrap().unwrap();
 	let (_, proof) = relay_rpc
 		.chain_get_block(Some(block_hash))
 		.await
@@ -145,12 +141,12 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 
 	let VersionedFinalityProof::V1(signed_commitment) =
 		VersionedFinalityProof::<u32, Signature>::decode(&mut &*proof)?;
-	let consensus_state = prover.inner.get_initial_consensus_state(Some(block_hash)).await?;
 
 	prover
 		.consensus_proof(signed_commitment.clone(), consensus_state.into())
 		.await?;
 
+	// let consensus_state = prover.inner.get_initial_consensus_state().await?;
 	// let mut subscription: Subscription<String> = prover
 	// 	.inner
 	// 	.relay

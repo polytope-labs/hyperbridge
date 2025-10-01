@@ -30,7 +30,6 @@ mod tests {
 	};
 	use primitive_types::H160;
 	use primitive_types::H256;
-	// use tendermint_primitives::keys::SeiEvmKeys;
 
 	fn get_standard_rpc_url() -> String {
 		std::env::var("STANDARD_TENDERMINT_URL")
@@ -532,7 +531,7 @@ mod tests {
 	#[ignore]
 	async fn evm_state_proof() -> anyhow::Result<()> {
 		let client = CometBFTClient::new(&get_standard_rpc_url()).await?;
-		let latest_height = client.latest_height().await?;
+		let latest_height = 171021831;
 
 		let signed_header = client.signed_header(latest_height).await?;
 		let app_hash = H256::from_slice(signed_header.header.app_hash.as_bytes());

@@ -6,8 +6,8 @@ mod tests {
 	use codec::Encode;
 	use ismp_polygon::Milestone;
 	use tendermint_primitives::{
-		Client, EvmStoreKeys, SeiEvmKeys, TrustedState, ValidatorSet, VerificationError,
-		VerificationOptions,
+		Client, DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys, TrustedState, ValidatorSet,
+		VerificationError, VerificationOptions,
 	};
 	use tendermint_verifier::hashing::SpIoSha256;
 	use tendermint_verifier::validate_validator_set_hash;
@@ -39,6 +39,11 @@ mod tests {
 	fn get_sei_rpc() -> String {
 		std::env::var("SEI_RPC_URL")
 			.unwrap_or_else(|_| "https://rpc.ankr.com/sei/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
+	}
+
+	fn get_kava_rpc() -> String {
+		std::env::var("KAVA_RPC_URL")
+			.unwrap_or_else(|_| "https://rpc.ankr.com/kava_rpc/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
 	}
 
 	fn get_polygon_rpc_url() -> String {
@@ -582,6 +587,59 @@ mod tests {
 
 		res?;
 		println!("✓ Sei EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
+		Ok(())
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn kava_evm_state_proof() -> anyhow::Result<()> {
+		let client = CometBFTClient::new(&get_kava_rpc()).await?;
+		let latest_height = 17353437;
+
+		let signed_header = client.signed_header(latest_height).await?;
+		let app_hash = H256::from_slice(signed_header.header.app_hash.as_bytes());
+		let contract: H160 = H160::from_slice(&hex::decode(
+			"919C1c267BC06a7039e03fcc2eF738525769109c".to_lowercase(),
+		)?);
+		let slot: H256 = H256::from_slice(&hex::decode(
+			"1b00e2a2c0ae74b184fd3ef909a7e5ebd1f1c91a7b37432bb365c42bc211a82f".to_lowercase(),
+		)?);
+		let state_id = StateMachine::Tendermint([0u8; 4]);
+		let kava = DefaultEvmKeys;
+		let new_key = kava.storage_key(&contract.0, slot.0);
+		let mut key52 = Vec::with_capacity(52);
+		key52.extend_from_slice(&contract.0);
+		key52.extend_from_slice(&slot.0);
+
+		let res = client.abci_query_key(&kava.store_key(), new_key, latest_height - 1).await?;
+		let proof = proof_ops_to_commitment_proof_bytes(res.proof)?;
+		let value = res.value;
+
+		let evm_kv_proof = EvmKVProof { value, proof };
+		let proofs = vec![evm_kv_proof];
+		let encoded_proofs = proofs.encode();
+
+		let ismp_proof = IsmpProof {
+			height: StateMachineHeight {
+				id: StateMachineId { state_id, consensus_state_id: [0; 4] },
+				height: latest_height - 1,
+			},
+			proof: encoded_proofs,
+		};
+
+		let state_commitment =
+			StateCommitment { timestamp: 0, overlay_root: None, state_root: app_hash };
+
+		let res = verify_state_proof_with_key_provider(
+			vec![key52],
+			state_commitment,
+			&ismp_proof,
+			contract,
+			Box::new(DefaultEvmKeys),
+		);
+
+		res?;
+		println!("✓ Kava EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
 		Ok(())
 	}
 

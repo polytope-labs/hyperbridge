@@ -90,7 +90,10 @@ where
 		}
 	}
 
-	fn get_per_byte_fee(source_chain: &StateMachine, destination_chain: &StateMachine) -> Option<U256> {
+	fn get_per_byte_fee(
+		source_chain: &StateMachine,
+		destination_chain: &StateMachine,
+	) -> Option<U256> {
 		let host_params = pallet_ismp_host_executive::HostParams::<T>::get(source_chain)?;
 
 		let per_byte_fee = match host_params {
@@ -140,8 +143,10 @@ where
 	}
 
 	fn process_bridge_rewards(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
-		let mut messages_by_chain: BTreeMap<(StateMachine, StateMachine), Vec<IncentivizedMessage>> =
-			BTreeMap::new();
+		let mut messages_by_chain: BTreeMap<
+			(StateMachine, StateMachine),
+			Vec<IncentivizedMessage>,
+		> = BTreeMap::new();
 
 		match message {
 			Message::Request(msg) =>
@@ -197,7 +202,8 @@ where
 
 				bytes_processed = core::cmp::max(bytes_processed, 32);
 
-				if let Some(per_byte_fee) = Self::get_per_byte_fee(source_chain, destination_chain) {
+				if let Some(per_byte_fee) = Self::get_per_byte_fee(source_chain, destination_chain)
+				{
 					let cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
 					if cost.is_zero() {
 						continue;
@@ -243,16 +249,18 @@ where
 							T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						} else {
-							if let Err(e) = Self::pay_fee(&relayer, base_reward.saturated_into()) {
-								log::error!(target: "ismp-messaging-fees", "Failed to pay fee {e:?}");
-							}
+							Self::pay_fee(&relayer, base_reward.saturated_into()).map_err(|e| {
+								log::error!(target: "ismp", "Failed to pay fee {e:?}");
+								e
+							})?;
 							T::ReputationAsset::mint_into(&relayer, base_reward.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						}
 					} else {
-						if let Err(e) = Self::pay_fee(&relayer, base_reward.saturated_into()) {
-							log::error!(target: "ismp-messaging-fees", "Failed to pay fee {e:?}");
-						}
+						Self::pay_fee(&relayer, base_reward.saturated_into()).map_err(|e| {
+							log::error!(target: "ismp", "Failed to pay fee {e:?}");
+							e
+						})?;
 						T::ReputationAsset::mint_into(&relayer, base_reward.saturated_into())
 							.map_err(|_| Error::<T>::ReputationMintFailed)?;
 					}

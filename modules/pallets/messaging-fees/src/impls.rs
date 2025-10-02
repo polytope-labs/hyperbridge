@@ -243,12 +243,16 @@ where
 							T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						} else {
-							Self::pay_fee(&relayer, base_reward.saturated_into())?;
+							if let Err(e) = Self::pay_fee(&relayer, base_reward.saturated_into()) {
+								log::error!(target: "ismp-messaging-fees", "Failed to pay fee {e:?}");
+							}
 							T::ReputationAsset::mint_into(&relayer, base_reward.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						}
 					} else {
-						Self::pay_fee(&relayer, base_reward.saturated_into())?;
+						if let Err(e) = Self::pay_fee(&relayer, base_reward.saturated_into()) {
+							log::error!(target: "ismp-messaging-fees", "Failed to pay fee {e:?}");
+						}
 						T::ReputationAsset::mint_into(&relayer, base_reward.saturated_into())
 							.map_err(|_| Error::<T>::ReputationMintFailed)?;
 					}

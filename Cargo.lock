@@ -15495,6 +15495,7 @@ dependencies = [
  "crypto-utils",
  "hyperbridge-client-machine",
  "ismp",
+ "log",
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",

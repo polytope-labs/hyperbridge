@@ -107,7 +107,7 @@ where
 					.unwrap_or(evm_host_param.default_per_byte_fee);
 
 				let Some(decimals) =
-					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(destination_chain)
+					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(source_chain)
 				else {
 					return None;
 				};
@@ -125,7 +125,7 @@ where
 				let fee_u256 = U256::from(fee_u128);
 
 				let Some(decimals) =
-					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(destination_chain)
+					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(source_chain)
 				else {
 					return None;
 				};

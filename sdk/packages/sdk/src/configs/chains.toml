@@ -188,8 +188,8 @@ type = "evm"
 stateMachineId = "EVM-137"
 wrappedNativeDecimals = 18
 rpcUrl = { env = "POLYGON_MAINNET", url = "https://polygon-bor-rpc.publicnode.com" }
-consensusStateId = "ETH0"
-coingecko = "matic-network"
+consensusStateId = "POLY"
+coingecko = "polygon-pos"
 
 [chains.polygon-mainnet.assets]
 WETH = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270"

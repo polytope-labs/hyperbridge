@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.3.17
+
+### Patch Changes
+
+- Update polygon config
+
 ## 1.3.15
 
 ### Patch Changes

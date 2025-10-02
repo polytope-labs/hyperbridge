@@ -522,7 +522,7 @@ export const dateStringtoTimestamp = (date: string): number => {
  * @param identifier - The original token identifier (symbol or contract address)
  * @returns The mapped mainnet identifier
  */
-export function mapTestnetToMainnet(identifier: string): string {
+export function mapToValidCoingeckoId(identifier: string): string {
 	identifier = identifier.toLowerCase()
 
 	switch (identifier) {
@@ -544,13 +544,15 @@ export function mapTestnetToMainnet(identifier: string): string {
 			return "dai"
 		case "0xa801da100bf16d07f668f4a49e1f71fc54d05177".toLowerCase():
 			return "dai"
+		case "pol":
+			return "polygon-ecosystem-token"
 		default:
 			return identifier
 	}
 }
 
 export async function fetchPrice(identifier: string, chainId = 1, apiKey?: string): Promise<number> {
-	const mappedIdentifier = mapTestnetToMainnet(identifier)
+	const mappedIdentifier = mapToValidCoingeckoId(identifier)
 
 	const network = new ChainConfigService().getCoingeckoId(`EVM-${chainId}`) || "ethereum"
 

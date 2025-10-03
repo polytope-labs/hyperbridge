@@ -28172,12 +28172,16 @@ dependencies = [
 name = "tendermint-ics23-primitives"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "blake2 0.10.6",
  "blake3",
+ "cometbft",
+ "ibc",
  "ics23",
  "ismp",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "prost 0.13.5",
  "ripemd",
  "sha2 0.10.9",
 ]
@@ -28444,7 +28448,9 @@ dependencies = [
  "serde",
  "sp-core 37.0.0",
  "substrate-state-machine",
+ "tendermint-primitives",
  "tesseract-evm",
+ "tesseract-evm-tendermint",
  "tesseract-primitives",
  "tesseract-substrate",
 ]
@@ -28550,17 +28556,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "cometbft",
  "evm-state-machine",
  "futures",
- "ibc",
- "ics23",
  "ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "primitive-types 0.13.1",
- "prost 0.13.5",
  "sp-core 37.0.0",
+ "tendermint-ics23-primitives",
  "tendermint-primitives",
  "tendermint-prover",
  "tesseract-evm",

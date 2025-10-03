@@ -552,13 +552,14 @@ mod tests {
 			"26387b69acd9674861659d8f121f3f72d8c4934eeea15b947235839377526d2c".to_lowercase(),
 		)?);
 		let state_id = StateMachine::Evm(1329);
-		let sei = SeiEvmKeys;
-		let new_key = sei.storage_key(&contract.0, slot.0);
+		let new_key = SeiEvmKeys::storage_key(&contract.0, slot.0);
 		let mut key52 = Vec::with_capacity(52);
 		key52.extend_from_slice(&contract.0);
 		key52.extend_from_slice(&slot.0);
 
-		let res = client.abci_query_key(&sei.store_key(), new_key, latest_height - 1).await?;
+		let res = client
+			.abci_query_key(SeiEvmKeys::store_key(), new_key, latest_height - 1)
+			.await?;
 		let proof = proof_ops_to_commitment_proof_bytes(res.proof)?;
 		let value = res.value;
 
@@ -598,13 +599,15 @@ mod tests {
 			"1b00e2a2c0ae74b184fd3ef909a7e5ebd1f1c91a7b37432bb365c42bc211a82f".to_lowercase(),
 		)?);
 		let state_id = StateMachine::Evm(2222);
-		let kava = DefaultEvmKeys;
-		let new_key = kava.storage_key(&contract.0, slot.0);
+
+		let new_key = DefaultEvmKeys::storage_key(&contract.0, slot.0);
 		let mut key52 = Vec::with_capacity(52);
 		key52.extend_from_slice(&contract.0);
 		key52.extend_from_slice(&slot.0);
 
-		let res = client.abci_query_key(&kava.store_key(), new_key, latest_height - 1).await?;
+		let res = client
+			.abci_query_key(DefaultEvmKeys::store_key(), new_key, latest_height - 1)
+			.await?;
 		let proof = proof_ops_to_commitment_proof_bytes(res.proof)?;
 		let value = res.value;
 

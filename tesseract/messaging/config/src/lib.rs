@@ -15,7 +15,9 @@
 
 use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
+use tendermint_primitives::keys::{DefaultEvmKeys, SeiEvmKeys};
 use tesseract_evm::{EvmClient, EvmConfig};
+use tesseract_evm_tendermint::TendermintEvmClient;
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
@@ -24,12 +26,14 @@ use tesseract_substrate::{
 
 /// The AnyConfig wraps the configuration options for all supported chains
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum AnyConfig {
 	/// Configuration for substrate-based chains
 	Substrate(SubstrateConfig),
 	/// Configuration for evm-based chains
 	Evm(EvmConfig),
+	/// Configuration for tendermint-based chains
+	Tendermint(EvmConfig, String),
 }
 
 impl AnyConfig {
@@ -37,6 +41,7 @@ impl AnyConfig {
 		match self {
 			Self::Substrate(config) => config.state_machine,
 			Self::Evm(config) => config.state_machine,
+			Self::Tendermint(config, _) => config.state_machine,
 		}
 	}
 }
@@ -68,6 +73,26 @@ impl AnyConfig {
 				let mut client = EvmClient::new(config).await?;
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>
+			},
+			AnyConfig::Tendermint(config, rpc_url) => match config.state_machine {
+				ismp::host::StateMachine::Evm(chain_id) if chain_id == 1328 || chain_id == 1329 => {
+					let mut client = TendermintEvmClient::<SeiEvmKeys>::new(
+						EvmClient::new(config).await?,
+						rpc_url,
+					)
+					.await?;
+					client.set_latest_finalized_height(hyperbridge).await?;
+					Arc::new(client) as Arc<dyn IsmpProvider>
+				},
+				_ => {
+					let mut client = TendermintEvmClient::<DefaultEvmKeys>::new(
+						EvmClient::new(config).await?,
+						rpc_url,
+					)
+					.await?;
+					client.set_latest_finalized_height(hyperbridge).await?;
+					Arc::new(client) as Arc<dyn IsmpProvider>
+				},
 			},
 		};
 

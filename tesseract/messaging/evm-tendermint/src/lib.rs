@@ -19,10 +19,6 @@ use anyhow::Error;
 use codec::Encode;
 use evm_state_machine::presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT};
 use evm_state_machine::types::EvmKVProof;
-use ibc::core::commitment_types::{
-	commitment::CommitmentProofBytes, merkle::MerkleProof, proto::v1::MerkleProof as RawMerkleProof,
-};
-use ics23::CommitmentProof;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -32,6 +28,7 @@ use ismp::{
 use primitive_types::U256;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use tendermint_ics23_primitives::proof_ops_to_commitment_proof_bytes;
 use tendermint_primitives::keys::EvmStoreKeys;
 use tendermint_prover::CometBFTClient;
 use tesseract_evm::EvmClient;
@@ -41,27 +38,21 @@ use tesseract_primitives::{
 };
 
 #[derive(Clone)]
-pub struct TendermintEvmClient {
+pub struct TendermintEvmClient<T: EvmStoreKeys> {
 	pub inner: EvmClient,
 	prover: std::sync::Arc<CometBFTClient>,
-	store_key: String,
-	keys: std::sync::Arc<dyn EvmStoreKeys + Send + Sync>,
+	_phantom: std::marker::PhantomData<T>,
 }
 
-impl TendermintEvmClient {
-	pub async fn new(
-		inner: EvmClient,
-		cometbft_rpc_url: String,
-		store_key: String,
-		keys: std::sync::Arc<dyn EvmStoreKeys + Send + Sync>,
-	) -> anyhow::Result<Self> {
+impl<T: EvmStoreKeys> TendermintEvmClient<T> {
+	pub async fn new(inner: EvmClient, cometbft_rpc_url: String) -> anyhow::Result<Self> {
 		let prover = std::sync::Arc::new(CometBFTClient::new(&cometbft_rpc_url).await?);
-		Ok(Self { inner, prover, store_key, keys })
+		Ok(Self { inner, prover, _phantom: std::marker::PhantomData })
 	}
 }
 
 #[async_trait::async_trait]
-impl IsmpProvider for TendermintEvmClient {
+impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 	async fn query_consensus_state(
 		&self,
 		at: Option<u64>,
@@ -114,13 +105,13 @@ impl IsmpProvider for TendermintEvmClient {
 					q.commitment.0.to_vec(),
 					REQUEST_COMMITMENTS_SLOT,
 				);
-				self.keys.storage_key(&contract_addr, slot_hash.0)
+				T::storage_key(&contract_addr, slot_hash.0)
 			})
 			.collect();
 
 		let responses = self
 			.prover
-			.abci_query_keys(&self.store_key, storage_keys, at - 1)
+			.abci_query_keys(&T::store_key(), storage_keys, at - 1)
 			.await
 			.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
 
@@ -149,13 +140,13 @@ impl IsmpProvider for TendermintEvmClient {
 					q.commitment.0.to_vec(),
 					RESPONSE_COMMITMENTS_SLOT,
 				);
-				self.keys.storage_key(&contract_addr, slot_hash.0)
+				T::storage_key(&contract_addr, slot_hash.0)
 			})
 			.collect();
 
 		let responses = self
 			.prover
-			.abci_query_keys(&self.store_key, storage_keys, at - 1)
+			.abci_query_keys(&T::store_key(), storage_keys, at - 1)
 			.await
 			.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
 
@@ -187,13 +178,13 @@ impl IsmpProvider for TendermintEvmClient {
 					.into_iter()
 					.map(|key| {
 						let slot = H256::from_slice(&key);
-						self.keys.storage_key(&contract_addr, slot.0)
+						T::storage_key(&contract_addr, slot.0)
 					})
 					.collect();
 
 				let responses = self
 					.prover
-					.abci_query_keys(&self.store_key, storage_keys, at - 1)
+					.abci_query_keys(&T::store_key(), storage_keys, at - 1)
 					.await
 					.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
 
@@ -222,11 +213,11 @@ impl IsmpProvider for TendermintEvmClient {
 
 				for (addr, slots) in grouped.into_iter() {
 					let storage_keys: Vec<Vec<u8>> =
-						slots.into_iter().map(|slot| self.keys.storage_key(&addr, slot)).collect();
+						slots.into_iter().map(|slot| T::storage_key(&addr, slot)).collect();
 
 					let responses = self
 						.prover
-						.abci_query_keys(&self.store_key, storage_keys, at - 1)
+						.abci_query_keys(&T::store_key(), storage_keys, at - 1)
 						.await
 						.map_err(|e| anyhow::anyhow!("abci_query_keys error: {e:?}"))?;
 
@@ -370,31 +361,8 @@ impl IsmpProvider for TendermintEvmClient {
 	}
 }
 
-fn proof_ops_to_commitment_proof_bytes(
-	proof: Option<cometbft::merkle::proof::ProofOps>,
-) -> anyhow::Result<Vec<u8>> {
-	if let Some(tm_proof) = proof {
-		let mut proofs = Vec::new();
-		for op in &tm_proof.ops {
-			let mut parse = CommitmentProof { proof: None };
-			prost::Message::merge(&mut parse, op.data.as_slice())
-				.map_err(|e| anyhow::anyhow!("commitment proof decoding failed: {}", e))?;
-			proofs.push(parse);
-		}
-		let raw_merkle_proof = RawMerkleProof { proofs };
-		let merkle_proof = MerkleProof::try_from(raw_merkle_proof)
-			.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?;
-		let proof_bytes = CommitmentProofBytes::try_from(merkle_proof)
-			.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?
-			.into();
-		Ok(proof_bytes)
-	} else {
-		Ok(Vec::new())
-	}
-}
-
 #[async_trait::async_trait]
-impl ByzantineHandler for TendermintEvmClient {
+impl<T: EvmStoreKeys> ByzantineHandler for TendermintEvmClient<T> {
 	async fn check_for_byzantine_attack(
 		&self,
 		coprocessor: StateMachine,

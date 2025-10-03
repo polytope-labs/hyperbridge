@@ -11,6 +11,10 @@ blake2 = { version = "0.10", default-features = false }
 blake3 = { version = "1.8", default-features = false }
 ismp = { workspace = true, default-features = false}
 primitive-types = { workspace = true, default-features = false}
+anyhow = { workspace = true }
+ibc = { version = "0.57.0", default-features = false }
+cometbft = { workspace = true, default-features = false }
+prost = { workspace = true, default-features = false }
 
 
 [dependencies.polkadot-sdk]
@@ -27,4 +31,7 @@ std = [
     "ripemd/std",
     "blake2/std",
     "blake3/std",
+    "ibc/std",
+    "cometbft/std",
+    "prost/std",
 ]

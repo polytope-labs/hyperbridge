@@ -21,10 +21,7 @@ evm-state-machine = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 tendermint-prover = { workspace = true, default-features = false }
 tendermint-primitives = { workspace = true, default-features = false }
-ibc = { version = "0.57.0", default-features = false }
-ics23 = { workspace = true, default-features = false }
-cometbft = { workspace = true, default-features = false }
-prost = { workspace = true, default-features = false }
+tendermint-ics23-primitives = { workspace = true }
 
 [dependencies.codec]
 package = "parity-scale-codec"

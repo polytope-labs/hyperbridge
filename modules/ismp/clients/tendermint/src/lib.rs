@@ -65,8 +65,10 @@ impl<H: IsmpHost, T: HostExecutiveConfig> Default for TendermintClient<H, T> {
 	}
 }
 
-impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> ConsensusClient
-	for TendermintClient<H, T>
+impl<
+		H: IsmpHost + Send + Sync + Default + 'static,
+		T: HostExecutiveConfig + crate::pallet::Config + 'static,
+	> ConsensusClient for TendermintClient<H, T>
 {
 	fn verify_consensus(
 		&self,
@@ -183,9 +185,13 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-		match id {
-			StateMachine::Evm(_) => Ok(Box::new(TendermintEvmStateMachine::<H, T>::default())),
-			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
+		if crate::pallet::SupportedStateMachines::<T>::contains_key(id) {
+			match id {
+				StateMachine::Evm(_) => Ok(Box::new(TendermintEvmStateMachine::<H, T>::default())),
+				_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
+			}
+		} else {
+			Err(Error::Custom(alloc::format!("State machine not supported: {id:?}")))
 		}
 	}
 }

@@ -38,7 +38,7 @@ use tendermint_primitives::keys::{DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys};
 
 use crate::alloc::string::ToString;
 use crate::{req_res_commitment_key, req_res_receipt_keys};
-use alloc::{boxed::Box, collections::BTreeMap, string::String, vec, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
 
 /// Tendermint EVM State Machine client verifying ICS23 KV proofs against app hash
 pub struct TendermintEvmStateMachine<H: IsmpHost, T: pallet_ismp_host_executive::Config>(
@@ -78,7 +78,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 			.map_err(|e| Error::Custom(e.to_string()))?;
 
 		let app_hash: [u8; 32] = root.state_root.0;
-		let (store_key_str, key_provider) = select_keys_by_chain(proof.height.id.state_id);
+		let store_key_str = store_key_for(proof.height.id.state_id);
 		let store_key = store_key_str.as_bytes();
 
 		if proofs.len() != slot_keys.len() {
@@ -87,8 +87,11 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 
 		for (slot, ev) in slot_keys.into_iter().zip(proofs.into_iter()) {
 			// slot is expected to be 32 bytes keccak slot
-			let key = key_provider
-				.storage_key(&contract_address.0, slot.clone().try_into().expect("32 bytes"));
+			let key = storage_key_for(
+				proof.height.id.state_id,
+				&contract_address.0,
+				slot.clone().try_into().expect("32 bytes"),
+			);
 
 			let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
 				.map_err(|e| Error::Custom(e.to_string()))?;
@@ -138,7 +141,7 @@ pub fn verify_evm_kv_proofs(
 	root: StateCommitment,
 	proof: &Proof,
 ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-	let (store_key_str, key_provider) = select_keys_by_chain(proof.height.id.state_id);
+	let store_key_str = store_key_for(proof.height.id.state_id);
 	let store_key = store_key_str.as_bytes();
 	let app_hash: [u8; 32] = root.state_root.0;
 	let proofs: Vec<crate::types::EvmKVProof> =
@@ -166,7 +169,7 @@ pub fn verify_evm_kv_proofs(
 			(addr, slot_arr)
 		};
 
-		let key = key_provider.storage_key(&addr.0, slot);
+		let key = storage_key_for(proof.height.id.state_id, &addr.0, slot);
 
 		let commitment_proof = CommitmentProofBytes::try_from(ev.proof.clone())
 			.map_err(|e| Error::Custom(e.to_string()))?;
@@ -192,14 +195,19 @@ pub fn verify_evm_kv_proofs(
 	Ok(out)
 }
 
-fn select_keys_by_chain(
-	state_id: ismp::host::StateMachine,
-) -> (String, Box<dyn EvmStoreKeys + Send + Sync>) {
+fn store_key_for(state_id: ismp::host::StateMachine) -> String {
+	match state_id {
+		ismp::host::StateMachine::Evm(_) => "evm".to_string(),
+		_ => "evm".to_string(),
+	}
+}
+
+fn storage_key_for(state_id: ismp::host::StateMachine, addr: &[u8; 20], slot: [u8; 32]) -> Vec<u8> {
 	match state_id {
 		ismp::host::StateMachine::Evm(id) => match id {
-			1329 | 1328 => ("evm".to_string(), Box::new(SeiEvmKeys)),
-			_ => ("evm".to_string(), Box::new(DefaultEvmKeys)),
+			1329 | 1328 => SeiEvmKeys::storage_key(addr, slot),
+			_ => DefaultEvmKeys::storage_key(addr, slot),
 		},
-		_ => ("evm".to_string(), Box::new(DefaultEvmKeys)),
+		_ => DefaultEvmKeys::storage_key(addr, slot),
 	}
 }

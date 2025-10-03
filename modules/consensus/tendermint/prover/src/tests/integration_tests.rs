@@ -15,13 +15,13 @@ mod tests {
 	use tokio::time::{interval, timeout, Duration};
 	use tracing::trace;
 
-	// use cometbft_rpc::endpoint::abci_query::AbciQuery;
+	use evm_state_machine::tendermint::verify_evm_kv_proofs;
 	use evm_state_machine::types::EvmKVProof;
 	use ibc::core::commitment_types::{
 		commitment::CommitmentProofBytes, merkle::MerkleProof,
 		proto::v1::MerkleProof as RawMerkleProof,
 	};
-	use ibc::core::host::types::path::PathBytes;
+
 	use ismp::consensus::StateCommitment;
 	use ismp::{
 		consensus::{StateMachineHeight, StateMachineId},
@@ -541,7 +541,7 @@ mod tests {
 	#[ignore]
 	async fn sei_evm_state_proof() -> anyhow::Result<()> {
 		let client = CometBFTClient::new(&get_sei_rpc()).await?;
-		let latest_height = 171021831;
+		let latest_height = client.latest_height().await?;
 
 		let signed_header = client.signed_header(latest_height).await?;
 		let app_hash = H256::from_slice(signed_header.header.app_hash.as_bytes());
@@ -551,7 +551,7 @@ mod tests {
 		let slot: H256 = H256::from_slice(&hex::decode(
 			"26387b69acd9674861659d8f121f3f72d8c4934eeea15b947235839377526d2c".to_lowercase(),
 		)?);
-		let state_id = StateMachine::Tendermint([0u8; 4]);
+		let state_id = StateMachine::Evm(1329);
 		let sei = SeiEvmKeys;
 		let new_key = sei.storage_key(&contract.0, slot.0);
 		let mut key52 = Vec::with_capacity(52);
@@ -563,6 +563,7 @@ mod tests {
 		let value = res.value;
 
 		let evm_kv_proof = EvmKVProof { value, proof };
+
 		let proofs = vec![evm_kv_proof];
 		let encoded_proofs = proofs.encode();
 
@@ -577,16 +578,8 @@ mod tests {
 		let state_commitment =
 			StateCommitment { timestamp: 0, overlay_root: None, state_root: app_hash };
 
-		let res = verify_state_proof_with_key_provider(
-			vec![key52],
-			state_commitment,
-			&ismp_proof,
-			contract,
-			Box::new(SeiEvmKeys),
-		);
-
-		res?;
-		println!("✓ Sei EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
+		let _ = verify_evm_kv_proofs(vec![key52], contract, state_commitment, &ismp_proof)?;
+		println!("Sei EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
 		Ok(())
 	}
 
@@ -594,7 +587,7 @@ mod tests {
 	#[ignore]
 	async fn kava_evm_state_proof() -> anyhow::Result<()> {
 		let client = CometBFTClient::new(&get_kava_rpc()).await?;
-		let latest_height = 17353437;
+		let latest_height = client.latest_height().await?;
 
 		let signed_header = client.signed_header(latest_height).await?;
 		let app_hash = H256::from_slice(signed_header.header.app_hash.as_bytes());
@@ -604,7 +597,7 @@ mod tests {
 		let slot: H256 = H256::from_slice(&hex::decode(
 			"1b00e2a2c0ae74b184fd3ef909a7e5ebd1f1c91a7b37432bb365c42bc211a82f".to_lowercase(),
 		)?);
-		let state_id = StateMachine::Tendermint([0u8; 4]);
+		let state_id = StateMachine::Evm(2222);
 		let kava = DefaultEvmKeys;
 		let new_key = kava.storage_key(&contract.0, slot.0);
 		let mut key52 = Vec::with_capacity(52);
@@ -630,75 +623,8 @@ mod tests {
 		let state_commitment =
 			StateCommitment { timestamp: 0, overlay_root: None, state_root: app_hash };
 
-		let res = verify_state_proof_with_key_provider(
-			vec![key52],
-			state_commitment,
-			&ismp_proof,
-			contract,
-			Box::new(DefaultEvmKeys),
-		);
-
-		res?;
-		println!("✓ Kava EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
-		Ok(())
-	}
-
-	fn verify_state_proof_with_key_provider(
-		keys: Vec<Vec<u8>>,
-		root: StateCommitment,
-		proof: &IsmpProof,
-		ismp_address: H160,
-		key_provider: Box<dyn EvmStoreKeys + Send + Sync>,
-	) -> anyhow::Result<()> {
-		let proofs: Vec<EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
-			.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-		if proofs.len() != keys.len() {
-			anyhow::bail!("mismatched proofs/keys");
-		}
-
-		if keys.iter().any(|k| !(k.len() == 32 || k.len() == 52)) {
-			anyhow::bail!("Only 32-byte or 52-byte keys are supported");
-		}
-
-		let app_hash: [u8; 32] = root.state_root.0;
-		let store_key = key_provider.store_key().as_bytes();
-
-		for (key_bytes, ev) in keys.into_iter().zip(proofs.into_iter()) {
-			let (addr, slot): (H160, [u8; 32]) = if key_bytes.len() == 32 {
-				(ismp_address, key_bytes.clone().try_into().expect("32 bytes"))
-			} else {
-				let addr = H160::from_slice(&key_bytes[..20]);
-				let mut slot_arr = [0u8; 32];
-				slot_arr.copy_from_slice(&key_bytes[20..]);
-				(addr, slot_arr)
-			};
-
-			let key = key_provider.storage_key(&addr.0, slot);
-
-			let commitment_proof = CommitmentProofBytes::try_from(ev.proof)
-				.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-			let merkle_proof = MerkleProof::try_from(&commitment_proof)
-				.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-			let specs = ibc::core::commitment_types::specs::ProofSpecs::cosmos();
-			let root_hash =
-				ibc::core::commitment_types::proto::v1::MerkleRoot { hash: app_hash.to_vec() };
-
-			let merkle_path = ibc::core::commitment_types::merkle::MerklePath::new(vec![
-				PathBytes::from_bytes(store_key),
-				PathBytes::from_bytes(&key),
-			]);
-			merkle_proof
-				.verify_membership::<tendermint_ics23_primitives::ICS23HostFunctions>(
-					&specs,
-					root_hash,
-					merkle_path,
-					ev.value,
-					0,
-				)
-				.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-		}
-
+		let _ = verify_evm_kv_proofs(vec![key52], contract, state_commitment, &ismp_proof)?;
+		println!("Kava EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
 		Ok(())
 	}
 }

@@ -43,7 +43,7 @@ pub struct ConsensusState {
 	/// Codec Trusted Tendermint state
 	pub tendermint_state: CodecTrustedState,
 	/// Chain ID
-	pub chain_id: [u8; 4],
+	pub chain_id: u32,
 }
 
 /// Tendermint consensus client implementation
@@ -71,7 +71,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 	fn verify_consensus(
 		&self,
 		host: &dyn IsmpHost,
-		_consensus_state_id: ConsensusStateId,
+		consensus_state_id: ConsensusStateId,
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), ismp::error::Error> {
@@ -117,8 +117,8 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 
 		state_machine_map.insert(
 			StateMachineId {
-				state_id: StateMachine::Tendermint(consensus_state.chain_id),
-				consensus_state_id: _consensus_state_id,
+				state_id: StateMachine::Evm(consensus_state.chain_id),
+				consensus_state_id,
 			},
 			vec![state_commitment],
 		);

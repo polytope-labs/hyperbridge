@@ -22,8 +22,6 @@ pub struct HostConfig {
 	pub consensus_update_frequency: Option<u64>,
 	/// Tendermint RPC URL
 	pub rpc_url: String,
-	/// Chain ID
-	pub chain_id: String,
 	/// Trusting period in seconds for light client verification
 	pub trusting_period_secs: Option<u64>,
 	/// Unbonding period in seconds for CreateConsensusState
@@ -92,7 +90,7 @@ impl TendermintHost {
 			self.prover.next_validators(trusted_header.header.height.into()).await?;
 
 		let trusted_state = tendermint_primitives::TrustedState::new(
-			self.host.chain_id.clone(),
+			trusted_header.header.chain_id.clone().into(),
 			trusted_header.header.height.into(),
 			trusted_header.header.time.unix_timestamp() as u64,
 			trusted_header.header.hash().as_bytes().try_into().unwrap(),
@@ -105,10 +103,12 @@ impl TendermintHost {
 
 		let codec_trusted_state = CodecTrustedState::from(&trusted_state);
 
-		let consensus_state = ConsensusState {
-			tendermint_state: codec_trusted_state,
-			chain_id: self.host.chain_id.as_bytes().try_into().unwrap(),
+		let chain_id = match self.state_machine {
+			StateMachine::Evm(chain_id) => chain_id,
+			_ => return Err(anyhow::anyhow!("Unsupported state machine")),
 		};
+
+		let consensus_state = ConsensusState { tendermint_state: codec_trusted_state, chain_id };
 
 		Ok(consensus_state)
 	}

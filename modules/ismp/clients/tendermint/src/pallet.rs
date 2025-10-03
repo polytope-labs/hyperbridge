@@ -48,7 +48,7 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Set or unset support for a Tendermint state machine
+		/// Add a Tendermint state machine support entry
 		#[pallet::call_index(0)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
 		pub fn set_supported_state_machine(
@@ -62,6 +62,23 @@ pub mod pallet {
 			Self::deposit_event(Event::<T>::StateMachineSupportUpdated {
 				state_machine,
 				supported,
+			});
+			Ok(())
+		}
+
+		/// Remove a Tendermint state machine support entry
+		#[pallet::call_index(1)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
+		pub fn remove_supported_state_machine(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+		) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
+
+			SupportedStateMachines::<T>::remove(state_machine);
+			Self::deposit_event(Event::<T>::StateMachineSupportUpdated {
+				state_machine,
+				supported: false,
 			});
 			Ok(())
 		}

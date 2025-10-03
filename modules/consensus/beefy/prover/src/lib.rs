@@ -182,13 +182,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		log::trace!("\n\nQuerying mmr proof\n\n");
-
 		let (mmr_proof, latest_leaf) =
 			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?, self.query_batch_size)
 				.await?;
-
-		log::trace!("\n\nQueried mmr proof\n\n");
 
 		// create authorities proof
 		let signatures = signed_commitment

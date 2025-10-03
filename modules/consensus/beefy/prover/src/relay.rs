@@ -301,7 +301,6 @@ pub async fn fetch_mmr_proof<T: Config>(
 		proof.push(peak_root);
 	}
 
-	log::trace!("\n\nQuerying {} leaves \n\n", 2u32.pow(last_subtree_height));
 	let pb = indicatif::ProgressBar::with_draw_target(
 		Some(2u32.pow(last_subtree_height) as u64),
 		indicatif::ProgressDrawTarget::stdout(),

@@ -51,7 +51,7 @@ fn setup_host_params(source_chain: StateMachine, dest_chain: StateMachine) {
 	let host_params = HostParam::EvmHostParam(EvmHostParam {
 		per_byte_fees: vec![PerByteFee {
 			state_id: H256(keccak_256(&dest_chain.to_string().as_bytes())),
-			per_byte_fee: U256::from(50u128),
+			per_byte_fee: U256::from(10_000_000_000_000_000u128),
 		}]
 		.try_into()
 		.unwrap(),

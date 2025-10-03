@@ -112,6 +112,11 @@ pub mod pallet {
 	pub type CommitmentFees<T: Config> =
 		StorageMap<_, Blake2_128Concat, H256, T::Balance, OptionQuery>;
 
+	/// Stores the Target Message Size value
+	#[pallet::storage]
+	#[pallet::getter(fn target_message_size_override)]
+	pub type TargetMessageSizeOverride<T: Config> = StorageValue<_, u32, OptionQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Reward transfer failed
@@ -151,6 +156,8 @@ pub mod pallet {
 			/// Amount of the fee
 			amount: <T as pallet_ismp::Config>::Balance,
 		},
+		/// Target Message Size updated
+		TargetMessageSizeUpdated { new_size: u32 },
 		/// Resetting of Incentives has occurred
 		IncentivesReset,
 	}
@@ -175,6 +182,16 @@ pub mod pallet {
 
 			Self::deposit_event(Event::<T>::RouteSupported { state_machine });
 
+			Ok(())
+		}
+
+		/// Sets the Target Message Size
+		#[pallet::call_index(1)]
+		#[pallet::weight(T::WeightInfo::set_target_message_size())]
+		pub fn set_target_message_size(origin: OriginFor<T>, new_size: u32) -> DispatchResult {
+			<T as Config>::IncentivesOrigin::ensure_origin(origin)?;
+			TargetMessageSizeOverride::<T>::put(new_size);
+			Self::deposit_event(Event::<T>::TargetMessageSizeUpdated { new_size });
 			Ok(())
 		}
 	}

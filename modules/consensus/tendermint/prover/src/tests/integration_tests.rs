@@ -3,18 +3,46 @@ mod tests {
 	use std::time::{SystemTime, UNIX_EPOCH};
 
 	use crate::{prove_header_update, CometBFTClient};
+	use codec::Encode;
 	use ismp_polygon::Milestone;
 	use tendermint_primitives::{
-		Client, TrustedState, ValidatorSet, VerificationError, VerificationOptions,
+		Client, DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys, TrustedState, ValidatorSet,
+		VerificationError, VerificationOptions,
 	};
 	use tendermint_verifier::{hashing::SpIoSha256, validate_validator_set_hash};
 	use tesseract_polygon::HeimdallClient;
 	use tokio::time::{interval, timeout, Duration};
 	use tracing::trace;
 
+	use evm_state_machine::tendermint::verify_evm_kv_proofs;
+	use evm_state_machine::types::EvmKVProof;
+	use ibc::core::commitment_types::{
+		commitment::CommitmentProofBytes, merkle::MerkleProof,
+		proto::v1::MerkleProof as RawMerkleProof,
+	};
+
+	use ismp::consensus::StateCommitment;
+	use ismp::{
+		consensus::{StateMachineHeight, StateMachineId},
+		host::StateMachine,
+		messaging::Proof as IsmpProof,
+	};
+	use primitive_types::H160;
+	use primitive_types::H256;
+
 	fn get_standard_rpc_url() -> String {
 		std::env::var("STANDARD_TENDERMINT_URL")
 			.unwrap_or_else(|_| "https://rpc.ankr.com/sei/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
+	}
+
+	fn get_sei_rpc() -> String {
+		std::env::var("SEI_RPC_URL")
+			.unwrap_or_else(|_| "https://rpc.ankr.com/sei/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
+	}
+
+	fn get_kava_rpc() -> String {
+		std::env::var("KAVA_RPC_URL")
+			.unwrap_or_else(|_| "https://rpc.ankr.com/kava_rpc/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
 	}
 
 	fn get_polygon_rpc_url() -> String {
@@ -473,5 +501,122 @@ mod tests {
 			Ok(false) => Err("RPC client is not healthy".into()),
 			Err(e) => Err(format!("Failed to check health: {}", e).into()),
 		}
+	}
+
+	fn proof_ops_to_commitment_proof_bytes(
+		proof: Option<cometbft::merkle::proof::ProofOps>,
+	) -> anyhow::Result<Vec<u8>> {
+		if let Some(tm_proof) = proof {
+			let mut proofs = Vec::new();
+			for op in &tm_proof.ops {
+				let mut parse = ics23::CommitmentProof { proof: None };
+				prost::Message::merge(&mut parse, op.data.as_slice())
+					.map_err(|e| anyhow::anyhow!("commitment proof decoding failed: {}", e))?;
+				proofs.push(parse);
+			}
+			let raw_merkle_proof = RawMerkleProof { proofs };
+			let merkle_proof = MerkleProof::try_from(raw_merkle_proof)
+				.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?;
+			let proof_bytes = CommitmentProofBytes::try_from(merkle_proof)
+				.map_err(|e| anyhow::anyhow!("bad client state proof: {}", e))?
+				.into();
+			Ok(proof_bytes)
+		} else {
+			Ok(Vec::new())
+		}
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn sei_evm_state_proof() -> anyhow::Result<()> {
+		let client = CometBFTClient::new(&get_sei_rpc()).await?;
+		let latest_height = client.latest_height().await?;
+
+		let signed_header = client.signed_header(latest_height).await?;
+		let app_hash = H256::from_slice(signed_header.header.app_hash.as_bytes());
+		let contract: H160 = H160::from_slice(&hex::decode(
+			"e15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392".to_lowercase(),
+		)?);
+		let slot: H256 = H256::from_slice(&hex::decode(
+			"26387b69acd9674861659d8f121f3f72d8c4934eeea15b947235839377526d2c".to_lowercase(),
+		)?);
+		let state_id = StateMachine::Evm(1329);
+		let new_key = SeiEvmKeys::storage_key(&contract.0, slot.0);
+		let mut key52 = Vec::with_capacity(52);
+		key52.extend_from_slice(&contract.0);
+		key52.extend_from_slice(&slot.0);
+
+		let res = client
+			.abci_query_key(SeiEvmKeys::store_key(), new_key, latest_height - 1)
+			.await?;
+		let proof = proof_ops_to_commitment_proof_bytes(res.proof)?;
+		let value = res.value;
+
+		let evm_kv_proof = EvmKVProof { value, proof };
+
+		let proofs = vec![evm_kv_proof];
+		let encoded_proofs = proofs.encode();
+
+		let ismp_proof = IsmpProof {
+			height: StateMachineHeight {
+				id: StateMachineId { state_id, consensus_state_id: [0; 4] },
+				height: latest_height - 1,
+			},
+			proof: encoded_proofs,
+		};
+
+		let state_commitment =
+			StateCommitment { timestamp: 0, overlay_root: None, state_root: app_hash };
+
+		let _ = verify_evm_kv_proofs(vec![key52], contract, state_commitment, &ismp_proof)?;
+		println!("Sei EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
+		Ok(())
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn kava_evm_state_proof() -> anyhow::Result<()> {
+		let client = CometBFTClient::new(&get_kava_rpc()).await?;
+		let latest_height = client.latest_height().await?;
+
+		let signed_header = client.signed_header(latest_height).await?;
+		let app_hash = H256::from_slice(signed_header.header.app_hash.as_bytes());
+		let contract: H160 = H160::from_slice(&hex::decode(
+			"919C1c267BC06a7039e03fcc2eF738525769109c".to_lowercase(),
+		)?);
+		let slot: H256 = H256::from_slice(&hex::decode(
+			"1b00e2a2c0ae74b184fd3ef909a7e5ebd1f1c91a7b37432bb365c42bc211a82f".to_lowercase(),
+		)?);
+		let state_id = StateMachine::Evm(2222);
+
+		let new_key = DefaultEvmKeys::storage_key(&contract.0, slot.0);
+		let mut key52 = Vec::with_capacity(52);
+		key52.extend_from_slice(&contract.0);
+		key52.extend_from_slice(&slot.0);
+
+		let res = client
+			.abci_query_key(DefaultEvmKeys::store_key(), new_key, latest_height - 1)
+			.await?;
+		let proof = proof_ops_to_commitment_proof_bytes(res.proof)?;
+		let value = res.value;
+
+		let evm_kv_proof = EvmKVProof { value, proof };
+		let proofs = vec![evm_kv_proof];
+		let encoded_proofs = proofs.encode();
+
+		let ismp_proof = IsmpProof {
+			height: StateMachineHeight {
+				id: StateMachineId { state_id, consensus_state_id: [0; 4] },
+				height: latest_height - 1,
+			},
+			proof: encoded_proofs,
+		};
+
+		let state_commitment =
+			StateCommitment { timestamp: 0, overlay_root: None, state_root: app_hash };
+
+		let _ = verify_evm_kv_proofs(vec![key52], contract, state_commitment, &ismp_proof)?;
+		println!("Kava EVM state proof verification passed for slot: {}", hex::encode(&slot.0));
+		Ok(())
 	}
 }

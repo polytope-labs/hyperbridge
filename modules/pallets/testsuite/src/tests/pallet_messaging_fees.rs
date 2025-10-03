@@ -51,7 +51,7 @@ fn setup_host_params(source_chain: StateMachine, dest_chain: StateMachine) {
 	let host_params = HostParam::EvmHostParam(EvmHostParam {
 		per_byte_fees: vec![PerByteFee {
 			state_id: H256(keccak_256(&dest_chain.to_string().as_bytes())),
-			per_byte_fee: U256::from(50u128),
+			per_byte_fee: U256::from(10_000_000_000_000_000u128),
 		}]
 		.try_into()
 		.unwrap(),
@@ -215,9 +215,15 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 		)
 		.unwrap();
 
+		pallet_messaging_fees::Pallet::<Test>::set_target_message_size(
+			RuntimeOrigin::root(),
+			20000u32,
+		)
+		.unwrap();
+
 		let initial_relayer_balance = Balances::balance(&relayer_account);
 		let initial_bytes_processed = TotalBytesProcessed::<Test>::get();
-		let target_size: u32 = <Test as pallet_messaging_fees::Config>::TargetMessageSize::get();
+		let target_size: u32 = pallet_messaging_fees::TargetMessageSize::<Test>::get().unwrap();
 		TotalBytesProcessed::<Test>::put(target_size + 1);
 
 		let body = vec![0; 100];

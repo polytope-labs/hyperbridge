@@ -135,8 +135,8 @@ pub const UNIT: Balance = 1_000_000_000_000;
 pub const MILLIUNIT: Balance = 1_000_000_000;
 pub const MICROUNIT: Balance = 1_000_000;
 
-/// The existential deposit. Set to 1/10 of the Connected Relay Chain.
-pub const EXISTENTIAL_DEPOSIT: Balance = MILLIUNIT;
+/// The existential deposit. Set to 0.0000001
+pub const EXISTENTIAL_DEPOSIT: Balance = 100_000;
 
 parameter_types! {
 	pub const ExistentialDeposit: Balance = EXISTENTIAL_DEPOSIT;
@@ -429,7 +429,6 @@ impl pallet_messaging_fees::Config for Test {
 	type TreasuryAccount = TreasuryAccount;
 	type IncentivesOrigin = EnsureRoot<AccountId32>;
 	type PriceOracle = MockPriceOracle;
-	type TargetMessageSize = ConstU32<1000>;
 	type WeightInfo = ();
 	type ReputationAsset = ReputationAsset;
 }

@@ -6,8 +6,7 @@ use polkadot_sdk::{
 
 use ismp::router::{Request, Response};
 
-pub const DECIMALS_18: u128 = 1_000_000_000_000_000_000;
-pub const SCALING_FACTOR_18_TO_12: u128 = 1_000_000;
+pub const DECIMALS_12: u128 = 1_000_000_000_000;
 
 pub type AuthorityId = sp_core::sr25519::Public;
 pub type AuthoritySignature = sp_core::sr25519::Signature;
@@ -26,11 +25,16 @@ pub trait PriceOracle {
 /// Weight information for pallet operations
 pub trait WeightInfo {
 	fn set_supported_route() -> Weight;
+	fn set_target_message_size() -> Weight;
 }
 
 /// Default weight implementation using sensible defaults
 impl WeightInfo for () {
 	fn set_supported_route() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+
+	fn set_target_message_size() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 	}
 }

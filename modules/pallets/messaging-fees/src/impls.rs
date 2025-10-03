@@ -3,7 +3,10 @@ use alloc::{collections::BTreeMap, string::ToString, vec};
 use codec::{Decode, Encode};
 use hyperbridge_client_machine::OnRequestProcessed;
 use polkadot_sdk::{
-	frame_support::traits::{fungible::Mutate, tokens::Preservation},
+	frame_support::traits::{
+		fungible::{Inspect, Mutate},
+		tokens::Preservation,
+	},
 	sp_core::U256,
 	sp_runtime::traits::*,
 };
@@ -213,9 +216,9 @@ where
 
 					// Get reward in bridge tokens and scale down to 12 decimals
 					let base_reward: u128 = cost
-						.checked_mul(bridge_price)
+						.checked_div(bridge_price)
 						.ok_or(Error::<T>::CalculationOverflow)?
-						.checked_div(SCALING_FACTOR_18_TO_12.into())
+						.checked_mul(DECIMALS_12.into())
 						.ok_or(Error::<T>::CalculationOverflow)?
 						.try_into()
 						.map_err(|_| Error::<T>::CalculationOverflow)?;
@@ -225,7 +228,7 @@ where
 							*total = total.saturating_add(bytes_processed)
 						});
 						let current_total_bytes = TotalBytesProcessed::<T>::get();
-						let target_message_size = T::TargetMessageSize::get();
+						let target_message_size = Self::get_target_message_size();
 
 						if current_total_bytes < target_message_size {
 							let reward_amount = Self::calculate_reward(
@@ -233,19 +236,22 @@ where
 								target_message_size,
 								base_reward,
 							)?;
+							if reward_amount >= T::Currency::minimum_balance().into() {
+								T::Currency::transfer(
+									&T::TreasuryAccount::get().into_account_truncating(),
+									&relayer,
+									reward_amount.saturated_into(),
+									Preservation::Expendable,
+								)
+								.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
-							T::Currency::transfer(
-								&T::TreasuryAccount::get().into_account_truncating(),
-								&relayer,
-								reward_amount.saturated_into(),
-								Preservation::Expendable,
-							)
-							.map_err(|_| Error::<T>::RewardTransferFailed)?;
-
-							Self::deposit_event(Event::FeeRewarded {
-								relayer: relayer.clone(),
-								amount: reward_amount.saturated_into(),
-							});
+								Self::deposit_event(Event::FeeRewarded {
+									relayer: relayer.clone(),
+									amount: reward_amount.saturated_into(),
+								});
+							} else {
+								log::info!(target: "ismp", "Reward amount {reward_amount:?} below minimum balance");
+							}
 							T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						} else {
@@ -303,17 +309,25 @@ where
 	}
 
 	fn pay_fee(relayer: &T::AccountId, fee: T::Balance) -> Result<(), Error<T>> {
-		T::Currency::transfer(
-			relayer,
-			&T::TreasuryAccount::get().into_account_truncating(),
-			fee,
-			Preservation::Expendable,
-		)
-		.map_err(|_| Error::<T>::RewardTransferFailed)?;
+		if fee >= T::Currency::minimum_balance().into() {
+			T::Currency::transfer(
+				relayer,
+				&T::TreasuryAccount::get().into_account_truncating(),
+				fee,
+				Preservation::Expendable,
+			)
+			.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
-		Self::deposit_event(Event::FeePaid { relayer: relayer.clone(), amount: fee });
+			Self::deposit_event(Event::FeePaid { relayer: relayer.clone(), amount: fee });
+		} else {
+			log::info!(target: "ismp", "Fee amount {fee:?} below minimum balance");
+		}
 
 		Ok(())
+	}
+
+	fn get_target_message_size() -> u32 {
+		Self::target_message_size().unwrap_or(200000)
 	}
 }
 

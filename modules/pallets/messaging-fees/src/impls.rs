@@ -249,6 +249,8 @@ where
 									relayer: relayer.clone(),
 									amount: reward_amount.saturated_into(),
 								});
+							} else {
+								log::info!(target: "ismp", "Reward amount {reward_amount:?} below minimum balance");
 							}
 							T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
@@ -317,6 +319,8 @@ where
 			.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
 			Self::deposit_event(Event::FeePaid { relayer: relayer.clone(), amount: fee });
+		} else {
+			log::info!(target: "ismp", "Fee amount {fee:?} below minimum balance");
 		}
 
 		Ok(())

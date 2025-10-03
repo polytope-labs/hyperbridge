@@ -875,8 +875,8 @@ impl pallet_messaging_fees::Config for Runtime {
 	>;
 	type PriceOracle = FixedPriceOracle;
 
-	/// Target message size: 19.53125 KB (19.53125 * 1024 = 20000 bytes)
-	type TargetMessageSize = ConstU32<20000>;
+	/// Target message size: 195.3125 KB (195.3125 * 1024 = 200000 bytes)
+	type TargetMessageSize = ConstU32<200000>;
 	type WeightInfo = ();
 	type ReputationAsset = ReputationAsset;
 }

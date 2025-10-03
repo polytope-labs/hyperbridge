@@ -81,10 +81,6 @@ pub mod pallet {
 		/// Price oracle for usd price conversion to bridge tokens
 		type PriceOracle: PriceOracle;
 
-		/// The target message size
-		#[pallet::constant]
-		type TargetMessageSize: Get<u32>;
-
 		/// The pallet-assets instance used for managing the reputation token.
 		type ReputationAsset: fungible::Mutate<
 			Self::AccountId,
@@ -114,8 +110,8 @@ pub mod pallet {
 
 	/// Stores the Target Message Size value
 	#[pallet::storage]
-	#[pallet::getter(fn target_message_size_override)]
-	pub type TargetMessageSizeOverride<T: Config> = StorageValue<_, u32, OptionQuery>;
+	#[pallet::getter(fn target_message_size)]
+	pub type TargetMessageSize<T: Config> = StorageValue<_, u32, OptionQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -190,7 +186,7 @@ pub mod pallet {
 		#[pallet::weight(T::WeightInfo::set_target_message_size())]
 		pub fn set_target_message_size(origin: OriginFor<T>, new_size: u32) -> DispatchResult {
 			<T as Config>::IncentivesOrigin::ensure_origin(origin)?;
-			TargetMessageSizeOverride::<T>::put(new_size);
+			TargetMessageSize::<T>::put(new_size);
 			Self::deposit_event(Event::<T>::TargetMessageSizeUpdated { new_size });
 			Ok(())
 		}

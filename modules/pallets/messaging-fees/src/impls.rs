@@ -327,7 +327,7 @@ where
 	}
 
 	fn get_target_message_size() -> u32 {
-		Self::target_message_size_override().unwrap_or(T::TargetMessageSize::get())
+		Self::target_message_size().unwrap_or(200000)
 	}
 }
 

@@ -215,9 +215,15 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 		)
 		.unwrap();
 
+		pallet_messaging_fees::Pallet::<Test>::set_target_message_size(
+			RuntimeOrigin::root(),
+			20000u32,
+		)
+		.unwrap();
+
 		let initial_relayer_balance = Balances::balance(&relayer_account);
 		let initial_bytes_processed = TotalBytesProcessed::<Test>::get();
-		let target_size: u32 = <Test as pallet_messaging_fees::Config>::TargetMessageSize::get();
+		let target_size: u32 = pallet_messaging_fees::TargetMessageSize::<Test>::get().unwrap();
 		TotalBytesProcessed::<Test>::put(target_size + 1);
 
 		let body = vec![0; 100];

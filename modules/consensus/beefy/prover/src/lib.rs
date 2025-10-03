@@ -214,8 +214,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.collect::<Vec<_>>();
 		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
 
-		log::trace!("\n\nQueried authorities\n\n");
-
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
@@ -237,8 +235,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
 		)
 		.await?;
-
-		println!("\n\nQueried Parachains\n\n");
 
 		let (parachains, indices): (Vec<_>, Vec<_>) = self
 			.para_ids

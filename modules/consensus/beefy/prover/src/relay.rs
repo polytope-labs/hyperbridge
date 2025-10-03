@@ -339,7 +339,6 @@ pub async fn fetch_mmr_proof<T: Config>(
 				.await?
 				.into_iter()
 				.collect::<Result<Vec<_>, _>>()?;
-			log::trace!("\nDownloaded {} leaves\n", leaf_batch.len());
 			leaves.extend(leaf_batch);
 
 			pb.inc(query_batch_size.unwrap_or(200).into());
@@ -357,8 +356,6 @@ pub async fn fetch_mmr_proof<T: Config>(
 	} else {
 		query_mmr_leaf(rpc, block_hash).await?
 	};
-
-	log::trace!("\n\nQueried leaves proof\n\n");
 
 	Ok((
 		LeafProof {

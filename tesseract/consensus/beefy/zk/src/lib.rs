@@ -52,10 +52,7 @@ where
 			))?,
 		};
 
-		println!("\n\nQuerying consensus proof\n\n");
-
 		let message = self.inner.consensus_proof(signed_commitment.clone()).await?;
-		println!("\n\nQueried consensus proof\n\n");
 
 		let num: subxt::ext::subxt_rpcs::methods::legacy::BlockNumber =
 			signed_commitment.commitment.block_number.into();
@@ -151,8 +148,6 @@ where
 				total_count: paras_len,
 			},
 		};
-
-		println!("Starting proof generation");
 
 		let proof = self.sp1_beefy.prove(SP1_BEEFY, commitment)?;
 

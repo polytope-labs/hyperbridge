@@ -10328,6 +10328,7 @@ dependencies = [
  "number_prefix",
  "portable-atomic",
  "unicode-width 0.2.1",
+ "vt100",
  "web-time",
 ]
 
@@ -10341,7 +10342,6 @@ dependencies = [
  "portable-atomic",
  "unicode-width 0.2.1",
  "unit-prefix",
- "vt100",
  "web-time",
 ]
 
@@ -29420,11 +29420,11 @@ dependencies = [
 
 [[package]]
 name = "tracing-indicatif"
-version = "0.3.13"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04d4e11e0e27acef25a47f27e9435355fecdc488867fa2bc90e75b0700d2823d"
+checksum = "8201ca430e0cd893ef978226fd3516c06d9c494181c8bf4e5b32e30ed4b40aa1"
 dependencies = [
- "indicatif 0.18.0",
+ "indicatif 0.17.11",
  "tracing",
  "tracing-core",
  "tracing-subscriber",

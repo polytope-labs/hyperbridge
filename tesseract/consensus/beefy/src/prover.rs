@@ -251,12 +251,10 @@ where
 					Event::PostRequest(post) => post.dest.clone(),
 					Event::PostResponse(resp) => resp.dest_chain(),
 					Event::GetResponse(resp) => resp.get.source.clone(),
-					Event::PostRequestTimeoutHandled(req) if req.source != hyperbridge => {
-						req.source
-					},
-					Event::PostResponseTimeoutHandled(res) if res.source != hyperbridge => {
-						res.source
-					},
+					Event::PostRequestTimeoutHandled(req) if req.source != hyperbridge =>
+						req.source,
+					Event::PostResponseTimeoutHandled(res) if res.source != hyperbridge =>
+						res.source,
 					_ => None?,
 				};
 
@@ -551,14 +549,10 @@ where
 								Event::GetResponse(res) => res.get.source,
 								Event::PostRequestTimeoutHandled(req)
 									if req.source != hyperbridge =>
-								{
-									req.source
-								},
+									req.source,
 								Event::PostResponseTimeoutHandled(res)
 									if res.source != hyperbridge =>
-								{
-									res.source
-								},
+									res.source,
 								_ => None?,
 							};
 							Some(event)
@@ -877,6 +871,7 @@ mod tests {
 			para_ids: vec![4009],
 			zk_beefy: false,
 			max_rpc_payload_size: None,
+			query_batch_size: None,
 		};
 		let prover = Prover::new(prover_config).await?;
 

@@ -116,7 +116,7 @@ contract UniV3UniswapV2Wrapper {
      * @param deadline Unix timestamp deadline by which the transaction must confirm
      * @return amounts Array of amounts for intermediate and output token transfers
      */
-    function swapETHForExactTokens(
+    function swapExactETHForTokens(
         uint256 amountOut,
         address[] calldata path,
         address recipient,

@@ -34,7 +34,7 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
     IUniswapV2Router02 private testRouter;
 
     function setUp() public override {
-        vm.selectFork(vm.createFork("https://polygon-mainnet.g.alchemy.com/v2/cdNwmVNFoL6j-R9J9Zmc0"));
+         vm.selectFork(vm.createFork(vm.envString("MAINNET_FORK_URL")));
 
         wrapper = new UniV3UniswapV2Wrapper(address(this));
         wrapper.init(

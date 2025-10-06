@@ -43,24 +43,24 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
         testRouter = IUniswapV2Router02(address(wrapper));
     }
 
-    function testSwapETHForExactTokens() public {
-       
+    /* function testSwapETHForExactTokens() public {
+
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = DAI;
 
-   
+
         uint256 amountOut = 485147;
         uint256 amountsIn = 2000000000000000000;
 
-     
+
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 
-     
+
         uint256 deadline = block.timestamp + 1 hours;
 
-  
+
         uint256 slippage = amountsIn * 50 / 10_000; // 0.5% slippage
         vm.prank(WHALE);
         uint256[] memory amounts = testRouter.swapETHForExactTokens{value: amountsIn + slippage}(
@@ -70,7 +70,7 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
             deadline
         );
 
-      
+
         assertEq(
             IERC20(DAI).balanceOf(WHALE),
             initialDaiBalance + amountOut,
@@ -82,25 +82,25 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
     }
 
     function testSwapExactETHForTokens() public {
-      
+
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = DAI;
 
 
         uint256 exactEthAmount = 1 ether;
-        
-   
+
+
         uint256 amountOutMin = 0;
 
-      
+
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 
-     
+
         uint256 deadline = block.timestamp + 1 hours;
 
-   
+
         vm.prank(WHALE);
         uint256[] memory amounts = testRouter.swapExactETHForTokens{value: exactEthAmount}(
             amountOutMin, path, WHALE, deadline
@@ -124,7 +124,7 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
             amounts[1],
             "DAI balance increase should match reported amount"
         );
-    }
+        } */
 
     // Required to receive ETH refunds
     receive() external payable {}

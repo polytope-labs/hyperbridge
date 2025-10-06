@@ -5,7 +5,11 @@ use cometbft_rpc::{
 	endpoint::abci_query::AbciQuery, Client as OtherClient, HttpClient, Paging, Url,
 };
 use futures::future::join_all;
+use reqwest::Client as ReqwestClient;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use tendermint_primitives::{Client, ProverError};
+use tracing::trace;
 
 /// A client implementation for interacting with CometBFT nodes.
 ///
@@ -13,6 +17,8 @@ use tendermint_primitives::{Client, ProverError};
 /// Tendermint-compatible blockchain nodes that support the standard RPC interface.
 pub struct CometBFTClient {
 	client: HttpClient,
+	raw_client: ReqwestClient,
+	rpc_url: String,
 }
 
 // Key trait and chain implementations are defined in the `keys` module.
@@ -36,7 +42,53 @@ impl CometBFTClient {
 		let client =
 			HttpClient::new(client_url).map_err(|e| ProverError::NetworkError(e.to_string()))?;
 
-		Ok(Self { client })
+		let raw_client = ReqwestClient::new();
+
+		Ok(Self { client, raw_client, rpc_url: url.to_string() })
+	}
+
+	/// Performs a JSON-RPC request and returns the deserialized `result`.
+	async fn rpc_request<T>(&self, method: &str, params: Value) -> Result<T, ProverError>
+	where
+		T: for<'de> Deserialize<'de>,
+	{
+		let request_body = json!({
+			"jsonrpc": "2.0",
+			"id": "1",
+			"method": method,
+			"params": params,
+		});
+
+		let response = self
+			.raw_client
+			.post(&self.rpc_url)
+			.json(&request_body)
+			.send()
+			.await
+			.map_err(|e| ProverError::NetworkError(format!("Request failed: {}", e)))?;
+
+		if !response.status().is_success() {
+			return Err(ProverError::NetworkError(format!("HTTP error: {}", response.status())));
+		}
+
+		let rpc_response: RpcResponse<T> = response
+			.json()
+			.await
+			.map_err(|e| ProverError::RpcError(format!("Failed to parse response: {}", e)))?;
+
+		if let Some(err) = rpc_response.error {
+			return Err(ProverError::RpcError(format!("RPC error: {}", err.message)));
+		}
+
+		rpc_response
+			.result
+			.ok_or_else(|| ProverError::RpcError("No result in response".to_string()))
+	}
+
+	/// Fallback path: fetch latest height via raw JSON-RPC status call and parse string height.
+	async fn latest_status_via_raw(&self) -> Result<RawStatus, ProverError> {
+		let status: RawStatus = self.rpc_request("status", json!({})).await?;
+		Ok(status)
 	}
 
 	/// Perform a generic ABCI query for a single key under a module store, returning an ICS23 proof.
@@ -91,12 +143,13 @@ impl CometBFTClient {
 #[async_trait]
 impl Client for CometBFTClient {
 	async fn latest_height(&self) -> Result<u64, ProverError> {
-		let status = self
-			.client
-			.status()
-			.await
-			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
-		Ok(status.sync_info.latest_block_height.value())
+		match self.client.status().await {
+			Ok(status) => Ok(status.sync_info.latest_block_height.value()),
+			Err(_e) => {
+				let status = self.latest_status_via_raw().await?;
+				Ok(status.sync_info.latest_block_height)
+			},
+		}
 	}
 
 	async fn signed_header(&self, height: u64) -> Result<SignedHeader, ProverError> {
@@ -126,12 +179,13 @@ impl Client for CometBFTClient {
 	}
 
 	async fn chain_id(&self) -> Result<String, ProverError> {
-		let status = self
-			.client
-			.status()
-			.await
-			.map_err(|e| ProverError::NetworkError(e.to_string()))?;
-		Ok(status.node_info.network.to_string())
+		match self.client.status().await {
+			Ok(status) => Ok(status.node_info.network.to_string()),
+			Err(_e) => {
+				let status = self.latest_status_via_raw().await?;
+				Ok(status.node_info.network)
+			},
+		}
 	}
 
 	async fn is_healthy(&self) -> Result<bool, ProverError> {
@@ -139,5 +193,58 @@ impl Client for CometBFTClient {
 			Ok(_) => Ok(true),
 			Err(_) => Ok(false),
 		}
+	}
+}
+
+// Minimal types for decoding JSON-RPC commit response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RpcResponse<T> {
+	#[allow(dead_code)]
+	jsonrpc: String,
+	#[allow(dead_code)]
+	id: Value,
+	result: Option<T>,
+	error: Option<RpcError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RpcError {
+	code: i32,
+	message: String,
+	#[allow(dead_code)]
+	data: Option<Value>,
+}
+
+// Minimal status response with tolerant height parsing and network support
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RawStatus {
+	node_info: RawNodeInfo,
+	sync_info: RawSyncInfo,
+	#[allow(dead_code)]
+	validator_info: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RawNodeInfo {
+	network: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RawSyncInfo {
+	#[serde(deserialize_with = "deserialize_height")]
+	latest_block_height: u64,
+}
+
+fn deserialize_height<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	let v: Value = Value::deserialize(deserializer)?;
+	if let Some(s) = v.as_str() {
+		s.parse::<u64>().map_err(serde::de::Error::custom)
+	} else if let Some(n) = v.as_u64() {
+		Ok(n)
+	} else {
+		Err(serde::de::Error::custom("latest_block_height not string or number"))
 	}
 }

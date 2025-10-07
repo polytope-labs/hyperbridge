@@ -370,6 +370,16 @@ export default defineConfig({
             text: "Receiving Messages",
             link: "/developers/evm/receiving",
           },
+
+          {
+            text: "Intent Gateway",
+            link: "/developers/evm/intent-gateway",
+          },
+
+          {
+            text: "Intent Gateway Filler",
+            link: "/developers/evm/filler",
+          },
         ],
       },
       {

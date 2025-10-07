@@ -52,9 +52,9 @@ contract UniV3UniswapV2Wrapper {
 
     /**
      * @dev The maximum allowable fees for the UniV3UniswapV2Wrapper module.
-     * This constant represents a fee of 0.3%, which is equivalent to 3,000 basis points.
+     * This constant represents a fee of 0.05%, which is equivalent to 500 basis points.
      */
-    uint24 constant MAX_FEES = 3_000; // 0.3%
+    uint24 constant MAX_FEES = 500; // 0.05%
 
     /**
      * @dev The deployer of the contract.
@@ -108,65 +108,124 @@ contract UniV3UniswapV2Wrapper {
         return _params.WETH;
     }
     /**
-     * @notice Swaps exact amount of ETH for specified amount of tokens through V3.
-     * @dev Will attempt to swap using the uniswap V3 interface
-     * @param amountOut The amount of tokens to receive
-     * @param path Array of token addresses representing the swap path
-     * @param recipient Address that will receive the output tokens
-     * @param deadline Unix timestamp deadline by which the transaction must confirm
-     * @return amounts Array of amounts for intermediate and output token transfers
-     */
-    function swapETHForExactTokens(
-        uint256 amountOut,
-        address[] calldata path,
-        address recipient,
-        uint256 deadline
-    ) external payable returns (uint256[] memory) {
-        address weth = _params.WETH;
-        if (path[0] != weth) revert InvalidWethAddress();
+ * @notice Swaps exact amount of ETH for tokens through V3.
+ * @param amountOutMin The minimum amount of tokens to receive
+ * @param path Array of token addresses representing the swap path
+ * @param recipient Address that will receive the output tokens
+ * @param deadline Unix timestamp deadline by which the transaction must confirm
+ * @return amounts Array of amounts [ethSpent, tokensReceived]
+ */
+function swapExactETHForTokens(
+    uint256 amountOutMin,  // Changed from amountOut
+    address[] calldata path,
+    address recipient,
+    uint256 deadline
+) external payable returns (uint256[] memory) {
+    address weth = _params.WETH;
+    if (path[0] != weth) revert InvalidWethAddress();
 
-        // wrap native token, univ3 doesn't support native ETH
-        (bool sent, ) = weth.call{value: msg.value}("");
-        if (!sent) revert DepositFailed();
 
-        ISwapRouter.ExactOutputSingleParams memory params = ISwapRouter.ExactOutputSingleParams({
-            tokenIn: weth,
-            tokenOut: path[1],
-            fee: MAX_FEES,
-            recipient: recipient,
-            deadline: deadline,
-            amountOut: amountOut,
-            amountInMaximum: msg.value,
-            sqrtPriceLimitX96: 0
-        });
-        uint256 spent = ISwapRouter(_params.swapRouter).exactOutputSingle(params);
-        if (spent < msg.value) {
-            uint256 refund = msg.value - spent;
-            // unwrap the unspent WETH
-            IWETH(weth).withdraw(refund);
-            (bool success, ) = _deployer.call{value: refund}("");
-            if (!success) revert RefundFailed();
-        }
+    (bool sent, ) = weth.call{value: msg.value}("");
+    if (!sent) revert DepositFailed();
 
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = spent;
-        amounts[1] = amountOut;
+   
+    ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
+        tokenIn: weth,
+        tokenOut: path[1],
+        fee: MAX_FEES,
+        recipient: recipient,
+        deadline: deadline,
+        amountIn: msg.value, 
+        amountOutMinimum: amountOutMin, 
+        sqrtPriceLimitX96: 0
+    });
+    
+    uint256 amountReceived = ISwapRouter(_params.swapRouter).exactInputSingle(params);
+    
 
-        return amounts;
+    uint256[] memory amounts = new uint256[](2);
+    amounts[0] = msg.value; 
+    amounts[1] = amountReceived; 
+
+    return amounts;
+}
+
+/**
+ * @notice Swaps ETH for exact amount of tokens through V3.
+ * @param amountOut The exact amount of tokens to receive
+ * @param path Array of token addresses representing the swap path
+ * @param recipient Address that will receive the output tokens
+ * @param deadline Unix timestamp deadline by which the transaction must confirm
+ * @return amounts Array of amounts [ethSpent, tokensReceived]
+ */
+function swapETHForExactTokens(
+    uint256 amountOut,
+    address[] calldata path,
+    address recipient,
+    uint256 deadline
+) external payable returns (uint256[] memory) {
+    address weth = _params.WETH;
+    if (path[0] != weth) revert InvalidWethAddress();
+
+   
+    (bool sent, ) = weth.call{value: msg.value}("");
+    if (!sent) revert DepositFailed();
+
+    ISwapRouter.ExactOutputSingleParams memory params = ISwapRouter.ExactOutputSingleParams({
+        tokenIn: weth,
+        tokenOut: path[1],
+        fee: MAX_FEES,
+        recipient: recipient,
+        deadline: deadline,
+        amountOut: amountOut,
+        amountInMaximum: msg.value,
+        sqrtPriceLimitX96: 0
+    });
+    
+    uint256 spent = ISwapRouter(_params.swapRouter).exactOutputSingle(params);
+    
+    if (spent < msg.value) {
+        uint256 refund = msg.value - spent;
+        IWETH(weth).withdraw(refund);
+     
+        (bool success, ) = _deployer.call{value: refund}("");
+        if (!success) revert RefundFailed();
     }
 
-    /**
-     * @notice Given an output amount of an asset and a path, returns the input amounts required.
-     * @param amountOut The amount of the asset you want to receive.
-     * @param path An array of token addresses representing the path of the swap.
-     * @return amounts An array of input amounts required to obtain the output amount.
-     */
-    function getAmountsIn(uint amountOut, address[] calldata path) external returns (uint[] memory) {
-        uint256 quote = IQuoter(_params.quoter).quoteExactOutputSingle(path[0], path[1], MAX_FEES, amountOut, 0);
-        uint256[] memory out = new uint256[](1);
-        out[0] = quote;
-        return out;
-    }
+    uint256[] memory amounts = new uint256[](2);
+    amounts[0] = spent;
+    amounts[1] = amountOut;
+
+    return amounts;
+}
+
+ /**
+ * @notice Given an output amount of an asset and a path, returns the input amounts required.
+ * @param amountOut The amount of the asset you want to receive.
+ * @param path An array of token addresses representing the path of the swap.
+ * @return amounts An array of input amounts required to obtain the output amount.
+ */
+function getAmountsIn(uint amountOut, address[] calldata path) external returns (uint[] memory) {
+    uint256 quote = IQuoter(_params.quoter).quoteExactOutputSingle(path[0], path[1], MAX_FEES, amountOut, 0);
+    uint256[] memory amounts = new uint256[](2);
+    amounts[0] = quote;        
+    amounts[1] = amountOut; 
+    return amounts;
+}
+
+/**
+ * @notice Given an input amount of an asset and a path, returns the output amounts.
+ * @param amountIn The amount of the asset you want to swap.
+ * @param path An array of token addresses representing the path of the swap.
+ * @return amounts An array of output amounts to be received.
+ */
+function getAmountsOut(uint amountIn, address[] calldata path) external returns (uint[] memory) {
+    uint256 quote = IQuoter(_params.quoter).quoteExactInputSingle(path[0], path[1], MAX_FEES, amountIn, 0);
+    uint256[] memory amounts = new uint256[](2);
+    amounts[0] = amountIn;     
+    amounts[1] = quote;        
+    return amounts;
+}
 
     /// @notice Accepts ETH transfers to this contract
     /// @dev Fallback function to receive ETH payments, required for unwrapping WETH

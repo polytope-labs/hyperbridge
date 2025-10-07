@@ -15,7 +15,7 @@ import {
 	waitForChallengePeriod,
 	retryPromise,
 } from "@/utils"
-import { formatUnits, hexToString, maxUint256, pad, parseUnits, toHex } from "viem"
+import { encodeFunctionData, formatUnits, hexToString, maxUint256, pad, parseUnits, toHex } from "viem"
 import {
 	DispatchPost,
 	IGetRequest,
@@ -160,9 +160,9 @@ export class IntentGateway {
 
 		let destChainFillGas = 0n
 		try {
-			let protocolFeeInNativeToken = await this.quoteNative(postRequest, relayerFeeInDestFeeToken)
-
-			// Add 0.5% markup
+			let protocolFeeInNativeToken = await this.quoteNative(postRequest, relayerFeeInDestFeeToken).catch(() =>
+				this.dest.quoteNative(postRequest, relayerFeeInDestFeeToken).catch(() => 0n),
+			)
 			protocolFeeInNativeToken = protocolFeeInNativeToken + (protocolFeeInNativeToken * 50n) / 10000n
 
 			destChainFillGas = await this.dest.client.estimateContractGas({
@@ -387,9 +387,10 @@ export class IntentGateway {
 		tokenIn: HexString,
 		tokenOut: HexString,
 		amountOut: bigint,
+		evmChainID: string,
+		selectedProtocol?: "v2" | "v3" | "v4",
 	): Promise<{ protocol: "v2" | "v3" | "v4" | null; amountIn: bigint; fee?: number }> {
 		const client = this[getQuoteIn].client
-		const evmChainID = `EVM-${client.chain?.id}`
 		let amountInV2 = maxUint256
 		let amountInV3 = maxUint256
 		let amountInV4 = maxUint256
@@ -397,14 +398,14 @@ export class IntentGateway {
 		let bestV4Fee = 0
 		const commonFees = [100, 500, 3000, 10000]
 
-		const v2Router = this.source.config.getUniswapRouterV2Address(evmChainID)
-		const v2Factory = this.source.config.getUniswapV2FactoryAddress(evmChainID)
-		const v3Factory = this.source.config.getUniswapV3FactoryAddress(evmChainID)
-		const v3Quoter = this.source.config.getUniswapV3QuoterAddress(evmChainID)
-		const v4Quoter = this.source.config.getUniswapV4QuoterAddress(evmChainID)
+		const v2Router = this[getQuoteIn].config.getUniswapRouterV2Address(evmChainID)
+		const v2Factory = this[getQuoteIn].config.getUniswapV2FactoryAddress(evmChainID)
+		const v3Factory = this[getQuoteIn].config.getUniswapV3FactoryAddress(evmChainID)
+		const v3Quoter = this[getQuoteIn].config.getUniswapV3QuoterAddress(evmChainID)
+		const v4Quoter = this[getQuoteIn].config.getUniswapV4QuoterAddress(evmChainID)
 
 		// For V2/V3, convert native addresses to WETH for quotes
-		const wethAsset = this.source.config.getWrappedNativeAssetWithDecimals(evmChainID).asset
+		const wethAsset = this[getQuoteIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
 		const tokenInForQuote = tokenIn === ADDRESS_ZERO ? wethAsset : tokenIn
 		const tokenOutForQuote = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
 
@@ -418,14 +419,21 @@ export class IntentGateway {
 			})) as HexString
 
 			if (v2PairExists !== ADDRESS_ZERO) {
-				const v2AmountIn = (await client.readContract({
+				const v2AmountIn = await client.simulateContract({
 					address: v2Router,
 					abi: UniswapRouterV2.ABI,
+					// @ts-ignore
 					functionName: "getAmountsIn",
+					// @ts-ignore
 					args: [amountOut, [tokenInForQuote, tokenOutForQuote]],
-				})) as bigint[]
+				})
 
-				amountInV2 = v2AmountIn[0]
+				console.log("V2 amount in", v2AmountIn)
+
+				amountInV2 = v2AmountIn.result[0]
+				if (selectedProtocol === "v2") {
+					return { protocol: "v2", amountIn: amountInV2 }
+				}
 			}
 		} catch (error) {
 			console.warn("V2 quote failed:", error)
@@ -484,6 +492,10 @@ export class IntentGateway {
 
 		amountInV3 = bestV3AmountIn
 
+		if (selectedProtocol === "v3") {
+			return { protocol: "v3", amountIn: amountInV3, fee: bestV3Fee }
+		}
+
 		// V4 Protocol Check - Find the best pool with best quote (uses native addresses directly)
 		let bestV4AmountIn = maxUint256
 
@@ -532,6 +544,10 @@ export class IntentGateway {
 		}
 
 		amountInV4 = bestV4AmountIn
+
+		if (selectedProtocol === "v4") {
+			return { protocol: "v4", amountIn: amountInV4, fee: bestV4Fee }
+		}
 
 		if (amountInV2 === maxUint256 && amountInV3 === maxUint256 && amountInV4 === maxUint256) {
 			// No liquidity in any protocol
@@ -619,25 +635,18 @@ export class IntentGateway {
 
 		// V2 Protocol Check
 		try {
-			const v2PairExists = (await client.readContract({
-				address: v2Factory,
-				abi: UniswapV2Factory.ABI,
-				functionName: "getPair",
-				args: [tokenInForQuote, tokenOutForQuote],
-			})) as HexString
+			const v2AmountOut = await client.simulateContract({
+				address: v2Router,
+				abi: UniswapRouterV2.ABI,
+				// @ts-ignore
+				functionName: "getAmountsOut",
+				// @ts-ignore
+				args: [amountIn, [tokenInForQuote, tokenOutForQuote]],
+			})
 
-			if (v2PairExists !== ADDRESS_ZERO) {
-				const v2AmountOut = (await client.readContract({
-					address: v2Router,
-					abi: UniswapRouterV2.ABI,
-					functionName: "getAmountsOut",
-					args: [amountIn, [tokenInForQuote, tokenOutForQuote]],
-				})) as bigint[]
-
-				amountOutV2 = v2AmountOut[1]
-				if (selectedProtocol === "v2") {
-					return { protocol: "v2", amountOut: amountOutV2 }
-				}
+			amountOutV2 = v2AmountOut.result[1]
+			if (selectedProtocol === "v2") {
+				return { protocol: "v2", amountOut: amountOutV2 }
 			}
 		} catch (error) {
 			console.warn("V2 quote failed:", error)

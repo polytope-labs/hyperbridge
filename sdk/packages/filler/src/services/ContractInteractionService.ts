@@ -512,12 +512,34 @@ export class ContractInteractionService {
 			payer: postRequest.from,
 		}
 
-		const quoteNative = await client.readContract({
-			abi: INTENT_GATEWAY_ABI,
-			address: this.configService.getIntentGatewayAddress(postRequest.dest),
-			functionName: "quoteNative",
-			args: [dispatchPost] as any,
-		})
+		const quoteNative = await client
+			.readContract({
+				abi: INTENT_GATEWAY_ABI,
+				address: this.configService.getIntentGatewayAddress(postRequest.dest),
+				functionName: "quoteNative",
+				args: [dispatchPost] as any,
+			})
+			.catch(async () => {
+				const quoteInFeeToken = await client.readContract({
+					abi: INTENT_GATEWAY_ABI,
+					address: this.configService.getIntentGatewayAddress(postRequest.dest),
+					functionName: "quote",
+					args: [dispatchPost] as any,
+				})
+				const feeToken = (await this.getFeeTokenWithDecimals(chain)).address
+				const routerAddr = this.configService.getUniswapRouterV2Address(chain)
+				const WETH = this.configService.getWrappedNativeAssetWithDecimals(chain).asset
+				const quote = await client.simulateContract({
+					abi: UNISWAP_ROUTER_V2_ABI,
+					address: routerAddr,
+					// @ts-ignore
+					functionName: "getAmountsIn",
+					// @ts-ignore
+					args: [quoteInFeeToken, [WETH, feeToken]],
+				})
+
+				return quote.result[0]
+			})
 		return quoteNative
 	}
 

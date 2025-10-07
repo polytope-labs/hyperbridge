@@ -11,6 +11,7 @@ import {
 	pad,
 	toBytes,
 	toHex,
+	maxUint256,
 } from "viem"
 import {
 	arbitrum,
@@ -40,6 +41,7 @@ import type { IChain, IIsmpMessage } from "@/chain"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import type { HexString, IMessage, IPostRequest, StateMachineHeight, StateMachineIdParams } from "@/types"
 import {
+	ADDRESS_ZERO,
 	EvmStateProof,
 	MmrProof,
 	SubstrateStateProof,
@@ -47,6 +49,9 @@ import {
 	generateRootWithProof,
 	mmrPositionToKIndex,
 } from "@/utils"
+
+import UniswapV2Factory from "@/abis/uniswapV2Factory"
+import UniswapRouterV2 from "@/abis/uniswapRouterV2"
 
 const chains = {
 	[mainnet.id]: mainnet,
@@ -449,6 +454,26 @@ export class EvmChain implements IChain {
 		return perByteFee * BigInt(length)
 	}
 
+	async quoteNative(request: IPostRequest, fee: bigint): Promise<bigint> {
+		const totalFee = (await this.quote(request)) + fee
+		const feeToken = await this.getFeeTokenWithDecimals()
+		return this.getAmountsIn(totalFee, feeToken.address, request.source)
+	}
+
+	private async getAmountsIn(amountOut: bigint, tokenOutForQuote: HexString, chain: string): Promise<bigint> {
+		const v2Router = this.config.getUniswapRouterV2Address(chain)
+		const WETH = this.config.getWrappedNativeAssetWithDecimals(chain).asset
+		const v2AmountIn = await this.publicClient.simulateContract({
+			address: v2Router,
+			abi: UniswapRouterV2.ABI,
+			// @ts-ignore
+			functionName: "getAmountsIn",
+			// @ts-ignore
+			args: [amountOut, [WETH, tokenOutForQuote]],
+		})
+
+		return v2AmountIn.result[0]
+	}
 	/**
 	 * Estimates the gas required for a post request execution on this chain.
 	 * This function generates mock proofs for the post request, creates a state override

@@ -14,19 +14,16 @@ use sp_runtime::AccountId32;
 use token_gateway_primitives::{GatewayAssetRegistration, GatewayAssetUpdate};
 
 #[benchmarks(
-	where
-	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
-	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-	u128: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-	T::Balance: From<u128>,
-	<T as pallet_ismp::Config>::Balance: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-	<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
-	<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
-	[u8; 32]: From<<T as frame_system::Config>::AccountId>,
-	<T as frame_system::Config>::RuntimeOrigin: From<frame_system::RawOrigin<AccountId32>>,
-	<T as Config>::NativeCurrency: fungible::Mutate<T::AccountId>,
-	<T as Config>::NativeCurrency: fungible::Inspect<T::AccountId>,
-	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: Into<<<T as Config>::NativeCurrency as fungible::Inspect<T::AccountId>>::Balance>,
+    where
+    <<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
+    <T as frame_system::Config>::AccountId: From<[u8; 32]>,
+    u128: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
+    T::Balance: From<u128>,
+    <T as pallet_ismp::Config>::Balance: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
+    <<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>,
+    <<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
+    [u8; 32]: From<<T as frame_system::Config>::AccountId>,
+    <T as frame_system::Config>::RuntimeOrigin: From<frame_system::RawOrigin<AccountId32>>,
 	T::CreateOrigin: EnsureOrigin<T::RuntimeOrigin>
 )]
 mod benches {
@@ -56,9 +53,10 @@ mod benches {
 			precision,
 		};
 
-		#[extrinsic_call]
-		_(origin, asset);
-
+		#[block]
+		{
+			Pallet::<T>::create_erc6160_asset(origin, asset)?;
+		}
 		Ok(())
 	}
 
@@ -71,7 +69,7 @@ mod benches {
 		let asset_id = T::NativeAssetId::get();
 
 		Pallet::<T>::create_erc6160_asset(
-			RawOrigin::Signed(account.clone()).into(),
+			create_origin,
 			AssetRegistration {
 				local_id: asset_id.clone(),
 				reg: GatewayAssetRegistration {
@@ -98,8 +96,10 @@ mod benches {
 			redeem: false,
 		};
 
-		#[extrinsic_call]
-		_(RawOrigin::Signed(account), teleport_params);
+		#[block]
+		{
+			Pallet::<T>::teleport(RawOrigin::Signed(account).into(), teleport_params)?;
+		}
 		Ok(())
 	}
 
@@ -114,8 +114,10 @@ mod benches {
 			addresses.insert(StateMachine::Evm(100), addr);
 		}
 
-		#[extrinsic_call]
-		_(origin, addresses);
+		#[block]
+		{
+			Pallet::<T>::set_token_gateway_addresses(origin, addresses)?;
+		}
 		Ok(())
 	}
 
@@ -148,8 +150,10 @@ mod benches {
 			new_admins: BoundedVec::try_from(Vec::new()).unwrap(),
 		};
 
-		#[extrinsic_call]
-		_(origin, asset_update);
+		#[block]
+		{
+			Pallet::<T>::update_erc6160_asset(origin, asset_update)?;
+		}
 		Ok(())
 	}
 
@@ -165,8 +169,10 @@ mod benches {
 
 		let update = PrecisionUpdate { asset_id: T::NativeAssetId::get(), precisions };
 
-		#[extrinsic_call]
-		_(origin, update);
+		#[block]
+		{
+			Pallet::<T>::update_asset_precision(origin, update)?;
+		}
 		Ok(())
 	}
 }

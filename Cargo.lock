@@ -10537,6 +10537,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-beefy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beefy-verifier",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "substrate-state-machine",
+]
+
+[[package]]
 name = "ismp-bsc"
 version = "0.1.1"
 dependencies = [

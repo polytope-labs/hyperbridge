@@ -114,7 +114,7 @@ members = [
 
 
     # Airdrop
-    "modules/pallets/bridge-drop",
+    "modules/pallets/bridge-drop", "modules/ismp/clients/beefy",
 ]
 
 # Config for 'cargo dist'
@@ -218,6 +218,7 @@ ismp = { version = "2506.1.0", path = "./modules/ismp/core", default-features = 
 serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
 crypto-utils = { version = "0.1.0", path = "modules/utils/crypto", default-features = false }
 grandpa-verifier-primitives = { version = "2506.1.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
+beefy-verifier = { version = "0.1.0", path = "./modules/consensus/beefy/verifier", default-features = false }
 grandpa-verifier = { version = "2506.1.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
 ismp-grandpa = { version = "2506.1.0", path = "./modules/ismp/clients/grandpa", default-features = false }
 ismp-parachain = { version = "2506.1.0", path = "./modules/ismp/clients/parachain/client", default-features = false }

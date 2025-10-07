@@ -1,4 +1,4 @@
-mod types;
+
 
 use polkadot_sdk::*;
 use anyhow::anyhow;
@@ -11,7 +11,6 @@ use polkadot_sdk::sp_runtime::traits::Header;
 use ismp::consensus::{StateCommitment, StateMachineHeight, StateMachineId};
 use merkle_mountain_range::{MerkleProof as MmrMerkleProof, util::MemStore, Merge as MmrMerge, Error as MmrError};
 use rs_merkle::{Hasher, MerkleProof};
-use crate::types::MmrLeaf;
 use sp_core::{hashing::keccak_256 as keccak256};
 
 const MMR_ROOT_PAYLOAD_ID: [u8; 2] = *b"mh";
@@ -36,13 +35,6 @@ impl MmrMerge for KeccakMerge {
 		let mut data = [0u8; 64];
 		data[..32].copy_from_slice(left);
 		data[32..].copy_from_slice(right);
-		Ok(keccak256(&data))
-	}
-
-	fn merge_peaks(right: &Self::Item, left: &Self::Item) -> Result<Self::Item, MmrError> {
-		let mut data = [0u8; 64];
-		data[..32].copy_from_slice(right);
-		data[32..].copy_from_slice(left);
 		Ok(keccak256(&data))
 	}
 }
@@ -164,15 +156,13 @@ fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
 	let leaf_hash = H::keccak256(&partial_leaf.encode());
 	let leaf_count = leaf_index(trusted_state.beefy_activation_block, relay.latest_mmr_leaf.parent_block_and_hash.0) + 1;
 
-	let mmr_proof = MmrMerkleProof::new(mmr_root.into(), relay.mmr_proof.iter().map(|h| h.into()).collect());
-	let leaf = MmrLeaf { k_index: relay.latest_mmr_leaf.k_index, leaf_index: relay.latest_mmr_leaf.leaf_index, hash: leaf_hash };
-	let leaf = merkle_mountain_range::MmrLeaf::new()
+	let mmr_proof = MmrMerkleProof::<[u8; 32], KeccakMerge>::new(leaf_count as u64, relay.mmr_proof.iter().map(|h| (*h).into()).collect());
+	let leaf = (relay.latest_mmr_leaf.leaf_index as u64, leaf_hash.into());
+	let valid = mmr_proof.verify(mmr_root.into(), vec![leaf]).map_err(|e| anyhow!("MMR verification failed during calculation: {:?}", e.to_string()))?;
 
-
-	/*let valid = merkle_mountain_range_verify(mmr_root, &relay.mmr_proof, &leaves, leaf_count as usize);
 	if !valid {
-		Err(anyhow!("Invalid Mmr proof"))?;
-	}*/
+		Err(anyhow!("Invalid Mmr proof: calculated root does not match provided root"))?;
+	}
 
 	Ok(())
 }

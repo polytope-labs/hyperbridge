@@ -13199,6 +13199,7 @@ dependencies = [
  "pallet-collator-manager",
  "pallet-consensus-incentives",
  "pallet-fishermen",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
@@ -13208,6 +13209,7 @@ dependencies = [
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-state-coprocessor",
+ "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
  "pallet-xcm-gateway",
@@ -16533,7 +16535,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "2506.1.0"
+version = "2506.2.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",

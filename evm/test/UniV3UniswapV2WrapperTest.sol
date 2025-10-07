@@ -26,12 +26,11 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
 contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
     address private constant UNISWAP_V3_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address private constant UNISWAP_V3_QUOTER = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
-    address private constant WETH = 0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270;
-    address private constant DAI = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
+    address private constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address private constant WHALE = address(0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045);
 
     UniV3UniswapV2Wrapper private wrapper;
-    IUniswapV2Router02 private testRouter;
 
     function setUp() public override {
          vm.selectFork(vm.createFork(vm.envString("MAINNET_FORK_URL")));
@@ -40,7 +39,6 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
         wrapper.init(
             UniV3UniswapV2Wrapper.Params({WETH: WETH, swapRouter: UNISWAP_V3_ROUTER, quoter: UNISWAP_V3_QUOTER})
         );
-        testRouter = IUniswapV2Router02(address(wrapper));
     }
 
     /* function testSwapETHForExactTokens() public {

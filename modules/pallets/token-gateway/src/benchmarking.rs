@@ -3,7 +3,7 @@
 use crate::{types::*, *};
 use frame_benchmarking::v2::*;
 use frame_support::{
-	traits::{fungible, fungibles, Currency},
+	traits::{fungible, fungibles, Currency, EnsureOrigin},
 	BoundedVec,
 };
 use frame_system::RawOrigin;
@@ -27,13 +27,15 @@ use token_gateway_primitives::{GatewayAssetRegistration, GatewayAssetUpdate};
 	<T as Config>::NativeCurrency: fungible::Mutate<T::AccountId>,
 	<T as Config>::NativeCurrency: fungible::Inspect<T::AccountId>,
 	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: Into<<<T as Config>::NativeCurrency as fungible::Inspect<T::AccountId>>::Balance>,
+	T::CreateOrigin: EnsureOrigin<T::RuntimeOrigin>
 )]
 mod benches {
 	use super::*;
 
 	#[benchmark]
 	fn create_erc6160_asset(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let asset_details = GatewayAssetRegistration {
 			name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
@@ -54,14 +56,8 @@ mod benches {
 			precision,
 		};
 
-		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
-			&account,
-			total_balance.into(),
-		);
-
 		#[extrinsic_call]
-		_(RawOrigin::Signed(account), asset);
+		_(origin, asset);
 
 		Ok(())
 	}
@@ -69,6 +65,8 @@ mod benches {
 	#[benchmark]
 	fn teleport() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
+		let create_origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let asset_id = T::NativeAssetId::get();
 
@@ -116,13 +114,8 @@ mod benches {
 
 	#[benchmark]
 	fn set_token_gateway_addresses(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
-
-		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
-			&account,
-			total_balance.into(),
-		);
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let mut addresses = BTreeMap::new();
 		for i in 0..x {
@@ -131,24 +124,19 @@ mod benches {
 		}
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(account), addresses);
+		_(origin, addresses);
 		Ok(())
 	}
 
 	#[benchmark]
 	fn update_erc6160_asset() -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
-
-		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
-			&account,
-			total_balance.into(),
-		);
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let local_id = T::NativeAssetId::get();
 
 		Pallet::<T>::create_erc6160_asset(
-			RawOrigin::Signed(account.clone()).into(),
+			origin.clone(),
 			AssetRegistration {
 				local_id,
 				reg: GatewayAssetRegistration {
@@ -170,19 +158,14 @@ mod benches {
 		};
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(account), asset_update);
+		_(origin, asset_update);
 		Ok(())
 	}
 
 	#[benchmark]
 	fn update_asset_precision(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
-
-		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
-			&account,
-			total_balance.into(),
-		);
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let mut precisions = BTreeMap::new();
 		for i in 0..x {
@@ -192,13 +175,14 @@ mod benches {
 		let update = PrecisionUpdate { asset_id: T::NativeAssetId::get(), precisions };
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(account), update);
+		_(origin, update);
 		Ok(())
 	}
 
 	#[benchmark]
 	fn register_asset_locally(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let asset_details = GatewayAssetRegistration {
 			name: BoundedVec::try_from(b"Local".to_vec()).unwrap(),
@@ -219,14 +203,8 @@ mod benches {
 			precision,
 		};
 
-		let total_balance = T::NativeCurrency::minimum_balance() + 1000u128.into();
-		<T::NativeCurrency as fungible::Mutate<T::AccountId>>::set_balance(
-			&account,
-			total_balance.into(),
-		);
-
 		#[extrinsic_call]
-		_(RawOrigin::Signed(account), asset);
+		_(origin, asset);
 
 		Ok(())
 	}

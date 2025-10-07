@@ -199,18 +199,33 @@ function swapETHForExactTokens(
     return amounts;
 }
 
-    /**
-     * @notice Given an output amount of an asset and a path, returns the input amounts required.
-     * @param amountOut The amount of the asset you want to receive.
-     * @param path An array of token addresses representing the path of the swap.
-     * @return amounts An array of input amounts required to obtain the output amount.
-     */
-    function getAmountsIn(uint amountOut, address[] calldata path) external returns (uint[] memory) {
-        uint256 quote = IQuoter(_params.quoter).quoteExactOutputSingle(path[0], path[1], MAX_FEES, amountOut, 0);
-        uint256[] memory out = new uint256[](1);
-        out[0] = quote;
-        return out;
-    }
+ /**
+ * @notice Given an output amount of an asset and a path, returns the input amounts required.
+ * @param amountOut The amount of the asset you want to receive.
+ * @param path An array of token addresses representing the path of the swap.
+ * @return amounts An array of input amounts required to obtain the output amount.
+ */
+function getAmountsIn(uint amountOut, address[] calldata path) external returns (uint[] memory) {
+    uint256 quote = IQuoter(_params.quoter).quoteExactOutputSingle(path[0], path[1], MAX_FEES, amountOut, 0);
+    uint256[] memory amounts = new uint256[](2);
+    amounts[0] = quote;        
+    amounts[1] = amountOut; 
+    return amounts;
+}
+
+/**
+ * @notice Given an input amount of an asset and a path, returns the output amounts.
+ * @param amountIn The amount of the asset you want to swap.
+ * @param path An array of token addresses representing the path of the swap.
+ * @return amounts An array of output amounts to be received.
+ */
+function getAmountsOut(uint amountIn, address[] calldata path) external returns (uint[] memory) {
+    uint256 quote = IQuoter(_params.quoter).quoteExactInputSingle(path[0], path[1], MAX_FEES, amountIn, 0);
+    uint256[] memory amounts = new uint256[](2);
+    amounts[0] = amountIn;     
+    amounts[1] = quote;        
+    return amounts;
+}
 
     /// @notice Accepts ETH transfers to this contract
     /// @dev Fallback function to receive ETH payments, required for unwrapping WETH

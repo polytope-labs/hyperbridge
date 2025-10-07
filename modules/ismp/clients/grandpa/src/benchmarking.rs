@@ -17,10 +17,14 @@ use polkadot_sdk::*;
 
 use super::*;
 use frame_benchmarking::v2::*;
+use frame_support::traits::EnsureOrigin;
 use frame_system::RawOrigin;
 use sp_std::prelude::*;
 
-#[benchmarks]
+#[benchmarks(
+	where
+	T::AdminOrigin: EnsureOrigin<T::RuntimeOrigin>
+)]
 mod benchmarks {
 	use super::*;
 
@@ -32,6 +36,8 @@ mod benchmarks {
 	/// - `n`: Number of state machines to add in a single call
 	#[benchmark]
 	fn add_state_machines(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let origin =
+			T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		let state_machines: Vec<AddStateMachine> = (0..n)
 			.map(|i| {
 				let id = [i as u8, 0, 0, 0]; // Create unique 4-byte identifier
@@ -43,7 +49,7 @@ mod benchmarks {
 			.collect();
 
 		#[extrinsic_call]
-		_(RawOrigin::Root, state_machines);
+		_(origin, state_machines);
 
 		// Verify operation was successful
 		assert!(SupportedStateMachines::<T>::iter().count() == n as usize);
@@ -58,6 +64,8 @@ mod benchmarks {
 	/// - `n`: Number of state machines to remove in a single call
 	#[benchmark]
 	fn remove_state_machines(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let origin =
+			T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		// Setup: First add state machines that we'll remove
 		let setup_machines: Vec<AddStateMachine> = (0..n)
 			.map(|i| {
@@ -80,7 +88,7 @@ mod benchmarks {
 		assert!(SupportedStateMachines::<T>::iter().count() == n as usize);
 
 		#[extrinsic_call]
-		_(RawOrigin::Root, remove_machines);
+		_(origin, remove_machines);
 
 		// Verify all machines were removed
 		assert!(SupportedStateMachines::<T>::iter().count() == 0);

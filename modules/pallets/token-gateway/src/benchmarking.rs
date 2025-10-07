@@ -81,7 +81,7 @@ mod benches {
 		);
 
 		Pallet::<T>::create_erc6160_asset(
-			RawOrigin::Signed(account.clone()).into(),
+			create_origin,
 			AssetRegistration {
 				local_id: asset_id.clone(),
 				reg: GatewayAssetRegistration {

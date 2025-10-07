@@ -190,27 +190,7 @@ pub async fn get_current_gas_cost_in_usd(
 				},
 				INJECTIVE_CHAIN_ID | INJECTIVE_TESTNET_CHAIN_ID => {
 					let node_gas_price = client.get_gas_price().await?;
-					#[derive(Debug, Deserialize, Clone, Default)]
-					struct BlockscoutResponse {
-						average: f32,
-					}
-					let uri = if inner_evm == INJECTIVE_CHAIN_ID {
-						"https://explorer.injective.network/api/v1/gas-price-oracle"
-					} else {
-						"https://testnet.explorer.injective.network/api/v1/gas-price-oracle"
-					};
-					let response_json =
-						make_request::<BlockscoutResponse>(&uri, Default::default())
-							.await
-							.unwrap_or_default();
-					let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
-					// needed because of ether-rs and polkadot-sdk incompatibility
-					gas_price = if inner_evm == INJECTIVE_CHAIN_ID {
-						new_u256(std::cmp::max(node_gas_price, oracle_gas_price))
-					} else {
-						new_u256(node_gas_price)
-					};
-					// Fetch INJ price from CoinGecko
+					gas_price = new_u256(node_gas_price);
 					let inj_usd_price = get_coingecko_price("injective-protocol").await?;
 					let inj_usd = parse_to_27_decimals(&inj_usd_price)?;
 					unit_wei = get_cost_of_one_wei(inj_usd);

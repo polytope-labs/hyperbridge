@@ -9,7 +9,6 @@ use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tendermint_primitives::{Client, ProverError};
-use tracing::trace;
 
 /// A client implementation for interacting with CometBFT nodes.
 ///

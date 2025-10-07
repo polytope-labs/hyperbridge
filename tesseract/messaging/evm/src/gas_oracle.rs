@@ -65,7 +65,7 @@ pub const POLYGON_CHAIN_ID: u32 = 137;
 pub const GNOSIS_CHAIN_ID: u32 = 100;
 pub const CRONOS_CHAIN_ID: u32 = 25;
 pub const SEI_CHAIN_ID: u32 = 1329;
-pub const INJECTIVE_CHAIN_ID: u32 = 2525;
+pub const INJECTIVE_CHAIN_ID: u32 = 1440; // Not launched yet
 
 // Testnets
 pub const ARBITRUM_SEPOLIA_CHAIN_ID: u32 = 421614;
@@ -77,7 +77,7 @@ pub const POLYGON_TESTNET_CHAIN_ID: u32 = 80002;
 pub const CHIADO_CHAIN_ID: u32 = 10200;
 pub const CRONOS_TESTNET_CHAIN_ID: u32 = 338;
 pub const SEI_TESTNET_CHAIN_ID: u32 = 1328;
-pub const INJECTIVE_TESTNET_CHAIN_ID: u32 = 2424;
+pub const INJECTIVE_TESTNET_CHAIN_ID: u32 = 1439;
 
 pub fn is_orbit_chain(id: u32) -> bool {
 	[ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID].contains(&id)

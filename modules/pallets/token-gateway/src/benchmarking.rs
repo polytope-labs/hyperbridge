@@ -3,7 +3,7 @@
 use crate::{types::*, *};
 use frame_benchmarking::v2::*;
 use frame_support::{
-	traits::{fungible, fungibles, Currency},
+	traits::{fungible, fungibles, Currency, EnsureOrigin},
 	BoundedVec,
 };
 use frame_system::RawOrigin;
@@ -24,13 +24,15 @@ use token_gateway_primitives::{GatewayAssetRegistration, GatewayAssetUpdate};
     <<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
     [u8; 32]: From<<T as frame_system::Config>::AccountId>,
     <T as frame_system::Config>::RuntimeOrigin: From<frame_system::RawOrigin<AccountId32>>,
+	T::CreateOrigin: EnsureOrigin<T::RuntimeOrigin>
 )]
 mod benches {
 	use super::*;
 
 	#[benchmark]
 	fn create_erc6160_asset(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let asset_details = GatewayAssetRegistration {
 			name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
@@ -51,22 +53,23 @@ mod benches {
 			precision,
 		};
 
-		<T::Currency as fungible::Mutate<T::AccountId>>::set_balance(&account, u128::MAX.into());
-
-		#[extrinsic_call]
-		_(RawOrigin::Signed(account), asset);
-
+		#[block]
+		{
+			Pallet::<T>::create_erc6160_asset(origin, asset)?;
+		}
 		Ok(())
 	}
 
 	#[benchmark]
 	fn teleport() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
+		let create_origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let asset_id = T::NativeAssetId::get();
 
 		Pallet::<T>::create_erc6160_asset(
-			RawOrigin::Signed(account.clone()).into(),
+			create_origin,
 			AssetRegistration {
 				local_id: asset_id.clone(),
 				reg: GatewayAssetRegistration {
@@ -93,14 +96,17 @@ mod benches {
 			redeem: false,
 		};
 
-		#[extrinsic_call]
-		_(RawOrigin::Signed(account), teleport_params);
+		#[block]
+		{
+			Pallet::<T>::teleport(RawOrigin::Signed(account).into(), teleport_params)?;
+		}
 		Ok(())
 	}
 
 	#[benchmark]
 	fn set_token_gateway_addresses(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let mut addresses = BTreeMap::new();
 		for i in 0..x {
@@ -108,19 +114,22 @@ mod benches {
 			addresses.insert(StateMachine::Evm(100), addr);
 		}
 
-		#[extrinsic_call]
-		_(RawOrigin::Signed(account), addresses);
+		#[block]
+		{
+			Pallet::<T>::set_token_gateway_addresses(origin, addresses)?;
+		}
 		Ok(())
 	}
 
 	#[benchmark]
 	fn update_erc6160_asset() -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let local_id = T::NativeAssetId::get();
 
 		Pallet::<T>::create_erc6160_asset(
-			RawOrigin::Signed(account.clone()).into(),
+			origin.clone(),
 			AssetRegistration {
 				local_id,
 				reg: GatewayAssetRegistration {
@@ -141,14 +150,17 @@ mod benches {
 			new_admins: BoundedVec::try_from(Vec::new()).unwrap(),
 		};
 
-		#[extrinsic_call]
-		_(RawOrigin::Signed(account), asset_update);
+		#[block]
+		{
+			Pallet::<T>::update_erc6160_asset(origin, asset_update)?;
+		}
 		Ok(())
 	}
 
 	#[benchmark]
 	fn update_asset_precision(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let account: T::AccountId = whitelisted_caller();
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 
 		let mut precisions = BTreeMap::new();
 		for i in 0..x {
@@ -157,8 +169,10 @@ mod benches {
 
 		let update = PrecisionUpdate { asset_id: T::NativeAssetId::get(), precisions };
 
-		#[extrinsic_call]
-		_(RawOrigin::Signed(account), update);
+		#[block]
+		{
+			Pallet::<T>::update_asset_precision(origin, update)?;
+		}
 		Ok(())
 	}
 }

@@ -234,7 +234,9 @@ mod tests {
 			"e15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392",
 			"26387b69acd9674861659d8f121f3f72d8c4934eeea15b947235839377526d2c",
 		)
-		.await
+		.await?;
+
+		Ok(())
 	}
 
 	#[tokio::test]
@@ -246,7 +248,9 @@ mod tests {
 			"919C1c267BC06a7039e03fcc2eF738525769109c",
 			"1b00e2a2c0ae74b184fd3ef909a7e5ebd1f1c91a7b37432bb365c42bc211a82f",
 		)
-		.await
+		.await?;
+
+		Ok(())
 	}
 
 	#[tokio::test]
@@ -258,7 +262,9 @@ mod tests {
 			"c21223249CA28397B4B6541dfFaEcC539BfF0c59",
 			"b7b7f25334beca82ade183c84c51052234dc1618b0ff321ea2332dbf08c55523",
 		)
-		.await
+		.await?;
+
+		Ok(())
 	}
 
 	#[tokio::test]
@@ -270,7 +276,9 @@ mod tests {
 			"E83c1acd1c9cc3780D0a560E36DCCAA236B86412",
 			"a9bd8c5aa26805e4fe15acd0af182cd60120b2f98da76707238f637028baf59b",
 		)
-		.await
+		.await?;
+
+		Ok(())
 	}
 
 	async fn test_abci_query_milestone_proof_inner() -> Result<(), Box<dyn std::error::Error>> {

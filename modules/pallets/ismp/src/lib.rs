@@ -527,9 +527,8 @@ pub mod pallet {
 			let events =
 				Self::execute(messages.clone()).map_err(|_| InvalidTransaction::BadProof)?;
 
-			let consensus_updates = events
-				.iter()
-				.filter_map(|event| {
+			if let Message::Consensus(_) = &messages[0] {
+				let update_info = events.iter().find_map(|event| {
 					if let ismp::events::Event::StateMachineUpdated(state_machine_updated_event) =
 						event
 					{
@@ -540,26 +539,21 @@ pub mod pallet {
 					} else {
 						None
 					}
-				})
-				.collect::<Vec<_>>();
+				});
 
-			if !consensus_updates.is_empty() {
-				let provides = consensus_updates
-					.iter()
-					.map(|(state_machine_id, _)| {
-						sp_io::hashing::keccak_256(&state_machine_id.encode()).to_vec()
+				return if let Some((state_machine_id, latest_height)) = update_info {
+					Ok(ValidTransaction {
+						priority: latest_height,
+						requires: vec![],
+						provides: vec![
+							sp_io::hashing::keccak_256(&state_machine_id.encode()).to_vec()
+						],
+						longevity: 25,
+						propagate: true,
 					})
-					.collect::<Vec<_>>();
-				let priority =
-					consensus_updates.iter().map(|(_, height)| *height).max().unwrap_or(0);
-
-				Ok(ValidTransaction {
-					priority,
-					requires: vec![],
-					provides,
-					longevity: 25,
-					propagate: true,
-				})
+				} else {
+					Err(TransactionValidityError::Invalid(InvalidTransaction::BadProof))
+				};
 			} else {
 				let mut requests = messages
 					.into_iter()

@@ -161,7 +161,7 @@ export class EvmChain implements IChain {
 		// for each request derive the commitment key collect into a new array
 		const commitmentKeys =
 			"Requests" in message
-				? message.Requests.map((key) => requestCommitmentKey(key))
+				? message.Requests.map((key) => requestCommitmentKey(key).slot1)
 				: message.Responses.map((key) => responseCommitmentKey(key))
 		const config: GetProofParameters = {
 			address: this.params.host,
@@ -208,7 +208,7 @@ export class EvmChain implements IChain {
 		const encoded = EvmStateProof.enc({
 			contractProof: proof.accountProof.map((item) => Array.from(hexToBytes(item))),
 			storageProof: [
-				[Array.from(hexToBytes(this.params.host)), flattenedProof.map((item) => Array.from(hexToBytes(item)))],
+				[Array.from(hexToBytes(config.address)), flattenedProof.map((item) => Array.from(hexToBytes(item)))],
 			],
 		})
 
@@ -618,7 +618,7 @@ export const RESPONSE_RECEIPTS_SLOT = 3n
  */
 export const STATE_COMMITMENTS_SLOT = 5n
 
-function requestCommitmentKey(key: Hex): Hex {
+export function requestCommitmentKey(key: Hex): { slot1: Hex; slot2: Hex } {
 	// First derive the map key
 	const keyBytes = hexToBytes(key)
 	const slot = REQUEST_COMMITMENTS_SLOT
@@ -628,7 +628,10 @@ function requestCommitmentKey(key: Hex): Hex {
 	const number = bytesToBigInt(hexToBytes(mappedKey)) + 1n
 
 	// Convert back to 32-byte hex
-	return pad(`0x${number.toString(16)}`, { size: 32 })
+	return {
+		slot1: pad(`0x${number.toString(16)}`, { size: 32 }),
+		slot2: mappedKey,
+	}
 }
 
 function responseCommitmentKey(key: Hex): Hex {

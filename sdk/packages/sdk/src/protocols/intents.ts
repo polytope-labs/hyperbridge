@@ -35,7 +35,7 @@ import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
 import type { EvmChain } from "@/chains/evm"
 import { Decimal } from "decimal.js"
-import { getChain, IGetRequestMessage, IProof, SubstrateChain } from "@/chain"
+import { getChain, IGetRequestMessage, IProof, requestCommitmentKey, SubstrateChain } from "@/chain"
 import { IndexerClient } from "@/client"
 
 /**
@@ -948,6 +948,7 @@ export class IntentGateway {
 
 		const sourceStatusStream = indexerClient.getRequestStatusStream(commitment)
 		for await (const statusUpdate of sourceStatusStream) {
+			console.log({ statusUpdate })
 			if (statusUpdate.status === RequestStatus.SOURCE_FINALIZED) {
 				let sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
 				let proof: HexString | undefined
@@ -961,13 +962,11 @@ export class IntentGateway {
 					)
 				}
 
+				const { slot1, slot2 } = requestCommitmentKey(commitment)
+
 				while (true) {
 					try {
-						proof = await this.source.queryProof(
-							{ Requests: [commitment] },
-							hyperbridgeConfig.stateMachineId,
-							sourceHeight,
-						)
+						proof = await this.source.queryStateProof(sourceHeight, [slot1, slot2])
 						break
 					} catch {
 						const failedHeight = sourceHeight

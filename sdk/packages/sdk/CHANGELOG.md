@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.3.19
+
+### Patch Changes
+
+- Fix message submit in cancel order method
+
 ## 1.3.17
 
 ### Patch Changes

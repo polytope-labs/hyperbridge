@@ -374,6 +374,8 @@ describe("Order Cancellation tests", () => {
 			confirmations: 1,
 		})
 
+		console.log("Order placed on BSC")
+
 		const orderPlaceEvent = parseEventLogs({ abi: IntentGatewayABI.ABI, logs: receipt.logs })[0]
 		if (orderPlaceEvent.eventName !== "OrderPlaced") {
 			throw new Error("Unexpected Event type")
@@ -439,6 +441,8 @@ describe("Order Cancellation tests", () => {
 			hash,
 			confirmations: 1,
 		})
+
+		console.log("Order cancelled on BSC")
 
 		// parse EvmHost GetRequestEvent emitted in the transaction logs
 		const event = parseEventLogs({ abi: EVM_HOST.ABI, logs: receipt.logs })[0]

@@ -516,7 +516,7 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			use ismp::{
-				messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
+				messaging::{hash_request, FraudProofMessage, RequestMessage},
 				router::Request,
 			};
 			let messages = match call {
@@ -524,51 +524,85 @@ pub mod pallet {
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
 
-			Self::execute(messages.clone()).map_err(|_| InvalidTransaction::BadProof)?;
+			let events =
+				Self::execute(messages.clone()).map_err(|_| InvalidTransaction::BadProof)?;
 
-			let mut requests = messages
-				.into_iter()
-				.map(|message| match message {
-					Message::Consensus(ConsensusMessage { consensus_proof, .. }) => {
-						vec![H256(sp_io::hashing::keccak_256(&consensus_proof))]
-					},
-					Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
-						H256(sp_io::hashing::keccak_256(&proof_1)),
-						H256(sp_io::hashing::keccak_256(&proof_2)),
-					],
-					Message::Request(RequestMessage { requests, .. }) => requests
-						.into_iter()
-						.map(|post| hash_request::<Pallet<T>>(&Request::Post(post.clone())))
-						.collect::<Vec<_>>(),
-					Message::Response(message) => message
-						.requests()
-						.iter()
-						.map(|request| hash_request::<Pallet<T>>(request))
-						.collect::<Vec<_>>(),
-					Message::Timeout(message) => message
-						.requests()
-						.iter()
-						.map(|request| hash_request::<Pallet<T>>(request))
-						.collect::<Vec<_>>(),
+			let consensus_updates = events
+				.iter()
+				.filter_map(|event| {
+					if let ismp::events::Event::StateMachineUpdated(state_machine_updated_event) =
+						event
+					{
+						Some((
+							state_machine_updated_event.state_machine_id.clone(),
+							state_machine_updated_event.latest_height,
+						))
+					} else {
+						None
+					}
 				})
 				.collect::<Vec<_>>();
-			requests.sort();
 
-			// this is so we can reject duplicate batches at the mempool level
-			let msg_hash = sp_io::hashing::keccak_256(&requests.encode()).to_vec();
+			if !consensus_updates.is_empty() {
+				let provides = consensus_updates
+					.iter()
+					.map(|(state_machine_id, _)| {
+						sp_io::hashing::keccak_256(&state_machine_id.encode()).to_vec()
+					})
+					.collect::<Vec<_>>();
+				let priority =
+					consensus_updates.iter().map(|(_, height)| *height).max().unwrap_or(0);
 
-			Ok(ValidTransaction {
-				// they should all have the same priority so they can be rejected
-				priority: 100,
-				// they are all self-contained batches that have no dependencies
-				requires: vec![],
-				// provides this unique hash of transactions
-				provides: vec![msg_hash],
-				// should only live for at most 10 blocks
-				longevity: 25,
-				// always propagate
-				propagate: true,
-			})
+				Ok(ValidTransaction {
+					priority,
+					requires: vec![],
+					provides,
+					longevity: 25,
+					propagate: true,
+				})
+			} else {
+				let mut requests = messages
+					.into_iter()
+					.map(|message| match message {
+						Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
+							H256(sp_io::hashing::keccak_256(&proof_1)),
+							H256(sp_io::hashing::keccak_256(&proof_2)),
+						],
+						Message::Request(RequestMessage { requests, .. }) => requests
+							.into_iter()
+							.map(|post| hash_request::<Pallet<T>>(&Request::Post(post.clone())))
+							.collect::<Vec<_>>(),
+						Message::Response(message) => message
+							.requests()
+							.iter()
+							.map(|request| hash_request::<Pallet<T>>(request))
+							.collect::<Vec<_>>(),
+						Message::Timeout(message) => message
+							.requests()
+							.iter()
+							.map(|request| hash_request::<Pallet<T>>(request))
+							.collect::<Vec<_>>(),
+						_ => vec![],
+					})
+					.collect::<Vec<_>>();
+				requests.sort();
+
+				// this is so we can reject duplicate batches at the mempool level
+				let msg_hash = sp_io::hashing::keccak_256(&requests.encode()).to_vec();
+
+				Ok(ValidTransaction {
+					// they should all have the same priority so they can be rejected
+					priority: 100,
+					// they are all self-contained batches that have no dependencies
+					requires: vec![],
+					// provides this unique hash of transactions
+					provides: vec![msg_hash],
+					// should only live for at most 10 blocks
+					longevity: 25,
+					// always propagate
+					propagate: true,
+				})
+			}
 		}
 	}
 

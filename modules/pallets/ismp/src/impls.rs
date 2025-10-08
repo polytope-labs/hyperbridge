@@ -27,6 +27,7 @@ use alloc::{string::ToString, vec, vec::Vec};
 use codec::Decode;
 use frame_system::Phase;
 use ismp::{
+	events,
 	handlers::{handle_incoming_message, MessageResult},
 	messaging::{hash_request, hash_response, Message, MessageWithWeight},
 	router::{Request, Response},
@@ -36,7 +37,7 @@ use sp_core::{offchain::StorageKind, H256};
 impl<T: Config> Pallet<T> {
 	/// Execute the provided ISMP datagrams, this will short circuit if any messages are invalid.
 	/// This also charges fee on valid message delivery
-	pub fn execute(messages: Vec<Message>) -> Result<(), Error<T>> {
+	pub fn execute(messages: Vec<Message>) -> Result<Vec<events::Event>, Error<T>> {
 		let host = Pallet::<T>::default();
 
 		let message_results = messages
@@ -74,7 +75,7 @@ impl<T: Config> Pallet<T> {
 				Error::<T>::InvalidMessage
 			})?;
 
-		T::FeeHandler::on_executed(messages_with_weights, events.clone())
+		T::FeeHandler::on_executed(messages_with_weights.clone(), events.clone())
 			.map_err(|_| Error::<T>::ErrorChargingFee)?;
 
 		for event in events.clone() {
@@ -82,7 +83,7 @@ impl<T: Config> Pallet<T> {
 			Pallet::<T>::deposit_event(event.into());
 		}
 
-		Ok(())
+		Ok(events)
 	}
 
 	/// Dispatch an outgoing request, returns the request commitment

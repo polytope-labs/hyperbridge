@@ -1,0 +1,733 @@
+# Intent Gateway SDK Guide
+
+This guide explains how to use the Hyperbridge Intent Gateway SDK to place cross-chain orders with profitable fees and handle order cancellations using cryptographic proofs.
+
+## Overview
+
+The Intent Gateway SDK provides a TypeScript interface for interacting with the Intent Gateway smart contracts. It handles:
+
+- **Fee Estimation**: Calculate profitable fees that incentivize fillers to process orders
+- **Protocol Discovery**: Find the best Uniswap protocol (V2/V3/V4) for token swaps
+- **Order Management**: Place, monitor, and cancel cross-chain orders
+- **Proof Handling**: Generate and submit cryptographic proofs for order cancellation
+
+The SDK abstracts away complex calculations like:
+
+- Gas estimation across chains
+- Fee token conversions
+- Protocol fee calculations
+- Relayer fee determination
+- Proof generation and submission
+
+## Getting Started
+
+### Installation
+
+```bash
+npm install @hyperbridge/sdk
+```
+
+### Basic Setup
+
+```typescript
+import { EvmChain } from "@hyperbridge/sdk/chain"
+import { IntentGateway } from "@hyperbridge/sdk/protocols/intents"
+import { ChainConfigService } from "@hyperbridge/sdk/configs/ChainConfigService"
+
+// Initialize chain configuration service
+const chainConfigService = new ChainConfigService()
+
+// Set up source chain (e.g., BSC)
+const bscChain = new EvmChain({
+	chainId: 56,
+	host: chainConfigService.getHostAddress("EVM-56"),
+	url: "https://bsc-dataseed.binance.org",
+})
+
+// Set up destination chain (e.g., Ethereum)
+const ethChain = new EvmChain({
+	chainId: 1,
+	host: chainConfigService.getHostAddress("EVM-1"),
+	url: "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY",
+})
+
+// Create Intent Gateway instance (first param is source, second is destination)
+const intentGateway = new IntentGateway(bscChain, ethChain)
+```
+
+## Estimating Profitable Fees
+
+The most critical feature of the SDK is **estimating the correct fees** to make orders profitable for fillers. If fees are too low, no filler will process your order.
+
+### Understanding Fee Components
+
+An order's total fee consists of:
+
+1. **Fill Gas Cost**: Gas required to execute `fillOrder()` on destination chain
+2. **Protocol Fee**: ISMP messaging fees for cross-chain communication
+3. **Relayer Fee**: Minimum $0.25 + execution costs for message delivery
+4. **Buffer**: Safety margin (2.5-30% depending on chain volatility)
+
+The SDK's `estimateFillOrder()` method calculates all these components automatically.
+
+### Basic Fee Estimation
+
+```typescript
+import { orderCommitment, hexToString, bytes20ToBytes32 } from "@hyperbridge/sdk/utils"
+import { Order } from "@hyperbridge/sdk/types"
+
+// Create your order (note: sourceChain and destChain are hex-encoded)
+const order: Order = {
+	user: bytes20ToBytes32("0xYourAddress"),
+	sourceChain: await bscIsmpHost.read.host(), // Hex-encoded "EVM-56"
+	destChain: await ethIsmpHost.read.host(), // Hex-encoded "EVM-1"
+	deadline: 20000000n, // Block number on Ethereum
+	nonce: 0n,
+	fees: 0n, // We'll calculate this
+	outputs: [
+		{
+			token: bytes20ToBytes32("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"), // USDC on Ethereum
+			amount: 1000_000_000n, // 1000 USDC (6 decimals)
+			beneficiary: bytes20ToBytes32("0xRecipientAddress"),
+		},
+	],
+	inputs: [
+		{
+			token: bytes20ToBytes32("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"), // USDC on BSC
+			amount: 1000_000_000_000_000_000_000n, // 1000 USDC (18 decimals on BSC)
+		},
+	],
+	callData: "0x",
+}
+
+// Convert to string format for estimation
+const orderForEstimation = {
+	...order,
+	id: orderCommitment(order),
+	sourceChain: hexToString(order.sourceChain as HexString), // Convert hex to "EVM-56"
+	destChain: hexToString(order.destChain as HexString), // Convert hex to "EVM-1"
+}
+
+// Estimate fees
+const { feeTokenAmount, nativeTokenAmount, postRequestCalldata } =
+	await intentGateway.estimateFillOrder(orderForEstimation)
+
+console.log(`Fee in fee token: ${feeTokenAmount}`) // e.g., 2_800_000_000_000_000_000 (2.8 DAI)
+console.log(`Fee in native token: ${nativeTokenAmount}`) // e.g., equivalent ETH amount
+
+// Update order with calculated fee
+order.fees = feeTokenAmount
+```
+
+### How Fee Estimation Works
+
+The `estimateFillOrder()` method performs these steps:
+
+1. **Constructs Post Request**: Creates the ISMP post request for settlement
+2. **Estimates Fill Gas**: Simulates `fillOrder()` execution with state overrides
+3. **Calculates Protocol Fee**: Queries ISMP host for message costs
+4. **Determines Relayer Fee**: Adds minimum $0.25 + execution costs
+5. **Converts to Fee Token**: Converts all costs to source chain's fee token
+6. **Adds Safety Buffer**: Adds 2.5-30% buffer based on chain volatility
+
+## Placing Orders
+
+Once you have the correct fees, you can place orders directly on the Intent Gateway contract.
+
+### Complete Order Placement Flow
+
+```typescript
+import { createWalletClient, http, parseUnits } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import IntentGatewayABI from "@hyperbridge/sdk/abis/IntentGateway"
+
+// 1. Set up wallet
+const account = privateKeyToAccount("0xYourPrivateKey")
+const walletClient = createWalletClient({
+	account,
+	chain: bsc,
+	transport: http("https://bsc-dataseed.binance.org"),
+})
+
+// 2. Create order with estimated fees
+const order = {
+	user: bytes20ToBytes32(account.address),
+	sourceChain: await bscIsmpHost.read.host(),
+	destChain: await ethIsmpHost.read.host(),
+	deadline: 20000000n,
+	nonce: 0n, // Will be set by contract
+	fees: feeTokenAmount, // From estimation
+	outputs: [
+		{
+			token: bytes20ToBytes32(ethUsdcAddress),
+			amount: parseUnits("1000", 6), // 1000 USDC
+			beneficiary: bytes20ToBytes32(recipientAddress),
+		},
+	],
+	inputs: [
+		{
+			token: bytes20ToBytes32(bscUsdcAddress),
+			amount: parseUnits("1000", 18), // 1000 USDC (18 decimals on BSC)
+		},
+	],
+	callData: "0x",
+}
+
+// 3. Approve input tokens
+const ERC20_ABI = [
+	{
+		name: "approve",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "spender", type: "address" },
+			{ name: "amount", type: "uint256" },
+		],
+		outputs: [{ name: "", type: "bool" }],
+	},
+]
+
+const inputToken = getContract({
+	address: bscUsdcAddress,
+	abi: ERC20_ABI,
+	client: walletClient,
+})
+
+await inputToken.write.approve([intentGatewayAddress, order.inputs[0].amount])
+
+// 4. Submit order with native token payment (no fee token approval needed)
+const hash = await walletClient.writeContract({
+	address: intentGatewayAddress,
+	abi: IntentGatewayABI.ABI,
+	functionName: "placeOrder",
+	args: [order, "0x0000000000000000000000000000000000000000000000000000000000000000"], // graffiti
+	value: nativeTokenAmount, // Pay fees with native BNB
+})
+
+console.log(`Order placed: ${hash}`)
+```
+
+### Paying Fees with Fee Token (Alternative)
+
+Alternatively, you can pay fees directly with the fee token instead of native tokens:
+
+```typescript
+// Approve the fee token (e.g., DAI on BSC)
+const feeToken = getContract({
+	address: feeTokenAddress,
+	abi: ERC20_ABI,
+	client: walletClient,
+})
+
+await feeToken.write.approve([intentGatewayAddress, order.fees])
+
+// Submit order without value parameter
+const hash = await walletClient.writeContract({
+	address: intentGatewayAddress,
+	abi: IntentGatewayABI.ABI,
+	functionName: "placeOrder",
+	args: [order, "0x0000000000000000000000000000000000000000000000000000000000000000"],
+	// No value parameter - fees paid with fee token
+})
+```
+
+**When to use each payment method:**
+
+- **Native Token (BNB/ETH)**: Simpler UX, no need to hold fee tokens, recommended for most users
+- **Fee Token (DAI/USDC)**: More predictable costs, better for integrators and fillers
+
+## Checking Order Status
+
+### Check if Order is Filled
+
+```typescript
+const isFilled = await intentGateway.isOrderFilled(orderWithId)
+
+if (isFilled) {
+	console.log("Order has been filled by a filler")
+} else {
+	console.log("Order is still pending")
+}
+```
+
+This method:
+
+1. Calculates the order's commitment hash
+2. Queries the destination chain's Intent Gateway storage
+3. Returns `true` if the order was filled, `false` otherwise
+
+## Canceling Orders
+
+Order cancellation is one of the most complex features, requiring cryptographic proofs to verify that an order was **not** filled on the destination chain.
+
+### When to Cancel
+
+You can cancel an order when:
+
+- The deadline has passed (order expired)
+- The order has not been filled
+- You want to recover escrowed tokens and fees
+
+### The Cancellation Process
+
+Cancellation uses ISMP's GET request mechanism to prove an order is unfilled:
+
+1. **Destination Finalization**: Wait for destination chain state to be finalized on Hyperbridge
+2. **Storage Proof**: Get proof that order's storage slot is empty (unfilled)
+3. **GET Request**: Dispatch GET request to query destination storage
+4. **Source Finalization**: Wait for GET request to be finalized on Hyperbridge
+5. **Source Proof**: Get proof of GET request from source chain
+6. **Submission**: Submit proofs to Hyperbridge for verification
+7. **Response**: Hyperbridge verifies and triggers refund
+
+### Basic Cancellation
+
+```typescript
+import { IndexerClient } from "@hyperbridge/sdk/client"
+import { createQueryClient } from "@hyperbridge/sdk/query-client"
+
+// 1. Set up indexer client for tracking status
+const queryClient = createQueryClient({
+	url: "https://indexer.hyperbridge.network",
+})
+
+const indexerClient = new IndexerClient({
+	source: {
+		consensusStateId: "BSC0",
+		rpcUrl: "https://bsc-dataseed.binance.org",
+		stateMachineId: "EVM-56",
+		host: bscHostAddress,
+	},
+	dest: {
+		consensusStateId: "ETH0",
+		rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY",
+		stateMachineId: "EVM-1",
+		host: ethHostAddress,
+	},
+	hyperbridge: {
+		consensusStateId: "PAS0",
+		stateMachineId: "KUSAMA-4009",
+		wsUrl: "wss://hyperbridge.polkadot.io",
+	},
+	queryClient,
+	pollInterval: 1_000,
+})
+
+// 2. Set up Hyperbridge configuration
+const hyperbridgeConfig = {
+	wsUrl: "wss://hyperbridge.polkadot.io",
+	consensusStateId: "PAS0",
+	stateMachineId: "KUSAMA-4009",
+}
+
+// 3. Start cancellation (generator function)
+const cancelGenerator = intentGateway.cancelOrder(order, hyperbridgeConfig, indexerClient)
+
+// 4. Process cancellation steps
+let result = await cancelGenerator.next()
+
+// Wait for destination finalization
+while (!result.done && result.value?.status !== "DESTINATION_FINALIZED") {
+	const status = result.value?.status
+
+	switch (status) {
+		case "AWAITING_DESTINATION_FINALIZED":
+			console.log(`Waiting for finalization. Current height: ${result.value.data.currentHeight}`)
+			break
+		case "PROOF_FETCH_FAILED":
+			console.log(`Proof fetch failed at height: ${result.value.data.failedHeight}`)
+			break
+	}
+
+	result = await cancelGenerator.next()
+}
+
+console.log("Destination finalized!")
+const destProof = result.value.data.proof
+```
+
+### Submitting the GET Request
+
+Once the destination is finalized, you need to dispatch the GET request:
+
+```typescript
+// 5. Get finalized height from proof
+const finalizedHeight = destProof.height
+
+// 6. Prepare cancel options
+const cancelOptions = {
+	relayerFee: parseUnits("0.25", feeTokenDecimals), // Minimum $0.25
+	height: finalizedHeight,
+}
+
+// 7. Submit cancel request to source chain
+const hash = await walletClient.writeContract({
+	address: intentGatewayAddress,
+	abi: IntentGatewayABI.ABI,
+	functionName: "cancelOrder",
+	args: [order, cancelOptions],
+})
+
+const receipt = await publicClient.waitForTransactionReceipt({ hash })
+
+// 8. Parse GET request from event logs
+import { parseEventLogs } from "viem"
+import EVM_HOST from "@hyperbridge/sdk/abis/evmHost"
+
+const event = parseEventLogs({
+	abi: EVM_HOST.ABI,
+	logs: receipt.logs,
+})[0]
+
+if (event.eventName !== "GetRequestEvent") {
+	throw new Error("Unexpected event type")
+}
+
+const { source, dest, from, nonce, height, keys, timeoutTimestamp, context } = event.args
+
+const getRequest = {
+	source,
+	dest,
+	from,
+	nonce,
+	height,
+	keys: Array.from(keys),
+	timeoutTimestamp,
+	context,
+}
+```
+
+### Completing the Cancellation
+
+```typescript
+// 9. Wait for source proof and continue
+result = await cancelGenerator.next()
+expect(result.value?.status).toBe("AWAITING_GET_REQUEST")
+
+// 10. Provide GET request to generator
+result = await cancelGenerator.next(getRequest)
+expect(result.value?.status).toBe("SOURCE_PROOF_RECEIVED")
+
+// 11. Monitor until Hyperbridge finalizes
+while (!result.done) {
+	if (result.value?.status === "HYPERBRIDGE_FINALIZED") {
+		console.log("Cancellation complete!")
+		console.log(`Transaction: ${result.value.metadata.transactionHash}`)
+		break
+	}
+	result = await cancelGenerator.next()
+}
+
+// Tokens and fees are now refunded to your address
+```
+
+### Cancellation with Stored Data
+
+If the cancellation is interrupted, you can resume by providing stored proofs:
+
+```typescript
+interface StoredCancellationData {
+	destIProof?: IProof
+	getRequest?: IGetRequest
+	sourceIProof?: IProof
+}
+
+const storedData: StoredCancellationData = {
+	destIProof: {
+		consensusStateId: "ETH0",
+		height: 20000000n,
+		proof: "0x...",
+		stateMachine: "EVM-1",
+	},
+	// ... other stored data
+}
+
+const cancelGenerator = intentGateway.cancelOrder(
+	order,
+	hyperbridgeConfig,
+	indexerClient,
+	storedData, // Resume from stored state
+)
+```
+
+## Complete Examples
+
+### Example 1: BSC to Ethereum USDC Transfer
+
+```typescript
+import { EvmChain } from "@hyperbridge/sdk/chain"
+import { IntentGateway } from "@hyperbridge/sdk/protocols/intents"
+import { ChainConfigService } from "@hyperbridge/sdk/configs/ChainConfigService"
+import { orderCommitment, hexToString, bytes20ToBytes32 } from "@hyperbridge/sdk/utils"
+import { parseUnits, formatUnits, formatEther, createWalletClient, createPublicClient, http, getContract } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { bsc, mainnet } from "viem/chains"
+import IntentGatewayABI from "@hyperbridge/sdk/abis/IntentGateway"
+import EVM_HOST from "@hyperbridge/sdk/abis/evmHost"
+import type { HexString } from "@hyperbridge/sdk/types"
+
+async function transferUSDCFromBSCToEthereum() {
+	// 1. Setup
+	const chainConfig = new ChainConfigService()
+	const account = privateKeyToAccount(process.env.PRIVATE_KEY)
+
+	const bscChain = new EvmChain({
+		chainId: 56,
+		host: chainConfig.getHostAddress("EVM-56"),
+		url: process.env.BSC_RPC,
+	})
+
+	const ethChain = new EvmChain({
+		chainId: 1,
+		host: chainConfig.getHostAddress("EVM-1"),
+		url: process.env.ETH_RPC,
+	})
+
+	const intentGateway = new IntentGateway(bscChain, ethChain) // source, dest
+
+	// 2. Create order
+	const bscUSDC = chainConfig.getUsdcAsset("EVM-56")
+	const ethUSDC = chainConfig.getUsdcAsset("EVM-1")
+
+	// Get ISMP hosts to read chain identifiers
+	const bscPublicClient = createPublicClient({
+		chain: bsc,
+		transport: http(process.env.BSC_RPC),
+	})
+	const ethPublicClient = createPublicClient({
+		chain: mainnet,
+		transport: http(process.env.ETH_RPC),
+	})
+	const bscIsmpHost = getContract({
+		address: chainConfig.getHostAddress("EVM-56"),
+		abi: EVM_HOST.ABI,
+		client: bscPublicClient,
+	})
+	const ethIsmpHost = getContract({
+		address: chainConfig.getHostAddress("EVM-1"),
+		abi: EVM_HOST.ABI,
+		client: ethPublicClient,
+	})
+
+	const order = {
+		user: bytes20ToBytes32(account.address),
+		sourceChain: await bscIsmpHost.read.host(), // Hex-encoded "EVM-56"
+		destChain: await ethIsmpHost.read.host(), // Hex-encoded "EVM-1"
+		deadline: 20000000n, // Ethereum block number
+		nonce: 0n,
+		fees: 0n, // Will calculate
+		outputs: [
+			{
+				token: bytes20ToBytes32(ethUSDC),
+				amount: parseUnits("1000", 6),
+				beneficiary: bytes20ToBytes32(account.address),
+			},
+		],
+		inputs: [
+			{
+				token: bytes20ToBytes32(bscUSDC),
+				amount: parseUnits("1000", 18),
+			},
+		],
+		callData: "0x",
+	}
+
+	// 3. Estimate fees
+	const { feeTokenAmount, nativeTokenAmount } = await intentGateway.estimateFillOrder({
+		...order,
+		id: orderCommitment(order),
+		sourceChain: hexToString(order.sourceChain as HexString),
+		destChain: hexToString(order.destChain as HexString),
+	})
+
+	order.fees = feeTokenAmount
+	console.log(`Order fee: ${formatUnits(feeTokenAmount, 18)} DAI`)
+	console.log(`Native token amount: ${formatEther(nativeTokenAmount)} BNB`)
+
+	// 4. Approve and place order
+	const walletClient = createWalletClient({
+		account,
+		chain: bsc,
+		transport: http(process.env.BSC_RPC),
+	})
+
+	// Approve input token
+	await walletClient.writeContract({
+		address: bscUSDC,
+		abi: ERC20_ABI,
+		functionName: "approve",
+		args: [chainConfig.getIntentGatewayAddress("EVM-56"), parseUnits("1000", 18)],
+	})
+
+	// Place order with native token payment
+	const hash = await walletClient.writeContract({
+		address: chainConfig.getIntentGatewayAddress("EVM-56"),
+		abi: IntentGatewayABI.ABI,
+		functionName: "placeOrder",
+		args: [order, "0x0000000000000000000000000000000000000000000000000000000000000000"],
+		value: nativeTokenAmount, // Pay fees with BNB
+	})
+
+	console.log(`Order placed: ${hash}`)
+
+	// 5. Monitor order status
+	const orderWithId = {
+		...order,
+		id: orderCommitment(order),
+		sourceChain: hexToString(order.sourceChain as HexString), // Convert to "EVM-56"
+		destChain: hexToString(order.destChain as HexString), // Convert to "EVM-1"
+	}
+
+	while (true) {
+		const isFilled = await intentGateway.isOrderFilled(orderWithId)
+		if (isFilled) {
+			console.log("Order filled successfully!")
+			break
+		}
+		console.log("Waiting for filler...")
+		await new Promise((resolve) => setTimeout(resolve, 10000))
+	}
+}
+```
+
+### Example 2: Cancel Expired Order
+
+```typescript
+import { EvmChain } from "@hyperbridge/sdk/chain"
+import { IntentGateway } from "@hyperbridge/sdk/protocols/intents"
+import { IndexerClient } from "@hyperbridge/sdk/client"
+import { createQueryClient } from "@hyperbridge/sdk/query-client"
+import { ChainConfigService } from "@hyperbridge/sdk/configs/ChainConfigService"
+import { parseUnits, parseEventLogs, createWalletClient, createPublicClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { bscTestnet } from "viem/chains"
+import IntentGatewayABI from "@hyperbridge/sdk/abis/IntentGateway"
+import EVM_HOST from "@hyperbridge/sdk/abis/evmHost"
+import type { Order } from "@hyperbridge/sdk/types"
+
+async function cancelExpiredOrder(order: Order) {
+	// 1. Setup
+	const chainConfig = new ChainConfigService()
+
+	const bscChain = new EvmChain({
+		chainId: 97,
+		host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
+		url: process.env.BSC_CHAPEL,
+	})
+
+	const sepoliaChain = new EvmChain({
+		chainId: 11155111,
+		host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
+		url: process.env.SEPOLIA,
+	})
+
+	const intentGateway = new IntentGateway(bscChain, sepoliaChain) // source, dest
+
+	// 2. Setup indexer
+	const queryClient = createQueryClient({
+		url: process.env.INDEXER_URL,
+	})
+
+	const indexer = new IndexerClient({
+		source: {
+			consensusStateId: "BSC0",
+			rpcUrl: process.env.BSC_CHAPEL,
+			stateMachineId: "EVM-97",
+			host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
+		},
+		dest: {
+			consensusStateId: "ETH0",
+			rpcUrl: process.env.SEPOLIA,
+			stateMachineId: "EVM-11155111",
+			host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
+		},
+		hyperbridge: {
+			consensusStateId: "PAS0",
+			stateMachineId: "KUSAMA-4009",
+			wsUrl: process.env.HYPERBRIDGE_GARGANTUA,
+		},
+		queryClient,
+		pollInterval: 1_000,
+	})
+
+	const hyperbridgeConfig = {
+		wsUrl: process.env.HYPERBRIDGE_GARGANTUA,
+		consensusStateId: "PAS0",
+		stateMachineId: "KUSAMA-4009",
+	}
+
+	// 3. Start cancellation
+	const cancelGen = intentGateway.cancelOrder(order, hyperbridgeConfig, indexer)
+
+	let result = await cancelGen.next()
+
+	// 4. Wait for destination finalization
+	while (!result.done && result.value?.status !== "DESTINATION_FINALIZED") {
+		console.log(`Status: ${result.value?.status}`)
+		result = await cancelGen.next()
+	}
+
+	const finalizedHeight = result.value.data.proof.height
+
+	// 5. Submit cancel transaction
+	const walletClient = createWalletClient({
+		account: privateKeyToAccount(process.env.PRIVATE_KEY),
+		chain: bscTestnet,
+		transport: http(process.env.BSC_CHAPEL),
+	})
+
+	const cancelOptions = {
+		relayerFee: parseUnits("0.25", 18),
+		height: finalizedHeight,
+	}
+
+	const hash = await walletClient.writeContract({
+		address: chainConfig.getIntentGatewayAddress("EVM-97"),
+		abi: IntentGatewayABI.ABI,
+		functionName: "cancelOrder",
+		args: [order, cancelOptions],
+	})
+
+	const publicClient = createPublicClient({
+		chain: bscTestnet,
+		transport: http(process.env.BSC_CHAPEL),
+	})
+
+	const receipt = await publicClient.waitForTransactionReceipt({ hash })
+
+	// 6. Parse GET request
+	const event = parseEventLogs({
+		abi: EVM_HOST.ABI,
+		logs: receipt.logs,
+	})[0]
+
+	const getRequest = {
+		source: event.args.source,
+		dest: event.args.dest,
+		from: event.args.from,
+		nonce: event.args.nonce,
+		height: event.args.height,
+		keys: Array.from(event.args.keys),
+		timeoutTimestamp: event.args.timeoutTimestamp,
+		context: event.args.context,
+	}
+
+	// 7. Continue cancellation with GET request
+	result = await cancelGen.next(getRequest)
+
+	// 8. Wait for finalization
+	while (!result.done) {
+		if (result.value?.status === "HYPERBRIDGE_FINALIZED") {
+			console.log("Cancellation complete!")
+			console.log(`Refund tx: ${result.value.metadata.transactionHash}`)
+			break
+		}
+		result = await cancelGen.next()
+	}
+}
+```
+
+## Further Reading
+
+- [Intent Gateway Smart Contract Documentation](./intent-gateway.mdx)
+- [Filler Documentation](./filler)

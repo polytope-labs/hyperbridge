@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.3.20
+
+### Patch Changes
+
+- Fix Indexer stream in cancel order not yielding SOURCE FINALIZED
+
 ## 1.3.19
 
 ### Patch Changes

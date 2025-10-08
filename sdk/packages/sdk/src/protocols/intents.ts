@@ -948,7 +948,6 @@ export class IntentGateway {
 
 		const sourceStatusStream = indexerClient.getRequestStatusStream(commitment)
 		for await (const statusUpdate of sourceStatusStream) {
-			console.log({ statusUpdate })
 			if (statusUpdate.status === RequestStatus.SOURCE_FINALIZED) {
 				let sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
 				let proof: HexString | undefined

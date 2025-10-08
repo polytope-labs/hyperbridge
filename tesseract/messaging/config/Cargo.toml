@@ -10,6 +10,7 @@ tesseract-primitives = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-evm-tendermint = { workspace = true }
 tendermint-primitives = { workspace = true, default-features = false }
+tesseract-tendermint = { workspace = true }
 
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }

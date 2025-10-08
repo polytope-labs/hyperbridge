@@ -13,6 +13,7 @@ use tendermint_prover::CometBFTClient;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
+pub mod config;
 mod notification;
 
 /// Host configuration for Tendermint relayer

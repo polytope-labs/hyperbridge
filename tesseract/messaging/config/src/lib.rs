@@ -23,6 +23,7 @@ use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient, SubstrateConfig,
 };
+use tesseract_tendermint::config::TendermintEvmClientConfig;
 
 /// The AnyConfig wraps the configuration options for all supported chains
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -33,15 +34,7 @@ pub enum AnyConfig {
 	/// Configuration for evm-based chains
 	Evm(EvmConfig),
 	/// Configuration for tendermint-based chains
-	Tendermint(TendermintConfig),
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-pub struct TendermintConfig {
-	/// EVM config
-	pub evm_config: EvmConfig,
-	/// RPC URL
-	pub rpc_url: String,
+	Tendermint(TendermintEvmClientConfig),
 }
 
 impl AnyConfig {

@@ -204,6 +204,9 @@ where
 				};
 
 				bytes_processed = core::cmp::max(bytes_processed, 32);
+				TotalBytesProcessed::<T>::mutate(|total| {
+					*total = total.saturating_add(bytes_processed)
+				});
 
 				if let Some(per_byte_fee) = Self::get_per_byte_fee(source_chain, destination_chain)
 				{
@@ -224,9 +227,6 @@ where
 						.map_err(|_| Error::<T>::CalculationOverflow)?;
 
 					if is_incentivized {
-						TotalBytesProcessed::<T>::mutate(|total| {
-							*total = total.saturating_add(bytes_processed)
-						});
 						let current_total_bytes = TotalBytesProcessed::<T>::get();
 						let target_message_size = Self::get_target_message_size();
 

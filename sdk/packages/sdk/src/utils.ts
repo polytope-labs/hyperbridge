@@ -633,40 +633,116 @@ export async function getStorageSlot(
 	contractAddress: HexString,
 	data: HexString,
 ): Promise<string> {
-	const traceCallClient = client.extend((client) => ({
-		async traceCall(args: CallParameters) {
-			return client.request({
-				// @ts-ignore
-				method: "debug_traceCall",
-				// @ts-ignore
-				params: [args, "latest", {}],
-			})
-		},
-	}))
+	// Default tracer (struct logger)
+	async function tryDefaultTracer(): Promise<string> {
+		const traceCallClient = client.extend((client) => ({
+			async traceCall(args: CallParameters) {
+				return client.request({
+					// @ts-ignore
+					method: "debug_traceCall",
+					// @ts-ignore
+					params: [args, "latest", {}],
+				})
+			},
+		}))
 
-	// Make trace call
-	const response = await traceCallClient.traceCall({
-		to: contractAddress,
-		data: data,
-	})
-	const methodSignature = data.slice(0, 10) as HexString
+		const response = await traceCallClient.traceCall({
+			to: contractAddress,
+			data: data,
+		})
 
-	// @ts-ignore
-	const logs = response.structLogs
-	for (let i = logs.length - 1; i >= 0; i--) {
-		const log = logs[i]
-		if (log.op === "SLOAD" && log.stack?.length >= 3) {
-			const sigHash = log.stack[0]
-			const slotHex = log.stack[log.stack.length - 1]
+		const methodSignature = data.slice(0, 10) as HexString
+		// @ts-ignore
+		const logs = response.structLogs
 
-			// Extract method signature from data (first 4 bytes)
-			if (sigHash === methodSignature && slotHex.length === 66) {
-				return slotHex
+		if (!logs || logs.length === 0) {
+			throw new Error("No struct logs found")
+		}
+
+		for (let i = logs.length - 1; i >= 0; i--) {
+			const log = logs[i]
+			if (log.op === "SLOAD" && log.stack?.length >= 3) {
+				const sigHash = log.stack[0]
+				const slotHex = log.stack[log.stack.length - 1]
+				// Extract method signature from data (first 4 bytes)
+				if (sigHash === methodSignature && slotHex.length === 66) {
+					return slotHex
+				}
 			}
 		}
+
+		throw new Error(`Storage slot not found for data: ${methodSignature}`)
 	}
 
-	throw new Error(`Storage slot not found for data: ${methodSignature}`)
+	// prestateTracer
+	async function tryPrestateTracer(): Promise<string> {
+		const traceCallClient = client.extend((client) => ({
+			async traceCall(args: CallParameters) {
+				return client.request({
+					// @ts-ignore
+					method: "debug_traceCall",
+					// @ts-ignore
+					params: [
+						// @ts-ignore
+						args,
+						"latest",
+						{
+							// @ts-ignore
+							tracer: "prestateTracer",
+							tracerConfig: {
+								disableCode: true,
+							},
+						},
+					],
+				})
+			},
+		}))
+
+		const response = await traceCallClient.traceCall({
+			to: contractAddress,
+			data: data,
+		})
+
+		// @ts-ignore
+		let contractData = response[contractAddress.toLowerCase()]
+
+		if (!contractData) {
+			// @ts-ignore
+			const addressKey = Object.keys(response).find(
+				(addr) => addr.toLowerCase() === contractAddress.toLowerCase(),
+			)
+			if (addressKey) {
+				// @ts-ignore
+				contractData = response[addressKey]
+			}
+		}
+
+		if (!contractData || !contractData.storage) {
+			throw new Error(`No storage access found for contract ${contractAddress} with data: ${data}`)
+		}
+
+		let storageSlots = Object.keys(contractData.storage)
+
+		const PROXY_SLOTS = [
+			"0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc", // EIP-1967 implementation
+			"0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103", // EIP-1967 beacon
+			"0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50", // EIP-1967 admin
+		]
+
+		storageSlots = storageSlots.filter((slot) => !PROXY_SLOTS.includes(slot))
+
+		if (storageSlots.length === 0) {
+			throw new Error(`No storage slots accessed for contract ${contractAddress} with data: ${data}`)
+		}
+
+		if (storageSlots.length === 1) {
+			return storageSlots[0] as HexString
+		}
+
+		return storageSlots[storageSlots.length - 1] as HexString
+	}
+
+	return tryDefaultTracer().catch(() => tryPrestateTracer())
 }
 
 /**

@@ -573,6 +573,10 @@ pub mod pallet {
 				.collect::<Vec<_>>();
 			requests.sort();
 
+			if requests.is_empty() {
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
+			}
+
 			// this is so we can reject duplicate batches at the mempool level
 			let msg_hash = sp_io::hashing::keccak_256(&requests.encode()).to_vec();
 

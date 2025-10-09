@@ -75,7 +75,7 @@ impl<T: Config> Pallet<T> {
 				Error::<T>::InvalidMessage
 			})?;
 
-		T::FeeHandler::on_executed(messages_with_weights.clone(), events.clone())
+		T::FeeHandler::on_executed(messages_with_weights, events.clone())
 			.map_err(|_| Error::<T>::ErrorChargingFee)?;
 
 		for event in events.clone() {

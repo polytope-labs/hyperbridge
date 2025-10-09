@@ -527,76 +527,67 @@ pub mod pallet {
 			let events =
 				Self::execute(messages.clone()).map_err(|_| InvalidTransaction::BadProof)?;
 
-			if let Message::Consensus(_) = &messages[0] {
-				let update_info = events.iter().find_map(|event| {
-					if let ismp::events::Event::StateMachineUpdated(state_machine_updated_event) =
-						event
-					{
-						Some((
-							state_machine_updated_event.state_machine_id.clone(),
-							state_machine_updated_event.latest_height,
-						))
-					} else {
-						None
-					}
-				});
-
-				return if let Some((state_machine_id, latest_height)) = update_info {
-					Ok(ValidTransaction {
-						priority: latest_height,
-						requires: vec![],
-						provides: vec![
-							sp_io::hashing::keccak_256(&state_machine_id.encode()).to_vec()
-						],
-						longevity: 25,
-						propagate: true,
-					})
+			if let Some((state_machine_id, latest_height)) = events.iter().find_map(|event| {
+				if let ismp::events::Event::StateMachineUpdated(state_machine_updated_event) = event
+				{
+					Some((
+						state_machine_updated_event.state_machine_id.clone(),
+						state_machine_updated_event.latest_height,
+					))
 				} else {
-					Err(TransactionValidityError::Invalid(InvalidTransaction::BadProof))
-				};
-			} else {
-				let mut requests = messages
-					.into_iter()
-					.map(|message| match message {
-						Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
-							H256(sp_io::hashing::keccak_256(&proof_1)),
-							H256(sp_io::hashing::keccak_256(&proof_2)),
-						],
-						Message::Request(RequestMessage { requests, .. }) => requests
-							.into_iter()
-							.map(|post| hash_request::<Pallet<T>>(&Request::Post(post.clone())))
-							.collect::<Vec<_>>(),
-						Message::Response(message) => message
-							.requests()
-							.iter()
-							.map(|request| hash_request::<Pallet<T>>(request))
-							.collect::<Vec<_>>(),
-						Message::Timeout(message) => message
-							.requests()
-							.iter()
-							.map(|request| hash_request::<Pallet<T>>(request))
-							.collect::<Vec<_>>(),
-						_ => vec![],
-					})
-					.collect::<Vec<_>>();
-				requests.sort();
-
-				// this is so we can reject duplicate batches at the mempool level
-				let msg_hash = sp_io::hashing::keccak_256(&requests.encode()).to_vec();
-
-				Ok(ValidTransaction {
-					// they should all have the same priority so they can be rejected
-					priority: 100,
-					// they are all self-contained batches that have no dependencies
+					None
+				}
+			}) {
+				return Ok(ValidTransaction {
+					priority: latest_height,
 					requires: vec![],
-					// provides this unique hash of transactions
-					provides: vec![msg_hash],
-					// should only live for at most 10 blocks
+					provides: vec![sp_io::hashing::keccak_256(&state_machine_id.encode()).to_vec()],
 					longevity: 25,
-					// always propagate
 					propagate: true,
 				})
 			}
+
+			let mut requests = messages
+				.into_iter()
+				.map(|message| match message {
+					Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
+						H256(sp_io::hashing::keccak_256(&proof_1)),
+						H256(sp_io::hashing::keccak_256(&proof_2)),
+					],
+					Message::Request(RequestMessage { requests, .. }) => requests
+						.into_iter()
+						.map(|post| hash_request::<Pallet<T>>(&Request::Post(post.clone())))
+						.collect::<Vec<_>>(),
+					Message::Response(message) => message
+						.requests()
+						.iter()
+						.map(|request| hash_request::<Pallet<T>>(request))
+						.collect::<Vec<_>>(),
+					Message::Timeout(message) => message
+						.requests()
+						.iter()
+						.map(|request| hash_request::<Pallet<T>>(request))
+						.collect::<Vec<_>>(),
+					_ => vec![],
+				})
+				.collect::<Vec<_>>();
+			requests.sort();
+
+			// this is so we can reject duplicate batches at the mempool level
+			let msg_hash = sp_io::hashing::keccak_256(&requests.encode()).to_vec();
+
+			Ok(ValidTransaction {
+				// they should all have the same priority so they can be rejected
+				priority: 100,
+				// they are all self-contained batches that have no dependencies
+				requires: vec![],
+				// provides this unique hash of transactions
+				provides: vec![msg_hash],
+				// should only live for at most 10 blocks
+				longevity: 25,
+				// always propagate
+				propagate: true,
+			})
 		}
 	}
 

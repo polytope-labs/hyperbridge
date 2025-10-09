@@ -10542,11 +10542,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "beefy-verifier",
+ "beefy-verifier-primitives",
  "ismp",
+ "ismp-parachain",
  "pallet-ismp",
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "rs_merkle 1.5.0",
+ "scale-info",
  "substrate-state-machine",
 ]
 

@@ -12,9 +12,9 @@ blake3 = { version = "1.8", default-features = false }
 ismp = { workspace = true, default-features = false}
 primitive-types = { workspace = true, default-features = false}
 anyhow = { workspace = true }
-ibc = { version = "0.57.0", default-features = false }
 cometbft = { workspace = true, default-features = false }
 prost = { workspace = true, default-features = false }
+ibc = { workspace = true, default-features = false }
 
 
 [dependencies.polkadot-sdk]

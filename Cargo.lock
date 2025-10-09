@@ -28453,6 +28453,7 @@ dependencies = [
  "tesseract-evm-tendermint",
  "tesseract-primitives",
  "tesseract-substrate",
+ "tesseract-tendermint",
 ]
 
 [[package]]

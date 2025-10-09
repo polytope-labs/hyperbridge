@@ -28,19 +28,14 @@ mod tests {
 	use primitive_types::H256;
 	use tendermint_ics23_primitives::proof_ops_to_commitment_proof_bytes;
 
-	fn get_standard_rpc_url() -> String {
-		std::env::var("STANDARD_TENDERMINT_URL")
-			.unwrap_or_else(|_| "https://rpc.ankr.com/sei/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
-	}
-
 	fn get_sei_rpc() -> String {
 		std::env::var("SEI_RPC_URL")
-			.unwrap_or_else(|_| "https://rpc.ankr.com/sei/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
+			.unwrap_or_else(|_| "https://sei-rpc.publicnode.com:443".to_string())
 	}
 
 	fn get_kava_rpc() -> String {
 		std::env::var("KAVA_RPC_URL")
-			.unwrap_or_else(|_| "https://rpc.ankr.com/kava_rpc/c1f6b8e1ba674d0bb72b89f2770fdb9e72fca3beabd60f557772050ca43e3bc6".to_string())
+			.unwrap_or_else(|_| "https://kava-rpc.publicnode.com:443".to_string())
 	}
 
 	fn get_cronos_rpc() -> String {
@@ -72,25 +67,22 @@ mod tests {
 
 	#[tokio::test]
 	#[ignore]
-	async fn test_standard_tendermint_integration() {
+	async fn test_sei_tendermint_integration() {
 		let _ = tracing_subscriber::fmt::try_init();
 		trace!(
-			"Testing Standard Tendermint with {} validator set transitions",
+			"Testing SEI Tendermint with {} validator set transitions",
 			VALIDATOR_SET_TRANSITIONS
 		);
 
-		match timeout(
-			Duration::from_secs(3600),
-			run_integration_test_standard(&get_standard_rpc_url()),
-		)
-		.await
+		match timeout(Duration::from_secs(3600), run_integration_test_standard(&get_sei_rpc()))
+			.await
 		{
 			Ok(inner) => match inner {
-				Ok(()) => trace!("Standard Tendermint integration test completed successfully"),
-				Err(e) => trace!("Standard Tendermint integration test failed: {}", e),
+				Ok(()) => trace!("SEI Tendermint integration test completed successfully"),
+				Err(e) => trace!("SEI Tendermint integration test failed: {}", e),
 			},
 			Err(_) => {
-				trace!("Standard Tendermint integration test timed out after 10 minutes");
+				trace!("SEI Tendermint integration test timed out after 10 minutes");
 			},
 		}
 	}

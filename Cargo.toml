@@ -39,6 +39,7 @@ members = [
     "modules/ismp/clients/ismp-arbitrum",
     "modules/ismp/clients/ismp-optimism",
     "modules/ismp/clients/polygon",
+    "modules/ismp/clients/tendermint",
     "modules/pallets/collator-manager",
 
     # cryptography
@@ -93,6 +94,7 @@ members = [
     "tesseract/messaging/substrate",
     "tesseract/messaging/relayer",
     "tesseract/messaging/evm",
+    "tesseract/messaging/evm-tendermint",
     "tesseract/messaging/fees",
     "tesseract/messaging/fees/prisma-cli",
     "tesseract/messaging/telemetry",
@@ -110,6 +112,7 @@ members = [
     "tesseract/consensus/beefy/zk",
     "tesseract/consensus/relayer",
     "tesseract/consensus/polygon",
+    "tesseract/consensus/tendermint",
 
 
     # Airdrop
@@ -211,6 +214,7 @@ cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "com
 cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
 cometbft-light-client-verifier = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-light-client-verifier", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
 ics23 = { version = "0.12.0", default-features = false }
+ibc = { version = "0.57.0", default-features = false }
 
 # published crates
 ismp = { version = "2506.1.0", path = "./modules/ismp/core", default-features = false }
@@ -261,6 +265,7 @@ op-verifier = { path = "./modules/ismp/clients/optimism", default-features = fal
 ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features = false }
 ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
 ismp-polygon = { path = "modules/ismp/clients/polygon", default-features = false }
+ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
@@ -299,6 +304,7 @@ tesseract-messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
+tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
 tesseract = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
@@ -314,7 +320,7 @@ tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
-
+tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 
 
 [workspace.dependencies.codec]

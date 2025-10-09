@@ -26,6 +26,10 @@ hash256-std-hasher = { version = "0.15.2", default-features = false }
 codec = { workspace = true, default-features = false }
 polkadot-sdk = { workspace = true, features = ["sp-crypto-hashing"] }
 primitive-types = { workspace = true }
+ibc = { workspace = true, default-features = false }
+tendermint-ics23-primitives = { workspace = true, default-features = false }
+prost = { workspace = true, default-features = false }
+tendermint-primitives ={ workspace = true, default-features = false}
 
 [features]
 default = ["std"]

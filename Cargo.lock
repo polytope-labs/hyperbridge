@@ -4000,7 +4000,9 @@ version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "462e1f6a8e005acc8835d32d60cbd7973ed65ea2a8d8473830e675f050956427"
 dependencies = [
+ "informalsystems-pbjson",
  "prost 0.13.5",
+ "serde",
  "tendermint-proto",
 ]
 
@@ -6748,11 +6750,15 @@ dependencies = [
  "hash256-std-hasher",
  "hex",
  "hex-literal 0.4.1",
+ "ibc",
  "ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "prost 0.13.5",
+ "tendermint-ics23-primitives",
+ "tendermint-primitives",
  "trie-db",
 ]
 
@@ -9583,6 +9589,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "ibc-app-nft-transfer"
+version = "0.57.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95bbdca1dab5e007633af6d9ee070a2f35749336239804c42ff7fad444c10b2e"
+dependencies = [
+ "ibc-app-nft-transfer-types",
+ "ibc-core",
+ "serde-json-wasm",
+]
+
+[[package]]
+name = "ibc-app-nft-transfer-types"
+version = "0.57.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e654dd72dc2df2dd1f232b0599331ff1519fc2c0d346f12e5e319a97c33b330c"
+dependencies = [
+ "base64 0.22.1",
+ "borsh",
+ "derive_more 1.0.0",
+ "displaydoc",
+ "http 1.3.1",
+ "ibc-app-transfer-types",
+ "ibc-core",
+ "ibc-proto 0.51.1",
+ "mime",
+ "parity-scale-codec",
+ "scale-info",
+ "schemars",
+ "serde",
+ "serde-json-wasm",
+]
+
+[[package]]
 name = "ibc-app-transfer"
 version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9590,6 +9629,7 @@ checksum = "57cad93b5e1074c1f7b8dcea6099640b5a725a8a1dde957b00e89685eb2c0151"
 dependencies = [
  "ibc-app-transfer-types",
  "ibc-core",
+ "serde-json-wasm",
 ]
 
 [[package]]
@@ -9598,11 +9638,16 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "364c7eb9dc122a279cafb5cd9eb1c459a1902a3c9a1e107f8d3037ca97ab4a5c"
 dependencies = [
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-core",
  "ibc-proto 0.51.1",
+ "parity-scale-codec",
  "primitive-types 0.13.1",
+ "scale-info",
+ "schemars",
+ "serde",
  "uint 0.10.0",
 ]
 
@@ -9612,6 +9657,7 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb5ecc814492ac9349b27d7f119f0b0f3b9f94ffd156df35eaf6adb53b7831f3"
 dependencies = [
+ "ibc-app-nft-transfer",
  "ibc-app-transfer",
 ]
 
@@ -9628,6 +9674,7 @@ dependencies = [
  "ibc-core-handler-types",
  "ibc-core-host",
  "ibc-primitives",
+ "serde",
  "tendermint",
  "tendermint-light-client-verifier",
 ]
@@ -9644,6 +9691,7 @@ dependencies = [
  "ibc-core-host-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
+ "serde",
  "tendermint",
  "tendermint-light-client-verifier",
  "tendermint-proto",
@@ -9661,6 +9709,7 @@ dependencies = [
  "ibc-core-host-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
+ "serde",
 ]
 
 [[package]]
@@ -9712,6 +9761,7 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "681d986a6943683ef16fbaab8295125bf795ab4e15a1909eccb8574bb4567f10"
 dependencies = [
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-core-client-types",
@@ -9720,6 +9770,10 @@ dependencies = [
  "ibc-core-host-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
+ "parity-scale-codec",
+ "scale-info",
+ "schemars",
+ "serde",
  "sha2 0.10.9",
  "subtle-encoding",
  "tendermint",
@@ -9762,12 +9816,17 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f741122f7504846a6099d41244687e5db3235b7ce5f651de8a552489c1f5c9a"
 dependencies = [
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-core-commitment-types",
  "ibc-core-host-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
+ "parity-scale-codec",
+ "scale-info",
+ "schemars",
+ "serde",
  "subtle-encoding",
  "tendermint",
 ]
@@ -9778,12 +9837,17 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ba35d2bde395cff6ddbf550d604c3098903e661430588995b1e5f8db1f2e1d1"
 dependencies = [
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-core-host-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
  "ics23",
+ "parity-scale-codec",
+ "scale-info",
+ "schemars",
+ "serde",
  "subtle-encoding",
 ]
 
@@ -9793,11 +9857,13 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "debe3ecdf3a0d59b011c963164974d6d924fb7e5580ce8262b1e64e2a0088cd7"
 dependencies = [
+ "ibc-client-wasm-types",
  "ibc-core-client",
  "ibc-core-connection-types",
  "ibc-core-handler-types",
  "ibc-core-host",
  "ibc-primitives",
+ "prost 0.13.5",
 ]
 
 [[package]]
@@ -9806,6 +9872,7 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2eed5ea03d3900f89b3b498c7f2ff83ca50c2f4f76cebc339bfa5ecb2f0ffc1"
 dependencies = [
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-core-client-types",
@@ -9813,6 +9880,10 @@ dependencies = [
  "ibc-core-host-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
+ "parity-scale-codec",
+ "scale-info",
+ "schemars",
+ "serde",
  "subtle-encoding",
  "tendermint",
 ]
@@ -9839,6 +9910,7 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "426cdb98d683cf8f65b1ebb7638fd4e8a35e1718aa143bcf895636ee34c68385"
 dependencies = [
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-core-channel-types",
@@ -9849,6 +9921,10 @@ dependencies = [
  "ibc-core-router-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
+ "parity-scale-codec",
+ "scale-info",
+ "schemars",
+ "serde",
  "subtle-encoding",
  "tendermint",
 ]
@@ -9890,6 +9966,7 @@ dependencies = [
  "ibc-core-host-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
+ "serde",
  "sha2 0.10.9",
  "subtle-encoding",
  "tendermint",
@@ -9902,10 +9979,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5879fb43b0789f42919b7965a93f8a18a08eaa39bf624fbaf837d8673ef1ecdc"
 dependencies = [
  "base64 0.22.1",
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-primitives",
+ "parity-scale-codec",
  "prost 0.13.5",
+ "scale-info",
+ "schemars",
+ "serde",
 ]
 
 [[package]]
@@ -9929,11 +10011,16 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61cdfb5f8f7986ac50941f556c16d46e81cdf3529b257be1ab3beca8281f953e"
 dependencies = [
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-core-host-types",
  "ibc-primitives",
  "ibc-proto 0.51.1",
+ "parity-scale-codec",
+ "scale-info",
+ "schemars",
+ "serde",
  "subtle-encoding",
  "tendermint",
 ]
@@ -9955,10 +10042,15 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ff3dab00855e9ab99fa7276814bd29b0350f2da70b3e9f67f1d86f4e269655b"
 dependencies = [
+ "borsh",
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-proto 0.51.1",
+ "parity-scale-codec",
  "prost 0.13.5",
+ "scale-info",
+ "schemars",
+ "serde",
  "time",
 ]
 
@@ -9973,7 +10065,10 @@ dependencies = [
  "cosmos-sdk-proto 0.26.1",
  "flex-error",
  "ics23",
+ "informalsystems-pbjson",
  "prost 0.13.5",
+ "schemars",
+ "serde",
  "subtle-encoding",
  "tendermint-proto",
 ]
@@ -10754,6 +10849,33 @@ dependencies = [
  "sp-io 41.0.1",
  "sync-committee-primitives",
  "sync-committee-verifier",
+]
+
+[[package]]
+name = "ismp-tendermint"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "evm-state-machine",
+ "geth-primitives",
+ "ibc",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "prost 0.13.5",
+ "scale-info",
+ "serde",
+ "serde_json",
+ "sp-io 41.0.1",
+ "tendermint-ics23-primitives",
+ "tendermint-primitives",
+ "tendermint-verifier",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -23449,6 +23571,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fbf2ae1b8bc8e02df939598064d22402220cd5bbcca1c76f7d6a310974d5615"
+dependencies = [
+ "dyn-clone",
+ "schemars_derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e265784ad618884abaea0600a9adf15393368d840e0222d101a072f3f7534d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.103",
+]
+
+[[package]]
 name = "schnellru"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -23788,6 +23934,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-json-wasm"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05da0d153dd4595bdffd5099dc0e9ce425b205ee648eb93437ff7302af8c9a5"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde-value"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -23833,6 +23988,17 @@ name = "serde_derive"
 version = "1.0.219"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b0276cf7f2c73365f7157c8123c21cd9a50fbbd844757af28ca1f5925fc2a00"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.103",
+]
+
+[[package]]
+name = "serde_derive_internals"
+version = "0.29.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -28037,10 +28203,16 @@ dependencies = [
 name = "tendermint-ics23-primitives"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "blake2 0.10.6",
  "blake3",
+ "cometbft",
+ "ibc",
  "ics23",
+ "ismp",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "prost 0.13.5",
  "ripemd",
  "sha2 0.10.9",
 ]
@@ -28082,9 +28254,13 @@ version = "0.40.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2c40e13d39ca19082d8a7ed22de7595979350319833698f8b1080f29620a094"
 dependencies = [
+ "borsh",
  "bytes",
  "flex-error",
+ "parity-scale-codec",
  "prost 0.13.5",
+ "scale-info",
+ "schemars",
  "serde",
  "serde_bytes",
  "subtle-encoding",
@@ -28095,20 +28271,29 @@ dependencies = [
 name = "tendermint-prover"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "base64 0.21.7",
  "cometbft",
  "cometbft-proto",
  "cometbft-rpc",
  "ethers",
+ "evm-state-machine",
+ "futures",
  "geth-primitives",
+ "hex",
+ "ibc",
  "ics23",
+ "ismp",
  "ismp-polygon",
+ "parity-scale-codec",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
  "prost 0.13.5",
  "reqwest 0.11.27",
  "serde",
  "serde_json",
+ "tendermint-ics23-primitives",
  "tendermint-primitives",
  "tendermint-verifier",
  "tesseract-polygon",
@@ -28294,9 +28479,12 @@ dependencies = [
  "serde",
  "sp-core 37.0.0",
  "substrate-state-machine",
+ "tendermint-primitives",
  "tesseract-evm",
+ "tesseract-evm-tendermint",
  "tesseract-primitives",
  "tesseract-substrate",
+ "tesseract-tendermint",
 ]
 
 [[package]]
@@ -28348,6 +28536,7 @@ dependencies = [
  "async-trait",
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
+ "cometbft",
  "dotenv",
  "ethabi",
  "ethereum-triedb",
@@ -28358,6 +28547,8 @@ dependencies = [
  "geth-primitives",
  "hex",
  "hex-literal 0.4.1",
+ "ibc",
+ "ics23",
  "ismp",
  "ismp-solidity-abi",
  "ismp-sync-committee",
@@ -28373,6 +28564,7 @@ dependencies = [
  "parking_lot 0.12.4",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "prost 0.13.5",
  "reconnecting-jsonrpsee-ws-client",
  "reqwest 0.11.27",
  "reqwest-middleware 0.2.5",
@@ -28382,9 +28574,33 @@ dependencies = [
  "serde_json",
  "sp-core 37.0.0",
  "superchain-registry",
+ "tendermint-ics23-primitives",
+ "tendermint-primitives",
+ "tendermint-prover",
  "tesseract-primitives",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "tesseract-evm-tendermint"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "evm-state-machine",
+ "futures",
+ "ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "sp-core 37.0.0",
+ "tendermint-ics23-primitives",
+ "tendermint-primitives",
+ "tendermint-prover",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
 ]
 
 [[package]]
@@ -28624,6 +28840,40 @@ dependencies = [
  "tesseract-primitives",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "tesseract-tendermint"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.21.7",
+ "cometbft",
+ "cometbft-rpc",
+ "ethers",
+ "geth-primitives",
+ "ibc",
+ "ibc-proto 0.52.0",
+ "ics23",
+ "ismp",
+ "ismp-tendermint",
+ "log",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "prost 0.13.5",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3",
+ "tendermint-ics23-primitives",
+ "tendermint-primitives",
+ "tendermint-prover",
+ "tendermint-verifier",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
 ]
 
 [[package]]

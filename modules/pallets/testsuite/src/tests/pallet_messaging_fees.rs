@@ -47,19 +47,19 @@ fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32)
 	Balances::mint_into(treasury_account, 20000 * UNIT).unwrap();
 }
 
-fn setup_host_params(dest_chain: StateMachine) {
+fn setup_host_params(source_chain: StateMachine, dest_chain: StateMachine) {
 	let host_params = HostParam::EvmHostParam(EvmHostParam {
 		per_byte_fees: vec![PerByteFee {
 			state_id: H256(keccak_256(&dest_chain.to_string().as_bytes())),
-			per_byte_fee: U256::from(50u128),
+			per_byte_fee: U256::from(10_000_000_000_000_000u128),
 		}]
 		.try_into()
 		.unwrap(),
 		..Default::default()
 	});
 
-	pallet_ismp_host_executive::HostParams::<Test>::insert(dest_chain, host_params);
-	pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(dest_chain, 18);
+	pallet_ismp_host_executive::HostParams::<Test>::insert(source_chain, host_params);
+	pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(source_chain, 18);
 }
 
 fn create_request_message(
@@ -153,7 +153,7 @@ fn test_incentivize_relayer_for_request_message() {
 		let dest_chain = StateMachine::Evm(3000);
 
 		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(dest_chain);
+		setup_host_params(source_chain, dest_chain);
 
 		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
 			RuntimeOrigin::root(),
@@ -201,7 +201,7 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 		let dest_chain = StateMachine::Evm(3000);
 
 		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(dest_chain);
+		setup_host_params(source_chain, dest_chain);
 
 		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
 			RuntimeOrigin::root(),
@@ -215,9 +215,15 @@ fn test_charge_relayer_when_target_size_is_exceeded() {
 		)
 		.unwrap();
 
+		pallet_messaging_fees::Pallet::<Test>::set_target_message_size(
+			RuntimeOrigin::root(),
+			20000u32,
+		)
+		.unwrap();
+
 		let initial_relayer_balance = Balances::balance(&relayer_account);
 		let initial_bytes_processed = TotalBytesProcessed::<Test>::get();
-		let target_size: u32 = <Test as pallet_messaging_fees::Config>::TargetMessageSize::get();
+		let target_size: u32 = pallet_messaging_fees::TargetMessageSize::<Test>::get().unwrap();
 		TotalBytesProcessed::<Test>::put(target_size + 1);
 
 		let body = vec![0; 100];
@@ -242,7 +248,7 @@ fn test_skip_incentivizing_for_unsupported_route_but_fees_should_still_be_paid()
 		let dest_chain = StateMachine::Evm(3000);
 
 		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(dest_chain);
+		setup_host_params(source_chain, dest_chain);
 
 		let body = vec![0; 100];
 		let request_message =
@@ -253,7 +259,7 @@ fn test_skip_incentivizing_for_unsupported_route_but_fees_should_still_be_paid()
 		let current_relayer_balance = Balances::balance(&relayer_account);
 
 		assert!(current_relayer_balance < initial_relayer_balance);
-		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
+		assert_eq!(TotalBytesProcessed::<Test>::get(), 100);
 	});
 }
 
@@ -268,7 +274,7 @@ fn test_skip_incentivizing_for_invalid_signature() {
 		let dest_chain = StateMachine::Evm(3000);
 
 		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(dest_chain);
+		setup_host_params(source_chain, dest_chain);
 
 		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
 			RuntimeOrigin::root(),
@@ -302,7 +308,7 @@ fn test_reward_decreases_as_messages_increase() {
 		let dest_chain = StateMachine::Evm(3000);
 
 		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(dest_chain);
+		setup_host_params(source_chain, dest_chain);
 
 		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
 			RuntimeOrigin::root(),
@@ -434,7 +440,7 @@ fn test_protocol_fee_accumulation() {
 			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
 		let fee = 1_000_000u128;
 
-		setup_host_params(dest_chain);
+		setup_host_params(source_chain, dest_chain);
 
 		pallet_messaging_fees::Pallet::<Test>::note_request_fee(commitment, fee);
 		assert!(pallet_messaging_fees::CommitmentFees::<Test>::get(commitment).is_some());

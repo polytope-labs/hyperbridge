@@ -17,10 +17,14 @@
 
 use super::*;
 use frame_benchmarking::v2::*;
+use frame_support::traits::EnsureOrigin;
 use frame_system::RawOrigin;
 use polkadot_sdk::*;
 
-#[benchmarks]
+#[benchmarks(
+	where
+	T::AdminOrigin: EnsureOrigin<T::RuntimeOrigin>
+)]
 mod benchmarks {
 	use super::*;
 	use cumulus_primitives_core::{relay_chain::HeadData, PersistedValidationData};
@@ -35,12 +39,14 @@ mod benchmarks {
 	/// - `n`: Number of parachains to add in a single call
 	#[benchmark]
 	fn add_parachain(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let origin =
+			T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		let parachains: Vec<ParachainData> =
 			(0..n).map(|i| ParachainData { id: i, slot_duration: 6000u64 }).collect();
 
 		#[block]
 		{
-			Pallet::<T>::add_parachain(RawOrigin::Root.into(), parachains)?;
+			Pallet::<T>::add_parachain(origin, parachains)?;
 		}
 
 		Ok(())
@@ -54,6 +60,9 @@ mod benchmarks {
 	/// - `n`: Number of parachains to remove in a single call
 	#[benchmark]
 	fn remove_parachain(n: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let origin =
+			T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
 		let parachains: Vec<ParachainData> =
 			(0..n).map(|i| ParachainData { id: i, slot_duration: 6000u64 }).collect();
 
@@ -61,7 +70,7 @@ mod benchmarks {
 
 		#[block]
 		{
-			Pallet::<T>::remove_parachain(RawOrigin::Root.into(), vec![0, 1, 2, 3, 4])?;
+			Pallet::<T>::remove_parachain(origin, vec![0, 1, 2, 3, 4])?;
 		}
 
 		Ok(())

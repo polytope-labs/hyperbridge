@@ -229,7 +229,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 5_200,
+	spec_version: 5_400,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -874,9 +874,6 @@ impl pallet_messaging_fees::Config for Runtime {
 		>,
 	>;
 	type PriceOracle = FixedPriceOracle;
-
-	/// Target message size: 6.51 KB (6.51 * 1024 = 6666 bytes)
-	type TargetMessageSize = ConstU32<6666>;
 	type WeightInfo = ();
 	type ReputationAsset = ReputationAsset;
 }

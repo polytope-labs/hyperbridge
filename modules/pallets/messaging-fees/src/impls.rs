@@ -3,7 +3,10 @@ use alloc::{collections::BTreeMap, string::ToString, vec};
 use codec::{Decode, Encode};
 use hyperbridge_client_machine::OnRequestProcessed;
 use polkadot_sdk::{
-	frame_support::traits::{fungible::Mutate, tokens::Preservation},
+	frame_support::traits::{
+		fungible::{Inspect, Mutate},
+		tokens::Preservation,
+	},
 	sp_core::U256,
 	sp_runtime::traits::*,
 };
@@ -65,7 +68,7 @@ where
 
 		for (size, commitment, source_chain, dest_chain) in fee_data {
 			if source_chain.is_evm() {
-				if let Some(per_byte_fee) = Self::get_per_byte_fee(&dest_chain) {
+				if let Some(per_byte_fee) = Self::get_per_byte_fee(&source_chain, &dest_chain) {
 					let fee = per_byte_fee.saturating_mul(U256::from(size));
 					if fee > U256::zero() {
 						pallet_ismp_relayer::Pallet::<T>::accumulate_fee_and_deposit_event(
@@ -90,8 +93,11 @@ where
 		}
 	}
 
-	fn get_per_byte_fee(state_machine: &StateMachine) -> Option<U256> {
-		let host_params = pallet_ismp_host_executive::HostParams::<T>::get(state_machine)?;
+	fn get_per_byte_fee(
+		source_chain: &StateMachine,
+		destination_chain: &StateMachine,
+	) -> Option<U256> {
+		let host_params = pallet_ismp_host_executive::HostParams::<T>::get(source_chain)?;
 
 		let per_byte_fee = match host_params {
 			EvmHostParam(evm_host_param) => {
@@ -100,14 +106,14 @@ where
 					.iter()
 					.find(|fee| {
 						let hashed_chain_id =
-							sp_io::hashing::keccak_256(&state_machine.to_string().as_bytes());
+							sp_io::hashing::keccak_256(&destination_chain.to_string().as_bytes());
 						fee.state_id == H256(hashed_chain_id)
 					})
 					.map(|fee| fee.per_byte_fee)
 					.unwrap_or(evm_host_param.default_per_byte_fee);
 
 				let Some(decimals) =
-					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(state_machine)
+					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(source_chain)
 				else {
 					return None;
 				};
@@ -118,14 +124,14 @@ where
 			SubstrateHostParam(VersionedHostParams::V1(substrate_params)) => {
 				let fee = substrate_params
 					.per_byte_fees
-					.get(state_machine)
+					.get(destination_chain)
 					.cloned()
 					.unwrap_or(substrate_params.default_per_byte_fee);
 				let fee_u128: u128 = fee.into();
 				let fee_u256 = U256::from(fee_u128);
 
 				let Some(decimals) =
-					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(state_machine)
+					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(source_chain)
 				else {
 					return None;
 				};
@@ -140,8 +146,10 @@ where
 	}
 
 	fn process_bridge_rewards(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
-		let mut messages_by_chain: BTreeMap<StateMachine, Vec<IncentivizedMessage>> =
-			BTreeMap::new();
+		let mut messages_by_chain: BTreeMap<
+			(StateMachine, StateMachine),
+			Vec<IncentivizedMessage>,
+		> = BTreeMap::new();
 
 		match message {
 			Message::Request(msg) =>
@@ -150,7 +158,7 @@ where
 						IncentivizedRoutes::<T>::get(&req.dest).is_some();
 					let request = Request::Post(req.clone());
 					messages_by_chain
-						.entry(req.dest.clone())
+						.entry((req.source.clone(), req.dest.clone()))
 						.or_default()
 						.push(IncentivizedMessage::Request(request, is_incentivized));
 				},
@@ -163,7 +171,7 @@ where
 						let is_incentivized = IncentivizedRoutes::<T>::get(source_chain).is_some() &&
 							IncentivizedRoutes::<T>::get(dest_chain).is_some();
 						messages_by_chain
-							.entry(dest_chain)
+							.entry((source_chain, dest_chain))
 							.or_default()
 							.push(IncentivizedMessage::Response(res, is_incentivized));
 					},
@@ -171,7 +179,7 @@ where
 			_ => return Ok(()),
 		};
 
-		for (state_machine, messages) in &messages_by_chain {
+		for ((source_chain, destination_chain), messages) in &messages_by_chain {
 			for msg in messages {
 				let (mut bytes_processed, is_incentivized) = match msg {
 					IncentivizedMessage::Request(req, is_incentivized) => {
@@ -196,8 +204,12 @@ where
 				};
 
 				bytes_processed = core::cmp::max(bytes_processed, 32);
+				TotalBytesProcessed::<T>::mutate(|total| {
+					*total = total.saturating_add(bytes_processed)
+				});
 
-				if let Some(per_byte_fee) = Self::get_per_byte_fee(&state_machine) {
+				if let Some(per_byte_fee) = Self::get_per_byte_fee(source_chain, destination_chain)
+				{
 					let cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
 					if cost.is_zero() {
 						continue;
@@ -207,19 +219,16 @@ where
 
 					// Get reward in bridge tokens and scale down to 12 decimals
 					let base_reward: u128 = cost
-						.checked_mul(bridge_price)
+						.checked_div(bridge_price)
 						.ok_or(Error::<T>::CalculationOverflow)?
-						.checked_div(SCALING_FACTOR_18_TO_12.into())
+						.checked_mul(DECIMALS_12.into())
 						.ok_or(Error::<T>::CalculationOverflow)?
 						.try_into()
 						.map_err(|_| Error::<T>::CalculationOverflow)?;
 
 					if is_incentivized {
-						TotalBytesProcessed::<T>::mutate(|total| {
-							*total = total.saturating_add(bytes_processed)
-						});
 						let current_total_bytes = TotalBytesProcessed::<T>::get();
-						let target_message_size = T::TargetMessageSize::get();
+						let target_message_size = Self::get_target_message_size();
 
 						if current_total_bytes < target_message_size {
 							let reward_amount = Self::calculate_reward(
@@ -227,28 +236,37 @@ where
 								target_message_size,
 								base_reward,
 							)?;
+							if reward_amount >= T::Currency::minimum_balance().into() {
+								T::Currency::transfer(
+									&T::TreasuryAccount::get().into_account_truncating(),
+									&relayer,
+									reward_amount.saturated_into(),
+									Preservation::Expendable,
+								)
+								.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
-							T::Currency::transfer(
-								&T::TreasuryAccount::get().into_account_truncating(),
-								&relayer,
-								reward_amount.saturated_into(),
-								Preservation::Expendable,
-							)
-							.map_err(|_| Error::<T>::RewardTransferFailed)?;
-
-							Self::deposit_event(Event::FeeRewarded {
-								relayer: relayer.clone(),
-								amount: reward_amount.saturated_into(),
-							});
+								Self::deposit_event(Event::FeeRewarded {
+									relayer: relayer.clone(),
+									amount: reward_amount.saturated_into(),
+								});
+							} else {
+								log::info!(target: "ismp", "Reward amount {reward_amount:?} below minimum balance");
+							}
 							T::ReputationAsset::mint_into(&relayer, reward_amount.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						} else {
-							Self::pay_fee(&relayer, base_reward.saturated_into())?;
+							Self::pay_fee(&relayer, base_reward.saturated_into()).map_err(|e| {
+								log::error!(target: "ismp", "Failed to pay fee {e:?}");
+								e
+							})?;
 							T::ReputationAsset::mint_into(&relayer, base_reward.saturated_into())
 								.map_err(|_| Error::<T>::ReputationMintFailed)?;
 						}
 					} else {
-						Self::pay_fee(&relayer, base_reward.saturated_into())?;
+						Self::pay_fee(&relayer, base_reward.saturated_into()).map_err(|e| {
+							log::error!(target: "ismp", "Failed to pay fee {e:?}");
+							e
+						})?;
 						T::ReputationAsset::mint_into(&relayer, base_reward.saturated_into())
 							.map_err(|_| Error::<T>::ReputationMintFailed)?;
 					}
@@ -291,17 +309,25 @@ where
 	}
 
 	fn pay_fee(relayer: &T::AccountId, fee: T::Balance) -> Result<(), Error<T>> {
-		T::Currency::transfer(
-			relayer,
-			&T::TreasuryAccount::get().into_account_truncating(),
-			fee,
-			Preservation::Expendable,
-		)
-		.map_err(|_| Error::<T>::RewardTransferFailed)?;
+		if fee >= T::Currency::minimum_balance().into() {
+			T::Currency::transfer(
+				relayer,
+				&T::TreasuryAccount::get().into_account_truncating(),
+				fee,
+				Preservation::Expendable,
+			)
+			.map_err(|_| Error::<T>::RewardTransferFailed)?;
 
-		Self::deposit_event(Event::FeePaid { relayer: relayer.clone(), amount: fee });
+			Self::deposit_event(Event::FeePaid { relayer: relayer.clone(), amount: fee });
+		} else {
+			log::info!(target: "ismp", "Fee amount {fee:?} below minimum balance");
+		}
 
 		Ok(())
+	}
+
+	fn get_target_message_size() -> u32 {
+		Self::target_message_size().unwrap_or(200000)
 	}
 }
 

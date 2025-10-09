@@ -83,6 +83,8 @@ pub struct ProverConfig {
 	pub zk_beefy: bool,
 	/// Maximum size in bytes for the rpc payloads, both requests & responses.
 	pub max_rpc_payload_size: Option<u32>,
+	/// Query batch size for mmr leaves
+	pub query_batch_size: Option<u32>,
 }
 
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
@@ -716,6 +718,7 @@ where
 			para_rpc: parachain_rpc,
 			para_rpc_client: parachain_rpc_client,
 			para_ids: config.para_ids,
+			query_batch_size: config.query_batch_size,
 		};
 
 		let prover = if config.zk_beefy {
@@ -868,6 +871,7 @@ mod tests {
 			para_ids: vec![4009],
 			zk_beefy: false,
 			max_rpc_payload_size: None,
+			query_batch_size: None,
 		};
 		let prover = Prover::new(prover_config).await?;
 

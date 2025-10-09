@@ -23,6 +23,11 @@ subxt = { workspace = true, default-features = true }
 subxt-core = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true }
 merkle-mountain-range = { workspace = true }
+indicatif = "0.18.0"
+futures = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 subxt-utils = { workspace = true, default-features = true }

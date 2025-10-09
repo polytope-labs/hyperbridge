@@ -11,7 +11,15 @@ primitive-types = { workspace = true }
 ismp = { workspace = true }
 beefy-verifier = { workspace = true }
 pallet-ismp = { workspace = true }
+ismp-parachain = { workspace = true }
 substrate-state-machine = { workspace = true }
+beefy-verifier-primitives = { workspace = true }
+rs_merkle = {workspace = true}
+
+[dependencies.scale-info]
+version = "2.1.1"
+default-features = false
+features = ["derive"]
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -29,19 +37,16 @@ features = [
 [features]
 default = ["std"]
 std = [
+    "scale-info/std",
     "codec/std",
     "ismp/std",
     "polkadot-sdk/std",
     "primitive-types/std",
     "pallet-ismp/std",
+    "beefy-verifier-primitives/std",
     "beefy-verifier/std",
     "substrate-state-machine/std",
-]
-
-try-runtime = ["polkadot-sdk/try-runtime"]
-runtime-benchmarks = [
-    "polkadot-sdk/frame-benchmarking",
-    "polkadot-sdk/runtime-benchmarks",
-    "pallet-ismp/runtime-benchmarks",
+    "rs_merkle/std",
+    "ismp-parachain/std"
 ]
 

@@ -63,6 +63,9 @@ pub const ETHEREUM_CHAIN_ID: u32 = 1;
 pub const BSC_CHAIN_ID: u32 = 56;
 pub const POLYGON_CHAIN_ID: u32 = 137;
 pub const GNOSIS_CHAIN_ID: u32 = 100;
+pub const CRONOS_CHAIN_ID: u32 = 25;
+pub const SEI_CHAIN_ID: u32 = 1329;
+pub const INJECTIVE_CHAIN_ID: u32 = 1440; // Not launched yet
 
 // Testnets
 pub const ARBITRUM_SEPOLIA_CHAIN_ID: u32 = 421614;
@@ -72,6 +75,9 @@ pub const SEPOLIA_CHAIN_ID: u32 = 11155111;
 pub const BSC_TESTNET_CHAIN_ID: u32 = 97;
 pub const POLYGON_TESTNET_CHAIN_ID: u32 = 80002;
 pub const CHIADO_CHAIN_ID: u32 = 10200;
+pub const CRONOS_TESTNET_CHAIN_ID: u32 = 338;
+pub const SEI_TESTNET_CHAIN_ID: u32 = 1328;
+pub const INJECTIVE_TESTNET_CHAIN_ID: u32 = 1439;
 
 pub fn is_orbit_chain(id: u32) -> bool {
 	[ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID].contains(&id)
@@ -182,6 +188,14 @@ pub async fn get_current_gas_cost_in_usd(
 					// equivalent to the gas price
 					gas_price_cost = gas_price
 				},
+				INJECTIVE_CHAIN_ID | INJECTIVE_TESTNET_CHAIN_ID => {
+					let node_gas_price = client.get_gas_price().await?;
+					gas_price = new_u256(node_gas_price);
+					let inj_usd_price = get_coingecko_price("injective-protocol").await?;
+					let inj_usd = parse_to_27_decimals(&inj_usd_price)?;
+					unit_wei = get_cost_of_one_wei(inj_usd);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+				},
 				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
 					let uri = format!(
 					"{api}?chainid={POLYGON_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}"
@@ -220,6 +234,46 @@ pub async fn get_current_gas_cost_in_usd(
 					};
 					let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 					unit_wei = get_cost_of_one_wei(eth_usd);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+				},
+				CRONOS_CHAIN_ID | CRONOS_TESTNET_CHAIN_ID => {
+					let uri = format!(
+						"{api}?chainid={CRONOS_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}"
+					);
+					let node_gas_price = client.get_gas_price().await?;
+					let response_json = make_request::<GasResponse>(&uri, Default::default())
+						.await
+						.unwrap_or_default();
+					let oracle_gas_price =
+						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
+					// needed because of ether-rs and polkadot-sdk incompatibility
+					gas_price = if inner_evm == CRONOS_CHAIN_ID {
+						new_u256(std::cmp::max(node_gas_price, oracle_gas_price))
+					} else {
+						new_u256(node_gas_price)
+					};
+					let cro_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+					unit_wei = get_cost_of_one_wei(cro_usd);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+				},
+				SEI_CHAIN_ID | SEI_TESTNET_CHAIN_ID => {
+					let uri = format!(
+						"{api}?chainid={SEI_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}"
+					);
+					let node_gas_price = client.get_gas_price().await?;
+					let response_json = make_request::<GasResponse>(&uri, Default::default())
+						.await
+						.unwrap_or_default();
+					let oracle_gas_price =
+						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
+					// needed because of ether-rs and polkadot-sdk incompatibility
+					gas_price = if inner_evm == SEI_CHAIN_ID {
+						new_u256(std::cmp::max(node_gas_price, oracle_gas_price))
+					} else {
+						new_u256(node_gas_price)
+					};
+					let sei_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
+					unit_wei = get_cost_of_one_wei(sei_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				// op stack chains
@@ -319,6 +373,29 @@ pub async fn get_eth_gas_and_price(
 pub async fn get_eth_to_usd_price(uri_eth_price: &String) -> Result<EthPriceResponse, Error> {
 	let usd_response = make_request::<EthPriceResponse>(uri_eth_price, Default::default()).await?;
 	Ok(usd_response)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CoinGeckoResponse {
+	#[serde(flatten)]
+	pub prices: std::collections::HashMap<String, CoinGeckoPrice>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CoinGeckoPrice {
+	pub usd: f64,
+}
+
+/// Fetches token price from CoinGecko API
+pub async fn get_coingecko_price(coin_id: &str) -> Result<String, Error> {
+	let uri =
+		format!("https://api.coingecko.com/api/v3/simple/price?ids={}&vs_currencies=usd", coin_id);
+	let response = make_request::<CoinGeckoResponse>(&uri, Default::default()).await?;
+	let price = response
+		.prices
+		.get(coin_id)
+		.ok_or_else(|| anyhow!("Price not found for {}", coin_id))?;
+	Ok(price.usd.to_string())
 }
 
 /// 27 decimals helps preserve significant digits for small values of currency e.g 0.56756, 0.0078

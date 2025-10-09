@@ -132,7 +132,7 @@ pub struct EvmClient {
 	/// Latest state machine height.
 	initial_height: u64,
 	/// Config
-	config: EvmConfig,
+	pub config: EvmConfig,
 	/// EVM chain Id.
 	pub chain_id: u64,
 	/// Client type

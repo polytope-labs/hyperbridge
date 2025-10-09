@@ -31,6 +31,7 @@ use ismp::{
 use primitive_types::{H160, H256};
 
 pub mod prelude {
+	pub use alloc::collections::BTreeMap;
 	pub use alloc::{boxed::Box, string::ToString, vec, vec::Vec};
 }
 
@@ -38,8 +39,10 @@ use pallet_ismp_host_executive::EvmHosts;
 use prelude::*;
 
 pub mod presets;
+pub mod tendermint;
 pub mod types;
 pub mod utils;
+pub use tendermint::TendermintEvmStateMachine;
 pub use utils::*;
 
 pub fn verify_membership<H: Keccak256 + Send + Sync>(

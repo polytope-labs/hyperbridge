@@ -15,12 +15,15 @@
 
 use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
+use tendermint_primitives::keys::{DefaultEvmKeys, SeiEvmKeys};
 use tesseract_evm::{EvmClient, EvmConfig};
+use tesseract_evm_tendermint::TendermintEvmClient;
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient, SubstrateConfig,
 };
+use tesseract_tendermint::config::TendermintEvmClientConfig;
 
 /// The AnyConfig wraps the configuration options for all supported chains
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -30,6 +33,8 @@ pub enum AnyConfig {
 	Substrate(SubstrateConfig),
 	/// Configuration for evm-based chains
 	Evm(EvmConfig),
+	/// Configuration for tendermint-based chains
+	Tendermint(TendermintEvmClientConfig),
 }
 
 impl AnyConfig {
@@ -37,6 +42,7 @@ impl AnyConfig {
 		match self {
 			Self::Substrate(config) => config.state_machine,
 			Self::Evm(config) => config.state_machine,
+			Self::Tendermint(tendermint_config) => tendermint_config.evm_config.state_machine,
 		}
 	}
 }
@@ -68,6 +74,29 @@ impl AnyConfig {
 				let mut client = EvmClient::new(config).await?;
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>
+			},
+			AnyConfig::Tendermint(tendermint_config) => match tendermint_config
+				.evm_config
+				.state_machine
+			{
+				ismp::host::StateMachine::Evm(chain_id) if chain_id == 1328 || chain_id == 1329 => {
+					let mut client = TendermintEvmClient::<SeiEvmKeys>::new(
+						EvmClient::new(tendermint_config.evm_config).await?,
+						tendermint_config.rpc_url,
+					)
+					.await?;
+					client.set_latest_finalized_height(hyperbridge).await?;
+					Arc::new(client) as Arc<dyn IsmpProvider>
+				},
+				_ => {
+					let mut client = TendermintEvmClient::<DefaultEvmKeys>::new(
+						EvmClient::new(tendermint_config.evm_config).await?,
+						tendermint_config.rpc_url,
+					)
+					.await?;
+					client.set_latest_finalized_height(hyperbridge).await?;
+					Arc::new(client) as Arc<dyn IsmpProvider>
+				},
 			},
 		};
 

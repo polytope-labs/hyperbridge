@@ -52,9 +52,8 @@ export class IntentGatewayService {
 
 		let orderPlaced = await OrderPlaced.get(order.id!)
 
-		const { inputUSD, inputValuesUSD } = await this.getOrderValue(order)
-
 		if (!orderPlaced) {
+			const { inputUSD, inputValuesUSD } = await this.getOrderValue(order)
 			orderPlaced = await OrderPlaced.create({
 				id: order.id!,
 				user: order.user,
@@ -105,6 +104,58 @@ export class IntentGatewayService {
 			)
 
 			await VolumeService.updateVolume("IntentGateway.USER", inputUSD, timestamp)
+		} else {
+			// Handle race condition: Order already exists (e.g., was filled first)
+			// Update all fields except status and status-related metadata
+			logger.info(
+				`Order ${order.id} already exists with status ${orderPlaced.status}. Updating order details while preserving status.`,
+			)
+
+			const existingStatus = orderPlaced.status
+			const { inputUSD, inputValuesUSD } = await this.getOrderValue(order)
+
+			orderPlaced.user = order.user
+			orderPlaced.sourceChain = order.sourceChain
+			orderPlaced.destChain = order.destChain
+			orderPlaced.deadline = order.deadline
+			orderPlaced.nonce = order.nonce
+			orderPlaced.fees = order.fees
+			orderPlaced.inputTokens = order.inputs.map((input) => input.token)
+			orderPlaced.inputAmounts = order.inputs.map((input) => input.amount)
+			orderPlaced.inputValuesUSD = inputValuesUSD
+			orderPlaced.inputUSD = inputUSD
+			orderPlaced.outputTokens = order.outputs.map((output) => output.token)
+			orderPlaced.outputAmounts = order.outputs.map((output) => output.amount)
+			orderPlaced.outputBeneficiaries = order.outputs.map((output) => output.beneficiary)
+			orderPlaced.calldata = order.callData
+			orderPlaced.referrer = referrer
+			// Keep existing status - don't overwrite it
+
+			await orderPlaced.save()
+
+			logger.info(`Order ${order.id} updated with actual data. Status remains: ${existingStatus}`)
+
+			// Award points for order placement - using USD value directly
+			// Only award if status is not already FILLED (to avoid double awarding)
+			if (existingStatus !== OrderStatus.FILLED) {
+				logger.info("Now awarding points for the Order Placed Event")
+
+				const orderValue = new Decimal(inputUSD)
+				const pointsToAward = orderValue.floor().toNumber()
+
+				await PointsService.awardPoints(
+					this.bytes32ToBytes20(order.user),
+					ethers.utils.toUtf8String(order.sourceChain),
+					BigInt(pointsToAward),
+					ProtocolParticipantType.USER,
+					PointsActivityType.ORDER_PLACED_POINTS,
+					transactionHash,
+					`Points awarded for placing order ${order.id} with value ${inputUSD} USD`,
+					timestamp,
+				)
+
+				await VolumeService.updateVolume("IntentGateway.USER", inputUSD, timestamp)
+			}
 		}
 
 		return orderPlaced
@@ -177,10 +228,43 @@ export class IntentGatewayService {
 	): Promise<void> {
 		const { transactionHash, blockNumber, timestamp } = logsData
 
-		const orderPlaced = await OrderPlaced.get(commitment)
+		let orderPlaced = await OrderPlaced.get(commitment)
+
+		// For race condtions, we create a placeholder order that will be updated when the PLACED event arrives
+		if (!orderPlaced && status != OrderStatus.PLACED) {
+			logger.warn(`Order ${commitment} does not exist yet but FILLED event received. Creating placeholder order.`)
+
+			orderPlaced = await OrderPlaced.create({
+				id: commitment,
+				user: "0x0000000000000000000000000000000000000000",
+				sourceChain: "",
+				destChain: "",
+				commitment: commitment,
+				deadline: BigInt(0),
+				nonce: BigInt(0),
+				fees: BigInt(0),
+				inputTokens: [],
+				inputAmounts: [],
+				inputValuesUSD: [],
+				inputUSD: "0",
+				outputTokens: [],
+				outputAmounts: [],
+				outputBeneficiaries: [],
+				calldata: "0x",
+				status: OrderStatus.FILLED,
+				referrer: DEFAULT_REFERRER,
+				createdAt: timestampToDate(timestamp),
+				blockNumber: BigInt(blockNumber),
+				blockTimestamp: timestamp,
+				transactionHash,
+			})
+			await orderPlaced.save()
+
+			logger.info(`Placeholder order with status FILLED created for commitment ${commitment}`)
+		}
 
 		if (orderPlaced) {
-			orderPlaced.status = status
+			orderPlaced.status = status === OrderStatus.PLACED ? orderPlaced.status : status
 			await orderPlaced.save()
 
 			// Award points for order filling - using USD value directly

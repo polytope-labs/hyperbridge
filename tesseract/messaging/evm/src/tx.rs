@@ -464,12 +464,16 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
 			32_000_000,
 		StateMachine::Evm(GNOSIS_CHAIN_ID) | StateMachine::Evm(CHIADO_CHAIN_ID) => 16_000_000,
-		StateMachine::Evm(SEI_CHAIN_ID) | StateMachine::Evm(SEI_TESTNET_CHAIN_ID) => 10_000_000,
+		// Gas limit is 10_000_000, we set our transaction gas limit to 40% of that
+		StateMachine::Evm(SEI_CHAIN_ID) | StateMachine::Evm(SEI_TESTNET_CHAIN_ID) => 4_000_000,
+		// Gas limit is 60_000_000, we set our transaction gas limit to 30% of that
 		StateMachine::Evm(CRONOS_CHAIN_ID) | StateMachine::Evm(CRONOS_TESTNET_CHAIN_ID) =>
-			60_000_000,
+			18_000_000,
+		// Gas limit is 50_000_000, we set our transaction gas limit to 30% of that
 		StateMachine::Evm(INJECTIVE_CHAIN_ID) | StateMachine::Evm(INJECTIVE_TESTNET_CHAIN_ID) =>
-			50_000_000,
-		StateMachine::Evm(_) => 20_000_000,
+			15_000_000,
+		// Ethereum L1 max's gas limit per transaction will be reduced to 16m soon.
+		StateMachine::Evm(_) => 16_000_000,
 		_ => Default::default(),
 	}
 }

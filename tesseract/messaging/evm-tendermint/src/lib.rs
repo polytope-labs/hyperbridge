@@ -17,8 +17,10 @@
 
 use anyhow::Error;
 use codec::Encode;
-use evm_state_machine::presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT};
-use evm_state_machine::types::EvmKVProof;
+use evm_state_machine::{
+	presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
+	types::EvmKVProof,
+};
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},

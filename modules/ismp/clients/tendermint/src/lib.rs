@@ -1,7 +1,7 @@
 //! Tendermint consensus client implementation for ISMP.
 //!
-//! This module provides a consensus client for a Tendermint-based chain that verifies Tendermint light client
-//! updates
+//! This module provides a consensus client for a Tendermint-based chain that verifies Tendermint
+//! light client updates
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
@@ -149,9 +149,7 @@ impl<
 		let height_1 = update_1.tendermint_proof.signed_header.header.height;
 		let height_2 = update_2.tendermint_proof.signed_header.header.height;
 		if height_1 != height_2 {
-			return Err(Error::Custom(
-				"Fraud proofs must be for the same block height".to_string(),
-			));
+			return Err(Error::Custom("Fraud proofs must be for the same block height".to_string()));
 		}
 
 		if proof_1 == proof_2 {

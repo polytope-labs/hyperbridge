@@ -49,6 +49,7 @@ pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
+ismp-tendermint = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -107,7 +108,7 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
-    "pallet-vesting"
+    "pallet-vesting",
 ]
 
 [features]
@@ -146,6 +147,7 @@ std = [
     "ismp-arbitrum/std",
     "ismp-optimism/std",
     "ismp-polygon/std",
+    "ismp-tendermint/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

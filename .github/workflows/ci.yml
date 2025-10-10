@@ -28,7 +28,8 @@ env:
     POLYGON_HEIMDALL: ${{secrets.POLYGON_HEIMDALL}}
     POLYGON_HEIMDALL_REST: ${{secrets.POLYGON_HEIMDALL_REST}}
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
-
+    SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
+    KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
 
 jobs:
     check-wasm:

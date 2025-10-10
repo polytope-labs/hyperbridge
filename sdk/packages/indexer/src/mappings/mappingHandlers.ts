@@ -26,8 +26,8 @@ export { handleAssetReceivedEvent } from "@/handlers/events/tokenGateway/assetRe
 export { handleAssetRefundedEvent } from "@/handlers/events/tokenGateway/assetRefunded.event.handler"
 
 // HandlerV1 Handlers
-// export { handlePostRequestTransactionHandler } from '@/handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler';
-// export { handlePostResponseTransactionHandler } from '@/handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler';
+export { handlePostRequestTransactionHandler } from "@/handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler"
+export { handlePostResponseTransactionHandler } from "@/handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler"
 
 // Substrate Chains Handlers
 export { handleIsmpStateMachineUpdatedEvent } from "@/handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler"
@@ -49,3 +49,4 @@ export { handleRelayerRewardedEvent } from "@/handlers/events/incentives/relayer
 export { handleFeeRewardedEvent } from "@/handlers/events/incentives/feeRewarded.event.handler"
 
 export { handleTreasuryTransferEvent } from "@/handlers/events/treasury/treasuryTransfer.event.handler"
+export { handleAccumulateFeesEvent } from "@/handlers/events/fees/accumulatedFees.event.handler"

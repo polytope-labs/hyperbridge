@@ -27,6 +27,11 @@ dataSources:
           filter:
            module: balances
            method: Transfer
+        - handler: handleAccumulateFeesEvent
+          kind: substrate/EventHandler
+          filter:
+           module: relayer
+           method: AccumulateFees
         - handler: handleSubstrateAssetTeleportedEvent
           kind: substrate/EventHandler
           filter:

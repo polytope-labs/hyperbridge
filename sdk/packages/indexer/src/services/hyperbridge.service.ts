@@ -8,10 +8,10 @@ import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { getDateFormatFromTimestamp, isWithin24Hours, timestampToDate } from "@/utils/date.helpers"
 import { RelayerService } from "./relayer.service"
-// import {
-//  HandlePostRequestsTransaction,
-//  HandlePostResponsesTransaction,
-// } from '@/types/abi-interfaces/HandlerV1Abi';
+import {
+	HandlePostRequestsTransaction,
+	HandlePostResponsesTransaction,
+} from "@/configs/src/types/abi-interfaces/HandlerV1Abi"
 
 export class HyperBridgeService {
 	/**
@@ -57,24 +57,24 @@ export class HyperBridgeService {
 		await RelayerService.updateMessageDelivered(relayer_id, chain, timestamp)
 	}
 
-	//  /**
-	//   * Handle PostRequest or PostResponse transactions
-	//   */
-	//  static async handlePostRequestOrResponseTransaction(
-	//   chain: string,
-	//   transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
-	//  ): Promise<void> {
-	//   logger.info(
-	//    `Creating PostRequest or PostResponse transaction update: ${JSON.stringify({
-	//     transaction,
-	//    })}`
-	//   );
-	//   const { status } = await transaction.receipt();
+	/**
+	 * Handle PostRequest or PostResponse transactions
+	 */
+	static async handlePostRequestOrResponseTransaction(
+		chain: string,
+		transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
+	): Promise<void> {
+		logger.info(
+			`Creating PostRequest or PostResponse transaction update: ${JSON.stringify({
+				transaction,
+			})}`,
+		)
+		const { status } = await transaction.receipt()
 
-	//   if (status === false) {
-	//    await this.incrementNumberOfFailedDeliveries(chain);
-	//   }
-	//  }
+		if (status === false) {
+			await this.incrementNumberOfFailedDeliveries(chain)
+		}
+	}
 
 	/**
 	 * Increment the total number of messages sent on hyperbridge

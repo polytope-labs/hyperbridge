@@ -37,13 +37,14 @@
 		"format": "prettier --write \"**/*.ts\"",
 		"clean": "rm -rf dist node_modules",
 		"server": "docker run -d --name graphql-server -p 3000:3000 --restart always --env-file ../../.env.$ENV subquerynetwork/subql-query:latest --name=app --playground",
+		"codegen:l2-chains": "tsx scripts/generate-l2-chains.ts",
 		"codegen:subql": "subql codegen -f src/configs",
 		"codegen:yamls": "tsx scripts/generate-chain-yamls.ts && tsx scripts/generate-compose.ts",
 		"start": "./scripts/up.sh ./docker/$ENV",
 		"down": "./scripts/down.sh ./docker/$ENV",
 		"start:local": "ENV=local npm run build && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local up --force-recreate --remove-orphans && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local rm -fsv",
 		"start:nexus-ci": "ENV=nexus-ci npm run build && docker-compose -f docker/docker-compose.nexus-ci.yml --env-file ../../.env.nexus-ci up --force-recreate --remove-orphans && docker-compose -f docker/docker-compose.nexus-ci.yml --env-file ../../.env.nexus-ci rm -fsv",
-		"build": "npm run codegen:yamls && npm run codegen:subql && ./node_modules/.bin/subql build"
+		"build": "npm run codegen:yamls && npm run codegen:l2-chains && npm run codegen:subql && ./node_modules/.bin/subql build"
 	},
 	"dependencies": {
 		"@ethersproject/abi": "^5.7.0",

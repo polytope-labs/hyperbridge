@@ -265,7 +265,7 @@ Order cancellation is one of the most complex features, requiring cryptographic 
 You can cancel an order when:
 
 - The deadline has passed (order expired)
-- The order has not been filled
+- The order has not been filled, which can be due to calldata execution reverting.
 - You want to recover escrowed tokens and fees
 
 ### The Cancellation Process

@@ -273,7 +273,7 @@ You can cancel an order when:
 Cancellation uses ISMP's GET request mechanism to prove an order is unfilled:
 
 1. **Destination Finalization**: Wait for the order expiry height for destination chain state to be finalized on Hyperbridge
-2. **Storage Proof**: Get proof that order's storage slot is empty (unfilled)
+2. **Storage Proof**: Get proof that order's storage slot is empty (unfilled). We query the storage proof immediately, to mitigate a known issue where RPC providers prune their state tries too quickly, Becoming unable to serve `eth_getProof` requests
 3. **GET Request**: Dispatch GET request to query destination storage
 4. **Source Finalization**: Wait for GET request to be finalized on Hyperbridge
 5. **Source Proof**: Get proof of GET request from source chain

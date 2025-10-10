@@ -277,7 +277,7 @@ Cancellation uses ISMP's GET request mechanism to prove an order is unfilled:
 3. **GET Request**: Dispatch GET request to query destination storage
 4. **Source Finalization**: Wait for GET request to be finalized on Hyperbridge
 5. **Source Proof**: Get proof of GET request from source chain
-6. **Submission**: Submit proofs to Hyperbridge for verification
+6. **Submission**: Submit proofs of the get request & storage proof of it's response to Hyperbridge for verification
 7. **Response**: Hyperbridge verifies and triggers refund
 
 ### Basic Cancellation

@@ -18,6 +18,7 @@ export {
 	fetchPrice,
 	adjustFeeDecimals,
 	DEFAULT_GRAFFITI,
+	maxBigInt,
 } from "@/utils"
 export * from "@/protocols/intents"
 export * from "@/utils/tokenGateway"

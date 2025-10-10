@@ -37,6 +37,16 @@ export const DUMMY_PRIVATE_KEY = "0x00000000000000000000000000000000000000000000
 export const DEFAULT_GRAFFITI = "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString
 
 /**
+ * Returns the maximum of two bigint values
+ * @param a - First bigint value
+ * @param b - Second bigint value
+ * @returns The larger of the two values
+ */
+export function maxBigInt(a: bigint, b: bigint): bigint {
+	return a > b ? a : b
+}
+
+/**
  * Sleeps for the specified number of milliseconds.
  * @param ms The number of milliseconds to sleep.
  */

@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.3.21
+
+### Patch Changes
+
+- Updated relayer fee in estimate fill order
+
 ## 1.3.20
 
 ### Patch Changes

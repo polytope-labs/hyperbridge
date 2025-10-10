@@ -1,5 +1,13 @@
 # @hyperbridge/filler
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated fee value
+- Updated dependencies
+    - @hyperbridge/sdk@1.3.22
+
 ## 0.1.1
 
 ### Patch Changes

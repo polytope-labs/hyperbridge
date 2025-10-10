@@ -25,6 +25,7 @@ import {
 	getStorageSlot,
 	ERC20Method,
 	fetchPrice,
+	maxBigInt,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -315,9 +316,9 @@ export class ContractInteractionService {
 				destFeeTokenDecimals,
 			)
 
-			// Add 25 cents on top of execution fees
-
-			postGasEstimateInDestFeeToken += 25n * 10n ** BigInt(destFeeTokenDecimals - 2)
+			const minRelayerFee = 5n * 10n ** BigInt(destFeeTokenDecimals - 2)
+			const postGasWithIncentive = postGasEstimateInDestFeeToken + (postGasEstimateInDestFeeToken * 1n) / 100n
+			postGasEstimateInDestFeeToken = maxBigInt(postGasWithIncentive, minRelayerFee)
 
 			this.logger.debug(
 				{

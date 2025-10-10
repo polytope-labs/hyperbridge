@@ -4,8 +4,8 @@ import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { compareDecimalValues } from "@/utils"
-import { formatUnits } from "viem"
+import { compareDecimalValues, TESTNET_CHAINS } from "@/utils"
+import { formatUnits, parseUnits } from "viem"
 import { getLogger } from "@/services/Logger"
 
 export class BasicFiller implements FillerStrategy {
@@ -85,10 +85,15 @@ export class BasicFiller implements FillerStrategy {
 				order.sourceChain,
 			)
 
-			const totalGasEstimateInFeeToken =
+			let totalGasEstimateInFeeToken =
 				(await this.contractService.convertGasToFeeToken(fillGas, order.destChain, destFeeTokenDecimals)) +
 				protocolFeeInFeeToken +
 				relayerFeeInFeeToken
+
+			totalGasEstimateInFeeToken =
+				TESTNET_CHAINS.has(order.destChain) || TESTNET_CHAINS.has(order.sourceChain)
+					? parseUnits("0", 6)
+					: totalGasEstimateInFeeToken
 
 			const orderFeeInDestFeeToken = adjustFeeDecimals(order.fees, sourceFeeTokenDecimals, destFeeTokenDecimals)
 

@@ -240,7 +240,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 				(
 					ParachainHeader {
 						header: heads[index].1.clone(),
-						index,
+						index: index as u32,
 						para_id: heads[index].0,
 					},
 					index,
@@ -250,6 +250,16 @@ impl<R: Config, P: Config> Prover<R, P> {
 
 		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
 		let proof = util::merkle_proof(&leaves, &indices);
+
+		let proof: Vec<Vec<(u32, [u8; 32])>> = proof
+			.into_iter()
+			.map(|level| {
+				level
+					.into_iter()
+					.map(|(index, hash)| (index as u32, hash))
+					.collect()
+			})
+			.collect();
 
 		let parachain = ParachainProof { parachains, proof };
 

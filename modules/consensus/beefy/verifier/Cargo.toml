@@ -23,10 +23,18 @@ rs_merkle = {workspace = true}
 workspace = true
 features = [
     "sp-core",
+    "sp-io",
     "sp-runtime"
 ]
 
-
+[dev-dependencies]
+beefy-prover = { workspace = true}
+subxt = { workspace = true, default-features = true }
+subxt-core = { workspace = true, default-features = true }
+subxt-utils = { workspace = true, default-features = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+k256 = { workspace = true }
 
 [features]
 default = ["std"]

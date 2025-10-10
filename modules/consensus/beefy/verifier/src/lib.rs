@@ -13,17 +13,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod test;
+
 use anyhow::anyhow;
 use beefy_verifier_primitives::{
 	BeefyConsensusProof, ConsensusState, Node, PartialMmrLeaf, RelaychainProof,
 };
 use codec::Encode;
 use ismp::messaging::Keccak256;
-use merkle_mountain_range::{Error as MmrError, Merge as MmrMerge, MerkleProof as MmrMerkleProof};
+use merkle_mountain_range::{Error as MmrError, leaf_index_to_mmr_size, Merge as MmrMerge, MerkleProof as MmrMerkleProof};
 use polkadot_sdk::{sp_runtime::traits::Header, *};
 use primitive_types::H256;
 use rs_merkle::{Hasher, MerkleProof};
 use sp_core::{ByteArray, ecdsa, hashing::keccak_256 as keccak256};
+use k256::{elliptic_curve::sec1::ToEncodedPoint, PublicKey};
+use k256::ecdsa::{VerifyingKey, RecoveryId, Signature as K256Signature, };
+use merkle_mountain_range::leaf_index_to_pos;
+use polkadot_sdk::sp_consensus_beefy::mmr::{BeefyAuthoritySet, MmrLeafVersion};
 
 /// The payload ID for the MMR root hash in a BEEFY commitment
 const MMR_ROOT_PAYLOAD_ID: [u8; 2] = *b"mh";
@@ -111,37 +117,60 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	let mmr_root = H256::from_slice(mmr_root_data);
 
 	let commitment_hash = H::keccak256(&commitment.encode());
-	let mut authorities = Vec::with_capacity(signatures_length);
 	let mut authority_leaves: Vec<[u8; 32]> = Vec::new();
 	let mut authority_indices = Vec::new();
 
-	for sig in &relay_proof.signed_commitment.signatures {
-		let signature = ecdsa::Signature::from_slice(&sig.signature)
-			.map_err(|_| anyhow!("Invalid signature format"))?;
-		let recovered_pubkey = signature
-			.recover(&commitment_hash)
-			.ok_or_else(|| anyhow!("Failed to recover public key"))?;
+	println!("\n======= VERIFIER DEBUG =======");
+	let target_root = if is_current_authorities {
+		trusted_state.current_authorities.keyset_commitment
+	} else {
+		trusted_state.next_authorities.keyset_commitment
+	};
+	println!("Target Merkle Root: {:?}", H256::from(target_root));
+	println!("Verifier-side calculated authority leaf hashes:");
 
-		let authority_address_hash = H::keccak256(&recovered_pubkey.0);
-		authority_leaves.push(<[u8; 32]>::from(authority_address_hash));
+	for (i, sig) in relay_proof.signed_commitment.signatures.iter().enumerate() {
+		let recovery_id =
+			RecoveryId::from_byte(sig.signature[64]).ok_or_else(|| anyhow!("Invalid recovery ID"))?;
+		let k256_sig = K256Signature::from_slice(&sig.signature[0..64])
+			.map_err(|_| anyhow!("Invalid k256 signature format"))?;
+
+		let recovered_verifying_key =
+			VerifyingKey::recover_from_prehash(commitment_hash.as_ref(), &k256_sig, recovery_id)
+				.map_err(|_| anyhow!("Failed to recover public key with k256"))?;
+
+		let uncompressed_point = recovered_verifying_key.to_encoded_point(false);
+		let uncompressed_bytes_64 = &uncompressed_point.as_bytes()[1..];
+
+		let hashed_uncompressed = H::keccak256(uncompressed_bytes_64);
+
+		let mut eth_address = [0u8; 20];
+		eth_address.copy_from_slice(&hashed_uncompressed.as_ref()[12..]);
+
+		let authority_address_hash = H::keccak256(&eth_address);
+
+		if i < 5 {
+			println!("[{:?}] - {:?}", sig.index, H256::from(authority_address_hash));
+		}
+
+		authority_leaves.push(authority_address_hash.into());
 		authority_indices.push(sig.index as usize);
-		authorities
-			.push(Node { index: sig.index, hash: H256::from(authority_address_hash) });
 	}
+
 	let proof_hashes: Vec<[u8; 32]> =
 		relay_proof.proof.iter().flatten().map(|h| h.hash.into()).collect();
 	let merkle_proof = MerkleProof::<MerkleKeccak256>::new(proof_hashes);
 
 	let valid = if is_current_authorities {
 		merkle_proof.verify(
-			<[u8; 32]>::from(trusted_state.current_authorities.keyset_commitment),
+			trusted_state.current_authorities.keyset_commitment.into(),
 			&authority_indices,
 			&authority_leaves,
 			trusted_state.current_authorities.len as usize,
 		)
 	} else {
 		merkle_proof.verify(
-			<[u8; 32]>::from(trusted_state.next_authorities.keyset_commitment),
+			trusted_state.next_authorities.keyset_commitment.into(),
 			&authority_indices,
 			&authority_leaves,
 			trusted_state.next_authorities.len as usize,
@@ -165,28 +194,34 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	Ok((trusted_state, relay_proof.latest_mmr_leaf.extra))
 }
 
-/// Verifies the mmr leaf with a given mmr root
 fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
-	trusted_state: &ConsensusState,
+	_trusted_state: &ConsensusState,
 	relay: &RelaychainProof,
 	mmr_root: H256,
 ) -> anyhow::Result<()> {
-	let partial_leaf = PartialMmrLeaf {
+	#[derive(Encode)]
+	struct CanonicalMmrLeaf {
+		version: MmrLeafVersion,
+		parent_number_and_hash: (u32, H256),
+		beefy_next_authority_set: BeefyAuthoritySet<H256>,
+		leaf_extra: H256,
+	}
+
+	let canonical_leaf = CanonicalMmrLeaf {
 		version: relay.latest_mmr_leaf.version.clone(),
 		parent_number_and_hash: relay.latest_mmr_leaf.parent_block_and_hash,
 		beefy_next_authority_set: relay.latest_mmr_leaf.beefy_next_authority_set.clone(),
+		leaf_extra: relay.latest_mmr_leaf.extra,
 	};
-	let leaf_hash = H::keccak256(&partial_leaf.encode());
-	let leaf_count = leaf_index(
-		trusted_state.beefy_activation_block,
-		relay.latest_mmr_leaf.parent_block_and_hash.0,
-	) + 1;
+	let leaf_hash = H::keccak256(&canonical_leaf.encode());
+	let mmr_size = leaf_index_to_mmr_size(relay.latest_mmr_leaf.leaf_index as u64);
 
 	let mmr_proof = MmrMerkleProof::<[u8; 32], KeccakMerge>::new(
-		leaf_count as u64,
+		mmr_size,
 		relay.mmr_proof.iter().map(|h| (*h).into()).collect(),
 	);
-	let leaf = (relay.latest_mmr_leaf.leaf_index as u64, leaf_hash.into());
+	let leaf_pos = leaf_index_to_pos(relay.latest_mmr_leaf.leaf_index as u64);
+	let leaf = (leaf_pos, leaf_hash.into());
 	let valid = mmr_proof
 		.verify(mmr_root.into(), vec![leaf])
 		.map_err(|e| anyhow!("MMR verification failed during calculation: {:?}", e.to_string()))?;

@@ -2288,14 +2288,21 @@ name = "beefy-verifier"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "beefy-prover",
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
+ "futures",
  "ismp",
+ "k256",
  "log",
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "rs_merkle 1.5.0",
+ "subxt 0.42.1",
+ "subxt-core 0.42.1",
+ "subxt-utils",
+ "tokio",
 ]
 
 [[package]]

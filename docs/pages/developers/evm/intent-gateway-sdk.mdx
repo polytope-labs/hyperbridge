@@ -124,7 +124,7 @@ order.fees = feeTokenAmount
 The `estimateFillOrder()` method performs these steps:
 
 1. **Constructs Post Request**: Creates the ISMP post request for settlement
-2. **Estimates Fill Gas**: Simulates `fillOrder()` execution with state overrides
+2. **Estimates Fill Gas**: Simulates `fillOrder()` execution with state overrides for allowances & balances
 3. **Calculates Protocol Fee**: Queries ISMP host for message costs
 4. **Determines Relayer Fee**: Adds minimum $0.25 + execution costs
 5. **Converts to Fee Token**: Converts all costs to source chain's fee token

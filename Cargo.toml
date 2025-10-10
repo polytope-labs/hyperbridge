@@ -48,6 +48,7 @@ members = [
     "modules/consensus/sync-committee/primitives",
     "modules/consensus/beefy/primitives",
     "modules/consensus/beefy/prover",
+    "modules/consensus/beefy/verifier",
     "modules/consensus/geth-primitives",
     "modules/consensus/bsc/verifier",
     "modules/consensus/bsc/prover",
@@ -116,7 +117,7 @@ members = [
 
 
     # Airdrop
-    "modules/pallets/bridge-drop",
+    "modules/pallets/bridge-drop", "modules/ismp/clients/beefy",
 ]
 
 # Config for 'cargo dist'
@@ -203,6 +204,7 @@ reqwest-middleware = "0.2.4"
 reqwest = { version="0.11.14", features=["json"]}
 prost = { version = "0.13.0", default-features = false }
 impl-trait-for-tuples = "0.2.3"
+k256 = { version = "0.13.3", default-features = false, features = ["ecdsa"] }
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }
@@ -221,6 +223,7 @@ ismp = { version = "2506.1.0", path = "./modules/ismp/core", default-features = 
 serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
 crypto-utils = { version = "0.1.0", path = "modules/utils/crypto", default-features = false }
 grandpa-verifier-primitives = { version = "2506.1.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
+beefy-verifier = { version = "0.1.0", path = "./modules/consensus/beefy/verifier", default-features = false }
 grandpa-verifier = { version = "2506.1.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
 ismp-grandpa = { version = "2506.1.0", path = "./modules/ismp/clients/grandpa", default-features = false }
 ismp-parachain = { version = "2506.1.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
@@ -374,4 +377,8 @@ features = ["derive"]
 
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
+default-features = false
+
+[workspace.dependencies.rs_merkle]
+version = "1.2.0"
 default-features = false

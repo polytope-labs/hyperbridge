@@ -22,6 +22,7 @@ use tesseract_polygon::PolygonPosConfig;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 use tesseract_sync_committee::SyncCommitteeConfig;
+use tesseract_tendermint::TendermintConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -47,6 +48,8 @@ pub enum AnyConfig {
 	Grandpa(GrandpaConfig),
 	/// Polygon POS chain config
 	Polygon(PolygonPosConfig),
+	/// Tendermint Config
+	Tendermint(TendermintConfig),
 }
 
 pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
@@ -186,6 +189,7 @@ impl AnyConfig {
 			AnyConfig::Gnosis(config) => config.evm_config.state_machine,
 			AnyConfig::Grandpa(config) => config.substrate.state_machine,
 			AnyConfig::Polygon(config) => config.evm_config.state_machine,
+			AnyConfig::Tendermint(config) => config.evm_config.state_machine,
 		}
 	}
 
@@ -202,6 +206,7 @@ impl AnyConfig {
 			AnyConfig::Gnosis(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Grandpa(_) => None,
 			AnyConfig::Polygon(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::Tendermint(c) => Some(c.evm_config.ismp_host.clone()),
 		}
 	}
 }

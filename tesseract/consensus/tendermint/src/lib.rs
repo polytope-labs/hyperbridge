@@ -13,15 +13,14 @@ use tendermint_prover::CometBFTClient;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
-pub mod config;
 mod notification;
 
 /// Host configuration for Tendermint relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HostConfig {
+pub struct TendermintHostConfig {
 	/// Frequency (in seconds) to check for new updates
 	pub consensus_update_frequency: Option<u64>,
-	/// Tendermint RPC URL
+	/// Tendermint Json RPC URL
 	pub rpc_url: String,
 	/// Trusting period in seconds for light client verification
 	pub trusting_period_secs: Option<u64>,
@@ -32,17 +31,14 @@ pub struct HostConfig {
 /// Top-level config for Tendermint relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TendermintConfig {
-	pub host: HostConfig,
+	pub host: TendermintHostConfig,
+	#[serde(flatten)]
 	pub evm_config: EvmConfig,
-	/// The consensus client ID to use when creating the client on the counterparty
-	pub consensus_client_id: [u8; 4],
 }
 
 impl TendermintConfig {
 	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(
-			TendermintHost::new(&self.host, &self.evm_config, self.consensus_client_id).await?,
-		))
+		Ok(Arc::new(TendermintHost::new(&self.host, &self.evm_config).await?))
 	}
 
 	pub fn state_machine(&self) -> StateMachine {
@@ -55,19 +51,14 @@ impl TendermintConfig {
 pub struct TendermintHost {
 	pub consensus_state_id: ConsensusStateId,
 	pub state_machine: StateMachine,
-	pub host: HostConfig,
+	pub host: TendermintHostConfig,
 	pub provider: Arc<dyn IsmpProvider>,
 	pub prover: Arc<CometBFTClient>,
-	pub consensus_client_id: [u8; 4],
 }
 
 impl TendermintHost {
 	/// Create a new TendermintHost
-	pub async fn new(
-		host: &HostConfig,
-		evm: &EvmConfig,
-		consensus_client_id: [u8; 4],
-	) -> Result<Self, anyhow::Error> {
+	pub async fn new(host: &TendermintHostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 		Ok(Self {
 			consensus_state_id: Default::default(),
@@ -75,7 +66,6 @@ impl TendermintHost {
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
 			prover: Arc::new(CometBFTClient::new(&host.rpc_url).await?),
-			consensus_client_id,
 		})
 	}
 
@@ -188,7 +178,7 @@ impl IsmpHost for TendermintHost {
 
 		Ok(Some(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),
-			consensus_client_id: self.consensus_client_id,
+			consensus_client_id: ismp_tendermint::DEFAULT_TENDERMINT_CONSENSUS_CLIENT_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: self.host.unbonding_period_secs.unwrap_or(82 * 3600),
 			challenge_periods: vec![(self.state_machine, 2 * 60)].into_iter().collect(),

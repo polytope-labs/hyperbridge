@@ -65,7 +65,7 @@ An order's total fee consists of:
 
 1. **Fill Gas Cost**: Gas required to execute `fillOrder()` on destination chain
 2. **Protocol Fee**: ISMP messaging fees for cross-chain communication
-3. **Relayer Fee**: Minimum $0.25 + execution costs for message delivery
+3. **Relayer Fee**: Minimum $0.05 + execution costs for message delivery
 4. **Buffer**: Safety margin (2.5-30% depending on chain volatility)
 
 The SDK's `estimateFillOrder()` method calculates all these components automatically.

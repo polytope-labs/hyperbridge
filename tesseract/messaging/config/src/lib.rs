@@ -17,13 +17,12 @@ use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
 use tendermint_primitives::keys::{DefaultEvmKeys, SeiEvmKeys};
 use tesseract_evm::{EvmClient, EvmConfig};
-use tesseract_evm_tendermint::TendermintEvmClient;
+use tesseract_evm_tendermint::{TendermintEvmClient, TendermintEvmClientConfig};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient, SubstrateConfig,
 };
-use tesseract_tendermint::config::TendermintEvmClientConfig;
 
 /// The AnyConfig wraps the configuration options for all supported chains
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]

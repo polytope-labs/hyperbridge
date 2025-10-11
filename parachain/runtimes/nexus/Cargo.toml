@@ -56,6 +56,7 @@ pallet-messaging-fees = { workspace = true }
 pallet-collator-manager = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
+ismp-tendermint = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -161,7 +162,8 @@ std = [
     "ismp-polygon/std",
     "pallet-consensus-incentives/std",
     "pallet-messaging-fees/std",
-    "pallet-collator-manager/std"
+    "pallet-collator-manager/std",
+    "ismp-tendermint/std"
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",

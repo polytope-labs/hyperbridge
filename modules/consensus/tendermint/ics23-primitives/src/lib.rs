@@ -5,8 +5,7 @@ use ibc::core::commitment_types::{
 	commitment::CommitmentProofBytes, merkle::MerkleProof, proto::v1::MerkleProof as RawMerkleProof,
 };
 use ics23::CommitmentProof;
-use ismp::messaging::Keccak256;
-use ismp::prelude::Vec;
+use ismp::{messaging::Keccak256, prelude::Vec};
 use polkadot_sdk::sp_io;
 use primitive_types::H256;
 

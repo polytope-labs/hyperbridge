@@ -31,8 +31,7 @@ use ismp::{
 use primitive_types::{H160, H256};
 
 pub mod prelude {
-	pub use alloc::collections::BTreeMap;
-	pub use alloc::{boxed::Box, string::ToString, vec, vec::Vec};
+	pub use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 }
 
 use pallet_ismp_host_executive::EvmHosts;

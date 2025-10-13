@@ -17,8 +17,10 @@
 
 use anyhow::Error;
 use codec::Encode;
-use evm_state_machine::presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT};
-use evm_state_machine::types::EvmKVProof;
+use evm_state_machine::{
+	presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
+	types::EvmKVProof,
+};
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -31,11 +33,20 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tendermint_ics23_primitives::proof_ops_to_commitment_proof_bytes;
 use tendermint_primitives::keys::EvmStoreKeys;
 use tendermint_prover::CometBFTClient;
-use tesseract_evm::EvmClient;
+use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
 	StateMachineUpdated, StateProofQueryType, TxResult,
 };
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct TendermintEvmClientConfig {
+	/// EVM config
+	#[serde(flatten)]
+	pub evm_config: EvmConfig,
+	/// Tendermint Json Rpc URL
+	pub rpc_url: String,
+}
 
 #[derive(Clone)]
 pub struct TendermintEvmClient<T: EvmStoreKeys> {

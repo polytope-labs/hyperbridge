@@ -3997,6 +3997,7 @@ checksum = "95ac39be7373404accccaede7cc1ec942ccef14f0ca18d209967a756bf1dbb1f"
 dependencies = [
  "prost 0.13.5",
  "tendermint-proto",
+ "tonic 0.13.1",
 ]
 
 [[package]]
@@ -8206,6 +8207,7 @@ dependencies = [
  "ismp-parachain-runtime-api",
  "ismp-polygon",
  "ismp-sync-committee",
+ "ismp-tendermint",
  "log",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
@@ -10067,9 +10069,11 @@ dependencies = [
  "cosmos-sdk-proto 0.27.0",
  "flex-error",
  "ics23",
+ "informalsystems-pbjson",
  "prost 0.13.5",
  "subtle-encoding",
  "tendermint-proto",
+ "tonic 0.13.1",
 ]
 
 [[package]]
@@ -13285,6 +13289,7 @@ dependencies = [
  "ismp-parachain-runtime-api",
  "ismp-polygon",
  "ismp-sync-committee",
+ "ismp-tendermint",
  "log",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
@@ -28324,7 +28329,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "1.1.9"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28453,12 +28458,11 @@ dependencies = [
  "tesseract-evm-tendermint",
  "tesseract-primitives",
  "tesseract-substrate",
- "tesseract-tendermint",
 ]
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.2.3"
+version = "1.4.0"
 dependencies = [
  "anyhow",
  "arb-host",
@@ -28488,6 +28492,7 @@ dependencies = [
  "tesseract-primitives",
  "tesseract-substrate",
  "tesseract-sync-committee",
+ "tesseract-tendermint",
  "tokio",
  "toml 0.7.8",
  "tracing-subscriber",
@@ -28563,6 +28568,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "primitive-types 0.13.1",
+ "serde",
  "sp-core 37.0.0",
  "tendermint-ics23-primitives",
  "tendermint-primitives",
@@ -29454,6 +29460,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "tonic"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "h2 0.4.10",
+ "http 1.3.1",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.6.0",
+ "hyper-timeout 0.5.2",
+ "hyper-util",
+ "percent-encoding",
+ "pin-project",
+ "prost 0.13.5",
+ "socket2 0.5.10",
+ "tokio",
+ "tokio-stream",
+ "tower 0.5.2",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "tower"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -29481,9 +29515,12 @@ checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
 dependencies = [
  "futures-core",
  "futures-util",
+ "indexmap 2.9.0",
  "pin-project-lite",
+ "slab",
  "sync_wrapper 1.0.2",
  "tokio",
+ "tokio-util 0.7.15",
  "tower-layer",
  "tower-service",
  "tracing",

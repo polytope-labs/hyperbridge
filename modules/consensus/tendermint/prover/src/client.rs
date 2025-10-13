@@ -90,20 +90,23 @@ impl CometBFTClient {
 		Ok(status)
 	}
 
-	/// Perform a generic ABCI query for a single key under a module store, returning an ICS23 proof.
+	/// Perform a generic ABCI query for a single key under a module store, returning an ICS23
+	/// proof.
 	///
-	/// - `store_key`: the Cosmos SDK module store key (e.g., "evm"). This is the same string
-	///   used by the module when creating its KVStore (Sei EVM uses `StoreKey = "evm"`).
-	///   The ABCI path becomes `/store/{store_key}/key`.
-	/// - `key`: raw key bytes within that store (including any module-defined prefix).
-	///   Example: For Sei EVM, common keys are:
+	/// - `store_key`: the Cosmos SDK module store key (e.g., "evm"). This is the same string used
+	///   by the module when creating its KVStore (Sei EVM uses `StoreKey = "evm"`). The ABCI path
+	///   becomes `/store/{store_key}/key`.
+	/// - `key`: raw key bytes within that store (including any module-defined prefix). Example: For
+	///   Sei EVM, common keys are:
 	///   - Nonce: `0x0a || <20-byte evm_address>` (prefix `NonceKeyPrefix`)
 	///   - Code hash: `0x08 || <20-byte evm_address>` (prefix `CodeHashKeyPrefix`)
 	///   - Code: `0x07 || <20-byte evm_address>` (prefix `CodeKeyPrefix`)
-	///   - Storage slot: `0x03 || <20-byte evm_address> || <32-byte storage_key>` (prefix `StateKeyPrefix`)
+	///   - Storage slot: `0x03 || <20-byte evm_address> || <32-byte storage_key>` (prefix
+	///     `StateKeyPrefix`)
 	///   where the 20-byte address is the Ethereum address bytes and the 32-byte storage key
 	///   is the Keccak-256 slot key.
-	/// - `height`: consensus height to query at (must match a height you have a verified header for).
+	/// - `height`: consensus height to query at (must match a height you have a verified header
+	///   for).
 	///
 	/// Returns the ABCI response including `proof_ops` (ICS23). Verify this proof against the
 	/// Tendermint app hash you obtained from the verified signed header at `height`.

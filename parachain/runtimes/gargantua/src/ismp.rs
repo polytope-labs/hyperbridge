@@ -91,6 +91,10 @@ impl ismp_optimism::pallet::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl ismp_tendermint::pallet::Config for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+}
+
 pub struct Coprocessor;
 
 impl Get<Option<StateMachine>> for Coprocessor {
@@ -132,6 +136,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
+		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<

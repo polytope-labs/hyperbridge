@@ -54,6 +54,7 @@ ismp-polygon = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
+ismp-tendermint = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -156,7 +157,11 @@ std = [
     "ismp-optimism/std",
     "pallet-consensus-incentives/std",
     "polkadot-sdk/std",
-    "ismp-polygon/std"
+    "ismp-polygon/std",
+    "pallet-consensus-incentives/std",
+    "pallet-messaging-fees/std",
+    "pallet-collator-manager/std",
+    "ismp-tendermint/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

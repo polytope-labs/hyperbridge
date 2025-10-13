@@ -14,17 +14,14 @@ mod tests {
 	use tokio::time::{interval, timeout, Duration};
 	use tracing::trace;
 
-	use evm_state_machine::tendermint::verify_evm_kv_proofs;
-	use evm_state_machine::types::EvmKVProof;
+	use evm_state_machine::{tendermint::verify_evm_kv_proofs, types::EvmKVProof};
 
-	use ismp::consensus::StateCommitment;
 	use ismp::{
-		consensus::{StateMachineHeight, StateMachineId},
+		consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 		host::StateMachine,
 		messaging::Proof as IsmpProof,
 	};
-	use primitive_types::H160;
-	use primitive_types::H256;
+	use primitive_types::{H160, H256};
 	use tendermint_ics23_primitives::proof_ops_to_commitment_proof_bytes;
 
 	fn get_sei_rpc() -> String {
@@ -568,12 +565,10 @@ mod tests {
 			H256::from_slice(&hex::decode(slot_hex.to_lowercase()).expect("bad slot hex"));
 
 		let (store_key, new_key) = match state_id {
-			StateMachine::Evm(id) if id == 1329 => {
-				(SeiEvmKeys::store_key(), SeiEvmKeys::storage_key(&contract.0, slot.0))
-			},
-			StateMachine::Evm(_) => {
-				(DefaultEvmKeys::store_key(), DefaultEvmKeys::storage_key(&contract.0, slot.0))
-			},
+			StateMachine::Evm(id) if id == 1329 =>
+				(SeiEvmKeys::store_key(), SeiEvmKeys::storage_key(&contract.0, slot.0)),
+			StateMachine::Evm(_) =>
+				(DefaultEvmKeys::store_key(), DefaultEvmKeys::storage_key(&contract.0, slot.0)),
 			_ => unreachable!("Only EVM state machines are supported in this test"),
 		};
 		let mut key52 = Vec::with_capacity(52);

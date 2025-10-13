@@ -36,8 +36,7 @@ use primitive_types::H160;
 use tendermint_ics23_primitives::ICS23HostFunctions;
 use tendermint_primitives::keys::{DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys};
 
-use crate::alloc::string::ToString;
-use crate::{req_res_commitment_key, req_res_receipt_keys};
+use crate::{alloc::string::ToString, req_res_commitment_key, req_res_receipt_keys};
 use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
 
 /// Tendermint EVM State Machine client verifying ICS23 KV proofs against app hash

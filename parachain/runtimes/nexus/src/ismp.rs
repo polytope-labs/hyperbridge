@@ -167,6 +167,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
+		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<
@@ -303,6 +304,17 @@ impl ismp_optimism::pallet::Config for Runtime {
 	>;
 
 	type IsmpHost = Ismp;
+}
+
+impl ismp_tendermint::pallet::Config for Runtime {
+	type AdminOrigin = EitherOfDiverse<
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureMembers<
+			AccountId,
+			TechnicalCollectiveInstance,
+			MIN_TECH_COLLECTIVE_APPROVAL,
+		>,
+	>;
 }
 
 #[cfg(feature = "runtime-benchmarks")]

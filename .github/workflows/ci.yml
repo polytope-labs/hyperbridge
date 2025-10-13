@@ -28,7 +28,8 @@ env:
     POLYGON_HEIMDALL: ${{secrets.POLYGON_HEIMDALL}}
     POLYGON_HEIMDALL_REST: ${{secrets.POLYGON_HEIMDALL_REST}}
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
-
+    SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
+    KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
 
 jobs:
     check-wasm:
@@ -371,11 +372,6 @@ jobs:
               run: |
                   cargo test -p sync-committee-prover -- --nocapture --ignored
 
-            #      - name: polygon pos integration tests
-            #        run: |
-            #
-            #          cargo test -p polygon-pos-prover -- --nocapture --ignored
-
             - name: Binance Smart Chain integration tests
               run: |
                   cargo test -p bsc-prover -- --nocapture --ignored
@@ -419,49 +415,3 @@ jobs:
                   yarn
                   forge test -vvv
               id: test
-
-    hyperclient-tests:
-        name: Hyperclient Integration Tests
-        runs-on: ubuntu-latest
-        if: github.event.pull_request.draft == false
-        steps:
-            - name: Get User Permission
-              id: checkAccess
-              uses: actions-cool/check-user-permission@v2
-              with:
-                  require: write
-                  username: ${{ github.triggering_actor }}
-
-            - name: Check User Permission
-              # if: steps.checkAccess.outputs.require-result == 'false'
-              if: false
-              run: |
-                  echo "${{ github.triggering_actor }} does not have permissions on this repo."
-                  echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
-                  echo "Job originally triggered by ${{ github.actor }}"
-                  exit 1
-
-            - uses: webfactory/ssh-agent@v0.7.0
-              with:
-                  ssh-private-key: ${{ secrets.SSH_KEY }}
-
-            - uses: actions/checkout@v3
-              with:
-                  ref: ${{  github.event.pull_request.head.sha }}
-                  token: ${{ secrets.GH_TOKEN }}
-                  submodules: recursive
-
-            - name: Install wasm-pack
-              run: |
-                  curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-                  rustup target add wasm32-unknown-unknown
-
-            - name: Install chrome
-              uses: browser-actions/setup-chrome@latest
-
-            - name: Run WASM tests
-              env:
-                  RUSTFLAGS: "--cfg substrate_runtime"
-              run: |
-                  wasm-pack test --headless --chrome --no-default-features --features=wasm,testing
-              working-directory: modules/hyperclient

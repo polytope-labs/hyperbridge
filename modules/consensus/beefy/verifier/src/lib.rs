@@ -14,6 +14,7 @@
 // limitations under the License.
 
 mod test;
+mod error;
 
 use anyhow::anyhow;
 use beefy_verifier_primitives::{
@@ -30,6 +31,7 @@ use k256::{elliptic_curve::sec1::ToEncodedPoint, PublicKey};
 use k256::ecdsa::{VerifyingKey, RecoveryId, Signature as K256Signature, };
 use merkle_mountain_range::leaf_index_to_pos;
 use polkadot_sdk::sp_consensus_beefy::mmr::{BeefyAuthoritySet, MmrLeafVersion};
+use crate::error::Error;
 
 /// The payload ID for the MMR root hash in a BEEFY commitment
 const MMR_ROOT_PAYLOAD_ID: [u8; 2] = *b"mh";
@@ -77,12 +79,15 @@ pub fn verify_consensus<H: Keccak256 + Send + Sync>(
 fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	mut trusted_state: ConsensusState,
 	relay_proof: RelaychainProof,
-) -> anyhow::Result<(ConsensusState, H256)> {
+) -> Result<(ConsensusState, H256), Error> {
 	let signatures_length = relay_proof.signed_commitment.signatures.len();
 	let latest_height = relay_proof.signed_commitment.commitment.block_number;
 
 	if trusted_state.latest_beefy_height >= latest_height {
-		Err(anyhow!("Stale height"))?
+		return Err(Error::StaleHeight {
+			trusted_height: trusted_state.latest_beefy_height,
+			current_height: latest_height
+		})
 	}
 
 	if !check_participation_threshold(
@@ -92,7 +97,7 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 		signatures_length as u32,
 		trusted_state.next_authorities.len,
 	) {
-		return Err(anyhow!("Super Majority Required"));
+		return Err(Error::SuperMajorityRequired);
 	}
 
 	let commitment = relay_proof.signed_commitment.commitment.clone();
@@ -100,7 +105,7 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	if commitment.validator_set_id != trusted_state.current_authorities.id &&
 		commitment.validator_set_id != trusted_state.next_authorities.id
 	{
-		return Err(anyhow!("Unknown Authority set"));
+		return Err(Error::UnknownAuthoritySet { id: commitment.validator_set_id });
 	}
 
 	let is_current_authorities =
@@ -109,10 +114,10 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	let mmr_root_data = commitment
 		.payload
 		.get_raw(&MMR_ROOT_PAYLOAD_ID)
-		.ok_or_else(|| anyhow!("Mmr Root Hash Missing"))?;
+		.ok_or(Error::MmrRootHashMissing)?;
 
 	if mmr_root_data.len() != 32 {
-		return Err(anyhow!("Invalid Mmr root hash lenght"));
+		return Err(Error::InvalidMmrRootHashLength {len: mmr_root_data.len()});
 	}
 	let mmr_root = H256::from_slice(mmr_root_data);
 
@@ -131,13 +136,13 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 
 	for (i, sig) in relay_proof.signed_commitment.signatures.iter().enumerate() {
 		let recovery_id =
-			RecoveryId::from_byte(sig.signature[64]).ok_or_else(|| anyhow!("Invalid recovery ID"))?;
+			RecoveryId::from_byte(sig.signature[64]).ok_or(Error::InvalidRecoveryId)?;
 		let k256_sig = K256Signature::from_slice(&sig.signature[0..64])
-			.map_err(|_| anyhow!("Invalid k256 signature format"))?;
+			.map_err(|_| Error::InvalidSignatureFormat)?;
 
 		let recovered_verifying_key =
 			VerifyingKey::recover_from_prehash(commitment_hash.as_ref(), &k256_sig, recovery_id)
-				.map_err(|_| anyhow!("Failed to recover public key with k256"))?;
+				.map_err(|_| Error::FailedToRecoverPublicKey)?;
 
 		let uncompressed_point = recovered_verifying_key.to_encoded_point(false);
 		let uncompressed_bytes_64 = &uncompressed_point.as_bytes()[1..];
@@ -178,10 +183,10 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	};
 
 	if !valid {
-		Err(anyhow!("Invalid Authorities proof"))?;
+		return Err(Error::InvalidAuthoritiesProof)
 	}
 
-	verify_mmr_leaf::<H>(&trusted_state, &relay_proof, mmr_root)?;
+	verify_mmr_leaf::<H>(&relay_proof, mmr_root)?;
 
 	if relay_proof.latest_mmr_leaf.beefy_next_authority_set.id > trusted_state.next_authorities.id {
 		trusted_state.current_authorities = trusted_state.next_authorities.clone();
@@ -195,10 +200,9 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 }
 
 fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
-	_trusted_state: &ConsensusState,
 	relay: &RelaychainProof,
 	mmr_root: H256,
-) -> anyhow::Result<()> {
+) -> Result<(), Error> {
 	#[derive(Encode)]
 	struct CanonicalMmrLeaf {
 		version: MmrLeafVersion,
@@ -224,21 +228,13 @@ fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
 	let leaf = (leaf_pos, leaf_hash.into());
 	let valid = mmr_proof
 		.verify(mmr_root.into(), vec![leaf])
-		.map_err(|e| anyhow!("MMR verification failed during calculation: {:?}", e.to_string()))?;
+		.map_err(|e| Error::MmrVerificationFailed(e.to_string()))?;
 
 	if !valid {
-		Err(anyhow!("Invalid Mmr proof: calculated root does not match provided root"))?;
+		return Err(Error::InvalidMmrProof)
 	}
 
 	Ok(())
-}
-
-/// Calculates the mmr leaf index for a block whose parent number is given
-fn leaf_index(activation_block: u32, parent_number: u32) -> u32 {
-	if activation_block == 0 {
-		return parent_number;
-	}
-	parent_number - activation_block
 }
 
 /// Checks for supermajority participation

@@ -26,3 +26,17 @@ pub trait WeightInfo {
 	/// Weight for updating a parachain's consensus
 	fn update_parachain_consensus() -> Weight;
 }
+
+impl WeightInfo for () {
+	fn add_parachain(n: u32) -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+
+	fn remove_parachain(n: u32) -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+
+	fn update_parachain_consensus() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+}

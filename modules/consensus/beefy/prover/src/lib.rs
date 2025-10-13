@@ -261,7 +261,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 			})
 			.collect();
 
-		let parachain = ParachainProof { parachains, proof };
+		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
 		Ok(ConsensusMessage { mmr, parachain })
 	}

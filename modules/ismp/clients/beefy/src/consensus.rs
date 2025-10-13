@@ -89,37 +89,38 @@ where
 		let heads_root: H256 = verified_updates.1;
 
 		if parachains.is_empty() {
+			dbg!("parachains is empty");
 			return Ok((verified_updates.0, BTreeMap::new()));
 		}
 
-		let mut leaf_hashes = Vec::with_capacity(parachains.len());
-		let mut leaf_indices = Vec::with_capacity(parachains.len());
-		let mut total_leaves = 0;
+		dbg!("visiting parachain headers");
+
+		let mut indexed_leaf_hashes = Vec::with_capacity(parachains.len());
 
 		for para_header in &parachains {
-			let mut para_id_encoded = (para_header.para_id).encode();
-			let mut header_encoded = para_header.header.clone();
-
-			let mut final_bytes = Vec::new();
-			final_bytes.append(&mut para_id_encoded);
-			final_bytes.append(&mut header_encoded);
-
-			leaf_hashes.push(H::keccak256(&final_bytes).0);
-			leaf_indices.push(para_header.index as usize);
-			if para_header.index as usize > total_leaves {
-				total_leaves = para_header.index as usize;
-			}
+			let leaf = (para_header.para_id, para_header.header.clone());
+			let hash = H::keccak256(&leaf.encode()).0;
+			indexed_leaf_hashes.push((para_header.index as usize, hash));
 		}
-		total_leaves += 1;
 
+		indexed_leaf_hashes.sort_by_key(|(index, _)| *index);
+
+		let (leaf_indices, leaf_hashes): (Vec<usize>, Vec<[u8; 32]>) =
+			indexed_leaf_hashes.into_iter().unzip();
 		let proof_hashes: Vec<[u8; 32]> =
 			parachain_proof.proof.iter().flatten().map(|node| node.1.into()).collect();
 		let merkle_proof = MerkleProof::<MerkleKeccak256>::new(proof_hashes);
-		let valid = merkle_proof.verify(heads_root.0, &leaf_indices, &leaf_hashes, total_leaves);
-
+		let valid = merkle_proof.verify(
+			heads_root.0,
+			&leaf_indices,
+			&leaf_hashes,
+			parachain_proof.total_leaves as usize,
+		);
 		if !valid {
 			return Err(Error::Custom("Error verifying Beefy consensus update".to_string()))
 		}
+
+		dbg!("Checking parachain headers");
 
 		let mut intermediates = BTreeMap::new();
 		for para_header in parachains {

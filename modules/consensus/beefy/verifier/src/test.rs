@@ -13,30 +13,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use beefy_prover::{
-    relay::{fetch_mmr_proof, fetch_next_beefy_justification, paras_parachains},
-    util::{hash_authority_addresses, merkle_proof},
-    Prover,
-};
+use codec::{Decode, Encode};
 use polkadot_sdk::*;
+use polkadot_sdk::sp_consensus_beefy::VersionedFinalityProof;
+use sp_core::H256;
+use sp_io::hashing::keccak_256;
+use subxt::{backend::legacy::LegacyRpcMethods, PolkadotConfig};
+use subxt::ext::subxt_rpcs::rpc_params;
+
+use beefy_prover::{
+    Prover,
+    relay::{fetch_mmr_proof, paras_parachains},
+    util::{hash_authority_addresses, merkle_proof},
+};
 use beefy_verifier_primitives::{
     BeefyConsensusProof, BeefyMmrLeaf, Node, ParachainHeader, ParachainProof, RelaychainProof,
     SignatureWithAuthorityIndex,
 };
-use codec::{Decode, Encode};
-use k256::ecdsa::VerifyingKey;
-use polkadot_sdk::sp_consensus_beefy::{VersionedFinalityProof};
-use polkadot_sdk::sp_core::ByteArray;
-use crate::sp_consensus_beefy::ecdsa_crypto::AuthorityId;
-use crate::sp_consensus_beefy::{ecdsa_crypto::Signature};
 use ismp::messaging::Keccak256;
-use sp_core::H256;
-use sp_io::hashing::keccak_256;
-use subxt::{backend::{legacy::LegacyRpcMethods, rpc::RpcClient}, PolkadotConfig};
-use subxt::ext::subxt_rpcs::rpc_params;
-use crate::verify_consensus;
-use crate::ecdsa::Public;
 
+use crate::sp_consensus_beefy::ecdsa_crypto::Signature;
+use crate::verify_consensus;
 
 struct TestKeccak256;
 
@@ -242,7 +239,7 @@ async fn test_verify_consensus() {
         .into_iter()
         .map(|level| level.into_iter().map(|(index, hash)| (index as u32, hash)).collect())
         .collect();
-    let parachain_proof = ParachainProof { parachains, proof };
+    let parachain_proof = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
     println!("Assembling final proof for verification");
     let consensus_proof = BeefyConsensusProof { relay: relay_proof, parachain: parachain_proof };

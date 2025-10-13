@@ -15,7 +15,7 @@
 
 extern crate alloc;
 extern crate core;
-mod consensus;
+pub mod consensus;
 
 pub use pallet::*;
 use polkadot_sdk::*;

@@ -79,8 +79,8 @@ pub async fn submit_messages(
 					matches!(messages[index], Message::Consensus(_)),
 				)
 				.await?;
-				if matches!(messages[index], Message::Request(_) | Message::Response(_))
-					&& evs.is_empty()
+				if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
+					evs.is_empty()
 				{
 					cancelled.push(messages[index].clone())
 				}
@@ -299,8 +299,8 @@ pub async fn generate_contract_calls(
 
 	// Only use gas price buffer when submitting transactions
 	if !debug_trace && client.config.gas_price_buffer.is_some() {
-		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price)
-			/ U256::from(100u32);
+		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
+			U256::from(100u32);
 		gas_price = gas_price + buffer
 	}
 
@@ -347,9 +347,8 @@ pub async fn generate_contract_calls(
 						height: StateMachineHeight {
 							state_machine_id: {
 								match msg.proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) => {
-										id.into()
-									},
+									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
+										id.into(),
 									_ => {
 										panic!("Expected polkadot or kusama state machines");
 									},
@@ -411,8 +410,8 @@ pub async fn generate_contract_calls(
 									height: StateMachineHeight {
 										state_machine_id: {
 											match proof.height.id.state_id {
-												StateMachine::Polkadot(id)
-												| StateMachine::Kusama(id) => id.into(),
+												StateMachine::Polkadot(id) |
+												StateMachine::Kusama(id) => id.into(),
 												_ => {
 													log::error!("Expected polkadot or kusama state machines");
 													continue;
@@ -446,9 +445,8 @@ pub async fn generate_contract_calls(
 							call.gas(gas_limit)
 						}
 					},
-					RequestResponse::Request(..) => {
-						Err(anyhow!("Get requests are not supported by relayer"))?
-					},
+					RequestResponse::Request(..) =>
+						Err(anyhow!("Get requests are not supported by relayer"))?,
 				};
 
 				calls.push(call);
@@ -463,18 +461,19 @@ pub async fn generate_contract_calls(
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
-		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) => {
-			32_000_000
-		},
+		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
+			32_000_000,
 		StateMachine::Evm(GNOSIS_CHAIN_ID) | StateMachine::Evm(CHIADO_CHAIN_ID) => 16_000_000,
-		StateMachine::Evm(SEI_CHAIN_ID) | StateMachine::Evm(SEI_TESTNET_CHAIN_ID) => 10_000_000,
-		StateMachine::Evm(CRONOS_CHAIN_ID) | StateMachine::Evm(CRONOS_TESTNET_CHAIN_ID) => {
-			60_000_000
-		},
-		StateMachine::Evm(INJECTIVE_CHAIN_ID) | StateMachine::Evm(INJECTIVE_TESTNET_CHAIN_ID) => {
-			50_000_000
-		},
-		StateMachine::Evm(_) => 20_000_000,
+		// Gas limit is 10_000_000, we set our transaction gas limit to 40% of that
+		StateMachine::Evm(SEI_CHAIN_ID) | StateMachine::Evm(SEI_TESTNET_CHAIN_ID) => 4_000_000,
+		// Gas limit is 60_000_000, we set our transaction gas limit to 30% of that
+		StateMachine::Evm(CRONOS_CHAIN_ID) | StateMachine::Evm(CRONOS_TESTNET_CHAIN_ID) =>
+			18_000_000,
+		// Gas limit is 50_000_000, we set our transaction gas limit to 30% of that
+		StateMachine::Evm(INJECTIVE_CHAIN_ID) | StateMachine::Evm(INJECTIVE_TESTNET_CHAIN_ID) =>
+			15_000_000,
+		// Ethereum L1 max's gas limit per transaction will be reduced to 16m soon.
+		StateMachine::Evm(_) => 16_000_000,
 		_ => Default::default(),
 	}
 }
@@ -488,7 +487,7 @@ pub async fn handle_message_submission(
 	let mut results = vec![];
 	for msg in messages {
 		match msg {
-			Message::Request(req_msg) => {
+			Message::Request(req_msg) =>
 				for post in req_msg.requests {
 					let req = Request::Post(post);
 					let commitment = hash_request::<Hasher>(&req);
@@ -505,12 +504,11 @@ pub async fn handle_message_submission(
 
 						results.push(tx_receipt);
 					}
-				}
-			},
+				},
 			Message::Response(ResponseMessage {
 				datagram: RequestResponse::Response(resp),
 				..
-			}) => {
+			}) =>
 				for res in resp {
 					let commitment = hash_response::<Hasher>(&res);
 					let request_commitment = hash_request::<Hasher>(&res.request());
@@ -528,8 +526,7 @@ pub async fn handle_message_submission(
 
 						results.push(tx_receipt);
 					}
-				}
-			},
+				},
 			_ => {},
 		}
 	}

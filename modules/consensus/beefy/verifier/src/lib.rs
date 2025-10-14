@@ -13,25 +13,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod test;
 mod error;
+mod test;
 
+use crate::error::Error;
 use anyhow::anyhow;
 use beefy_verifier_primitives::{
 	BeefyConsensusProof, ConsensusState, Node, PartialMmrLeaf, RelaychainProof,
 };
 use codec::Encode;
 use ismp::messaging::Keccak256;
-use merkle_mountain_range::{Error as MmrError, leaf_index_to_mmr_size, Merge as MmrMerge, MerkleProof as MmrMerkleProof};
-use polkadot_sdk::{sp_runtime::traits::Header, *};
+use k256::{
+	PublicKey,
+	ecdsa::{RecoveryId, Signature as K256Signature, VerifyingKey},
+	elliptic_curve::sec1::ToEncodedPoint,
+};
+use merkle_mountain_range::{
+	Error as MmrError, Merge as MmrMerge, MerkleProof as MmrMerkleProof, leaf_index_to_mmr_size,
+	leaf_index_to_pos,
+};
+use polkadot_sdk::{
+	sp_consensus_beefy::mmr::{BeefyAuthoritySet, MmrLeafVersion},
+	sp_runtime::traits::Header,
+	*,
+};
 use primitive_types::H256;
 use rs_merkle::{Hasher, MerkleProof};
 use sp_core::{ByteArray, ecdsa, hashing::keccak_256 as keccak256};
-use k256::{elliptic_curve::sec1::ToEncodedPoint, PublicKey};
-use k256::ecdsa::{VerifyingKey, RecoveryId, Signature as K256Signature, };
-use merkle_mountain_range::leaf_index_to_pos;
-use polkadot_sdk::sp_consensus_beefy::mmr::{BeefyAuthoritySet, MmrLeafVersion};
-use crate::error::Error;
 
 /// The payload ID for the MMR root hash in a BEEFY commitment
 const MMR_ROOT_PAYLOAD_ID: [u8; 2] = *b"mh";
@@ -72,10 +80,11 @@ pub fn verify_consensus<H: Keccak256 + Send + Sync>(
 	Ok((state.encode(), heads_root))
 }
 
-/// Verifies a new Mmr root update, the relay chain accumulates it's blocks into a merkle mountain range tree
-/// which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by the
-/// relay chain authority set and we can verify the membership of the authorities that signed this new root
-/// using a merkle multi proof and a merkle commitment to the total authorities
+/// Verifies a new Mmr root update, the relay chain accumulates it's blocks into a merkle mountain
+/// range tree which light clients can use as a source for log_2(n) ancestry proofs. This new mmr
+/// root hash is signed by the relay chain authority set and we can verify the membership of the
+/// authorities that signed this new root using a merkle multi proof and a merkle commitment to the
+/// total authorities
 fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	mut trusted_state: ConsensusState,
 	relay_proof: RelaychainProof,
@@ -86,7 +95,7 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 	if trusted_state.latest_beefy_height >= latest_height {
 		return Err(Error::StaleHeight {
 			trusted_height: trusted_state.latest_beefy_height,
-			current_height: latest_height
+			current_height: latest_height,
 		})
 	}
 
@@ -117,7 +126,7 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 		.ok_or(Error::MmrRootHashMissing)?;
 
 	if mmr_root_data.len() != 32 {
-		return Err(Error::InvalidMmrRootHashLength {len: mmr_root_data.len()});
+		return Err(Error::InvalidMmrRootHashLength { len: mmr_root_data.len() });
 	}
 	let mmr_root = H256::from_slice(mmr_root_data);
 
@@ -162,8 +171,7 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 		authority_indices.push(sig.index as usize);
 	}
 
-	let proof_hashes: Vec<[u8; 32]> =
-		relay_proof.proof.iter().flatten().map(|h| h.hash.into()).collect();
+	let proof_hashes: Vec<[u8; 32]> = relay_proof.proof.iter().map(|h| (*h).into()).collect();
 	let merkle_proof = MerkleProof::<MerkleKeccak256>::new(proof_hashes);
 
 	let valid = if is_current_authorities {

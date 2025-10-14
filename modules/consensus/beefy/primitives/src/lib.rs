@@ -109,7 +109,7 @@ pub struct ParachainProof {
 	/// Proof for parachain header inclusion in the parachain headers root
 	pub proof: Vec<Vec<(u32, [u8; 32])>>,
 	/// Total leaves count for the proof
-	pub total_leaves: u32
+	pub total_leaves: u32,
 }
 
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
@@ -121,14 +121,13 @@ pub struct ConsensusMessage {
 	pub mmr: MmrProof,
 }
 
-
 /// Represents a node in a Merkle proof, containing a hash and its index at a specific layer.
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Node {
 	/// The positional index of the node in its layer of the Merkle tree.
 	pub index: u32,
 	/// The hash of the node.
-	pub hash: H256
+	pub hash: H256,
 }
 
 /// Represents a canonical BEEFY Merkle Mountain Range (MMR) leaf.
@@ -147,7 +146,7 @@ pub struct BeefyMmrLeaf {
 	/// The sequential index of this leaf in the MMR.
 	pub leaf_index: u32,
 	/// An extra data field
-	pub extra: H256
+	pub extra: H256,
 }
 
 /// Represents the proof components for verifying the relay chain's consensus state
@@ -160,7 +159,7 @@ pub struct RelaychainProof {
 	/// Proof for the latest mmr leaf
 	pub mmr_proof: Vec<H256>,
 	/// Proof for authorities in current/next session
-	pub proof: Vec<Vec<Node>>
+	pub proof: Vec<H256>,
 }
 
 /// Represents a complete BEEFY consensus proof.
@@ -172,7 +171,7 @@ pub struct BeefyConsensusProof {
 	/// The proof items for the relay chain consensus
 	pub relay: RelaychainProof,
 	/// The proof items for parachain headers
-	pub parachain: ParachainProof
+	pub parachain: ParachainProof,
 }
 
 #[cfg(feature = "std")]

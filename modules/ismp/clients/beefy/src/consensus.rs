@@ -108,7 +108,7 @@ where
 		let (leaf_indices, leaf_hashes): (Vec<usize>, Vec<[u8; 32]>) =
 			indexed_leaf_hashes.into_iter().unzip();
 		let proof_hashes: Vec<[u8; 32]> =
-			parachain_proof.proof.iter().flatten().map(|node| node.1.into()).collect();
+			parachain_proof.proof.iter().map(|node| (*node).into()).collect();
 		let merkle_proof = MerkleProof::<MerkleKeccak256>::new(proof_hashes);
 		let valid = merkle_proof.verify(
 			heads_root.0,

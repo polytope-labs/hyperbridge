@@ -251,15 +251,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
 		let proof = util::merkle_proof(&leaves, &indices);
 
-		let proof: Vec<Vec<(u32, [u8; 32])>> = proof
-			.into_iter()
-			.map(|level| {
-				level
-					.into_iter()
-					.map(|(index, hash)| (index as u32, hash))
-					.collect()
-			})
-			.collect();
+		let proof: Vec<[u8; 32]> = proof.into_iter().flatten().map(|(_, hash)| hash).collect();
 
 		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 

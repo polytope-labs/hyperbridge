@@ -107,7 +107,7 @@ pub struct ParachainProof {
 	pub parachains: Vec<ParachainHeader>,
 
 	/// Proof for parachain header inclusion in the parachain headers root
-	pub proof: Vec<Vec<(u32, [u8; 32])>>,
+	pub proof: Vec<[u8; 32]>,
 	/// Total leaves count for the proof
 	pub total_leaves: u32,
 }

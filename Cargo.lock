@@ -2284,6 +2284,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "beefy-verifier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beefy-prover",
+ "beefy-verifier-primitives",
+ "ckb-merkle-mountain-range",
+ "futures",
+ "ismp",
+ "k256",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "rs_merkle 1.5.0",
+ "subxt 0.42.1",
+ "subxt-core 0.42.1",
+ "subxt-utils",
+ "thiserror 2.0.12",
+ "tokio",
+]
+
+[[package]]
 name = "beefy-verifier-primitives"
 version = "0.1.1"
 dependencies = [
@@ -10651,6 +10674,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-beefy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beefy-verifier",
+ "beefy-verifier-primitives",
+ "ismp",
+ "ismp-parachain",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "rs_merkle 1.5.0",
+ "scale-info",
+ "substrate-state-machine",
+]
+
+[[package]]
 name = "ismp-bsc"
 version = "0.1.1"
 dependencies = [
@@ -15527,6 +15568,8 @@ dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-types 0.7.7",
  "anyhow",
+ "beefy-prover",
+ "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
  "dotenv",
  "env_logger 0.11.8",
@@ -15537,8 +15580,10 @@ dependencies = [
  "hex",
  "hyperbridge-client-machine",
  "ismp",
+ "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
+ "ismp-parachain",
  "ismp-sync-committee",
  "ismp-testsuite",
  "mmr-primitives",
@@ -15566,6 +15611,7 @@ dependencies = [
  "sp-core 37.0.0",
  "substrate-state-machine",
  "subxt 0.42.1",
+ "subxt-core 0.42.1",
  "subxt-utils",
  "token-gateway-primitives",
  "tokio",

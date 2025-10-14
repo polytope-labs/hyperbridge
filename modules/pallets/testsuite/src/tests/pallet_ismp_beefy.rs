@@ -137,12 +137,8 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 
 	let authority_proof_nodes = authority_proof_2d
 		.into_iter()
-		.map(|level| {
-			level
-				.into_iter()
-				.map(|(index, hash)| Node { index: index as u32, hash: H256::from(hash) })
-				.collect()
-		})
+		.flatten()
+		.map(|(_, hash)| H256::from(hash))
 		.collect();
 
 	let signed_commitment = beefy_verifier_primitives::SignedCommitment {

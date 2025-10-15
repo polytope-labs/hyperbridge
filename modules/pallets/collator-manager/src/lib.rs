@@ -21,7 +21,10 @@
 #![deny(missing_docs)]
 extern crate alloc;
 
-use polkadot_sdk::*;
+use polkadot_sdk::{
+	sp_runtime::{DispatchError, Weight},
+	*,
+};
 
 pub use pallet::*;
 
@@ -31,7 +34,8 @@ pub mod pallet {
 	use codec::{Codec, HasCompact};
 	use core::fmt::Debug;
 	use frame_support::{
-		dispatch::DispatchResult,
+		PalletId,
+		dispatch::{DispatchClass, DispatchResult},
 		pallet_prelude::*,
 		traits::{
 			Currency, ExistenceRequirement, Get, LockIdentifier, LockableCurrency,
@@ -40,11 +44,12 @@ pub mod pallet {
 			tokens::{Fortitude, Precision, Preservation},
 		},
 	};
+	use frame_system::pallet_prelude::{BlockNumberFor, OriginFor};
 	use pallet_session::SessionManager;
 	use scale_info::TypeInfo;
 	use sp_runtime::{
 		DispatchError, FixedPointOperand,
-		traits::{AtLeast32BitUnsigned, Saturating, Zero},
+		traits::{AccountIdConversion, AtLeast32BitUnsigned, Saturating, Zero},
 	};
 	use sp_staking::SessionIndex;
 	use sp_std::vec::Vec;
@@ -68,7 +73,8 @@ pub mod pallet {
 		+ pallet_session::Config
 		+ pallet_collator_selection::Config<
 			ValidatorId = <Self as pallet_session::Config>::ValidatorId,
-		> + pallet_ismp::Config
+		> + pallet_authorship::Config
+		+ pallet_ismp::Config
 	{
 		/// The pallet-assets instance that manages the reputation token.
 		type ReputationAsset: fungible::Mutate<Self::AccountId, Balance = <Self as pallet::Config>::Balance>;
@@ -92,15 +98,30 @@ pub mod pallet {
 		type NativeCurrency: ReservableCurrency<Self::AccountId, Balance = <Self as pallet::Config>::Balance>
 			+ LockableCurrency<Self::AccountId, Balance = <Self as pallet::Config>::Balance>;
 
+		/// The PalletId of the Treasury pallet
+		type TreasuryAccount: Get<PalletId>;
+
+		/// Admin origin for privileged actions
+		type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
 		/// The identifier for the locks placed by this pallet.
 		#[pallet::constant]
 		type LockId: Get<LockIdentifier>;
+
+		/// Weight information for operations
+		type WeightInfo: WeightInfo;
 	}
 
 	/// Tracks the total amount an account has bonded through this pallet.
 	#[pallet::storage]
 	pub type Bonded<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::AccountId, <T as pallet::Config>::Balance, ValueQuery>;
+
+	/// The reward value for collators
+	#[pallet::storage]
+	#[pallet::getter(fn collator_reward)]
+	pub type CollatorReward<T: Config> =
+		StorageValue<_, <T as pallet::Config>::Balance, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -120,6 +141,44 @@ pub mod pallet {
 			/// The amount of reputation that was reset.
 			amount: <T as pallet::Config>::Balance,
 		},
+		/// The collator reward amount has been updated.
+		CollatorRewardAmountUpdated {
+			/// The new reward amount
+			new_reward: <T as pallet::Config>::Balance,
+		},
+	}
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		/// Sets the collator reward amount.
+		#[pallet::call_index(0)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::set_collator_reward())]
+		pub fn set_collator_reward(
+			origin: OriginFor<T>,
+			new_reward: <T as pallet::Config>::Balance,
+		) -> DispatchResult {
+			<T as pallet::Config>::AdminOrigin::ensure_origin(origin)?;
+			CollatorReward::<T>::put(new_reward);
+			Self::deposit_event(Event::CollatorRewardAmountUpdated { new_reward });
+			Ok(())
+		}
+	}
+
+	impl<T: Config> pallet_authorship::EventHandler<T::AccountId, BlockNumberFor<T>> for Pallet<T> {
+		fn note_author(author: T::AccountId) {
+			let reward = CollatorReward::<T>::get();
+
+			if reward > Zero::zero() {
+				let treasury_account = T::TreasuryAccount::get().into_account_truncating();
+
+				let _ = T::NativeCurrency::transfer(
+					&treasury_account,
+					&author,
+					reward,
+					frame_support::traits::ExistenceRequirement::KeepAlive,
+				);
+			}
+		}
 	}
 
 	impl<T: Config> SessionManager<T::AccountId> for Pallet<T>
@@ -386,5 +445,18 @@ pub mod pallet {
 		) -> SignedImbalance<Self::Balance, Self::PositiveImbalance> {
 			T::NativeCurrency::make_free_balance_be(who, balance)
 		}
+	}
+}
+
+/// Weight information for pallet operations
+pub trait WeightInfo {
+	/// sets collator reward
+	fn set_collator_reward() -> Weight;
+}
+
+/// Default weight implementation using sensible defaults
+impl WeightInfo for () {
+	fn set_collator_reward() -> Weight {
+		Weight::from_parts(10_000_000, 0)
 	}
 }

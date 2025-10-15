@@ -117,32 +117,20 @@ export class FillerConfigService {
 		return this.chainConfigService.getUniswapV2FactoryAddress(chain)
 	}
 
-	getBatchExecutorAddress(chain: string): HexString {
-		return this.chainConfigService.getBatchExecutorAddress(chain)
-	}
-
 	getUniversalRouterAddress(chain: string): HexString {
 		return this.chainConfigService.getUniversalRouterAddress(chain)
-	}
-
-	getUniswapV3RouterAddress(chain: string): HexString {
-		return this.chainConfigService.getUniswapV3RouterAddress(chain)
-	}
-
-	getUniswapV3FactoryAddress(chain: string): HexString {
-		return this.chainConfigService.getUniswapV3FactoryAddress(chain)
 	}
 
 	getUniswapV3QuoterAddress(chain: string): HexString {
 		return this.chainConfigService.getUniswapV3QuoterAddress(chain)
 	}
 
-	getUniswapV4PoolManagerAddress(chain: string): HexString {
-		return this.chainConfigService.getUniswapV4PoolManagerAddress(chain)
-	}
-
 	getUniswapV4QuoterAddress(chain: string): HexString {
 		return this.chainConfigService.getUniswapV4QuoterAddress(chain)
+	}
+
+	getPermit2Address(chain: string): HexString {
+		return this.chainConfigService.getPermit2Address(chain)
 	}
 
 	getCoingeckoId(chain: string): string | undefined {

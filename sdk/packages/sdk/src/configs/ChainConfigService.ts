@@ -77,32 +77,20 @@ export class ChainConfigService {
 		return addresses.UniswapV2Factory[chain as keyof typeof addresses.UniswapV2Factory]! as HexString
 	}
 
-	getBatchExecutorAddress(chain: string): HexString {
-		return addresses.BatchExecutor[chain as keyof typeof addresses.BatchExecutor]! as HexString
-	}
-
 	getUniversalRouterAddress(chain: string): HexString {
 		return addresses.UniversalRouter[chain as keyof typeof addresses.UniversalRouter]! as HexString
-	}
-
-	getUniswapV3RouterAddress(chain: string): HexString {
-		return addresses.UniswapV3Router[chain as keyof typeof addresses.UniswapV3Router]! as HexString
-	}
-
-	getUniswapV3FactoryAddress(chain: string): HexString {
-		return addresses.UniswapV3Factory[chain as keyof typeof addresses.UniswapV3Factory]! as HexString
 	}
 
 	getUniswapV3QuoterAddress(chain: string): HexString {
 		return addresses.UniswapV3Quoter[chain as keyof typeof addresses.UniswapV3Quoter]! as HexString
 	}
 
-	getUniswapV4PoolManagerAddress(chain: string): HexString {
-		return addresses.UniswapV4PoolManager[chain as keyof typeof addresses.UniswapV4PoolManager]! as HexString
-	}
-
 	getUniswapV4QuoterAddress(chain: string): HexString {
 		return addresses.UniswapV4Quoter[chain as keyof typeof addresses.UniswapV4Quoter]! as HexString
+	}
+
+	getPermit2Address(chain: string): HexString {
+		return addresses.Permit2[chain as keyof typeof addresses.Permit2]! as HexString
 	}
 
 	getCoingeckoId(chain: string): string | undefined {

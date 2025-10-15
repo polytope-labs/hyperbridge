@@ -601,6 +601,20 @@ export enum ERC20Method {
 	ALLOWANCE = "0xdd62ed3e",
 }
 
+export enum UniversalRouterCommands {
+	WRAP_ETH = 0x0b,
+	UNWRAP_WETH = 0x0c,
+	V2_SWAP_EXACT_IN = 0x08,
+	V2_SWAP_EXACT_OUT = 0x09,
+	V3_SWAP_EXACT_IN = 0x00,
+	V3_SWAP_EXACT_OUT = 0x01,
+	V4_SWAP = 0x10,
+	V4_SWAP_EXACT_IN_SINGLE = 0x06,
+	V4_SWAP_EXACT_OUT_SINGLE = 0x08,
+	SETTLE_ALL = 0x0c,
+	TAKE_ALL = 0x0f,
+}
+
 /**
  * Retrieves the storage slot for a contract call using debug_traceCall
  *

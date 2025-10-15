@@ -5,6 +5,7 @@ A high-performance intent filler for the Hyperbridge IntentGateway protocol. Thi
 ## Installation
 
 ### Binary
+
 ```bash
 npm install -g @hyperbridge/filler
 # or
@@ -12,6 +13,7 @@ pnpm add -g @hyperbridge/filler
 ```
 
 ### Library
+
 ```bash
 npm install @hyperbridge/filler
 # or
@@ -21,17 +23,21 @@ pnpm add @hyperbridge/filler
 ## Quick Start
 
 ### 1. Generate Configuration
+
 ```bash
 filler init -o filler-config.toml
 ```
 
 ### 2. Edit Configuration
+
 Update `filler-config.toml` with:
+
 - Your private key
 - Chain configurations (chainId, rpcUrl, intentGatewayAddress)
 - Confirmation policies for each chain
 
 ### 3. Run the Filler
+
 ```bash
 filler run -c filler-config.toml
 ```
@@ -67,7 +73,7 @@ maxRechecks = 10
 recheckDelayMs = 30000
 
 [[strategies]]
-type = "basic"  # or "stable-swap"
+type = "basic"
 privateKey = "0xYourPrivateKey"
 
 # Chain configurations
@@ -103,58 +109,60 @@ maxConfirmations = 5
 ## Library Usage
 
 ```typescript
-import { IntentFiller, BasicFiller } from '@hyperbridge/filler';
+import { IntentFiller, BasicFiller } from "@hyperbridge/filler"
 
 // Configure chains
 const chainConfigs = [
-  {
-    chainId: 97,
-    rpcUrl: 'https://bsc-testnet.public.blastapi.io',
-    intentGatewayAddress: '0xFC91c1932F70D36E35Ae7F622cE6C8B86CCeE8e9'
-  },
-  {
-    chainId: 10200,
-    rpcUrl: 'https://rpc.chiadochain.net',
-    intentGatewayAddress: '0xFC91c1932F70D36E35Ae7F622cE6C8B86CCeE8e9'
-  }
-];
+	{
+		chainId: 97,
+		rpcUrl: "https://bsc-testnet.public.blastapi.io",
+		intentGatewayAddress: "0xFC91c1932F70D36E35Ae7F622cE6C8B86CCeE8e9",
+	},
+	{
+		chainId: 10200,
+		rpcUrl: "https://rpc.chiadochain.net",
+		intentGatewayAddress: "0xFC91c1932F70D36E35Ae7F622cE6C8B86CCeE8e9",
+	},
+]
 
 // Configure filler
 const fillerConfig = {
-  confirmationPolicy: {
-    getConfirmationBlocks: (chainId, amount) => 1
-  },
-  maxConcurrentOrders: 5,
-  pendingQueueConfig: {
-    maxRechecks: 10,
-    recheckDelayMs: 30000
-  }
-};
+	confirmationPolicy: {
+		getConfirmationBlocks: (chainId, amount) => 1,
+	},
+	maxConcurrentOrders: 5,
+	pendingQueueConfig: {
+		maxRechecks: 10,
+		recheckDelayMs: 30000,
+	},
+}
 
 // Initialize strategies
-const strategies = [new BasicFiller('0xYourPrivateKey')];
+const strategies = [new BasicFiller("0xYourPrivateKey")]
 
 // Create and start filler
-const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig);
-intentFiller.start();
+const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig)
+intentFiller.start()
 
 // Listen to events
-const monitor = intentFiller.monitor;
-monitor.on('newOrder', (data) => console.log('New order:', data.order));
-monitor.on('orderFilled', (data) => console.log('Order filled:', data.orderId));
+const monitor = intentFiller.monitor
+monitor.on("newOrder", (data) => console.log("New order:", data.order))
+monitor.on("orderFilled", (data) => console.log("Order filled:", data.orderId))
 
 // Stop when done
-intentFiller.stop();
+intentFiller.stop()
 ```
 
 ## Strategies
 
 ### Basic Filler
+
 - Direct token transfers between chains
 - No swapping capability
 - Lower gas costs
 
 ### Stable Swap Filler
+
 - Supports token swapping via Uniswap V2
 - Can capture arbitrage opportunities
 - Higher gas costs

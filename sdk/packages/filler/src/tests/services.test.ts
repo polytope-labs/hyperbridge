@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeAll } from "vitest"
-import { ContractInteractionService, ChainClientManager } from "@/services"
+import { strict as assert } from "assert"
 import {
-	ChainConfigService,
+	ContractInteractionService,
+	ChainClientManager,
+	FillerConfigService,
+	UserProvidedChainConfig,
+} from "@/services"
+import {
 	Order,
 	HexString,
-	fetchTokenUsdPrice,
+	fetchPrice,
 	ADDRESS_ZERO,
 	getStorageSlot,
 	ERC20Method,
@@ -16,21 +21,73 @@ import { decodeFunctionResult, encodeFunctionData, maxUint256, parseUnits, toHex
 import { privateKeyToAddress } from "viem/accounts"
 import { UNIVERSAL_ROUTER_ABI } from "@/config/abis/UniversalRouter"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+import { fileURLToPath } from "url"
+import { dirname, resolve } from "path"
+import { readFileSync } from "fs"
+import { parse } from "toml"
+import { PERMIT2_ABI } from "@/config/abis/Permit2"
+
+function loadTestConfig() {
+	const __filename = fileURLToPath(import.meta.url)
+	const __dirname = dirname(__filename)
+	const configPath = resolve(__dirname, "test-config.toml")
+	let tomlContent = readFileSync(configPath, "utf-8")
+
+	// Replace environment variable placeholders with actual values
+	tomlContent = tomlContent.replace(
+		/\$\{BSC_CHAPEL\}/g,
+		process.env.BSC_CHAPEL || "https://bnb-testnet.api.onfinality.io/public",
+	)
+	tomlContent = tomlContent.replace(
+		/\$\{GNOSIS_CHIADO\}/g,
+		process.env.GNOSIS_CHIADO || "https://gnosis-chiado-rpc.publicnode.com",
+	)
+	tomlContent = tomlContent.replace(
+		/\$\{ETH_MAINNET\}/g,
+		process.env.ETH_MAINNET || "https://eth-mainnet.g.alchemy.com/v2/demo",
+	)
+	tomlContent = tomlContent.replace(/\$\{BSC_MAINNET\}/g, process.env.BSC_MAINNET || "https://binance.llamarpc.com")
+	tomlContent = tomlContent.replace(
+		/\$\{HYPERBRIDGE_GARGANTUA\}/g,
+		process.env.HYPERBRIDGE_GARGANTUA || "wss://gargantua.hyperbridge.xyz",
+	)
+
+	return parse(tomlContent)
+}
 
 describe.sequential("ContractInteractionService", () => {
 	let contractInteractionService: ContractInteractionService
 	let chainClientManager: ChainClientManager
-	let chainConfigService: ChainConfigService
+	let chainConfigService: FillerConfigService
 	const bscChapelId = "EVM-97"
 	const gnosisChiadoId = "EVM-10200"
 	const mainnetId = "EVM-1"
 
 	beforeAll(async () => {
-		chainConfigService = new ChainConfigService()
-		chainClientManager = new ChainClientManager(process.env.PRIVATE_KEY as HexString)
+		// Load test configuration from TOML file
+		const config = loadTestConfig()
+
+		// Convert TOML chain configs to UserProvidedChainConfig format
+		const testChainConfigs: UserProvidedChainConfig[] = config.chains.map((chain: any) => ({
+			chainId: chain.chainId,
+			rpcUrl: chain.rpcUrl,
+		}))
+
+		// Convert TOML filler config including CoinGecko
+		const fillerConfigForService = config.filler.coingecko
+			? {
+					privateKey: config.filler.privateKey,
+					maxConcurrentOrders: config.filler.maxConcurrentOrders,
+					coingecko: config.filler.coingecko,
+				}
+			: undefined
+
+		chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
+		chainClientManager = new ChainClientManager(chainConfigService, process.env.PRIVATE_KEY as HexString)
 		contractInteractionService = new ContractInteractionService(
 			chainClientManager,
 			process.env.PRIVATE_KEY as HexString,
+			chainConfigService,
 		)
 	})
 
@@ -62,8 +119,8 @@ describe.sequential("ContractInteractionService", () => {
 
 			const result = await contractInteractionService.getTokenUsdValue(order)
 
-			const inputUSDValue = await fetchTokenUsdPrice("WBNB")
-			const outputUSDValue = await fetchTokenUsdPrice("xDAI")
+			const inputUSDValue = await fetchPrice("WBNB", 97)
+			const outputUSDValue = await fetchPrice("xDAI", 10200)
 
 			expect(result.inputUsdValue).toBe(BigInt(Math.floor(inputUSDValue * Math.pow(10, 18))))
 			expect(result.outputUsdValue).toBe(BigInt(Math.floor(outputUSDValue * Math.pow(10, 18))))
@@ -71,26 +128,32 @@ describe.sequential("ContractInteractionService", () => {
 
 		it.skip("should get native token price and handle testnet mapping", async () => {
 			// Get native token price usd
-			const inputUSDValue = await fetchTokenUsdPrice("WBNB")
+			const inputUSDValue = await fetchPrice("WBNB", 97)
 			let price = await contractInteractionService.getNativeTokenPrice(bscChapelId)
 
 			expect(price).toBe(BigInt(Math.floor(inputUSDValue * Math.pow(10, 18))))
 
 			// Test testnet map
 			let testnetDaiAddr = await chainConfigService.getDaiAsset(bscChapelId)
-			let testnetDaiPrice = await fetchTokenUsdPrice(testnetDaiAddr)
+			let testnetDaiPrice = await fetchPrice(testnetDaiAddr)
 
 			console.log("Testnet DAI price", testnetDaiPrice)
 		})
 
-		it.skip("should get V2 quote and swap using the quote", async () => {
+		it("should get V2 quote and swap using the quote", async () => {
 			const fillerWalletAddress = privateKeyToAddress(process.env.PRIVATE_KEY as HexString)
 			const tokenIn = chainConfigService.getDaiAsset(mainnetId)
 			const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 			const tokenInDecimals = await contractInteractionService.getTokenDecimals(tokenIn, mainnetId)
 			const tokenOutDecimals = await contractInteractionService.getTokenDecimals(tokenOut, mainnetId)
 			const amoutOutBigInt = parseUnits("1000", tokenOutDecimals)
-			const quote = await contractInteractionService.getV2Quote(tokenIn, tokenOut, amoutOutBigInt, mainnetId)
+			let quote = await contractInteractionService.getV2QuoteWithAmountOut(
+				tokenIn,
+				tokenOut,
+				amoutOutBigInt,
+				mainnetId,
+			)
+			quote = quote + (quote * 200n) / 10000n
 			assert(quote != maxUint256)
 			assert(quote > parseUnits("1000", tokenInDecimals))
 			const calldata = await contractInteractionService.createV2SwapCalldata(
@@ -106,6 +169,7 @@ describe.sequential("ContractInteractionService", () => {
 					wethAsset: tokenOut,
 				},
 			)
+
 			let calls = []
 			calls.push({
 				to: tokenIn,
@@ -121,7 +185,7 @@ describe.sequential("ContractInteractionService", () => {
 				data: encodeFunctionData({
 					abi: UNIVERSAL_ROUTER_ABI,
 					functionName: "execute",
-					args: [calldata.commands, calldata.inputs, 100000000000000n],
+					args: [calldata.commands, calldata.inputs],
 				}),
 				value: 0n,
 			})
@@ -176,14 +240,14 @@ describe.sequential("ContractInteractionService", () => {
 			assert(balance === amoutOutBigInt)
 		})
 
-		it.skip("should get v3 quote and swap using the quote", async () => {
+		it("should get v3 quote and swap using the quote", async () => {
 			const fillerWalletAddress = privateKeyToAddress(process.env.PRIVATE_KEY as HexString)
 			const tokenIn = chainConfigService.getDaiAsset(mainnetId)
 			const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 			const tokenInDecimals = await contractInteractionService.getTokenDecimals(tokenIn, mainnetId)
 			const tokenOutDecimals = await contractInteractionService.getTokenDecimals(tokenOut, mainnetId)
 			const amoutOutBigInt = parseUnits("1000", tokenOutDecimals)
-			const { amountIn, fee } = await contractInteractionService.getV3Quote(
+			const { amountIn, fee } = await contractInteractionService.getV3QuoteWithAmountOut(
 				tokenIn,
 				tokenOut,
 				amoutOutBigInt,
@@ -275,7 +339,7 @@ describe.sequential("ContractInteractionService", () => {
 			assert(balance === amoutOutBigInt)
 		})
 
-		it.skip("should get v4 quot and swap using the quote", async () => {
+		it("should get v4 quote and swap using the quote", async () => {
 			const fillerWalletAddress = privateKeyToAddress(process.env.PRIVATE_KEY as HexString)
 			// ETH / USDC
 			let tokenIn = ADDRESS_ZERO
@@ -284,7 +348,7 @@ describe.sequential("ContractInteractionService", () => {
 			let tokenOutDecimals = await contractInteractionService.getTokenDecimals(tokenOut, mainnetId)
 
 			let amoutOutBigInt = parseUnits("1000", tokenOutDecimals)
-			let { amountIn, fee } = await contractInteractionService.getV4Quote(
+			let { amountIn, fee } = await contractInteractionService.getV4QuoteWithAmountOut(
 				tokenIn,
 				tokenOut,
 				amoutOutBigInt,
@@ -331,7 +395,7 @@ describe.sequential("ContractInteractionService", () => {
 				stateOverrides: [
 					{
 						address: chainConfigService.getUniversalRouterAddress(mainnetId),
-						balance: maxUint256,
+						balance: amountIn,
 					},
 				],
 			})
@@ -351,22 +415,19 @@ describe.sequential("ContractInteractionService", () => {
 
 			// // USDC/USDT
 			tokenIn = chainConfigService.getUsdtAsset(mainnetId)
-			console.log("tokenIn Decimals", await contractInteractionService.getTokenDecimals(tokenIn, mainnetId))
 			tokenOut = chainConfigService.getUsdcAsset(mainnetId)
-			console.log("tokenOut Decimals", await contractInteractionService.getTokenDecimals(tokenOut, mainnetId))
 			tokenOutDecimals = await contractInteractionService.getTokenDecimals(tokenOut, mainnetId)
 			amoutOutBigInt = parseUnits("1000", tokenOutDecimals)
-			let { amountIn: amountIn2, fee: fee2 } = await contractInteractionService.getV4Quote(
+			let { amountIn: amountIn2, fee: fee2 } = await contractInteractionService.getV4QuoteWithAmountOut(
 				tokenIn,
 				tokenOut,
 				amoutOutBigInt,
 				mainnetId,
 			)
-			console.log("amountIn2", amountIn2)
-			console.log("fee2", fee2)
 			assert(amountIn2 != maxUint256)
 
-			// Now test the swap
+			// Now test the swap with adding a buffer to amountIn2
+			amountIn2 = amountIn2 + (amountIn2 * 200n) / 10000n
 
 			calldata = await contractInteractionService.createV4SwapCalldata(
 				tokenIn,
@@ -381,17 +442,32 @@ describe.sequential("ContractInteractionService", () => {
 				to: tokenIn,
 				data: encodeFunctionData({
 					abi: ERC20_ABI,
-					functionName: "transfer",
-					args: [chainConfigService.getUniversalRouterAddress(mainnetId), maxUint256],
+					functionName: "approve",
+					args: [chainConfigService.getPermit2Address(mainnetId), amountIn2],
 				}),
 				value: 0n,
 			})
+			calls.push({
+				to: chainConfigService.getPermit2Address(mainnetId),
+				data: encodeFunctionData({
+					abi: PERMIT2_ABI,
+					functionName: "approve",
+					args: [
+						tokenIn,
+						chainConfigService.getUniversalRouterAddress(mainnetId),
+						amountIn2,
+						281474976710655,
+					],
+				}),
+				value: 0n,
+			})
+
 			calls.push({
 				to: chainConfigService.getUniversalRouterAddress(mainnetId),
 				data: encodeFunctionData({
 					abi: UNIVERSAL_ROUTER_ABI,
 					functionName: "execute",
-					args: [calldata.commands, calldata.inputs, 100000000000000n],
+					args: [calldata.commands, calldata.inputs],
 				}),
 				value: 0n,
 			})
@@ -421,12 +497,23 @@ describe.sequential("ContractInteractionService", () => {
 						stateDiff: [
 							{
 								slot: slot as `0x${string}`,
-								value: toHex(maxUint256),
+								value: toHex(maxUint256 / 3n),
 							},
 						],
 					},
 				],
 			})
+
+			balanceResult = result.results[3]
+			assert(balanceResult.status === "success")
+
+			balance = decodeFunctionResult({
+				abi: ERC20_ABI,
+				functionName: "balanceOf",
+				data: balanceResult.data,
+			})
+
+			assert(balance === amoutOutBigInt)
 		})
 	})
 })

@@ -6,7 +6,6 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { IntentFiller } from "../core/filler.js"
 import { BasicFiller } from "../strategies/basic.js"
-import { StableSwapFiller } from "../strategies/swap.js"
 import { ConfirmationPolicy } from "../config/confirmation-policy.js"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
@@ -130,8 +129,6 @@ program
 				switch (strategyConfig.type) {
 					case "basic":
 						return new BasicFiller(strategyConfig.privateKey as HexString, configService)
-					case "stable-swap":
-						return new StableSwapFiller(strategyConfig.privateKey as HexString, configService)
 					default:
 						throw new Error(`Unknown strategy type: ${strategyConfig.type}`)
 				}

@@ -6,7 +6,6 @@ export { EventMonitor } from "./core/event-monitor"
 
 // Strategy exports
 export { BasicFiller } from "./strategies/basic"
-export { StableSwapFiller } from "./strategies/swap"
 
 // Configuration exports
 export { ConfirmationPolicy } from "./config/confirmation-policy"

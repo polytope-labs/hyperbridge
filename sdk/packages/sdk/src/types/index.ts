@@ -1137,3 +1137,23 @@ export interface TokenRegistryResponse {
 		}>
 	}
 }
+
+/**
+ * Represents a complete transaction structure for swap operations
+ */
+export interface Transaction {
+	/**
+	 * The address to send the transaction to (typically the Universal Router address)
+	 */
+	to: HexString
+
+	/**
+	 * The value to send with the transaction (in wei)
+	 */
+	value: bigint
+
+	/**
+	 * The calldata for the transaction
+	 */
+	data: HexString
+}

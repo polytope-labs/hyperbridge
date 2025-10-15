@@ -10,6 +10,9 @@ import {
 	PublicClient,
 	toHex,
 	WalletClient,
+	encodeFunctionData,
+	decodeFunctionResult,
+	parseUnits,
 } from "viem"
 import { bsc, bscTestnet, mainnet, sepolia } from "viem/chains"
 import {
@@ -22,17 +25,29 @@ import {
 	TokenInfo,
 	PaymentInfo,
 } from "@/types"
-import { orderCommitment, hexToString, bytes20ToBytes32, DEFAULT_GRAFFITI } from "@/utils"
+import {
+	orderCommitment,
+	hexToString,
+	bytes20ToBytes32,
+	bytes32ToBytes20,
+	DEFAULT_GRAFFITI,
+	getStorageSlot,
+	ADDRESS_ZERO,
+	ERC20Method,
+} from "@/utils"
 import EVM_HOST from "@/abis/evmHost"
 import { EvmChain, EvmChainParams, IProof, SubstrateChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents"
 import { ChainConfigService } from "@/configs/ChainConfigService"
-import { privateKeyToAccount } from "viem/accounts"
+import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import IntentGatewayABI from "@/abis/IntentGateway"
 import erc6160 from "@/abis/erc6160"
 import handler from "@/abis/handler"
+import { PERMIT2_ABI } from "@/abis/permit2"
+import universalRouter from "@/abis/universalRouter"
 import { IndexerClient } from "@/client"
 import { createQueryClient } from "@/query-client"
+import { strict as assert } from "assert"
 
 describe.sequential("Intents protocol tests", () => {
 	it("Should generate the estimatedFee while doing bsc mainnet to eth mainnet", async () => {
@@ -260,6 +275,840 @@ describe.sequential("Intents protocol tests", () => {
 		console.log("Native Token Amount", nativeTokenAmount)
 
 		assert(estimatedFee > 0n)
+	}, 1_000_000)
+})
+
+describe.sequential("Swap Tests", () => {
+	const mainnetId = "EVM-1"
+
+	let intentGateway: IntentGateway
+	let chainConfigService: ChainConfigService
+
+	beforeAll(async () => {
+		const setup = await setUp()
+		chainConfigService = setup.chainConfigService
+
+		const chainId = Number.parseInt(mainnetId.split("-")[1])
+		const mainnetEvmChain = new EvmChain({
+			chainId: chainId,
+			host: chainConfigService.getHostAddress(mainnetId),
+			url: process.env.ETH_MAINNET!,
+		})
+
+		intentGateway = new IntentGateway(mainnetEvmChain, mainnetEvmChain)
+	})
+
+	it("should get V2 quote and simulate swap with exact output", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = chainConfigService.getDaiAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+
+		const amountOut = parseUnits("1000", 6)
+
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+			{
+				selectedProtocol: "v2",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v2", "Should select V2 protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.amountIn > parseUnits("1000", 18), "Amount in should be greater than 1000 DAI")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V2 Exact Output - Amount In:", result.amountIn)
+		console.log("V2 Exact Output - Protocol:", result.protocol)
+		console.log("V2 Exact Output - Number of transactions:", result.transactions.length)
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: tx.value,
+		}))
+
+		calls.push({
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "balanceOf",
+				args: [fillerWalletAddress],
+			}),
+			value: 0n,
+		})
+
+		const client = intentGateway.dest.client
+		const slot = await getStorageSlot(
+			client as any,
+			tokenIn,
+			(ERC20Method.BALANCE_OF + bytes20ToBytes32(fillerWalletAddress).slice(2)) as `0x${string}`,
+		)
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: tokenIn,
+					stateDiff: [
+						{
+							slot: slot as `0x${string}`,
+							value: toHex(maxUint256),
+						},
+					],
+				},
+			],
+		})
+
+		assert(simulationResult.results[1].status === "success", "Swap should succeed")
+
+		const balanceResult = simulationResult.results[2]
+		assert(balanceResult.status === "success", "Balance check should succeed")
+
+		const balance = decodeFunctionResult({
+			abi: erc6160.ABI,
+			functionName: "balanceOf",
+			data: balanceResult.data,
+		})
+
+		assert(balance === amountOut, "Balance should equal expected output amount")
+		console.log("V2 simulation successful - Output balance:", balance)
+	}, 1_000_000)
+
+	it("should get V3 quote and simulate swap with exact output", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = chainConfigService.getDaiAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountOut = parseUnits("1000", 6)
+
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+			{
+				selectedProtocol: "v3",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v3", "Should select V3 protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.fee !== undefined, "Should return fee tier")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		const amountIn = result.amountIn
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: tx.value,
+		}))
+
+		calls.push({
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "balanceOf",
+				args: [fillerWalletAddress],
+			}),
+			value: 0n,
+		})
+
+		const client = intentGateway.dest.client
+		const slot = await getStorageSlot(
+			client as any,
+			tokenIn,
+			(ERC20Method.BALANCE_OF + bytes20ToBytes32(fillerWalletAddress).slice(2)) as `0x${string}`,
+		)
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: tokenIn,
+					stateDiff: [
+						{
+							slot: slot as `0x${string}`,
+							value: toHex(maxUint256),
+						},
+					],
+				},
+			],
+		})
+
+		assert(simulationResult.results[1].status === "success", "Swap should succeed")
+
+		const balanceResult = simulationResult.results[2]
+		assert(balanceResult.status === "success", "Balance check should succeed")
+
+		const balance = decodeFunctionResult({
+			abi: erc6160.ABI,
+			functionName: "balanceOf",
+			data: balanceResult.data,
+		})
+
+		assert(balance === amountOut, "Balance should equal expected output amount")
+		console.log("V3 simulation successful - Fee tier:", result.fee, "Output balance:", balance)
+	}, 1_000_000)
+
+	it("should get V2 quote and simulate ETH to USDC swap", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = ADDRESS_ZERO // ETH
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountOut = parseUnits("1000", 6)
+
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+			{
+				selectedProtocol: "v2",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v2", "Should select V2 protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V2 ETH => USDC - Amount In:", result.amountIn)
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: tx.value,
+		}))
+
+		calls.push({
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "balanceOf",
+				args: [fillerWalletAddress],
+			}),
+			value: 0n,
+		})
+
+		const client = intentGateway.dest.client
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: fillerWalletAddress,
+					balance: result.amountIn * 2n,
+				},
+			],
+		})
+
+		assert(simulationResult.results[0].status === "success", "Swap should succeed")
+
+		const balanceResult = simulationResult.results[1]
+		assert(balanceResult.status === "success", "Balance check should succeed")
+
+		const balance = decodeFunctionResult({
+			abi: erc6160.ABI,
+			functionName: "balanceOf",
+			data: balanceResult.data,
+		})
+
+		assert(balance === amountOut, "Balance should equal expected output amount")
+		console.log("V2 ETH => USDC simulation successful - Output balance:", balance)
+	}, 1_000_000)
+
+	it("should get V2 quote and simulate USDC to ETH swap", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = chainConfigService.getUsdcAsset(mainnetId)
+		const tokenOut = ADDRESS_ZERO // ETH
+		const amountOut = parseUnits("1", 18)
+
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+			{
+				selectedProtocol: "v2",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v2", "Should select V2 protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V2 USDC => ETH - Amount In:", result.amountIn)
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: tx.value,
+		}))
+
+		const client = intentGateway.dest.client
+		const slot = await getStorageSlot(
+			client as any,
+			tokenIn,
+			(ERC20Method.BALANCE_OF + bytes20ToBytes32(fillerWalletAddress).slice(2)) as `0x${string}`,
+		)
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: tokenIn,
+					stateDiff: [
+						{
+							slot: slot as `0x${string}`,
+							value: toHex(maxUint256 / 3n),
+						},
+					],
+				},
+			],
+		})
+
+		assert(simulationResult.results[1].status === "success", "Swap should succeed")
+
+		console.log("V2 USDC => ETH simulation successful")
+	}, 1_000_000)
+
+	it("should get V3 quote and simulate ETH to USDC swap", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = ADDRESS_ZERO // ETH
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountOut = parseUnits("1000", 6)
+
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+			{
+				selectedProtocol: "v3",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v3", "Should select V3 protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.fee !== undefined, "Should return fee tier")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V3 ETH => USDC - Amount In:", result.amountIn, "Fee tier:", result.fee)
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: tx.value,
+		}))
+
+		calls.push({
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "balanceOf",
+				args: [fillerWalletAddress],
+			}),
+			value: 0n,
+		})
+
+		const client = intentGateway.dest.client
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: fillerWalletAddress,
+					balance: result.amountIn * 2n,
+				},
+			],
+		})
+
+		assert(simulationResult.results[0].status === "success", "Swap should succeed")
+
+		const balanceResult = simulationResult.results[1]
+		assert(balanceResult.status === "success", "Balance check should succeed")
+
+		const balance = decodeFunctionResult({
+			abi: erc6160.ABI,
+			functionName: "balanceOf",
+			data: balanceResult.data,
+		})
+
+		assert(balance === amountOut, "Balance should equal expected output amount")
+		console.log("V3 ETH => USDC simulation successful - Output balance:", balance)
+	}, 1_000_000)
+
+	it("should get V3 quote and simulate USDC to ETH swap", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = chainConfigService.getUsdcAsset(mainnetId)
+		const tokenOut = ADDRESS_ZERO // ETH
+		const amountOut = parseUnits("1", 18)
+
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+			{
+				selectedProtocol: "v3",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v3", "Should select V3 protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.fee !== undefined, "Should return fee tier")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V3 USDC => ETH - Amount In:", result.amountIn, "Fee tier:", result.fee)
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: tx.value,
+		}))
+
+		const client = intentGateway.dest.client
+		const slot = await getStorageSlot(
+			client as any,
+			tokenIn,
+			(ERC20Method.BALANCE_OF + bytes20ToBytes32(fillerWalletAddress).slice(2)) as `0x${string}`,
+		)
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: tokenIn,
+					stateDiff: [
+						{
+							slot: slot as `0x${string}`,
+							value: toHex(maxUint256 / 3n),
+						},
+					],
+				},
+			],
+		})
+
+		assert(simulationResult.results[1].status === "success", "Swap should succeed")
+
+		console.log("V3 USDC => ETH simulation successful")
+	}, 1_000_000)
+
+	it("should get V4 quote and simulate ETH to USDC swap", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = ADDRESS_ZERO // ETH
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountOut = parseUnits("1000", 6)
+
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+
+			{
+				selectedProtocol: "v4",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v4", "Should select V4 protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.fee !== undefined, "Should return fee tier")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		const amountIn = result.amountIn
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: 0n,
+		}))
+		calls.push({
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "balanceOf",
+				args: [fillerWalletAddress],
+			}),
+			value: 0n,
+		})
+
+		const client = intentGateway.dest.client
+
+		// Simulate with balance overrides for universal router
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: chainConfigService.getUniversalRouterAddress(mainnetId),
+					balance: amountIn,
+				},
+			],
+		})
+
+		assert(simulationResult.results[0].status === "success", "Swap should succeed")
+
+		const balanceResult = simulationResult.results[1]
+		assert(balanceResult.status === "success", "Balance check should succeed")
+
+		const balance = decodeFunctionResult({
+			abi: erc6160.ABI,
+			functionName: "balanceOf",
+			data: balanceResult.data,
+		})
+
+		assert(balance === amountOut, "Balance should equal expected output amount")
+		console.log("V4 ETH/USDC simulation successful - Fee tier:", result.fee, "Output balance:", balance)
+	}, 1_000_000)
+
+	it("should get V4 quote and simulate USDT to USDC swap with Permit2", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = chainConfigService.getUsdtAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountOut = parseUnits("1000", 6)
+
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+			{
+				selectedProtocol: "v4",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v4", "Should select V4 protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: 0n,
+		}))
+		calls.push({
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "balanceOf",
+				args: [fillerWalletAddress],
+			}),
+			value: 0n,
+		})
+
+		const client = intentGateway.dest.client
+		const slot = await getStorageSlot(
+			client as any,
+			tokenIn,
+			(ERC20Method.BALANCE_OF + bytes20ToBytes32(fillerWalletAddress).slice(2)) as `0x${string}`,
+		)
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: tokenIn,
+					stateDiff: [
+						{
+							slot: slot as `0x${string}`,
+							value: toHex(maxUint256 / 3n),
+						},
+					],
+				},
+			],
+		})
+
+		const balanceResult = simulationResult.results[3]
+		assert(balanceResult.status === "success", "Balance check should succeed")
+
+		const balance = decodeFunctionResult({
+			abi: erc6160.ABI,
+			functionName: "balanceOf",
+			data: balanceResult.data,
+		})
+
+		assert(balance === amountOut, "Balance should equal expected output amount")
+		console.log("V4 USDT/USDC simulation successful - Fee tier:", result.fee, "Output balance:", balance)
+	}, 1_000_000)
+
+	it("should get V2 quote with exact input and generate calldata", async () => {
+		const tokenIn = chainConfigService.getDaiAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountIn = parseUnits("1000", 18)
+
+		const result = await intentGateway.findBestProtocolWithAmountIn(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountIn,
+			mainnetId,
+			{
+				selectedProtocol: "v2",
+				generateCalldata: true,
+				recipient: ADDRESS_ZERO,
+			},
+		)
+
+		assert(result.protocol === "v2", "Should select V2 protocol")
+		assert(result.amountOut !== BigInt(0), "Should return valid amount out")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V2 Exact Input - Amount Out:", result.amountOut)
+		console.log("V2 Exact Input - Protocol:", result.protocol)
+		console.log("V2 Exact Input - Number of transactions:", result.transactions.length)
+	}, 1_000_000)
+
+	it("should get V3 quote with exact input and generate calldata", async () => {
+		const fillerWalletAddress = privateKeyToAddress(process.env.PRIVATE_KEY as HexString)
+		const tokenIn = chainConfigService.getDaiAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountIn = parseUnits("1000", 18)
+
+		const result = await intentGateway.findBestProtocolWithAmountIn(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountIn,
+			mainnetId,
+			{
+				selectedProtocol: "v3",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v3", "Should select V3 protocol")
+		assert(result.amountOut !== BigInt(0), "Should return valid amount out")
+		assert(result.fee !== undefined, "Should return fee tier")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V3 Exact Input - Amount Out:", result.amountOut)
+		console.log("V3 Exact Input - Fee tier:", result.fee)
+		console.log("V3 Exact Input - Number of transactions:", result.transactions.length)
+	}, 1_000_000)
+
+	it("should get V4 quote and simulate ETH to USDC swap with exact input", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = ADDRESS_ZERO // ETH
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountIn = parseUnits("1", 18)
+
+		const result = await intentGateway.findBestProtocolWithAmountIn(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountIn,
+			mainnetId,
+			{
+				selectedProtocol: "v4",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v4", "Should select V4 protocol")
+		assert(result.amountOut !== BigInt(0), "Should return valid amount out")
+		assert(result.fee !== undefined, "Should return fee tier")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V4 Exact Input ETH/USDC - Amount Out:", result.amountOut)
+		console.log("V4 Exact Input ETH/USDC - Fee tier:", result.fee)
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: 0n,
+		}))
+		calls.push({
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "balanceOf",
+				args: [fillerWalletAddress],
+			}),
+			value: 0n,
+		})
+
+		const client = intentGateway.dest.client
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: chainConfigService.getUniversalRouterAddress(mainnetId),
+					balance: amountIn,
+				},
+			],
+		})
+
+		assert(simulationResult.results[0].status === "success", "Swap should succeed")
+
+		const balanceResult = simulationResult.results[1]
+		assert(balanceResult.status === "success", "Balance check should succeed")
+
+		const balance = decodeFunctionResult({
+			abi: erc6160.ABI,
+			functionName: "balanceOf",
+			data: balanceResult.data,
+		})
+
+		assert(balance >= result.amountOut, "Balance should be at least the quoted amount out")
+		console.log("V4 ETH/USDC exact input simulation successful - Output balance:", balance)
+	}, 1_000_000)
+
+	it("should get V4 quote and simulate USDT to USDC swap with exact input", async () => {
+		const fillerWalletAddress = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const tokenIn = chainConfigService.getUsdtAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountIn = parseUnits("1000", 6)
+
+		const result = await intentGateway.findBestProtocolWithAmountIn(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountIn,
+			mainnetId,
+			{
+				selectedProtocol: "v4",
+				generateCalldata: true,
+				recipient: fillerWalletAddress,
+			},
+		)
+
+		assert(result.protocol === "v4", "Should select V4 protocol")
+		assert(result.amountOut !== BigInt(0), "Should return valid amount out")
+		assert(result.fee !== undefined, "Should return fee tier")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("V4 Exact Input USDT/USDC - Amount Out:", result.amountOut)
+		console.log("V4 Exact Input USDT/USDC - Fee tier:", result.fee)
+
+		const calls = result.transactions.map((tx) => ({
+			to: tx.to,
+			data: tx.data,
+			value: 0n,
+		}))
+		calls.push({
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "balanceOf",
+				args: [fillerWalletAddress],
+			}),
+			value: 0n,
+		})
+
+		const client = intentGateway.dest.client
+		const slot = await getStorageSlot(
+			client as any,
+			tokenIn,
+			(ERC20Method.BALANCE_OF + bytes20ToBytes32(fillerWalletAddress).slice(2)) as `0x${string}`,
+		)
+
+		const simulationResult = await client.simulateCalls({
+			account: fillerWalletAddress,
+			calls,
+			stateOverrides: [
+				{
+					address: tokenIn,
+					stateDiff: [
+						{
+							slot: slot as `0x${string}`,
+							value: toHex(maxUint256 / 3n),
+						},
+					],
+				},
+			],
+		})
+
+		const balanceResult = simulationResult.results[3]
+		assert(balanceResult.status === "success", "Balance check should succeed")
+
+		const balance = decodeFunctionResult({
+			abi: erc6160.ABI,
+			functionName: "balanceOf",
+			data: balanceResult.data,
+		})
+
+		assert(balance >= result.amountOut, "Balance should be at least the quoted amount out")
+		console.log("V4 USDT/USDC exact input simulation successful - Output balance:", balance)
+	}, 1_000_000)
+
+	it("should find best protocol automatically without selection", async () => {
+		const tokenIn = chainConfigService.getDaiAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
+		const amountOut = parseUnits("1000", 6)
+
+		// Test without specifying protocol - should auto-select best
+		const result = await intentGateway.findBestProtocolWithAmountOut(
+			"dest",
+			tokenIn,
+			tokenOut,
+			amountOut,
+			mainnetId,
+			{
+				generateCalldata: true,
+				recipient: ADDRESS_ZERO,
+			},
+		)
+
+		assert(result.protocol !== null, "Should select a protocol")
+		assert(result.amountIn !== maxUint256, "Should return valid amount in")
+		assert(result.transactions, "Should generate transactions")
+		assert(result.transactions.length > 0, "Should have at least one transaction")
+
+		console.log("Best Protocol Auto-Selected:", result.protocol)
+		console.log("Amount In:", result.amountIn)
+		console.log("Number of transactions:", result.transactions.length)
+		if (result.fee !== undefined) {
+			console.log("Fee tier:", result.fee)
+		}
 	}, 1_000_000)
 })
 

@@ -13,6 +13,7 @@ import {
 	UserProvidedChainConfig,
 	FillerConfig as FillerServiceConfig,
 	CoinGeckoConfig,
+	EtherscanConfig,
 } from "../services/FillerConfigService.js"
 import { getLogger } from "../services/Logger.js"
 import { Decimal } from "decimal.js"
@@ -58,6 +59,7 @@ interface FillerTomlConfig {
 		maxConcurrentOrders: number
 		pendingQueue: PendingQueueConfig
 		coingecko?: CoinGeckoConfig
+		etherscan?: EtherscanConfig
 	}
 	strategies: StrategyConfig[]
 	chains: UserProvidedChainConfig[]
@@ -99,6 +101,7 @@ program
 						privateKey: config.filler.privateKey,
 						maxConcurrentOrders: config.filler.maxConcurrentOrders,
 						coingecko: config.filler.coingecko,
+						etherscan: config.filler.etherscan,
 					}
 				: undefined
 

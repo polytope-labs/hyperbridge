@@ -19,6 +19,7 @@ export {
 	adjustFeeDecimals,
 	DEFAULT_GRAFFITI,
 	maxBigInt,
+	getGasPriceFromEtherscan,
 } from "@/utils"
 export * from "@/protocols/intents"
 export * from "@/utils/tokenGateway"

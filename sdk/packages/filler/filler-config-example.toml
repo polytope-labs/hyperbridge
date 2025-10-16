@@ -11,6 +11,10 @@ maxConcurrentOrders = 5
 [filler.coingecko]
 apiKey = ""  # Optional: Add your CoinGecko Pro API key for higher rate limits
 
+
+[filler.etherscan]
+apiKey = ""  # Optional: Add your Etherscan API key for higher rate limits
+
 # Pending queue configuration
 [filler.pendingQueue]
 maxRechecks = 10

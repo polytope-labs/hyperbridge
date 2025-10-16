@@ -96,4 +96,8 @@ export class ChainConfigService {
 	getCoingeckoId(chain: string): string | undefined {
 		return coingeckoIds[chain as keyof typeof coingeckoIds]
 	}
+
+	getEtherscanApiKey(): string | undefined {
+		return typeof process !== "undefined" ? (process as any)?.env?.ETHERSCAN_API_KEY : undefined
+	}
 }

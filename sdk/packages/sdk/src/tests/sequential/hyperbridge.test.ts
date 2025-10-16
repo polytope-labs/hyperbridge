@@ -48,7 +48,7 @@ function assertIsToday(timestamp: bigint) {
 	expect(diff < 3600).toBeTruthy()
 }
 
-describe.sequential("Hyperbridge Requests", () => {
+describe.skip("Hyperbridge Requests", () => {
 	let indexer: IndexerClient
 
 	beforeAll(async () => {

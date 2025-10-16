@@ -592,6 +592,33 @@ export async function fetchPrice(identifier: string, chainId = 1, apiKey?: strin
 }
 
 /**
+ * Fetches the current network gas price from an Etherscan-family explorer API.
+ * Returns the ProposeGasPrice (in gwei) converted to wei as bigint.
+ */
+export async function getGasPriceFromEtherscan(chainId: string, apiKey?: string): Promise<bigint> {
+	let parsedChainId = Number(chainId.split("-")[1])
+	const url = apiKey
+		? `https://api.etherscan.io/v2/api?chainid=${parsedChainId}&module=gastracker&action=gasoracle&apikey=${apiKey}`
+		: `https://api.etherscan.io/v2/api?chainid=${parsedChainId}&module=gastracker&action=gasoracle`
+	const response = await fetch(url)
+	const data = await response.json()
+	return gweiToWei(data.result.ProposeGasPrice)
+}
+
+/**
+ * Converts a decimal gwei string to wei bigint without floating point errors.
+ */
+function gweiToWei(gwei: string): bigint {
+	console.log(gwei)
+	const [intPart, fracPartRaw] = gwei.split(".")
+	const fracPart = (fracPartRaw || "").slice(0, 9) // up to 9 decimal places for gwei->wei
+	const fracPadded = fracPart.padEnd(9, "0")
+	const whole = BigInt(intPart || "0") * 1_000_000_000n
+	const fractional = BigInt(fracPadded || "0")
+	return whole + fractional
+}
+
+/**
  * ERC20 method signatures used for storage slot detection
  */
 export enum ERC20Method {

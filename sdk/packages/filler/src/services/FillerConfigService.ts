@@ -10,10 +10,15 @@ export interface CoinGeckoConfig {
 	apiKey?: string
 }
 
+export interface EtherscanConfig {
+	apiKey?: string
+}
+
 export interface FillerConfig {
 	privateKey: string
 	maxConcurrentOrders: number
 	coingecko?: CoinGeckoConfig
+	etherscan?: EtherscanConfig
 }
 
 /**
@@ -139,5 +144,9 @@ export class FillerConfigService {
 
 	getCoinGeckoApiKey(): string | undefined {
 		return this.fillerConfig?.coingecko?.apiKey
+	}
+
+	getEtherscanApiKey(): string | undefined {
+		return this.fillerConfig?.etherscan?.apiKey
 	}
 }

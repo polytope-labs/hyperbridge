@@ -14,7 +14,7 @@ import {
 	decodeFunctionResult,
 	parseUnits,
 } from "viem"
-import { bsc, bscTestnet, mainnet, sepolia } from "viem/chains"
+import { bsc, bscTestnet, mainnet, polygon, sepolia } from "viem/chains"
 import {
 	ChainConfig,
 	FillerConfig,
@@ -34,6 +34,7 @@ import {
 	getStorageSlot,
 	ADDRESS_ZERO,
 	ERC20Method,
+	getGasPriceFromEtherscan,
 } from "@/utils"
 import EVM_HOST from "@/abis/evmHost"
 import { EvmChain, EvmChainParams, IProof, SubstrateChain } from "@/chain"

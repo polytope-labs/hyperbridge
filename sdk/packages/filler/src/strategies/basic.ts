@@ -1,10 +1,18 @@
 import { FillerStrategy } from "@/strategies/base"
-import { Order, ExecutionResult, HexString, FillOptions, adjustFeeDecimals, bytes32ToBytes20 } from "@hyperbridge/sdk"
+import {
+	Order,
+	ExecutionResult,
+	HexString,
+	FillOptions,
+	adjustFeeDecimals,
+	bytes32ToBytes20,
+	TESTNET_CHAINS,
+} from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { compareDecimalValues, TESTNET_CHAINS } from "@/utils"
+import { compareDecimalValues } from "@/utils"
 import { formatUnits, parseUnits } from "viem"
 import { getLogger } from "@/services/Logger"
 

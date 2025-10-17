@@ -20,6 +20,8 @@ export {
 	DEFAULT_GRAFFITI,
 	maxBigInt,
 	getGasPriceFromEtherscan,
+	USE_ETHERSCAN_CHAINS,
+	TESTNET_CHAINS,
 } from "@/utils"
 export * from "@/protocols/intents"
 export * from "@/utils/tokenGateway"

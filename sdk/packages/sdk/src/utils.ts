@@ -609,7 +609,9 @@ export async function getGasPriceFromEtherscan(chainId: string, apiKey?: string)
  * Converts a decimal gwei string to wei bigint without floating point errors.
  */
 function gweiToWei(gwei: string): bigint {
-	console.log(gwei)
+	if (!gwei || typeof gwei !== "string") {
+		throw new Error(`Invalid gwei value: ${gwei}`)
+	}
 	const [intPart, fracPartRaw] = gwei.split(".")
 	const fracPart = (fracPartRaw || "").slice(0, 9) // up to 9 decimal places for gwei->wei
 	const fracPadded = fracPart.padEnd(9, "0")
@@ -815,6 +817,16 @@ export function adjustFeeDecimals(feeInFeeToken: bigint, fromDecimals: number, t
 		return (feeInFeeToken + scaleFactor - 1n) / scaleFactor
 	}
 }
+
+/**
+ * Chains that should prefer the Etherscan API for gas price lookup
+ */
+export const USE_ETHERSCAN_CHAINS = new Set(["EVM-137", "EVM-56", "EVM-1"])
+
+/**
+ * Testnet chains
+ */
+export const TESTNET_CHAINS = new Set(["EVM-10200", "EVM-97"])
 
 /**
  * Replace Websocket with HTTP is a function that replaces a websocket URL with an HTTP URL.

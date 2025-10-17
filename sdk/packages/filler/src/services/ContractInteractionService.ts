@@ -28,6 +28,7 @@ import {
 	fetchPrice,
 	maxBigInt,
 	getGasPriceFromEtherscan,
+	USE_ETHERSCAN_CHAINS,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -190,11 +191,18 @@ export class ContractInteractionService {
 			if (allowance < token.amount) {
 				this.logger.info({ token: token.address }, "Approving token")
 				const etherscanApiKey = this.configService.getEtherscanApiKey()
-				const gasPrice = etherscanApiKey
-					? await getGasPriceFromEtherscan(order.destChain, etherscanApiKey).catch(() =>
-							destClient.getGasPrice(),
-						)
-					: await destClient.getGasPrice()
+				const chain = order.destChain
+				const useEtherscan = USE_ETHERSCAN_CHAINS.has(chain)
+				const gasPrice =
+					useEtherscan && etherscanApiKey
+						? await getGasPriceFromEtherscan(order.destChain, etherscanApiKey).catch(async () => {
+								this.logger.warn(
+									{ chain: order.destChain },
+									"Error getting gas price from etherscan, using client's gas price",
+								)
+								return await destClient.getGasPrice()
+							})
+						: await destClient.getGasPrice()
 				const tx = await walletClient.writeContract({
 					abi: ERC20_ABI,
 					address: token.address as HexString,
@@ -582,10 +590,15 @@ export class ContractInteractionService {
 	 */
 	async convertGasToFeeToken(gasEstimate: bigint, chain: string, targetDecimals: number): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
+		const useEtherscan = USE_ETHERSCAN_CHAINS.has(chain)
 		const etherscanApiKey = this.configService.getEtherscanApiKey()
-		const gasPrice = etherscanApiKey
-			? await getGasPriceFromEtherscan(chain, etherscanApiKey).catch(() => client.getGasPrice())
-			: await client.getGasPrice()
+		const gasPrice =
+			useEtherscan && etherscanApiKey
+				? await getGasPriceFromEtherscan(chain, etherscanApiKey).catch(async () => {
+						this.logger.warn({ chain }, "Error getting gas price from etherscan, using client's gas price")
+						return await client.getGasPrice()
+					})
+				: await client.getGasPrice()
 		const gasCostInWei = gasEstimate * gasPrice
 		const nativeToken = client.chain?.nativeCurrency
 		const chainId = client.chain?.id

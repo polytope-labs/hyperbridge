@@ -25,7 +25,3 @@ export function compareDecimalValues(value1: bigint, decimals1: number, value2: 
 
 	return normalizedValue1 === normalizedValue2
 }
-/**
- * Testnet chains
- */
-export const TESTNET_CHAINS = new Set(["EVM-10200", "EVM-56"])

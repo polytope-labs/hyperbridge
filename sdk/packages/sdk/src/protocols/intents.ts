@@ -17,6 +17,7 @@ import {
 	UniversalRouterCommands,
 	maxBigInt,
 	getGasPriceFromEtherscan,
+	USE_ETHERSCAN_CHAINS,
 } from "@/utils"
 import {
 	encodeFunctionData,
@@ -329,10 +330,15 @@ export class IntentGateway {
 		evmChainID: string,
 	): Promise<bigint> {
 		const client = this[gasEstimateIn].client
-		const etherscanApiKey = this[gasEstimateIn].config.getEtherscanApiKey()
-		const gasPrice = etherscanApiKey
-			? await getGasPriceFromEtherscan(evmChainID, etherscanApiKey).catch(() => client.getGasPrice())
-			: await client.getGasPrice()
+		const useEtherscan = USE_ETHERSCAN_CHAINS.has(evmChainID)
+		const etherscanApiKey = useEtherscan ? this[gasEstimateIn].config.getEtherscanApiKey() : undefined
+		const gasPrice =
+			useEtherscan && etherscanApiKey
+				? await getGasPriceFromEtherscan(evmChainID, etherscanApiKey).catch(async () => {
+						console.warn({ evmChainID }, "Error getting gas price from etherscan, using client's gas price")
+						return await client.getGasPrice()
+					})
+				: await client.getGasPrice()
 		const gasCostInWei = gasEstimate * gasPrice
 		const wethAddr = this[gasEstimateIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
 		const feeToken = await this[gasEstimateIn].getFeeTokenWithDecimals()

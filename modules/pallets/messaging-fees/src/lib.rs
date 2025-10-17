@@ -199,16 +199,11 @@ impl<T: Config> pallet_session::SessionHandler<T::AccountId> for Pallet<T> {
 	fn on_genesis_session<Ks: OpaqueKeys>(_validators: &[(T::AccountId, Ks)]) {}
 
 	fn on_new_session<Ks: OpaqueKeys>(
-		changed: bool,
+		_changed: bool,
 		_validators: &[(T::AccountId, Ks)],
 		_queued_validators: &[(T::AccountId, Ks)],
 	) {
-		if !changed {
-			return;
-		}
-
 		TotalBytesProcessed::<T>::kill();
-
 		Self::deposit_event(Event::IncentivesReset);
 	}
 

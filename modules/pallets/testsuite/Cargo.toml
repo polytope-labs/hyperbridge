@@ -88,6 +88,7 @@ features = [
     "pallet-collator-selection",
     "pallet-session",
     "pallet-assets-holder",
+    "pallet-authorship",
     "cumulus-primitives-parachain-inherent"
 ]
 

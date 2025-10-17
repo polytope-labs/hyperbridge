@@ -229,7 +229,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 5_500,
+	spec_version: 5_600,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -415,7 +415,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorSelection,);
+	type EventHandler = (CollatorManager,);
 }
 
 parameter_types! {
@@ -887,6 +887,16 @@ impl pallet_collator_manager::Config for Runtime {
 	type Balance = Balance;
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;
+	type TreasuryAccount = TreasuryPalletId;
+	type AdminOrigin = EitherOfDiverse<
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureMembers<
+			AccountId,
+			TechnicalCollectiveInstance,
+			MIN_TECH_COLLECTIVE_APPROVAL,
+		>,
+	>;
+	type WeightInfo = ();
 }
 
 pub struct FixedPriceOracle;

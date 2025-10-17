@@ -14,8 +14,10 @@ use polkadot_sdk::{
 			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, ReservableCurrency,
 		},
 	},
+	pallet_authorship::EventHandler,
 	pallet_balances::BalanceLock,
 	sp_core::{sr25519::Pair, Pair as _},
+	sp_runtime::traits::AccountIdConversion,
 	*,
 };
 
@@ -232,5 +234,40 @@ fn test_collator_candidate_bonding_works_with_vesting_tokens() {
 		assert_eq!(CollatorManager::reserved_balance(&CHARLIE), bond_amount);
 		let lock = get_collator_bond_lock(&CHARLIE).expect("collator bond lock should exist");
 		assert_eq!(lock.amount, bond_amount);
+	});
+}
+
+#[test]
+fn set_collator_reward_works() {
+	new_test_ext().execute_with(|| {
+		let new_reward = 100 * UNIT;
+		assert_ne!(CollatorManager::collator_reward(), new_reward);
+
+		assert_ok!(CollatorManager::set_collator_reward(RuntimeOrigin::root(), new_reward));
+
+		assert_eq!(CollatorManager::collator_reward(), new_reward);
+	});
+}
+
+#[test]
+fn note_author_pays_reward_from_treasury() {
+	new_test_ext().execute_with(|| {
+		let reward_amount = 50 * UNIT;
+		let treasury = <Test as pallet_collator_manager::Config>::TreasuryAccount::get()
+			.into_account_truncating();
+
+		Balances::set_balance(&treasury, 1000 * UNIT);
+		assert_ok!(CollatorManager::set_collator_reward(RuntimeOrigin::root(), reward_amount));
+
+		let author_initial_balance = Balances::free_balance(&ALICE);
+		let treasury_initial_balance = Balances::free_balance(&treasury);
+
+		CollatorManager::note_author(ALICE);
+
+		let author_final_balance = Balances::free_balance(&ALICE);
+		let treasury_final_balance = Balances::free_balance(&treasury);
+
+		assert_eq!(author_final_balance, author_initial_balance + reward_amount);
+		assert_eq!(treasury_final_balance, treasury_initial_balance - reward_amount);
 	});
 }

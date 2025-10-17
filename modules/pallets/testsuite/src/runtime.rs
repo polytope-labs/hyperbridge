@@ -42,7 +42,10 @@ use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use polkadot_sdk::{
-	frame_support::{traits::LockIdentifier, weights::WeightToFee},
+	frame_support::{
+		traits::{FindAuthor, LockIdentifier},
+		weights::WeightToFee,
+	},
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys, Weight},
 };
@@ -105,6 +108,7 @@ frame_support::construct_runtime!(
 		Session: pallet_session,
 		CollatorSelection: pallet_collator_selection,
 		CollatorManager: pallet_collator_manager,
+		Authorship: pallet_authorship
 	}
 );
 
@@ -359,6 +363,23 @@ impl pallet_collator_manager::Config for Test {
 	type Balance = Balance;
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;
+	type TreasuryAccount = TreasuryAccount;
+	type AdminOrigin = EnsureRoot<AccountId32>;
+	type WeightInfo = ();
+}
+
+pub struct MockFindAuthor;
+impl FindAuthor<AccountId32> for MockFindAuthor {
+	fn find_author<'a, I>(_digests: I) -> Option<AccountId32>
+	where
+		I: 'a + IntoIterator<Item = (frame_support::ConsensusEngineId, &'a [u8])>,
+	{
+		None
+	}
+}
+impl pallet_authorship::Config for Test {
+	type FindAuthor = MockFindAuthor;
+	type EventHandler = CollatorManager;
 }
 
 impl pallet_token_gateway_inspector::Config for Test {

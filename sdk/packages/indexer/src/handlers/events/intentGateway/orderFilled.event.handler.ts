@@ -20,7 +20,7 @@ export const handleOrderFilledEvent = wrap(async (event: OrderFilledLog): Promis
 	logger.info(
 		`Order Filled: ${stringify({
 			commitment,
-		})} by ${filler}`,
+		})} by ${stringify({ filler })}`,
 	)
 
 	await IntentGatewayService.updateOrderStatus(

@@ -108,7 +108,7 @@ export class IntentGatewayService {
 			// Handle race condition: Order already exists (e.g., was filled first)
 			// Update all fields except status and status-related metadata
 			logger.info(
-				`Order ${order.id} already exists with status ${orderPlaced.status}. Updating order details while preserving status.`,
+				`Order ${stringify({ order: order.id })} already exists with status ${stringify({ status: orderPlaced.status })}. Updating order details while preserving status.`,
 			)
 
 			const existingStatus = orderPlaced.status
@@ -133,7 +133,9 @@ export class IntentGatewayService {
 
 			await orderPlaced.save()
 
-			logger.info(`Order ${order.id} updated with actual data. Status remains: ${existingStatus}`)
+			logger.info(
+				`Order ${stringify({ order })} updated with actual data. Status remains: ${stringify({ existingStatus })}`,
+			)
 
 			// Award points for order placement - using USD value directly
 			// Only award if status is not already FILLED (to avoid double awarding)
@@ -232,7 +234,9 @@ export class IntentGatewayService {
 
 		// For race condtions, we create a placeholder order that will be updated when the PLACED event arrives
 		if (!orderPlaced && status != OrderStatus.PLACED) {
-			logger.warn(`Order ${commitment} does not exist yet but FILLED event received. Creating placeholder order.`)
+			logger.warn(
+				`Order ${stringify({ commitment })} does not exist yet but FILLED event received. Creating placeholder order.`,
+			)
 
 			orderPlaced = await OrderPlaced.create({
 				id: commitment,
@@ -260,7 +264,7 @@ export class IntentGatewayService {
 			})
 			await orderPlaced.save()
 
-			logger.info(`Placeholder order with status FILLED created for commitment ${commitment}`)
+			logger.info(`Placeholder order with status FILLED created for commitment ${stringify({ commitment })}`)
 		}
 
 		if (orderPlaced) {

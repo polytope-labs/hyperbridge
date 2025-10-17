@@ -1,9 +1,9 @@
 import { Relayer, RelayerActivity, Transfer } from "@/configs/src/types/models"
 import { RelayerChainStatsService } from "@/services/relayerChainStats.service"
-import {
-	HandlePostRequestsTransaction,
-	HandlePostResponsesTransaction,
-} from "@/configs/src/types/abi-interfaces/HandlerV1Abi"
+// import {
+// 	HandlePostRequestsTransaction,
+// 	HandlePostResponsesTransaction,
+// } from "@/configs/src/types/abi-interfaces/HandlerV1Abi"
 import PriceHelper from "@/utils/price.helpers"
 import { PointsService } from "@/services/points.service"
 import { PointsActivityType, ProtocolParticipantType } from "@/configs/src/types"
@@ -94,80 +94,80 @@ export class RelayerService {
 	/**
 	 * Computes relayer specific stats from the handlePostRequest/handlePostResponse transactions on the handlerV1 contract
 	 */
-	static async handlePostRequestOrResponseTransaction(
-		chain: string,
-		transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
-	): Promise<void> {
-		const { from: relayer_id, hash: transaction_hash, blockHash } = transaction
-		const receipt = await transaction.receipt()
-		const { status, gasUsed, effectiveGasPrice } = receipt
+	// static async handlePostRequestOrResponseTransaction(
+	// 	chain: string,
+	// 	transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
+	// ): Promise<void> {
+	// 	const { from: relayer_id, hash: transaction_hash, blockHash } = transaction
+	// 	const receipt = await transaction.receipt()
+	// 	const { status, gasUsed, effectiveGasPrice } = receipt
 
-		const nativeCurrencyPrice = await PriceHelper.getNativeCurrencyPrice(chain)
+	// 	const nativeCurrencyPrice = await PriceHelper.getNativeCurrencyPrice(chain)
 
-		let gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed)
+	// 	let gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed)
 
-		// Add the L1 Gas Used for L2 chains
-		if (GET_ETHEREUM_L2_STATE_MACHINES().includes(chain)) {
-			if ((receipt as any).l1Fee) {
-				const l1Fee = BigInt((receipt as any).l1Fee ?? 0)
-				gasFee += l1Fee
-			} else {
-				logger.error(
-					`Could not find l1Fee in transaction receipt: ${JSON.stringify({
-						chain,
-						transactionHash: transaction.hash,
-					})}`,
-				)
-			}
-		}
+	// 	// Add the L1 Gas Used for L2 chains
+	// 	if (GET_ETHEREUM_L2_STATE_MACHINES().includes(chain)) {
+	// 		if ((receipt as any).l1Fee) {
+	// 			const l1Fee = BigInt((receipt as any).l1Fee ?? 0)
+	// 			gasFee += l1Fee
+	// 		} else {
+	// 			logger.error(
+	// 				`Could not find l1Fee in transaction receipt: ${JSON.stringify({
+	// 					chain,
+	// 					transactionHash: transaction.hash,
+	// 				})}`,
+	// 			)
+	// 		}
+	// 	}
 
-		const usdFee = (gasFee * nativeCurrencyPrice) / (10n ** 18n);
-		const gasFeeInEth = Number(gasFee) / 1e18;
+	// 	const usdFee = (gasFee * nativeCurrencyPrice) / (10n ** 18n);
+	// 	const gasFeeInEth = Number(gasFee) / 1e18;
 
-		try {
-			const timestamp = await getBlockTimestamp(blockHash, chain)
+	// 	try {
+	// 		const timestamp = await getBlockTimestamp(blockHash, chain)
 
-			let relayer = await RelayerService.findOrCreate(relayer_id, chain, timestamp)
-			let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(relayer_id, chain)
+	// 		let relayer = await RelayerService.findOrCreate(relayer_id, chain, timestamp)
+	// 		let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(relayer_id, chain)
 
-			let pointsToAWard = 50;
-			let description = "`Points awarded for successful message delivered`";
-			if (status === true) {
-				relayer_chain_stats.numberOfSuccessfulMessagesDelivered += BigInt(1)
-				relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed)
-				relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee)
-				relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee
-			} else {
-				relayer_chain_stats.numberOfFailedMessagesDelivered += BigInt(1)
-				relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed)
-				relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee)
-				relayer_chain_stats.usdGasFeeForFailedMessages += usdFee
+	// 		let pointsToAWard = 50;
+	// 		let description = "`Points awarded for successful message delivered`";
+	// 		if (status === true) {
+	// 			relayer_chain_stats.numberOfSuccessfulMessagesDelivered += BigInt(1)
+	// 			relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed)
+	// 			relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee)
+	// 			relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee
+	// 		} else {
+	// 			relayer_chain_stats.numberOfFailedMessagesDelivered += BigInt(1)
+	// 			relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed)
+	// 			relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee)
+	// 			relayer_chain_stats.usdGasFeeForFailedMessages += usdFee
 
-				pointsToAWard = pointsToAWard / 2;
-				description = "`Points awarded for failed message delivery`"
-			}
+	// 			pointsToAWard = pointsToAWard / 2;
+	// 			description = "`Points awarded for failed message delivery`"
+	// 		}
 
-			await PointsService.awardPoints(
-				relayer_id,
-				chain,
-				BigInt(pointsToAWard),
-				ProtocolParticipantType.RELAYER,
-				PointsActivityType.REWARD_POINTS_EARNED,
-				transaction_hash,
-				description,
-				timestamp,
-			)
+	// 		await PointsService.awardPoints(
+	// 			relayer_id,
+	// 			chain,
+	// 			BigInt(pointsToAWard),
+	// 			ProtocolParticipantType.RELAYER,
+	// 			PointsActivityType.REWARD_POINTS_EARNED,
+	// 			transaction_hash,
+	// 			description,
+	// 			timestamp,
+	// 		)
 
 
-			await relayer.save()
-			await relayer_chain_stats.save()
+	// 		await relayer.save()
+	// 		await relayer_chain_stats.save()
 
-			logger.info(`Relayer: ${relayer_id} updated successfully for chain: ${chain}`)
-		} catch (e) {
-			const errorMessage = e instanceof Error ? e.message : String(e)
-			logger.error(
-				`Error while handling PostRequest/PostResponse transaction relayer updates: ${errorMessage}`,
-			)
-		}
-	}
+	// 		logger.info(`Relayer: ${relayer_id} updated successfully for chain: ${chain}`)
+	// 	} catch (e) {
+	// 		const errorMessage = e instanceof Error ? e.message : String(e)
+	// 		logger.error(
+	// 			`Error while handling PostRequest/PostResponse transaction relayer updates: ${errorMessage}`,
+	// 		)
+	// 	}
+	// }
 }

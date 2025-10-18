@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.3.25
+
+### Patch Changes
+
+- Add latest statemachine query to the indexer
+
 ## 1.3.21
 
 ### Patch Changes

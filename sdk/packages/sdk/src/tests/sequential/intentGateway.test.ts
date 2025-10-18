@@ -1121,7 +1121,7 @@ describe("Order Cancellation tests", () => {
 		const { bscChapelIsmpHost, ethSepoliaIsmpHost, hyperbridge } = await setUpBscToSepoliaOrder()
 
 		const query_client = createQueryClient({
-			url: process.env.INDEXER_URL!,
+			url: "https://gargantua.indexer.polytope.technology",
 		})
 
 		indexer = new IndexerClient({

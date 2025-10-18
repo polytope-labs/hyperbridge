@@ -117,6 +117,31 @@ query StateMachineUpdatesByTimestamp($statemachineId: String!, $commitmentTimest
   }
 `
 
+export const LATEST_STATE_MACHINE_UPDATE = `
+query LatestStateMachineUpdate($statemachineId: String!, $chain: String!) {
+	stateMachineUpdateEvents(
+		filter: {
+			and: [
+				{ stateMachineId: { equalTo: $statemachineId } }
+				{ chain: { equalTo: $chain } }
+			]
+		}
+		orderBy: HEIGHT_DESC
+		first: 1
+	) {
+		nodes {
+			height
+			stateMachineId
+			chain
+			blockHash
+			blockNumber
+			transactionHash
+			createdAt
+		}
+	}
+}
+`
+
 export const ASSET_TELEPORTED_BY_PARAMS = `
 query AssetTeleportedByParams($id: String!) {
   assetTeleported(id: $id) {

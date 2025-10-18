@@ -32,6 +32,7 @@ import { type IChain, type SubstrateChain, getChain } from "@/chain"
 import {
 	ASSET_TELEPORTED_BY_PARAMS,
 	GET_RESPONSE_BY_REQUEST_ID,
+	LATEST_STATE_MACHINE_UPDATE,
 	STATE_MACHINE_UPDATES_BY_HEIGHT,
 	STATE_MACHINE_UPDATES_BY_TIMESTAMP,
 } from "@/queries"
@@ -234,6 +235,39 @@ export class IndexerClient {
 
 		//@ts-ignore
 		return first_node
+	}
+
+	/**
+	 * Query for the latest state machine update height
+	 * @params statemachineId - ID of the state machine
+	 * @params chain - The identifier for the chain where the state machine update should be queried (corresponds to a stateMachineId)
+	 * @returns Latest height or undefined if no updates found
+	 */
+	async queryLatestStateMachineHeight({
+		statemachineId,
+		chain,
+	}: {
+		statemachineId: string
+		chain: string
+	}): Promise<bigint | undefined> {
+		const logger = this.logger.withTag("[queryLatestStateMachineHeight]()")
+		const message = `querying latest StateMachineId(${statemachineId}) height in chain Chain(${chain})`
+
+		const response = await this.withRetry(
+			() => {
+				return this.client.request<StateMachineResponse>(LATEST_STATE_MACHINE_UPDATE, {
+					statemachineId,
+					chain,
+				})
+			},
+			{ logger: logger, logMessage: message },
+		)
+
+		const first_node = response?.stateMachineUpdateEvents?.nodes[0]
+		if (!first_node) return undefined
+
+		logger.trace("Latest height >", first_node.height)
+		return BigInt(first_node.height)
 	}
 
 	/**

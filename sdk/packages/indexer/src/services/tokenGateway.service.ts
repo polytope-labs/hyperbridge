@@ -13,6 +13,7 @@ import { PointsService } from "./points.service"
 import { TokenPriceService } from "./token-price.service"
 import PriceHelper from "@/utils/price.helpers"
 import { TOKEN_GATEWAY_ADDRESSES } from "@/token-gateway-addresses"
+import { getOrCreateUser } from "./userActivity.services"
 
 export interface IAssetDetails {
 	erc20_address: string
@@ -109,6 +110,18 @@ export class TokenGatewayService {
 				`Points awarded for teleporting token ${teleportParams.assetId} with value ${amountValueInUSD} USD`,
 				timestamp,
 			)
+
+			const user = await getOrCreateUser(teleportParams.from)
+			user.totalTeleports = user.totalTeleports + BigInt(1)
+			user.totalTeleportedVolumeUSD = new Decimal(user.totalTeleportedVolumeUSD)
+				.plus(new Decimal(amountValueInUSD))
+				.toString()
+			// Optimistically update the total successful teleports and volume
+			user.totalSuccessfulTeleports = user.totalSuccessfulTeleports + BigInt(1)
+			user.totalSuccessfulTeleportedVolumeUSD = new Decimal(user.totalSuccessfulTeleportedVolumeUSD)
+				.plus(new Decimal(amountValueInUSD))
+				.toString()
+			await user.save()
 		}
 
 		return teleport
@@ -157,6 +170,13 @@ export class TokenGatewayService {
 					`Points deducted for refunded teleport ${commitment} with value ${teleport.usdValue} USD`,
 					timestamp,
 				)
+
+				const user = await getOrCreateUser(teleport.from)
+				user.totalSuccessfulTeleports = user.totalSuccessfulTeleports - BigInt(1)
+				user.totalSuccessfulTeleportedVolumeUSD = new Decimal(user.totalSuccessfulTeleportedVolumeUSD)
+					.minus(new Decimal(teleport.usdValue))
+					.toString()
+				await user.save()
 			}
 
 			const teleportStatusMetadata = await TeleportStatusMetadata.create({

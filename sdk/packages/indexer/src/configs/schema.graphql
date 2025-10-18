@@ -1340,24 +1340,24 @@ type HyperbridgeRelayerReward @entity {
 	id: ID!
 
 	"""
-    The total amount of rewards this relayer has ever received.
-    """
-    totalRewardAmount: BigInt
+	The total amount of rewards this relayer has ever received.
+	"""
+	totalRewardAmount: BigInt
 
-    """
-    The total amount of messaging rewards this relayer has ever received.
-    """
-    totalMessagingRewardAmount: BigInt
+	"""
+	The total amount of messaging rewards this relayer has ever received.
+	"""
+	totalMessagingRewardAmount: BigInt
 
-    """
-    The total amount of consensus rewards this relayer has ever received.
-    """
-    totalConsensusRewardAmount: BigInt
+	"""
+	The total amount of consensus rewards this relayer has ever received.
+	"""
+	totalConsensusRewardAmount: BigInt
 
-    """
-    The balance of reputation assets accrued.
-    """
-    reputationAssetBalance: BigInt
+	"""
+	The balance of reputation assets accrued.
+	"""
+	reputationAssetBalance: BigInt
 }
 
 """
@@ -1365,68 +1365,114 @@ Record of daily relayer rewards paid out by the treasury
 """
 type DailyTreasuryRelayerReward @entity {
 	id: ID! # ID is: {YYYY-MM-DD}
-    date: Date!
-    dailyRewardAmount: BigInt!
+	date: Date!
+	dailyRewardAmount: BigInt!
 }
-
-
 
 """
 A single entity that tracks the aggregate balance and transfers for the treasury.
 The ID is the treasury's account address.
 """
 type Treasury @entity {
-    id: ID!
+	id: ID!
 
-    """
-    The total amount of tokens ever transferred INTO the treasury.
-    """
-    totalAmountTransferredIn: BigInt!
+	"""
+	The total amount of tokens ever transferred INTO the treasury.
+	"""
+	totalAmountTransferredIn: BigInt!
 
-    """
-    The total amount of tokens ever transferred OUT of the treasury.
-    """
-    totalAmountTransferredOut: BigInt!
+	"""
+	The total amount of tokens ever transferred OUT of the treasury.
+	"""
+	totalAmountTransferredOut: BigInt!
 
-    """
-    The current calculated balance of the treasury (In - Out).
-    """
-    totalBalance: BigInt!
+	"""
+	The current calculated balance of the treasury (In - Out).
+	"""
+	totalBalance: BigInt!
 
-    """
-    The timestamp of the last update.
-    """
-    lastUpdatedAt: Date!
+	"""
+	The timestamp of the last update.
+	"""
+	lastUpdatedAt: Date!
 }
 
 """
 Stores the total accumulated fees for a specific relayer on a specific chain.
 """
 type AccumulatedFee @entity {
-    """
-    The unique ID, format: {relayerAddress}-{chainId}
-    """
-    id: ID!
+	"""
+	The unique ID, format: {relayerAddress}-{chainId}
+	"""
+	id: ID!
 
-    """
-    The relayer's address.
-    """
-    relayer: String! @index
+	"""
+	The relayer's address.
+	"""
+	relayer: String! @index
 
-    """
-    A string identifier for the source chain of the fee.
-    """
-    chainId: String! @index
+	"""
+	A string identifier for the source chain of the fee.
+	"""
+	chainId: String! @index
 
-    """
-    The aggregated raw amount of fees, in the token's smallest unit.
-    """
-    lifetimeFees: BigInt!
+	"""
+	The aggregated raw amount of fees, in the token's smallest unit.
+	"""
+	lifetimeFees: BigInt!
 
-    """
-    The timestamp of the last update.
-    """
-    lastUpdatedAt: Date!
+	"""
+	The timestamp of the last update.
+	"""
+	lastUpdatedAt: Date!
 }
 
-
+"""
+Stores user data related to the Hyperbridge protocol
+"""
+type UserActivity @entity {
+	"""
+	Unique identifier for the user
+	"""
+	id: ID!
+	"""
+	Referrer address
+	"""
+	referrer: String
+	"""
+	Total orders placed by the user
+	"""
+	totalOrdersPlaced: BigInt!
+	"""
+	Filled orders that were placed by the user
+	"""
+	totalFilledOrders: BigInt!
+	"""
+	Total volume in USD for orders placed by the user
+	"""
+	totalOrderPlacedVolumeUSD: String!
+	"""
+	Total volume in USD for filled orders that were placed by the user
+	"""
+	totalOrderFilledVolumeUSD: String!
+	"""
+	Total teleports initiated by the user
+	"""
+	totalTeleports: BigInt!
+	"""
+	Successful teleports initiated by the user
+	"""
+	totalSuccessfulTeleports: BigInt!
+	"""
+	Total volume in USD for teleports initiated by the user
+	"""
+	totalTeleportedVolumeUSD: String!
+	"""
+	Total volume in USD for successful teleports initiated by the user
+	"""
+	totalSuccessfulTeleportedVolumeUSD: String!
+	"""
+	Timestamp when the user was created
+	"""
+	createdAt: Date! @index
+}

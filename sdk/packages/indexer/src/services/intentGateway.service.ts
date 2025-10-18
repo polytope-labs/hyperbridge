@@ -13,6 +13,7 @@ import { VolumeService } from "./volume.service"
 import PriceHelper from "@/utils/price.helpers"
 import { TokenPriceService } from "./token-price.service"
 import stringify from "safe-stable-stringify"
+import { getOrCreateUser } from "./userActivity.services"
 
 export interface TokenInfo {
 	token: Hex
@@ -104,6 +105,14 @@ export class IntentGatewayService {
 			)
 
 			await VolumeService.updateVolume("IntentGateway.USER", inputUSD, timestamp)
+
+			let user = await getOrCreateUser(order.user, referrer, timestamp)
+			user.totalOrdersPlaced = user.totalOrdersPlaced + BigInt(1)
+			user.totalOrderPlacedVolumeUSD = new Decimal(user.totalOrderPlacedVolumeUSD)
+				.plus(new Decimal(inputUSD))
+				.toString()
+
+			await user.save()
 		} else {
 			// Handle race condition: Order already exists (e.g., was filled first)
 			// Update all fields except status and status-related metadata
@@ -299,11 +308,19 @@ export class IntentGatewayService {
 					timestamp,
 				)
 
-				if (orderPlaced.referrer != DEFAULT_REFERRER) {
-					const referrerPointsToAward = Math.floor(pointsToAward / 2)
+				// User
+				let user = await getOrCreateUser(orderPlaced.user, orderPlaced.referrer)
+				user.totalOrderFilledVolumeUSD = new Decimal(user.totalOrderFilledVolumeUSD)
+					.plus(new Decimal(orderPlaced.inputUSD))
+					.toString()
+				user.totalFilledOrders = user.totalFilledOrders + BigInt(1)
+				await user.save()
 
+				// Referrer
+				if (user.referrer) {
+					const referrerPointsToAward = Math.floor(pointsToAward / 2)
 					await PointsService.awardPoints(
-						orderPlaced.referrer ?? DEFAULT_REFERRER,
+						user.referrer,
 						ethers.utils.toUtf8String(orderPlaced.sourceChain),
 						BigInt(referrerPointsToAward),
 						ProtocolParticipantType.REFERRER,

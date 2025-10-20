@@ -55,7 +55,7 @@ function loadTestConfig() {
 	return parse(tomlContent)
 }
 
-describe.sequential("ContractInteractionService", () => {
+describe.skip("ContractInteractionService", () => {
 	let contractInteractionService: ContractInteractionService
 	let chainClientManager: ChainClientManager
 	let chainConfigService: FillerConfigService

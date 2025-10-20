@@ -428,8 +428,8 @@ export class IntentGateway {
 			})
 
 			return v2AmountIn.result[0]
-		} catch (error) {
-			console.warn("V2 quote failed:", error)
+		} catch {
+			console.warn("V2 quote failed:")
 			return maxUint256
 		}
 	}
@@ -462,8 +462,8 @@ export class IntentGateway {
 			})
 
 			return v2AmountOut.result[1]
-		} catch (error) {
-			console.warn("V2 quote failed:", error)
+		} catch {
+			console.warn("V2 quote failed:")
 			return BigInt(0)
 		}
 	}
@@ -514,7 +514,7 @@ export class IntentGateway {
 					bestAmountIn = amountIn
 					bestFee = fee
 				}
-			} catch (error) {
+			} catch {
 				console.warn(`V3 quote failed for fee ${fee}, continuing to next fee tier`)
 			}
 		}
@@ -568,7 +568,7 @@ export class IntentGateway {
 					bestAmountOut = amountOut
 					bestFee = fee
 				}
-			} catch (error) {
+			} catch {
 				console.warn(`V3 quote failed for fee ${fee}, continuing to next fee tier`)
 			}
 		}
@@ -630,7 +630,7 @@ export class IntentGateway {
 					bestAmountIn = amountIn
 					bestFee = fee
 				}
-			} catch (error) {
+			} catch {
 				console.warn(`V4 quote failed for fee ${fee}, continuing to next fee tier`)
 			}
 		}
@@ -692,7 +692,7 @@ export class IntentGateway {
 					bestAmountOut = amountOut
 					bestFee = fee
 				}
-			} catch (error) {
+			} catch {
 				console.warn(`V4 quote failed for fee ${fee}, continuing to next fee tier`)
 			}
 		}

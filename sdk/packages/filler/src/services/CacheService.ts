@@ -1,3 +1,4 @@
+import { HexString } from "@hyperbridge/sdk"
 import { getLogger } from "./Logger"
 
 interface GasEstimateCache {
@@ -23,6 +24,9 @@ interface SwapOperationsCache {
 interface CacheData {
 	gasEstimates: Record<string, GasEstimateCache>
 	swapOperations: Record<string, SwapOperationsCache>
+	feeTokens: Record<string, { address: HexString; decimals: number }>
+	perByteFees: Record<string, Record<string, bigint>>
+	tokenDecimals: Record<string, Record<HexString, number>>
 }
 
 export class CacheService {
@@ -31,7 +35,7 @@ export class CacheService {
 	private logger = getLogger("cache-service")
 
 	constructor() {
-		this.cacheData = { gasEstimates: {}, swapOperations: {} }
+		this.cacheData = { gasEstimates: {}, swapOperations: {}, feeTokens: {}, perByteFees: {}, tokenDecimals: {} }
 	}
 
 	private isCacheValid(timestamp: number): boolean {
@@ -129,6 +133,93 @@ export class CacheService {
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting swap operations")
+			throw error
+		}
+	}
+
+	getFeeTokenWithDecimals(chain: string): { address: HexString; decimals: number } | null {
+		try {
+			const cache = this.cacheData.feeTokens[chain]
+			if (cache) {
+				return {
+					address: cache.address,
+					decimals: cache.decimals,
+				}
+			}
+			return null
+		} catch (error) {
+			this.logger.error({ err: error }, "Error getting fee token with decimals")
+			return null
+		}
+	}
+
+	setFeeTokenWithDecimals(chain: string, address: HexString, decimals: number): void {
+		try {
+			this.cleanupStaleData()
+
+			if (!this.cacheData.feeTokens[chain]) {
+				this.cacheData.feeTokens[chain] = { address, decimals }
+			} else {
+				this.cacheData.feeTokens[chain] = { address, decimals }
+			}
+		} catch (error) {
+			this.logger.error({ chain: chain, err: error }, "Error setting fee token with decimals")
+			throw error
+		}
+	}
+
+	getPerByteFee(sourceChain: string, destChain: string): bigint | null {
+		try {
+			const sourceMap = this.cacheData.perByteFees[sourceChain]
+			if (sourceMap && sourceMap[destChain]) {
+				return sourceMap[destChain]
+			}
+			return null
+		} catch (error) {
+			this.logger.error({ err: error }, "Error getting per byte fee")
+			return null
+		}
+	}
+
+	setPerByteFee(sourceChain: string, destChain: string, perByteFee: bigint): void {
+		try {
+			this.cleanupStaleData()
+
+			if (!this.cacheData.perByteFees[sourceChain]) {
+				this.cacheData.perByteFees[sourceChain] = {}
+			}
+			this.cacheData.perByteFees[sourceChain][destChain] = perByteFee
+		} catch (error) {
+			this.logger.error(
+				{ sourceChain: sourceChain, destChain: destChain, err: error },
+				"Error setting per byte fee",
+			)
+			throw error
+		}
+	}
+
+	getTokenDecimals(chain: string, tokenAddress: HexString): number | null {
+		try {
+			const chainCache = this.cacheData.tokenDecimals[chain]
+			if (chainCache && chainCache[tokenAddress]) {
+				return chainCache[tokenAddress]
+			}
+			return null
+		} catch {
+			return null
+		}
+	}
+
+	setTokenDecimals(chain: string, tokenAddress: HexString, decimals: number): void {
+		try {
+			this.cleanupStaleData()
+			// Ensure the chain object exists before setting the token decimals
+			if (!this.cacheData.tokenDecimals[chain]) {
+				this.cacheData.tokenDecimals[chain] = {}
+			}
+			this.cacheData.tokenDecimals[chain][tokenAddress] = decimals
+		} catch (error) {
+			this.logger.error({ chain: chain, tokenAddress: tokenAddress, err: error }, "Error setting token decimals")
 			throw error
 		}
 	}

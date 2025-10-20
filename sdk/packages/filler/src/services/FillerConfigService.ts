@@ -149,4 +149,8 @@ export class FillerConfigService {
 	getEtherscanApiKey(): string | undefined {
 		return this.fillerConfig?.etherscan?.apiKey
 	}
+
+	getConfiguredChainIds(): number[] {
+		return Array.from(this.rpcOverrides.keys())
+	}
 }

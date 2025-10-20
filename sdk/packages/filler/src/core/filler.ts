@@ -28,10 +28,11 @@ export class IntentFiller {
 		configService: FillerConfigService,
 	) {
 		this.configService = configService
-		this.monitor = new EventMonitor(chainConfigs, configService)
+		this.chainClientManager = new ChainClientManager(configService)
+		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager)
 		this.strategies = strategies
 		this.config = config
-		this.chainClientManager = new ChainClientManager(configService)
+
 		this.contractService = new ContractInteractionService(
 			this.chainClientManager,
 			generatePrivateKey(),

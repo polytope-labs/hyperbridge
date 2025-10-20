@@ -1,12 +1,5 @@
 import { EventEmitter } from "events"
-import {
-	ChainConfig,
-	Order,
-	orderCommitment,
-	DUMMY_PRIVATE_KEY,
-	hexToString,
-	DecodedOrderPlacedLog,
-} from "@hyperbridge/sdk"
+import { ChainConfig, Order, orderCommitment, hexToString, DecodedOrderPlacedLog } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { PublicClient } from "viem"
 import { ChainClientManager } from "@/services"
@@ -16,16 +9,16 @@ import { getLogger } from "@/services/Logger"
 export class EventMonitor extends EventEmitter {
 	private clients: Map<number, PublicClient> = new Map()
 	private listening: boolean = false
-	private unwatchFunctions: Map<number, () => void> = new Map()
 	private clientManager: ChainClientManager
 	private configService: FillerConfigService
 	private logger = getLogger("event-monitor")
+	private lastScannedBlock: Map<number, bigint> = new Map()
+	private blockScanIntervals: Map<number, NodeJS.Timeout> = new Map()
 
-	constructor(chainConfigs: ChainConfig[], configService: FillerConfigService) {
+	constructor(chainConfigs: ChainConfig[], configService: FillerConfigService, clientManager: ChainClientManager) {
 		super()
-
 		this.configService = configService
-		this.clientManager = new ChainClientManager(configService)
+		this.clientManager = clientManager
 
 		chainConfigs.forEach((config) => {
 			const chainName = `EVM-${config.chainId}`
@@ -43,72 +36,132 @@ export class EventMonitor extends EventEmitter {
 				const orderPlacedEvent = INTENT_GATEWAY_ABI.find(
 					(item) => item.type === "event" && item.name === "OrderPlaced",
 				)
-
 				const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
-				const unwatch = client.watchEvent({
-					address: intentGatewayAddress,
-					event: orderPlacedEvent,
-					onLogs: (logs) => {
-						for (const log of logs) {
-							try {
-								const decodedLog = log as unknown as DecodedOrderPlacedLog
-								const tempOrder: Order = {
-									id: "",
-									user: decodedLog.args.user,
-									sourceChain: hexToString(decodedLog.args.sourceChain),
-									destChain: hexToString(decodedLog.args.destChain),
-									deadline: decodedLog.args.deadline,
-									nonce: decodedLog.args.nonce,
-									fees: decodedLog.args.fees,
-									outputs: decodedLog.args.outputs.map((output) => ({
-										token: output.token,
-										amount: output.amount,
-										beneficiary: output.beneficiary,
-									})),
-									inputs: decodedLog.args.inputs.map((input) => ({
-										token: input.token,
-										amount: input.amount,
-									})),
-									callData: decodedLog.args.callData,
-									transactionHash: decodedLog.transactionHash,
-								}
 
-								const orderId = orderCommitment(tempOrder)
+				const startBlock = await client.getBlockNumber()
+				this.lastScannedBlock.set(chainId, startBlock - 1n)
 
-								const order: Order = {
-									...tempOrder,
-									id: orderId,
-								}
+				this.logger.info({ chainId, startBlock }, "Initializing block scanner")
 
-								this.emit("newOrder", { order })
-							} catch (error) {
-								this.logger.error({ err: error }, "Error parsing event log")
-							}
-						}
-					},
-					poll: true,
-					pollingInterval: 1000,
-				})
-				this.unwatchFunctions.set(chainId, unwatch)
+				const scanInterval = setInterval(async () => {
+					try {
+						await this.scanBlocks(chainId, client, intentGatewayAddress, orderPlacedEvent)
+					} catch (error) {
+						this.logger.error({ chainId, err: error }, "Error in block scanner")
+					}
+				}, 1000)
 
-				this.logger.info({ chainId }, "Started watching OrderPlaced events")
+				this.blockScanIntervals.set(chainId, scanInterval)
+
+				this.logger.info({ chainId }, "Started monitoring for new orders")
 			} catch (error) {
-				this.logger.error({ chainId, err: error }, "Failed to create event filter")
+				this.logger.error({ chainId, err: error }, "Failed to start block scanner")
+			}
+		}
+	}
+
+	private async scanBlocks(
+		chainId: number,
+		client: PublicClient,
+		intentGatewayAddress: `0x${string}`,
+		orderPlacedEvent: any,
+	): Promise<void> {
+		const lastScanned = this.lastScannedBlock.get(chainId)
+		if (!lastScanned) return
+
+		const currentBlock = await client.getBlockNumber()
+
+		if (currentBlock > lastScanned) {
+			const fromBlock = lastScanned + 1n
+			const toBlock = currentBlock
+
+			const maxBlockRange = 1000n
+			const actualToBlock = fromBlock + maxBlockRange > toBlock ? toBlock : fromBlock + maxBlockRange
+
+			this.logger.debug(
+				{ chainId, fromBlock, toBlock: actualToBlock, gap: Number(actualToBlock - fromBlock) },
+				"Scanning blocks",
+			)
+
+			const logs = await client.getLogs({
+				address: intentGatewayAddress,
+				event: orderPlacedEvent,
+				fromBlock,
+				toBlock: actualToBlock,
+			})
+
+			if (logs.length > 0) {
+				this.logger.info(
+					{ chainId, fromBlock, toBlock: actualToBlock, eventCount: logs.length },
+					"Found events in block scan",
+				)
+				this.processLogs(logs)
+			}
+
+			this.lastScannedBlock.set(chainId, actualToBlock)
+		}
+	}
+
+	private processLogs(logs: any[]): void {
+		for (const log of logs) {
+			try {
+				const decodedLog = log as unknown as DecodedOrderPlacedLog
+				const order: Order = {
+					id: orderCommitment({
+						id: "",
+						user: decodedLog.args.user,
+						sourceChain: hexToString(decodedLog.args.sourceChain),
+						destChain: hexToString(decodedLog.args.destChain),
+						deadline: decodedLog.args.deadline,
+						nonce: decodedLog.args.nonce,
+						fees: decodedLog.args.fees,
+						outputs: decodedLog.args.outputs.map((output) => ({
+							token: output.token,
+							amount: output.amount,
+							beneficiary: output.beneficiary,
+						})),
+						inputs: decodedLog.args.inputs.map((input) => ({
+							token: input.token,
+							amount: input.amount,
+						})),
+						callData: decodedLog.args.callData,
+						transactionHash: decodedLog.transactionHash,
+					}),
+					user: decodedLog.args.user,
+					sourceChain: hexToString(decodedLog.args.sourceChain),
+					destChain: hexToString(decodedLog.args.destChain),
+					deadline: decodedLog.args.deadline,
+					nonce: decodedLog.args.nonce,
+					fees: decodedLog.args.fees,
+					outputs: decodedLog.args.outputs.map((output) => ({
+						token: output.token,
+						amount: output.amount,
+						beneficiary: output.beneficiary,
+					})),
+					inputs: decodedLog.args.inputs.map((input) => ({
+						token: input.token,
+						amount: input.amount,
+					})),
+					callData: decodedLog.args.callData,
+					transactionHash: decodedLog.transactionHash,
+				}
+
+				this.logger.info({ orderId: order.id, txHash: order.transactionHash }, "New order detected")
+				this.emit("newOrder", { order })
+			} catch (error) {
+				this.logger.error({ err: error, log }, "Error parsing event log")
 			}
 		}
 	}
 
 	public async stopListening(): Promise<void> {
-		for (const [chainId, unwatch] of this.unwatchFunctions.entries()) {
-			try {
-				unwatch()
-				this.logger.info({ chainId }, "Stopped watching for events")
-			} catch (error) {
-				this.logger.error({ chainId, err: error }, "Error stopping event watcher")
-			}
+		for (const [chainId, interval] of this.blockScanIntervals.entries()) {
+			clearInterval(interval)
+			this.logger.info({ chainId }, "Stopped block scanner")
 		}
+		this.blockScanIntervals.clear()
 
-		this.unwatchFunctions.clear()
 		this.listening = false
+		this.lastScannedBlock.clear()
 	}
 }

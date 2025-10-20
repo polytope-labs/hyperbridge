@@ -64,6 +64,33 @@ export class ContractInteractionService {
 	) {
 		this.configService = configService
 		this.cacheService = new CacheService()
+		this.initCache()
+	}
+
+	async initCache(): Promise<void> {
+		const chainIds = this.configService.getConfiguredChainIds()
+		const chainNames = chainIds.map((id) => `EVM-${id}`)
+		for (const chainName of chainNames) {
+			await this.getFeeTokenWithDecimals(chainName)
+		}
+
+		for (const destChain of chainNames) {
+			const destClient = this.clientManager.getPublicClient(destChain)
+			const usdc = this.configService.getUsdcAsset(destChain)
+			const usdt = this.configService.getUsdtAsset(destChain)
+			await this.getTokenDecimals(usdc, destChain)
+			await this.getTokenDecimals(usdt, destChain)
+			for (const sourceChain of chainNames) {
+				if (sourceChain === destChain) continue
+				const perByteFee = await destClient.readContract({
+					address: this.configService.getHostAddress(destChain),
+					abi: EVM_HOST,
+					functionName: "perByteFee",
+					args: [toHex(sourceChain)],
+				})
+				this.cacheService.setPerByteFee(destChain, sourceChain, perByteFee)
+			}
+		}
 	}
 
 	/**
@@ -97,6 +124,11 @@ export class ContractInteractionService {
 			return 18 // Native token (ETH, MATIC, etc.)
 		}
 
+		const cachedTokenDecimals = this.cacheService.getTokenDecimals(chain, bytes20Address as HexString)
+		if (cachedTokenDecimals) {
+			return cachedTokenDecimals
+		}
+
 		const client = this.clientManager.getPublicClient(chain)
 
 		try {
@@ -106,6 +138,7 @@ export class ContractInteractionService {
 				functionName: "decimals",
 			})
 
+			this.cacheService.setTokenDecimals(chain, bytes20Address as HexString, decimals)
 			return decimals
 		} catch (error) {
 			this.logger.warn({ err: error }, "Error getting token decimals, defaulting to 18")
@@ -321,9 +354,7 @@ export class ContractInteractionService {
 				hostAddress: this.configService.getHostAddress(order.sourceChain),
 			})
 
-			const { decimals: destFeeTokenDecimals, address: destFeeTokenAddress } = await this.getFeeTokenWithDecimals(
-				order.destChain,
-			)
+			const { decimals: destFeeTokenDecimals } = await this.getFeeTokenWithDecimals(order.destChain)
 
 			let postGasEstimateInDestFeeToken = await this.convertGasToFeeToken(
 				postGasEstimate,
@@ -638,6 +669,10 @@ export class ContractInteractionService {
 	 * @returns An object containing the fee token address and its decimal places
 	 */
 	async getFeeTokenWithDecimals(chain: string): Promise<{ address: HexString; decimals: number }> {
+		const cachedFeeToken = this.cacheService.getFeeTokenWithDecimals(chain)
+		if (cachedFeeToken) {
+			return cachedFeeToken
+		}
 		const client = this.clientManager.getPublicClient(chain)
 		const feeTokenAddress = await client.readContract({
 			abi: EVM_HOST,
@@ -649,6 +684,7 @@ export class ContractInteractionService {
 			abi: ERC20_ABI,
 			functionName: "decimals",
 		})
+		this.cacheService.setFeeTokenWithDecimals(chain, feeTokenAddress, feeTokenDecimals)
 		return { address: feeTokenAddress, decimals: feeTokenDecimals }
 	}
 
@@ -661,6 +697,10 @@ export class ContractInteractionService {
 	 * @returns The total fee in fee token required to send the post request
 	 */
 	async quote(order: Order): Promise<bigint> {
+		const cachedPerByteFee = this.cacheService.getPerByteFee(order.destChain, order.sourceChain)
+		if (cachedPerByteFee) {
+			return cachedPerByteFee
+		}
 		const { destClient } = this.clientManager.getClientsForOrder(order)
 		const postRequest: IPostRequest = {
 			source: order.destChain,
@@ -677,7 +717,7 @@ export class ContractInteractionService {
 			functionName: "perByteFee",
 			args: [toHex(order.sourceChain)],
 		})
-
+		this.cacheService.setPerByteFee(order.destChain, order.sourceChain, perByteFee)
 		// Exclude 0x prefix from the body length, and get the byte length
 		const bodyByteLength = Math.floor((postRequest.body.length - 2) / 2)
 		const length = bodyByteLength < 32 ? 32 : bodyByteLength
@@ -931,8 +971,8 @@ export class ContractInteractionService {
 			})) as bigint[]
 
 			return v2AmountIn[0]
-		} catch (error) {
-			this.logger.warn({ err: error }, "V2 quote failed")
+		} catch {
+			this.logger.warn("V2 quote failed")
 			return maxUint256
 		}
 	}

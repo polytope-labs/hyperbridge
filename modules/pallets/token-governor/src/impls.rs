@@ -444,12 +444,14 @@ where
 				if chain == state_machine || chain.is_substrate() {
 					continue;
 				}
+
 				dispatcher
 					.dispatch_request(
 						DispatchRequest::Post(DispatchPost {
 							dest: chain.clone(),
 							from: PALLET_ID.to_vec(),
-							to: address.as_bytes().to_vec(),
+							// Contract address is the last 20 bytes
+							to: address.0[12..].to_vec(),
 							timeout: 0,
 							body: vec![vec![1], SolNewIntentGatewayDeployment::abi_encode(&body)]
 								.concat(),
@@ -493,7 +495,8 @@ where
 						DispatchRequest::Post(DispatchPost {
 							dest: state_machine.clone(),
 							from: PALLET_ID.to_vec(),
-							to: old.address.as_bytes().to_vec(),
+							// Contract address is the last 20 bytes
+							to: old.address.0[12..].to_vec(),
 							timeout: 0,
 							body: vec![vec![2], SolGatewayParams::abi_encode(&body)].concat(),
 						}),

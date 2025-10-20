@@ -89,7 +89,9 @@ export class EventMonitor extends EventEmitter {
 				fromBlock,
 				toBlock: actualToBlock,
 			})
-
+			
+            this.lastScannedBlock.set(chainId, actualToBlock)
+			
 			if (logs.length > 0) {
 				this.logger.info(
 					{ chainId, fromBlock, toBlock: actualToBlock, eventCount: logs.length },
@@ -97,8 +99,6 @@ export class EventMonitor extends EventEmitter {
 				)
 				this.processLogs(logs)
 			}
-
-			this.lastScannedBlock.set(chainId, actualToBlock)
 		}
 	}
 

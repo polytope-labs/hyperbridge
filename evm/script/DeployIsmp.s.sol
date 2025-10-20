@@ -66,15 +66,11 @@ contract DeployScript is BaseScript {
             address uniswap = config.get("UNISWAP_V2").toAddress();
             // if existing univ2 address isn't available, deploy univ3 wrapper
             if (uniswap == address(0)) {
-                address WETH = config.get("WETH").toAddress();
-                address SWAP_ROUTER = config.get("SWAP_ROUTER").toAddress();
-                address QUOTER = config.get("QUOTER").toAddress();
-
                 UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
                 wrapper.init(UniV3UniswapV2Wrapper.Params({
-                    WETH: WETH,
-                    swapRouter: SWAP_ROUTER,
-                    quoter: QUOTER
+                    WETH: config.get("WETH").toAddress(),
+                    swapRouter: config.get("SWAP_ROUTER").toAddress(),
+                    quoter: config.get("QUOTER").toAddress()
                 }));
                 uniswapV2 = address(wrapper);
             } else {
@@ -136,7 +132,7 @@ contract DeployScript is BaseScript {
             StateCommitment({timestamp: block.timestamp, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
 
-        // ======= Deploy applications =============
+        // ============= Deploy applications =============
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
 
         // token gateway
@@ -159,6 +155,7 @@ contract DeployScript is BaseScript {
             config.set("TOKEN_FAUCET", address(faucet));
         }
 
+        // ============= Write addresses to config =============
         config.set("HOST", hostAddress);
         config.set("CALL_DISPATCHER", address(callDispatcher));
         config.set("TOKEN_GATEWAY", address(tokenGateway));

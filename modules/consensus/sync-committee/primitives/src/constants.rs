@@ -82,8 +82,8 @@ pub const PENDING_DEPOSITS_LIMIT: usize = 2usize.saturating_pow(27);
 pub const PENDING_PARTIAL_WITHDRAWALS_LIMIT: usize = 2usize.saturating_pow(27);
 pub const PENDING_CONSOLIDATIONS_LIMIT: usize = 2usize.saturating_pow(18);
 
-pub const PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM: usize = 32;
-pub const PROPOSER_LOOK_AHEAD_LIMIT_GNO: usize = 16;
+pub const PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM: usize = 64;
+pub const PROPOSER_LOOK_AHEAD_LIMIT_GNO: usize = 32;
 
 pub trait Config {
 	const SLOTS_PER_EPOCH: Slot;

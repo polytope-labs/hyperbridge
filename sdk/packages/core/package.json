@@ -1,7 +1,7 @@
 {
 	"name": "@hyperbridge/core",
 	"version": "1.0.0",
-	"description": "Hyperbridge Core - Solidity sdk for dispatching & receiving cross-chain messages",
+	"description": "Hyperbridge Solidity SDK for dispatching & receiving cross-chain messages",
 	"author": "Polytope Labs <hello@polytope.technology>",
 	"license": "Apache-2.0",
 	"bugs": {
@@ -9,15 +9,15 @@
 	},
 	"homepage": "https://github.com/polytope-labs/hyperbridge-sdk/tree/main/packages/core#readme",
 	"directories": {
-		"lib": "interfaces"
+		"lib": "contracts"
 	},
 	"files": [
-		"./interfaces/**/*.sol"
+		"./contracts/**/*.sol"
 	],
 	"scripts": {
-		"compile": "forge build --contracts interfaces/ --skip test --skip script",
-		"format": "forge fmt interfaces/",
-		"format:check": "forge fmt --check interfaces/"
+		"build": "forge build --contracts contracts/ --skip test --skip script",
+		"format": "forge fmt contracts/",
+		"format:check": "forge fmt --check contracts/"
 	},
 	"repository": {
 		"type": "git",

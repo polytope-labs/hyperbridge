@@ -1,4 +1,4 @@
-name: Test SDK
+name: "@hyperbridge/sdk"
 
 # Cancel running workflows from the same PR
 concurrency:

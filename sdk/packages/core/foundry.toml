@@ -2,3 +2,10 @@
 src = 'interfaces'
 out = 'out'
 libs = ['lib']
+
+[lint]
+exclude_lints = [
+    "unwrapped-modifier-logic",
+    "asm-keccak256",
+    "mixed-case-function",
+]

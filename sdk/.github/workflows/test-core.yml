@@ -1,4 +1,4 @@
-name: Compile Core Interfaces
+name: "@hyperbridge/core"
 
 on:
     push:
@@ -23,7 +23,7 @@ env:
 
 jobs:
     compile:
-        name: Compile Interfaces
+        name: Compile
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v3
@@ -61,9 +61,9 @@ jobs:
             - name: Install dependencies
               run: pnpm install
 
-            - name: Compile interfaces
+            - name: Compile SDK
               working-directory: packages/core
               run: |
-                  echo "Compiling Solidity interfaces with Forge..."
-                  forge build --contracts interfaces/ --skip test --skip script --sizes
-                  echo "✅ All interfaces compiled successfully"
+                  echo "Compiling Solidity SDK with Forge..."
+                  forge build --contracts contracts/ --skip test --skip script --sizes
+                  echo "✅ All contracts compiled successfully"

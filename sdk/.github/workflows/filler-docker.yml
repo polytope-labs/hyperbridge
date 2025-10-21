@@ -1,4 +1,4 @@
-name: Filler Docker Publish
+name: "Publish @hyperbridge/filler"
 
 on:
     push:

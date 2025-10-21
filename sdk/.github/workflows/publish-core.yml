@@ -1,9 +1,9 @@
-name: "Publish @hyperbridge/sdk"
+name: "Publish @hyperbridge/core"
 
 on:
     push:
         tags:
-            - "sdk-v*"
+            - "core-v*"
 
 jobs:
     build-and-publish:
@@ -32,15 +32,15 @@ jobs:
               run: pnpm install
 
             - name: Build dependencies
-              run: pnpm --filter="@hyperbridge/sdk^..." build
+              run: pnpm --filter="@hyperbridge/core^..." build
 
-            - name: Build SDK
-              run: pnpm --filter="@hyperbridge/sdk" build
+            - name: Build Core
+              run: pnpm --filter="@hyperbridge/core" build
 
             - name: Publish to npm
               run: |
                   echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
-                  pnpm --filter="@hyperbridge/sdk" publish --no-git-checks
+                  pnpm --filter="@hyperbridge/core" publish --no-git-checks
               env:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -59,9 +59,9 @@ jobs:
               id: previous-tag
               run: |
                   CURRENT_TAG=${GITHUB_REF#refs/tags/}
-                  PREVIOUS_TAG=$(git tag -l "sdk-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
-                  # Remove 'sdk-' prefix for clean tag name
-                  CLEAN_TAG=${CURRENT_TAG#sdk-}
+                  PREVIOUS_TAG=$(git tag -l "core-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
+                  # Remove 'core-' prefix for clean tag name
+                  CLEAN_TAG=${CURRENT_TAG#core-}
                   echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
                   echo "current_tag=${CURRENT_TAG}" >> $GITHUB_OUTPUT
                   echo "clean_tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
@@ -107,7 +107,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.POLYTOPE_GITHUB_TOKEN }}
               with:
                   tag_name: ${{ steps.previous-tag.outputs.clean_tag }}
-                  release_name: SDK Release ${{ steps.previous-tag.outputs.clean_tag }}
+                  release_name: Core Release ${{ steps.previous-tag.outputs.clean_tag }}
                   body: ${{ steps.changelog.outputs.changelog }}
                   draft: true
                   prerelease: false

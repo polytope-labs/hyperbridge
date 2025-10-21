@@ -31,6 +31,11 @@ jobs:
             - name: Install dependencies
               run: pnpm install
 
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
             - name: Build dependencies
               run: pnpm --filter="@hyperbridge/core^..." build
 
@@ -60,11 +65,9 @@ jobs:
               run: |
                   CURRENT_TAG=${GITHUB_REF#refs/tags/}
                   PREVIOUS_TAG=$(git tag -l "core-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
-                  # Remove 'core-' prefix for clean tag name
-                  CLEAN_TAG=${CURRENT_TAG#core-}
                   echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
                   echo "current_tag=${CURRENT_TAG}" >> $GITHUB_OUTPUT
-                  echo "clean_tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
+                  echo "clean_tag=${CURRENT_TAG}" >> $GITHUB_OUTPUT
 
             - name: Generate changelog
               id: changelog

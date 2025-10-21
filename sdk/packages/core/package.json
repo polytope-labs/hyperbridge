@@ -14,6 +14,9 @@
 	"files": [
 		"./contracts/**/*.sol"
 	],
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"build": "forge build --contracts contracts/ --skip test --skip script",
 		"format": "forge fmt contracts/",

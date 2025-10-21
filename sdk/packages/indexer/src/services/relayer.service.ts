@@ -37,8 +37,8 @@ export class RelayerService {
 		relayer_chain_stats.feesEarned += transfer.amount
 		await this.updateRelayerActivity(relayer.id, timestamp)
 
-		relayer.save()
-		relayer_chain_stats.save()
+		await relayer.save()
+		await relayer_chain_stats.save()
 	}
 
 	/**
@@ -56,8 +56,8 @@ export class RelayerService {
 		relayer_chain_stats.feesEarned += fee
 		await this.updateRelayerActivity(relayer.id, timestamp)
 
-		relayer.save()
-		relayer_chain_stats.save()
+		await relayer.save()
+		await relayer_chain_stats.save()
 	}
 
 	/**
@@ -157,7 +157,6 @@ export class RelayerService {
 	// 			description,
 	// 			timestamp,
 	// 		)
-
 
 	// 		await relayer.save()
 	// 		await relayer_chain_stats.save()

@@ -84,7 +84,7 @@ export class GetRequestService {
 				commitment: id,
 			})
 
-			getRequest.save()
+			await getRequest.save()
 
 			logger.info(
 				`Saved GetRequest Event: ${JSON.stringify({
@@ -108,7 +108,7 @@ export class GetRequestService {
 			if (status !== undefined) getRequest.status = status
 			if (chain !== undefined) getRequest.chain = chain
 
-			getRequest.save()
+			await getRequest.save()
 
 			logger.info(
 				`Updated GetRequest Event: ${JSON.stringify({
@@ -140,7 +140,7 @@ export class GetRequestService {
 			status,
 		})
 
-		getRequest.save()
+		await getRequest.save()
 
 		logger.info(
 			`Created new get request while attempting get request update with details ${JSON.stringify({

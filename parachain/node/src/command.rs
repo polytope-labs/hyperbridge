@@ -19,7 +19,7 @@ use std::{borrow::Cow, str::FromStr};
 use cumulus_client_service::storage_proof_size::HostFunctions as ReclaimHostFunctions;
 use cumulus_primitives_core::ParaId;
 use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
-use messier_runtime::Block;
+use gargantua_runtime::Block;
 use log::info;
 use polkadot_cli::service;
 use sc_cli::{
@@ -38,7 +38,7 @@ use crate::{
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 	Ok(match id {
 		"dev" | "gargantua" => Box::new(chain_spec::ChainSpec::from_json_bytes(
-			include_bytes!("../../chainspec/messier.json").to_vec(),
+			include_bytes!("../../chainspec/gargantua.paseo.json").to_vec(),
 		)?),
 		"" | "nexus" => Box::new(chain_spec::ChainSpec::from_json_bytes(
 			include_bytes!("../../chainspec/nexus.json").to_vec(),
@@ -145,7 +145,7 @@ macro_rules! construct_async_run {
             chain if chain.contains("gargantua") || chain.contains("dev") => {
                 runner.async_run(|$config| {
                     let executor = sc_service::new_wasm_executor::<HostFunctions>(&$config.executor);
-                    let $components = new_partial::<messier_runtime::RuntimeApi, _>(&$config, executor)?;
+                    let $components = new_partial::<gargantua_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
             }
@@ -230,7 +230,7 @@ pub fn run() -> Result<()> {
 				match config.chain_spec.id() {
 					chain if chain.contains("gargantua") || chain.contains("dev") => {
 						let components =
-							new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
+							new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
 
 						cmd.run(components.client.clone())
 					},
@@ -273,7 +273,7 @@ pub fn run() -> Result<()> {
 					match config.chain_spec.id() {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
 							let components =
-								new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
+								new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
 							cmd.run(components.client)
 						},
 						chain if chain.contains("nexus") => {
@@ -298,7 +298,7 @@ pub fn run() -> Result<()> {
 					match config.chain_spec.id() {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
 							let components =
-								new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
+								new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
 							let db = components.backend.expose_db();
 							let storage = components.backend.expose_storage();
 							let shared_trie_cache = components.backend.expose_shared_trie_cache();

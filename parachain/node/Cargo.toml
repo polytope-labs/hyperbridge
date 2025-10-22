@@ -24,7 +24,6 @@ json = { workspace = true, default-features = true }
 # local
 gargantua-runtime = { workspace = true, default-features = true }
 nexus-runtime = { workspace = true, default-features = true }
-messier-runtime = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
 pallet-mmr-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
@@ -96,7 +95,6 @@ features = [
     "cumulus-client-consensus-proposer",
     "cumulus-client-collator",
     "pallet-transaction-payment",
-    "pallet-revive-eth-rpc"
 ]
 
 

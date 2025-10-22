@@ -91,7 +91,7 @@ pub trait BaseHostRuntimeApis:
 		pallet_ismp::offchain::Leaf,
 	> + simnode_runtime_api::CreateTransactionApi<
 		opaque::Block,
-		messier_runtime::RuntimeCall,
+		gargantua_runtime::RuntimeCall,
 		opaque::AccountId,
 	>
 {
@@ -118,7 +118,7 @@ impl<Api> BaseHostRuntimeApis for Api where
 			pallet_ismp::offchain::Leaf,
 		> + simnode_runtime_api::CreateTransactionApi<
 			opaque::Block,
-			messier_runtime::RuntimeCall,
+			gargantua_runtime::RuntimeCall,
 			opaque::AccountId,
 		>
 {

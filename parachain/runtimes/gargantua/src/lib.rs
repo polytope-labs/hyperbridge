@@ -131,6 +131,9 @@ pub type Balance = u128;
 /// Index of a transaction in the chain.
 pub type Index = u32;
 
+/// Type alias for Nonce
+pub type Nonce = Index;
+
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
 
@@ -762,6 +765,11 @@ impl pallet_vesting::Config for Runtime {
 	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
 	type BlockNumberProvider = System;
 }
+parameter_types! {
+	pub const DepositPerItem: Balance = EXISTENTIAL_DEPOSIT;
+	pub const DepositPerByte: Balance = EXISTENTIAL_DEPOSIT;
+	pub CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(30);
+}
 
 impl pallet_revive::Config for Runtime {
 	type Time = Timestamp;
@@ -785,6 +793,9 @@ impl pallet_revive::Config for Runtime {
 	type NativeToEthRatio = ConstU32<1_000_000>; // 10^(18 - 12) Eth is 10^18, Native is 10^12.
 	type EthGasEncoder = ();
 	type FindAuthor = <Runtime as pallet_authorship::Config>::FindAuthor;
+}
+
+impl pallet_log_emitter::Config for Runtime {
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -900,6 +911,11 @@ mod runtime {
 	pub type IsmpArbitrum = ismp_arbitrum::pallet;
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
+
+	#[runtime::pallet_index(85)]
+	pub type Revive = pallet_revive;
+	#[runtime::pallet_index(86)]
+	pub type LogEmitter = pallet_log_emitter;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
@@ -937,10 +953,14 @@ mod benches {
 	);
 }
 
-impl_runtime_apis! {
+
+pallet_revive::impl_runtime_apis_plus_revive!(
+	Runtime,
+	Executive,
+	EthExtraImpl,
 	impl sp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
 		fn slot_duration() -> sp_consensus_aura::SlotDuration {
-			sp_consensus_aura::SlotDuration::from_millis(SLOT_DURATION)
+			sp_consensus_aura::SlotDuration::from_millis(Aura::slot_duration())
 		}
 
 		fn authorities() -> Vec<AuraId> {
@@ -1084,6 +1104,21 @@ impl_runtime_apis! {
 			TransactionPayment::length_to_fee(length)
 		}
 	}
+
+	impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
+		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+			build_state::<RuntimeGenesisConfig>(config)
+		}
+
+		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
+			get_preset::<RuntimeGenesisConfig>(id, crate::genesis_config::get_preset)
+		}
+
+		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
+			crate::genesis_config::preset_names()
+		}
+	}
+
 	impl pallet_mmr_runtime_api::MmrRuntimeApi<Block, <Block as BlockT>::Hash, BlockNumber, Leaf> for Runtime {
 		/// Return Block number where pallet-mmr was added to the runtime
 		fn pallet_genesis() -> Result<Option<BlockNumber>, sp_mmr_primitives::Error> {
@@ -1114,19 +1149,21 @@ impl_runtime_apis! {
 
 	impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
 		fn host_state_machine() -> StateMachine {
-			<Runtime as pallet_ismp::Config>::HostStateMachine::get()
+			crate::ismp::HostStateMachine::get()
 		}
 
 		fn challenge_period(state_machine_id: StateMachineId) -> Option<u64> {
 			Ismp::challenge_period(state_machine_id)
 		}
 
-		/// Fetch all ISMP events in the block, should only be called from runtime-api.
+
+
+		/// Fetch all ISMP events
 		fn block_events() -> Vec<::ismp::events::Event> {
 			Ismp::block_events()
 		}
 
-		/// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.
+		/// Fetch all ISMP events and their extrinsic metadata
 		fn block_events_with_metadata() -> Vec<(::ismp::events::Event, Option<u32>)> {
 			Ismp::block_events_with_metadata()
 		}
@@ -1145,7 +1182,6 @@ impl_runtime_apis! {
 		fn latest_state_machine_height(id: StateMachineId) -> Option<u64> {
 			Ismp::latest_state_machine_height(id)
 		}
-
 
 		/// Get actual requests
 		fn requests(commitments: Vec<H256>) -> Vec<Request> {
@@ -1213,27 +1249,27 @@ impl_runtime_apis! {
 
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
-		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>,  alloc::string::String> {
+		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
 			use frame_benchmarking::{Benchmarking, BenchmarkBatch};
+			use frame_support::traits::TrackedStorageKey;
 			use frame_system_benchmarking::Pallet as SystemBench;
-
-			impl frame_system_benchmarking::Config for Runtime {
-				fn setup_set_code_requirements(code: &sp_std::vec::Vec<u8>) -> Result<(), frame_benchmarking::BenchmarkError> {
-					ParachainSystem::initialize_for_set_code_benchmark(code.len() as u32);
-					Ok(())
-				}
-
-				fn verify_set_code() {
-					System::assert_last_event(cumulus_pallet_parachain_system::Event::<Runtime>::ValidationFunctionStored.into());
-				}
-			}
-
-
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
+
+			impl frame_system_benchmarking::Config for Runtime {}
 			impl cumulus_pallet_session_benchmarking::Config for Runtime {}
 
-			use frame_support::traits::WhitelistedStorageKeys;
-			let whitelist = AllPalletsWithSystem::whitelisted_storage_keys();
+			let whitelist: Vec<TrackedStorageKey> = vec![
+				// Block Number
+				hex_literal::hex!("26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac").to_vec().into(),
+				// Total Issuance
+				hex_literal::hex!("c2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4628f264b974c80").to_vec().into(),
+				// Execution Phase
+				hex_literal::hex!("26aa394eea5630e07c48ae0c9558cef7ff553b5a9862a516939d82b3d3d8661a").to_vec().into(),
+				// Event Count
+				hex_literal::hex!("26aa394eea5630e07c48ae0c9558cef70a98fdbe9ce6c55837576c60c7af3850").to_vec().into(),
+				// System Events
+				hex_literal::hex!("26aa394eea5630e07c48ae0c9558cef780d41e5e16056765bc8461851072c9d7").to_vec().into(),
+			];
 
 			let mut batches = Vec::<BenchmarkBatch>::new();
 			let params = (&config, &*whitelist);
@@ -1241,20 +1277,6 @@ impl_runtime_apis! {
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)
-		}
-	}
-
-	impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
-		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
-			build_state::<RuntimeGenesisConfig>(config)
-		}
-
-		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
-			get_preset::<RuntimeGenesisConfig>(id, crate::genesis_config::get_preset)
-		}
-
-		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
-			crate::genesis_config::preset_names()
 		}
 	}
 
@@ -1287,7 +1309,7 @@ impl_runtime_apis! {
 			);
 			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
-			let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(
+			let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, TxExtension>::new_signed(
 				call,
 				address,
 				signature,
@@ -1297,7 +1319,7 @@ impl_runtime_apis! {
 		}
 	}
 
-}
+);
 
 cumulus_pallet_parachain_system::register_validate_block! {
 	Runtime = Runtime,

@@ -293,7 +293,7 @@ pub mod devnet {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("52525505");
 		const ELECTRA_FORK_EPOCH: Epoch = 0;
-		const FULU_FORK_EPOCH: Epoch = 0;
+		const FULU_FORK_EPOCH: Epoch = u64::MAX;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("52525506");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}

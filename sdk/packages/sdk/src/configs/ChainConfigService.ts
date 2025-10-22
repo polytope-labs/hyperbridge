@@ -100,4 +100,8 @@ export class ChainConfigService {
 	getEtherscanApiKey(): string | undefined {
 		return typeof process !== "undefined" ? (process as any)?.env?.ETHERSCAN_API_KEY : undefined
 	}
+
+	getCalldispatcherAddress(chain: string): HexString {
+		return addresses.Calldispatcher[chain as keyof typeof addresses.Calldispatcher]! as HexString
+	}
 }

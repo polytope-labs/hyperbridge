@@ -92,6 +92,7 @@ UniversalRouter = "0x66a9893cc07d91d95644aedd05d03f95e1dba8af"
 UniswapV3Quoter = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e"
 UniswapV4Quoter = "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203"
 Permit2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+Calldispatcher = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333"
 
 [chains.bsc-mainnet]
 type = "evm"
@@ -116,6 +117,7 @@ UniversalRouter = "0xd9C500DfF816a1Da21A48A732d3498Bf09dc9AEB"
 UniswapV3Quoter = "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997"
 UniswapV4Quoter = "0xd0737C9762912dD34c3271197E362Aa736Df0926"
 Permit2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+Calldispatcher = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333"
 
 [chains.arbitrum-mainnet]
 type = "evm"
@@ -140,6 +142,7 @@ UniversalRouter = "0xa51afafe0263b40edaef0df8781ea9aa03e381a3"
 UniswapV3Quoter = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e"
 UniswapV4Quoter = "0x3972c00f7ed4885e145823eb7c655375d275a1c5"
 Permit2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+Calldispatcher = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333"
 
 [chains.base-mainnet]
 type = "evm"
@@ -164,6 +167,7 @@ UniversalRouter = "0x6ff5693b99212da76ad316178a184ab56d299b43"
 UniswapV3Quoter = "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a"
 UniswapV4Quoter = "0x0d5e0f971ed27fbff6c2837bf31316121532048d"
 Permit2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+Calldispatcher = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333"
 
 
 
@@ -190,6 +194,7 @@ UniversalRouter = "0x1095692a6237d83c6a72f3f5efedb9a670c49223"
 UniswapV3Quoter = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e"
 UniswapV4Quoter = "0xb3d5c3dfc3a7aebff71895a7191796bffc2c81b9"
 Permit2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+Calldispatcher = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333"
 
 
 
@@ -216,3 +221,4 @@ UniversalRouter = "0xef740bf23acae26f6492b10de645d6b98dc8eaf3"
 UniswapV3Quoter = "0x385a5cf5f83e99f7bb2852b6a19c3538b9fa7658"
 UniswapV4Quoter = "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203"
 Permit2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+Calldispatcher = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333"

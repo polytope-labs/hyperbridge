@@ -47,6 +47,7 @@ import IntentGatewayABI from "@/abis/IntentGateway"
 import UniswapRouterV2 from "@/abis/uniswapRouterV2"
 import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
+import UniswapV2Pair from "@/abis/uniswapV2Pair"
 import type { EvmChain } from "@/chains/evm"
 import { Decimal } from "decimal.js"
 import { getChain, IGetRequestMessage, IProof, requestCommitmentKey, SubstrateChain } from "@/chain"
@@ -1801,6 +1802,160 @@ export class IntentGateway {
 		}
 	}
 
+	async createMultiHopSwapThroughPair(
+		dexPairAddress: HexString,
+		tokenIn: HexString,
+		tokenOut: HexString,
+		amountIn: bigint,
+		evmChainID: string,
+		getQuoteIn: "source" | "dest",
+		recipient: HexString,
+		protocol: "v2" | "v3" = "v2",
+	): Promise<{ finalAmountOut: bigint; calldata: Transaction[] }> {
+		const client = this[getQuoteIn].client
+		const wethAsset = this[getQuoteIn].config.getWrappedNativeAssetWithDecimals(evmChainID).asset
+		const calldispatcher = this[getQuoteIn].config.getCalldispatcherAddress(evmChainID)
+
+		const [token0, token1] = await Promise.all([
+			client.readContract({
+				address: dexPairAddress,
+				abi: UniswapV2Pair.ABI,
+				functionName: "token0",
+			}),
+			client.readContract({
+				address: dexPairAddress,
+				abi: UniswapV2Pair.ABI,
+				functionName: "token1",
+			}),
+		])
+
+		const intermediateToken = tokenOut.toLowerCase() === token0.toLowerCase() ? token1 : token0
+
+		const swapPath = this.buildSwapPath(tokenIn, tokenOut, intermediateToken, wethAsset, calldispatcher, recipient)
+
+		return this.executeSwapPath(swapPath, amountIn, evmChainID, getQuoteIn, protocol)
+	}
+
+	private buildSwapPath(
+		tokenIn: HexString,
+		tokenOut: HexString,
+		intermediateToken: HexString,
+		wethAsset: HexString,
+		calldispatcher: HexString,
+		recipient: HexString,
+	): SwapSegment[] {
+		const normalize = (token: HexString) => token.toLowerCase()
+
+		// Direct swap: tokenIn -> tokenOut (when intermediateToken === tokenIn)
+		if (normalize(intermediateToken) === normalize(tokenIn)) {
+			return [{ from: tokenIn, to: tokenOut, recipient }]
+		}
+
+		// Two-hop swap: tokenIn -> WETH -> tokenOut
+		if (normalize(intermediateToken) === normalize(wethAsset)) {
+			return [
+				{ from: tokenIn, to: wethAsset, recipient: calldispatcher },
+				{ from: wethAsset, to: tokenOut, recipient },
+			]
+		}
+
+		// Three-hop swap: tokenIn -> WETH -> intermediateToken -> tokenOut
+		return [
+			{ from: tokenIn, to: wethAsset, recipient: calldispatcher },
+			{ from: wethAsset, to: intermediateToken, recipient: calldispatcher },
+			{ from: intermediateToken, to: tokenOut, recipient },
+		]
+	}
+
+	private async executeSwapPath(
+		path: SwapSegment[],
+		initialAmount: bigint,
+		evmChainID: string,
+		getQuoteIn: "source" | "dest",
+		protocol: "v2" | "v3",
+	): Promise<{ finalAmountOut: bigint; calldata: Transaction[] }> {
+		let currentAmount = initialAmount
+		const calldata: Transaction[] = []
+
+		for (let i = 0; i < path.length; i++) {
+			const segment = path[i]
+			// Using 0.5% slippage for all swaps except the last one, which gets 1%
+			const isLastSwap = i === path.length - 1
+			const slippage = isLastSwap && path.length > 1 ? 990n : 995n
+
+			const swapResult = await this.createSwapCalldata(
+				protocol,
+				segment.from,
+				segment.to,
+				currentAmount,
+				segment.recipient,
+				evmChainID,
+				getQuoteIn,
+				slippage,
+			)
+
+			currentAmount = swapResult.amountOut
+			calldata.push(...swapResult.calldata)
+		}
+
+		return {
+			finalAmountOut: currentAmount,
+			calldata,
+		}
+	}
+
+	private async createSwapCalldata(
+		protocol: "v2" | "v3",
+		tokenIn: HexString,
+		tokenOut: HexString,
+		amountIn: bigint,
+		recipient: HexString,
+		evmChainID: string,
+		getQuoteIn: "source" | "dest",
+		slippageFactor: bigint,
+	): Promise<{ amountOut: bigint; calldata: Transaction[] }> {
+		if (protocol === "v2") {
+			let amountOut = await this.getV2QuoteWithAmountIn(getQuoteIn, tokenIn, tokenOut, amountIn, evmChainID)
+			amountOut = (amountOut * slippageFactor) / 1000n
+
+			return {
+				amountOut,
+				calldata: this.createV2SwapCalldataExactIn(
+					tokenIn,
+					tokenOut,
+					amountIn,
+					amountOut,
+					recipient,
+					evmChainID,
+					getQuoteIn,
+				),
+			}
+		} else {
+			const { amountOut, fee } = await this.getV3QuoteWithAmountIn(
+				getQuoteIn,
+				tokenIn,
+				tokenOut,
+				amountIn,
+				evmChainID,
+			)
+			const adjustedAmountOut = (amountOut * slippageFactor) / 1000n
+
+			return {
+				amountOut: adjustedAmountOut,
+				calldata: this.createV3SwapCalldataExactIn(
+					tokenIn,
+					tokenOut,
+					amountIn,
+					adjustedAmountOut,
+					fee,
+					recipient,
+					evmChainID,
+					getQuoteIn,
+				),
+			}
+		}
+	}
+
 	/**
 	 * Checks if an order has been filled by verifying the commitment status on-chain.
 	 * Reads the storage slot corresponding to the order's commitment hash.
@@ -2123,4 +2278,9 @@ interface StoredCancellationData {
 	destIProof?: IProof
 	getRequest?: IGetRequest
 	sourceIProof?: IProof
+}
+interface SwapSegment {
+	from: HexString
+	to: HexString
+	recipient: HexString
 }

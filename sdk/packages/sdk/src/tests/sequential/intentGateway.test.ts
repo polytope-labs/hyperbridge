@@ -13,6 +13,8 @@ import {
 	encodeFunctionData,
 	decodeFunctionResult,
 	parseUnits,
+	erc20Abi,
+	encodeAbiParameters,
 } from "viem"
 import { bsc, bscTestnet, mainnet, polygon, sepolia } from "viem/chains"
 import {
@@ -1111,6 +1113,86 @@ describe.sequential("Swap Tests", () => {
 			console.log("Fee tier:", result.fee)
 		}
 	}, 1_000_000)
+
+	it.skip("Should keep the input and output as usdc, but include the final calldata as usdc to a token", async () => {
+		const bscMainnetId = "EVM-56"
+		const bscEvmChain = new EvmChain({
+			chainId: 56,
+			host: chainConfigService.getHostAddress(bscMainnetId),
+			url: process.env.BSC_MAINNET!,
+		})
+
+		const mainnetEvmChain = new EvmChain({
+			chainId: 1,
+			host: chainConfigService.getHostAddress(mainnetId),
+			url: process.env.ETH_MAINNET!,
+		})
+		const intentGateway = new IntentGateway(mainnetEvmChain, bscEvmChain)
+		const tokenIn = chainConfigService.getUsdcAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(bscMainnetId)
+		const amountIn = parseUnits("5", 6)
+		const amountOut = parseUnits("5", 18)
+		const bscCalldispatcher = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333"
+		const memeToken = "0xEa7C32c66413C7F6DDD94c532594BcDF608Fe2c2"
+		const pair = "0x96aB87Ce56d2f38ba79d300De9bD6f8207cF6bd9"
+
+		const { calldata } = await intentGateway.createMultiHopSwapThroughPair(
+			pair,
+			tokenOut,
+			memeToken,
+			amountOut,
+			bscMainnetId,
+			"dest",
+			"0x21426d68a9e5df153fe75ce0fed20173ebcb80ef", // User
+			"v3",
+		)
+
+		const encodedCalls = encodeAbiParameters(
+			[
+				{
+					type: "tuple[]",
+					components: [
+						{ name: "to", type: "address" },
+						{ name: "value", type: "uint256" },
+						{ name: "data", type: "bytes" },
+					],
+				},
+			],
+			[calldata],
+		)
+
+		const { ethMainnetIsmpHost, bscMainnetIsmpHost } = await setUpEthToBsc()
+
+		const order: Order = {
+			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+			sourceChain: await ethMainnetIsmpHost.read.host(),
+			destChain: await bscMainnetIsmpHost.read.host(),
+			deadline: 65337297000n,
+			nonce: 0n,
+			fees: 0n,
+			outputs: [
+				{
+					token: bytes20ToBytes32(tokenOut),
+					amount: amountOut,
+					beneficiary: bytes20ToBytes32(bscCalldispatcher),
+				},
+			],
+			inputs: [{ token: bytes20ToBytes32(tokenIn), amount: amountIn }],
+			callData: encodedCalls,
+		}
+
+		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await intentGateway.estimateFillOrder({
+			...order,
+			id: orderCommitment(order),
+			destChain: hexToString(order.destChain as HexString),
+			sourceChain: hexToString(order.sourceChain as HexString),
+		})
+		console.log("ETH => BSC")
+		console.log("Estimated fee:", estimatedFee)
+		console.log("Native token amount:", nativeTokenAmount)
+
+		assert(estimatedFee > 0n)
+	}, 1_000_000)
 })
 
 describe("Order Cancellation tests", () => {
@@ -1469,6 +1551,47 @@ async function setUpBaseToBsc() {
 		chainConfigs,
 		chainConfigService,
 		baseMainnetIsmpHost,
+		bscMainnetIsmpHost,
+	}
+}
+
+async function setUpEthToBsc() {
+	const ethMainnetId = "EVM-1"
+	const bscMainnetId = "EVM-56"
+	const chains = [ethMainnetId, bscMainnetId]
+
+	let chainConfigService = new ChainConfigService()
+	let chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
+
+	const ethMainnetPublicClient = createPublicClient({
+		chain: mainnet,
+		transport: http(process.env.ETH_MAINNET!),
+	})
+
+	const bscMainnetPublicClient = createPublicClient({
+		chain: bsc,
+		transport: http(process.env.BSC_MAINNET!),
+	})
+
+	const ethMainnetIsmpHostAddress = "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20" as HexString
+	const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
+
+	const ethMainnetIsmpHost = getContract({
+		address: ethMainnetIsmpHostAddress,
+		abi: EVM_HOST.ABI,
+		client: ethMainnetPublicClient,
+	})
+
+	const bscMainnetIsmpHost = getContract({
+		address: bscMainnetIsmpHostAddress,
+		abi: EVM_HOST.ABI,
+		client: bscMainnetPublicClient,
+	})
+
+	return {
+		chainConfigs,
+		chainConfigService,
+		ethMainnetIsmpHost,
 		bscMainnetIsmpHost,
 	}
 }

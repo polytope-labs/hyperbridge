@@ -515,7 +515,7 @@ pub async fn start_parachain_node(
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
 		chain if chain.contains("gargantua") =>
-			start_node_impl::<gargantua_runtime::RuntimeApi>(
+			start_node_impl::<messier_runtime::RuntimeApi>(
 				parachain_config,
 				polkadot_config,
 				collator_options,

@@ -107,7 +107,7 @@ members = [
 
 
     # Airdrop
-    "modules/pallets/bridge-drop",
+    "modules/pallets/bridge-drop", "modules/pallets/pallet-log-emitter",
 ]
 
 # Config for 'cargo dist'
@@ -257,6 +257,8 @@ pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
 
+pallet-log-emitter = { path = "modules/pallets/pallet-log-emitter", default-features = false }
+
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
 pallet-mmr-tree = { path = "modules/pallets/mmr", default-features = false }
@@ -268,6 +270,7 @@ mmr-gadget = { path = "modules/pallets/mmr/gadget" }
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
+messier-runtime = { path = "./parachain/runtimes/messier", default-features = false }
 
 # tesseract
 tesseract-primitives = { path = "tesseract/messaging/primitives" }

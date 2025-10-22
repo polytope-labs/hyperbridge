@@ -9416,6 +9416,7 @@ dependencies = [
  "ismp-parachain-runtime-api",
  "jsonrpsee 0.24.9",
  "log",
+ "messier-runtime",
  "mmr-gadget 29.0.1",
  "nexus-runtime",
  "pallet-ismp",
@@ -11841,6 +11842,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
+ "pallet-log-emitter",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-revive-ismp-dispatcher",
@@ -14894,6 +14896,16 @@ dependencies = [
  "trie-db",
  "xcm-simulator-example",
  "zstd-safe 7.2.4",
+]
+
+[[package]]
+name = "pallet-log-emitter"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
 ]
 
 [[package]]

@@ -53,6 +53,7 @@ ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 pallet-revive-ismp-dispatcher = { workspace = true }
 pallet-hyperbridge = { workspace = true }
+pallet-log-emitter = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -151,6 +152,7 @@ std = [
     "ismp-arbitrum/std",
     "ismp-optimism/std",
     "pallet-revive-ismp-dispatcher/std",
+    "pallet-log-emitter/std",
     "pallet-hyperbridge/std",
     "alloy-primitives/std",
 ]

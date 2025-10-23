@@ -90,5 +90,3 @@ token-gateway-addresses.ts
 intent-gateway-addresses.ts
 testnet-state-machine-ids.ts
 l2-state-machine.helper.ts
-
-packages/filler/src/config/chain.ts

@@ -1,4 +1,3 @@
 .env.testing
 /node_modules
 /.idea
-/src/configs/chain.ts

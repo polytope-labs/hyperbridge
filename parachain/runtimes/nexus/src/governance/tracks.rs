@@ -30,7 +30,7 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 		info: pallet_referenda::TrackInfo {
 			name: s("root"),
 			max_deciding: 1,
-			decision_deposit: 100 * UNIT,
+			decision_deposit: 1_000_000 * UNIT,
 			prepare_period: HOURS,
 			decision_period: 7 * DAYS,
 			confirm_period: 12 * HOURS,
@@ -44,7 +44,7 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 		info: pallet_referenda::TrackInfo {
 			name: s("whitelisted_caller"),
 			max_deciding: 3,
-			decision_deposit: 10 * UNIT,
+			decision_deposit: 400_000 * UNIT,
 			prepare_period: 10 * MINUTES,
 			decision_period: DAYS,
 			confirm_period: HOURS,
@@ -58,7 +58,7 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 		info: pallet_referenda::TrackInfo {
 			name: s("fellowship_admin"),
 			max_deciding: 3,
-			decision_deposit: 5 * UNIT,
+			decision_deposit: 100_000 * UNIT,
 			prepare_period: 60 * MINUTES,
 			decision_period: 7 * DAYS,
 			confirm_period: 3 * HOURS,
@@ -72,7 +72,7 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 		info: pallet_referenda::TrackInfo {
 			name: s("referendum_canceller"),
 			max_deciding: 3,
-			decision_deposit: 10 * UNIT,
+			decision_deposit: 100_000 * UNIT,
 			prepare_period: 60 * MINUTES,
 			decision_period: 3 * DAYS,
 			confirm_period: 60 * MINUTES,
@@ -86,7 +86,7 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 		info: pallet_referenda::TrackInfo {
 			name: s("referendum_killer"),
 			max_deciding: 3,
-			decision_deposit: 50 * UNIT,
+			decision_deposit: 100_000 * UNIT,
 			prepare_period: 60 * MINUTES,
 			decision_period: 3 * DAYS,
 			confirm_period: HOURS,
@@ -100,7 +100,7 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 		info: pallet_referenda::TrackInfo {
 			name: s("treasury_spend"),
 			max_deciding: 3,
-			decision_deposit: 1 * 3 * UNIT,
+			decision_deposit: 1_000_000 * UNIT,
 			prepare_period: 60 * MINUTES,
 			decision_period: 7 * DAYS,
 			confirm_period: 3 * HOURS,

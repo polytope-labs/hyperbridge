@@ -6,6 +6,7 @@ auto_detect_solc = true
 optimizer = true
 evm_version = "paris"
 # via-ir = true
+fs_permissions = [{ access = "read-write", path = "./"}]
 
 [rpc_endpoints]
 # testnet
@@ -15,7 +16,7 @@ arbitrum-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
 base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 polygon-amoy = "${POLYGON_AMOY_RPC_URL}"
 bsc-testnet = "${BSC_TESTNET_RPC_URL}"
-gnosis-chiado = "${CHIADO_RPC_URL}"
+gnosis-chiado = "${GNOSIS_CHIADO_RPC_URL}"
 sei-testnet = "${SEI_TESTNET_RPC_URL}"
 
 # mainnet

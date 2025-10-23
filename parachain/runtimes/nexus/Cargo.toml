@@ -159,8 +159,6 @@ std = [
     "polkadot-sdk/std",
     "ismp-polygon/std",
     "pallet-consensus-incentives/std",
-    "pallet-messaging-fees/std",
-    "pallet-collator-manager/std",
     "ismp-tendermint/std"
 ]
 runtime-benchmarks = [

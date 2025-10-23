@@ -77,6 +77,10 @@ export class ChainConfigService {
 		return addresses.UniswapV2Factory[chain as keyof typeof addresses.UniswapV2Factory]! as HexString
 	}
 
+	getUniswapV3FactoryAddress(chain: string): HexString {
+		return addresses.UniswapV3Factory[chain as keyof typeof addresses.UniswapV3Factory]! as HexString
+	}
+
 	getUniversalRouterAddress(chain: string): HexString {
 		return addresses.UniversalRouter[chain as keyof typeof addresses.UniversalRouter]! as HexString
 	}

@@ -308,8 +308,8 @@ describe.sequential("Swap Tests", () => {
 
 		const amountOut = parseUnits("1000", 6)
 
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -391,8 +391,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountOut = parseUnits("1000", 6)
 
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -472,8 +472,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountOut = parseUnits("1000", 6)
 
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -542,8 +542,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = ADDRESS_ZERO // ETH
 		const amountOut = parseUnits("1", 18)
 
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -602,8 +602,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountOut = parseUnits("1000", 6)
 
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -673,8 +673,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = ADDRESS_ZERO // ETH
 		const amountOut = parseUnits("1", 18)
 
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -734,8 +734,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountOut = parseUnits("1000", 6)
 
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -806,8 +806,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountOut = parseUnits("1000", 6)
 
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -880,8 +880,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountIn = parseUnits("1000", 18)
 
-		const result = await intentGateway.findBestProtocolWithAmountIn(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountIn(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountIn,
@@ -909,8 +909,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountIn = parseUnits("1000", 18)
 
-		const result = await intentGateway.findBestProtocolWithAmountIn(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountIn(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountIn,
@@ -939,8 +939,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountIn = parseUnits("1", 18)
 
-		const result = await intentGateway.findBestProtocolWithAmountIn(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountIn(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountIn,
@@ -1010,8 +1010,8 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(mainnetId)
 		const amountIn = parseUnits("1000", 6)
 
-		const result = await intentGateway.findBestProtocolWithAmountIn(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountIn(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountIn,
@@ -1089,8 +1089,8 @@ describe.sequential("Swap Tests", () => {
 		const amountOut = parseUnits("1000", 6)
 
 		// Test without specifying protocol - should auto-select best
-		const result = await intentGateway.findBestProtocolWithAmountOut(
-			"dest",
+		const result = await intentGateway.swap.findBestProtocolWithAmountOut(
+			intentGateway.dest.client,
 			tokenIn,
 			tokenOut,
 			amountOut,
@@ -1132,19 +1132,19 @@ describe.sequential("Swap Tests", () => {
 		const tokenOut = chainConfigService.getUsdcAsset(bscMainnetId)
 		const amountIn = parseUnits("5", 6)
 		const amountOut = parseUnits("5", 18)
-		const bscCalldispatcher = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333"
+		const bscCalldispatcher = chainConfigService.getCalldispatcherAddress(bscMainnetId)
 		const memeToken = "0xEa7C32c66413C7F6DDD94c532594BcDF608Fe2c2"
-		const pair = "0x96aB87Ce56d2f38ba79d300De9bD6f8207cF6bd9"
+		const slippageinBps = 100n
 
-		const { calldata } = await intentGateway.createMultiHopSwapThroughPair(
-			pair,
+		const { calldata } = await intentGateway.swap.createMultiHopSwapThroughPair(
+			intentGateway.dest.client,
 			tokenOut,
 			memeToken,
 			amountOut,
 			bscMainnetId,
-			"dest",
 			"0x21426d68a9e5df153fe75ce0fed20173ebcb80ef", // User
 			"v3",
+			slippageinBps,
 		)
 
 		const encodedCalls = encodeAbiParameters(

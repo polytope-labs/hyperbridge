@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/sdk",
-	"version": "1.4.0",
+	"version": "1.4.1",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
 	"types": "./dist/node/index.d.ts",
@@ -40,7 +40,7 @@
 	"license": "ISC",
 	"author": "Polytope Labs",
 	"scripts": {
-    	"build": "pnpm run build:browser && pnpm run build:node",
+		"build": "pnpm run build:browser && pnpm run build:node",
 		"build:node": "tsup --config tsup-node.config.ts",
 		"build:browser": "tsup --config tsup-browser.config.ts",
 		"prepublishOnly": "npm run build",

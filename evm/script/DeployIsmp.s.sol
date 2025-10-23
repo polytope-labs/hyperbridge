@@ -157,6 +157,8 @@ contract DeployScript is BaseScript {
 
         // ============= Write addresses to config =============
         config.set("HOST", hostAddress);
+        config.set("HANDLER", address(handler));
+        config.set("FEE_TOKEN", feeToken);
         config.set("CALL_DISPATCHER", address(callDispatcher));
         config.set("TOKEN_GATEWAY", address(tokenGateway));
         config.set("INTENT_GATEWAY", address(intentGateway));

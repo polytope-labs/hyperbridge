@@ -16,7 +16,7 @@ abstract contract BaseScript is Script, Config {
 
     function setUp() public {
         // Load config
-        _loadConfig("./config.toml", false);
+        _loadConfig(vm.envString("CONFIG"), true);
         
         HOST_ADDRESS = config.get("HOST").toAddress();
     }

@@ -6,6 +6,7 @@ auto_detect_solc = true
 optimizer = true
 evm_version = "paris"
 # via-ir = true
+fs_permissions = [{ access = "read-write", path = "./"}]
 
 [rpc_endpoints]
 # testnet
@@ -15,7 +16,8 @@ arbitrum-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
 base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 polygon-amoy = "${POLYGON_AMOY_RPC_URL}"
 bsc-testnet = "${BSC_TESTNET_RPC_URL}"
-gnosis-chiado = "${CHIADO_RPC_URL}"
+gnosis-chiado = "${GNOSIS_CHIADO_RPC_URL}"
+sei-testnet = "${SEI_TESTNET_RPC_URL}"
 
 # mainnet
 ethereum = "${ETHEREUM_RPC_URL}"
@@ -28,6 +30,7 @@ soneium = "${SONEIUM_RPC_URL}"
 polygon = "${POLYGON_RPC_URL}"
 unichain = "${UNICHAIN_RPC_URL}"
 inkchain = "${INKCHAIN_RPC_URL}"
+sei = "${SEI_RPC_URL}"
 
 [etherscan]
 # testnet
@@ -38,6 +41,7 @@ base-sepolia = { chain = 84532, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "http
 polygon-amoy = { chain = 80002, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 bsc-testnet = { chain = 97, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 gnosis-chiado = { chain = 10200, key = "${GNOSIS_BLOCKSCOUT_API_KEY}",url = "https://gnosis-chiado.blockscout.com/api" }
+sei-testnet = { chain = 1328, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 
 # mainnet
 ethereum = { chain = 1, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
@@ -50,3 +54,4 @@ soneium = { chain = 1868, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://ap
 polygon = { chain = 137, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 unichain = { chain = 130, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 inkchain = { chain = 57073, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+sei = { chain = 1329, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }

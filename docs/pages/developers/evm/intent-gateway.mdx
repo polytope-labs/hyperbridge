@@ -11,6 +11,8 @@ The Intent Gateway operates as a **cross-chain escrow and settlement system** wh
 3. **Settlement** happens automatically through ISMP messaging
 4. **Cancellations** are possible for unfilled orders
 
+> **Looking to integrate?** Check out the [Intent Gateway SDK Guide](./intent-gateway-sdk.mdx) for a complete TypeScript implementation with automated fee calculation, order placement, and cancellation handling.
+
 ## Key Concepts
 
 ### Order Structure
@@ -54,6 +56,8 @@ The Intent Gateway uses a **fixed fee model** where:
 - **Fee tokens** are chain-specific and can have different decimals (DAI has 18, USDC has 6, etc.)
 - **Payment methods**: Users can pay fees with native tokens (ETH/BNB) or directly with fee tokens
 - **Relayer fees** are additional fees (minimum $0.25 + execution costs) for cross-chain message delivery
+
+**Important**: To calculate the correct profitable fees for your orders, see the [Intent Gateway SDK Guide](./intent-gateway-sdk.mdx#estimating-profitable-fees) which provides automated fee estimation.
 
 ## Order Lifecycle
 
@@ -249,6 +253,8 @@ IERC20(USDC_ADDRESS).approve(intentGateway, 1000_000_000);
 intentGateway.placeOrder(order, bytes32(0));
 ```
 
+**Note**: The fee amount shown above (2.8 DAI) is for illustration. For production use, always calculate fees programmatically using the [Intent Gateway SDK](./intent-gateway-sdk.mdx#estimating-profitable-fees) to ensure fillers find your order profitable.
+
 ### fillOrder
 
 Fills an existing order by providing the required output tokens.
@@ -309,6 +315,8 @@ function cancelOrder(Order calldata order, CancelOptions memory options) public 
 - Order must be expired (past deadline)
 - Order must not be filled
 - Must pay for GET request to query destination chain storage (with native tokens or fee tokens)
+
+**Note**: Order cancellation involves complex proof generation and submission. For a complete guide with working examples, see the [Order Cancellation section in the SDK Guide](./intent-gateway-sdk.mdx#canceling-orders).
 
 **Example:**
 
@@ -381,6 +389,8 @@ Filler Costs:
 
 Filler Profit: $2.80 - $1.35 = $1.45
 ```
+
+**Important**: This is an illustrative example. Actual fees vary based on gas prices, chain congestion, and token liquidity. Use the [Intent Gateway SDK's `estimateFillOrder()` method](./intent-gateway-sdk.mdx#estimating-profitable-fees) to calculate accurate fees for your specific order.
 
 **Important Notes:**
 
@@ -486,10 +496,10 @@ The Intent Gateway uses `bytes32` for token addresses, requiring proper conversi
 
 ```typescript
 // Convert ERC20 address to bytes32 (with leading zeros)
-const tokenBytes32 = ethers.zeroPadValue(tokenAddress, 32);
+const tokenBytes32 = ethers.zeroPadValue(tokenAddress, 32)
 
 // Convert bytes32 back to address
-const tokenAddress = ethers.getAddress(ethers.dataSlice(tokenBytes32, 12));
+const tokenAddress = ethers.getAddress(ethers.dataSlice(tokenBytes32, 12))
 ```
 
 ### Chain Identification
@@ -498,11 +508,11 @@ Chain identifiers can be obtained in two ways:
 
 ```typescript
 // Method 1: Read from ISMP Host contract
-const sourceChain = await bscIsmpHost.read.host();
-const destChain = await gnosisChiadoIsmpHost.read.host();
+const sourceChain = await bscIsmpHost.read.host()
+const destChain = await gnosisChiadoIsmpHost.read.host()
 
 // Method 2: Construct from chain ID
-const destChain = ethers.toUtf8Bytes(`EVM-${chainId}`);
+const destChain = ethers.toUtf8Bytes(`EVM-${chainId}`)
 ```
 
 ### Decimal Handling
@@ -511,17 +521,17 @@ Different chains use tokens with different decimals:
 
 ```typescript
 // Ethereum USDC: 6 decimals
-const ethUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
+const ethUSDC = ethers.parseUnits("1000", 6) // 1000_000_000
 
 // Arbitrum USDC: 6 decimals
-const arbUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
+const arbUSDC = ethers.parseUnits("1000", 6) // 1000_000_000
 
 // BSC USDT: 18 decimals
-const bscUSDT = ethers.parseUnits("1000", 18); // 1000_000_000_000_000_000_000
+const bscUSDT = ethers.parseUnits("1000", 18) // 1000_000_000_000_000_000_000
 
 // Fee tokens also vary by chain
-const ethFees = ethers.parseEther("2.8"); // DAI: 18 decimals
-const arbFees = ethers.parseUnits("2.8", 6); // USDC: 6 decimals
+const ethFees = ethers.parseEther("2.8") // DAI: 18 decimals
+const arbFees = ethers.parseUnits("2.8", 6) // USDC: 6 decimals
 ```
 
 ## Advanced Features
@@ -608,10 +618,10 @@ DispatchGet memory request = DispatchGet({
 
 ### For Users
 
-1. **Set Appropriate Fees**: Higher fees attract fillers faster
-2. **Reasonable Deadlines**: Allow sufficient time for filling
-3. **Monitor Orders**: Track order status via query client available at @hyperbridge
-4. **Handle Failures**: Implement cancellation logic for expired orders
+1. **Set Appropriate Fees**: Use the [Intent Gateway SDK](./intent-gateway-sdk.mdx#estimating-profitable-fees) to calculate profitable fees automatically - higher fees attract fillers faster
+2. **Reasonable Deadlines**: Allow sufficient time for filling (30-60 minutes recommended)
+3. **Monitor Orders**: Track order status via the SDK's `isOrderFilled()` method or query client
+4. **Handle Failures**: Implement cancellation logic for expired orders using the [SDK's cancellation feature](./intent-gateway-sdk.mdx#canceling-orders)
 
 ### For Fillers
 
@@ -629,5 +639,6 @@ DispatchGet memory request = DispatchGet({
 
 ## Further Reading
 
+- **[Intent Gateway SDK Guide](./intent-gateway-sdk.mdx)** - Complete guide on using the TypeScript SDK for placing orders with correct fees and handling cancellations
 - [ISMP Protocol Specification](https://docs.hyperbridge.network/protocol/ismp)
-- [Hyperbridge Filler Documentation](https://docs.hyperbridge.network/developers/evm/filler)
+- [Hyperbridge Filler Documentation](./filler)

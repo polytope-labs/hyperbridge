@@ -22,7 +22,7 @@ import ERC6160 from "@/abis/erc6160"
 import PING_MODULE from "@/abis/pingModule"
 import EVM_HOST from "@/abis/evmHost"
 import HANDLER from "@/abis/handler"
-import { EvmChain, SubstrateChain } from "@/chain"
+import { EvmChain, SubstrateChain, getChain } from "@/chain"
 import { createQueryClient } from "@/query-client"
 import { bigIntReplacer } from "@/helpers/data.helpers"
 
@@ -37,24 +37,32 @@ describe.sequential("Get and Post Requests", () => {
 			url: process.env.INDEXER_URL!,
 		})
 
+		// Create chain instances
+		const sourceChain = await getChain({
+			consensusStateId: "BSC0",
+			rpcUrl: process.env.BSC_CHAPEL!,
+			stateMachineId: "EVM-97",
+			host: bscIsmpHost.address,
+		})
+
+		const destChain = await getChain({
+			consensusStateId: "GNO0",
+			rpcUrl: process.env.GNOSIS_CHIADO!,
+			stateMachineId: "EVM-10200",
+			host: gnosisChiadoHost.address,
+		})
+
+		const hyperbridgeChain = await getChain({
+			consensusStateId: "PAS0",
+			stateMachineId: "KUSAMA-4009",
+			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+			hasher: "Keccak" as const,
+		})
+
 		indexer = new IndexerClient({
-			source: {
-				consensusStateId: "BSC0",
-				rpcUrl: process.env.BSC_CHAPEL!,
-				stateMachineId: "EVM-97",
-				host: bscIsmpHost.address,
-			},
-			dest: {
-				consensusStateId: "GNO0",
-				rpcUrl: process.env.GNOSIS_CHIADO!,
-				stateMachineId: "EVM-10200",
-				host: gnosisChiadoHost.address,
-			},
-			hyperbridge: {
-				consensusStateId: "PAS0",
-				stateMachineId: "KUSAMA-4009",
-				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
-			},
+			source: sourceChain,
+			dest: destChain,
+			hyperbridge: hyperbridgeChain,
 			queryClient: query_client,
 			pollInterval: 1_000,
 		})
@@ -196,7 +204,7 @@ describe.sequential("Get and Post Requests", () => {
 			})
 
 			const evmChain = new EvmChain({
-				url: process.env.GNOSIS_CHIADO!,
+				rpcUrl: process.env.GNOSIS_CHIADO!,
 				chainId: 10200,
 				host: "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
 			})
@@ -574,8 +582,10 @@ async function setUp() {
 	})
 
 	const hyperbridge = new SubstrateChain({
-		ws: process.env.HYPERBRIDGE_GARGANTUA!,
+		wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 		hasher: "Keccak",
+		stateMachineId: "KUSAMA-4009",
+		consensusStateId: "PAS0",
 	})
 
 	return {

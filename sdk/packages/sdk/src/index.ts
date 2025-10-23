@@ -1,4 +1,4 @@
-export { IndexerClient } from "@/client"
+export { IndexerClient, createChain, createIndexerClient } from "@/client"
 export { createQueryClient, queryGetRequest, queryPostRequest, queryAssetTeleported } from "@/query-client"
 export {
 	__test,

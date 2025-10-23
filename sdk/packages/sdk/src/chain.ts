@@ -135,6 +135,11 @@ export interface IProof {
  * Interface representing a chain.
  */
 export interface IChain {
+	/**
+	 * Returns the configuration for this chain
+	 */
+	get config(): IEvmConfig | ISubstrateConfig
+
 	/*
 	 * Returns the current timestamp of the chain in seconds.
 	 */
@@ -192,8 +197,9 @@ export async function getChain(chainConfig: IEvmConfig | ISubstrateConfig): Prom
 		const chainId = Number.parseInt(chainConfig.stateMachineId.split("-")[1])
 		const evmChain = new EvmChain({
 			chainId,
-			url: config.rpcUrl,
-			host: config.host as any,
+			rpcUrl: config.rpcUrl,
+			host: config.host,
+			consensusStateId: config.consensusStateId,
 		})
 
 		return evmChain
@@ -201,10 +207,7 @@ export async function getChain(chainConfig: IEvmConfig | ISubstrateConfig): Prom
 
 	if (isSubstrateChain(chainConfig.stateMachineId)) {
 		const config = chainConfig as ISubstrateConfig
-		const substrateChain = new SubstrateChain({
-			ws: config.wsUrl,
-			hasher: config.hasher,
-		})
+		const substrateChain = new SubstrateChain(config)
 
 		await substrateChain.connect()
 

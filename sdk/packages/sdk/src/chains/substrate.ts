@@ -5,7 +5,15 @@ import { match } from "ts-pattern"
 import { bytesToHex, hexToBytes, toBytes, toHex } from "viem"
 
 import type { IChain, IIsmpMessage } from "@/chain"
-import type { HexString, IGetRequest, IMessage, IPostRequest, StateMachineHeight, StateMachineIdParams } from "@/types"
+import type {
+	HexString,
+	IGetRequest,
+	IMessage,
+	IPostRequest,
+	ISubstrateConfig,
+	StateMachineHeight,
+	StateMachineIdParams,
+} from "@/types"
 import {
 	BasicProof,
 	GetRequestsWithProof,
@@ -18,19 +26,6 @@ import {
 } from "@/utils"
 import { ExpectedError } from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
-
-export interface SubstrateChainParams {
-	/*
-	 * ws: The WebSocket URL for the Substrate chain RPC endpoint.
-	 * Will be automatically converted to HTTP for JSON-RPC calls.
-	 */
-	ws: string
-
-	/*
-	 * hasher: The hashing algorithm used by the Substrate chain.
-	 */
-	hasher: "Keccak" | "Blake2"
-}
 
 /**
  * HTTP RPC Client for making JSON-RPC calls over HTTP
@@ -81,18 +76,27 @@ export class SubstrateChain implements IChain {
 	api?: ApiPromise
 	private rpcClient: HttpRpcClient
 
-	constructor(private readonly params: SubstrateChainParams) {
-		const url = this.params.ws
+	constructor(private readonly params: ISubstrateConfig) {
+		const url = this.params.wsUrl
 
 		const httpUrl = replaceWebsocketWithHttp(url)
 		this.rpcClient = new HttpRpcClient(httpUrl)
+	}
+
+	get config(): ISubstrateConfig {
+		return {
+			wsUrl: this.params.wsUrl,
+			consensusStateId: this.params.consensusStateId,
+			hasher: this.params.hasher,
+			stateMachineId: this.params.stateMachineId,
+		}
 	}
 
 	/*
 	 * connect: Connects to the Substrate chain using the provided WebSocket URL.
 	 */
 	public async connect() {
-		const wsProvider = new WsProvider(this.params.ws)
+		const wsProvider = new WsProvider(this.params.wsUrl)
 
 		const typesBundle =
 			this.params.hasher === "Keccak"

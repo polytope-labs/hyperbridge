@@ -20,7 +20,7 @@ import type { Signer, SignerResult } from "@polkadot/api/types"
 import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { hexToU8a, u8aToHex } from "@polkadot/util"
 import type { KeyringPair } from "@polkadot/keyring/types"
-import { encodeISMPMessage } from "@/chain"
+import { encodeISMPMessage, getChain } from "@/chain"
 import { __test, ADDRESS_ZERO, bytes20ToBytes32 } from "@/utils"
 import { createQueryClient } from "@/query-client"
 import { IndexerClient } from "@/client"
@@ -112,24 +112,32 @@ describe("teleport function", () => {
 			url: process.env.INDEXER_URL!,
 		})
 
+		// Create chain instances
+		const sourceChain = await getChain({
+			consensusStateId: "BSC0",
+			rpcUrl: process.env.BSC_CHAPEL!,
+			stateMachineId: "EVM-97",
+			host: bscIsmpHostAddress,
+		})
+
+		const destChain = await getChain({
+			consensusStateId: "GNO0",
+			rpcUrl: process.env.GNOSIS_CHIADO!,
+			stateMachineId: "EVM-10200",
+			host: gnosisChiadoIsmpHostAddress,
+		})
+
+		const hyperbridgeChain = await getChain({
+			consensusStateId: "PAS0",
+			stateMachineId: "KUSAMA-4009",
+			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+			hasher: "Keccak" as const,
+		})
+
 		const indexer = new IndexerClient({
-			source: {
-				consensusStateId: "BSC0",
-				rpcUrl: process.env.BSC_CHAPEL!,
-				stateMachineId: "EVM-97",
-				host: bscIsmpHostAddress,
-			},
-			dest: {
-				consensusStateId: "GNO0",
-				rpcUrl: process.env.GNOSIS_CHIADO!,
-				stateMachineId: "EVM-10200",
-				host: gnosisChiadoIsmpHostAddress,
-			},
-			hyperbridge: {
-				consensusStateId: "PAS0",
-				stateMachineId: "KUSAMA-4009",
-				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
-			},
+			source: sourceChain,
+			dest: destChain,
+			hyperbridge: hyperbridgeChain,
 			queryClient: query_client,
 			pollInterval: 1_000,
 		})

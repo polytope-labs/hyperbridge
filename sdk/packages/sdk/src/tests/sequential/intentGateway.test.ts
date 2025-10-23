@@ -39,7 +39,7 @@ import {
 	getGasPriceFromEtherscan,
 } from "@/utils"
 import EVM_HOST from "@/abis/evmHost"
-import { EvmChain, EvmChainParams, IProof, SubstrateChain } from "@/chain"
+import { EvmChain, EvmChainParams, IProof, SubstrateChain, getChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
@@ -60,12 +60,12 @@ describe.sequential("Intents protocol tests", () => {
 		const bscEvmChain = new EvmChain({
 			chainId: 56,
 			host: chainConfigService.getHostAddress(bscMainnetId),
-			url: process.env.BSC_MAINNET!,
+			rpcUrl: process.env.BSC_MAINNET!,
 		})
 		const mainnetEvmChain = new EvmChain({
 			chainId: 1,
 			host: chainConfigService.getHostAddress(mainnetId),
-			url: process.env.ETH_MAINNET!,
+			rpcUrl: process.env.ETH_MAINNET!,
 		})
 
 		const bscIntentGateway = new IntentGateway(bscEvmChain, mainnetEvmChain)
@@ -116,12 +116,12 @@ describe.sequential("Intents protocol tests", () => {
 		const bscEvmChain = new EvmChain({
 			chainId: 56,
 			host: chainConfigService.getHostAddress(bscMainnetId),
-			url: process.env.BSC_MAINNET!,
+			rpcUrl: process.env.BSC_MAINNET!,
 		})
 		const arbitrumEvmChain = new EvmChain({
 			chainId: 42161,
 			host: chainConfigService.getHostAddress(arbitrumMainnetId),
-			url: process.env.ARBITRUM_MAINNET!,
+			rpcUrl: process.env.ARBITRUM_MAINNET!,
 		})
 
 		const bscIntentGateway = new IntentGateway(bscEvmChain, arbitrumEvmChain)
@@ -173,12 +173,12 @@ describe.sequential("Intents protocol tests", () => {
 		const baseEvmChain = new EvmChain({
 			chainId: 8453,
 			host: chainConfigService.getHostAddress(baseMainnetId),
-			url: process.env.BASE_MAINNET!,
+			rpcUrl: process.env.BASE_MAINNET!,
 		})
 		const bscEvmChain = new EvmChain({
 			chainId: 56,
 			host: chainConfigService.getHostAddress(bscMainnetId),
-			url: process.env.BSC_MAINNET!,
+			rpcUrl: process.env.BSC_MAINNET!,
 		})
 
 		const baseIntentGateway = new IntentGateway(baseEvmChain, bscEvmChain)
@@ -230,12 +230,12 @@ describe.sequential("Intents protocol tests", () => {
 		const bscEvmChain = new EvmChain({
 			chainId: 56,
 			host: chainConfigService.getHostAddress(bscMainnetId),
-			url: process.env.BSC_MAINNET!,
+			rpcUrl: process.env.BSC_MAINNET!,
 		})
 		const polygonEvmChain = new EvmChain({
 			chainId: 137,
 			host: chainConfigService.getHostAddress(polygonMainnetId),
-			url: process.env.POLYGON_MAINNET!,
+			rpcUrl: process.env.POLYGON_MAINNET!,
 		})
 
 		const bscIntentGateway = new IntentGateway(bscEvmChain, polygonEvmChain)
@@ -295,7 +295,7 @@ describe.sequential("Swap Tests", () => {
 		const mainnetEvmChain = new EvmChain({
 			chainId: chainId,
 			host: chainConfigService.getHostAddress(mainnetId),
-			url: process.env.ETH_MAINNET!,
+			rpcUrl: process.env.ETH_MAINNET!,
 		})
 
 		intentGateway = new IntentGateway(mainnetEvmChain, mainnetEvmChain)
@@ -1119,13 +1119,13 @@ describe.sequential("Swap Tests", () => {
 		const bscEvmChain = new EvmChain({
 			chainId: 56,
 			host: chainConfigService.getHostAddress(bscMainnetId),
-			url: process.env.BSC_MAINNET!,
+			rpcUrl: process.env.BSC_MAINNET!,
 		})
 
 		const mainnetEvmChain = new EvmChain({
 			chainId: 1,
 			host: chainConfigService.getHostAddress(mainnetId),
-			url: process.env.ETH_MAINNET!,
+			rpcUrl: process.env.ETH_MAINNET!,
 		})
 		const intentGateway = new IntentGateway(mainnetEvmChain, bscEvmChain)
 		const tokenIn = chainConfigService.getUsdcAsset(mainnetId)
@@ -1206,25 +1206,32 @@ describe("Order Cancellation tests", () => {
 			url: "https://gargantua.indexer.polytope.technology",
 		})
 
-		indexer = new IndexerClient({
-			source: {
-				consensusStateId: "BSC0",
-				rpcUrl: process.env.BSC_CHAPEL!,
-				stateMachineId: "EVM-97",
-				host: bscChapelIsmpHost.address,
-			},
-			dest: {
-				consensusStateId: "ETH0",
-				rpcUrl: process.env.SEPOLIA!,
-				stateMachineId: "EVM-11155111",
-				host: ethSepoliaIsmpHost.address,
-			},
+		// Create chain instances
+		const sourceChain = await getChain({
+			consensusStateId: "BSC0",
+			rpcUrl: process.env.BSC_CHAPEL!,
+			stateMachineId: "EVM-97",
+			host: bscChapelIsmpHost.address,
+		})
 
-			hyperbridge: {
-				consensusStateId: "PAS0",
-				stateMachineId: "KUSAMA-4009",
-				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
-			},
+		const destChain = await getChain({
+			consensusStateId: "ETH0",
+			rpcUrl: process.env.SEPOLIA!,
+			stateMachineId: "EVM-11155111",
+			host: ethSepoliaIsmpHost.address,
+		})
+
+		const hyperbridgeChain = await getChain({
+			consensusStateId: "PAS0",
+			stateMachineId: "KUSAMA-4009",
+			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+			hasher: "Keccak" as const,
+		})
+
+		indexer = new IndexerClient({
+			source: sourceChain,
+			dest: destChain,
+			hyperbridge: hyperbridgeChain,
 			queryClient: query_client,
 			pollInterval: 1_000,
 		})
@@ -1248,13 +1255,13 @@ describe("Order Cancellation tests", () => {
 		let bscChapelEvmStructParams: EvmChainParams = {
 			chainId: 97,
 			host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
-			url: process.env.BSC_CHAPEL!,
+			rpcUrl: process.env.BSC_CHAPEL!,
 		}
 
 		let ethSepoliaEvmStructParams: EvmChainParams = {
 			chainId: 11155111,
 			host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
-			url: process.env.SEPOLIA!,
+			rpcUrl: process.env.SEPOLIA!,
 		}
 
 		let bscEvmChain = new EvmChain(bscChapelEvmStructParams) // Source Chain
@@ -1659,8 +1666,10 @@ async function setUpBscToSepoliaOrder() {
 	})
 
 	const hyperbridge = new SubstrateChain({
-		ws: process.env.HYPERBRIDGE_GARGANTUA!,
+		wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 		hasher: "Keccak",
+		stateMachineId: "KUSAMA-4009",
+		consensusStateId: "PAS0",
 	})
 
 	const feeTokenBscChapelAddress = bscChapelHostParams.feeToken

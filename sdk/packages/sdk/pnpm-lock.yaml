@@ -95,9 +95,6 @@ importers:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
-      '@hyperbridge/filler':
-        specifier: workspace:*
-        version: link:../filler
       '@iarna/toml':
         specifier: ^2.2.5
         version: 2.2.5

@@ -14,6 +14,9 @@ import type {
 	GetRequestWithStatus,
 	GetResponseByRequestIdResponse,
 	HexString,
+	IEvmConfig,
+	IHyperbridgeConfig,
+	ISubstrateConfig,
 	OrderWithStatus,
 	PostRequestStatus,
 	PostRequestTimeoutStatus,
@@ -61,6 +64,51 @@ import type { IndexerQueryClient } from "@/types"
 import { AbortSignalInternal, ExpectedError } from "./utils/exceptions"
 
 /**
+ * Helper function to create chain configuration from legacy config format
+ * This helps migrate from the old config format to the new IChain-based format
+ *
+ * @param config - Legacy configuration object (IEvmConfig, ISubstrateConfig, or IHyperbridgeConfig)
+ * @returns Promise resolving to chain configuration with IChain instance
+ */
+export async function createChain(config: IEvmConfig | ISubstrateConfig | IHyperbridgeConfig): Promise<IChain> {
+	// For hyperbridge config, we need to add the hasher
+	const chainConfig = "wsUrl" in config && !("hasher" in config) ? { ...config, hasher: "Keccak" as const } : config
+
+	return await getChain(chainConfig as IEvmConfig | ISubstrateConfig)
+}
+
+/**
+ * Helper function to create IndexerClient with legacy config format
+ * @deprecated Use the constructor with IChain instances directly for better performance
+ *
+ * @param config - Legacy configuration with IEvmConfig/ISubstrateConfig/IHyperbridgeConfig
+ * @returns Promise resolving to IndexerClient instance
+ */
+export async function createIndexerClient(config: {
+	pollInterval?: number
+	queryClient: IndexerQueryClient
+	tracing?: boolean
+	source: IEvmConfig | ISubstrateConfig
+	dest: IEvmConfig | ISubstrateConfig
+	hyperbridge: IHyperbridgeConfig
+}): Promise<IndexerClient> {
+	const [source, dest, hyperbridge] = await Promise.all([
+		createChain(config.source),
+		createChain(config.dest),
+		createChain(config.hyperbridge),
+	])
+
+	return new IndexerClient({
+		pollInterval: config.pollInterval,
+		queryClient: config.queryClient,
+		tracing: config.tracing,
+		source,
+		dest,
+		hyperbridge,
+	})
+}
+
+/**
  * IndexerClient provides methods for interacting with the Hyperbridge indexer.
  *
  * This client facilitates querying and tracking cross-chain requests and their status
@@ -82,24 +130,54 @@ import { AbortSignalInternal, ExpectedError } from "./utils/exceptions"
  *
  * @example
  * ```typescript
+ * // New approach: Create IChain instances directly
+ * const sourceChain = new EvmChain({
+ *   chainId: 1,
+ *   rpcUrl: "https://eth-rpc.com",
+ *   host: "0x87ea45..",
+ *   consensusStateId: "ETH0"
+ * })
+ * const destChain = new EvmChain({
+ *   chainId: 42161,
+ *   rpcUrl: "https://arb-rpc.com",
+ *   host: "0x87ea42345..",
+ *   consensusStateId: "ARB0"
+ * })
+ * const hyperbridgeChain = new SubstrateChain({
+ *   stateMachineId: "POLKADOT-3367",
+ *   wsUrl: "ws://localhost:9944",
+ *   hasher: "Keccak",
+ *   consensusStateId: "DOT0"
+ * })
+ * await hyperbridgeChain.connect()
+ *
  * const client = new IndexerClient({
- *   url: "https://indexer.hyperbridge.xyz/graphql",
+ *   queryClient: queryClient,
+ *   pollInterval: 2000,
+ *   source: sourceChain,
+ *   dest: destChain,
+ *   hyperbridge: hyperbridgeChain
+ * });
+ *
+ * // Legacy approach: Use the helper function (deprecated)
+ * const client = await createIndexerClient({
+ *   queryClient: queryClient,
  *   pollInterval: 2000,
  *   source: {
- *		stateMachineId: "EVM-1",
- * 		consensusStateId: "ETH0"
- *		rpcUrl: "",
- *		host: "0x87ea45..",
- * 	},
+ *     stateMachineId: "EVM-1",
+ *     consensusStateId: "ETH0",
+ *     rpcUrl: "https://eth-rpc.com",
+ *     host: "0x87ea45.."
+ *   },
  *   dest: {
- *		stateMachineId: "EVM-42161",
- * 		consensusStateId: "ETH0"
- *		rpcUrl: "",
- *		host: "0x87ea42345..",
- * 	},
+ *     stateMachineId: "EVM-42161",
+ *     consensusStateId: "ETH0",
+ *     rpcUrl: "https://arb-rpc.com",
+ *     host: "0x87ea42345.."
+ *   },
  *   hyperbridge: {
  *     stateMachineId: "POLKADOT-3367",
- *     consensusStateId: "DOT0"
+ *     consensusStateId: "DOT0",
  *     wsUrl: "ws://localhost:9944"
  *   }
  * });
@@ -154,6 +232,27 @@ export class IndexerClient {
 				date: false,
 			},
 		})
+	}
+
+	/**
+	 * Get the source chain instance
+	 */
+	get source(): IChain {
+		return this.config.source
+	}
+
+	/**
+	 * Get the destination chain instance
+	 */
+	get dest(): IChain {
+		return this.config.dest
+	}
+
+	/**
+	 * Get the hyperbridge chain instance
+	 */
+	get hyperbridge(): IChain {
+		return this.config.hyperbridge
 	}
 
 	/**
@@ -349,7 +448,7 @@ export class IndexerClient {
 
 		let hyperbridgeDelivered: RequestStatusWithMetadata | undefined
 
-		if (request.source === this.config.hyperbridge.stateMachineId) {
+		if (request.source === this.config.hyperbridge.config.stateMachineId) {
 			// the first status contains the blocknumber of the initial request
 			hyperbridgeDelivered = request.statuses[0]
 		} else {
@@ -357,7 +456,7 @@ export class IndexerClient {
 			const sourceFinality = await this.queryStateMachineUpdateByHeight({
 				statemachineId: request.source,
 				height: request.statuses[0].metadata.blockNumber,
-				chain: this.config.hyperbridge.stateMachineId,
+				chain: this.config.hyperbridge.config.stateMachineId,
 			})
 
 			// no finality event found, return request as is
@@ -381,12 +480,12 @@ export class IndexerClient {
 		}
 
 		// no need to query finality event if destination is hyperbridge
-		if (request.dest === this.config.hyperbridge.stateMachineId) {
+		if (request.dest === this.config.hyperbridge.config.stateMachineId) {
 			return addFinalityEvents(request)
 		}
 
 		const hyperbridgeFinality = await this.queryStateMachineUpdateByHeight({
-			statemachineId: this.config.hyperbridge.stateMachineId,
+			statemachineId: this.config.hyperbridge.config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
 			chain: request.dest,
 		})
@@ -394,11 +493,8 @@ export class IndexerClient {
 		if (!hyperbridgeFinality) return addFinalityEvents(request)
 
 		// check if request receipt exists on destination chain
-		const destChain = await getChain(this.config.dest)
-		const hyperbridge = await getChain({
-			...this.config.hyperbridge,
-			hasher: "Keccak",
-		})
+		const destChain = this.config.dest
+		const hyperbridge = this.config.hyperbridge
 
 		const proof = await hyperbridge.queryProof(
 			{ Requests: [postRequestCommitment(request).commitment] },
@@ -409,8 +505,8 @@ export class IndexerClient {
 		const calldata = destChain.encode({
 			kind: "PostRequest",
 			proof: {
-				stateMachine: this.config.hyperbridge.stateMachineId,
-				consensusStateId: this.config.hyperbridge.consensusStateId,
+				stateMachine: this.config.hyperbridge.config.stateMachineId,
+				consensusStateId: this.config.hyperbridge.config.consensusStateId,
 				proof,
 				height: BigInt(hyperbridgeFinality.height),
 			},
@@ -450,11 +546,8 @@ export class IndexerClient {
 	 */
 	private async addTimeoutFinalityEvents(request: PostRequestWithStatus): Promise<PostRequestWithStatus> {
 		// check if request receipt exists on destination chain
-		const destChain = await getChain(this.config.dest)
-		const hyperbridge = await getChain({
-			...this.config.hyperbridge,
-			hasher: "Keccak",
-		})
+		const destChain = this.config.dest
+		const hyperbridge = this.config.hyperbridge
 		const events: RequestStatusWithMetadata[] = []
 		const commitment = postRequestCommitment(request).commitment
 		const reciept = await destChain.queryRequestReceipt(commitment)
@@ -496,7 +589,7 @@ export class IndexerClient {
 			// either the request was never delivered to hyperbridge
 			// or hyperbridge was the destination of the request
 			hyperbridgeFinalized = await this.queryStateMachineUpdateByTimestamp({
-				statemachineId: this.config.hyperbridge.stateMachineId,
+				statemachineId: this.config.hyperbridge.config.stateMachineId,
 				commitmentTimestamp: request.timeoutTimestamp,
 				chain: request.source,
 			})
@@ -504,7 +597,7 @@ export class IndexerClient {
 			const destFinalized = await this.queryStateMachineUpdateByTimestamp({
 				statemachineId: request.dest,
 				commitmentTimestamp: request.timeoutTimestamp,
-				chain: this.config.hyperbridge.stateMachineId,
+				chain: this.config.hyperbridge.config.stateMachineId,
 			})
 
 			if (!destFinalized) return addTimeoutEvents(request)
@@ -521,14 +614,14 @@ export class IndexerClient {
 
 			// if the source is the hyperbridge state machine, no further action is needed
 			// use the timeout stream to timeout on hyperbridge
-			if (request.source === this.config.hyperbridge.stateMachineId) return request
+			if (request.source === this.config.hyperbridge.config.stateMachineId) return request
 
 			const hyperbridgeTimedOut = request.statuses.find(
 				(item) => item.status === TimeoutStatus.HYPERBRIDGE_TIMED_OUT,
 			)
 			if (!hyperbridgeTimedOut) return addTimeoutEvents(request)
 			hyperbridgeFinalized = await this.queryStateMachineUpdateByHeight({
-				statemachineId: this.config.hyperbridge.stateMachineId,
+				statemachineId: this.config.hyperbridge.config.stateMachineId,
 				height: hyperbridgeTimedOut.metadata.blockNumber,
 				chain: request.source,
 			})
@@ -539,14 +632,14 @@ export class IndexerClient {
 		const proof = await hyperbridge.queryStateProof(BigInt(hyperbridgeFinalized.height), [
 			hyperbridge.requestReceiptKey(commitment),
 		])
-		const sourceChain = await getChain(this.config.source)
+		const sourceChain = this.config.source
 		const calldata = sourceChain.encode({
 			kind: "TimeoutPostRequest",
 			proof: {
 				proof,
 				height: BigInt(hyperbridgeFinalized.height),
-				stateMachine: this.config.hyperbridge.stateMachineId,
-				consensusStateId: this.config.hyperbridge.consensusStateId,
+				stateMachine: this.config.hyperbridge.config.stateMachineId,
+				consensusStateId: this.config.hyperbridge.config.consensusStateId,
 			},
 			requests: [
 				{
@@ -645,14 +738,14 @@ export class IndexerClient {
 
 		let hyperbridgeDelivered: RequestStatusWithMetadata | undefined
 
-		if (request.source === this.config.hyperbridge.stateMachineId) {
+		if (request.source === this.config.hyperbridge.config.stateMachineId) {
 			hyperbridgeDelivered = request.statuses[0]
 			return addFinalityEvents(request)
 		} else {
 			const sourceFinality = await this.queryStateMachineUpdateByHeight({
 				statemachineId: request.source,
 				height: request.statuses[0].metadata.blockNumber,
-				chain: this.config.hyperbridge.stateMachineId,
+				chain: this.config.hyperbridge.config.stateMachineId,
 			})
 
 			if (!sourceFinality) return addFinalityEvents(request)
@@ -673,18 +766,15 @@ export class IndexerClient {
 		}
 
 		const hyperbridgeFinality = await this.queryStateMachineUpdateByHeight({
-			statemachineId: this.config.hyperbridge.stateMachineId,
+			statemachineId: this.config.hyperbridge.config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
 			chain: request.source,
 		})
 
 		if (!hyperbridgeFinality) return addFinalityEvents(request)
 
-		const sourceChain = await getChain(this.config.source)
-		const hyperbridge = await getChain({
-			...this.config.hyperbridge,
-			hasher: "Keccak",
-		})
+		const sourceChain = this.config.source
+		const hyperbridge = this.config.hyperbridge
 
 		try {
 			const response = await this.queryResponseByRequestId(request.commitment)
@@ -700,8 +790,8 @@ export class IndexerClient {
 			const calldata = sourceChain.encode({
 				kind: "GetResponse",
 				proof: {
-					stateMachine: this.config.hyperbridge.stateMachineId,
-					consensusStateId: this.config.hyperbridge.consensusStateId,
+					stateMachine: this.config.hyperbridge.config.stateMachineId,
+					consensusStateId: this.config.hyperbridge.config.consensusStateId,
 					proof,
 					height: BigInt(hyperbridgeFinality.height),
 				},
@@ -771,7 +861,7 @@ export class IndexerClient {
 			})
 
 			logger.trace("`Request` found")
-			const chain = await getChain(this.config.dest)
+			const chain = this.config.dest
 			const timeoutStream =
 				request.timeoutTimestamp > 0n ? this.timeoutStream(request.timeoutTimestamp, chain) : undefined
 			const statusStream = this.postRequestStatusStreamInternal(hash, controller.signal)
@@ -839,7 +929,7 @@ export class IndexerClient {
 		let request = await this.waitOrAbort({ signal, promise: () => this.queryPostRequest(hash) })
 
 		let status: RequestStatusKey =
-			request.source === this.config.hyperbridge.stateMachineId
+			request.source === this.config.hyperbridge.config.stateMachineId
 				? RequestStatus.HYPERBRIDGE_DELIVERED
 				: RequestStatus.SOURCE
 
@@ -865,7 +955,7 @@ export class IndexerClient {
 							this.queryStateMachineUpdateByHeight({
 								statemachineId: request.source,
 								height: request.statuses[0].metadata.blockNumber,
-								chain: this.config.hyperbridge.stateMachineId,
+								chain: this.config.hyperbridge.config.stateMachineId,
 							}),
 					})
 
@@ -893,7 +983,7 @@ export class IndexerClient {
 					})
 
 					status =
-						request.dest === this.config.hyperbridge.stateMachineId
+						request.dest === this.config.hyperbridge.config.stateMachineId
 							? RequestStatus.DESTINATION
 							: RequestStatus.HYPERBRIDGE_DELIVERED
 
@@ -916,7 +1006,7 @@ export class IndexerClient {
 					const hyperbridgeFinalized = await this.waitOrAbort({
 						signal,
 						promise: () => {
-							const stateMachineId = this.config.hyperbridge.stateMachineId
+							const stateMachineId = this.config.hyperbridge.config.stateMachineId
 							const index = request.source === stateMachineId ? 0 : 1
 
 							return this.queryStateMachineUpdateByHeight({
@@ -927,11 +1017,8 @@ export class IndexerClient {
 						},
 					})
 
-					const destChain = await getChain(this.config.dest)
-					const hyperbridge = await getChain({
-						...this.config.hyperbridge,
-						hasher: "Keccak",
-					})
+					const destChain = this.config.dest
+					const hyperbridge = this.config.hyperbridge
 
 					const safeFetchProof = async () => {
 						try {
@@ -964,8 +1051,8 @@ export class IndexerClient {
 					const calldata = destChain.encode({
 						kind: "PostRequest",
 						proof: {
-							stateMachine: this.config.hyperbridge.stateMachineId,
-							consensusStateId: this.config.hyperbridge.consensusStateId,
+							stateMachine: this.config.hyperbridge.config.stateMachineId,
+							consensusStateId: this.config.hyperbridge.config.consensusStateId,
 							proof: proof.data,
 							height: BigInt(hyperbridgeFinalized.height),
 						},
@@ -973,13 +1060,13 @@ export class IndexerClient {
 						signer: pad("0x"),
 					})
 
-					const { stateId } = parseStateMachineId(this.config.hyperbridge.stateMachineId)
+					const { stateId } = parseStateMachineId(this.config.hyperbridge.config.stateMachineId)
 
 					await waitForChallengePeriod(destChain, {
 						height: BigInt(hyperbridgeFinalized.height),
 						id: {
 							stateId,
-							consensusStateId: toHex(this.config.hyperbridge.consensusStateId),
+							consensusStateId: toHex(this.config.hyperbridge.config.consensusStateId),
 						},
 					})
 
@@ -1007,7 +1094,7 @@ export class IndexerClient {
 							!request || !request.statuses.find((s) => s.status === RequestStatus.DESTINATION),
 					})
 
-					const index = request.source === this.config.hyperbridge.stateMachineId ? 1 : 2
+					const index = request.source === this.config.hyperbridge.config.stateMachineId ? 1 : 2
 
 					yield {
 						status: RequestStatus.DESTINATION,
@@ -1073,7 +1160,7 @@ export class IndexerClient {
 				promise: () => this.queryGetRequest(hash),
 			})
 
-			const chain = await getChain(this.config.dest)
+			const chain = this.config.dest
 			const timeoutStream =
 				request.timeoutTimestamp > 0n ? this.timeoutStream(request.timeoutTimestamp, chain) : undefined
 			const statusStream = this.getRequestStatusStreamInternal(hash, controller.signal)
@@ -1105,7 +1192,7 @@ export class IndexerClient {
 		let request = await this.waitOrAbort({ signal, promise: () => this.queryGetRequest(hash) })
 
 		let status: RequestStatusKey | undefined =
-			request.source === this.config.hyperbridge.stateMachineId
+			request.source === this.config.hyperbridge.config.stateMachineId
 				? RequestStatus.HYPERBRIDGE_DELIVERED
 				: RequestStatus.SOURCE
 
@@ -1126,7 +1213,7 @@ export class IndexerClient {
 							this.queryStateMachineUpdateByHeight({
 								statemachineId: request.source,
 								height: request.statuses[0].metadata.blockNumber,
-								chain: this.config.hyperbridge.stateMachineId,
+								chain: this.config.hyperbridge.config.stateMachineId,
 							}),
 					})
 
@@ -1153,7 +1240,7 @@ export class IndexerClient {
 					})
 
 					status =
-						request.source === this.config.hyperbridge.stateMachineId
+						request.source === this.config.hyperbridge.config.stateMachineId
 							? RequestStatus.DESTINATION
 							: RequestStatus.HYPERBRIDGE_DELIVERED
 
@@ -1173,7 +1260,7 @@ export class IndexerClient {
 				// the request has been verified and aggregated on Hyperbridge
 				case RequestStatus.HYPERBRIDGE_DELIVERED: {
 					// If Hyperbridge was the source, the request is already complete
-					if (request.source === this.config.hyperbridge.stateMachineId) {
+					if (request.source === this.config.hyperbridge.config.stateMachineId) {
 						return
 					}
 					// Get the latest state machine update for hyperbridge on the destination chain
@@ -1181,17 +1268,14 @@ export class IndexerClient {
 						signal,
 						promise: () =>
 							this.queryStateMachineUpdateByHeight({
-								statemachineId: this.config.hyperbridge.stateMachineId,
+								statemachineId: this.config.hyperbridge.config.stateMachineId,
 								height: request.statuses[1].metadata.blockNumber,
 								chain: request.source,
 							}),
 					})
 
-					const sourceChain = await getChain(this.config.source)
-					const hyperbridge = await getChain({
-						...this.config.hyperbridge,
-						hasher: "Keccak",
-					})
+					const sourceChain = this.config.source
+					const hyperbridge = this.config.hyperbridge
 
 					const response = await this.queryResponseByRequestId(hash)
 
@@ -1204,8 +1288,8 @@ export class IndexerClient {
 					const calldata = sourceChain.encode({
 						kind: "GetResponse",
 						proof: {
-							stateMachine: this.config.hyperbridge.stateMachineId,
-							consensusStateId: this.config.hyperbridge.consensusStateId,
+							stateMachine: this.config.hyperbridge.config.stateMachineId,
+							consensusStateId: this.config.hyperbridge.config.consensusStateId,
 							proof,
 							height: BigInt(hyperbridgeFinalized.height),
 						},
@@ -1238,7 +1322,7 @@ export class IndexerClient {
 				// request has been finalized by hyperbridge
 				case RequestStatus.HYPERBRIDGE_FINALIZED: {
 					// If Hyperbridge was the source, the request is already complete
-					if (request.source === this.config.hyperbridge.stateMachineId) {
+					if (request.source === this.config.hyperbridge.config.stateMachineId) {
 						return
 					}
 
@@ -1337,24 +1421,21 @@ export class IndexerClient {
 			promise: () => this.queryPostRequest(hash),
 		})
 
-		const destChain = await getChain(this.config.dest)
+		const destChain = this.config.dest
 
 		// if the destination is hyperbridge, then just wait for hyperbridge finality
 		let status: TimeoutStatusKey =
-			request.dest === this.config.hyperbridge.stateMachineId
+			request.dest === this.config.hyperbridge.config.stateMachineId
 				? TimeoutStatus.HYPERBRIDGE_TIMED_OUT
 				: TimeoutStatus.PENDING_TIMEOUT
 
 		const commitment = postRequestCommitment(request).commitment
-		const hyperbridge = (await getChain({
-			...this.config.hyperbridge,
-			hasher: "Keccak",
-		})) as unknown as SubstrateChain
+		const hyperbridge = this.config.hyperbridge as SubstrateChain
 
 		const latest = request.statuses[request.statuses.length - 1]
 		const latest_request = maxBy(
 			[status, latest.status as TimeoutStatusKey],
-			(item) => TIMEOUT_STATUS_WEIGHTS[item],
+			(item: TimeoutStatusKey) => TIMEOUT_STATUS_WEIGHTS[item],
 		)
 
 		if (!latest_request) {
@@ -1368,7 +1449,7 @@ export class IndexerClient {
 			switch (status) {
 				case TimeoutStatus.PENDING_TIMEOUT: {
 					const receipt = await hyperbridge.queryRequestReceipt(commitment)
-					if (!receipt && request.source !== this.config.hyperbridge.stateMachineId) {
+					if (!receipt && request.source !== this.config.hyperbridge.config.stateMachineId) {
 						status = TimeoutStatus.HYPERBRIDGE_TIMED_OUT
 						break
 					}
@@ -1379,7 +1460,7 @@ export class IndexerClient {
 							this.queryStateMachineUpdateByTimestamp({
 								statemachineId: request.dest,
 								commitmentTimestamp: request.timeoutTimestamp,
-								chain: this.config.hyperbridge.stateMachineId,
+								chain: this.config.hyperbridge.config.stateMachineId,
 							}),
 					})
 
@@ -1397,7 +1478,7 @@ export class IndexerClient {
 				}
 
 				case TimeoutStatus.DESTINATION_FINALIZED_TIMEOUT: {
-					if (request.source !== this.config.hyperbridge.stateMachineId) {
+					if (request.source !== this.config.hyperbridge.config.stateMachineId) {
 						const receipt = await hyperbridge.queryRequestReceipt(commitment)
 						if (!receipt) {
 							status = TimeoutStatus.HYPERBRIDGE_TIMED_OUT
@@ -1408,7 +1489,7 @@ export class IndexerClient {
 					const update = (await this.queryStateMachineUpdateByTimestamp({
 						statemachineId: request.dest,
 						commitmentTimestamp: request.timeoutTimestamp,
-						chain: this.config.hyperbridge.stateMachineId,
+						chain: this.config.hyperbridge.config.stateMachineId,
 					}))!
 
 					const proof = await destChain.queryStateProof(BigInt(update.height), [
@@ -1421,7 +1502,7 @@ export class IndexerClient {
 						height: BigInt(update.height),
 						id: {
 							stateId,
-							consensusStateId: toHex(this.config.dest.consensusStateId),
+							consensusStateId: toHex(this.config.dest.config.consensusStateId),
 						},
 					})
 
@@ -1431,7 +1512,7 @@ export class IndexerClient {
 							proof,
 							height: BigInt(update.height),
 							stateMachine: request.dest,
-							consensusStateId: this.config.dest.consensusStateId,
+							consensusStateId: this.config.dest.config.consensusStateId,
 						},
 						requests: [
 							{
@@ -1447,7 +1528,7 @@ export class IndexerClient {
 					})
 
 					status =
-						request.source === this.config.hyperbridge.stateMachineId
+						request.source === this.config.hyperbridge.config.stateMachineId
 							? TimeoutStatus.TIMED_OUT
 							: TimeoutStatus.HYPERBRIDGE_TIMED_OUT
 
@@ -1475,7 +1556,7 @@ export class IndexerClient {
 							signal,
 							promise: () =>
 								this.queryStateMachineUpdateByTimestamp({
-									statemachineId: this.config.hyperbridge.stateMachineId,
+									statemachineId: this.config.hyperbridge.config.stateMachineId,
 									commitmentTimestamp: request.timeoutTimestamp,
 									chain: request.source,
 								}),
@@ -1498,7 +1579,7 @@ export class IndexerClient {
 							signal,
 							promise: async () =>
 								this.queryStateMachineUpdateByHeight({
-									statemachineId: this.config.hyperbridge.stateMachineId,
+									statemachineId: this.config.hyperbridge.config.stateMachineId,
 									height: timeout.metadata.blockNumber,
 									chain: request.source,
 								}),
@@ -1509,14 +1590,14 @@ export class IndexerClient {
 						hyperbridge.requestReceiptKey(commitment),
 					])
 
-					const sourceChain = await getChain(this.config.source)
+					const sourceChain = this.config.source
 					const calldata = sourceChain.encode({
 						kind: "TimeoutPostRequest",
 						proof: {
 							proof,
 							height: BigInt(update.height),
-							stateMachine: this.config.hyperbridge.stateMachineId,
-							consensusStateId: this.config.hyperbridge.consensusStateId,
+							stateMachine: this.config.hyperbridge.config.stateMachineId,
+							consensusStateId: this.config.hyperbridge.config.consensusStateId,
 						},
 						requests: [
 							{
@@ -1531,13 +1612,13 @@ export class IndexerClient {
 						],
 					})
 
-					const { stateId } = parseStateMachineId(this.config.hyperbridge.stateMachineId)
+					const { stateId } = parseStateMachineId(this.config.hyperbridge.config.stateMachineId)
 
 					await waitForChallengePeriod(sourceChain, {
 						height: BigInt(update.height),
 						id: {
 							stateId,
-							consensusStateId: toHex(this.config.hyperbridge.consensusStateId),
+							consensusStateId: toHex(this.config.hyperbridge.config.consensusStateId),
 						},
 					})
 
@@ -1785,14 +1866,11 @@ export class IndexerClient {
 	): Promise<Awaited<ReturnType<SubstrateChain["submitUnsigned"]>>> {
 		const logger = this.logger.withTag("aggregateTransactionWithCommitment")
 
-		const { stateMachineId, consensusStateId } = this.config.source
+		const { stateMachineId, consensusStateId } = this.config.source.config
 
 		// check if request receipt exists on source chain
-		const sourceChain = await getChain(this.config.source)
-		const hyperbridge = (await getChain({
-			...this.config.hyperbridge,
-			hasher: "Keccak",
-		})) as SubstrateChain
+		const sourceChain = this.config.source
+		const hyperbridge = this.config.hyperbridge as SubstrateChain
 
 		logger.trace("Querying post request with commitment hash")
 		const request = await this.queryPostRequest(commitment)
@@ -1807,7 +1885,7 @@ export class IndexerClient {
 		logger.trace("Query Request Proof from sourceChain")
 		const proof = await sourceChain.queryProof(
 			{ Requests: [commitment] },
-			this.config.hyperbridge.stateMachineId,
+			this.config.hyperbridge.config.stateMachineId,
 			latestStateMachineHeight,
 		)
 
@@ -1815,8 +1893,8 @@ export class IndexerClient {
 		const calldata = await hyperbridge.submitUnsigned({
 			kind: "PostRequest",
 			proof: {
-				stateMachine: this.config.source.stateMachineId,
-				consensusStateId: this.config.source.consensusStateId,
+				stateMachine: this.config.source.config.stateMachineId,
+				consensusStateId: this.config.source.config.consensusStateId,
 				proof,
 				height: BigInt(latestStateMachineHeight),
 			},

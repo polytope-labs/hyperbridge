@@ -2,6 +2,7 @@ import type { ConsolaInstance } from "consola"
 import type { GraphQLClient } from "graphql-request"
 import type { ContractFunctionArgs, Hex, Log } from "viem"
 import type HandlerV1 from "@/abis/handler"
+import type { IChain } from "@/chain"
 
 export type EstimateGasCallData = ContractFunctionArgs<
 	typeof HandlerV1.ABI,
@@ -28,7 +29,7 @@ export interface IEvmConfig {
 	// state machine identifier as a string
 	stateMachineId: string
 	// contract address of the `IsmpHost` on this chain
-	host: string
+	host: HexString
 	// consensus state identifier of this chain on hyperbridge
 	consensusStateId: string
 }
@@ -120,9 +121,9 @@ export interface ClientConfig {
 	pollInterval: number
 	queryClient: IndexerQueryClient
 	tracing?: boolean
-	source: IEvmConfig | ISubstrateConfig
-	dest: IEvmConfig | ISubstrateConfig
-	hyperbridge: IHyperbridgeConfig
+	source: IChain
+	dest: IChain
+	hyperbridge: IChain
 }
 
 export interface RetryConfig {

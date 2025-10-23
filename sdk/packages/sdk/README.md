@@ -17,34 +17,47 @@ pnpm add @hyperbridge/sdk
 ### Initialize Client
 
 ```ts
-import { IndexerClient, createQueryClient } from "@hyperbridge/sdk"
+import { IndexerClient, createQueryClient, EvmChain, SubstrateChain } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({
 	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
 })
 
+// Create chain instances directly
+const sourceChain = new EvmChain({
+	chainId: 97,
+	rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+	host: "0x...", // Host contract address
+	consensusStateId: "BSC0"
+})
+
+const destChain = new EvmChain({
+	chainId: 10200,
+	rpcUrl: "https://rpc.chiadochain.net",
+	host: "0x...", // Host contract address
+	consensusStateId: "GNO0"
+})
+
+const hyperbridgeChain = new SubstrateChain({
+	stateMachineId: "KUSAMA-4009",
+	wsUrl: "wss://gargantua.polytope.technology",
+	hasher: "Keccak",
+	consensusStateId: "PAS0"
+})
+
+// Connect to Substrate chain
+await hyperbridgeChain.connect()
+
+// Create the IndexerClient
 const indexer = new IndexerClient({
 	queryClient: queryClient,
 	pollInterval: 1_000, // Every second
-	source: {
-		consensusStateId: "BSC0",
-		rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
-		stateMachineId: "EVM-97",
-		host: "0x...", // Host contract address
-	},
-	dest: {
-		consensusStateId: "GNO0",
-		rpcUrl: "https://rpc.chiadochain.net",
-		stateMachineId: "EVM-10200",
-		host: "0x...", // Host contract address
-	},
-	hyperbridge: {
-		consensusStateId: "PAS0",
-		stateMachineId: "KUSAMA-4009",
-		wsUrl: "wss://gargantua.polytope.technology",
-	},
+	source: sourceChain,
+	dest: destChain,
+	hyperbridge: hyperbridgeChain
 })
 ```
+
 
 ### Monitor Post Request Status
 

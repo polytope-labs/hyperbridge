@@ -24,6 +24,7 @@ import {
 	EvmChain,
 	IntentGateway,
 	DEFAULT_GRAFFITI,
+	getChain,
 } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import { ConfirmationPolicy } from "@/config/confirmation-policy"
@@ -95,24 +96,32 @@ describe.sequential("Basic", () => {
 			url: process.env.INDEXER_URL!,
 		})
 
+		// Create chain instances
+		const sourceChain = await getChain({
+			consensusStateId: "BSC0",
+			rpcUrl: process.env.BSC_CHAPEL!,
+			stateMachineId: "EVM-97",
+			host: bscIsmpHost.address,
+		})
+
+		const destChain = await getChain({
+			consensusStateId: "GNO0",
+			rpcUrl: process.env.GNOSIS_CHIADO!,
+			stateMachineId: "EVM-10200",
+			host: gnosisChiadoIsmpHost.address,
+		})
+
+		const hyperbridgeChain = await getChain({
+			consensusStateId: "PAS0",
+			stateMachineId: "KUSAMA-4009",
+			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+			hasher: "Keccak" as const,
+		})
+
 		indexer = new IndexerClient({
-			source: {
-				consensusStateId: "BSC0",
-				rpcUrl: process.env.BSC_CHAPEL!,
-				stateMachineId: "EVM-97",
-				host: bscIsmpHost.address,
-			},
-			dest: {
-				consensusStateId: "GNO0",
-				rpcUrl: process.env.GNOSIS_CHIADO!,
-				stateMachineId: "EVM-10200",
-				host: gnosisChiadoIsmpHost.address,
-			},
-			hyperbridge: {
-				consensusStateId: "PAS0",
-				stateMachineId: "KUSAMA-4009",
-				wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
-			},
+			source: sourceChain,
+			dest: destChain,
+			hyperbridge: hyperbridgeChain,
 			queryClient: queryClient,
 			pollInterval: 1_000,
 		})
@@ -986,12 +995,14 @@ async function setUp() {
 	const bscEvmHelper = new EvmChain({
 		chainId: 97,
 		host: bscIsmpHostAddress,
-		url: process.env.BSC_CHAPEL!,
+		rpcUrl: process.env.BSC_CHAPEL!,
+		consensusStateId: "BSC0",
 	})
 	const gnosisChiadoEvmHelper = new EvmChain({
 		chainId: 10200,
 		host: gnosisChiadoIsmpHostAddress,
-		url: process.env.GNOSIS_CHIADO!,
+		rpcUrl: process.env.GNOSIS_CHIADO!,
+		consensusStateId: "GNO0",
 	})
 
 	return {

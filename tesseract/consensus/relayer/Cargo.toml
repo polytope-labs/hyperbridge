@@ -53,3 +53,7 @@ tesseract-tendermint = { workspace = true }
 [dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime", "sc-service"]
+
+
+[features]
+fulu = ["tesseract-sync-committee/fulu"]

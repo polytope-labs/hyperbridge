@@ -555,7 +555,7 @@ impl pallet_session::Config for Runtime {
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
 	type SessionManager = CollatorManager;
 	// Essentially just Aura, but let's be pedantic.
-	type SessionHandler = (<SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders, MessagingFees);
+	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
 	type DisablingStrategy = UpToLimitDisablingStrategy;
 	type WeightInfo = weights::pallet_session::WeightInfo<Runtime>;
@@ -896,6 +896,7 @@ impl pallet_collator_manager::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
+	type IncentivesManager = MessagingFees;
 	type WeightInfo = ();
 }
 

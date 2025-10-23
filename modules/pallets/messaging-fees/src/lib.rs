@@ -47,6 +47,12 @@ use crate::types::*;
 mod impls;
 pub mod types;
 
+/// A trait for managing messaging incentives, primarily for resetting them.
+pub trait IncentivesManager {
+	/// Resets any accumulated incentive data, called at the start of a new session.
+	fn reset_incentives();
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use crate::frame_support::traits::fungible;
@@ -86,7 +92,6 @@ pub mod pallet {
 			Self::AccountId,
 			Balance = <Self as pallet_ismp::Config>::Balance,
 		>;
-
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
 	}
@@ -193,19 +198,9 @@ pub mod pallet {
 	}
 }
 
-impl<T: Config> pallet_session::SessionHandler<T::AccountId> for Pallet<T> {
-	const KEY_TYPE_IDS: &'static [KeyTypeId] = &[];
-
-	fn on_genesis_session<Ks: OpaqueKeys>(_validators: &[(T::AccountId, Ks)]) {}
-
-	fn on_new_session<Ks: OpaqueKeys>(
-		_changed: bool,
-		_validators: &[(T::AccountId, Ks)],
-		_queued_validators: &[(T::AccountId, Ks)],
-	) {
+impl<T: Config> IncentivesManager for Pallet<T> {
+	fn reset_incentives() {
 		TotalBytesProcessed::<T>::kill();
 		Self::deposit_event(Event::IncentivesReset);
 	}
-
-	fn on_disabled(_validator_index: u32) {}
 }

@@ -15444,8 +15444,6 @@ dependencies = [
 [[package]]
 name = "pallet-revive"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "474840408264f98eea7f187839ff2157f83a92bec6f3f3503dbf855c38f4de6b"
 dependencies = [
  "alloy-core",
  "derive_more 0.99.20",

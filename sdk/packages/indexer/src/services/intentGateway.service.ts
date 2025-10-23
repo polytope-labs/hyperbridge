@@ -94,7 +94,7 @@ export class IntentGatewayService {
 			const pointsToAward = orderValue.floor().toNumber()
 
 			await PointsService.awardPoints(
-				this.bytes32ToBytes20(order.user),
+				order.user,
 				ethers.utils.toUtf8String(order.sourceChain),
 				BigInt(pointsToAward),
 				ProtocolParticipantType.USER,
@@ -111,7 +111,7 @@ export class IntentGatewayService {
 			user.totalOrderPlacedVolumeUSD = new Decimal(user.totalOrderPlacedVolumeUSD)
 				.plus(new Decimal(inputUSD))
 				.toString()
-
+			user.createdAt = user.createdAt === timestampToDate(BigInt(0)) ? timestampToDate(timestamp) : user.createdAt
 			await user.save()
 		} else {
 			// Handle race condition: Order already exists (e.g., was filled first)
@@ -155,7 +155,7 @@ export class IntentGatewayService {
 				const pointsToAward = orderValue.floor().toNumber()
 
 				await PointsService.awardPoints(
-					this.bytes32ToBytes20(order.user),
+					order.user,
 					ethers.utils.toUtf8String(order.sourceChain),
 					BigInt(pointsToAward),
 					ProtocolParticipantType.USER,
@@ -249,7 +249,7 @@ export class IntentGatewayService {
 
 			orderPlaced = await OrderPlaced.create({
 				id: commitment,
-				user: "0x0000000000000000000000000000000000000000",
+				user: "0x0000000000000000000000000000000000000000" as Hex,
 				sourceChain: "",
 				destChain: "",
 				commitment: commitment,
@@ -366,8 +366,8 @@ export class IntentGatewayService {
 	}
 
 	static bytes32ToBytes20(bytes32: string): string {
-		if (bytes32 === "0x0000000000000000000000000000000000000000000000000000000000000000") {
-			return "0x0000000000000000000000000000000000000000"
+		if (bytes32.length === 42) {
+			return bytes32
 		}
 
 		const bytes = hexToBytes(bytes32 as Hex)

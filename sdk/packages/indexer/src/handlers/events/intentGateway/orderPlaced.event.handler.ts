@@ -101,11 +101,15 @@ export const handleOrderPlacedEvent = wrap(async (event: OrderPlacedLog): Promis
 
 	logger.info(`Order Commitment: ${commitment}`)
 
-	await IntentGatewayService.getOrCreateOrder(order, graffiti, {
-		transactionHash,
-		blockNumber,
-		timestamp,
-	})
+	await IntentGatewayService.getOrCreateOrder(
+		{ ...order, user: IntentGatewayService.bytes32ToBytes20(order.user) as Hex },
+		graffiti,
+		{
+			transactionHash,
+			blockNumber,
+			timestamp,
+		},
+	)
 
 	await IntentGatewayService.updateOrderStatus(commitment, OrderStatus.PLACED, {
 		transactionHash,

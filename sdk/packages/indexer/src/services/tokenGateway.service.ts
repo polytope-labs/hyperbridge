@@ -112,6 +112,7 @@ export class TokenGatewayService {
 			)
 
 			const user = await getOrCreateUser(teleportParams.from)
+			user.createdAt = user.createdAt === timestampToDate(BigInt(0)) ? timestampToDate(timestamp) : user.createdAt
 			user.totalTeleports = user.totalTeleports + BigInt(1)
 			user.totalTeleportedVolumeUSD = new Decimal(user.totalTeleportedVolumeUSD)
 				.plus(new Decimal(amountValueInUSD))

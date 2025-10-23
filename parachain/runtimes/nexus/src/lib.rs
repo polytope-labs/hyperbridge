@@ -896,6 +896,7 @@ impl pallet_collator_manager::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
+	type IncentivesManager = MessagingFees;
 	type WeightInfo = ();
 }
 

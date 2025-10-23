@@ -14920,6 +14920,7 @@ version = "0.1.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
+ "pallet-messaging-fees",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",

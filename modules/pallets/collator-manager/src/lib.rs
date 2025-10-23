@@ -21,6 +21,7 @@
 #![deny(missing_docs)]
 extern crate alloc;
 
+use pallet_messaging_fees::IncentivesManager;
 use polkadot_sdk::{
 	sp_runtime::{DispatchError, Weight},
 	*,
@@ -108,6 +109,9 @@ pub mod pallet {
 		#[pallet::constant]
 		type LockId: Get<LockIdentifier>;
 
+		/// Trait implementation for resetting messaging incentives.
+		type IncentivesManager: pallet_messaging_fees::IncentivesManager;
+
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
 	}
@@ -189,6 +193,8 @@ pub mod pallet {
 		<T as pallet_session::Config>::ValidatorId: From<T::AccountId>,
 	{
 		fn new_session(_new_index: SessionIndex) -> Option<Vec<T::AccountId>> {
+			T::IncentivesManager::reset_incentives();
+
 			let active_collators = <pallet_session::Pallet<T>>::validators();
 			let desired_collators = core::cmp::max(
 				pallet_collator_selection::DesiredCandidates::<T>::get(),

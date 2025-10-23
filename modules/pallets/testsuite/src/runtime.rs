@@ -365,6 +365,7 @@ impl pallet_collator_manager::Config for Test {
 	type LockId = CollatorBondLockId;
 	type TreasuryAccount = TreasuryAccount;
 	type AdminOrigin = EnsureRoot<AccountId32>;
+	type IncentivesManager = MessagingRelayerIncentives;
 	type WeightInfo = ();
 }
 

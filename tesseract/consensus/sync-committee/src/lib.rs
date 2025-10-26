@@ -29,7 +29,7 @@ use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use sync_committee_primitives::{
-	constants::{gnosis, Config, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO},
+	constants::{gnosis, Config, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, PROPOSER_LOOK_AHEAD_LIMIT_GNO},
 	types::VerifierState,
 	util::{compute_epoch_at_slot, compute_sync_committee_period_at_slot},
 };
@@ -67,7 +67,7 @@ impl SyncCommitteeConfig {
 		self,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = SyncCommitteeHost::<Sepolia, ETH1_DATA_VOTES_BOUND_ETH>::new(
+		let client = SyncCommitteeHost::<Sepolia, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM>::new(
 			&self.host,
 			&self.evm_config,
 			l2_config,
@@ -81,7 +81,7 @@ impl SyncCommitteeConfig {
 		self,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = SyncCommitteeHost::<Mainnet, ETH1_DATA_VOTES_BOUND_ETH>::new(
+		let client = SyncCommitteeHost::<Mainnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM>::new(
 			&self.host,
 			&self.evm_config,
 			l2_config,
@@ -92,7 +92,7 @@ impl SyncCommitteeConfig {
 	}
 
 	pub async fn into_chiado(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = SyncCommitteeHost::<gnosis::Testnet, ETH1_DATA_VOTES_BOUND_GNO>::new(
+		let client = SyncCommitteeHost::<gnosis::Testnet, ETH1_DATA_VOTES_BOUND_GNO, PROPOSER_LOOK_AHEAD_LIMIT_GNO>::new(
 			&self.host,
 			&self.evm_config,
 			Default::default(),
@@ -103,7 +103,7 @@ impl SyncCommitteeConfig {
 	}
 
 	pub async fn into_gnosis(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = SyncCommitteeHost::<gnosis::Mainnet, ETH1_DATA_VOTES_BOUND_GNO>::new(
+		let client = SyncCommitteeHost::<gnosis::Mainnet, ETH1_DATA_VOTES_BOUND_GNO, PROPOSER_LOOK_AHEAD_LIMIT_GNO>::new(
 			&self.host,
 			&self.evm_config,
 			Default::default(),
@@ -118,7 +118,7 @@ impl SyncCommitteeConfig {
 	}
 }
 
-pub struct SyncCommitteeHost<C: Config, const ETH1_DATA_VOTES_BOUND: usize> {
+pub struct SyncCommitteeHost<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this chain.
@@ -126,7 +126,7 @@ pub struct SyncCommitteeHost<C: Config, const ETH1_DATA_VOTES_BOUND: usize> {
 	/// L2 consensus clients
 	pub l2_clients: BTreeMap<StateMachine, L2Host>,
 	/// Consensus prover
-	pub prover: SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND>,
+	pub prover: SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 	/// Interval in seconds at which consensus updates should happen
 	pub consensus_update_frequency: Duration,
 
@@ -141,7 +141,7 @@ pub struct SyncCommitteeHost<C: Config, const ETH1_DATA_VOTES_BOUND: usize> {
 	pub retry: again::RetryPolicy,
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND> {
+impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT> {
 	pub async fn new(
 		host: &HostConfig,
 		evm: &EvmConfig,
@@ -247,8 +247,8 @@ pub enum L2Config {
 	OpStack(OpConfig),
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize> Clone
-	for SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND>
+impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> Clone
+	for SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
 	fn clone(&self) -> Self {
 		Self {

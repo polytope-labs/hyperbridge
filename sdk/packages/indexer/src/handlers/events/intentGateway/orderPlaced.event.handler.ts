@@ -4,10 +4,10 @@ import { OrderPlacedLog } from "@/configs/src/types/abi-interfaces/IntentGateway
 import { DEFAULT_REFERRER, IntentGatewayService, Order } from "@/services/intentGateway.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
-import { Hex, decodeFunctionData } from "viem"
+import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
+import { Interface } from "@ethersproject/abi"
 import IntentGatewayAbi from "@/configs/abis/IntentGateway.abi.json"
-import { PointsService } from "@/services/points.service"
 
 export const handleOrderPlacedEvent = wrap(async (event: OrderPlacedLog): Promise<void> => {
 	logger.info(`Order Placed Event: ${stringify(event)}`)
@@ -23,47 +23,20 @@ export const handleOrderPlacedEvent = wrap(async (event: OrderPlacedLog): Promis
 		logger.info(`Decoding transaction data for referral points: ${stringify(transaction.input)}`)
 
 		try {
-			const inputData = transaction.input as string
+			const { name, args: decodedArgs } = new Interface(IntentGatewayAbi.abi).parseTransaction({
+				data: transaction.input,
+			})
+			logger.info(`Decoded graffiti: ${stringify({ graffiti: decodedArgs[1] })}`)
 
-			// Graffiti is the second parameter, located at position 74 (10 + 64)
-			const graffitiStart = 74
-			const graffitiEnd = graffitiStart + 64
-
-			if (inputData.length >= graffitiEnd) {
-				const graffitiHex = inputData.slice(graffitiStart, graffitiEnd)
-				const decodedGraffiti = "0x" + graffitiHex
-
-				logger.info(
-					`Extracted graffiti from transaction: ${stringify({
-						graffiti: decodedGraffiti,
-						graffitiValue: BigInt("0x" + graffitiHex).toString(),
-						isZero: decodedGraffiti === DEFAULT_REFERRER,
-					})}`,
-				)
-
-				if (decodedGraffiti !== DEFAULT_REFERRER) {
-					graffiti = decodedGraffiti as Hex
-					logger.info(`Updated graffiti from transaction: ${stringify({ graffiti })}`)
-				} else {
-					logger.info("No referral code provided, using default referrer", {
-						graffiti: DEFAULT_REFERRER,
-					})
-				}
-			} else {
-				logger.warn(
-					`Transaction input too short to contain graffiti: ${stringify({
-						inputLength: inputData.length,
-						requiredLength: graffitiEnd,
-					})}`,
-				)
+			if (name === "placeOrder" && decodedArgs[1].toLowerCase() !== args.user.toLowerCase()) {
+				// Either Default Referrer or Actual Referrer
+				logger.info(`Using ${stringify(decodedArgs[1])} as graffiti`)
+				graffiti = decodedArgs[1] as Hex
 			}
-		} catch (error) {
+		} catch (e: any) {
 			logger.error(
-				`Failed to extract graffiti from transaction: ${stringify({
-					transactionHash,
-					errorMessage: error?.toString() || "Unknown error",
-					inputType: typeof transaction.input,
-					inputLength: transaction.input?.length || 0,
+				`Error decoding placeOrder args, using default referrer: ${stringify({
+					error: e as unknown as Error,
 				})}`,
 			)
 		}

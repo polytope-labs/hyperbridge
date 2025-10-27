@@ -1,6 +1,5 @@
 import { UserActivity } from "@/configs/src/types"
 import { timestampToDate } from "@/utils/date.helpers"
-import { DEFAULT_REFERRER } from "./intentGateway.service"
 
 export async function getOrCreateUser(address: string, referrer?: string, timestamp?: bigint): Promise<UserActivity> {
 	const user = await UserActivity.get(address)

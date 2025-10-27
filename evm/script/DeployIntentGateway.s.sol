@@ -15,12 +15,12 @@ contract DeployScript is BaseScript {
         address admin = vm.envAddress("ADMIN");
 
         vm.startBroadcast(uint256(privateKey));
-        CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
 
-        IntentGateway gateway = new IntentGateway{salt: salt}(admin);
-        gateway.setParams(Params({host: HOST_ADDRESS, dispatcher: address(callDispatcher)}));
+        IntentGateway intentGateway = new IntentGateway{salt: salt}(admin);
+        intentGateway.setParams(Params({host: HOST_ADDRESS, dispatcher: config.get("CALL_DISPATCHER").toAddress()}));
 
         vm.stopBroadcast();
-        console.log("IntentGateway deployed at:", address(gateway));
+        console.log("IntentGateway deployed at:", address(intentGateway));
+        config.set("INTENT_GATEWAY", address(intentGateway));
     }
 }

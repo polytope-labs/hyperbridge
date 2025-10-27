@@ -453,7 +453,9 @@ contract IntentGateway is BaseIsmpModule {
             }
         }
 
-        // dispatch calls if any
+        // no sneaky replay attacks
+        _filled[commitment] = msg.sender;
+
         if (order.callData.length > 0) {
             ICallDispatcher(_params.dispatcher).dispatch(order.callData);
         }
@@ -487,7 +489,6 @@ contract IntentGateway is BaseIsmpModule {
             IDispatcher(hostAddr).dispatch(request);
         }
 
-        _filled[commitment] = msg.sender;
         emit OrderFilled({commitment: commitment, filler: msg.sender});
     }
 

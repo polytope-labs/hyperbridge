@@ -82,7 +82,7 @@ UniswapV4Quoter = "0x0000000000000000000000000000000000000000"
 [[chains]]
 chainId = 1
 rpcUrl = "${ETH_MAINNET}"
-intentGatewayAddress = "0xd54165e45926720b062C192a5bacEC64d5bB08DA"
+intentGatewayAddress = "0x1a4ee689a004b10210a1df9f24a387ea13359acf"
 hostAddress = "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20"
 consensusStateId = "ETH0"
 coingeckoId = "ethereum"
@@ -111,7 +111,7 @@ UniswapV4Quoter = "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203"
 [[chains]]
 chainId = 56
 rpcUrl = "${BSC_MAINNET}"
-intentGatewayAddress = "0xd54165e45926720b062C192a5bacEC64d5bB08DA"
+intentGatewayAddress = "0x1a4ee689a004b10210a1df9f24a387ea13359acf"
 hostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7"
 consensusStateId = "BSC0"
 coingeckoId = "binance-smart-chain"

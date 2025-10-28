@@ -44,7 +44,7 @@
 			"ethereumHost": "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20",
 			"erc6160ext20": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
 			"handlerV1": "0x089248E869AEcd66199b64637207D366D6Cfe92D",
-			"intentGateway": "0xd54165e45926720b062C192a5bacEC64d5bB08DA",
+			"intentGateway": "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
 			"tokenGateway": "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE"
 		}
 	},
@@ -57,7 +57,7 @@
 			"ethereumHost": "0xE05AFD4Eb2ce6d65c40e1048381BD0Ef8b4B299e",
 			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
 			"handlerV1": "0x089248E869AEcd66199b64637207D366D6Cfe92D",
-			"intentGateway": "0xd54165e45926720b062C192a5bacEC64d5bB08DA",
+			"intentGateway": "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
 			"tokenGateway": "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE"
 		}
 	},
@@ -82,7 +82,7 @@
 			"ethereumHost": "0x6FFe92e4d7a9D589549644544780e6725E84b248",
 			"erc6160ext20": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
 			"handlerV1": "0x089248E869AEcd66199b64637207D366D6Cfe92D",
-			"intentGateway": "0xd54165e45926720b062C192a5bacEC64d5bB08DA",
+			"intentGateway": "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
 			"tokenGateway": "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE"
 		}
 	},
@@ -95,7 +95,7 @@
 			"ethereumHost": "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7",
 			"erc6160ext20": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
 			"handlerV1": "0x089248E869AEcd66199b64637207D366D6Cfe92D",
-			"intentGateway": "0xd54165e45926720b062C192a5bacEC64d5bB08DA",
+			"intentGateway": "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
 			"tokenGateway": "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE"
 		}
 	},
@@ -133,7 +133,7 @@
 			"ethereumHost": "0xD8d3db17C1dF65b301D45C84405CcAC1395C559a",
 			"erc6160ext20": "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
 			"handlerV1": "0x61f56ee7D15F4a11ba7ee9f233c136563cB5ad37",
-			"intentGateway": "0xd54165e45926720b062C192a5bacEC64d5bB08DA",
+			"intentGateway": "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
 			"tokenGateway": "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E"
 		}
 	},
@@ -147,7 +147,7 @@
 			"erc6160ext20": "0x078d782b760474a361dda0af3839290b0ef57ad6",
 			"handlerV1": "0x85F82D70ceED45ca0D1b154C297946BabCf4d344",
 			"tokenGateway": "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
-			"intentGateway": "0xd54165e45926720b062C192a5bacEC64d5bB08DA"
+			"intentGateway": "0x1a4ee689a004b10210a1df9f24a387ea13359acf"
 		}
 	}
 }

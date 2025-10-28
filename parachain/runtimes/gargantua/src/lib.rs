@@ -86,6 +86,7 @@ pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use staging_xcm::latest::Location;
 use xcm::XcmOriginToTransactDispatchOrigin;
 use pallet_revive::evm::runtime::EthExtra;
+use pallet_revive::inherent_handlers::{InherentHandler, InherentHandlers};
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -795,7 +796,7 @@ impl pallet_revive::Config for Runtime {
 	type FindAuthor = <Runtime as pallet_authorship::Config>::FindAuthor;
 
 	type InherentHandlers = (
-		pallet_log_emitter::pallet<Runtime>,
+		pallet_log_emitter::Pallet<Runtime>,
 	);
 }
 

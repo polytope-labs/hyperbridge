@@ -9449,6 +9449,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyperbridge-ismp-parachain"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "hex-literal 0.4.1",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "serde",
+ "substrate-state-machine",
+]
+
+[[package]]
+name = "hyperbridge-ismp-parachain-inherent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "hyperbridge-ismp-parachain",
+ "ismp",
+ "ismp-parachain",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+]
+
+[[package]]
 name = "hyperclient"
 version = "0.6.0"
 dependencies = [

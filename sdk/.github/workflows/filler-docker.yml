@@ -16,12 +16,7 @@ jobs:
             - name: Checkout sources
               uses: actions/checkout@v3
               with:
-                  token: ${{ secrets.GH_TOKEN }}
-                  submodules: recursive
-
-            - uses: webfactory/ssh-agent@v0.5.4
-              with:
-                  ssh-private-key: "${{ secrets.SSH_KEY }}"
+                  fetch-depth: 0
 
             - name: Set up Node.js
               uses: actions/setup-node@v3

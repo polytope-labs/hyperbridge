@@ -1,29 +1,43 @@
 import pino from "pino"
+import { LoggingConfig } from "./FillerConfigService"
 
 type LoggerOptions = {
 	module?: string
 }
 
-const level = "info"
-const isPretty = "true"
+export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 
-// Base logger
-const baseLogger = pino({
-	level,
-	transport: isPretty
-		? {
-				target: "pino-pretty",
-				options: {
-					colorize: true,
-					singleLine: true,
-					ignore: "pid,hostname,moduleTag",
-					messageFormat: "{moduleTag}: {msg}",
-				},
-			}
-		: undefined,
-})
+let logLevel: LogLevel = "info"
+
+let baseLogger: pino.Logger
+
+// Initialize the logger with current config
+function initializeLogger() {
+	baseLogger = pino({
+		level: logLevel,
+		transport: {
+			target: "pino-pretty",
+			options: {
+				colorize: true,
+				singleLine: true,
+				ignore: "pid,hostname,moduleTag",
+				messageFormat: "{moduleTag}: {msg}",
+			},
+		},
+	})
+}
+
+initializeLogger()
+
+export function configureLogger(config: LoggingConfig) {
+	if (config.level) {
+		logLevel = config.level
+		initializeLogger()
+	}
+}
 
 export function getLogger(moduleOrOptions?: string | LoggerOptions) {
+	console.log("Log level:", logLevel)
 	const options: LoggerOptions =
 		typeof moduleOrOptions === "string" ? { module: moduleOrOptions } : moduleOrOptions || {}
 	if (options.module) {

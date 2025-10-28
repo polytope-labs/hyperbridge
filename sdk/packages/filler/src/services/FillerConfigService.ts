@@ -1,5 +1,6 @@
 import type { ChainConfig, HexString } from "@hyperbridge/sdk"
 import { ChainConfigService } from "@hyperbridge/sdk"
+import { LogLevel } from "./Logger"
 
 export interface UserProvidedChainConfig {
 	chainId: number
@@ -14,11 +15,16 @@ export interface EtherscanConfig {
 	apiKey?: string
 }
 
+export interface LoggingConfig {
+	level?: LogLevel
+}
+
 export interface FillerConfig {
 	privateKey: string
 	maxConcurrentOrders: number
 	coingecko?: CoinGeckoConfig
 	etherscan?: EtherscanConfig
+	logging?: LoggingConfig
 }
 
 /**
@@ -152,5 +158,9 @@ export class FillerConfigService {
 
 	getConfiguredChainIds(): number[] {
 		return Array.from(this.rpcOverrides.keys())
+	}
+
+	getLoggingConfig(): LoggingConfig | undefined {
+		return this.fillerConfig?.logging
 	}
 }

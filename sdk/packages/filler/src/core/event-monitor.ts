@@ -5,6 +5,7 @@ import { PublicClient } from "viem"
 import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
+import { Mutex } from "async-mutex"
 
 export class EventMonitor extends EventEmitter {
 	private clients: Map<number, PublicClient> = new Map()
@@ -14,6 +15,7 @@ export class EventMonitor extends EventEmitter {
 	private logger = getLogger("event-monitor")
 	private lastScannedBlock: Map<number, bigint> = new Map()
 	private blockScanIntervals: Map<number, NodeJS.Timeout> = new Map()
+	private scanningMutexes: Map<number, Mutex> = new Map()
 
 	constructor(chainConfigs: ChainConfig[], configService: FillerConfigService, clientManager: ChainClientManager) {
 		super()
@@ -24,6 +26,7 @@ export class EventMonitor extends EventEmitter {
 			const chainName = `EVM-${config.chainId}`
 			const client = this.clientManager.getPublicClient(chainName)
 			this.clients.set(config.chainId, client)
+			this.scanningMutexes.set(config.chainId, new Mutex())
 		})
 	}
 
@@ -44,11 +47,21 @@ export class EventMonitor extends EventEmitter {
 				this.logger.info({ chainId, startBlock }, "Initializing block scanner")
 
 				const scanInterval = setInterval(async () => {
-					try {
-						await this.scanBlocks(chainId, client, intentGatewayAddress, orderPlacedEvent)
-					} catch (error) {
-						this.logger.error({ chainId, err: error }, "Error in block scanner")
+					const mutex = this.scanningMutexes.get(chainId)
+					if (!mutex) return
+
+					if (mutex.isLocked()) {
+						this.logger.warn({ chainId }, "Waiting for previous scan to complete")
+						return
 					}
+
+					await mutex.runExclusive(async () => {
+						try {
+							await this.scanBlocks(chainId, client, intentGatewayAddress, orderPlacedEvent)
+						} catch (error) {
+							this.logger.error({ chainId, err: error }, "Error in block scanner")
+						}
+					})
 				}, 1000)
 
 				this.blockScanIntervals.set(chainId, scanInterval)
@@ -89,9 +102,7 @@ export class EventMonitor extends EventEmitter {
 				fromBlock,
 				toBlock: actualToBlock,
 			})
-			
-            this.lastScannedBlock.set(chainId, actualToBlock)
-			
+
 			if (logs.length > 0) {
 				this.logger.info(
 					{ chainId, fromBlock, toBlock: actualToBlock, eventCount: logs.length },
@@ -99,6 +110,10 @@ export class EventMonitor extends EventEmitter {
 				)
 				this.processLogs(logs)
 			}
+
+			// Update lastScannedBlock only after successful processing
+			// This is protected by the mutex, so no race condition
+			this.lastScannedBlock.set(chainId, actualToBlock)
 		}
 	}
 
@@ -155,13 +170,22 @@ export class EventMonitor extends EventEmitter {
 	}
 
 	public async stopListening(): Promise<void> {
+		this.listening = false
+
 		for (const [chainId, interval] of this.blockScanIntervals.entries()) {
 			clearInterval(interval)
 			this.logger.info({ chainId }, "Stopped block scanner")
 		}
 		this.blockScanIntervals.clear()
 
-		this.listening = false
+		const mutexPromises = Array.from(this.scanningMutexes.values()).map((mutex) =>
+			mutex.runExclusive(async () => {
+				// Empty function - just wait for any ongoing operations to complete
+			}),
+		)
+		await Promise.allSettled(mutexPromises)
+
+		this.scanningMutexes.clear()
 		this.lastScannedBlock.clear()
 	}
 }

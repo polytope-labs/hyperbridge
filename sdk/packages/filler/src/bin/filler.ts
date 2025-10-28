@@ -14,10 +14,10 @@ import {
 	FillerConfig as FillerServiceConfig,
 	CoinGeckoConfig,
 	EtherscanConfig,
+	LoggingConfig,
 } from "../services/FillerConfigService.js"
-import { getLogger } from "../services/Logger.js"
+import { getLogger, configureLogger } from "../services/Logger.js"
 import { Decimal } from "decimal.js"
-const logger = getLogger("cli")
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -60,6 +60,7 @@ interface FillerTomlConfig {
 		pendingQueue: PendingQueueConfig
 		coingecko?: CoinGeckoConfig
 		etherscan?: EtherscanConfig
+		logging?: LoggingConfig
 	}
 	strategies: StrategyConfig[]
 	chains: UserProvidedChainConfig[]
@@ -79,15 +80,20 @@ program
 			// Display ASCII art header
 			process.stdout.write(ASCII_HEADER)
 
-			logger.info("Starting Hyperbridge IntentGateway Filler...")
-
 			const configPath = resolve(process.cwd(), options.config)
-			logger.info({ configPath }, "Loading configuration")
-
 			const tomlContent = readFileSync(configPath, "utf-8")
 			const config = parse(tomlContent) as FillerTomlConfig
 
 			validateConfig(config)
+
+			// Configure logger based on config BEFORE creating any services
+			if (config.filler.logging) {
+				configureLogger(config.filler.logging)
+			}
+
+			const logger = getLogger("cli")
+			logger.info({ configPath }, "Loading configuration")
+			logger.info("Starting Hyperbridge IntentGateway Filler...")
 
 			logger.info("Initializing services...")
 
@@ -96,14 +102,16 @@ program
 				rpcUrl: chain.rpcUrl,
 			}))
 
-			const fillerConfigForService: FillerServiceConfig | undefined = config.filler.coingecko
-				? {
-						privateKey: config.filler.privateKey,
-						maxConcurrentOrders: config.filler.maxConcurrentOrders,
-						coingecko: config.filler.coingecko,
-						etherscan: config.filler.etherscan,
-					}
-				: undefined
+			const fillerConfigForService: FillerServiceConfig | undefined =
+				config.filler.coingecko || config.filler.logging
+					? {
+							privateKey: config.filler.privateKey,
+							maxConcurrentOrders: config.filler.maxConcurrentOrders,
+							coingecko: config.filler.coingecko,
+							etherscan: config.filler.etherscan,
+							logging: config.filler.logging,
+						}
+					: undefined
 
 			const configService = new FillerConfigService(fillerChainConfigs, fillerConfigForService)
 
@@ -168,7 +176,8 @@ program
 			// Keep the process running
 			process.stdin.resume()
 		} catch (error) {
-			logger.error({ err: error }, "Failed to start filler")
+			// Use console.error for initial startup errors since logger might not be configured yet
+			console.error("Failed to start filler:", error)
 			process.exit(1)
 		}
 	})

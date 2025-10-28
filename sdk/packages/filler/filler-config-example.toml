@@ -7,6 +7,10 @@
 privateKey = ""  # Replace with your actual private key
 maxConcurrentOrders = 5
 
+# Logging configuration
+[filler.logging]
+level = "debug"  # Options: trace, debug, info, warn, error
+
 # CoinGecko API configuration (optional)
 [filler.coingecko]
 apiKey = ""  # Optional: Add your CoinGecko Pro API key for higher rate limits

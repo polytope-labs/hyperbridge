@@ -15,24 +15,24 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use polkadot_sdk::*;
 pub use pallet::*;
+use polkadot_sdk::*;
 
 extern crate alloc;
 use alloc::{vec, vec::Vec};
-use codec::{Decode, Encode, DecodeWithMemTracking};
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 use frame_support::{pallet_prelude::*, traits::Get};
 use frame_system::pallet_prelude::*;
-use pallet_revive::{inherent_handlers::InherentHandler, H160, H256};
-use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
+use pallet_revive::{H160, H256, inherent_handlers::InherentHandler};
+use sp_consensus_aura::{AURA_ENGINE_ID, Slot};
 use sp_core::ConstU32;
 use sp_io::hashing::{keccak_256, twox_64};
 use sp_runtime::{
+	DigestItem, DispatchError, DispatchResult,
 	app_crypto::sp_core::storage::StorageKey,
 	generic::Header,
 	traits::{BlakeTwo256, Block as BlockT, Header as HeaderT},
-	DigestItem, DispatchError, DispatchResult,
 };
 use sp_std::time::Duration;
 use sp_trie::StorageProof;
@@ -43,6 +43,15 @@ pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"hypbridg";
 
 /// The `ConsensusEngineId` of ISMP `ConsensusDigest` in the parachain header.
 pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
+
+pub const ISMP_TIMESTAMP_ID: sp_runtime::ConsensusEngineId = *b"ISTM";
+
+/// Timestamp log digest for pallet ismp
+#[derive(Encode, Decode, Clone, scale_info::TypeInfo, Default)]
+pub struct TimestampDigest {
+	/// Timestamp value in seconds
+	pub timestamp: u64,
+}
 
 /// Consensus log digest for pallet ismp
 #[derive(Encode, Decode, Clone, scale_info::TypeInfo, Default)]
@@ -63,7 +72,18 @@ pub struct HyperbridgeConsensusProof {
 }
 
 /// Commitment to Hyperbridge State Machine at a given height
-#[derive(Debug, Encode, Decode, Clone, PartialEq, Eq, DecodeWithMemTracking, TypeInfo, Default, MaxEncodedLen)]
+#[derive(
+	Debug,
+	Encode,
+	Decode,
+	Clone,
+	PartialEq,
+	Eq,
+	DecodeWithMemTracking,
+	TypeInfo,
+	Default,
+	MaxEncodedLen,
+)]
 pub struct StateCommitment {
 	/// Timestamp in seconds
 	pub timestamp: u64,
@@ -74,7 +94,18 @@ pub struct StateCommitment {
 }
 
 /// Identifies a state commitment at a given height
-#[derive(Debug, Encode, Decode, Clone, PartialEq, Eq, DecodeWithMemTracking, TypeInfo, Default, MaxEncodedLen)]
+#[derive(
+	Debug,
+	Encode,
+	Decode,
+	Clone,
+	PartialEq,
+	Eq,
+	DecodeWithMemTracking,
+	TypeInfo,
+	Default,
+	MaxEncodedLen,
+)]
 pub struct StateCommitmentHeight {
 	/// The state machine identifier
 	pub commitment: StateCommitment,
@@ -90,15 +121,14 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	pub trait Config: polkadot_sdk::frame_system::Config + pallet_revive::Config + cumulus_pallet_parachain_system::Config
+	pub trait Config:
+		polkadot_sdk::frame_system::Config
+		+ pallet_revive::Config
+		+ cumulus_pallet_parachain_system::Config
 	{
 		/// The specific parachain ID for Hyperbridge that this pallet verifies.
 		#[pallet::constant]
 		type HyperbridgeParaId: Get<u32>;
-
-		/// The expected slot duration for Hyperbridge blocks. Needed for timestamp calculation.
-		#[pallet::constant]
-		type HyperbridgeSlotDuration: Get<u64>;
 
 		/// The ISMP Host contract address for Hyperbridge
 		#[pallet::constant]
@@ -108,7 +138,8 @@ pub mod pallet {
 	/// Stores the latest verified StateCommitmentHeight for Hyperbridge.
 	#[pallet::storage]
 	#[pallet::getter(fn hyperbridge_state_commitment_height)]
-	pub type HyperbridgeStateCommitmentHeight<T: Config> = StorageValue<_, StateCommitmentHeight, OptionQuery>;
+	pub type HyperbridgeStateCommitmentHeight<T: Config> =
+		StorageValue<_, StateCommitmentHeight, OptionQuery>;
 
 	/// Tracks whether the inherent has run for the current block.
 	#[pallet::storage]
@@ -146,9 +177,7 @@ pub mod pallet {
 
 			let commitment = Self::verify_store_and_extract(&proof)?;
 
-			Self::deposit_event(Event::HyperbridgeProofVerified {
-				commitment,
-			});
+			Self::deposit_event(Event::HyperbridgeProofVerified { commitment });
 
 			InherentProcessed::<T>::put(true);
 			Ok(Pays::No.into())
@@ -162,7 +191,9 @@ pub mod pallet {
 		const INHERENT_IDENTIFIER: InherentIdentifier = INHERENT_IDENTIFIER;
 
 		fn create_inherent(data: &InherentData) -> Option<Self::Call> {
-			if InherentProcessed::<T>::get() { return None; }
+			if InherentProcessed::<T>::get() {
+				return None;
+			}
 			let proof_data: HyperbridgeConsensusProof =
 				data.get_data(&Self::INHERENT_IDENTIFIER).ok().flatten()?;
 			Some(Call::submit_hyperbridge_proof { proof: proof_data })
@@ -246,37 +277,32 @@ impl<T: Config> Pallet<T> {
 			.flatten()
 			.ok_or(Error::<T>::HyperbridgeHeaderNotFound)?;
 
-		let decoded_vec: Vec<u8> = Decode::decode(&mut &header_bytes[..])
-			.map_err(|_| Error::<T>::HeaderDecodingFailed)?;
+		let decoded_vec: Vec<u8> =
+			Decode::decode(&mut &header_bytes[..]).map_err(|_| Error::<T>::HeaderDecodingFailed)?;
 		let header = Header::<u32, BlakeTwo256>::decode(&mut &decoded_vec[..])
 			.map_err(|_| Error::<T>::HeaderDecodingFailed)?;
 
 		let mut timestamp: u64 = 0;
 		let mut overlay_root: H256 = H256::default();
-		let slot_duration_ms = T::HyperbridgeSlotDuration::get();
-
 		for digest in header.digest().logs.iter() {
 			match digest {
-				DigestItem::PreRuntime(consensus_engine_id, value)
-				if *consensus_engine_id == AURA_ENGINE_ID =>
-					{
-						if let Ok(slot) = Slot::decode(&mut &value[..]) {
-							timestamp = Duration::from_millis(*slot * slot_duration_ms).as_secs();
-						} else {
-							log::warn!(target: "ismp::hyperbridge-verifier", "Failed to decode Aura slot");
-							return Err(Error::<T>::DigestExtractionError.into());
-						}
-					},
 				DigestItem::Consensus(consensus_engine_id, value)
-				if *consensus_engine_id == ISMP_ID =>
-					{
-						if let Ok(log) = ConsensusDigest::decode(&mut &value[..]) {
-							overlay_root = log.child_trie_root;
-						} else {
-							log::warn!(target: "ismp::hyperbridge-verifier", "Invalid ISMP digest found");
-						}
-					},
-				_ => {}
+					if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
+				{
+					let timestamp_digest = TimestampDigest::decode(&mut &value[..])
+						.map_err(|_| Error::<T>::DigestExtractionError)?;
+					timestamp = timestamp_digest.timestamp;
+				},
+				DigestItem::Consensus(consensus_engine_id, value)
+					if *consensus_engine_id == ISMP_ID =>
+				{
+					if let Ok(log) = ConsensusDigest::decode(&mut &value[..]) {
+						overlay_root = log.child_trie_root;
+					} else {
+						log::warn!(target: "ismp::hyperbridge-verifier", "Invalid ISMP digest found");
+					}
+				},
+				_ => {},
 			};
 		}
 
@@ -284,15 +310,14 @@ impl<T: Config> Pallet<T> {
 
 		let block_height: u64 = (*header.number()).into();
 
-		let commitment_height =
-				StateCommitmentHeight {
-					commitment: StateCommitment {
-						timestamp,
-						overlay_root: Some(overlay_root),
-						state_root: *header.state_root(),
-					},
-					height: block_height,
-				};
+		let commitment_height = StateCommitmentHeight {
+			commitment: StateCommitment {
+				timestamp,
+				overlay_root: Some(overlay_root),
+				state_root: *header.state_root(),
+			},
+			height: block_height,
+		};
 		HyperbridgeStateCommitmentHeight::<T>::put(commitment_height.clone());
 
 		Ok(commitment_height)
@@ -306,4 +331,3 @@ pub fn parachain_header_storage_key(para_id: u32) -> StorageKey {
 	storage_key.extend_from_slice(&encoded_para_id);
 	StorageKey(storage_key)
 }
-

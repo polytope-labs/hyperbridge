@@ -156,7 +156,9 @@ export default defineConfig({
 	plugins: [
 		// ... other plugins
 		// Add the Hyperbridge WASM plugin
-		hyperbridge(),
+		hyperbridge({
+		  logLevel: "trace"
+		}),
 	],
 })
 ```

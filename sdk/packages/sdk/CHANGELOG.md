@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.4.3
+
+### Patch Changes
+
+- fix issue with copy wasm file and also added support for monorepo root package.json
+
 ## 1.3.25
 
 ### Patch Changes

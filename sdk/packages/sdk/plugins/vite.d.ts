@@ -6,6 +6,8 @@ import type { Plugin } from "vite"
  *
  * @returns {Plugin} A Vite plugin
  */
-export function copyWasm(): Plugin
+export function copyWasm(config: {
+  logLevel?: "debug" | "default" | "silent"
+}): Plugin
 
 export default copyWasm

@@ -77,6 +77,7 @@ import { bytes20ToBytes32 } from "@hyperbridge/sdk/utils";
 import { Order } from "@hyperbridge/sdk/types";
 
 // Create your order (note: sourceChain and destChain are hex-encoded)
+// Note: One input token is supported in IntentGatewayV1, but multiple output tokens maybe supported through calldata execution
 let order = {
   user: bytes20ToBytes32("0xYourAddress"),
   sourceChain: await bscIsmpHost.read.host(), // Hex-encoded "EVM-56"
@@ -750,6 +751,151 @@ async function cancelExpiredOrder(order: Order) {
   }
 }
 ```
+
+## Calldata Execution on Destination (Advanced)
+
+In advanced flows, you can instruct the destination chain to execute one or more calls atomically once the funds arrive. This enables actions like swapping received tokens, forwarding to another protocol, or composing multiple steps.
+
+How it works:
+
+- Set the order `outputs[0].beneficiary` to the destination chain's Calldispatcher address.
+- Provide destination-side call bundle in `order.callData` (ABI-encoded array of calls: `{ to, value, data }[]`).
+- The Calldispatcher receives the output tokens and executes the calls with them.
+
+Below is a minimal end-to-end example that performs a USDC swap on the destination chain via Uniswap, using SDK helpers to generate calldata and encoding it for the Intent Gateway:
+
+```typescript
+import { EvmChain } from "@hyperbridge/sdk/chain";
+import { IntentGateway } from "@hyperbridge/sdk/protocols/intents";
+import { ChainConfigService } from "@hyperbridge/sdk/configs/ChainConfigService";
+import { bytes20ToBytes32 } from "@hyperbridge/sdk/utils";
+import {
+  encodeAbiParameters,
+  parseUnits,
+  createPublicClient,
+  http,
+  getContract,
+} from "viem";
+import IntentGatewayABI from "@hyperbridge/sdk/abis/IntentGateway";
+import EVM_HOST from "@hyperbridge/sdk/abis/evmHost";
+
+async function placeOrderWithDestinationCalldata() {
+  const chainConfig = new ChainConfigService();
+
+  // Source: Ethereum mainnet, Destination: BSC mainnet (example)
+  const eth = new EvmChain({
+    chainId: 1,
+    host: chainConfig.getHostAddress("EVM-1"),
+    url: process.env.ETH_MAINNET!,
+  });
+  const bsc = new EvmChain({
+    chainId: 56,
+    host: chainConfig.getHostAddress("EVM-56"),
+    url: process.env.BSC_MAINNET!,
+  });
+
+  const intentGateway = new IntentGateway(eth, bsc); // source, dest
+
+  // Assets and addresses
+  const tokenInSource = chainConfig.getUsdcAsset("EVM-1"); // USDC on Ethereum
+  const tokenOutDest = chainConfig.getUsdcAsset("EVM-56"); // USDC on BSC (to Calldispatcher)
+  const calldispatcher = chainConfig.getCalldispatcherAddress("EVM-56");
+
+  // Destination action: swap tokenOutDest (USDC) into a target token on BSC via Uniswap V3
+  // Use helper to prepare router calldata on destination chain
+  const targetTokenOnBsc =
+    "0xEa7C32c66413C7F6DDD94c532594BcDF608Fe2c2" as `0x${string}`; // example token
+  const amountInSource = parseUnits("5", 6); // 5 usdc on eth
+  const amountOutDest = parseUnits("5", 18); // expect 5 usdc on bsc
+  const slippageBps = 100n; // 1%, You are expecting to swap 5 usdc to a target token with at most 1% in slippage for the swap
+
+  const { calldata } = await intentGateway.swap.createMultiHopSwapThroughPair(
+    intentGateway.dest.client,
+    tokenOutDest,
+    targetTokenOnBsc,
+    amountOutDest,
+    "EVM-56",
+    calldispatcher,
+    "v3",
+    slippageBps
+  );
+
+  // Encode as tuple[] for Calldispatcher: (to, value, data)[]
+  const encodedCalls = encodeAbiParameters(
+    [
+      {
+        type: "tuple[]",
+        components: [
+          { name: "to", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "data", type: "bytes" },
+        ],
+      },
+    ],
+    [calldata]
+  );
+
+  // Read hex-encoded stateMachine ids
+  const ethPublic = createPublicClient({
+    transport: http(process.env.ETH_MAINNET!),
+  });
+  const bscPublic = createPublicClient({
+    transport: http(process.env.BSC_MAINNET!),
+  });
+  const ethHost = getContract({
+    address: chainConfig.getHostAddress("EVM-1"),
+    abi: EVM_HOST.ABI,
+    client: ethPublic,
+  });
+  const bscHost = getContract({
+    address: chainConfig.getHostAddress("EVM-56"),
+    abi: EVM_HOST.ABI,
+    client: bscPublic,
+  });
+
+  // Build order: pay in USDC on source, receive USDC on dest to the Calldispatcher, which executes encodedCalls
+  let order = {
+    user: bytes20ToBytes32("0xYourAddress"),
+    sourceChain: await ethHost.read.host(),
+    destChain: await bscHost.read.host(),
+    deadline: 65337297000n,
+    nonce: 0n,
+    fees: 0n,
+    outputs: [
+      {
+        token: bytes20ToBytes32(tokenOutDest),
+        amount: amountOutDest,
+        beneficiary: bytes20ToBytes32(calldispatcher), // Calldispatcher executes calls
+      },
+    ],
+    inputs: [
+      {
+        token: bytes20ToBytes32(tokenInSource),
+        amount: amountInSource,
+      },
+    ],
+    callData: encodedCalls,
+  };
+
+  // Estimate fees (includes buffer, relayer, protocol, and fill gas components)
+  const { order: priced, nativeTokenAmount } =
+    await intentGateway.estimateFillOrder(order);
+
+  // Approvals omitted for brevity. Then place order paying fees in native token:
+  // await walletClient.writeContract({
+  //   address: chainConfig.getIntentGatewayAddress("EVM-1"),
+  //   abi: IntentGatewayABI.ABI,
+  //   functionName: "placeOrder",
+  //   args: [priced, "0x"],
+  //   value: nativeTokenAmount,
+  // });
+}
+```
+
+Notes and tips:
+
+- Always simulate destination calldata during fee estimation to ensure `fillOrder` succeeds; the SDK’s estimation includes a simulation step and buffers.
+- You can compose multiple calls in the `calldata` array; they will be executed in-order in a single atomic context on the destination.
 
 ## Further Reading
 

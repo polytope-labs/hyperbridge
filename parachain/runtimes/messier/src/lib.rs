@@ -756,6 +756,9 @@ impl pallet_revive::Config for Runtime {
 	type FindAuthor = <Runtime as pallet_authorship::Config>::FindAuthor;
 }
 
+impl pallet_log_emitter::Config for Runtime {
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -871,6 +874,9 @@ mod runtime {
 	pub type IsmpArbitrum = ismp_arbitrum::pallet;
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
+
+	#[runtime::pallet_index(85)]
+	pub type LogEmitter = pallet_log_emitter;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;

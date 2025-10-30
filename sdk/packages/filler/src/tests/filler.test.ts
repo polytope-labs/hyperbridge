@@ -177,14 +177,7 @@ describe.sequential("Basic", () => {
 			callData: "0x" as HexString,
 		}
 
-		const estimatedFees = await intentGatewayHelper.estimateFillOrder({
-			...order,
-			id: orderCommitment(order),
-			destChain: hexToString(order.destChain as HexString),
-			sourceChain: hexToString(order.sourceChain as HexString),
-		})
-
-		order.fees = estimatedFees.feeTokenAmount
+		const { order: orderWithFee } = await intentGatewayHelper.estimateFillOrder(order)
 
 		await approveTokens(bscWalletClient, bscPublicClient, feeTokenBscAddress, bscIntentGateway.address)
 
@@ -201,7 +194,7 @@ describe.sequential("Basic", () => {
 			})
 		})
 
-		const hash = await bscIntentGateway.write.placeOrder([order, DEFAULT_GRAFFITI], {
+		const hash = await bscIntentGateway.write.placeOrder([orderWithFee as any, DEFAULT_GRAFFITI], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: bscTestnet,
 		})
@@ -351,14 +344,7 @@ describe.sequential("Basic", () => {
 			callData: "0x" as HexString,
 		}
 
-		const estimatedFees = await intentGatewayHelper.estimateFillOrder({
-			...order,
-			id: orderCommitment(order),
-			destChain: hexToString(order.destChain as HexString),
-			sourceChain: hexToString(order.sourceChain as HexString),
-		})
-
-		order.fees = estimatedFees.feeTokenAmount
+		const { order: orderWithFee } = await intentGatewayHelper.estimateFillOrder(order)
 
 		await approveTokens(
 			gnosisChiadoWalletClient,
@@ -388,7 +374,7 @@ describe.sequential("Basic", () => {
 		})
 
 		const hash = await gnosisChiadoIntentGateway.write.placeOrder(
-			[order, bytes20ToBytes32("0x7f5f2cf1aec83bf0c74df566a41aa7ed65ea84ea")],
+			[orderWithFee as any, bytes20ToBytes32("0x7f5f2cf1aec83bf0c74df566a41aa7ed65ea84ea")],
 			{
 				account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 				chain: gnosisChiado,

@@ -62,17 +62,23 @@ export class IntentGateway {
 	 * @param order - The order to estimate fill costs for
 	 * @returns An object containing the estimated cost in both fee token and native token, plus the post request calldata
 	 */
-	async estimateFillOrder(
-		order: Order,
-	): Promise<{ feeTokenAmount: bigint; nativeTokenAmount: bigint; postRequestCalldata: HexString }> {
+	async estimateFillOrder(order: Order): Promise<{
+		order: Order
+		feeTokenAmount: bigint
+		nativeTokenAmount: bigint
+		postRequestCalldata: HexString
+	}> {
+		// Order with commitment and stringified chains
+		const orderWithCommitment = transformOrder(order)
+
 		const postRequest: IPostRequest = {
-			source: order.destChain,
-			dest: order.sourceChain,
-			body: constructRedeemEscrowRequestBody(order, MOCK_ADDRESS),
+			source: orderWithCommitment.destChain,
+			dest: orderWithCommitment.sourceChain,
+			body: constructRedeemEscrowRequestBody(orderWithCommitment, MOCK_ADDRESS),
 			timeoutTimestamp: 0n,
 			nonce: await this.source.getHostNonce(),
-			from: this.source.configService.getIntentGatewayAddress(order.destChain),
-			to: this.source.configService.getIntentGatewayAddress(order.sourceChain),
+			from: this.source.configService.getIntentGatewayAddress(orderWithCommitment.destChain),
+			to: this.source.configService.getIntentGatewayAddress(orderWithCommitment.sourceChain),
 		}
 
 		const { decimals: sourceChainFeeTokenDecimals } = await this.source.getFeeTokenWithDecimals()
@@ -85,7 +91,7 @@ export class IntentGateway {
 		const postGasEstimateInSourceFeeToken = await this.convertGasToFeeToken(
 			postGasEstimate,
 			"source",
-			order.sourceChain,
+			orderWithCommitment.sourceChain,
 		)
 
 		const minRelayerFee = 5n * 10n ** BigInt(sourceChainFeeTokenDecimals - 2)
@@ -102,15 +108,15 @@ export class IntentGateway {
 			relayerFee: relayerFeeInDestFeeToken,
 		}
 
-		const totalEthValue = order.outputs
+		const totalEthValue = orderWithCommitment.outputs
 			.filter((output) => bytes32ToBytes20(output.token) === ADDRESS_ZERO)
 			.reduce((sum, output) => sum + output.amount, 0n)
 
-		const intentGatewayAddress = this.source.configService.getIntentGatewayAddress(order.destChain)
+		const intentGatewayAddress = this.source.configService.getIntentGatewayAddress(orderWithCommitment.destChain)
 		const testValue = toHex(maxUint256 / 2n)
 
 		const orderOverrides = await Promise.all(
-			order.outputs.map(async (output) => {
+			orderWithCommitment.outputs.map(async (output) => {
 				const tokenAddress = bytes32ToBytes20(output.token)
 
 				if (tokenAddress === ADDRESS_ZERO) {
@@ -171,14 +177,14 @@ export class IntentGateway {
 				abi: IntentGatewayABI.ABI,
 				address: intentGatewayAddress,
 				functionName: "fillOrder",
-				args: [transformOrderForContract(order), fillOptions as any],
+				args: [order as any, fillOptions as any],
 				account: MOCK_ADDRESS,
 				value: totalEthValue + protocolFeeInNativeToken,
 				stateOverride: stateOverrides as any,
 			})
 		} catch {
 			console.warn(
-				`Could not estimate gas for fill order with native token as fees for chain ${order.destChain}, now trying with fee token as fees`,
+				`Could not estimate gas for fill order with native token as fees for chain ${orderWithCommitment.destChain}, now trying with fee token as fees`,
 			)
 
 			const destFeeTokenBalanceData = ERC20Method.BALANCE_OF + bytes20ToBytes32(MOCK_ADDRESS).slice(2)
@@ -210,14 +216,18 @@ export class IntentGateway {
 				abi: IntentGatewayABI.ABI,
 				address: intentGatewayAddress,
 				functionName: "fillOrder",
-				args: [transformOrderForContract(order), fillOptions as any],
+				args: [order as any, fillOptions as any],
 				account: MOCK_ADDRESS,
 				value: totalEthValue,
 				stateOverride: stateOverrides as any,
 			})
 		}
 
-		const fillGasInDestFeeToken = await this.convertGasToFeeToken(destChainFillGas, "dest", order.destChain)
+		const fillGasInDestFeeToken = await this.convertGasToFeeToken(
+			destChainFillGas,
+			"dest",
+			orderWithCommitment.destChain,
+		)
 		const fillGasInSourceFeeToken = adjustFeeDecimals(
 			fillGasInDestFeeToken,
 			destChainFeeTokenDecimals,
@@ -236,10 +246,10 @@ export class IntentGateway {
 		let totalNativeTokenAmount = await this.convertFeeTokenToNative(
 			totalEstimateInSourceFeeToken,
 			"source",
-			order.sourceChain,
+			orderWithCommitment.sourceChain,
 		)
 
-		if ([order.destChain, order.sourceChain].includes("EVM-1")) {
+		if ([orderWithCommitment.destChain, orderWithCommitment.sourceChain].includes("EVM-1")) {
 			totalEstimateInSourceFeeToken =
 				totalEstimateInSourceFeeToken + (totalEstimateInSourceFeeToken * 3000n) / 10000n
 			totalNativeTokenAmount = totalNativeTokenAmount + (totalNativeTokenAmount * 3200n) / 10000n
@@ -249,6 +259,10 @@ export class IntentGateway {
 			totalNativeTokenAmount = totalNativeTokenAmount + (totalNativeTokenAmount * 350n) / 10000n
 		}
 		return {
+			order: {
+				...order,
+				fees: totalEstimateInSourceFeeToken,
+			},
 			feeTokenAmount: totalEstimateInSourceFeeToken,
 			nativeTokenAmount: totalNativeTokenAmount,
 			postRequestCalldata,
@@ -393,6 +407,7 @@ export class IntentGateway {
 	 * @returns True if the order has been filled, false otherwise
 	 */
 	async isOrderFilled(order: Order): Promise<boolean> {
+		order = transformOrder(order)
 		const intentGatewayAddress = this.source.configService.getIntentGatewayAddress(order.destChain)
 
 		const filledSlot = await this.dest.client.readContract({
@@ -634,24 +649,12 @@ export class IntentGateway {
  * @param order - The order to transform
  * @returns The order in contract-compatible format
  */
-function transformOrderForContract(order: Order) {
+function transformOrder(order: Order) {
 	return {
-		sourceChain: toHex(order.sourceChain),
-		destChain: toHex(order.destChain),
-		fees: order.fees,
-		callData: order.callData,
-		deadline: order.deadline,
-		nonce: order.nonce,
-		inputs: order.inputs.map((input) => ({
-			token: input.token,
-			amount: input.amount,
-		})),
-		outputs: order.outputs.map((output) => ({
-			token: output.token,
-			amount: output.amount,
-			beneficiary: output.beneficiary,
-		})),
-		user: order.user,
+		...order,
+		id: orderCommitment(order),
+		sourceChain: hexToString(order.sourceChain as HexString),
+		destChain: hexToString(order.destChain as HexString),
 	}
 }
 

@@ -73,7 +73,7 @@ describe.sequential("Intents protocol tests", () => {
 		const bscUsdcAsset = chainConfigService.getUsdcAsset(bscMainnetId)
 		const mainnetUsdcAsset = chainConfigService.getUsdcAsset(mainnetId)
 
-		const order: Order = {
+		const order = {
 			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
 			sourceChain: await bscMainnetIsmpHost.read.host(),
 			destChain: await mainnetIsmpHost.read.host(),
@@ -96,17 +96,17 @@ describe.sequential("Intents protocol tests", () => {
 			callData: "0x" as HexString,
 		}
 
-		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await bscIntentGateway.estimateFillOrder({
-			...order,
-			id: orderCommitment(order),
-			destChain: hexToString(order.destChain as HexString),
-			sourceChain: hexToString(order.sourceChain as HexString),
-		})
+		const {
+			order: orderWithFee,
+			feeTokenAmount: estimatedFee,
+			nativeTokenAmount,
+		} = await bscIntentGateway.estimateFillOrder(order)
 		console.log("BSC => ETH")
 		console.log("Estimated fee:", estimatedFee)
 		console.log("Native token amount:", nativeTokenAmount)
 
 		assert(estimatedFee > 0n)
+		assert(estimatedFee === orderWithFee.fees)
 	}, 1_000_000)
 
 	it("Should generate the estimatedFee while doing bsc mainnet to arbitrum mainnet", async () => {
@@ -129,7 +129,7 @@ describe.sequential("Intents protocol tests", () => {
 		const bscUsdcAsset = chainConfigService.getUsdcAsset(bscMainnetId)
 		const arbitrumUsdcAsset = chainConfigService.getUsdcAsset(arbitrumMainnetId)
 
-		const order: Order = {
+		const order = {
 			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
 			sourceChain: await bscMainnetIsmpHost.read.host(),
 			destChain: await arbitrumMainnetIsmpHost.read.host(),
@@ -152,18 +152,18 @@ describe.sequential("Intents protocol tests", () => {
 			callData: "0x" as HexString,
 		}
 
-		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await bscIntentGateway.estimateFillOrder({
-			...order,
-			id: orderCommitment(order),
-			destChain: hexToString(order.destChain as HexString),
-			sourceChain: hexToString(order.sourceChain as HexString),
-		})
+		const {
+			order: orderWithFee,
+			feeTokenAmount: estimatedFee,
+			nativeTokenAmount,
+		} = await bscIntentGateway.estimateFillOrder(order)
 
 		console.log("BSC => Arbitrum")
 		console.log("Estimated Fee", estimatedFee)
 		console.log("Native Token Amount", nativeTokenAmount)
 
 		assert(estimatedFee > 0n)
+		assert(estimatedFee === orderWithFee.fees)
 	}, 1_000_000)
 
 	it("Should generate the estimatedFee while doing base mainnet to bsc mainnet", async () => {
@@ -186,7 +186,7 @@ describe.sequential("Intents protocol tests", () => {
 		const baseUsdcAsset = chainConfigService.getUsdcAsset(baseMainnetId)
 		const bscUsdcAsset = chainConfigService.getUsdcAsset(bscMainnetId)
 
-		const order: Order = {
+		const order = {
 			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
 			sourceChain: await baseMainnetIsmpHost.read.host(),
 			destChain: await bscMainnetIsmpHost.read.host(),
@@ -209,18 +209,18 @@ describe.sequential("Intents protocol tests", () => {
 			callData: "0x" as HexString,
 		}
 
-		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await baseIntentGateway.estimateFillOrder({
-			...order,
-			id: orderCommitment(order),
-			destChain: hexToString(order.destChain as HexString),
-			sourceChain: hexToString(order.sourceChain as HexString),
-		})
+		const {
+			order: orderWithFee,
+			feeTokenAmount: estimatedFee,
+			nativeTokenAmount,
+		} = await baseIntentGateway.estimateFillOrder(order)
 
 		console.log("Base => BSC")
 		console.log("Estimated Fee", estimatedFee)
 		console.log("Native Token Amount", nativeTokenAmount)
 
 		assert(estimatedFee > 0n)
+		assert(estimatedFee === orderWithFee.fees)
 	}, 1_000_000)
 
 	it("Should generate the estimatedFee while doing bsc mainnet to polygon mainnet", async () => {
@@ -243,7 +243,7 @@ describe.sequential("Intents protocol tests", () => {
 		const bscUsdcAsset = chainConfigService.getUsdcAsset(bscMainnetId)
 		const polygonUsdcAsset = chainConfigService.getUsdcAsset(polygonMainnetId)
 
-		const order: Order = {
+		const order = {
 			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
 			sourceChain: await bscMainnetIsmpHost.read.host(),
 			destChain: await polygonMainnetIsmpHost.read.host(),
@@ -266,18 +266,18 @@ describe.sequential("Intents protocol tests", () => {
 			callData: "0x" as HexString,
 		}
 
-		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await bscIntentGateway.estimateFillOrder({
-			...order,
-			id: orderCommitment(order),
-			destChain: hexToString(order.destChain as HexString),
-			sourceChain: hexToString(order.sourceChain as HexString),
-		})
+		const {
+			order: orderWithFee,
+			feeTokenAmount: estimatedFee,
+			nativeTokenAmount,
+		} = await bscIntentGateway.estimateFillOrder(order)
 
 		console.log("BSC => Polygon")
 		console.log("Estimated Fee", estimatedFee)
 		console.log("Native Token Amount", nativeTokenAmount)
 
 		assert(estimatedFee > 0n)
+		assert(estimatedFee === orderWithFee.fees)
 	}, 1_000_000)
 })
 
@@ -1181,12 +1181,7 @@ describe.sequential("Swap Tests", () => {
 			callData: encodedCalls,
 		}
 
-		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await intentGateway.estimateFillOrder({
-			...order,
-			id: orderCommitment(order),
-			destChain: hexToString(order.destChain as HexString),
-			sourceChain: hexToString(order.sourceChain as HexString),
-		})
+		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await intentGateway.estimateFillOrder(order)
 		console.log("ETH => BSC")
 		console.log("Estimated fee:", estimatedFee)
 		console.log("Native token amount:", nativeTokenAmount)

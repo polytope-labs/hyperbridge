@@ -35,6 +35,7 @@ const SEND_AMOUNT: u128 = 2_000_000_000_000;
 #[ignore]
 #[tokio::test]
 async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<()> {
+	println!("inside the test");
 	dotenv::dotenv().ok();
 	let private_key = std::env::var("SUBSTRATE_SIGNING_KEY").ok().unwrap_or(
 		"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
@@ -42,26 +43,29 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	let seed = from_hex(&private_key)?;
 	let pair = sr25519::Pair::from_seed_slice(&seed)?;
 	let signer = InMemorySigner::<BlakeSubstrateChain>::new(pair.clone());
+	println!("connecting to rococo");
 	let url = std::env::var("ROCOCO_LOCAL_URL")
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9922".to_string());
 	let relay_client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
 	let rpc_client = RpcClient::from_url(&url).await?;
 	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
-
+	println!("connecting to asset hub");
 	let assethub_url = std::env::var("ASSET_HUB_LOCAL_URL")
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9910".to_string());
 	let assethub_client = OnlineClient::<BlakeSubstrateChain>::from_url(&assethub_url).await?;
 	let _assethub_rpc_client = RpcClient::from_url(&assethub_url).await?;
 	let _assethub_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
-
+	println!("connecting to hyperbridge");
 	let para_url = std::env::var("PARA_LOCAL_URL")
 		.ok()
 		.unwrap_or("ws://127.0.0.1:9990".to_string());
 	let _para_client = OnlineClient::<Hyperbridge>::from_url(&para_url).await?;
 	let para_rpc_client = RpcClient::from_url(&para_url).await?;
 	let para_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(para_rpc_client.clone());
+
+	println!("opening hrmp channels");
 
 	force_open_hrmp_channel(&relay_client, &signer, 1000, 2000).await?;
 	force_open_hrmp_channel(&relay_client, &signer, 2000, 1000).await?;
@@ -100,6 +104,8 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	let assets_value = versioned_assets_to_value(&assets_vec);
 	let fee_asset_index_value = Value::u128(0);
 	let weight_limit_value = weight_limit_to_value(&weight_limit);
+
+	println!("performing transfer of assets");
 
 	let ext = subxt::dynamic::tx(
 		"PolkadotXcm",

@@ -11,6 +11,9 @@ use polkadot_sdk::{
 	staging_xcm::v5::{Asset, AssetId, Fungibility, Parent},
 	*,
 };
+use polkadot_sdk::cumulus_primitives_core::{All, AllCounted, AssetFilter, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset, Wild, Xcm};
+use polkadot_sdk::staging_xcm::{VersionedAssets, VersionedXcm};
+use polkadot_sdk::staging_xcm_executor::traits::TransferType;
 use staging_xcm::{
 	v5::{Junction, Junctions, Location, NetworkId, WeightLimit},
 	VersionedLocation,
@@ -70,8 +73,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	force_open_hrmp_channel(&relay_client, &signer, 1000, 2000).await?;
 	force_open_hrmp_channel(&relay_client, &signer, 2000, 1000).await?;
 
-	// Wait for parachain block production
-
 	let sub = para_rpc.chain_subscribe_finalized_heads().await?;
 	let _block = sub
 		.take(1)
@@ -88,33 +89,44 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		Junction::GeneralIndex(60 * 60),
 		Junction::GeneralIndex(1),
 	]))
-	.into_location();
+		.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
 	let dest: VersionedLocation =
 		VersionedLocation::V5(Location::new(1, [Junction::Parachain(2000)]));
 
-	let beneficiary_as_versioned = VersionedLocation::V5(beneficiary);
 	let dot_location: Location = Parent.into();
-	let assets_vec =
-		vec![Asset { id: dot_location.into(), fun: Fungibility::Fungible(SEND_AMOUNT) }];
+	let fee_asset_id = AssetId(dot_location.clone());
 
+	let asset = Asset { id: dot_location.clone().into(), fun: Fungibility::Fungible(SEND_AMOUNT) };
+	let assets = VersionedAssets::V5(vec![asset].into());
+
+	let xcm_beneficiary = beneficiary.clone();
+	let custom_xcm_on_dest = VersionedXcm::V5(Xcm::<()>(vec![DepositAsset {
+		assets: Wild(AllCounted(1)),
+		beneficiary: xcm_beneficiary,
+	}]));
+
+	println!("performing limited reserve asset transfer");
 	let dest_value = versioned_location_to_value(&dest);
-	let beneficiary_value = versioned_location_to_value(&beneficiary_as_versioned);
-	let assets_value = versioned_assets_to_value(&assets_vec);
-	let fee_asset_index_value = Value::u128(0);
+	let assets_value = versioned_assets_to_value(&assets);
+	let assets_transfer_type_value =
+		Value::variant("LocalReserve", Composite::unnamed(vec![]));
+	let fee_transfer_type_value =
+		Value::variant("LocalReserve", Composite::unnamed(vec![]));
+	let fee_asset_id_value = versioned_asset_id_to_value(&fee_asset_id);
+	let custom_xcm_on_dest_value = versioned_xcm_to_value(&custom_xcm_on_dest);
 	let weight_limit_value = weight_limit_to_value(&weight_limit);
-
-	println!("performing transfer of assets");
-
 	let ext = subxt::dynamic::tx(
 		"PolkadotXcm",
-		"limited_reserve_transfer_assets",
+		"transfer_assets_using_type_and_then",
 		vec![
 			dest_value,
-			beneficiary_value,
 			assets_value,
-			fee_asset_index_value,
+			assets_transfer_type_value,
+			fee_asset_id_value,
+			fee_transfer_type_value,
+			custom_xcm_on_dest_value,
 			weight_limit_value,
 		],
 	);
@@ -133,15 +145,14 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	while let Some(res) = sub.next().await {
 		match res {
 			Ok(header) => {
-				// Break if we've waited too long
 				if header.number().saturating_sub(init_block) >= 500 {
 					Err(anyhow!("XCM Integration test failed: Post request event was not found"))?
 				}
 
 				let params = rpc_params![
-					BlockNumberOrHash::<H256>::Number(init_block),
-					BlockNumberOrHash::<H256>::Number(header.number())
-				];
+                BlockNumberOrHash::<H256>::Number(init_block),
+                BlockNumberOrHash::<H256>::Number(header.number())
+             ];
 
 				let response: HashMap<String, Vec<ismp::events::Event>> =
 					para_rpc_client.request("ismp_queryEvents", params).await?;
@@ -157,7 +168,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 					let to = alloy_primitives::FixedBytes::<32>::from_slice(
 						&vec![vec![0u8; 12], vec![1u8; 20]].concat(),
 					);
-					// Assert that this is the post we sent
 					assert_eq!(body.to, to);
 					assert_eq!(post.dest, StateMachine::Evm(1));
 					assert_eq!(post.source, StateMachine::Kusama(2000));
@@ -191,7 +201,7 @@ async fn force_open_hrmp_channel(
 	Ok(())
 }
 
-fn junction_to_value(junction: &Junction) -> Value<()> {
+fn junction_to_value(junction: &Junction) -> Value {
 	match junction {
 		Junction::Parachain(id) =>
 			Value::variant("Parachain", Composite::unnamed(vec![Value::u128((*id).into())])),
@@ -281,7 +291,7 @@ fn versioned_location_to_value(loc: &VersionedLocation) -> Value<()> {
 	}
 }
 
-fn fungibility_to_value(fun: &Fungibility) -> Value<()> {
+fn fungibility_to_value(fun: &Fungibility) -> Value {
 	match fun {
 		Fungibility::Fungible(amount) =>
 			Value::variant("Fungible", Composite::unnamed(vec![Value::u128(*amount)])),
@@ -289,33 +299,93 @@ fn fungibility_to_value(fun: &Fungibility) -> Value<()> {
 	}
 }
 
-fn asset_id_to_value(id: &AssetId) -> Value<()> {
+fn asset_id_to_value(id: &AssetId) -> Value {
 	location_to_value(&id.0)
 }
 
-fn asset_to_value(asset: &Asset) -> Value<()> {
+fn asset_to_value(asset: &Asset) -> Value {
 	Value::named_composite(vec![
 		("id".to_string(), asset_id_to_value(&asset.id)),
 		("fun".to_string(), fungibility_to_value(&asset.fun)),
 	])
 }
 
-fn versioned_assets_to_value(assets_vec: &Vec<Asset>) -> Value<()> {
-	let asset_values: Vec<Value<()>> = assets_vec.iter().map(asset_to_value).collect();
-	let inner_assets_value = Value::unnamed_composite(asset_values);
-
-	let assets_struct_value = Value::unnamed_composite(vec![inner_assets_value]);
-	Value::variant("V5", Composite::unnamed(vec![assets_struct_value]))
+fn transfer_type_to_value(transfer_type: &TransferType) -> Value {
+	match transfer_type {
+		TransferType::DestinationReserve =>
+			Value::variant("DestinationReserve", Composite::unnamed(vec![])),
+		_ => unimplemented!("This helper only supports DestinationReserve"),
+	}
 }
 
-fn weight_to_value(weight: &Weight) -> Value<()> {
+fn versioned_asset_id_to_value(id: &AssetId) -> Value {
+	Value::variant("V5", Composite::unnamed(vec![
+		location_to_value(&id.0)
+	]))
+}
+
+fn versioned_assets_to_value(assets: &VersionedAssets) -> Value {
+	match assets {
+		VersionedAssets::V5(assets_vec) => {
+			let asset_values: Vec<Value> = vec![asset_to_value(assets_vec.get(0).unwrap())];
+			let vec_multi_asset_value = Value::unnamed_composite(asset_values);
+
+			Value::variant("V5", Composite::unnamed(vec![vec_multi_asset_value]))
+		},
+		_ => unimplemented!("This helper only supports V5 VersionedAssets"),
+	}
+}
+
+fn weight_to_value(weight: &Weight) -> Value {
 	Value::named_composite(vec![
 		("ref_time".to_string(), Value::u128(weight.ref_time().into())),
 		("proof_size".to_string(), Value::u128(weight.proof_size().into())),
 	])
 }
 
-fn weight_limit_to_value(limit: &WeightLimit) -> Value<()> {
+fn versioned_xcm_to_value(xcm: &VersionedXcm<()>) -> Value {
+	match xcm {
+		VersionedXcm::V5(instruction) => {
+			let instruction_value = xcm_instruction_to_value(instruction);
+			Value::variant("V5", Composite::unnamed(vec![instruction_value]))
+		},
+		_ => unimplemented!("This helper only supports V5 VersionedXcm"),
+	}
+}
+
+fn wild_to_value(wild: &AssetFilter) -> Value {
+	match wild {
+		Wild(AllCounted(count)) =>
+			Value::variant("Wild", Composite::unnamed(vec![
+				Value::variant("AllCounted", Composite::unnamed(vec![Value::u128(*count as u128)]))
+			])),
+		_ => unimplemented!("This helper only supports Wild(AllCounted)"),
+	}
+}
+fn xcm_instruction_to_value(instruction: &Xcm<()>) -> Value {
+	let instructions: Vec<Value> = instruction
+		.0
+		.iter()
+		.map(|inst| match inst {
+			DepositAsset { assets, beneficiary } => {
+				let assets_value = wild_to_value(assets);
+				let beneficiary_value = location_to_value(beneficiary);
+				Value::variant(
+					"DepositAsset",
+					Composite::named(vec![
+						("assets".to_string(), assets_value),
+						("beneficiary".to_string(), beneficiary_value),
+					]),
+				)
+			},
+			_ => unimplemented!("This helper only supports DepositAsset instruction"),
+		})
+		.collect();
+
+	Value::unnamed_composite(instructions)
+}
+
+fn weight_limit_to_value(limit: &WeightLimit) -> Value {
 	match limit {
 		WeightLimit::Unlimited => Value::variant("Unlimited", Composite::unnamed(vec![])),
 		WeightLimit::Limited(weight) => {
@@ -324,3 +394,4 @@ fn weight_limit_to_value(limit: &WeightLimit) -> Value<()> {
 		},
 	}
 }
+

@@ -1,0 +1,29 @@
+[package]
+name = "near-primitives-ismp"
+version = "0.1.0"
+edition = "2021"
+description = "NEAR primitives for ISMP light client"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+# NEAR dependencies
+near-primitives = { workspace = true }
+near-jsonrpc-primitives = { workspace = true }
+
+# Core dependencies
+thiserror = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false, features = ["derive"] }
+async-trait = { workspace = true }
+codec = { workspace = true, default-features = false }
+scale-info = { workspace = true, features = ["derive"], default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "serde/std",
+    "thiserror/std",
+    "codec/std",
+    "scale-info/std",
+]
+

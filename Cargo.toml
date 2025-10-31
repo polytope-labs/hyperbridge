@@ -58,6 +58,8 @@ members = [
     "modules/consensus/tendermint/prover",
     "modules/consensus/tendermint/primitives",
     "modules/consensus/tendermint/ics23-primitives",
+    "modules/consensus/near/primitives",
+    "modules/consensus/near/prover",
     "modules/trees/ethereum",
     "modules/pallets/mmr",
     "modules/pallets/mmr/primitives",
@@ -217,6 +219,12 @@ ics23 = { version = "0.12.0", default-features = false }
 ibc = { version = "0.57.0", default-features = false }
 ibc-proto = { version = "0.52.0", default-features = false, package = "ibc-proto"}
 
+# near
+near-primitives = { version = "0.33.0" }
+near-jsonrpc-client = { version = "0.19" }
+near-jsonrpc-primitives = { version = "0.33.0" }
+borsh = { version = "1.3" }
+
 # published crates
 ismp = { version = "2506.1.0", path = "./modules/ismp/core", default-features = false }
 serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
@@ -257,6 +265,8 @@ tendermint-verifier = { path = "./modules/consensus/tendermint/verifier", defaul
 tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", default-features = false }
 tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
 tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
+near-primitives-ismp = { path = "./modules/consensus/near/primitives", default-features = false }
+near-prover = { path = "./modules/consensus/near/prover" }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
@@ -376,3 +386,7 @@ features = ["derive"]
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
 default-features = false
+
+[workspace.dependencies.arbitrary]
+version = "1.3.2"
+features = ["derive"]

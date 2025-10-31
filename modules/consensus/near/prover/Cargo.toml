@@ -1,0 +1,27 @@
+[package]
+name = "near-prover"
+version = "0.1.0"
+edition = "2021"
+description = "Near prover for ISMP"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+# NEAR dependencies
+near-primitives = { workspace = true }
+near-jsonrpc-client = { workspace = true }
+near-jsonrpc-primitives = { workspace = true }
+
+# Core dependencies
+near-primitives-ismp = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+futures = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+borsh = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

@@ -41,14 +41,14 @@ const chainConfigService = new ChainConfigService();
 const bscChain = new EvmChain({
   chainId: 56,
   host: chainConfigService.getHostAddress("EVM-56"),
-  url: "https://bsc-dataseed.binance.org",
+  rpcUrl: "https://bsc-dataseed.binance.org",
 });
 
 // Set up destination chain (e.g., Ethereum)
 const ethChain = new EvmChain({
   chainId: 1,
   host: chainConfigService.getHostAddress("EVM-1"),
-  url: "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY",
+  rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY",
 });
 
 // Create Intent Gateway instance (first param is source, second is destination)
@@ -496,13 +496,13 @@ async function transferUSDCFromBSCToEthereum() {
   const bscChain = new EvmChain({
     chainId: 56,
     host: chainConfig.getHostAddress("EVM-56"),
-    url: process.env.BSC_RPC,
+    rpcUrl: process.env.BSC_RPC,
   });
 
   const ethChain = new EvmChain({
     chainId: 1,
     host: chainConfig.getHostAddress("EVM-1"),
-    url: process.env.ETH_RPC,
+    rpcUrl: process.env.ETH_RPC,
   });
 
   const intentGateway = new IntentGateway(bscChain, ethChain); // source, dest
@@ -632,13 +632,13 @@ async function cancelExpiredOrder(order: Order) {
   const bscChain = new EvmChain({
     chainId: 97,
     host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
-    url: process.env.BSC_CHAPEL,
+    rpcUrl: process.env.BSC_CHAPEL,
   });
 
   const sepoliaChain = new EvmChain({
     chainId: 11155111,
     host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
-    url: process.env.SEPOLIA,
+    rpcUrl: process.env.SEPOLIA,
   });
 
   const intentGateway = new IntentGateway(bscChain, sepoliaChain); // source, dest
@@ -786,12 +786,12 @@ async function placeOrderWithDestinationCalldata() {
   const eth = new EvmChain({
     chainId: 1,
     host: chainConfig.getHostAddress("EVM-1"),
-    url: process.env.ETH_MAINNET!,
+    rpcUrl: process.env.ETH_MAINNET!,
   });
   const bsc = new EvmChain({
     chainId: 56,
     host: chainConfig.getHostAddress("EVM-56"),
-    url: process.env.BSC_MAINNET!,
+    rpcUrl: process.env.BSC_MAINNET!,
   });
 
   const intentGateway = new IntentGateway(eth, bsc); // source, dest

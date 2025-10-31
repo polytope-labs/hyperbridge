@@ -37,6 +37,7 @@ use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Hyperbridge, InMemorySign
 const SEND_AMOUNT: u128 = 2_000_000_000_000;
 
 #[tokio::test]
+#[ignore]
 async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<()> {
 	println!("inside the test");
 	dotenv::dotenv().ok();

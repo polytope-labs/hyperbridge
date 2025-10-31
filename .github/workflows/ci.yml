@@ -229,7 +229,7 @@ jobs:
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
               with:
-                  toolchain: 1.90.0
+                  toolchain: stable
 
             - name: Install Go
               uses: actions/setup-go@v5
@@ -320,7 +320,10 @@ jobs:
               run: |
                   # build hyperbridge binary
                   cargo build -p hyperbridge --release
-              
+                  ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+                  cargo test -p simtests -- --nocapture --ignored --test-threads=1
+                  kill -9 $!
 
             - name: Run Parachain Devnet
               run: |
@@ -359,10 +362,8 @@ jobs:
             #     cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
 
             - name: Xcm integration tests
-              env:
-                SKIP_PALLET_REVIVE_FIXTURES: 1
               run: |
-                SKIP_PALLET_REVIVE_FIXTURES=1 cargo test -p pallet-ismp-testsuite --lib xcm_integration_test -- --nocapture --ignored
+                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test -- --nocapture --ignored
 
             - name: Run Eth POS Devnet Electra
               run: |

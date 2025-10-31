@@ -229,7 +229,7 @@ jobs:
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
               with:
-                  toolchain: 1.90.0
+                  toolchain: stable
 
             - name: Install Go
               uses: actions/setup-go@v5

@@ -28,6 +28,7 @@ use subxt::{
 	},
 	OnlineClient,
 };
+use subxt::tx::Payload;
 
 use ismp::host::StateMachine;
 use pallet_ismp_rpc::BlockNumberOrHash;
@@ -35,7 +36,6 @@ use subxt_utils::{send_extrinsic, BlakeSubstrateChain, Hyperbridge, InMemorySign
 
 const SEND_AMOUNT: u128 = 2_000_000_000_000;
 
-#[ignore]
 #[tokio::test]
 async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<()> {
 	println!("inside the test");
@@ -80,56 +80,108 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.await
 		.into_iter()
 		.collect::<Result<Vec<_>, _>>()?;
-	let beneficiary: Location = Junctions::X4(Arc::new([
-		Junction::AccountId32 { network: None, id: pair.public().into() },
-		Junction::AccountKey20 {
-			network: Some(NetworkId::Ethereum { chain_id: 1 }),
-			key: [1u8; 20],
-		},
-		Junction::GeneralIndex(60 * 60),
-		Junction::GeneralIndex(1),
-	]))
-		.into_location();
-	let weight_limit = WeightLimit::Unlimited;
 
-	let dest: VersionedLocation =
-		VersionedLocation::V5(Location::new(1, [Junction::Parachain(2000)]));
+	let beneficiary_value = Value::named_composite(vec![
+		("parents".to_string(), Value::u128(0_u8 as u128)),
+		("interior".to_string(), Value::variant("X4", Composite::unnamed(vec![
+			Value::unnamed_composite(vec![
+				Value::variant("AccountId32", Composite::named(vec![
+					("network".to_string(), Value::variant("None", Composite::unnamed(vec![]))),
+					("id".to_string(), Value::from_bytes(pair.public().to_vec()))
+				])),
+				Value::variant("AccountKey20", Composite::named(vec![
+					("network".to_string(), Value::variant("Some", Composite::unnamed(vec![
+						Value::variant("Ethereum", Composite::named(vec![("chain_id".to_string(), Value::u128(1_u64 as u128))]))
+					]))),
+					("key".to_string(), Value::from_bytes(vec![1u8; 20]))
+				])),
+				Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(3600)])),
+				Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(1)]))
+			])
+		])))
+	]);
 
-	let dot_location: Location = Parent.into();
-	let fee_asset_id = AssetId(dot_location.clone());
+	let dot_location_value = Value::named_composite(vec![
+		("parents".to_string(), Value::u128(1_u8 as u128)),
+		("interior".to_string(), Value::variant("Here", Composite::unnamed(vec![])))
+	]);
 
-	let asset = Asset { id: dot_location.clone().into(), fun: Fungibility::Fungible(SEND_AMOUNT) };
-	let assets = VersionedAssets::V5(vec![asset].into());
+	let assets_value = Value::named_composite(vec![
+		("id".to_string(), dot_location_value.clone()),
+		("fun".to_string(), Value::variant("Fungible", Composite::unnamed(vec![Value::u128(SEND_AMOUNT)])))
+	]);
 
-	let xcm_beneficiary = beneficiary.clone();
-	let custom_xcm_on_dest = VersionedXcm::V5(Xcm::<()>(vec![DepositAsset {
-		assets: Wild(AllCounted(1)),
-		beneficiary: xcm_beneficiary,
-	}]));
+	let weight_limit_value = Value::variant("Unlimited", Composite::unnamed(vec![]));
 
-	println!("performing limited reserve asset transfer");
-	let dest_value = versioned_location_to_value(&dest);
-	let assets_value = versioned_assets_to_value(&assets);
-	let assets_transfer_type_value =
-		Value::variant("LocalReserve", Composite::unnamed(vec![]));
-	let fee_transfer_type_value =
-		Value::variant("LocalReserve", Composite::unnamed(vec![]));
-	let fee_asset_id_value = versioned_asset_id_to_value(&fee_asset_id);
-	let custom_xcm_on_dest_value = versioned_xcm_to_value(&custom_xcm_on_dest);
-	let weight_limit_value = weight_limit_to_value(&weight_limit);
+	let buy_execution_value = Value::variant("BuyExecution", Composite::named(vec![
+		("fees".to_string(), assets_value.clone()),
+		("weight_limit".to_string(), weight_limit_value.clone())
+	]));
+
+	let wild_all_value = Value::variant("Wild", Composite::unnamed(vec![
+		Value::variant("All", Composite::unnamed(vec![]))
+	]));
+
+	let deposit_asset_value = Value::variant("DepositAsset", Composite::named(vec![
+		("assets".to_string(), wild_all_value),
+		("beneficiary".to_string(), beneficiary_value)
+	]));
+
+	let remote_xcm_value = Value::unnamed_composite(vec![
+		buy_execution_value,
+		deposit_asset_value
+	]);
+
+	let set_fees_mode_value = Value::variant("SetFeesMode", Composite::named(vec![
+		("jit_withdraw".to_string(), Value::bool(true))
+	]));
+
+	let dest_location_value = Value::named_composite(vec![
+		("parents".to_string(), Value::u128(1_u8 as u128)),
+		("interior".to_string(), Value::variant("X1", Composite::unnamed(vec![
+			Value::unnamed_composite(vec![
+				Value::variant("Parachain", Composite::unnamed(vec![Value::u128(2000_u32 as u128)]))
+			])
+		])))
+	]);
+
+	let transfer_reserve_asset_value = Value::variant("TransferReserveAsset", Composite::named(vec![
+		("assets".to_string(), Value::unnamed_composite(vec![assets_value.clone()])),
+		("dest".to_string(), dest_location_value),
+		("xcm".to_string(), remote_xcm_value)
+	]));
+
+	let message_xcm_value = Value::unnamed_composite(vec![
+		set_fees_mode_value,
+		transfer_reserve_asset_value
+	]);
+
+	let xcm_struct_value = Value::unnamed_composite(vec![message_xcm_value]);
+
+	let message_value = Value::variant("V5", Composite::unnamed(vec![xcm_struct_value]));
+
+	let max_weight_value = Value::named_composite(vec![
+		("ref_time".to_string(), Value::u128(400_000_000_000u128)),
+		("proof_size".to_string(), Value::u128(1_000_000u128))
+	]);
+
 	let ext = subxt::dynamic::tx(
 		"PolkadotXcm",
-		"transfer_assets_using_type_and_then",
+		"execute",
 		vec![
-			dest_value,
-			assets_value,
-			assets_transfer_type_value,
-			fee_asset_id_value,
-			fee_transfer_type_value,
-			custom_xcm_on_dest_value,
-			weight_limit_value,
+			message_value,
+			max_weight_value,
 		],
 	);
+
+	let metadata = assethub_client.metadata();
+	let call_data_bytes = ext.encode_call_data(&metadata)?;
+
+	println!(
+		"\n\n>>> Hex-encoded call for Polkadot-JS:\n0x{}\n\n",
+		sp_core::hexdisplay::HexDisplay::from(&call_data_bytes)
+	);
+
 
 	let init_block = para_rpc
 		.chain_get_header(None)
@@ -394,4 +446,6 @@ fn weight_limit_to_value(limit: &WeightLimit) -> Value {
 		},
 	}
 }
+
+
 

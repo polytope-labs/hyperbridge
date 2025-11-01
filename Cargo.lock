@@ -492,7 +492,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 0.11.1",
  "alloy-sol-types 0.8.25",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -2397,7 +2397,7 @@ dependencies = [
  "bitflags 2.9.1",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -15542,6 +15542,7 @@ dependencies = [
  "ismp-grandpa",
  "ismp-sync-committee",
  "ismp-testsuite",
+ "log",
  "mmr-primitives",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
@@ -15570,6 +15571,7 @@ dependencies = [
  "subxt-utils",
  "token-gateway-primitives",
  "tokio",
+ "tracing-subscriber",
  "trie-db",
  "xcm-simulator-example",
  "zstd-safe 7.2.4",
@@ -19047,6 +19049,7 @@ dependencies = [
  "substrate-frame-rpc-system",
  "substrate-prometheus-endpoint",
  "testnet-parachains-constants",
+ "xcm-emulator",
  "xcm-runtime-apis 0.8.0",
  "xcm-simulator 21.0.0",
 ]
@@ -31908,6 +31911,41 @@ dependencies = [
  "rusticata-macros",
  "thiserror 2.0.12",
  "time",
+]
+
+[[package]]
+name = "xcm-emulator"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71aa64f3157194acc9e1da34e8ba43936f03f63024aa814fa778086bd1928cd5"
+dependencies = [
+ "array-bytes 6.2.3",
+ "cumulus-pallet-parachain-system",
+ "cumulus-primitives-core",
+ "cumulus-primitives-parachain-inherent",
+ "cumulus-test-relay-sproof-builder",
+ "frame-support 41.0.0",
+ "frame-system 41.0.0",
+ "impl-trait-for-tuples",
+ "log",
+ "pallet-balances 42.0.0",
+ "pallet-message-queue 44.0.0",
+ "pallet-timestamp 40.0.0",
+ "parachains-common",
+ "parity-scale-codec",
+ "paste",
+ "polkadot-parachain-primitives 17.0.0",
+ "polkadot-primitives 19.0.0",
+ "polkadot-runtime-parachains 20.0.1",
+ "sp-arithmetic 27.0.0",
+ "sp-core 37.0.0",
+ "sp-crypto-hashing",
+ "sp-io 41.0.1",
+ "sp-runtime 42.0.0",
+ "sp-tracing",
+ "staging-xcm 17.0.0",
+ "staging-xcm-executor 20.0.0",
+ "xcm-simulator 21.0.0",
 ]
 
 [[package]]

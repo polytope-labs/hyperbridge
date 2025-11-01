@@ -116,6 +116,17 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		entry.push((key, slot_hash));
 	}
 
+	// Ensure there is a proof for all contract addresses
+	let result = contract_to_keys
+		.clone()
+		.into_keys()
+		.all(|contract| evm_state_proof.storage_proof.contains_key(&contract));
+	if !result {
+		Err(Error::Custom(
+			"The storage proof is incomplete, missing some contract proofs".to_string(),
+		))?
+	}
+
 	for (contract_address, storage_proof) in evm_state_proof.storage_proof {
 		let contract_root = get_contract_account::<H>(
 			evm_state_proof.contract_proof.clone(),

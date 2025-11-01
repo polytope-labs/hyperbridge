@@ -1,16 +1,12 @@
 name: CI
 
 on:
-#    push:
-#        branches:
-#            - main
+    push:
+        branches:
+            - main
 
-    pull_request:
-      branches:
-        - main
-
-#    pull_request_target:
-#        types: [opened, synchronize]
+    pull_request_target:
+        types: [opened, synchronize]
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -229,7 +225,7 @@ jobs:
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
               with:
-                  toolchain: 1.90.0
+                  toolchain: stable
 
             - name: Install Go
               uses: actions/setup-go@v5
@@ -247,7 +243,7 @@ jobs:
 
             - name: Run unit tests
               run: |
-                  cargo test --all-targets --locked
+                  cargo test --all-targets --features=runtime-benchmarks --locked
 
     integration-tests:
         name: Integration Tests
@@ -323,14 +319,7 @@ jobs:
                   ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
                   cargo test -p simtests -- --nocapture --ignored --test-threads=1
-
-            - name: Force-stop simnode
-              if: always()
-              run: |
-                echo "Cleaning up any leftover simnode processes..."
-                pkill -f "hyperbridge simnode" || true
-                fuser -k 9990/tcp || true
-                echo "Cleanup complete."    
+                  kill -9 $!
 
             - name: Run Parachain Devnet
               run: |
@@ -339,11 +328,9 @@ jobs:
                   mkdir -p polkadot-sdk/target/release
                   cd polkadot-sdk/target/release
                   wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot'
-                  wget -O ./polkadot-parachain -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-parachain'
                   wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-execute-worker'
                   wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-prepare-worker'
                   sudo chmod +x ./polkadot
-                  sudo chmod +x ./polkadot-parachain
                   sudo chmod +x ./polkadot-execute-worker
                   sudo chmod +x ./polkadot-prepare-worker
 
@@ -358,7 +345,6 @@ jobs:
                   nohup ./zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml & disown
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9922
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 9910
 
             #      - name: Beefy integration tests
             #        run: |
@@ -370,7 +356,7 @@ jobs:
 
             - name: Xcm integration tests
               run: |
-                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test -- --nocapture --ignored
+                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
 
             - name: Run Eth POS Devnet Electra
               run: |

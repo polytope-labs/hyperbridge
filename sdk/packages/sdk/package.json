@@ -50,7 +50,7 @@
 		"test:sequence": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/**",
 		"test:requests": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/requests.test.ts",
 		"test:intent-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/intentGateway.test.ts",
-		"test:token-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/tokenGateway.test.ts",
+		"test:token-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/tokenGateway.test.ts",
 		"test:evm-substrate": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/evm-substrate.test.ts",
 		"test:watch": "vitest --exclude=./src/tests/sequential",
 		"lint": "biome lint .",
@@ -68,11 +68,14 @@
 		"decimal.js": "^10.5.0",
 		"graphql": "^16.10.0",
 		"graphql-request": "^7.1.2",
+		"idb-keyval": "^6.2.2",
 		"lodash-es": "^4.17.15",
 		"rpc-websocket-client": "^1.1.4",
+		"safe-stable-stringify": "^2.5.0",
 		"scale-ts": "^1.6.1",
 		"std-env": "^3.9.0",
 		"ts-pattern": "^5.6.2",
+		"unstorage": "^1.17.2",
 		"viem": "^2.34.0"
 	},
 	"devDependencies": {
@@ -86,7 +89,7 @@
 		"jsdom": "^26.0.0",
 		"log-timestamp": "^0.3.0",
 		"tsup": "^8.4.0",
-		"typescript": "^5.7.3",
+		"typescript": "^5.9.3",
 		"vite-tsconfig-paths": "^5.1.4",
 		"vitest": "^3.1.4"
 	},

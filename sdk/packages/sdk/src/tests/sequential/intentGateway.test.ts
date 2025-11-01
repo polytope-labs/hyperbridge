@@ -46,11 +46,10 @@ import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import IntentGatewayABI from "@/abis/IntentGateway"
 import erc6160 from "@/abis/erc6160"
 import handler from "@/abis/handler"
-import { PERMIT2_ABI } from "@/abis/permit2"
-import universalRouter from "@/abis/universalRouter"
 import { IndexerClient } from "@/client"
 import { createQueryClient } from "@/query-client"
 import { strict as assert } from "assert"
+import { getOrderPlacedFromTx } from "@/utils/txEvents"
 
 describe.sequential("Intents protocol tests", () => {
 	it("Should generate the estimatedFee while doing bsc mainnet to eth mainnet", async () => {
@@ -1114,7 +1113,7 @@ describe.sequential("Swap Tests", () => {
 		}
 	}, 1_000_000)
 
-	it.skip("Should keep the input and output as usdc, but include the final calldata as usdc to a token", async () => {
+	it("Should keep the input and output as usdc, but include the final calldata as usdc to a token", async () => {
 		const bscMainnetId = "EVM-56"
 		const bscEvmChain = new EvmChain({
 			chainId: 56,
@@ -1190,7 +1189,7 @@ describe.sequential("Swap Tests", () => {
 	}, 1_000_000)
 })
 
-describe("Order Cancellation tests", () => {
+describe.sequential("Order Cancellation tests", () => {
 	let indexer: IndexerClient
 	let hyperbridgeInstance: SubstrateChain
 
@@ -1310,11 +1309,15 @@ describe("Order Cancellation tests", () => {
 
 		console.log("Order placed on BSC")
 
-		const orderPlaceEvent = parseEventLogs({ abi: IntentGatewayABI.ABI, logs: receipt.logs })[0]
-		if (orderPlaceEvent.eventName !== "OrderPlaced") {
-			throw new Error("Unexpected Event type")
+		const orderPlacedEvent = await getOrderPlacedFromTx(bscChapelPublicClient, hash)
+
+		if (!orderPlacedEvent) {
+			throw new Error("OrderPlaced event not found")
 		}
-		const orderPlaced = orderPlaceEvent.args
+
+		console.log("orderPlacedEvent", orderPlacedEvent)
+
+		const orderPlaced = orderPlacedEvent.args
 
 		const hyperbridgeConfig: IHyperbridgeConfig = {
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
@@ -1322,30 +1325,13 @@ describe("Order Cancellation tests", () => {
 			stateMachineId: "KUSAMA-4009",
 		}
 
-		const cancelGenerator = intentGateway.cancelOrder(order, hyperbridgeConfig, indexer)
+		const cancelGenerator = intentGateway.cancelOrder(orderPlaced as Order, indexer)
 
 		let result = await cancelGenerator.next()
 
 		while (!result.done && result.value?.status !== "DESTINATION_FINALIZED") {
 			const status = result.value?.status
 			const data = result.value && "data" in result.value ? (result.value as any).data : undefined
-
-			switch (status) {
-				case "AWAITING_DESTINATION_FINALIZED":
-					if (data) {
-						console.log(
-							`Waiting for destination finalized. Current height: ${data.currentHeight}, Deadline: ${data.deadline}`,
-						)
-					}
-					break
-				case "PROOF_FETCH_FAILED":
-					if (data) {
-						console.log(`Proof fetch failed at height: ${data.failedHeight}`)
-					}
-					break
-				default:
-					break
-			}
 
 			result = await cancelGenerator.next()
 		}
@@ -1378,45 +1364,32 @@ describe("Order Cancellation tests", () => {
 
 		console.log("Order cancelled on BSC")
 
-		// parse EvmHost GetRequestEvent emitted in the transaction logs
-		const event = parseEventLogs({ abi: EVM_HOST.ABI, logs: receipt.logs })[0]
-		if (event.eventName !== "GetRequestEvent") {
-			throw new Error("Unexpected Event type")
-		}
-
-		const { source, dest, from, nonce, height, keys, timeoutTimestamp, context } = event.args
-		const getRequest: IGetRequest = {
-			source,
-			dest,
-			from,
-			nonce,
-			height,
-			keys: Array.from(keys),
-			timeoutTimestamp,
-			context,
-		}
-
-		result = await cancelGenerator.next(getRequest)
+		result = await cancelGenerator.next(hash)
 
 		while (!result.done && result.value?.status !== "SOURCE_FINALIZED") {
 			result = await cancelGenerator.next()
 		}
 		expect(result.value?.status).toBe("SOURCE_FINALIZED")
 
-		while (!result.done && result.value?.status !== "SOURCE_PROOF_RECEIVED") {
-			result = await cancelGenerator.next()
-		}
-		expect(result.value?.status).toBe("SOURCE_PROOF_RECEIVED")
-
 		while (!result.done) {
-			if (result.value?.status === "HYPERBRIDGE_FINALIZED") {
-				if ("metadata" in result.value && result.value.metadata) {
+			const status = result.value?.status
+
+			if (status === "HYPERBRIDGE_DELIVERED") {
+				console.log("Hyperbridge delivered")
+				result = await cancelGenerator.next()
+				continue
+			}
+
+			if (status === "HYPERBRIDGE_FINALIZED") {
+				const data = (result.value as any).data
+				if (data?.metadata) {
 					console.log(
-						`Status ${result.value.status}, Transaction: https://sepolia.etherscan.io/tx/${result.value.metadata.transactionHash}`,
+						`Status ${result.value.status}, Transaction: https://sepolia.etherscan.io/tx/${data.metadata.transactionHash}`,
 					)
 				}
 				break
 			}
+
 			result = await cancelGenerator.next()
 		}
 

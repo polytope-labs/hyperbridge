@@ -29,6 +29,7 @@ import { bscTestnet, gnosisChiado } from "viem/chains"
 import tokenGateway from "@/abis/tokenGateway"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import erc6160 from "@/abis/erc6160"
+import { getPostRequestEventFromTx } from "@/utils/txEvents"
 
 // private key for testnet transactions
 const secret_key = process.env.SECRET_PHRASE || ""
@@ -181,6 +182,10 @@ describe("teleport function", () => {
 		})
 
 		console.log("Teleported to Gnosis Chiado:", receipt.transactionHash)
+
+		const postRequest = await getPostRequestEventFromTx(bscPublicClient, tx)
+
+		console.log("postRequest event", postRequest)
 
 		// Get the commitment from the AssetTeleported event
 		const teleportEvent = parseEventLogs({

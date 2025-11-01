@@ -18,12 +18,13 @@ import {
 	getGasPriceFromEtherscan,
 	USE_ETHERSCAN_CHAINS,
 } from "@/utils"
-import { formatUnits, hexToString, maxUint256, pad, parseUnits, toHex } from "viem"
+import { formatUnits, hexToString, maxUint256, pad, parseEventLogs, parseUnits, toHex } from "viem"
 import {
 	DispatchPost,
 	IGetRequest,
 	IHyperbridgeConfig,
 	RequestStatus,
+	RequestStatusWithMetadata,
 	type FillOptions,
 	type HexString,
 	type IPostRequest,
@@ -32,9 +33,11 @@ import {
 import IntentGatewayABI from "@/abis/IntentGateway"
 import type { EvmChain } from "@/chains/evm"
 import { Decimal } from "decimal.js"
-import { getChain, IGetRequestMessage, IProof, requestCommitmentKey, SubstrateChain } from "@/chain"
+import { IGetRequestMessage, IProof, requestCommitmentKey, SubstrateChain } from "@/chain"
 import { IndexerClient } from "@/client"
 import { Swap } from "@/utils/swap"
+import { createCancellationStorage, STORAGE_KEYS } from "@/storage"
+import EVM_HOST from "@/abis/evmHost"
 
 /**
  * IntentGateway handles cross-chain intent operations between EVM chains.
@@ -43,6 +46,8 @@ import { Swap } from "@/utils/swap"
  */
 export class IntentGateway {
 	public readonly swap: Swap
+	private readonly storage = createCancellationStorage()
+
 	/**
 	 * Creates a new IntentGateway instance for cross-chain operations.
 	 * @param source - The source EVM chain
@@ -424,7 +429,11 @@ export class IntentGateway {
 		return filledStatus !== "0x0000000000000000000000000000000000000000000000000000000000000000"
 	}
 
-	async submitAndConfirmReceipt(hyperbridge: SubstrateChain, commitment: HexString, message: IGetRequestMessage) {
+	private async submitAndConfirmReceipt(
+		hyperbridge: SubstrateChain,
+		commitment: HexString,
+		message: IGetRequestMessage,
+	) {
 		let storageValue = await hyperbridge.queryRequestReceipt(commitment)
 
 		if (!storageValue) {
@@ -451,174 +460,100 @@ export class IntentGateway {
 		console.log("Hyperbridge Receipt confirmed.")
 	}
 
-	async *cancelOrder(
-		order: Order,
-		hyperbridgeConfig: IHyperbridgeConfig,
-		indexerClient: IndexerClient,
-		storedData?: StoredCancellationData,
-	) {
-		const hyperbridge = (await getChain({ ...hyperbridgeConfig, hasher: "Keccak" })) as SubstrateChain
+	/**
+	 * Cancels an order through the cross-chain protocol by generating and submitting proofs.
+	 * This is an async generator function that yields status updates throughout the cancellation process.
+	 *
+	 * The cancellation process involves:
+	 * 1. Fetching proof from the destination chain that the order exists
+	 * 2. Creating a GET request to retrieve the order state
+	 * 3. Waiting for the source chain to finalize the request
+	 * 4. Fetching proof from the source chain
+	 * 5. Waiting for the challenge period to complete
+	 * 6. Submitting the request message to Hyperbridge
+	 * 7. Monitoring until Hyperbridge finalizes the cancellation
+	 *
+	 * @param order - The order to cancel, containing source/dest chains, deadline, and other order details
+	 * @param indexerClient - Client for querying the indexer and interacting with Hyperbridge
+	 *
+	 * @yields {CancelEvent} Status updates during the cancellation process:
+	 *   - DESTINATION_FINALIZED: Destination proof has been obtained
+	 *   - AWAITING_GET_REQUEST: Waiting for GET request to be provided
+	 *   - SOURCE_FINALIZED: Source chain has finalized the request
+	 *   - HYPERBRIDGE_DELIVERED: Hyperbridge has delivered the request
+	 *   - HYPERBRIDGE_FINALIZED: Cancellation is complete
+	 *
+	 * @throws {Error} If GET request is not provided when needed
+	 *
+	 * @example
+	 * ```typescript
+	 * const cancelStream = intentGateway.cancelOrder(order, indexerClient);
+	 *
+	 * for await (const event of cancelStream) {
+	 *   switch (event.status) {
+	 *     case 'SOURCE_FINALIZED':
+	 *       console.log('Source finalized at block:', event.data.metadata.blockNumber);
+	 *       break;
+	 *     case 'HYPERBRIDGE_FINALIZED':
+	 *       console.log('Cancellation complete');
+	 *       break;
+	 *   }
+	 * }
+	 * ```
+	 */
+	async *cancelOrder(order: Order, indexerClient: IndexerClient): AsyncGenerator<CancelEvent> {
+		const orderId = orderCommitment(order)
+
+		let hyperbridge = indexerClient.hyperbridge as SubstrateChain
 		const sourceStateMachine = hexToString(order.sourceChain as HexString)
-		const destStateMachine = hexToString(order.destChain as HexString)
-
 		const sourceConsensusStateId = this.source.configService.getConsensusStateId(sourceStateMachine)
-		const destConsensusStateId = this.dest.configService.getConsensusStateId(destStateMachine)
 
-		let destIProof: IProof
-
-		if (storedData?.destIProof) {
-			destIProof = storedData.destIProof
-			yield { status: "DESTINATION_FINALIZED", data: { proof: destIProof } }
-		} else {
-			let latestHeight = 0n
-			let lastFailedHeight: bigint | null = null
-			let proofHex: HexString | null = null
-
-			while (!proofHex) {
-				const height = await retryPromise(
-					() =>
-						indexerClient.queryLatestStateMachineHeight({
-							statemachineId: destStateMachine,
-							chain: hyperbridgeConfig.stateMachineId,
-						}),
-					{ maxRetries: 5, backoffMs: 500, logMessage: "Failed to fetch latest state machine height" },
-				)
-
-				if (!height) {
-					throw new Error("No state machine updates found for destination chain")
-				}
-
-				latestHeight = height
-
-				const shouldFetchProof =
-					lastFailedHeight === null ? latestHeight > order.deadline : latestHeight > lastFailedHeight
-
-				if (!shouldFetchProof) {
-					yield {
-						status: "AWAITING_DESTINATION_FINALIZED",
-						data: {
-							currentHeight: latestHeight,
-							deadline: order.deadline,
-							...(lastFailedHeight && { lastFailedHeight }),
-						},
-					}
-					await sleep(10000)
-					continue
-				}
-
-				try {
-					const intentGatewayAddress = this.dest.configService.getIntentGatewayAddress(destStateMachine)
-					const orderId = orderCommitment(order)
-					const slotHash = await this.dest.client.readContract({
-						abi: IntentGatewayABI.ABI,
-						address: intentGatewayAddress,
-						functionName: "calculateCommitmentSlotHash",
-						args: [orderId],
-					})
-					proofHex = await this.dest.queryStateProof(latestHeight, [slotHash], intentGatewayAddress)
-				} catch (error) {
-					lastFailedHeight = latestHeight
-					yield {
-						status: "PROOF_FETCH_FAILED",
-						data: {
-							failedHeight: latestHeight,
-							error: error instanceof Error ? error.message : String(error),
-							deadline: order.deadline,
-						},
-					}
-					await sleep(10000)
-				}
-			}
-
-			destIProof = {
-				consensusStateId: destConsensusStateId,
-				height: latestHeight,
-				proof: proofHex,
-				stateMachine: destStateMachine,
-			}
-
-			yield { status: "DESTINATION_FINALIZED", data: { proof: destIProof } }
+		let destIProof: IProof | null = await this.storage.getItem(STORAGE_KEYS.destProof(orderId))
+		if (!destIProof) {
+			destIProof = yield* this.fetchDestinationProof(order, indexerClient)
+			await this.storage.setItem(STORAGE_KEYS.destProof(orderId), destIProof)
 		}
 
-		const getRequest = storedData?.getRequest ?? ((yield { status: "AWAITING_GET_REQUEST" }) as IGetRequest)
-		if (!getRequest) throw new Error("[Cancel Order]: Get Request not provided")
+		let getRequest: IGetRequest | null = await this.storage.getItem(STORAGE_KEYS.getRequest(orderId))
+		if (!getRequest) {
+			const transactionHash = yield { status: "AWAITING_GET_REQUEST", data: undefined }
+			const receipt = await this.source.client.getTransactionReceipt({ hash: transactionHash })
+
+			const events = parseEventLogs({ abi: EVM_HOST.ABI, logs: receipt.logs })
+			const request = events.find((e) => e.eventName === "GetRequestEvent")
+			if (!request) throw new Error("GetRequest missing")
+			getRequest = request.args as unknown as IGetRequest
+
+			await this.storage.setItem(STORAGE_KEYS.getRequest(orderId), getRequest)
+		}
 
 		const commitment = getRequestCommitment({ ...getRequest, keys: [...getRequest.keys] })
-
 		const sourceStatusStream = indexerClient.getRequestStatusStream(commitment)
+
 		for await (const statusUpdate of sourceStatusStream) {
-			yield statusUpdate
+			if (statusUpdate.status === RequestStatus.SOURCE_FINALIZED) {
+				yield { status: "SOURCE_FINALIZED", data: { metadata: statusUpdate.metadata } }
 
-			if (statusUpdate.status !== RequestStatus.SOURCE_FINALIZED) {
-				continue
-			}
-
-			let sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
-			let proof: HexString | undefined
-			// Check if request was delivered while waiting for proof
-			const checkIfAlreadyDelivered = async () => {
-				const currentStatus = await indexerClient.queryGetRequestWithStatus(commitment)
-				return (
-					currentStatus?.statuses.some((status) => status.status === RequestStatus.HYPERBRIDGE_DELIVERED) ??
-					false
-				)
-			}
-
-			const { slot1, slot2 } = requestCommitmentKey(commitment)
-
-			while (true) {
-				try {
-					proof = await this.source.queryStateProof(sourceHeight, [slot1, slot2])
-					break
-				} catch {
-					const failedHeight = sourceHeight
-					while (sourceHeight <= failedHeight) {
-						if (await checkIfAlreadyDelivered()) {
-							break
-						}
-
-						const nextHeight = await retryPromise(
-							() =>
-								indexerClient.queryLatestStateMachineHeight({
-									statemachineId: sourceStateMachine,
-									chain: hyperbridgeConfig.stateMachineId,
-								}),
-							{
-								maxRetries: 5,
-								backoffMs: 5000,
-								logMessage: "Failed to fetch latest state machine height (post-source-proof failure)",
-							},
-						)
-
-						if (!nextHeight) {
-							throw new Error(
-								`No state machine updates found for ${sourceStateMachine} on chain ${hyperbridgeConfig.stateMachineId}`,
-							)
-						}
-
-						if (nextHeight <= failedHeight) {
-							await sleep(10000)
-							continue
-						}
-
-						sourceHeight = nextHeight
-					}
-
-					if (await checkIfAlreadyDelivered()) {
-						break
-					}
-				}
-			}
-
-			if (proof) {
-				const sourceIProof: IProof = {
-					height: sourceHeight,
-					stateMachine: sourceStateMachine,
-					consensusStateId: sourceConsensusStateId,
-					proof,
+				const sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
+				let sourceIProof: IProof | null = await this.storage.getItem(STORAGE_KEYS.sourceProof(orderId))
+				if (!sourceIProof) {
+					sourceIProof = await fetchSourceProof(
+						commitment,
+						this.source,
+						sourceStateMachine,
+						sourceConsensusStateId,
+						sourceHeight,
+					)
+					await this.storage.setItem(STORAGE_KEYS.sourceProof(orderId), sourceIProof)
 				}
 
-				yield { status: "SOURCE_PROOF_RECEIVED", data: sourceIProof }
+				await waitForChallengePeriod(hyperbridge, {
+					height: sourceIProof.height,
+					id: {
+						stateId: parseStateMachineId(sourceStateMachine).stateId,
+						consensusStateId: sourceConsensusStateId,
+					},
+				})
 
 				const getRequestMessage: IGetRequestMessage = {
 					kind: "GetRequest",
@@ -628,15 +563,76 @@ export class IntentGateway {
 					signer: pad("0x"),
 				}
 
-				await waitForChallengePeriod(hyperbridge, {
-					height: sourceHeight,
-					id: {
-						stateId: parseStateMachineId(sourceStateMachine).stateId,
-						consensusStateId: sourceConsensusStateId,
-					},
+				await this.submitAndConfirmReceipt(hyperbridge, commitment, getRequestMessage)
+				continue
+			}
+
+			if (statusUpdate.status === RequestStatus.HYPERBRIDGE_DELIVERED) {
+				yield { status: "HYPERBRIDGE_DELIVERED", data: statusUpdate as RequestStatusWithMetadata }
+				continue
+			}
+
+			if (statusUpdate.status === RequestStatus.HYPERBRIDGE_FINALIZED) {
+				yield { status: "HYPERBRIDGE_FINALIZED", data: statusUpdate as RequestStatusWithMetadata }
+				await this.storage.removeItem(STORAGE_KEYS.destProof(orderId))
+				await this.storage.removeItem(STORAGE_KEYS.getRequest(orderId))
+				await this.storage.removeItem(STORAGE_KEYS.sourceProof(orderId))
+				return
+			}
+		}
+	}
+
+	/**
+	 * Fetches proof for the destination chain.
+	 */
+	private async *fetchDestinationProof(
+		order: Order,
+		indexerClient: IndexerClient,
+	): AsyncGenerator<CancelEvent, IProof, void> {
+		let latestHeight = 0n
+		let lastFailedHeight: bigint | null = null
+
+		while (true) {
+			const height = await indexerClient.queryLatestStateMachineHeight({
+				statemachineId: this.dest.config.stateMachineId,
+				chain: indexerClient.hyperbridge.config.stateMachineId,
+			})
+
+			latestHeight = height ?? 0n
+			const shouldFetch =
+				lastFailedHeight === null ? latestHeight > order.deadline : latestHeight > lastFailedHeight
+
+			if (!shouldFetch) {
+				await sleep(10000)
+				continue
+			}
+
+			try {
+				const intentGatewayAddress = this.dest.configService.getIntentGatewayAddress(
+					this.dest.config.stateMachineId,
+				)
+				const orderId = orderCommitment(order)
+				const slotHash = await this.dest.client.readContract({
+					abi: IntentGatewayABI.ABI,
+					address: intentGatewayAddress,
+					functionName: "calculateCommitmentSlotHash",
+					args: [orderId],
 				})
 
-				await this.submitAndConfirmReceipt(hyperbridge, commitment, getRequestMessage)
+				const proofHex = await this.dest.queryStateProof(latestHeight, [slotHash], intentGatewayAddress)
+
+				const proof: IProof = {
+					consensusStateId: this.dest.config.consensusStateId,
+					height: latestHeight,
+					proof: proofHex,
+					stateMachine: this.dest.config.stateMachineId,
+				}
+
+				yield { status: "DESTINATION_FINALIZED", data: { proof } }
+				return proof
+			} catch (e) {
+				lastFailedHeight = latestHeight
+				await sleep(10000)
 			}
 		}
 	}
@@ -658,8 +654,36 @@ function transformOrder(order: Order) {
 	}
 }
 
-interface StoredCancellationData {
-	destIProof?: IProof
-	getRequest?: IGetRequest
-	sourceIProof?: IProof
+/**
+ * Fetches proof for the source chain.
+ */
+async function fetchSourceProof(
+	commitment: HexString,
+	source: EvmChain,
+	sourceStateMachine: string,
+	sourceConsensusStateId: string,
+	sourceHeight: bigint,
+): Promise<IProof> {
+	const { slot1, slot2 } = requestCommitmentKey(commitment)
+	const proofHex = await source.queryStateProof(sourceHeight, [slot1, slot2])
+
+	return {
+		height: sourceHeight,
+		stateMachine: sourceStateMachine,
+		consensusStateId: sourceConsensusStateId,
+		proof: proofHex,
+	}
 }
+
+interface CancelEventMap {
+	DESTINATION_FINALIZED: { proof: IProof }
+	AWAITING_GET_REQUEST: undefined
+	SOURCE_FINALIZED: { metadata: { blockNumber: number } }
+	HYPERBRIDGE_DELIVERED: RequestStatusWithMetadata
+	HYPERBRIDGE_FINALIZED: RequestStatusWithMetadata
+	SOURCE_PROOF_RECEIVED: IProof
+}
+
+type CancelEvent = {
+	[K in keyof CancelEventMap]: { status: K; data: CancelEventMap[K] }
+}[keyof CancelEventMap]

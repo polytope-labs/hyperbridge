@@ -637,6 +637,38 @@ export interface DecodedOrderPlacedLog extends Log {
 	transactionHash: HexString
 }
 
+export interface DecodedPostRequestEvent extends Log {
+	eventName: string
+	args: {
+		source: string
+		dest: string
+		from: HexString
+		to: HexString
+		nonce: bigint
+		timeoutTimestamp: bigint
+		body: HexString
+		fee: bigint
+	}
+	transactionHash: HexString
+}
+
+export interface DecodedPostResponseEvent extends Log {
+	eventName: string
+	args: {
+		source: string
+		dest: string
+		from: HexString
+		to: HexString
+		nonce: bigint
+		timeoutTimestamp: bigint
+		body: HexString
+		response: HexString
+		responseTimeoutTimestamp: bigint
+		fee: bigint
+	}
+	transactionHash: HexString
+}
+
 /**
  * Options for filling an order
  */
@@ -1157,4 +1189,10 @@ export interface Transaction {
 	 * The calldata for the transaction
 	 */
 	data: HexString
+}
+
+export interface StorageFacade {
+	get<T>(key: string): Promise<T | undefined>
+	set<T>(key: string, value: T): Promise<void>
+	delete(key: string): Promise<void>
 }

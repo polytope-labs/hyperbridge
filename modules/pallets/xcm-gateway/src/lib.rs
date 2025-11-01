@@ -33,9 +33,15 @@ use frame_support::{
 		Get,
 	},
 };
-use polkadot_sdk::cumulus_primitives_core::{All, AllCounted, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset, Weight, Wild, Xcm};
-use polkadot_sdk::staging_xcm_executor::traits::TransferType;
+use polkadot_sdk::{
+	cumulus_primitives_core::{
+		All, AllCounted, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset,
+		Weight, Wild, Xcm,
+	},
+	staging_xcm_executor::traits::TransferType,
+};
 
+use crate::xcm_utilities::ASSET_HUB_PARA_ID;
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	events::Meta,
@@ -49,10 +55,9 @@ use sp_runtime::{traits::AccountIdConversion, Permill};
 use staging_xcm::{
 	prelude::Assets,
 	v5::{Asset, AssetId, Fungibility, Junction, Location, WeightLimit},
-	VersionedAssets, VersionedLocation, VersionedXcm
+	VersionedAssets, VersionedLocation, VersionedXcm,
 };
 use xcm_utilities::MultiAccount;
-use crate::xcm_utilities::ASSET_HUB_PARA_ID;
 
 pub mod xcm_utilities;
 
@@ -415,7 +420,6 @@ where
 			beneficiary: xcm_beneficiary.clone(),
 		}]);
 
-
 		// Send xcm back to assethub
 		pallet_xcm::Pallet::<T>::transfer_assets_using_type_and_then(
 			frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
@@ -426,7 +430,8 @@ where
 			Box::new(TransferType::DestinationReserve),
 			Box::new(VersionedXcm::from(custom_xcm_on_dest)),
 			weight_limit,
-		).map_err(|_| ismp::error::Error::ModuleDispatchError {
+		)
+		.map_err(|_| ismp::error::Error::ModuleDispatchError {
 			msg: "Token Gateway: Failed execute xcm to relay chain".to_string(),
 			meta: Meta {
 				source: request.source_chain(),
@@ -492,11 +497,11 @@ where
 				let xcm_beneficiary: Location =
 					Junction::AccountId32 { network: None, id: body.from.0 }.into();
 				let asset_id = Location::parent();
-				let xcm_dest = VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
+				let xcm_dest =
+					VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
 				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
-				let asset =
-					Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
+				let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 
 				let mut assets = Assets::new();
 				assets.push(asset.clone());
@@ -515,7 +520,8 @@ where
 					Box::new(TransferType::DestinationReserve),
 					Box::new(VersionedXcm::from(custom_xcm_on_dest)),
 					weight_limit,
-				).map_err(|_| ismp::error::Error::ModuleDispatchError {
+				)
+				.map_err(|_| ismp::error::Error::ModuleDispatchError {
 					msg: "Token Gateway: Failed to execute xcm to relay chain".to_string(),
 					meta: Meta {
 						source: request.source_chain(),

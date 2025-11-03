@@ -22,10 +22,7 @@
 extern crate alloc;
 
 use pallet_messaging_fees::IncentivesManager;
-use polkadot_sdk::{
-	sp_runtime::{DispatchError, Weight},
-	*,
-};
+use polkadot_sdk::{sp_runtime::Weight, *};
 
 pub use pallet::*;
 
@@ -36,7 +33,7 @@ pub mod pallet {
 	use core::fmt::Debug;
 	use frame_support::{
 		PalletId,
-		dispatch::{DispatchClass, DispatchResult},
+		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{
 			Currency, ExistenceRequirement, Get, LockIdentifier, LockableCurrency,

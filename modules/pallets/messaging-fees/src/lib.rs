@@ -31,10 +31,7 @@ use frame_support::{
 	traits::Get,
 };
 use frame_system::pallet_prelude::*;
-use polkadot_sdk::{
-	sp_runtime::{traits::OpaqueKeys, KeyTypeId},
-	*,
-};
+use polkadot_sdk::*;
 
 use ismp::{
 	dispatcher::IsmpDispatcher,

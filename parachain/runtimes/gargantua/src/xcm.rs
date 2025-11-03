@@ -30,7 +30,10 @@ use polkadot_runtime_common::impls::ToAuthor;
 use polkadot_sdk::*;
 use sp_core::H256;
 use sp_runtime::traits::Identity;
-use staging_xcm::latest::{prelude::*, Junctions::X1};
+use staging_xcm::latest::{
+	prelude::*,
+	Junctions::{X1, X3},
+};
 use staging_xcm_builder::{
 	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom,
 	ConvertedConcreteId, EnsureXcmOrigin, FixedWeightBounds, NoChecking, ParentIsPreset,
@@ -41,7 +44,7 @@ use staging_xcm_builder::{
 use staging_xcm_executor::XcmExecutor;
 
 use pallet_xcm_gateway::xcm_utilities::{
-	ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter,
+	ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter, ASSET_HUB_PARA_ID,
 };
 
 parameter_types! {
@@ -151,6 +154,24 @@ impl ContainsPair<Asset, Location> for MultiNativeAsset {
 	}
 }
 
+pub struct AssetsFromAssetHub;
+impl ContainsPair<Asset, Location> for AssetsFromAssetHub {
+	fn contains(asset: &Asset, origin: &Location) -> bool {
+		let self_para = Location::new(1, [Parachain(ParachainInfo::parachain_id().into())]);
+		if origin == &self_para {
+			return false;
+		}
+
+		let asset_hub = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
+		if origin == &asset_hub {
+			let AssetId(asset_id) = &asset.id;
+			return Location::parent() == *asset_id;
+		}
+
+		false
+	}
+}
+
 pub struct XcmConfig;
 impl staging_xcm_executor::Config for XcmConfig {
 	type RuntimeCall = RuntimeCall;
@@ -158,8 +179,11 @@ impl staging_xcm_executor::Config for XcmConfig {
 	// How to withdraw and deposit an asset.
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
-	type IsReserve = MultiNativeAsset;
-	type IsTeleporter = ();
+	type IsReserve = AssetsFromAssetHub;
+	type IsTeleporter = (
+		// Important setting reflecting AssetHub
+		parachains_common::xcm_config::ConcreteAssetFromSystem<RelayLocation>,
+	);
 	type Aliasers = Nothing;
 	// Teleporting is disabled.
 	type UniversalLocation = UniversalLocation;

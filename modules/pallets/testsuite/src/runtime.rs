@@ -48,6 +48,7 @@ use polkadot_sdk::{
 	},
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys, Weight},
+	xcm_simulator::{GeneralIndex, Junctions::X3, Location, PalletInstance, Parachain},
 };
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
@@ -64,7 +65,7 @@ use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
 use pallet_messaging_fees::types::PriceOracle;
 use substrate_state_machine::SubstrateStateMachine;
-
+use xcm_simulator::mock_message_queue;
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 pub const BOB: AccountId32 = AccountId32::new([2; 32]);
 pub const CHARLIE: AccountId32 = AccountId32::new([3; 32]);
@@ -108,6 +109,7 @@ frame_support::construct_runtime!(
 		Session: pallet_session,
 		CollatorSelection: pallet_collator_selection,
 		CollatorManager: pallet_collator_manager,
+		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship
 	}
 );

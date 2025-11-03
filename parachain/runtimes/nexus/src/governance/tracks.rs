@@ -19,9 +19,6 @@ use sp_runtime::str_array as s;
 const fn percent(x: i32) -> sp_runtime::FixedI64 {
 	sp_runtime::FixedI64::from_rational(x as u128, 100)
 }
-const fn permill(x: i32) -> sp_runtime::FixedI64 {
-	sp_runtime::FixedI64::from_rational(x as u128, 1000)
-}
 
 use pallet_referenda::Curve;
 const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
@@ -35,8 +32,8 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 			decision_period: 7 * DAYS,
 			confirm_period: 12 * HOURS,
 			min_enactment_period: 10 * MINUTES,
-			min_approval: Curve::make_linear(0, 7, percent(50), percent(70)),
-			min_support: Curve::make_linear(0, 7, percent(50), percent(50)),
+			min_approval: Curve::make_reciprocal(4, 7, percent(80), percent(50), percent(100)),
+			min_support: Curve::make_reciprocal(1, 7, percent(20), percent(5), percent(50)),
 		},
 	},
 	pallet_referenda::Track {
@@ -49,8 +46,8 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 			decision_period: DAYS,
 			confirm_period: HOURS,
 			min_enactment_period: 3 * MINUTES,
-			min_approval: Curve::make_linear(0, 1, percent(50), percent(70)),
-			min_support: Curve::make_linear(0, 1, percent(50), percent(50)),
+			min_approval: Curve::make_reciprocal(1, 1, percent(60), percent(50), percent(100)),
+			min_support: Curve::make_reciprocal(1, 1, percent(10), percent(5), percent(50)),
 		},
 	},
 	pallet_referenda::Track {
@@ -63,8 +60,8 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 			decision_period: 7 * DAYS,
 			confirm_period: 3 * HOURS,
 			min_enactment_period: 10 * MINUTES,
-			min_approval: Curve::make_linear(0, 7, percent(50), percent(70)),
-			min_support: Curve::make_linear(0, 7, percent(50), percent(50)),
+			min_approval: Curve::make_reciprocal(4, 7, percent(80), percent(50), percent(100)),
+			min_support: Curve::make_reciprocal(1, 7, percent(20), percent(5), percent(50)),
 		},
 	},
 	pallet_referenda::Track {
@@ -77,8 +74,8 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 			decision_period: 3 * DAYS,
 			confirm_period: 60 * MINUTES,
 			min_enactment_period: 3 * MINUTES,
-			min_approval: Curve::make_linear(0, 3, percent(50), percent(70)),
-			min_support: Curve::make_linear(0, 3, percent(50), percent(50)),
+			min_approval: Curve::make_reciprocal(1, 3, percent(70), percent(50), percent(100)),
+			min_support: Curve::make_reciprocal(1, 3, percent(15), percent(5), percent(50)),
 		},
 	},
 	pallet_referenda::Track {
@@ -91,8 +88,8 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 			decision_period: 3 * DAYS,
 			confirm_period: HOURS,
 			min_enactment_period: 10 * MINUTES,
-			min_approval: Curve::make_linear(0, 3, percent(50), percent(70)),
-			min_support: Curve::make_linear(0, 3, percent(50), percent(50)),
+			min_approval: Curve::make_reciprocal(1, 3, percent(70), percent(50), percent(100)),
+			min_support: Curve::make_reciprocal(1, 3, percent(15), percent(5), percent(50)),
 		},
 	},
 	pallet_referenda::Track {
@@ -105,8 +102,8 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 			decision_period: 7 * DAYS,
 			confirm_period: 3 * HOURS,
 			min_enactment_period: 10 * MINUTES,
-			min_approval: Curve::make_linear(0, 7, percent(50), percent(70)),
-			min_support: Curve::make_linear(0, 7, percent(50), percent(50)),
+			min_approval: Curve::make_reciprocal(4, 7, percent(80), percent(50), percent(100)),
+			min_support: Curve::make_reciprocal(1, 7, percent(20), percent(5), percent(50)),
 		},
 	},
 ];

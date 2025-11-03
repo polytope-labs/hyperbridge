@@ -8,7 +8,7 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { TESTNET_STATE_MACHINE_IDS } from "@/testnet-state-machine-ids"
 
 import { TokenRegistryService } from "./token-registry.service"
-import { TokenConfig } from "@/addresses/token-registry.addresses"
+import { TOKEN_REGISTRY, TokenConfig } from "@/addresses/token-registry.addresses"
 
 const DEFAULT_PROVIDER = "COINGECKO" as const
 
@@ -42,10 +42,15 @@ export class TokenPriceService {
 		}
 
 		try {
+			const allowedConfig = TOKEN_REGISTRY.find((cfg) => cfg.symbol === symbol)
+			if (!allowedConfig) {
+				logger.warn(`[TokenPriceService.getPrice] Skipping dynamic price for non-whitelisted token: ${symbol}`)
+				return 0
+			}
+
 			let token = await TokenRegistryService.get(symbol)
 			if (!token) {
-				const tokenConfig = { name: symbol, symbol, updateFrequencySeconds: 600 } as TokenConfig
-				token = await TokenRegistryService.getOrCreateToken(tokenConfig, currentTimestamp)
+				token = await TokenRegistryService.getOrCreateToken(allowedConfig as TokenConfig, currentTimestamp)
 			}
 
 			let tokenPrice = await TokenPrice.get(symbol)
@@ -144,16 +149,23 @@ export class TokenPriceService {
 	 * @param currency - Currency to update (defaults to USD)
 	 */
 	static async syncAllTokenPrices(currentTimestamp: bigint): Promise<void> {
-		const tokens = await TokenRegistryService.getTokens()
+		const allowedConfigs = TOKEN_REGISTRY
 
-		const tokensToUpdate = tokens.map(async (token) => {
-			const tokenPrice = await TokenPrice.get(token.symbol)
+		await Promise.all(
+			allowedConfigs.map((cfg) => TokenRegistryService.getOrCreateToken(cfg as TokenConfig, currentTimestamp)),
+		)
+
+		const tokensToUpdate = allowedConfigs.map(async (cfg) => {
+			const token = await TokenRegistryService.get(cfg.symbol)
+			if (!token) return null
+
+			const tokenPrice = await TokenPrice.get(cfg.symbol)
 			if (!tokenPrice) {
-				return token.symbol
+				return cfg.symbol
 			}
 
 			const isStale = await TokenRegistryService.isStale(token, tokenPrice.lastUpdatedAt, currentTimestamp)
-			return isStale ? token.symbol : null
+			return isStale ? cfg.symbol : null
 		})
 
 		const checkResults = await Promise.allSettled(tokensToUpdate)

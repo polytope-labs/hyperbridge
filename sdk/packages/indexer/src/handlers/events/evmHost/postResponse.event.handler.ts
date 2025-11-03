@@ -122,7 +122,12 @@ export const handlePostResponseEvent = wrap(async (event: PostResponseEventLog):
 			const logFrom = extractAddressFromTopic(fromTopic)
 			const logTo = extractAddressFromTopic(toTopic)
 
-			// Store all transfers for volume tracking
+			// Compute USD value first; skip zero-USD transfers
+			const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(log.address, value, blockTimestamp)
+			if (amountValueInUSD === "0") {
+				continue
+			}
+
 			await TransferService.storeTransfer({
 				transactionHash: transferId,
 				chain,
@@ -131,7 +136,6 @@ export const handlePostResponseEvent = wrap(async (event: PostResponseEventLog):
 				to: logTo,
 			})
 
-			const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(log.address, value, blockTimestamp)
 			await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
 
 			if (logFrom.toLowerCase() === eventTo.toLowerCase() || logTo.toLowerCase() === eventTo.toLowerCase()) {

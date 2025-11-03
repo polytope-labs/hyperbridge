@@ -80,6 +80,13 @@ export const handleGetRequestTimeoutHandled = wrap(async (event: GetRequestTimeo
 			const [_, fromTopic, toTopic] = log.topics
 			const from = extractAddressFromTopic(fromTopic)
 			const to = extractAddressFromTopic(toTopic)
+
+			// Compute USD value first; skip zero-USD transfers
+			const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(log.address, value, blockTimestamp)
+			if (amountValueInUSD === "0") {
+				continue
+			}
+
 			await TransferService.storeTransfer({
 				transactionHash: transferId,
 				chain,
@@ -88,7 +95,6 @@ export const handleGetRequestTimeoutHandled = wrap(async (event: GetRequestTimeo
 				to,
 			})
 
-			const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(log.address, value, blockTimestamp)
 			await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
 
 			const matchingContract = fromAddresses.find(

@@ -156,30 +156,6 @@ export class TokenGatewayService {
 			teleport.status = status
 			await teleport.save()
 
-			// Deduct points when teleport is refunded
-			if (status === TeleportStatus.REFUNDED) {
-				const teleportValue = new Decimal(teleport.usdValue)
-				const pointsToDeduct = teleportValue.floor().toNumber()
-
-				await PointsService.deductPoints(
-					teleport.from,
-					teleport.sourceChain,
-					BigInt(pointsToDeduct),
-					ProtocolParticipantType.USER,
-					PointsActivityType.TOKEN_TELEPORTED_POINTS,
-					transactionHash,
-					`Points deducted for refunded teleport ${commitment} with value ${teleport.usdValue} USD`,
-					timestamp,
-				)
-
-				const user = await getOrCreateUser(teleport.from)
-				user.totalSuccessfulTeleports = user.totalSuccessfulTeleports - BigInt(1)
-				user.totalSuccessfulTeleportedVolumeUSD = new Decimal(user.totalSuccessfulTeleportedVolumeUSD)
-					.minus(new Decimal(teleport.usdValue))
-					.toString()
-				await user.save()
-			}
-
 			const teleportStatusMetadata = await TeleportStatusMetadata.create({
 				id: `${commitment}.${status}`,
 				status,

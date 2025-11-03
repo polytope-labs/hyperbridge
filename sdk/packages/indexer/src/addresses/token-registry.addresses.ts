@@ -95,4 +95,14 @@ export const TOKEN_REGISTRY: TokenConfig[] = [
 		symbol: "vGLMR",
 		updateFrequencySeconds: DEFAULT_TOKEN_UPDATE_FREQUENCY,
 	},
+	{
+		name: "BNB",
+		symbol: "BNB",
+		updateFrequencySeconds: DEFAULT_TOKEN_UPDATE_FREQUENCY,
+	},
+	{
+		name: "Polygon",
+		symbol: "POL",
+		updateFrequencySeconds: DEFAULT_TOKEN_UPDATE_FREQUENCY,
+	},
 ]

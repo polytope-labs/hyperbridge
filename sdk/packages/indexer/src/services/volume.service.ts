@@ -1,7 +1,7 @@
 import Decimal from "decimal.js"
 
 import { CumulativeVolumeUSD, DailyVolumeUSD } from "@/configs/src/types"
-import { getDateFormatFromTimestamp, isWithin24Hours, timestampToDate } from "@/utils/date.helpers"
+import { getDateFormatFromTimestamp, timestampToDate } from "@/utils/date.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 
 export class VolumeService {
@@ -42,24 +42,26 @@ export class VolumeService {
 	 */
 	static async updateDailyVolume(baseId: string, volumeUSD: string, timestamp: bigint): Promise<void> {
 		const id = this.getChainTypeId(baseId)
-		const dailyRecordId = this.getDailyRecordId(id, timestamp)
+		const day = timestampToDate(timestamp)
+		day.setUTCHours(0, 0, 0, 0)
+		const dateString = day.toISOString().slice(0, 10)
+		const dailyRecordId = `${id}.${dateString}`
+
 		let dailyVolumeUSD = await DailyVolumeUSD.get(dailyRecordId)
 
 		if (!dailyVolumeUSD) {
 			dailyVolumeUSD = DailyVolumeUSD.create({
 				id: dailyRecordId,
-				last24HoursVolumeUSD: new Decimal(volumeUSD).toFixed(18),
+				last24HoursVolumeUSD: "0",
 				lastUpdatedAt: timestamp,
-				createdAt: timestampToDate(timestamp),
+				createdAt: day,
 			})
 		}
 
-		if (isWithin24Hours(dailyVolumeUSD.createdAt, timestamp) && dailyVolumeUSD.lastUpdatedAt !== timestamp) {
-			dailyVolumeUSD.last24HoursVolumeUSD = new Decimal(dailyVolumeUSD.last24HoursVolumeUSD)
-				.plus(new Decimal(volumeUSD))
-				.toFixed(18)
-			dailyVolumeUSD.lastUpdatedAt = timestamp
-		}
+		dailyVolumeUSD.last24HoursVolumeUSD = new Decimal(dailyVolumeUSD.last24HoursVolumeUSD)
+			.plus(new Decimal(volumeUSD))
+			.toFixed(18)
+		dailyVolumeUSD.lastUpdatedAt = timestamp
 
 		await dailyVolumeUSD.save()
 	}

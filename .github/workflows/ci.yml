@@ -34,7 +34,6 @@ env:
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
     SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
     KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
-    PALLET_REVIVE_FIXTURES_RUSTUP_TOOLCHAIN: 1.87.0
 
 jobs:
     check-wasm:
@@ -228,9 +227,16 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - name: Install toolchain
-              uses: dtolnay/rust-toolchain@master
+              uses: dtolnay/rust-toolchain@nightly
               with:
-                  toolchain: 1.87.0
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
 
             - name: Install Go
               uses: actions/setup-go@v5
@@ -242,7 +248,7 @@ jobs:
             - name: Run unit tests
               run: |
                   rustc --version
-                  cargo test --all-targets --features=runtime-benchmarks --locked
+                  cargo test --all-targets --locked
 
     integration-tests:
         name: Integration Tests

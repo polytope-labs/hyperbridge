@@ -17,7 +17,7 @@ The SDK abstracts away complex calculations like:
 - Fee token conversions
 - Protocol fee calculations
 - Relayer fee determination
-- Proof generation and submission
+- Cancellation proof handling and submission
 
 ## Getting Started
 
@@ -72,7 +72,7 @@ The SDK's `estimateFillOrder()` method calculates all these components automatic
 
 ### Basic Fee Estimation
 
-````typescript
+```typescript
 import { bytes20ToBytes32 } from "@hyperbridge/sdk/utils";
 import { Order } from "@hyperbridge/sdk/types";
 
@@ -111,7 +111,7 @@ const {
 
 console.log(`Fee in fee token: ${feeTokenAmount}`); // e.g., 2_800_000_000_000_000_000 (2.8 DAI)
 console.log(`Fee in native token: ${nativeTokenAmount}`); // e.g., equivalent ETH amount
-
+```
 
 ### How Fee Estimation Works
 
@@ -202,7 +202,7 @@ const hash = await walletClient.writeContract({
 });
 
 console.log(`Order placed: ${hash}`);
-````
+```
 
 ### Paying Fees with Fee Token (Alternative)
 
@@ -258,7 +258,7 @@ This method:
 
 ## Canceling Orders
 
-Order cancellation is one of the most complex features, requiring cryptographic proofs to verify that an order was **not** filled on the destination chain.
+Order cancellation proves on-chain that an order was not filled before its deadline. The SDK automates fetching proofs, tracking finality, submitting the Hyperbridge message, and resuming from interruptions.
 
 ### When to Cancel
 
@@ -270,106 +270,79 @@ You can cancel an order when:
 
 ### The Cancellation Process
 
-Cancellation uses ISMP's GET request mechanism to prove an order is unfilled:
+The SDK orchestrates the [ISMP GET request](/protocol/ismp/requests) flow. Your responsibilities are:
 
-1. **Destination Finalization**: Wait for the order expiry height for destination chain state to be finalized on Hyperbridge
-2. **Storage Proof**: Get proof that order's storage slot is empty (unfilled). We query the storage proof immediately, to mitigate a known issue where RPC providers prune their state tries too quickly, Becoming unable to serve `eth_getProof` requests
-3. **GET Request**: Dispatch GET request to query destination storage
-4. **Source Finalization**: Wait for GET request to be finalized on Hyperbridge
-5. **Source Proof**: Get proof of GET request from source chain
-6. **Submission**: Submit proofs of the get request & storage proof of it's response to Hyperbridge for verification
-7. **Response**: Hyperbridge verifies and triggers refund
+1. Start the cancellation generator.
+2. Wait for `DESTINATION_FINALIZED` and read the finalized height.
+3. Submit the `cancelOrder` transaction on source chain with `{ relayerFee, height }`.
+4. Provide the resulting transaction hash back to the generator when it yields `AWAITING_GET_REQUEST`.
+5. Iterate until `HYPERBRIDGE_FINALIZED`.
 
 ### Basic Cancellation
 
 ```typescript
 import { IndexerClient } from "@hyperbridge/sdk/client";
 import { createQueryClient } from "@hyperbridge/sdk/query-client";
+import { EvmChain, SubstrateChain } from "@hyperbridge/sdk/chain";
 
-// 1. Set up indexer client for tracking status
+// 1. Create/reuse the indexer client
 const queryClient = createQueryClient({
   url: "https://indexer.hyperbridge.network",
 });
+const sourceChain = new EvmChain({
+  chainId: 56,
+  host: bscHostAddress,
+  rpcUrl: "https://bsc-dataseed.binance.org",
+});
+const destChain = new EvmChain({
+  chainId: 1,
+  host: ethHostAddress,
+  rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY",
+});
+const hyperbridgeChain = new SubstrateChain({
+  wsUrl: "wss://hyperbridge.polkadot.io",
+  stateMachineId: "KUSAMA-4009",
+  consensusStateId: "PAS0",
+  hasher: "Keccak",
+});
+await hyperbridgeChain.connect();
 
 const indexerClient = new IndexerClient({
-  source: {
-    consensusStateId: "BSC0",
-    rpcUrl: "https://bsc-dataseed.binance.org",
-    stateMachineId: "EVM-56",
-    host: bscHostAddress,
-  },
-  dest: {
-    consensusStateId: "ETH0",
-    rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY",
-    stateMachineId: "EVM-1",
-    host: ethHostAddress,
-  },
-  hyperbridge: {
-    consensusStateId: "PAS0",
-    stateMachineId: "KUSAMA-4009",
-    wsUrl: "wss://hyperbridge.polkadot.io",
-    hasher: "Keccak" as const,
-  },
+  source: sourceChain,
+  dest: destChain,
+  hyperbridge: hyperbridgeChain,
   queryClient,
   pollInterval: 1_000,
 });
 
-// 2. Set up Hyperbridge configuration
-const hyperbridgeConfig = {
-  wsUrl: "wss://hyperbridge.polkadot.io",
-  consensusStateId: "PAS0",
-  stateMachineId: "KUSAMA-4009",
-};
+// 2. Start cancellation (generator)
+const cancelGen = intentGateway.cancelOrder(order, indexerClient);
 
-// 3. Start cancellation (generator function)
-const cancelGenerator = intentGateway.cancelOrder(
-  order,
-  hyperbridgeConfig,
-  indexerClient
-);
-
-// 4. Process cancellation steps
-let result = await cancelGenerator.next();
-
-// Wait for destination finalization
-while (!result.done && result.value?.status !== "DESTINATION_FINALIZED") {
-  const status = result.value?.status;
-
-  switch (status) {
-    case "AWAITING_DESTINATION_FINALIZED":
-      console.log(
-        `Waiting for finalization. Current height: ${result.value.data.currentHeight}`
-      );
-      break;
-    case "PROOF_FETCH_FAILED":
-      console.log(
-        `Proof fetch failed at height: ${result.value.data.failedHeight}`
-      );
-      break;
-  }
-
-  result = await cancelGenerator.next();
+// 3. Wait for destination finalization
+let step = await cancelGen.next();
+while (!step.done && step.value?.status !== "DESTINATION_FINALIZED") {
+  step = await cancelGen.next();
 }
 
-console.log("Destination finalized!");
-const destProof = result.value.data.proof;
+const finalizedHeight = step.value.data.proof.height;
 ```
 
-### Submitting the GET Request
-
-Once the destination is finalized, you need to dispatch the GET request:
+### Submit cancel transaction and continue
 
 ```typescript
-// 5. Get finalized height from proof
-const finalizedHeight = destProof.height;
+import { parseUnits } from "viem";
 
-// 6. Prepare cancel options
+// 4. Submit cancel transaction on the source chain
 const cancelOptions = {
-  relayerFee: parseUnits("0.05", 18), // Minimum $0.05
+  relayerFee: parseUnits("0.05", 18),
   height: finalizedHeight,
 };
 
-// 7. Submit cancel request to source chain
+// Resolve the IntentGateway address on the source chain
+const intentGatewayAddress = sourceChain.configService.getIntentGatewayAddress(
+  sourceChain.config.stateMachineId
+);
+
 const hash = await walletClient.writeContract({
   address: intentGatewayAddress,
   abi: IntentGatewayABI.ABI,
@@ -377,88 +350,27 @@ const hash = await walletClient.writeContract({
   args: [order, cancelOptions],
 });
 
-const receipt = await publicClient.waitForTransactionReceipt({ hash });
-
-// 8. Parse GET request from event logs
-import { parseEventLogs } from "viem";
-import EVM_HOST from "@hyperbridge/sdk/abis/evmHost";
-
-const event = parseEventLogs({
-  abi: EVM_HOST.ABI,
-  logs: receipt.logs,
-})[0];
-
-if (event.eventName !== "GetRequestEvent") {
-  throw new Error("Unexpected event type");
-}
-
-const { source, dest, from, nonce, height, keys, timeoutTimestamp, context } =
-  event.args;
-
-const getRequest = {
-  source,
-  dest,
-  from,
-  nonce,
-  height,
-  keys: Array.from(keys),
-  timeoutTimestamp,
-  context,
-};
+// 5. Provide the transaction hash back to the generator
+let result = await cancelGen.next(hash);
 ```
 
 ### Completing the Cancellation
 
 ```typescript
-// 9. Wait for source proof and continue
-result = await cancelGenerator.next();
-expect(result.value?.status).toBe("AWAITING_GET_REQUEST");
-
-// 10. Provide GET request to generator
-result = await cancelGenerator.next(getRequest);
-expect(result.value?.status).toBe("SOURCE_PROOF_RECEIVED");
-
-// 11. Monitor until Hyperbridge finalizes
+// 6. Monitor until Hyperbridge finalizes
 while (!result.done) {
   if (result.value?.status === "HYPERBRIDGE_FINALIZED") {
     console.log("Cancellation complete!");
-    console.log(`Transaction: ${result.value.metadata.transactionHash}`);
+    console.log(`Refund tx: ${result.value.data.metadata.transactionHash}`);
     break;
   }
-  result = await cancelGenerator.next();
+  result = await cancelGen.next();
 }
-
-// Tokens and fees are now refunded to your address
 ```
 
-### Cancellation with Stored Data
+### Automatic resume on interruptions
 
-If the cancellation is interrupted, you can resume by providing stored proofs:
-
-```typescript
-interface StoredCancellationData {
-  destIProof?: IProof;
-  getRequest?: IGetRequest;
-  sourceIProof?: IProof;
-}
-
-const storedData: StoredCancellationData = {
-  destIProof: {
-    consensusStateId: "ETH0",
-    height: 20000000n,
-    proof: "0x...",
-    stateMachine: "EVM-1",
-  },
-  // ... other stored data
-};
-
-const cancelGenerator = intentGateway.cancelOrder(
-  order,
-  hyperbridgeConfig,
-  indexerClient,
-  storedData // Resume from stored state
-);
-```
+The SDK persists intermediate data (destination proof, GET request, source proof). If your process restarts, call `cancelOrder(order, indexerClient)` again; it will resume automatically.
 
 ## Complete Examples
 
@@ -612,18 +524,12 @@ import { IntentGateway } from "@hyperbridge/sdk/protocols/intents";
 import { IndexerClient } from "@hyperbridge/sdk/client";
 import { createQueryClient } from "@hyperbridge/sdk/query-client";
 import { ChainConfigService } from "@hyperbridge/sdk/configs/ChainConfigService";
-import {
-  parseUnits,
-  parseEventLogs,
-  createWalletClient,
-  createPublicClient,
-  http,
-} from "viem";
+import { parseUnits, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { bscTestnet } from "viem/chains";
 import IntentGatewayABI from "@hyperbridge/sdk/abis/IntentGateway";
-import EVM_HOST from "@hyperbridge/sdk/abis/evmHost";
 import type { Order } from "@hyperbridge/sdk/types";
+import { SubstrateChain } from "@hyperbridge/sdk/chain";
 
 async function cancelExpiredOrder(order: Order) {
   // 1. Setup
@@ -648,41 +554,34 @@ async function cancelExpiredOrder(order: Order) {
     url: process.env.INDEXER_URL,
   });
 
+  const sourceChain = new EvmChain({
+    chainId: 97,
+    host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
+    rpcUrl: process.env.BSC_CHAPEL,
+  });
+  const destChain = new EvmChain({
+    chainId: 11155111,
+    host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
+    rpcUrl: process.env.SEPOLIA,
+  });
+  const hyperbridgeChain = new SubstrateChain({
+    wsUrl: process.env.HYPERBRIDGE_GARGANTUA,
+    stateMachineId: "KUSAMA-4009",
+    consensusStateId: "PAS0",
+    hasher: "Keccak",
+  });
+  await hyperbridgeChain.connect();
+
   const indexer = new IndexerClient({
-    source: {
-      consensusStateId: "BSC0",
-      rpcUrl: process.env.BSC_CHAPEL,
-      stateMachineId: "EVM-97",
-      host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
-    },
-    dest: {
-      consensusStateId: "ETH0",
-      rpcUrl: process.env.SEPOLIA,
-      stateMachineId: "EVM-11155111",
-      host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
-    },
-    hyperbridge: {
-      consensusStateId: "PAS0",
-      stateMachineId: "KUSAMA-4009",
-      wsUrl: process.env.HYPERBRIDGE_GARGANTUA,
-      hasher: "Keccak" as const,
-    },
+    source: sourceChain,
+    dest: destChain,
+    hyperbridge: hyperbridgeChain,
     queryClient,
     pollInterval: 1_000,
   });
 
-  const hyperbridgeConfig = {
-    wsUrl: process.env.HYPERBRIDGE_GARGANTUA,
-    consensusStateId: "PAS0",
-    stateMachineId: "KUSAMA-4009",
-  };
-
   // 3. Start cancellation
-  const cancelGen = intentGateway.cancelOrder(
-    order,
-    hyperbridgeConfig,
-    indexer
-  );
+  const cancelGen = intentGateway.cancelOrder(order, indexer);
 
   let result = await cancelGen.next();
 
@@ -718,33 +617,14 @@ async function cancelExpiredOrder(order: Order) {
     transport: http(process.env.BSC_CHAPEL),
   });
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // 6. Provide the tx hash back to the generator
+  result = await cancelGen.next(hash);
 
-  // 6. Parse GET request
-  const event = parseEventLogs({
-    abi: EVM_HOST.ABI,
-    logs: receipt.logs,
-  })[0];
-
-  const getRequest = {
-    source: event.args.source,
-    dest: event.args.dest,
-    from: event.args.from,
-    nonce: event.args.nonce,
-    height: event.args.height,
-    keys: Array.from(event.args.keys),
-    timeoutTimestamp: event.args.timeoutTimestamp,
-    context: event.args.context,
-  };
-
-  // 7. Continue cancellation with GET request
-  result = await cancelGen.next(getRequest);
-
-  // 8. Wait for finalization
+  // 7. Wait for finalization
   while (!result.done) {
     if (result.value?.status === "HYPERBRIDGE_FINALIZED") {
       console.log("Cancellation complete!");
-      console.log(`Refund tx: ${result.value.metadata.transactionHash}`);
+      console.log(`Refund tx: ${result.value.data.metadata.transactionHash}`);
       break;
     }
     result = await cancelGen.next();
@@ -882,13 +762,13 @@ async function placeOrderWithDestinationCalldata() {
     await intentGateway.estimateFillOrder(order);
 
   // Approvals omitted for brevity. Then place order paying fees in native token:
-  // await walletClient.writeContract({
-  //   address: chainConfig.getIntentGatewayAddress("EVM-1"),
-  //   abi: IntentGatewayABI.ABI,
-  //   functionName: "placeOrder",
-  //   args: [priced, "0x"],
-  //   value: nativeTokenAmount,
-  // });
+  await walletClient.writeContract({
+    address: chainConfig.getIntentGatewayAddress("EVM-1"),
+    abi: IntentGatewayABI.ABI,
+    functionName: "placeOrder",
+    args: [priced, "0x"],
+    value: nativeTokenAmount,
+  });
 }
 ```
 

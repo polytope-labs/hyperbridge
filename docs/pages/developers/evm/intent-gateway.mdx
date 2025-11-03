@@ -11,7 +11,7 @@ The Intent Gateway operates as a **cross-chain escrow and settlement system** wh
 3. **Settlement** happens automatically through ISMP messaging
 4. **Cancellations** are possible for unfilled orders
 
-> **Looking to integrate?** Check out the [Intent Gateway SDK Guide](./intent-gateway-sdk.mdx) for a complete TypeScript implementation with automated fee calculation, order placement, and cancellation handling.
+> **Looking to integrate?** Check out the [Intent Gateway SDK Guide](/developers/evm/intent-gateway-sdk) for a complete TypeScript implementation with automated fee calculation, order placement, and cancellation handling.
 
 ## Key Concepts
 
@@ -496,10 +496,10 @@ The Intent Gateway uses `bytes32` for token addresses, requiring proper conversi
 
 ```typescript
 // Convert ERC20 address to bytes32 (with leading zeros)
-const tokenBytes32 = ethers.zeroPadValue(tokenAddress, 32)
+const tokenBytes32 = ethers.zeroPadValue(tokenAddress, 32);
 
 // Convert bytes32 back to address
-const tokenAddress = ethers.getAddress(ethers.dataSlice(tokenBytes32, 12))
+const tokenAddress = ethers.getAddress(ethers.dataSlice(tokenBytes32, 12));
 ```
 
 ### Chain Identification
@@ -508,11 +508,11 @@ Chain identifiers can be obtained in two ways:
 
 ```typescript
 // Method 1: Read from ISMP Host contract
-const sourceChain = await bscIsmpHost.read.host()
-const destChain = await gnosisChiadoIsmpHost.read.host()
+const sourceChain = await bscIsmpHost.read.host();
+const destChain = await gnosisChiadoIsmpHost.read.host();
 
 // Method 2: Construct from chain ID
-const destChain = ethers.toUtf8Bytes(`EVM-${chainId}`)
+const destChain = ethers.toUtf8Bytes(`EVM-${chainId}`);
 ```
 
 ### Decimal Handling
@@ -521,17 +521,17 @@ Different chains use tokens with different decimals:
 
 ```typescript
 // Ethereum USDC: 6 decimals
-const ethUSDC = ethers.parseUnits("1000", 6) // 1000_000_000
+const ethUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
 
 // Arbitrum USDC: 6 decimals
-const arbUSDC = ethers.parseUnits("1000", 6) // 1000_000_000
+const arbUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
 
 // BSC USDT: 18 decimals
-const bscUSDT = ethers.parseUnits("1000", 18) // 1000_000_000_000_000_000_000
+const bscUSDT = ethers.parseUnits("1000", 18); // 1000_000_000_000_000_000_000
 
 // Fee tokens also vary by chain
-const ethFees = ethers.parseEther("2.8") // DAI: 18 decimals
-const arbFees = ethers.parseUnits("2.8", 6) // USDC: 6 decimals
+const ethFees = ethers.parseEther("2.8"); // DAI: 18 decimals
+const arbFees = ethers.parseUnits("2.8", 6); // USDC: 6 decimals
 ```
 
 ## Advanced Features

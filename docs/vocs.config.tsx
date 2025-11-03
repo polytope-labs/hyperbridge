@@ -370,16 +370,6 @@ export default defineConfig({
             text: "Receiving Messages",
             link: "/developers/evm/receiving",
           },
-
-          {
-            text: "Intent Gateway",
-            link: "/developers/evm/intent-gateway",
-          },
-
-          {
-            text: "Intent Gateway Filler",
-            link: "/developers/evm/filler",
-          },
         ],
       },
       {
@@ -455,6 +445,26 @@ export default defineConfig({
           //   text: "Supported Networks",
           //   link: "/developers/polkadot/networks",
           // },
+        ],
+      },
+      {
+        text: "Intent Gateway",
+        collapsed: true,
+        items: [
+          {
+            text: "Intent Gateway Contract",
+            link: "/developers/evm/intent-gateway",
+          },
+
+          {
+            text: "Intent Gateway SDK",
+            link: "/developers/evm/intent-gateway-sdk",
+          },
+
+          {
+            text: "Intent Gateway Filler",
+            link: "/developers/evm/filler",
+          },
         ],
       },
       {

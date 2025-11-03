@@ -1,13 +1,13 @@
 name: CI
 
 on:
-#    push:
-#        branches:
-#            - main
-
-    pull_request:
-      branches:
+   push:
+       branches:
         - fix-ci
+
+   pull_request:
+      branches:
+        - main
 
 #    pull_request_target:
 #        types: [opened, synchronize]

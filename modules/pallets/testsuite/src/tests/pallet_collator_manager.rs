@@ -271,3 +271,68 @@ fn note_author_pays_reward_from_treasury() {
 		assert_eq!(treasury_final_balance, treasury_initial_balance - reward_amount);
 	});
 }
+
+#[test]
+fn register_controller_works() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let controller = BOB;
+
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			controller.clone()
+		));
+
+		assert_eq!(
+			pallet_collator_manager::Controller::<Test>::get(&stash),
+			Some(controller.clone())
+		);
+		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&controller), Some(stash));
+	});
+}
+
+#[test]
+fn set_controller_works() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let old_controller = BOB;
+		let new_controller = CHARLIE;
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			old_controller.clone()
+		));
+
+		assert_ok!(CollatorManager::set_controller(
+			RuntimeOrigin::signed(stash.clone()),
+			new_controller.clone()
+		));
+
+		assert_eq!(
+			pallet_collator_manager::Controller::<Test>::get(&stash),
+			Some(new_controller.clone())
+		);
+		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&old_controller), None);
+		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&new_controller), Some(stash));
+	});
+}
+
+#[test]
+fn deregister_works() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let controller = BOB;
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			controller.clone()
+		));
+
+		assert_ok!(CollatorManager::deregister(RuntimeOrigin::signed(stash.clone())));
+
+		assert_eq!(pallet_collator_manager::Controller::<Test>::get(&stash), None);
+		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&controller), None);
+	});
+}

@@ -42,7 +42,10 @@ pub mod pallet {
 			tokens::{Fortitude, Precision, Preservation},
 		},
 	};
-	use frame_system::pallet_prelude::{BlockNumberFor, OriginFor};
+	use frame_system::{
+		ensure_signed,
+		pallet_prelude::{BlockNumberFor, OriginFor},
+	};
 	use pallet_session::SessionManager;
 	use scale_info::TypeInfo;
 	use sp_runtime::{
@@ -118,6 +121,14 @@ pub mod pallet {
 	pub type Bonded<T: Config> =
 		StorageMap<_, Blake2_128Concat, T::AccountId, <T as pallet::Config>::Balance, ValueQuery>;
 
+	#[pallet::storage]
+	pub type Controller<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
+
+	#[pallet::storage]
+	pub type Stash<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
+
 	/// The reward value for collators
 	#[pallet::storage]
 	#[pallet::getter(fn collator_reward)]
@@ -128,6 +139,16 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// The account does not have enough unreserved funds to bond the requested amount.
 		InsufficientBalance,
+		/// The specified account is not a stash account.
+		AlreadyRegistered,
+		/// The stash account has no bond associated with it.
+		NoBond,
+		/// The specified account is not a stash account.
+		NotStash,
+		/// The specified account is not a controller account.
+		NoController,
+		/// The specified controller account is already paired with another stash.
+		AlreadyPaired,
 	}
 
 	#[pallet::event]
@@ -147,6 +168,27 @@ pub mod pallet {
 			/// The new reward amount
 			new_reward: <T as pallet::Config>::Balance,
 		},
+		/// A new stash account has been registered with a controller.
+		Registered {
+			/// The stash account that was registered.
+			stash: T::AccountId,
+			/// The controller account set for the stash.
+			controller: T::AccountId,
+		},
+		/// A stash account has been deregistered, removing it's controller.
+		Deregistered {
+			/// The stash account that was deregistered/
+			stash: T::AccountId,
+		},
+		/// A stash account has changed it's controller account.
+		ControllerSet {
+			/// The stash account that was affected.
+			stash: T::AccountId,
+			/// The old controller account.
+			old_controller: T::AccountId,
+			/// The new controller account.
+			new_controller: T::AccountId,
+		},
 	}
 
 	#[pallet::call]
@@ -161,6 +203,55 @@ pub mod pallet {
 			<T as pallet::Config>::AdminOrigin::ensure_origin(origin)?;
 			CollatorReward::<T>::put(new_reward);
 			Self::deposit_event(Event::CollatorRewardAmountUpdated { new_reward });
+			Ok(())
+		}
+
+		/// Registers a controller account for a bonded stash.
+		/// The origin must be a stash account, which must have already bonded funds
+		/// via `pallet-collator-selection`
+		#[pallet::call_index(1)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::register())]
+		pub fn register(origin: OriginFor<T>, controller: T::AccountId) -> DispatchResult {
+			let stash = ensure_signed(origin)?;
+			ensure!(Bonded::<T>::contains_key(&stash), Error::<T>::NoBond);
+			ensure!(!Controller::<T>::contains_key(&stash), Error::<T>::AlreadyRegistered);
+			ensure!(!Stash::<T>::contains_key(&controller), Error::<T>::AlreadyPaired);
+
+			Controller::<T>::insert(&stash, &controller);
+			Stash::<T>::insert(&controller, &stash);
+
+			Self::deposit_event(Event::Registered { stash, controller });
+			Ok(())
+		}
+
+		/// Change the controller account for a registered stash.
+		/// The origin must be the stash account
+		#[pallet::call_index(2)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::set_controller())]
+		pub fn set_controller(
+			origin: OriginFor<T>,
+			new_controller: T::AccountId,
+		) -> DispatchResult {
+			let stash = ensure_signed(origin)?;
+			let old_controller = Controller::<T>::get(&stash).ok_or(Error::<T>::NotStash)?;
+			ensure!(!Stash::<T>::contains_key(&new_controller), Error::<T>::AlreadyPaired);
+
+			Controller::<T>::insert(&stash, &new_controller);
+			Stash::<T>::remove(&old_controller);
+			Stash::<T>::insert(&new_controller, &stash);
+
+			Self::deposit_event(Event::ControllerSet { stash, old_controller, new_controller });
+			Ok(())
+		}
+
+		/// Deregister a stash account, unbinding it's controller.
+		#[pallet::call_index(3)]
+		#[pallet::weight(<T as pallet::Config>::WeightInfo::deregister())]
+		pub fn deregister(origin: OriginFor<T>) -> DispatchResult {
+			let stash = ensure_signed(origin)?;
+			let controller = Controller::<T>::take(&stash).ok_or(Error::<T>::NotStash)?;
+			Stash::<T>::remove(&controller);
+			Self::deposit_event(Event::Deregistered { stash });
 			Ok(())
 		}
 	}
@@ -455,11 +546,26 @@ pub mod pallet {
 pub trait WeightInfo {
 	/// sets collator reward
 	fn set_collator_reward() -> Weight;
+	/// registers a controller account
+	fn register() -> Weight;
+	/// change the controller account for a stash
+	fn set_controller() -> Weight;
+	/// deregisters a stash account, unbinding it's controller.
+	fn deregister() -> Weight;
 }
 
 /// Default weight implementation using sensible defaults
 impl WeightInfo for () {
 	fn set_collator_reward() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+	fn register() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+	fn set_controller() -> Weight {
+		Weight::from_parts(10_000_000, 0)
+	}
+	fn deregister() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 	}
 }

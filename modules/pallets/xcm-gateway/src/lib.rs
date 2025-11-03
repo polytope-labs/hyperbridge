@@ -34,10 +34,7 @@ use frame_support::{
 	},
 };
 use polkadot_sdk::{
-	cumulus_primitives_core::{
-		All, AllCounted, BuyExecution, DepositAsset, Parachain, SetFeesMode, TransferReserveAsset,
-		Weight, Wild, Xcm,
-	},
+	cumulus_primitives_core::{AllCounted, DepositAsset, Parachain, Weight, Wild, Xcm},
 	staging_xcm_executor::traits::TransferType,
 };
 
@@ -408,7 +405,6 @@ where
 			Junction::AccountId32 { network: None, id: body.to.0 }.into();
 
 		let xcm_dest = VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
-		let fee_asset_item = 0;
 		let weight_limit = WeightLimit::Unlimited;
 		let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 
@@ -499,7 +495,6 @@ where
 				let asset_id = Location::parent();
 				let xcm_dest =
 					VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
-				let fee_asset_item = 0;
 				let weight_limit = WeightLimit::Unlimited;
 				let asset = Asset { id: AssetId(asset_id), fun: Fungibility::Fungible(amount) };
 

@@ -123,18 +123,6 @@ pub type Barrier = (
 	// ^^^ Parent and its exec plurality get free execution
 );
 
-fn chain_part(location: &Location) -> Option<Location> {
-	match (location.parents, location.first_interior()) {
-		// sibling parachain
-		(1, Some(Parachain(id))) => Some(Location::new(1, [Parachain(*id)])),
-		// parent
-		(1, _) => Some(Location::parent()),
-		// children parachain
-		(0, Some(Parachain(id))) => Some(Location::new(0, [Parachain(*id)])),
-		_ => None,
-	}
-}
-
 pub struct AssetsFromAssetHub;
 impl ContainsPair<Asset, Location> for AssetsFromAssetHub {
 	fn contains(asset: &Asset, origin: &Location) -> bool {

@@ -34,6 +34,7 @@ env:
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
     SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
     KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
+    PALLET_REVIVE_FIXTURES_RUSTUP_TOOLCHAIN": 1.87.0
 
 jobs:
     check-wasm:
@@ -240,6 +241,7 @@ jobs:
 
             - name: Run unit tests
               run: |
+                  rustc --version
                   cargo test --all-targets --features=runtime-benchmarks --locked
 
     integration-tests:

@@ -34,7 +34,6 @@ env:
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
     SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
     KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
-    SKIP_PALLET_REVIVE_FIXTURES: 1
 
 jobs:
     check-wasm:
@@ -230,10 +229,7 @@ jobs:
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
               with:
-                  toolchain: stable
-
-            - name: Update Rust
-              run: rustup update stable
+                  toolchain: 1.87.0
 
             - name: Install Go
               uses: actions/setup-go@v5
@@ -246,8 +242,6 @@ jobs:
                   rustup target add wasm32-unknown-unknown --toolchain nightly
                   rustup target add wasm32-unknown-unknown
                   rustup component add rust-src
-                  rm -rf /root/.cache/.polkavm-linker/
-                  rm -rf ~/.cache/.polkavm-linker/
 
             - uses: Swatinem/rust-cache@v2
 

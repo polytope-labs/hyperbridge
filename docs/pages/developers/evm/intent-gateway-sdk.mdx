@@ -330,11 +330,9 @@ const finalizedHeight = step.value.data.proof.height;
 ### Submit cancel transaction and continue
 
 ```typescript
-import { parseUnits } from "viem";
-
 // 4. Submit cancel transaction on the source chain
 const cancelOptions = {
-  relayerFee: parseUnits("0.05", 18),
+  relayerFee: 0n,
   height: finalizedHeight,
 };
 
@@ -601,7 +599,7 @@ async function cancelExpiredOrder(order: Order) {
   });
 
   const cancelOptions = {
-    relayerFee: parseUnits("0.05", 18),
+    relayerFee: 0n,
     height: finalizedHeight,
   };
 

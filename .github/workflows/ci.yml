@@ -227,7 +227,7 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
+              uses: dtolnay/rust-toolchain@master
               with:
                   toolchain: 1.87.0
 
@@ -235,13 +235,6 @@ jobs:
               uses: actions/setup-go@v5
               with:
                   go-version: "1.24"
-
-            - name: Add wasm toolchain
-              run: |
-                  rustup update nightly
-                  rustup target add wasm32-unknown-unknown --toolchain nightly
-                  rustup target add wasm32-unknown-unknown
-                  rustup component add rust-src
 
             - uses: Swatinem/rust-cache@v2
 

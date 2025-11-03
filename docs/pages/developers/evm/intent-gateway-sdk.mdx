@@ -330,7 +330,9 @@ const finalizedHeight = step.value.data.proof.height;
 ### Submit cancel transaction and continue
 
 ```typescript
-// 4. Submit cancel transaction on the source chain
+// 4. Get native amount required to dispatch GET, then submit cancel on source
+const nativeRequired = await intentGateway.quoteCancelNative(order);
+
 const cancelOptions = {
   relayerFee: 0n,
   height: finalizedHeight,
@@ -346,6 +348,7 @@ const hash = await walletClient.writeContract({
   abi: IntentGatewayABI.ABI,
   functionName: "cancelOrder",
   args: [order, cancelOptions],
+  value: nativeRequired,
 });
 
 // 5. Provide the transaction hash back to the generator
@@ -591,12 +594,14 @@ async function cancelExpiredOrder(order: Order) {
 
   const finalizedHeight = result.value.data.proof.height;
 
-  // 5. Submit cancel transaction
+  // 5. Get native amount and submit cancel transaction
   const walletClient = createWalletClient({
     account: privateKeyToAccount(process.env.PRIVATE_KEY),
     chain: bscTestnet,
     transport: http(process.env.BSC_CHAPEL),
   });
+
+  const nativeRequired = await intentGateway.quoteCancelNative(order);
 
   const cancelOptions = {
     relayerFee: 0n,
@@ -608,6 +613,7 @@ async function cancelExpiredOrder(order: Order) {
     abi: IntentGatewayABI.ABI,
     functionName: "cancelOrder",
     args: [order, cancelOptions],
+    value: nativeRequired,
   });
 
   const publicClient = createPublicClient({

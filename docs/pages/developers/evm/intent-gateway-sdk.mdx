@@ -369,6 +369,25 @@ while (!result.done) {
 }
 ```
 
+### Apply GET response on source chain (self-relay)
+
+After `HYPERBRIDGE_FINALIZED`, the generator provides `calldata` needed to finalize the refund on the source chain's Handler. Submit it as a transaction to the Handler contract.
+
+```typescript
+// 7. Submit the GET response to the Handler on the source chain
+// If you don't have it handy, derive `handlerAddress` from the source ISMP Host's hostParams.handler
+const handlerAddress = "0xYourSourceChainHandlerAddress" as `0x${string}`;
+
+const calldata = result.value?.data?.metadata?.calldata;
+
+const handlerTx = await walletClient.sendTransaction({
+  to: handlerAddress,
+  data: calldata,
+});
+
+console.log(`Handler execution tx: ${handlerTx}`);
+```
+
 ### Automatic resume on interruptions
 
 The SDK persists intermediate data (destination proof, GET request, source proof). If your process restarts, call `cancelOrder(order, indexerClient)` again; it will resume automatically.
@@ -632,6 +651,18 @@ async function cancelExpiredOrder(order: Order) {
       break;
     }
     result = await cancelGen.next();
+  }
+
+  // 8. Apply GET response on source chain (self-relay)
+  // If you don't have it handy, derive `handlerAddress` from the source ISMP Host's hostParams.handler
+  const handlerAddress = "0xYourSourceChainHandlerAddress" as `0x${string}`;
+  const calldata = result.value?.data?.metadata?.calldata;
+  if (calldata) {
+    const handlerTx = await walletClient.sendTransaction({
+      to: handlerAddress,
+      data: calldata,
+    });
+    console.log(`Handler execution tx: ${handlerTx}`);
   }
 }
 ```

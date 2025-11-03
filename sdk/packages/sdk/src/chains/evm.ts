@@ -39,7 +39,15 @@ import evmHost from "@/abis/evmHost"
 import HandlerV1 from "@/abis/handler"
 import type { IChain, IIsmpMessage } from "@/chain"
 import { ChainConfigService } from "@/configs/ChainConfigService"
-import type { HexString, IEvmConfig, IMessage, IPostRequest, StateMachineHeight, StateMachineIdParams } from "@/types"
+import type {
+	HexString,
+	IEvmConfig,
+	IGetRequest,
+	IMessage,
+	IPostRequest,
+	StateMachineHeight,
+	StateMachineIdParams,
+} from "@/types"
 import {
 	ADDRESS_ZERO,
 	EvmStateProof,
@@ -475,22 +483,26 @@ export class EvmChain implements IChain {
 	 * @param request - The post request to calculate the fee for
 	 * @returns The total fee in wei required to send the post request
 	 */
-	async quote(request: IPostRequest): Promise<bigint> {
+	async quote(request: IPostRequest | IGetRequest): Promise<bigint> {
+		// Exclude 0x prefix from the body length, and get the byte length
+		const bodyByteLength =
+			"body" in request ? Math.floor((request.body.length - 2) / 2) : Math.floor((request.context.length - 2) / 2)
+
+		const args = "body" in request ? [toHex(request.dest)] : [toHex(request.source)]
+
 		const perByteFee = await this.publicClient.readContract({
 			address: this.params.host,
 			abi: EvmHost.ABI,
 			functionName: "perByteFee",
-			args: [toHex(request.dest)],
+			args: args as any,
 		})
 
-		// Exclude 0x prefix from the body length, and get the byte length
-		const bodyByteLength = Math.floor((request.body.length - 2) / 2)
 		const length = bodyByteLength < 32 ? 32 : bodyByteLength
 
 		return perByteFee * BigInt(length)
 	}
 
-	async quoteNative(request: IPostRequest, fee: bigint): Promise<bigint> {
+	async quoteNative(request: IPostRequest | IGetRequest, fee: bigint): Promise<bigint> {
 		const totalFee = (await this.quote(request)) + fee
 		const feeToken = await this.getFeeTokenWithDecimals()
 		return this.getAmountsIn(totalFee, feeToken.address, request.source)

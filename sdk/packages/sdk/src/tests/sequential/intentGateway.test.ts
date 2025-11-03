@@ -1395,6 +1395,58 @@ describe.sequential("Order Cancellation tests", () => {
 
 		expect(result.value?.status).toBe("HYPERBRIDGE_FINALIZED")
 	}, 1_000_000)
+
+	it("Should quote native amount required for cancellation (BSC -> ETH)", async () => {
+		const { chainConfigService, bscMainnetIsmpHost, mainnetIsmpHost } = await setUp()
+
+		const bscMainnetId = "EVM-56"
+		const ethMainnetId = "EVM-1"
+
+		const source = new EvmChain({
+			chainId: 56,
+			host: chainConfigService.getHostAddress(bscMainnetId),
+			rpcUrl: process.env.BSC_MAINNET!,
+		})
+
+		const dest = new EvmChain({
+			chainId: 1,
+			host: chainConfigService.getHostAddress(ethMainnetId),
+			rpcUrl: process.env.ETH_MAINNET!,
+		})
+
+		const intentGateway = new IntentGateway(source, dest)
+
+		const sourceDaiAsset = chainConfigService.getDaiAsset(bscMainnetId)
+		const destDaiAsset = chainConfigService.getDaiAsset(ethMainnetId)
+		const user = "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
+
+		const order: Order = {
+			user,
+			sourceChain: await bscMainnetIsmpHost.read.host(),
+			destChain: await mainnetIsmpHost.read.host(),
+			deadline: 0n,
+			nonce: 0n,
+			fees: 0n,
+			outputs: [
+				{
+					token: bytes20ToBytes32(destDaiAsset),
+					amount: 100n,
+					beneficiary: user,
+				},
+			],
+			inputs: [
+				{
+					token: bytes20ToBytes32(sourceDaiAsset),
+					amount: 100n,
+				},
+			],
+			callData: "0x" as HexString,
+		}
+
+		const nativeRequired = await intentGateway.quoteCancelNative(order)
+		console.log("Native required for cancellation (BSC -> ETH):", nativeRequired)
+		expect(nativeRequired >= 0n).toBe(true)
+	}, 1_000_000)
 })
 
 async function setUp() {

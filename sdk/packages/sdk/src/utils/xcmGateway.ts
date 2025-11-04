@@ -1,10 +1,10 @@
 import type { HexString } from "@/types"
-import { StateMachine, sleep } from "@/utils"
+import { StateMachine } from "@/utils"
 import type { ApiPromise } from "@polkadot/api"
 import type { SignerOptions } from "@polkadot/api/types"
 import { hexToU8a, u8aToHex } from "@polkadot/util"
 import { decodeAddress, keccakAsHex } from "@polkadot/util-crypto"
-import { Bytes, Struct, Tuple, u8, u64, u128 } from "scale-ts"
+import { Bytes, Struct, u64 } from "scale-ts"
 import { parseUnits } from "viem"
 
 const MultiAccount = Struct({
@@ -42,7 +42,7 @@ export type HyperbridgeTxEvents =
 
 const DECIMALS = 10
 /**
- * Parameters for teleporting DOT from Polkadot relay chain to EVM-based destination
+ * Parameters for teleporting DOT from AssetHub to EVM-based destination
  */
 export type XcmGatewayParams = {
 	/**
@@ -76,38 +76,37 @@ export type XcmGatewayParams = {
 }
 
 /**
- * Teleports DOT tokens from Polkadot relay chain to an EVM-based destination chain
- * using XCM (Cross-Consensus Message Format) and uses the indexer client to track
- * the transaction instead of polling hyperbridge blocks.
+ * Teleports DOT tokens from AssetHub to Hyperbridge parachain
+ * using XCM V3 with transferAssetsUsingTypeAndThen.
  *
- * This function initiates a teleport transaction, monitors its status through the indexer,
- * and yields events about the transaction's progress through a ReadableStream.
+ * This function uses transferAssetsUsingTypeAndThen to construct XCM V3 transfers with a custom
+ * beneficiary structure that embeds Hyperbridge-specific parameters (sender account, recipient EVM address,
+ * timeout, and nonce) within an X4 junction. The beneficiary is wrapped in a DepositAsset XCM V3 instruction
+ * that deposits all transferred assets. The assets are transferred using LocalReserve transfer type.
+ *
  * It handles the complete lifecycle of a teleport operation:
- * 1. Transaction preparation and signing
- * 2. Broadcasting to the relay chain
- * 3. Tracking the transaction via the indexer client
- * 4. Yielding events about transaction status
+ * 1. Encoding Hyperbridge parameters into the beneficiary X4 junction
+ * 2. Wrapping the beneficiary in a DepositAsset XCM V3 instruction using sourceApi.createType
+ * 3. Constructing the XCM V3 transfer transaction using polkadotXcm.transferAssetsUsingTypeAndThen
+ * 4. Transaction signing and broadcasting
+ * 5. Yielding events about transaction status through a ReadableStream
  *
  * Note: There is no guarantee that both Dispatched and Finalized events will be yielded.
  * Consumers should listen for either one of these events instead of expecting both.
  *
- * @param sourceApi - Polkadot API instance connected to the relay chain or asset hub
- * @param sourceIsAssetHub - If `true` uses AssetHub Network for teleport
+ * @param sourceApi - Polkadot API instance connected to AssetHub
  * @param who - Sender's SS58Address address
  * @param options - Transaction signing options
- * @param params - Teleport parameters including destination, recipient, and amount
- * @param indexerClient - The indexer client to track the transaction
- * @param pollInterval - Optional polling interval in milliseconds (default: 2000)
+ * @param params - Teleport parameters including destination, recipient, amount, timeout, and paraId
  * @yields {HyperbridgeTxEvents} Stream of events indicating transaction status
  */
 export async function teleportDot(param_: {
 	sourceApi: ApiPromise
-	sourceIsAssetHub: boolean
 	who: string
 	xcmGatewayParams: XcmGatewayParams
 	options: Partial<SignerOptions>
 }): Promise<ReadableStream<HyperbridgeTxEvents>> {
-	const { sourceApi, sourceIsAssetHub, who, options, xcmGatewayParams: params } = param_
+	const { sourceApi, who, options, xcmGatewayParams: params } = param_
 	const { nonce: accountNonce } = (await sourceApi.query.system.account(who)) as any
 
 	const encoded_message = MultiAccount.enc({
@@ -120,9 +119,9 @@ export async function teleportDot(param_: {
 
 	const message_id = keccakAsHex(encoded_message)
 
-	// Set up the transaction parameters
+	// Set up the custom beneficiary with embedded Hyperbridge parameters
 	const beneficiary = {
-		V3: {
+		V4: {
 			parents: 0,
 			interior: {
 				X4: [
@@ -153,87 +152,66 @@ export async function teleportDot(param_: {
 		},
 	}
 
-	let assets
-	let destination
-
-	if (sourceIsAssetHub) {
-		destination = {
-			V3: {
-				parents: 1,
-				interior: {
-					X1: {
-						Parachain: params.paraId,
-					},
-				},
+	// AssetHub -> Hyperbridge parachain destination and assets
+	const destination = {
+		V4: {
+			parents: 1,
+			interior: {
+				X1: [{ Parachain: params.paraId }],
 			},
-		}
-
-		assets = {
-			V3: [
-				{
-					id: {
-						Concrete: {
-							parents: 1,
-							interior: "Here",
-						},
-					},
-					fun: {
-						Fungible: parseUnits(params.amount.toString(), DECIMALS),
-					},
-				},
-			],
-		}
-	} else {
-		destination = {
-			V3: {
-				parents: 0,
-				interior: {
-					X1: {
-						Parachain: params.paraId,
-					},
-				},
-			},
-		}
-
-		assets = {
-			V3: [
-				{
-					id: {
-						Concrete: {
-							parents: 0,
-							interior: "Here",
-						},
-					},
-					fun: {
-						Fungible: parseUnits(params.amount.toString(), DECIMALS),
-					},
-				},
-			],
-		}
+		},
 	}
 
-	const feeAssetItem = 0
+	const assets = {
+		V4: [
+			{
+				id: {
+					parents: 1,
+					interior: "Here",
+				},
+				fun: {
+					Fungible: parseUnits(params.amount.toString(), DECIMALS),
+				},
+			},
+		],
+	}
+
 	const weightLimit = "Unlimited"
 
-	let tx
-
-	if (sourceIsAssetHub) {
-		tx = sourceApi.tx.polkadotXcm.limitedReserveTransferAssets(
-			destination,
-			beneficiary,
-			assets,
-			feeAssetItem,
-			weightLimit,
-		)
-	} else {
-		tx = sourceApi.tx.xcmPallet.limitedReserveTransferAssets(
-			destination,
-			beneficiary,
-			assets,
-			feeAssetItem,
-			weightLimit,
-		)
+	// Fee asset ID must be wrapped with V4 version header as VersionedAssetId
+	const feeAssetId = {
+		V4: assets.V4[0].id,
 	}
+
+	// Wrap beneficiary in DepositAsset XCM instruction as required by transferAssetsUsingTypeAndThen
+	// This instruction deposits all transferred assets to the custom beneficiary
+	const customXcmOnDest = {
+		V4: [
+			{
+				DepositAsset: {
+					assets: {
+						Wild: {
+							AllCounted: 1,
+						},
+					},
+					beneficiary: beneficiary.V4,
+				},
+			},
+		],
+	}
+
+	// Use transferAssetsUsingTypeAndThen for AssetHub -> Hyperbridge transfer
+	// This method allows us to specify custom beneficiary with embedded Hyperbridge parameters
+	// TransferType: LocalReserve means assets are held in reserve on the source chain (AssetHub)
+	const tx = sourceApi.tx.polkadotXcm.transferAssetsUsingTypeAndThen(
+		destination,
+		assets,
+		{ LocalReserve: null }, // Assets transfer type
+		feeAssetId, // Fee asset ID wrapped as VersionedAssetId
+		{ LocalReserve: null }, // Remote fee transfer type
+		customXcmOnDest, // XCM instruction with DepositAsset containing custom beneficiary
+		weightLimit,
+	)
 
 	let closed = false
 	// Create the stream to report events

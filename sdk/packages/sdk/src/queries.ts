@@ -171,7 +171,7 @@ query GetResponseByRequestId($requestId: String!) {
 
 export const ORDER_STATUS = `
 query OrderStatus($commitment: String!) {
-  orderPlaceds(
+  orders(
     filter: { commitment: { equalTo: $commitment } }
   ) {
     nodes {
@@ -192,6 +192,7 @@ query OrderStatus($commitment: String!) {
       outputBeneficiaries
       calldata
       status
+      referrer
       createdAt
       blockNumber
       blockTimestamp

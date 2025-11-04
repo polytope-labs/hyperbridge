@@ -297,13 +297,15 @@ pub mod pallet {
 			let mut candidates = pallet_collator_selection::CandidateList::<T>::get()
 				.into_iter()
 				.map(|info| info.who)
-				.filter(|c| {
-					!active_collators.contains(&c.clone().into()) &&
-						pallet_session::NextKeys::<T>::get(c.clone().into()).is_some()
+				.filter_map(|stash_account| Controller::<T>::get(&stash_account))
+				.filter(|controller_account| {
+					!active_collators.contains(&controller_account.clone().into()) &&
+						pallet_session::NextKeys::<T>::get(controller_account.clone().into())
+							.is_some()
 				})
-				.filter_map(|account_id| {
-					let balance = T::ReputationAsset::balance(&account_id);
-					if balance.is_zero() { None } else { Some((balance, account_id)) }
+				.filter_map(|controller_account| {
+					let balance = T::ReputationAsset::balance(&controller_account);
+					if balance.is_zero() { None } else { Some((balance, controller_account)) }
 				})
 				.collect::<Vec<_>>();
 

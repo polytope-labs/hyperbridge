@@ -20,6 +20,7 @@ use polkadot_sdk::{
 	sp_runtime::traits::AccountIdConversion,
 	*,
 };
+use sp_core::crypto::AccountId32;
 
 fn create_reputation_asset() {
 	assert_ok!(Assets::force_create(
@@ -52,6 +53,7 @@ fn set_reputation_balance(who: &<Test as frame_system::Config>::AccountId, amoun
 fn register_candidate(who: <Test as frame_system::Config>::AccountId) {
 	let bond = 10 * UNIT;
 	set_reputation_balance(&who, bond);
+	set_session_keys(who.clone());
 	assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(who.clone())));
 }
 
@@ -66,6 +68,11 @@ fn set_session_keys(who: <Test as frame_system::Config>::AccountId) {
 fn test_new_collators_are_selected_based_on_reputation() {
 	new_test_ext().execute_with(|| {
 		create_reputation_asset();
+		let charlie_stash = AccountId32::new([13; 32]);
+		Balances::set_balance(&charlie_stash, INITIAL_BALANCE);
+
+		let dave_stash = AccountId32::new([14; 32]);
+		Balances::set_balance(&dave_stash, INITIAL_BALANCE);
 
 		set_session_keys(ALICE);
 		set_session_keys(BOB);
@@ -85,9 +92,19 @@ fn test_new_collators_are_selected_based_on_reputation() {
 
 		set_session_keys(CHARLIE);
 		set_session_keys(DAVE);
-		register_candidate(CHARLIE);
-		register_candidate(DAVE);
+		register_candidate(charlie_stash.clone());
+		register_candidate(dave_stash.clone());
 
+		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(charlie_stash.clone()),
+			CHARLIE
+		));
+
+		assert_ok!(CollatorManager::reserve(&dave_stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(RuntimeOrigin::signed(dave_stash.clone()), DAVE));
+
+		set_reputation_balance(&CHARLIE, 20 * UNIT);
 		set_reputation_balance(&DAVE, 20 * UNIT);
 
 		Session::on_initialize(2);
@@ -107,6 +124,9 @@ fn test_reuse_previous_collators_if_not_enough_candidates() {
 	new_test_ext().execute_with(|| {
 		create_reputation_asset();
 
+		let charlie_stash = AccountId32::new([13; 32]);
+		Balances::set_balance(&charlie_stash, INITIAL_BALANCE);
+
 		set_session_keys(ALICE);
 		set_session_keys(BOB);
 		pallet_session::Validators::<Test>::put(vec![ALICE, BOB]);
@@ -124,9 +144,16 @@ fn test_reuse_previous_collators_if_not_enough_candidates() {
 		]);
 		set_reputation_balance(&ALICE, 50 * UNIT);
 		set_reputation_balance(&BOB, 30 * UNIT);
+		set_reputation_balance(&CHARLIE, 40 * UNIT);
 
 		set_session_keys(CHARLIE);
-		register_candidate(CHARLIE);
+		register_candidate(charlie_stash.clone());
+
+		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(charlie_stash.clone()),
+			CHARLIE
+		));
 
 		Session::on_initialize(2);
 		Session::on_initialize(3);

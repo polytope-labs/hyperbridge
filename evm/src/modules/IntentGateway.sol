@@ -324,8 +324,6 @@ contract IntentGateway is BaseIsmpModule {
      */
     function setParams(Params memory p) public {
         if (msg.sender != _admin) revert Unauthorized();
-        // infinite approval to save on gas
-        IERC20(IDispatcher(p.host).feeToken()).approve(p.host, type(uint256).max);
 
         _admin = address(0);
         _params = p;
@@ -435,6 +433,9 @@ contract IntentGateway is BaseIsmpModule {
         bytes32 commitment = keccak256(abi.encode(order));
         if (_filled[commitment] != address(0)) revert Filled();
 
+        // no sneaky replay attacks
+        _filled[commitment] = msg.sender;
+
         // fill the order
         uint256 msgValue = msg.value;
         uint256 outputsLen = order.outputs.length;
@@ -453,7 +454,6 @@ contract IntentGateway is BaseIsmpModule {
             }
         }
 
-        // dispatch calls if any
         if (order.callData.length > 0) {
             ICallDispatcher(_params.dispatcher).dispatch(order.callData);
         }
@@ -484,10 +484,10 @@ contract IntentGateway is BaseIsmpModule {
             address feeToken = IDispatcher(hostAddr).feeToken();
             uint256 fee = quote(request);
             IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
+            IERC20(feeToken).approve(hostAddr, fee);
             IDispatcher(hostAddr).dispatch(request);
         }
 
-        _filled[commitment] = msg.sender;
         emit OrderFilled({commitment: commitment, filler: msg.sender});
     }
 

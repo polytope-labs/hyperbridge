@@ -48,6 +48,7 @@ pallet-token-gateway = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
+pallet-log-emitter = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -106,7 +107,8 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
-    "pallet-vesting"
+    "pallet-vesting",
+    "pallet-revive",
 ]
 
 [features]
@@ -143,7 +145,8 @@ std = [
     "frame-benchmarking/std",
     "pallet-bridge-airdrop/std",
     "ismp-arbitrum/std",
-    "ismp-optimism/std"
+    "ismp-optimism/std",
+    "pallet-log-emitter/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

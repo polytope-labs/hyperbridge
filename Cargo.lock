@@ -8177,6 +8177,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
+ "pallet-log-emitter",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-state-coprocessor",
@@ -9445,6 +9446,37 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",
  "substrate-state-machine",
+]
+
+[[package]]
+name = "hyperbridge-ismp-parachain"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "hex-literal 0.4.1",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "serde",
+ "substrate-state-machine",
+]
+
+[[package]]
+name = "hyperbridge-ismp-parachain-inherent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "hyperbridge-ismp-parachain",
+ "ismp",
+ "ismp-parachain",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
 ]
 
 [[package]]
@@ -11841,6 +11873,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
+ "pallet-log-emitter",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-revive-ismp-dispatcher",
@@ -14897,6 +14930,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-log-emitter"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-lottery"
 version = "41.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15432,8 +15475,6 @@ dependencies = [
 [[package]]
 name = "pallet-revive"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "474840408264f98eea7f187839ff2157f83a92bec6f3f3503dbf855c38f4de6b"
 dependencies = [
  "alloy-core",
  "derive_more 0.99.20",

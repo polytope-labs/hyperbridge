@@ -1,0 +1,59 @@
+[package]
+name = "hyperbridge-ismp-parachain"
+version = "0.1.0"
+edition = "2024"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+
+[dependencies]
+# crates.io
+serde = { workspace = true, features = ["derive"], optional = false }
+codec = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"] }
+hex-literal = { workspace = true }
+hex = { workspace = true }
+primitive-types = { workspace = true }
+log = { workspace = true }
+alloy-rlp = { workspace = true }
+alloy-sol-types = { workspace = true, default-features = false }
+# local
+substrate-state-machine = { workspace = true }
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-trie",
+    "sp-inherents",
+    "sp-io",
+    "sp-runtime",
+    "sp-consensus-aura",
+    "cumulus-pallet-parachain-system",
+    "cumulus-primitives-core",
+    "pallet-revive"
+]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "polkadot-sdk/std",
+    "scale-info/std",
+    "ismp/std",
+    "log/std",
+    "primitive-types/std",
+    "pallet-ismp/std",
+    "substrate-state-machine/std",
+    "alloy-rlp/std",
+    "alloy-sol-types/std",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]
+runtime-benchmarks = [
+    "polkadot-sdk/frame-benchmarking",
+    "polkadot-sdk/runtime-benchmarks",
+    "pallet-ismp/runtime-benchmarks",
+]
+

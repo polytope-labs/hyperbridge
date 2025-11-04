@@ -85,6 +85,8 @@ pub use sp_runtime::{MultiAddress, Perbill, Permill};
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
 use xcm::XcmOriginToTransactDispatchOrigin;
+use pallet_revive::evm::runtime::EthExtra;
+use pallet_revive::inherent_handlers::{InherentHandler, InherentHandlers};
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -107,6 +109,7 @@ use staging_xcm::latest::prelude::BodyId;
 use pallet_collective::PrimeDefaultVote;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
+use polkadot_sdk::frame_system::EnsureSigned;
 
 use pallet_ismp::offchain::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};
@@ -129,6 +132,9 @@ pub type Balance = u128;
 /// Index of a transaction in the chain.
 pub type Index = u32;
 
+/// Type alias for Nonce
+pub type Nonce = Index;
+
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
 
@@ -150,6 +156,19 @@ pub type SignedBlock = generic::SignedBlock<Block>;
 /// BlockId type as expected by this runtime.
 pub type BlockId = generic::BlockId<Block>;
 
+/// The extension to the basic transaction logic.
+pub type TxExtension = (
+	frame_system::CheckNonZeroSender<Runtime>,
+	frame_system::CheckSpecVersion<Runtime>,
+	frame_system::CheckTxVersion<Runtime>,
+	frame_system::CheckGenesis<Runtime>,
+	frame_system::CheckEra<Runtime>,
+	frame_system::CheckNonce<Runtime>,
+	frame_system::CheckWeight<Runtime>,
+	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+);
+
 /// The SignedExtension to the basic transaction logic.
 pub type SignedExtra = (
 	frame_system::CheckNonZeroSender<Runtime>,
@@ -163,12 +182,48 @@ pub type SignedExtra = (
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
 );
 
+/// Default extensions applied to Ethereum transactions.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct EthExtraImpl;
+
+impl EthExtra for EthExtraImpl {
+	type Config = Runtime;
+	type Extension = TxExtension;
+
+	fn get_eth_extension(nonce: u32, tip: Balance) -> Self::Extension {
+		(
+			frame_system::CheckNonZeroSender::<Runtime>::new(),
+			frame_system::CheckSpecVersion::<Runtime>::new(),
+			frame_system::CheckTxVersion::<Runtime>::new(),
+			frame_system::CheckGenesis::<Runtime>::new(),
+			frame_system::CheckEra::from(generic::Era::Immortal),
+			frame_system::CheckNonce::<Runtime>::from(nonce),
+			frame_system::CheckWeight::<Runtime>::new(),
+			pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(tip),
+			frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
+		)
+	}
+}
+
+
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
+pallet_revive::evm::runtime::UncheckedExtrinsic<Address, Signature, EthExtraImpl>;
 
 /// Extrinsic type that has already been checked.
-pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, RuntimeCall, SignedExtra>;
+pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, RuntimeCall, TxExtension>;
+
+// This impl is no longer necessary post stable-2506.
+impl TryFrom<RuntimeCall> for pallet_revive::Call<Runtime> {
+	type Error = ();
+
+	fn try_from(value: RuntimeCall) -> Result<Self, Self::Error> {
+		match value {
+			RuntimeCall::Revive(call) => Ok(call),
+			_ => Err(()),
+		}
+	}
+}
 
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
@@ -711,6 +766,42 @@ impl pallet_vesting::Config for Runtime {
 	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
 	type BlockNumberProvider = System;
 }
+parameter_types! {
+	pub const DepositPerItem: Balance = EXISTENTIAL_DEPOSIT;
+	pub const DepositPerByte: Balance = EXISTENTIAL_DEPOSIT;
+	pub CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(30);
+}
+
+impl pallet_revive::Config for Runtime {
+	type Time = Timestamp;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type DepositPerItem = DepositPerItem;
+	type DepositPerByte = DepositPerByte;
+	type WeightPrice = pallet_transaction_payment::Pallet<Self>;
+	type WeightInfo = ();
+	type Precompiles = ();
+	type AddressMapper = pallet_revive::AccountId32Mapper<Self>;
+	type RuntimeMemory = ConstU32<{ 128 * 1024 * 1024 }>;
+	type PVFMemory = ConstU32<{ 512 * 1024 * 1024 }>;
+	type UnsafeUnstableInterface = ConstBool<false>;
+	type UploadOrigin = EnsureSigned<Self::AccountId>;
+	type InstantiateOrigin = EnsureSigned<Self::AccountId>;
+	type RuntimeHoldReason = RuntimeHoldReason;
+	type CodeHashLockupDepositPercent = CodeHashLockupDepositPercent;
+	type ChainId = ConstU64<420_420_420>;
+	type NativeToEthRatio = ConstU32<1_000_000>; // 10^(18 - 12) Eth is 10^18, Native is 10^12.
+	type EthGasEncoder = ();
+	type FindAuthor = <Runtime as pallet_authorship::Config>::FindAuthor;
+
+	type InherentHandlers = (
+		pallet_log_emitter::Pallet<Runtime>,
+	);
+}
+
+impl pallet_log_emitter::Config for Runtime {
+}
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
@@ -825,6 +916,11 @@ mod runtime {
 	pub type IsmpArbitrum = ismp_arbitrum::pallet;
 	#[runtime::pallet_index(84)]
 	pub type IsmpOptimism = ismp_optimism::pallet;
+
+	#[runtime::pallet_index(85)]
+	pub type Revive = pallet_revive;
+	#[runtime::pallet_index(86)]
+	pub type LogEmitter = pallet_log_emitter;
 	// consensus clients
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
@@ -862,10 +958,14 @@ mod benches {
 	);
 }
 
-impl_runtime_apis! {
+
+pallet_revive::impl_runtime_apis_plus_revive!(
+	Runtime,
+	Executive,
+	EthExtraImpl,
 	impl sp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
 		fn slot_duration() -> sp_consensus_aura::SlotDuration {
-			sp_consensus_aura::SlotDuration::from_millis(SLOT_DURATION)
+			sp_consensus_aura::SlotDuration::from_millis(Aura::slot_duration())
 		}
 
 		fn authorities() -> Vec<AuraId> {
@@ -1009,6 +1109,21 @@ impl_runtime_apis! {
 			TransactionPayment::length_to_fee(length)
 		}
 	}
+
+	impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
+		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+			build_state::<RuntimeGenesisConfig>(config)
+		}
+
+		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
+			get_preset::<RuntimeGenesisConfig>(id, crate::genesis_config::get_preset)
+		}
+
+		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
+			crate::genesis_config::preset_names()
+		}
+	}
+
 	impl pallet_mmr_runtime_api::MmrRuntimeApi<Block, <Block as BlockT>::Hash, BlockNumber, Leaf> for Runtime {
 		/// Return Block number where pallet-mmr was added to the runtime
 		fn pallet_genesis() -> Result<Option<BlockNumber>, sp_mmr_primitives::Error> {
@@ -1039,19 +1154,21 @@ impl_runtime_apis! {
 
 	impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
 		fn host_state_machine() -> StateMachine {
-			<Runtime as pallet_ismp::Config>::HostStateMachine::get()
+			crate::ismp::HostStateMachine::get()
 		}
 
 		fn challenge_period(state_machine_id: StateMachineId) -> Option<u64> {
 			Ismp::challenge_period(state_machine_id)
 		}
 
-		/// Fetch all ISMP events in the block, should only be called from runtime-api.
+
+
+		/// Fetch all ISMP events
 		fn block_events() -> Vec<::ismp::events::Event> {
 			Ismp::block_events()
 		}
 
-		/// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.
+		/// Fetch all ISMP events and their extrinsic metadata
 		fn block_events_with_metadata() -> Vec<(::ismp::events::Event, Option<u32>)> {
 			Ismp::block_events_with_metadata()
 		}
@@ -1070,7 +1187,6 @@ impl_runtime_apis! {
 		fn latest_state_machine_height(id: StateMachineId) -> Option<u64> {
 			Ismp::latest_state_machine_height(id)
 		}
-
 
 		/// Get actual requests
 		fn requests(commitments: Vec<H256>) -> Vec<Request> {
@@ -1138,27 +1254,27 @@ impl_runtime_apis! {
 
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
-		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>,  alloc::string::String> {
+		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
 			use frame_benchmarking::{Benchmarking, BenchmarkBatch};
+			use frame_support::traits::TrackedStorageKey;
 			use frame_system_benchmarking::Pallet as SystemBench;
-
-			impl frame_system_benchmarking::Config for Runtime {
-				fn setup_set_code_requirements(code: &sp_std::vec::Vec<u8>) -> Result<(), frame_benchmarking::BenchmarkError> {
-					ParachainSystem::initialize_for_set_code_benchmark(code.len() as u32);
-					Ok(())
-				}
-
-				fn verify_set_code() {
-					System::assert_last_event(cumulus_pallet_parachain_system::Event::<Runtime>::ValidationFunctionStored.into());
-				}
-			}
-
-
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
+
+			impl frame_system_benchmarking::Config for Runtime {}
 			impl cumulus_pallet_session_benchmarking::Config for Runtime {}
 
-			use frame_support::traits::WhitelistedStorageKeys;
-			let whitelist = AllPalletsWithSystem::whitelisted_storage_keys();
+			let whitelist: Vec<TrackedStorageKey> = vec![
+				// Block Number
+				hex_literal::hex!("26aa394eea5630e07c48ae0c9558cef702a5c1b19ab7a04f536c519aca4983ac").to_vec().into(),
+				// Total Issuance
+				hex_literal::hex!("c2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4628f264b974c80").to_vec().into(),
+				// Execution Phase
+				hex_literal::hex!("26aa394eea5630e07c48ae0c9558cef7ff553b5a9862a516939d82b3d3d8661a").to_vec().into(),
+				// Event Count
+				hex_literal::hex!("26aa394eea5630e07c48ae0c9558cef70a98fdbe9ce6c55837576c60c7af3850").to_vec().into(),
+				// System Events
+				hex_literal::hex!("26aa394eea5630e07c48ae0c9558cef780d41e5e16056765bc8461851072c9d7").to_vec().into(),
+			];
 
 			let mut batches = Vec::<BenchmarkBatch>::new();
 			let params = (&config, &*whitelist);
@@ -1166,20 +1282,6 @@ impl_runtime_apis! {
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)
-		}
-	}
-
-	impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
-		fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
-			build_state::<RuntimeGenesisConfig>(config)
-		}
-
-		fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
-			get_preset::<RuntimeGenesisConfig>(id, crate::genesis_config::get_preset)
-		}
-
-		fn preset_names() -> Vec<sp_genesis_builder::PresetId> {
-			crate::genesis_config::preset_names()
 		}
 	}
 
@@ -1212,7 +1314,7 @@ impl_runtime_apis! {
 			);
 			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
-			let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(
+			let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, TxExtension>::new_signed(
 				call,
 				address,
 				signature,
@@ -1222,7 +1324,7 @@ impl_runtime_apis! {
 		}
 	}
 
-}
+);
 
 cumulus_pallet_parachain_system::register_validate_block! {
 	Runtime = Runtime,

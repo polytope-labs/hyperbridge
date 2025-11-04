@@ -1,0 +1,31 @@
+[package]
+name = "hyperbridge-ismp-parachain-inherent"
+version = "0.1.0"
+edition = "2024"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+
+
+[dependencies]
+# crates.io
+async-trait = { version = "0.1.63" }
+codec = { workspace = true, features = ["derive"], default-features = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+
+# local
+ismp = { workspace = true, default-features = true }
+ismp-parachain = { workspace = true, default-features = true }
+hyperbridge-ismp-parachain  = { workspace = true, default-features = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = [
+    "sp-inherents",
+    "sp-api",
+    "sp-blockchain",
+    "sp-runtime",
+    "cumulus-primitives-core",
+    "cumulus-relay-chain-interface",
+]

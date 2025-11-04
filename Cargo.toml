@@ -107,7 +107,7 @@ members = [
 
 
     # Airdrop
-    "modules/pallets/bridge-drop",
+    "modules/pallets/bridge-drop", "modules/pallets/pallet-log-emitter", "modules/ismp/clients/hyperbridge-parachain/client", "modules/ismp/clients/hyperbridge-parachain/inherent",
 ]
 
 # Config for 'cargo dist'
@@ -239,6 +239,7 @@ arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features = false }
 ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
+hyperbridge-ismp-parachain = { path = "modules/ismp/clients/hyperbridge-parachain/client", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
@@ -257,6 +258,8 @@ pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
 
+pallet-log-emitter = { path = "modules/pallets/pallet-log-emitter", default-features = false }
+
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
 pallet-mmr-tree = { path = "modules/pallets/mmr", default-features = false }
@@ -268,6 +271,7 @@ mmr-gadget = { path = "modules/pallets/mmr/gadget" }
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
+messier-runtime = { path = "./parachain/runtimes/messier", default-features = false }
 
 # tesseract
 tesseract-primitives = { path = "tesseract/messaging/primitives" }
@@ -343,3 +347,7 @@ features = ["derive"]
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
 default-features = false
+
+
+[patch.crates-io]
+pallet-revive = { path = "vendor/pallet-revive" }

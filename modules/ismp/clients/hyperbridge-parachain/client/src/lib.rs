@@ -15,6 +15,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod precompile;
+
 pub use pallet::*;
 use polkadot_sdk::*;
 
@@ -227,9 +229,7 @@ pub mod pallet {
 			let topic_0_hash = keccak_256(b"StateMachineUpdated(bytes32,bytes)");
 			let topic_0: H256 = H256::from(topic_0_hash);
 
-			let topic_1_hash = keccak_256(b"hyperbridge_state_machine");
-			let topic_1: H256 = H256::from(topic_1_hash);
-			let topics = vec![topic_0, topic_1];
+			let topics = vec![topic_0];
 
 			let data = final_commitment.encode();
 

@@ -14,7 +14,8 @@ hex-literal = { workspace = true }
 hex = { workspace = true }
 primitive-types = { workspace = true }
 log = { workspace = true }
-
+alloy-rlp = { workspace = true }
+alloy-sol-types = { workspace = true, default-features = false }
 # local
 substrate-state-machine = { workspace = true }
 ismp = { workspace = true }
@@ -46,6 +47,8 @@ std = [
     "primitive-types/std",
     "pallet-ismp/std",
     "substrate-state-machine/std",
+    "alloy-rlp/std",
+    "alloy-sol-types/std",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]
 runtime-benchmarks = [

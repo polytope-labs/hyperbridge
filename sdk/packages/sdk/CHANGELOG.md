@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.4.7
+
+### Patch Changes
+
+- Added Storage resolvers
+
 ## 1.4.3
 
 ### Patch Changes

@@ -4,38 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@polkadot/api': ^16.4.6
-  '@polkadot/api-augment': ^16.4.6
-  '@polkadot/api-base': ^16.4.6
-  '@polkadot/api-contract': ^16.4.6
-  '@polkadot/api-derive': ^16.4.6
-  '@polkadot/hw-ledger': ^13.5.6
-  '@polkadot/keyring': ^13.5.6
-  '@polkadot/networks': ^13.5.6
-  '@polkadot/phishing': ^0.25.18
-  '@polkadot/rpc-augment': ^16.4.6
-  '@polkadot/rpc-core': ^16.4.6
-  '@polkadot/rpc-provider': ^16.4.6
-  '@polkadot/typegen': ^16.4.6
-  '@polkadot/types': ^16.4.6
-  '@polkadot/types-augment': ^16.4.6
-  '@polkadot/types-codec': ^16.4.6
-  '@polkadot/types-create': ^16.4.6
-  '@polkadot/types-known': ^16.4.6
-  '@polkadot/types-support': ^16.4.6
-  '@polkadot/util': ^13.5.6
-  '@polkadot/util-crypto': ^13.5.6
-  '@polkadot/wasm-crypto': ^7.5.1
-  '@polkadot/x-bigint': ^13.5.6
-  '@polkadot/x-fetch': ^13.5.6
-  '@polkadot/x-global': ^13.5.6
-  '@polkadot/x-randomvalues': ^13.5.6
-  '@polkadot/x-textdecoder': ^13.5.6
-  '@polkadot/x-textencoder': ^13.5.6
-  '@polkadot/x-ws': ^13.5.6
-  typescript: ^5.5.4
-
 importers:
 
   .:
@@ -44,16 +12,16 @@ importers:
         specifier: ^1.0.3
         version: 1.0.3
       '@polkadot/api':
-        specifier: ^16.4.6
+        specifier: latest
         version: 16.4.9
       '@polkadot/types':
-        specifier: ^16.4.6
+        specifier: latest
         version: 16.4.9
       '@polkadot/util':
-        specifier: ^13.5.6
+        specifier: latest
         version: 13.5.7
       '@polkadot/util-crypto':
-        specifier: ^13.5.6
+        specifier: latest
         version: 13.5.7(@polkadot/util@13.5.7)
       '@types/lodash-es':
         specifier: ^4.17.12
@@ -79,9 +47,6 @@ importers:
       rpc-websocket-client:
         specifier: ^1.1.4
         version: 1.1.4
-      safe-stable-stringify:
-        specifier: ^2.5.0
-        version: 2.5.0
       scale-ts:
         specifier: ^1.6.1
         version: 1.6.1
@@ -108,7 +73,7 @@ importers:
         specifier: ^2.2.5
         version: 2.2.5
       '@polkadot/keyring':
-        specifier: ^13.5.6
+        specifier: latest
         version: 13.5.7(@polkadot/util-crypto@13.5.7(@polkadot/util@13.5.7))(@polkadot/util@13.5.7)
       '@polytope-labs/hyperclient':
         specifier: 1.2.0
@@ -131,9 +96,6 @@ importers:
       tsup:
         specifier: ^8.4.0
         version: 8.4.0(postcss@8.5.3)(typescript@5.9.3)
-      typescript:
-        specifier: ^5.5.4
-        version: 5.9.3
       vite-tsconfig-paths:
         specifier: ^5.1.4
         version: 5.1.4(typescript@5.9.3)(vite@6.3.5(@types/node@22.13.9))
@@ -505,8 +467,8 @@ packages:
     resolution: {integrity: sha512-S75K2m2AoiTMnns7ko3t72jvyJRmrqdFFPldLdPdjRuds+E8OFewcwms/aXHGn9IwViWHFX6PSx0QAzWN/qWzQ==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
-      '@polkadot/util-crypto': ^13.5.6
+      '@polkadot/util': 13.5.7
+      '@polkadot/util-crypto': 13.5.7
 
   '@polkadot/networks@13.5.7':
     resolution: {integrity: sha512-RdQcgaPy68NRSI7UTBdxr1aw66MXVdbpGhpWQpLf3/7puUdwkem6KxqFNnC9/kJSXRlyYGeYHN9Hsf4+CTWBSQ==}
@@ -552,7 +514,7 @@ packages:
     resolution: {integrity: sha512-SNzfAmtSSfUnQesrGLxc1RDg1arsvFSsAkH0xulffByqJfLugB3rZWJXIKqKNfcRZtomsMMURPeW7lfpAomSug==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
+      '@polkadot/util': 13.5.7
 
   '@polkadot/util@13.5.7':
     resolution: {integrity: sha512-5Rhp6/FDI55iCJcGd/9bMQaF0E26OE+uZwz68JuRW75DW8v7zsN3bnjnVqk3KO/c4u5EgLSqbhXPuyW24BP1+Q==}
@@ -562,40 +524,40 @@ packages:
     resolution: {integrity: sha512-E+N3CSnX3YaXpAmfIQ+4bTyiAqJQKvVcMaXjkuL8Tp2zYffClWLG5e+RY15Uh+EWfUl9If4y6cLZi3D5NcpAGQ==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
-      '@polkadot/x-randomvalues': ^13.5.6
+      '@polkadot/util': '*'
+      '@polkadot/x-randomvalues': '*'
 
   '@polkadot/wasm-crypto-asmjs@7.5.1':
     resolution: {integrity: sha512-jAg7Uusk+xeHQ+QHEH4c/N3b1kEGBqZb51cWe+yM61kKpQwVGZhNdlWetW6U23t/BMyZArIWMsZqmK/Ij0PHog==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
+      '@polkadot/util': '*'
 
   '@polkadot/wasm-crypto-init@7.5.1':
     resolution: {integrity: sha512-Obu4ZEo5jYO6sN31eqCNOXo88rPVkP9TrUOyynuFCnXnXr8V/HlmY/YkAd9F87chZnkTJRlzak17kIWr+i7w3A==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
-      '@polkadot/x-randomvalues': ^13.5.6
+      '@polkadot/util': '*'
+      '@polkadot/x-randomvalues': '*'
 
   '@polkadot/wasm-crypto-wasm@7.5.1':
     resolution: {integrity: sha512-S2yQSGbOGTcaV6UdipFVyEGanJvG6uD6Tg7XubxpiGbNAblsyYKeFcxyH1qCosk/4qf+GIUwlOL4ydhosZflqg==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
+      '@polkadot/util': '*'
 
   '@polkadot/wasm-crypto@7.5.1':
     resolution: {integrity: sha512-acjt4VJ3w19v7b/SIPsV/5k9s6JsragHKPnwoZ0KTfBvAFXwzz80jUzVGxA06SKHacfCUe7vBRlz7M5oRby1Pw==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
-      '@polkadot/x-randomvalues': ^13.5.6
+      '@polkadot/util': '*'
+      '@polkadot/x-randomvalues': '*'
 
   '@polkadot/wasm-util@7.5.1':
     resolution: {integrity: sha512-sbvu71isFhPXpvMVX+EkRnUg/+54Tx7Sf9BEMqxxoPj7cG1I/MKeDEwbQz6MaU4gm7xJqvEWCAemLFcXfHQ/2A==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
+      '@polkadot/util': '*'
 
   '@polkadot/x-bigint@13.5.7':
     resolution: {integrity: sha512-NbN4EPbMBhjOXoWj0BVcT49/obzusFWPKbSyBxbZi8ITBaIIgpncgcCfXY4rII6Fqh74khx9jdevWge/6ycepQ==}
@@ -613,7 +575,7 @@ packages:
     resolution: {integrity: sha512-NEElpdu+Wqlr6USoh3abQfe0MaWlFlynPiqkA0/SJjK+0V0UOw0CyPwPgGrGa71/ju+1bsnu/ySshXqCR8HXTw==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@polkadot/util': ^13.5.6
+      '@polkadot/util': 13.5.7
       '@polkadot/wasm-util': '*'
 
   '@polkadot/x-textdecoder@13.5.7':
@@ -815,7 +777,7 @@ packages:
   abitype@1.0.8:
     resolution: {integrity: sha512-ZeiI6h3GnW06uYDLx0etQtX/p8E24UaHHBj57RSjK7YBFe7iuVn07EDpOeP451D06sF27VOz9JJPlIKJmXgkEg==}
     peerDependencies:
-      typescript: ^5.5.4
+      typescript: '>=5.0.4'
       zod: ^3 >=3.22.0
     peerDependenciesMeta:
       typescript:
@@ -1283,7 +1245,7 @@ packages:
   ox@0.8.7:
     resolution: {integrity: sha512-W1f0FiMf9NZqtHPEDEAEkyzZDwbIKfmH2qmQx8NNiQ/9JhxrSblmtLJsSfTtQG5YKowLOnBlLVguCyxm/7ztxw==}
     peerDependencies:
-      typescript: ^5.5.4
+      typescript: '>=5.4.0'
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -1379,10 +1341,6 @@ packages:
 
   rxjs@7.8.2:
     resolution: {integrity: sha512-dhKf903U/PQZY6boNNtAGdWbG85WAbjT/1xYoZIC7FAY0yWapOBQVsVrDl58W86//e1VpMNBtRV4MaXfdMySFA==}
-
-  safe-stable-stringify@2.5.0:
-    resolution: {integrity: sha512-b3rppTKm9T+PsVCBEOUR46GWI7fdOs00VKZ1+9c1EWDaDMvjQc6tUwuFyIprgGgTcWoVHSKrU8H31ZHA2e0RHA==}
-    engines: {node: '>=10'}
 
   safer-buffer@2.1.2:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
@@ -1526,7 +1484,7 @@ packages:
     engines: {node: ^18 || >=20}
     hasBin: true
     peerDependencies:
-      typescript: ^5.5.4
+      typescript: ^5.0.0
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -1542,7 +1500,7 @@ packages:
       '@microsoft/api-extractor': ^7.36.0
       '@swc/core': ^1
       postcss: ^8.4.12
-      typescript: ^5.5.4
+      typescript: '>=4.5.0'
     peerDependenciesMeta:
       '@microsoft/api-extractor':
         optional: true
@@ -1637,7 +1595,7 @@ packages:
   viem@2.34.0:
     resolution: {integrity: sha512-HJZG9Wt0DLX042MG0PK17tpataxtdAEhpta9/Q44FqKwy3xZMI5Lx4jF+zZPuXFuYjZ68R0PXqRwlswHs6r4gA==}
     peerDependencies:
-      typescript: ^5.5.4
+      typescript: '>=5.0.4'
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -3080,8 +3038,6 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  safe-stable-stringify@2.5.0: {}
-
   safer-buffer@2.1.2: {}
 
   saxes@6.0.0:
@@ -3242,7 +3198,8 @@ snapshots:
       - tsx
       - yaml
 
-  typescript@5.9.3: {}
+  typescript@5.9.3:
+    optional: true
 
   ufo@1.6.1: {}
 

@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/sdk",
-	"version": "1.4.6",
+	"version": "1.4.7",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
 	"types": "./dist/node/index.d.ts",
@@ -71,7 +71,6 @@
 		"idb-keyval": "^6.2.2",
 		"lodash-es": "^4.17.15",
 		"rpc-websocket-client": "^1.1.4",
-		"safe-stable-stringify": "^2.5.0",
 		"scale-ts": "^1.6.1",
 		"std-env": "^3.9.0",
 		"ts-pattern": "^5.6.2",
@@ -89,7 +88,6 @@
 		"jsdom": "^26.0.0",
 		"log-timestamp": "^0.3.0",
 		"tsup": "^8.4.0",
-		"typescript": "^5.9.3",
 		"vite-tsconfig-paths": "^5.1.4",
 		"vitest": "^3.1.4"
 	},
@@ -123,7 +121,7 @@
 		"@polkadot/x-textdecoder": "^13.5.6",
 		"@polkadot/x-textencoder": "^13.5.6",
 		"@polkadot/x-ws": "^13.5.6",
-		"typescript": "^5.5.4"
+		"typescript": "^5.9.3"
 	},
 	"peerDependencies": {
 		"vite": "^5.0.0 || ^6.0.0"

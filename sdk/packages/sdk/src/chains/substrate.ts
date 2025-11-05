@@ -4,7 +4,7 @@ import { Vector, u8 } from "scale-ts"
 import { match } from "ts-pattern"
 import { bytesToHex, hexToBytes, toBytes, toHex } from "viem"
 
-import type { IChain, IIsmpMessage } from "@/chain"
+import type { IChain, IIsmpMessage, IProof } from "@/chain"
 import type {
 	HexString,
 	IGetRequest,
@@ -454,6 +454,23 @@ export function convertStateMachineIdToEnum(id: string): IStateMachine {
 }
 
 /**
+ * Converts a state machine enum representation to a string.
+ * @param {IStateMachine} stateMachine - The state machine enum object.
+ * @returns {string} The state machine ID string like "EVM-97" or "SUBSTRATE-cere".
+ */
+export function convertStateMachineEnumToString(stateMachine: { tag: string; value: number | number[] }): string {
+	const tag = stateMachine.tag.toUpperCase()
+	if (tag === "EVM" || tag === "POLKADOT" || tag === "KUSAMA") {
+		return `${tag}-${stateMachine.value}`
+	} else {
+		const bytes = new Uint8Array(stateMachine.value as number[])
+		const decoder = new TextDecoder("utf-8")
+		const decoded = decoder.decode(bytes)
+		return `${tag}-${decoded}`
+	}
+}
+
+/**
  * Converts a stateId object back to the state_id format used by the RPC.
  * @param stateId - The stateId object from StateMachineIdParams
  * @returns The string representation like "EVM-11155111" or "SUBSTRATE-cere"
@@ -507,7 +524,7 @@ function convertIPostRequestToCodec(request: IPostRequest) {
  * @param {IGetRequest} request - The IGetRequest object.
  * @returns The codec representation of the request.
  */
-function convertIGetRequestToCodec(request: IGetRequest) {
+export function convertIGetRequestToCodec(request: IGetRequest) {
 	return {
 		source: convertStateMachineIdToEnum(request.source),
 		dest: convertStateMachineIdToEnum(request.dest),
@@ -518,6 +535,76 @@ function convertIGetRequestToCodec(request: IGetRequest) {
 		timeoutTimestamp: request.timeoutTimestamp,
 		height: request.height,
 	} as const
+}
+
+/**
+ * Convert codec representation back to IGetRequest
+ */
+export function convertCodecToIGetRequest(codec: {
+	source: { tag: string; value: number | number[] }
+	dest: { tag: string; value: number | number[] }
+	from: number[]
+	nonce: bigint
+	keys: number[][]
+	height: bigint
+	context: number[]
+	timeoutTimestamp: bigint
+}): IGetRequest {
+	return {
+		source: convertStateMachineEnumToString(codec.source),
+		dest: convertStateMachineEnumToString(codec.dest),
+		from: bytesToHex(new Uint8Array(codec.from)) as HexString,
+		nonce: codec.nonce,
+		keys: codec.keys.map((key) => bytesToHex(new Uint8Array(key)) as HexString),
+		height: codec.height,
+		context: bytesToHex(new Uint8Array(codec.context)) as HexString,
+		timeoutTimestamp: codec.timeoutTimestamp,
+	}
+}
+
+/**
+ * Converts an IProof object to a codec representation.
+ * @param {IProof} proof - The IProof object.
+ * @returns The codec representation of the proof.
+ */
+export function convertIProofToCodec(proof: IProof) {
+	return {
+		height: {
+			height: proof.height,
+			id: {
+				consensusStateId: Array.from(toBytes(proof.consensusStateId)),
+				id: convertStateMachineIdToEnum(proof.stateMachine),
+			},
+		},
+		proof: Array.from(hexToBytes(proof.proof)),
+	} as const
+}
+
+/**
+ * Converts a codec representation back to an IProof object.
+ * @param {any} codec - The codec representation of the proof.
+ * @returns {IProof} The IProof object.
+ */
+export function convertCodecToIProof(codec: {
+	height: {
+		height: bigint
+		id: {
+			consensusStateId: number[]
+			id: { tag: string; value: number | number[] }
+		}
+	}
+	proof: number[]
+}): IProof {
+	const consensusStateIdBytes = new Uint8Array(codec.height.id.consensusStateId)
+	const decoder = new TextDecoder("utf-8")
+	const consensusStateId = decoder.decode(consensusStateIdBytes)
+
+	return {
+		height: codec.height.height,
+		stateMachine: convertStateMachineEnumToString(codec.height.id.id),
+		consensusStateId,
+		proof: bytesToHex(new Uint8Array(codec.proof)) as HexString,
+	}
 }
 
 export function encodeISMPMessage(message: IIsmpMessage): Uint8Array {

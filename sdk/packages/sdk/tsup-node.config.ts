@@ -1,6 +1,6 @@
-import { defineConfig } from "tsup"
+import { copyFileSync, existsSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
-import { copyFileSync, mkdirSync, existsSync } from "node:fs"
+import { defineConfig } from "tsup"
 
 export default defineConfig({
 	entry: ["src/index.ts"],
@@ -16,6 +16,7 @@ export default defineConfig({
 		esbuildOpt.alias = {
 			"@/ckb-utils/web": "./src/utils/ckb-mmr-wasm/dist/node/node",
 			"@/ckb-utils/node": "./src/utils/ckb-mmr-wasm/dist/node/node",
+			"@/storage/load-driver": "./src/storage/drivers/node",
 		}
 	},
 	async onSuccess() {

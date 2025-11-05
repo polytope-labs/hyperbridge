@@ -1,24 +1,7 @@
+import { Decimal } from "decimal.js"
 import {
-	bytes32ToBytes20,
-	bytes20ToBytes32,
-	constructRedeemEscrowRequestBody,
-	getStorageSlot,
-	ADDRESS_ZERO,
-	MOCK_ADDRESS,
-	ERC20Method,
-	adjustFeeDecimals,
-	fetchPrice,
-	parseStateMachineId,
-	orderCommitment,
-	sleep,
-	getRequestCommitment,
-	waitForChallengePeriod,
-	retryPromise,
-	maxBigInt,
-	getGasPriceFromEtherscan,
-	USE_ETHERSCAN_CHAINS,
-} from "@/utils"
-import {
+	concatHex,
+	encodeAbiParameters,
 	formatUnits,
 	hexToString,
 	maxUint256,
@@ -26,29 +9,44 @@ import {
 	parseEventLogs,
 	parseUnits,
 	toHex,
-	encodeAbiParameters,
-	concatHex,
 } from "viem"
+import EVM_HOST from "@/abis/evmHost"
+import IntentGatewayABI from "@/abis/IntentGateway"
+import { type IGetRequestMessage, type IProof, requestCommitmentKey, type SubstrateChain } from "@/chain"
+import type { EvmChain } from "@/chains/evm"
+import type { IndexerClient } from "@/client"
+import { createCancellationStorage, STORAGE_KEYS } from "@/storage"
 import {
-	DispatchGet,
-	DispatchPost,
-	IGetRequest,
-	IHyperbridgeConfig,
-	RequestStatus,
-	RequestStatusWithMetadata,
+	type DispatchPost,
 	type FillOptions,
 	type HexString,
+	type IGetRequest,
 	type IPostRequest,
 	type Order,
+	RequestStatus,
+	type RequestStatusWithMetadata,
 } from "@/types"
-import IntentGatewayABI from "@/abis/IntentGateway"
-import type { EvmChain } from "@/chains/evm"
-import { Decimal } from "decimal.js"
-import { IGetRequestMessage, IProof, requestCommitmentKey, SubstrateChain } from "@/chain"
-import { IndexerClient } from "@/client"
+import {
+	ADDRESS_ZERO,
+	adjustFeeDecimals,
+	bytes20ToBytes32,
+	bytes32ToBytes20,
+	constructRedeemEscrowRequestBody,
+	ERC20Method,
+	fetchPrice,
+	getGasPriceFromEtherscan,
+	getRequestCommitment,
+	getStorageSlot,
+	MOCK_ADDRESS,
+	maxBigInt,
+	orderCommitment,
+	parseStateMachineId,
+	retryPromise,
+	sleep,
+	USE_ETHERSCAN_CHAINS,
+	waitForChallengePeriod,
+} from "@/utils"
 import { Swap } from "@/utils/swap"
-import { createCancellationStorage, STORAGE_KEYS } from "@/storage"
-import EVM_HOST from "@/abis/evmHost"
 
 /**
  * IntentGateway handles cross-chain intent operations between EVM chains.
@@ -156,7 +154,10 @@ export class IntentGateway {
 							tokenAddress,
 							allowanceData as HexString,
 						)
-						stateDiffs.push({ slot: allowanceSlot as HexString, value: testValue })
+						stateDiffs.push({
+							slot: allowanceSlot as HexString,
+							value: testValue,
+						})
 					} catch (e) {
 						console.warn(`Could not find allowance slot for token ${tokenAddress}:`, e)
 					}
@@ -575,7 +576,7 @@ export class IntentGateway {
 	async *cancelOrder(order: Order, indexerClient: IndexerClient): AsyncGenerator<CancelEvent> {
 		const orderId = orderCommitment(order)
 
-		let hyperbridge = indexerClient.hyperbridge as SubstrateChain
+		const hyperbridge = indexerClient.hyperbridge as SubstrateChain
 		const sourceStateMachine = hexToString(order.sourceChain as HexString)
 		const sourceConsensusStateId = this.source.configService.getConsensusStateId(sourceStateMachine)
 
@@ -583,12 +584,19 @@ export class IntentGateway {
 		if (!destIProof) {
 			destIProof = yield* this.fetchDestinationProof(order, indexerClient)
 			await this.storage.setItem(STORAGE_KEYS.destProof(orderId), destIProof)
+		} else {
+			yield { status: "DESTINATION_FINALIZED", data: { proof: destIProof } }
 		}
 
 		let getRequest: IGetRequest | null = await this.storage.getItem(STORAGE_KEYS.getRequest(orderId))
 		if (!getRequest) {
-			const transactionHash = yield { status: "AWAITING_GET_REQUEST", data: undefined }
-			const receipt = await this.source.client.getTransactionReceipt({ hash: transactionHash })
+			const transactionHash = yield {
+				status: "AWAITING_GET_REQUEST",
+				data: undefined,
+			}
+			const receipt = await this.source.client.getTransactionReceipt({
+				hash: transactionHash,
+			})
 
 			const events = parseEventLogs({ abi: EVM_HOST.ABI, logs: receipt.logs })
 			const request = events.find((e) => e.eventName === "GetRequestEvent")
@@ -598,12 +606,18 @@ export class IntentGateway {
 			await this.storage.setItem(STORAGE_KEYS.getRequest(orderId), getRequest)
 		}
 
-		const commitment = getRequestCommitment({ ...getRequest, keys: [...getRequest.keys] })
+		const commitment = getRequestCommitment({
+			...getRequest,
+			keys: [...getRequest.keys],
+		})
 		const sourceStatusStream = indexerClient.getRequestStatusStream(commitment)
 
 		for await (const statusUpdate of sourceStatusStream) {
 			if (statusUpdate.status === RequestStatus.SOURCE_FINALIZED) {
-				yield { status: "SOURCE_FINALIZED", data: { metadata: statusUpdate.metadata } }
+				yield {
+					status: "SOURCE_FINALIZED",
+					data: { metadata: statusUpdate.metadata },
+				}
 
 				const sourceHeight = BigInt(statusUpdate.metadata.blockNumber)
 				let sourceIProof: IProof | null = await this.storage.getItem(STORAGE_KEYS.sourceProof(orderId))
@@ -639,12 +653,18 @@ export class IntentGateway {
 			}
 
 			if (statusUpdate.status === RequestStatus.HYPERBRIDGE_DELIVERED) {
-				yield { status: "HYPERBRIDGE_DELIVERED", data: statusUpdate as RequestStatusWithMetadata }
+				yield {
+					status: "HYPERBRIDGE_DELIVERED",
+					data: statusUpdate as RequestStatusWithMetadata,
+				}
 				continue
 			}
 
 			if (statusUpdate.status === RequestStatus.HYPERBRIDGE_FINALIZED) {
-				yield { status: "HYPERBRIDGE_FINALIZED", data: statusUpdate as RequestStatusWithMetadata }
+				yield {
+					status: "HYPERBRIDGE_FINALIZED",
+					data: statusUpdate as RequestStatusWithMetadata,
+				}
 				await this.storage.removeItem(STORAGE_KEYS.destProof(orderId))
 				await this.storage.removeItem(STORAGE_KEYS.getRequest(orderId))
 				await this.storage.removeItem(STORAGE_KEYS.sourceProof(orderId))

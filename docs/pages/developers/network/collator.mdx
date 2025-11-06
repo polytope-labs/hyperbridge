@@ -35,7 +35,7 @@ This creates a meritocratic system where the most dedicated and effective networ
 
 Before diving deep into the steps required, it is important to understand the two-account model and the tokens involved:
 
-- ** Stash Account(Cold)**: This account is your "savings" account. It holds your $BRIDGE bond, and is ideally kept offline in a "cold" wallet for maximum security.
+- ** Stash Account(Cold)**: It holds your $BRIDGE bond, and is ideally kept offline in a "cold" wallet for maximum security.
 It is used only for high-value transactions like bondin and designating a controller.
 - **Controller Account(Hot)**: This is your "operational" account. It's the account you use for day-to-day operations like running a relayer and a collator node.Controller
     - It's the account that accrues Reputation.
@@ -256,7 +256,7 @@ Now that the node is ready and your keys are linked, you can now declare your in
 This transaction will lock your bond and add your Stash account to the candidate pool.
 
 ### Step 4: Link your Controller to your Stash
-This is the final and most important step. You must now create the on-chain link between your bonded Stash account and your operational Controller account.BRIDGE
+This is the final and most important step. You must now create the on-chain link between your bonded Stash account and your operational Controller account.
 **Action**: Call the collatorManager.register extrinsic
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
@@ -292,6 +292,6 @@ and your reputation asset will start increasing too, allowing you to compete for
 If you are not selected:
 
 - You remain in the candidate pool.
-- Continue relaying messages with your Controller to increase you Reputation Asset balance and improve your chances of being selected in the next session.
+- Continue relaying messages with your Controller to increase your Reputation Asset balance and improve your chances of being selected in the next session.
 
 This creates a dynamic and meritocratic system where the most active and successful participants are rewarded with the responsibility of securing the network.

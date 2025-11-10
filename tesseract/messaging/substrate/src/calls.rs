@@ -177,7 +177,11 @@ where
 			counterparty.sign(&message)
 		};
 
-		let input_data = WithdrawalInputData { signature, dest_chain: chain };
+		let input_data = WithdrawalInputData {
+			signature,
+			dest_chain: chain,
+			beneficiary: counterparty.withdrawal_beneficiary_address(),
+		};
 		let tx = subxt::dynamic::tx(
 			"Relayer",
 			"withdraw_fees",

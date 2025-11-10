@@ -59,7 +59,7 @@ fn setup_host_params(source_chain: StateMachine, dest_chain: StateMachine) {
 	});
 
 	pallet_ismp_host_executive::HostParams::<Test>::insert(source_chain, host_params);
-	pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(source_chain, 18);
+	pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(source_chain, 1);
 }
 
 fn create_request_message(

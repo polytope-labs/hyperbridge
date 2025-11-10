@@ -31,30 +31,42 @@ the only way to gain the reputation required to be considered for a collator pos
 
 This creates a meritocratic system where the most dedicated and effective network participants are promoted to roles with greater responsibility and rewards.
 
-## Core Concepts: How Reputation Works
+## Core Concepts: Stash, Controller, and Reputation
 
-Before diving deep into the steps required, it is important to understand the two tokens involved:
+Before diving deep into the steps required, it is important to understand the two-account model and the tokens involved:
 
+- ** Stash Account(Cold)**: It holds your $BRIDGE bond, and is ideally kept offline in a "cold" wallet for maximum security.
+It is used only for high-value transactions like bondin and designating a controller.
+- **Controller Account(Hot)**: This is your "operational" account. It's the account you use for day-to-day operations like running a relayer and a collator node.Controller
+    - It's the account that accrues Reputation.
+    - It's the account that sets Session Keys.
+    - This is the account you use as your relayer's signer.
+
+### The Tokens
 - **The Hyperbridge Token(`$BRIDGE`)**: This is the primary token a Relayer earns as a reward for relaying messages. It is the real transferable asset that reflects or represents your earnings.
+    - Your Stash account must bond $BRIDGE to become a candidate.
+    - Your Controller account receives $BRIDGE rewards for producing blocks.
+    - Your Controller account earns $BRIDGE for relaying messages.
+
 - **The Reputation Asset**: This is a special, non-transferable asset that acts as a Relayer's reputation score. It is designed to mirrror a Relayer's Hyperbridge token earnings.
 The ratio of this asset to a Relayer's `$BRIDGE` earnings is 1 to 1. For every `$BRIDGE` token earned by a Relayer, an equal amount of the Reputation Asset is automatically minted to the Relayer's account.
 
-**Key Insight**: Your reputation score is directly tied to your success as a Relayer. The more messages you relay, the more `$BRIDGE` you earn,
+**Key Insight**: Your reputation score is directly tied to your success as a Relayer which is driven by your Controller account. The more messages you relay, the more `$BRIDGE` you earn,
 the higher your reputation score becomes, and the better your chances of being selected as a Collator
 
 ## The path to becoming a Collator
-The process involves three main stages: Accruing reputation score/asset, preparing your node, and registering one's candidacy.
+The process involves four main stages: Accruing reputation score/asset, preparing your node, bonding as a candidate, and registering your controller.
 
-### Step 1: Accrue Reputation by Relaying Messages
+### Step 1: Accrue Reputation by Relaying Messages with Your Controller Account
 This is the foundation of the entire system. The primary goal is to be an active and reliable relayer.
 
 **Why Relayers**: Hyperbridge's Collator selection mechanism is based on proven economic activity on Hyperbridge. By rewarding relayers with reputation, we ensure that our collators are experienced,
 active, and invested participants in the network success. This meritocratic system ensures liveness guarantees are upheld by selecting for proven value creation.
 
-**Action**: Continue to relay messages or/and consensus proofs between connected chains
+**Action**: Continue to relay messages or/and consensus proofs between connected chains using a dedicated Controller account as the signer
 
-**Outcome**: For every reward you receive in `$BRIDGE`, the `pallet-messaging-relayer-fees` and `pallet-consensus-incentives` will automatically mint an equivalent amount of the Reputation Asset
-to your account. You can always find your Reputation Asset balance under the Polkadot JS UI by going to `Developer > Chain State > Assets > Account`.
+**Outcome**: For every reward you receive in `$BRIDGE` to your Controller account, the `pallet-messaging-relayer-fees` and `pallet-consensus-incentives` will automatically mint an equivalent amount of the Reputation Asset
+to that same Controller account. You can always find your Reputation Asset balance under the Polkadot JS UI by going to `Developer > Chain State > Assets > Account`.
 
 <figure>
   <img src="/asset_account_balance.png" alt="Reputation Asset Account Balance   " />
@@ -224,44 +236,62 @@ node to start producing blocks as soon as you are selected for the active set.
 </figure>
 
 
-### Step 3: Register as a Candidate
+### Step 3: Register as a Candidate By Bonding Funds from your Stash Account
 Now that the node is ready and your keys are linked, you can now declare your intention to becoming a Collator.
 
 **Candidacy Bond**: To register as a candidate, your controller account must have a `$BRIDGE` token of at least the minimum candidacy bond, which is 200,000 $BRIDGE.
 **Action**: Call the `collatorSelection.registerAsCandidate` extrinsic.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
-- Select your Controller account.
-     Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
+- Select your Stash account.
 - Choose the `collatorSelection` pallet and the `registerAsCandidate` extrinsic.
 - Sign and submit the transaction.
 
 <figure>
-  <img src="/register_as_candidate.png" alt="Registering as candidate" />
-  <figcaption style={{ textAlign: "center" }}>How to register as candidate</figcaption>
+  <img src="/register_as_candidate_with_stash.png" alt="Registering as candidate using Stash Account" />
+  <figcaption style={{ textAlign: "center" }}>How to register as candidate using your Stash Account</figcaption>
 </figure>
 
 
-This transaction will enable you to enter the candidacy pool.
+This transaction will lock your bond and add your Stash account to the candidate pool.
+
+### Step 4: Link your Controller to your Stash
+This is the final and most important step. You must now create the on-chain link between your bonded Stash account and your operational Controller account.
+**Action**: Call the collatorManager.register extrinsic
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your Stash account(the same one from Step 3).
+- Choose the `collatorManager` pallet and the `register` extrinsic.
+- In the `controller` field, select your `Controller` account (the one with the reputation and session keys).
+
+<figure>
+  <img src="/register_controller.png" alt="Registering Your Controller" />
+  <figcaption style={{ textAlign: "center" }}>How to register your Controller Account</figcaption>
+</figure>
+
+This tells the network: "I  bonded the Stash, designate this Controller to perform collator duties on my behalf."
 
 ## The selection process & what happens next
 
 At the beginning of each new session, our `pallet-collator-manager` runs it's selection logic:
 
-- It fetches the list of all registered candidates who have set their sesssion keys.
-- It ranks them from highest to lowest based on their Reputation Asset balance.
+- It fetches the list of all bonded candidates(Stash accounts) from `pallet-collator-selection` who have set their session keys.
+- It uses it's `Controller` map to find the linked `Controller` account for each stash.
+- It filters this list, keeping only the candidates whose `Controller` has set valid session keys.
+- It ranks the remaining candidates from highest to lowest based on their Controller's Reputation Asset balance.
 - It selects the top candidates to fill the available collator slots for the new session.
+
 
 If you are selected:
 
-- Your Reputation Asset balance will be burned. This is somewhat like your stake for the session.
-- Your node will begin authoring and producing blocks after 2 rounds(sessions). To do this, you must ensure that your node is running(or it has been restarted) with the `--collator` flag
-- Bear in mind that as you are still performing your duties of relaying messages or consensus proofs, you will keep stacking `$BRIDGE` rewards
+- Your Controller's Reputation Asset balance will be burned. This is somewhat like your stake for the session.
+- Your node(run by your Controller) will begin authoring and producing blocks after 2 rounds(sessions). To do this, you must ensure that your node is running(or it has been restarted) with the `--collator` flag
+- Bear in mind that as you are still performing your duties of relaying messages or consensus proofs, your Controller will keep stacking `$BRIDGE` rewards
 and your reputation asset will start increasing too, allowing you to compete for a spot in future sessions.
 
 If you are not selected:
 
 - You remain in the candidate pool.
-- Continue relaying messages to increase you Reputation Asset balance and improve your chances of being selected in the next session.
+- Continue relaying messages with your Controller to increase your Reputation Asset balance and improve your chances of being selected in the next session.
 
 This creates a dynamic and meritocratic system where the most active and successful participants are rewarded with the responsibility of securing the network.

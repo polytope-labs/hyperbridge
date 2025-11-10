@@ -135,7 +135,6 @@ where
 					return None;
 				};
 
-				//let scaling_power = 18u8.saturating_sub(decimals); // assumption that the decimals will always be less than 18
 				let scaling_factor = U256::from(10u128.pow(decimals as u32));
 				fee_u256.saturating_mul(scaling_factor)
 			},

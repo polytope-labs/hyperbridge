@@ -597,6 +597,7 @@ fn test_withdrawal_fees() {
 
 		let withdrawal_input = WithdrawalInputData {
 			signature: Signature::Sr25519 { public_key: public_key.clone(), signature },
+			beneficiary: None,
 			dest_chain: StateMachine::Kusama(2000),
 		};
 
@@ -645,6 +646,7 @@ fn test_withdrawal_fees_evm() {
 		let withdrawal_input = WithdrawalInputData {
 			signature: Signature::Evm { address: address.to_vec(), signature },
 			dest_chain: StateMachine::Evm(84532),
+			beneficiary: None,
 		};
 
 		pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(

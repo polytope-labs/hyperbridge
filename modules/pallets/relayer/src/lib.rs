@@ -165,6 +165,8 @@ pub mod pallet {
 		Withdraw {
 			/// relayer address
 			address: BoundedVec<u8, ConstU32<32>>,
+			/// beneficiary address
+			beneficiary_address: BoundedVec<u8, ConstU32<32>>,
 			/// destination state machine
 			state_machine: StateMachine,
 			/// Amount withdrawn
@@ -328,8 +330,10 @@ where
 			Ok::<(), ()>(())
 		})
 		.map_err(|_| Error::<T>::ErrorCompletingCall)?;
+
+		let beneficiary_address = withdrawal_data.beneficiary.clone().unwrap_or(address.clone());
 		let params = WithdrawalParams {
-			beneficiary_address: address.clone(),
+			beneficiary_address: beneficiary_address.clone(),
 			amount: available_amount.into(),
 			native: false,
 		};
@@ -338,7 +342,7 @@ where
 			s if s.is_evm() => params.abi_encode(),
 			_ => Message::WithdrawRelayerFees(WithdrawalRequest {
 				amount: params.amount.low_u128(),
-				account: AccountId32::try_from(&address[..])
+				account: AccountId32::try_from(&beneficiary_address[..])
 					.map_err(|_| Error::<T>::InvalidPublicKey)?,
 			})
 			.encode(),
@@ -364,6 +368,7 @@ where
 
 		Self::deposit_event(Event::<T>::Withdraw {
 			address: sp_runtime::BoundedVec::truncate_from(address.clone()),
+			beneficiary_address: sp_runtime::BoundedVec::truncate_from(beneficiary_address),
 			state_machine: withdrawal_data.dest_chain,
 			amount: available_amount,
 		});

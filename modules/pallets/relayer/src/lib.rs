@@ -269,9 +269,24 @@ where
 {
 	pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
 		let address = match &withdrawal_data.signature {
+			Signature::Evm { address, .. } => address.clone(),
+			Signature::Sr25519 { public_key, .. } => public_key.clone(),
+			Signature::Ed25519 { public_key, .. } => public_key.clone()
+		};
+
+		let msg = match &withdrawal_data.beneficiary {
+			Some(beneficiary) => {
+				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
+				message_with_beneficiary(nonce, withdrawal_data.dest_chain, beneficiary)
+			},
+			None => {
+				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
+				message(nonce, withdrawal_data.dest_chain)
+			},
+		};
+		match &withdrawal_data.signature {
 			Signature::Evm { address, .. } => {
 				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain);
 				let eth_address = withdrawal_data
 					.signature
 					.verify(&msg, None)
@@ -279,27 +294,22 @@ where
 				if &eth_address != address {
 					Err(Error::<T>::InvalidPublicKey)?
 				}
-				address
 			},
 			Signature::Sr25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain);
 				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature
 					.verify(&msg, None)
 					.map_err(|_| Error::<T>::InvalidSignature)?;
-				public_key
 			},
 			Signature::Ed25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain);
 				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature
 					.verify(&msg, None)
 					.map_err(|_| Error::<T>::InvalidSignature)?;
-				public_key
 			},
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
@@ -813,4 +823,12 @@ impl<T: Config> Pallet<T> {
 
 pub fn message(nonce: u64, dest_chain: StateMachine) -> [u8; 32] {
 	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
+}
+
+pub fn message_with_beneficiary(
+	nonce: u64,
+	dest_chain: StateMachine,
+	beneficiary: &Vec<u8>,
+) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode())
 }

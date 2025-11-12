@@ -14,10 +14,7 @@ use ismp::{
 use pallet_hyperbridge::WithdrawalRequest;
 use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, offchain::LeafIndexAndPos};
 use pallet_ismp_host_executive::HostParam;
-use pallet_ismp_relayer::{
-	message,
-	withdrawal::{Key, WithdrawalInputData, WithdrawalProof},
-};
+use pallet_ismp_relayer::{message, message_with_beneficiary, withdrawal::{Key, WithdrawalInputData, WithdrawalProof}};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use polkadot_sdk::sp_core::Pair;
 use sp_core::{
@@ -162,6 +159,26 @@ where
 		counterparty: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
+		let hyperbridge_account_balance =
+			relayer_account_balance(&self.client, &self.rpc, chain, self.address.clone()).await?;
+
+		if hyperbridge_account_balance > U256::zero() {
+			// withdraws funds accumulated into hyperbridge address
+			let key = relayer_nonce_storage_key(self.address.clone(), chain);
+			let block_hash = self
+				.rpc
+				.chain_get_block_hash(None)
+				.await?
+				.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+			let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
+			let nonce =
+				if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
+
+			let message = message_with_beneficiary(nonce, chain, &counterparty.address());
+
+			execute_withdrawal(self, None, message, counterparty.clone(), chain).await?;
+		}
+		// withdraws funds accumulated into counterparty address
 		let key = relayer_nonce_storage_key(counterparty.address(), chain);
 		let block_hash = self
 			.rpc
@@ -172,73 +189,9 @@ where
 		let nonce =
 			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
 
-		let signature = {
-			let message = message(nonce, chain);
-			counterparty.sign(&message)
-		};
+		let message = message(nonce, chain);
 
-		let input_data = WithdrawalInputData {
-			signature,
-			dest_chain: chain,
-			beneficiary: counterparty.withdrawal_beneficiary_address(),
-		};
-		let tx = subxt::dynamic::tx(
-			"Relayer",
-			"withdraw_fees",
-			vec![withdrawal_input_data_to_value(&input_data)],
-		);
-
-		// Wait for finalization so we still get the correct block with the post request event even
-		// if a reorg happens
-		let (hash, _) = send_unsigned_extrinsic(&self.client, tx, true)
-			.await?
-			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
-		let block_number = self
-			.rpc
-			.chain_get_header(Some(hash))
-			.await?
-			.ok_or_else(|| anyhow!("Header should exists"))?
-			.number()
-			.into();
-		let mock_state_update = StateMachineUpdated {
-			state_machine_id: counterparty.state_machine_id(),
-			latest_height: block_number,
-		};
-		let event = self
-			.query_ismp_events(block_number - 1, mock_state_update)
-			.await?
-			.into_iter()
-			.find(|event| match event {
-				Event::PostRequest(post) => {
-					let condition =
-						post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
-					match post.dest {
-						s if s.is_substrate() => {
-							if let Ok(pallet_hyperbridge::Message::WithdrawRelayerFees(
-								WithdrawalRequest { account, .. },
-							)) = pallet_hyperbridge::Message::<AccountId32, u128>::decode(
-								&mut &*post.body,
-							) {
-								account.0.to_vec() == counterparty.address() && condition
-							} else {
-								false
-							}
-						},
-						s if s.is_evm() => {
-							let address = &post.body[1..33].to_vec();
-							// abi encoding will pad address with 12 bytes
-							address.ends_with(&counterparty.address()) && condition
-						},
-						_ => false,
-					}
-				},
-				_ => false,
-			})
-			.ok_or_else(|| anyhow!("Post Event should be present in block"))?;
-
-		let Event::PostRequest(post) = event else { unreachable!() };
-
-		Ok(WithdrawFundsResult { post, block: block_number })
+		return execute_withdrawal(self, None, message, counterparty.clone(), chain).await;
 	}
 
 	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool> {
@@ -325,4 +278,91 @@ async fn relayer_account_balance<C: subxt::Config>(
 	};
 
 	Ok(balance)
+}
+
+
+
+async fn execute_withdrawal<C>(
+	client: &SubstrateClient<C>,
+	beneficiary: Option<Vec<u8>>,
+	message: [u8; 32],
+	counterparty: Arc<dyn IsmpProvider>,
+	chain: StateMachine,
+) -> anyhow::Result<WithdrawFundsResult>
+where
+	C: subxt::Config + Send + Sync + Clone,
+	C::Header: Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
+	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
+	H256: From<HashFor<C>>,
+{
+	let signature = {
+		counterparty.sign(&message)
+	};
+
+	let input_data = WithdrawalInputData {
+		signature,
+		dest_chain: chain,
+		beneficiary,
+	};
+
+	let tx = subxt::dynamic::tx(
+		"Relayer",
+		"withdraw_fees",
+		vec![withdrawal_input_data_to_value(&input_data)],
+	);
+
+	// Wait for finalization so we still get the correct block with the post request event even
+	// if a reorg happens
+	let (hash, _) = send_unsigned_extrinsic(&client.client, tx, true)
+		.await?
+		.ok_or_else(|| anyhow!("Transaction submission failed"))?;
+	let block_number = client
+		.rpc
+		.chain_get_header(Some(hash))
+		.await?
+		.ok_or_else(|| anyhow!("Header should exists"))?
+		.number()
+		.into();
+	let mock_state_update = StateMachineUpdated {
+		state_machine_id: counterparty.state_machine_id(),
+		latest_height: block_number,
+	};
+
+	let event = client
+		.query_ismp_events(block_number - 1, mock_state_update)
+		.await?
+		.into_iter()
+		.find(|event| match event {
+			Event::PostRequest(post) => {
+				let condition =
+					post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
+				match post.dest {
+					s if s.is_substrate() => {
+						if let Ok(pallet_hyperbridge::Message::WithdrawRelayerFees(
+									  WithdrawalRequest { account, .. },
+								  )) = pallet_hyperbridge::Message::<AccountId32, u128>::decode(
+							&mut &*post.body,
+						) {
+							account.0.to_vec() == counterparty.address() && condition
+						} else {
+							false
+						}
+					},
+					s if s.is_evm() => {
+						let address = &post.body[1..33].to_vec();
+						// abi encoding will pad address with 12 bytes
+						address.ends_with(&counterparty.address()) && condition
+					},
+					_ => false,
+				}
+			},
+			_ => false,
+		})
+		.ok_or_else(|| anyhow!("Post Event should be present in block"))?;
+
+	let Event::PostRequest(post) = event else { unreachable!() };
+
+	Ok(WithdrawFundsResult { post, block: block_number })
 }

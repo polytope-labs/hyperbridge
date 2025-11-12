@@ -275,10 +275,6 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
 		todo!()
 	}
-
-	fn withdrawal_beneficiary_address(&self) -> Option<Vec<u8>> {
-		todo!()
-	}
 }
 
 impl<C: Send + Sync> Clone for MockHost<C> {

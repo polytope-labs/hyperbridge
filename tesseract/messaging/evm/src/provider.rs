@@ -902,10 +902,6 @@ impl IsmpProvider for EvmClient {
 
 		Ok(decimals)
 	}
-
-	fn withdrawal_beneficiary_address(&self) -> Option<Vec<u8>> {
-		self.withdrawal_beneficiary_address.clone()
-	}
 }
 
 pub enum CheckTraceForEventParams {

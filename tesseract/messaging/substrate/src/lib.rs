@@ -61,8 +61,6 @@ pub struct SubstrateConfig {
 	pub max_rpc_payload_size: Option<u32>,
 	/// Relayer account seed
 	pub signer: String,
-	/// Optional withdrawal beneficiary address
-	pub withdrawal_beneficiary_address: Option<String>,
 	/// Initial height from which to start querying messages
 	pub initial_height: Option<u64>,
 	/// Max concurrent rpc requests allowed
@@ -91,8 +89,6 @@ pub struct SubstrateClient<C: subxt::Config> {
 	pub signer: sr25519::Pair,
 	/// Public Address
 	pub address: Vec<u8>,
-	/// Optional Withdrawal Beneficiary Address
-	pub withdrawal_beneficiary_address: Option<Vec<u8>>,
 	/// Initial height from which to start querying messages
 	initial_height: u64,
 	/// Max concurrent rpc requests allowed
@@ -138,8 +134,6 @@ where
 		consensus_state_id
 			.copy_from_slice(config.consensus_state_id.clone().unwrap_or("DOT0".into()).as_bytes());
 		let address = signer.public().0.to_vec();
-		let withdrawal_beneficiary_address =
-			config.withdrawal_beneficiary_address.as_deref().map(from_hex).transpose()?;
 		Ok(Self {
 			client,
 			rpc,
@@ -149,7 +143,6 @@ where
 			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
 			signer,
 			address,
-			withdrawal_beneficiary_address,
 			initial_height,
 			max_concurent_queries: config.max_concurent_queries,
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
@@ -217,7 +210,6 @@ impl<C: subxt::Config> Clone for SubstrateClient<C> {
 			hashing: self.hashing.clone(),
 			signer: self.signer.clone(),
 			address: self.address.clone(),
-			withdrawal_beneficiary_address: self.withdrawal_beneficiary_address.clone(),
 			initial_height: self.initial_height,
 			max_concurent_queries: self.max_concurent_queries,
 			state_machine_update_sender: self.state_machine_update_sender.clone(),

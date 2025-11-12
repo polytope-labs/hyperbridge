@@ -68,8 +68,6 @@ pub struct EvmConfig {
 	pub ismp_host: H160,
 	/// Relayer account private key
 	pub signer: String,
-	/// Optional Beneficiary withdrawal address
-	pub withdrawal_beneficiary_address: Option<String>,
 	/// Etherscan API key
 	pub etherscan_api_key: String,
 	/// Batch size to parallelize tracing
@@ -108,7 +106,6 @@ impl Default for EvmConfig {
 			consensus_state_id: Default::default(),
 			ismp_host: Default::default(),
 			signer: Default::default(),
-			withdrawal_beneficiary_address: None,
 			etherscan_api_key: Default::default(),
 			tracing_batch_size: Default::default(),
 			query_batch_size: Default::default(),
@@ -128,8 +125,6 @@ pub struct EvmClient {
 	pub signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
 	/// Public Key Address
 	pub address: Vec<u8>,
-	/// Beneficiary Key Address
-	pub withdrawal_beneficiary_address: Option<Vec<u8>>,
 	/// Consensus state Id
 	pub consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this client.
@@ -166,9 +161,6 @@ impl EvmClient {
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
 
-		let withdrawal_beneficiary_address =
-			config.withdrawal_beneficiary_address.as_deref().map(from_hex).transpose()?;
-
 		let http_client = Http::new_client_with_chain_middleware(
 			config.rpc_urls.into_iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
 			Some(Duration::from_secs(180)),
@@ -194,7 +186,6 @@ impl EvmClient {
 			client,
 			signer,
 			address,
-			withdrawal_beneficiary_address,
 			consensus_state_id,
 			state_machine: config.state_machine,
 			initial_height: latest_height,
@@ -365,7 +356,6 @@ impl Clone for EvmClient {
 			client: self.client.clone(),
 			signer: self.signer.clone(),
 			address: self.address.clone(),
-			withdrawal_beneficiary_address: None,
 			consensus_state_id: self.consensus_state_id,
 			state_machine: self.state_machine,
 			initial_height: self.initial_height,

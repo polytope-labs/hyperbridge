@@ -370,10 +370,6 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 	async fn fee_token_decimals(&self) -> Result<u8, Error> {
 		self.inner.fee_token_decimals().await
 	}
-
-	fn withdrawal_beneficiary_address(&self) -> Option<Vec<u8>> {
-		self.inner.withdrawal_beneficiary_address()
-	}
 }
 
 #[async_trait::async_trait]

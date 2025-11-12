@@ -857,7 +857,6 @@ mod tests {
 			rpc_ws: "ws://localhost:9902".to_string(),
 			max_rpc_payload_size: None,
 			signer: format!("{:?}", H256::random()),
-			withdrawal_beneficiary_address: None,
 			initial_height: None,
 			max_concurent_queries: None,
 			poll_interval: None,

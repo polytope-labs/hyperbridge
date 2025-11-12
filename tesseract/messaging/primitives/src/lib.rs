@@ -373,8 +373,6 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	}
 
 	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error>;
-
-	fn withdrawal_beneficiary_address(&self) -> Option<Vec<u8>>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for

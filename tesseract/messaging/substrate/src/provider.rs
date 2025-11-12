@@ -916,10 +916,6 @@ where
 		// Default for USDT and USDC on polkadot chains is 6
 		Ok(self.config.fee_token_decimals.unwrap_or(6))
 	}
-
-	fn withdrawal_beneficiary_address(&self) -> Option<Vec<u8>> {
-		self.withdrawal_beneficiary_address.clone()
-	}
 }
 
 // The storage key needed to access events.

@@ -30,6 +30,10 @@ where
 	T::AccountId: AsRef<[u8]>,
 {
 	fn accumulate_protocol_fees(message: &Message, relayer_account: &T::AccountId) {
+		if MigrationInProgress::<T>::get() {
+			log::warn!(target: "ismp", "Fee accumulation paused: Migration in progress.");
+			return;
+		}
 		let mut fee_data: Vec<(usize, H256, StateMachine, StateMachine)> = vec![];
 		match message {
 			Message::Request(req) =>

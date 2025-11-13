@@ -182,6 +182,16 @@ impl pallet_sudo::Config for Test {
 	type WeightInfo = ();
 }
 
+impl Get<frame_system::limits::BlockWeights> for MockBlockWeights {
+	fn get() -> frame_system::limits::BlockWeights {
+		frame_system::limits::BlockWeights::simple_max(
+			Weight::from_parts(400_000_000, 0)
+		)
+	}
+}
+
+
+pub struct MockBlockWeights;
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
 	type BaseCallFilter = frame_support::traits::Everything;

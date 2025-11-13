@@ -2,10 +2,13 @@
 
 use codec::{Decode, Encode};
 use polkadot_sdk::{
-	frame_support::traits::{
+	frame_support::{
+		pallet_prelude::StorageVersion,
+		traits::{
 		fungible::{Inspect, Mutate},
-		Get,
-	},
+		Get, OnRuntimeUpgrade
+	}},
+
 	pallet_session::SessionHandler,
 	sp_runtime::{
 		traits::{AccountIdConversion, OpaqueKeys},
@@ -26,7 +29,10 @@ use ismp::{
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 use pallet_ismp_relayer::withdrawal::Signature;
-use pallet_messaging_fees::{IncentivesManager, TotalBytesProcessed};
+use pallet_messaging_fees::{
+	migrations, IncentivesManager, LastProcessedMigrationKey, MigrationInProgress,
+	TotalBytesProcessed,
+};
 
 use crate::{
 	runtime::{
@@ -450,4 +456,56 @@ fn test_protocol_fee_accumulation() {
 			expected_fee_u256
 		);
 	});
+}
+
+#[cfg(test)]
+mod migration_tests {
+	use super::*;
+
+	#[test]
+	fn migration_resets_substrate_fees_to_zero_and_skips_evm() {
+		new_test_ext().execute_with(|| {
+			let relayer_address = vec![1; 32];
+			let substrate_chain = StateMachine::Kusama(2000);
+			let evm_chain = StateMachine::Evm(1);
+			let initial_fee = U256::from(100_000);
+
+			StorageVersion::new(0).put::<pallet_messaging_fees::Pallet<Test>>();
+			pallet_ismp_relayer::Fees::<Test>::insert(
+				&substrate_chain,
+				&relayer_address,
+				initial_fee,
+			);
+			pallet_ismp_relayer::Fees::<Test>::insert(&evm_chain, &relayer_address, initial_fee);
+
+			assert_eq!(
+				pallet_ismp_relayer::Fees::<Test>::get(&substrate_chain, &relayer_address),
+				initial_fee
+			);
+			assert_eq!(
+				pallet_ismp_relayer::Fees::<Test>::get(&evm_chain, &relayer_address),
+				initial_fee
+			);
+			assert_eq!(StorageVersion::get::<pallet_messaging_fees::Pallet<Test>>(), 0);
+
+			let weight = migrations::migration_v0::MigrationV0::<Test>::on_runtime_upgrade();
+
+			assert!(weight.ref_time() > 0, "Migration should consume weight");
+
+			assert_eq!(
+				pallet_ismp_relayer::Fees::<Test>::get(&substrate_chain, &relayer_address),
+				U256::zero()
+			);
+
+			assert_eq!(
+				pallet_ismp_relayer::Fees::<Test>::get(&evm_chain, &relayer_address),
+				initial_fee
+			);
+
+			assert_eq!(StorageVersion::get::<pallet_messaging_fees::Pallet<Test>>(), 1);
+
+			assert_eq!(MigrationInProgress::<Test>::get(), false);
+			assert_eq!(LastProcessedMigrationKey::<Test>::get(), None);
+		});
+	}
 }

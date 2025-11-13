@@ -277,11 +277,11 @@ where
 		let msg = match &withdrawal_data.beneficiary {
 			Some(beneficiary) => {
 				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
-				message_with_beneficiary(nonce, withdrawal_data.dest_chain, beneficiary)
+				message(nonce, withdrawal_data.dest_chain, Some(beneficiary.to_vec()))
 			},
 			None => {
 				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
-				message(nonce, withdrawal_data.dest_chain)
+				message(nonce, withdrawal_data.dest_chain, None)
 			},
 		};
 		match &withdrawal_data.signature {
@@ -821,14 +821,9 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-pub fn message(nonce: u64, dest_chain: StateMachine) -> [u8; 32] {
+pub fn message(nonce: u64, dest_chain: StateMachine, beneficiary: Option<Vec<u8>>) -> [u8; 32] {
+	if let Some(beneficiary) = beneficiary {
+		return sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode())
+	}
 	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
-}
-
-pub fn message_with_beneficiary(
-	nonce: u64,
-	dest_chain: StateMachine,
-	beneficiary: &Vec<u8>,
-) -> [u8; 32] {
-	sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode())
 }

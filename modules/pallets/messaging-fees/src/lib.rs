@@ -41,9 +41,10 @@ pub use pallet::*;
 
 use crate::types::*;
 
+pub mod benchmarking;
 mod impls;
-pub mod types;
 pub mod migrations;
+pub mod types;
 
 /// A trait for managing messaging incentives, primarily for resetting them.
 pub trait IncentivesManager {

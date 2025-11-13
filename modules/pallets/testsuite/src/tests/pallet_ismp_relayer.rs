@@ -592,7 +592,7 @@ fn test_withdrawal_fees() {
 			public_key.clone(),
 			U256::from(250_000_000_000_000_000_000u128),
 		);
-		let message = message(0, StateMachine::Kusama(2000));
+		let message = message(0, StateMachine::Kusama(2000), None);
 		let signature = pair.sign(&message).0.to_vec();
 
 		let withdrawal_input = WithdrawalInputData {
@@ -640,7 +640,7 @@ fn test_withdrawal_fees_evm() {
 			address.to_vec(),
 			U256::from(250_000_000_000_000_000_000u128),
 		);
-		let message = message(0, StateMachine::Evm(84532));
+		let message = message(0, StateMachine::Evm(84532), None);
 		let signature = pair.sign_prehashed(&message).0.to_vec();
 
 		let withdrawal_input = WithdrawalInputData {

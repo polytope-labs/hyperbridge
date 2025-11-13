@@ -14,7 +14,10 @@ use ismp::{
 use pallet_hyperbridge::WithdrawalRequest;
 use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, offchain::LeafIndexAndPos};
 use pallet_ismp_host_executive::HostParam;
-use pallet_ismp_relayer::{message, message_with_beneficiary, withdrawal::{Key, WithdrawalInputData, WithdrawalProof}};
+use pallet_ismp_relayer::{
+	message,
+	withdrawal::{Key, WithdrawalInputData, WithdrawalProof},
+};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use polkadot_sdk::sp_core::Pair;
 use sp_core::{
@@ -162,7 +165,10 @@ where
 		let hyperbridge_account_balance =
 			relayer_account_balance(&self.client, &self.rpc, chain, self.address.clone()).await?;
 
-		if hyperbridge_account_balance > U256::zero() {
+		let fee_token_decimals = &counterparty.fee_token_decimals().await?;
+
+		if hyperbridge_account_balance > U256::from(10u128 * 10u128.pow(*fee_token_decimals.into()))
+		{
 			// withdraws funds accumulated into hyperbridge address
 			let key = relayer_nonce_storage_key(self.address.clone(), chain);
 			let block_hash = self
@@ -171,8 +177,11 @@ where
 				.await?
 				.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
 			let raw_value = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
-			let nonce =
-				if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
+			let nonce = if let Some(raw_value) = raw_value {
+				Decode::decode(&mut &*raw_value)?
+			} else {
+				0u64
+			};
 
 			let message = message_with_beneficiary(nonce, chain, &counterparty.address());
 
@@ -189,7 +198,7 @@ where
 		let nonce =
 			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
 
-		let message = message(nonce, chain);
+		let message = message(nonce, chain, None);
 
 		return execute_withdrawal(self, None, message, counterparty.clone(), chain).await;
 	}
@@ -280,8 +289,6 @@ async fn relayer_account_balance<C: subxt::Config>(
 	Ok(balance)
 }
 
-
-
 async fn execute_withdrawal<C>(
 	client: &SubstrateClient<C>,
 	beneficiary: Option<Vec<u8>>,
@@ -297,15 +304,9 @@ where
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	H256: From<HashFor<C>>,
 {
-	let signature = {
-		counterparty.sign(&message)
-	};
+	let signature = { counterparty.sign(&message) };
 
-	let input_data = WithdrawalInputData {
-		signature,
-		dest_chain: chain,
-		beneficiary,
-	};
+	let input_data = WithdrawalInputData { signature, dest_chain: chain, beneficiary };
 
 	let tx = subxt::dynamic::tx(
 		"Relayer",
@@ -336,13 +337,12 @@ where
 		.into_iter()
 		.find(|event| match event {
 			Event::PostRequest(post) => {
-				let condition =
-					post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
+				let condition = post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
 				match post.dest {
 					s if s.is_substrate() => {
 						if let Ok(pallet_hyperbridge::Message::WithdrawRelayerFees(
-									  WithdrawalRequest { account, .. },
-								  )) = pallet_hyperbridge::Message::<AccountId32, u128>::decode(
+							WithdrawalRequest { account, .. },
+						)) = pallet_hyperbridge::Message::<AccountId32, u128>::decode(
 							&mut &*post.body,
 						) {
 							account.0.to_vec() == counterparty.address() && condition

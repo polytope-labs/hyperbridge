@@ -17,16 +17,10 @@
 		"startBlock": 1,
 		"stateMachineId": "SUBSTRATE-zkv_"
 	},
-	"kilt-paseo": {
-		"type": "substrate",
-		"chainId": "0xa0c6e3bac382b316a68bca7141af1fba507207594c761076847ce358aeedcc21",
-		"startBlock": 8430884,
-		"stateMachineId": "KUSAMA-2086"
-	},
 	"hydration-paseo": {
 		"type": "substrate",
-		"chainId": "0x05fab032a899566268235e3c89c847fb4644558a0d856282d47d17ff06cb2020",
-		"startBlock": 1315022,
+		"chainId": "0x5f52a76d9a13fcc0c9094ba62c284f4f2f5e5f031f7e60eecaa7339f7f77c23f",
+		"startBlock": 34996,
 		"stateMachineId": "KUSAMA-2034"
 	},
 	"sepolia": {

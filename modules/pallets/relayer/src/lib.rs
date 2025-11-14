@@ -165,6 +165,8 @@ pub mod pallet {
 		Withdraw {
 			/// relayer address
 			address: BoundedVec<u8, ConstU32<32>>,
+			/// beneficiary address
+			beneficiary_address: BoundedVec<u8, ConstU32<32>>,
 			/// destination state machine
 			state_machine: StateMachine,
 			/// Amount withdrawn
@@ -267,9 +269,24 @@ where
 {
 	pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
 		let address = match &withdrawal_data.signature {
+			Signature::Evm { address, .. } => address.clone(),
+			Signature::Sr25519 { public_key, .. } => public_key.clone(),
+			Signature::Ed25519 { public_key, .. } => public_key.clone()
+		};
+
+		let msg = match &withdrawal_data.beneficiary {
+			Some(beneficiary) => {
+				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
+				message(nonce, withdrawal_data.dest_chain, Some(beneficiary.to_vec()))
+			},
+			None => {
+				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
+				message(nonce, withdrawal_data.dest_chain, None)
+			},
+		};
+		match &withdrawal_data.signature {
 			Signature::Evm { address, .. } => {
 				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain);
 				let eth_address = withdrawal_data
 					.signature
 					.verify(&msg, None)
@@ -277,27 +294,22 @@ where
 				if &eth_address != address {
 					Err(Error::<T>::InvalidPublicKey)?
 				}
-				address
 			},
 			Signature::Sr25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain);
 				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature
 					.verify(&msg, None)
 					.map_err(|_| Error::<T>::InvalidSignature)?;
-				public_key
 			},
 			Signature::Ed25519 { public_key, .. } => {
 				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
-				let msg = message(nonce, withdrawal_data.dest_chain);
 				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature
 					.verify(&msg, None)
 					.map_err(|_| Error::<T>::InvalidSignature)?;
-				public_key
 			},
 		};
 		let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
@@ -328,8 +340,10 @@ where
 			Ok::<(), ()>(())
 		})
 		.map_err(|_| Error::<T>::ErrorCompletingCall)?;
+
+		let beneficiary_address = withdrawal_data.beneficiary.clone().unwrap_or(address.clone());
 		let params = WithdrawalParams {
-			beneficiary_address: address.clone(),
+			beneficiary_address: beneficiary_address.clone(),
 			amount: available_amount.into(),
 			native: false,
 		};
@@ -338,7 +352,7 @@ where
 			s if s.is_evm() => params.abi_encode(),
 			_ => Message::WithdrawRelayerFees(WithdrawalRequest {
 				amount: params.amount.low_u128(),
-				account: AccountId32::try_from(&address[..])
+				account: AccountId32::try_from(&beneficiary_address[..])
 					.map_err(|_| Error::<T>::InvalidPublicKey)?,
 			})
 			.encode(),
@@ -364,6 +378,7 @@ where
 
 		Self::deposit_event(Event::<T>::Withdraw {
 			address: sp_runtime::BoundedVec::truncate_from(address.clone()),
+			beneficiary_address: sp_runtime::BoundedVec::truncate_from(beneficiary_address),
 			state_machine: withdrawal_data.dest_chain,
 			amount: available_amount,
 		});
@@ -806,6 +821,9 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-pub fn message(nonce: u64, dest_chain: StateMachine) -> [u8; 32] {
+pub fn message(nonce: u64, dest_chain: StateMachine, beneficiary: Option<Vec<u8>>) -> [u8; 32] {
+	if let Some(beneficiary) = beneficiary {
+		return sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode())
+	}
 	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
 }

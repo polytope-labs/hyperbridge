@@ -12,7 +12,7 @@ use polkadot_sdk::{
 };
 use sp_core::H256;
 
-use crate::{types::IncentivizedMessage, *};
+use crate::{frame_support::migrations::MultiStepMigrator, types::IncentivizedMessage, *};
 use crypto_utils::verification::Signature;
 use ismp::{
 	events::Event as IsmpEvent,
@@ -22,16 +22,17 @@ use ismp::{
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
+use pallet_migrations;
 
-impl<T: Config> Pallet<T>
+impl<T: Config + polkadot_sdk::pallet_migrations::Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	u128: From<<T as pallet_ismp::Config>::Balance>,
 	T::AccountId: AsRef<[u8]>,
 {
 	fn accumulate_protocol_fees(message: &Message, relayer_account: &T::AccountId) {
-		if MigrationInProgress::<T>::get() {
-			log::warn!(target: "ismp", "Fee accumulation paused: Migration in progress.");
+		if <pallet_migrations::Pallet<T> as MultiStepMigrator>::ongoing() {
+			log::warn!(target: "ismp", "Fee accumulation paused: pallet-migrations is active.");
 			return;
 		}
 		let mut fee_data: Vec<(usize, H256, StateMachine, StateMachine)> = vec![];
@@ -331,7 +332,7 @@ where
 	}
 }
 
-impl<T: Config> FeeHandler for Pallet<T>
+impl<T: Config + polkadot_sdk::pallet_migrations::Config> FeeHandler for Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	u128: From<<T as pallet_ismp::Config>::Balance>,

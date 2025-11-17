@@ -1,20 +1,22 @@
+#![feature(attributes_on_expressions)]
+
 use super::*;
 
 use alloc::vec;
 use codec::{Decode, Encode};
 use frame_benchmarking::v2::*;
 use frame_support::{
+	migrations::SteppedMigration,
 	storage::{storage_prefix, unhashed},
-	traits::Get,
+	weights::WeightMeter,
 };
-use frame_system::RawOrigin;
 use ismp::host::StateMachine;
-use polkadot_sdk::sp_core::U256;
-use sp_runtime::Saturating;
+use polkadot_sdk::{sp_core::U256, *};
 
-#[benchmarks]
+#[benchmarks(where T: pallet_migrations::Config)]
 mod benchmarks {
 	use super::*;
+	use crate::migrations::v1::Migration;
 
 	#[benchmark]
 	fn migrate_evm_fees() {
@@ -45,39 +47,11 @@ mod benchmarks {
 		pallet_ismp_host_executive::FeeTokenDecimals::<T>::insert(&evm_chain, fee_decimals);
 
 		assert_eq!(unhashed::get::<U256>(&full_key), Some(fee_18_decimals));
+		let mut meter = WeightMeter::new();
 
 		#[block]
 		{
-			let mut key_part = &key_suffix[16..];
-			if let Ok(state_machine) = StateMachine::decode(&mut key_part) {
-				if state_machine.is_evm() {
-					if key_part.len() > 16 {
-						let mut relayer_address_bytes = &key_part[16..];
-						if let Ok(relayer_address) = Vec::<u8>::decode(&mut relayer_address_bytes) {
-							if relayer_address.len() == 32 {
-								let current_fee =
-									unhashed::get::<U256>(&full_key).unwrap_or_default();
-								if let Some(decimals) = pallet_ismp_host_executive::FeeTokenDecimals::<
-									T,
-								>::get(&state_machine)
-								{
-									let decimals_u32 = decimals as u32;
-									let scaling_power = 18u32.saturating_sub(decimals_u32);
-
-									if scaling_power > 0 {
-										let divisor =
-											U256::from(10u128).pow(U256::from(scaling_power));
-										let new_fee = current_fee
-											.checked_div(divisor)
-											.unwrap_or(U256::zero());
-										unhashed::put(&full_key, &new_fee);
-									}
-								}
-							}
-						}
-					}
-				}
-			}
+			Migration::<T>::step(None, &mut meter).unwrap();
 		}
 
 		assert_eq!(unhashed::get::<U256>(&full_key), Some(expected_fee));

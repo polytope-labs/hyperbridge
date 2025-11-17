@@ -119,15 +119,6 @@ pub mod pallet {
 	#[pallet::getter(fn target_message_size)]
 	pub type TargetMessageSize<T: Config> = StorageValue<_, u32, OptionQuery>;
 
-	/// Indicates if the migration of relayer fees is in progress.
-	#[pallet::storage]
-	#[pallet::getter(fn migration_in_progress)]
-	pub type MigrationInProgress<T: Config> = StorageValue<_, bool, ValueQuery>;
-
-	/// Stores the last processed key during the fee migration.
-	#[pallet::storage]
-	pub type LastProcessedMigrationKey<T: Config> = StorageValue<_, Vec<u8>, OptionQuery>;
-
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Reward transfer failed
@@ -171,10 +162,6 @@ pub mod pallet {
 		TargetMessageSizeUpdated { new_size: u32 },
 		/// Resetting of Incentives has occurred
 		IncentivesReset,
-		/// Migration of relayer fees started
-		FeeMigrationStarted,
-		/// Migration of relayer fees completed
-		FeeMigrationCompleted,
 	}
 
 	#[pallet::call]

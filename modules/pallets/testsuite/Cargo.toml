@@ -91,7 +91,8 @@ features = [
     "pallet-assets-holder",
     "pallet-authorship",
     "cumulus-primitives-parachain-inherent",
-    "xcm-emulator"
+    "xcm-emulator",
+    "pallet-migrations"
 ]
 
 

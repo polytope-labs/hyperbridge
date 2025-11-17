@@ -909,6 +909,22 @@ impl PriceOracle for FixedPriceOracle {
 	}
 }
 
+
+parameter_types! {
+	pub MbmServiceWeight: Weight = RuntimeBlockWeights::get().max_block.div(2);
+}
+
+impl pallet_migrations::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Migrations = (pallet_messaging_fees::migrations::v1::Migration<Runtime>,);
+	type CursorMaxLen = ConstU32<65536>;
+	type IdentifierMaxLen = ConstU32<256>;
+	type MigrationStatusHandler = ();
+	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
+	type MaxServiceWeight = MbmServiceWeight;
+	type WeightInfo = pallet_migrations::weights::SubstrateWeight<Runtime>;
+}
+
 #[frame_support::runtime]
 mod runtime {
 	use governance::Origin;
@@ -1043,6 +1059,8 @@ mod runtime {
 	pub type MessagingFees = pallet_messaging_fees;
 	#[runtime::pallet_index(93)]
 	pub type CollatorManager = pallet_collator_manager;
+	#[runtime::pallet_index(94)]
+	pub type Migrations = pallet_migrations;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]

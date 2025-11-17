@@ -122,7 +122,8 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
-    "pallet-vesting"
+    "pallet-vesting",
+    "pallet-migrations"
 ]
 
 [features]

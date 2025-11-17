@@ -222,6 +222,7 @@ impl frame_system::Config for Test {
 	type SS58Prefix = ();
 	type OnSetCode = ParachainSetCode<Test>;
 	type MaxConsumers = ConstU32<16>;
+	type MultiBlockMigrator = Migrations;
 }
 
 impl pallet_timestamp::Config for Test {

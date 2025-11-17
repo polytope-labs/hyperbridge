@@ -403,6 +403,7 @@ impl frame_system::Config for Runtime {
 	/// The action to take on a Runtime Upgrade
 	type OnSetCode = cumulus_pallet_parachain_system::ParachainSetCode<Self>;
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
+	type MultiBlockMigrator = Migrations;
 }
 
 impl pallet_timestamp::Config for Runtime {

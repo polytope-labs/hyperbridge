@@ -36,7 +36,7 @@ pub mod v1 {
 	pub struct Migration<T: Config>(PhantomData<T>);
 
 	impl<T: Config + pallet_migrations::Config> SteppedMigration for Migration<T> {
-		type Cursor = BoundedVec<u8, <T as pallet_migrations::Config>::CursorMaxLen>;
+		type Cursor = BoundedVec<u8, ConstU32<1024>>;
 		type Identifier = MigrationId<13>;
 
 		fn id() -> Self::Identifier {

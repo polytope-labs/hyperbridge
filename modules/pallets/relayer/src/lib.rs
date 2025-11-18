@@ -274,19 +274,12 @@ where
 			Signature::Ed25519 { public_key, .. } => public_key.clone()
 		};
 
-		let msg = match &withdrawal_data.beneficiary {
-			Some(beneficiary) => {
-				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
-				message(nonce, withdrawal_data.dest_chain, Some(beneficiary.to_vec()))
-			},
-			None => {
-				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
-				message(nonce, withdrawal_data.dest_chain, None)
-			},
-		};
+
+		let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
+		let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.beneficiary.clone());
+
 		match &withdrawal_data.signature {
 			Signature::Evm { address, .. } => {
-				let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
 				let eth_address = withdrawal_data
 					.signature
 					.verify(&msg, None)
@@ -296,7 +289,6 @@ where
 				}
 			},
 			Signature::Sr25519 { public_key, .. } => {
-				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
 				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature
@@ -304,7 +296,6 @@ where
 					.map_err(|_| Error::<T>::InvalidSignature)?;
 			},
 			Signature::Ed25519 { public_key, .. } => {
-				let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
 				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature

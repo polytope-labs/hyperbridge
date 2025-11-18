@@ -467,69 +467,6 @@ mod migration_tests {
 	use frame_support::weights::WeightMeter;
 	use polkadot_sdk::{frame_support::migrations::SteppedMigration, sp_runtime::Saturating};
 	use pallet_messaging_fees::migrations::v1::Migration;
-
-	#[test]
-	fn migration_scales_evm_fees_for_32_byte_address_single_block() {
-		new_test_ext().execute_with(|| {
-			let relayer_addr_32 = vec![1; 32];
-			let relayer_addr_20 = vec![2; 20];
-			let substrate_chain = StateMachine::Kusama(2000);
-			let evm_chain = StateMachine::Evm(1);
-			let initial_fee = U256::from(100_000);
-
-			let fee_decimals = 6u8;
-			let fee_18_decimals = U256::from(100_000_000_000_000_000_000u128); // 100 * 10^18
-
-			let scaling_power = 18u32.saturating_sub(fee_decimals as u32);
-			let divisor = U256::from(10u128).pow(U256::from(scaling_power));
-			let expected_fee = fee_18_decimals.checked_div(divisor).unwrap(); // 100 * 10^6
-
-			pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(&evm_chain, fee_decimals);
-
-			StorageVersion::new(0).put::<pallet_messaging_fees::Pallet<Test>>();
-
-			pallet_ismp_relayer::Fees::<Test>::insert(
-				&substrate_chain,
-				&relayer_addr_32,
-				initial_fee,
-			);
-
-			pallet_ismp_relayer::Fees::<Test>::insert(
-				&evm_chain,
-				&relayer_addr_32,
-				fee_18_decimals,
-			);
-
-			pallet_ismp_relayer::Fees::<Test>::insert(&evm_chain, &relayer_addr_20, initial_fee);
-
-			assert_eq!(StorageVersion::get::<pallet_messaging_fees::Pallet<Test>>(), 0);
-
-
-			let mut cursor = None;
-			let mut meter = WeightMeter::new();
-			while let Some(new_cursor) =
-				Migration::<Test>::step(cursor.clone(), &mut meter).unwrap()
-			{
-				cursor = Some(new_cursor);
-			}
-
-			assert_eq!(
-				pallet_ismp_relayer::Fees::<Test>::get(&substrate_chain, &relayer_addr_32),
-				initial_fee
-			);
-
-			assert_eq!(
-				pallet_ismp_relayer::Fees::<Test>::get(&evm_chain, &relayer_addr_32),
-				expected_fee
-			);
-
-			assert_eq!(
-				pallet_ismp_relayer::Fees::<Test>::get(&evm_chain, &relayer_addr_20),
-				initial_fee
-			);
-		});
-	}
-
 	#[test]
 	fn migration_scales_evm_fees_for_32_byte_address_multi_block() {
 		new_test_ext().execute_with(|| {

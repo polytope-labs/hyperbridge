@@ -47,6 +47,8 @@ pub mod pallet_treasury;
 pub mod pallet_utility;
 pub mod pallet_vesting;
 pub mod pallet_whitelist;
+pub mod pallet_migrations;
+pub mod pallet_messaging_fees;
 
 pub use block_weights::constants::BlockExecutionWeight;
 pub use extrinsic_weights::constants::ExtrinsicBaseWeight;

@@ -875,7 +875,7 @@ impl pallet_messaging_fees::Config for Runtime {
 		>,
 	>;
 	type PriceOracle = FixedPriceOracle;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 	type ReputationAsset = ReputationAsset;
 }
 
@@ -917,13 +917,16 @@ parameter_types! {
 
 impl pallet_migrations::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
+	#[cfg(not(feature = "runtime-benchmarks"))]
 	type Migrations = (pallet_messaging_fees::migrations::v1::Migration<Runtime>,);
+	#[cfg(feature = "runtime-benchmarks")]
+	type Migrations = pallet_migrations::mock_helpers::MockedMigrations;
 	type CursorMaxLen = ConstU32<65536>;
 	type IdentifierMaxLen = ConstU32<256>;
 	type MigrationStatusHandler = ();
 	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
 	type MaxServiceWeight = MbmServiceWeight;
-	type WeightInfo = pallet_migrations::weights::SubstrateWeight<Runtime>;
+	type WeightInfo = weights::pallet_migrations::WeightInfo<Runtime>;
 }
 
 #[frame_support::runtime]
@@ -1105,6 +1108,8 @@ mod benches {
 		[pallet_scheduler, Scheduler]
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
+		[pallet_migrations, Migrations]
+		[pallet_messaging_fees, MessagingFees]
 	);
 }
 

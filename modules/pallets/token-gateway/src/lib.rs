@@ -1,4 +1,4 @@
-// Copyright (C) Polytope Labs Ltd.
+	// Copyright (C) Polytope Labs Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,17 +25,21 @@ pub mod types;
 mod benchmarking;
 mod weights;
 use crate::impls::{convert_to_balance, convert_to_erc20};
+use crate::types::AssetRegistration;
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use frame_support::{
 	ensure,
+	pallet_prelude::*,
 	traits::{
+		EnsureOrigin,
 		fungibles::{self, Mutate},
 		tokens::{fungible::Mutate as FungibleMutate, Preservation},
 		Currency, ExistenceRequirement,
 	},
 };
+use frame_system::pallet_prelude::OriginFor;
 use polkadot_sdk::*;
 pub use weights::WeightInfo;
 
@@ -407,95 +411,11 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
-			T::CreateOrigin::ensure_origin(origin)?;
-			let who = T::AssetAdmin::get();
-			// charge hyperbridge fees
-			let VersionedHostParams::V1(SubstrateHostParams { asset_registration_fee, .. }) =
-				pallet_hyperbridge::Pallet::<T>::host_params();
-
-			if asset_registration_fee != Zero::zero() {
-				T::Currency::transfer(
-					&who,
-					&PALLET_HYPERBRIDGE.into_account_truncating(),
-					asset_registration_fee.into(),
-					Preservation::Expendable,
-				)?;
-			}
-
-			let asset_id: H256 = sp_io::hashing::keccak_256(asset.reg.symbol.as_ref()).into();
-			// If the local asset id already exists we do not change it's metadata we only store
-			// the mapping to its token gateway asset id
-
-			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
-			NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
-			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
-			for (state_machine, precision) in asset.precision {
-				Precisions::<T>::insert(asset.local_id.clone(), state_machine, precision);
-			}
-
-			let dispatcher = <T as Config>::Dispatcher::default();
-			let dispatch_post = DispatchPost {
-				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
-				from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
-				to: TOKEN_GOVERNOR_ID.to_vec(),
-				timeout: 0,
-				body: { RemoteERC6160AssetRegistration::CreateAsset(asset.reg).encode() },
-			};
-
-			let metadata = FeeMetadata { payer: who, fee: Default::default() };
-
-			let commitment = dispatcher
-				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
-				.map_err(|_| Error::<T>::DispatchError)?;
-			Self::deposit_event(Event::<T>::ERC6160AssetRegistrationDispatched { commitment });
-
+			Self::do_register_asset(origin, asset)?;
 			Ok(())
 		}
 
-		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
-		///
-		/// This works by dispatching a request to the TokenGateway module on each requested chain
-		/// to create the asset.
-		#[pallet::call_index(3)]
-		#[pallet::weight(T::WeightInfo::update_erc6160_asset())]
-		pub fn update_erc6160_asset(
-			origin: OriginFor<T>,
-			asset: GatewayAssetUpdate,
-		) -> DispatchResult {
-			T::CreateOrigin::ensure_origin(origin)?;
-			let who = T::AssetAdmin::get();
 
-			// charge hyperbridge fees
-			let VersionedHostParams::V1(SubstrateHostParams { asset_registration_fee, .. }) =
-				pallet_hyperbridge::Pallet::<T>::host_params();
-
-			if asset_registration_fee != Zero::zero() {
-				T::Currency::transfer(
-					&who,
-					&PALLET_HYPERBRIDGE.into_account_truncating(),
-					asset_registration_fee.into(),
-					Preservation::Expendable,
-				)?;
-			}
-
-			let dispatcher = <T as Config>::Dispatcher::default();
-			let dispatch_post = DispatchPost {
-				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
-				from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
-				to: TOKEN_GOVERNOR_ID.to_vec(),
-				timeout: 0,
-				body: { RemoteERC6160AssetRegistration::UpdateAsset(asset).encode() },
-			};
-
-			let metadata = FeeMetadata { payer: who, fee: Default::default() };
-
-			let commitment = dispatcher
-				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
-				.map_err(|_| Error::<T>::DispatchError)?;
-			Self::deposit_event(Event::<T>::ERC6160AssetRegistrationDispatched { commitment });
-
-			Ok(())
-		}
 
 		/// Update the precision for an existing asset
 		#[pallet::call_index(4)]
@@ -520,22 +440,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
-			T::CreateOrigin::ensure_origin(origin)?;
-
-			let asset_id: H256 = sp_io::hashing::keccak_256(asset.reg.symbol.as_ref()).into();
-
-			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
-			NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
-			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
-			for (state_machine, precision) in asset.precision {
-				Precisions::<T>::insert(asset.local_id.clone(), state_machine, precision);
-			}
-
-			Self::deposit_event(Event::<T>::AssetRegisteredLocally {
-				local_id: asset.local_id,
-				asset_id,
-			});
-
+			Self::do_register_asset(origin, asset)?;
 			Ok(())
 		}
 	}
@@ -547,6 +452,28 @@ pub mod pallet {
 		fn default() -> Self {
 			Self(PhantomData)
 		}
+	}
+}
+
+impl<T: Config> Pallet<T> {
+	fn do_register_asset(origin: OriginFor<T>, asset: AssetRegistration<AssetId<T>>) -> DispatchResult {
+		T::CreateOrigin::ensure_origin(origin)?;
+
+		let asset_id: H256 = sp_io::hashing::keccak_256(asset.reg.symbol.as_ref()).into();
+
+		SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
+		NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
+		LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
+		for (state_machine, precision) in asset.precision {
+			Precisions::<T>::insert(asset.local_id.clone(), state_machine, precision);
+		}
+
+		Self::deposit_event(Event::<T>::AssetRegisteredLocally {
+			local_id: asset.local_id,
+			asset_id,
+		});
+
+		Ok(())
 	}
 }
 

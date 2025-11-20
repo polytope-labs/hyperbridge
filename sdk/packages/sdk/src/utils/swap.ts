@@ -1610,6 +1610,10 @@ export class Swap {
 	): Promise<{ finalAmountOut: bigint; calldata: Transaction[] }> {
 		const wethAsset = this.chainConfigService.getWrappedNativeAssetWithDecimals(evmChainID).asset
 
+		// Convert ADDRESS_ZERO to WETH for pair lookup (DEX pairs use WETH, not ADDRESS_ZERO)
+		const tokenInForPairLookup = tokenIn === ADDRESS_ZERO ? wethAsset : tokenIn
+		const tokenOutForPairLookup = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
+
 		let intermediateToken: HexString
 
 		if (dexPairAddress) {
@@ -1625,12 +1629,15 @@ export class Swap {
 					functionName: "token1",
 				}),
 			])
-			intermediateToken = tokenOut.toLowerCase() === token0Result.toLowerCase() ? token1Result : token0Result
+			// Handle native token: if tokenOut is ADDRESS_ZERO, check if either token0 or token1 is WETH
+			const normalizedTokenOut = tokenOut === ADDRESS_ZERO ? wethAsset : tokenOut
+			intermediateToken =
+				normalizedTokenOut.toLowerCase() === token0Result.toLowerCase() ? token1Result : token0Result
 		} else {
 			const { intermediateToken: foundIntermediateToken } = await this.findPair(
 				client,
-				tokenIn,
-				tokenOut,
+				tokenInForPairLookup,
+				tokenOutForPairLookup,
 				evmChainID,
 				protocol,
 			)

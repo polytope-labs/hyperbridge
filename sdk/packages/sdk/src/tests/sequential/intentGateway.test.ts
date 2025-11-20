@@ -1187,6 +1187,100 @@ describe.sequential("Swap Tests", () => {
 
 		assert(estimatedFee > 0n)
 	}, 1_000_000)
+
+	it("Should be able to drop gas on the destination chain, through calldata", async () => {
+		const bscMainnetId = "EVM-56"
+		const bscEvmChain = new EvmChain({
+			chainId: 56,
+			host: chainConfigService.getHostAddress(bscMainnetId),
+			rpcUrl: process.env.BSC_MAINNET!,
+		})
+
+		const mainnetEvmChain = new EvmChain({
+			chainId: 1,
+			host: chainConfigService.getHostAddress(mainnetId),
+			rpcUrl: process.env.ETH_MAINNET!,
+		})
+		const intentGateway = new IntentGateway(mainnetEvmChain, bscEvmChain)
+		const tokenIn = chainConfigService.getUsdcAsset(mainnetId)
+		const tokenOut = chainConfigService.getUsdcAsset(bscMainnetId)
+
+		// The user gives 5 USDC, and expects 10c worth of gas, along with 4.9 USDC back
+		const amountIn = parseUnits("5", 6)
+		const firstAmountOut = parseUnits("4.9", 18) // This goes to the user
+		const gasDropUsdcAmount = parseUnits("0.1", 18) // Gets swapped to Native token
+		const bscCalldispatcher = chainConfigService.getCalldispatcherAddress(bscMainnetId)
+
+		// Filler sends firstAmountOut + gasDropUsdcAmount to the calldispatcher which equals 5 USDC
+		// Calldispatcher sends firstAmountOut to the user, and gasDropUsdcAmount to universal router for swapping
+
+		// This is the calldata for the calldispatcher sending the funds to the user
+		// Which is firstAmountout
+
+		let firstCallData = {
+			to: tokenOut,
+			data: encodeFunctionData({
+				abi: erc6160.ABI,
+				functionName: "transfer",
+				args: ["0xFbd87afA57268560ae4D820a5B73Db71916852a7", firstAmountOut],
+			}),
+			value: 0n,
+		}
+
+		// This is the calldata for the calldispatcher using the rest of the amount to swap to native token and send to user
+		// Even though we are using createMultiHopSwapThroughPair, this is a simple swap to native token
+		const { calldata } = await intentGateway.swap.createMultiHopSwapThroughPair(
+			intentGateway.dest.client,
+			tokenOut,
+			ADDRESS_ZERO,
+			gasDropUsdcAmount,
+			bscMainnetId,
+			"0xFbd87afA57268560ae4D820a5B73Db71916852a7", // User
+			"v2",
+			100n, // 1% slippage
+		)
+
+		const { ethMainnetIsmpHost, bscMainnetIsmpHost } = await setUpEthToBsc()
+
+		const encodedCalls = encodeAbiParameters(
+			[
+				{
+					type: "tuple[]",
+					components: [
+						{ name: "to", type: "address" },
+						{ name: "value", type: "uint256" },
+						{ name: "data", type: "bytes" },
+					],
+				},
+			],
+			[[firstCallData, ...calldata]],
+		)
+
+		const order: Order = {
+			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+			sourceChain: await ethMainnetIsmpHost.read.host(),
+			destChain: await bscMainnetIsmpHost.read.host(),
+			deadline: 65337297000n,
+			nonce: 0n,
+			fees: 0n,
+			outputs: [
+				{
+					token: bytes20ToBytes32(tokenOut),
+					amount: firstAmountOut + gasDropUsdcAmount, // 5 USDC`
+					beneficiary: bytes20ToBytes32(bscCalldispatcher),
+				},
+			],
+			inputs: [{ token: bytes20ToBytes32(tokenIn), amount: amountIn }], // 5 USDC
+			callData: encodedCalls,
+		}
+
+		const { feeTokenAmount: estimatedFee, nativeTokenAmount } = await intentGateway.estimateFillOrder(order)
+		console.log("ETH => BSC")
+		console.log("Estimated fee:", estimatedFee)
+		console.log("Native token amount:", nativeTokenAmount)
+
+		assert(estimatedFee > 0n)
+	}, 1_000_000)
 })
 
 describe.sequential("Order Cancellation tests", () => {

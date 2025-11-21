@@ -201,10 +201,11 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		if let Some(latest) = LatestStateMachineHeight::<T>::get(height.id) {
 			if latest == height.height {
 				// Reset back to the initial height to allow for honest updates
-				LatestStateMachineHeight::<T>::insert(
-					height.id,
-					PreviousStateMachineHeight::<T>::get(height.id),
-				);
+				let prev_height =
+					PreviousStateMachineHeight::<T>::get(height.id).ok_or_else(|| {
+						Error::Custom("Previous state machine height should exist".to_string())
+					})?;
+				LatestStateMachineHeight::<T>::insert(height.id, prev_height);
 			}
 		}
 		Ok(())

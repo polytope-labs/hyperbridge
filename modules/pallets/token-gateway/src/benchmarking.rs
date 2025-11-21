@@ -33,36 +33,6 @@ mod benches {
 	use super::*;
 
 	#[benchmark]
-	fn create_erc6160_asset(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let origin =
-			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-
-		let asset_details = GatewayAssetRegistration {
-			name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
-			symbol: BoundedVec::try_from(b"SPC".to_vec()).unwrap(),
-			chains: vec![StateMachine::Evm(100)],
-			minimum_balance: Some(10),
-		};
-
-		let mut precision = BTreeMap::new();
-		for i in 0..x {
-			precision.insert(StateMachine::Evm(i as u32), 18);
-		}
-
-		let asset = AssetRegistration {
-			local_id: T::NativeAssetId::get(),
-			reg: asset_details,
-			native: true,
-			precision,
-		};
-
-		#[extrinsic_call]
-		_(origin, asset);
-
-		Ok(())
-	}
-
-	#[benchmark]
 	fn teleport() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 		let create_origin =
@@ -129,40 +99,6 @@ mod benches {
 	}
 
 	#[benchmark]
-	fn update_erc6160_asset() -> Result<(), BenchmarkError> {
-		let origin =
-			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-
-		let local_id = T::NativeAssetId::get();
-
-		Pallet::<T>::create_erc6160_asset(
-			origin.clone(),
-			AssetRegistration {
-				local_id,
-				reg: GatewayAssetRegistration {
-					name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
-					symbol: BoundedVec::try_from(b"SPC".to_vec()).unwrap(),
-					chains: vec![StateMachine::Evm(100)],
-					minimum_balance: None,
-				},
-				native: true,
-				precision: Default::default(),
-			},
-		)?;
-
-		let asset_update = GatewayAssetUpdate {
-			asset_id: sp_io::hashing::keccak_256(b"SPC".as_ref()).into(),
-			add_chains: BoundedVec::try_from(vec![StateMachine::Evm(200)]).unwrap(),
-			remove_chains: BoundedVec::try_from(Vec::new()).unwrap(),
-			new_admins: BoundedVec::try_from(Vec::new()).unwrap(),
-		};
-
-		#[extrinsic_call]
-		_(origin, asset_update);
-		Ok(())
-	}
-
-	#[benchmark]
 	fn update_asset_precision(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
 		let origin =
 			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
@@ -176,36 +112,6 @@ mod benches {
 
 		#[extrinsic_call]
 		_(origin, update);
-		Ok(())
-	}
-
-	#[benchmark]
-	fn register_asset_locally(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
-		let origin =
-			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-
-		let asset_details = GatewayAssetRegistration {
-			name: BoundedVec::try_from(b"Local".to_vec()).unwrap(),
-			symbol: BoundedVec::try_from(b"Local".to_vec()).unwrap(),
-			chains: vec![StateMachine::Evm(100)],
-			minimum_balance: Some(10),
-		};
-
-		let mut precision = BTreeMap::new();
-		for i in 0..x {
-			precision.insert(StateMachine::Evm(i as u32), 18);
-		}
-
-		let asset = AssetRegistration {
-			local_id: T::NativeAssetId::get(),
-			reg: asset_details,
-			native: true,
-			precision,
-		};
-
-		#[extrinsic_call]
-		_(origin, asset);
-
 		Ok(())
 	}
 }

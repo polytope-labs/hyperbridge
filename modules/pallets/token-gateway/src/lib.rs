@@ -25,21 +25,17 @@ pub mod types;
 mod benchmarking;
 mod weights;
 use crate::impls::{convert_to_balance, convert_to_erc20};
-use crate::types::AssetRegistration;
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use frame_support::{
 	ensure,
-	pallet_prelude::*,
 	traits::{
-		EnsureOrigin,
 		fungibles::{self, Mutate},
 		tokens::{fungible::Mutate as FungibleMutate, Preservation},
 		Currency, ExistenceRequirement,
 	},
 };
-use frame_system::pallet_prelude::OriginFor;
 use polkadot_sdk::*;
 pub use weights::WeightInfo;
 
@@ -400,18 +396,31 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
-		///
-		/// This works by dispatching a request to the TokenGateway module on each requested chain
-		/// to create the asset.
-		/// `native` should be true if this asset originates from this chain
+		/// Registers a multi-chain ERC6160 asset without sending any dispatch request.
+		/// You should use register_asset_locally when you want to enable token gateway transfers
+		/// for an asset that already exists on an external chain.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::create_erc6160_asset(asset.precision.len() as u32))]
 		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
-			Self::do_register_asset(origin, asset)?;
+			T::CreateOrigin::ensure_origin(origin)?;
+
+			let asset_id: H256 = sp_io::hashing::keccak_256(asset.reg.symbol.as_ref()).into();
+
+			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
+			NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
+			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
+			for (state_machine, precision) in asset.precision {
+				Precisions::<T>::insert(asset.local_id.clone(), state_machine, precision);
+			}
+
+			Self::deposit_event(Event::<T>::AssetRegisteredLocally {
+				local_id: asset.local_id,
+				asset_id,
+			});
+
 			Ok(())
 		}
 
@@ -430,19 +439,6 @@ pub mod pallet {
 			}
 			Ok(())
 		}
-
-		/// Registers a multi-chain ERC6160 asset without sending any dispatch request.
-		/// You should use register_asset_locally when you want to enable token gateway transfers
-		/// for an asset that already exists on an external chain.
-		#[pallet::call_index(5)]
-		#[pallet::weight(T::WeightInfo::register_asset_locally(asset.precision.len() as u32))]
-		pub fn register_asset_locally(
-			origin: OriginFor<T>,
-			asset: AssetRegistration<AssetId<T>>,
-		) -> DispatchResult {
-			Self::do_register_asset(origin, asset)?;
-			Ok(())
-		}
 	}
 
 	// Hack for implementing the [`Default`] bound needed for
@@ -452,28 +448,6 @@ pub mod pallet {
 		fn default() -> Self {
 			Self(PhantomData)
 		}
-	}
-}
-
-impl<T: Config> Pallet<T> {
-	fn do_register_asset(origin: OriginFor<T>, asset: AssetRegistration<AssetId<T>>) -> DispatchResult {
-		T::CreateOrigin::ensure_origin(origin)?;
-
-		let asset_id: H256 = sp_io::hashing::keccak_256(asset.reg.symbol.as_ref()).into();
-
-		SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
-		NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
-		LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
-		for (state_machine, precision) in asset.precision {
-			Precisions::<T>::insert(asset.local_id.clone(), state_machine, precision);
-		}
-
-		Self::deposit_event(Event::<T>::AssetRegisteredLocally {
-			local_id: asset.local_id,
-			asset_id,
-		});
-
-		Ok(())
 	}
 }
 

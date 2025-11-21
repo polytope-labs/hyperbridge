@@ -480,31 +480,6 @@ where
 		&self,
 		PostRequest { body: data, from, source, .. }: PostRequest,
 	) -> Result<Weight, anyhow::Error> {
-		// Only substrate chains are allowed to fully register assets remotely
-		if source.is_substrate() && &from == &PALLET_TOKEN_GATEWAY_ID[..] {
-			let remote_reg: RemoteERC6160AssetRegistration = codec::Decode::decode(&mut &*data)
-				.map_err(|_| ismp::error::Error::Custom(format!("Failed to decode data")))?;
-			match remote_reg {
-				RemoteERC6160AssetRegistration::CreateAsset(asset) => {
-					let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
-					Pallet::<T>::register_asset(
-						asset.into(),
-						sp_io::hashing::keccak_256(&source.encode()).into(),
-					)
-					.map_err(|e| {
-						ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
-					})?;
-					StandaloneChainAssets::<T>::insert(source, asset_id, true);
-				},
-				RemoteERC6160AssetRegistration::UpdateAsset(asset) => {
-					Pallet::<T>::update_erc6160_asset_impl(asset.into()).map_err(|e| {
-						ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
-					})?;
-				},
-			}
-
-			return Ok(weight());
-		}
 		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
 			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
 		if from != address.as_bytes().to_vec() {

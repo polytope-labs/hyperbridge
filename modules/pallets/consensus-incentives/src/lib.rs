@@ -111,6 +111,11 @@ pub mod pallet {
 			/// Cost per block
 			cost_per_block: <T as pallet_ismp::Config>::Balance,
 		},
+		/// State Machine cost per block removed
+		StateMachineCostPerBlockRemoved {
+			/// Number of messages processed
+			state_machine_id: StateMachineId,
+		},
 	}
 
 	#[pallet::call]
@@ -133,6 +138,22 @@ pub mod pallet {
 				state_machine_id,
 				cost_per_block,
 			});
+
+			Ok(())
+		}
+
+		/// Update cost per block for a state machine
+		#[pallet::call_index(1)]
+		#[pallet::weight(T::WeightInfo::update_cost_per_block())]
+		pub fn remove_incentives(
+			origin: OriginFor<T>,
+			state_machine_id: StateMachineId,
+		) -> DispatchResult {
+			T::IncentivesOrigin::ensure_origin(origin)?;
+
+			StateMachinesCostPerBlock::<T>::remove(state_machine_id.clone());
+
+			Self::deposit_event(Event::<T>::StateMachineCostPerBlockRemoved { state_machine_id });
 
 			Ok(())
 		}

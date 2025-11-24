@@ -472,47 +472,6 @@ pub mod pallet {
 	}
 }
 
-impl<T: Config> IsmpModule for Pallet<T>
-where
-	T::AccountId: From<[u8; 32]>,
-{
-	fn on_accept(
-		&self,
-		PostRequest { body: data, from, source, .. }: PostRequest,
-	) -> Result<Weight, anyhow::Error> {
-		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
-			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
-		if from != address.as_bytes().to_vec() {
-			Err(ismp::error::Error::Custom(format!("Unauthorized action")))?
-		}
-		let body = SolRequestBody::abi_decode(&data[..], true)
-			.map_err(|err| ismp::error::Error::Custom(format!("Decode error: {err}")))?;
-		let asset_id: H256 = body.assetId.0.into();
-		let owner: H160 = body.owner.0 .0.into();
-
-		// asset must not already exist
-		if AssetOwners::<T>::contains_key(&asset_id) || PendingAsset::<T>::contains_key(&asset_id) {
-			Err(ismp::error::Error::Custom(format!("Asset already exists")))?
-		}
-
-		PendingAsset::<T>::insert(asset_id, owner);
-
-		Self::deposit_event(Event::<T>::NewPendingAsset { asset_id, owner });
-
-		Ok(weight())
-	}
-
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
-		Err(anyhow!("Module does not expect responses"))
-	}
-
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
-		// The request lives forever, it's not exactly time-sensitive.
-		// There are no refunds for asset registration fees
-		Err(anyhow!("Module does not expect timeouts"))
-	}
-}
-
 /// Static weights because benchmarks suck, and we'll be getting PolkaVM soon anyways
 fn weight() -> Weight {
 	Weight::from_parts(300_000_000, 0)

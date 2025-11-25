@@ -231,7 +231,7 @@ pallet-ismp = { version = "2506.1.0", path = "modules/pallets/ismp", default-fea
 pallet-ismp-rpc = { version = "2506.1.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2506.1.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-hyperbridge = { version = "2506.1.1", path = "modules/pallets/hyperbridge", default-features = false }
-pallet-token-gateway = { version = "2506.1.0", path = "modules/pallets/token-gateway", default-features = false }
+pallet-token-gateway = { version = "2506.3.0", path = "modules/pallets/token-gateway", default-features = false }
 token-gateway-primitives = { version = "2506.1.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
 substrate-state-machine = { version = "2506.1.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 

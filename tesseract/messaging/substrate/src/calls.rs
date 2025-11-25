@@ -168,7 +168,8 @@ where
 
 		let fee_token_decimals = &counterparty.fee_token_decimals().await?;
 
-		if hyperbridge_account_balance > U256::from(10u128 * 10u128.pow((*fee_token_decimals).into()))
+		if hyperbridge_account_balance >
+			U256::from(10u128 * 10u128.pow((*fee_token_decimals).into()))
 		{
 			// withdraws funds accumulated into hyperbridge address
 			let key = relayer_nonce_storage_key(self.address.clone(), chain);
@@ -186,7 +187,8 @@ where
 
 			let message = message(nonce, chain, Some(counterparty.address().clone()));
 
-			results.push(execute_withdrawal(self, None, message, counterparty.clone(), chain).await?);
+			results
+				.push(execute_withdrawal(self, None, message, counterparty.clone(), chain).await?);
 		}
 		// withdraws funds accumulated into counterparty address
 		let key = relayer_nonce_storage_key(counterparty.address(), chain);

@@ -74,6 +74,32 @@ query StateMachineUpdatesByHeight($statemachineId: String!, $height: Int!, $chai
 				{ chain: { equalTo: $chain } }
 			]
 		}
+		orderBy: HEIGHT_ASC
+		first: 1
+	) {
+    nodes {
+      height
+      stateMachineId
+      chain
+      blockHash
+      blockNumber
+      transactionHash
+      createdAt
+    }
+  }
+}
+`
+
+export const STATE_MACHINE_UPDATES_BY_HEIGHT_DESC = `
+query StateMachineUpdatesByHeightDesc($statemachineId: String!, $height: Int!, $chain: String!) {
+	stateMachineUpdateEvents(
+		filter: {
+			and: [
+				{ stateMachineId: { equalTo: $statemachineId } }
+				{ height: { greaterThanOrEqualTo: $height } }
+				{ chain: { equalTo: $chain } }
+			]
+		}
 		orderBy: HEIGHT_DESC
 		first: 1
 	) {

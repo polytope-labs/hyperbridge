@@ -161,7 +161,8 @@ where
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
-	) -> anyhow::Result<WithdrawFundsResult> {
+	) -> anyhow::Result<Vec<WithdrawFundsResult>> {
+		let mut results = Vec::new();
 		let hyperbridge_account_balance =
 			relayer_account_balance(&self.client, &self.rpc, chain, self.address.clone()).await?;
 
@@ -185,7 +186,7 @@ where
 
 			let message = message(nonce, chain, Some(counterparty.address().clone()));
 
-			execute_withdrawal(self, None, message, counterparty.clone(), chain).await?;
+			results.push(execute_withdrawal(self, None, message, counterparty.clone(), chain).await?);
 		}
 		// withdraws funds accumulated into counterparty address
 		let key = relayer_nonce_storage_key(counterparty.address(), chain);
@@ -200,7 +201,13 @@ where
 
 		let message = message(nonce, chain, None);
 
-		return execute_withdrawal(self, None, message, counterparty.clone(), chain).await;
+		results.push(execute_withdrawal(self, None, message, counterparty.clone(), chain).await?);
+
+		if results.is_empty() {
+			Err(anyhow!("No funds to withdraw"))
+		} else {
+			Ok(results)
+		}
 	}
 
 	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool> {

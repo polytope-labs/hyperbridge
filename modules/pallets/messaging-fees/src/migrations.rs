@@ -53,25 +53,14 @@ pub mod v1 {
 			}
 
 			let fee_storage_prefix = storage_prefix(b"Relayer", b"Fees");
+			let previous_key = cursor
+				.as_ref()
+				.map(|c| [fee_storage_prefix.as_slice(), c.as_slice()].concat())
+				.unwrap_or_else(|| fee_storage_prefix.to_vec());
 
-			let mut iter: Box<dyn Iterator<Item = Vec<u8>>> = if let Some(c) = cursor.as_ref() {
-				let cursor_vec = c.as_slice().to_vec();
-				Box::new(
-					KeyPrefixIterator::new(
-						fee_storage_prefix.to_vec(),
-						fee_storage_prefix.to_vec(),
-						|k| Ok(k.to_vec()),
-					)
-					.skip_while(move |k_vec| k_vec != &cursor_vec)
-					.skip(1),
-				)
-			} else {
-				Box::new(KeyPrefixIterator::new(
-					fee_storage_prefix.to_vec(),
-					fee_storage_prefix.to_vec(),
-					|k| Ok(k.to_vec()),
-				))
-			};
+			let mut iter = KeyPrefixIterator::new(fee_storage_prefix.to_vec(), previous_key, |k| {
+				Ok(k.to_vec())
+			});
 
 			if let Some(key_suffix) = iter.next() {
 				meter.consume(weight_per_item);
@@ -79,29 +68,25 @@ pub mod v1 {
 				let mut key_part = &key_suffix[16..];
 
 				if let Ok(state_machine) = StateMachine::decode(&mut key_part) {
-					if state_machine.is_evm() {
-						if key_part.len() > 16 {
-							let mut relayer_address_bytes = &key_part[16..];
-							if let Ok(relayer_address) =
-								Vec::<u8>::decode(&mut relayer_address_bytes)
-							{
-								if relayer_address.len() == 32 {
-									if let Some(current_fee) = unhashed::get::<U256>(&full_key) {
-										if let Some(decimals) =
-											pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(
-												&state_machine,
-											) {
-											let decimals_u32 = decimals as u32;
-											let scaling_power = 18u32.saturating_sub(decimals_u32);
+					if state_machine.is_evm() && key_part.len() > 16 {
+						let mut relayer_address_bytes = &key_part[16..];
+						if let Ok(relayer_address) = Vec::<u8>::decode(&mut relayer_address_bytes) {
+							if relayer_address.len() == 32 {
+								if let Some(current_fee) = unhashed::get::<U256>(&full_key) {
+									if let Some(decimals) =
+										pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(
+											&state_machine,
+										) {
+										let decimals_u32 = decimals as u32;
+										let scaling_power = 18u32.saturating_sub(decimals_u32);
 
-											if scaling_power > 0 {
-												let divisor = U256::from(10u128)
-													.pow(U256::from(scaling_power));
-												let new_fee = current_fee
-													.checked_div(divisor)
-													.unwrap_or(U256::zero());
-												storage::unhashed::put(&full_key, &new_fee);
-											}
+										if scaling_power > 0 {
+											let divisor =
+												U256::from(10u128).pow(U256::from(scaling_power));
+											let new_fee = current_fee
+												.checked_div(divisor)
+												.unwrap_or(U256::zero());
+											storage::unhashed::put(&full_key, &new_fee);
 										}
 									}
 								}

@@ -188,7 +188,7 @@ where
 			let message = message(nonce, chain, Some(counterparty.address().clone()));
 
 			results
-				.push(execute_withdrawal(self, None, message, counterparty.clone(), chain).await?);
+				.push(execute_withdrawal(self, Some(counterparty.address()), message, counterparty.clone(), chain).await?);
 		}
 		// withdraws funds accumulated into counterparty address
 		let key = relayer_nonce_storage_key(counterparty.address(), chain);

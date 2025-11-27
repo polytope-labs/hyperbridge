@@ -47,15 +47,15 @@ pub mod v1 {
 			mut cursor: Option<Self::Cursor>,
 			meter: &mut WeightMeter,
 		) -> Result<Option<Self::Cursor>, SteppedMigrationError> {
-			log::info!(target: "ismp", "in migration step : {:?}", cursor);
+			log::trace!(target: "ismp", "in migration step : {:?}", cursor);
 			let weight_per_item = <T as pallet::Config>::WeightInfo::migrate_evm_fees();
-			log::info!(target: "ismp", "weight per item is : {:?} {:?}", weight_per_item, cursor);
+			log::trace!(target: "ismp", "weight per item is : {:?} {:?}", weight_per_item, cursor);
 			if meter.remaining().any_lt(weight_per_item) {
-				log::info!(target: "ismp", "Insufficient weight for: {:?}", cursor);
+				log::trace!(target: "ismp", "Insufficient weight for: {:?}", cursor);
 				return Err(SteppedMigrationError::InsufficientWeight { required: weight_per_item });
 			}
 
-			log::info!(target: "ismp", "Migration V1 Step. Cursor: {:?}", cursor);
+			log::trace!(target: "ismp", "Migration V1 Step. Cursor: {:?}", cursor);
 
 			let fee_storage_prefix = storage_prefix(b"Relayer", b"Fees");
 			let previous_key = cursor
@@ -68,13 +68,13 @@ pub mod v1 {
 			});
 
 			if let Some(key_suffix) = iter.next() {
-				log::info!(target: "ismp", "Processing key suffix: {:?}", key_suffix);
+				log::trace!(target: "ismp", "Processing key suffix: {:?}", key_suffix);
 				meter.consume(weight_per_item);
 				let full_key = [fee_storage_prefix.as_slice(), key_suffix.as_slice()].concat();
 				let mut key_part = &key_suffix[16..];
 
 				if let Ok(state_machine) = StateMachine::decode(&mut key_part) {
-					log::info!(target: "ismp", "Valid EVM chain and 32-byte address found.");
+					log::trace!(target: "ismp", "Valid EVM chain and 32-byte address found.");
 					if state_machine.is_evm() && key_part.len() > 16 {
 						let mut relayer_address_bytes = &key_part[16..];
 						if let Ok(relayer_address) = Vec::<u8>::decode(&mut relayer_address_bytes) {
@@ -96,37 +96,37 @@ pub mod v1 {
 											let new_fee = current_fee
 												.checked_div(divisor)
 												.unwrap_or(U256::zero());
-											log::info!(target: "ismp", "Updating fee. Old: {:?}, New: {:?}", current_fee, new_fee);
+											log::trace!(target: "ismp", "Updating fee. Old: {:?}, New: {:?}", current_fee, new_fee);
 											storage::unhashed::put(&full_key, &new_fee);
 										} else {
-											log::info!(target: "ismp", "No scaling needed (decimals >= 18).");
+											log::trace!(target: "ismp", "No scaling needed (decimals >= 18).");
 										}
 									} else {
-										log::warn!(target: "ismp", "No FeeTokenDecimals found for {:?}", state_machine);
+										log::trace!(target: "ismp", "No FeeTokenDecimals found for {:?}", state_machine);
 									}
 								} else {
-									log::warn!(target: "ismp", "No fee value found at key");
+									log::trace!(target: "ismp", "No fee value found at key");
 								}
 							} else {
-								log::info!(target: "ismp", "Skipping: Relayer address len is {}, expected 32", relayer_address.len());
+								log::trace!(target: "ismp", "Skipping: Relayer address len is {}, expected 32", relayer_address.len());
 							}
 						} else {
-							log::warn!(target: "ismp", "Failed to decode relayer address");
+							log::trace!(target: "ismp", "Failed to decode relayer address");
 						}
 					} else {
-						log::info!(target: "ismp", "Skipping: Not EVM or key too short");
+						log::trace!(target: "ismp", "Skipping: Not EVM or key too short");
 					}
 				} else {
-					log::warn!(target: "ismp", "Failed to decode StateMachine");
+					log::trace!(target: "ismp", "Failed to decode StateMachine");
 				}
 
 				let bounded_key: BoundedVec<_, _> = key_suffix.try_into().map_err(|_| {
-					log::warn!(target: "ismp", "MIGRATION: key_suffix is too long for BoundedVec");
+					log::trace!(target: "ismp", "MIGRATION: key_suffix is too long for BoundedVec");
 					SteppedMigrationError::Failed
 				})?;
 				cursor = Some(bounded_key);
 			} else {
-				log::info!(target: "ismp", "Migration V1: Iterator exhausted. Finished.");
+				log::trace!(target: "ismp", "Migration V1: Iterator exhausted. Finished.");
 				cursor = None;
 			}
 

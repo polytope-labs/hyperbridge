@@ -74,7 +74,7 @@ pub mod v1 {
 				let mut key_part = &key_suffix[16..];
 
 				if let Ok(state_machine) = StateMachine::decode(&mut key_part) {
-					log::trace!(target: "ismp", "Valid EVM chain and 32-byte address found.");
+					log::trace!(target: "ismp", "Valid EVM chain {:?} and 32-byte", state_machine.clone());
 					if state_machine.is_evm() && key_part.len() > 16 {
 						let mut relayer_address_bytes = &key_part[16..];
 						if let Ok(relayer_address) = Vec::<u8>::decode(&mut relayer_address_bytes) {
@@ -87,7 +87,7 @@ pub mod v1 {
 										let decimals_u32 = decimals as u32;
 										let scaling_power = 18u32.saturating_sub(decimals_u32);
 
-										log::info!(target: "ismp", "Decimals: {}, Scaling Power: {}", decimals, scaling_power);
+										log::info!(target: "ismp", "Decimals: {}, Scaling Power: {}, state_machine {:?}, relayer {:?}, ", decimals, scaling_power, state_machine.clone(), relayer_address.clone());
 
 
 										if scaling_power > 0 {

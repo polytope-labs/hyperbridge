@@ -38,8 +38,12 @@ pub mod pallet_sudo;
 pub mod pallet_timestamp;
 pub mod pallet_treasury;
 pub mod pallet_utility;
+pub mod pallet_migrations;
+pub mod pallet_messaging_fees;
 
 pub use block_weights::constants::BlockExecutionWeight;
 pub use extrinsic_weights::constants::ExtrinsicBaseWeight;
 pub use paritydb_weights::constants::ParityDbWeight;
 pub use rocksdb_weights::constants::RocksDbWeight;
+
+//scp dare@41.184.188.89:~/hyperbridge/target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm ~/Documents/polytope/hyperbridge/

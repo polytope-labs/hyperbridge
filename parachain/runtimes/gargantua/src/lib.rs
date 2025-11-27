@@ -96,6 +96,8 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
 use cumulus_primitives_core::ParaId;
+use frame_benchmarking::__private::traits::EitherOfDiverse;
+use frame_benchmarking::__private::traits::tasks::__private::DispatchError;
 use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, ConstBool},
@@ -107,6 +109,8 @@ use staging_xcm::latest::prelude::BodyId;
 use pallet_collective::PrimeDefaultVote;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
+use polkadot_sdk::frame_support::traits::LockIdentifier;
+use polkadot_sdk::sp_core::U256;
 
 use pallet_ismp::offchain::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};
@@ -116,6 +120,8 @@ use sp_runtime::traits::IdentityLookup;
 use sp_core::crypto::FromEntropy;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
+use pallet_messaging_fees::types::PriceOracle;
+
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
 
@@ -391,7 +397,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorSelection,);
+	type EventHandler = (CollatorManager,);
 }
 
 parameter_types! {
@@ -518,7 +524,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorSelection;
+	type SessionManager = CollatorManager;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -548,7 +554,7 @@ pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
+	type Currency = CollatorManager;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -695,6 +701,47 @@ impl pallet_bridge_airdrop::Config for Runtime {
 	type BridgeDropOrigin = EnsureRoot<AccountId>;
 }
 
+pub type ReputationAsset =
+frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+parameter_types! {
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+
+pub struct FixedPriceOracle;
+
+impl PriceOracle for FixedPriceOracle {
+	fn get_bridge_price() -> Result<U256, DispatchError> {
+		// return 0.05 with 18 decimals: 0.05 * 10^18
+		Ok(U256::from(50_000_000_000_000_000u128))
+	}
+}
+
+impl pallet_messaging_fees::Config for Runtime {
+	type IsmpHost = Ismp;
+	type TreasuryAccount = TreasuryPalletId;
+	type IncentivesOrigin = EnsureRoot<AccountId>;
+	type PriceOracle = FixedPriceOracle;
+	type WeightInfo = ();
+	type ReputationAsset = ReputationAsset;
+}
+
+parameter_types! {
+	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
+}
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type LockId = CollatorBondLockId;
+	type TreasuryAccount = TreasuryPalletId;
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type IncentivesManager = MessagingFees;
+	type WeightInfo = ();
+}
+
+
 parameter_types! {
 	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT;
 	pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
@@ -829,6 +876,12 @@ mod runtime {
 	pub type IsmpOptimism = ismp_optimism::pallet;
 	#[runtime::pallet_index(85)]
 	pub type IsmpTendermint = ismp_tendermint::pallet;
+	#[runtime::pallet_index(86)]
+	pub type ConsensusIncentives = pallet_consensus_incentives::pallet;
+	#[runtime::pallet_index(87)]
+	pub type MessagingFees = pallet_messaging_fees;
+	#[runtime::pallet_index(88)]
+	pub type CollatorManager = pallet_collator_manager;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }

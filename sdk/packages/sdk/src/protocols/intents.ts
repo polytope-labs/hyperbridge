@@ -56,17 +56,29 @@ import { Swap } from "@/utils/swap"
 export class IntentGateway {
 	public readonly swap: Swap
 	private readonly storage = createCancellationStorage()
+	/**
+	 * Optional custom IntentGateway address for the destination chain.
+	 * If set, this address will be used when fetching destination proofs in `cancelOrder`.
+	 * If not set, uses the default address from the chain configuration.
+	 * This allows using different IntentGateway contract versions (e.g., old vs new contracts).
+	 */
+	public destIntentGatewayAddress?: HexString
 
 	/**
 	 * Creates a new IntentGateway instance for cross-chain operations.
 	 * @param source - The source EVM chain
 	 * @param dest - The destination EVM chain
+	 * @param destIntentGatewayAddress - Optional custom IntentGateway address for the destination chain.
+	 *   If provided, this address will be used when fetching destination proofs in `cancelOrder`.
+	 *   If not provided, uses the default address from the chain configuration.
 	 */
 	constructor(
 		public readonly source: EvmChain,
 		public readonly dest: EvmChain,
+		destIntentGatewayAddress?: HexString,
 	) {
 		this.swap = new Swap()
+		this.destIntentGatewayAddress = destIntentGatewayAddress
 	}
 
 	/**
@@ -559,6 +571,21 @@ export class IntentGateway {
 	 *
 	 * @example
 	 * ```typescript
+	 * // Using default IntentGateway address
+	 * const intentGateway = new IntentGateway(sourceChain, destChain);
+	 * const cancelStream = intentGateway.cancelOrder(order, indexerClient);
+	 *
+	 * // Using custom IntentGateway address (e.g., for old contract version)
+	 * const intentGateway = new IntentGateway(
+	 *   sourceChain,
+	 *   destChain,
+	 *   "0xd54165e45926720b062C192a5bacEC64d5bB08DA"
+	 * );
+	 * const cancelStream = intentGateway.cancelOrder(order, indexerClient);
+	 *
+	 * // Or set it after instantiation
+	 * const intentGateway = new IntentGateway(sourceChain, destChain);
+	 * intentGateway.destIntentGatewayAddress = "0xd54165e45926720b062C192a5bacEC64d5bB08DA";
 	 * const cancelStream = intentGateway.cancelOrder(order, indexerClient);
 	 *
 	 * for await (const event of cancelStream) {
@@ -675,6 +702,8 @@ export class IntentGateway {
 
 	/**
 	 * Fetches proof for the destination chain.
+	 * @param order - The order to fetch proof for
+	 * @param indexerClient - Client for querying the indexer
 	 */
 	private async *fetchDestinationProof(
 		order: Order,
@@ -699,9 +728,9 @@ export class IntentGateway {
 			}
 
 			try {
-				const intentGatewayAddress = this.dest.configService.getIntentGatewayAddress(
-					this.dest.config.stateMachineId,
-				)
+				const intentGatewayAddress =
+					this.destIntentGatewayAddress ??
+					this.dest.configService.getIntentGatewayAddress(this.dest.config.stateMachineId)
 				const orderId = orderCommitment(order)
 				const slotHash = await this.dest.client.readContract({
 					abi: IntentGatewayABI.ABI,

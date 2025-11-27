@@ -1261,6 +1261,92 @@ type TokenPriceLog @entity @compositeIndexes(fields: [["symbol", "timestamp"], [
 }
 
 """
+Token list from CoinGecko OnChain DEX API - stores tokens with their pair information
+"""
+type TokenList @entity @compositeIndexes(fields: [["chainId", "updatedAt"]]) {
+	"""
+	Unique identifier: tokenAddress-chainId (e.g., "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2-1")
+	"""
+	id: ID!
+
+	"""
+	Token contract address (zero address for native tokens)
+	"""
+	tokenAddress: String! @index
+
+	"""
+	Numeric EVM chain id (as string) the token belongs to
+	"""
+	chainId: String! @index
+
+	"""
+	Token name (e.g., "Wrapped Ether", "USD Coin")
+	"""
+	tokenName: String!
+
+	"""
+	Token symbol (e.g., "WETH", "USDC", "USDT")
+	"""
+	tokenSymbol: String!
+
+	"""
+	Token image URI from CoinGecko (nullable if not available)
+	"""
+	tokenURI: String
+
+	"""
+	Array of pair information strings in format: "pairAddress-TokenSymbol-protocolName-fee"
+	Example: "0xe0554a476a092703abdb3ef35c80e0d76d32939f-WETH-uniswap_v3-0.01"
+	"""
+	pairedWith: [String!]!
+
+	"""
+	When the token list was last synced
+	"""
+	updatedAt: Date! @index
+
+	"""
+	When this token entry was first created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Sync state for CoinGecko Token List pagination - tracks current page number per chain
+"""
+type TokenListSyncState @entity {
+	"""
+	Unique identifier: networkName (e.g., "eth", "polygon_pos", "arbitrum")
+	"""
+	id: ID!
+
+	"""
+	CoinGecko OnChain network name (e.g., "eth", "polygon_pos", "arbitrum")
+	"""
+	networkName: String! @index
+
+	"""
+	Numeric EVM chain id (as string) the sync state belongs to
+	"""
+	chainId: String! @index
+
+	"""
+	Current page number for pagination (starts at 1)
+	"""
+	currentPage: Int!
+
+	"""
+	Timestamp when this sync state was last updated
+	"""
+	lastUpdatedAt: Date! @index
+
+	"""
+	When this sync state entry was first created
+	"""
+	createdAt: Date! @index
+}
+
+"""
 Token Registry - Configuration and metadata for supported tokens
 """
 type TokenRegistry @entity @compositeIndexes(fields: [["symbol", "lastUpdatedAt"], ["symbol", "createdAt"]]) {

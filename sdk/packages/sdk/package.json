@@ -52,6 +52,7 @@
 		"test:intent-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/intentGateway.test.ts",
 		"test:token-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/tokenGateway.test.ts",
 		"test:evm-substrate": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/evm-substrate.test.ts",
+		"test:token-list": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/tokenList.test.ts",
 		"test:watch": "vitest --exclude=./src/tests/sequential",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",

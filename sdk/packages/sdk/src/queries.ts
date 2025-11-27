@@ -217,6 +217,7 @@ query OrderStatus($commitment: String!) {
       outputAmounts
       outputBeneficiaries
       calldata
+      referrer
       status
       referrer
       createdAt

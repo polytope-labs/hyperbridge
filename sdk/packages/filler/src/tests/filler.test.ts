@@ -38,6 +38,7 @@ import {
 	parseEventLogs,
 	parseUnits,
 	PublicClient,
+	toHex,
 	WalletClient,
 } from "viem"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
@@ -50,40 +51,7 @@ import { HandlerV1_ABI } from "@/config/abis/HandlerV1"
 import { UNISWAP_ROUTER_V2_ABI } from "@/config/abis/UniswapRouterV2"
 
 import { compareDecimalValues } from "@/utils"
-import { readFileSync } from "fs"
-import { resolve, dirname } from "path"
-import { fileURLToPath } from "url"
-import { parse } from "toml"
 import { Decimal } from "decimal.js"
-
-// Helper function to load test configuration from TOML
-function loadTestConfig() {
-	const __filename = fileURLToPath(import.meta.url)
-	const __dirname = dirname(__filename)
-	const configPath = resolve(__dirname, "test-config.toml")
-	let tomlContent = readFileSync(configPath, "utf-8")
-
-	// Replace environment variable placeholders with actual values
-	tomlContent = tomlContent.replace(
-		/\$\{BSC_CHAPEL\}/g,
-		process.env.BSC_CHAPEL || "https://bnb-testnet.api.onfinality.io/public",
-	)
-	tomlContent = tomlContent.replace(
-		/\$\{GNOSIS_CHIADO\}/g,
-		process.env.GNOSIS_CHIADO || "https://gnosis-chiado-rpc.publicnode.com",
-	)
-	tomlContent = tomlContent.replace(
-		/\$\{ETH_MAINNET\}/g,
-		process.env.ETH_MAINNET || "https://eth-mainnet.g.alchemy.com/v2/demo",
-	)
-	tomlContent = tomlContent.replace(/\$\{BSC_MAINNET\}/g, process.env.BSC_MAINNET || "https://binance.llamarpc.com")
-	tomlContent = tomlContent.replace(
-		/\$\{HYPERBRIDGE_GARGANTUA\}/g,
-		process.env.HYPERBRIDGE_GARGANTUA || "wss://gargantua.hyperbridge.xyz",
-	)
-
-	return parse(tomlContent)
-}
 
 describe.sequential("Basic", () => {
 	let indexer: IndexerClient
@@ -318,13 +286,14 @@ describe.sequential("Basic", () => {
 
 		const inputs: TokenInfo[] = [
 			{
-				token: bytes20ToBytes32(chainConfigService.getDaiAsset(gnosisChiadoId)),
+				token: bytes20ToBytes32(chainConfigService.getUsdcAsset(gnosisChiadoId)),
 				amount: 100n,
 			},
 		]
+
 		const outputs: PaymentInfo[] = [
 			{
-				token: bytes20ToBytes32(chainConfigService.getDaiAsset(bscChapelId)),
+				token: bytes20ToBytes32(chainConfigService.getUsdcAsset(bscChapelId)),
 				amount: 100n,
 				beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
 			},
@@ -354,7 +323,7 @@ describe.sequential("Basic", () => {
 		await approveTokens(
 			gnosisChiadoWalletClient,
 			gnosisChiadoPublicClient,
-			chainConfigService.getDaiAsset(gnosisChiadoId),
+			chainConfigService.getUsdcAsset(gnosisChiadoId),
 			gnosisChiadoIntentGateway.address,
 		)
 
@@ -791,6 +760,131 @@ describe.sequential("Basic", () => {
 	}, 300_000)
 })
 
+describe.sequential(
+	"ContractInteractionService",
+	() => {
+		it("Should compute USD totals for USDC/USDT-only orders using token decimals", async () => {
+			const { chainConfigService, bscChapelId, mainnetId, contractInteractionService } = await setUp()
+
+			const sourceUsdc = chainConfigService.getUsdcAsset(bscChapelId)
+			const sourceUsdt = chainConfigService.getUsdtAsset(bscChapelId)
+			const destUsdc = chainConfigService.getUsdcAsset(mainnetId)
+			const destUsdt = chainConfigService.getUsdtAsset(mainnetId)
+
+			const srcUsdcDec = await contractInteractionService.getTokenDecimals(sourceUsdc, bscChapelId)
+			const srcUsdtDec = await contractInteractionService.getTokenDecimals(sourceUsdt, bscChapelId)
+			const dstUsdcDec = await contractInteractionService.getTokenDecimals(destUsdc, mainnetId)
+			const dstUsdtDec = await contractInteractionService.getTokenDecimals(destUsdt, mainnetId)
+
+			const inputs: TokenInfo[] = [
+				{ token: bytes20ToBytes32(sourceUsdc), amount: parseUnits("10.0112", srcUsdcDec) },
+				{ token: bytes20ToBytes32(sourceUsdt), amount: parseUnits("2.223", srcUsdtDec) },
+			]
+
+			const outputs: PaymentInfo[] = [
+				{
+					token: bytes20ToBytes32(destUsdc),
+					amount: parseUnits("3.3345", dstUsdcDec),
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+				{
+					token: bytes20ToBytes32(destUsdt),
+					amount: parseUnits("4.4456", dstUsdtDec),
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+			]
+
+			const order: Order = {
+				user: "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString,
+				sourceChain: bscChapelId,
+				destChain: mainnetId,
+				deadline: 65337297000n,
+				nonce: 0n,
+				fees: 0n,
+				outputs,
+				inputs,
+				callData: "0x" as HexString,
+			}
+
+			const { outputUsdValue, inputUsdValue } = await contractInteractionService.getTokenUsdValue(order)
+
+			console.log("outputUsdValue", outputUsdValue.toNumber())
+			console.log("inputUsdValue", inputUsdValue.toNumber())
+		})
+
+		it("Should successfully get the order estimates for polygon mainnet to bsc mainnet", async () => {
+			const { chainConfigService, polygonMainnetId, bscMainnetId, contractInteractionService } = await setUp()
+
+			const polygonUsdc = chainConfigService.getUsdcAsset(polygonMainnetId)
+			const bscUsdc = chainConfigService.getUsdcAsset(bscMainnetId)
+
+			const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(polygonUsdc), amount: 100n }]
+
+			const outputs: PaymentInfo[] = [
+				{
+					token: bytes20ToBytes32(bscUsdc),
+					amount: 100n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+			]
+
+			let order: Order = {
+				user: "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString,
+				sourceChain: polygonMainnetId,
+				destChain: bscMainnetId,
+				deadline: 65337297000n,
+				nonce: 0n,
+				fees: 0n,
+				outputs,
+				inputs,
+				callData: "0x" as HexString,
+			}
+
+			order.id = orderCommitment(order)
+
+			const result = await contractInteractionService.estimateGasFillPost(order)
+
+			console.log("result", result)
+		})
+
+		it("Should successfully get the order estimates for bsc mainnet to polygon mainnet", async () => {
+			const { chainConfigService, polygonMainnetId, bscMainnetId, contractInteractionService } = await setUp()
+
+			const polygonUsdc = chainConfigService.getUsdcAsset(polygonMainnetId)
+			const bscUsdc = chainConfigService.getUsdcAsset(bscMainnetId)
+
+			const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(bscUsdc), amount: 100n }]
+
+			const outputs: PaymentInfo[] = [
+				{
+					token: bytes20ToBytes32(polygonUsdc),
+					amount: 100n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
+				},
+			]
+
+			let order: Order = {
+				user: "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString,
+				sourceChain: bscMainnetId,
+				destChain: polygonMainnetId,
+				deadline: 65337297000n,
+				nonce: 0n,
+				fees: 0n,
+				outputs,
+				inputs,
+				callData: "0x" as HexString,
+			}
+
+			order.id = orderCommitment(order)
+
+			const result = await contractInteractionService.estimateGasFillPost(order)
+
+			console.log("result", result)
+		})
+	},
+	10_000_000,
+)
+
 describe.sequential("ConfirmationPolicy", () => {
 	it("Should return correct confirmations for min, max, and interpolated amounts", () => {
 		const policyConfig = {
@@ -884,42 +978,97 @@ async function setUp() {
 	const bscChapelId = "EVM-97"
 	const mainnetId = "EVM-1"
 	const gnosisChiadoId = "EVM-10200"
-	const bscMainnet = "EVM-56"
+	const bscMainnetId = "EVM-56"
+	const polygonMainnetId = "EVM-137"
 
-	const chains = [bscMainnet, mainnetId, gnosisChiadoId, bscChapelId]
+	const chains = [bscMainnetId, mainnetId, gnosisChiadoId, bscChapelId, polygonMainnetId]
 
-	// Load test configuration from TOML file
-	const config = loadTestConfig()
+	// Create minimal chain configurations - just chainId and rpcUrl
+	// The SDK's ChainConfigService will provide all other addresses and assets
+	const testChainConfigs: UserProvidedChainConfig[] = [
+		{
+			chainId: 97, // BSC Chapel
+			rpcUrl: process.env.BSC_CHAPEL || "https://bnb-testnet.api.onfinality.io/public",
+		},
+		{
+			chainId: 10200, // Gnosis Chiado
+			rpcUrl: process.env.GNOSIS_CHIADO || "https://gnosis-chiado-rpc.publicnode.com",
+		},
+		{
+			chainId: 1, // Ethereum Mainnet
+			rpcUrl: process.env.ETH_MAINNET || "https://eth-mainnet.g.alchemy.com/v2/demo",
+		},
+		{
+			chainId: 56, // BSC Mainnet
+			rpcUrl: process.env.BSC_MAINNET || "https://binance.llamarpc.com",
+		},
+		{
+			chainId: 137, // Polygon Mainnet
+			rpcUrl: process.env.POLYGON_MAINNET || "https://polygon-mainnet.g.alchemy.com/v2/cdNwmVNFoL6j-R9J9Zmc0",
+		},
+	]
 
-	// Convert TOML chain configs to UserProvidedChainConfig format
-	const testChainConfigs: UserProvidedChainConfig[] = config.chains.map((chain: any) => ({
-		chainId: chain.chainId,
-		rpcUrl: chain.rpcUrl,
-	}))
-
-	// Convert TOML filler config including CoinGecko
-	const fillerConfigForService = config.filler.coingecko
+	// Create filler config with optional CoinGecko if provided
+	const fillerConfigForService = process.env.COINGECKO_API_KEY
 		? {
-				privateKey: config.filler.privateKey,
-				maxConcurrentOrders: config.filler.maxConcurrentOrders,
-				coingecko: config.filler.coingecko,
+				privateKey: process.env.PRIVATE_KEY as HexString,
+				maxConcurrentOrders: 5,
+				coingecko: {
+					apiKey: process.env.COINGECKO_API_KEY,
+				},
 			}
 		: undefined
 
-	// Create the custom config service
+	// Create the config service - it will use SDK's built-in chain configs
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
 	let chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
 
-	// Use confirmation policies from TOML config
-	const confirmationPolicy = new ConfirmationPolicy(config.confirmationPolicies)
+	// Create confirmation policy with default testnet/mainnet policies
+	const confirmationPolicyConfig = {
+		"97": {
+			minAmount: "1",
+			maxAmount: "1000",
+			minConfirmations: 1,
+			maxConfirmations: 5,
+		},
+		"10200": {
+			minAmount: "1",
+			maxAmount: "1000",
+			minConfirmations: 1,
+			maxConfirmations: 5,
+		},
+		"1": {
+			minAmount: "5",
+			maxAmount: "10000",
+			minConfirmations: 3,
+			maxConfirmations: 12,
+		},
+		"56": {
+			minAmount: "1",
+			maxAmount: "5000",
+			minConfirmations: 3,
+			maxConfirmations: 15,
+		},
+		"137": {
+			minAmount: "2",
+			maxAmount: "8000",
+			minConfirmations: 2,
+			maxConfirmations: 10,
+		},
+	}
+
+	const confirmationPolicy = new ConfirmationPolicy(confirmationPolicyConfig)
 
 	const fillerConfig: FillerConfig = {
 		confirmationPolicy: {
 			getConfirmationBlocks: (chainId: number, amountUsd: number) =>
 				confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 		},
-		maxConcurrentOrders: config.filler.maxConcurrentOrders,
-		pendingQueueConfig: config.filler.pendingQueue,
+		maxConcurrentOrders: 5,
+		pendingQueueConfig: {
+			maxRechecks: 10,
+			recheckDelayMs: 30000,
+		},
 	}
 
 	const chainClientManager = new ChainClientManager(chainConfigService, process.env.PRIVATE_KEY as HexString)
@@ -932,6 +1081,8 @@ async function setUp() {
 	const gnosisChiadoWalletClient = chainClientManager.getWalletClient(gnosisChiadoId)
 	const bscPublicClient = chainClientManager.getPublicClient(bscChapelId)
 	const gnosisChiadoPublicClient = chainClientManager.getPublicClient(gnosisChiadoId)
+	const polygonPublicClient = chainClientManager.getPublicClient(polygonMainnetId)
+	const bscMainnetPublicClient = chainClientManager.getPublicClient(bscMainnetId)
 	const intentGatewayAddress = chainConfigService.getChainConfig(bscChapelId).intentGatewayAddress
 	const feeTokenBscAddress = (await contractInteractionService.getFeeTokenWithDecimals(bscChapelId)).address
 	const feeTokenGnosisChiadoAddress = (await contractInteractionService.getFeeTokenWithDecimals(gnosisChiadoId))
@@ -1014,6 +1165,8 @@ async function setUp() {
 		bscEvmHelper,
 		gnosisChiadoEvmHelper,
 		mainnetId,
+		bscMainnetId,
+		polygonMainnetId,
 	}
 }
 

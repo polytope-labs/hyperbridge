@@ -7,10 +7,6 @@ export interface UserProvidedChainConfig {
 	rpcUrl: string
 }
 
-export interface CoinGeckoConfig {
-	apiKey?: string
-}
-
 export interface EtherscanConfig {
 	apiKey?: string
 }
@@ -22,7 +18,6 @@ export interface LoggingConfig {
 export interface FillerConfig {
 	privateKey: string
 	maxConcurrentOrders: number
-	coingecko?: CoinGeckoConfig
 	etherscan?: EtherscanConfig
 	logging?: LoggingConfig
 }
@@ -146,10 +141,6 @@ export class FillerConfigService {
 
 	getCoingeckoId(chain: string): string | undefined {
 		return this.chainConfigService.getCoingeckoId(chain)
-	}
-
-	getCoinGeckoApiKey(): string | undefined {
-		return this.fillerConfig?.coingecko?.apiKey
 	}
 
 	getEtherscanApiKey(): string | undefined {

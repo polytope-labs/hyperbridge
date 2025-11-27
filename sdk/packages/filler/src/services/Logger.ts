@@ -37,7 +37,6 @@ export function configureLogger(config: LoggingConfig) {
 }
 
 export function getLogger(moduleOrOptions?: string | LoggerOptions) {
-	console.log("Log level:", logLevel)
 	const options: LoggerOptions =
 		typeof moduleOrOptions === "string" ? { module: moduleOrOptions } : moduleOrOptions || {}
 	if (options.module) {

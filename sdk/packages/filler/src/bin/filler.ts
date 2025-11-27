@@ -12,11 +12,11 @@ import {
 	FillerConfigService,
 	UserProvidedChainConfig,
 	FillerConfig as FillerServiceConfig,
-	CoinGeckoConfig,
 	EtherscanConfig,
 	LoggingConfig,
 } from "../services/FillerConfigService.js"
 import { getLogger, configureLogger } from "../services/Logger.js"
+import { CacheService } from "../services/CacheService.js"
 import { Decimal } from "decimal.js"
 
 // ASCII art header
@@ -58,7 +58,6 @@ interface FillerTomlConfig {
 		privateKey: string
 		maxConcurrentOrders: number
 		pendingQueue: PendingQueueConfig
-		coingecko?: CoinGeckoConfig
 		etherscan?: EtherscanConfig
 		logging?: LoggingConfig
 	}
@@ -102,16 +101,14 @@ program
 				rpcUrl: chain.rpcUrl,
 			}))
 
-			const fillerConfigForService: FillerServiceConfig | undefined =
-				config.filler.coingecko || config.filler.logging
-					? {
-							privateKey: config.filler.privateKey,
-							maxConcurrentOrders: config.filler.maxConcurrentOrders,
-							coingecko: config.filler.coingecko,
-							etherscan: config.filler.etherscan,
-							logging: config.filler.logging,
-						}
-					: undefined
+			const fillerConfigForService: FillerServiceConfig | undefined = config.filler.logging
+				? {
+						privateKey: config.filler.privateKey,
+						maxConcurrentOrders: config.filler.maxConcurrentOrders,
+						etherscan: config.filler.etherscan,
+						logging: config.filler.logging,
+					}
+				: undefined
 
 			const configService = new FillerConfigService(fillerChainConfigs, fillerConfigForService)
 
@@ -134,12 +131,19 @@ program
 				pendingQueueConfig: config.filler.pendingQueue,
 			}
 
+			// Create shared cache service to avoid duplicate RPC calls during initialization
+			const sharedCacheService = new CacheService()
+
 			// Initialize strategies
 			logger.info("Initializing strategies...")
 			const strategies = config.strategies.map((strategyConfig) => {
 				switch (strategyConfig.type) {
 					case "basic":
-						return new BasicFiller(strategyConfig.privateKey as HexString, configService)
+						return new BasicFiller(
+							strategyConfig.privateKey as HexString,
+							configService,
+							sharedCacheService,
+						)
 					default:
 						throw new Error(`Unknown strategy type: ${strategyConfig.type}`)
 				}
@@ -147,7 +151,13 @@ program
 
 			// Initialize and start the intent filler
 			logger.info("Starting intent filler...")
-			const intentFiller = new IntentFiller(chainConfigs, strategies, fillerConfig, configService)
+			const intentFiller = new IntentFiller(
+				chainConfigs,
+				strategies,
+				fillerConfig,
+				configService,
+				sharedCacheService,
+			)
 			// Start the filler
 			intentFiller.start()
 

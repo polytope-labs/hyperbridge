@@ -5,6 +5,7 @@ import { Order, FillerConfig, ChainConfig, DUMMY_PRIVATE_KEY, ADDRESS_ZERO, byte
 import pQueue from "p-queue"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
+import { CacheService } from "@/services/CacheService"
 import { getLogger } from "@/services/Logger"
 
 import { PublicClient } from "viem"
@@ -26,6 +27,7 @@ export class IntentFiller {
 		strategies: FillerStrategy[],
 		config: FillerConfig,
 		configService: FillerConfigService,
+		sharedCacheService?: CacheService,
 	) {
 		this.configService = configService
 		this.chainClientManager = new ChainClientManager(configService)
@@ -37,6 +39,7 @@ export class IntentFiller {
 			this.chainClientManager,
 			generatePrivateKey(),
 			configService,
+			sharedCacheService,
 		)
 		this.chainQueues = new Map()
 		chainConfigs.forEach((chainConfig) => {

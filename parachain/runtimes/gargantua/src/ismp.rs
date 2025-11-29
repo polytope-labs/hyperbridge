@@ -16,10 +16,11 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
+	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
 	XcmGateway, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
+use frame_benchmarking::__private::traits::EitherOfDiverse;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -139,13 +140,8 @@ impl pallet_ismp::Config for Runtime {
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<
-		AccountId,
-		Balances,
-		IsmpWeightToFee,
-		TreasuryPalletId,
-		false,
-	>;
+	type FeeHandler =
+	(pallet_consensus_incentives::Pallet<Runtime>, pallet_messaging_fees::Pallet<Runtime>);
 }
 
 impl ismp_grandpa::Config for Runtime {
@@ -206,6 +202,14 @@ impl pallet_xcm_gateway::Config for Runtime {
 
 impl pallet_token_gateway_inspector::Config for Runtime {
 	type GatewayOrigin = EnsureRoot<AccountId>;
+}
+
+impl pallet_consensus_incentives::Config for Runtime {
+	type IsmpHost = Ismp;
+	type TreasuryAccount = TreasuryPalletId;
+	type IncentivesOrigin = EnsureRoot<AccountId>;
+	type ReputationAsset = ReputationAsset;
+	type WeightInfo = ();
 }
 
 #[cfg(feature = "runtime-benchmarks")]

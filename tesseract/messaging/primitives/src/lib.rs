@@ -430,7 +430,7 @@ pub trait HyperbridgeClaim {
 		&self,
 		client: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
-	) -> anyhow::Result<WithdrawFundsResult>;
+	) -> anyhow::Result<Vec<WithdrawFundsResult>>;
 	/// Check if this key has been claimed
 	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool>;
 }

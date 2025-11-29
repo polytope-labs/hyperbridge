@@ -64,6 +64,7 @@ use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
 use pallet_messaging_fees::types::PriceOracle;
+use polkadot_sdk::frame_support::dispatch::DispatchClass;
 use substrate_state_machine::SubstrateStateMachine;
 use xcm_simulator::mock_message_queue;
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
@@ -110,7 +111,8 @@ frame_support::construct_runtime!(
 		CollatorSelection: pallet_collator_selection,
 		CollatorManager: pallet_collator_manager,
 		MsgQueue: mock_message_queue,
-		Authorship: pallet_authorship
+		Authorship: pallet_authorship,
+		Migrations: pallet_migrations
 	}
 );
 
@@ -182,6 +184,18 @@ impl pallet_sudo::Config for Test {
 	type WeightInfo = ();
 }
 
+parameter_types! {
+	pub TestBlockWeights: frame_system::limits::BlockWeights =
+		frame_system::limits::BlockWeights::builder()
+			.base_block(Weight::from_parts(10_000_000, 0))
+			.for_class(DispatchClass::all(), |w| {
+				w.base_extrinsic = Weight::from_parts(5_000_000, 0);
+				w.max_total = Some(Weight::from_parts(2_000_000_000_000, u64::MAX));
+			})
+			.build()
+			.unwrap();
+}
+
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
 	type BaseCallFilter = frame_support::traits::Everything;
@@ -194,7 +208,7 @@ impl frame_system::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type BlockHashCount = ConstU64<250>;
 	type DbWeight = ();
-	type BlockWeights = ();
+	type BlockWeights = TestBlockWeights;
 	type RuntimeTask = ();
 	type BlockLength = ();
 	type Version = ();
@@ -208,6 +222,7 @@ impl frame_system::Config for Test {
 	type SS58Prefix = ();
 	type OnSetCode = ParachainSetCode<Test>;
 	type MaxConsumers = ConstU32<16>;
+	type MultiBlockMigrator = Migrations;
 }
 
 impl pallet_timestamp::Config for Test {
@@ -457,6 +472,20 @@ impl pallet_messaging_fees::Config for Test {
 	type ReputationAsset = ReputationAsset;
 }
 
+parameter_types! {
+	pub MbmServiceWeight: Weight = TestBlockWeights::get().max_block.div(2);
+}
+
+impl pallet_migrations::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type Migrations = (pallet_messaging_fees::migrations::v1::Migration<Test>,);
+	type CursorMaxLen = ConstU32<65536>;
+	type IdentifierMaxLen = ConstU32<256>;
+	type MigrationStatusHandler = ();
+	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
+	type MaxServiceWeight = MbmServiceWeight;
+	type WeightInfo = pallet_migrations::weights::SubstrateWeight<Test>;
+}
 pub struct MockPriceOracle;
 
 impl PriceOracle for MockPriceOracle {

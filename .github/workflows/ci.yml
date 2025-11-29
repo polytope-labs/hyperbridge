@@ -275,16 +275,16 @@ jobs:
               id: check_version
               shell: bash
               run: |
-                if grep -rE "spec_version:\s*4_?000" parachain/runtimes/gargantua; then
-                  echo "Detected Gargantua Runtime 4000. Enabling migration tests."
-                  echo "is_4000=true" >> $GITHUB_OUTPUT
+                if grep -rE "spec_version:\s*4_?100" parachain/runtimes/gargantua; then
+                  echo "Detected Gargantua Runtime 4100. Enabling migration tests."
+                  echo "is_4100=true" >> $GITHUB_OUTPUT
                 else
-                  echo "Gargantua Runtime is NOT 4000. Skipping migration tests."
-                  echo "is_4000=false" >> $GITHUB_OUTPUT
+                  echo "Gargantua Runtime is NOT 4100. Skipping migration tests."
+                  echo "is_4100=false" >> $GITHUB_OUTPUT
                 fi
 
             - name: Checkout Old Node Source
-              if: steps.check_version.outputs.is_4000 == 'true'
+              if: steps.check_version.outputs.is_4100 == 'true'
               uses: actions/checkout@v3
               with:
                 repository: ${{ github.repository }}
@@ -335,7 +335,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
 
             - name: Build Old Node Binary
-              if: steps.check_version.outputs.is_4000 == 'true'
+              if: steps.check_version.outputs.is_4100 == 'true'
               run: |
                   echo "Building Hyperbridge from old branch..."
                   cd old_node_source
@@ -345,13 +345,13 @@ jobs:
                   rm -rf old_node_source
 
             - name: Build Current Runtime (WASM)
-              if: steps.check_version.outputs.is_4000 == 'true'
+              if: steps.check_version.outputs.is_4100 == 'true'
               run: |
                   echo "Building Gargantua Runtime from current branch..."
                   cargo build --release -p gargantua-runtime
 
             - name: Run Migration Integration Test
-              if: steps.check_version.outputs.is_4000 == 'true'
+              if: steps.check_version.outputs.is_4100 == 'true'
               run: |
                   fuser -k 9990/tcp || true
                   echo "Starting Old Simnode..."

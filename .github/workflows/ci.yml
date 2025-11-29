@@ -271,6 +271,28 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
+            - name: Check Runtime Version
+              id: check_version
+              shell: bash
+              run: |
+                if grep -rE "spec_version:\s*4_?000" parachain/runtimes/gargantua; then
+                  echo "Detected Gargantua Runtime 4000. Enabling migration tests."
+                  echo "is_4000=true" >> $GITHUB_OUTPUT
+                else
+                  echo "Gargantua Runtime is NOT 4000. Skipping migration tests."
+                  echo "is_4000=false" >> $GITHUB_OUTPUT
+                fi
+
+            - name: Checkout Old Node Source
+              if: steps.check_version.outputs.is_4000 == 'true'
+              uses: actions/checkout@v3
+              with:
+                repository: ${{ github.repository }}
+                ref: dami/make-gargantua-up-to-date-with-nexus
+                path: old_node_source
+                token: ${{ secrets.GH_TOKEN }}
+                submodules: recursive
+
             - name: Install Dependencies
               run: |
                   sudo apt-get update
@@ -312,7 +334,36 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
-            - name: Run Simnet Tests
+            - name: Build Old Node Binary
+              if: steps.check_version.outputs.is_4000 == 'true'
+              run: |
+                  echo "Building Hyperbridge from old branch..."
+                  cd old_node_source
+                  cargo build -p hyperbridge --release
+                  mv target/release/hyperbridge ../hyperbridge-old
+                  cd ..
+                  rm -rf old_node_source
+
+            - name: Build Current Runtime (WASM)
+              if: steps.check_version.outputs.is_4000 == 'true'
+              run: |
+                  echo "Building Gargantua Runtime from current branch..."
+                  cargo build --release -p gargantua-runtime
+
+            - name: Run Migration Integration Test
+              if: steps.check_version.outputs.is_4000 == 'true'
+              run: |
+                  fuser -k 9990/tcp || true
+                  echo "Starting Old Simnode..."
+                  ./hyperbridge-old simnode --chain=gargantua-2000 --name=alice --tmp --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+                  echo "Running Migration Test..."
+                  cd parachain/simtests
+                  cargo test --lib test_runtime_upgrade_and_fee_migration -- --nocapture --ignored
+                  cd ../..
+                  pkill -f "hyperbridge-old" || true
+
+            - name: Run Standard Simnet Tests
               run: |
                   # build hyperbridge binary
                   cargo build -p hyperbridge --release
@@ -324,6 +375,7 @@ jobs:
               if: always()
               run: |
                 echo "Cleaning up any leftover simnode processes..."
+                pkill -f "hyperbridge-old" || true
                 pkill -f "hyperbridge simnode" || true
                 fuser -k 9990/tcp || true
                 echo "Cleanup complete."

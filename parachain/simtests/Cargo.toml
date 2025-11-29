@@ -46,6 +46,7 @@ nexus-runtime = { workspace = true, default-features = true}
 gargantua-runtime = { workspace = true, default-features = true}
 pallet-bridge-airdrop = { workspace = true, default-features = true}
 crypto-utils = { workspace = true, default-features = true }
+pallet-messaging-fees = { workspace = true, default-features = true}
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -59,7 +60,8 @@ features = [
     "pallet-sudo",
     "pallet-utility",
     "pallet-vesting",
-    "pallet-balances"
+    "pallet-balances",
+    "sp-weights"
 ]
 
 [features]

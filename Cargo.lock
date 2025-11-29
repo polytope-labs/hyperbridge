@@ -24376,6 +24376,7 @@ dependencies = [
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
  "pallet-ismp-rpc",
+ "pallet-messaging-fees",
  "pallet-mmr-tree",
  "parity-scale-codec",
  "polkadot-sdk",

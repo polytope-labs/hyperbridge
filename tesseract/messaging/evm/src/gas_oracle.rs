@@ -14,6 +14,9 @@ use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::{de::DeserializeOwned, Deserialize};
 use std::{fmt::Debug, sync::Arc, time::Duration};
+use ethers::types::H160;
+use ismp_solidity_abi::evm_host::EvmHost;
+use ismp_solidity_abi::evm_host::EvmHostCalls::UniswapV2Router;
 use tesseract_primitives::Cost;
 
 abigen!(
@@ -22,10 +25,9 @@ abigen!(
         function latestRoundData() external view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
         function decimals() external view returns (uint8)
     ]"#;
-    UniswapV2Pair,
+    IUniswapV2Router,
     r#"[
-        function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)
-        function token0() external view returns (address)
+        function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)
     ]"#
 );
 
@@ -125,6 +127,7 @@ pub struct GasBreakdown {
 pub async fn get_current_gas_cost_in_usd(
 	chain: StateMachine,
 	api_keys: &str,
+	ismp_host_address: H160,
 	client: Arc<Provider<Http>>,
 ) -> Result<GasBreakdown, Error> {
 	let mut gas_price_cost = U256::zero();
@@ -211,17 +214,20 @@ pub async fn get_current_gas_cost_in_usd(
 				},
 				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
 					let node_gas_price = client.get_gas_price().await?;
-					let token_usd = if inner_evm == POLYGON_CHAIN_ID {
-						gas_price = new_u256(node_gas_price);
+					let native_token = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270".parse::<H160>()?;
+					let stable_token = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359".parse::<H160>()?;
 
-						let chainlink_price = get_chainlink_price(inner_evm, client.clone()).await;
-						match chainlink_price {
-							Ok(price) => price,
-							Err(_) => {
-								get_pancakeswap_dex_price(inner_evm, client.clone()).await
-									.map_err(|_| anyhow!("Failed to fetch Polygon price from Chainlink and DEX"))?
-							}
-						}
+					let price = get_price_from_uniswap_router(
+						ismp_host_address,
+						client.clone(),
+						native_token,
+						18,
+						stable_token,
+						6
+					).await.map_err(|e| anyhow!("Failed to fetch Polygon price from Uniswap Router: {e}"))?;
+
+					let token_usd = if inner_evm == POLYGON_CHAIN_ID {
+						new_u256(std::cmp::max(node_gas_price, price))
 					} else {
 						new_u256(node_gas_price)
 					};
@@ -230,18 +236,21 @@ pub async fn get_current_gas_cost_in_usd(
 				},
 				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => {
 					let node_gas_price = client.get_gas_price().await?;
-					let node_price_u256 = new_u256(node_gas_price);
+
+					let native_token = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".parse::<H160>()?;
+					let stable_token = "0x55d398326f99059fF775485246999027B3197955".parse::<H160>()?;
+
+					let price = get_price_from_router(
+						ismp_host_address,
+						client.clone(),
+						native_token,
+						18,
+						stable_token,
+						6
+					).await.map_err(|e| anyhow!("Failed to fetch BSC price from Uniswap Router: {e}"))?;
 
 					let token_usd = if inner_evm == BSC_CHAIN_ID {
-						gas_price = node_price_u256;
-						let chainlink_price = get_chainlink_price(inner_evm, client.clone()).await;
-						match chainlink_price {
-							Ok(price) => price,
-							Err(_) => {
-								get_pancakeswap_dex_price(inner_evm, client.clone()).await
-									.map_err(|_| anyhow!("Failed to fetch Polygon price from Chainlink and DEX"))?
-							}
-						}
+						new_u256(std::cmp::max(node_gas_price, price))
 					} else {
 						new_u256(node_gas_price)
 					};
@@ -320,6 +329,44 @@ fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
 	// needed because of ether-rs and polkadot-sdk incompatibility
 	let eth_to_wei: U256 = new_u256(old);
 	eth_usd / eth_to_wei
+}
+
+async fn get_price_from_uniswap_router(
+	ismp_host: H160,
+	client: Arc<Provider<Http>>,
+	native_token: H160,
+	native_decimals: u32,
+	stable_token: H160,
+	stable_decimals: u32,
+) -> Result<U256, Error> {
+	let host = EvmHost::new(ismp_host, client.clone());
+	let params = host.host_params().call().await?;
+	let uniswap_v2 = params.uniswap_v2;
+
+	if uniswap_v2 == H160::zero() {
+		return Err(anyhow!("Uniswap V2 Router not configured in Host Params"));
+	}
+
+	let router = IUniswapV2Router::new(uniswap_v2, client);
+	let path = vec![stable_token, native_token];
+	let amount_out = U256::from(10).pow(U256::from(native_decimals));
+
+	let amounts = router.get_amounts_in(amount_out.into(), path).call().await?;
+
+	if amounts.len() < 2 {
+		return Err(anyhow!("Invalid amounts returned from Uniswap V2 Router"));
+	}
+
+	let amount_stable = new_u256(amounts[0]);
+
+	let target_decimals = 27;
+	let price_27 = if target_decimals >= stable_decimals {
+		amount_stable * U256::from(10).pow(U256::from(target_decimals - stable_decimals))
+	} else {
+		amount_stable / U256::from(10).pow(U256::from(stable_decimals - target_decimals))
+	};
+
+	Ok(price_27)
 }
 
 /// Returns the L2 data cost for a given transaction data in usd

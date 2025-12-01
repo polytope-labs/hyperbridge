@@ -8,7 +8,7 @@ use ethers::{
 use geth_primitives::{new_u256, old_u256};
 use hex_literal::hex;
 use ismp::host::StateMachine;
-use primitive_types::U256;
+use primitive_types::{U256};
 use reqwest::{header::HeaderMap, Client};
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
@@ -16,15 +16,9 @@ use serde::{de::DeserializeOwned, Deserialize};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use ethers::types::H160;
 use ismp_solidity_abi::evm_host::EvmHost;
-use ismp_solidity_abi::evm_host::EvmHostCalls::UniswapV2Router;
 use tesseract_primitives::Cost;
 
 abigen!(
-    AggregatorV3Interface,
-    r#"[
-        function latestRoundData() external view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
-        function decimals() external view returns (uint8)
-    ]"#;
     IUniswapV2Router,
     r#"[
         function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)
@@ -214,6 +208,8 @@ pub async fn get_current_gas_cost_in_usd(
 				},
 				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
 					let node_gas_price = client.get_gas_price().await?;
+					gas_price = new_u256(node_gas_price);
+
 					let native_token = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270".parse::<H160>()?;
 					let stable_token = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359".parse::<H160>()?;
 
@@ -226,16 +222,12 @@ pub async fn get_current_gas_cost_in_usd(
 						6
 					).await.map_err(|e| anyhow!("Failed to fetch Polygon price from Uniswap Router: {e}"))?;
 
-					let token_usd = if inner_evm == POLYGON_CHAIN_ID {
-						new_u256(std::cmp::max(node_gas_price, price))
-					} else {
-						new_u256(node_gas_price)
-					};
-					unit_wei = get_cost_of_one_wei(token_usd);
-					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+					unit_wei = get_cost_of_one_wei(price);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * new_u256(node_gas_price))?;
 				},
 				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => {
 					let node_gas_price = client.get_gas_price().await?;
+					gas_price = new_u256(node_gas_price);
 
 					let native_token = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".parse::<H160>()?;
 					let stable_token = "0x55d398326f99059fF775485246999027B3197955".parse::<H160>()?;
@@ -249,12 +241,7 @@ pub async fn get_current_gas_cost_in_usd(
 						6
 					).await.map_err(|e| anyhow!("Failed to fetch BSC price from Uniswap Router: {e}"))?;
 
-					let token_usd = if inner_evm == BSC_CHAIN_ID {
-						new_u256(std::cmp::max(node_gas_price, price))
-					} else {
-						new_u256(node_gas_price)
-					};
-					unit_wei = get_cost_of_one_wei(token_usd);
+					unit_wei = get_cost_of_one_wei(price);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
 				CRONOS_CHAIN_ID | CRONOS_TESTNET_CHAIN_ID => {
@@ -351,7 +338,7 @@ async fn get_price_from_uniswap_router(
 	let path = vec![stable_token, native_token];
 	let amount_out = U256::from(10).pow(U256::from(native_decimals));
 
-	let amounts = router.get_amounts_in(amount_out.into(), path).call().await?;
+	let amounts = router.get_amounts_in(old_u256(amount_out), path).call().await?;
 
 	if amounts.len() < 2 {
 		return Err(anyhow!("Invalid amounts returned from Uniswap V2 Router"));
@@ -517,6 +504,7 @@ mod test {
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(ETHEREUM_CHAIN_ID),
 			&ethereum_etherscan_api_key,
+			ethers::types::H160::zero(),
 			client.clone(),
 		)
 			.await
@@ -539,6 +527,7 @@ mod test {
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
+			ethers::types::H160::zero(),
 			client.clone(),
 		)
 			.await
@@ -552,6 +541,7 @@ mod test {
 	async fn get_gas_price_polygon_mainnet() {
 		dotenv::dotenv().ok();
 		let rpc_uri = std::env::var("POLYGON_URL").expect("POLYGON_URL is not set in .env");
+		let ismp_host = std::env::var("POLYGON_ISMP_HOST").expect("POLYGON_ISMP_HOST is not set in .env").parse().unwrap();
 		let provider = Provider::<Http>::try_from(rpc_uri).unwrap();
 		// Client is unused in this test
 		let client = Arc::new(provider.clone());
@@ -559,6 +549,7 @@ mod test {
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(POLYGON_CHAIN_ID),
 			"",
+			ismp_host,
 			client.clone(),
 		)
 			.await
@@ -577,7 +568,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd =
-			get_current_gas_cost_in_usd(StateMachine::Evm(GNOSIS_CHAIN_ID), "", client.clone())
+			get_current_gas_cost_in_usd(StateMachine::Evm(GNOSIS_CHAIN_ID), "", ethers::types::H160::zero(), client.clone())
 				.await
 				.unwrap();
 
@@ -598,6 +589,7 @@ mod test {
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(POLYGON_TESTNET_CHAIN_ID),
 			&ethereum_etherscan_api_key,
+			ethers::types::H160::zero(),
 			client.clone(),
 		)
 			.await
@@ -611,6 +603,7 @@ mod test {
 	async fn get_gas_price_bsc_mainnet() {
 		dotenv::dotenv().ok();
 		let rpc_uri = std::env::var("BSC_URL").expect("BSC_URL is not set in .env");
+		let ismp_host = std::env::var("BSC_ISMP_HOST").expect("BSC_ISMP_HOST is not set in .env").parse().unwrap();
 		// Client is unused in this test
 		let provider = Provider::<Http>::try_from(rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
@@ -618,6 +611,7 @@ mod test {
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(BSC_CHAIN_ID),
 			"",
+			ismp_host,
 			client.clone(),
 		)
 			.await
@@ -639,6 +633,7 @@ mod test {
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
+			ethers::types::H160::zero(),
 			client.clone(),
 		)
 			.await
@@ -660,6 +655,7 @@ mod test {
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
+			ethers::types::H160::zero(),
 			client.clone(),
 		)
 			.await
@@ -680,6 +676,7 @@ mod test {
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
 			&ethereum_etherscan_api_key,
+			ethers::types::H160::zero(),
 			client.clone(),
 		)
 			.await

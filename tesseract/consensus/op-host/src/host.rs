@@ -477,6 +477,7 @@ async fn submit_state_proposal(
 	let gas_breakdown = get_current_gas_cost_in_usd(
 		client.l1_state_machine,
 		&proposer_config.l1_etherscan_api_key,
+		client.evm.ismp_host.0.into(),
 		client.beacon_execution_client.clone(),
 	)
 	.await?;
@@ -487,6 +488,7 @@ async fn submit_state_proposal(
 	wait_for_success(
 		&client.l1_state_machine,
 		&proposer_config.l1_etherscan_api_key,
+		client.evm.ismp_host.0.into(),
 		client.beacon_execution_client.clone(),
 		proposer.clone(),
 		tx,

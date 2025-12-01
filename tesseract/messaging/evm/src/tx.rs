@@ -38,6 +38,7 @@ use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
 use primitive_types::{H256, U256};
+use ethers::types::H160;
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
 
@@ -71,6 +72,7 @@ pub async fn submit_messages(
 				let evs = wait_for_success(
 					&client.config.state_machine,
 					&client.config.etherscan_api_key,
+					client.config.ismp_host.0.into(),
 					client.client.clone(),
 					client.signer.clone(),
 					progress,
@@ -122,6 +124,7 @@ pub async fn submit_messages(
 pub async fn wait_for_success<'a, T>(
 	state_machine: &StateMachine,
 	etherscan_api_key: &String,
+	ismp_host: H160,
 	provider: Arc<Provider<Http>>,
 	signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
 	tx: PendingTransaction<'a, Http>,
@@ -153,6 +156,7 @@ where
 	let signer_clone = signer.clone();
 	let state_machine_clone = state_machine.clone();
 	let etherscan_api_key_clone = etherscan_api_key.clone();
+	let ismp_host_clone = ismp_host.clone();
 
 	let handle_failed_tx = move || async move {
 		log::info!("No receipt for transaction on {:?}", state_machine_clone);
@@ -162,6 +166,7 @@ where
 			let gas_price: U256 = get_current_gas_cost_in_usd(
 				state_machine_clone,
 				&etherscan_api_key_clone,
+				ismp_host,
 				client_clone.clone(),
 			)
 			.await?
@@ -183,6 +188,7 @@ where
 			wait_for_success::<()>(
 				&state_machine_clone,
 				&etherscan_api_key_clone,
+				ismp_host_clone,
 				client_clone.clone(),
 				signer_clone.clone(),
 				pending,
@@ -289,6 +295,7 @@ pub async fn generate_contract_calls(
 		get_current_gas_cost_in_usd(
 			client.state_machine,
 			&client.config.etherscan_api_key.clone(),
+			ismp_host.0.into(),
 			client.client.clone(),
 		)
 		.await?

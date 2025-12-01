@@ -41,6 +41,10 @@ dataSources:
           kind: substrate/BlockHandler
           filter:
             modulo: 3600 # Indexings 1 block every 6 hours (6 seconds per block indexing).
+        - handler: handleTokenIndexing
+          kind: substrate/BlockHandler
+          filter:
+            modulo: 1 # Indexings every block.
 {{/if}}
 {{#if enablePriceIndexing}}
         - handler: handlePriceIndexing

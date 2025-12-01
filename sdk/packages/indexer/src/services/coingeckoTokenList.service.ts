@@ -5,12 +5,6 @@ import PriceHelper, { type GeckoTerminalPool, type GeckoTerminalToken } from "@/
 const UPDATE_INTERVAL_SECONDS = 86400 // 24 hours
 
 /**
- * Supported chains for CoinGecko OnChain token list syncing
- * Maps to CoinGecko OnChain network names
- */
-const supportedChains = ["eth", "polygon_pos", "arbitrum", "base", "bsc"] as const
-
-/**
  * Map CoinGecko OnChain network names to their numeric chain IDs for storage
  */
 const NETWORK_TO_CHAIN_ID: Record<string, string> = {
@@ -29,11 +23,11 @@ function extractTokenAddress(tokenId: string): string {
 	const addressMatch = tokenId.match(/0x[a-fA-F0-9]+/)
 	if (addressMatch) {
 		const addressIndex = tokenId.indexOf(addressMatch[0])
-		return tokenId.substring(addressIndex)
+		return tokenId.substring(addressIndex).toLowerCase()
 	}
 	// Fallback: if no 0x found, try splitting by underscore and taking the last part
 	const parts = tokenId.split("_")
-	return parts[parts.length - 1]
+	return parts[parts.length - 1].toLowerCase()
 }
 
 /**
@@ -54,9 +48,9 @@ function extractFeeFromPoolName(poolName: string): string {
  */
 function formatPairInfo(pairAddress: string, tokenSymbol: string, protocolName: string, fee: string): string {
 	if (fee) {
-		return `${pairAddress}-${tokenSymbol}-${protocolName}-${fee}`
+		return `${pairAddress.toLowerCase()}-${tokenSymbol}-${protocolName}-${fee}`
 	}
-	return `${pairAddress}-${tokenSymbol}-${protocolName}`
+	return `${pairAddress.toLowerCase()}-${tokenSymbol}-${protocolName}`
 }
 
 export class CoinGeckoTokenListService {
@@ -151,7 +145,7 @@ export class CoinGeckoTokenListService {
 	 * @param currentTimestamp - Current timestamp in bigint
 	 */
 	static async sync(currentTimestamp: bigint): Promise<void> {
-		const syncPromises = supportedChains.map((networkName) => this.syncChain(networkName, currentTimestamp))
+		const syncPromises = Object.keys(NETWORK_TO_CHAIN_ID).map((networkName) => this.syncChain(networkName, currentTimestamp))
 
 		await Promise.allSettled(syncPromises)
 		logger.info(`[CoinGeckoTokenListService.sync] Completed sync for all supported chains`)
@@ -176,7 +170,7 @@ export class CoinGeckoTokenListService {
 					const currentTime = timestampToDate(currentTimestamp).getTime()
 					const timeSinceUpdateMs = currentTime - lastUpdateTime
 
-					if (timeSinceUpdateMs < UPDATE_INTERVAL_SECONDS * 1000) {
+					if (timeSinceUpdateMs != 0 && timeSinceUpdateMs < UPDATE_INTERVAL_SECONDS * 1000) {
 						logger.info(
 							`[CoinGeckoTokenListService.syncChain] Skipping sync for network ${networkName} (page 1), only ${Math.floor(timeSinceUpdateMs / 1000)}s since last update. Need to wait ${Math.floor((UPDATE_INTERVAL_SECONDS * 1000 - timeSinceUpdateMs) / 1000)}s more.`,
 						)
@@ -239,7 +233,7 @@ export class CoinGeckoTokenListService {
 					return
 				}
 
-				tokenMap.set(tokenAddress, {
+				tokenMap.set(normalizedAddress, {
 					tokenName: token.attributes.name,
 					tokenSymbol: token.attributes.symbol,
 					tokenURI: token.attributes.image_url || null,

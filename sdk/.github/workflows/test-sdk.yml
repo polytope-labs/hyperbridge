@@ -61,7 +61,7 @@ jobs:
                   POLYGON_MAINNET=${{ secrets.POLYGON_MAINNET }}
                   ARBITRUM_MAINNET=${{ secrets.ARBITRUM_MAINNET }}
                   SEPOLIA=${{ secrets.SEPOLIA }}
-                  COINGECKO=${{secrets.COINGECKO}}
+                  COIN_GECKGO_API_KEY=${{secrets.COINGECKO}}
                   PING_MODULE_ADDRESS: "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
                   TOKEN_GATEWAY_ADDRESS: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
                   EOF

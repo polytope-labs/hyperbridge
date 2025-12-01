@@ -5,16 +5,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-on:
-  push:
-    branches: [main]
-    paths:
-      - "packages/indexer/**"
-  pull_request:
-    branches: [main]
-    paths:
-      - "packages/indexer/**"
-  workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
   test:

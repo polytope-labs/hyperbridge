@@ -23,11 +23,11 @@
 		"startBlock": 70515,
 		"stateMachineId": "SUBSTRATE-argn"
 	},
-	"kilt-mainnet": {
+	"hydration-mainnet": {
 		"type": "substrate",
-		"chainId": "0x411f057b9107718c9624d6aa4a3f23c1653898297f3d4d529d9bb6511a39dd21",
-		"startBlock": 9081787,
-		"stateMachineId": "POLKADOT-2086"
+		"chainId": "0xafdc188f45c71dacbaa0b62e16a91f726c7b8699a9748cdf715459de6b7f366d",
+		"startBlock": 10305620,
+		"stateMachineId": "POLKADOT-2034"
 	},
 	"zkverify-mainnet": {
 		"type": "substrate",

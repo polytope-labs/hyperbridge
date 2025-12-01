@@ -457,7 +457,7 @@ pub struct BeaconState<
 	pending_partial_withdrawals: List<PendingPartialWithdrawal, PENDING_PARTIAL_WITHDRAWALS_LIMIT>,
 	pending_consolidations: List<PendingConsolidation, PENDING_CONSOLIDATIONS_LIMIT>,
     //  [New in Fulu:EIP7917]
-    #[cfg(feature = "fulu")]
+    #[cfg(not(feature = "gnosis"))]
     #[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
     proposer_lookahead: Vector<ValidatorIndex, PROPOSER_LOOK_AHEAD_LIMIT>
 }

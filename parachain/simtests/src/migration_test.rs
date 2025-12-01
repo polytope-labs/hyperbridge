@@ -11,20 +11,108 @@ use polkadot_sdk::{
     sp_core::{crypto::Ss58Codec, Bytes, H256, U256},
     sp_keyring::sr25519::Keyring,
 };
-use std::{collections::HashMap, env, fs};
+use std::{
+        collections::HashMap,
+        env, fs,
+        net::TcpStream,
+        process::{Child, Command, Stdio},
+        time::{Duration, Instant}
+};
 use subxt::{
     ext::subxt_rpcs::{rpc_params, RpcClient},
     tx::SubmittableTransaction,
     OnlineClient,
 };
+use tokio::net::TcpSocket;
 use subxt_utils::Hyperbridge;
 
 const NEXUS_RPC: &str = "wss://nexus.ibp.network";
 const WASM_PATH: &str = "../../target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm";
 //const WASM_PATH: &str = "/Users/dharjeezy/Documents/polytope/hyperbridge/gargantua_runtime.compact.compressed.wasm";
+
+struct ProcessGuard(Child);
+
+impl Drop for ProcessGuard {
+    fn drop(&mut self) {
+        self.0.kill().unwrap();
+    }
+}
+
+async fn download_file(url: &str, output_path: &str) -> Result<(), anyhow::Error> {
+    println!("Downloading {} to {}...", url, output_path);
+    let status = Command::new("curl").args(["-L", "-0", output_path, url]).status()?;
+    if !status.success() {
+        return Err(anyhow!("Failed to download file from {}", url));
+    }
+    Ok(())
+}
+
+async fn wait_for_port(port: u16, timeout: Duration) -> Result<(), anyhow::Error> {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    Err(anyhow!("Timed out waiting for connection to port"))
+
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output().map_err(|_| anyhow!("Failed to determine git branch"))?;
+    let branch =  String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if branch != "dami/fix-decimals-scaling" {
+        return Ok(());
+    }
+
+    println!("Running migration test on branch: {}", branch);
+
+    let old_binary_url =
+        env::var("OLD_BINARY_URL").map_err(|_| anyhow!("OLD_BINARY_URL env var not set"))?;
+    let new_runtime_url =
+        env::var("NEW_RUNTIME_URL").map_err(|_| anyhow!("NEW_RUNTIME_URL env var not set"))?;
+
+    let binary_path = "./hyperbridge-old-simnode";
+    let wasm_path = "./new_runtime.wasm";
+
+    let _ = fs::remove_file(binary_path);
+    let _ = fs::remove_file(wasm_path);
+
+    download_file(&old_binary_url, binary_path).await?;
+    download_file(&new_runtime_url, wasm_path).await?;
+
+    Command::new("chmod").args(["+x", binary_path]).status()?;
+
+    println!("Spawning Simnode...");
+    let child = Command::new(binary_path)
+        .args([
+            "simnode",
+            "--chain=gargantua-2000",
+            "--name=alice",
+            "--tmp",
+            "--state-pruning=archive",
+            "--blocks-pruning=archive",
+            "--rpc-port=9990",
+            "--port=40337",
+            "--rpc-cors=all",
+            "--unsafe-rpc-external",
+            "--rpc-methods=unsafe",
+        ])
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()?;
+
+    let _guard = ProcessGuard(child);
+
+    println!("Waiting for Simnode RPC port 9990...");
+    wait_for_port(9990, Duration::from_secs(60)).await?;
+
     let port = env::var("PORT").unwrap_or_else(|_| "9990".to_string());
     let local_ws_url = format!("ws://127.0.0.1:{}", port);
 

@@ -153,128 +153,6 @@ pub async fn get_current_gas_cost_in_usd(
 					unit_wei = get_cost_of_one_wei(eth_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
-				SEPOLIA_CHAIN_ID | ETHEREUM_CHAIN_ID => {
-					let uri = format!("{api}?chainid={ETHEREUM_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}");
-					if inner_evm == SEPOLIA_CHAIN_ID {
-						gas_price = new_u256(client.get_gas_price().await?);
-						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
-						let eth_usd = parse_to_27_decimals(&response_json.usd_price)?;
-						unit_wei = get_cost_of_one_wei(eth_usd);
-						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-					} else {
-						let node_gas_price = client.get_gas_price().await?;
-						// Mainnet
-						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
-						let oracle_gas_price =
-							parse_units(response_json.safe_gas_price.to_string(), "gwei")?.into();
-						// needed because of ether-rs and polkadot-sdk incompatibility
-						gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price));
-						let eth_usd = parse_to_27_decimals(&response_json.usd_price)?;
-						unit_wei = get_cost_of_one_wei(eth_usd);
-						gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-					};
-				},
-				CHIADO_CHAIN_ID | GNOSIS_CHAIN_ID => {
-					let node_gas_price = client.get_gas_price().await?;
-					#[derive(Debug, Deserialize, Clone, Default)]
-					struct BlockscoutResponse {
-						average: f32,
-					}
-					if CHIADO_CHAIN_ID == inner_evm {
-						let uri = "https://blockscout.chiadochain.net/api/v1/gas-price-oracle";
-						let response_json =
-							make_request::<BlockscoutResponse>(&uri, Default::default())
-								.await
-								.unwrap_or_default();
-						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
-						// needed because of ether-rs and polkadot-sdk incompatibility
-						gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price));
-					} else {
-						let uri = "https://blockscout.com/xdai/mainnet/api/v1/gas-price-oracle";
-						let response_json =
-							make_request::<BlockscoutResponse>(&uri, Default::default())
-								.await
-								.unwrap_or_default();
-						let oracle_gas_price = parse_units(response_json.average, "gwei")?.into();
-						// needed because of ether-rs and polkadot-sdk incompatibility
-						gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price));
-					}
-					// Gnosis uses a stable coin for gas token which means the usd is
-					// equivalent to the gas price
-					gas_price_cost = gas_price
-				},
-				INJECTIVE_CHAIN_ID | INJECTIVE_TESTNET_CHAIN_ID => {
-					let node_gas_price = client.get_gas_price().await?;
-					gas_price = new_u256(node_gas_price);
-					let inj_usd_price = get_coingecko_price("injective-protocol").await?;
-					let inj_usd = parse_to_27_decimals(&inj_usd_price)?;
-					unit_wei = get_cost_of_one_wei(inj_usd);
-					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-				},
-				POLYGON_CHAIN_ID | POLYGON_TESTNET_CHAIN_ID => {
-					let node_gas_price = client.get_gas_price().await?;
-					gas_price = new_u256(node_gas_price);
-
-					let price = get_price_from_uniswap_router(
-						ismp_host_address,
-						client.clone(),
-					).await.map_err(|e| anyhow!("Failed to fetch Polygon price from Uniswap Router: {e}"))?;
-
-					unit_wei = get_cost_of_one_wei(price);
-					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * new_u256(node_gas_price))?;
-				},
-				BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => {
-					let node_gas_price = client.get_gas_price().await?;
-					gas_price = new_u256(node_gas_price);
-
-					let price = get_price_from_uniswap_router(
-						ismp_host_address,
-						client.clone()
-					).await.map_err(|e| anyhow!("Failed to fetch BSC price from Uniswap Router: {e}"))?;
-
-					unit_wei = get_cost_of_one_wei(price);
-					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-				},
-				CRONOS_CHAIN_ID | CRONOS_TESTNET_CHAIN_ID => {
-					let uri = format!(
-						"{api}?chainid={CRONOS_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}"
-					);
-					let node_gas_price = client.get_gas_price().await?;
-					let response_json = make_request::<GasResponse>(&uri, Default::default())
-						.await
-						.unwrap_or_default();
-					let oracle_gas_price =
-						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
-					// needed because of ether-rs and polkadot-sdk incompatibility
-					gas_price = if inner_evm == CRONOS_CHAIN_ID {
-						new_u256(std::cmp::max(node_gas_price, oracle_gas_price))
-					} else {
-						new_u256(node_gas_price)
-					};
-					let cro_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-					unit_wei = get_cost_of_one_wei(cro_usd);
-					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-				},
-				SEI_CHAIN_ID | SEI_TESTNET_CHAIN_ID => {
-					let uri = format!(
-						"{api}?chainid={SEI_CHAIN_ID}&module=gastracker&action=gasoracle&apikey={api_keys}"
-					);
-					let node_gas_price = client.get_gas_price().await?;
-					let response_json = make_request::<GasResponse>(&uri, Default::default())
-						.await
-						.unwrap_or_default();
-					let oracle_gas_price =
-						parse_units(response_json.result.safe_gas_price, "gwei")?.into();
-					// needed because of ether-rs and polkadot-sdk incompatibility
-					gas_price = if inner_evm == SEI_CHAIN_ID {
-						new_u256(std::cmp::max(node_gas_price, oracle_gas_price))
-					} else {
-						new_u256(node_gas_price)
-					};
-					let sei_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
-					unit_wei = get_cost_of_one_wei(sei_usd);
-					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
-				},
 				// op stack chains
 				chain_id if is_op_stack(chain_id) => {
 					let node_gas_price = client.get_gas_price().await?;
@@ -287,7 +165,15 @@ pub async fn get_current_gas_cost_in_usd(
 					unit_wei = get_cost_of_one_wei(eth_usd);
 					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 				},
-				_ => Err(anyhow!("Unknown chain: {chain:?}"))?,
+				_ => {
+					gas_price = new_u256(client.get_gas_price().await?);
+					let token_usd = get_price_from_uniswap_router(ismp_host_address, client.clone())
+						.await
+						.unwrap_or(U256::zero());
+
+					unit_wei = get_cost_of_one_wei(token_usd);
+					gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+				}
 			}
 		},
 		chain => Err(anyhow!("Unknown chain: {chain:?}"))?,

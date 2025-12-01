@@ -21,19 +21,13 @@ extern crate alloc;
 
 mod impls;
 mod types;
-use alloy_sol_types::SolValue;
-use anyhow::anyhow;
 use frame_support::pallet_prelude::Weight;
-use ismp::router::{PostRequest, Response, Timeout};
 use polkadot_sdk::*;
 
 pub use types::*;
 
-use alloc::{format, vec};
-use codec::Encode;
-use ismp::module::IsmpModule;
+use alloc::vec;
 use primitive_types::{H160, H256};
-use token_gateway_primitives::{RemoteERC6160AssetRegistration, PALLET_TOKEN_GATEWAY_ID};
 
 pub use token_gateway_primitives::TOKEN_GOVERNOR_ID as PALLET_ID;
 

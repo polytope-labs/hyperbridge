@@ -32,7 +32,7 @@ use frame_support::{
 	ensure,
 	traits::{
 		fungibles::{self, Mutate},
-		tokens::{fungible::Mutate as FungibleMutate, Preservation},
+		tokens::Preservation,
 		Currency, ExistenceRequirement,
 	},
 };
@@ -46,7 +46,7 @@ use ismp::{
 
 use sp_core::{Get, H160, U256};
 use sp_runtime::{traits::Dispatchable, MultiSignature};
-use token_gateway_primitives::{PALLET_TOKEN_GATEWAY_ID, TOKEN_GOVERNOR_ID};
+use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
 use types::{AssetId, Body, BodyWithCall, EvmToSubstrate, RequestBody, SubstrateCalldata};
 
 use alloc::{string::ToString, vec, vec::Vec};
@@ -63,8 +63,6 @@ const ETHEREUM_MESSAGE_PREFIX: &'static str = "\x19Ethereum Signed Message:\n";
 #[frame_support::pallet]
 pub mod pallet {
 	use alloc::collections::BTreeMap;
-	use pallet_hyperbridge::PALLET_HYPERBRIDGE;
-	use sp_runtime::traits::AccountIdConversion;
 	use types::{AssetRegistration, PrecisionUpdate, TeleportParams};
 
 	use super::*;
@@ -80,9 +78,6 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
-	use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
-	use sp_runtime::traits::Zero;
-	use token_gateway_primitives::{GatewayAssetUpdate, RemoteERC6160AssetRegistration};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -423,8 +418,6 @@ pub mod pallet {
 
 			Ok(())
 		}
-
-
 
 		/// Update the precision for an existing asset
 		#[pallet::call_index(4)]

@@ -30,10 +30,7 @@ use polkadot_runtime_common::impls::ToAuthor;
 use polkadot_sdk::*;
 use sp_core::H256;
 use sp_runtime::traits::Identity;
-use staging_xcm::latest::{
-	prelude::*,
-	Junctions::{X1, X3},
-};
+use staging_xcm::latest::{prelude::*, Junctions::X1};
 use staging_xcm_builder::{
 	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom,
 	ConvertedConcreteId, EnsureXcmOrigin, FixedWeightBounds, NoChecking, ParentIsPreset,

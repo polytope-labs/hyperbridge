@@ -27,8 +27,6 @@ use tokio::net::TcpSocket;
 use subxt_utils::Hyperbridge;
 
 const NEXUS_RPC: &str = "wss://nexus.ibp.network";
-const WASM_PATH: &str = "../../target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm";
-//const WASM_PATH: &str = "/Users/dharjeezy/Documents/polytope/hyperbridge/gargantua_runtime.compact.compressed.wasm";
 
 struct ProcessGuard(Child);
 
@@ -39,8 +37,17 @@ impl Drop for ProcessGuard {
 }
 
 async fn download_file(url: &str, output_path: &str) -> Result<(), anyhow::Error> {
+    let current_dir = env::current_dir().map_err(|e| anyhow!("Failed to get current dir: {}", e))?;
+    let absolute_path = current_dir.join(output_path);
+    let absolute_path_str = absolute_path.to_string_lossy().to_string();
+
     println!("Downloading {} to {}...", url, output_path);
-    let status = Command::new("curl").args(["-L", "-0", output_path, url]).status()?;
+    let status = Command::new("curl")
+        .arg("-L")
+        .arg("-o")
+        .arg(&absolute_path_str)
+        .arg(url)
+        .status()?;
     if !status.success() {
         return Err(anyhow!("Failed to download file from {}", url));
     }
@@ -188,8 +195,8 @@ async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
     println!("Injecting state into Simnode...");
     batch_set_storage(&local_client, &rpc_client, &sudo_account, storage_data).await?;
 
-    println!("Reading WASM file from: {}", WASM_PATH);
-    let wasm_code = fs::read(WASM_PATH).map_err(|e| anyhow!("Failed to read WASM: {}", e))?;
+    println!("Reading WASM file from: {}", wasm_path);
+    let wasm_code = fs::read(wasm_path).map_err(|e| anyhow!("Failed to read WASM: {}", e))?;
     println!("WASM size: {} bytes", wasm_code.len());
 
     println!("Submitting Runtime Upgrade...");

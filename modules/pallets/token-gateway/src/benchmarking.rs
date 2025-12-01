@@ -33,6 +33,36 @@ mod benches {
 	use super::*;
 
 	#[benchmark]
+	fn create_erc6160_asset(x: Linear<1, 100>) -> Result<(), BenchmarkError> {
+		let origin =
+			T::CreateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
+		let asset_details = GatewayAssetRegistration {
+			name: BoundedVec::try_from(b"Spectre".to_vec()).unwrap(),
+			symbol: BoundedVec::try_from(b"SPC".to_vec()).unwrap(),
+			chains: vec![StateMachine::Evm(100)],
+			minimum_balance: Some(10),
+		};
+
+		let mut precision = BTreeMap::new();
+		for i in 0..x {
+			precision.insert(StateMachine::Evm(i as u32), 18);
+		}
+
+		let asset = AssetRegistration {
+			local_id: T::NativeAssetId::get(),
+			reg: asset_details,
+			native: true,
+			precision,
+		};
+
+		#[extrinsic_call]
+		_(origin, asset);
+
+		Ok(())
+	}
+
+	#[benchmark]
 	fn teleport() -> Result<(), BenchmarkError> {
 		let account: T::AccountId = whitelisted_caller();
 		let create_origin =

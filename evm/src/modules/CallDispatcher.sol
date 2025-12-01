@@ -16,15 +16,6 @@ pragma solidity ^0.8.17;
 
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 
-struct Call {
-    // contract to call
-    address to;
-    // value to send with the call
-    uint256 value;
-    // target contract calldata
-    bytes data;
-}
-
 /**
  * @title The CallDispatcher
  * @author Polytope Labs (hello@polytope.technology)

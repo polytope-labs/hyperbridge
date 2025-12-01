@@ -2,6 +2,16 @@
 # yarn lockfile v1
 
 
+"@hyperbridge/core@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@hyperbridge/core/-/core-1.0.1.tgz#f63b4b9a7f93c8ae9b9be43c605d5796458b8f77"
+  integrity sha512-iR5Y+Eoqe3bEWlHycRglB4L3DTFpbtKd1WWpmFFI39eoewS+hWyR+WV8FgNZ317Y5uNNxahVSvlLX+6gxDFZzg==
+  dependencies:
+    "@polytope-labs/solidity-merkle-trees" "^0.3.3"
+    openzeppelin-solidity "^4.8.1"
+    prettier "^3.3.3"
+    prettier-plugin-solidity "^1.3.1"
+
 "@openzeppelin/contracts@3.4.2-solc-0.7":
   version "3.4.2-solc-0.7"
   resolved "https://registry.yarnpkg.com/@openzeppelin/contracts/-/contracts-3.4.2-solc-0.7.tgz#38f4dbab672631034076ccdf2f3201fab1726635"

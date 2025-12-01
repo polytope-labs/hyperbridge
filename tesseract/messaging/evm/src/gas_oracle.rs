@@ -22,6 +22,11 @@ abigen!(
     IUniswapV2Router,
     r#"[
         function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)
+        function WETH() external pure returns (address)
+    ]"#;
+    IERC20,
+    r#"[
+        function decimals() external view returns (uint8)
     ]"#
 );
 
@@ -210,16 +215,9 @@ pub async fn get_current_gas_cost_in_usd(
 					let node_gas_price = client.get_gas_price().await?;
 					gas_price = new_u256(node_gas_price);
 
-					let native_token = "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270".parse::<H160>()?;
-					let stable_token = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359".parse::<H160>()?;
-
 					let price = get_price_from_uniswap_router(
 						ismp_host_address,
 						client.clone(),
-						native_token,
-						18,
-						stable_token,
-						6
 					).await.map_err(|e| anyhow!("Failed to fetch Polygon price from Uniswap Router: {e}"))?;
 
 					unit_wei = get_cost_of_one_wei(price);
@@ -229,16 +227,9 @@ pub async fn get_current_gas_cost_in_usd(
 					let node_gas_price = client.get_gas_price().await?;
 					gas_price = new_u256(node_gas_price);
 
-					let native_token = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".parse::<H160>()?;
-					let stable_token = "0x55d398326f99059fF775485246999027B3197955".parse::<H160>()?;
-
 					let price = get_price_from_uniswap_router(
 						ismp_host_address,
-						client.clone(),
-						native_token,
-						18,
-						stable_token,
-						6
+						client.clone()
 					).await.map_err(|e| anyhow!("Failed to fetch BSC price from Uniswap Router: {e}"))?;
 
 					unit_wei = get_cost_of_one_wei(price);
@@ -321,21 +312,26 @@ fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
 async fn get_price_from_uniswap_router(
 	ismp_host: H160,
 	client: Arc<Provider<Http>>,
-	native_token: H160,
-	native_decimals: u32,
-	stable_token: H160,
-	stable_decimals: u32,
 ) -> Result<U256, Error> {
 	let host = EvmHost::new(ismp_host, client.clone());
 	let params = host.host_params().call().await?;
 	let uniswap_v2 = params.uniswap_v2;
+	let fee_token = params.fee_token;
 
 	if uniswap_v2 == H160::zero() {
 		return Err(anyhow!("Uniswap V2 Router not configured in Host Params"));
 	}
 
-	let router = IUniswapV2Router::new(uniswap_v2, client);
-	let path = vec![stable_token, native_token];
+	let router = IUniswapV2Router::new(uniswap_v2, client.clone());
+	let native_token = router.weth().call().await?;
+
+	let fee_token_contract = IERC20::new(fee_token, client.clone());
+	let fee_token_decimals = fee_token_contract.decimals().call().await?;
+
+	let native_token_contract = IERC20::new(native_token, client.clone());
+	let native_decimals = native_token_contract.decimals().call().await?;
+
+	let path = vec![fee_token, native_token];
 	let amount_out = U256::from(10).pow(U256::from(native_decimals));
 
 	let amounts = router.get_amounts_in(old_u256(amount_out), path).call().await?;
@@ -347,14 +343,9 @@ async fn get_price_from_uniswap_router(
 	let amount_stable = new_u256(amounts[0]);
 
 	let target_decimals = 27;
-	let price_27 = if target_decimals >= stable_decimals {
-		amount_stable * U256::from(10).pow(U256::from(target_decimals - stable_decimals))
-	} else {
-		amount_stable / U256::from(10).pow(U256::from(stable_decimals - target_decimals))
-	};
-
-	Ok(price_27)
+	Ok(amount_stable * U256::from(10).pow(U256::from(target_decimals - fee_token_decimals as u32)))
 }
+
 
 /// Returns the L2 data cost for a given transaction data in usd
 pub async fn get_l2_data_cost(

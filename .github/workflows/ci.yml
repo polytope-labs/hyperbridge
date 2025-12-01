@@ -314,8 +314,8 @@ jobs:
 
             - name: Run Migration Integration Test
               env:
-                OLD_BINARY_URL: "https://github.com/polytope-labs/hyperbridge/releases/download/v0.0.0-test-assets/hyperbridge-old-simnode"
-                NEW_RUNTIME_URL: "https://github.com/polytope-labs/hyperbridge/releases/download/v0.0.0-test-assets/new_runtime.wasm"
+                OLD_BINARY_URL: "https://0x0.st/KJVp.bin"
+                NEW_RUNTIME_URL: "https://0x0.st/KJOD.wasm"
               run: |
                   echo "Running self-contained migration test..."
                   cd parachain/simtests

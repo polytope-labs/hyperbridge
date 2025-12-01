@@ -240,7 +240,7 @@ pub async fn get_current_gas_cost_in_usd(
 					let native_token = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".parse::<H160>()?;
 					let stable_token = "0x55d398326f99059fF775485246999027B3197955".parse::<H160>()?;
 
-					let price = get_price_from_router(
+					let price = get_price_from_uniswap_router(
 						ismp_host_address,
 						client.clone(),
 						native_token,
@@ -443,74 +443,6 @@ pub struct CoinGeckoResponse {
 #[derive(Debug, Deserialize)]
 pub struct CoinGeckoPrice {
 	pub usd: f64,
-}
-
-async fn get_chainlink_price(chain_id: u32, client: Arc<Provider<Http>>) -> Result<U256, Error> {
-	let feed_address = match chain_id {
-		BSC_CHAIN_ID => "0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE",
-		POLYGON_CHAIN_ID => "0xAB594600376Ec9fD91F8E885dADF0CE036862dE0",
-		_ => return Err(anyhow!("Chainlink feed not configured for chain {}", chain_id)),
-	};
-
-	let address = feed_address.parse::<ethers::types::Address>()?;
-	let oracle = AggregatorV3Interface::new(address, client);
-
-	let (.., answer, _, _, _) = oracle.latest_round_data().await.unwrap();
-	let decimals = oracle.decimals().await?;
-
-	if answer <= 0.into() {
-		return Err(anyhow!("Invalid Chainlink price"));
-	}
-
-	let price_u256: U256 = new_u256(answer.into_raw());
-
-	let target_decimals = 27;
-	let price_decimals = decimals as u32;
-
-	if target_decimals >= price_decimals {
-		Ok(price_u256 * U256::from(10).pow(U256::from(target_decimals - price_decimals)))
-	} else {
-		Ok(price_u256 / U256::from(10).pow(U256::from(price_decimals - target_decimals)))
-	}
-}
-
-async fn get_pancakeswap_dex_price(chain_id: u32, client: Arc<Provider<Http>>) -> Result<U256, Error> {
-	let (pool_address, base_token_address, base_decimals, quote_decimals) = match chain_id {
-		BSC_CHAIN_ID => (
-			"0x16b9a82891338f9ba80e2d6970fdda79d1eb0daE".parse::<ethers::types::Address>()?,
-			"0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".parse::<ethers::types::Address>()?,
-			18,
-			18,
-		),
-		POLYGON_CHAIN_ID => (
-			"0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827".parse::<ethers::types::Address>()?,
-			"0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270".parse::<ethers::types::Address>()?,
-			18,
-			6,
-		),
-		_ => return Err(anyhow!("pancakeswap dex fallback not implemented for chain {}", chain_id)),
-	};
-
-	dbg!("fetching from address");
-
-	let pair = UniswapV2Pair::new(pool_address, client);
-	let (reserve0, reserve1, _) = pair.get_reserves().await?;
-	let token0 = pair.token_0().await?;
-
-	let (base_reserves, quote_reserves) = if token0 == base_token_address {
-		(reserve0, reserve1)
-	} else {
-		(reserve1, reserve0)
-	};
-
-	let base_reserves = U256::from(base_reserves);
-	let quote_reserves = U256::from(quote_reserves);
-
-	let numerator =
-		quote_reserves * U256::from(10).pow(U256::from(27 + base_decimals - quote_decimals));
-	let price_in_27_decimals = numerator / base_reserves;
-
-	Ok(price_in_27_decimals)
 }
 
 /// Fetches token price from CoinGecko API

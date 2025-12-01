@@ -397,7 +397,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorManager,);
+	type EventHandler = (CollatorSelection,);
 }
 
 parameter_types! {
@@ -524,7 +524,7 @@ impl pallet_session::Config for Runtime {
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ShouldEndSession = pallet_session::PeriodicSessions<Period, Offset>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<Period, Offset>;
-	type SessionManager = CollatorManager;
+	type SessionManager = CollatorSelection;
 	// Essentially just Aura, but let's be pedantic.
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
@@ -554,7 +554,7 @@ pub type CollatorSelectionUpdateOrigin = EnsureRoot<AccountId>;
 
 impl pallet_collator_selection::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = CollatorManager;
+	type Currency = Balances;
 	type UpdateOrigin = CollatorSelectionUpdateOrigin;
 	type PotId = PotId;
 	type MaxCandidates = MaxCandidates;
@@ -726,21 +726,6 @@ impl pallet_messaging_fees::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 }
 
-parameter_types! {
-	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
-}
-
-impl pallet_collator_manager::Config for Runtime {
-	type ReputationAsset = ReputationAsset;
-	type Balance = Balance;
-	type NativeCurrency = Balances;
-	type LockId = CollatorBondLockId;
-	type TreasuryAccount = TreasuryPalletId;
-	type AdminOrigin = EnsureRoot<AccountId>;
-	type IncentivesManager = MessagingFees;
-	type WeightInfo = ();
-}
-
 
 parameter_types! {
 	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT;
@@ -880,8 +865,6 @@ mod runtime {
 	pub type ConsensusIncentives = pallet_consensus_incentives::pallet;
 	#[runtime::pallet_index(87)]
 	pub type MessagingFees = pallet_messaging_fees;
-	#[runtime::pallet_index(88)]
-	pub type CollatorManager = pallet_collator_manager;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }

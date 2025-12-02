@@ -156,6 +156,7 @@ async fn get_price_from_uniswap_router(
 	if params.hyperbridge.0.starts_with(b"KUSAMA") {
 		return Ok(U256::from(10).pow(U256::from(27)));
 	}
+
 	let uniswap_v2 = params.uniswap_v2;
 	let fee_token = params.fee_token;
 

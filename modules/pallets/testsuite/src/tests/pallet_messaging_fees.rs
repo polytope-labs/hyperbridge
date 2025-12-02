@@ -465,8 +465,8 @@ fn test_protocol_fee_accumulation() {
 mod migration_tests {
 	use super::*;
 	use frame_support::weights::WeightMeter;
-	use polkadot_sdk::{frame_support::migrations::SteppedMigration, sp_runtime::Saturating};
 	use pallet_messaging_fees::migrations::v1::Migration;
+	use polkadot_sdk::{frame_support::migrations::SteppedMigration, sp_runtime::Saturating};
 	#[test]
 	fn migration_scales_evm_fees_for_32_byte_address_multi_block() {
 		new_test_ext().execute_with(|| {
@@ -501,17 +501,14 @@ mod migration_tests {
 			let cursor_1 = Migration::<Test>::step(None, &mut meter).unwrap();
 			assert!(cursor_1.is_some());
 
-
 			let mut meter = WeightMeter::with_limit(one_item_weight);
 			let cursor_2 = Migration::<Test>::step(cursor_1.clone(), &mut meter).unwrap();
 			assert!(cursor_2.is_some());
 			assert_ne!(cursor_1, cursor_2);
 
-
 			let mut meter = WeightMeter::with_limit(one_item_weight);
 			let cursor_3 = Migration::<Test>::step(cursor_2.clone(), &mut meter).unwrap();
 			assert!(cursor_3.is_none());
-
 
 			let scaling_power_1 = 18u32.saturating_sub(6u32);
 			let divisor_1 = U256::from(10u128).pow(U256::from(scaling_power_1));

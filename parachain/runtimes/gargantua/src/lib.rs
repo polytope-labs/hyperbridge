@@ -96,8 +96,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
 use cumulus_primitives_core::ParaId;
-use frame_benchmarking::__private::traits::EitherOfDiverse;
-use frame_benchmarking::__private::traits::tasks::__private::DispatchError;
+use frame_benchmarking::__private::traits::{tasks::__private::DispatchError, EitherOfDiverse};
 use frame_support::{
 	derive_impl,
 	traits::{tokens::pay::PayAssetFromAccount, ConstBool},
@@ -109,18 +108,17 @@ use staging_xcm::latest::prelude::BodyId;
 use pallet_collective::PrimeDefaultVote;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
-use polkadot_sdk::frame_support::traits::LockIdentifier;
-use polkadot_sdk::sp_core::U256;
+use polkadot_sdk::{frame_support::traits::LockIdentifier, sp_core::U256};
 
 use pallet_ismp::offchain::{Leaf, ProofKeys};
 use sp_core::{crypto::AccountId32, Get};
 use sp_runtime::traits::IdentityLookup;
 
+use pallet_messaging_fees::types::PriceOracle;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
-use pallet_messaging_fees::types::PriceOracle;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -703,7 +701,7 @@ impl pallet_bridge_airdrop::Config for Runtime {
 }
 
 pub type ReputationAsset =
-frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
 
 parameter_types! {
 	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);

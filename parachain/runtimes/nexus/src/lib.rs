@@ -910,7 +910,6 @@ impl PriceOracle for FixedPriceOracle {
 	}
 }
 
-
 parameter_types! {
 	pub MbmServiceWeight: Weight = RuntimeBlockWeights::get().max_block.div(2);
 }

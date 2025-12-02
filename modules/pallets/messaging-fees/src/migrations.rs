@@ -13,17 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use crate::{pallet, types::WeightInfo, Config};
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use codec::Decode;
 use frame_support::{
 	pallet_prelude::*,
 	storage::{storage_prefix, unhashed, KeyPrefixIterator},
-	traits::Get,
 	weights::WeightMeter,
 };
 use ismp::host::StateMachine;
 use polkadot_sdk::{sp_core::U256, *};
-use sp_runtime::Saturating;
 
 use frame_support::migrations::{MigrationId, SteppedMigration, SteppedMigrationError};
 
@@ -86,7 +84,9 @@ pub mod v1 {
 											let new_fee = current_fee
 												.checked_div(divisor)
 												.unwrap_or(U256::zero());
-											storage::unhashed::put(&full_key, &new_fee);
+											if !new_fee.is_zero() {
+												storage::unhashed::put(&full_key, &new_fee);
+											}
 										}
 									}
 								}

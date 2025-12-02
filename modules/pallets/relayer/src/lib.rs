@@ -271,9 +271,8 @@ where
 		let address = match &withdrawal_data.signature {
 			Signature::Evm { address, .. } => address.clone(),
 			Signature::Sr25519 { public_key, .. } => public_key.clone(),
-			Signature::Ed25519 { public_key, .. } => public_key.clone()
+			Signature::Ed25519 { public_key, .. } => public_key.clone(),
 		};
-
 
 		let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
 		let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.beneficiary.clone());
@@ -288,14 +287,14 @@ where
 					Err(Error::<T>::InvalidPublicKey)?
 				}
 			},
-			Signature::Sr25519 { public_key, .. } => {
+			Signature::Sr25519 { .. } => {
 				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature
 					.verify(&msg, None)
 					.map_err(|_| Error::<T>::InvalidSignature)?;
 			},
-			Signature::Ed25519 { public_key, .. } => {
+			Signature::Ed25519 { .. } => {
 				// Verify signature with public key provided in signature enum
 				withdrawal_data
 					.signature

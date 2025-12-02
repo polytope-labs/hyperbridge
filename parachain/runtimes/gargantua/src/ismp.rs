@@ -16,11 +16,10 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
+	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
 	XcmGateway, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
-use frame_benchmarking::__private::traits::EitherOfDiverse;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -45,7 +44,7 @@ use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
-use polkadot_sdk::{frame_support::weights::WeightToFee, sp_runtime::Weight};
+use polkadot_sdk::sp_runtime::Weight;
 use sp_std::prelude::*;
 
 #[derive(Default)]
@@ -101,15 +100,6 @@ pub struct Coprocessor;
 impl Get<Option<StateMachine>> for Coprocessor {
 	fn get() -> Option<StateMachine> {
 		Some(HostStateMachine::get())
-	}
-}
-
-pub struct IsmpWeightToFee;
-impl WeightToFee for IsmpWeightToFee {
-	type Balance = Balance;
-
-	fn weight_to_fee(weight: &Weight) -> Self::Balance {
-		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
 	}
 }
 

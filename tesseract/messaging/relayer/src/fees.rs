@@ -398,7 +398,11 @@ async fn deliver_post_request<D: IsmpProvider>(
 	if results.is_empty() {
 		return Ok(());
 	}
-	let max_block = results.iter().map(|r| r.block).max().expect("Cannot be empty, checked in previous  block");
+	let max_block = results
+		.iter()
+		.map(|r| r.block)
+		.max()
+		.expect("Cannot be empty, checked in previous  block");
 
 	let mut latest_height =
 		dest_chain.query_latest_height(hyperbridge.state_machine_id()).await? as u64;

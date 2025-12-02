@@ -37,23 +37,104 @@ impl Drop for ProcessGuard {
 	}
 }
 
-async fn download_file(url: &str, output_path: &str) -> Result<(), anyhow::Error> {
-	let current_dir =
-		env::current_dir().map_err(|e| anyhow!("Failed to get current dir: {}", e))?;
-	let absolute_path = current_dir.join(output_path);
-	let absolute_path_str = absolute_path.to_string_lossy().to_string();
+async fn build_binary_from_main_branch() -> Result<String, anyhow::Error> {
+	let current_dir = env::current_dir()?;
+	let clone_dir = current_dir.join("hyperbridge-main-clone");
 
-	println!("Downloading {} to {}...", url, output_path);
-	let status = Command::new("curl")
-		.arg("-L")
-		.arg("-o")
-		.arg(&absolute_path_str)
-		.arg(url)
-		.status()?;
-	if !status.success() {
-		return Err(anyhow!("Failed to download file from {}", url));
+	// Clean up any existing clone
+	if clone_dir.exists() {
+		println!("Removing existing clone directory...");
+		fs::remove_dir_all(&clone_dir)?;
 	}
-	Ok(())
+
+	println!("Cloning hyperbridge repository main branch...");
+	let clone_status = Command::new("git")
+		.args([
+			"clone",
+			"--branch",
+			"main",
+			"--depth",
+			"1",
+			"https://github.com/polytope-labs/hyperbridge.git",
+			clone_dir.to_str().unwrap(),
+		])
+		.status()?;
+
+	if !clone_status.success() {
+		return Err(anyhow!("Failed to clone hyperbridge repository"));
+	}
+
+	println!("Building hyperbridge binary from main branch...");
+	let build_status = Command::new("cargo")
+		.args(["build", "-p", "hyperbridge", "--release"])
+		.current_dir(&clone_dir)
+		.stdout(Stdio::inherit())
+		.stderr(Stdio::inherit())
+		.status()?;
+
+	if !build_status.success() {
+		return Err(anyhow!("Failed to build hyperbridge binary"));
+	}
+
+	let binary_source = clone_dir.join("target/release/hyperbridge");
+	let binary_dest = current_dir.join("hyperbridge-main-binary");
+
+	println!("Copying binary to {}...", binary_dest.display());
+	fs::copy(&binary_source, &binary_dest)?;
+
+	// Make executable
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let mut perms = fs::metadata(&binary_dest)?.permissions();
+		perms.set_mode(0o755);
+		fs::set_permissions(&binary_dest, perms)?;
+	}
+
+	// Clean up clone directory
+	println!("Cleaning up clone directory...");
+	fs::remove_dir_all(&clone_dir)?;
+
+	Ok(binary_dest.to_string_lossy().to_string())
+}
+
+async fn build_runtime_from_current_branch() -> Result<String, anyhow::Error> {
+	let current_dir = env::current_dir()?;
+
+	// Navigate to the repository root (assuming we're in parachain/simtests or similar)
+	let mut repo_root = current_dir.clone();
+	while !repo_root.join("Cargo.toml").exists() || !repo_root.join("parachain").exists() {
+		if !repo_root.pop() {
+			return Err(anyhow!("Could not find repository root"));
+		}
+	}
+
+	println!("Building gargantua runtime from current branch...");
+	println!("Repository root: {}", repo_root.display());
+
+	let build_status = Command::new("cargo")
+		.args(["build", "-p", "gargantua-runtime", "--release"])
+		.current_dir(&repo_root)
+		.stdout(Stdio::inherit())
+		.stderr(Stdio::inherit())
+		.status()?;
+
+	if !build_status.success() {
+		return Err(anyhow!("Failed to build gargantua runtime"));
+	}
+
+	let wasm_source = repo_root
+		.join("target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm");
+	let wasm_dest = current_dir.join("gargantua-runtime-new.wasm");
+
+	if !wasm_source.exists() {
+		return Err(anyhow!("WASM file not found at expected location: {}", wasm_source.display()));
+	}
+
+	println!("Copying runtime WASM to {}...", wasm_dest.display());
+	fs::copy(&wasm_source, &wasm_dest)?;
+
+	Ok(wasm_dest.to_string_lossy().to_string())
 }
 
 async fn wait_for_port(port: u16, timeout: Duration) -> Result<(), anyhow::Error> {
@@ -70,33 +151,27 @@ async fn wait_for_port(port: u16, timeout: Duration) -> Result<(), anyhow::Error
 #[tokio::test]
 #[ignore]
 async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
-	let output = Command::new("git")
-		.args(["rev-parse", "--abbrev-ref", "HEAD"])
-		.output()
-		.map_err(|_| anyhow!("Failed to determine git branch"))?;
-	let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+	// Check nexus runtime version - only run test if version is below 6000
+	println!("Connecting to Nexus at: {} to check runtime version...", NEXUS_RPC);
+	let (nexus_client, _) =
+		subxt_utils::client::ws_client::<Hyperbridge>(NEXUS_RPC, u32::MAX).await?;
+	let runtime_version = nexus_client.runtime_version();
+	let spec_version = runtime_version.spec_version;
 
-	if branch != "dami/fix-decimals-scaling" {
+	println!("Nexus runtime spec_version: {}", spec_version);
+
+	if spec_version >= 6000 {
+		println!("Skipping migration test - nexus runtime version {} is >= 6000", spec_version);
 		return Ok(());
 	}
 
-	println!("Running migration test on branch: {}", branch);
+	println!("Running migration test - nexus runtime version {} is < 6000", spec_version);
 
-	let old_binary_url =
-		env::var("OLD_BINARY_URL").map_err(|_| anyhow!("OLD_BINARY_URL env var not set"))?;
-	let new_runtime_url =
-		env::var("NEW_RUNTIME_URL").map_err(|_| anyhow!("NEW_RUNTIME_URL env var not set"))?;
+	// Build hyperbridge binary from main branch
+	let binary_path = build_binary_from_main_branch().await?;
 
-	let binary_path = "./hyperbridge-old-simnode";
-	let wasm_path = "./new_runtime.wasm";
-
-	let _ = fs::remove_file(binary_path);
-	let _ = fs::remove_file(wasm_path);
-
-	download_file(&old_binary_url, binary_path).await?;
-	download_file(&new_runtime_url, wasm_path).await?;
-
-	Command::new("chmod").args(["+x", binary_path]).status()?;
+	// Build gargantua runtime from current branch
+	let wasm_path = build_runtime_from_current_branch().await?;
 
 	println!("Spawning Simnode...");
 	let child = Command::new(binary_path)
@@ -125,7 +200,8 @@ async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
 	let port = env::var("PORT").unwrap_or_else(|_| "9990".to_string());
 	let local_ws_url = format!("ws://127.0.0.1:{}", port);
 
-	println!("Connecting to Nexus at: {}", NEXUS_RPC);
+	// nexus_client already connected earlier for version check, reconnect for consistency
+	println!("Reconnecting to Nexus at: {}", NEXUS_RPC);
 	let nexus_client = subxt_utils::client::ws_client::<Hyperbridge>(NEXUS_RPC, u32::MAX).await?.0;
 
 	println!("Connecting to Local Simnode at: {}", local_ws_url);

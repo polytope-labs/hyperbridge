@@ -67,4 +67,6 @@ pub struct WithdrawalInputData {
 	pub signature: Signature,
 	/// Chain to withdraw funds from
 	pub dest_chain: StateMachine,
+	/// The withdrawal beneficiary
+	pub beneficiary: Option<Vec<u8>>,
 }

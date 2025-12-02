@@ -403,6 +403,7 @@ impl frame_system::Config for Runtime {
 	/// The action to take on a Runtime Upgrade
 	type OnSetCode = cumulus_pallet_parachain_system::ParachainSetCode<Self>;
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
+	type MultiBlockMigrator = Migrations;
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -874,7 +875,7 @@ impl pallet_messaging_fees::Config for Runtime {
 		>,
 	>;
 	type PriceOracle = FixedPriceOracle;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 	type ReputationAsset = ReputationAsset;
 }
 
@@ -907,6 +908,24 @@ impl PriceOracle for FixedPriceOracle {
 		// return 0.05 with 18 decimals: 0.05 * 10^18
 		Ok(U256::from(50_000_000_000_000_000u128))
 	}
+}
+
+parameter_types! {
+	pub MbmServiceWeight: Weight = RuntimeBlockWeights::get().max_block.div(2);
+}
+
+impl pallet_migrations::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	#[cfg(not(feature = "runtime-benchmarks"))]
+	type Migrations = (pallet_messaging_fees::migrations::v1::Migration<Runtime>,);
+	#[cfg(feature = "runtime-benchmarks")]
+	type Migrations = pallet_migrations::mock_helpers::MockedMigrations;
+	type CursorMaxLen = ConstU32<65536>;
+	type IdentifierMaxLen = ConstU32<256>;
+	type MigrationStatusHandler = ();
+	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
+	type MaxServiceWeight = MbmServiceWeight;
+	type WeightInfo = weights::pallet_migrations::WeightInfo<Runtime>;
 }
 
 #[frame_support::runtime]
@@ -1043,6 +1062,8 @@ mod runtime {
 	pub type MessagingFees = pallet_messaging_fees;
 	#[runtime::pallet_index(93)]
 	pub type CollatorManager = pallet_collator_manager;
+	#[runtime::pallet_index(94)]
+	pub type Migrations = pallet_migrations;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1086,6 +1107,8 @@ mod benches {
 		[pallet_scheduler, Scheduler]
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
+		[pallet_migrations, Migrations]
+		[pallet_messaging_fees, MessagingFees]
 	);
 }
 

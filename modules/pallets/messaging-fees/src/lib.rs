@@ -41,7 +41,10 @@ pub use pallet::*;
 
 use crate::types::*;
 
+#[cfg(feature = "runtime-benchmarks")]
+pub mod benchmarking;
 mod impls;
+pub mod migrations;
 pub mod types;
 
 /// A trait for managing messaging incentives, primarily for resetting them.
@@ -53,12 +56,14 @@ pub trait IncentivesManager {
 #[frame_support::pallet]
 pub mod pallet {
 	use crate::frame_support::traits::fungible;
-	use frame_support::PalletId;
+	use frame_support::{pallet_prelude::StorageVersion, PalletId};
 	use polkadot_sdk::sp_core::H256;
 
 	use super::*;
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 

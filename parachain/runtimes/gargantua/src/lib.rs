@@ -862,8 +862,6 @@ mod runtime {
 	#[runtime::pallet_index(85)]
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(86)]
-	pub type ConsensusIncentives = pallet_consensus_incentives::pallet;
-	#[runtime::pallet_index(87)]
 	pub type MessagingFees = pallet_messaging_fees;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;

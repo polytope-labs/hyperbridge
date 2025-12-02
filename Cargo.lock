@@ -16663,7 +16663,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "2506.1.0"
+version = "2506.2.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",

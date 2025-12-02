@@ -131,8 +131,8 @@ async fn build_runtime_from_current_branch() -> Result<String, anyhow::Error> {
 		return Err(anyhow!("WASM file not found at expected location: {}", wasm_source.display()));
 	}
 
-	println!("Copying runtime WASM to {}...", wasm_dest.display());
-	fs::copy(&wasm_source, &wasm_dest)?;
+	// println!("Copying runtime WASM to {}...", wasm_dest.display());
+	// fs::copy(&wasm_source, &wasm_dest)?;
 
 	Ok(wasm_dest.to_string_lossy().to_string())
 }
@@ -182,8 +182,8 @@ async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
 			"--tmp",
 			"--state-pruning=archive",
 			"--blocks-pruning=archive",
-			"--rpc-port=9990",
-			"--port=40337",
+			"--rpc-port=1942",
+			"--port=40056",
 			"--rpc-cors=all",
 			"--unsafe-rpc-external",
 			"--rpc-methods=unsafe",
@@ -193,12 +193,13 @@ async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
 		.spawn()?;
 
 	let _guard = ProcessGuard(child);
+	let port = 1942;
 
-	println!("Waiting for Simnode RPC port 9990...");
-	wait_for_port(9990, Duration::from_secs(60)).await?;
+	println!("Waiting for Simnode RPC port {port}...");
+	wait_for_port(port, Duration::from_secs(60)).await?;
 
-	let port = env::var("PORT").unwrap_or_else(|_| "9990".to_string());
-	let local_ws_url = format!("ws://127.0.0.1:{}", port);
+
+	let local_ws_url = format!("ws://127.0.0.1:{port}");
 
 	// nexus_client already connected earlier for version check, reconnect for consistency
 	println!("Reconnecting to Nexus at: {}", NEXUS_RPC);

@@ -21,6 +21,8 @@ import {ICallDispatcher, Call} from "../src/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 
 contract IntentGatewayV2Test is MainnetForkBaseTest {
     IntentGatewayV2 public intentGateway;
@@ -419,13 +421,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.stopPrank();
 
-        // Check ProtocolFeeCollected event was emitted with correct values
+        // Check FeeCollected event was emitted with correct values
         Vm.Log[] memory entries = vm.getRecordedLogs();
         bool eventFound = false;
         uint256 feeAmountFromEvent = 0;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("ProtocolFeeCollected(address,uint256,bytes)")) {
+            if (entries[i].topics[0] == keccak256("FeeCollected(address,uint256,bytes)")) {
                 eventFound = true;
                 // Decode event to verify values
                 (address token, uint256 amount, ) = abi.decode(entries[i].data, (address, uint256, bytes));
@@ -435,7 +437,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             }
         }
 
-        assertTrue(eventFound, "ProtocolFeeCollected event should be emitted");
+        assertTrue(eventFound, "FeeCollected event should be emitted");
         assertEq(feeAmountFromEvent, expectedProtocolFee, "Protocol fee amount should match expected");
     }
 
@@ -503,14 +505,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.stopPrank();
 
-        // Verify two ProtocolFeeCollected events were emitted with correct values
+        // Verify two FeeCollected events were emitted with correct values
         Vm.Log[] memory entries = vm.getRecordedLogs();
         uint256 protocolFeeEventCount = 0;
         bool usdcFeeFound = false;
         bool daiFeeFound = false;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("ProtocolFeeCollected(address,uint256,bytes)")) {
+            if (entries[i].topics[0] == keccak256("FeeCollected(address,uint256,bytes)")) {
                 protocolFeeEventCount++;
                 (address token, uint256 amount, ) = abi.decode(entries[i].data, (address, uint256, bytes));
 
@@ -522,7 +524,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             }
         }
 
-        assertEq(protocolFeeEventCount, 2, "Should emit two ProtocolFeeCollected events");
+        assertEq(protocolFeeEventCount, 2, "Should emit two FeeCollected events");
         assertTrue(usdcFeeFound, "USDC fee event not found");
         assertTrue(daiFeeFound, "DAI fee event not found");
     }
@@ -590,12 +592,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.stopPrank();
 
-        // No ProtocolFeeCollected event should be emitted
+        // No FeeCollected event should be emitted
         Vm.Log[] memory entries = vm.getRecordedLogs();
         for (uint256 i = 0; i < entries.length; i++) {
             assertTrue(
-                entries[i].topics[0] != keccak256("ProtocolFeeCollected(address,uint256,bytes)"),
-                "ProtocolFeeCollected event should not be emitted"
+                entries[i].topics[0] != keccak256("FeeCollected(address,uint256,bytes)"),
+                "FeeCollected event should not be emitted"
             );
         }
     }
@@ -665,5 +667,266 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectRevert(IntentGatewayV2.InvalidInput.selector);
         intentGateway.placeOrder{value: ethAmount}(order, bytes32(0));
         vm.stopPrank();
+    }
+
+    function testCollectProtocolFeesERC20() public {
+        // Simulate accumulated protocol fees in the gateway
+        uint256 feeAmount = 1000 * 1e6;
+
+        // Transfer tokens to gateway instead of using deal
+        vm.prank(user);
+        usdc.transfer(address(intentGateway), feeAmount);
+
+        // Setup fee collection request
+        address treasury = user; // Use existing user address
+        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
+        feeRequests[0] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(usdc)))),
+            amount: feeAmount, // Collect exact amount
+            beneficiary: bytes32(uint256(uint160(treasury)))
+        });
+
+        // Create collect fees request from hyperbridge
+        bytes memory data = abi.encode(feeRequests);
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            timeoutTimestamp: 0
+        });
+
+        vm.recordLogs();
+
+        uint256 treasuryBalanceBefore = usdc.balanceOf(treasury);
+        uint256 gatewayBalanceBefore = usdc.balanceOf(address(intentGateway));
+
+        // Verify gateway has the funds before collection
+        assertEq(gatewayBalanceBefore, feeAmount, "Gateway should have funds before collection");
+
+        // Execute fee collection
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Verify fees were transferred
+        assertEq(usdc.balanceOf(treasury) - treasuryBalanceBefore, feeAmount, "Treasury should receive protocol fees");
+        assertEq(usdc.balanceOf(address(intentGateway)), 0, "Gateway should have no USDC left");
+
+        // Verify RevenueWithdrawn event was emitted
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool eventFound = false;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("RevenueWithdrawn(address,uint256,address)")) {
+                eventFound = true;
+                break;
+            }
+        }
+        assertTrue(eventFound, "RevenueWithdrawn event should be emitted");
+    }
+
+    function testCollectProtocolFeesNative() public {
+        // Simulate accumulated ETH fees
+        uint256 feeAmount = 1 ether;
+        vm.deal(address(intentGateway), feeAmount);
+
+        address treasury = user; // Use existing user address that can receive ETH
+        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
+        feeRequests[0] = PaymentInfo({
+            token: bytes32(0),
+            amount: feeAmount,
+            beneficiary: bytes32(uint256(uint160(treasury)))
+        });
+
+        bytes memory data = abi.encode(feeRequests);
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            timeoutTimestamp: 0
+        });
+
+        uint256 treasuryBalanceBefore = treasury.balance;
+
+        // Verify gateway has the funds before collection
+        assertEq(address(intentGateway).balance, feeAmount, "Gateway should have ETH before collection");
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        assertEq(treasury.balance - treasuryBalanceBefore, feeAmount, "Treasury should receive ETH fees");
+        assertEq(address(intentGateway).balance, 0, "Gateway should have no ETH left");
+    }
+
+    function testCollectMultipleTokenFees() public {
+        // Fund gateway with multiple tokens
+        uint256 usdcAmount = 500 * 1e6;
+        uint256 daiAmount = 1000 * 1e18;
+        uint256 ethAmount = 0.5 ether;
+
+        // Transfer tokens to gateway
+        vm.startPrank(user);
+        usdc.transfer(address(intentGateway), usdcAmount);
+        dai.transfer(address(intentGateway), daiAmount);
+        vm.stopPrank();
+        vm.deal(address(intentGateway), ethAmount);
+
+        address treasury = user; // Use existing user address that can receive ETH
+        PaymentInfo[] memory feeRequests = new PaymentInfo[](3);
+        feeRequests[0] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(usdc)))),
+            amount: usdcAmount,
+            beneficiary: bytes32(uint256(uint160(treasury)))
+        });
+        feeRequests[1] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(dai)))),
+            amount: daiAmount,
+            beneficiary: bytes32(uint256(uint160(treasury)))
+        });
+        feeRequests[2] = PaymentInfo({
+            token: bytes32(0),
+            amount: ethAmount,
+            beneficiary: bytes32(uint256(uint160(treasury)))
+        });
+
+        bytes memory data = abi.encode(feeRequests);
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            timeoutTimestamp: 0
+        });
+
+        uint256 usdcBalanceBefore = usdc.balanceOf(treasury);
+        uint256 daiBalanceBefore = dai.balanceOf(treasury);
+        uint256 ethBalanceBefore = treasury.balance;
+
+        // Verify gateway has all funds before collection
+        assertEq(usdc.balanceOf(address(intentGateway)), usdcAmount, "Gateway should have USDC");
+        assertEq(dai.balanceOf(address(intentGateway)), daiAmount, "Gateway should have DAI");
+        assertEq(address(intentGateway).balance, ethAmount, "Gateway should have ETH");
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Verify all fees were collected
+        assertEq(usdc.balanceOf(treasury) - usdcBalanceBefore, usdcAmount, "Treasury should receive USDC");
+        assertEq(dai.balanceOf(treasury) - daiBalanceBefore, daiAmount, "Treasury should receive DAI");
+        assertEq(treasury.balance - ethBalanceBefore, ethAmount, "Treasury should receive ETH");
+
+        // Gateway should be empty
+        assertEq(usdc.balanceOf(address(intentGateway)), 0, "Gateway USDC should be 0");
+        assertEq(dai.balanceOf(address(intentGateway)), 0, "Gateway DAI should be 0");
+        assertEq(address(intentGateway).balance, 0, "Gateway ETH should be 0");
+    }
+
+    function testCollectPartialFees() public {
+        // Fund gateway with tokens
+        uint256 totalAmount = 1000 * 1e6;
+        uint256 collectAmount = 300 * 1e6;
+
+        // Transfer tokens to gateway
+        vm.prank(user);
+        usdc.transfer(address(intentGateway), totalAmount);
+
+        address treasury = user; // Use existing user address
+        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
+        feeRequests[0] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(usdc)))),
+            amount: collectAmount, // Collect specific amount
+            beneficiary: bytes32(uint256(uint160(treasury)))
+        });
+
+        bytes memory data = abi.encode(feeRequests);
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            timeoutTimestamp: 0
+        });
+
+        uint256 treasuryBalanceBefore = usdc.balanceOf(treasury);
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Verify partial collection
+        assertEq(usdc.balanceOf(treasury) - treasuryBalanceBefore, collectAmount, "Treasury should receive partial amount");
+        assertEq(usdc.balanceOf(address(intentGateway)), totalAmount - collectAmount, "Gateway should keep remainder");
+    }
+
+    function testCollectFeesUnauthorized() public {
+        // Fund gateway
+        vm.prank(user);
+        usdc.transfer(address(intentGateway), 1000 * 1e6);
+
+        address treasury = user; // Use existing user address
+        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
+        feeRequests[0] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(usdc)))),
+            amount: 1000 * 1e6,
+            beneficiary: bytes32(uint256(uint160(treasury)))
+        });
+
+        bytes memory data = abi.encode(feeRequests);
+
+        // Request NOT from hyperbridge
+        PostRequest memory request = PostRequest({
+            source: bytes("UNAUTHORIZED_CHAIN"),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(bytes32(uint256(uint160(address(0x1234))))),
+            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            timeoutTimestamp: 0
+        });
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+    }
+
+    function testCollectFeesExceedsBalance() public {
+        // Fund gateway with less than requested
+        uint256 actualBalance = 100 * 1e6;
+        uint256 requestedAmount = 1000 * 1e6;
+
+        // Transfer tokens to gateway
+        vm.prank(user);
+        usdc.transfer(address(intentGateway), actualBalance);
+
+        address treasury = user; // Use existing user address
+        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
+        feeRequests[0] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(usdc)))),
+            amount: requestedAmount, // Request more than available
+            beneficiary: bytes32(uint256(uint160(treasury)))
+        });
+
+        bytes memory data = abi.encode(feeRequests);
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            timeoutTimestamp: 0
+        });
+
+        // Should revert when requesting more than available balance
+        vm.prank(address(host));
+        vm.expectRevert();
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
     }
 }

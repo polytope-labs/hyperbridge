@@ -157,7 +157,9 @@ contract IntentGatewayV2 is HyperApp {
         /// @dev Identifies a request for recording new contract deployments
         NewDeployment,
         /// @dev Identifies a request for updating parameters.
-        UpdateParams
+        UpdateParams,
+        /// @dev Identifies a request for collecting fees.
+        CollectFees
     }
 
     /**
@@ -316,7 +318,15 @@ contract IntentGatewayV2 is HyperApp {
      * @param amount The amount of protocol fee collected.
      * @param chain The chain where the funds are stored.
      */
-    event ProtocolFeeCollected(address token, uint256 amount, bytes chain);
+    event FeeCollected(address token, uint256 amount, bytes chain);
+
+    /**
+    * @dev Emitted when protocol revenue is withdrawn.
+    * @param token The token contract address of the fee, address(0) for native currency.
+    * @param amount The amount of protocol revenue collected.
+    * @param beneficiary The beneficiary of the funds
+    */
+    event RevenueWithdrawn(address token, uint256 amount, address beneficiary);
 
     constructor(address admin) {
         _admin = admin;
@@ -435,9 +445,10 @@ contract IntentGatewayV2 is HyperApp {
             for (uint256 i = 0; i < inputsLen; i++) {
                 address token = address(uint160(uint256(order.inputs[i].token)));
                 uint256 requiredAmount = order.inputs[i].amount;
+                uint256 balance;
 
                 if (token == address(0)) {
-                    uint256 balance = address(callDispatcher).balance;
+                    balance = address(callDispatcher).balance;
                     if (balance < requiredAmount) revert InsufficientNativeToken();
                     transferCalls[i] = Call({
                         to: address(this),
@@ -445,16 +456,17 @@ contract IntentGatewayV2 is HyperApp {
                         data: ""
                     });
                 } else {
-                    uint256 balance = IERC20(token).balanceOf(callDispatcher);
+                    balance = IERC20(token).balanceOf(callDispatcher);
                     if (balance < requiredAmount) revert InvalidInput();
                     transferCalls[i] = Call({
                         to: token,
                         value: 0,
                         data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
                     });
-
-                    emit DustCollected(token, balance - requiredAmount);
                 }
+
+                uint256 dust = balance - requiredAmount;
+                if (dust > 0) emit DustCollected(token, dust);
 
                 _orders[commitment][token] += requiredAmount;
             }
@@ -533,11 +545,11 @@ contract IntentGatewayV2 is HyperApp {
         bytes32 commitment = keccak256(abi.encode(order));
         if (_filled[commitment] != address(0)) revert Filled();
 
-        // no sneaky replay attacks
-        _filled[commitment] = msg.sender;
-
         // Ensure the order has not been cancelled
         if (_cancellations[commitment]) revert Cancelled();
+
+        // no sneaky replay attacks
+        _filled[commitment] = msg.sender;
 
         // fill the order
         uint256 msgValue = msg.value;
@@ -622,9 +634,7 @@ contract IntentGatewayV2 is HyperApp {
             uint256 amountAfterFee = amount - protocolFee;
 
             // Emit protocol fee collection event
-            if (protocolFee > 0) {
-                emit ProtocolFeeCollected(token, protocolFee, order.sourceChain);
-            }
+            if (protocolFee > 0) emit FeeCollected(token, protocolFee, order.sourceChain);
 
             inputs[i] = TokenInfo({
                 token: order.inputs[i].token,
@@ -655,6 +665,23 @@ contract IntentGatewayV2 is HyperApp {
             emit ParamsUpdated({previous: _params, current: body});
 
             _params = body;
+        } else if (kind == RequestKind.CollectFees) {
+            PaymentInfo[] memory fees = abi.decode(incoming.request.body[1:], (PaymentInfo[]));
+
+            for (uint256 i = 0; i < fees.length; i++) {
+                address token = address(uint160(uint256(fees[i].token)));
+                address beneficiary = address(uint160(uint256(fees[i].beneficiary)));
+                uint256 amount = fees[i].amount;
+
+                if (token == address(0)) {
+                    (bool sent, ) = beneficiary.call{value: amount}("");
+                    if (!sent) revert InsufficientNativeToken();
+                } else {
+                    IERC20(token).safeTransfer(beneficiary, amount);
+                }
+                
+                emit RevenueWithdrawn(token, amount, beneficiary);
+            }
         }
     }
 

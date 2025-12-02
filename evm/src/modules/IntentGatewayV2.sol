@@ -15,7 +15,7 @@
 pragma solidity ^0.8.17;
 
 import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {BaseIsmpModule, IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
+import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
@@ -140,12 +140,12 @@ struct NewDeployment {
 }
 
 /**
- * @title IntentGateway
+ * @title IntentGatewayV2
  * @author Polytope Labs (hello@polytope.technology)
  *
  * @dev The IntentGateway allows for the creation and fulfillment of cross-chain orders.
  */
-contract IntentGateway is HyperApp {
+contract IntentGatewayV2 is HyperApp {
     using SafeERC20 for IERC20;
 
     /**
@@ -488,7 +488,7 @@ contract IntentGateway is HyperApp {
                 address[] memory path = new address[](2);
                 path[0] = WETH;
                 path[1] = IDispatcher(hostAddr).feeToken();
-                IUniswapV2Router02(uniswapV2).swapExactETHForTokens{value: msgValue}(
+                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
                     order.fees,
                     path,
                     address(this),
@@ -541,24 +541,24 @@ contract IntentGateway is HyperApp {
 
         // fill the order
         uint256 msgValue = msg.value;
-        uint256 protocolFeeBps = _params.protocolFeeBps;
         uint256 outputsLen = order.outputs.length;
         for (uint256 i = 0; i < outputsLen; i++) {
             address token = address(uint160(uint256(order.outputs[i].token)));
             address beneficiary = address(uint160(uint256(order.outputs[i].beneficiary)));
+            uint256 amount = order.outputs[i].amount;
 
             if (token == address(0)) {
                 // native token
                 if (msgValue < amount) revert InsufficientNativeToken();
 
                 // Send amount after fee to beneficiary
-                (bool sent, ) = beneficiary.call{value: order.outputs[i].amount}("");
+                (bool sent, ) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
 
                 msgValue -= amount;
             } else {
                 // Transfer full amount from filler
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, order.outputs[i].amount);
+                IERC20(token).safeTransferFrom(msg.sender, beneficiary, amount);
             }
         }
 
@@ -567,27 +567,8 @@ contract IntentGateway is HyperApp {
             ICallDispatcher(_params.dispatcher).dispatch(order.callData);
         }
 
-        uint256 inputsLen = order.inputs.length;
-        TokenInfo[] memory inputs = new TokenInfo[](inputsLen);
-        for (uint256 i = 0; i < inputsLen; i++) {
-            uint256 amount = order.inputs[i].amount;
-
-            // Calculate protocol fee
-            uint256 protocolFee = (amount * protocolFeeBps) / 10_000;
-            uint256 amountAfterFee = amount - protocolFee;
-
-            // Emit protocol fee collection event
-            if (protocolFee > 0) {
-                emit ProtocolFeeCollected(token, protocolFee, order.sourceChain);
-            }
-
-            inputs[i] = TokenInfo({
-                token: order.inputs[i].token,
-                amount: amountAfterFee
-            });
-
-            msgValue -= amount;
-        }
+        // Process inputs and collect protocol fees
+        TokenInfo[] memory inputs = _processInputsAndCollectFees(order);
 
         // construct settlement message
         bytes memory data = abi.encode(
@@ -620,6 +601,36 @@ contract IntentGateway is HyperApp {
         }
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});
+    }
+
+    /**
+     * @dev Internal function to process inputs and collect protocol fees
+     * @param order The order being filled
+     * @return inputs The token info array with amounts after protocol fee deduction
+     */
+    function _processInputsAndCollectFees(Order calldata order) internal returns (TokenInfo[] memory inputs) {
+        uint256 protocolFeeBps = _params.protocolFeeBps;
+        uint256 inputsLen = order.inputs.length;
+        inputs = new TokenInfo[](inputsLen);
+
+        for (uint256 i = 0; i < inputsLen; i++) {
+            address token = address(uint160(uint256(order.inputs[i].token)));
+            uint256 amount = order.inputs[i].amount;
+
+            // Calculate protocol fee
+            uint256 protocolFee = (amount * protocolFeeBps) / 10_000;
+            uint256 amountAfterFee = amount - protocolFee;
+
+            // Emit protocol fee collection event
+            if (protocolFee > 0) {
+                emit ProtocolFeeCollected(token, protocolFee, order.sourceChain);
+            }
+
+            inputs[i] = TokenInfo({
+                token: order.inputs[i].token,
+                amount: amountAfterFee
+            });
+        }
     }
 
     /**
@@ -752,7 +763,7 @@ contract IntentGateway is HyperApp {
      * @notice Cancels a limit order to redeem escrowed tokens on the source chain.
      * @param order The order to be canceled.
      * @param options Additional options for the cancellation process.
-     * @dev This function can only be called by the order owner and only for limit orders 
+     * @dev This function can only be called by the order owner and only for limit orders
      * It will immediately send a cross-chain request to redeem the escrowed tokens.
      */
     function cancelLimitOrder(Order calldata order, CancelOptions memory options) public payable {
@@ -781,7 +792,8 @@ contract IntentGateway is HyperApp {
             to: abi.encodePacked(instance(order.sourceChain)),
             body: abi.encode(RequestKind.RedeemEscrow, data),
             timeout: 0,
-            fee: options.relayerFee
+            fee: options.relayerFee,
+            payer: msg.sender
         });
 
         // dispatch redemption request

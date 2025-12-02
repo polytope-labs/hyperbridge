@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 
 /**
  * @title The CallDispatcher
@@ -32,6 +32,11 @@ contract CallDispatcher is ICallDispatcher {
 	 * @dev error thrown when a call fails.
 	 */
 	error CallFailed(address target, bytes result);
+
+	/**
+	 * @dev Receive function to accept ETH transfers
+	 */
+	receive() external payable {}
 
 	/**
      *  @dev reverts if the target is not a contract or if any of the calls reverts.

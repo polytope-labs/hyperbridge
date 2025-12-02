@@ -131,8 +131,8 @@ async fn build_runtime_from_current_branch() -> Result<String, anyhow::Error> {
 		return Err(anyhow!("WASM file not found at expected location: {}", wasm_source.display()));
 	}
 
-	// println!("Copying runtime WASM to {}...", wasm_dest.display());
-	// fs::copy(&wasm_source, &wasm_dest)?;
+	println!("Copying runtime WASM to {}...", wasm_dest.display());
+	fs::copy(&wasm_source, &wasm_dest)?;
 
 	Ok(wasm_dest.to_string_lossy().to_string())
 }

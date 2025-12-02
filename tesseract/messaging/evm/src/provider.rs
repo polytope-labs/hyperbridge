@@ -412,7 +412,6 @@ impl IsmpProvider for EvmClient {
 		let calls = generate_contract_calls(self, messages, true).await?;
 		let gas_breakdown = get_current_gas_cost_in_usd(
 			self.state_machine,
-			&self.config.etherscan_api_key.clone(),
 			self.config.ismp_host.0.into(),
 			self.client.clone(),
 		)

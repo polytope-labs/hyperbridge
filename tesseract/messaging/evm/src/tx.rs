@@ -18,7 +18,7 @@ use ethers::{
 		NameOrAddress, Provider, ProviderError, Wallet,
 	},
 	providers::{Http, Middleware, PendingTransaction},
-	types::{TransactionReceipt, TransactionRequest},
+	types::{TransactionReceipt, TransactionRequest, H160},
 };
 use geth_primitives::{new_u256, old_u256};
 use ismp::{
@@ -38,7 +38,6 @@ use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
 use primitive_types::{H256, U256};
-use ethers::types::H160;
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
 
@@ -163,14 +162,10 @@ where
 
 		if let Some(call) = retry {
 			// lets retry
-			let gas_price: U256 = get_current_gas_cost_in_usd(
-				state_machine_clone,
-				&etherscan_api_key_clone,
-				ismp_host,
-				client_clone.clone(),
-			)
-			.await?
-			.gas_price * 2; // for good measure
+			let gas_price: U256 =
+				get_current_gas_cost_in_usd(state_machine_clone, ismp_host, client_clone.clone())
+					.await?
+					.gas_price * 2; // for good measure
 			log::info!(
 				"Retrying consensus message on {:?} with gas {}",
 				state_machine_clone,
@@ -292,14 +287,9 @@ pub async fn generate_contract_calls(
 	// the gas price by overriding the base fee
 	let set_gas_price = || !debug_trace || client.client_type.erigon();
 	let mut gas_price = if set_gas_price() {
-		get_current_gas_cost_in_usd(
-			client.state_machine,
-			&client.config.etherscan_api_key.clone(),
-			ismp_host.0.into(),
-			client.client.clone(),
-		)
-		.await?
-		.gas_price
+		get_current_gas_cost_in_usd(client.state_machine, ismp_host.0.into(), client.client.clone())
+			.await?
+			.gas_price
 	} else {
 		Default::default()
 	};

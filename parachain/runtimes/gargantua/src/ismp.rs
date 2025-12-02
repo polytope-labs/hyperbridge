@@ -140,8 +140,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler =
-	(pallet_consensus_incentives::Pallet<Runtime>, pallet_messaging_fees::Pallet<Runtime>);
+	type FeeHandler = pallet_messaging_fees::Pallet<Runtime>;
 }
 
 impl ismp_grandpa::Config for Runtime {
@@ -202,14 +201,6 @@ impl pallet_xcm_gateway::Config for Runtime {
 
 impl pallet_token_gateway_inspector::Config for Runtime {
 	type GatewayOrigin = EnsureRoot<AccountId>;
-}
-
-impl pallet_consensus_incentives::Config for Runtime {
-	type IsmpHost = Ismp;
-	type TreasuryAccount = TreasuryPalletId;
-	type IncentivesOrigin = EnsureRoot<AccountId>;
-	type ReputationAsset = ReputationAsset;
-	type WeightInfo = ();
 }
 
 #[cfg(feature = "runtime-benchmarks")]

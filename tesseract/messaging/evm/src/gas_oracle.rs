@@ -234,29 +234,6 @@ async fn make_request<T: DeserializeOwned>(url: &str, header_map: HeaderMap) -> 
 	Err(anyhow!("Failed to get response for request"))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CoinGeckoResponse {
-	#[serde(flatten)]
-	pub prices: std::collections::HashMap<String, CoinGeckoPrice>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CoinGeckoPrice {
-	pub usd: f64,
-}
-
-/// Fetches token price from CoinGecko API
-pub async fn get_coingecko_price(coin_id: &str) -> Result<String, Error> {
-	let uri =
-		format!("https://api.coingecko.com/api/v3/simple/price?ids={}&vs_currencies=usd", coin_id);
-	let response = make_request::<CoinGeckoResponse>(&uri, Default::default()).await?;
-	let price = response
-		.prices
-		.get(coin_id)
-		.ok_or_else(|| anyhow!("Price not found for {}", coin_id))?;
-	Ok(price.usd.to_string())
-}
-
 /// 27 decimals helps preserve significant digits for small values of currency e.g 0.56756, 0.0078
 pub fn parse_to_27_decimals(value: &str) -> Result<U256, Error> {
 	// Split the string decimal point

@@ -153,6 +153,7 @@ async fn get_price_from_uniswap_router(
 	let host = EvmHost::new(ismp_host, client.clone());
 	let params = host.host_params().call().await?;
 
+	// There are no uniswap pool on testnet, return 1 usd as native token value
 	if params.hyperbridge.0.starts_with(b"KUSAMA") {
 		return Ok(U256::from(10).pow(U256::from(27)));
 	}
@@ -215,45 +216,6 @@ pub async fn get_l2_data_cost(
 	Ok(convert_27_decimals_to_18_decimals(data_cost)?.into())
 }
 
-async fn make_request<T: DeserializeOwned>(url: &str, header_map: HeaderMap) -> anyhow::Result<T> {
-	// Retry a request twice in case the response does not deserialize correctly the first time
-	for _ in 0..3 {
-		// Retry up to 3 times with increasing intervals between attempts.
-		let mut retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
-		retry_policy.max_retry_interval = Duration::from_secs(3 * 60);
-		let client = ClientBuilder::new(Client::new())
-			.with(RetryTransientMiddleware::new_with_policy(retry_policy))
-			.build();
-
-		let res = client.get(url).headers(header_map.clone()).send().await?;
-		if let Ok(response) = res.json().await {
-			return Ok(response);
-		}
-	}
-
-	Err(anyhow!("Failed to get response for request"))
-}
-
-/// 27 decimals helps preserve significant digits for small values of currency e.g 0.56756, 0.0078
-pub fn parse_to_27_decimals(value: &str) -> Result<U256, Error> {
-	// Split the string decimal point
-	let split = value.split(".");
-	let mut parts = split.into_iter().collect::<Vec<_>>();
-	// Only floats or integers are valid
-	if parts.len() < 1 || parts.len() > 2 {
-		Err(anyhow!("Invalid value"))?
-	}
-
-	// Number of zeros to pad right
-	let num_of_zeros = 27usize.saturating_sub(parts.get(1).unwrap_or(&"").len());
-	let zeroes = (0..num_of_zeros).into_iter().map(|_| '0').collect::<String>();
-	parts.push(zeroes.as_str());
-	let mut formatted = String::new();
-	parts.into_iter().for_each(|part| formatted.push_str(part));
-
-	let parsed = U256::from_dec_str(&formatted)?;
-	Ok(parsed)
-}
 
 /// Use this to convert a value in 27 decimals back to the standard erc20 18 decimals
 pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
@@ -269,17 +231,14 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 #[cfg(test)]
 mod test {
 	use crate::gas_oracle::{
-		convert_27_decimals_to_18_decimals, get_cost_of_one_wei, get_current_gas_cost_in_usd,
-		get_l2_data_cost, parse_to_27_decimals, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_CHAIN_ID,
+		get_current_gas_cost_in_usd,
+		get_l2_data_cost, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_CHAIN_ID,
 		ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_CHAIN_ID,
 		POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
 	};
-	use ethers::{prelude::Provider, providers::Http, utils::parse_units};
-	use geth_primitives::new_u256;
+	use ethers::{prelude::Provider, providers::Http};
 	use ismp::host::StateMachine;
-	use primitive_types::U256;
 	use std::sync::Arc;
-	use tesseract_primitives::Cost;
 
 	#[tokio::test]
 	#[ignore]
@@ -495,52 +454,5 @@ mod test {
 		.unwrap();
 
 		println!("Data Cost Optimism: {:?}", data_cost);
-	}
-
-	#[test]
-	fn test_currency_conversions() {
-		// Gas price in gwei
-		let gas_price = 17.0;
-		let eth_usd = parse_to_27_decimals("2270.13").unwrap();
-		dbg!(eth_usd);
-		let wei: U256 = new_u256(parse_units(gas_price, "gwei").unwrap().into());
-		let unit_wei = get_cost_of_one_wei(eth_usd);
-		let gas_cost = unit_wei * wei;
-		dbg!(gas_cost);
-
-		// How much for 89k gas
-		let gas_limit = U256::from(84904u64);
-		let cost = convert_27_decimals_to_18_decimals(gas_limit * gas_cost).unwrap();
-		dbg!(cost);
-		dbg!(Cost(cost));
-
-		let eth_usd = parse_to_27_decimals("2270.13").unwrap();
-		let gas_price = 0.1;
-		let wei: U256 = new_u256(parse_units(gas_price, "gwei").unwrap().into());
-		let unit_wei = get_cost_of_one_wei(eth_usd);
-		let gas_cost = unit_wei * wei;
-		dbg!(gas_cost);
-
-		// How much for 89k gas
-		let gas_limit = U256::from(84904u64);
-		let cost = convert_27_decimals_to_18_decimals(gas_limit * gas_cost).unwrap();
-		dbg!(cost);
-		dbg!(Cost(cost));
-
-		// Test with even smaller usd values
-		let eth_usd = parse_to_27_decimals("0.00781462").unwrap();
-		dbg!(eth_usd);
-		let gas_price = 74.0;
-		let wei: U256 = new_u256(parse_units(gas_price, "gwei").unwrap().into());
-		let unit_wei = get_cost_of_one_wei(eth_usd);
-		let gas_cost = unit_wei * wei;
-		dbg!(gas_cost);
-
-		// How much for 89k gas
-		let gas_limit = U256::from(84904u64);
-		let cost = convert_27_decimals_to_18_decimals(gas_limit * gas_cost).unwrap();
-		dbg!(cost);
-		dbg!(Cost(cost));
-		assert!(cost > U256::zero())
 	}
 }

@@ -420,7 +420,7 @@ fn should_register_asset_locally() {
 			precision: vec![(StateMachine::Evm(1), 18)].into_iter().collect(),
 		};
 
-		TokenGateway::register_asset_locally(RuntimeOrigin::signed(ALICE), reg).unwrap();
+		TokenGateway::create_erc6160_asset(RuntimeOrigin::signed(ALICE), reg).unwrap();
 
 		let registered_asset_id =
 			pallet_token_gateway::SupportedAssets::<Test>::get(local_asset_id).unwrap();

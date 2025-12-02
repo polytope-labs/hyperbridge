@@ -185,7 +185,7 @@ pub mod mainnet {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("05000000");
 		const ELECTRA_FORK_EPOCH: Epoch = 364032;
-		const FULU_FORK_EPOCH: Epoch = u64::MAX;
+		const FULU_FORK_EPOCH: Epoch = 411392;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("06000000");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}

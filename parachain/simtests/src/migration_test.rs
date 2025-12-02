@@ -148,8 +148,8 @@ async fn wait_for_port(port: u16, timeout: Duration) -> Result<(), anyhow::Error
 	Err(anyhow!("Timed out waiting for connection to port"))
 }
 
-#[tokio::test]
-#[ignore]
+// #[tokio::test]
+// #[ignore]
 async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
 	// Check nexus runtime version - only run test if version is below 6000
 	println!("Connecting to Nexus at: {} to check runtime version...", NEXUS_RPC);

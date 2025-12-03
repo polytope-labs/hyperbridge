@@ -44,7 +44,7 @@ use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
-use polkadot_sdk::{frame_support::weights::WeightToFee, sp_runtime::Weight};
+use polkadot_sdk::sp_runtime::Weight;
 use sp_std::prelude::*;
 
 #[derive(Default)]
@@ -103,15 +103,6 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 
-pub struct IsmpWeightToFee;
-impl WeightToFee for IsmpWeightToFee {
-	type Balance = Balance;
-
-	fn weight_to_fee(weight: &Weight) -> Self::Balance {
-		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
-	}
-}
-
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
@@ -139,13 +130,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<
-		AccountId,
-		Balances,
-		IsmpWeightToFee,
-		TreasuryPalletId,
-		false,
-	>;
+	type FeeHandler = pallet_messaging_fees::Pallet<Runtime>;
 }
 
 impl ismp_grandpa::Config for Runtime {

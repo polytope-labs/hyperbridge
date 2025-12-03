@@ -12,7 +12,7 @@ use polkadot_sdk::{
 };
 use sp_core::H256;
 
-use crate::{types::IncentivizedMessage, *};
+use crate::{frame_support::migrations::MultiStepMigrator, types::IncentivizedMessage, *};
 use crypto_utils::verification::Signature;
 use ismp::{
 	events::Event as IsmpEvent,
@@ -22,14 +22,19 @@ use ismp::{
 use pallet_hyperbridge::VersionedHostParams;
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::HostParam::{EvmHostParam, SubstrateHostParam};
+use pallet_migrations;
 
-impl<T: Config> Pallet<T>
+impl<T: Config + polkadot_sdk::pallet_migrations::Config> Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	u128: From<<T as pallet_ismp::Config>::Balance>,
 	T::AccountId: AsRef<[u8]>,
 {
 	fn accumulate_protocol_fees(message: &Message, relayer_account: &T::AccountId) {
+		if <pallet_migrations::Pallet<T> as MultiStepMigrator>::ongoing() {
+			log::warn!(target: "ismp", "Fee accumulation paused: pallet-migrations is active.");
+			return;
+		}
 		let mut fee_data: Vec<(usize, H256, StateMachine, StateMachine)> = vec![];
 		match message {
 			Message::Request(req) =>
@@ -100,27 +105,16 @@ where
 		let host_params = pallet_ismp_host_executive::HostParams::<T>::get(source_chain)?;
 
 		let per_byte_fee = match host_params {
-			EvmHostParam(evm_host_param) => {
-				let fee = evm_host_param
-					.per_byte_fees
-					.iter()
-					.find(|fee| {
-						let hashed_chain_id =
-							sp_io::hashing::keccak_256(&destination_chain.to_string().as_bytes());
-						fee.state_id == H256(hashed_chain_id)
-					})
-					.map(|fee| fee.per_byte_fee)
-					.unwrap_or(evm_host_param.default_per_byte_fee);
-
-				let Some(decimals) =
-					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(source_chain)
-				else {
-					return None;
-				};
-				let scaling_power = 18u8.saturating_sub(decimals); // assumption that the decimals will always be less than 18
-				let scaling_factor = U256::from(10u128.pow(scaling_power as u32));
-				fee.saturating_mul(scaling_factor)
-			},
+			EvmHostParam(evm_host_param) => evm_host_param
+				.per_byte_fees
+				.iter()
+				.find(|fee| {
+					let hashed_chain_id =
+						sp_io::hashing::keccak_256(&destination_chain.to_string().as_bytes());
+					fee.state_id == H256(hashed_chain_id)
+				})
+				.map(|fee| fee.per_byte_fee)
+				.unwrap_or(evm_host_param.default_per_byte_fee),
 			SubstrateHostParam(VersionedHostParams::V1(substrate_params)) => {
 				let fee = substrate_params
 					.per_byte_fees
@@ -129,20 +123,26 @@ where
 					.unwrap_or(substrate_params.default_per_byte_fee);
 				let fee_u128: u128 = fee.into();
 				let fee_u256 = U256::from(fee_u128);
-
-				let Some(decimals) =
-					pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(source_chain)
-				else {
-					return None;
-				};
-
-				let scaling_power = 18u8.saturating_sub(decimals); // assumption that the decimals will always be less than 18
-				let scaling_factor = U256::from(10u128.pow(scaling_power as u32));
-				fee_u256.saturating_mul(scaling_factor)
+				fee_u256
 			},
 		};
 
 		Some(per_byte_fee)
+	}
+
+	fn get_scaled_per_byte_fee(
+		source_chain: &StateMachine,
+		destination_chain: &StateMachine,
+	) -> Option<U256> {
+		let fee = Self::get_per_byte_fee(source_chain, destination_chain)?;
+		let Some(decimals) = pallet_ismp_host_executive::FeeTokenDecimals::<T>::get(source_chain)
+		else {
+			return None;
+		};
+		let scaling_power = 18u8.saturating_sub(decimals); // assumption that the decimals will always be less than 18
+		let scaling_factor = U256::from(10u128.pow(scaling_power as u32));
+		fee.saturating_mul(scaling_factor);
+		Some(fee)
 	}
 
 	fn process_bridge_rewards(message: &Message, relayer: T::AccountId) -> Result<(), Error<T>> {
@@ -208,7 +208,8 @@ where
 					*total = total.saturating_add(bytes_processed)
 				});
 
-				if let Some(per_byte_fee) = Self::get_per_byte_fee(source_chain, destination_chain)
+				if let Some(per_byte_fee) =
+					Self::get_scaled_per_byte_fee(source_chain, destination_chain)
 				{
 					let cost = per_byte_fee.saturating_mul(U256::from(bytes_processed));
 					if cost.is_zero() {
@@ -331,7 +332,7 @@ where
 	}
 }
 
-impl<T: Config> FeeHandler for Pallet<T>
+impl<T: Config + polkadot_sdk::pallet_migrations::Config> FeeHandler for Pallet<T>
 where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	u128: From<<T as pallet_ismp::Config>::Balance>,

@@ -122,7 +122,8 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
-    "pallet-vesting"
+    "pallet-vesting",
+    "pallet-migrations"
 ]
 
 [features]
@@ -171,6 +172,7 @@ runtime-benchmarks = [
     "polkadot-sdk/runtime-benchmarks",
     "ismp-grandpa/runtime-benchmarks",
     "ismp-parachain/runtime-benchmarks",
+    "pallet-messaging-fees/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

@@ -393,6 +393,9 @@ jobs:
                   docker-compose -f ./eth-pos-devnet/docker-compose.yml down
                   sudo rm -rf ./eth-pos-devnet
                   sudo rm -rf ./target
+                  sudo rm -rf ./zombienet
+                  cd ../
+                  sudo rm -rf ./polkadot-sdk
                   sudo rm -rf /tmp/*
 
     check-solidity:
